@@ -10,7 +10,7 @@ export const PERSONA = { type: 'persona' as const, id: 'persona:local' };
 const NO_COMMUNITY = 'no-community';
 
 /** Collections of one persona, whatever server they were kept under. */
-const PERSONA_KINDS = new Set(['diary', 'intentions', 'errands', 'inner']);
+const PERSONA_KINDS = new Set(['selfreflection', 'intentions', 'errands', 'inner']);
 /** What stays with an account: its own profile, what it said in private, and the previous texts of its profile. */
 const ACCOUNT_KINDS = new Set(['user', 'private', 'versions']);
 
@@ -68,18 +68,18 @@ const isRecord = (value: unknown): value is Record<string, Json> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /**
- * A state value with its diary's day plan under the persona: the newest of the plans its communities held, a plan already
+ * A state value with its selfreflection day plan under the persona: the newest of the plans its communities held, a plan already
  * under the persona winning a tie, with its done marks and its hunger as they were.
  */
 export function personaDayPlan(state: Json): Json {
-  if (!isRecord(state) || !isRecord(state.diary)) return state;
+  if (!isRecord(state) || !isRecord(state.selfreflection)) return state;
   const dayOf = (plan: Record<string, Json>): string => (typeof plan.day === 'string' ? plan.day : '');
-  const { persona, ...others } = state.diary;
+  const { persona, ...others } = state.selfreflection;
   let newest = isRecord(persona) ? persona : null;
   for (const plan of Object.values(others)) {
     if (isRecord(plan) && (newest === null || dayOf(plan) > dayOf(newest))) newest = plan;
   }
-  return { ...state, diary: newest === null ? {} : { persona: newest } };
+  return { ...state, selfreflection: newest === null ? {} : { persona: newest } };
 }
 
 /** The old key of an identity in stored JSON, and the one name it has now. */

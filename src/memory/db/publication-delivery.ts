@@ -1,4 +1,4 @@
-// The delivery state of a publication (schema v27), the writes and reads the diary's mirrors share. A publisher takes a
+// The delivery state of a publication (schema v27), the writes and reads the selfreflection's mirrors share. A publisher takes a
 // row through the writer before anything goes out: `claim` moves it to `sending` with a claimant and a time, and only one
 // claimant wins. An entry goes out as segments (one send each: the voice, each of her messages, each message of
 // pictures), and `delivery` on the row keeps per segment its status, its idempotency key and the ids it became, so a
@@ -76,7 +76,7 @@ export function publicationFor(handle: Connection, entryId: string, placeId: str
   return (
     dbOf(handle)
       .prepare(
-        `SELECT * FROM publications WHERE row_kind = 'diary' AND row_id = ? AND destination_place_id = ?
+        `SELECT * FROM publications WHERE row_kind = 'selfreflection' AND row_id = ? AND destination_place_id = ?
           AND retired_at IS NULL ORDER BY status = 'sent' DESC, created_at, id LIMIT 1`
       )
       .get(entryId, placeId) ?? null
@@ -302,14 +302,14 @@ function reconcile(db: Db, given: Row): { recorded: number; kept: number } {
       });
       continue;
     }
-    const text = db.prepare('SELECT text FROM diary WHERE id = ?').get(entryId)?.text;
+    const text = db.prepare('SELECT text FROM selfreflection WHERE id = ?').get(entryId)?.text;
     const rendered = typeof text === 'string' ? text : null;
-    const key = publicationKey('diary', entryId, placeId);
+    const key = publicationKey('selfreflection', entryId, placeId);
     const id = idOfKey(key);
     db.prepare(
       `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, status, idempotency_key,
          receipts, created_at, sent_at, reconciled_by, reconciled_at)
-       VALUES (?, 'diary', ?, ?, ?, ?, 'sent', ?, '[]', ?, ?, ?, ?)`
+       VALUES (?, 'selfreflection', ?, ?, ?, ?, 'sent', ?, '[]', ?, ?, ?, ?)`
     ).run(id, entryId, rendered === null ? null : contentHash(rendered), rendered, placeId, key, at, at, by, at);
     projectRow(db, 'publications', { id });
   }

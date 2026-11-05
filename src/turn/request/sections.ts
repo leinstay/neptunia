@@ -7,7 +7,7 @@ import { lookupCandidates, prefetchText } from './recall.ts';
 import { aboutChatItems, learnedConfig, loreItems, serverItems } from './server.ts';
 import { sensesWhole } from './senses.ts';
 import { resolveChatText } from './text.ts';
-import type { DiaryParts } from './diary.ts';
+import type { SelfreflectionParts } from './selfreflection.ts';
 import type { Base, Room } from './head.ts';
 import type { MemorySections } from './memory.ts';
 import type { InterlocutorBlocks, PeopleOffered, Placed } from './people.ts';
@@ -34,7 +34,7 @@ export type HeadSections = {
 
 /**
  * The fixed part (the system prompt, the task, the clock, the senses, the tempo and every block never cut), the
- * interlocutor, `<lookup>` as the first candidate that fits, the prefetch, a diary post's find, the tool catalogue,
+ * interlocutor, `<lookup>` as the first candidate that fits, the prefetch, a selfreflection post's find, the tool catalogue,
  * `<about_chat>`, `<self_facts>`, `<lore>` and `<server>`, then the chat.
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
@@ -44,7 +44,7 @@ export function headSections(
     PulledView &
     Task &
     SensesOf &
-    DiaryParts &
+    SelfreflectionParts &
     WakeTexts &
     Room &
     InterlocutorBlocks & { tempoText: string }
@@ -58,7 +58,7 @@ export function headSections(
     seedsText,
     publicationPlacesText,
     audienceRefusedText,
-    diaryIntro,
+    selfreflectionIntro,
     foundText,
     peopleNowFixed,
     interlocutorShown,
@@ -68,7 +68,7 @@ export function headSections(
   const fixedSection: Section = {
     name: 'fixed',
     required: true,
-    // Her tools in text (the text transport), the index of her skills, the channel and people directories, a diary post's plan, its seeds, its publication places, a refused audience, its `<diary>` intro, the
+    // Her tools in text (the text transport), the index of her skills, the channel and people directories, a selfreflection post's plan, its seeds, its publication places, a refused audience, its `<diary>` intro, the
     // interlocutor's `<people_now>` entry, her errands' blocks and her intentions are never cut.
     items: [
       system,
@@ -85,7 +85,7 @@ export function headSections(
         seedsText,
         publicationPlacesText,
         audienceRefusedText,
-        diaryIntro,
+        selfreflectionIntro,
         peopleNowFixed,
         errandsText.list,
         errandsText.result,
@@ -132,7 +132,7 @@ export function headSections(
         labels,
         nameOf,
         readOnlyIds,
-        new Set(given.diaryChannelIds ?? []),
+        new Set(given.selfreflectionChannelIds ?? []),
         serverIds
       );
   // The sections fitted ahead of the chat, in priority order.
@@ -147,7 +147,7 @@ export function headSections(
     ...(given.prefetch
       ? [{ name: 'prefetch', items: [prefetchText(given.prefetch, labels, timezone)].filter(Boolean) }]
       : []),
-    // A diary post's search result: one piece, bounded by web.quickSearch.summaryChars.
+    // A selfreflection post's search result: one piece, bounded by web.quickSearch.summaryChars.
     { name: 'found', items: [foundText].filter(Boolean) },
     // The tool catalogue, asked for: one piece, ahead of the chat like what was looked up.
     { name: 'tool_catalogue', items: [inventoryText].filter(Boolean) },
@@ -224,12 +224,12 @@ export function fitAll(
     Base &
     Room &
     PulledView &
-    DiaryParts &
+    SelfreflectionParts &
     Placed &
     PeopleOffered & { neighborItems: Array<string>; attitudesText: string }
 ): Fit {
   const { config, caps, cost, limit } = given;
-  const { worldItem, diaryLines, aheadOfPeople, peopleSection, voiceRows } = given;
+  const { worldItem, selfreflectionLines, aheadOfPeople, peopleSection, voiceRows } = given;
   const { neighborItems, attitudesText } = given;
   const aroundMax = config.context.around?.maxTokens;
   const budgetFit = fitSections(
@@ -238,9 +238,9 @@ export function fitAll(
       peopleSection,
       // One piece, kept or dropped whole: right below the people it leaves out.
       { name: 'attitudes', cap: caps.attitudes ?? 400, items: [attitudesText].filter(Boolean) },
-      // A diary post: the persona's world whole, then its past posts, the oldest cut first.
+      // A selfreflection post: the persona's world whole, then its past posts, the oldest cut first.
       { name: 'world', items: [worldItem].filter(Boolean) },
-      { name: 'diary', keep: 'newest', items: diaryLines },
+      { name: 'selfreflection', keep: 'newest', items: selfreflectionLines },
       { name: 'neighbors', cap: caps.neighbors, items: neighborItems },
       // Last of all: the people in voice the request has no profile for, by name.
       { name: 'around', cap: Number.isFinite(aroundMax) ? aroundMax : 400, keep: 'first', items: voiceRows },

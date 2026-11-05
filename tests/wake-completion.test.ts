@@ -203,8 +203,8 @@ test('heartbeat: the request offers no skill or task route and carries no diary 
   const run = await wakeTurn({ wake: BEAT, answers: ['<skip/>'], board: world.caller });
   for (const name of ['task.propose', 'task.cancel', 'task.comment', 'task.answer', 'skill.run', 'skill.disable'])
     assert.ok(!run.offered.includes(nameOf(name)), `${name} is not offered`);
-  assert.ok(!run.offered.some((name) => name.startsWith('diary')));
-  assert.ok(!requestText(run.requests[0] ?? []).includes(PROMPT_MARK.diary));
+  assert.ok(!run.offered.some((name) => name.startsWith('selfreflection')));
+  assert.ok(!requestText(run.requests[0] ?? []).includes(PROMPT_MARK.selfreflection));
 });
 
 test('guard: heartbeat: a filing or a skill run is refused, and an intention ends the turn', async (t) => {

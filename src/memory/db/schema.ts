@@ -11,13 +11,14 @@
 import { ensureUnit } from './storage-units.ts';
 import { legacyStorageKey } from '../migration/paths.ts';
 import { migrateMessageFamilies } from './message-family-catalog.ts';
-import { assignDiaryDestination, deriveAllMirrorPublications } from './publish.ts';
-import { pastEntries } from './diary-past.ts';
+import { assignSelfreflectionDestination, deriveAllMirrorPublications } from './publish.ts';
+import { pastEntries } from './selfreflection-past.ts';
 import { repairSessionRows } from './session-repair.ts';
 import { migrateSemanticMemory } from './semantic-schema.ts';
 import { migrateMediaStore } from './media-store.ts';
 import { SELF_SOURCE_KINDS } from './source-kinds.ts';
 import { importWakeQueues } from '../migration/wake-import.ts';
+import { renameToSelfreflection, withCurrentNames } from '../migration/selfreflection-names.ts';
 import type { Db, Row } from './types.ts';
 
 const SCOPE = 'scope_kind TEXT, scope_iface TEXT, scope_dm TEXT';
@@ -333,7 +334,7 @@ const V6 = [
 // The SQL here and src/memory/db/scope.ts#audienceOf are the same rule; tests/memory-db-v7.test.js checks they agree.
 
 /** Every table that carries the scope triple (and from v7 its `audience_id`). */
-export const SCOPED_TABLES = [
+const SCOPED_AT_V6 = [
   'sources',
   'vectors',
   'claims',
@@ -347,6 +348,8 @@ export const SCOPED_TABLES = [
   'work',
   'session_runs',
 ];
+/** The tables that carry a scope, as the current schema names them. */
+export const SCOPED_TABLES = SCOPED_AT_V6.map((table) => (table === 'diary' ? 'selfreflection' : table));
 export { SELF_SOURCE_KINDS };
 
 // The rows the migration writes are stamped with the time the legacy data is as of: the last sync before the
@@ -436,14 +439,14 @@ const V7 = [
   "ALTER TABLE sources ADD COLUMN author_kind TEXT CHECK (author_kind IN ('account', 'participant', 'self'));",
   'ALTER TABLE sources ADD COLUMN observed_at TEXT;',
   'ALTER TABLE sources ADD COLUMN connection_id TEXT;',
-  ...SCOPED_TABLES.map((table) => `ALTER TABLE ${table} ADD COLUMN audience_id TEXT REFERENCES audiences(id);`),
+  ...SCOPED_AT_V6.map((table) => `ALTER TABLE ${table} ADD COLUMN audience_id TEXT REFERENCES audiences(id);`),
   'CREATE UNIQUE INDEX accounts_native ON accounts(authority_id, native_key, generation) WHERE authority_id IS NOT NULL;',
   'CREATE UNIQUE INDEX places_native ON places(authority_id, native_key, generation) WHERE authority_id IS NOT NULL;',
 
   // Interfaces and authorities.
   "INSERT INTO interfaces (id) VALUES ('discord'), ('cli'), ('core');",
   `INSERT OR IGNORE INTO interfaces (id) SELECT DISTINCT v FROM (
-    ${[...SCOPED_TABLES.map((table) => `SELECT scope_iface AS v FROM ${table}`), 'SELECT iface FROM places', 'SELECT iface FROM accounts', 'SELECT iface FROM sources'].join(' UNION ')}
+    ${[...SCOPED_AT_V6.map((table) => `SELECT scope_iface AS v FROM ${table}`), 'SELECT iface FROM places', 'SELECT iface FROM accounts', 'SELECT iface FROM sources'].join(' UNION ')}
   ) WHERE v IS NOT NULL AND v <> '';`,
   "INSERT INTO authorities (id, iface, namespace) SELECT id || CASE WHEN id IN ('cli', 'core') THEN '/local' ELSE '/global' END, id, CASE WHEN id IN ('cli', 'core') THEN 'local' ELSE 'global' END FROM interfaces;",
   "INSERT INTO authorities (id, iface, namespace, name) VALUES ('legacy/local', 'core', 'legacy', 'legacy ids');",
@@ -457,7 +460,7 @@ const V7 = [
   `UPDATE places SET authority_id = ${AUTHORITY_SQL('iface')}, native_key = ${PLACE_KEY_SQL}, conversation = ${CONVERSATION_SQL};`,
 
   // The scope triples in use, the DM places they name, the audiences.
-  `CREATE TEMP TABLE _v7_scopes AS ${SCOPED_TABLES.map((table) => `SELECT '${table}' AS tbl, scope_kind, scope_iface, scope_dm, COUNT(*) AS n FROM ${table} GROUP BY scope_kind, scope_iface, scope_dm`).join(' UNION ALL ')};`,
+  `CREATE TEMP TABLE _v7_scopes AS ${SCOPED_AT_V6.map((table) => `SELECT '${table}' AS tbl, scope_kind, scope_iface, scope_dm, COUNT(*) AS n FROM ${table} GROUP BY scope_kind, scope_iface, scope_dm`).join(' UNION ALL ')};`,
   `INSERT OR IGNORE INTO places (id, iface, kind, native_id, parent_id, scope_kind, authority_id, native_key, generation, conversation, partner_person, partner_account)
     SELECT DISTINCT scope_iface || ':dm:' || substr(scope_dm, length(${DM_PREFIX}) + 1), scope_iface, 'dm', NULL, NULL, 'dm', ${AUTHORITY_SQL('scope_iface')},
       'dm:' || substr(scope_dm, length(${DM_PREFIX}) + 1), 1, 'dm', scope_dm, scope_iface || ':' || substr(scope_dm, length(${DM_PREFIX}) + 1)
@@ -483,7 +486,7 @@ END;`,
   `UPDATE sources SET audience_id = ${AUDIENCE_SQL}, authority_id = ${AUTHORITY_SQL('iface')},
     author_kind = CASE WHEN kind IN (${SELF_KINDS_SQL}) THEN 'self' WHEN author_account IS NOT NULL THEN 'account' ELSE NULL END,
     observed_at = recorded_at;`,
-  ...SCOPED_TABLES.filter((table) => table !== 'sources').map(
+  ...SCOPED_AT_V6.filter((table) => table !== 'sources').map(
     (table) => `UPDATE ${table} SET audience_id = ${AUDIENCE_SQL};`
   ),
 
@@ -851,7 +854,7 @@ function V10(db: Db): void {
   db.exec(V10_SQL);
   const at = String(db.prepare(`SELECT ${NOW_SQL} AS at`).get()?.at);
   const pending = db.prepare("SELECT 1 AS ok FROM meta WHERE key = 'graph_pending'").get() !== undefined;
-  deriveAllMirrorPublications(db, { at, project: !pending });
+  withCurrentNames(db, () => deriveAllMirrorPublications(db, { at, project: !pending }));
 }
 
 // Version 11 (spec 2026-10-24-memory-schema-v7, stages 6 and 7; section 11 on wakes, skills, vectors, media, backups):
@@ -940,24 +943,44 @@ const V11 = [
 
 // Version 12 (spec 2026-10-24-memory-authority, stage W2a): a data step, no table. The diary's legacy mirrors name no
 // place, so their `publications` rows have no destination; the deployment's diary channel (`selfreflection.placeId` of the
-// live config, which only the opener knows: open.ts passes it as `context.diaryPlaceId`) becomes it, where that place is
-// stored (publish.ts#assignDiaryDestination). Opened without the channel (a tool), the step leaves the meta key
-// `diary_destination_pending` (when there is a publication to give it to), and the next open that knows the channel
-// does it (open.ts#migrate). A mirror the sync brings later gets it from the diary's own write under authority `db`.
+// live config, which only the opener knows: open.ts passes it as `context.selfreflectionPlaceId`) becomes it, where that
+// place is stored (publish.ts#assignSelfreflectionDestination). Opened without the channel (a tool), the step leaves the
+// meta key `diary_destination_pending` (when there is a publication to give it to), the rename of the last step takes it
+// along, and the next open that knows the channel does it (open.ts#migrate). A mirror the sync brings later gets it from
+// the diary's own write under authority `db`.
 
-/** The meta key of a diary destination the v12 step could not set yet. */
-export const DIARY_DESTINATION_PENDING = 'diary_destination_pending';
+/** The meta key of a destination the v12 step could not set yet, under the name the last step gives it. */
+export const SELFREFLECTION_DESTINATION_PENDING = 'selfreflection_destination_pending';
+const V12_PENDING = 'diary_destination_pending';
 
-/** Gives the diary's publications the channel's place as destination, once, when the opener knows it. */
-export function finishDiaryDestination(db: Db, context: MigrationContext = {}): number {
-  if (db.prepare('SELECT 1 AS ok FROM meta WHERE key = ?').get(DIARY_DESTINATION_PENDING) === undefined) return 0;
-  const place = typeof context?.diaryPlaceId === 'string' && context.diaryPlaceId ? context.diaryPlaceId : null;
-  if (!place) return 0;
+const hasMeta = (db: Db, key: string): boolean =>
+  db.prepare('SELECT 1 AS ok FROM meta WHERE key = ?').get(key) !== undefined;
+
+/** The channel the opener named, or null. */
+const namedPlace = (context: MigrationContext = {}): string | null => {
+  const place = context?.selfreflectionPlaceId;
+  return typeof place === 'string' && place ? place : null;
+};
+
+/** The channel's place on the publications with no destination, when the opener knows it; the mark `key` goes with it. */
+function settleDestination(
+  db: Db,
+  context: MigrationContext,
+  key: string,
+  onNames: (work: () => number) => number
+): number {
+  const place = namedPlace(context);
+  if (!hasMeta(db, key) || !place) return 0;
   const at = String(db.prepare(`SELECT ${NOW_SQL} AS at`).get()?.at);
-  const pending = db.prepare("SELECT 1 AS ok FROM meta WHERE key = 'graph_pending'").get() !== undefined;
-  const set = assignDiaryDestination(db, place, { at, project: !pending });
-  db.prepare('DELETE FROM meta WHERE key = ?').run(DIARY_DESTINATION_PENDING);
+  const pending = hasMeta(db, 'graph_pending');
+  const set = onNames(() => assignSelfreflectionDestination(db, place, { at, project: !pending }));
+  db.prepare('DELETE FROM meta WHERE key = ?').run(key);
   return set;
+}
+
+/** Gives the selfreflection's publications the channel's place as destination, once, when the opener knows it. */
+export function finishSelfreflectionDestination(db: Db, context: MigrationContext = {}): number {
+  return settleDestination(db, context, SELFREFLECTION_DESTINATION_PENDING, (work) => work());
 }
 
 function V12(db: Db, context: MigrationContext = {}): void {
@@ -969,10 +992,10 @@ function V12(db: Db, context: MigrationContext = {}): void {
   )
     return;
   db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
-    DIARY_DESTINATION_PENDING,
+    V12_PENDING,
     '1'
   );
-  finishDiaryDestination(db, context);
+  settleDestination(db, context, V12_PENDING, (work) => withCurrentNames(db, work));
 }
 
 // Version 13 (2026-10-25): a data step, no table. The `drawing` errand agent was removed (drawing is a core ability), but
@@ -1084,14 +1107,16 @@ function V14(db: Db): void {
 
 // Version 15 (stage 3 design, 2026-10-27, section 5): the diary's mirrors. A `mirrors` row is one place the diary's
 // entries are posted to, set up by the owner (`created_by`): his standing permission to post every entry there
-// (publish.ts#preparePublication). A disabled row is kept. The data step seeds one `diary` row from the deployment's
-// diary channel, the same `context.diaryPlaceId` v12 reads, once that place is stored. When the channel is not named
+// (publish.ts#preparePublication). A disabled row is kept. The data step seeds one row from the deployment's diary
+// channel, the same `context.selfreflectionPlaceId` v12 reads, once that place is stored. When the channel is not named
 // (a tool's open) or its place is not stored yet, a database that holds diary entries or names the channel keeps the
-// meta key `diary_mirror_pending`, and the next open that knows the stored channel seeds the row (open.ts#migrate).
-// Seeding the row also makes her past messages in that place entries (diary-past.ts#pastEntries).
+// meta key `diary_mirror_pending`, the rename of the last step takes it along, and the next open that knows the stored
+// channel seeds the row (open.ts#migrate). Seeding the row also makes her past messages in that place entries
+// (selfreflection-past.ts#pastEntries).
 
-/** The meta key of a diary mirror the v15 step could not seed yet. */
-export const DIARY_MIRROR_PENDING = 'diary_mirror_pending';
+/** The meta key of a mirror the v15 step could not seed yet, under the name the last step gives it. */
+export const SELFREFLECTION_MIRROR_PENDING = 'selfreflection_mirror_pending';
+const V15_PENDING = 'diary_mirror_pending';
 
 const V15_SQL = `CREATE TABLE mirrors (
   id TEXT PRIMARY KEY, row_kind TEXT NOT NULL, place_id TEXT NOT NULL REFERENCES places(id),
@@ -1099,37 +1124,43 @@ const V15_SQL = `CREATE TABLE mirrors (
   UNIQUE (row_kind, place_id)
 );`;
 
-/**
- * Seeds the diary's mirror on the channel's place, once, when the opener knows it and the place is stored.
+/** Seeds the mirror on the channel's place and writes her past messages there; the mark `key` goes with it. */
+function settleMirror(db: Db, context: MigrationContext, key: string, onNames: (work: () => number) => number): number {
+  const place = namedPlace(context);
+  if (!hasMeta(db, key) || !place || db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(place) === undefined)
+    return 0;
+  const at = db.prepare(`SELECT ${NOW_SQL} AS at`).get()?.at;
+  const seeded = onNames(() => {
+    const written = db
+      .prepare(
+        "INSERT OR IGNORE INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES (?, 'selfreflection', ?, 1, ?, 'owner', NULL)"
+      )
+      .run(`mirror:selfreflection:${place}`, place, at).changes;
+    // Her messages there that no entry names become entries (selfreflection-past.ts).
+    pastEntries(db, place, { at: String(at) });
+    return Number(written);
+  });
+  db.prepare('DELETE FROM meta WHERE key = ?').run(key);
+  return seeded;
+}
 
+/**
+ * Seeds the selfreflection's mirror on the channel's place, once, when the opener knows it and the place is stored.
  * Returns the mirror rows written (0 or 1).
  */
-export function finishDiaryMirror(db: Db, context: MigrationContext = {}): number {
-  if (db.prepare('SELECT 1 AS ok FROM meta WHERE key = ?').get(DIARY_MIRROR_PENDING) === undefined) return 0;
-  const place = typeof context?.diaryPlaceId === 'string' && context.diaryPlaceId ? context.diaryPlaceId : null;
-  if (!place || db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(place) === undefined) return 0;
-  const at = db.prepare(`SELECT ${NOW_SQL} AS at`).get()?.at;
-  const seeded = db
-    .prepare(
-      "INSERT OR IGNORE INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES (?, 'diary', ?, 1, ?, 'owner', NULL)"
-    )
-    .run(`mirror:diary:${place}`, place, at).changes;
-  // Her messages there that no entry names become entries (diary-past.ts).
-  pastEntries(db, place, { at: String(at) });
-  db.prepare('DELETE FROM meta WHERE key = ?').run(DIARY_MIRROR_PENDING);
-  return Number(seeded);
+export function finishSelfreflectionMirror(db: Db, context: MigrationContext = {}): number {
+  return settleMirror(db, context, SELFREFLECTION_MIRROR_PENDING, (work) => work());
 }
 
 function V15(db: Db, context: MigrationContext = {}): void {
   db.exec(V15_SQL);
   // Only a deployment with a diary (a channel named, or entries already held) has a mirror to wait for.
-  const named = typeof context?.diaryPlaceId === 'string' && context.diaryPlaceId !== '';
-  if (!named && db.prepare('SELECT 1 AS ok FROM diary LIMIT 1').get() === undefined) return;
+  if (namedPlace(context) === null && db.prepare('SELECT 1 AS ok FROM diary LIMIT 1').get() === undefined) return;
   db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
-    DIARY_MIRROR_PENDING,
+    V15_PENDING,
     '1'
   );
-  finishDiaryMirror(db, context);
+  settleMirror(db, context, V15_PENDING, (work) => withCurrentNames(db, work));
 }
 
 // Version 16 (stage 4 design, 2026-10-27, PR A): durable ingestion. An `ingest` row is one event the core committed,
@@ -1234,8 +1265,8 @@ const V22 = [
   ...APPEND_ONLY('skill_uses', 'skill uses are append-only'),
 ].join('\n');
 
-/** What a migration step needs from the opener: the diary channel's place and the data directory. */
-export type MigrationContext = { diaryPlaceId?: string | null; dataDir?: string };
+/** What a migration step needs from the opener: the selfreflection channel's place and the data directory. */
+export type MigrationContext = { selfreflectionPlaceId?: string | null; dataDir?: string };
 
 /** One migration: SQL text, or a function of the connection and the opener's context. */
 export type Migration = string | ((db: Db, context: MigrationContext) => void);
@@ -1418,6 +1449,11 @@ function renameStoredKeys(db: Db): void {
   }
 }
 
+/** The shipped media store step: it runs before the rename, on the old names. */
+function migrateMediaStoreStep(db: Db): void {
+  migrateMediaStore(db, 'diary');
+}
+
 export const MIGRATIONS: Array<Migration> = [
   V1,
   V2,
@@ -1454,7 +1490,9 @@ export const MIGRATIONS: Array<Migration> = [
   // Version 32: one GIF library for every place. Its data step writes through the unit mappers, which this module
   // cannot import, so the opener runs it (src/memory/db/open.ts, src/memory/db/gif-library-merge.ts).
   '-- the shared GIF library',
-  migrateMediaStore,
+  migrateMediaStoreStep,
+  // Version 34 (B10 of the master plan): the diary is `selfreflection` in stored data (src/memory/migration/selfreflection-names.ts).
+  renameToSelfreflection,
 ];
 
 /** Every table schema v8 adds. */
@@ -1490,8 +1528,8 @@ export const V1_TABLES = [
   'episode_sources',
   'affinity_events',
   'day',
-  'diary',
-  'diary_mirrors',
+  'selfreflection',
+  'selfreflection_mirrors',
   'media',
   'intentions',
   'work',

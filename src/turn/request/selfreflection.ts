@@ -1,25 +1,25 @@
-// A diary post's own blocks: the persona's world (`<world>`), its past posts (`<diary>`), the post's `<plan>`, a set
-// post's `<seeds>` and what its search found (`<found>`). buildRequest and buildDiaryPlanRequest
+// A selfreflection post's own blocks: the persona's world (`<world>`), its past posts (`<diary>`), the post's `<plan>`, a set
+// post's `<seeds>` and what its search found (`<found>`). buildRequest and buildSelfreflectionPlanRequest
 // (src/behavior/prompt.ts) call them. None of it reaches a request of another mode.
 
-import { DEFAULT_HISTORY_POSTS, localDayKey, renderDiaryBlock } from '../../behavior/diary.ts';
+import { DEFAULT_HISTORY_POSTS, localDayKey, renderSelfreflectionBlock } from '../../behavior/selfreflection.ts';
 import { fill } from '../../format.ts';
 import { refusedAudience } from '../../tools/publication.ts';
 import { fillPromptTemplate } from './text.ts';
 import type { KnownPlaces } from '../../tools/publication.ts';
 import type { Labels, Prompts, RequestConfig, RequestInput } from './types.ts';
 
-/** A diary post's plan (src/turn/diary.ts): its kind, its brief, whether it has a picture and the owner's topic. */
-/** A diary post's own input (buildRequest's `input.diary`): the past posts, the plan, the search's find, the seeds. */
-export type DiaryInput = {
+/** A selfreflection post's plan (src/turn/selfreflection.ts): its kind, its brief, whether it has a picture and the owner's topic. */
+/** A selfreflection post's own input (buildRequest's `input.selfreflection`): the past posts, the plan, the search's find, the seeds. */
+export type SelfreflectionInput = {
   readonly posts?: unknown;
-  readonly plan?: DiaryPlan | null;
+  readonly plan?: SelfreflectionPlan | null;
   readonly found?: unknown;
   readonly seeds?: unknown;
   readonly publicationPlaces?: KnownPlaces;
 };
 
-export type DiaryPlan = {
+export type SelfreflectionPlan = {
   readonly kind?: unknown;
   readonly brief?: unknown;
   readonly picture?: unknown;
@@ -27,11 +27,11 @@ export type DiaryPlan = {
 };
 
 /**
- * The `<world>` block's body of a diary request (the plan and the post):
+ * The `<world>` block's body of a selfreflection request (the plan and the post):
  * prompts/world.md with `{{name}}` filled, only while `selfreflection.world === true`
  * in `config` (the live config, read at the moment of use); '' with the
  * switch off or the file missing or blank. Never part of an ordinary turn:
- * only the diary's two requests call it.
+ * only the selfreflection's two requests call it.
  */
 export function worldText(
   config: Pick<RequestConfig, 'selfreflection'> | null | undefined,
@@ -45,35 +45,35 @@ export function worldText(
 }
 
 /** The `<diary>` block's post lines (no intro), oldest first: the newest `selfreflection.historyPosts` (150). */
-export function diaryHistoryLines(
+export function selfreflectionHistoryLines(
   posts: unknown,
   labels: Labels,
   config: Pick<RequestConfig, 'bot' | 'selfreflection'>
 ): Array<string> {
-  const body = renderDiaryBlock(posts, labels, {
+  const body = renderSelfreflectionBlock(posts, labels, {
     timezone: config.bot?.timezone,
     max: DEFAULT_HISTORY_POSTS,
   });
   if (!body) return [];
   const lines = body.split('\n');
-  const intro = labels.diary?.intro;
+  const intro = labels.selfreflection?.intro;
   return intro && lines[0] === intro ? lines.slice(1) : lines;
 }
 
-/** The `<plan>` block's body: `labels.diary.plan`, then the plan as one JSON line (`topic` only
+/** The `<plan>` block's body: `labels.selfreflection.plan`, then the plan as one JSON line (`topic` only
  * when the owner gave one); '' without a plan. */
-export function planBody(plan: DiaryPlan | null | undefined, labels: Labels): string {
+export function planBody(plan: SelfreflectionPlan | null | undefined, labels: Labels): string {
   if (!plan || typeof plan !== 'object') return '';
   const kind = typeof plan.kind === 'string' ? plan.kind : '';
   const brief = typeof plan.brief === 'string' ? plan.brief : '';
   const topic = typeof plan.topic === 'string' ? plan.topic : '';
   if (!kind && !brief && !topic) return '';
   const line = { kind, brief, picture: plan.picture === true, ...(topic ? { topic } : {}) };
-  return [labels.diary?.plan, JSON.stringify(line)].filter(Boolean).join('\n');
+  return [labels.selfreflection?.plan, JSON.stringify(line)].filter(Boolean).join('\n');
 }
 
 /**
- * The `<publication_places>` block's body: `labels.diary.publicationPlaces`, which carries the `<audience>` output
+ * The `<publication_places>` block's body: `labels.selfreflection.publicationPlaces`, which carries the `<audience>` output
  * contract, then one `interface:<iface>` line per interface and one `place:<place id> <name>` line per place, a place
  * indented under its parent. '' when memory knows no place, so she has nothing to name.
  */
@@ -88,18 +88,24 @@ export function publicationPlacesBody(known: KnownPlaces | undefined, labels: La
       `${'  '.repeat(depth)}place:${place.id}${place.name ? ` ${place.name}` : ''}`,
       ...lines(place.id, depth + 1),
     ]);
-  return [labels.diary?.publicationPlaces, ...known.interfaces.map((iface) => `interface:${iface}`), ...lines(null, 0)]
+  return [
+    labels.selfreflection?.publicationPlaces,
+    ...known.interfaces.map((iface) => `interface:${iface}`),
+    ...lines(null, 0),
+  ]
     .filter(Boolean)
     .join('\n');
 }
 
 /**
- * The `<audience_refused>` block's body: one `labels.diary.audienceRefused` line per post of `posts` whose audience could
- * not be read and that she has not heard of, its reason from `labels.diary.audienceReasons`. '' when there is none.
+ * The `<audience_refused>` block's body: one `labels.selfreflection.audienceRefused` line per post of `posts` whose audience could
+ * not be read and that she has not heard of, its reason from `labels.selfreflection.audienceReasons`. '' when there is none.
  */
 export function audienceRefusedBody(posts: unknown, labels: Labels, timezone: string | undefined): string {
-  const template = labels.diary?.audienceRefused;
-  const reasons = (labels.diary?.audienceReasons ?? {}) as unknown as Readonly<Record<string, string | undefined>>;
+  const template = labels.selfreflection?.audienceRefused;
+  const reasons = (labels.selfreflection?.audienceReasons ?? {}) as unknown as Readonly<
+    Record<string, string | undefined>
+  >;
   if (typeof template !== 'string' || !Array.isArray(posts)) return '';
   return (posts as ReadonlyArray<{ at?: unknown; gist?: unknown; publicationAudience?: unknown }>)
     .flatMap((post) => {
@@ -117,45 +123,59 @@ export function audienceRefusedBody(posts: unknown, labels: Labels, timezone: st
     .join('\n');
 }
 
-/** A diary post's blocks: the world, the past posts with their intro, the plan, what the search found, the seeds. */
-export type DiaryParts = {
+/** A selfreflection post's blocks: the world, the past posts with their intro, the plan, what the search found, the seeds. */
+export type SelfreflectionParts = {
   worldItem: string;
-  diaryLines: Array<string>;
-  diaryIntro: string;
+  selfreflectionLines: Array<string>;
+  selfreflectionIntro: string;
   planText: string;
   foundText: string;
   seedsText: string;
   publicationPlacesText: string;
   audienceRefusedText: string;
-  diaryParts: { intro: string; plan: string; seeds: string; publicationPlaces: string; audienceRefused: string } | null;
+  selfreflectionParts: {
+    intro: string;
+    plan: string;
+    seeds: string;
+    publicationPlaces: string;
+    audienceRefused: string;
+  } | null;
 };
 
 /**
- * A diary post (mode `diary`): the persona's world (under `selfreflection.world`), its past posts, the post's plan and what
+ * A selfreflection post (mode `selfreflection`): the persona's world (under `selfreflection.world`), its past posts, the post's plan and what
  * its search found. None of it in any other mode.
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
-export function diaryOf(given: RequestInput & { labels: Labels }): DiaryParts {
+export function selfreflectionOf(given: RequestInput & { labels: Labels }): SelfreflectionParts {
   const { config, prompts, mode, selfName, labels } = given;
-  // A diary post (mode `diary`): the persona's world (under `selfreflection.world`), its past posts, the
+  // A selfreflection post (mode `selfreflection`): the persona's world (under `selfreflection.world`), its past posts, the
   // post's plan and what its search found. None of it in any other mode.
-  const diaryMode = mode === 'diary';
-  const diaryInput = diaryMode && given.diary && typeof given.diary === 'object' ? given.diary : null;
-  const worldItem = diaryMode ? worldText(config, prompts, selfName) : '';
-  const diaryLines = diaryInput ? diaryHistoryLines(diaryInput.posts, labels, config) : [];
-  const diaryIntro = diaryLines.length > 0 ? (labels.diary?.intro ?? '') : '';
-  const planText = diaryInput ? planBody(diaryInput.plan, labels) : '';
+  const selfreflectionMode = mode === 'selfreflection';
+  const selfreflectionInput =
+    selfreflectionMode && given.selfreflection && typeof given.selfreflection === 'object'
+      ? given.selfreflection
+      : null;
+  const worldItem = selfreflectionMode ? worldText(config, prompts, selfName) : '';
+  const selfreflectionLines = selfreflectionInput
+    ? selfreflectionHistoryLines(selfreflectionInput.posts, labels, config)
+    : [];
+  const selfreflectionIntro = selfreflectionLines.length > 0 ? (labels.selfreflection?.intro ?? '') : '';
+  const planText = selfreflectionInput ? planBody(selfreflectionInput.plan, labels) : '';
   const foundText =
-    diaryInput && typeof diaryInput.found === 'string' && diaryInput.found.trim()
-      ? [labels.diary?.found, diaryInput.found.trim()].filter(Boolean).join('\n')
+    selfreflectionInput && typeof selfreflectionInput.found === 'string' && selfreflectionInput.found.trim()
+      ? [labels.selfreflection?.found, selfreflectionInput.found.trim()].filter(Boolean).join('\n')
       : '';
-  // A set post's seed combinations (already rendered by src/behavior/diary.ts#renderSeedsBlock).
-  const seedsText = diaryInput && typeof diaryInput.seeds === 'string' ? diaryInput.seeds.trim() : '';
-  const publicationPlacesText = publicationPlacesBody(diaryInput?.publicationPlaces, labels);
-  const audienceRefusedText = diaryInput ? audienceRefusedBody(diaryInput.posts, labels, config.bot?.timezone) : '';
-  const diaryParts = diaryMode
+  // A set post's seed combinations (already rendered by src/behavior/selfreflection.ts#renderSeedsBlock).
+  const seedsText =
+    selfreflectionInput && typeof selfreflectionInput.seeds === 'string' ? selfreflectionInput.seeds.trim() : '';
+  const publicationPlacesText = publicationPlacesBody(selfreflectionInput?.publicationPlaces, labels);
+  const audienceRefusedText = selfreflectionInput
+    ? audienceRefusedBody(selfreflectionInput.posts, labels, config.bot?.timezone)
+    : '';
+  const selfreflectionParts = selfreflectionMode
     ? {
-        intro: diaryIntro,
+        intro: selfreflectionIntro,
         plan: planText,
         seeds: seedsText,
         publicationPlaces: publicationPlacesText,
@@ -164,13 +184,13 @@ export function diaryOf(given: RequestInput & { labels: Labels }): DiaryParts {
     : null;
   return {
     worldItem,
-    diaryLines,
-    diaryIntro,
+    selfreflectionLines,
+    selfreflectionIntro,
     planText,
     foundText,
     seedsText,
     publicationPlacesText,
     audienceRefusedText,
-    diaryParts,
+    selfreflectionParts,
   };
 }

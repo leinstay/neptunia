@@ -78,8 +78,8 @@ export const BACKFILL_FIELDS: Readonly<Record<string, FieldPlan>> = {
   'media.description': kept('from the item the reference names; else the describe path'),
   'media.described_at': kept('with its description'),
   'media.availability': derived('present with a text form, missing with a message gone'),
-  'media.sha1': none('set where the bytes were read: a diary file'),
-  'media.path': none('set where a file is kept: a diary file or a library GIF'),
+  'media.sha1': none('set where the bytes were read: a selfreflection file'),
+  'media.path': none('set where a file is kept: a selfreflection file or a library GIF'),
   'media.bytes': none('set where the bytes were read'),
   'media.mime': none('set where the bytes were read'),
   'media.stems': derived('the stems job and the writer of a text form'),
@@ -87,7 +87,7 @@ export const BACKFILL_FIELDS: Readonly<Record<string, FieldPlan>> = {
   'media.scope_iface': derived('from the line, on a row it creates'),
   'media.scope_dm': derived('from the line, on a row it creates'),
   'media.audience_id': derived('from the line, on a row it creates'),
-  'media.owner': none('names a diary entry or a delivery on their own rows'),
+  'media.owner': none('names a selfreflection entry or a delivery on their own rows'),
   'media.owner_key': kept('the unit of the describer cache or the library'),
   'media.extra.fileName': readIt('from the message read'),
   'media.extra.durationSec': readIt('from the message read'),
@@ -158,7 +158,7 @@ function conversationOf(line: Pending): string | null {
 const compareIds = (a: string, b: string): number =>
   a.length !== b.length ? a.length - b.length : a < b ? -1 : a > b ? 1 : 0;
 
-/** The library's and the diary's rows by the message they name: what links a line whose message is gone. */
+/** The library's and the selfreflection's rows by the message they name: what links a line whose message is gone. */
 function rowsNamingMessages(db: Db): Map<string, Array<Row>> {
   const named = new Map<string, Array<Row>>();
   for (const row of db

@@ -273,7 +273,7 @@ const KEEP_PEOPLE = 5;
 /** The lists a heartbeat's block sheds from, in the order it sheds them. */
 type ShedKey = 'filtered' | 'life' | 'places' | 'people';
 /** One row of her life with the kind it is worded as. */
-type LifeRow = { kind: 'action' | 'post' | 'errand' | 'diary'; row: Obj };
+type LifeRow = { kind: 'action' | 'post' | 'errand' | 'selfreflection'; row: Obj };
 /** What the body of a heartbeat's block is built with. */
 type BodyOptions = {
   handleBase: number | null;
@@ -287,7 +287,7 @@ type BodyOptions = {
  * (`l`): people (`people`, one `person` each with its parts: `contact` or `contactNoPlace`, `lastWrote` (their
  * own newest line with its `#N` handle), `interests`, `activeIn`, joined by `partsJoin`), where people wrote lately
  * (`activity`: `activityPlace` with its `activityLine`s, each with a handle; it replaces the places page when the
- * facts carry it), her life (`life`: `action`, `post`, `errand`, `diary`; `open`, `attending`; `closed` with its
+ * facts carry it), her life (`life`: `action`, `post`, `errand`, `selfreflection`; `open`, `attending`; `closed` with its
  * items, `more` counting the rest), what she can do (`skills`, `skill`, `agents`), and what happened since
  * (`since`, `done`, `notDone` with its items, `told`, `filtered` with its items, a line with its author, text and
  * handle as `filteredAddressLine` / `filteredMissedLine`). A list over its cap ends with `more` ({more}). A list
@@ -343,7 +343,7 @@ export function heartbeatLines(
   }
 }
 
-/** The rows of her life in the order they are worded: actions, posts, errands, diary posts. */
+/** The rows of her life in the order they are worded: actions, posts, errands, selfreflection posts. */
 function lifeItems(life: Obj): Array<LifeRow> {
   const take = (cap: unknown, kind: LifeRow['kind']): Array<LifeRow> =>
     listOf(objOf(cap).items).map((row) => ({ kind, row: objOf(row) }));
@@ -351,7 +351,7 @@ function lifeItems(life: Obj): Array<LifeRow> {
     ...take(life.actions, 'action'),
     ...take(life.posts, 'post'),
     ...take(life.errands, 'errand'),
-    ...take(life.diary, 'diary'),
+    ...take(life.selfreflection, 'selfreflection'),
   ];
 }
 
@@ -469,7 +469,7 @@ function heartbeatBody(
         state: one(row.state),
         goal: one(row.goal ?? ''),
       });
-    return tidy('diary', { when: when(row.at), gist: one(row.gist ?? '') });
+    return tidy('selfreflection', { when: when(row.at), gist: one(row.gist ?? '') });
   });
   block(
     'life',
@@ -477,7 +477,7 @@ function heartbeatBody(
     moreOf(life.actions) +
       moreOf(life.posts) +
       moreOf(life.errands) +
-      moreOf(life.diary) +
+      moreOf(life.selfreflection) +
       (lifeRows.length - shownLife.length)
   );
   block(

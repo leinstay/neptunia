@@ -9,7 +9,7 @@
 // inputs from. Synthetic text only.
 import { placeOfCommunity, placeOfConversation } from '../../src/memory/addresses.ts';
 import { createStore } from '../../src/memory/store.ts';
-import { dbOf, seedMirror, seedPlace } from './diary-mirror.ts';
+import { dbOf, seedMirror, seedPlace } from './selfreflection-mirror.ts';
 import { labels } from './labels.ts';
 import { openTestMemory } from './memory-db/service.ts';
 import { useIface, useSelf, world } from './turn-world.ts';
@@ -60,9 +60,9 @@ export function sceneHot(): { config: Record<string, unknown>; prompts: Record<s
       'system-prompt': 'SYSTEM for {{name}}',
       'character-card': 'CARD_TEXT',
       format: 'FORMAT_TEXT',
-      diary: 'DIARY_TASK for {{name}}',
-      'diary-plan': 'PLAN_SYSTEM for {{name}}',
-      'diary-seeds': '# place\na pier\n# light\nfog',
+      selfreflection: 'DIARY_TASK for {{name}}',
+      'selfreflection-planner': 'PLAN_SYSTEM for {{name}}',
+      'selfreflection-seeds': '# place\na pier\n# light\nfog',
       world: 'WORLD of {{name}}',
       labels,
     },
@@ -80,7 +80,7 @@ export function sceneLlm(): {
     complete: (messages, options) => {
       calls.push(structuredClone(messages));
       const text =
-        options?.purpose === 'diary-plan'
+        options?.purpose === 'selfreflection-planner'
           ? JSON.stringify({ kind: 'status', brief: 'a calm evening', search: '', picture: false })
           : '<msg>ήσυχο βράδυ στο λιμάνι</msg>';
       return Promise.resolve({ text, usage: {}, estimated: 5 });
@@ -187,19 +187,19 @@ export async function sceneMemory({
       messageIds: [post.id],
       search: null,
     };
-    store.appendDiaryPost(stored as Parameters<typeof store.appendDiaryPost>[0], { max: 40 });
+    store.appendSelfreflectionPost(stored as Parameters<typeof store.appendSelfreflectionPost>[0], { max: 40 });
   }
   store.flush();
   await store.flushSettled({});
   const db = dbOf(memory.memoryDb);
-  for (const post of EARLIER) db.prepare('UPDATE diary SET text = ? WHERE at_ms = ?').run(post.text, post.at);
+  for (const post of EARLIER) db.prepare('UPDATE selfreflection SET text = ? WHERE at_ms = ?').run(post.text, post.at);
   // Before schema v15 there is no `mirrors` table to seed: the scene then fails where the turn needs its conversation,
   // which is what the test is about, and not here.
   const hasMirrors = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").all().length > 0;
   if (mirror && hasMirrors) seedMirror(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: NOW });
   if (published) {
     const place = seedPlace(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: NOW });
-    db.prepare("UPDATE publications SET destination_place_id = ? WHERE row_kind = 'diary'").run(place);
+    db.prepare("UPDATE publications SET destination_place_id = ? WHERE row_kind = 'selfreflection'").run(place);
     await seedRecord(memory.memoryDb);
   }
   // Her channels sit under the server, as the observation of their first lines leaves them.

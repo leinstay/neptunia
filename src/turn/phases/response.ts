@@ -3,11 +3,11 @@
 // cut-off and silence that end the turn here. runTurnOnce (src/behavior/turn.js) calls it after the request phase;
 // the tool round reads its first answer and its reader of every later one.
 
-import { DIARY_MAX_MESSAGES, stripUrls } from '../../behavior/diary.ts';
+import { SELFREFLECTION_MAX_MESSAGES, stripUrls } from '../../behavior/selfreflection.ts';
 import { resolveReactionEmoji } from '../../behavior/emoji.ts';
 import { innerOutputCalls } from '../../behavior/inner-output.ts';
 import { thinkMissing } from '../../behavior/tool-step.ts';
-import { markRefusalsTold } from '../../behavior/diary-turn.ts';
+import { markRefusalsTold } from '../../behavior/selfreflection-turn.ts';
 import { parseOutput, shapedThink, takeAudience } from '../../llm/parse.ts';
 import { log } from '../../log.ts';
 import { countDashes, stripDashes } from '../../memory/clamp.ts';
@@ -70,7 +70,7 @@ export async function responsePhase(
   const { transport, startedAt, now, bar, beforeBar, replyOptions, cancel } = setup;
   const { finalMode } = pulledStep;
   const { prepareMs, late, timings } = waited;
-  const { diaryPrep, neighborsHidden, pulled } = gathered;
+  const { selfreflectionPrep, neighborsHidden, pulled } = gathered;
   // The request is text only (buildRequest never attaches a picture: the persona sees them
   // through the describer's captions), so nothing is downloaded or resent here.
   const messages = request.messages;
@@ -132,7 +132,7 @@ export async function responsePhase(
   bar.close();
   life.stopTyping();
   // Her request is answered, so a refused audience it showed has reached her.
-  markRefusalsTold(store, diaryPrep?.posts ?? []);
+  markRefusalsTold(store, selfreflectionPrep?.posts ?? []);
 
   // The model's output as it is acted on: the feature switches drop parts of it first. The same
   // for the answer to every request after her calls.
@@ -172,13 +172,13 @@ export async function responsePhase(
       parsed.reactions = [];
       parsed.untargetedReactions = [];
     }
-    if (diaryPrep) {
-      // A diary post: no reaction, nothing posted as a reply, no link, at most selfreflection.maxMessages.
+    if (selfreflectionPrep) {
+      // A selfreflection post: no reaction, nothing posted as a reply, no link, at most selfreflection.maxMessages.
       parsed.reactions = [];
       parsed.messages = parsed.messages
         .map((message) => ({ ...message, replyTo: null, text: stripUrls(message.text) }))
         .filter((message) => message.text !== '')
-        .slice(0, DIARY_MAX_MESSAGES);
+        .slice(0, SELFREFLECTION_MAX_MESSAGES);
     }
     return parsed;
   };
@@ -204,9 +204,9 @@ export async function responsePhase(
       step: number,
       registry: skills ?? defaultSkills(),
     });
-    // Every answer of a diary turn counts: an audience said beside a draw call holds for the messages of the next answer.
-    const spoken = diaryPrep ? takeAudience(split.speechText) : { text: split.speechText, audience: [] };
-    draft.diaryAudience = [...(draft.diaryAudience ?? []), ...spoken.audience];
+    // Every answer of a selfreflection turn counts: an audience said beside a draw call holds for the messages of the next answer.
+    const spoken = selfreflectionPrep ? takeAudience(split.speechText) : { text: split.speechText, audience: [] };
+    draft.selfreflectionAudience = [...(draft.selfreflectionAudience ?? []), ...spoken.audience];
     const shaped = shapeOutput(
       parseOutput(spoken.text, { limits: draft.limits, cutOff: answered?.finishReason === 'length' })
     );

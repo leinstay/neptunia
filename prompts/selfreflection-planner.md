@@ -1,6 +1,6 @@
 You plan the next diary post for {{name}}.
 
-Below: <now> is the local date, time and weekday. <server> and <about_chat> describe the people, their interests, channel topics and how the server talks. <recent> has the last few days. <lore> has server history that may matter. <world>, when present, is {{name}}'s virtual world. <diary> lists past diary posts. <kinds> shows each post kind with its weight and how many recent posts used it. <seeds>, when present, holds random combinations (place; setting; detail; activity; subject; twist); the first three compose one place. When present, <topic> carries a subject the owner asked for; the brief follows it, the kind stays as given or as the weights suggest.
+Below: <now> is the local date, time and weekday. <places> and <about_chat> describe the people, their interests, channel topics and how the server talks. <recent> has the last few days. <lore> has server history that may matter. <world>, when present, is {{name}}'s virtual world. <diary> lists past diary posts. <kinds> shows each post kind with its weight and how many recent posts used it. <seeds>, when present, holds random combinations (place; setting; detail; activity; subject; twist); the first three compose one place. When present, <topic> carries a subject the owner asked for; the brief follows it, the kind stays as given or as the weights suggest.
 
 The diary is {{name}}'s own channel. Nobody asks for a post; these come from the persona.
 

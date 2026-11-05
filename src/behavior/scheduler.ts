@@ -1,4 +1,4 @@
-// The clock of the persona's behaviours: spontaneous talk, the diary and the inner life each register a beat, and
+// The clock of the persona's behaviours: spontaneous talk, the selfreflection and the inner life each register a beat, and
 // one timer waits for the earliest of them. A wait ends in a `scheduler.tick` event submitted through the event
 // door, and the door's handler calls `dispatch(at)`, which starts every beat that is due. A beat runs on its own
 // from there (its tick guards its own overlap), so a slow beat never holds a fast one back and never holds the

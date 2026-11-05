@@ -1,7 +1,7 @@
-// Tests for src/behavior/diary.ts (the diary scheduler's pure core: the day
+// Tests for src/behavior/selfreflection.ts (the diary scheduler's pure core: the day
 // plan, due slots, kind choice, plan validation, the <diary> / <kinds> /
 // <seeds> renderings, URL stripping, gists), the store's diary file and the
-// scheduler's factory (createDiary) over fakes.
+// scheduler's factory (createSelfreflection) over fakes.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -18,15 +18,15 @@ import {
   setSettings,
   DEFAULT_PICTURE_KINDS,
   validatePlan,
-  renderDiaryBlock,
+  renderSelfreflectionBlock,
   renderKindsBlock,
   parseSeedFamilies,
   pickSeeds,
   renderSeedsBlock,
   stripUrls,
   gistOf,
-  createDiary,
-} from '../src/behavior/diary.ts';
+  createSelfreflection,
+} from '../src/behavior/selfreflection.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { fill, localHour } from '../src/format.ts';
 import { MINUTE_MS, HOUR_MS } from '../src/time.ts';
@@ -35,7 +35,7 @@ import { createStore } from '../src/memory/store.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemory, openTestMemorySync, unitFile } from './fixtures/memory-db/service.ts';
-import { seedMirror } from './fixtures/diary-mirror.ts';
+import { seedMirror } from './fixtures/selfreflection-mirror.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
@@ -50,7 +50,7 @@ const seq = (values: Untyped) => {
 };
 
 // PR 7d: the gap between slots (90 minutes), the quiet carry (0.25) and the hunger boost (0.5) are constants of
-// src/behavior/diary.ts, and the daily post cap is gone.
+// src/behavior/selfreflection.ts, and the daily post cap is gone.
 const base = { quietDayChance: 0 };
 
 test('localDayKey: the local date of the zone, not the UTC one', () => {
@@ -524,14 +524,14 @@ test('validatePlan: a long brief is cut to one line', () => {
   assert.ok([...plan.brief].length <= 300);
 });
 
-test('renderDiaryBlock: oldest first, at most max lines, picture suffix when present', () => {
+test('renderSelfreflectionBlock: oldest first, at most max lines, picture suffix when present', () => {
   const posts = [
     { at: Date.parse('2026-03-01T10:00:00Z'), kind: 'status', gist: 'oldest', picture: null },
     { at: Date.parse('2026-03-02T10:00:00Z'), kind: null, gist: 'from the backfill', picture: true },
     { at: Date.parse('2026-03-03T22:30:00Z'), kind: 'selfPicture', gist: 'on the pier', picture: 'a pier at dusk' },
     { at: Date.parse('2026-03-04T10:00:00Z'), kind: 'thought', gist: 'café thoughts', picture: null },
   ];
-  const text = renderDiaryBlock(posts, labels, { timezone: 'Europe/Athens', max: 3 });
+  const text = renderSelfreflectionBlock(posts, labels, { timezone: 'Europe/Athens', max: 3 });
   assert.equal(
     text,
     [
@@ -541,20 +541,20 @@ test('renderDiaryBlock: oldest first, at most max lines, picture suffix when pre
       '- 2026-03-04 thought: café thoughts',
     ].join('\n')
   );
-  assert.equal(renderDiaryBlock([], labels, { timezone: 'UTC', max: 3 }), '');
+  assert.equal(renderSelfreflectionBlock([], labels, { timezone: 'UTC', max: 3 }), '');
 });
 
-test('renderDiaryBlock: a set renders its first scene with the picture count', () => {
+test('renderSelfreflectionBlock: a set renders its first scene with the picture count', () => {
   const posts = [
     { at: Date.parse('2026-03-01T10:00:00Z'), kind: 'tour', gist: 'a walk', picture: 'a harbour at noon', pictures: 5 },
     { at: Date.parse('2026-03-02T10:00:00Z'), kind: 'selfPicture', gist: 'alone', picture: 'a pier', pictures: 1 },
   ];
-  const text = renderDiaryBlock(posts, labels, { timezone: 'UTC', max: 5 });
+  const text = renderSelfreflectionBlock(posts, labels, { timezone: 'UTC', max: 5 });
   const lines = text.split('\n');
-  assert.ok(labels.diary.pictureSet, 'the fixture carries the label');
+  assert.ok(labels.selfreflection.pictureSet, 'the fixture carries the label');
   assert.equal(
     lines[1],
-    `- 2026-03-01 tour: a walk${fill(labels.diary.pictureSet, { count: 5, scene: 'a harbour at noon' })}`
+    `- 2026-03-01 tour: a walk${fill(labels.selfreflection.pictureSet, { count: 5, scene: 'a harbour at noon' })}`
   );
   assert.equal(lines[2], '- 2026-03-02 selfPicture: alone [picture: a pier]', 'one picture keeps the plain suffix');
 });
@@ -678,46 +678,46 @@ const post = (n: Untyped) => ({
   search: '',
 });
 
-test('store: getDiary returns the empty default', () => {
+test('store: getSelfreflection returns the empty default', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  assert.deepEqual(store.getDiary(), { posts: [], updatedAt: 0 });
+  assert.deepEqual(store.getSelfreflection(), { posts: [], updatedAt: 0 });
 });
 
-test('store: appendDiaryPost keeps the newest max posts and stamps updatedAt', () => {
+test('store: appendSelfreflectionPost keeps the newest max posts and stamps updatedAt', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  for (let n = 1; n <= 4; n += 1) store.appendDiaryPost(post(n), { max: 3, now: 5000 + n });
-  const diary = store.getDiary();
+  for (let n = 1; n <= 4; n += 1) store.appendSelfreflectionPost(post(n), { max: 3, now: 5000 + n });
+  const selfreflection = store.getSelfreflection();
   assert.deepEqual(
-    diary.posts.map((p) => p.gist),
+    selfreflection.posts.map((p) => p.gist),
     ['post 2', 'post 3', 'post 4']
   );
-  assert.equal(diary.updatedAt, 5004);
-  diary.posts.length = 0; // a copy: changing it changes nothing stored
-  assert.equal(store.getDiary().posts.length, 3);
+  assert.equal(selfreflection.updatedAt, 5004);
+  selfreflection.posts.length = 0; // a copy: changing it changes nothing stored
+  assert.equal(store.getSelfreflection().posts.length, 3);
 });
 
-test('store: setDiaryPosts replaces the list and keeps the newest max', () => {
+test('store: setSelfreflectionPosts replaces the list and keeps the newest max', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  store.appendDiaryPost(post(1), { max: 10, now: 1 });
-  store.setDiaryPosts([post(5), post(6), post(7)], { max: 2, now: 9 });
-  const diary = store.getDiary();
+  store.appendSelfreflectionPost(post(1), { max: 10, now: 1 });
+  store.setSelfreflectionPosts([post(5), post(6), post(7)], { max: 2, now: 9 });
+  const selfreflection = store.getSelfreflection();
   assert.deepEqual(
-    diary.posts.map((p) => p.gist),
+    selfreflection.posts.map((p) => p.gist),
     ['post 6', 'post 7']
   );
-  assert.equal(diary.updatedAt, 9);
+  assert.equal(selfreflection.updatedAt, 9);
 });
 
 test('store: diary survives flush and reload', async () => {
   const mem = await openTestMemory({ dataDir: tmpDataDir() });
   const { dataDir: dir, memoryDb } = mem;
   const store = createStore({ dataDir: dir, memoryDb, newId: () => 'one' });
-  store.appendDiaryPost({ ...post(1), gist: 'Ελένη at the café' }, { max: 150, now: 42 });
+  store.appendSelfreflectionPost({ ...post(1), gist: 'Ελένη at the café' }, { max: 150, now: 42 });
   store.flush();
   await store.flushSettled({});
   assert.ok(unitFile(memoryDb, 'guilds/g1/diary.json'), 'the diary is a unit of the database');
   const again = createStore({ dataDir: dir, memoryDb });
-  assert.deepEqual(again.getDiary(), {
+  assert.deepEqual(again.getSelfreflection(), {
     posts: [{ ...post(1), gist: 'Ελένη at the café', itemId: 'dy-one' }],
     updatedAt: 42,
   });
@@ -727,7 +727,7 @@ test('store: diary survives flush and reload', async () => {
 test('store: a malformed diary value reads as the empty default', async () => {
   const mem = await openTestMemory({ dataDir: tmpDataDir() });
   await mem.memoryDb.writeUnit({ op: 'value', owner: 'guilds/g1/diary.json', value: [1, 2] });
-  assert.deepEqual(createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb }).getDiary(), {
+  assert.deepEqual(createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb }).getSelfreflection(), {
     posts: [],
     updatedAt: 0,
   });
@@ -735,18 +735,18 @@ test('store: a malformed diary value reads as the empty default', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// createDiary: the scheduler's edge, with a fake store, client and turn runner.
+// createSelfreflection: the scheduler's edge, with a fake store, client and turn runner.
 
 type Rec = Record<string, Untyped>;
 // The plan the scheduler stored for guild g1 in the harness's state.
 const planOf = (h: { store: { state: { data: unknown } } }): Rec =>
-  (loose(h.store.state.data).diary as Rec).persona as Rec;
+  (loose(h.store.state.data).selfreflection as Rec).persona as Rec;
 
 const D_NOW = Date.UTC(2026, 9, 6, 19, 0, 0); // 19:00 UTC, before the evening slot
 const SLOT = Date.UTC(2026, 9, 6, 21, 30, 0); // 18 + 0.5 * 7 h with rng 0.5
 
 /** A diary channel of guild g1 as the harness holds it; `attach: false` may not attach files, `send: false` not send. */
-function diaryChannelFake({
+function selfreflectionChannelFake({
   send = true,
   attach = true,
   placeId = 'g1',
@@ -762,25 +762,25 @@ after(async () => {
 
 /**
  * Stage 3 design, sections 3 and 5: the diary's place is its mirror in memory, no longer `diary.placeId`. The
- * harness's store reads a memory database holding an enabled `diary` mirror on `d1` of the fake interface (`mirror`),
+ * harness's store reads a memory database holding an enabled `selfreflection` mirror on `d1` of the fake interface (`mirror`),
  * or none; the config sets no `diary.placeId`.
  */
-function diaryHarness({
+function selfreflectionHarness({
   mirror = true,
-  diary = {},
+  selfreflection = {},
   data = {},
   posts = [],
-  channel = diaryChannelFake(),
+  channel = selfreflectionChannelFake(),
   outcomes = [],
   backfill = null,
   turnsExtra = {},
   delay,
 }: {
   mirror?: boolean;
-  diary?: Rec;
+  selfreflection?: Rec;
   data?: Rec;
   posts?: Array<Rec>;
-  channel?: ReturnType<typeof diaryChannelFake> | null;
+  channel?: ReturnType<typeof selfreflectionChannelFake> | null;
   outcomes?: Array<Rec>;
   backfill?: ((args: Rec) => Promise<number>) | null;
   turnsExtra?: Rec;
@@ -789,13 +789,13 @@ function diaryHarness({
   let clock = D_NOW;
   /** The turns the scheduler asked for: the arguments, and the plan's done slots when it asked. */
   const turnCalls: Array<{
-    params: { mode?: unknown; conversation?: unknown; placeId?: unknown; diary?: unknown };
+    params: { mode?: unknown; conversation?: unknown; placeId?: unknown; selfreflection?: unknown };
     done: Array<number>;
   }> = [];
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
-      selfreflection: { windows: [{ from: 18, to: 1, posts: [1, 1] }], quietDayChance: 0, ...diary },
+      selfreflection: { windows: [{ from: 18, to: 1, posts: [1, 1] }], quietDayChance: 0, ...selfreflection },
     },
     prompts: { labels },
   };
@@ -804,7 +804,7 @@ function diaryHarness({
   if (mirror) seedMirror(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: D_NOW });
   const store = {
     state: { data: { ...data }, markDirty() {} },
-    getDiary: () => ({ posts, updatedAt: 0 }),
+    getSelfreflection: () => ({ posts, updatedAt: 0 }),
     // The store's read of the memory database (src/memory/store.ts#readMemory), where the mirrors are.
     // The service's handle is untyped JS; its `db` is the node:sqlite connection the read takes.
     readMemory: (read: (db: unknown) => unknown) => read(memory.memoryDb.readHandle()?.db),
@@ -819,16 +819,19 @@ function diaryHarness({
     });
   const turns = {
     runTurn: async (params: Untyped) => {
-      turnCalls.push({ params, done: [...(loose(store.state.data).diary?.persona?.done ?? [])] });
+      turnCalls.push({ params, done: [...(loose(store.state.data).selfreflection?.persona?.done ?? [])] });
       return (
-        outcomes.shift() ?? { outcome: 'spoke', diary: { kind: 'status', picture: false, search: false, messages: 1 } }
+        outcomes.shift() ?? {
+          outcome: 'spoke',
+          selfreflection: { kind: 'status', picture: false, search: false, messages: 1 },
+        }
       );
     },
     ...turnsExtra,
   };
-  const diaryFactory = createDiary({
+  const selfreflectionFactory = createSelfreflection({
     hot,
-    // @ts-expect-error: the stand-in store holds only the part of DiaryStore that the tick reads
+    // @ts-expect-error: the stand-in store holds only the part of SelfreflectionStore that the tick reads
     store,
     reads: world().reads,
     iface: () => 'fake',
@@ -839,33 +842,33 @@ function diaryHarness({
     now: () => clock,
     ...(delay ? { delay } : {}),
   });
-  return { hot, store, turnCalls, diary: diaryFactory, setNow: (t: Untyped) => (clock = t) };
+  return { hot, store, turnCalls, selfreflection: selfreflectionFactory, setNow: (t: Untyped) => (clock = t) };
 }
 
 // Stage 3 design, section 3 item 1: `diary.placeId` no longer gates the tick, so the case without it is gone; the
 // tick with no channel and no mirror is "posts with zero mirrors" below.
 test('tick: no-op when paused', async () => {
-  const cases: Array<[string, Parameters<typeof diaryHarness>[0]]> = [['paused', { data: { paused: true } }]];
+  const cases: Array<[string, Parameters<typeof selfreflectionHarness>[0]]> = [['paused', { data: { paused: true } }]];
   for (const [reason, setup] of cases) {
-    const h = diaryHarness(setup);
+    const h = selfreflectionHarness(setup);
     h.setNow(SLOT + MINUTE_MS);
     const { logs } = await withCapturedLogs(async () => {
-      await h.diary.tick();
-      await h.diary.tick();
+      await h.selfreflection.tick();
+      await h.selfreflection.tick();
     });
     assert.equal(h.turnCalls.length, 0, reason);
-    assert.equal(loose(h.store.state.data).diary, undefined, `${reason}: no plan`);
+    assert.equal(loose(h.store.state.data).selfreflection, undefined, `${reason}: no plan`);
     assert.equal(
-      logs.filter((l) => l.msg === 'diary: skip' && l.reason === reason).length,
+      logs.filter((l) => l.msg === 'selfreflection: skip' && l.reason === reason).length,
       1,
       `${reason}: logged once a day`
     );
   }
 });
 
-test('tick: plans the day once and stores it in state.data.diary.persona', async () => {
-  const h = diaryHarness();
-  await h.diary.tick();
+test('tick: plans the day once and stores it in state.data.selfreflection.persona', async () => {
+  const h = selfreflectionHarness();
+  await h.selfreflection.tick();
   const plan = planOf(h);
   assert.deepEqual(plan, {
     day: '2026-10-06',
@@ -876,18 +879,18 @@ test('tick: plans the day once and stores it in state.data.diary.persona', async
     hunger: [0],
     quietStreak: 0,
   });
-  await h.diary.tick();
+  await h.selfreflection.tick();
   assert.equal(planOf(h), plan, 'the same plan, not planned again');
   h.setNow(D_NOW + 24 * HOUR_MS);
-  await h.diary.tick();
+  await h.selfreflection.tick();
   assert.equal(planOf(h).day, '2026-10-07', 'a new local day replans');
 });
 
 test('tick: the day key is the local date in bot.timezone', async () => {
-  const h = diaryHarness();
+  const h = selfreflectionHarness();
   h.hot.config.bot.timezone = 'Europe/Athens';
   h.setNow(Date.UTC(2026, 9, 6, 22, 30, 0)); // 01:30 on the 7th in Athens
-  await h.diary.tick();
+  await h.selfreflection.tick();
   assert.equal(planOf(h).day, '2026-10-07');
 });
 
@@ -895,56 +898,60 @@ test('tick: a new local day carries over the open slots of the last plan that sp
   const late = Date.UTC(2026, 9, 7, 0, 30, 0);
   const missed = Date.UTC(2026, 9, 6, 21, 0, 0);
   const fired = Date.UTC(2026, 9, 6, 20, 0, 0);
-  const h = diaryHarness({
-    diary: { windows: [{ from: 12, to: 16, posts: [0, 0] }] },
-    data: { diary: { persona: { day: '2026-10-06', slots: [fired, missed, late], done: [fired], quiet: false } } },
+  const h = selfreflectionHarness({
+    selfreflection: { windows: [{ from: 12, to: 16, posts: [0, 0] }] },
+    data: {
+      selfreflection: { persona: { day: '2026-10-06', slots: [fired, missed, late], done: [fired], quiet: false } },
+    },
   });
   h.setNow(Date.UTC(2026, 9, 7, 0, 5, 0));
-  await h.diary.tick();
+  await h.selfreflection.tick();
   assert.deepEqual(planOf(h).slots, [late], 'the open slot ahead is kept; done and long-missed ones are not');
   assert.equal(planOf(h).day, '2026-10-07');
   h.setNow(late + MINUTE_MS);
-  await h.diary.tick();
+  await h.selfreflection.tick();
   assert.equal(h.turnCalls.length, 1, 'the carried slot fires');
 });
 
 test('tick: fires the due slot through runTurn with mode diary and marks it done', async () => {
-  const h = diaryHarness();
-  await h.diary.tick();
+  const h = selfreflectionHarness();
+  await h.selfreflection.tick();
   assert.equal(h.turnCalls.length, 0, 'not due yet');
   h.setNow(SLOT + 5 * MINUTE_MS);
-  const { logs } = await withCapturedLogs(() => h.diary.tick());
+  const { logs } = await withCapturedLogs(() => h.selfreflection.tick());
   assert.equal(h.turnCalls.length, 1);
   const { params, done } = h.turnCalls[0];
-  assert.equal(params.mode, 'diary');
+  assert.equal(params.mode, 'selfreflection');
   // Stage 3 design, section 3 item 2: the post is the selfreflection wake, with no conversation, for the served guild.
   assert.equal(params.conversation, undefined);
   // The post names no conversation and no place: it is the persona's.
   assert.equal('placeId' in params, false);
-  assert.deepEqual(params.diary, { kind: null, forced: false });
+  assert.deepEqual(params.selfreflection, { kind: null, forced: false });
   assert.deepEqual(done, [SLOT], 'marked before the turn ran');
-  assert.ok(logs.some((l) => l.msg === 'diary: due'));
-  const line = logs.find((l) => l.msg === 'diary: post');
+  assert.ok(logs.some((l) => l.msg === 'selfreflection: due'));
+  const line = logs.find((l) => l.msg === 'selfreflection: post');
   assert.equal(loose(line).outcome, 'spoke');
   assert.equal(loose(line).kind, 'status');
-  await h.diary.tick();
+  await h.selfreflection.tick();
   assert.equal(h.turnCalls.length, 1, 'a done slot never fires again');
 });
 
 test('tick: a set posted logs its picture count; a short set logs its refusal and is not posted', async () => {
-  const posted = diaryHarness({
-    outcomes: [{ outcome: 'spoke', diary: { kind: 'tour', picture: true, search: false, messages: 1, pictures: 4 } }],
+  const posted = selfreflectionHarness({
+    outcomes: [
+      { outcome: 'spoke', selfreflection: { kind: 'tour', picture: true, search: false, messages: 1, pictures: 4 } },
+    ],
   });
   posted.setNow(SLOT + MINUTE_MS);
-  const first = await withCapturedLogs(() => posted.diary.tick());
-  const line = first.logs.find((l) => l.msg === 'diary: post');
+  const first = await withCapturedLogs(() => posted.selfreflection.tick());
+  const line = first.logs.find((l) => l.msg === 'selfreflection: post');
   assert.equal(loose(line).pictures, 4);
   assert.equal(loose(line).outcome, 'spoke');
 
-  const short = diaryHarness({ outcomes: [{ outcome: 'refused', reason: 'set-short' }] });
+  const short = selfreflectionHarness({ outcomes: [{ outcome: 'refused', reason: 'set-short' }] });
   short.setNow(SLOT + MINUTE_MS);
-  const second = await withCapturedLogs(() => short.diary.tick());
-  const refused = second.logs.find((l) => l.msg === 'diary: post');
+  const second = await withCapturedLogs(() => short.selfreflection.tick());
+  const refused = second.logs.find((l) => l.msg === 'selfreflection: post');
   assert.equal(loose(refused).outcome, 'refused');
   assert.equal(loose(refused).reason, 'set-short');
   assert.equal(loose(refused).pictures, 0);
@@ -953,37 +960,37 @@ test('tick: a set posted logs its picture count; a short set logs its refusal an
 });
 
 test('tick: a busy outcome un-marks the slot so the next tick retries it within the grace', async () => {
-  const h = diaryHarness({ outcomes: [{ outcome: 'busy' }] });
+  const h = selfreflectionHarness({ outcomes: [{ outcome: 'busy' }] });
   h.setNow(SLOT + MINUTE_MS);
-  await h.diary.tick();
+  await h.selfreflection.tick();
   assert.deepEqual(planOf(h).done, []);
-  await h.diary.tick();
+  await h.selfreflection.tick();
   assert.equal(h.turnCalls.length, 2);
   assert.deepEqual(planOf(h).done, [SLOT]);
 });
 
 test('tick: a scheduled post that spoke is recorded as posted, a busy one is not', async () => {
-  const h = diaryHarness({ outcomes: [{ outcome: 'busy' }] });
+  const h = selfreflectionHarness({ outcomes: [{ outcome: 'busy' }] });
   h.setNow(SLOT + MINUTE_MS);
-  await h.diary.tick();
+  await h.selfreflection.tick();
   assert.deepEqual(planOf(h).posted, []);
-  await h.diary.tick();
+  await h.selfreflection.tick();
   assert.deepEqual(planOf(h).posted, [SLOT]);
 });
 
 test('force: a manual post never feeds the hunger', async () => {
-  const h = diaryHarness();
-  await h.diary.tick();
-  const result = await h.diary.force({ kind: 'meme' });
+  const h = selfreflectionHarness();
+  await h.selfreflection.tick();
+  const result = await h.selfreflection.force({ kind: 'meme' });
   assert.equal(loose(result).outcome, 'spoke');
   assert.deepEqual(planOf(h).posted, []);
 });
 
 test('tick: a new day takes its hunger from the last plan and logs it', async () => {
   const fired = Date.UTC(2026, 9, 5, 20, 0, 0);
-  const h = diaryHarness({
+  const h = selfreflectionHarness({
     data: {
-      diary: {
+      selfreflection: {
         persona: {
           day: '2026-10-05',
           slots: [fired],
@@ -996,46 +1003,46 @@ test('tick: a new day takes its hunger from the last plan and logs it', async ()
       },
     },
   });
-  const { logs } = await withCapturedLogs(() => h.diary.tick());
+  const { logs } = await withCapturedLogs(() => h.selfreflection.tick());
   const plan = planOf(h);
   assert.deepEqual(plan.hunger, [2], 'the evening window went unfed');
   assert.equal(plan.quietStreak, 0);
-  const line = logs.find((l) => l.msg === 'diary: plan');
+  const line = logs.find((l) => l.msg === 'selfreflection: plan');
   assert.deepEqual(loose(line).hunger, [2]);
   assert.equal(loose(line).quietStreak, 0);
 
-  const quiet = diaryHarness({
+  const quiet = selfreflectionHarness({
     data: {
-      diary: {
+      selfreflection: {
         persona: { day: '2026-10-05', slots: [], done: [], posted: [], quiet: true, hunger: [1], quietStreak: 1 },
       },
     },
   });
-  await quiet.diary.tick();
+  await quiet.selfreflection.tick();
   assert.deepEqual(planOf(quiet).hunger, [2]);
   assert.equal(planOf(quiet).quietStreak, 2);
 });
 
 test('tick: dropped slots are marked done without firing', async () => {
-  const h = diaryHarness();
-  await h.diary.tick();
+  const h = selfreflectionHarness();
+  await h.selfreflection.tick();
   h.setNow(SLOT + 45 * MINUTE_MS);
-  const { logs } = await withCapturedLogs(() => h.diary.tick());
+  const { logs } = await withCapturedLogs(() => h.selfreflection.tick());
   assert.equal(h.turnCalls.length, 0);
   assert.deepEqual(planOf(h).done, [SLOT]);
-  assert.ok(logs.some((l) => l.msg === 'diary: skip' && l.reason === 'grace' && l.count === 1));
+  assert.ok(logs.some((l) => l.msg === 'selfreflection: skip' && l.reason === 'grace' && l.count === 1));
 });
 
 test('tick: backfills an empty history before the first post', async () => {
   const calls: Array<Untyped> = [];
-  let h: ReturnType<typeof diaryHarness> | null = null as ReturnType<typeof diaryHarness> | null; // assigned later, read inside a callback
+  let h: ReturnType<typeof selfreflectionHarness> | null = null as ReturnType<typeof selfreflectionHarness> | null; // assigned later, read inside a callback
   const backfill = async (args: Untyped) => {
     calls.push({ args, turns: h?.turnCalls.length });
     return 4;
   };
-  h = diaryHarness({ backfill });
+  h = selfreflectionHarness({ backfill });
   h.setNow(SLOT + MINUTE_MS);
-  const { logs } = await withCapturedLogs(() => h.diary.tick());
+  const { logs } = await withCapturedLogs(() => h.selfreflection.tick());
   assert.equal(calls.length, 1);
   assert.equal(calls[0].turns, 0, 'before the post');
   assert.equal('placeId' in calls[0].args, false);
@@ -1043,84 +1050,91 @@ test('tick: backfills an empty history before the first post', async () => {
   // Stage 3 design, section 5: that conversation is the place of the diary's mirror.
   assert.equal(calls[0].args.conversation.conversationId, 'd1');
   assert.equal(calls[0].args.labels, labels);
-  assert.ok(logs.some((l) => l.msg === 'diary: backfill' && l.count === 4));
-  await h.diary.force({});
+  assert.ok(logs.some((l) => l.msg === 'selfreflection: backfill' && l.count === 4));
+  await h.selfreflection.force({});
   assert.equal(calls.length, 1, 'once per channel and process');
 
   const kept = [];
-  const full = diaryHarness({
+  const full = selfreflectionHarness({
     posts: [{ at: 1, kind: 'status', gist: 'x' }],
     backfill: async (args: Untyped) => kept.push(args),
   });
   full.setNow(SLOT + MINUTE_MS);
-  await full.diary.tick();
+  await full.selfreflection.tick();
   assert.equal(kept.length, 0, 'a history already there is not backfilled');
 });
 
 // Stage 3 design, sections 3 and 5: the entry is recorded first and the mirror's capability is read only when it is
 // published, so a mirror place she cannot send or attach in no longer refuses the post.
 test('tick: a mirror place she cannot send or attach in does not refuse the post', async () => {
-  for (const channel of [diaryChannelFake({ attach: false }), diaryChannelFake({ send: false })]) {
-    const h = diaryHarness({ channel });
+  for (const channel of [selfreflectionChannelFake({ attach: false }), selfreflectionChannelFake({ send: false })]) {
+    const h = selfreflectionHarness({ channel });
     h.setNow(SLOT + MINUTE_MS);
-    const { logs } = await withCapturedLogs(() => h.diary.tick());
+    const { logs } = await withCapturedLogs(() => h.selfreflection.tick());
     assert.equal(h.turnCalls.length, 1);
-    assert.ok(!logs.some((l) => l.msg === 'diary: skip' && l.reason === 'not-writable'));
+    assert.ok(!logs.some((l) => l.msg === 'selfreflection: skip' && l.reason === 'not-writable'));
   }
 });
 
 // Stage 3 design, section 3 item 6 ("zero mirrors"): with no mirror and no channel the due post still runs; the entry
 // exists in memory and nothing is sent.
 test('tick: posts with zero mirrors and no channel', async () => {
-  const h = diaryHarness({ channel: null, mirror: false });
+  const h = selfreflectionHarness({ channel: null, mirror: false });
   h.setNow(SLOT + MINUTE_MS);
-  const { logs } = await withCapturedLogs(() => h.diary.tick());
+  const { logs } = await withCapturedLogs(() => h.selfreflection.tick());
   assert.equal(h.turnCalls.length, 1);
-  assert.ok(!logs.some((l) => l.msg === 'diary: skip' && l.reason === 'no-channel'));
+  assert.ok(!logs.some((l) => l.msg === 'selfreflection: skip' && l.reason === 'no-channel'));
 });
 
 test('force: runs now with the kind, ignores the plan and the quiet day', async () => {
-  const h = diaryHarness({ diary: { quietDayChance: 1 } });
-  const result = await h.diary.force({ kind: 'meme' });
+  const h = selfreflectionHarness({ selfreflection: { quietDayChance: 1 } });
+  const result = await h.selfreflection.force({ kind: 'meme' });
   assert.equal(loose(result).outcome, 'spoke');
   assert.equal(h.turnCalls.length, 1);
-  assert.deepEqual(h.turnCalls[0].params.diary, { kind: 'meme', forced: true });
-  assert.equal(loose(h.store.state.data).diary, undefined, 'no plan touched');
+  assert.deepEqual(h.turnCalls[0].params.selfreflection, { kind: 'meme', forced: true });
+  assert.equal(loose(h.store.state.data).selfreflection, undefined, 'no plan touched');
 
-  const paused = diaryHarness({ data: { paused: true } });
-  assert.deepEqual(await paused.diary.force({}), { outcome: 'paused' });
+  const paused = selfreflectionHarness({ data: { paused: true } });
+  assert.deepEqual(await paused.selfreflection.force({}), { outcome: 'paused' });
   // Stage 3 design, section 3 item 1: a forced post needs no channel; with zero mirrors it still runs.
-  const unset = diaryHarness({ channel: null, mirror: false });
-  assert.equal(loose(await unset.diary.force({})).outcome, 'spoke');
+  const unset = selfreflectionHarness({ channel: null, mirror: false });
+  assert.equal(loose(await unset.selfreflection.force({})).outcome, 'spoke');
 });
 
 test('force: passes kind and topic to the turn', async () => {
-  const h = diaryHarness();
-  await h.diary.force({ kind: 'meme', topic: '  une  promenade\n au port  ' });
-  assert.deepEqual(h.turnCalls[0].params.diary, { kind: 'meme', topic: 'une promenade au port', forced: true });
-  const long = diaryHarness();
-  await long.diary.force({ topic: 'é'.repeat(1200) });
-  assert.ok([...loose(long.turnCalls[0].params.diary).topic].length <= 1000, 'the topic is clamped to 1000 characters');
-  const blank = diaryHarness();
-  await blank.diary.force({ topic: '   ' });
-  assert.deepEqual(blank.turnCalls[0].params.diary, { kind: null, forced: true }, 'a blank topic is none');
+  const h = selfreflectionHarness();
+  await h.selfreflection.force({ kind: 'meme', topic: '  une  promenade\n au port  ' });
+  assert.deepEqual(h.turnCalls[0].params.selfreflection, {
+    kind: 'meme',
+    topic: 'une promenade au port',
+    forced: true,
+  });
+  const long = selfreflectionHarness();
+  await long.selfreflection.force({ topic: 'é'.repeat(1200) });
+  assert.ok(
+    [...loose(long.turnCalls[0].params.selfreflection).topic].length <= 1000,
+    'the topic is clamped to 1000 characters'
+  );
+  const blank = selfreflectionHarness();
+  await blank.selfreflection.force({ topic: '   ' });
+  assert.deepEqual(blank.turnCalls[0].params.selfreflection, { kind: null, forced: true }, 'a blank topic is none');
 });
 
 test('stop: no tick after stop', async () => {
-  const h = diaryHarness();
+  const h = selfreflectionHarness();
   h.setNow(SLOT + MINUTE_MS);
-  h.diary.stop();
-  await h.diary.tick();
+  h.selfreflection.stop();
+  await h.selfreflection.tick();
   assert.equal(h.turnCalls.length, 0);
-  assert.equal(loose(h.store.state.data).diary, undefined);
+  assert.equal(loose(h.store.state.data).selfreflection, undefined);
 });
 
 // PR 7d: the daily counts of posts and pictures went with the caps.
 test('status: the channel, the day plan and the history size', async () => {
-  const h = diaryHarness({ posts: [{}, {}] });
-  await h.diary.tick();
+  const h = selfreflectionHarness({ posts: [{}, {}] });
+  await h.selfreflection.tick();
   // Stage 3 design, section 5: `placeId` is the conversation of the diary's first mirror.
-  assert.deepEqual(h.diary.status(), {
+  assert.deepEqual(h.selfreflection.status(), {
     placeId: 'd1',
     day: '2026-10-06',
     slots: [SLOT],
@@ -1180,8 +1194,12 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 test('force: waits for the running turn and then posts', async () => {
   const running = busyTurns();
   const timer = manualDelay();
-  const h = diaryHarness({ diary: { forceWaitMs: 5000 }, turnsExtra: running.turnsExtra, delay: timer.delay });
-  const pending = h.diary.force({ kind: 'meme' });
+  const h = selfreflectionHarness({
+    selfreflection: { forceWaitMs: 5000 },
+    turnsExtra: running.turnsExtra,
+    delay: timer.delay,
+  });
+  const pending = h.selfreflection.force({ kind: 'meme' });
   await flush();
   assert.equal(running.waits.length, 1, 'waits for the one attention');
   assert.deepEqual(timer.calls, [5000], 'the wait is capped by diary.forceWaitMs');
@@ -1191,14 +1209,18 @@ test('force: waits for the running turn and then posts', async () => {
   const result = await pending;
   assert.equal(loose(result).outcome, 'spoke');
   assert.equal(h.turnCalls.length, 1);
-  assert.deepEqual(h.turnCalls[0].params.diary, { kind: 'meme', forced: true });
+  assert.deepEqual(h.turnCalls[0].params.selfreflection, { kind: 'meme', forced: true });
 });
 
 test('force: gives up as busy after forceWaitMs', async () => {
   const running = busyTurns();
   const timer = manualDelay();
-  const h = diaryHarness({ diary: { forceWaitMs: 5000 }, turnsExtra: running.turnsExtra, delay: timer.delay });
-  const pending = h.diary.force({});
+  const h = selfreflectionHarness({
+    selfreflection: { forceWaitMs: 5000 },
+    turnsExtra: running.turnsExtra,
+    delay: timer.delay,
+  });
+  const pending = h.selfreflection.force({});
   await flush();
   timer.fire();
   const result = await pending;
@@ -1209,12 +1231,12 @@ test('force: gives up as busy after forceWaitMs', async () => {
 test('force: a busy outcome from the turn waits once and posts again', async () => {
   const timer = manualDelay();
   let idle = 0;
-  const h = diaryHarness({
+  const h = selfreflectionHarness({
     outcomes: [{ outcome: 'busy' }],
     turnsExtra: { isAnyBusy: () => false, waitIdle: async () => void idle++ },
     delay: timer.delay,
   });
-  const result = await h.diary.force({});
+  const result = await h.selfreflection.force({});
   assert.equal(loose(result).outcome, 'spoke');
   assert.equal(idle, 1);
   assert.equal(h.turnCalls.length, 2);

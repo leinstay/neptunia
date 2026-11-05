@@ -20,7 +20,7 @@ test('keeps only the generic README of the persona root trackable', () => {
     'data/interfaces/discord/credentials.json',
     'data/skills/any/SKILL.md',
     'data/subharness/claude/home/.credentials.json',
-    'data/media/diary/a.png',
+    'data/media/selfreflection/a.png',
     'data/.gitignore',
   ]) {
     assert.equal(isIgnored(file), true, file);

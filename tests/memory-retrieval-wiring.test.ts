@@ -18,7 +18,7 @@ import type { MemoryPage, MemoryQuery } from '../src/memory/db/semantic-types.ts
 import { reviewDescription } from '../src/memory/db/describe.ts';
 import { memoryQueryFor } from '../src/memory/retrieval-input.ts';
 import type { RetrievalInput } from '../src/memory/retrieval-input.ts';
-import { createDiary } from '../src/turn/diary.ts';
+import { createSelfreflection } from '../src/turn/selfreflection.ts';
 import { buildBrief } from '../src/watcher/brief.ts';
 import { watcherMemory } from '../src/watcher/install.ts';
 import { labels } from './fixtures/labels.ts';
@@ -238,13 +238,13 @@ test('a diary plan is told the stored facts of group conversations and no privat
   // Bug: the diary reads under an internal context and a mirror publishes a private fact.
   const { world } = known();
   const asked: Array<unknown> = [];
-  const { prepareDiary } = createDiary(
+  const { prepareSelfreflection } = createSelfreflection(
     wrongly({
-      hot: { prompts: { labels, 'diary-plan': 'plan the entry', 'diary-seeds': '' } },
+      hot: { prompts: { labels, 'selfreflection-planner': 'plan the entry', 'selfreflection-seeds': '' } },
       store: {
         state: { data: {} },
         getPlace: () => null,
-        getDiary: () => ({ posts: [] }),
+        getSelfreflection: () => ({ posts: [] }),
         topPlaces: () => [],
         listChannels: () => [],
         getLore: () => [],
@@ -264,11 +264,11 @@ test('a diary plan is told the stored facts of group conversations and no privat
       images: null,
       journalOp: () => null,
       recentOfPlaces: () => ({ lines: null, audience: null }),
-      diaryFacts: (input: RetrievalInput) =>
+      selfreflectionFacts: (input: RetrievalInput) =>
         retrieveMemory(world.db, world.contexts.groups, memoryQueryFor(input, BOUNDS), deps),
     })
   );
-  await wrongly<(input: object) => Promise<unknown>>(prepareDiary)({
+  await wrongly<(input: object) => Promise<unknown>>(prepareSelfreflection)({
     config: { selfreflection: {}, llm: { maxRequestTokens: 100000 }, bot: { timezone: 'UTC' } },
     channel: { id: 'c1', rootId: null, permissions: {} },
     selfName: 'Nep',

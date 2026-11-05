@@ -4,7 +4,7 @@
 
 import { ANSWERS_TIMEOUT_MIN } from './answers-dir.ts';
 import { CliError } from './cli.ts';
-import { DRAW_MODES, DEFAULT_LIVE_PICTURES, MAX_PICTURES, isDateKey } from './diary-day.ts';
+import { DRAW_MODES, DEFAULT_LIVE_PICTURES, MAX_PICTURES, isDateKey } from './selfreflection-day.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 
 export const USAGE =
@@ -13,11 +13,11 @@ export const USAGE =
   '       node scripts/replay.ts <placeId> <triggerMessageId> --recall [--text "<candidate text>"] [--before <context.channelMessages - 1>] [--budget <ms>] [--show-request] [--spend <usd>]\n' +
   '       node scripts/replay.ts --pair <promptsDirA> <promptsDirB> (--triggers <file> | <placeId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
-  '       node scripts/replay.ts --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--diary-own-history] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
+  '       node scripts/replay.ts --selfreflection <selfPicture|picture> [--count 1] [--topic "<text>"] [--selfreflection-own-history] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]\n' +
   '       node scripts/replay.ts --pair-transport (--triggers <file> | <placeId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --loop-triggers (--triggers <file> | <placeId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
-  '       node scripts/replay.ts --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
+  '       node scripts/replay.ts --selfreflection-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
   '       node scripts/replay.ts --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
   '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-first-only] [--answers-all] [--answers-timeout-min 20]])';
 
@@ -27,12 +27,12 @@ export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'r
 /** An intention id (src/intentions/model.ts#newIntentionId). */
 export const INTENTION_ID = /^[A-Za-z0-9_-]{1,20}$/;
 
-/** The diary kinds a brief is asked of: the ones that draw. */
-export const DIARY_KINDS = Object.freeze(['selfPicture', 'picture']);
+/** The selfreflection kinds a brief is asked of: the ones that draw. */
+export const SELFREFLECTION_KINDS = Object.freeze(['selfPicture', 'picture']);
 
-export const MAX_DIARY_COUNT = 50;
+export const MAX_SELFREFLECTION_COUNT = 50;
 
-/** The longest `--seed` of a `--diary-day` run. */
+/** The longest `--seed` of a `--selfreflection-day` run. */
 export const MAX_SEED_CHARS = 200;
 
 /** A journal turn id (src/memory/journal.ts#start). */
@@ -75,14 +75,14 @@ export type ReplayArgs = {
   outDir: string | null;
   spend: string | undefined;
   showRequestTurn: string | null;
-  diary: string | null;
+  selfreflection: string | null;
   count: number | null;
   topic: string | null;
   prompts: string | null;
   skills: string | null;
   dry: boolean;
   pairPrompts: [string, string] | null;
-  diaryDay: boolean;
+  selfreflectionDay: boolean;
   seed: string | null;
   date: string | null;
   draw: string | null;
@@ -104,7 +104,7 @@ export type ReplayArgs = {
   placeId?: string | null;
   triggerId?: string | null;
   answersAll?: boolean;
-  diaryOwnHistory?: boolean;
+  selfreflectionOwnHistory?: boolean;
 };
 
 /**
@@ -120,14 +120,14 @@ export type ReplayArgs = {
  * `--pair` only), `spend` (the raw `--spend` value, undefined when absent) and
  * `showRequestTurn` (`--show-request <turnId>`: no positionals, no mode flag; `--steps`
  * sets `steps` and goes only with it).
- * `--diary <kind>` sets `diary` (one of DIARY_KINDS) and takes only `--count`
+ * `--selfreflection <kind>` sets `selfreflection` (one of SELFREFLECTION_KINDS) and takes only `--count`
  * (`count`, 1 by default), `--topic` (`topic`, raw), `--prompts` (`prompts`),
  * `--out` (`outDir`: the briefs file) and `--spend`; those three take nothing
  * else. `--skills <file>` sets `skills` (the scenario file) and takes only
  * `--out`, `--before`, `--as-of-moment`, `--snapshot`, `--spend`, `--dry`
  * (`dry`, only with it), and one of `--prompts <dir>` (`prompts`) and
  * `--pair-prompts <dirA> <dirB>` (`pairPrompts`, [dirA, dirB], only with it;
- * null when absent); no positionals. `--diary-day` sets `diaryDay` and takes only `--seed`
+ * null when absent); no positionals. `--selfreflection-day` sets `selfreflectionDay` and takes only `--seed`
  * (`seed`, raw, null when absent), `--date` (`date`, a calendar `YYYY-MM-DD`), `--draw` (`draw`,
  * `fake` by default), `--max-pictures` (`maxPictures`, only with `--draw live`, DEFAULT_LIVE_PICTURES
  * by default there, null with `fake`), `--out` and `--spend`; those four take nothing else.
@@ -150,14 +150,14 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     outDir: null,
     spend: undefined,
     showRequestTurn: null,
-    diary: null,
+    selfreflection: null,
     count: null,
     topic: null,
     prompts: null,
     skills: null,
     dry: false,
     pairPrompts: null,
-    diaryDay: false,
+    selfreflectionDay: false,
     seed: null,
     date: null,
     draw: null,
@@ -212,7 +212,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     else if (arg === '--split') out.split = true;
     else if (arg === '--recall') out.recall = true;
     else if (arg === '--budget') out.budget = intFlag(argv[(i += 1)], 1, MAX_BUDGET_MS);
-    else if (arg === '--diary-day') out.diaryDay = true;
+    else if (arg === '--selfreflection-day') out.selfreflectionDay = true;
     else if (arg === '--inner') {
       const kind = argv[(i += 1)];
       if (!INNER_KINDS.includes(kind)) throw new CliError(USAGE);
@@ -239,11 +239,11 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       if (!DRAW_MODES.includes(draw)) throw new CliError(USAGE);
       out.draw = draw;
     } else if (arg === '--max-pictures') out.maxPictures = intFlag(argv[(i += 1)], 1, MAX_PICTURES);
-    else if (arg === '--diary') {
+    else if (arg === '--selfreflection') {
       const kind = argv[(i += 1)];
-      if (!DIARY_KINDS.includes(kind)) throw new CliError(USAGE);
-      out.diary = kind;
-    } else if (arg === '--count') out.count = intFlag(argv[(i += 1)], 1, MAX_DIARY_COUNT);
+      if (!SELFREFLECTION_KINDS.includes(kind)) throw new CliError(USAGE);
+      out.selfreflection = kind;
+    } else if (arg === '--count') out.count = intFlag(argv[(i += 1)], 1, MAX_SELFREFLECTION_COUNT);
     else if (arg === '--prompts') out.prompts = pathValue(argv[(i += 1)]);
     else if (arg === '--pair-prompts') out.pairPrompts = [pathValue(argv[(i += 1)]), pathValue(argv[(i += 1)])];
     else if (arg === '--topic') {
@@ -276,8 +276,8 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       positional.length > 0 ||
       (bare ? out.intention !== null : out.intention === null || out.review) ||
       (out.review && !review) ||
-      out.diaryDay ||
-      out.diary !== null ||
+      out.selfreflectionDay ||
+      out.selfreflection !== null ||
       out.skills !== null ||
       out.showRequestTurn !== null ||
       out.pair ||
@@ -309,11 +309,11 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
   }
   if (out.intention !== null || out.review || out.hideChannels.length > 0 || out.hideMessages.length > 0)
     throw new CliError(USAGE);
-  if (out.diaryDay) {
+  if (out.selfreflectionDay) {
     // The day flags, --out and --spend only; no positionals; --max-pictures with --draw live only.
     if (
       positional.length > 0 ||
-      out.diary !== null ||
+      out.selfreflection !== null ||
       out.skills !== null ||
       out.showRequestTurn !== null ||
       out.showRequest ||
@@ -358,7 +358,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     // The scenario file with the memory, output and prompt-layer flags, --spend and --dry only; no positionals.
     if (
       positional.length > 0 ||
-      out.diary !== null ||
+      out.selfreflection !== null ||
       out.showRequestTurn !== null ||
       out.showRequest ||
       out.pair ||
@@ -383,12 +383,12 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
   if (out.dry || out.pairPrompts !== null || out.coreTools) throw new CliError(USAGE);
   if (
     (out.pairTransport || out.loopTriggers) &&
-    (out.pair || out.diary !== null || out.showRequestTurn !== null || (out.pairTransport && out.loopTriggers))
+    (out.pair || out.selfreflection !== null || out.showRequestTurn !== null || (out.pairTransport && out.loopTriggers))
   )
     throw new CliError(USAGE);
   if (out.transport !== null && !out.loopTriggers) throw new CliError(USAGE);
-  if (out.diary !== null) {
-    // The diary flags, --out and --spend only; no positionals.
+  if (out.selfreflection !== null) {
+    // The selfreflection flags, --out and --spend only; no positionals.
     if (
       positional.length > 0 ||
       out.showRequestTurn !== null ||

@@ -77,7 +77,7 @@ type SearchSettings = {
 /** The live config as the lookup reads it. */
 type LookupConfig = {
   media?: { video?: { sites?: ReadonlyArray<string> } };
-  web?: { acceptLanguage?: string; links?: LinksSettings; search?: SearchSettings };
+  web?: { acceptLanguage?: string; links?: LinksSettings; quickSearch?: SearchSettings };
 };
 /** One source of a condensed search. */
 type Source = { title: string; url: string; site: string };

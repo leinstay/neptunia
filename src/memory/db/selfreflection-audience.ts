@@ -1,6 +1,6 @@
-// The audience of a diary entry over the memory database: the places she can name (`publicationPlaces`, what the writer
+// The audience of a selfreflection entry over the memory database: the places she can name (`publicationPlaces`, what the writer
 // request shows and what her `<audience>` is checked against) and whether a stored entry may reach a place
-// (`audienceRefusal`, reached through publish.ts#storedDiaryPublicationRefusal at queue time and right before a send).
+// (`audienceRefusal`, reached through publish.ts#storedSelfreflectionPublicationRefusal at queue time and right before a send).
 //
 // Places are compared by their interface-qualified id, so the same native id on two interfaces stays two places. A place
 // audience covers the place and its descendants through `parent_id`. The audience only narrows what trusted restrictions
@@ -9,7 +9,7 @@
 // A row with no `publicationAudience` predates the audience and stays as it is: an old group entry stays on its own
 // `scope_iface`, and anything with no interface or a private scope reaches nothing. Pure reads. Logs: none.
 
-import { diaryMetadataOf, isPublicationAudience, refusedAudience } from '../../tools/publication.ts';
+import { selfreflectionMetadataOf, isPublicationAudience, refusedAudience } from '../../tools/publication.ts';
 import type { KnownPlaces, PublicationAudience } from '../../tools/publication.ts';
 import type { Db, Row } from './types.ts';
 
@@ -41,12 +41,12 @@ export function publicationPlaces(connection: unknown): KnownPlaces {
 export function refusedEntries(db: Db): Array<{ entryId: string; reason: string }> {
   return db
     .prepare(
-      `SELECT id, extra FROM diary WHERE retired_at IS NULL AND extra LIKE '%publicationAudience%'
+      `SELECT id, extra FROM selfreflection WHERE retired_at IS NULL AND extra LIKE '%publicationAudience%'
         ORDER BY at_ms, COALESCE(position, 0), id`
     )
     .all()
     .flatMap((row) => {
-      const refused = refusedAudience(diaryMetadataOf(row.extra).publicationAudience);
+      const refused = refusedAudience(selfreflectionMetadataOf(row.extra).publicationAudience);
       return refused ? [{ entryId: String(row.id), reason: refused.reason }] : [];
     });
 }
@@ -67,7 +67,7 @@ function covers(db: Db, audience: PublicationAudience, placeId: string): boolean
 /**
  * What a stored entry's audience says against reaching `placeId`, after its saved boundary let the place through:
  * `audience-excluded`, `audience-invalid` for a stored value that cannot be read, or null when it may go. A row that is
- * not there says nothing: the diary service publishes an entry only after its row settled (src/behavior/diary.ts).
+ * not there says nothing: the selfreflection service publishes an entry only after its row settled (src/behavior/selfreflection.ts).
  */
 export function audienceRefusal(
   db: Db,
@@ -76,7 +76,7 @@ export function audienceRefusal(
 ): 'audience-excluded' | 'audience-invalid' | null {
   // The live path publishes after `flushSettled`, so a row that is not there is no entry of hers to hold back.
   if (!row) return null;
-  const metadata = diaryMetadataOf(row.extra);
+  const metadata = selfreflectionMetadataOf(row.extra);
   const bounded = metadata.publicationBoundary !== undefined;
   if (!bounded && row.scope_kind !== 'group') return 'audience-excluded';
   const audience = metadata.publicationAudience;

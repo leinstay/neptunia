@@ -24,7 +24,7 @@
 //       written through `write` (`{ kind: 'reembed', rows, now }`, applyReembed on the writer). A vector of another
 //       model than today's embedding model, or of other dims, is left evicted and counted.
 //   checkMedia(handle, { dataDir, apply })
-//       Her diary media (`media` rows of kind `diary`, files under `data/media/diary/`): `present` when the file exists
+//       Her selfreflection media (`media` rows of kind `selfreflection`, files under `data/media/selfreflection/`): `present` when the file exists
 //       with the stored size, else `missing`. Every other media row stays `unknown` (foreign media keeps its
 //       description and the interface's reference; its hash may be null).
 // Every time is an ISO string; `now` is milliseconds. Imports nothing heavy (the sync worker loads it).

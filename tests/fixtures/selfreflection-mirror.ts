@@ -12,7 +12,7 @@ import type { createFakeAdapter } from '../../src/interface/fake.ts';
 import { openTestMemory } from './memory-db/service.ts';
 
 /**
- * The entry a diary turn recorded (`result.diary.entry`), as src/behavior/mirror.ts#publishEntry takes it: its `diary`
+ * The entry a diary turn recorded (`result.selfreflection.entry`), as src/behavior/mirror.ts#publishEntry takes it: its `selfreflection`
  * row's id and her messages in order, and whatever else the publisher needs to send it (the pictures, the voice).
  */
 export type RecordedEntry = { id: string; messages: ReadonlyArray<string> };
@@ -55,7 +55,7 @@ export function seedPlace(
 }
 
 /**
- * A group conversation of `iface` as a place, and a `diary` mirror on it set up by the owner. Returns the mirror's id
+ * A group conversation of `iface` as a place, and a `selfreflection` mirror on it set up by the owner. Returns the mirror's id
  * and the place's id.
  */
 export function seedMirror(
@@ -72,7 +72,7 @@ export function seedMirror(
   const id = `mirror:test:${placeId}`;
   dbOf(memoryDb)
     .prepare(
-      "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES (?, 'diary', ?, ?, ?, 'owner', NULL)"
+      "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES (?, 'selfreflection', ?, ?, ?, 'owner', NULL)"
     )
     .run(id, placeId, enabled ? 1 : 0, new Date(at).toISOString());
   return { id, placeId };
@@ -81,11 +81,11 @@ export function seedMirror(
 /** One publication as a test reads it: its state, key, destination and the message keys of its receipts. */
 export type PublicationRow = { status: string; key: string; placeId: string | null; receiptKeys: Array<string> };
 
-/** The publications of `diary` rows, oldest first. */
-export function diaryPublications(memoryDb: MemoryService): Array<PublicationRow> {
+/** The publications of `selfreflection` rows, oldest first. */
+export function selfreflectionPublications(memoryDb: MemoryService): Array<PublicationRow> {
   return dbOf(memoryDb)
     .prepare(
-      "SELECT status, idempotency_key, destination_place_id, receipts FROM publications WHERE row_kind = 'diary' ORDER BY created_at, id"
+      "SELECT status, idempotency_key, destination_place_id, receipts FROM publications WHERE row_kind = 'selfreflection' ORDER BY created_at, id"
     )
     .all()
     .map((row) => ({
@@ -99,9 +99,9 @@ export function diaryPublications(memoryDb: MemoryService): Array<PublicationRow
 }
 
 /** The diary rows of memory: id, kind and full text, in their order. */
-export function diaryRows(memoryDb: MemoryService): Array<{ id: string; kind: string | null; text: string | null }> {
+export function selfreflectionRows(memoryDb: MemoryService): Array<{ id: string; kind: string | null; text: string | null }> {
   return dbOf(memoryDb)
-    .prepare('SELECT id, kind, text FROM diary WHERE retired_at IS NULL ORDER BY position, id')
+    .prepare('SELECT id, kind, text FROM selfreflection WHERE retired_at IS NULL ORDER BY position, id')
     .all()
     .map((row) => ({
       id: String(row.id),
@@ -110,24 +110,24 @@ export function diaryRows(memoryDb: MemoryService): Array<{ id: string; kind: st
     }));
 }
 
-/** The entry a diary turn recorded, from its result (`result.diary.entry`). */
+/** The entry a diary turn recorded, from its result (`result.selfreflection.entry`). */
 export function entryOf(result: unknown): RecordedEntry {
   // The turn runner is JS and answers an untyped result; the entry's shape is the contract of mirror.ts.
-  const entry = (result as { diary?: { entry?: RecordedEntry } } | null)?.diary?.entry;
+  const entry = (result as { selfreflection?: { entry?: RecordedEntry } } | null)?.selfreflection?.entry;
   assert.ok(entry, 'the diary turn names the entry it recorded');
   return entry;
 }
 
-/** The counts of a diary turn's outcome (`result.diary`) without the entry and the audience it names. */
-export function diaryCounts(result: unknown): Record<string, unknown> {
-  // The turn runner is JS and answers an untyped result; `diary` is a plain object of counts, the entry and the audience.
-  const { entry, audience, ...counts } = (result as { diary: Record<string, unknown> }).diary;
+/** The counts of a diary turn's outcome (`result.selfreflection`) without the entry and the audience it names. */
+export function selfreflectionCounts(result: unknown): Record<string, unknown> {
+  // The turn runner is JS and answers an untyped result; `selfreflection` is a plain object of counts, the entry and the audience.
+  const { entry, audience, ...counts } = (result as { selfreflection: Record<string, unknown> }).selfreflection;
   void entry;
   void audience;
   return counts;
 }
 
-/** The `index`th post a fake store's `appendDiaryPost` was given: `{ placeId, post, opts }`. */
+/** The `index`th post a fake store's `appendSelfreflectionPost` was given: `{ placeId, post, opts }`. */
 export function appendedPost(
   store: { appended: Array<unknown> },
   index = 0

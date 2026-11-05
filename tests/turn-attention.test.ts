@@ -363,7 +363,7 @@ test('turn: a routed turn marks the destination busy, not the source', async () 
   });
   const call = { ...rawMessage({ id: 'd1', authorName: 'Éloïse', content: '@Bot εδώ;' }), placeId: 'c2' };
   // The source: a readable text channel of the same guild where the bot may not send.
-  fakeTurnChannel({ id: 'c2', name: 'diary', historyMessages: [call], permissions: { send: false } });
+  fakeTurnChannel({ id: 'c2', name: 'selfreflection', historyMessages: [call], permissions: { send: false } });
   const llm = controllableLlm();
   const turns = createTurnRunner({
     hot: fakeHot({}),
@@ -402,7 +402,7 @@ test('createTurnRunner: spokeAfterSeeing covers the source lines a routed turn s
     placeId: 'c2',
   };
   const call = { ...rawMessage({ id: 'd2', authorName: 'Éloïse', content: '@Bot εδώ;' }), placeId: 'c2' };
-  fakeTurnChannel({ id: 'c2', name: 'diary', historyMessages: [earlier, call], permissions: { send: false } });
+  fakeTurnChannel({ id: 'c2', name: 'selfreflection', historyMessages: [earlier, call], permissions: { send: false } });
   const turns = createTurnRunner({
     hot: fakeHot({}),
     store: fakeStore(),

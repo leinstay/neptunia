@@ -158,7 +158,8 @@ test('every other table has the rows it had, and the ones that said diary say se
     }),
     publication_grants: (row) => ({ ...row, row_kind: 'selfreflection' }),
     turn_reads: (row) => ({ ...row, row_kind: 'selfreflection' }),
-    graph_nodes: (row) => ({ ...row, kind: 'selfreflection', id: 'selfreflection:dy-e1' }),
+    // The specifier's map renamed every node; a database at schema 33 also holds the shipped interface and authority nodes.
+    graph_nodes: (row) => (row.kind === 'diary' ? { ...row, kind: 'selfreflection', id: 'selfreflection:dy-e1' } : row),
     media_links: (row) => (row.owner_kind === 'diary' ? { ...row, owner_kind: 'selfreflection' } : row),
     operational: (row) => (row.kind === 'diary' ? { ...row, kind: 'selfreflection', owner_key: NEW_UNIT } : row),
     files: (row) => ({ ...row, kind: 'selfreflection' }),
@@ -194,8 +195,12 @@ test('the storage unit of the entries has the id the catalog derives from the ne
   // Bug: the unit keeps its old hash while the code asks for the new one, so every entry reads as owned by nobody.
   const file = seedDiaryDatabase();
   reading(file, (db) => {
+    // The specifier compared node:sqlite's null-prototype rows with a plain object, which strict equality refuses.
     assert.deepEqual(
-      db.prepare("SELECT id, kind, key_json FROM storage_units WHERE kind IN ('diary', 'selfreflection')").all(),
+      db
+        .prepare("SELECT id, kind, key_json FROM storage_units WHERE kind IN ('diary', 'selfreflection')")
+        .all()
+        .map((row) => ({ ...row })),
       [{ id: NEW_UNIT, kind: 'selfreflection', key_json: keyJsonOf('selfreflection') }]
     );
     assert.equal(ensureUnit(db, personaKey('selfreflection')), NEW_UNIT);

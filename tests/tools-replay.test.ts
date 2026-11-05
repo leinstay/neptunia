@@ -1,13 +1,13 @@
 // Tests for the pure parts of scripts/replay.ts's diary mode (the arguments, the turn it runs,
 // the dry-run view of hot), of its diary-day mode (the arguments, the seeded plan, the spend
-// gate, the recording image client of scripts/lib/diary-day.ts, the key) and for
-// scripts/lib/prompt-layers.ts, the one prompt layering both --pair and --diary use.
+// gate, the recording image client of scripts/lib/selfreflection-day.ts, the key) and for
+// scripts/lib/prompt-layers.ts, the one prompt layering both --pair and --selfreflection use.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHot } from '../src/hot.ts';
-import { diaryTopic, localDayKey, planDay } from '../src/behavior/diary.ts';
+import { selfreflectionTopic, localDayKey, planDay } from '../src/behavior/selfreflection.ts';
 import { zonedEpoch } from '../src/time.ts';
 import { createImageGen } from '../src/llm/images.ts';
 import { createLookup } from '../src/web/lookup.ts';
@@ -16,10 +16,10 @@ import { createExaSearch } from '../src/web/exa.ts';
 import {
   parseArgs,
   storedDumps,
-  diaryTurnParams,
-  diaryPromptLayers,
+  selfreflectionTurnParams,
+  selfreflectionPromptLayers,
   searchAvailableOf,
-  diaryDayGate,
+  selfreflectionDayGate,
   refuseDiscordWrites,
 } from '../scripts/replay.ts';
 import {
@@ -28,8 +28,8 @@ import {
   PictureCapError,
   fixtureImagesFetch,
   recordingImages,
-  renderDiaryDayReport,
-} from '../scripts/lib/diary-day.ts';
+  renderSelfreflectionDayReport,
+} from '../scripts/lib/selfreflection-day.ts';
 import { REFUSED_EXIT } from '../scripts/lib/cli.ts';
 import { promptLayersHot } from '../scripts/lib/prompt-layers.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -48,28 +48,28 @@ function scratchRoot() {
   fs.mkdirSync(path.join(root, 'config'), { recursive: true });
   fs.writeFileSync(
     path.join(root, 'config', 'config.json'),
-    JSON.stringify({ features: { diary: true }, bot: { timezone: '42' } })
+    JSON.stringify({ features: { selfreflection: true }, bot: { timezone: '42' } })
   );
   fs.mkdirSync(path.join(root, 'prompts'));
   fs.writeFileSync(path.join(root, 'prompts', 'reply.md'), 'tracked reply');
-  fs.writeFileSync(path.join(root, 'prompts', 'diary-plan.md'), 'tracked plan');
+  fs.writeFileSync(path.join(root, 'prompts', 'selfreflection-planner.md'), 'tracked plan');
   // PR 7c: the tracked labels live in config/labels.json under `model`.
   fs.writeFileSync(
     path.join(root, 'config', 'labels.json'),
-    JSON.stringify({ model: { diary: { topic: 'Topic' } }, owner: {} })
+    JSON.stringify({ model: { selfreflection: { topic: 'Topic' } }, owner: {} })
   );
   // Replay layers read the prepared persona tree, separate from tracked engine prompts.
   fs.mkdirSync(path.join(root, 'data', 'prompts'), { recursive: true });
   fs.mkdirSync(path.join(root, 'data', 'config'), { recursive: true });
   fs.writeFileSync(path.join(root, 'data', 'prompts', 'reply.md'), 'local réply');
   fs.mkdirSync(path.join(root, 'candidate'));
-  fs.writeFileSync(path.join(root, 'candidate', 'diary-plan.md'), 'candidate plan');
+  fs.writeFileSync(path.join(root, 'candidate', 'selfreflection-planner.md'), 'candidate plan');
   return root;
 }
 
 test('replay: the diary mode builds a diary turn request with the kind forced', () => {
   const args = parseArgs([
-    '--diary',
+    '--selfreflection',
     'picture',
     '--count',
     '3',
@@ -82,26 +82,36 @@ test('replay: the diary mode builds a diary turn request with the kind forced', 
     '--spend',
     '1',
   ]);
-  assert.equal(args.diary, 'picture');
+  assert.equal(args.selfreflection, 'picture');
   assert.equal(args.count, 3);
   assert.equal(args.prompts, 'candidate');
   assert.equal(args.outDir, '/tmp/briefs.json');
-  assert.deepEqual(diaryTurnParams(args as unknown as Parameters<typeof diaryTurnParams>[0], { diaryTopic }), {
-    mode: 'diary',
-    diary: { kind: 'picture', topic: 'a walk by the séa', forced: false },
-  });
+  assert.deepEqual(
+    selfreflectionTurnParams(args as unknown as Parameters<typeof selfreflectionTurnParams>[0], {
+      selfreflectionTopic,
+    }),
+    {
+      mode: 'selfreflection',
+      selfreflection: { kind: 'picture', topic: 'a walk by the séa', forced: false },
+    }
+  );
   // A blank topic is none, as /nep diary post takes it; the count defaults to one brief.
-  const bare = parseArgs(['--diary', 'selfPicture', '--topic', '   ']);
+  const bare = parseArgs(['--selfreflection', 'selfPicture', '--topic', '   ']);
   assert.equal(bare.count, 1);
-  assert.deepEqual(diaryTurnParams(bare as unknown as Parameters<typeof diaryTurnParams>[0], { diaryTopic }), {
-    mode: 'diary',
-    diary: { kind: 'selfPicture', forced: false },
-  });
+  assert.deepEqual(
+    selfreflectionTurnParams(bare as unknown as Parameters<typeof selfreflectionTurnParams>[0], {
+      selfreflectionTopic,
+    }),
+    {
+      mode: 'selfreflection',
+      selfreflection: { kind: 'selfPicture', forced: false },
+    }
+  );
   // Only the diary flags go with it; an unknown kind, a reply flag or a positional is refused.
-  assert.throws(() => parseArgs(['--diary', 'poem']), /usage/);
-  assert.throws(() => parseArgs(['--diary', 'picture', '--split']), /usage/);
-  assert.throws(() => parseArgs(['--diary', 'picture', '123456789012345678', '223456789012345678']), /usage/);
-  assert.throws(() => parseArgs(['--diary', 'picture', '--count', '51']), /usage/);
+  assert.throws(() => parseArgs(['--selfreflection', 'poem']), /usage/);
+  assert.throws(() => parseArgs(['--selfreflection', 'picture', '--split']), /usage/);
+  assert.throws(() => parseArgs(['--selfreflection', 'picture', '123456789012345678', '223456789012345678']), /usage/);
+  assert.throws(() => parseArgs(['--selfreflection', 'picture', '--count', '51']), /usage/);
   assert.throws(() => parseArgs(['123456789012345678', '223456789012345678', '--topic', 'x']), /usage/);
   assert.throws(
     () => parseArgs(['--pair', 'a', 'b', '--prompts', 'c', '123456789012345678', '223456789012345678']),
@@ -113,26 +123,26 @@ test('replay: --prompts layering is one helper shared by pair and diary', () => 
   const root = scratchRoot();
   const tmpDir = tempDir('nep-replay-layers-');
   try {
-    // --diary: the directory over data/prompts/, which stays under it.
-    const layers = diaryPromptLayers(root, 'candidate');
+    // --selfreflection: the directory over data/prompts/, which stays under it.
+    const layers = selfreflectionPromptLayers(root, 'candidate');
     assert.deepEqual(layers, [path.join(root, 'data', 'prompts'), 'candidate']);
-    const diary = promptLayersHot(quietHot, root, layers, { tmpDir });
-    assert.equal(asRecord(diary.hot).prompts.reply, 'local réply');
-    assert.equal(asRecord(diary.hot).prompts['diary-plan'], 'candidate plan');
-    assert.equal(asRecord(diary.hot).prompts.labels.diary.topic, 'Topic');
-    asRecord(diary.hot).close();
+    const selfreflection = promptLayersHot(quietHot, root, layers, { tmpDir });
+    assert.equal(asRecord(selfreflection.hot).prompts.reply, 'local réply');
+    assert.equal(asRecord(selfreflection.hot).prompts['selfreflection-planner'], 'candidate plan');
+    assert.equal(asRecord(selfreflection.hot).prompts.labels.selfreflection.topic, 'Topic');
+    asRecord(selfreflection.hot).close();
     // --pair: one side's directory is data/prompts/ (the other layers do not show through).
     const side = promptLayersHot(quietHot, root, ['candidate'], { tmpDir });
     assert.equal(asRecord(side.hot).prompts.reply, 'tracked reply');
-    assert.equal(asRecord(side.hot).prompts['diary-plan'], 'candidate plan');
+    assert.equal(asRecord(side.hot).prompts['selfreflection-planner'], 'candidate plan');
     asRecord(side.hot).close();
     // No data/prompts/ in the checkout: the diary layers are the directory alone.
     fs.rmSync(path.join(root, 'data', 'prompts'), { recursive: true });
-    assert.deepEqual(diaryPromptLayers(root, 'candidate'), ['candidate']);
+    assert.deepEqual(selfreflectionPromptLayers(root, 'candidate'), ['candidate']);
     assert.throws(() => promptLayersHot(quietHot, root, ['missing'], { tmpDir }), /missing is not a directory/);
     // The checkout is untouched.
     // PR 7c: the tracked labels live in config/, beside prompts/.
-    assert.deepEqual(fs.readdirSync(path.join(root, 'prompts')).sort(), ['diary-plan.md', 'reply.md']);
+    assert.deepEqual(fs.readdirSync(path.join(root, 'prompts')).sort(), ['selfreflection-planner.md', 'reply.md']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -145,7 +155,7 @@ test('replay: --prompts layering is one helper shared by pair and diary', () => 
   assert.equal(
     (source.match(/promptLayersHot\(/g) ?? []).length + (shared.match(/return promptLayersHot\(/g) ?? []).length,
     2,
-    'one call for --pair, one for --diary'
+    'one call for --pair, one for --selfreflection'
   );
   assert.ok(!/function sideHot\b/.test(source));
   assert.ok(!/fs\.cpSync\(/.test(source), 'no prompt copying outside the helper');
@@ -167,20 +177,20 @@ test('replay: explicit data selection supplies canonical config and prompts to d
     fs.mkdirSync(path.join(privateDir, 'prompts'));
     fs.writeFileSync(path.join(privateDir, 'prompts', 'reply.md'), 'private reply');
 
-    const layers = diaryPromptLayers(root, 'candidate', env);
+    const layers = selfreflectionPromptLayers(root, 'candidate', env);
     assert.deepEqual(layers, [path.join(privateDir, 'prompts'), 'candidate']);
-    const diary = promptLayersHot(quietHot, root, layers, { tmpDir, env });
-    assert.equal(asRecord(diary.hot).prompts.reply, 'private reply', 'the checkout data/prompts/ is not read');
-    assert.equal(asRecord(diary.hot).prompts['diary-plan'], 'candidate plan');
-    assert.equal(asRecord(diary.hot).config.bot.timezone, 'private');
-    asRecord(diary.hot).close();
+    const selfreflection = promptLayersHot(quietHot, root, layers, { tmpDir, env });
+    assert.equal(asRecord(selfreflection.hot).prompts.reply, 'private reply', 'the checkout data/prompts/ is not read');
+    assert.equal(asRecord(selfreflection.hot).prompts['selfreflection-planner'], 'candidate plan');
+    assert.equal(asRecord(selfreflection.hot).config.bot.timezone, 'private');
+    asRecord(selfreflection.hot).close();
     const side = promptLayersHot(quietHot, root, ['candidate'], { tmpDir, env });
     assert.equal(asRecord(side.hot).config.bot.timezone, 'private');
     assert.equal(asRecord(side.hot).prompts.reply, 'tracked reply');
     asRecord(side.hot).close();
     // No data/prompts/ in the private directory: the checkout's is not taken instead.
     fs.rmSync(path.join(privateDir, 'prompts'), { recursive: true });
-    assert.deepEqual(diaryPromptLayers(root, 'candidate', env), ['candidate']);
+    assert.deepEqual(selfreflectionPromptLayers(root, 'candidate', env), ['candidate']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
     fs.rmSync(privateDir, { recursive: true, force: true });
@@ -211,17 +221,17 @@ test('replay: search availability follows web.quickSearch.engine through the loo
   assert.equal(available('brave', { brave: 'k' }), true);
 });
 
-// ---- --diary-day -------------------------------------------------------------------
+// ---- --selfreflection-day -------------------------------------------------------------------
 
-test('replay: --diary-day takes its own flags, fake drawing by default, --max-pictures only live', () => {
-  const bare = parseArgs(['--diary-day']);
-  assert.equal(bare.diaryDay, true);
+test('replay: --selfreflection-day takes its own flags, fake drawing by default, --max-pictures only live', () => {
+  const bare = parseArgs(['--selfreflection-day']);
+  assert.equal(bare.selfreflectionDay, true);
   assert.equal(bare.draw, 'fake');
   assert.equal(bare.maxPictures, null);
   assert.equal(bare.seed, null);
   assert.equal(bare.date, null);
   const full = parseArgs([
-    '--diary-day',
+    '--selfreflection-day',
     '--seed',
     'σπόρος-1',
     '--date',
@@ -240,23 +250,23 @@ test('replay: --diary-day takes its own flags, fake drawing by default, --max-pi
     ['σπόρος-1', '2026-10-06', 'live', 3, 'day', '2']
   );
   assert.equal(
-    parseArgs(['--diary-day', '--draw', 'live']).maxPictures,
+    parseArgs(['--selfreflection-day', '--draw', 'live']).maxPictures,
     2,
     'a live day draws two pictures at most unless told'
   );
   for (const argv of [
-    ['--diary-day', '--max-pictures', '2'],
-    ['--diary-day', '--draw', 'fake', '--max-pictures', '2'],
-    ['--diary-day', '--draw', 'paint'],
-    ['--diary-day', '--date', '2026-02-30'],
-    ['--diary-day', '--date', '06-10-2026'],
-    ['--diary-day', '--draw', 'live', '--max-pictures', '0'],
-    ['--diary-day', '123456789012345678', '223456789012345678'],
-    ['--diary-day', '--diary', 'picture'],
-    ['--diary-day', '--count', '2'],
-    ['--diary-day', '--prompts', 'candidate'],
-    ['--diary-day', '--snapshot', 'snap'],
-    ['--diary', 'picture', '--seed', 's'],
+    ['--selfreflection-day', '--max-pictures', '2'],
+    ['--selfreflection-day', '--draw', 'fake', '--max-pictures', '2'],
+    ['--selfreflection-day', '--draw', 'paint'],
+    ['--selfreflection-day', '--date', '2026-02-30'],
+    ['--selfreflection-day', '--date', '06-10-2026'],
+    ['--selfreflection-day', '--draw', 'live', '--max-pictures', '0'],
+    ['--selfreflection-day', '123456789012345678', '223456789012345678'],
+    ['--selfreflection-day', '--selfreflection', 'picture'],
+    ['--selfreflection-day', '--count', '2'],
+    ['--selfreflection-day', '--prompts', 'candidate'],
+    ['--selfreflection-day', '--snapshot', 'snap'],
+    ['--selfreflection', 'picture', '--seed', 's'],
     ['123456789012345678', '223456789012345678', '--draw', 'fake'],
   ]) {
     assert.throws(() => parseArgs(argv), /usage/, argv.join(' '));
@@ -278,10 +288,10 @@ const DAY_CONFIG = {
   },
 };
 
-test('replay: --diary-day plans the same slots for the same seed and date, inside the windows of that local day', () => {
-  const args = parseArgs(['--diary-day', '--seed', 'abc', '--date', '2026-10-06', '--spend', '5']);
-  const first = diaryDayGate(args, DAY_CONFIG, DAY_MODS);
-  const again = diaryDayGate(args, DAY_CONFIG, DAY_MODS);
+test('replay: --selfreflection-day plans the same slots for the same seed and date, inside the windows of that local day', () => {
+  const args = parseArgs(['--selfreflection-day', '--seed', 'abc', '--date', '2026-10-06', '--spend', '5']);
+  const first = selfreflectionDayGate(args, DAY_CONFIG, DAY_MODS);
+  const again = selfreflectionDayGate(args, DAY_CONFIG, DAY_MODS);
   assert.equal(first.day.slots.length, 2);
   assert.deepEqual(again.day.slots, first.day.slots, 'deterministic');
   assert.equal(first.date, '2026-10-06');
@@ -297,15 +307,15 @@ test('replay: --diary-day plans the same slots for the same seed and date, insid
       afternoon < zonedEpoch('2026-10-06', 20, 0, 'Europe/Athens')
   );
 
-  const other = diaryDayGate(
-    parseArgs(['--diary-day', '--seed', 'abd', '--date', '2026-10-06', '--spend', '5']),
+  const other = selfreflectionDayGate(
+    parseArgs(['--selfreflection-day', '--seed', 'abd', '--date', '2026-10-06', '--spend', '5']),
     DAY_CONFIG,
     DAY_MODS
   );
   assert.notDeepEqual(other.day.slots, first.day.slots, 'another seed, other slots');
   // No --date: the local day of the clock in bot.timezone (22:30 UTC is the next day in Athens).
-  const today = diaryDayGate(
-    parseArgs(['--diary-day', '--seed', 'abc', '--spend', '5']),
+  const today = selfreflectionDayGate(
+    parseArgs(['--selfreflection-day', '--seed', 'abc', '--spend', '5']),
     DAY_CONFIG,
     DAY_MODS,
     Date.UTC(2026, 9, 6, 22, 30)
@@ -313,30 +323,34 @@ test('replay: --diary-day plans the same slots for the same seed and date, insid
   assert.equal(today.date, '2026-10-07');
   // No --seed: a fresh one, reported.
   assert.match(
-    diaryDayGate(parseArgs(['--diary-day', '--date', '2026-10-06', '--spend', '5']), DAY_CONFIG, DAY_MODS).seed,
+    selfreflectionDayGate(
+      parseArgs(['--selfreflection-day', '--date', '2026-10-06', '--spend', '5']),
+      DAY_CONFIG,
+      DAY_MODS
+    ).seed,
     /^[0-9a-f]{12}$/
   );
 });
 
-test('replay: --diary-day refuses without --spend covering its estimate; a day without a slot needs none', () => {
+test('replay: --selfreflection-day refuses without --spend covering its estimate; a day without a slot needs none', () => {
   const refused = (argv: Untyped) => {
     try {
-      diaryDayGate(parseArgs(argv), DAY_CONFIG, DAY_MODS);
+      selfreflectionDayGate(parseArgs(argv), DAY_CONFIG, DAY_MODS);
     } catch (err) {
       return err;
     }
     return null;
   };
-  const none = refused(['--diary-day', '--seed', 'abc', '--date', '2026-10-06']);
+  const none = refused(['--selfreflection-day', '--seed', 'abc', '--date', '2026-10-06']);
   assert.equal(asRecord(none)?.exitCode, REFUSED_EXIT);
   assert.match(asRecord(none).message, /estimate: 4 model request\(s\), ~0\.60 USD/);
   assert.match(asRecord(none).message, /pictures faked/);
   assert.equal(
-    asRecord(refused(['--diary-day', '--seed', 'abc', '--date', '2026-10-06', '--spend', '0.59']))?.exitCode,
+    asRecord(refused(['--selfreflection-day', '--seed', 'abc', '--date', '2026-10-06', '--spend', '0.59']))?.exitCode,
     REFUSED_EXIT
   );
   const live = refused([
-    '--diary-day',
+    '--selfreflection-day',
     '--seed',
     'abc',
     '--date',
@@ -350,9 +364,9 @@ test('replay: --diary-day refuses without --spend covering its estimate; a day w
   ]);
   assert.equal(asRecord(live)?.exitCode, REFUSED_EXIT, 'the live pictures are on top');
   assert.match(asRecord(live).message, /~0\.68 USD/);
-  const passed = diaryDayGate(
+  const passed = selfreflectionDayGate(
     parseArgs([
-      '--diary-day',
+      '--selfreflection-day',
       '--seed',
       'abc',
       '--date',
@@ -372,8 +386,8 @@ test('replay: --diary-day refuses without --spend covering its estimate; a day w
   assert.equal(passed.estimate.pictures, 3);
 
   const quiet = { ...DAY_CONFIG, selfreflection: { ...DAY_CONFIG.selfreflection, quietDayChance: 1 } };
-  const quietDay = diaryDayGate(
-    parseArgs(['--diary-day', '--seed', 'abc', '--date', '2026-10-06', '--draw', 'live']),
+  const quietDay = selfreflectionDayGate(
+    parseArgs(['--selfreflection-day', '--seed', 'abc', '--date', '2026-10-06', '--draw', 'live']),
     quiet,
     DAY_MODS
   );
@@ -382,7 +396,7 @@ test('replay: --diary-day refuses without --spend covering its estimate; a day w
   assert.equal(quietDay.gate.ok, true);
 });
 
-test('replay: --diary-day records every generate() call at the image client and fakes the picture through the real client', async () => {
+test('replay: --selfreflection-day records every generate() call at the image client and fakes the picture through the real client', async () => {
   const state = { data: {}, markDirty() {} };
   const config = {
     llm: { baseUrl: 'https://openrouter.invalid/api/v1' },
@@ -429,7 +443,7 @@ test('replay: --diary-day records every generate() call at the image client and 
     { prompt: 'second', reference: null, accountId: 'u1', result: { error: 'PictureCapError', reason: 'daily' } },
   ]);
   assert.match(images.calls[0].reference?.sha256, /^[0-9a-f]{16}$/);
-  const md = renderDiaryDayReport({
+  const md = renderSelfreflectionDayReport({
     date: '2026-10-06',
     timezone: 'UTC',
     seed: 's',

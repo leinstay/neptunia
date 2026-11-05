@@ -97,13 +97,13 @@ function config({
   features = {},
   tools = {},
   access = {},
-  diary = {},
+  selfreflection = {},
 }: Record<string, Record<string, unknown>> = {}): Record<string, Untyped> {
   return {
-    features: { tools: true, diary: true, ...features },
+    features: { tools: true, selfreflection: true, ...features },
     tools: { safeMode: false, ...tools },
     bot: { owners: [OWNER], access },
-    selfreflection: { placeId: '', kinds: { photos: 1, thought: 1 }, ...diary },
+    selfreflection: { placeId: '', kinds: { photos: 1, thought: 1 }, ...selfreflection },
   };
 }
 
@@ -1124,19 +1124,22 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
   assert.equal(outcomeDetail({ status: 'failed' }), null);
   assert.equal(outcomeDetail(null), null);
   // The operation's own message rides along on one line, cut, only when asked for.
-  const diary = {
+  const selfreflection = {
     status: 'not_configured',
     code: 'not-configured',
     data: { text: 'diary post photos:\n  not-now (no-channel)' },
   };
-  assert.deepEqual(outcomeDetail(diary, { textChars: 200 }), {
+  assert.deepEqual(outcomeDetail(selfreflection, { textChars: 200 }), {
     kind: 'not-configured',
     code: 'not-configured',
     arg: null,
     text: 'diary post photos: not-now (no-channel)',
   });
-  assert.equal('text' in asRecord(outcomeDetail(diary)), false);
-  assert.equal('text' in asRecord(outcomeDetail({ ...diary, data: { text: '  ' } }, { textChars: 200 })), false);
+  assert.equal('text' in asRecord(outcomeDetail(selfreflection)), false);
+  assert.equal(
+    'text' in asRecord(outcomeDetail({ ...selfreflection, data: { text: '  ' } }, { textChars: 200 })),
+    false
+  );
   const long = outcomeDetail(
     { status: 'failed', code: 'error', data: { text: 'λέξη '.repeat(40) } },
     { textChars: 30 }

@@ -37,9 +37,9 @@ const PROMPTS = {
   'character-card': 'CARD_TEXT',
   format: 'FORMAT_TEXT',
   reply: 'Someone called you: {{author}}.',
-  diary: 'DIARY_TASK for {{name}}',
-  'diary-plan': 'PLAN_SYSTEM for {{name}}',
-  'diary-seeds': '# place\na pier\n# light\nfog',
+  selfreflection: 'DIARY_TASK for {{name}}',
+  'selfreflection-planner': 'PLAN_SYSTEM for {{name}}',
+  'selfreflection-seeds': '# place\na pier\n# light\nfog',
   draw: 'A drawing by {{name}}.\n\n{{appearance}}\n\n{{when}}\n\nScene: {{request}}',
   appearance: '{{name}} has silver hair and a green scarf.',
   labels: LABELS,
@@ -47,7 +47,7 @@ const PROMPTS = {
 
 function hot() {
   return {
-    // PR 7d: the switches are code and the diary's kinds and sets are constants of src/behavior/diary.ts (`photoset`
+    // PR 7d: the switches are code and the diary's kinds and sets are constants of src/behavior/selfreflection.ts (`photoset`
     // is a set of 4 to 6 pictures), so the config holds only the keys that are still settings.
     config: {
       bot: { timezone: TZ, owners: ['42'] },
@@ -149,8 +149,8 @@ function store() {
     listUserProfiles: () => [],
     getLore: () => [],
     getMediaCache: () => ({}),
-    getDiary: () => ({ posts: [], updatedAt: 0 }),
-    appendDiaryPost: () => ({ dropped: [] }),
+    getSelfreflection: () => ({ posts: [], updatedAt: 0 }),
+    appendSelfreflectionPost: () => ({ dropped: [] }),
     state: { data: {}, markDirty() {} },
   };
 }
@@ -160,7 +160,7 @@ function llm(post: Untyped, plan: Record<string, unknown> | null = null) {
   let composed = 0;
   return {
     complete: async (_messages: Untyped, opts: Untyped) => {
-      if (opts?.purpose === 'diary-plan') return { text: JSON.stringify(plan), usage: {}, estimated: 5 };
+      if (opts?.purpose === 'selfreflection-planner') return { text: JSON.stringify(plan), usage: {}, estimated: 5 };
       const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
       composed += 1;
       return completionOf(answer);
@@ -243,7 +243,11 @@ test("draw parity: a diary post's single self picture", async () => {
     images,
   });
   const { result } = await withCapturedLogs(() =>
-    turns.runTurn({ channel: channel('d1', 'journal'), mode: 'diary', diary: { kind: null, forced: false } })
+    turns.runTurn({
+      channel: channel('d1', 'journal'),
+      mode: 'selfreflection',
+      selfreflection: { kind: null, forced: false },
+    })
   );
   assert.equal(loose(result).outcome, 'spoke');
   assert.deepEqual(images.calls, [
@@ -266,7 +270,11 @@ test("draw parity: a diary set's pictures, the persona in the first one only", a
   ]);
   const turns = runner({ answer, plan, images });
   const { result } = await withCapturedLogs(() =>
-    turns.runTurn({ channel: channel('d1', 'journal'), mode: 'diary', diary: { kind: null, forced: false } })
+    turns.runTurn({
+      channel: channel('d1', 'journal'),
+      mode: 'selfreflection',
+      selfreflection: { kind: null, forced: false },
+    })
   );
   assert.equal(loose(result).outcome, 'spoke');
   assert.deepEqual(images.calls, [

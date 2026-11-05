@@ -1,6 +1,6 @@
-// Her past messages in a diary mirror's place as entries (schema v15's data step, stage 3 design, section 10, "The
-// past"): every message of hers there that no entry names becomes part of an entry, so her diary in memory holds all
-// she wrote to it. An entry names a message by its `diary_mirrors` ids or by a receipt of its diary publication. The
+// Her past messages in a selfreflection mirror's place as entries (schema v15's data step, stage 3 design, section 10, "The
+// past"): every message of hers there that no entry names becomes part of an entry, so her selfreflection in memory holds all
+// she wrote to it. An entry names a message by its `selfreflection_mirrors` ids or by a receipt of its selfreflection publication. The
 // messages of one turn are one entry. A message with no turn joins the entry nearest to it in time when one of that
 // entry's messages is within two minutes of it (JOIN_MS, frozen with the step), an entry already held included, and
 // otherwise is an entry of its own. A new entry's text is its messages' texts, the empty ones left out, joined with a
@@ -8,7 +8,7 @@
 // entry keeps its text, and its mirror and its publication gain the joined message. Her messages are those she has a
 // `said` line of and those seen from her own account (a message of files only is recorded as seen). The record keeps
 // no attachments of hers, so every entry the step writes or extends is marked `mediaPending` in its extra, and the
-// diary media job (diary-media.ts) reads its files and their descriptions once. A message she deleted is left out. Runs inside the migration's transaction; a second run finds every message named
+// selfreflection media job (selfreflection-media.ts) reads its files and their descriptions once. A message she deleted is left out. Runs inside the migration's transaction; a second run finds every message named
 // and writes nothing.
 
 import { createHash } from 'node:crypto';
@@ -82,13 +82,16 @@ function linesOf(db: Db, placeId: string): Array<Line> {
   return [...byId.values()].sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
 }
 
-/** Every entry by the messages that name it: its `diary_mirrors` ids and its diary publications' receipts. */
+/** Every entry by the messages that name it: its `selfreflection_mirrors` ids and its selfreflection publications' receipts. */
 function heldMessages(db: Db): Map<string, string> {
   const held = new Map<string, string>();
-  for (const row of db.prepare('SELECT diary_id, native_ids FROM diary_mirrors WHERE retired_at IS NULL').all())
-    for (const id of arrayOf(row.native_ids)) if (typeof id === 'string' && id) held.set(id, text(row.diary_id));
   for (const row of db
-    .prepare("SELECT row_id, receipts FROM publications WHERE row_kind = 'diary' AND retired_at IS NULL")
+    .prepare('SELECT selfreflection_id, native_ids FROM selfreflection_mirrors WHERE retired_at IS NULL')
+    .all())
+    for (const id of arrayOf(row.native_ids))
+      if (typeof id === 'string' && id) held.set(id, text(row.selfreflection_id));
+  for (const row of db
+    .prepare("SELECT row_id, receipts FROM publications WHERE row_kind = 'selfreflection' AND retired_at IS NULL")
     .all())
     for (const receipt of arrayOf(row.receipts) as Array<{ key?: unknown; kind?: unknown }>)
       if (typeof receipt?.key === 'string' && receipt.key && receipt.kind !== 'attachment')
@@ -148,16 +151,21 @@ function groupsOf(lines: ReadonlyArray<Line>, held: Map<string, string>): Array<
 function extendHeld(db: Db, group: Group, place: { id: string; iface: string }, at: string): void {
   const joined = group.lines.filter(isJoined).map((line) => line.id);
   const mirror = db
-    .prepare('SELECT rowid, native_ids FROM diary_mirrors WHERE diary_id = ? AND retired_at IS NULL ORDER BY rowid')
+    .prepare(
+      'SELECT rowid, native_ids FROM selfreflection_mirrors WHERE selfreflection_id = ? AND retired_at IS NULL ORDER BY rowid'
+    )
     .get(group.heldId);
   if (mirror) {
     const ids = [...arrayOf(mirror.native_ids), ...joined];
-    db.prepare('UPDATE diary_mirrors SET native_ids = ? WHERE rowid = ?').run(JSON.stringify(ids), mirror.rowid);
+    db.prepare('UPDATE selfreflection_mirrors SET native_ids = ? WHERE rowid = ?').run(
+      JSON.stringify(ids),
+      mirror.rowid
+    );
     deriveMirrorPublication(db, { rowid: Number(mirror.rowid) }, { at });
   } else {
     const publication = db
       .prepare(
-        "SELECT id, receipts FROM publications WHERE row_kind = 'diary' AND row_id = ? AND destination_place_id = ? AND retired_at IS NULL"
+        "SELECT id, receipts FROM publications WHERE row_kind = 'selfreflection' AND row_id = ? AND destination_place_id = ? AND retired_at IS NULL"
       )
       .get(group.heldId, place.id);
     if (!publication) return;
@@ -167,7 +175,7 @@ function extendHeld(db: Db, group: Group, place: { id: string; iface: string }, 
   }
   // The record keeps no attachments of hers: the media job reads the joined messages' files once.
   db.prepare(
-    "UPDATE diary SET extra = json_set(COALESCE(extra, '{}'), '$.mediaPending', json('true')) WHERE id = ?"
+    "UPDATE selfreflection SET extra = json_set(COALESCE(extra, '{}'), '$.mediaPending', json('true')) WHERE id = ?"
   ).run(group.heldId);
 }
 
@@ -180,8 +188,8 @@ function writeEntry(db: Db, group: Group, place: { id: string; iface: string }, 
     .map((line) => line.text)
     .filter((part) => part !== '')
     .join('\n');
-  const id = `diary:past-${first.id}`;
-  // The diary is public: the group audience of the place's interface (the place's own lines hold it already).
+  const id = `selfreflection:past-${first.id}`;
+  // The selfreflection is public: the group audience of the place's interface (the place's own lines hold it already).
   const row: Row = {
     id,
     at_ms: first.at,
@@ -194,10 +202,10 @@ function writeEntry(db: Db, group: Group, place: { id: string; iface: string }, 
   };
   const cols = Object.keys(row);
   db.prepare(
-    `INSERT OR IGNORE INTO diary (${cols.map((col) => `"${col}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
+    `INSERT OR IGNORE INTO selfreflection (${cols.map((col) => `"${col}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
   ).run(...cols.map((col) => row[col] ?? null));
-  projectRow(db, 'diary', { id }, { at });
-  const key = publicationKey('diary', id, place.id);
+  projectRow(db, 'selfreflection', { id }, { at });
+  const key = publicationKey('selfreflection', id, place.id);
   const sentAt = new Date(first.at).toISOString();
   const publication = {
     id: `pub:${createHash('sha256').update(key, 'utf8').digest('hex').slice(0, 32)}`,
@@ -213,7 +221,7 @@ function writeEntry(db: Db, group: Group, place: { id: string; iface: string }, 
   db.prepare(
     `INSERT OR IGNORE INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, context_id,
        grant_id, status, idempotency_key, receipts, created_at, sent_at, owner_file, retired_at)
-     VALUES (?, 'diary', ?, ?, ?, ?, NULL, NULL, 'sent', ?, ?, ?, ?, NULL, NULL)`
+     VALUES (?, 'selfreflection', ?, ?, ?, ?, NULL, NULL, 'sent', ?, ?, ?, ?, NULL, NULL)`
   ).run(
     publication.id,
     id,
@@ -229,7 +237,7 @@ function writeEntry(db: Db, group: Group, place: { id: string; iface: string }, 
 }
 
 /**
- * Her messages in the enabled diary mirror's place `placeId` that no entry names, made entries (see the head of this
+ * Her messages in the enabled selfreflection mirror's place `placeId` that no entry names, made entries (see the head of this
  * file). Returns how many entries were written or extended.
  */
 export function pastEntries(connection: unknown, placeId: string, { at }: { at: string }): number {

@@ -1,7 +1,8 @@
 // B10 of the master plan: the engine's name for the mechanism is `selfreflection` everywhere, and only the text inside
 // the prompts keeps the persona's own word for her diary. That word survives in three places the code does not own: the
 // text of the prompt files and the label values the model reads, the block tags it reads in a request (`<diary>`), and
-// the folder of her pictures on disk (`media/diary`) with the ids already stored (`media:diary:`). Everything else, the
+// the ids already stored (`media:diary:`). B10 by the owner's word: the folder of her pictures on disk is
+// `media/selfreflection`, so the old folder is named only where it migrates. Everything else, the
 // modules, the settings, the label keys, the prompt file names, the tables and the units, says `selfreflection`. Old
 // names live only in the code that migrates them: the shipped schema migrations and the one that follows them
 // (src/memory/db/schema.ts), the offline converter (src/memory/migration/), the config moves and the config cut
@@ -88,10 +89,11 @@ for (const file of ['config/labels.json', 'config/config.json', 'config/tools.js
 
 test('the labels of the selfreflection wake sit in the section selfreflection', () => {
   // Bug: the wake reads `labels.selfreflection` while the file still holds `labels.diary`, and its posts lose their words.
-  const labels = readJson('config/labels.json') as Record<string, Record<string, unknown>>;
+  // The specifier read the file's root; config/labels.json holds the sections the model reads under `model`.
+  const labels = readJson('config/labels.json') as { model: Record<string, Record<string, unknown>> };
   const wanted = ['audienceRefused', 'intro', 'publicationPlaces'];
   assert.deepEqual(
-    Object.keys(labels.selfreflection ?? {})
+    Object.keys(labels.model.selfreflection ?? {})
       .filter((key) => wanted.includes(key))
       .sort(),
     wanted

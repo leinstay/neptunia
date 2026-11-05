@@ -8,9 +8,9 @@
 //   search, or the request a journal turn sent);
 // - a pair of prompt layers (`--pair`): the same triggers answered with two
 //   prompt directories, on a blind sheet;
-// - a diary brief (`--diary`): the diary's scheduled turn run in the diary
+// - a selfreflection brief (`--selfreflection`): the selfreflection's scheduled turn run in the selfreflection
 //   channel, its plan and drawing brief reported;
-// - a diary day (`--diary-day`): a whole seeded day plan of the diary, each
+// - a selfreflection day (`--selfreflection-day`): a whole seeded day plan of the selfreflection, each
 //   slot's turn run to the end with nothing posted, every drawing call recorded;
 // - skill scenarios (`--skills`): an invented request put to the persona
 //   after a real chat, with her tools sent as a live turn sends them, to see
@@ -40,8 +40,8 @@
 //        (--triggers <file> | <placeId> <triggerMessageId>) [--before 40] [--as-of-moment]
 //        [--snapshot <dir>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]
-//   cd /opt/neptunia/app && node scripts/replay.ts --diary <selfPicture|picture> [--count 1] [--topic "<text>"]
-//        [--diary-own-history] [--prompts <dir>] [--out <file>] [--spend <usd>]
+//   cd /opt/neptunia/app && node scripts/replay.ts --selfreflection <selfPicture|picture> [--count 1] [--topic "<text>"]
+//        [--selfreflection-own-history] [--prompts <dir>] [--out <file>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --skills <scenarios.json>
 //        [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40]
 //        [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]
@@ -51,7 +51,7 @@
 //   cd /opt/neptunia/app && node scripts/replay.ts --loop-triggers
 //        (--triggers <file> | <placeId> <triggerMessageId>) [--transport native|text] [--before 40]
 //        [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]
-//   cd /opt/neptunia/app && node scripts/replay.ts --diary-day [--seed <text>] [--date YYYY-MM-DD]
+//   cd /opt/neptunia/app && node scripts/replay.ts --selfreflection-day [--seed <text>] [--date YYYY-MM-DD]
 //        [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --inner <intention_due|errand_deadline|review|heartbeat>
 //        [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--answers-dir <dir>]
@@ -74,7 +74,7 @@
 // heartbeat would carry now: the heartbeat view over the stores, read only. Takes neither
 // `--intention` nor `--review`. Every `--inner` kind takes `--samples n` (n independent runs of
 // the same request, one after another, default 1), `--prompts <dir>` (a prompt layer laid over
-// the live prompts.local/ as `--diary --prompts` does: a directory holding only heartbeat.md
+// the live prompts.local/ as `--selfreflection --prompts` does: a directory holding only heartbeat.md
 // replaces only that file, so a variant of the task text is tried without a deploy) and
 // `--out <file>` (the report as Markdown; not under data/). The JSON on stdout holds every
 // sample: the `<wake>` block, her `<think>`, her messages and calls with their arguments,
@@ -84,7 +84,7 @@
 //
 // `--answers-dir <dir> [--answers-first-only] [--answers-all] [--answers-timeout-min 20]` (any mode that sends requests):
 // the offline model (`--answers-first-only`: only a turn's first answer comes from the files, its tool-loop steps go
-// live; `--answers-all`: every model answers from the files, a diary's plan request on the analyzer model too).
+// live; `--answers-all`: every model answers from the files, a selfreflection's plan request on the analyzer model too).
 // Every request to an Anthropic model (`anthropic/claude-*`), with `--answers-all` to any model, is not sent: it goes to
 // `<dir>/req-<n>.json` (exact strings: model, purpose, system, messages) and `<dir>/req-<n>.md` (n from 1 per run, 3 digits: the model id and the purpose, then every message
 // under `## system` / `## user` / `## assistant`, verbatim) and the run waits (polling, up to the
@@ -96,7 +96,7 @@
 // run needs no `--spend` (only other models are billed; with `--spend` they are capped as usual).
 // The spend gate (scripts/lib/cli.ts#spendGate): every mode that sends model
 // requests prints its estimate first (~USD_PER_ANSWER per request: a persona
-// answer, a splitter sample, the recall classifier and its summary, a diary
+// answer, a splitter sample, the recall classifier and its summary, a selfreflection
 // brief's plan and compose requests, a skill run's answer and its possible
 // follow-up, per message of every step of a multi-step scenario -- each may
 // get its own turn --, twice with `--pair-prompts`) and refuses, exit code 2,
@@ -285,7 +285,7 @@
 // for every mode that takes a prompt directory): a scratch copy of the config
 // files and the tracked prompts/, with directories copied into prompts.local/
 // in order and read by src/hot.js as the bot reads its own. `--pair` gives
-// each side its directory alone as prompts.local/; `--diary --prompts <dir>`
+// each side its directory alone as prompts.local/; `--selfreflection --prompts <dir>`
 // lays the directory over the live prompts.local/ (a file of the same name
 // replaces it whole, labels.json included); `--skills --prompts` and
 // `--pair-prompts` lay it the same way but merge labels.json and tools.json
@@ -295,38 +295,38 @@
 // directory given) that is a link -- a separate checkout linking to the live
 // layer -- is read through it and copied as files, never linked to or written.
 //
-// `--diary <kind>`: `--count` briefs (1..50) of one diary kind, each one `runTurn({ placeId, mode: 'diary', diary: {
+// `--selfreflection <kind>`: `--count` briefs (1..50) of one selfreflection kind, each one `runTurn({ placeId, mode: 'selfreflection', selfreflection: {
 // kind, [topic], forced: false } })` of the real turn runner (src/behavior/turn.js, wired as src/index.js wires it)
-// with no conversation, as the live diary runs it: the plan request on the classifier model with the given kind the
-// only one offered (as `/nep diary post <kind>` does; `forced: false` keeps the compose request a scheduled post's),
-// then the compose request on the voice model. `--diary-own-history` keeps only her own messages in the history of a
-// channel her diary posted in, as the data directory's memory names it: the code before the selfreflection wake read
-// its diary history from the channel, and so compares with her diary. Not the sandbox: the sandbox never
-// builds a diary post (src/behavior/sandbox.js#SANDBOX_OMITS). `--topic`: the owner's topic as `/nep diary post <kind>
-// <topic>` threads it (trimmed, blank is none, then src/behavior/diary.ts#diaryTopic). What keeps the bot and its
+// with no conversation, as the live selfreflection runs it: the plan request on the classifier model with the given kind the
+// only one offered (as `/nep selfreflection post <kind>` does; `forced: false` keeps the compose request a scheduled post's),
+// then the compose request on the voice model. `--selfreflection-own-history` keeps only her own messages in the history of a
+// channel her selfreflection posted in, as the data directory's memory names it: the code before the selfreflection wake read
+// its selfreflection history from the channel, and so compares with her selfreflection. Not the sandbox: the sandbox never
+// builds a selfreflection post (src/behavior/sandbox.js#SANDBOX_OMITS). `--topic`: the owner's topic as `/nep selfreflection post <kind>
+// <topic>` threads it (trimmed, blank is none, then src/behavior/selfreflection.ts#selfreflectionTopic). What keeps the bot and its
 // memory untouched here: every Discord REST call but GET is refused (`refuseDiscordWrites`: nothing is posted, edited or
 // typed, whatever the turn or her tools try); the memory database is opened read only; the store is
 // the real one with an in-memory copy of its state that is never flushed (flush, forget, wipe and reload methods
-// throw); the image client keeps its quota and refuses to generate; in that in-memory state only, today's diary picture
+// throw); the image client keeps its quota and refuses to generate; in that in-memory state only, today's selfreflection picture
 // and image counts read 0 so the picture gate opens. Requests carry `origin: 'replay'` and never count against
 // `llm.maxRequestsPerDay`. Output: the briefs `[{ kind, plan, self, request, messages, outcome }]` (request = the first
-// `<draw>` scene text, self its self flag, messages the post's `<msg>` texts after the diary's filters) to `--out
+// `<draw>` scene text, self its self flag, messages the post's `<msg>` texts after the selfreflection's filters) to `--out
 // <file>` (rewritten after each brief; refused under data/) with a summary on stdout, else on stdout. Exit code 1 when
 // no brief drew.
 //
-// `--diary-day`: one day of the diary as the live diary runs it (src/behavior/diary.ts#createDiary's tick), for the
+// `--selfreflection-day`: one day of the selfreflection as the live selfreflection runs it (src/behavior/selfreflection.ts#createSelfreflection's tick), for the
 // record of what it would draw. The day plan: planDay for the local date `--date` (default today in `bot.timezone`) at
 // its local midnight, with no hunger carried in, on a random stream seeded by `--seed` (default a fresh one, printed
-// and kept in the report): the same config, date and seed give the same slots (scripts/lib/diary-day.ts#planDiaryDay).
+// and kept in the report): the same config, date and seed give the same slots (scripts/lib/selfreflection-day.ts#planSelfreflectionDay).
 // The turns draw from a second stream of the same seed. Then, slot by slot in order, the clock of the turn runner and
-// the image client set to the slot (and running on from there), the diary's own checks as the tick makes them (the
-// day's posts under `selfreflection.maxPerDay`, else `skip` with reason `cap`), and `runTurn({ placeId, mode: 'diary', diary: {
+// the image client set to the slot (and running on from there), the selfreflection's own checks as the tick makes them (the
+// day's posts under `selfreflection.maxPerDay`, else `skip` with reason `cap`), and `runTurn({ placeId, mode: 'selfreflection', selfreflection: {
 // kind: null, forced: false } })` of the real turn runner with no conversation: the plan request, its search, the
 // compose request, the pictures generated, and the entry recorded, which the slot reports as what its publication would
-// send. A post a slot made is kept in the in-memory diary and counters, so the next slot sees it as the live diary
+// send. A post a slot made is kept in the in-memory selfreflection and counters, so the next slot sees it as the live selfreflection
 // would. What keeps the bot and its memory untouched: every Discord REST call but GET is refused; the turn acts through
 // an in-memory interface port only (src/interface/fake.ts); the store is the real one over an in-memory copy of its state that is never flushed,
-// with today's diary post, diary picture and image counts at 0; no journal and no record are wired; requests carry
+// with today's selfreflection post, selfreflection picture and image counts at 0; no journal and no record are wired; requests carry
 // `origin: 'replay'` and never count against `llm.maxRequestsPerDay`.
 // `--draw fake` (the default): the image client is the real one
 // (src/llm/images.ts#createImageGen, its caps and model check) over a fetch that
@@ -341,10 +341,10 @@
 // `--draw live` `--max-pictures` pictures at ~0.025 USD -- and the refusal
 // without `--spend` covering it; the run also stops once what the provider
 // reports spent reaches `--spend`. A day with no slot sends nothing. Written to
-// `--out` (default ./replay-diary-day-<time>/, refused under data/ and when it
+// `--out` (default ./replay-selfreflection-day-<time>/, refused under data/ and when it
 // exists and is not empty), rewritten after each slot: `report.json` (`{ date,
 // timezone, seed, draw, quiet, plan: { slots, hunger }, slots: [{ n, at, local,
-// outcome, reason, plan, diary, messages, attachments, draws: [{ prompt,
+// outcome, reason, plan, selfreflection, messages, attachments, draws: [{ prompt,
 // reference, accountId, result, file }], requests, cost }], usage, stopped }`) and
 // `report.md`. stdout: the paths, the slot outcomes and the usage. Exit code 1
 // when a slot ended in `error` or the run was stopped.
@@ -534,16 +534,16 @@ import {
   spendGate,
 } from './lib/cli.ts';
 import {
-  diaryDayEstimate,
+  selfreflectionDayEstimate,
   fixtureImagesFetch,
-  planDiaryDay,
+  planSelfreflectionDay,
   recordingImages,
-  renderDiaryDayReport,
+  renderSelfreflectionDayReport,
   seededRng,
-} from './lib/diary-day.ts';
+} from './lib/selfreflection-day.ts';
 import { pairOrder, parseTriggers, renderSheet } from './lib/pair.ts';
-import { promptLayersHot, overlayPromptsHot, diaryPromptLayers } from './lib/prompt-layers.ts';
-export { diaryPromptLayers, overlayPromptsHot } from './lib/prompt-layers.ts';
+import { promptLayersHot, overlayPromptsHot, selfreflectionPromptLayers } from './lib/prompt-layers.ts';
+export { selfreflectionPromptLayers, overlayPromptsHot } from './lib/prompt-layers.ts';
 import { readOnlyMemory } from './lib/memory-read.ts';
 import {
   conversationRef,
@@ -593,8 +593,8 @@ function memoryFor(dataDir: string) {
 }
 /** An inner turn's requests at most: her answer and up to four tool-loop steps (wakes.loop.maxSteps' default). */
 const INNER_REQUESTS = 5;
-/** A diary brief's requests: the plan (classifier model) and the compose (voice model). */
-const DIARY_REQUESTS_PER_BRIEF = 2;
+/** A selfreflection brief's requests: the plan (classifier model) and the compose (voice model). */
+const SELFREFLECTION_REQUESTS_PER_BRIEF = 2;
 /** The estimate per model request this tool sends: about what a persona answer costs on the live key. */
 const USD_PER_ANSWER = 0.15;
 /** A recall run's requests at most: the classifier and the summary. */
@@ -1688,18 +1688,21 @@ export function storedDumps(
 }
 
 /**
- * The turn a `--diary` brief runs: `{ mode: 'diary', diary: { kind, [topic],
- * forced: false } }`. The topic as `/nep diary post` threads it: trimmed,
- * blank is none, then `diaryTopic` (src/behavior/diary.ts), on the params
+ * The turn a `--selfreflection` brief runs: `{ mode: 'selfreflection', selfreflection: { kind, [topic],
+ * forced: false } }`. The topic as `/nep selfreflection post` threads it: trimmed,
+ * blank is none, then `selfreflectionTopic` (src/behavior/selfreflection.ts), on the params
  * only when present.
  * @param args From parseArgs.
  */
-export function diaryTurnParams(
-  args: { diary: string; topic: string | null },
-  { diaryTopic }: { diaryTopic: (text: string | null) => string | null }
-): { mode: string; diary: { forced: boolean; topic?: string | undefined; kind: string } } {
-  const topic = diaryTopic(String(args.topic ?? '').trim() || null);
-  return { mode: 'diary', diary: { kind: args.diary, ...(topic ? { topic } : {}), forced: false } };
+export function selfreflectionTurnParams(
+  args: { selfreflection: string; topic: string | null },
+  { selfreflectionTopic }: { selfreflectionTopic: (text: string | null) => string | null }
+): { mode: string; selfreflection: { forced: boolean; topic?: string | undefined; kind: string } } {
+  const topic = selfreflectionTopic(String(args.topic ?? '').trim() || null);
+  return {
+    mode: 'selfreflection',
+    selfreflection: { kind: args.selfreflection, ...(topic ? { topic } : {}), forced: false },
+  };
 }
 
 /**
@@ -1735,7 +1738,7 @@ export function searchAvailableOf({
 }
 
 /**
- * The real store for a `--diary` run: reads pass through; `state` is an
+ * The real store for a `--selfreflection` run: reads pass through; `state` is an
  * in-memory deep copy whose markDirty does nothing; flush, forget, wipe and
  * reload methods throw; the recall trace is a no-op. Other mutations touch
  * only this process's cache, which is never flushed.
@@ -1770,14 +1773,14 @@ export function unflushedStore(store: Untyped): { store: Rec; state: { data: Unt
 }
 
 /**
- * The `--diary` mode (see the header): `args.count` briefs of one kind from
- * the real turn runner in the diary channel, nothing acted on. Returns
+ * The `--selfreflection` mode (see the header): `args.count` briefs of one kind from
+ * the real turn runner in the selfreflection channel, nothing acted on. Returns
  * `{ code, result }`.
  */
-/** The engine modules a diary run (`--diary`, `--diary-day`) wires, from the checkout at `load`. */
-export async function loadDiaryMods(load: Untyped): Promise<Rec> {
+/** The engine modules a selfreflection run (`--selfreflection`, `--selfreflection-day`) wires, from the checkout at `load`. */
+export async function loadSelfreflectionMods(load: Untyped): Promise<Rec> {
   return {
-    ...(await load('behavior/diary.ts')),
+    ...(await load('behavior/selfreflection.ts')),
     ...(await load('memory/store.ts')),
     ...(await load('llm/tokens.ts')),
     ...(await load('llm/openrouter.ts')),
@@ -1803,7 +1806,7 @@ export async function loadDiaryMods(load: Untyped): Promise<Rec> {
 }
 
 /**
- * The llm client of a diary run: every request the tool's own (`origin: 'replay'`, never
+ * The llm client of a selfreflection run: every request the tool's own (`origin: 'replay'`, never
  * counted against the daily cap, no calibration; `noCache`: no prompt-cache marker), each one
  * recorded in `calls` as `{ purpose, text, toolCalls, finishReason, usage, error, code }` (`toolCalls`: the native
  * transport's calls of the answer; `code`: the short failure code of `errorCodeOf`, when given, else `error`).
@@ -1871,7 +1874,7 @@ function addUsage(usage: Untyped, mine: Untyped) {
 }
 
 /**
- * Discord over `client` with every write refused: the REST queue passes GET only, so a diary run reads the platform
+ * Discord over `client` with every write refused: the REST queue passes GET only, so a selfreflection run reads the platform
  * and never posts, edits or types there.
  * @param given a discord.js client
  */
@@ -1886,30 +1889,32 @@ export function refuseDiscordWrites(given: unknown): void {
   };
 }
 
-/** `--diary-own-history`: reads keeping only her diary's messages in the history of its channel (ownHistoryReads). */
+/** `--selfreflection-own-history`: reads keeping only her selfreflection's messages in the history of its channel (ownHistoryReads). */
 const ownReadsOf = (args: ReplayArgs, dataDir: string) =>
-  args.diaryOwnHistory ? ownHistoryReads(memoryFor(dataDir)) : null;
+  args.selfreflectionOwnHistory ? ownHistoryReads(memoryFor(dataDir)) : null;
 
 /**
- * What a diary turn's entry would send (the turn itself sends nothing; its publication does): her messages, and how many
+ * What a selfreflection turn's entry would send (the turn itself sends nothing; its publication does): her messages, and how many
  * files go with them (the pictures and a voice message).
  * @param result the turn's outcome
  */
 function entrySends(result: unknown): { messages: Array<string>; attachments: number } {
   const entry = (
-    result as { diary?: { entry?: { messages?: Array<unknown>; pictures?: Array<unknown>; voice?: unknown } } } | null
-  )?.diary?.entry;
+    result as {
+      selfreflection?: { entry?: { messages?: Array<unknown>; pictures?: Array<unknown>; voice?: unknown } };
+    } | null
+  )?.selfreflection?.entry;
   const messages = (entry?.messages ?? []).filter((text) => typeof text === 'string' && text !== '');
   return { messages: messages as Array<string>, attachments: (entry?.pictures?.length ?? 0) + (entry?.voice ? 1 : 0) };
 }
 
 /**
- * The turn runner of a diary run, wired as src/index.js wires it over `client` (REST only): the interface's reads are
+ * The turn runner of a selfreflection run, wired as src/index.js wires it over `client` (REST only): the interface's reads are
  * the Discord adapter's over that client, `wrapReads` may filter them (what the replay hides, what a week scripts).
  * `port`: the interface port the turn acts through (else the Discord adapter over `client`, whose writes the replay
  * has refused); `rng` / `now`: the runner's random stream and clock (else its defaults).
  */
-export function diaryTurnRunner(
+export function selfreflectionTurnRunner(
   mods: Untyped,
   {
     hot,
@@ -1974,15 +1979,18 @@ export function diaryTurnRunner(
   });
 }
 
-async function runDiary({ args, root, load, hot: liveHot, createHot, log, signal, rng }: ModeCtx) {
-  const mods = await loadDiaryMods(load);
-  const { DIARY_KINDS, diaryTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
+async function runSelfreflection({ args, root, load, hot: liveHot, createHot, log, signal, rng }: ModeCtx) {
+  const mods = await loadSelfreflectionMods(load);
+  const { SELFREFLECTION_KINDS, selfreflectionTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild } = mods;
   const { parseJsonObject, parseOutput, stripDashes, countToday } = mods;
 
-  const params = diaryTurnParams({ diary: args.diary!, topic: args.topic }, { diaryTopic }); // `--diary` set this mode;
-  const { kind } = params.diary;
-  const topic = params.diary.topic ?? null;
+  const params = selfreflectionTurnParams(
+    { selfreflection: args.selfreflection!, topic: args.topic },
+    { selfreflectionTopic }
+  ); // `--selfreflection` set this mode;
+  const { kind } = params.selfreflection;
+  const topic = params.selfreflection.topic ?? null;
   const liveData = defaultDataDir(root);
   if (!fs.existsSync(liveData)) throw new CliError(`replay-cli: no data directory at ${liveData}`);
   const outFile = args.outDir !== null ? path.resolve(root, args.outDir) : null;
@@ -1996,13 +2004,15 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, log, signal
   try {
     if (args.prompts !== null) {
       layered = overlayPromptsHot(createHot, root, args.prompts);
-      log.info('replay-cli: diary prompt layers', { layers: diaryPromptLayers(root, args.prompts).length });
+      log.info('replay-cli: selfreflection prompt layers', {
+        layers: selfreflectionPromptLayers(root, args.prompts).length,
+      });
     }
     const hot = layered?.hot ?? liveHot;
     const config = hot.config;
-    const weight = DIARY_KINDS[kind];
+    const weight = SELFREFLECTION_KINDS[kind];
     if (!(Number.isFinite(weight) && weight > 0))
-      log.warn('replay-cli: the kind has no positive weight in DIARY_KINDS', { kind, weight: weight ?? null });
+      log.warn('replay-cli: the kind has no positive weight in SELFREFLECTION_KINDS', { kind, weight: weight ?? null });
     if (!isPictureKind(kind, undefined))
       log.warn('replay-cli: the kind is not a picture kind; it draws only when the plan says picture', { kind });
     if (isSetKind(kind, undefined))
@@ -2013,7 +2023,10 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, log, signal
     const nowMs = Date.now();
     const were = { images: countToday(state.data, { dayKey: 'imageDay', countKey: 'imageCount' }, nowMs) };
     state.data.imageCount = 0;
-    log.info('replay-cli: diary gates opened', { imagesWere: were.images, paused: Boolean(state.data.paused) });
+    log.info('replay-cli: selfreflection gates opened', {
+      imagesWere: were.images,
+      paused: Boolean(state.data.paused),
+    });
 
     // The model clients: every request the tool's own, recorded with its purpose.
     const calibrator = createCalibrator(state.data.calibration);
@@ -2045,8 +2058,13 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, log, signal
     // The engine, wired as src/index.js wires it.
     const wrapReads = ownReadsOf(args, liveData);
     const runner = { hot, store, llm, calibrator, client, placeId, self, images, state, wrapReads };
-    const turns = diaryTurnRunner(mods, runner);
-    log.info('replay-cli: diary ready', { placeId, kind, count: args.count, topicChars: topic ? topic.length : 0 });
+    const turns = selfreflectionTurnRunner(mods, runner);
+    log.info('replay-cli: selfreflection ready', {
+      placeId,
+      kind,
+      count: args.count,
+      topicChars: topic ? topic.length : 0,
+    });
 
     const briefs = [];
     let usage = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 };
@@ -2061,7 +2079,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, log, signal
       }
       const mine = calls.slice(from);
       usage = addUsage(usage, mine);
-      const planCall = mine.filter((c) => c.purpose === 'diary-plan').pop() ?? null;
+      const planCall = mine.filter((c) => c.purpose === 'selfreflection-planner').pop() ?? null;
       const composeCall = mine.filter((c) => c.purpose === 'reply' && c.text !== null).pop() ?? null;
 
       // The plan as the turn built it: the planner's JSON with the kind forced, validated against the one kind offered.
@@ -2078,7 +2096,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, log, signal
       const validated = validatePlan(answer, { [kind]: 1 }, { pictureAllowed }, rng);
       const plan = topic ? { ...validated, topic } : validated;
 
-      // The compose answer as runTurn reads it for a diary post.
+      // The compose answer as runTurn reads it for a selfreflection post.
       let draw = null;
       let messages = [];
       if (composeCall?.text) {
@@ -2094,7 +2112,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, log, signal
         messages = messages
           .map(stripUrls)
           .filter((t: Untyped) => t !== '')
-          .slice(0, Math.max(0, live.diary?.maxMessages ?? 3));
+          .slice(0, Math.max(0, live.selfreflection?.maxMessages ?? 3));
         const drawCall = split.calls.find((call: Rec) => call.name === 'draw.create' && !call.problem);
         draw = drawCall
           ? {
@@ -2118,7 +2136,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, log, signal
         fs.mkdirSync(path.dirname(outFile), { recursive: true });
         fs.writeFileSync(outFile, `${JSON.stringify(briefs, null, 1)}\n`);
       }
-      log.info('replay-cli: diary brief', {
+      log.info('replay-cli: selfreflection brief', {
         n,
         outcome: brief.outcome,
         planFallback: plan.fallback ?? null,
@@ -2547,7 +2565,7 @@ export function innerReportMarkdown(result: Untyped): string {
  */
 async function runInner({ args, root, load, hot: liveHot, createHot, log, budget = null }: ModeCtx) {
   const mods = {
-    ...(await loadDiaryMods(load)),
+    ...(await loadSelfreflectionMods(load)),
     ...(await load('behavior/inner.ts')),
     ...(await load('intentions/store.ts')),
     ...(await load('intentions/service.ts')),
@@ -2592,7 +2610,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
   try {
     if (args.prompts !== null) {
       layered = overlayPromptsHot(createHot, root, args.prompts, { mergeJson: deepMerge });
-      log.info('replay-cli: inner prompt layers', { layers: diaryPromptLayers(root, args.prompts).length });
+      log.info('replay-cli: inner prompt layers', { layers: selfreflectionPromptLayers(root, args.prompts).length });
     }
     const hot = innerReplayHot(layered?.hot ?? liveHot);
     const config = hot.config;
@@ -2800,7 +2818,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       journal: readOnlyJournal(createJournal({ dataDir, config: () => ({}), log, memoryDb: memoryFor(dataDir) })),
       dataDir: null,
     });
-    const turns = diaryTurnRunner(mods, {
+    const turns = selfreflectionTurnRunner(mods, {
       hot,
       store,
       llm,
@@ -2934,13 +2952,13 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
   }
 }
 
-// ---- a diary day (--diary-day) ---------------------------------------------------
+// ---- a selfreflection day (--selfreflection-day) ---------------------------------------------------
 
 /**
- * The OpenRouter key of a `--diary-day` run, for live and fake pictures alike: the simulation's key
+ * The OpenRouter key of a `--selfreflection-day` run, for live and fake pictures alike: the simulation's key
  * (scripts/lib/cli.ts#simKey), a CliError while the simulation is off. Never printed.
  */
-export function diaryDayKey(_draw: string, env: Record<string, string | undefined> = process.env): string {
+export function selfreflectionDayKey(_draw: string, env: Record<string, string | undefined> = process.env): string {
   return simKey('replay-cli', env);
 }
 
@@ -2952,17 +2970,17 @@ function pictureExtension(mediaType: string | null | undefined) {
 }
 
 /**
- * The plan and the spend gate of a `--diary-day` run, before anything is read or sent: the
+ * The plan and the spend gate of a `--selfreflection-day` run, before anything is read or sent: the
  * local date (`args.date`, else the day of `nowMs` in `bot.timezone`), the seed (`args.seed`,
- * else a fresh one), the seeded day plan (scripts/lib/diary-day.ts#planDiaryDay over `config`),
- * its estimate (DIARY_REQUESTS_PER_BRIEF requests per slot at ~USD_PER_ANSWER, the live pictures
+ * else a fresh one), the seeded day plan (scripts/lib/selfreflection-day.ts#planSelfreflectionDay over `config`),
+ * its estimate (SELFREFLECTION_REQUESTS_PER_BRIEF requests per slot at ~USD_PER_ANSWER, the live pictures
  * on top) and scripts/lib/cli.ts#spendGate's verdict on `args.spend`: a refusal is a CliError
  * with exit code REFUSED_EXIT. Returns `{ timezone, date, seed, day, estimate, gate }`.
  * @param args From parseArgs.
  * @param config The live config (hot.config).
- * @param mods src/behavior/diary.ts, src/time.js.
+ * @param mods src/behavior/selfreflection.ts, src/time.js.
  */
-export function diaryDayGate(
+export function selfreflectionDayGate(
   args: Rec,
   config: Untyped,
   {
@@ -2986,12 +3004,19 @@ export function diaryDayGate(
   const timezone = config?.bot?.timezone || 'UTC';
   const date = args.date ?? localDayKey(nowMs, timezone);
   const seed = args.seed ?? randomBytes(6).toString('hex');
-  const day = planDiaryDay({ diaryCfg: config?.selfreflection, timezone, date, seed, planDay, zonedEpoch });
-  const estimate = diaryDayEstimate({
+  const day = planSelfreflectionDay({
+    selfreflectionCfg: config?.selfreflection,
+    timezone,
+    date,
+    seed,
+    planDay,
+    zonedEpoch,
+  });
+  const estimate = selfreflectionDayEstimate({
     slots: day.slots.length,
     draw: args.draw,
     maxPictures: args.maxPictures ?? 0,
-    requestsPerSlot: DIARY_REQUESTS_PER_BRIEF,
+    requestsPerSlot: SELFREFLECTION_REQUESTS_PER_BRIEF,
     usdPerRequest: USD_PER_ANSWER,
   });
   const gate = spendGate({
@@ -3005,25 +3030,29 @@ export function diaryDayGate(
 }
 
 /**
- * The `--diary-day` mode (see the header): the seeded day plan, the spend gate, then every slot's
- * diary turn run to the end into an in-memory port, every drawing call recorded. Returns
+ * The `--selfreflection-day` mode (see the header): the seeded day plan, the spend gate, then every slot's
+ * selfreflection turn run to the end into an in-memory port, every drawing call recorded. Returns
  * `{ code, result }`.
  */
-async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: ModeCtx) {
-  const mods = await loadDiaryMods(load);
+async function runSelfreflectionDay({ args, root, load, hot: liveHot, log, signal }: ModeCtx) {
+  const mods = await loadSelfreflectionMods(load);
   const { localDayKey, planDay } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild, createFakeAdapter } = mods;
   const { parseJsonObject, zonedEpoch } = mods;
 
   // The day plan, before anything is read from Discord or sent: its slots are the estimate.
-  const { timezone, date, seed, day, gate } = diaryDayGate(args, liveHot.config, { planDay, zonedEpoch, localDayKey });
+  const { timezone, date, seed, day, gate } = selfreflectionDayGate(args, liveHot.config, {
+    planDay,
+    zonedEpoch,
+    localDayKey,
+  });
   process.stderr.write(`replay-cli: ${gate.text}\n`);
 
   const liveData = defaultDataDir(root);
   if (!fs.existsSync(liveData)) throw new CliError(`replay-cli: no data directory at ${liveData}`);
   const outDir = path.resolve(
     root,
-    args.outDir ?? `replay-diary-day-${new Date().toISOString().replace(/[:.]/g, '-')}`
+    args.outDir ?? `replay-selfreflection-day-${new Date().toISOString().replace(/[:.]/g, '-')}`
   );
   if (outDir === liveData || outDir.startsWith(`${liveData}${path.sep}`))
     throw new CliError('replay-cli: --out may not be under data/');
@@ -3046,7 +3075,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
   const writeReport = () => {
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(reportJson, `${JSON.stringify(report, null, 1)}\n`);
-    fs.writeFileSync(reportMd, renderDiaryDayReport(report));
+    fs.writeFileSync(reportMd, renderSelfreflectionDayReport(report));
   };
   const done = (code: Untyped) => ({
     code,
@@ -3070,11 +3099,11 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
   });
   if (day.slots.length === 0) {
     writeReport();
-    log.info('replay-cli: diary day without a slot', { date, quiet: day.quiet });
+    log.info('replay-cli: selfreflection day without a slot', { date, quiet: day.quiet });
     return done(0);
   }
   const discordToken = platformToken('discord', { rootDir: root });
-  const openrouterKey = diaryDayKey(args.draw!);
+  const openrouterKey = selfreflectionDayKey(args.draw!);
 
   let client = null;
   try {
@@ -3085,7 +3114,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
     const clock = { base: day.start, real: Date.now() };
     const now = () => clock.base + (Date.now() - clock.real);
 
-    // The store and the counters: an in-memory copy, today's diary and image counts at 0.
+    // The store and the counters: an in-memory copy, today's selfreflection and image counts at 0.
     const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: memoryFor(liveData) }));
     state.data.imageCount = 0;
     if (state.data.paused) log.warn('replay-cli: the bot is paused; every slot will answer paused', {});
@@ -3134,7 +3163,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
       now,
       capabilities: { maxFileBytes: 64 * 1024 * 1024 },
     });
-    const turns = diaryTurnRunner(mods, {
+    const turns = selfreflectionTurnRunner(mods, {
       hot,
       store,
       llm,
@@ -3147,7 +3176,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
       rng: seededRng(seed, 'turns'),
       now,
     });
-    log.info('replay-cli: diary day ready', { placeId, date, slots: day.slots.length, draw: args.draw });
+    log.info('replay-cli: selfreflection day ready', { placeId, date, slots: day.slots.length, draw: args.draw });
 
     const budget = gate.budget;
     for (const [index, at] of day.slots.entries()) {
@@ -3176,13 +3205,17 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
       const fromDraws = images.calls.length;
       let result;
       try {
-        // As the live diary runs it: the selfreflection wake, no conversation.
-        result = await turns.runTurn({ placeId, mode: 'diary', diary: { kind: null, forced: false } });
+        // As the live selfreflection runs it: the selfreflection wake, no conversation.
+        result = await turns.runTurn({
+          placeId,
+          mode: 'selfreflection',
+          selfreflection: { kind: null, forced: false },
+        });
       } catch (err: Untyped) {
         result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
       }
       const mine = calls.slice(fromCalls);
-      const planCall = mine.filter((c) => c.purpose === 'diary-plan').pop() ?? null;
+      const planCall = mine.filter((c) => c.purpose === 'selfreflection-planner').pop() ?? null;
       let plan = null;
       if (planCall?.text) {
         try {
@@ -3205,7 +3238,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
         ...(result?.reason ? { reason: result.reason } : {}),
         plan,
         ...(planCall?.error ? { planError: planCall.error } : {}),
-        diary: result?.diary ?? null,
+        selfreflection: result?.selfreflection ?? null,
         ...entrySends(result),
         draws,
         requests: mine.length,
@@ -3213,7 +3246,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
       });
       report.slots.push(slot);
       writeReport();
-      log.info('replay-cli: diary slot', {
+      log.info('replay-cli: selfreflection slot', {
         n: slot.n,
         outcome: slot.outcome,
         draws: draws.length,
@@ -6501,9 +6534,9 @@ export async function main(
   { root = process.cwd(), signal, rng = Math.random }: { root?: string; signal?: AbortSignal; rng?: () => number } = {}
 ): Promise<{ result: Untyped; code: Untyped }> {
   const all = argv.includes('--answers-all');
-  const own = argv.includes('--diary-own-history');
-  const flags = argv.filter((arg) => arg !== '--answers-all' && arg !== '--diary-own-history');
-  const args: ReplayArgs = { ...parseArgs(flags), answersAll: all, diaryOwnHistory: own };
+  const own = argv.includes('--selfreflection-own-history');
+  const flags = argv.filter((arg) => arg !== '--answers-all' && arg !== '--selfreflection-own-history');
+  const args: ReplayArgs = { ...parseArgs(flags), answersAll: all, selfreflectionOwnHistory: own };
   if (args.answersDir === null) return runMain(args, { root, signal, rng, answers: null });
   // `--answers-dir`: Anthropic models are answered through files (scripts/lib/answers-dir.ts); `done` ends the run.
   const { estimateMessages } = await import(pathToFileURL(path.join(root, 'src', 'llm', 'tokens.ts')).href);
@@ -6592,15 +6625,15 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
 
   // The spend gate: the estimate first; nothing is sent without --spend covering it.
   let spendBudget = null;
-  // A diary day's estimate needs its plan, made from the config: its gate is in runDiaryDay.
-  if (args.showRequestTurn === null && !args.diaryDay) {
+  // A selfreflection day's estimate needs its plan, made from the config: its gate is in runSelfreflectionDay.
+  if (args.showRequestTurn === null && !args.selfreflectionDay) {
     const perDecision = loopBounds ? loopRequestEstimate(loopBounds) : SKILL_REQUESTS_PER_RUN;
     const requests = args.dry
       ? 0
       : args.inner
         ? INNER_REQUESTS * args.samples!
-        : args.diary
-          ? DIARY_REQUESTS_PER_BRIEF * args.count!
+        : args.selfreflection
+          ? SELFREFLECTION_REQUESTS_PER_BRIEF * args.count!
           : args.pairTransport
             ? ((coreOn ? 0 : PRE_TURN_REQUESTS) + 2 * perDecision) * pairTriggers.length
             : args.loopTriggers
@@ -6617,7 +6650,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
       : `up to ${SKILL_REQUESTS_PER_RUN}`;
     const skillDetail = `, ${loopDetail} per decision (a run, or each turn of each step of a run)${args.pairPrompts ? ', under both prompt layers' : ''}`;
     const triggerDetail = `, per trigger${coreOn ? '' : ` ~${PRE_TURN_REQUESTS} before her reply (the search classifier, a search's summary) and`} ${loopDetail}${args.pairTransport ? ' on each of the two transports' : ''}`;
-    const detail = `~${USD_PER_ANSWER} USD per request${args.diary ? `, ${DIARY_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? skillDetail : ''}${args.pairTransport || args.loopTriggers ? triggerDetail : ''}`;
+    const detail = `~${USD_PER_ANSWER} USD per request${args.selfreflection ? `, ${SELFREFLECTION_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? skillDetail : ''}${args.pairTransport || args.loopTriggers ? triggerDetail : ''}`;
     let gate = spendGate({ estimateUsd: requests * USD_PER_ANSWER, requests, spend: args.spend, detail });
     // Anthropic models are answered from files and bill nothing: without --spend the run goes on (other models would bill, unbudgeted).
     if (!gate.ok && answers && args.spend === undefined)
@@ -6633,16 +6666,16 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     spendBudget = gate.budget;
     process.stderr.write(`replay-cli: ${gate.text}\n`);
   }
-  if (args.diary) {
+  if (args.selfreflection) {
     try {
-      return await runDiary({ args, root, load, hot, createHot, log, signal, rng });
+      return await runSelfreflection({ args, root, load, hot, createHot, log, signal, rng });
     } finally {
       hot.close();
     }
   }
-  if (args.diaryDay) {
+  if (args.selfreflectionDay) {
     try {
-      return await runDiaryDay({ args, root, load, hot, log, signal });
+      return await runSelfreflectionDay({ args, root, load, hot, log, signal });
     } finally {
       hot.close();
     }

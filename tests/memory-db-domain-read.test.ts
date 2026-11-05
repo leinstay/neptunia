@@ -5,7 +5,7 @@
 //   domainDetail(db: Db, request: { family: DomainFamily; id: string; context: Context }): DomainDetail
 //   domainList(db: Db, request: { family: DomainFamily; context: Context; limit: number; cursor: string | null }):
 //     Page<{ family: DomainFamily; id: string }>
-//   DomainFamily = 'sources' | 'claims' | 'claim_versions' | 'descriptions' | 'description_versions' | 'episodes' | 'diary'
+//   DomainFamily = 'sources' | 'claims' | 'claim_versions' | 'descriptions' | 'description_versions' | 'episodes' | 'selfreflection'
 //     | 'media' | 'publications' | 'grants' | 'sessions' | 'requests' | 'turns'
 //   DomainDetail = { found: true; family: DomainFamily; id: string; rows: Array<InspectionRow>;
 //     links: Array<{ family: DomainFamily; id: string; role: string }> } | { found: false; code: 'RECORD_NOT_FOUND' }
@@ -106,18 +106,18 @@ function seedDomains(db: Db): void {
     "INSERT INTO episode_sources (episode_id, source_id, position, id) VALUES ('episode:1', 'source:r0', 0, 'es:1')"
   ).run();
   db.prepare(
-    "INSERT INTO diary (id, at_ms, kind, text, status, audience_id, scope_kind) VALUES ('diary:1', 1, 'entry', 'dear diary', 'done', 'aud:group:zeta', 'group')"
+    "INSERT INTO selfreflection (id, at_ms, kind, text, status, audience_id, scope_kind) VALUES ('selfreflection:1', 1, 'entry', 'dear diary', 'done', 'aud:group:zeta', 'group')"
   ).run();
   db.prepare(
     "INSERT INTO media (id, kind, owner, path, description, audience_id, scope_kind) VALUES ('media:1', 'image', 'synthetic', 'media/a.png', 'a picture', 'aud:group:zeta', 'group')"
   ).run();
   db.prepare(
     `INSERT INTO publication_grants (id, row_kind, row_id, content_hash, destinations, approved_by, approved_at)
-     VALUES ('grant:1', 'diary', 'diary:1', 'hash-1', '["place:room"]', 'owner', ?)`
+     VALUES ('grant:1', 'selfreflection', 'selfreflection:1', 'hash-1', '["place:room"]', 'owner', ?)`
   ).run(AT);
   db.prepare(
     `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, grant_id, status, idempotency_key, receipts, created_at, retired_at)
-     VALUES ('publication:1', 'diary', 'diary:1', 'hash-1', 'dear diary', 'place:room', 'grant:1', 'sent', 'key-1', ?, ?, ?)`
+     VALUES ('publication:1', 'selfreflection', 'selfreflection:1', 'hash-1', 'dear diary', 'place:room', 'grant:1', 'sent', 'key-1', ?, ?, ?)`
   ).run(RECEIPTS, AT, LATER);
   db.prepare(
     `INSERT INTO session_runs (id, sweep_id, scope_key, mode, started_at, outcome, counts, result, audience_id)
@@ -210,7 +210,9 @@ test('an episode links its sources', () => {
 test('a diary entry links its publications, a publication its grant, and a grant its publications', () => {
   // Bug: publication state is read from the entry, and a receipt or a grant has no route at all.
   withWorld((db) => {
-    assert.deepEqual(linksOf(open(db, 'diary', 'diary:1')), ['publication publications publication:1']);
+    assert.deepEqual(linksOf(open(db, 'selfreflection', 'selfreflection:1')), [
+      'publication publications publication:1',
+    ]);
     assert.deepEqual(linksOf(open(db, 'publications', 'publication:1')), ['grant grants grant:1']);
     assert.deepEqual(linksOf(open(db, 'grants', 'grant:1')), ['publication publications publication:1']);
   });
@@ -239,7 +241,7 @@ test('every link of every record opens, whatever its state', () => {
       ['sources', 'source:gone'],
       ['descriptions', 'desc:1'],
       ['episodes', 'episode:1'],
-      ['diary', 'diary:1'],
+      ['selfreflection', 'selfreflection:1'],
       ['media', 'media:1'],
       ['publications', 'publication:1'],
       ['grants', 'grant:1'],

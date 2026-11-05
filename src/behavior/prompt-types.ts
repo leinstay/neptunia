@@ -94,9 +94,9 @@ export type BuildRequestInput = {
     audience?: (placeId: string) => boolean;
     channelName?: (placeId: string) => string | null;
   } | null;
-  diaryChannel?: string | null;
-  diaryChannelIds?: Iterable<string>;
-  diary?: {
+  selfreflectionChannel?: string | null;
+  selfreflectionChannelIds?: Iterable<string>;
+  selfreflection?: {
     posts?: Array<Untyped>;
     plan?: { kind: string | null; brief: string; picture: boolean; topic?: string } | null;
     found?: string | null;
@@ -142,7 +142,9 @@ export type BuildRequestResult = {
   memberNames: Map<string, Array<string>> | null;
 };
 
-export type BuildDiaryPlanRequestInput = {
+export type BuildSelfreflectionPlanRequestInput = {
+  /** Whether a place's audience covers the post's readers; a place it refuses is not named. Absent: every place is. */
+  placeAudience?: ((placeId: string) => boolean) | null;
   config: Record<string, Untyped>;
   prompts: Record<string, Untyped>;
   calibrator: Untyped;
@@ -153,7 +155,7 @@ export type BuildDiaryPlanRequestInput = {
   channels?: Array<Untyped>;
   loreEntries?: Array<Untyped>;
   currentChannelId?: string | null;
-  diaryChannelIds?: Iterable<string>;
+  selfreflectionChannelIds?: Iterable<string>;
   recentLines?: Array<Untyped> | null;
   recentAudience?: ((placeId: string | null) => boolean) | null;
   candidateProfiles?: Array<Untyped>;

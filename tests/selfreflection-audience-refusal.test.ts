@@ -4,8 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../src/memory/store.ts';
-import { GUILD, sceneRunner } from './fixtures/diary-requests.ts';
-import { diaryRows, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
+import { GUILD, sceneRunner } from './fixtures/selfreflection-requests-recorded.ts';
+import { selfreflectionRows, entryOf, seedMirror } from './fixtures/selfreflection-mirror.ts';
 import { labels } from './fixtures/labels.ts';
 import { T0, mirrorScene } from './fixtures/mirror-scene.ts';
 import type { Scene } from './fixtures/mirror-scene.ts';
@@ -36,7 +36,7 @@ async function turn({ store }: Setting, answer: string | null, extra: Record<str
     calls,
     complete: (messages: unknown, options?: { purpose?: string }) => {
       calls.push(structuredClone(messages));
-      if (options?.purpose === 'diary-plan') {
+      if (options?.purpose === 'selfreflection-planner') {
         const text = JSON.stringify({ kind: 'status', brief: 'a calm evening', search: '', picture: false });
         return Promise.resolve({ text, usage: {}, estimated: 5 });
       }
@@ -45,8 +45,8 @@ async function turn({ store }: Setting, answer: string | null, extra: Record<str
     },
   };
   const result = await sceneRunner(model, store).runTurn({
-    mode: 'diary',
-    diary: { kind: 'status', forced: true },
+    mode: 'selfreflection',
+    selfreflection: { kind: 'status', forced: true },
     placeId: GUILD,
     ...extra,
   });
@@ -88,7 +88,7 @@ test('a refused audience stands as a blocked entry under each mirror, kept in me
   );
   assert.deepEqual(setup.scene.transport('fake').attempts, []);
   assert.deepEqual(setup.scene.transport('other').attempts, []);
-  assert.equal(diaryRows(setup.scene.memory.memoryDb)[0]?.text, TEXT);
+  assert.equal(selfreflectionRows(setup.scene.memory.memoryDb)[0]?.text, TEXT);
 });
 
 test('the status command names the blocked entry and why', async () => {
@@ -125,7 +125,7 @@ for (const [value, code] of [
     const setup = await setting();
     await turn(setup, `<audience>${value}</audience><msg>${TEXT}</msg>`);
     const { writer } = await turn(setup, `<msg>${TEXT}</msg>`);
-    assert.ok(refusalBlock(writer)?.includes(labels.diary.audienceReasons[code]));
+    assert.ok(refusalBlock(writer)?.includes(labels.selfreflection.audienceReasons[code]));
   });
 }
 

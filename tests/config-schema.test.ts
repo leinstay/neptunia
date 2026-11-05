@@ -31,7 +31,7 @@ import { sessionSettings } from '../src/memory/db/session.ts';
 import { boardSettings } from '../src/board/board.ts';
 import { elsewherePickSettings } from '../src/behavior/elsewhere-pick.ts';
 import { pullSettings } from '../src/behavior/pull.ts';
-import { setSettings } from '../src/behavior/diary.ts';
+import { setSettings } from '../src/behavior/selfreflection.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
 import { splitSettings } from '../src/behavior/split.ts';
 import { mediaPickSettings } from '../src/behavior/media-pick.ts';
@@ -174,7 +174,11 @@ const READERS: ReadonlyArray<{ name: string; group: CutGroup; read: (config: Tre
       return { maxChars, contextMessages, maxOutputTokens, graceMs };
     },
   },
-  { name: 'loopSettings diary', group: 'media and diary', read: (config) => loopSettings(config, { diary: true }) },
+  {
+    name: 'loopSettings diary',
+    group: 'media and diary',
+    read: (config) => loopSettings(config, { selfreflection: true }),
+  },
   { name: 'hedgeSettings', group: 'llm and models', read: (config) => hedgeSettings(config) },
   { name: 'boardSettings', group: 'the rest', read: (config) => boardSettings(config) },
   { name: 'splitSettings', group: 'the rest', read: (config) => splitSettings(config) },

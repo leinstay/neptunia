@@ -129,7 +129,8 @@ test('an integrated database opens at the new version with every old row byte fo
   const file = path.join(tempDir('nep-semantic-schema-'), 'memory.db');
   const old = openMemoryDb(file, { migrations: INTEGRATED });
   seedBase(dbOf(old));
-  const tables = ownTables(dbOf(old));
+  // B10 of the master plan renames the diary's two tables with their objects; every other table stays byte for byte.
+  const tables = ownTables(dbOf(old)).filter((table) => !table.startsWith('diary'));
   const before = contentOf(dbOf(old), tables);
   const objects = definitions(dbOf(old));
   old.close();
@@ -153,7 +154,7 @@ test('an integrated database opens at the new version with every old row byte fo
     assert.deepEqual(asOfOld(contentOf(db, tables)), asOfOld(before));
     const after = definitions(db);
     for (const [name, sql] of objects) {
-      if (name === 'media' || name === 'sources') continue;
+      if (name === 'media' || name === 'sources' || name.startsWith('diary')) continue;
       assert.equal(after.get(name), sql, `${name} changed its definition`);
     }
     const names = db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'semantic_%'").all();

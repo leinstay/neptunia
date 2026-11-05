@@ -5,7 +5,7 @@
 // the boundary every picture crosses, its rails and `image.timeoutMs` included) makes the picture.
 // Nothing else touches her scene: no model rewrites, summarizes or "improves" it.
 //
-// Every call site goes through `drawPicture`: her `draw.create` tool (a diary post's pictures
+// Every call site goes through `drawPicture`: her `draw.create` tool (a selfreflection post's pictures
 // included) and `/nep draw`. A failure is the Images client's own error, unwrapped:
 // `ImageCapError` (a rail), `ImageGenError` (a generation that was sent and failed) and
 // `UnsupportedImageModelError`, which the call sites map to their result codes.
@@ -77,7 +77,7 @@ export type DrawInput = {
   withTime?: boolean;
   /** The member whose per-member rail counts it (null: nobody's). */
   accountId?: string | null;
-  /** A holder the avatar is fetched into once and reused (a diary set): a `reference` of null counts as fetched, absent as not yet. */
+  /** A holder the avatar is fetched into once and reused (a selfreflection set): a `reference` of null counts as fetched, absent as not yet. */
   avatar?: { reference?: string | null } | null;
   /** The core model's id when the call is routed to it (src/tools/gateway.ts#callOnRoute), null for the drawing role's own. */
   model?: string | null;

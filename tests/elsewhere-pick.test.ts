@@ -432,7 +432,7 @@ test('a turn with no line to judge costs no request', async () => {
 test('a diary post never asks', async () => {
   // Bug: the merged hook runs for a mode neither old classifier served.
   const scene = picker();
-  await scene.pick({ ...scene.args, mode: 'diary' });
+  await scene.pick({ ...scene.args, mode: 'selfreflection' });
   assert.equal(scene.calls.length, 0);
 });
 

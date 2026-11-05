@@ -5,7 +5,7 @@
 import { hotWith, personaGrants } from './turn-harness.ts';
 
 /** The settings, with the diary's daily cap `maxPerDay`. */
-export function diaryToolHot({ maxPerDay }: { maxPerDay: number }): ReturnType<typeof hotWith> {
+export function selfreflectionToolHot({ maxPerDay }: { maxPerDay: number }): ReturnType<typeof hotWith> {
   const hot = hotWith({
     tools: { loop: { maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4 } },
     access: personaGrants(['message.create']),
@@ -25,9 +25,9 @@ export function diaryToolHot({ maxPerDay }: { maxPerDay: number }): ReturnType<t
   });
   Object.assign(hot.prompts, {
     inner: 'Nobody wrote to you; read the wake block.',
-    diary: 'Write your diary.',
-    'diary-plan': 'Plan the entry.',
-    'diary-seeds': '# place\na pier',
+    selfreflection: 'Write your diary.',
+    'selfreflection-planner': 'Plan the entry.',
+    'selfreflection-seeds': '# place\na pier',
     world: 'The world.',
   });
   return hot;

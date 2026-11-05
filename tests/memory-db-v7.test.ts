@@ -21,7 +21,7 @@ import {
   issueContext,
   wellFormed,
 } from '../src/memory/db/scope.ts';
-import { applyDiaryUpdate } from '../src/memory/db/diary-media.ts';
+import { applySelfreflectionUpdate } from '../src/memory/db/selfreflection-media.ts';
 import { canonicalKey, dmPlaceId, linkId, newPersonId, nodeId, personId, resolveAlias } from '../src/memory/db/ids.ts';
 import { main } from '../scripts/memory-db.ts';
 import { MEMBER, buildDataDir, guildDir, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.ts';
@@ -428,12 +428,19 @@ test("v7 writers: a given audience that is not the triple's is quarantined; her 
       `aud:dm:${dmPlaceId('discord', 'u1')}`
     );
     // A diary picture takes the diary row's audience.
-    insertRows(db, { diary: [{ id: 'd-1', at_ms: 1, kind: 'day', gist: 'g', ...groupScope('discord') }] });
-    applyDiaryUpdate(handle, {
+    insertRows(db, { selfreflection: [{ id: 'd-1', at_ms: 1, kind: 'day', gist: 'g', ...groupScope('discord') }] });
+    applySelfreflectionUpdate(handle, {
       id: 'd-1',
       text: 'the post',
       media: [
-        { id: 'media:d-1:1', path: 'media/diary/d-1-1.png', nativeRef: 'r', sha1: 's', bytes: 1, mime: 'image/png' },
+        {
+          id: 'media:d-1:1',
+          path: 'media/selfreflection/d-1-1.png',
+          nativeRef: 'r',
+          sha1: 's',
+          bytes: 1,
+          mime: 'image/png',
+        },
       ],
     });
     assert.equal(

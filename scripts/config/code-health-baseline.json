@@ -111,12 +111,6 @@
       "preTurnLookup": {
         "complexity": 42
       },
-      "runDiary": {
-        "complexity": 51
-      },
-      "runDiaryDay": {
-        "complexity": 31
-      },
       "runInner": {
         "complexity": 62,
         "function-length": 388
@@ -132,6 +126,12 @@
       },
       "runRecord": {
         "complexity": 21
+      },
+      "runSelfreflection": {
+        "complexity": 51
+      },
+      "runSelfreflectionDay": {
+        "complexity": 31
       },
       "runSkills": {
         "complexity": 61
@@ -223,8 +223,8 @@
       }
     },
     "src/behavior/prompt.ts": {
-      "buildDiaryPlanRequest": {
-        "complexity": 25
+      "buildSelfreflectionPlanRequest": {
+        "complexity": 24
       }
     },
     "src/behavior/recall-run.ts": {
@@ -373,11 +373,6 @@
         "complexity": 24
       }
     },
-    "src/memory/db/diary-media.ts": {
-      "createDiaryMedia>handleRow": {
-        "complexity": 30
-      }
-    },
     "src/memory/db/focus.ts": {
       "decideFocus": {
         "complexity": 59
@@ -413,6 +408,11 @@
     "src/memory/db/rows.ts": {
       "deriveRow": {
         "complexity": 38
+      }
+    },
+    "src/memory/db/selfreflection-media.ts": {
+      "createSelfreflectionMedia>handleRow": {
+        "complexity": 30
       }
     },
     "src/memory/db/service.ts": {

@@ -9,6 +9,6 @@
     "voice_say"
   ],
   "called": [
-    "message.create:denied/diary-draw-only"
+    "message.create:denied/selfreflection-draw-only"
   ]
 }

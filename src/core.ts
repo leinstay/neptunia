@@ -76,7 +76,7 @@ import { createSpontaneous } from './behavior/spontaneous.ts';
 import { createInnerLife, innerSettings } from './behavior/inner.ts';
 import { createTurnsBudget } from './behavior/turn-budget.ts';
 import { coreKeyBalances } from './llm/key-grants.ts';
-import { createDiary } from './behavior/diary.ts';
+import { createSelfreflection } from './behavior/selfreflection.ts';
 import { createMirrors, guardMirrorPort } from './behavior/mirror.ts';
 import { createImageFetcher } from './media/fetch-image.ts';
 import { openImageStaging } from './media/staging.ts';
@@ -348,7 +348,7 @@ async function buildCore(
   const members = createMemberDirectory();
   // The memory database (src/memory/db/service.js): the memory. Created before the memory modules, which read and write
   // it (src/memory/db/readers/, src/memory/db/unit-write.js). Readiness is awaited before durable stores are created.
-  // diaryMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
+  // selfreflectionMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
   // `embed` and `selfName` (the re-embed job, recall.db.reembed) are the embedding client and her name, defined below.
   // Her memory session is the memory writer: it runs on the chat client (role `memory`, its own key from `env`), and a
   // run that fails is told to her as a `memoryFailed` fact (inner, defined below).
@@ -362,7 +362,7 @@ async function buildCore(
     hot,
     dataDir,
     log,
-    diaryMediaDeps: () => ({ port: iface, imageFetcher }),
+    selfreflectionMediaDeps: () => ({ port: iface, imageFetcher }),
     // The interface the unit writes name their rows with: the one of `hello`, known once the link is up.
     iface: () => currentIface() ?? (identity.iface || null),
     embed: (texts: Untyped, options: Untyped) => embedder.embed(texts, options),
@@ -618,7 +618,7 @@ async function buildCore(
   const interfaceClients = () => (loadPrincipals(paths.privateDir) ?? []).filter((entry) => entry.kind === 'interface');
   if (asUnits) {
     // The namespace the modules below are built with comes from clients.json before any unit connects: the first it
-    // names is the home interface of what no conversation addresses (wakes, the diary). Every effect of a turn goes by
+    // names is the home interface of what no conversation addresses (wakes, the selfreflection). Every effect of a turn goes by
     // the `iface` of its own reference (`createIfaceRouter`), so the other interfaces work beside it.
     const ifaces = [...new Set(interfaceClients().map((entry) => entry.iface))];
     identity.iface = ifaces[0] ?? '';
@@ -808,8 +808,8 @@ async function buildCore(
   // fed by the interface's voice, presence and connection events through the door below, never written anywhere.
   const around = createAroundStore({ presences: () => coreLink.adapter.capabilities().presence === true });
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
-  // after the skill gateway (src/tools/gateway.ts) let the call pass. It is the guarded port: a send to a diary
-  // mirror's place goes nowhere (`diary-mirror`); only the mirrors' publisher below holds the link's own adapter.
+  // after the skill gateway (src/tools/gateway.ts) let the call pass. It is the guarded port: a send to a selfreflection
+  // mirror's place goes nowhere (`selfreflection-mirror`); only the mirrors' publisher below holds the link's own adapter.
   // Her replies in the owner's chat (`iface: 'cli'`) go to the chat's link, every other effect to the served
   // interface; with no chat connected a reply there ends as a dropped link's does.
   const routed = createIfaceRouter(
@@ -823,7 +823,7 @@ async function buildCore(
     }
   );
   const iface = guardMirrorPort(routed, { memoryDb });
-  // The diary's mirrors (src/behavior/mirror.ts): each recorded entry published once to every enabled mirror, through
+  // The selfreflection's mirrors (src/behavior/mirror.ts): each recorded entry published once to every enabled mirror, through
   // the link of the mirror's own interface, or none while that link is closed.
   const mirrorPort = (name: string) => {
     const link = linksByName.get(name) ?? (coreLink.adapter.iface === name ? coreLink : null);
@@ -974,8 +974,8 @@ async function buildCore(
     roleHealth,
     // The memory rows a turn's request carried go to the database.
     memoryReads: (args: Untyped) => memoryDb.recordTurnReads(args),
-    // A diary post's stored facts, read through the one retrieval service under the diary's context.
-    diaryFacts: (input: RetrievalInput) => memoryDb.retrieve(groupsContext(), input, { sources: false }),
+    // A selfreflection post's stored facts, read through the one retrieval service under the selfreflection's context.
+    selfreflectionFacts: (input: RetrievalInput) => memoryDb.retrieve(groupsContext(), input, { sources: false }),
     // One execution context per turn for its memory reads (recorded while the database is open).
     memoryContext: (spec: Untyped) => memoryDb.issueContext({ iface: currentIface() ?? identity.iface, ...spec }),
     // Her attention, mirrored as leases in the memory database (attention.ts).
@@ -1007,7 +1007,7 @@ async function buildCore(
     // Her skills run by operation name, the requester's rights checked again
     // (src/admin.ts#runSkillOp); read at call time, the admin being created below.
     runOp: (op: Untyped, args: Untyped, context: Untyped) => admin.runSkillOp(op, args, context),
-    // Her own messages, drawings and diary run on her grant alone (src/tools/impl/effects.ts#SELF_OWNED_OPS).
+    // Her own messages, drawings and selfreflection run on her grant alone (src/tools/impl/effects.ts#SELF_OWNED_OPS).
     runOwnOp: (op: Untyped, args: Untyped, context: Untyped) => admin.runOwnSkillOp(op, args, context),
     // An inner turn's calls (her own initiative, nobody asked) run on her grant alone too.
     runInitiativeOp: (op: Untyped, args: Untyped, context: Untyped) => admin.runInitiativeSkillOp(op, args, context),
@@ -1019,9 +1019,9 @@ async function buildCore(
     places: (options: Untyped) => inner.places(options),
   });
   const spontaneous = createSpontaneous({ turns });
-  // The persona's diary: its own entries on a day plan as the selfreflection wake, ticked below, each published to the
-  // diary's mirrors. The diary's posts are rows of the memory database already: no backfill from the channel.
-  const diary = createDiary({ hot, store, reads, turns, mirrors });
+  // The persona's selfreflection: its own entries on a day plan as the selfreflection wake, ticked below, each published to the
+  // selfreflection's mirrors. The selfreflection's posts are rows of the memory database already: no backfill from the channel.
+  const selfreflection = createSelfreflection({ hot, store, reads, turns, mirrors });
   // The code-only memory of the live message path (src/memory/update.js): counters, GIF library, emoji, names.
   const memory = createMemoryUpdater({ hot, store, gifKeeper });
   // The turn an errand's end opens, through the lease and a cooldown per conversation.
@@ -1493,7 +1493,7 @@ async function buildCore(
       memoryDb,
       usage,
       metrics,
-      wakeClock: (name) => wakeClockOf(name, { now: clock(), inner, diary }),
+      wakeClock: (name) => wakeClockOf(name, { now: clock(), inner, selfreflection }),
       conversationLines: (conversationId, count) => recentChannelLines(conversationId, count),
       now: Date.now,
       // `/mirror` (src/interface/commands/mirror.ts).
@@ -1710,12 +1710,12 @@ async function buildCore(
     },
     log,
   });
-  // The diary's beat also sends what its mirrors still hold queued.
+  // The selfreflection's beat also sends what its mirrors still hold queued.
   scheduler.add({
-    name: 'diary.tick',
+    name: 'selfreflection.tick',
     everyMs: () => 30_000,
     run: async () => {
-      await diary.tick();
+      await selfreflection.tick();
       await mirrors.drainQueued();
     },
   });
@@ -1836,7 +1836,7 @@ async function buildCore(
     for (const id of timers) clearInterval(id);
     loopWatch.stop();
     if (archiveDrainTimer) clearTimeout(archiveDrainTimer);
-    diary.stop();
+    selfreflection.stop();
     missed.stop();
     errandClient.close();
     taskTurns.stop();
@@ -1891,7 +1891,7 @@ async function buildCore(
 
   // The door has its handlers: the interface delivers the events it held since its start, and every later one.
   running?.open();
-  // The interface is connected: what the diary's mirrors held queued goes out now.
+  // The interface is connected: what the selfreflection's mirrors held queued goes out now.
   mirrors.drainQueued().catch((err: unknown) => log.warn('mirror: drain failed', { error: err }));
 
   // The periodic work first, before anything below can throw or wait: the
@@ -1900,7 +1900,7 @@ async function buildCore(
   every(10_000, () => memoryDb.tick(), 'memoryDb.tick');
   // The intention and task writes that failed go again.
   every(30_000, () => Promise.all([intentionStores.flush(), taskStores.flush()]), 'module stores flush');
-  // The spontaneous, diary and inner life ticks: the scheduler's beats, each wait a `scheduler.tick` through the door.
+  // The spontaneous, selfreflection and inner life ticks: the scheduler's beats, each wait a `scheduler.tick` through the door.
   scheduler.start();
   every(AFFINITY_SWEEP_MS, sweepAffinityDecay, 'affinity decay');
   // The embedding queue flushes on its own clock (src/memory/embedder.js; a full batch sooner);

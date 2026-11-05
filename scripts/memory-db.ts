@@ -24,7 +24,7 @@
 //        consolidated). Without --apply it prints what it would evict and changes nothing (read-only); with --apply it
 //        writes the tiers and evicts (the vector rows stay, only their bytes go).
 //   node scripts/memory-db.ts media-check --db <file> --data <dir> [--apply]
-//        Her diary media: each `media` row of kind diary is `present` when its file under the data directory exists
+//        Her selfreflection media: each `media` row of kind selfreflection is `present` when its file under the data directory exists
 //        with the stored size, else `missing`; every other row stays `unknown`. Prints the counts; --apply writes them.
 //   node scripts/memory-db.ts backup --db <file> --to <dir> [--data <dir>]
 //        `VACUUM INTO <dir>/memory.db`, the persona files (from --data, default the database's directory) and

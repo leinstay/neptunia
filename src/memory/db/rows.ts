@@ -4,7 +4,7 @@
 //
 // Schema v7 (spec 2026-10-24-memory-schema-v7, sections 1, 2 and 11): every writer fills the derived columns from the
 // row itself through `deriveRow` (the sync's upsert, `insertRows`, the database's own writers in session-write.ts and
-// diary-media.ts), so a remap of a file re-derives them instead of nulling them:
+// selfreflection-media.ts), so a remap of a file re-derives them instead of nulling them:
 //   - a row of a table with the scope triple gets `audience_id` from scope.ts#audienceOf (the one resolver); the
 //     audience row, its interface and, for a DM, the DM place of the partner are created when missing. A given
 //     `audience_id` that is not the triple's audience is a conflict: the row is quarantined to internal and logged;
@@ -22,7 +22,7 @@
 // (graph.ts#projectRow: the row's unit, again from the database as it is now): `insertRows`, the DM place, the interface
 // and authority rows, the links `ensureLinks` adds, and the sources whose relations `ensureRelations` and
 // `resolveRelationsTo` wrote or resolved.
-// Schema v10 (stages 4 and 5): a diary mirror written through `insertRows` derives its publication
+// Schema v10 (stages 4 and 5): a selfreflection mirror written through `insertRows` derives its publication
 // (publish.ts#deriveMirrorPublication, the function the sync calls for every mirror write), and a line of hers that is
 // stored after the mirror that names it projects that publication again (its `publication_source` edge).
 // Every function checks the schema it runs on: on a database before v7 it derives nothing, before v8 no relation, before
@@ -515,13 +515,13 @@ export function ensureLinks(
   return count;
 }
 
-/** A restricted diary entry also restricts each of its retained media associations. */
-export function restrictDiaryMedia(db: Db, row: Row, at?: string): void {
+/** A restricted selfreflection entry also restricts each of its retained media associations. */
+export function restrictSelfreflectionMedia(db: Db, row: Row, at?: string): void {
   if (row.audience_id !== AUD_INTERNAL) return;
   // An old database has no links yet: its entries are carried over by the migration that makes them.
   if (columnsOf(db, 'media_links').size === 0) return;
   const media = db
-    .prepare("SELECT media_id AS id FROM media_links WHERE owner_kind = 'diary' AND owner_id = ?")
+    .prepare("SELECT media_id AS id FROM media_links WHERE owner_kind = 'selfreflection' AND owner_id = ?")
     .all(row.id);
   const restrict = db.prepare(
     `UPDATE media SET scope_kind = 'internal', scope_iface = NULL, scope_dm = NULL, audience_id = ? WHERE id = ?`
@@ -552,9 +552,9 @@ export function insertRows(
       db.prepare(sql).run(...cols.map((col) => bind(row[col])));
       if (table === 'people' || table === 'accounts' || table === 'places') ensureNodeKeys(db, table, row, { at });
       if (table === 'sources') ensureRelations(db, row, { at });
-      else if (table === 'diary_mirrors') deriveMirrorPublication(db, row, { at });
+      else if (table === 'selfreflection_mirrors') deriveMirrorPublication(db, row, { at });
       else projectRow(db, table, row, { at });
-      if (table === 'diary') restrictDiaryMedia(db, row, at);
+      if (table === 'selfreflection') restrictSelfreflectionMedia(db, row, at);
     }
   }
   ensureLinks(db, mapping.accounts, { at });

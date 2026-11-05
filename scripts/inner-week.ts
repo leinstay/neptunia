@@ -254,7 +254,7 @@ export function scriptedHistory(lines: Untyped, { channel, selfId, selfName, now
 async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
   const replay = await import('./replay.ts');
   const load = (rel: Untyped) => import(pathToFileURL(path.join(ROOT, 'src', rel)).href);
-  const mods = { ...(await replay.loadDiaryMods(load)), ...(await load('admin.ts')) };
+  const mods = { ...(await replay.loadSelfreflectionMods(load)), ...(await load('admin.ts')) };
   const { createHot } = await load('hot.ts');
   const token = interfaceCredential(privateDirOf(ROOT), 'discord');
   if (!token)
@@ -354,7 +354,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
       errands,
       dataDir: null,
     });
-    const turns = replay.diaryTurnRunner(mods, {
+    const turns = replay.selfreflectionTurnRunner(mods, {
       hot,
       store,
       llm,

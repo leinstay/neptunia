@@ -1,6 +1,6 @@
 // The diary writes as it does when it is the selfreflection wake (stage 3 design, section 4): the plan request and the
 // writer request of a diary turn with no conversation are byte for byte the ones the same scene built with the turn
-// running in the diary channel (tests/fixtures/diary-requests.json, recorded from the code before the change; PR 7d
+// running in the diary channel (tests/fixtures/selfreflection-requests-recorded.json, recorded from the code before the change; PR 7d
 // re-recorded it with the cut's constants, which change only the recent window, the post kinds and their seed, and the
 // senses lines of described media). What the
 // channel gave, memory gives instead: the history is her two earlier entries, and `<recent>`, the current conversation
@@ -10,13 +10,20 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { GUILD, NOW, sceneLlm, sceneMemory, sceneRunner, sceneWorld } from './fixtures/diary-requests.ts';
-import type { SceneMemory } from './fixtures/diary-requests.ts';
-import { chatBlock, historyMemory, historyRunner, historyWorld } from './fixtures/diary-history.ts';
-import type { Changes, HistoryMemory } from './fixtures/diary-history.ts';
+import {
+  GUILD,
+  NOW,
+  sceneLlm,
+  sceneMemory,
+  sceneRunner,
+  sceneWorld,
+} from './fixtures/selfreflection-requests-recorded.ts';
+import type { SceneMemory } from './fixtures/selfreflection-requests-recorded.ts';
+import { chatBlock, historyMemory, historyRunner, historyWorld } from './fixtures/selfreflection-history.ts';
+import type { Changes, HistoryMemory } from './fixtures/selfreflection-history.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 
-const RECORDED_FILE = new URL('./fixtures/diary-requests.json', import.meta.url);
+const RECORDED_FILE = new URL('./fixtures/selfreflection-requests-recorded.json', import.meta.url);
 
 /** The scenes a test opened, closed when the file is done. */
 const OPEN: Array<SceneMemory> = [];
@@ -40,8 +47,8 @@ async function wakeRequests(
   sceneWorld({ history: false });
   const llm = sceneLlm();
   const result = await sceneRunner(llm, scene.store).runTurn({
-    mode: 'diary',
-    diary: { kind: null, forced: false },
+    mode: 'selfreflection',
+    selfreflection: { kind: null, forced: false },
     placeId: GUILD,
   });
   assert.equal((result as { outcome?: unknown }).outcome, 'spoke', 'the scene records an entry');
@@ -66,7 +73,7 @@ test('with no enabled mirror the wake rebuilds the requests from the place the l
 
 // ---- her history is her diary --------------------------------------------------------------------------------------
 
-const HISTORY_FILE = new URL('./fixtures/diary-history.json', import.meta.url);
+const HISTORY_FILE = new URL('./fixtures/selfreflection-history.json', import.meta.url);
 
 /** The scenes of the history tests, closed when the file is done. */
 const HISTORIES: Array<HistoryMemory> = [];
@@ -92,8 +99,8 @@ async function wakeChat(
   historyWorld({ history: true, alice: true, ...changes });
   const llm = sceneLlm();
   const result = await historyRunner(llm, scene.store, port).runTurn({
-    mode: 'diary',
-    diary: { kind: null, forced: false },
+    mode: 'selfreflection',
+    selfreflection: { kind: null, forced: false },
     placeId: GUILD,
   });
   assert.equal((result as { outcome?: unknown }).outcome, 'spoke', 'the scene records an entry');

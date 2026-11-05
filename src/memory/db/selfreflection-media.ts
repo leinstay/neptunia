@@ -1,16 +1,16 @@
-// The diary's own copy of what she posted (spec 2026-10-24-memory-store, section 9). `diary.json` holds only a gist
+// The selfreflection's own copy of what she posted (spec 2026-10-24-memory-store, section 9). The selfreflection unit holds only a gist
 // and the message ids a post was sent as; the post's text and its pictures live on the platform. This job asks
-// the interface (port.fetchMessages) for those messages, stores the text in `diary.text`, downloads each image to
-// `data/media/diary/<diary id>-<n>.<ext>` and records it as a `media` row (kind diary, owner the diary id, the
-// scope of the diary row). The diary here is the one truth: a post whose messages the platform no longer has keeps what the
+// the interface (port.fetchMessages) for those messages, stores the text in `selfreflection.text`, downloads each image to
+// `data/media/selfreflection/<selfreflection id>-<n>.<ext>` and records it as a `media` row (kind selfreflection, owner the selfreflection id, the
+// scope of the selfreflection row). The selfreflection here is the one truth: a post whose messages the platform no longer has keeps what the
 // database holds (its gist), and its text is set empty so it is not asked for again. The posts on the platform are mirrors;
 // the files here are the core's copy. Other people's media are never fetched here (they stay references).
 //
-// One-shot and idempotent. `run()` handles every pending row (a live diary row with message ids and no text) once
+// One-shot and idempotent. `run()` handles every pending row (a live selfreflection row with message ids and no text) once
 // per start: a row that failed is left alone until the next start, a row the sync brings later is picked up by
 // the next `run()`. At most one fetch per `GAP_MS`. Nothing is written for a row until all its pictures arrived, so
 // a failure leaves it whole for the next start; files are written atomically (temp file, then rename) under
-// deterministic names, so a repeat overwrites with the same bytes. The row writes (`applyDiaryUpdate`) run on the
+// deterministic names, so a repeat overwrites with the same bytes. The row writes (`applySelfreflectionUpdate`) run on the
 // writer connection: in the sync worker thread, or on the calling thread when there is none. The export ignores
 // `text` (the old JSON has no such field). Logs carry counts and codes only.
 //
@@ -29,7 +29,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { audienceOf } from './scope.ts';
 import { ensureAudience } from './rows.ts';
-import { diaryPlaces } from './mirrors.ts';
+import { selfreflectionPlaces } from './mirrors.ts';
 import { REFERENCE_MAX_BYTES } from '../../media/fetch-image.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
 import type { Config, Db, Log, MemoryHandle, Row } from './types.ts';
@@ -45,10 +45,10 @@ const FORBIDDEN = 'http-403';
 /** What a read the interface did not answer makes of a row; a closed link asked nothing of the platform and logs nothing. */
 function refusedRow(code: unknown, log: Log): 'closed' | 'forbidden' | 'failed' {
   if (code === LINK_CLOSED) return 'closed';
-  log.warn('diary media: fetch failed', { code });
+  log.warn('selfreflection media: fetch failed', { code });
   return code === FORBIDDEN ? 'forbidden' : 'failed';
 }
-const MEDIA_DIR = path.join('media', 'diary');
+const MEDIA_DIR = path.join('media', 'selfreflection');
 const EXTENSIONS: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -63,7 +63,7 @@ const AUDIO_EXTENSIONS: Record<string, string> = {
   m4a: 'm4a',
   wav: 'wav',
 };
-/** The largest voice file a diary post keeps, in bytes. Production value, config cut of 2026-10-31. */
+/** The largest voice file a selfreflection post keeps, in bytes. Production value, config cut of 2026-10-31. */
 export const DEFAULT_AUDIO_MAX_BYTES = 8 * 1024 * 1024;
 const noop = () => {};
 const silent: Log = { info: noop, warn: noop, error: noop, debug: noop };
@@ -86,7 +86,7 @@ type FetchedMessage = {
   event?: { message?: { attachments?: Array<{ id?: unknown; url?: unknown }> } };
 };
 /** The interface port as the job uses it: its name and the read of messages. */
-export type DiaryPort = {
+export type SelfreflectionPort = {
   iface: string;
   fetchMessages?: (
     conversation: { iface: string; conversationId: string },
@@ -100,14 +100,14 @@ export type ImageFetcher = {
     options: { maxBytes: number; timeoutMs: number | undefined }
   ): Promise<{ dataUrl: string; contentType: string } | null | undefined>;
 };
-/** The job that fills the diary's rows with the text and pictures of their messages. */
-export type DiaryMediaJob = {
+/** The job that fills the selfreflection's rows with the text and pictures of their messages. */
+export type SelfreflectionMediaJob = {
   run(): Promise<{ done: number; failed: number }>;
   hasWork(): boolean;
   stop(): Promise<unknown>;
 };
-/** A row of her diary still to fill (see `pendingDiaryRows`). */
-export type PendingDiaryRow = {
+/** A row of her selfreflection still to fill (see `pendingSelfreflectionRows`). */
+export type PendingSelfreflectionRow = {
   id: string;
   scope_kind: unknown;
   scope_iface: unknown;
@@ -118,7 +118,7 @@ export type PendingDiaryRow = {
   voice: { messageId?: unknown; text?: unknown; durationSec?: unknown } | null;
 };
 
-/** A file-name-safe form of a diary id. */
+/** A file-name-safe form of a selfreflection id. */
 const safeName = (id: unknown): string => String(id).replace(/[^A-Za-z0-9._-]/g, '_');
 
 const isImage = (attachment: FetchedAttachment): boolean =>
@@ -140,44 +140,44 @@ function audioExtension(mime: unknown, name: string | undefined): string {
 }
 
 /**
- * The diary rows still to fill: live, mirrored or made by the v15 step from her past messages (`mediaPending` in its
- * extra, diary-past.ts), and either no text yet, files not read yet (`mediaPending`), a media row that names no
+ * The selfreflection rows still to fill: live, mirrored or made by the v15 step from her past messages (`mediaPending` in its
+ * extra, selfreflection-past.ts), and either no text yet, files not read yet (`mediaPending`), a media row that names no
  * attachment id, or (a post saved before audio was kept) a `voice` field in its extra with no audio media row. Each
  * carries the messages it was sent as (messageIdsOf), the post's `voice` object, if any, and the
- * conversation it was posted to: the place its publication names, else the place her diary is posted to
+ * conversation it was posted to: the place its publication names, else the place her selfreflection is posted to
 
- * (mirrors.ts#diaryPlaces, the first), else null.
+ * (mirrors.ts#selfreflectionPlaces, the first), else null.
  */
-export function pendingDiaryRows(db: Db): Array<PendingDiaryRow> {
-  const fallbackId = diaryPlaces(db)[0]?.conversationId ?? null;
+export function pendingSelfreflectionRows(db: Db): Array<PendingSelfreflectionRow> {
+  const fallbackId = selfreflectionPlaces(db)[0]?.conversationId ?? null;
   const rows: Array<Row> = db
     .prepare(
       `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, d.extra AS extra,
-         (SELECT m.native_ids FROM diary_mirrors m WHERE m.diary_id = d.id AND m.retired_at IS NULL ORDER BY m.rowid LIMIT 1) AS native_ids,
-         (SELECT x.receipts FROM publications x WHERE x.row_kind = 'diary' AND x.row_id = d.id AND x.status = 'sent'
+         (SELECT m.native_ids FROM selfreflection_mirrors m WHERE m.selfreflection_id = d.id AND m.retired_at IS NULL ORDER BY m.rowid LIMIT 1) AS native_ids,
+         (SELECT x.receipts FROM publications x WHERE x.row_kind = 'selfreflection' AND x.row_id = d.id AND x.status = 'sent'
            AND x.retired_at IS NULL ORDER BY x.created_at, x.id LIMIT 1) AS receipts,
          (SELECT p.native_id FROM publications x JOIN places p ON p.id = x.destination_place_id
-           WHERE x.row_kind = 'diary' AND x.row_id = d.id ORDER BY x.created_at, x.id LIMIT 1) AS conversation_id
-       FROM diary d
+           WHERE x.row_kind = 'selfreflection' AND x.row_id = d.id ORDER BY x.created_at, x.id LIMIT 1) AS conversation_id
+       FROM selfreflection d
       WHERE d.retired_at IS NULL
-        AND (EXISTS (SELECT 1 FROM diary_mirrors m WHERE m.diary_id = d.id AND m.retired_at IS NULL)
+        AND (EXISTS (SELECT 1 FROM selfreflection_mirrors m WHERE m.selfreflection_id = d.id AND m.retired_at IS NULL)
           OR json_extract(d.extra, '$.mediaPending') = 1)
         AND (d.text IS NULL
           OR json_extract(d.extra, '$.mediaPending') = 1
           OR EXISTS (SELECT 1 FROM media_links l JOIN media y ON y.id = l.media_id
-            WHERE l.owner_kind = 'diary' AND l.owner_id = d.id AND y.native_ref IS NULL
+            WHERE l.owner_kind = 'selfreflection' AND l.owner_id = d.id AND y.native_ref IS NULL
               AND json_type(y.extra, '$.platformRead') IS NULL)
           OR (json_type(d.extra, '$.voice') = 'object'
             AND NOT EXISTS (SELECT 1 FROM media_links l JOIN media x ON x.id = l.media_id
-              WHERE l.owner_kind = 'diary' AND l.owner_id = d.id AND x.mime LIKE 'audio/%')))
+              WHERE l.owner_kind = 'selfreflection' AND l.owner_id = d.id AND x.mime LIKE 'audio/%')))
       ORDER BY d.position, d.rowid`
     )
     .all();
-  const out: Array<PendingDiaryRow> = [];
+  const out: Array<PendingSelfreflectionRow> = [];
   for (const row of rows) {
     const ids = messageIdsOf(row.native_ids, row.receipts);
     if (ids.length === 0) continue;
-    let voice: PendingDiaryRow['voice'] = null;
+    let voice: PendingSelfreflectionRow['voice'] = null;
     try {
       const parsed = (JSON.parse((row.extra as string | null) ?? 'null') as { voice?: unknown } | null)?.voice;
       if (parsed && typeof parsed === 'object') voice = parsed;
@@ -201,7 +201,7 @@ export function pendingDiaryRows(db: Db): Array<PendingDiaryRow> {
 
 /**
  * The messages a post was sent as: its mirror's ids, then the message receipts of its sent publication that the
- * mirror does not name (a message the v15 step joined to it, diary-past.ts), each once.
+ * mirror does not name (a message the v15 step joined to it, selfreflection-past.ts), each once.
 
  * `nativeIds` is the mirror's `native_ids` JSON, or null; `receipts` the publication's `receipts` JSON, or null.
  */
@@ -239,27 +239,29 @@ const positionOf = (id: unknown): number => Math.max(0, Number(/-(\d+)$/.exec(St
 
 /**
  * Writes one row's result on the writer connection: `{ id, text, media: [{ id, path, nativeRef, sha1, bytes, mime, extra? }] }`.
- * The media rows take the diary row's scope and its audience (scope.ts#audienceOf, the one resolver). One transaction.
+ * The media rows take the selfreflection row's scope and its audience (scope.ts#audienceOf, the one resolver). One transaction.
  */
-export function applyDiaryUpdate(handle: MemoryHandle, given: unknown): void {
+export function applySelfreflectionUpdate(handle: MemoryHandle, given: unknown): void {
   const update = given as Row;
   handle.transaction(() => {
     const db = dbOf(handle);
-    const diary = db.prepare('SELECT scope_kind, scope_iface, scope_dm FROM diary WHERE id = ?').get(update.id);
-    if (!diary) return;
+    const selfreflection = db
+      .prepare('SELECT scope_kind, scope_iface, scope_dm FROM selfreflection WHERE id = ?')
+      .get(update.id);
+    if (!selfreflection) return;
     // A refetch (for audio) never replaces a text the row already holds: only an empty or missing text is filled.
     // An entry the v15 step made from her past messages has its files read once: its `mediaPending` mark goes.
     db.prepare(
-      `UPDATE diary SET text = CASE WHEN text IS NOT NULL AND text <> '' THEN text ELSE ? END,
+      `UPDATE selfreflection SET text = CASE WHEN text IS NOT NULL AND text <> '' THEN text ELSE ? END,
          extra = CASE WHEN json_type(extra, '$.mediaPending') IS NULL THEN extra ELSE json_remove(extra, '$.mediaPending') END
        WHERE id = ?`
     ).run(update.text ?? '', update.id);
-    const audience = audienceOf(diary);
+    const audience = audienceOf(selfreflection);
     const media = (update.media ?? []) as Array<Row>;
     if (media.length > 0) ensureAudience(db, audience);
     writeEntryFiles(
       db,
-      { ...diary, id: update.id, audience_id: audience.audience_id },
+      { ...selfreflection, id: update.id, audience_id: audience.audience_id },
       media.map((item): EntryFile => {
         const ref = parsedRef(item.nativeRef);
         return {
@@ -286,9 +288,9 @@ export function applyDiaryUpdate(handle: MemoryHandle, given: unknown): void {
 }
 
 /**
- * The pictures and the voice file of an entry the diary turn recorded (src/behavior/diary-turn.ts), kept as the job
- * keeps an older post's: each file written atomically to `data/media/diary/<entry id>-<n>.<ext>` (`update.dataDir`, the
- * service's data directory) in the entry's order, then its `media` row (applyDiaryUpdate: the diary row's scope, an
+ * The pictures and the voice file of an entry the selfreflection turn recorded (src/behavior/selfreflection-turn.ts), kept as the job
+ * keeps an older post's: each file written atomically to `data/media/selfreflection/<entry id>-<n>.<ext>` (`update.dataDir`, the
+ * service's data directory) in the entry's order, then its `media` row (applySelfreflectionUpdate: the selfreflection row's scope, an
  * audio row's `extra` `{ voice: true, text, durationSec, waveform }`). Runs on the writer connection; a repeat writes the
 
  * same files and rows. Returns how many files were kept. `handle` is an `openMemoryDb` handle (the writer) and `given`
@@ -326,7 +328,7 @@ export function applyEntryMedia(handle: MemoryHandle, given: unknown): number {
       extra: item.extra ? JSON.stringify(item.extra) : null,
     };
   });
-  if (media.length > 0) applyDiaryUpdate(handle, { id: update.id, media });
+  if (media.length > 0) applySelfreflectionUpdate(handle, { id: update.id, media });
   return media.length;
 }
 
@@ -420,10 +422,10 @@ async function downloadPlain(
 
 /**
 
- * Everything that changes is a getter (read at the moment of use). `db` is a connection that can read the diary;
- * `apply` writes one update (applyDiaryUpdate on the writer); `sleep` is injected by the tests.
+ * Everything that changes is a getter (read at the moment of use). `db` is a connection that can read the selfreflection;
+ * `apply` writes one update (applySelfreflectionUpdate on the writer); `sleep` is injected by the tests.
  */
-export function createDiaryMedia({
+export function createSelfreflectionMedia({
   db,
   apply,
   port,
@@ -445,7 +447,7 @@ export function createDiaryMedia({
   sleep?: (ms: number) => Promise<void>;
   setTimer?: (fn: () => void, ms: number) => NodeJS.Timeout;
   fetchImpl?: PlainFetch;
-}): DiaryMediaJob {
+}): SelfreflectionMediaJob {
   let stopped = false;
   let running: Promise<{ done: number; failed: number }> | null = null;
   let wake: (() => void) | null = null;
@@ -481,9 +483,9 @@ export function createDiaryMedia({
 
   /** One row: fetch, download, write. Returns 'done' or 'failed'. */
   async function handleRow(
-    row: PendingDiaryRow,
+    row: PendingSelfreflectionRow,
     { maxBytes, timeoutMs, audioMaxBytes }: { maxBytes: number; timeoutMs: number | undefined; audioMaxBytes: number },
-    adapter: DiaryPort & Required<Pick<DiaryPort, 'fetchMessages'>>,
+    adapter: SelfreflectionPort & Required<Pick<SelfreflectionPort, 'fetchMessages'>>,
     fetcher: ImageFetcher
   ): Promise<'done' | 'failed' | 'closed' | 'forbidden'> {
     const conversation = { iface: adapter.iface, conversationId: row.conversationId as string };
@@ -511,12 +513,12 @@ export function createDiaryMedia({
       for (const attachment of message.attachments ?? []) {
         if (attachment.url && isAudio(attachment)) {
           if (isFiniteNumber(attachment.size) && attachment.size > audioMaxBytes) {
-            log.warn('diary media: audio over the cap', { bytes: attachment.size });
+            log.warn('selfreflection media: audio over the cap', { bytes: attachment.size });
             continue;
           }
           const got = await downloadPlain(fetchImpl, attachment.url, { maxBytes: audioMaxBytes, timeoutMs });
           if (!got) {
-            log.warn('diary media: download failed', { code: 'DOWNLOAD' });
+            log.warn('selfreflection media: download failed', { code: 'DOWNLOAD' });
             return 'failed';
           }
           n += 1;
@@ -547,12 +549,12 @@ export function createDiaryMedia({
         }
         if (!isImage(attachment) || !attachment.url) continue;
         if (isFiniteNumber(attachment.size) && Number.isFinite(maxBytes) && attachment.size > maxBytes) {
-          log.warn('diary media: picture over the cap', { bytes: attachment.size });
+          log.warn('selfreflection media: picture over the cap', { bytes: attachment.size });
           continue;
         }
         const downloaded = await fetcher.fetchAsDataUrl(attachment.url, { maxBytes, timeoutMs });
         if (!downloaded) {
-          log.warn('diary media: download failed', { code: 'DOWNLOAD' });
+          log.warn('selfreflection media: download failed', { code: 'DOWNLOAD' });
           return 'failed';
         }
         const comma = downloaded.dataUrl.indexOf(',');
@@ -578,17 +580,17 @@ export function createDiaryMedia({
   async function runOnce(): Promise<{ done: number; failed: number }> {
     const counts = { done: 0, failed: 0 };
     const database = db() as Db | null;
-    const adapter = port() as DiaryPort | null;
+    const adapter = port() as SelfreflectionPort | null;
     const fetcher = imageFetcher() as ImageFetcher | null;
     const given = settings();
     if (!database || !adapter?.fetchMessages || !fetcher) return counts;
-    const fetching = adapter as DiaryPort & Required<Pick<DiaryPort, 'fetchMessages'>>;
-    let rows: Array<PendingDiaryRow>;
+    const fetching = adapter as SelfreflectionPort & Required<Pick<SelfreflectionPort, 'fetchMessages'>>;
+    let rows: Array<PendingSelfreflectionRow>;
     try {
       // A post with no place is never asked of the interface: there is no conversation to ask.
-      rows = pendingDiaryRows(database).filter((row) => row.conversationId !== null && !attempted.has(row.id));
+      rows = pendingSelfreflectionRows(database).filter((row) => row.conversationId !== null && !attempted.has(row.id));
     } catch (error) {
-      log.warn('diary media: read failed', { code: codeOf(error) });
+      log.warn('selfreflection media: read failed', { code: codeOf(error) });
       return counts;
     }
     let first = true;
@@ -617,10 +619,10 @@ export function createDiaryMedia({
         } else counts[outcome] += 1;
       } catch (error) {
         counts.failed += 1;
-        log.warn('diary media: row failed', { code: codeOf(error) });
+        log.warn('selfreflection media: row failed', { code: codeOf(error) });
       }
     }
-    if (counts.done + counts.failed + refused > 0) log.info('diary media: pass', { ...counts, refused });
+    if (counts.done + counts.failed + refused > 0) log.info('selfreflection media: pass', { ...counts, refused });
     return counts;
   }
 
@@ -638,7 +640,7 @@ export function createDiaryMedia({
     hasWork(): boolean {
       try {
         const database = db() as Db | null;
-        return database != null && pendingDiaryRows(database).some((row) => !attempted.has(row.id));
+        return database != null && pendingSelfreflectionRows(database).some((row) => !attempted.has(row.id));
       } catch {
         return false;
       }

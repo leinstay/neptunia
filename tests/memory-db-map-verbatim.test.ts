@@ -150,7 +150,7 @@ test('classify names the mapper and format of every memory path', () => {
     ['lore.json', 'lore', 'json'],
     ['participation.json', 'participation', 'json'],
     ['recent.json', 'recent', 'json'],
-    ['diary.json', 'diary', 'json'],
+    ['diary.json', 'selfreflection', 'json'],
     ['intentions.json', 'intentions', 'json'],
     ['intentions-archive.jsonl', 'intentions', 'jsonl'],
     ['errands.json', 'errands', 'json'],
@@ -182,7 +182,7 @@ test('classify gives a month directory as the unit of vectors files and strips a
   assert.equal(classified('vectors/2026-10/manifest.json').unit, 'vectors/2026-10');
   assert.equal(classified('vectors/2026-10/1.i8').unit, 'vectors/2026-10');
   const prefixed = classified('guilds/300000000000000001/diary.json');
-  assert.equal(prefixed.kind, 'diary');
+  assert.equal(prefixed.kind, 'selfreflection');
   assert.equal(prefixed.guildId, '300000000000000001');
   assert.equal(prefixed.unit, 'diary.json');
 });

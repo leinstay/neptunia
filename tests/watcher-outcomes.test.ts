@@ -134,7 +134,7 @@ for (const [name, result, expected] of [
 
 for (const [mode, kind, service] of [
   ['reply', undefined, 'core'],
-  ['diary', undefined, 'selfreflection'],
+  ['selfreflection', undefined, 'selfreflection'],
   ['inner', 'heartbeat', 'heartbeat'],
   ['inner', 'selfimprovement', 'selfimprovement'],
   ['inner', 'attend', 'core'],

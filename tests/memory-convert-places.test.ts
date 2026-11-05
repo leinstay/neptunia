@@ -106,7 +106,7 @@ const MAPPED: ReadonlyArray<[string, StorageKey]> = [
   ['participation stays with the server place', { kind: 'participation', subject: place(SERVER) }],
   ['missed answers stay with the server place', { kind: 'missed', subject: place(SERVER) }],
   ['the notes of a server have a place kind', { kind: 'place', subject: place(SERVER) }],
-  ['the diary goes to the persona', { kind: 'diary', subject: PERSONA }],
+  ['the diary goes to the persona', { kind: 'selfreflection', subject: PERSONA }],
   ['intentions go to the persona', { kind: 'intentions', subject: PERSONA, selector: { collection: 'active' } }],
   ['inner state stays with the persona', { kind: 'inner', subject: PERSONA }],
 ];
@@ -272,15 +272,32 @@ const UNCHANGED: ReadonlyArray<[string, ReadonlyArray<string>]> = [
   ['publications', ['owner_key']],
   ['publication_grants', []],
   ['mirrors', []],
-  ['diary_mirrors', ['owner_key']],
+  ['selfreflection_mirrors', ['owner_key']],
   ['model_requests', []],
   ['execution_contexts', []],
 ];
 
+/** B10 of the master plan: the output holds the rename of the last schema step, the frozen v28 input the old names. */
+const OLD_TABLE: Readonly<Record<string, string>> = {
+  selfreflection: 'diary',
+  selfreflection_mirrors: 'diary_mirrors',
+};
+
+function inputRows(input: string, table: string, except: ReadonlyArray<string>): Array<Row> {
+  return rowsOf(input, OLD_TABLE[table] ?? table, except).map(({ diary_id: entry, ...row }) => ({
+    ...row,
+    ...(entry === undefined ? {} : { selfreflection_id: entry }),
+    ...(row.row_kind === 'diary' ? { row_kind: 'selfreflection' } : {}),
+    ...(typeof row.idempotency_key === 'string'
+      ? { idempotency_key: row.idempotency_key.replace(/^diary:/, 'selfreflection:') }
+      : {}),
+  }));
+}
+
 for (const [table, except] of UNCHANGED) {
   test(`${table} comes through row for row`, () => {
     // Bug: an id, an audience, a link's validity or a delivery state changes during the rebuild.
-    assert.deepEqual(rowsOf(done().output, table, except), rowsOf(done().input, table, except));
+    assert.deepEqual(rowsOf(done().output, table, except), inputRows(done().input, table, except));
   });
 }
 
@@ -377,7 +394,8 @@ test('every table of the input and the output is reconciled row for row', () => 
   const { input, output } = done();
   const { tables } = reportOf(done());
   for (const table of tablesOf(input)) {
-    const counts = tables[table];
+    // B10 of the master plan: the report names a table as the output does.
+    const counts = tables[table.replace(/^diary/, 'selfreflection')];
     assert.ok(counts, `no counts for ${table}`);
     assert.equal(counts.input, rowsOf(input, table).length, `input of ${table}`);
     assert.equal(counts.preserved + counts.transformed + counts.merged + counts.removed, counts.input, table);

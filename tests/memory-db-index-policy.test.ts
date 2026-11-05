@@ -331,19 +331,19 @@ test('media availability: her diary media is present or missing by its file; for
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-media-'));
   const handle = openMemoryDb(':memory:');
   try {
-    fs.mkdirSync(path.join(root, 'media', 'diary'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'media', 'diary', 'd-1-1.png'), Buffer.alloc(10));
-    fs.writeFileSync(path.join(root, 'media', 'diary', 'd-1-2.png'), Buffer.alloc(3));
+    fs.mkdirSync(path.join(root, 'media', 'selfreflection'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'media', 'selfreflection', 'd-1-1.png'), Buffer.alloc(10));
+    fs.writeFileSync(path.join(root, 'media', 'selfreflection', 'd-1-2.png'), Buffer.alloc(3));
     const insert = sqlOf(handle).prepare(
       'INSERT INTO media (id, kind, owner, path, native_ref, sha1, bytes) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
-    insert.run('m1', 'image', 'd-1', 'media/diary/d-1-1.png', null, 'abc', 10);
-    insert.run('m2', 'image', 'd-1', 'media/diary/d-1-2.png', null, 'abd', 99);
-    insert.run('m3', 'image', 'd-2', 'media/diary/d-2-1.png', null, 'abe', 5);
+    insert.run('m1', 'image', 'd-1', 'media/selfreflection/d-1-1.png', null, 'abc', 10);
+    insert.run('m2', 'image', 'd-1', 'media/selfreflection/d-1-2.png', null, 'abd', 99);
+    insert.run('m3', 'image', 'd-2', 'media/selfreflection/d-2-1.png', null, 'abe', 5);
     insert.run('m4', 'image', 'msg-1', null, 'https://cdn.example/x.png', null, null);
     // Her diary's own files are the ones an entry links.
     const link = sqlOf(handle).prepare(
-      "INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('diary', ?, ?, ?)"
+      "INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('selfreflection', ?, ?, ?)"
     );
     link.run('d-1', 0, 'm1');
     link.run('d-1', 1, 'm2');

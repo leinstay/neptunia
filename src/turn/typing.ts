@@ -25,7 +25,7 @@ export type Typing = {
   typingWhileCalls: (
     channel: TypingChannel,
     triggerKind: TriggerKind | null | undefined,
-    draft: { inner?: unknown; diary?: unknown }
+    draft: { inner?: unknown; selfreflection?: unknown }
   ) => () => void;
 };
 
@@ -56,16 +56,16 @@ export function createTyping({ iface, schedule, clock, conversationOf }: TypingC
   /**
    * The typing indicator while a direct call's tool loop runs: from the first step that has calls until the turn's
    * last speech is posted or the turn ends (runSteps stops it). Only for a turn someone waits for (DIRECT_CALLS), never
-   * an inner or a diary turn, where the bot can send. Answers the function that stops the lease, `() => {}` when it
+   * an inner or a selfreflection turn, where the bot can send. Answers the function that stops the lease, `() => {}` when it
    * does not show.
    */
   function typingWhileCalls(
     channel: TypingChannel,
     triggerKind: TriggerKind | null | undefined,
-    draft: { inner?: unknown; diary?: unknown }
+    draft: { inner?: unknown; selfreflection?: unknown }
   ): () => void {
     const off = (): void => {};
-    if (!DIRECT_CALLS.has(triggerKind) || draft.inner || draft.diary) return off;
+    if (!DIRECT_CALLS.has(triggerKind) || draft.inner || draft.selfreflection) return off;
     const sendable = channel.permissions?.send === true;
     return sendable ? startChannelTyping(channel, false) : off;
   }

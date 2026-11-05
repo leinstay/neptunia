@@ -252,7 +252,7 @@ const interfaceAnswers = (reads: InnerContext['reads']): boolean =>
 /**
  * The stand-in the heartbeat's turn runs in when no interface is connected: no conversation of an interface's, the
  * served community, every permission, so her posting tools reach the port and fail there with their own codes (the
- * selfreflection wake's stand-in, src/behavior/diary-turn.ts#wakeInputs, is built the same way).
+ * selfreflection wake's stand-in, src/behavior/selfreflection-turn.ts#wakeInputs, is built the same way).
  */
 function heartbeatStandIn(iface: string): ConversationInfo {
   return {

@@ -12,7 +12,7 @@ import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { exportOne } from '../src/memory/migration/export-one.ts';
-import { applyDiaryUpdate } from '../src/memory/db/diary-media.ts';
+import { applySelfreflectionUpdate } from '../src/memory/db/selfreflection-media.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { createStore } from '../src/memory/store.ts';
 import { relationshipStaleOf, strongestMoves } from '../src/memory/affinity.ts';
@@ -50,7 +50,7 @@ const GROUP: Scope = { scope_kind: 'group', scope_iface: 'discord', scope_dm: nu
 const DM: Scope = { scope_kind: 'dm', scope_iface: 'discord', scope_dm: PERSON };
 const GROUP_LINE = '400000000000000001';
 const DM_LINE = '400000000000000005';
-const DIARY_POST = 'd-1';
+const SELFREFLECTION_POST = 'd-1';
 
 /** The stored profile of the member: two details, an empty interest list, one episode, two texts, one old move. */
 const PROFILE = {
@@ -128,7 +128,7 @@ function seededDataDir(): string {
         picture: null,
         messageIds: ['500000000000000001'],
         search: null,
-        itemId: DIARY_POST,
+        itemId: SELFREFLECTION_POST,
       },
     ],
   });
@@ -498,22 +498,26 @@ test("the diary's fetched text survives a flush of the diary file", async () => 
   const data = seededDataDir();
   const handle = openMemoryDb(path.join(data, 'memory.db'));
   try {
-    applyDiaryUpdate(handle, { id: DIARY_POST, text: 'Σήμερα ήταν ήσυχα στο λιμάνι.', media: [] });
+    applySelfreflectionUpdate(handle, { id: SELFREFLECTION_POST, text: 'Σήμερα ήταν ήσυχα στο λιμάνι.', media: [] });
   } finally {
     handle.close();
   }
   const service = await openService(data);
   try {
     const store = createStore({ dataDir: data, memoryDb: service });
-    store.appendDiaryPost(
+    store.appendSelfreflectionPost(
       { at: NOW, kind: 'day', gist: 'a windy day', picture: null, messageIds: [], search: '', itemId: 'd-2' },
       { max: 10, now: NOW }
     );
     await flush(store);
     const db = dbOf(service.readHandle());
-    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM diary WHERE id = 'd-2'").get()?.n, 1, 'the new post is stored');
     assert.equal(
-      db.prepare('SELECT text FROM diary WHERE id = ?').get(DIARY_POST)?.text,
+      db.prepare("SELECT COUNT(*) AS n FROM selfreflection WHERE id = 'd-2'").get()?.n,
+      1,
+      'the new post is stored'
+    );
+    assert.equal(
+      db.prepare('SELECT text FROM selfreflection WHERE id = ?').get(SELFREFLECTION_POST)?.text,
       'Σήμερα ήταν ήσυχα στο λιμάνι.'
     );
   } finally {

@@ -5,7 +5,7 @@
 import { pageReads } from '../../../memory/db/retrieve.ts';
 import { accountOf } from '../../../memory/addresses.ts';
 import { buildRequest } from '../../../behavior/prompt.ts';
-import { NO_PLACES, diaryConversationIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
+import { NO_PLACES, selfreflectionConversationIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
 import { turnRequestInput } from '../../../behavior/turn-input.ts';
 import { wakeBlockText } from '../../../behavior/wake.ts';
 import { budgetDrops } from '../../../llm/budget.ts';
@@ -73,24 +73,24 @@ export function buildTurnRequest(
 ): BuiltRequest {
   const { store, calibrator, skills, lookup, emoji, memoryReads, turnContextOf } = ctx;
   const { aroundInputFor, errandsInputFor, intentionsInputFor, placesInputFor, earlierThinkFor } = ctx;
-  const { liveChannelName, diaryChannelName, stableFreezeOf, withSeenBefore, linkCalls, linkTriggers } = ctx;
+  const { liveChannelName, selfreflectionChannelName, stableFreezeOf, withSeenBefore, linkCalls, linkTriggers } = ctx;
   const { trigger = null, triggerKind = null, forced = false, source = null } = params;
   const { taskResult = null } = params;
-  const diaryParams = params.diary ?? null;
+  const selfreflectionParams = params.selfreflection ?? null;
   const { channel, placeId, reading: holders, libraryPlace, isPrivate } = opened;
   const { config, transport, memoryOn, selfId, selfName, now, snapshot } = setup;
   const { serverOn } = planned;
   const { finalMode } = pulled;
   const { participationShown, participationStage, participationAudienceOf } = waited;
   const { history, neighbors, descriptions, neighborDescriptions, videos, imageAnswers, reads } = gathered;
-  const { prefetchResult, drawOn, diaryPrep, pulled: pulledList, readOnlyIds } = gathered;
+  const { prefetchResult, drawOn, selfreflectionPrep, pulled: pulledList, readOnlyIds } = gathered;
   const { recent, prompts } = gathered;
   const { factsText, tasks, placeMemory, taggedCall, offPeriods, skillIndex } = told;
   const pulled2 = pulledList;
   // Her tools, pinned for this turn (a grant removed meanwhile is still caught at each call): the skills granted to her
   // and the carried-over ones, as native tool definitions (or `<tools>` text), within a wake's own set
   // (src/tools/wake-tools.ts). `toolNames` feeds `<senses>` and stays the same for every turn kind, so a wake shares the
-  // stable part of the request. A diary post has the same tools; only `draw.create` runs there (runSteps).
+  // stable part of the request. A selfreflection post has the same tools; only `draw.create` runs there (runSteps).
   const registry = skills ?? defaultSkills();
   draft.toolNames = exposedSkillNames({ config, selfId, registry });
   const wakeKind = draft.inner?.wake?.kind ?? null;
@@ -120,7 +120,7 @@ export function buildTurnRequest(
     prompts,
     calibrator,
     mode: finalMode,
-    forced: forced || (diaryPrep !== null && diaryParams?.forced === true),
+    forced: forced || (selfreflectionPrep !== null && selfreflectionParams?.forced === true),
     now,
     selfName,
     // `<directory>` never lists the persona's own profile.
@@ -144,7 +144,7 @@ export function buildTurnRequest(
     channelDirectory: channelDirectoryOf(isPrivate ? null : snapshot),
     loreEntries: memoryOn ? holders.flatMap((holder) => store.getLore(holder) as Array<object>) : [],
     currentChannelId: channel.id,
-    diaryChannelIds: diaryConversationIds(store),
+    selfreflectionChannelIds: selfreflectionConversationIds(store),
     descriptions: descriptions ?? null,
     neighborDescriptions: neighborDescriptions ?? null,
     videos: videos ?? null,
@@ -204,15 +204,20 @@ export function buildTurnRequest(
           channelName: liveChannelName(channel, snapshot),
         }
       : null,
-    // `<senses>`: where the persona keeps its diary, when one is set.
-    diaryChannel: diaryChannelName(placeId, config, snapshot, finalMode === 'diary' ? channel : null),
-    // A diary post: its past posts, its plan and what its search found.
-    diary: diaryPrep
+    // `<senses>`: where the persona keeps its selfreflection, when one is set.
+    selfreflectionChannel: selfreflectionChannelName(
+      placeId,
+      config,
+      snapshot,
+      finalMode === 'selfreflection' ? channel : null
+    ),
+    // A selfreflection post: its past posts, its plan and what its search found.
+    selfreflection: selfreflectionPrep
       ? {
-          posts: diaryPrep.posts,
-          plan: diaryPrep.plan,
-          found: diaryPrep.found,
-          seeds: diaryPrep.seeds ?? '',
+          posts: selfreflectionPrep.posts,
+          plan: selfreflectionPrep.plan,
+          found: selfreflectionPrep.found,
+          seeds: selfreflectionPrep.seeds ?? '',
           publicationPlaces: readMirrors(store, publicationPlaces, NO_PLACES),
         }
       : null,
@@ -228,14 +233,14 @@ export function buildTurnRequest(
     toolsTokens,
     // `<people_now>`'s live part: the voice and status snapshot (null: none).
     around: aroundInputFor({ config, mode: finalMode, isPrivate, snapshot }),
-    // `<errands>` and `<errand_result>`: her errands (none on a diary post).
+    // `<errands>` and `<errand_result>`: her errands (none on a selfreflection post).
     errands:
-      finalMode === 'diary'
+      finalMode === 'selfreflection'
         ? null
         : errandsInputFor({ placeId, channel, isPrivate, taskResult, config, labels: prompts?.labels, now }),
-    // `<intentions>`: hers and the proposed ones (features.intentions; none on a diary post).
+    // `<intentions>`: hers and the proposed ones (features.intentions; none on a selfreflection post).
     intentions:
-      finalMode === 'diary'
+      finalMode === 'selfreflection'
         ? ''
         : intentionsInputFor({ placeId, channel, snapshot, isPrivate, config, labels: prompts?.labels, now }),
     // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.ts); none on any other turn.
@@ -244,7 +249,7 @@ export function buildTurnRequest(
     wakeKind: draft.inner?.wake?.kind ?? null,
     // `<places>`: the places page on an addressed server turn, only with `context.places` exactly true (an inner turn has it in `<wake>`).
     places:
-      !draft.inner && !isPrivate && finalMode !== 'diary'
+      !draft.inner && !isPrivate && finalMode !== 'selfreflection'
         ? placesInputFor({ placeId, config, labels: prompts?.labels })
         : null,
     // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).

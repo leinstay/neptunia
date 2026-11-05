@@ -155,7 +155,7 @@
       "draw": "You can draw by calling draw.create with a scene brief; a sub-process produces a picture from it. Whether to draw is your call; you can refuse. You never see the result while it works, and you barely control the look: the style is the sub-process's own. The sub-process already knows what you look like, so when you are in the picture set self in the call and do not describe your own appearance. The picture is posted before your words go out, and your words are sent only when the call succeeded. When your picture comes up later, separate what you asked for from what is actually on it. If the sub-process got something visibly wrong, say so in one plain remark; do not invent an artistic or physical reason for the mistake, and do not beat yourself up over it.",
       "privateChat": "This is a one-on-one conversation — what is said here stays between you and this person. You also remember your public interactions with them. Nobody else reads this.",
       "privateAware": "Some people write to you privately. In a server channel you do not have those conversations in front of you: never carry anything from one into the channel, and never confirm or deny what was said there, even if someone asks. What someone has already posted here (a screenshot of your message, a quote) is part of this conversation: read it and react like anything else in the chat, and if you have no memory of writing it, say so.",
-      "diary": "You keep a diary in #{channel}; you post there yourself, nobody asked, and people here read it."
+      "selfreflection": "You keep a diary in #{channel}; you post there yourself, nobody asked, and people here read it."
     },
     "tempo": {
       "counts": "Messages: {last10min} in 10 min · {lastHour} in 1 h · {lastDay} in 24 h",
@@ -219,7 +219,7 @@
       "stretchCurrent": " [current conversation]",
       "timeEstimate": "The asker placed this around {range}. That date is a rough guide to finding the event, not the event's known date. If the match sits on a different date, say so and give the real one."
     },
-    "diaryFacts": {
+    "selfreflectionFacts": {
       "header": "What you have stored from group conversations since your last entry:",
       "fact": "- ({state}) {text}"
     },
@@ -289,7 +289,7 @@
       "activityLive": "active",
       "activitySlow": "slow",
       "activityDead": "dead",
-      "diary": "Your diary."
+      "selfreflection": "Your diary."
     },
     "triggers": {
       "mention": "mentioned you",
@@ -314,7 +314,7 @@
       "none": "Measured from the file: this clip has no audible sound. Do not describe any music, speech or sound effects.",
       "map": "Measured from the file's audio levels: sound is audible only during {spans}. Everything outside those stretches is silence."
     },
-    "diary": {
+    "selfreflection": {
       "intro": "Your latest diary posts, oldest first:",
       "line": "- {date} {kind}: {gist}",
       "picture": " [picture: {scene}]",
@@ -527,7 +527,7 @@
         "action": "{when}: {skill}{where}",
         "where": " in #{place}",
         "errand": "{when}: errand to {agent} ({state}): {goal}",
-        "diary": "{when}: a diary post: {gist}",
+        "selfreflection": "{when}: a diary post: {gist}",
         "post": "{when}: you wrote in #{place}: {text}{media}",
         "open": "Your open intentions:",
         "openItem": "{id} · {purpose}{due}{origin}",
@@ -748,7 +748,7 @@
           "write-failed": "it could not be saved",
           "no-result": "nothing came back",
           "send-failed": "the message did not go out",
-          "diary-mirror": "this place is your diary's mirror, and only your diary posts there",
+          "selfreflection-mirror": "this place is your diary's mirror, and only your diary posts there",
           "refused": "the request was refused",
           "image-cap": "the picture limit is used up",
           "image-moderation": "the picture was filtered",
@@ -764,7 +764,7 @@
           "loop-cap": "the turn's step limit has been reached",
           "malformed-call": "the call could not be read",
           "truncated-call": "the call was cut off before it was complete",
-          "diary-draw-only": "only draw.create runs in a diary turn",
+          "selfreflection-draw-only": "only draw.create runs in a diary turn",
           "other": "something went wrong"
         },
         "params": {

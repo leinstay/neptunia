@@ -3,7 +3,7 @@
 // the tool round posts through the routing it made.
 
 import { accountOf } from '../../memory/addresses.ts';
-import { setSettings } from '../../behavior/diary.ts';
+import { setSettings } from '../../behavior/selfreflection.ts';
 import { createLinker, messageLinkOf } from '../../behavior/elsewhere.ts';
 import { log } from '../../log.ts';
 import type { Draft } from '../draft.ts';

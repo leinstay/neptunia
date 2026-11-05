@@ -161,7 +161,7 @@ test('life: her executed actions, errands and diary posts of the last day, open 
       journal,
       tasks,
       intentions,
-      diary: [
+      selfreflection: [
         { at: NOW - HOUR_MS, kind: 'note' },
         { at: NOW - 3 * DAY_MS, kind: null },
       ],
@@ -173,7 +173,7 @@ test('life: her executed actions, errands and diary posts of the last day, open 
     facts.life.errands.items.map((e) => e.id),
     ['t1']
   );
-  assert.equal(facts.life.diary.items.length, 1);
+  assert.equal(facts.life.selfreflection.items.length, 1);
   assert.deepEqual(
     facts.life.open.items.map((i) => i.id),
     ['i1', 'i3']
@@ -355,7 +355,7 @@ test('since: done counts, what was not done or counted on, the told facts as one
     facts: [{ told: NOW - HOUR_MS }, { told: NOW - HOUR_MS }, { told: NOW - 8 * HOUR_MS }, { told: false }],
   };
   const { since } = await buildHeartbeatFacts(
-    base({ journal, tasks, intentions, innerState, diary: [{ at: NOW - 2 * HOUR_MS }] })
+    base({ journal, tasks, intentions, innerState, selfreflection: [{ at: NOW - 2 * HOUR_MS }] })
   );
   assert.deepEqual(since.done, { posts: 3, errands: 1, intentions: 1 });
   assert.deepEqual(
@@ -814,10 +814,10 @@ test('filtered: each line with its author, a preview cut to about 100 characters
 });
 
 test('life: her own posts with place and preview, errands with their goal, a diary post once', async () => {
-  const diary = [{ at: NOW - 2 * HOUR_MS, kind: 'note', gist: 'g'.repeat(200), messageIds: ['d-msg'] }];
+  const selfreflection = [{ at: NOW - 2 * HOUR_MS, kind: 'note', gist: 'g'.repeat(200), messageIds: ['d-msg'] }];
   const lines = [
     ownLine('p1', NOW - HOUR_MS, 'c1', 'p'.repeat(200)),
-    ownLine('d-msg', NOW - 2 * HOUR_MS, 'diary', 'the diary text'),
+    ownLine('d-msg', NOW - 2 * HOUR_MS, 'selfreflection', 'the diary text'),
     ownLine('p-old', NOW - 2 * DAY_MS, 'c1', 'yesterday'),
   ];
   const tasks = [
@@ -836,20 +836,20 @@ test('life: her own posts with place and preview, errands with their goal, a dia
       event: 'turn',
       occurredAt: iso(NOW - HOUR_MS),
       actions: [
-        { skill: 'diary.post', status: 'executed', result: 'ok' },
+        { skill: 'selfreflection.post', status: 'executed', result: 'ok' },
         { skill: 'message.create', status: 'executed', result: 'ok' },
       ],
     },
   ]);
-  const facts = await buildHeartbeatFacts(base({ record: record(lines), tasks, diary, journal }));
+  const facts = await buildHeartbeatFacts(base({ record: record(lines), tasks, selfreflection, journal }));
   assert.equal(facts.life.posts.items.length, 1);
   assert.equal(facts.life.posts.items[0].place, 'n-c1');
   assert.ok(facts.life.posts.items[0].text.length <= 80);
   assert.ok(
     facts.life.errands.items[0].goal.length <= 80 && facts.life.errands.items[0].goal.startsWith('find the song')
   );
-  assert.equal(facts.life.diary.items.length, 1);
-  assert.ok(facts.life.diary.items[0].gist.length <= 80);
+  assert.equal(facts.life.selfreflection.items.length, 1);
+  assert.ok(facts.life.selfreflection.items[0].gist.length <= 80);
   assert.equal(
     facts.life.actions.items.length,
     0,

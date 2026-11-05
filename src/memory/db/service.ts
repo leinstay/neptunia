@@ -50,11 +50,11 @@
 //     observe-event.ts#observationOf) through the writer, like every other write: the observation is the record of the
 //     line (`where` names its layer). Never throws.
 //   - `writeUnit(update)` (unit-write.ts): the database writers of the memory units (record and journal lines, the
-//     store's cache, the module stores, participation, the diary, the vectors) through the writer; resolves once the
+//     store's cache, the module stores, participation, the selfreflection, the vectors) through the writer; resolves once the
 //     worker committed, rejects with a code (`DB_CLOSED` while the database is not open). Each tick also finishes the
 //     graph projection and the stems a migration left (one slice a tick). The opener's migration context is the live
-//     `selfreflection.placeId`'s place (the seed of schema v12's and v15's data steps); a diary write's destination is the
-//     place of the diary's first enabled mirror. The durable intent of a write that failed (spec
+//     `selfreflection.placeId`'s place (the seed of schema v12's and v15's data steps); a selfreflection write's destination is the
+//     place of the selfreflection's first enabled mirror. The durable intent of a write that failed (spec
 //     2026-10-24-memory-authority, section 6 item 3): `keepPending(update)` (at shutdown, from unit-outbox.ts#keep)
 //     writes it to `data/memory-pending/<sha1 of the owner>.json` (`{ owner, op, value | lines, at }`; the lines of one
 //     owner are appended to what its file holds), and every open replays each pending file through the writer before
@@ -77,7 +77,7 @@
 //   - the daily backup (backup.ts), while `memoryDb.backup.enabled` is exactly true (read at each tick). At a tick at
 //     or after `memoryDb.backup.hour` (UTC) on a UTC day with no finished backup in `memoryDb.backup.dir` (resolved
 //     against the data directory; default `../backups/memory`, outside `data/`), the writer takes it (`{ kind: 'backup' }`:
-//     `VACUUM INTO` on the writer connection, the diary media, the manifest with the schema version, the engine commit
+//     `VACUUM INTO` on the writer connection, the selfreflection media, the manifest with the schema version, the engine commit
 //     (`commit`, else `git rev-parse HEAD`), the hash of the live config and the row count of every table) into
 //     `<YYYY-MM-DD-HHMMSS>-memory.partial/`, renamed to its name once whole; then all but the newest
 //     `memoryDb.backup.keep` backups and every other unfinished one are deleted. Never two at once. A failure is a
@@ -128,7 +128,8 @@ import { memoryQueryFor, retrievalBounds } from '../retrieval-input.ts';
 import type { RetrievalInput } from '../retrieval-input.ts';
 import type { PrivatePersonView, PrivatePlaceView } from './private-read.ts';
 import { recoverRequestArchive } from './request-archive.ts';
-import { applyDiaryUpdate, createDiaryMedia } from './diary-media.ts';
+import { isLegacySelfreflectionFile } from '../migration/paths.ts';
+import { applySelfreflectionUpdate, createSelfreflectionMedia } from './selfreflection-media.ts';
 import { embedMedia } from './media-store.ts';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.ts';
 import { FOCUS_DEFAULTS, focusView, lastFocusDay, runFocusDay } from './focus.ts';
@@ -392,11 +393,11 @@ function startWorker({
   return engine;
 }
 
-/** What a migration needs from the opener (open.ts#migrate): the diary channel as a place, and the data directory. */
-function openContextOf(config: Config, dataDir: string): { diaryPlaceId: string | null; dataDir: string } {
+/** What a migration needs from the opener (open.ts#migrate): the selfreflection channel as a place, and the data directory. */
+function openContextOf(config: Config, dataDir: string): { selfreflectionPlaceId: string | null; dataDir: string } {
   const channel = config?.selfreflection?.placeId;
   return {
-    diaryPlaceId: typeof channel === 'string' && channel ? channelPlaceId(LEGACY_IFACE, channel) : null,
+    selfreflectionPlaceId: typeof channel === 'string' && channel ? channelPlaceId(LEGACY_IFACE, channel) : null,
     dataDir,
   };
 }
@@ -623,8 +624,8 @@ export type MemoryDbService = {
 
 /**
  * Everything `createMemoryDb` takes: the live config, the data directory and the seams the tests replace.
- * `diaryMediaDeps` (read at each tick) gives the interface port and the image fetcher the diary media job needs
- * (diary-media.ts); without it the job does nothing. `defer` runs a function on the next turn of the event loop
+ * `selfreflectionMediaDeps` (read at each tick) gives the interface port and the image fetcher the selfreflection media job needs
+ * (selfreflection-media.ts); without it the job does nothing. `defer` runs a function on the next turn of the event loop
  * (setImmediate), injected by the tests. `embed` is the embedding client's `embed(texts, { config, purpose })` (the
  * re-embed job; none: the job does nothing), `commit` the engine commit for the backup manifest (default
  * `git rev-parse HEAD`), `selfName()` her name in a rebuilt embedding input.
@@ -639,8 +640,8 @@ export type MemoryDbOptions = {
   worker?: boolean;
   workerFile?: string | URL;
   readerFile?: string | URL;
-  diaryMediaDeps?: (() => { port?: unknown; imageFetcher?: unknown } | null) | null;
-  diarySleep?: (ms: number) => Promise<void>;
+  selfreflectionMediaDeps?: (() => { port?: unknown; imageFetcher?: unknown } | null) | null;
+  selfreflectionSleep?: (ms: number) => Promise<void>;
   embed?: ((texts: ReadonlyArray<string>, opts: Row) => Promise<unknown>) | null;
   commit?: string | null;
   selfName?: () => string | null | undefined;
@@ -719,8 +720,8 @@ export function createMemoryDb({
   worker: useWorker,
   workerFile = WORKER_FILE,
   readerFile = READER_FILE,
-  diaryMediaDeps = null,
-  diarySleep,
+  selfreflectionMediaDeps = null,
+  selfreflectionSleep,
   embed = null,
   commit = null,
   selfName = () => '',
@@ -856,33 +857,36 @@ export function createMemoryDb({
     log.info('memory db: closed', {});
   }
 
-  // The diary's text and pictures (diary-media.ts): off by default, one run per start over the rows still without text.
-  const diaryJob = createDiaryMedia({
+  // The selfreflection's text and pictures (selfreflection-media.ts): off by default, one run per start over the rows still without text.
+  const selfreflectionJob = createSelfreflectionMedia({
     db: () => (handle ? dbOf(handle) : null),
-    apply: (update: Row) => (engine ? engine.call('diaryApply', { update }) : applyDiaryUpdate(opened(), update)),
-    port: () => diaryMediaDeps?.()?.port ?? null,
-    imageFetcher: () => diaryMediaDeps?.()?.imageFetcher ?? null,
+    apply: (update: Row) =>
+      engine ? engine.call('selfreflectionApply', { update }) : applySelfreflectionUpdate(opened(), update),
+    port: () => selfreflectionMediaDeps?.()?.port ?? null,
+    imageFetcher: () => selfreflectionMediaDeps?.()?.imageFetcher ?? null,
     config: () => hot.config,
     dataDir,
     log,
-    sleep: diarySleep,
+    sleep: selfreflectionSleep,
   });
-  function startDiaryMedia() {
+  function startSelfreflectionMedia() {
     if (closing || !handle) return;
     if (engine?.dead) return;
-    if (!diaryJob.hasWork()) return;
-    diaryJob.run().catch((error: unknown) => log.warn('diary media: run failed', { code: codeOf(error) }));
+    if (!selfreflectionJob.hasWork()) return;
+    selfreflectionJob
+      .run()
+      .catch((error: unknown) => log.warn('selfreflection media: run failed', { code: codeOf(error) }));
   }
 
-  /** The stamped unit write as `writeUnit` sends it (the time, a diary's destination). */
+  /** The stamped unit write as `writeUnit` sends it (the time, a selfreflection's destination). */
   function stampUnit(update: Row): Row {
     const stamped: Row = { ...update, kind: 'unit', now: Number.isFinite(update?.now) ? update.now : now() };
-    // A diary post's destination is the place of the diary's first enabled mirror (mirrors.ts).
+    // A selfreflection post's destination is the place of the selfreflection's first enabled mirror (mirrors.ts).
     if (
-      (stamped.op === 'diary' ||
+      (stamped.op === 'selfreflection' ||
         (stamped.op === 'value' &&
-          ((stamped.key as StorageKey | undefined)?.kind === 'diary' ||
-            /\/diary\.json$/.test(asText(stamped.owner ?? ''))))) &&
+          ((stamped.key as StorageKey | undefined)?.kind === 'selfreflection' ||
+            isLegacySelfreflectionFile(asText(stamped.owner ?? ''))))) &&
       stamped.destination === undefined
     ) {
       stamped.destination = readMirrors({ readHandle }, mirrorPlaces, [])[0]?.placeId ?? null;
@@ -1595,7 +1599,7 @@ export function createMemoryDb({
     }
     drainObservations();
     startProject();
-    startDiaryMedia();
+    startSelfreflectionMedia();
     startFocus();
     startIndexPolicy();
     startReembed();
@@ -1744,7 +1748,7 @@ export function createMemoryDb({
   async function memoryWrite(given: unknown): Promise<unknown> {
     const update = given as Row;
     if (!handle || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
-    // The target check reads through `audience_id`; a diary entry's media go under the data directory.
+    // The target check reads through `audience_id`; a selfreflection entry's media go under the data directory.
     const stamped = { ...update, audienceColumn: true, dataDir };
     // A session's batch read its lines: touched while eviction is on.
     if (update?.kind === 'session' && Array.isArray(update.reads))
@@ -1828,7 +1832,16 @@ export function createMemoryDb({
       try {
         files = dbOf(current).prepare('SELECT COUNT(*) AS n FROM files WHERE gone_at IS NULL').get()?.n as number;
         rows = 0;
-        for (const table of ['sources', 'claims', 'episodes', 'descriptions', 'places', 'people', 'day', 'diary']) {
+        for (const table of [
+          'sources',
+          'claims',
+          'episodes',
+          'descriptions',
+          'places',
+          'people',
+          'day',
+          'selfreflection',
+        ]) {
           rows += dbOf(current).prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE retired_at IS NULL`).get()
             ?.n as number;
         }
@@ -1864,7 +1877,7 @@ export function createMemoryDb({
     const { closeMs } = settings();
     const deadline = performance.now() + closeMs;
     await stopReader(closeMs);
-    await waitFor(diaryJob.stop(), closeMs);
+    await waitFor(selfreflectionJob.stop(), closeMs);
     await waitFor(focusRun, Math.max(0, deadline - performance.now()));
     await waitFor(indexRun, Math.max(0, deadline - performance.now()));
     await waitFor(reembedRun, Math.max(0, deadline - performance.now()));

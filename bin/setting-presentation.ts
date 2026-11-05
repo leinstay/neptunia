@@ -153,7 +153,7 @@ const EXPLANATIONS: Record<string, string> = {
     'Remove older vectors from the search index daily. Stored messages remain in the archive.',
   'tools.transport': 'Use native for structured tool calls, or text for tool calls written inside the model response.',
   'selfreflection.placeId':
-    'Legacy diary destination used during migration. Manage current destinations through mirrors.',
+    'Legacy selfreflection destination used during migration. Manage current destinations through mirrors.',
   'selfimprovement.checkout': 'Absolute path of the development checkout where self-development tasks run.',
   'selfimprovement.repository':
     'GitHub repository for self-development, written as owner/name. Configure access through setup.',

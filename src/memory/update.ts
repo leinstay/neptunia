@@ -11,7 +11,7 @@ import { DEFAULT_ADDRESS_HALF_LIFE_DAYS, addressCandidates, countAddressUses } f
 import { emojiUsageOpts } from './emoji-usage.ts';
 import { gifOpts } from './gifs.ts';
 import { recordLinks } from './record.ts';
-import { diaryConversationIds } from './db/mirrors.ts';
+import { selfreflectionConversationIds } from './db/mirrors.ts';
 import { MEMORY_LIMITS } from './text-limits.ts';
 import type { StoreView } from './store.ts';
 import { propOf } from './types.ts';
@@ -67,7 +67,7 @@ export function recordAddressing(
  *   callers are expected to have already dropped other bots' messages.
  * @param [memoryCfg]  The live `config.memory`, for the tally's settings
  *   (`channelWritersStored`, `channelWritersHalfLifeDays`); omitted -> the store's fallbacks.
- *   `diaryChannelIds` (the caller adds the places of her diary, src/memory/db/mirrors.ts#diaryConversationIds) names
+ *   `selfreflectionChannelIds` (the caller adds the places of her selfreflection, src/memory/db/mirrors.ts#selfreflectionConversationIds) names
  *   the channels where the persona's own messages count as a writer.
  */
 export function touchMemory(
@@ -81,11 +81,11 @@ export function touchMemory(
   }
   // The persona's own messages and other bots never count toward a channel's
   // top writers -- see src/memory/store.ts#touchChannel.
-  // The one exception is a place of her diary (`memoryCfg.diaryChannelIds`): the persona is its writer, so the map
+  // The one exception is a place of her selfreflection (`memoryCfg.selfreflectionChannelIds`): the persona is its writer, so the map
   // does not show it as dead.
-  const diaryIds: Set<string> | undefined = memoryCfg?.diaryChannelIds;
-  const inDiary = diaryIds?.has(String(normalized.placeId)) === true;
-  const writerId = !normalized.bot && (!normalized.self || inDiary) ? normalized.authorId : null;
+  const selfreflectionIds: Set<string> | undefined = memoryCfg?.selfreflectionChannelIds;
+  const inSelfreflection = selfreflectionIds?.has(String(normalized.placeId)) === true;
+  const writerId = !normalized.bot && (!normalized.self || inSelfreflection) ? normalized.authorId : null;
   store.touchChannel(
     placeOfConversation(store, { id: normalized.placeId }),
     { name: normalized.channelName, category: normalized.channelCategory, topic: normalized.channelTopic },
@@ -222,7 +222,7 @@ function buildMemoryUpdater({
     touchMemory(store, placeId, normalized, {
       ...hot.config.memory,
       ...MEMORY_LIMITS,
-      diaryChannelIds: diaryConversationIds(store),
+      selfreflectionChannelIds: selfreflectionConversationIds(store),
     });
     // The GIF library (src/memory/gifs.ts) is fed here: it needs the GIF's URL, which no slim message keeps.
     const gifs = store.recordGifs(placeId, [normalized], gifOpts());

@@ -1,5 +1,5 @@
-// The diary media job (src/memory/db/diary-media.ts): the text and the pictures of her diary posts come from the
-// interface into the database and `data/media/diary/`. A fake port, a fake image fetcher, synthetic data only.
+// The diary media job (src/memory/db/selfreflection-media.ts): the text and the pictures of her diary posts come from the
+// interface into the database and `data/media/selfreflection/`. A fake port, a fake image fetcher, synthetic data only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,7 +10,12 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { channelPlaceId } from '../src/memory/db/ids.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
-import { createDiaryMedia, applyDiaryUpdate, DEFAULT_AUDIO_MAX_BYTES, GAP_MS } from '../src/memory/db/diary-media.ts';
+import {
+  createSelfreflectionMedia,
+  applySelfreflectionUpdate,
+  DEFAULT_AUDIO_MAX_BYTES,
+  GAP_MS,
+} from '../src/memory/db/selfreflection-media.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createDiscordAdapter } from '../interfaces/discord/port.ts';
 import { buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.ts';
@@ -58,7 +63,7 @@ function setup({ posts, config = {} }: { posts?: Untyped; config?: Record<string
   const writer: Record<string, Untyped> = handle.db;
   writer
     .prepare(
-      "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES ('mirror-1', 'diary', ?, 1, '2026-10-27T00:00:00.000Z', 'owner', NULL)"
+      "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES ('mirror-1', 'selfreflection', ?, 1, '2026-10-27T00:00:00.000Z', 'owner', NULL)"
     )
     .run(placeId);
   const port = createFakeAdapter({ iface: 'discord', selfId: 'self' });
@@ -87,9 +92,9 @@ function setup({ posts, config = {} }: { posts?: Untyped; config?: Record<string
     debug() {},
   };
   const job = () =>
-    createDiaryMedia({
+    createSelfreflectionMedia({
       db: () => handle.db,
-      apply: (update) => applyDiaryUpdate(handle, update),
+      apply: (update) => applySelfreflectionUpdate(handle, update),
       port: () => port,
       imageFetcher: () => fetcher,
       fetchImpl: wrongly(async (url: Record<string, Untyped>) => {
@@ -166,11 +171,11 @@ function setup({ posts, config = {} }: { posts?: Untyped; config?: Record<string
     logs,
     hot,
     dbFile,
-    row: (id: Untyped) => sqlOf(handle).prepare('SELECT * FROM diary WHERE id = ?').get(id),
+    row: (id: Untyped) => sqlOf(handle).prepare('SELECT * FROM selfreflection WHERE id = ?').get(id),
     media: () =>
       sqlOf(handle)
         .prepare(
-          `SELECT m.* FROM media m JOIN media_links l ON l.media_id = m.id WHERE l.owner_kind = 'diary'
+          `SELECT m.* FROM media m JOIN media_links l ON l.media_id = m.id WHERE l.owner_kind = 'selfreflection'
            ORDER BY l.owner_id, l.position`
         )
         .all(),
@@ -214,7 +219,7 @@ test('a post gets its messages joined in order, its pictures saved and a media r
     assert.equal(media.length, 2);
     assert.deepEqual(
       media.map((m) => m.path),
-      ['media/diary/d-1-1.png', 'media/diary/d-1-2.png']
+      ['media/selfreflection/d-1-1.png', 'media/selfreflection/d-1-2.png']
     );
     for (const [index, item] of media.entries()) {
       const bytes = fs.readFileSync(path.join(env.data, item.path));
@@ -241,7 +246,7 @@ test('a post gets its messages joined in order, its pictures saved and a media r
       ]
     );
     assert.equal(
-      fs.readdirSync(path.join(env.data, 'media', 'diary')).some((name) => name.includes('.tmp-')),
+      fs.readdirSync(path.join(env.data, 'media', 'selfreflection')).some((name) => name.includes('.tmp-')),
       false
     );
   } finally {
@@ -316,9 +321,9 @@ test('a picture over the cap is skipped without a download; a failed download le
     assert.deepEqual(await first.run(), { done: 0, failed: 0 });
     const url = present([...env.port.messages.values()].find((m) => m.text === 'flaky one')).attachments[0].url;
     const served = png('flaky');
-    const second = createDiaryMedia({
+    const second = createSelfreflectionMedia({
       db: () => env.handle.db,
-      apply: (u) => applyDiaryUpdate(env.handle, u),
+      apply: (u) => applySelfreflectionUpdate(env.handle, u),
       port: () => env.port,
       imageFetcher: () => ({
         fetchAsDataUrl: async (u: Untyped) =>
@@ -449,7 +454,7 @@ test('the Discord adapter reads messages by id: text, attachments, and missing f
   assert.equal(nowhere.status, 'failed');
 });
 
-// PR 7d: `memoryDb.diaryMedia` is code, so the job always runs.
+// PR 7d: `memoryDb.selfreflectionMedia` is code, so the job always runs.
 test('the service runs the job once the database is open', async () => {
   const { createMemoryDb } = await import('../src/memory/db/service.ts');
   const env = setup(wrongly({ posts: [post('d-1', ['x'])] }));
@@ -464,15 +469,15 @@ test('the service runs the job once the database is open', async () => {
       dataDir: env.data,
       worker: false,
       log: { info() {}, warn() {}, error() {}, debug() {} },
-      diaryMediaDeps: () => ({ port: env.port, imageFetcher: { fetchAsDataUrl: async () => null } }),
-      diarySleep: async () => {},
+      selfreflectionMediaDeps: () => ({ port: env.port, imageFetcher: { fetchAsDataUrl: async () => null } }),
+      selfreflectionSleep: async () => {},
     });
     await service.tick();
     await new Promise((resolve) => setTimeout(resolve, 50));
     await service.close();
     const reader = openMemoryDb(env.dbFile, { readOnly: true });
     try {
-      assert.equal(sqlOf(reader).prepare('SELECT text FROM diary WHERE id = ?').get('d-1').text, 'served');
+      assert.equal(sqlOf(reader).prepare('SELECT text FROM selfreflection WHERE id = ?').get('d-1').text, 'served');
     } finally {
       reader.close();
     }
@@ -494,8 +499,8 @@ test('an audio attachment is saved in the picture numbering with a row whose ext
     assert.deepEqual(
       media.map((m) => [m.path, m.mime]),
       [
-        ['media/diary/d-1-1.png', 'image/png'],
-        ['media/diary/d-1-2.ogg', 'audio/ogg'],
+        ['media/selfreflection/d-1-1.png', 'image/png'],
+        ['media/selfreflection/d-1-2.ogg', 'audio/ogg'],
       ]
     );
     assert.deepEqual(fs.readFileSync(path.join(env.data, media[1].path)), bytes);
@@ -521,7 +526,7 @@ test('an audio attachment without a matching voice field keeps its own duration 
     env.writeUnits();
     await env.job().run();
     const [item] = env.media();
-    assert.equal(item.path, 'media/diary/d-1-1.mp3');
+    assert.equal(item.path, 'media/selfreflection/d-1-1.mp3');
     // The post's message and the mark of its read sit beside what the file itself holds.
     const fileExtra = JSON.parse(item.extra) as { voice?: unknown; durationSec?: unknown; text?: unknown };
     assert.deepEqual([fileExtra.voice, fileExtra.durationSec, fileExtra.text], [true, 7, undefined]);
@@ -589,7 +594,7 @@ test('a completed old post is fetched again only with a voice field and no audio
       .media()
       .filter((m) => m.owner === 'd-1')
       .map((m) => m.path);
-    assert.deepEqual(paths, ['media/diary/d-1-1.png', 'media/diary/d-1-2.ogg']);
+    assert.deepEqual(paths, ['media/selfreflection/d-1-1.png', 'media/selfreflection/d-1-2.ogg']);
     assert.equal(env.job().hasWork(), false);
   } finally {
     env.done();

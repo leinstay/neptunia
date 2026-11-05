@@ -1,5 +1,5 @@
 // Her diary in memory is the truth of what she posted (the owner, 2026-10-27): an entry is a post of N messages with
-// their attachments, and memory holds it whole. The diary media job (src/memory/db/diary-media.ts) reads an entry's
+// their attachments, and memory holds it whole. The diary media job (src/memory/db/selfreflection-media.ts) reads an entry's
 // messages through the interface, keeps each attachment's id on the entry's media row (`native_ref.attachmentId`) with
 // the description memory already holds for that attachment (the `media` row of kind `attachment` and the same id),
 // fills an entry's missing text, and completes an older media row that holds only `{ url, messageId }`, once. A fake
@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
-import { applyDiaryUpdate, createDiaryMedia } from '../src/memory/db/diary-media.ts';
+import { applySelfreflectionUpdate, createSelfreflectionMedia } from '../src/memory/db/selfreflection-media.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -64,7 +64,7 @@ function scene({
           name: 'journal',
         },
       ],
-      diary: entries.map((entry, position) => ({
+      selfreflection: entries.map((entry, position) => ({
         id: entry.id,
         at_ms: Date.parse(AT) - (entries.length - position) * 86_400_000,
         kind: 'status',
@@ -74,9 +74,9 @@ function scene({
         owner_file: 'guilds/g1/diary.json',
         position,
       })),
-      diary_mirrors: entries.map((entry) => ({
+      selfreflection_mirrors: entries.map((entry) => ({
         id: `mirror:${entry.id}`,
-        diary_id: entry.id,
+        selfreflection_id: entry.id,
         iface: 'fake',
         place_id: PLACE,
         native_ids: JSON.stringify(entry.messageIds),
@@ -97,7 +97,7 @@ function scene({
           id: item.id,
           kind: 'image',
           owner: item.owner,
-          path: `media/diary/${item.id}.png`,
+          path: `media/selfreflection/${item.id}.png`,
           native_ref: (item.nativeRef as { attachmentId?: string }).attachmentId ?? null,
           extra: JSON.stringify(item.nativeRef),
           description: null,
@@ -106,7 +106,7 @@ function scene({
         })),
       ],
       media_links: media.map((item, position) => ({
-        owner_kind: 'diary',
+        owner_kind: 'selfreflection',
         owner_id: item.owner,
         position,
         media_id: item.id,
@@ -115,7 +115,7 @@ function scene({
     { log: SILENT, at: AT }
   );
   db.prepare(
-    "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES ('mirror-1', 'diary', ?, 1, ?, 'owner', NULL)"
+    "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES ('mirror-1', 'selfreflection', ?, 1, ?, 'owner', NULL)"
   ).run(PLACE, AT);
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self' });
   const pictures = new Map<string, Buffer>();
@@ -147,9 +147,9 @@ function scene({
     },
   };
   const job = () =>
-    createDiaryMedia({
+    createSelfreflectionMedia({
       db: () => handle.db,
-      apply: (update: unknown) => applyDiaryUpdate(handle, update),
+      apply: (update: unknown) => applySelfreflectionUpdate(handle, update),
       port: () => port,
       imageFetcher: () => fetcher,
       config: () => ({ image: { referenceMaxBytes: 100_000 }, context: { vision: { fetchTimeoutMs: 1000 } } }),
@@ -162,7 +162,7 @@ function scene({
     db
       .prepare(
         `SELECT m.id, m.native_ref, m.description FROM media m JOIN media_links l ON l.media_id = m.id
-         WHERE l.owner_kind = 'diary' AND l.owner_id = ? ORDER BY l.position`
+         WHERE l.owner_kind = 'selfreflection' AND l.owner_id = ? ORDER BY l.position`
       )
       .all(owner)
       .map((row) => ({
@@ -170,13 +170,13 @@ function scene({
         attachmentId: row.native_ref ?? null,
         description: row.description ?? null,
       }));
-  const textOf = (id: string) => db.prepare('SELECT text FROM diary WHERE id = ?').all(id)[0]?.text ?? null;
+  const textOf = (id: string) => db.prepare('SELECT text FROM selfreflection WHERE id = ?').all(id)[0]?.text ?? null;
   const fetches = () => port.calls.filter((call) => call.op === 'fetchMessages').length;
   const dump = () =>
     db
       .prepare(
         `SELECT m.id, m.native_ref, m.description, m.sha1 FROM media m JOIN media_links l ON l.media_id = m.id
-         WHERE l.owner_kind = 'diary' ORDER BY m.id`
+         WHERE l.owner_kind = 'selfreflection' ORDER BY m.id`
       )
       .all();
   return { job, mediaOf, textOf, fetches, dump, dataDir };

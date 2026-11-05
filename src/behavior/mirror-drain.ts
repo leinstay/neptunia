@@ -1,4 +1,4 @@
-// One drain of the diary's mirrors, run by the scheduler's tick and when an interface connects. In order: a claim past its
+// One drain of the selfreflection's mirrors, run by the scheduler's tick and when an interface connects. In order: a claim past its
 // lease becomes `unknown` (`mirrors.claimLeaseMs`), since its publisher is gone and may have sent; an adapter that can
 // look a send up by its idempotency key settles an `unknown` row; an entry stored after a mirror's registration with no
 // publication there, lost to a crash between its storing and its publish, is queued; what is queued, retryable or
@@ -13,19 +13,19 @@ import { deliveryOf } from '../memory/db/publication-delivery.ts';
 import { historyOf, mirrorRows, unpublishedSince } from '../memory/db/mirror-config.ts';
 import type { MirrorRow, ScannedEntry } from '../memory/db/mirror-config.ts';
 import { reconcileUnknown } from '../interface/reconcile.ts';
-import { diaryMetadataOf, isPublicationBoundary } from '../tools/publication.ts';
+import { selfreflectionMetadataOf, isPublicationBoundary } from '../tools/publication.ts';
 import { errorCode, scannedMessages, storedEntry } from './mirror-stored.ts';
-import type { DiaryPlace } from '../memory/db/mirrors.ts';
+import type { SelfreflectionPlace } from '../memory/db/mirrors.ts';
 import type { Db } from '../memory/db/types.ts';
 import type { Adapter } from '../protocol/adapter.ts';
-import type { DiaryEntry, MirrorMemory, MirrorPort, Publication, PublishOutcome } from './mirror.ts';
+import type { SelfreflectionEntry, MirrorMemory, MirrorPort, Publication, PublishOutcome } from './mirror.ts';
 
 type Prepared = { ok: true; publication: Publication; reused: boolean } | { ok: false; code: string };
 
 /** A claim's row as a drain reads it. */
 type Claimed = Publication & { claimed_at?: number | null };
 
-const SENDABLE_SQL = `SELECT * FROM publications WHERE row_kind = 'diary' AND retired_at IS NULL
+const SENDABLE_SQL = `SELECT * FROM publications WHERE row_kind = 'selfreflection' AND retired_at IS NULL
   AND (status = 'queued' OR (paced = 0 AND (status = 'incomplete' OR (status = 'failed' AND retryable = 1))))
   ORDER BY created_at, id`;
 
@@ -49,12 +49,12 @@ export function createMirrorDrain({
   now: () => number;
   dataDir: string | null;
   leaseMs: () => number;
-  mirroredPlace: (db: Db, placeId: string) => DiaryPlace | null;
-  prepareFor: (db: Db, entry: DiaryEntry, place: DiaryPlace, pending: boolean) => Promise<Prepared>;
+  mirroredPlace: (db: Db, placeId: string) => SelfreflectionPlace | null;
+  prepareFor: (db: Db, entry: SelfreflectionEntry, place: SelfreflectionPlace, pending: boolean) => Promise<Prepared>;
   send: (
     publication: Publication,
-    place: DiaryPlace,
-    entry: DiaryEntry,
+    place: SelfreflectionPlace,
+    entry: SelfreflectionEntry,
     options?: { paced?: boolean; missing?: boolean }
   ) => Promise<PublishOutcome>;
   entriesBeingWritten: () => number;
@@ -67,7 +67,7 @@ export function createMirrorDrain({
   const rowsWith = (db: Db, status: string): Array<Claimed> =>
     db
       .prepare(
-        "SELECT * FROM publications WHERE row_kind = 'diary' AND status = ? AND retired_at IS NULL ORDER BY created_at, id"
+        "SELECT * FROM publications WHERE row_kind = 'selfreflection' AND status = ? AND retired_at IS NULL ORDER BY created_at, id"
       )
       .all(status) as Array<Claimed>; // the columns of the table
 
@@ -102,8 +102,8 @@ export function createMirrorDrain({
   }
 
   /** A scanned entry as `prepareFor` takes it. */
-  function scannedEntry(entry: ScannedEntry): DiaryEntry {
-    const boundary = diaryMetadataOf(entry.extra).publicationBoundary;
+  function scannedEntry(entry: ScannedEntry): SelfreflectionEntry {
+    const boundary = selfreflectionMetadataOf(entry.extra).publicationBoundary;
     return {
       id: entry.id,
       messages: scannedMessages(entry.extra, entry.text),
@@ -111,7 +111,7 @@ export function createMirrorDrain({
     };
   }
 
-  /** The entries a crash left with no publication on a mirror they belong to, queued. None while a diary turn runs. */
+  /** The entries a crash left with no publication on a mirror they belong to, queued. None while a selfreflection turn runs. */
   async function queueUnpublished(db: Db, mirrors: ReadonlyArray<MirrorRow>): Promise<void> {
     if (entriesBeingWritten() > 0) return;
     for (const mirror of mirrors.filter((one) => one.enabled)) {
@@ -125,7 +125,7 @@ export function createMirrorDrain({
   }
 
   /** One row's send from what memory holds; whether it ended sent. A pending row with no content yet waits for its turn. */
-  async function sendStored(db: Db, row: Publication, place: DiaryPlace, paced: boolean): Promise<boolean> {
+  async function sendStored(db: Db, row: Publication, place: SelfreflectionPlace, paced: boolean): Promise<boolean> {
     const { entry, missing, hasContent } = storedEntry(db, row, dataDir);
     if (!hasContent) return false;
     return (await send(row, place, entry, { paced, missing })).status === 'sent';

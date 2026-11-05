@@ -1,17 +1,17 @@
-// The pure parts of scripts/replay.ts's `--diary-day` mode: one diary day run as the live diary
+// The pure parts of scripts/replay.ts's `--selfreflection-day` mode: one selfreflection day run as the live selfreflection
 // would run it, slot by slot, with nothing posted. Here: the seeded random streams (the day plan
 // and the turns draw from separate ones, so a change in what a turn draws never moves the
-// slots), the day plan for a local date (src/behavior/diary.ts#planDay, injected), the spend
+// slots), the day plan for a local date (src/behavior/selfreflection.ts#planDay, injected), the spend
 // estimate, the image client wrapper that records every `generate()` call's arguments (the
 // "fake" one answers a fixture PNG through the real client's own request path; the "live" one
 // stops at `--max-pictures`), the short description of an avatar reference, and the report.
-// Exists so the drawing calls of a whole diary day can be recorded before and after a change and
-// diffed. Not for one diary brief (`--diary`).
+// Exists so the drawing calls of a whole selfreflection day can be recorded before and after a change and
+// diffed. Not for one selfreflection brief (`--selfreflection`).
 
 import { createHash } from 'node:crypto';
 import { mulberry32 } from './search-compare.ts';
 import type { Untyped } from '../../src/tools/types.ts';
-import type { DayPlan } from '../../src/behavior/diary.ts';
+import type { DayPlan } from '../../src/behavior/selfreflection.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
@@ -52,20 +52,20 @@ export function seededRng(seed: string, stream: string): () => number {
 }
 
 /**
- * The diary's plan for the local day `date` in `timezone`, as the live diary plans it at the
+ * The selfreflection's plan for the local day `date` in `timezone`, as the live selfreflection plans it at the
  * day's first tick (planDay at local midnight) with no hunger carried in, on the seed's `plan`
  * stream: the same config, date and seed give the same slots. `start` is the local midnight.
- * @param input planDay and zonedEpoch from src/behavior/diary.ts and src/time.ts.
+ * @param input planDay and zonedEpoch from src/behavior/selfreflection.ts and src/time.ts.
  */
-export function planDiaryDay({
-  diaryCfg,
+export function planSelfreflectionDay({
+  selfreflectionCfg,
   timezone,
   date,
   seed,
   planDay,
   zonedEpoch,
 }: {
-  diaryCfg: Rec | undefined;
+  selfreflectionCfg: Rec | undefined;
   timezone: string | undefined;
   date: string;
   seed: string;
@@ -75,7 +75,7 @@ export function planDiaryDay({
   const zone = timezone || 'UTC';
   const start = zonedEpoch(date, 0, 0, zone);
   if (!Number.isFinite(start)) throw new Error(`not a date: ${date}`);
-  const plan = planDay(diaryCfg ?? {}, start, zone, seededRng(seed, 'plan'), {});
+  const plan = planDay(selfreflectionCfg ?? {}, start, zone, seededRng(seed, 'plan'), {});
   return {
     day: plan.day,
     start,
@@ -87,11 +87,11 @@ export function planDiaryDay({
 }
 
 /**
- * What a diary day would cost: `requestsPerSlot` model requests per slot at `usdPerRequest`, and
+ * What a selfreflection day would cost: `requestsPerSlot` model requests per slot at `usdPerRequest`, and
  * with `draw` 'live' up to `maxPictures` pictures at USD_PER_PICTURE (none on a day without a
  * slot). For scripts/lib/cli.ts#spendGate.
  */
-export function diaryDayEstimate({
+export function selfreflectionDayEstimate({
   slots,
   draw,
   maxPictures,
@@ -165,8 +165,8 @@ export type Picture = { buffer: Buffer; mediaType?: string; cost?: number; secon
 /** One drawing call of a slot, as `recordingImages` recorded it. */
 type DrawCall = { reference?: unknown; accountId?: string | null; result?: unknown; file?: string; prompt?: string };
 
-/** One slot of a diary day's report. */
-export type DiarySlot = {
+/** One slot of a selfreflection day's report. */
+export type SelfreflectionSlot = {
   n: number;
   at: number | string;
   local?: string;
@@ -257,17 +257,17 @@ function cell(text: string) {
  * every drawing call (the whole prompt in a block, the reference's description, the member it
  * is charged to, what came out).
  */
-export function renderDiaryDayReport(report: {
+export function renderSelfreflectionDayReport(report: {
   date: string;
   timezone: string;
   seed: string;
   draw: string;
   quiet: boolean;
-  slots: Array<DiarySlot>;
+  slots: Array<SelfreflectionSlot>;
   usage?: Rec;
   stopped?: string | null;
 }): string {
-  const lines = [`# Diary day ${report.date} (${report.timezone})`, ''];
+  const lines = [`# Selfreflection day ${report.date} (${report.timezone})`, ''];
   lines.push(
     `- seed: \`${report.seed}\``,
     `- draw: ${report.draw}`,

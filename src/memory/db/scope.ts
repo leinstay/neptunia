@@ -4,7 +4,7 @@
 // outward. A read always names its context; a read without one throws.
 //
 // Contexts: `{ iface, kind: 'group' }`, `{ iface, kind: 'dm', person, place }`, `{ internal: true }`, and
-// `{ groups: true }` (`groupsContext`, the diary's entry: `none` and the groups of every interface, never a DM or an
+// `{ groups: true }` (`groupsContext`, the selfreflection's entry: `none` and the groups of every interface, never a DM or an
 // internal row). A context the core issues (`issueContext`) also carries an `id` and is recorded in
 // `execution_contexts` by the service, and is read through `audience_id` instead of the three columns (its
 // `audienceColumn: true`).
@@ -102,7 +102,7 @@ export function readContextSpec(
     ? { iface, kind: 'dm' as const, person: personId(iface, privateAccountId) }
     : { iface, kind: 'group' as const, destination: placeId ? channelPlaceId(iface, placeId) : null };
 }
-/** The context of the diary's entry: `none` and the groups of every interface; no direct chat, nothing internal. */
+/** The context of the selfreflection's entry: `none` and the groups of every interface; no direct chat, nothing internal. */
 export const groupsContext = (): Context => ({ groups: true });
 
 /**

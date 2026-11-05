@@ -110,7 +110,7 @@ export function outcomeOf(result: {
   return result.text ? 'answered' : 'empty';
 }
 
-/** A function returning floats in [0, 1) from a 32-bit seed (mulberry32); scripts/lib/diary-day.ts uses it too. */
+/** A function returning floats in [0, 1) from a 32-bit seed (mulberry32); scripts/lib/selfreflection-day.ts uses it too. */
 export function mulberry32(seed: Untyped) {
   let a = seed >>> 0;
   return (): number => {

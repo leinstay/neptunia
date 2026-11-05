@@ -1,6 +1,6 @@
-// The persona keeps a diary: one owner-chosen channel where it posts on its
+// The persona keeps a selfreflection: one owner-chosen channel where it posts on its
 // own, rarely and irregularly, the way a person runs a personal feed. This
-// module owns the diary's decisions: which local times of a day get a post
+// module owns the selfreflection's decisions: which local times of a day get a post
 // (configured windows in `bot.timezone`, quiet days, a minimum gap,
 // and the hunger that empty windows and quiet days carry into later
 // ones, or the exact UTC slots of `selfreflection.schedule` when it is set), which planned slot is due now (a slot missed by more than the grace
@@ -10,12 +10,12 @@
 // kinds are dropped before the planner sees them), which kinds post a set of
 // pictures rather than one (`selfreflection.setKinds`, sized by `selfreflection.set`), and how
 // the post history, the kinds and the random seeds are rendered for the plan
-// and compose requests. All wording comes from `labels.diary.*`; kind keys
+// and compose requests. All wording comes from `labels.selfreflection.*`; kind keys
 // are config keys.
 //
 // The decisions are pure: randomness and the clock are injected (`rng`,
 // `nowMs`), and none of them touches a platform SDK, the disk or the model. The
-// factory at the end (createDiary) is the module's edge: it ticks, keeps the
+// factory at the end (createSelfreflection) is the module's edge: it ticks, keeps the
 // day plan in state.json and runs the post through the turn runner.
 
 import { fill } from '../format.ts';
@@ -30,12 +30,12 @@ import type { Reads } from '../interface/reads.ts';
 import type { createStore } from '../memory/store.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import { historyLines } from './lines.ts';
-import { diaryPlaces, readMirrors } from './mirror.ts';
+import { selfreflectionPlaces, readMirrors } from './mirror.ts';
 
 /** A day counter of the store's state (src/time.ts#countToday): the key of its day and the key of its count. */
 export type Daily = { dayKey: string; countKey: string };
 
-/** The diary's plan of one local day, as state.json keeps it (`diary[placeId]`). */
+/** The selfreflection's plan of one local day, as state.json keeps it (`selfreflection[placeId]`). */
 export type DayPlan = {
   day: string;
   slots: Array<number>;
@@ -63,32 +63,41 @@ export type SetSettings = {
 };
 
 /** The plan request's answer, normalised (validatePlan). */
-export type DiaryPlan = { kind: string | null; brief: string; search: string; picture: boolean; fallback: boolean };
-
-/** What createDiary's turns run: one diary turn, the selfreflection wake. */
-export type DiaryTurnParams = {
-  mode: 'diary';
-  diary: { kind: string | null; topic?: string; forced: boolean };
+export type SelfreflectionPlan = {
+  kind: string | null;
+  brief: string;
+  search: string;
+  picture: boolean;
+  fallback: boolean;
 };
 
-/** The store as the diary reads it: the state file (its pause and the day plans), her diary and its writes. */
-export type DiaryStore = Pick<ReturnType<typeof createStore>, 'state' | 'getDiary' | 'setDiaryPosts' | 'flushSettled'>;
+/** What createSelfreflection's turns run: one selfreflection turn, the selfreflection wake. */
+export type SelfreflectionTurnParams = {
+  mode: 'selfreflection';
+  selfreflection: { kind: string | null; topic?: string; forced: boolean };
+};
 
-/** The state file's data as the diary reads it (`store.state.data`, untyped in the store). */
-function stateData(store: DiaryStore): Obj {
+/** The store as the selfreflection reads it: the state file (its pause and the day plans), her selfreflection and its writes. */
+export type SelfreflectionStore = Pick<
+  ReturnType<typeof createStore>,
+  'state' | 'getSelfreflection' | 'setSelfreflectionPosts' | 'flushSettled'
+>;
+
+/** The state file's data as the selfreflection reads it (`store.state.data`, untyped in the store). */
+function stateData(store: SelfreflectionStore): Obj {
   const data: unknown = store.state.data;
   return objOf(data);
 }
 
-/** The day plans of the state file (`diary`), created empty when `create` and missing. */
-function plansOf(store: DiaryStore, create: boolean): Record<string, DayPlan | undefined> {
+/** The day plans of the state file (`selfreflection`), created empty when `create` and missing. */
+function plansOf(store: SelfreflectionStore, create: boolean): Record<string, DayPlan | undefined> {
   const data = stateData(store);
-  if (create) data.diary ??= {};
-  // state.json's `diary` is what currentPlan wrote: one day plan per place.
-  return objOf(data.diary) as Record<string, DayPlan | undefined>;
+  if (create) data.selfreflection ??= {};
+  // state.json's `selfreflection` is what currentPlan wrote: one day plan per place.
+  return objOf(data.selfreflection) as Record<string, DayPlan | undefined>;
 }
 
-/** One post the backfill writes to diary.json. */
+/** One post the backfill writes to the selfreflection unit. */
 export type BackfillPost = {
   at: number;
   kind: null;
@@ -98,9 +107,9 @@ export type BackfillPost = {
   search: null;
 };
 
-/** What the backfill is given (backfillDiary). */
+/** What the backfill is given (backfillSelfreflection). */
 export type BackfillArgs = {
-  store: DiaryStore;
+  store: SelfreflectionStore;
   reads: Reads;
   conversation: ConversationRef;
 
@@ -108,8 +117,8 @@ export type BackfillArgs = {
   labels: unknown;
 };
 
-/** The diary's day as the owner's status shows it (createDiary's `status`). */
-export type DiaryStatus = {
+/** The selfreflection's day as the owner's status shows it (createSelfreflection's `status`). */
+export type SelfreflectionStatus = {
   placeId: string;
   day: string | null;
   slots: Array<number>;
@@ -121,11 +130,11 @@ export type DiaryStatus = {
   lastPosted: number | null;
 };
 
-/** The diary's scheduler (createDiary). */
-export type Diary = {
+/** The selfreflection's scheduler (createSelfreflection). */
+export type Selfreflection = {
   tick: () => Promise<void>;
   force: (opts?: { kind?: string | null; topic?: string | null }) => Promise<unknown>;
-  status: () => DiaryStatus;
+  status: () => SelfreflectionStatus;
   stop: () => void;
 };
 
@@ -133,14 +142,14 @@ export type Diary = {
 const sectionOf = (value: unknown, key: string): Obj => objOf(objOf(value)[key]);
 /** A label read from the labels, '' when it is not a string (fill answers '' for it). */
 const labelOf = (value: unknown): string => (typeof value === 'string' ? value : '');
-/** The diary's words: `labels.diary`. */
-const diaryWords = (labels: unknown): Obj => sectionOf(labels, 'diary');
+/** The selfreflection's words: `labels.selfreflection`. */
+const selfreflectionWords = (labels: unknown): Obj => sectionOf(labels, 'selfreflection');
 
 const BRIEF_CHARS = 300;
 const TOPIC_CHARS = 1000;
 const DEFAULT_QUIET_DAY_CHANCE = 0.3; // selfreflection.quietDayChance
 const DEFAULT_FORCE_WAIT_MS = 120000; // selfreflection.forceWaitMs
-// The diary's measures. Production values, config cut of 2026-10-31.
+// The selfreflection's measures. Production values, config cut of 2026-10-31.
 const DEFAULT_GRACE_MINUTES = 30;
 const DEFAULT_QUIET_CARRY = 0.25;
 const DEFAULT_HUNGER_BOOST = 0.5;
@@ -148,7 +157,7 @@ const MIN_GAP_MINUTES = 90;
 export const DEFAULT_HISTORY_POSTS = 150;
 export const DEFAULT_GIST_CHARS = 200;
 /** The weight of each kind of post the planner picks among. */
-export const DIARY_KINDS: Readonly<Record<string, number>> = Object.freeze({
+export const SELFREFLECTION_KINDS: Readonly<Record<string, number>> = Object.freeze({
   selfPicture: 3,
   picture: 2,
   meme: 1,
@@ -163,8 +172,8 @@ export const DIARY_KINDS: Readonly<Record<string, number>> = Object.freeze({
 /** The seed sets a post's request carries. */
 export const SEED_SETS = 2;
 export const DEFAULT_SEARCH_KINDS: Array<string> = ['news', 'facts'];
-/** The messages one diary post sends at most. */
-export const DIARY_MAX_MESSAGES = 3;
+/** The messages one selfreflection post sends at most. */
+export const SELFREFLECTION_MAX_MESSAGES = 3;
 /** The kinds that mean a picture when `selfreflection.pictureKinds` is not a list. */
 export const DEFAULT_PICTURE_KINDS: Array<string> = ['selfPicture', 'picture', 'meme', 'photoset', 'randomSet'];
 /** The kinds whose post is a set of pictures when `selfreflection.setKinds` is not a list. */
@@ -248,7 +257,7 @@ const namedSchedule = (cfg: unknown): ServiceSchedule | null => parseSchedule(ob
 const utcDayStart = (moment: number): number => Math.floor(moment / DAY_MS) * DAY_MS;
 
 /**
- * The diary's plan for the local day of `nowMs`. A named `schedule` replaces all of what follows: its plan is the UTC day
+ * The selfreflection's plan for the local day of `nowMs`. A named `schedule` replaces all of what follows: its plan is the UTC day
  * of `nowMs`, its slots are exactly the schedule's (an interval laid from the start of that day), and it has no quiet
  * day and no gap, so status never promises a time the dice then drop. Otherwise, with chance
  * `quietDayChance * quietCarry ** quietStreak` the day is quiet (no slots), so
@@ -465,15 +474,15 @@ export function isSetKind(kind: unknown, setKinds: unknown): boolean {
 }
 
 /**
- * The settings of a set post (`set` of `diaryCfg`, config.selfreflection), each one replaced by its default
+ * The settings of a set post (`set` of `selfreflectionCfg`, config.selfreflection), each one replaced by its default
  * when missing or invalid: `pictures` `[min, max]` whole counts (max never
  * below min; the engine stages at most `max` draw.create pictures, `min` is for the
  * prompt), `minPosted` (fewer pictures generated and nothing is posted; at
  * least 1), `seedSets` (the compose request's seed combinations, 0 allowed)
  * and `maxMessageBytes` (the attachment bytes of one message, positive).
  */
-export function setSettings(diaryCfg: unknown): SetSettings {
-  const set = sectionOf(diaryCfg, 'set');
+export function setSettings(selfreflectionCfg: unknown): SetSettings {
+  const set = sectionOf(selfreflectionCfg, 'set');
   const whole = (value: unknown, min: number) => (isFiniteNumber(value) && value >= min ? Math.floor(value) : null);
   const range = listOf(set.pictures);
   const low = whole(range[0], 1);
@@ -518,7 +527,7 @@ export function validatePlan(
     pictureKinds,
   }: { pictureAllowed?: boolean; searchKinds?: unknown; pictureKinds?: unknown } = {},
   rng: () => number
-): DiaryPlan {
+): SelfreflectionPlan {
   const answer = objOf(parsed);
   const named = typeof answer.kind === 'string' ? answer.kind : null;
   const valid = weightedKinds(kinds).some(([key]) => key === named);
@@ -537,9 +546,9 @@ export function validatePlan(
 
 /** The picture suffix of one post: the scene, `pictureUnknown` for a picture with no recorded
  * scene (`true` or ''), nothing for no picture. A set (`pictures` above 1) shows its first
- * scene with the count (`labels.diary.pictureSet`; `picture` when that label is missing). */
+ * scene with the count (`labels.selfreflection.pictureSet`; `picture` when that label is missing). */
 function pictureSuffix(picture: unknown, labels: unknown, pictures: unknown): string {
-  const words = diaryWords(labels);
+  const words = selfreflectionWords(labels);
   const count = countOf(pictures);
   if (typeof picture === 'string' && picture.trim()) {
     if (count > 1 && words.pictureSet) return fill(labelOf(words.pictureSet), { count, scene: oneLine(picture) });
@@ -551,19 +560,19 @@ function pictureSuffix(picture: unknown, labels: unknown, pictures: unknown): st
 
 /**
  * The body of the `<diary>` block over `posts` (oldest first; each `{ at, kind, gist, picture, pictures }`):
- * `labels.diary.intro`, then one
- * `labels.diary.line` per post (`{date}` the post's local date in
- * `timezone`, `{kind}` its kind key or `labels.diary.kindUnknown`, `{gist}`)
- * with `labels.diary.picture` appended when the post had a picture
- * (`labels.diary.pictureSet` with the count for a set: `pictures` above 1). The
+ * `labels.selfreflection.intro`, then one
+ * `labels.selfreflection.line` per post (`{date}` the post's local date in
+ * `timezone`, `{kind}` its kind key or `labels.selfreflection.kindUnknown`, `{gist}`)
+ * with `labels.selfreflection.picture` appended when the post had a picture
+ * (`labels.selfreflection.pictureSet` with the count for a set: `pictures` above 1). The
  * newest `max` (selfreflection.historyPosts) posts, oldest first. '' when there is no post.
  */
-export function renderDiaryBlock(
+export function renderSelfreflectionBlock(
   posts: unknown,
   labels: unknown,
   { timezone, max }: { timezone?: string; max?: unknown } = {}
 ): string {
-  const words = diaryWords(labels);
+  const words = selfreflectionWords(labels);
   const list = listOf(posts);
   const limit = countOf(max ?? DEFAULT_HISTORY_POSTS);
   const shown = limit > 0 ? list.slice(-limit) : [];
@@ -579,8 +588,8 @@ export function renderDiaryBlock(
 }
 
 /**
- * The body of the `<kinds>` block: `labels.diary.kinds`, then one
- * `labels.diary.kindLine` per kind of `kinds` (selfreflection.kinds) with a positive weight (`{key}`,
+ * The body of the `<kinds>` block: `labels.selfreflection.kinds`, then one
+ * `labels.selfreflection.kindLine` per kind of `kinds` (selfreflection.kinds) with a positive weight (`{key}`,
  * `{weight}`, `{count}` its uses among the newest `window` (selfreflection.historyPosts) of `posts` (oldest first), `{window}`
  * how many posts that is). '' when no kind is weighted.
  */
@@ -590,7 +599,7 @@ export function renderKindsBlock(
   labels: unknown,
   { window }: { window?: unknown } = {}
 ): string {
-  const words = diaryWords(labels);
+  const words = selfreflectionWords(labels);
   const entries = weightedKinds(kinds);
   if (entries.length === 0) return '';
   const limit = countOf(window ?? DEFAULT_HISTORY_POSTS);
@@ -607,7 +616,7 @@ export function renderKindsBlock(
 }
 
 /**
- * The seed families of `prompts['diary-seeds']`: a `# name` line starts a
+ * The seed families of `prompts['selfreflection-seeds']`: a `# name` line starts a
  * family, every other non-blank line (trimmed) is one seed of the current
  * family; lines before the first header belong to the family `seed`. Families
  * keep their header order; a header with no lines is an empty family.
@@ -654,7 +663,7 @@ export function pickSeeds(families: unknown, sets: unknown, rng: () => number): 
 }
 
 /**
- * The body of the `<seeds>` block: `labels.diary.seeds`, then one `- a; b; c`
+ * The body of the `<seeds>` block: `labels.selfreflection.seeds`, then one `- a; b; c`
  * line per combination of `sets` (pickSeeds). '' when there is none.
  */
 export function renderSeedsBlock(sets: unknown, labels: unknown): string {
@@ -662,34 +671,34 @@ export function renderSeedsBlock(sets: unknown, labels: unknown): string {
     .filter((set): set is Array<unknown> => Array.isArray(set) && set.length > 0)
     .map((set) => `- ${set.join('; ')}`);
   if (lines.length === 0) return '';
-  return [diaryWords(labels).seeds, ...lines].filter(Boolean).join('\n');
+  return [selfreflectionWords(labels).seeds, ...lines].filter(Boolean).join('\n');
 }
 
 /**
- * The owner's topic for a forced post (`/nep diary post topic`): one line,
+ * The owner's topic for a forced post (`/nep selfreflection post topic`): one line,
  * cut at a word boundary to at most 1000 characters. Null for a missing,
  * non-string or blank topic.
  */
-export function diaryTopic(text: unknown): string | null {
+export function selfreflectionTopic(text: unknown): string | null {
   if (typeof text !== 'string') return null;
   return clampText(oneLine(text), TOPIC_CHARS, { tolerance: 1 }) || null;
 }
 
 /**
- * The body of the plan request's `<topic>` block: `labels.diary.topic`, then
- * the topic (diaryTopic). '' without a topic.
+ * The body of the plan request's `<topic>` block: `labels.selfreflection.topic`, then
+ * the topic (selfreflectionTopic). '' without a topic.
  */
 export function renderTopicBlock(topic: unknown, labels: unknown): string {
-  const text = diaryTopic(topic);
+  const text = selfreflectionTopic(topic);
   if (!text) return '';
-  return [diaryWords(labels).topic, text].filter(Boolean).join('\n');
+  return [selfreflectionWords(labels).topic, text].filter(Boolean).join('\n');
 }
 
-// A diary post's text loses its URLs through the one shared sanitizer (src/memory/clamp.js#stripUrls).
+// A selfreflection post's text loses its URLs through the one shared sanitizer (src/memory/clamp.js#stripUrls).
 export { stripUrls };
 
 /**
- * A post's one-line gist for diary.json: whitespace collapsed, then cut at a
+ * A post's one-line gist for the selfreflection unit: whitespace collapsed, then cut at a
  * word boundary to at most `chars` characters (selfreflection.gistChars).
  */
 export function gistOf(text: unknown, chars?: number): string {
@@ -719,13 +728,13 @@ function withCarriedSlots(
   return { plan: { ...fresh, slots }, carried: carried.length };
 }
 
-/** What createDiary is given. */
-export type DiaryDeps = {
+/** What createSelfreflection is given. */
+export type SelfreflectionDeps = {
   hot: { readonly config: unknown; readonly prompts?: unknown };
-  store: DiaryStore;
+  store: SelfreflectionStore;
   reads: Reads | null;
   turns: {
-    runTurn(params: DiaryTurnParams): Promise<unknown>;
+    runTurn(params: SelfreflectionTurnParams): Promise<unknown>;
     isAnyBusy?(): boolean;
     waitIdle?(): Promise<unknown>;
   };
@@ -738,38 +747,38 @@ export type DiaryDeps = {
 };
 
 /**
- * The diary's scheduler and its owner-facing edge. `tick()` (every 30 s,
- * src/index.ts) does nothing while `selfreflection.enabled` is false (`diary: skip` with `reason` `disabled`) or the
+ * The selfreflection's scheduler and its owner-facing edge. `tick()` (every 30 s,
+ * src/index.ts) does nothing while `selfreflection.enabled` is false (`selfreflection: skip` with `reason` `disabled`) or the
  * bot is paused (`reason` `paused`), each logged once per local day. Otherwise it keeps the day plan of the
- * served place in state.json (`diary[placeId] = { day, slots, done, quiet,
+ * served place in state.json (`selfreflection[placeId] = { day, slots, done, quiet,
  * posted, hunger, quietStreak }`, `day` the local date in `bot.timezone`):
- * nextHunger from the stored plan, then planDay once per local day (`diary:
+ * nextHunger from the stored plan, then planDay once per local day (`selfreflection:
  * plan` with `hunger` and `quietStreak`), the not-done slots of the previous plan still ahead or
  * within the grace merged in. A due slot (dueSlot, `selfreflection.slotGraceMinutes`)
  * is marked done before its post runs; slots missed by more than the grace
- * are marked done unfired (`diary: skip`, `grace`). Then, with an empty history,
- * `backfill` once per place and process from the place her diary is posted to
- * (`diary: backfill` with `count`), and the selfreflection wake
- * `turns.runTurn({ mode: 'diary', diary: { kind, forced }, placeId })`, which
- * needs no conversation (`diary: due`, then `diary: post` with the outcome,
+ * are marked done unfired (`selfreflection: skip`, `grace`). Then, with an empty history,
+ * `backfill` once per place and process from the place her selfreflection is posted to
+ * (`selfreflection: backfill` with `count`), and the selfreflection wake
+ * `turns.runTurn({ mode: 'selfreflection', selfreflection: { kind, forced }, placeId })`, which
+ * needs no conversation (`selfreflection: due`, then `selfreflection: post` with the outcome,
  * its `reason` when it has one, and the pictures); the entry the turn recorded
  * goes to `mirrors.publishEntry` (src/behavior/mirror.ts; a failure is logged
- * `diary: publication failed`). A `busy` outcome
+ * `selfreflection: publication failed`). A `busy` outcome
  * un-marks the slot, so the next tick retries it within the grace; a `spoke`
  * one appends it to the plan's `posted` (what feeds a window). One post
  * at a time. `force({ kind, topic })` runs one post now, outside the plan and
- * the quiet day, under the same rails; a topic (diaryTopic: one line, 1000
- * characters at most; blank is none) reaches the turn as `diary.topic`, and
+ * the quiet day, under the same rails; a topic (selfreflectionTopic: one line, 1000
+ * characters at most; blank is none) reaches the turn as `selfreflection.topic`, and
  * no topic leaves the field out; while another turn holds the lease
  * (`turns.isAnyBusy()`, or a `busy` outcome) it waits for `turns.waitIdle()`
  * at most `selfreflection.forceWaitMs` and posts then, `{ outcome: 'busy' }` when the
  * turn still runs. Hot values are read at every call.
  * `delay` resolves after `ms` (a timer that never holds the process open); injected by tests.
  * `reads` are the core's reads of the interface (the backfill's history), null when none is connected.
- * `backfill` has backfillDiary's shape (the count written); null skips the backfill. `mirrors` is the diary's
+ * `backfill` has backfillSelfreflection's shape (the count written); null skips the backfill. `mirrors` is the selfreflection's
  * publisher (`{ publishEntry }`), null publishes nothing.
  */
-export function createDiary({
+export function createSelfreflection({
   hot,
   store,
   reads,
@@ -779,10 +788,10 @@ export function createDiary({
   rng = Math.random,
   now = Date.now,
   delay = unrefDelay,
-}: DiaryDeps): Diary {
+}: SelfreflectionDeps): Selfreflection {
   let stopped = false;
   let inFlight = false;
-  // reason -> the local day it was last logged on: one `diary: skip` per reason and day.
+  // reason -> the local day it was last logged on: one `selfreflection: skip` per reason and day.
   const skipped = new Map<string, string>();
   // `${placeId}:${placeId}` the backfill was tried for in this process.
   const backfillTried = new Set<string>();
@@ -790,7 +799,7 @@ export function createDiary({
   function skip(reason: string, day: string, extra: Obj = {}) {
     if (skipped.get(reason) === day) return;
     skipped.set(reason, day);
-    log.info('diary: skip', { reason, ...extra });
+    log.info('selfreflection: skip', { reason, ...extra });
   }
 
   /** Why no post may run now, or null. */
@@ -805,8 +814,8 @@ export function createDiary({
   /** The plan of the local day of `t` for `placeId`, planned (and stored) when the stored one is older. */
   function currentPlan(config: unknown, t: number): DayPlan {
     const timezone = zoneOf(config);
-    const diaryCfg = sectionOf(config, 'selfreflection');
-    const named = namedSchedule(diaryCfg);
+    const selfreflectionCfg = sectionOf(config, 'selfreflection');
+    const named = namedSchedule(selfreflectionCfg);
     const day = named === null ? localDayKey(t, timezone) : utcDay(t);
     const plans = plansOf(store, true);
     const stored: DayPlan | undefined = plans.persona;
@@ -815,16 +824,16 @@ export function createDiary({
       if (moved === null) return stored;
       plans.persona = moved;
       store.state.markDirty();
-      log.info('diary: plan', { day, slots: moved.slots.length, quiet: false, rescheduled: true });
+      log.info('selfreflection: plan', { day, slots: moved.slots.length, quiet: false, rescheduled: true });
       return moved;
     }
-    const hunger = nextHunger(stored, diaryCfg.windows, timezone, t, DEFAULT_GRACE_MINUTES);
-    const fresh = planDay(diaryCfg, t, timezone, rng, hunger);
+    const hunger = nextHunger(stored, selfreflectionCfg.windows, timezone, t, DEFAULT_GRACE_MINUTES);
+    const fresh = planDay(selfreflectionCfg, t, timezone, rng, hunger);
     const { plan, carried } = withCarriedSlots(fresh, stored, t, DEFAULT_GRACE_MINUTES);
     if (typeof stored?.lastPosted === 'number') plan.lastPosted = stored.lastPosted;
     plans.persona = plan;
     store.state.markDirty();
-    log.info('diary: plan', {
+    log.info('selfreflection: plan', {
       day,
       slots: plan.slots.length,
       quiet: plan.quiet,
@@ -836,18 +845,18 @@ export function createDiary({
   }
 
   /**
-   * The history backfilled from the place her diary is posted to (mirror.ts#diaryPlaces, the first), once per place
-   * and process, while diary.json is empty; nothing without the interface's reads or such a place.
+   * The history backfilled from the place her selfreflection is posted to (mirror.ts#selfreflectionPlaces, the first), once per place
+   * and process, while the selfreflection unit is empty; nothing without the interface's reads or such a place.
    */
   async function backfillOnce(config: unknown) {
-    const place = readMirrors(store, diaryPlaces, [])[0];
+    const place = readMirrors(store, selfreflectionPlaces, [])[0];
     if (typeof backfill !== 'function' || !reads || !place) return;
     const channel = { iface: place.iface, id: place.conversationId };
     const key = String(channel.id);
     if (backfillTried.has(key)) return;
     backfillTried.add(key);
     try {
-      if (listOf(store.getDiary()?.posts).length > 0) return;
+      if (listOf(store.getSelfreflection()?.posts).length > 0) return;
       const count = await backfill({
         store,
         reads,
@@ -855,9 +864,9 @@ export function createDiary({
         config,
         labels: objOf(hot.prompts).labels,
       });
-      log.info('diary: backfill', { placeId: channel.id, count: Number.isFinite(count) ? count : 0 });
+      log.info('selfreflection: backfill', { placeId: channel.id, count: Number.isFinite(count) ? count : 0 });
     } catch (err) {
-      log.warn('diary: backfill failed', { placeId: channel.id, error: err });
+      log.warn('selfreflection: backfill failed', { placeId: channel.id, error: err });
     }
   }
 
@@ -871,25 +880,25 @@ export function createDiary({
     topic?: string | null;
     forced: boolean;
   }): Promise<unknown> {
-    const diary = { kind: kind ?? null, ...(topic ? { topic } : {}), forced };
+    const selfreflection = { kind: kind ?? null, ...(topic ? { topic } : {}), forced };
     // While the turn writes its entry and until its publish, a drain leaves that entry to this path: its media is not kept yet.
     const release = mirrors?.beginEntry?.();
     try {
-      return await postEntry(diary, kind, forced);
+      return await postEntry(selfreflection, kind, forced);
     } finally {
       release?.();
     }
   }
 
   async function postEntry(
-    diary: { kind: string | null; topic?: string; forced: boolean },
+    selfreflection: { kind: string | null; topic?: string; forced: boolean },
     kind: string | null,
     forced: boolean
   ): Promise<unknown> {
-    const result = await turns.runTurn({ mode: 'diary', diary });
+    const result = await turns.runTurn({ mode: 'selfreflection', selfreflection });
     const answer = objOf(result);
-    const made = objOf(answer.diary);
-    log.info('diary: post', {
+    const made = objOf(answer.selfreflection);
+    log.info('selfreflection: post', {
       kind: made.kind ?? kind ?? null,
       messages: made.messages ?? 0,
       picture: made.picture ?? false,
@@ -906,7 +915,7 @@ export function createDiary({
         await settled(store);
         await mirrors.publishEntry(entry);
       } catch (err) {
-        log.warn('diary: publication failed', { error: err });
+        log.warn('selfreflection: publication failed', { error: err });
       }
     }
     return result;
@@ -928,7 +937,7 @@ export function createDiary({
     if (due.dropped.length > 0) {
       plan.done = [...(plan.done ?? []), ...due.dropped];
       store.state.markDirty();
-      log.info('diary: skip', { reason: 'grace', count: due.dropped.length });
+      log.info('selfreflection: skip', { reason: 'grace', count: due.dropped.length });
     }
     if (due.slot === null) return;
     const slot = due.slot;
@@ -940,12 +949,12 @@ export function createDiary({
       // Marked before the turn runs, like the spontaneous scheduler reschedules first.
       plan.done = [...(plan.done ?? []), slot];
       store.state.markDirty();
-      log.info('diary: due', { slot });
+      log.info('selfreflection: due', { slot });
       const outcome = objOf(await post({ kind: null, forced: false })).outcome;
       if (outcome === 'busy') {
         plan.done = plan.done.filter((done) => done !== slot);
         store.state.markDirty();
-        log.info('diary: skip', { reason: 'busy', slot });
+        log.info('selfreflection: skip', { reason: 'busy', slot });
       } else if (outcome === 'spoke') {
         // Feeds the slot's window (nextHunger); force() never records here.
         plan.posted = [...(Array.isArray(plan.posted) ? plan.posted : []), slot];
@@ -966,7 +975,11 @@ export function createDiary({
     if (blocked === 'paused') return { outcome: 'paused' };
     if (blocked) return { outcome: 'not-now', reason: blocked };
     await backfillOnce(config);
-    const params = { kind: typeof kind === 'string' && kind ? kind : null, topic: diaryTopic(topic), forced: true };
+    const params = {
+      kind: typeof kind === 'string' && kind ? kind : null,
+      topic: selfreflectionTopic(topic),
+      forced: true,
+    };
     // One turn at a time: a running turn is waited for (selfreflection.forceWaitMs at most), once.
     let waited = false;
     if (turns.isAnyBusy?.() === true) {
@@ -987,11 +1000,11 @@ export function createDiary({
     return idle && turns.isAnyBusy?.() !== true;
   }
 
-  function status(): DiaryStatus {
+  function status(): SelfreflectionStatus {
     const plan = plansOf(store, false).persona ?? null;
-    const history = typeof store.getDiary === 'function' ? listOf(store.getDiary()?.posts).length : 0;
+    const history = typeof store.getSelfreflection === 'function' ? listOf(store.getSelfreflection()?.posts).length : 0;
     return {
-      placeId: readMirrors(store, diaryPlaces, [])[0]?.conversationId ?? '',
+      placeId: readMirrors(store, selfreflectionPlaces, [])[0]?.conversationId ?? '',
       day: plan?.day ?? null,
       slots: Array.isArray(plan?.slots) ? [...plan.slots] : [],
       done: Array.isArray(plan?.done) ? [...plan.done] : [],
@@ -1011,16 +1024,16 @@ export function createDiary({
 }
 
 /**
- * The diary's memory start: when the place's `diary.json` has no posts, read up to `selfreflection.historyPosts`
- * of the persona's own messages from the diary channel (REST, oldest first) and store them with
- * `kind: null`, a one-line gist, and `labels.diary.pictureUnknown` as the scene of a message that
+ * The selfreflection's memory start: when the persona's selfreflection unit has no posts, read up to `selfreflection.historyPosts`
+ * of the persona's own messages from the selfreflection channel (REST, oldest first) and store them with
+ * `kind: null`, a one-line gist, and `labels.selfreflection.pictureUnknown` as the scene of a message that
  * carried a picture. A history that already has posts is left alone (the posts are never rewritten by
  * code). This and the factory are the module's interface-aware edge; everything above stays pure.
  * `config` is the live merged config (`selfreflection` read now); `labels` the live labels; `reads` the core's reads of the
  * interface. Answers the number of posts written (0 when the history was not empty).
  */
-export async function backfillDiary({ store, reads, conversation, labels }: BackfillArgs): Promise<number> {
-  if (listOf(store.getDiary()?.posts).length > 0) return 0;
+export async function backfillSelfreflection({ store, reads, conversation, labels }: BackfillArgs): Promise<number> {
+  if (listOf(store.getSelfreflection()?.posts).length > 0) return 0;
   const max = DEFAULT_HISTORY_POSTS;
   const gistChars = DEFAULT_GIST_CHARS;
   const history = await historyLines(reads, conversation, { limit: Number(max) });
@@ -1031,23 +1044,23 @@ export async function backfillDiary({ store, reads, conversation, labels }: Back
       kind: null,
       gist: gistOf(message.content, Number(gistChars)),
       picture: listOf(message.attachments).some((a) => objOf(a).kind === 'image')
-        ? (diaryWords(labels).pictureUnknown ?? '')
+        ? (selfreflectionWords(labels).pictureUnknown ?? '')
         : null,
       messageIds: [message.id],
       search: null,
     }));
   if (posts.length === 0) return 0;
-  store.setDiaryPosts(posts, { max: Number(max) });
-  log.info('diary: backfill', { count: posts.length });
+  store.setSelfreflectionPosts(posts, { max: Number(max) });
+  log.info('selfreflection: backfill', { count: posts.length });
   return posts.length;
 }
 
 /** Waits for the store's writes to land (`flushSettled`), when it has them. */
-function settled(store: DiaryStore): Promise<unknown> {
+function settled(store: SelfreflectionStore): Promise<unknown> {
   return typeof store.flushSettled === 'function' ? store.flushSettled({}) : Promise.resolve();
 }
 
-/** A delay whose timer never keeps the process alive (createDiary's default `delay`). */
+/** A delay whose timer never keeps the process alive (createSelfreflection's default `delay`). */
 function unrefDelay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);

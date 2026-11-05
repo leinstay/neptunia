@@ -14,7 +14,7 @@ const scripted = (answers: ReadonlyArray<string>) => {
 };
 
 const searchSettings = (dataDir: string): unknown =>
-  (readLocalConfig(localConfigPath(dataDir)) as { web?: { search?: unknown } }).web?.quickSearch;
+  (readLocalConfig(localConfigPath(dataDir)) as { web?: { quickSearch?: unknown } }).web?.quickSearch;
 
 test('the step shows the link, takes the key without echo, and an empty answer skips it', async () => {
   // Bug: the owner is asked for a key with no way to learn where it comes from, or the key is echoed.

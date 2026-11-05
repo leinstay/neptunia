@@ -275,7 +275,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     draft: NotesDraft;
     mode: string | null | undefined;
   }): { text: string; relation: 'earlier'; ageMs: number } | null {
-    if (draft.inner || mode === 'diary') return null;
+    if (draft.inner || mode === 'selfreflection') return null;
     const picked = thinks.select(placeOf(channel, placeId), {
       now: clock(),
       minutes: PREVIOUS_THINK_MINUTES,

@@ -1,4 +1,4 @@
-// "Elsewhere": the persona may read a channel it cannot write in (a diary, an
+// "Elsewhere": the persona may read a channel it cannot write in (a selfreflection, an
 // announcements channel), and a call there has nowhere to go. This module is the pure core of answering in
 // an explicit destination instead: when a settle wait in the source is due, the ring
 // of calls received there (answered, skipped by choice, or still unanswered),

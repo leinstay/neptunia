@@ -56,7 +56,7 @@ export type LiveViewResult = {
     listChannels: () => Array<Untyped>;
     getLore: () => Array<Untyped>;
     getRecent: () => { nextId: number; lines: Array<Untyped> } | null;
-    diaryChannelIds: () => Array<string>;
+    selfreflectionChannelIds: () => Array<string>;
   };
 };
 
@@ -357,7 +357,7 @@ export type SandboxMemory = {
   listChannels: () => Array<Untyped>;
   getLore: () => Array<Untyped>;
   getRecent?: () => { nextId: number; lines: Array<Untyped> } | null;
-  diaryChannelIds?: () => Array<string>;
+  selfreflectionChannelIds?: () => Array<string>;
 };
 
 /** What a sandbox turn reads of the world: the live prompts and config, the calibrator and the memory. */

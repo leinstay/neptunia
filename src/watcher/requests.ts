@@ -308,13 +308,13 @@ export type SelfreflectionFacts = PublicationCounts & { lastEntryId: string | nu
 
 const isoOrNull = (at: unknown): string | null => (typeof at === 'number' ? iso(at) : null);
 
-/** The publications of the diary in each state that still means something, for a place or for all of them. */
+/** The publications of the selfreflection in each state that still means something, for a place or for all of them. */
 function publicationCounts(db: Db, place: string | null): PublicationCounts & { lastSentAt: string | null } {
   const row = db
     .prepare(
       `SELECT COALESCE(SUM(status IN ('queued', 'sending')), 0) AS queued, COALESCE(SUM(status = 'failed'), 0) AS failed,
          COALESCE(SUM(status IN ('unknown', 'incomplete')), 0) AS uncertain, MAX(sent_at) AS lastSentAt
-       FROM publications WHERE row_kind = 'diary' AND retired_at IS NULL AND (? IS NULL OR destination_place_id = ?)`
+       FROM publications WHERE row_kind = 'selfreflection' AND retired_at IS NULL AND (? IS NULL OR destination_place_id = ?)`
     )
     .get(place, place);
   return {
@@ -325,10 +325,10 @@ function publicationCounts(db: Db, place: string | null): PublicationCounts & { 
   };
 }
 
-/** Each live mirror of the diary: its place, its counts and its backfill. Ids and times only, no words of the diary. */
+/** Each live mirror of the selfreflection: its place, its counts and its backfill. Ids and times only, no words of the selfreflection. */
 export function mirrorFacts(db: Db): Array<MirrorFacts> {
   return db
-    .prepare("SELECT * FROM mirrors WHERE row_kind = 'diary' AND removed_at IS NULL ORDER BY place_id")
+    .prepare("SELECT * FROM mirrors WHERE row_kind = 'selfreflection' AND removed_at IS NULL ORDER BY place_id")
     .all()
     .map((row) => {
       const place = String(row.place_id);
@@ -346,10 +346,10 @@ export function mirrorFacts(db: Db): Array<MirrorFacts> {
     });
 }
 
-/** The diary's last entry and the totals of its publications, mirror or none. No words of the diary. */
+/** The selfreflection's last entry and the totals of its publications, mirror or none. No words of the selfreflection. */
 export function selfreflectionFacts(db: Db): SelfreflectionFacts {
   const entry = db
-    .prepare('SELECT id, at_ms FROM diary WHERE retired_at IS NULL ORDER BY at_ms DESC, rowid DESC LIMIT 1')
+    .prepare('SELECT id, at_ms FROM selfreflection WHERE retired_at IS NULL ORDER BY at_ms DESC, rowid DESC LIMIT 1')
     .get();
   const { queued, failed, uncertain } = publicationCounts(db, null);
   return { lastEntryId: text(entry?.id), lastEntryAt: isoOrNull(entry?.at_ms), queued, failed, uncertain };

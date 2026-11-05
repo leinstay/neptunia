@@ -179,7 +179,7 @@ test('the revision of her line reads by its protocol id once it holds a family k
 function publishTo(db: Db, id: string, place: unknown): void {
   db.prepare(
     `INSERT INTO publications (id, row_kind, row_id, status, idempotency_key, receipts, created_at, destination_place_id)
-     VALUES (?, 'diary', 'entry-1', 'sent', ?, ?, ?, ?)`
+     VALUES (?, 'selfreflection', 'entry-1', 'sent', ?, ?, ?, ?)`
   ).run(
     id,
     id,

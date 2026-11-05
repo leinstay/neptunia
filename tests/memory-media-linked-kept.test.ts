@@ -49,19 +49,19 @@ const lineWith = (ids: ReadonlyArray<string>) => ({
 });
 
 /** The media cache of #room full to its cap, oldest first, one new picture described over it, the rows as stored. */
-async function trimmed(linkAttachments: ReadonlyArray<string>, diaryAttachment: string | null = null) {
+async function trimmed(linkAttachments: ReadonlyArray<string>, selfreflectionAttachment: string | null = null) {
   const memory = await openTestMemory({ now: () => NOW });
   const file = path.join(memory.dataDir, 'memory.db');
   await memory.memoryDb.observe(lineWith(linkAttachments), null);
-  if (diaryAttachment !== null) {
+  if (selfreflectionAttachment !== null) {
     const db = new DatabaseSync(file);
     // A diary entry's file is an item with a link to the entry.
     db.prepare(
       `INSERT INTO media (id, kind, owner, native_ref, mime, scope_kind, scope_iface, audience_id)
-       VALUES ('media:diary:1:0', 'image', 'diary:1', ?, 'image/png', 'group', 'discord', 'aud:group:discord')`
-    ).run(diaryAttachment);
+       VALUES ('media:diary:1:0', 'image', 'selfreflection:1', ?, 'image/png', 'group', 'discord', 'aud:group:discord')`
+    ).run(selfreflectionAttachment);
     db.prepare(
-      "INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('diary', 'diary:1', 0, 'media:diary:1:0')"
+      "INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('selfreflection', 'selfreflection:1', 0, 'media:diary:1:0')"
     ).run();
     db.close();
   }

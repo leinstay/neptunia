@@ -1,13 +1,14 @@
 // Schema v15 (stage 3 design, section 5): the `mirrors` table, and a data step that seeds the diary's one mirror from
-// the deployment's diary channel. The opener passes that channel's place as `context.diaryPlaceId`, the same context v12
-// uses. Opened without it (a tool), the step leaves the meta key `diary_mirror_pending`, and the first open that knows
-// the channel seeds the row. A database at v14 here holds the legacy diary and its `diary_mirrors` history from the
+// the deployment's diary channel. The opener passes that channel's place as `context.selfreflectionPlaceId`, the same context v12
+// uses. Opened without it (a tool), the step leaves the meta key `selfreflection_mirror_pending`, and the first open that knows
+// the channel seeds the row. A database at v14 here holds the legacy diary and its `selfreflection_mirrors` history from the
 // data directory fixture. The same step turns her messages in the mirror place that belong to no entry into entries
 // (section 10, "The past"). Synthetic data only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { withCurrentNames } from '../src/memory/migration/selfreflection-names.ts';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { channelPlaceId } from '../src/memory/db/ids.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
@@ -15,12 +16,12 @@ import { CHANNEL, buildDataDir } from './fixtures/memory-db/datadir.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
-import { applyDiaryUpdate, createDiaryMedia } from '../src/memory/db/diary-media.ts';
+import { applySelfreflectionUpdate, createSelfreflectionMedia } from '../src/memory/db/selfreflection-media.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 
 const NOW = Date.parse('2026-11-03T12:00:00.000Z');
 const PLACE = channelPlaceId('discord', CHANNEL);
-const PENDING = 'diary_mirror_pending';
+const PENDING = 'selfreflection_mirror_pending';
 
 type Row = Record<string, unknown>;
 type Db = { prepare(sql: string): { all(...params: Array<unknown>): Array<Row> } };
@@ -28,7 +29,7 @@ type Db = { prepare(sql: string): { all(...params: Array<unknown>): Array<Row> }
 /** The node:sqlite connection of an `openMemoryDb` handle (open.js is untyped JS). */
 const dbOf = (handle: { db: unknown }): Db => handle.db as Db;
 
-/** A database file at schema v14 that holds the legacy diary with its `diary_mirrors` history. */
+/** A database file at schema v14 that holds the legacy diary with its `selfreflection_mirrors` history. */
 function v14File(): string {
   const data = path.join(tempDir('nep-v15-'), 'data');
   fs.mkdirSync(data);
@@ -48,7 +49,7 @@ function v14File(): string {
 }
 
 /** What one open of `file` leaves: the mirror rows and the pending key. */
-function openAndRead(file: string, context: { diaryPlaceId?: string | null } = {}) {
+function openAndRead(file: string, context: { selfreflectionPlaceId?: string | null } = {}) {
   const handle = openMemoryDb(file, { context });
   try {
     const db = dbOf(handle);
@@ -64,18 +65,18 @@ function openAndRead(file: string, context: { diaryPlaceId?: string | null } = {
 }
 
 test('on a v14 database with mirror history and a known diary channel the step seeds one mirror the owner made', () => {
-  const after = openAndRead(v14File(), { diaryPlaceId: PLACE });
+  const after = openAndRead(v14File(), { selfreflectionPlaceId: PLACE });
   assert.deepEqual(
     after.mirrors.map((row) => [row.row_kind, row.place_id, row.enabled, row.created_by]),
-    [['diary', PLACE, 1, 'owner']]
+    [['selfreflection', PLACE, 1, 'owner']]
   );
   assert.equal(after.pending, false);
 });
 
 test('a second open with the channel changes no mirror row', () => {
   const file = v14File();
-  const first = openAndRead(file, { diaryPlaceId: PLACE });
-  const second = openAndRead(file, { diaryPlaceId: PLACE });
+  const first = openAndRead(file, { selfreflectionPlaceId: PLACE });
+  const second = openAndRead(file, { selfreflectionPlaceId: PLACE });
   assert.deepEqual(second.mirrors, first.mirrors);
 });
 
@@ -88,10 +89,10 @@ test('opened without the channel the step seeds nothing and leaves the pending k
 test('the first open that knows the channel after a pending one seeds the mirror and clears the key', () => {
   const file = v14File();
   openAndRead(file);
-  const after = openAndRead(file, { diaryPlaceId: PLACE });
+  const after = openAndRead(file, { selfreflectionPlaceId: PLACE });
   assert.deepEqual(
     after.mirrors.map((row) => [row.row_kind, row.place_id, row.enabled, row.created_by]),
-    [['diary', PLACE, 1, 'owner']]
+    [['selfreflection', PLACE, 1, 'owner']]
   );
   assert.equal(after.pending, false);
 });
@@ -162,54 +163,57 @@ type Handle = ReturnType<typeof openMemoryDb>;
 function pastFile(): string {
   const file = path.join(tempDir('nep-v15-past-'), 'memory.db');
   const old: Handle = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 14) });
+  // B10 of the master plan: the writers speak `selfreflection`, and this database holds the old names.
   try {
-    const at = new Date(T0).toISOString();
-    insertRows(
-      old.db,
-      {
-        places: [
-          {
-            id: MIRROR_PLACE,
-            iface: 'discord',
-            kind: 'channel',
-            native_id: MIRROR_CHANNEL,
-            parent_id: null,
-            scope_kind: 'group',
-            name: 'journal',
-          },
-        ],
-      },
-      { at }
-    );
-    for (const line of LINES) {
-      const day = new Date(line.at).toISOString().slice(0, 10);
+    withCurrentNames(dbOf(old), () => {
+      const at = new Date(T0).toISOString();
+      insertRows(
+        old.db,
+        {
+          places: [
+            {
+              id: MIRROR_PLACE,
+              iface: 'discord',
+              kind: 'channel',
+              native_id: MIRROR_CHANNEL,
+              parent_id: null,
+              scope_kind: 'group',
+              name: 'journal',
+            },
+          ],
+        },
+        { at }
+      );
+      for (const line of LINES) {
+        const day = new Date(line.at).toISOString().slice(0, 10);
+        applyUnitWrite(old, {
+          kind: 'unit',
+          op: 'lines',
+          owner: `guilds/g1/record/${day.slice(0, 7)}/${day}.jsonl`,
+          lines: [recordLineOf(line)],
+          now: T0,
+        });
+      }
       applyUnitWrite(old, {
         kind: 'unit',
-        op: 'lines',
-        owner: `guilds/g1/record/${day.slice(0, 7)}/${day}.jsonl`,
-        lines: [recordLineOf(line)],
+        op: 'value',
+        owner: 'guilds/g1/diary.json',
+        value: {
+          updatedAt: T0,
+          posts: [
+            {
+              at: T0 - 24 * HOUR,
+              kind: 'status',
+              gist: 'παλιό',
+              picture: null,
+              messageIds: ['e1'],
+              search: null,
+              itemId: 'old-1',
+            },
+          ],
+        },
         now: T0,
       });
-    }
-    applyUnitWrite(old, {
-      kind: 'unit',
-      op: 'value',
-      owner: 'guilds/g1/diary.json',
-      value: {
-        updatedAt: T0,
-        posts: [
-          {
-            at: T0 - 24 * HOUR,
-            kind: 'status',
-            gist: 'παλιό',
-            picture: null,
-            messageIds: ['e1'],
-            search: null,
-            itemId: 'old-1',
-          },
-        ],
-      },
-      now: T0,
     });
   } finally {
     old.close();
@@ -222,17 +226,20 @@ function entriesOf(file: string) {
   const handle = openMemoryDb(file, { readOnly: true });
   try {
     const db = dbOf(handle);
+    // B10 of the master plan: this reads the database before the last schema step and after it.
+    const word =
+      db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE name = 'diary'").all().length > 0
+        ? 'diary'
+        : 'selfreflection';
     return db
-      .prepare('SELECT id, at_ms, text FROM diary WHERE retired_at IS NULL ORDER BY at_ms, id')
+      .prepare(`SELECT id, at_ms, text FROM "${word}" WHERE retired_at IS NULL ORDER BY at_ms, id`)
       .all()
       .map((row) => ({
         id: String(row.id),
         text: row.text ?? null,
         publications: db
-          .prepare(
-            "SELECT status, destination_place_id, receipts FROM publications WHERE row_kind = 'diary' AND row_id = ?"
-          )
-          .all(row.id)
+          .prepare('SELECT status, destination_place_id, receipts FROM publications WHERE row_kind = ? AND row_id = ?')
+          .all(word, row.id)
           .map((publication) => ({
             status: publication.status,
             placeId: publication.destination_place_id,
@@ -257,10 +264,10 @@ function dumpOf(file: string): Record<string, Array<Row>> {
     const db = dbOf(handle);
     const all = (table: string) => db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all();
     return {
-      diary: all('diary'),
+      selfreflection: all('selfreflection'),
       publications: all('publications'),
       media: all('media'),
-      diary_mirrors: all('diary_mirrors'),
+      selfreflection_mirrors: all('selfreflection_mirrors'),
     };
   } finally {
     handle.close();
@@ -277,7 +284,7 @@ test("the v15 step turns her mirror place's messages of no entry into entries, o
     [['e1']],
     'the fixture: the held entry is published as e1'
   );
-  openMemoryDb(file, { context: { diaryPlaceId: MIRROR_PLACE } }).close();
+  openMemoryDb(file, { context: { selfreflectionPlaceId: MIRROR_PLACE } }).close();
   const entries = entriesOf(file);
   assert.deepEqual(
     entries.filter((entry) => entry.id !== 'old-1').map(({ text, publications }) => ({ text, publications })),
@@ -301,15 +308,15 @@ test("the v15 step turns her mirror place's messages of no entry into entries, o
 
 test('a second open after the v15 step changes no entry, publication or media row', () => {
   const file = pastFile();
-  openMemoryDb(file, { context: { diaryPlaceId: MIRROR_PLACE } }).close();
+  openMemoryDb(file, { context: { selfreflectionPlaceId: MIRROR_PLACE } }).close();
   const settled = dumpOf(file);
-  openMemoryDb(file, { context: { diaryPlaceId: MIRROR_PLACE } }).close();
+  openMemoryDb(file, { context: { selfreflectionPlaceId: MIRROR_PLACE } }).close();
   assert.deepEqual(dumpOf(file), settled);
 });
 
 test("the media job gives a step's entry its picture with the attachment id and the description memory holds", async () => {
   const file = pastFile();
-  const handle: Handle = openMemoryDb(file, { context: { diaryPlaceId: MIRROR_PLACE } });
+  const handle: Handle = openMemoryDb(file, { context: { selfreflectionPlaceId: MIRROR_PLACE } });
   try {
     // What she saw in the picture, as the describer's cache keeps it by the attachment's id.
     insertRows(
@@ -344,9 +351,9 @@ test("the media job gives a step's entry its picture with the attachment id and 
         });
     }
     const png = Buffer.from('png-p1');
-    const job = createDiaryMedia({
+    const job = createSelfreflectionMedia({
       db: () => handle.db,
-      apply: (update: unknown) => applyDiaryUpdate(handle, update),
+      apply: (update: unknown) => applySelfreflectionUpdate(handle, update),
       port: () => port,
       imageFetcher: () => ({
         fetchAsDataUrl: () =>
@@ -364,12 +371,12 @@ test("the media job gives a step's entry its picture with the attachment id and 
     await job.run();
     const db = dbOf(handle);
     const owner = db
-      .prepare("SELECT row_id FROM publications WHERE row_kind = 'diary' AND receipts LIKE '%\"r1\"%'")
+      .prepare("SELECT row_id FROM publications WHERE row_kind = 'selfreflection' AND receipts LIKE '%\"r1\"%'")
       .all()[0]?.row_id;
     const media = db
       .prepare(
         `SELECT m.native_ref, m.description FROM media m JOIN media_links l ON l.media_id = m.id
-         WHERE l.owner_kind = 'diary' AND l.owner_id = ?`
+         WHERE l.owner_kind = 'selfreflection' AND l.owner_id = ?`
       )
       .all(owner)
       .map((row) => ({

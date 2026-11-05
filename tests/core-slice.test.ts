@@ -40,7 +40,7 @@ const PRIVATE_CONFIG = {
     customEmoji: false,
     gifs: false,
     offlineCatchUp: false,
-    diary: false,
+    selfreflection: false,
     mediaDescriptions: false,
     missedAnswers: false,
     channelRoute: false,

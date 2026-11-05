@@ -394,7 +394,7 @@ function completeIn(db: Db, { id, token, outcome, now, deliveries = [], dataDir 
 /** A file name's form that is safe on disk. */
 const safeName = (text: string): string => text.replace(/[^A-Za-z0-9._-]/g, '_');
 
-/** Where a delivery's files are kept under the data directory, as the diary's are under `media/diary`. */
+/** Where a delivery's files are kept under the data directory, as the selfreflection's are under `media/selfreflection`. */
 const DELIVERY_MEDIA_DIR = path.join('media', 'deliveries');
 
 /** A delivery's file as its payload names it: a `media` row, or the address the interface takes it from. */

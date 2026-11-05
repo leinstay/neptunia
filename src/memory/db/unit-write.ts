@@ -1,6 +1,6 @@
 // The memory writer applies semantic unit updates in one transaction. Value writes replace a collection while
 // preserving protected session rows; lines append in catalog order and retain message-family idempotence and native
-// identity. Diary and vector operations keep their existing publication and index behavior. Catalog owner keys are
+// identity. Selfreflection and vector operations keep their existing publication and index behavior. Catalog owner keys are
 // independent of source IDs and visibility. Historical owner strings are accepted by the explicit import and
 // pending compatibility boundary, which preserves their provenance without using it for live ownership.
 
@@ -22,7 +22,7 @@ import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
 import { hotClaimIds, linkVectors, qualify, retireAbsent, writeMapping } from './upsert.ts';
 import { unitRows, isMediaDescriptionEntry, mediaDescriptionId } from './export.ts';
 import { unitValue } from './readers/common.ts';
-import { assignDiaryDestination } from './publish.ts';
+import { assignSelfreflectionDestination } from './publish.ts';
 import { graphPending, projectPending, projectRow } from './graph.ts';
 import { storeHeld } from './media-stems.ts';
 import { fillStems, markStemsPending, stemsPending } from './stems.ts';
@@ -55,7 +55,7 @@ const POSITIONED = [
   'description_versions',
   'episodes',
   'affinity_events',
-  'diary',
+  'selfreflection',
   'intentions',
   'work',
   'work_events',
@@ -542,15 +542,15 @@ function writeValue(db: Db, update: Row, at: string): Row {
   if (unit.kind === 'gifs' && storeHeld(db)) adoptLibraryRows(db, unit.full, at);
   noteUnit(db, unit.full, unit.kind, { at });
   const destinations =
-    unit.kind === 'diary' && filled(update.destination)
-      ? assignDiaryDestination(db, update.destination, { owner: unit.full, at })
+    unit.kind === 'selfreflection' && filled(update.destination)
+      ? assignSelfreflectionDestination(db, update.destination, { owner: unit.full, at })
       : 0;
-  return { upserted, retired, ...(unit.kind === 'diary' ? { destinations } : {}) };
+  return { upserted, retired, ...(unit.kind === 'selfreflection' ? { destinations } : {}) };
 }
 
-function writeDiary(db: Db, update: Row, at: string): Row {
+function writeSelfreflection(db: Db, update: Row, at: string): Row {
   const unit = updateUnit(db, update);
-  if (unit.kind !== 'diary') throw coded('UNIT_UNMAPPED');
+  if (unit.kind !== 'selfreflection') throw coded('UNIT_UNMAPPED');
   const rows = unitRows(db, unit.full);
   const held = (rows.operational.length > 0 ? unit.mapper.fromRows(rows) : { posts: [] }) as { posts?: unknown };
   const posts = [
@@ -567,7 +567,7 @@ function writeDiary(db: Db, update: Row, at: string): Row {
   const retired = retireAbsent(db, unit.full, mapping, at);
   noteUnit(db, unit.full, unit.kind, { at });
   const destinations = filled(update.destination)
-    ? assignDiaryDestination(db, update.destination, { owner: unit.full, at })
+    ? assignSelfreflectionDestination(db, update.destination, { owner: unit.full, at })
     : 0;
   return { upserted, retired, posts: value.posts.length, destinations };
 }
@@ -841,7 +841,7 @@ export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
   const runs: Record<string, (() => unknown) | undefined> = {
     lines: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeLines(db, update, at),
     value: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeValue(db, update, at),
-    diary: () => writeDiary(db, update, at),
+    selfreflection: () => writeSelfreflection(db, update, at),
     vectors: () => writeVectors(db, update, at),
     'gif-vector': () => writeGifVector(db, update, at),
     'owner-name': () => writeOwnerName(db, update, at),

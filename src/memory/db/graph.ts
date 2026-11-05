@@ -7,7 +7,7 @@
 //   projectRow(handle, table, row, { at })   the unit a written row belongs to (a claim for one of its versions or
 //       links, a source for one of its relations, ...) projected again from the database as it is now: its nodes, its
 //       edges with their semantic keys and its witnesses in `node_access`. Called by every writer of a projected table
-//       inside the writer's own transaction (rows.ts, sync.js, observe.ts, session-write.ts, diary-media.ts), so a remap
+//       inside the writer's own transaction (rows.ts, sync.js, observe.ts, session-write.ts, selfreflection-media.ts), so a remap
 //       re-projects. An edge the unit still produces is upserted (a retired row projects its edges retired at the row's
 //       time); an edge it produced before and no longer does is retired at `at` and loses its witnesses. Deterministic:
 //       every time it writes comes from the rows, except the retirement time of such a stale edge.
@@ -20,7 +20,7 @@
 // Schema v31: an entity is a node seen only through the assertions that name it, and a claim's unit also projects each
 // sealed version's `has_role` edges and the `asserts` or `denies` shortcut of a binary relation.
 // Schema v10: a publication (publish.ts) is its own unit: its node, `published_as` from the entry it publishes and
-// `publication_source` to each stored line its receipts name; the diary unit no longer reads `diary_mirrors`.
+// `publication_source` to each stored line its receipts name; the selfreflection unit no longer reads `selfreflection_mirrors`.
 // An edge whose end has no typed row yet gets a placeholder node (the epoch as its time); the row's own projection
 // fills it in. A node with its own audience witnesses itself; every live edge witnesses both ends with its audience.
 // A retired row's own edges retire with it and its own witness goes, but a live edge of another row that names it (a
@@ -68,7 +68,13 @@ export const graphNodeId = (kind: string, rowId: unknown): string => `${kind}:${
 export const projectionKey = (predicate: unknown, src: unknown, dst: unknown, evidence: unknown = null): string =>
   [predicate, src, dst, ...(filled(evidence) ? [evidence] : [])].join(':');
 /** The id of an edge: 32 hex digits of SHA-256 over the edge's tuple (unambiguous, whatever the ids hold). */
-const edgeIdOf = (predicate: unknown, src: unknown, dst: unknown, evidence: unknown, qualifier?: string): string =>
+export const edgeIdOf = (
+  predicate: unknown,
+  src: unknown,
+  dst: unknown,
+  evidence: unknown,
+  qualifier?: string
+): string =>
   `edge:${createHash('sha256')
     .update(
       canonicalKey(predicate, [src, dst, filled(evidence) ? evidence : null, ...(filled(qualifier) ? [qualifier] : [])])
@@ -485,19 +491,19 @@ const PRODUCERS: Record<string, (db: Db, id: string) => Produced> = {
     );
     return out;
   },
-  diary(db: Db, id: string) {
+  selfreflection(db: Db, id: string) {
     const out = empty();
-    const row = one(db, 'SELECT * FROM diary WHERE id = ?', id);
+    const row = one(db, 'SELECT * FROM selfreflection WHERE id = ?', id);
     const audience = row && filled(row.audience_id) ? row.audience_id : AUD_INTERNAL;
     const parentRetired = row?.retired_at ?? null;
     if (row) {
-      out.nodes.push(node('diary', row));
-      if (!parentRetired) out.own.push({ node: graphNodeId('diary', id), audience });
+      out.nodes.push(node('selfreflection', row));
+      if (!parentRetired) out.own.push({ node: graphNodeId('selfreflection', id), audience });
     }
     return out;
   },
   publications(db: Db, id: string) {
-    // Schema v10: a publication is its own unit (a diary mirror's is one); its node, the entry it publishes and the lines
+    // Schema v10: a publication is its own unit (a selfreflection mirror's is one); its node, the entry it publishes and the lines
     // its receipts became.
     const out = empty();
     const row = one(db, 'SELECT * FROM publications WHERE id = ?', id);
@@ -507,8 +513,10 @@ const PRODUCERS: Record<string, (db: Db, id: string) => Produced> = {
     const retired = row.retired_at ?? null;
     if (!retired) out.own.push({ node: graphNodeId('publication', id), audience });
     const recorded = recordedOf(row.sent_at, row.created_at);
-    if (row.row_kind === 'diary' && filled(row.row_id))
-      out.edges.push(edge('published_as', ['diary', row.row_id], ['publication', id], { audience, recorded, retired }));
+    if (row.row_kind === 'selfreflection' && filled(row.row_id))
+      out.edges.push(
+        edge('published_as', ['selfreflection', row.row_id], ['publication', id], { audience, recorded, retired })
+      );
     if (row.status === 'sent') {
       for (const source of receiptSources(db, row.receipts, row.destination_place_id))
         out.edges.push(
@@ -596,8 +604,8 @@ function publicationAudience(db: Db, row: Row) {
     return placeAudience(
       one(db, 'SELECT id, iface, kind, conversation FROM places WHERE id = ?', row.destination_place_id)
     );
-  if (row.row_kind === 'diary' && filled(row.row_id)) {
-    const entry = one(db, 'SELECT audience_id FROM diary WHERE id = ?', row.row_id);
+  if (row.row_kind === 'selfreflection' && filled(row.row_id)) {
+    const entry = one(db, 'SELECT audience_id FROM selfreflection WHERE id = ?', row.row_id);
     if (entry && filled(entry.audience_id)) return entry.audience_id;
   }
   return AUD_INTERNAL;
@@ -857,7 +865,7 @@ function unitIds(db: Db, table: string, after: unknown, limit: number): Array<st
     claims: ['SELECT id FROM claims', 'SELECT claim_id FROM claim_versions', 'SELECT claim_id FROM claim_sources'],
     descriptions: ['SELECT id FROM descriptions', 'SELECT description_id FROM description_versions'],
     episodes: ['SELECT id FROM episodes', 'SELECT episode_id FROM episode_sources'],
-    diary: ['SELECT id FROM diary'],
+    selfreflection: ['SELECT id FROM selfreflection'],
   };
   if (table === 'semantic_entities' && !hasSemanticTables(db)) return [];
   const sources = byTable[table] ?? [`SELECT id FROM ${quote(table)}`];

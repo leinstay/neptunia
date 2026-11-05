@@ -1,6 +1,6 @@
 // A mirror place is not hers to write in (stage 3 design, section 9): only the diary's publisher writes there. An event
 // in a mirror place is recorded in memory and opens no turn of hers. The core's outbound port
-// (src/behavior/mirror.ts#guardMirrorPort) refuses every send to a mirror place with the code `diary-mirror`, whether
+// (src/behavior/mirror.ts#guardMirrorPort) refuses every send to a mirror place with the code `selfreflection-mirror`, whether
 // the send comes from an ordinary turn elsewhere or an intention's turn that runs there, and her tool result
 // names the code. The publisher, which holds the unguarded port, still publishes there. A disabled mirror row makes the
 // place ordinary again. Real turn runner, admin, message handler and memory database over the fake interface, with a
@@ -19,7 +19,7 @@ import { createMemoryUpdater } from '../src/memory/update.ts';
 import type { MessageReceived } from '../src/protocol/events.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { dbOf, entryOf, seedMirror } from './fixtures/diary-mirror.ts';
+import { dbOf, entryOf, seedMirror } from './fixtures/selfreflection-mirror.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
@@ -182,8 +182,8 @@ const calledOf = (logs: Array<Record<string, unknown>>) =>
         `${String(entry.skill)}:${String(entry.status)}${typeof entry.code === 'string' ? `/${entry.code}` : ''}`
     );
 
-/** Whether any log line of the turn names the code `diary-mirror` (a send refused through the guarded port). */
-const namesTheCode = (logs: Array<Record<string, unknown>>) => JSON.stringify(logs).includes('"diary-mirror"');
+/** Whether any log line of the turn names the code `selfreflection-mirror` (a send refused through the guarded port). */
+const namesTheCode = (logs: Array<Record<string, unknown>>) => JSON.stringify(logs).includes('"selfreflection-mirror"');
 
 /** The intention's wake whose turn runs in the mirror place: what was promised there is due. */
 const intentionWake = {
@@ -315,7 +315,7 @@ test('a mention in a mirror place opens no turn, and its line is in memory', asy
 
 // ---- a send aimed at a mirror place -----------------------------------------------------------------------------
 
-test('a message, a picture and a voice from an ordinary turn elsewhere are refused diary-mirror', async () => {
+test('a message, a picture and a voice from an ordinary turn elsewhere are refused selfreflection-mirror', async () => {
   const core = await community();
   const logs = await turnIn(core, {
     here: 'c1',
@@ -330,13 +330,13 @@ test('a message, a picture and a voice from an ordinary turn elsewhere are refus
   });
   assert.deepEqual(core.sendsTo(MIRROR), [], 'nothing reaches the interface there');
   assert.deepEqual(calledOf(logs), [
-    'message.create:failed/diary-mirror',
-    'draw.create:failed/diary-mirror',
-    'voice.say:failed/diary-mirror',
+    'message.create:failed/selfreflection-mirror',
+    'draw.create:failed/selfreflection-mirror',
+    'voice.say:failed/selfreflection-mirror',
   ]);
 });
 
-test('her message and GIF in an intention turn that runs in a mirror place are refused diary-mirror', async () => {
+test('her message and GIF in an intention turn that runs in a mirror place are refused selfreflection-mirror', async () => {
   const core = await community();
   const logs = await turnIn(core, {
     here: MIRROR,
@@ -344,7 +344,7 @@ test('her message and GIF in an intention turn that runs in a mirror place are r
     answers: ['<msg>καλημέρα</msg><gif>g1</gif>', '<skip/>'],
   });
   assert.deepEqual(core.sendsTo(MIRROR), [], 'nothing reaches the interface there');
-  assert.ok(namesTheCode(logs), 'the refusal names diary-mirror');
+  assert.ok(namesTheCode(logs), 'the refusal names selfreflection-mirror');
 });
 
 // ---- the publisher, and a disabled mirror -----------------------------------------------------------------------
@@ -353,7 +353,7 @@ test('the publisher still publishes an entry to the mirror place', async () => {
   const core = await community();
   // A diary turn's entry, as the publisher takes it: the publisher holds the interface's own port.
   const mirrors = createMirrors({ memoryDb: core.memory.memoryDb, port: () => core.adapter, now: () => NOW });
-  const result = { diary: { entry: { id: 'entry-1', messages: ['ημερολόγιο'] } } };
+  const result = { selfreflection: { entry: { id: 'entry-1', messages: ['ημερολόγιο'] } } };
   await mirrors.publishEntry(entryOf(result));
   assert.deepEqual(
     core.adapter.messagesIn(MIRROR).map((message) => message.text),

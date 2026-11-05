@@ -3,7 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { issueContext, type Context } from '../src/memory/db/scope.ts';
-import { wakeInputs } from '../src/behavior/diary-turn.ts';
+import { wakeInputs } from '../src/behavior/selfreflection-turn.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { walk } from '../src/memory/db/graph.ts';
 import { utcDay } from '../src/time.ts';
@@ -15,12 +15,12 @@ import { createAdmin } from '../src/admin.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createStore } from '../src/memory/store.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import { seedMirror } from './fixtures/diary-mirror.ts';
+import { seedMirror } from './fixtures/selfreflection-mirror.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { DISCORD, rawMessage, sequenceLlm } from './fixtures/turn-harness.ts';
-import { diaryToolHot } from './fixtures/diary-tool.ts';
+import { selfreflectionToolHot } from './fixtures/selfreflection-tool.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
 import '../src/tools/impl/index.ts';
 
@@ -75,7 +75,8 @@ async function community({ postsToday = 0 }: { postsToday?: number } = {}) {
     recordOwnGif: () => {},
   });
   // The diary cap counts by the admin's own clock, the real one, so the seeded day is today's.
-  if (postsToday > 0) Object.assign(store.state.data, { diaryDay: utcDay(Date.now()), diaryPosts: postsToday });
+  if (postsToday > 0)
+    Object.assign(store.state.data, { selfreflectionDay: utcDay(Date.now()), selfreflectionPosts: postsToday });
   const adapter = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   const reads = world().adopt(adapter);
   const mirrors = createMirrors({
@@ -119,12 +120,12 @@ async function turnOf(
     memoryContext,
   }: {
     answers: Array<unknown>;
-    mode?: 'reply' | 'inner' | 'diary';
+    mode?: 'reply' | 'inner' | 'selfreflection';
     onAnswer?: ((index: number) => void) | null;
     memoryContext?: Context;
   }
 ) {
-  const hot = diaryToolHot({ maxPerDay: MAX_PER_DAY });
+  const hot = selfreflectionToolHot({ maxPerDay: MAX_PER_DAY });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const admin = createAdmin({
     discord: DISCORD,
@@ -194,8 +195,13 @@ async function turnOf(
           triggerKind: 'inner',
           inner: { wake: INTENTION_WAKE, shadow: false, mayAct: () => true },
         })
-      : mode === 'diary'
-        ? turns.runTurn({ memoryContext, mode: 'diary', diary: { kind: 'status', forced: true }, placeId: GUILD })
+      : mode === 'selfreflection'
+        ? turns.runTurn({
+            memoryContext,
+            mode: 'selfreflection',
+            selfreflection: { kind: 'status', forced: true },
+            placeId: GUILD,
+          })
         : turns.runTurn({ memoryContext, conversation, mode: 'reply', triggerKind: 'mention', trigger });
   const { logs } = await withCapturedLogs(run);
   await core.store.flushSettled({});
@@ -219,9 +225,11 @@ const offeredIn = (options: unknown): Array<string> =>
 
 // The diary turn keeps its requests byte for byte (section 4): the tools its writer request offers, and how it answers
 // a `message.create` call, are what the code of main gave for the same turn in the diary channel
-// (tests/fixtures/diary-tool.json, recorded under the same settings).
+// (tests/fixtures/selfreflection-tool.json, recorded under the same settings).
 test('the diary turn offers the tools and answers a diary call as the diary channel turn did', async () => {
-  const recorded = JSON.parse(fs.readFileSync(new URL('./fixtures/diary-tool.json', import.meta.url), 'utf8')) as {
+  const recorded = JSON.parse(
+    fs.readFileSync(new URL('./fixtures/selfreflection-tool.json', import.meta.url), 'utf8')
+  ) as {
     writerHasTools: boolean;
     writerTools: Array<string>;
     called: Array<string>;
@@ -230,7 +238,7 @@ test('the diary turn offers the tools and answers a diary call as the diary chan
   const core = await community();
   const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false });
   const { llm, logs } = await turnOf(core, {
-    mode: 'diary',
+    mode: 'selfreflection',
     answers: [
       plan,
       toolAnswer('<msg>μια ήσυχη μέρα</msg>', [call('message.create', { text: 'x' })]),
@@ -244,50 +252,51 @@ test('the diary turn offers the tools and answers a diary call as the diary chan
   assert.deepEqual(calledOf(logs), recorded.called);
 });
 
-const PRIVATE_DIARY = 'private-diary-marker-731';
-const PUBLIC_DIARY = 'ordinary-diary-marker-942';
+const PRIVATE_SELFREFLECTION = 'private-diary-marker-731';
+const PUBLIC_SELFREFLECTION = 'ordinary-diary-marker-942';
 const PRIVATE_BOUNDARY = { kind: 'internal-turn', origin: { iface: 'fake', conversationId: 'c1' } } as const;
-const internalDiaryContext = () => issueContext({ kind: 'internal', now: () => NOW, newId: () => 'ctx:private-diary' });
+const internalSelfreflectionContext = () =>
+  issueContext({ kind: 'internal', now: () => NOW, newId: () => 'ctx:private-diary' });
 
-function diaryDb(core: Community) {
+function selfreflectionDb(core: Community) {
   const handle = core.memory.memoryDb.readHandle();
   assert.ok(handle);
   return dbOf(handle);
 }
 
-function seedRestrictedDiary(core: Community, metadata: unknown = PRIVATE_BOUNDARY): void {
+function seedRestrictedSelfreflection(core: Community, metadata: unknown = PRIVATE_BOUNDARY): void {
   // Public store writes reproduce restored metadata without granting a model control over it.
   const post = {
     at: NOW - 60000,
     kind: 'status',
-    gist: PRIVATE_DIARY,
+    gist: PRIVATE_SELFREFLECTION,
     picture: null,
     search: '',
-    text: PRIVATE_DIARY,
-    itemId: 'diary:restricted-seed',
+    text: PRIVATE_SELFREFLECTION,
+    itemId: 'selfreflection:restricted-seed',
     publicationBoundary: metadata,
-    send: { messages: [PRIVATE_DIARY], mentions: [[]] },
+    send: { messages: [PRIVATE_SELFREFLECTION], mentions: [[]] },
   };
-  core.store.appendDiaryPost(post);
+  core.store.appendSelfreflectionPost(post);
 }
 
 for (const metadata of [PRIVATE_BOUNDARY, null, { kind: 'internal-turn', origin: {} }]) {
   test(`restored ${metadata === PRIVATE_BOUNDARY ? 'valid' : metadata === null ? 'null' : 'malformed'} diary restriction hides the entry from outward reads`, async () => {
     // Catches group-scoped diary rows exposing internal text after a mapper round trip.
     const core = await community();
-    seedRestrictedDiary(core, metadata);
+    seedRestrictedSelfreflection(core, metadata);
     await core.store.flushSettled({});
-    const db = diaryDb(core);
+    const db = selfreflectionDb(core);
     const node = db
-      .prepare("SELECT id FROM graph_nodes WHERE kind = 'diary' AND row_id = ?")
-      .get('diary:restricted-seed');
+      .prepare("SELECT id FROM graph_nodes WHERE kind = 'selfreflection' AND row_id = ?")
+      .get('selfreflection:restricted-seed');
     assert.ok(node && typeof node.id === 'string');
-    const owner = walk(db, internalDiaryContext(), { from: node.id, maxDepth: 0 });
-    assert.ok(owner.rows.some((row) => row.rowId === 'diary:restricted-seed'));
+    const owner = walk(db, internalSelfreflectionContext(), { from: node.id, maxDepth: 0 });
+    assert.ok(owner.rows.some((row) => row.rowId === 'selfreflection:restricted-seed'));
     const outward = issueContext({ kind: 'group', iface: 'fake', now: () => NOW });
     assert.deepEqual(walk(db, outward, { from: node.id, maxDepth: 0 }).rows, []);
     const restored = createStore({ dataDir: core.memory.dataDir, memoryDb: core.memory.memoryDb });
-    const post = restored.getDiary().posts[0];
+    const post = restored.getSelfreflection().posts[0];
     assert.ok(post && 'publicationBoundary' in post);
     assert.deepEqual(post.publicationBoundary, metadata);
   });
@@ -296,15 +305,15 @@ for (const metadata of [PRIVATE_BOUNDARY, null, { kind: 'internal-turn', origin:
 test('selfreflection history omits restricted stored diary text and retains ordinary entries', async () => {
   // Catches the raw diary fallback leaking a private entry despite a correct graph audience.
   const core = await community();
-  seedRestrictedDiary(core);
-  core.store.appendDiaryPost({
+  seedRestrictedSelfreflection(core);
+  core.store.appendSelfreflectionPost({
     at: NOW - 120000,
     kind: 'status',
-    gist: PUBLIC_DIARY,
+    gist: PUBLIC_SELFREFLECTION,
     picture: null,
     search: '',
-    text: PUBLIC_DIARY,
-    itemId: 'diary:ordinary-seed',
+    text: PUBLIC_SELFREFLECTION,
+    itemId: 'selfreflection:ordinary-seed',
   });
   await core.store.flushSettled({});
   const inputs = await wakeInputs({
@@ -315,30 +324,30 @@ test('selfreflection history omits restricted stored diary text and retains ordi
     selfName: 'Bot',
     config: { context: { channelMessages: 50 } },
   });
-  assert.equal(JSON.stringify(inputs.history).includes(PRIVATE_DIARY), false);
-  assert.ok(JSON.stringify(inputs.history).includes(PUBLIC_DIARY));
+  assert.equal(JSON.stringify(inputs.history).includes(PRIVATE_SELFREFLECTION), false);
+  assert.ok(JSON.stringify(inputs.history).includes(PUBLIC_SELFREFLECTION));
 });
 
 test('ordinary diary planning and writing omit restricted posts from the store', async () => {
   // Catches the second diary history path feeding private gists to an outward planning model.
   const core = await community();
-  seedRestrictedDiary(core);
-  core.store.appendDiaryPost({
+  seedRestrictedSelfreflection(core);
+  core.store.appendSelfreflectionPost({
     at: NOW - 120000,
     kind: 'status',
-    gist: PUBLIC_DIARY,
+    gist: PUBLIC_SELFREFLECTION,
     picture: null,
     search: '',
-    text: PUBLIC_DIARY,
-    itemId: 'diary:ordinary-seed',
+    text: PUBLIC_SELFREFLECTION,
+    itemId: 'selfreflection:ordinary-seed',
   });
   await core.store.flushSettled({});
   const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false });
-  const { llm } = await turnOf(core, { mode: 'diary', answers: [plan, '<msg>ordinary entry</msg>'] });
+  const { llm } = await turnOf(core, { mode: 'selfreflection', answers: [plan, '<msg>ordinary entry</msg>'] });
   assert.ok(llm.calls.length >= 2);
   const prompts = JSON.stringify(llm.calls);
-  assert.ok(prompts.includes(PUBLIC_DIARY));
-  assert.equal(prompts.includes(PRIVATE_DIARY), false);
+  assert.ok(prompts.includes(PUBLIC_SELFREFLECTION));
+  assert.equal(prompts.includes(PRIVATE_SELFREFLECTION), false);
 });
 
 test('a diary-mode internal turn records restricted provenance on its held speech', async () => {
@@ -346,12 +355,12 @@ test('a diary-mode internal turn records restricted provenance on its held speec
   const core = await community();
   const plan = JSON.stringify({ kind: 'status', brief: 'a private day', search: '', picture: false });
   await turnOf(core, {
-    mode: 'diary',
-    memoryContext: internalDiaryContext(),
-    answers: [plan, `<msg>${PRIVATE_DIARY}</msg>`],
+    mode: 'selfreflection',
+    memoryContext: internalSelfreflectionContext(),
+    answers: [plan, `<msg>${PRIVATE_SELFREFLECTION}</msg>`],
   });
-  const [row] = diaryDb(core).prepare('SELECT text, scope_kind, extra FROM diary').all();
-  assert.equal(row.text, PRIVATE_DIARY);
+  const [row] = selfreflectionDb(core).prepare('SELECT text, scope_kind, extra FROM selfreflection').all();
+  assert.equal(row.text, PRIVATE_SELFREFLECTION);
   assert.equal(row.scope_kind, 'internal');
   const extra = JSON.parse(String(row.extra)) as Record<string, unknown>;
   assert.ok(extra.publicationBoundary);

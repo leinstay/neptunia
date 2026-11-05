@@ -1,5 +1,5 @@
 // The one store of media: the table `media`, one row per item, and `media_links(owner_kind, owner_id, position, media_id)`, which
-// ties an item to the messages and diary entries that show it. `kind` is the closed list `MEDIA_KINDS`, `native_ref` the
+// ties an item to the messages and selfreflection entries that show it. `kind` is the closed list `MEDIA_KINDS`, `native_ref` the
 // interface's reference, opaque here, and `path` null or a file under `media/`. An item's text form is `description`, in English
 // with speech and on-screen text quoted, and its origin `extra.textOrigin` (`MEDIA_ORIGINS`); what else a kind has sits in
 // `extra`. Audience comes only from a link: an item is read through an owner the reader may open.
@@ -41,7 +41,7 @@ export const MEDIA_ORIGINS = ['retelling', 'frame', 'transcript', 'voiced', 'emb
 export type MediaOrigin = (typeof MEDIA_ORIGINS)[number];
 export const MEDIA_STATES = ['present', 'missing', 'unknown', 'unreadable'] as const;
 export type MediaState = (typeof MEDIA_STATES)[number];
-export type MediaOwnerKind = 'source' | 'diary';
+export type MediaOwnerKind = 'source' | 'selfreflection';
 
 const quoted = (list: ReadonlyArray<string>): string => list.map((one) => `'${one}'`).join(', ');
 
@@ -209,7 +209,7 @@ function recordItems(line: Row): Array<MediaItem> {
 
 // ---------- the read ----------
 
-const OWNER_TABLE: Readonly<Record<MediaOwnerKind, string>> = { source: 'sources', diary: 'diary' };
+const OWNER_TABLE: Readonly<Record<MediaOwnerKind, string>> = { source: 'sources', selfreflection: 'selfreflection' };
 
 /** The media of these owners by owner id, in position order. An owner the context may not open has no entry. */
 export function lineMedia(
@@ -374,14 +374,14 @@ export function linkedAttachmentIds(db: Db): Set<string> {
   return keys;
 }
 
-/** The items of a diary entry in its order, with what its post keeps of each. */
+/** The items of a selfreflection entry in its order, with what its post keeps of each. */
 export function entryMedia(db: Db, entryId: string): Array<Row> {
   return db
     .prepare(
       `SELECT l.position AS position, m.id AS id, m.kind AS kind, m.native_ref AS native_ref, m.path AS path, m.mime AS mime,
          m.bytes AS bytes, m.extra AS extra
        FROM media_links l JOIN media m ON m.id = l.media_id
-       WHERE l.owner_kind = 'diary' AND l.owner_id = ? AND m.retired_at IS NULL ORDER BY l.position`
+       WHERE l.owner_kind = 'selfreflection' AND l.owner_id = ? AND m.retired_at IS NULL ORDER BY l.position`
     )
     .all(entryId);
 }
@@ -395,7 +395,7 @@ export function entryFilesPending(db: Db, entryId: string): { unnamed: boolean; 
   };
 }
 
-/** Puts a restricted diary entry's own files under the internal audience. */
+/** Puts a restricted selfreflection entry's own files under the internal audience. */
 export function restrictEntryMedia(db: Db, entryId: string, audience: string): Array<Row> {
   const media = entryMedia(db, entryId);
   const update = db.prepare(
@@ -416,11 +416,11 @@ export function checkMediaFiles(
   for (const row of db
     .prepare(
       `SELECT m.id AS id, m.path AS path, m.bytes AS bytes, m.availability AS availability, EXISTS
-         (SELECT 1 FROM media_links l WHERE l.media_id = m.id AND l.owner_kind = 'diary') AS in_diary
+         (SELECT 1 FROM media_links l WHERE l.media_id = m.id AND l.owner_kind = 'selfreflection') AS in_selfreflection
        FROM media m WHERE m.retired_at IS NULL`
     )
     .iterate()) {
-    if (!row.in_diary || !filled(row.path)) {
+    if (!row.in_selfreflection || !filled(row.path)) {
       counts.unknown += 1;
       continue;
     }
@@ -865,9 +865,9 @@ export function adoptLibraryRows(db: Db, owner: string, at: unknown): void {
   }
 }
 
-// ---------- a diary entry's files ----------
+// ---------- a selfreflection entry's files ----------
 
-/** A file of a diary entry, as a post keeps it. */
+/** A file of a selfreflection entry, as a post keeps it. */
 export type EntryFile = {
   id: string;
   position: number;
@@ -893,7 +893,7 @@ export function kindOfFile(mime: unknown, extra: Row): MediaKind {
 }
 
 /**
- * The files of a diary entry as items linked to it at their positions, with their paths. A file the platform names through a
+ * The files of a selfreflection entry as items linked to it at their positions, with their paths. A file the platform names through a
  * message she posted is the same item as that message's, so it has two links. The entry's scope goes on a row it creates.
  */
 export function writeEntryFiles(db: Db, entry: Row, files: ReadonlyArray<EntryFile>, at: unknown): void {
@@ -903,11 +903,11 @@ export function writeEntryFiles(db: Db, entry: Row, files: ReadonlyArray<EntryFi
     const iface = entry.scope_iface ?? null;
     const held = (file.attachmentId !== null ? itemByRef(db, iface, file.attachmentId) : undefined) ?? undefined;
     const previous = db
-      .prepare("SELECT media_id FROM media_links WHERE owner_kind = 'diary' AND owner_id = ? AND position = ?")
+      .prepare("SELECT media_id FROM media_links WHERE owner_kind = 'selfreflection' AND owner_id = ? AND position = ?")
       .get(entry.id, position);
     const id = held ? String(held.id) : file.id;
     const voiced = filled(file.extra.text) ? file.extra.text : null;
-    // A read that named no attachment is not asked again (pendingDiaryRows).
+    // A read that named no attachment is not asked again (pendingSelfreflectionRows).
     const extra: Row = {
       ...parsedObject(held?.extra),
       ...file.extra,
@@ -941,7 +941,7 @@ export function writeEntryFiles(db: Db, entry: Row, files: ReadonlyArray<EntryFi
         entry.audience_id ?? null
       );
     }
-    link.run('diary', entry.id, position, id);
+    link.run('selfreflection', entry.id, position, id);
     if (previous && previous.media_id !== id) dropIfBare(db, previous.media_id);
     const row = db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
     if (voiced !== null) writeText(db, row, { text: voiced, origin: 'voiced', at });
@@ -1260,9 +1260,9 @@ export type MediaMigration = {
 };
 
 /** Stem and index tables over `media`, and the links. */
-const INDEXES = `
+const indexesFor = (word: string): string => `
 CREATE TABLE IF NOT EXISTS media_links (
-  owner_kind TEXT NOT NULL CHECK (owner_kind IN ('source', 'diary')),
+  owner_kind TEXT NOT NULL CHECK (owner_kind IN ('source', '${word}')),
   owner_id TEXT NOT NULL,
   position INTEGER NOT NULL,
   media_id TEXT NOT NULL,
@@ -1318,7 +1318,10 @@ function durableDescriptions(db: Db): Map<string, { text: string; iface: unknown
 
 /** The old rows as items by interface and reference, with the rows that name a message apart. */
 // health: allow complexity until 2027-04-01 -- one reading of every old row shape, run once by the migration
-function oldItems(db: Db): {
+function oldItems(
+  db: Db,
+  word: string
+): {
   items: Map<string, Held>;
   all: Array<Held>;
   byMessage: Map<string, Array<Held>>;
@@ -1341,7 +1344,7 @@ function oldItems(db: Db): {
   for (const row of others) {
     const extra = parsedObject(row.extra);
     const availability = (row.availability as MediaState | undefined) ?? 'unknown';
-    if (row.kind === 'diary') {
+    if (row.kind === word) {
       const ref = parsedObject(row.native_ref);
       const attachmentId = orNull(ref.attachmentId);
       const voiced = orNull(extra.text);
@@ -1477,11 +1480,11 @@ function oldLineItems(kinds: ReadonlyArray<unknown>, extra: Row): { items: Array
   return { items, rest };
 }
 
-/** A diary entry's files take their links from their old owner, at the number their id ends in. */
-function entryLinks(db: Db, held: ReadonlyArray<Held>, link: ReturnType<Db['prepare']>): number {
+/** A selfreflection entry's files take their links from their old owner, at the number their id ends in. */
+function entryLinks(db: Db, held: ReadonlyArray<Held>, link: ReturnType<Db['prepare']>, word: string): number {
   const entries = new Set(
     db
-      .prepare('SELECT id FROM diary')
+      .prepare(`SELECT id FROM "${word}"`)
       .all()
       .map((row) => String(row.id))
   );
@@ -1492,7 +1495,7 @@ function entryLinks(db: Db, held: ReadonlyArray<Held>, link: ReturnType<Db['prep
     const number = Number(/-(\d+)$/.exec(asText(row.id))?.[1] ?? 0);
     const position = number > 0 ? number - 1 : (counts.get(row.owner) ?? 0);
     counts.set(row.owner, position + 1);
-    link.run('diary', row.owner, position, row.id);
+    link.run(word, row.owner, position, row.id);
     links += 1;
   }
   return links;
@@ -1511,16 +1514,17 @@ function fillEntryOwner(held: ReadonlyArray<Held>): void {
  * Moves the database to the one store and leaves no second place for a line's media. Text forms come from the old cache,
  * and from the durable descriptions the cache's cap trimmed; a line stored without ids takes its item through the media row
  * that names its message; anything else is a bare placeholder, linked with no reference. A database that holds the store and no
- * `sources.media` is already there, and a run changes nothing.
+ * `sources.media` is already there, and a run changes nothing. `word` names the entries' table, the owner kind and the old
+ * media kind: the shipped step runs on a database from before their rename (schema.ts).
  */
 // health: allow complexity until 2027-04-01 -- one forward step, read in order, run once
-export function migrateMediaStore(db: Db): MediaMigration {
+export function migrateMediaStore(db: Db, word = 'selfreflection'): MediaMigration {
   const report: MediaMigration = { items: 0, links: 0, told: 0, bare: 0, merged: 0, lines: 0 };
   const holdsStore = hasColumn(db, 'media', 'stems');
   const holdsColumn = hasColumn(db, 'sources', 'media');
   if (holdsStore && !holdsColumn) return report;
 
-  const { all, byMessage, merged } = oldItems(db);
+  const { all, byMessage, merged } = oldItems(db, word);
   const durable = durableDescriptions(db);
   for (const held of all) {
     const ref = orNull(held.row.native_ref);
@@ -1568,11 +1572,11 @@ export function migrateMediaStore(db: Db): MediaMigration {
   report.items = all.length;
   report.merged = merged.length;
 
-  db.exec(INDEXES);
+  db.exec(indexesFor(word));
   const link = db.prepare(
     'INSERT OR REPLACE INTO media_links (owner_kind, owner_id, position, media_id) VALUES (?, ?, ?, ?)'
   );
-  report.links += entryLinks(db, all, link);
+  report.links += entryLinks(db, all, link, word);
 
   const select = db.prepare(
     `SELECT ${LINE_COLUMNS}, media FROM sources

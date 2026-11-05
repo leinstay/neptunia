@@ -123,7 +123,7 @@ export type ConsoleDeps = {
   backendUsage?: () => Promise<ReadonlyArray<BackendUsage>>;
   /** The name and value of the key a role's direct requests go out on (src/keys/ring.ts), for `/model sources`. */
   roleKey?: (role: string) => { name: string; value: string } | null;
-  /** The diary's mirrors (src/behavior/mirror-desk.ts); `/mirror` fails while there is none. */
+  /** The selfreflection's mirrors (src/behavior/mirror-desk.ts); `/mirror` fails while there is none. */
   mirrors?: MirrorDesk | null;
   /** How `/services` and `/doctor server` reach the service manager, the machine's own when absent. A test always gives its own. */
   serviceManager?: RunManager;

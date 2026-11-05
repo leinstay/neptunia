@@ -1,5 +1,5 @@
 // The fifth phase of a turn attempt: her calls, then her speech, then one more request while something is left to read
-// (runSteps), each call under the effect key of the turn, and the cut-off and the short diary set that end the turn
+// (runSteps), each call under the effect key of the turn, and the cut-off and the short selfreflection set that end the turn
 // here. runTurnOnce (src/behavior/turn.ts) calls it after the act phase; the outcome phase reads what it posted.
 
 import { randomUUID } from 'node:crypto';
@@ -30,7 +30,7 @@ export async function toolRoundPhase(
   const { transport, memoryOn, selfId, selfName, startedAt, servedSnapshot, partner } = setup;
   const { finalMode } = pulledStep;
   const { videoStage, videoCandidates, captions, captionCandidates } = staged;
-  const { history, descriptions, diaryPrep, pendingMedia } = gathered;
+  const { history, descriptions, selfreflectionPrep, pendingMedia } = gathered;
   const { knownNames, directory, handles, channelHandles, plain } = routing;
   const { parsed } = acting;
   // Every call of the attempt: its turn (the journal's turn, else one id per attempt) and its index over every step.
@@ -71,7 +71,7 @@ export async function toolRoundPhase(
     selfName,
     ...routing,
     sourceId: isPrivate ? null : (source?.placeId ?? null),
-    mediaPicks: !diaryPrep,
+    mediaPicks: !selfreflectionPrep,
     participation: isPrivate ? null : { descriptions: descriptions ?? null },
     draft,
   };

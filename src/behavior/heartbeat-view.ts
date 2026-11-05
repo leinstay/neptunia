@@ -17,7 +17,7 @@
 //              left out), the busiest first, each with its line count, who wrote and its last lines as previews;
 //              the places page of the review stays passed through as `places`;
 //   life       what she did in the last day (the actions of her inner turns from the journal that
-//              really ran, her posts from the record, her errands with their goal, her diary posts, each once), her open intentions and attentions, and
+//              really ran, her posts from the record, her errands with their goal, her selfreflection posts, each once), her open intentions and attentions, and
 //              the latest `heartbeat.closedShown` closed ones of hers of any state (done, cancelled, expired,
 //              dropped), newest first, each with its outcome or reason, the rest counted;
 //   skills     the names granted to her by family, and the errand agents;
@@ -50,7 +50,7 @@ export const INTERESTS_SHOWN = 3;
 export const PERSON_PLACES_SHOWN = 3;
 /** The entries shown per list of her life and of what was not done; the rest is counted. */
 export const LIST_SHOWN = 8;
-/** The calls of an inner turn that post where people read (the diary is counted from its own store). */
+/** The calls of an inner turn that post where people read (the selfreflection is counted from its own store). */
 const POSTED_SKILLS: ReadonlyArray<unknown> = Object.freeze(['message.create', 'draw.create', 'voice.say']);
 /** The missed check's verdicts that mean "left alone without her". */
 export const DISMISSED_VERDICTS: ReadonlyArray<unknown> = Object.freeze(['intentional-skip', 'stale', 'uncertain']);
@@ -65,12 +65,17 @@ export const VIEW_DEFAULTS = Object.freeze({
   placeLines: 2,
   maxTokens: 2500,
 });
-/** The characters of a line's preview: in a place, as a person's last line, filtered, one of hers, an errand's goal, a diary gist. */
+/** The characters of a line's preview: in a place, as a person's last line, filtered, one of hers, an errand's goal, a selfreflection gist. */
 export const PREVIEW_CHARS = Object.freeze({ place: 140, person: 120, filtered: 100, post: 80, goal: 80, gist: 80 });
 /** The names listed per place. */
 const PLACE_PEOPLE_SHOWN = 6;
 /** The calls that are her own sends (an unknown outcome of these is worth telling; an engine or model role action never is). */
-const SEND_SKILLS: ReadonlyArray<unknown> = Object.freeze(['message.create', 'draw.create', 'voice.say', 'diary.post']);
+const SEND_SKILLS: ReadonlyArray<unknown> = Object.freeze([
+  'message.create',
+  'draw.create',
+  'voice.say',
+  'selfreflection.post',
+]);
 /** The journal operations of the persona's own output that are sends (src/behavior/turn.ts#journalOp names). */
 const SEND_OPS: ReadonlyArray<unknown> = Object.freeze(['post', 'draw', 'gif']);
 
@@ -121,8 +126,8 @@ export type LifeAction = { at: number; skill: unknown; place: string | null };
 export type LifePost = { at: number; place: string; text: string; media?: Media };
 /** One errand of hers. */
 export type LifeErrand = { id: string; agent: string; state: string; at: number; goal: string };
-/** One diary post of hers. */
-export type LifeDiary = { at: number; kind: string | null; gist: string };
+/** One selfreflection post of hers. */
+export type LifeSelfreflection = { at: number; kind: string | null; gist: string };
 /** One open intention of hers. */
 export type LifeOpen = { id: string; purpose: string; status: unknown; dueAt: number | null; origin?: 'heartbeat' };
 /** One attention of hers. */
@@ -134,7 +139,7 @@ export type Life = {
   actions: Capped<LifeAction>;
   posts: Capped<LifePost>;
   errands: Capped<LifeErrand>;
-  diary: Capped<LifeDiary>;
+  selfreflection: Capped<LifeSelfreflection>;
   open: Capped<LifeOpen>;
   attending: Capped<LifeAttending>;
   closed: Capped<LifeClosed>;
@@ -616,7 +621,7 @@ function actionPlace(target: unknown, placeName: (id: unknown) => string): strin
   return typeof target === 'string' ? text(target) : null;
 }
 
-/** The actions of her inner turns that really ran, newest first; a message or a diary post is listed elsewhere. */
+/** The actions of her inner turns that really ran, newest first; a message or a selfreflection post is listed elsewhere. */
 function actionsOf(innerTurns: Array<Obj>, placeName: (id: unknown) => string): Array<LifeAction> {
   const actions: Array<LifeAction> = [];
   for (const turn of innerTurns) {
@@ -624,8 +629,8 @@ function actionsOf(innerTurns: Array<Obj>, placeName: (id: unknown) => string): 
     for (const entry of listOf(turn.actions)) {
       const action = objOf(entry);
       if (action.status !== 'executed' || action.result !== 'ok' || typeof action.skill !== 'string') continue;
-      // A message she sent is listed from the record (with its words), a diary post from the diary: never twice.
-      if (action.skill === 'message.create' || action.skill === 'diary.post') continue;
+      // A message she sent is listed from the record (with its words), a selfreflection post from the selfreflection: never twice.
+      if (action.skill === 'message.create' || action.skill === 'selfreflection.post') continue;
       actions.push({ at, skill: currentToolName(action.skill), place: actionPlace(action.target, placeName) });
     }
   }
@@ -633,7 +638,7 @@ function actionsOf(innerTurns: Array<Obj>, placeName: (id: unknown) => string): 
 }
 
 /** Her life: the last day, her open intentions and the latest closed ones. */
-function lifeOf({ now, settings, innerTurns, tasks, diary, intentions, placeName, scan }: Common): Life {
+function lifeOf({ now, settings, innerTurns, tasks, selfreflection, intentions, placeName, scan }: Common): Life {
   const dayAgo = now - DAY_MS;
   const actions = actionsOf(innerTurns, placeName);
   const errands = tasks
@@ -648,7 +653,7 @@ function lifeOf({ now, settings, innerTurns, tasks, diary, intentions, placeName
       at: Number(task.createdAt),
       goal: clampWithEllipsis(text(task.goal), PREVIEW_CHARS.goal),
     }));
-  const posts = diary
+  const posts = selfreflection
     .filter((post) => isFiniteNumber(post.at) && post.at >= dayAgo)
     .sort((a, b) => Number(b.at) - Number(a.at))
     .map((post) => ({
@@ -656,10 +661,10 @@ function lifeOf({ now, settings, innerTurns, tasks, diary, intentions, placeName
       kind: typeof post.kind === 'string' ? post.kind : null,
       gist: clampWithEllipsis(text(post.gist), PREVIEW_CHARS.gist),
     }));
-  // Her own posts of the last day from the record (a diary post is listed once, from the diary).
-  const diaryIds = new Set(diary.flatMap((post) => listOf(post.messageIds)).map(String));
+  // Her own posts of the last day from the record (a selfreflection post is listed once, from the selfreflection).
+  const selfreflectionIds = new Set(selfreflection.flatMap((post) => listOf(post.messageIds)).map(String));
   const sent = scan.said
-    .filter(({ line }) => !diaryIds.has(asText(line.messageId)))
+    .filter(({ line }) => !selfreflectionIds.has(asText(line.messageId)))
     .sort((a, b) => b.at - a.at)
     .map((entry) => {
       const media = mediaOf(entry.line);
@@ -703,7 +708,7 @@ function lifeOf({ now, settings, innerTurns, tasks, diary, intentions, placeName
     actions: capped(actions),
     posts: capped(sent),
     errands: capped(errands),
-    diary: capped(posts),
+    selfreflection: capped(posts),
     open: capped(open),
     attending: capped(attending),
     closed: capped(closed, settings.closedShown),
@@ -725,7 +730,7 @@ function skillFamilies(names: unknown): Array<SkillFamily> {
   return [...families].map(([family, rest]) => ({ family, names: rest }));
 }
 
-/** Whether an `unknown` action record is one of her own sends (a post, a picture, a GIF, message.create, draw.create, diary.post), never an engine or model role action. */
+/** Whether an `unknown` action record is one of her own sends (a post, a picture, a GIF, message.create, draw.create, selfreflection.post), never an engine or model role action. */
 function isOwnSend(record: Obj): boolean {
   if (record.by !== undefined && record.by !== 'persona') return false;
   const input = objOf(record.input);
@@ -784,7 +789,7 @@ type Common = {
   settings: ViewSettings;
   innerTurns: Array<Obj>;
   tasks: Array<Obj>;
-  diary: Array<Obj>;
+  selfreflection: Array<Obj>;
   intentions: Array<Obj>;
   placeName: (id: unknown) => string;
   scan: Scan;
@@ -804,7 +809,7 @@ function sinceOf({
   innerTurns,
   tasks,
   intentions,
-  diary,
+  selfreflection,
   unknownSends,
   arrived,
   innerState,
@@ -827,7 +832,7 @@ function sinceOf({
         (action) => action.status === 'executed' && action.result === 'ok' && POSTED_SKILLS.includes(action.skill)
       ).length;
   }
-  posts += diary.filter((post) => within(post.at)).length;
+  posts += selfreflection.filter((post) => within(post.at)).length;
   const errandsDone = errandsEnded(tasks, 'done', within).length;
   const fulfilled = intentions.filter((record) => record.status === 'done' && within(movedAt(record))).length;
 
@@ -915,8 +920,8 @@ export type HeartbeatInput = {
   intentions?: unknown;
   /** Her errands (the errand store's recent list). */
   tasks?: unknown;
-  /** Her diary posts (`{ at, kind }`). */
-  diary?: unknown;
+  /** Her selfreflection posts (`{ at, kind }`). */
+  selfreflection?: unknown;
   /** The places page of the review (inner.ts#places). */
   places?: PlacesPage | null;
   /** The skill names granted to her. */
@@ -981,7 +986,7 @@ export async function buildHeartbeatFacts({
   journal = null,
   intentions = [],
   tasks = [],
-  diary = [],
+  selfreflection = [],
   places = null,
   skills = [],
   agents = [],
@@ -1086,7 +1091,7 @@ export async function buildHeartbeatFacts({
     settings: s,
     innerTurns,
     tasks: listOf(tasks).map(objOf),
-    diary: listOf(diary).map(objOf),
+    selfreflection: listOf(selfreflection).map(objOf),
     intentions: listOf(intentions).filter(Boolean).map(objOf),
     placeName: place,
     scan,

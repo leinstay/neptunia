@@ -157,7 +157,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Link a person's accounts, or merge two people | `/memory bind`, `/memory users link`, `/memory users unlink`, `/memory users merge` |
 | Give her or a person a name the door and the classifier know | `/memory users names add person:self NAME`, `/memory users names remove person:self NAME` |
 | Browse people, places, the graph and each memory family, and read every stored row | `/memory users`, `/memory places`, `/memory graph`, `/memory inspect`, `/memory claims` and the other families. See [The memory browser](#the-memory-browser) |
-| Choose where the diary is published | `/mirror` |
+| Choose where the selfreflection is published | `/mirror` |
 | Review and activate a skill | `/skills` |
 | Show the sources of the agents and log them in or out | `/subharness status`, `/subharness <backend> login`, `/subharness <backend> status`, `/subharness <backend> logout` |
 | Set what an agent may do | `/agent mode <agent> [<mode>]` |
@@ -184,7 +184,7 @@ A page holds at most `memoryDb.inspection.pageRows` rows, whatever `--limit` ask
 | `/memory places list`, `tree`, `show`, `lore` | Places of any kind and depth, with `--roots`. `show --include-children` adds every descendant and its descriptions. An orphan is a root, and a cycle ends with an explicit reference |
 | `/memory places lore add <place> <title> <keys> <text>`, `list <place>`, `show <place> <id>`, `remove <place> <id>` | The lore of a place |
 | `/memory graph kinds`, `nodes`, `edges`, `node`, `neighbors`, `walk`, `path` | The projection, every node and edge once, `--mode active` by default or `--mode historical`. `--valid-at` and `--recorded-before` are two questions. Node kinds and predicates with no typed table are listed as deferred |
-| `/memory sources`, `claims`, `descriptions`, `episodes`, `diary`, `media`, `publications`, `grants`, `sessions`, `requests`, `turns`, each `show <id>` and `list` | One record with every stored field and links to the exact records around it, retired and internal ones included |
+| `/memory sources`, `claims`, `descriptions`, `episodes`, `selfreflection`, `media`, `publications`, `grants`, `sessions`, `requests`, `turns`, each `show <id>` and `list` | One record with every stored field and links to the exact records around it, retired and internal ones included |
 | `/memory claims versions <id>`, `version <id>`, `/memory descriptions versions <id>`, `version <id>` | Every version in order, or one |
 | `/memory inspect tables`, `schema`, `rows`, `row`, `value`, `export`, `close` | Every table the database holds, whether or not a menu names it |
 
@@ -211,7 +211,7 @@ Each block names its source, its account and its observation time. A value the s
 
 ## Mirrors
 
-`/mirror` manages the places her diary is published to, in the chat and as `neptunia mirror <subcommand>`. A mirror is named by its id or its place id. A bad value answers `invalid` and changes nothing. [Diary](diary.md#mirrors) describes delivery and backfill.
+`/mirror` manages the places her selfreflection is published to, in the chat and as `neptunia mirror <subcommand>`. A mirror is named by its id or its place id. A bad value answers `invalid` and changes nothing. [Selfreflection](selfreflection.md#mirrors) describes delivery and backfill.
 
 | Command | What it does |
 |---|---|
@@ -263,7 +263,7 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 
 ## Scheduled services
 
-`neptunia services list` prints the status of `heartbeat`, `selfreflection`, `selfimprovement` and `watcher`, with no process unit among them. `neptunia services <name> setup|enable|disable|status` controls one of the four. `/services <name> <action>` and `neptunia -p "/services ..."` reach the same handler, `src/service/commands.ts`. Selfreflection is the diary wake and selfimprovement is the persona's development wake, which stays apart from the development worker. The handler works with no core, so a mechanic can be switched and read while the core is down. `/pause` and `/resume` hold and release every turn, and `/services <name> disable` stops one mechanic.
+`neptunia services list` prints the status of `heartbeat`, `selfreflection`, `selfimprovement` and `watcher`, with no process unit among them. `neptunia services <name> setup|enable|disable|status` controls one of the four. `/services <name> <action>` and `neptunia -p "/services ..."` reach the same handler, `src/service/commands.ts`. Selfreflection is the selfreflection wake and selfimprovement is the persona's development wake, which stays apart from the development worker. The handler works with no core, so a mechanic can be switched and read while the core is down. `/pause` and `/resume` hold and release every turn, and `/services <name> disable` stops one mechanic.
 
 `setup --at 00:00,12:00` saves daily UTC times and `setup --every 6h` an interval in hours or minutes (`90m`). The two exclude each other. Both write the one setting `<name>.schedule` that `/config` reads, leave the flag as it is, and answer `timezone: UTC` and `next:` with the next times. `heartbeat setup --jitter 30m` sets `heartbeat.jitterMinutes`, which moves an interval either way and leaves daily times exact. `setup` with no flag asks at a terminal and exits `2` without one. `watcher setup` also renders `neptunia-watcher.timer` and reloads the manager, and starts nothing.
 
@@ -277,8 +277,8 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 | `enabled` | The saved flag |
 | `running` | Whether a run is going, as the manager says for the watcher. `unknown` for a wake with no core, and for the watcher with no `systemctl` |
 | `readiness` | `ready`, or `not ready` and what is missing: the core, a role's subharness source or the repository |
-| `schedule` | The schedule, with the heartbeat's jitter. `windows` for a diary with no `selfreflection.schedule` |
-| `next due` | The next time, `none` when disabled. For a diary drawing from windows with no core it is the start of the next window that can post in `bot.timezone`, `none` when no window can |
+| `schedule` | The schedule, with the heartbeat's jitter. `windows` for a selfreflection with no `selfreflection.schedule` |
+| `next due` | The next time, `none` when disabled. For a selfreflection drawing from windows with no core it is the start of the next window that can post in `bot.timezone`, `none` when no window can |
 | `last result` | The newest report of the watcher, the core's last wake of the others, `unknown` with no core |
 | `current run` | The watcher's run in progress with its state and source, `none` with no run |
 | `last success` | The watcher's newest succeeded run and when it ended |

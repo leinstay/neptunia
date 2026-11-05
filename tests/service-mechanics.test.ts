@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInnerLife } from '../src/behavior/inner.ts';
 import { innerSettings } from '../src/behavior/inner/settings.ts';
-import { dueSlot, planDay } from '../src/behavior/diary.ts';
+import { dueSlot, planDay } from '../src/behavior/selfreflection.ts';
 import { readConfig } from '../src/config.ts';
 import { moveConfigKeys } from '../src/config-moves.ts';
 import { localConfigPath } from '../src/config/files.ts';

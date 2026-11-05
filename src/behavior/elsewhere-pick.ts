@@ -281,8 +281,9 @@ export type ElsewhereResult = { place: { id: string; direction: 'earlier' | null
 
 const NOTHING = (): ElsewhereResult => ({ place: null, episodes: [] });
 
-/** The modes and trigger kinds that never ask: nobody waits on a place view in a diary post or a missed recovery. */
-const refusesPick = (mode: string, triggerKind: string | null): boolean => mode === 'diary' || triggerKind === 'missed';
+/** The modes and trigger kinds that never ask: nobody waits on a place view in a selfreflection post or a missed recovery. */
+const refusesPick = (mode: string, triggerKind: string | null): boolean =>
+  mode === 'selfreflection' || triggerKind === 'missed';
 
 /** One request under a time limit: past it the request is aborted, and an answer that came with the abort is not taken. */
 async function askWithin(
@@ -333,7 +334,7 @@ export type PickArgs = {
 
 /**
  * The pick of a started turn. Per call, with `hot.config` and `hot.prompts` read at that moment: nothing with no request
- * for a diary post, a missed recovery or no candidate at all; `elsewhere: skipped` (`reason` `no-prompt` or
+ * for a selfreflection post, a missed recovery or no candidate at all; `elsewhere: skipped` (`reason` `no-prompt` or
  * `no-candidate`) without its prompt or a line to judge. Else one request on the `analyzer` role, purpose
  * `elsewhere-pick`, logged `elsewhere: classified` with the two parse codes and counts. Past `elsewhere.pickTimeoutMs` it
  * is aborted, logged `elsewhere: late` and told to `limits`; a failure is logged `elsewhere: failed` with its rail code.

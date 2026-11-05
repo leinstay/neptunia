@@ -36,9 +36,9 @@ function imported() {
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  fs.mkdirSync(path.join(data, 'media', 'diary'), { recursive: true });
-  fs.writeFileSync(path.join(data, 'media', 'diary', 'd-1-1.png'), Buffer.from([137, 80, 78, 71, 1, 2, 3]));
-  fs.writeFileSync(path.join(data, 'media', 'diary', 'd-1-2.ogg'), Buffer.from('Ωδή'));
+  fs.mkdirSync(path.join(data, 'media', 'selfreflection'), { recursive: true });
+  fs.writeFileSync(path.join(data, 'media', 'selfreflection', 'd-1-1.png'), Buffer.from([137, 80, 78, 71, 1, 2, 3]));
+  fs.writeFileSync(path.join(data, 'media', 'selfreflection', 'd-1-2.ogg'), Buffer.from('Ωδή'));
   const file = path.join(data, 'memory.db');
   const handle = openMemoryDb(file);
   const seedOptions = { log: quiet, now: () => NOW };
@@ -88,8 +88,8 @@ test('backup and restore: the rehearsal gives a database whose every table hashe
     for (const name of ['d-1-1.png', 'd-1-2.ogg']) {
       assert.ok(
         fs
-          .readFileSync(path.join(env.root, 'restored', 'media', 'diary', name))
-          .equals(fs.readFileSync(path.join(env.data, 'media', 'diary', name))),
+          .readFileSync(path.join(env.root, 'restored', 'media', 'selfreflection', name))
+          .equals(fs.readFileSync(path.join(env.data, 'media', 'selfreflection', name))),
         name
       );
     }
@@ -178,14 +178,14 @@ test('restore: a backup whose file does not match its manifest is refused before
   try {
     const to = path.join(env.root, 'backup');
     backupDatabase({ db: env.file, to, data: env.data });
-    fs.appendFileSync(path.join(to, 'media', 'diary', 'd-1-1.png'), Buffer.from([0]));
+    fs.appendFileSync(path.join(to, 'media', 'selfreflection', 'd-1-1.png'), Buffer.from([0]));
     const target = path.join(env.root, 'restored', 'memory.db');
     assert.throws(
       () => restoreDatabase({ from: to, db: target }),
-      /does not match the manifest: media\/diary\/d-1-1.png/
+      /does not match the manifest: media\/selfreflection\/d-1-1.png/
     );
     assert.equal(fs.existsSync(target), false);
-    fs.rmSync(path.join(to, 'media', 'diary', 'd-1-1.png'));
+    fs.rmSync(path.join(to, 'media', 'selfreflection', 'd-1-1.png'));
     assert.throws(() => restoreDatabase({ from: to, db: target }), /missing from the backup/);
     assert.equal(fs.existsSync(path.join(env.root, 'restored')), false);
   } finally {

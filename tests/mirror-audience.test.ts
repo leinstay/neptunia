@@ -8,9 +8,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../src/memory/store.ts';
 import { issueContext } from '../src/memory/db/scope.ts';
-import { GUILD, sceneRunner } from './fixtures/diary-requests.ts';
-import { entryOf, diaryPublications, diaryRows, seedMirror } from './fixtures/diary-mirror.ts';
-import type { RecordedEntry } from './fixtures/diary-mirror.ts';
+import { GUILD, sceneRunner } from './fixtures/selfreflection-requests-recorded.ts';
+import {
+  entryOf,
+  selfreflectionPublications,
+  selfreflectionRows,
+  seedMirror,
+} from './fixtures/selfreflection-mirror.ts';
+import type { RecordedEntry } from './fixtures/selfreflection-mirror.ts';
 import { FOUR_HOURS, OWNER, T0, mirrorScene } from './fixtures/mirror-scene.ts';
 import type { Scene } from './fixtures/mirror-scene.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
@@ -29,7 +34,7 @@ function modelSaying(answer: string) {
     complete: (messages: unknown, options?: { purpose?: string }) => {
       calls.push(structuredClone(messages));
       const text =
-        options?.purpose === 'diary-plan'
+        options?.purpose === 'selfreflection-planner'
           ? JSON.stringify({ kind: 'status', brief: 'a calm evening', search: '', picture: false })
           : answer;
       return Promise.resolve({ text, usage: {}, estimated: 5 });
@@ -68,7 +73,7 @@ async function places(mirrorOn: ReadonlyArray<'fake:d1' | 'fake:d2' | 'fake:d3' 
     const [iface, conversationId] = one.split(':') as [string, string];
     scene.db
       .prepare(
-        "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES (?, 'diary', ?, 1, ?, 'owner', NULL)"
+        "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES (?, 'selfreflection', ?, 1, ?, 'owner', NULL)"
       )
       .run(`mirror:test:${one}`, `${iface}:channel:${conversationId}`, new Date(T0).toISOString());
   }
@@ -82,8 +87,8 @@ async function writeEntry(scene: Scene, answer: string) {
   const store = createStore({ dataDir: scene.memory.dataDir, memoryDb: scene.memory.memoryDb });
   const model = modelSaying(answer);
   const result = await sceneRunner(model, store).runTurn({
-    mode: 'diary',
-    diary: { kind: 'status', forced: true },
+    mode: 'selfreflection',
+    selfreflection: { kind: 'status', forced: true },
     placeId: GUILD,
   });
   await store.flushSettled({});
@@ -91,7 +96,8 @@ async function writeEntry(scene: Scene, answer: string) {
 }
 
 /** What her turn said about the audience she named. */
-const audienceOf = (result: unknown): unknown => (result as { diary?: { audience?: unknown } }).diary?.audience;
+const audienceOf = (result: unknown): unknown =>
+  (result as { selfreflection?: { audience?: unknown } }).selfreflection?.audience;
 
 /** Every destination a send was attempted to, as `<iface>:<conversation>`, sorted. */
 function reached(scene: Scene): Array<string> {
@@ -158,7 +164,7 @@ test('the audience tag is no part of what she says', async () => {
   assert.deepEqual(entry.messages, [TEXT]);
   await scene.publisher().publishEntry(entry);
   assert.deepEqual(scene.transport('fake').posted('d1'), [TEXT]);
-  assert.equal(diaryRows(scene.memory.memoryDb)[0]?.text, TEXT);
+  assert.equal(selfreflectionRows(scene.memory.memoryDb)[0]?.text, TEXT);
 });
 
 test('an interface audience covers that interface and nothing of the other, same native ids included', async () => {
@@ -215,7 +221,7 @@ for (const [value, code] of [
     const scene = await places(['fake:d1', 'other:d1']);
     const { result, entry } = await writeEntry(scene, `<audience>${value}</audience><msg>${TEXT}</msg>`);
     assert.deepEqual(audienceOf(result), { ok: false, code });
-    assert.equal(diaryRows(scene.memory.memoryDb)[0]?.text, TEXT, 'memory holds the entry');
+    assert.equal(selfreflectionRows(scene.memory.memoryDb)[0]?.text, TEXT, 'memory holds the entry');
     const outcomes = await scene.publisher().publishEntry(entry);
     assert.deepEqual(reached(scene), []);
     assert.ok(
@@ -240,8 +246,8 @@ test('two different audiences in one answer fail closed', async () => {
 
 /** Sets an entry's stored audience through the store, as a later change of the row would. */
 async function narrow(store: Awaited<ReturnType<typeof writeEntry>>['store'], audience: unknown): Promise<void> {
-  const posts = store.getDiary().posts.map((post) => ({ ...post, publicationAudience: audience }));
-  store.setDiaryPosts(posts);
+  const posts = store.getSelfreflection().posts.map((post) => ({ ...post, publicationAudience: audience }));
+  store.setSelfreflectionPosts(posts);
   await store.flushSettled({});
 }
 
@@ -253,7 +259,7 @@ test('an audience narrowed before queueing stops the queue', async () => {
   await scene.publisher().publishEntry(entry);
   assert.deepEqual(reached(scene), ['fake:d1']);
   assert.deepEqual(
-    diaryPublications(scene.memory.memoryDb).map((row) => row.placeId),
+    selfreflectionPublications(scene.memory.memoryDb).map((row) => row.placeId),
     [D1],
     'nothing is queued for the mirror outside the audience'
   );
@@ -326,8 +332,8 @@ test('a turn under a trusted restriction that names no audience stays restricted
   world().channel({ id: 'd1', name: 'journal', placeId: GUILD });
   const store = createStore({ dataDir: scene.memory.dataDir, memoryDb: scene.memory.memoryDb });
   const result = await sceneRunner(modelSaying(`<msg>${TEXT}</msg>`), store).runTurn({
-    mode: 'diary',
-    diary: { kind: 'status', forced: true },
+    mode: 'selfreflection',
+    selfreflection: { kind: 'status', forced: true },
     placeId: GUILD,
     publicationBoundary: BOUNDARY,
   });
@@ -346,7 +352,7 @@ test('the writer itself refuses a publication outside the stored audience', asyn
   const answer = await scene.memory.memoryDb.memoryWrite({
     kind: 'publication',
     op: 'prepare',
-    input: { context, rowKind: 'diary', rowId: 'e1', rendered: TEXT, destination: OTHER_D1 },
+    input: { context, rowKind: 'selfreflection', rowId: 'e1', rendered: TEXT, destination: OTHER_D1 },
   });
   assert.deepEqual(answer, { ok: false, code: 'audience-excluded' });
 });

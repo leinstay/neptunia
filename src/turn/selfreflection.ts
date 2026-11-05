@@ -1,11 +1,11 @@
-// A diary post's first step and its picture gate: the post history, whether the post may carry a picture, the plan
+// A selfreflection post's first step and its picture gate: the post history, whether the post may carry a picture, the plan
 // request with its seeds and the owner's topic, the search the plan asks for, and the seeds of a set post.
-// createTurnRunner (src/behavior/turn.ts) builds it once per runner with createDiary; the attempt calls prepareDiary
-// before it builds a diary post's request, and runTurn asks diaryPictureGate before a forced picture kind.
+// createTurnRunner (src/behavior/turn.ts) builds it once per runner with createSelfreflection; the attempt calls prepareSelfreflection
+// before it builds a selfreflection post's request, and runTurn asks selfreflectionPictureGate before a forced picture kind.
 
 import { accountOf, sharedPlaceOf } from '../memory/addresses.ts';
 import { PERSONA_ID } from '../memory/db/storage-keys.ts';
-import { diaryRestricted } from '../tools/publication.ts';
+import { selfreflectionRestricted } from '../tools/publication.ts';
 import { fill } from '../format.ts';
 import { personOfMember } from '../memory/addresses.ts';
 import { listOf, objOf } from '../tools/types.ts';
@@ -19,8 +19,8 @@ import {
   DEFAULT_PICTURE_KINDS,
   DEFAULT_SEARCH_KINDS,
   DEFAULT_SET_KINDS,
-  DIARY_KINDS,
-  diaryTopic,
+  SELFREFLECTION_KINDS,
+  selfreflectionTopic,
   isSetKind,
   parseSeedFamilies,
   pickSeeds,
@@ -30,11 +30,12 @@ import {
   setSettings,
   validatePlan,
   withoutPictureKinds,
-} from '../behavior/diary.ts';
-import { pictureGate } from '../behavior/diary-turn.ts';
-import type { PictureGate } from '../behavior/diary-turn.ts';
-import { diaryConversationIds } from '../behavior/mirror.ts';
-import { buildDiaryPlanRequest } from '../behavior/prompt.ts';
+} from '../behavior/selfreflection.ts';
+import { pictureGate } from '../behavior/selfreflection-turn.ts';
+import type { PictureGate } from '../behavior/selfreflection-turn.ts';
+import { selfreflectionConversationIds } from '../behavior/mirror.ts';
+import { buildSelfreflectionPlanRequest } from '../behavior/prompt.ts';
+import { audienceAllows } from '../behavior/snapshot.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { DailyCapError, TokenLimitError, hedgeSettings, railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { parseJsonObject } from '../llm/parse.ts';
@@ -48,7 +49,7 @@ import type { Participation } from './participation.ts';
 import { snapshotOfDraft } from './routing.ts';
 
 /** The `selfreflection` section of the live config, as the first step reads it. */
-type DiarySection = {
+type SelfreflectionSection = {
   kinds?: Record<string, number>;
   pictureKinds?: unknown;
   searchKinds?: unknown;
@@ -58,15 +59,17 @@ type DiarySection = {
   planMaxOutputTokens?: number;
 };
 
-/** The live config of a diary post: the `selfreflection` section; the settings functions read their own sections. */
-export type DiaryConfig = Parameters<typeof pictureGate>[0]['config'] & { selfreflection?: DiarySection | null };
+/** The live config of a selfreflection post: the `selfreflection` section; the settings functions read their own sections. */
+export type SelfreflectionConfig = Parameters<typeof pictureGate>[0]['config'] & {
+  selfreflection?: SelfreflectionSection | null;
+};
 
 /** The prompt files and labels the plan request reads (hot.prompts). */
-type DiaryPrompts = Record<string, unknown> & { labels?: unknown };
+type SelfreflectionPrompts = Record<string, unknown> & { labels?: unknown };
 
-/** The memory store, as a diary post reads it. */
-export type DiaryStore = {
-  getDiary?: () => { posts?: Array<object> } | null | undefined;
+/** The memory store, as a selfreflection post reads it. */
+export type SelfreflectionStore = {
+  getSelfreflection?: () => { posts?: Array<object> } | null | undefined;
   getPlace: (placeId: string) => object | null;
   listChannels: (placeId: string) => Array<object>;
   getLore: (placeId: string) => Array<object>;
@@ -77,56 +80,59 @@ export type DiaryStore = {
 };
 
 /** The language model client (src/llm/openrouter.ts#createLlm), as the plan request uses it. */
-export type DiaryLlm = {
-  complete: (messages: ReturnType<typeof buildDiaryPlanRequest>['messages'], options: object) => Promise<unknown>;
+export type SelfreflectionLlm = {
+  complete: (
+    messages: ReturnType<typeof buildSelfreflectionPlanRequest>['messages'],
+    options: object
+  ) => Promise<unknown>;
 };
 
 /** The web lookup (src/web/lookup.ts#createLookup), as the plan's search uses it. */
-export type DiaryLookup = {
+export type SelfreflectionLookup = {
   search?: (placeId: string, query: string) => Promise<{ text?: unknown; sources?: unknown } | null | undefined>;
 } | null;
 
 /** The image client (src/llm/images.ts#createImageGen), as far as its cap is read. */
-export type DiaryImages = { quota?: (options: object) => { used: number; cap: number } | null } | null;
+export type SelfreflectionImages = { quota?: (options: object) => { used: number; cap: number } | null } | null;
 
-/** What createDiary reads: the dependencies and the functions of the notes and of participation it calls. */
-export type DiaryContext = {
-  /** A diary post's stored facts through the one retrieval service. */
-  diaryFacts?: ((input: RetrievalInput) => Promise<MemoryPage | null>) | null;
-  hot: { readonly prompts: DiaryPrompts | null | undefined };
-  store: DiaryStore;
-  llm: DiaryLlm;
+/** What createSelfreflection reads: the dependencies and the functions of the notes and of participation it calls. */
+export type SelfreflectionContext = {
+  /** A selfreflection post's stored facts through the one retrieval service. */
+  selfreflectionFacts?: ((input: RetrievalInput) => Promise<MemoryPage | null>) | null;
+  hot: { readonly prompts: SelfreflectionPrompts | null | undefined };
+  store: SelfreflectionStore;
+  llm: SelfreflectionLlm;
   calibrator: object;
   rng: () => number;
-  lookup: DiaryLookup | undefined;
-  images: DiaryImages | undefined;
+  lookup: SelfreflectionLookup | undefined;
+  images: SelfreflectionImages | undefined;
   journalOp: JournalNotes['journalOp'];
   recentOfPlaces: Participation['recentOfPlaces'];
 };
 
-/** What the owner's command asked of a diary post: a forced kind, a topic, whether it was forced. */
-type DiaryParams = { kind?: unknown; topic?: unknown; forced?: unknown } | null | undefined;
+/** What the owner's command asked of a selfreflection post: a forced kind, a topic, whether it was forced. */
+type SelfreflectionParams = { kind?: unknown; topic?: unknown; forced?: unknown } | null | undefined;
 
-/** The plan of a diary post, with the owner's topic when there is one. */
-type DiaryPlan = ReturnType<typeof validatePlan> & { topic?: string };
+/** The plan of a selfreflection post, with the owner's topic when there is one. */
+type SelfreflectionPlan = ReturnType<typeof validatePlan> & { topic?: string };
 
-export type DiaryPrepared = {
+export type SelfreflectionPrepared = {
   posts: Array<object>;
-  plan: DiaryPlan;
+  plan: SelfreflectionPlan;
   found: string | null;
   pictureAllowed: boolean;
   seeds: string;
 };
 
-export type Diary = {
-  prepareDiary: (args: {
-    config: DiaryConfig;
+export type Selfreflection = {
+  prepareSelfreflection: (args: {
+    config: SelfreflectionConfig;
 
     channel: ConversationInfo;
     selfName: string;
     history: Array<object>;
     now: number;
-    params: DiaryParams;
+    params: SelfreflectionParams;
     memoryOn: boolean;
     draft?:
       | (NonNullable<Parameters<JournalNotes['journalOp']>[0]> & {
@@ -134,8 +140,8 @@ export type Diary = {
           memoryContext?: Context;
         })
       | null;
-  }) => Promise<DiaryPrepared>;
-  diaryPictureGate: (config: DiaryConfig, channel: ConversationInfo, now: number) => PictureGate;
+  }) => Promise<SelfreflectionPrepared>;
+  selfreflectionPictureGate: (config: SelfreflectionConfig, channel: ConversationInfo, now: number) => PictureGate;
 };
 
 /** The completion's text, when the client answered with one. */
@@ -163,8 +169,8 @@ function mergedNotes(notes: ReadonlyArray<PlaceNotes>): PlaceNotes {
 }
 
 /**
- * The stored facts of a diary post's interval, for its plan: the people she knows and the days since her last post, read
- * under the diary's context, so no DM reaches a mirror. '' when there are none or the read failed.
+ * The stored facts of a selfreflection post's interval, for its plan: the people she knows and the days since her last post, read
+ * under the selfreflection's context, so no DM reaches a mirror. '' when there are none or the read failed.
  */
 async function reflectionFacts(
   read: ((input: RetrievalInput) => Promise<MemoryPage | null>) | null,
@@ -187,25 +193,25 @@ async function reflectionFacts(
       ),
       entities: [],
     });
-    const words = objOf(objOf(labels).diaryFacts);
+    const words = objOf(objOf(labels).selfreflectionFacts);
     if (!page?.assertions.length || typeof words.header !== 'string' || typeof words.fact !== 'string') return '';
     const states = objOf(objOf(objOf(labels).prefetch).factStates);
     const line = words.fact;
     const lines = page.assertions.map((fact) => fill(line, { state: factStateWords(fact, states), text: fact.text }));
     return block('stored_facts', [words.header, ...lines].join('\n'));
   } catch (err) {
-    warn.warn('diary: retrieval failed', { code: objOf(err).code ?? null });
+    warn.warn('selfreflection: retrieval failed', { code: objOf(err).code ?? null });
     return '';
   }
 }
 
 /**
- * What a diary plan reads of the places she knows: the notes of the top places the entry's readers may see. With one top
+ * What a selfreflection plan reads of the places she knows: the notes of the top places the entry's readers may see. With one top
  * place, its notes. With several, a place's notes reach the plan only when the entry stays inside its tree (its readers
  * read that server), and every place's when the entry is posted in no server at all: nobody outside reads it yet.
  */
-export function diaryPlaceNotes(
-  store: Pick<DiaryStore, 'getPlace'>,
+export function selfreflectionPlaceNotes(
+  store: Pick<SelfreflectionStore, 'getPlace'>,
   tops: ReadonlyArray<string>,
   entryTop: string | null
 ): object | null {
@@ -216,39 +222,50 @@ export function diaryPlaceNotes(
   return mergedNotes(readable.map((place) => (store.getPlace(place) ?? {}) as PlaceNotes));
 }
 
-export function createDiary(ctx: DiaryContext): Diary {
-  const { hot, store, llm, calibrator, rng, lookup, images, journalOp, recentOfPlaces, diaryFacts = null } = ctx;
+export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection {
+  const {
+    hot,
+    store,
+    llm,
+    calibrator,
+    rng,
+    lookup,
+    images,
+    journalOp,
+    recentOfPlaces,
+    selfreflectionFacts = null,
+  } = ctx;
 
   /**
-   * A diary post's first step (mode `diary`), before its request is built:
-   * the post history (store.getDiary), whether it may carry a picture (the
-   * image client and Attach Files here), then the plan request (src/behavior/prompt.ts#buildDiaryPlanRequest:
-   * prompts/diary-plan.md on the classifier model, `selfreflection.planMaxOutputTokens`
-   * (300), `selfreflection.planTimeoutMs` (20000), usage purpose `diary-plan`; when
+   * A selfreflection post's first step (mode `selfreflection`), before its request is built:
+   * the post history (store.getSelfreflection), whether it may carry a picture (the
+   * image client and Attach Files here), then the plan request (src/behavior/prompt.ts#buildSelfreflectionPlanRequest:
+   * prompts/selfreflection-planner.md on the classifier model, `selfreflection.planMaxOutputTokens`
+   * (300), `selfreflection.planTimeoutMs` (20000), usage purpose `selfreflection-planner`; when
    * `llm.hedge` hedges `analyzer`, the hedged call is limited by
    * `selfreflection.planTimeoutMs` rather than `llm.hedge.timeoutMs`) with
-   * `<seeds>` drawn from prompts/diary-seeds.md (SEED_SETS) and,
-   * with an owner's topic (`params.topic`, src/behavior/diary.ts#diaryTopic),
+   * `<seeds>` drawn from prompts/selfreflection-seeds.md (SEED_SETS) and,
+   * with an owner's topic (`params.topic`, src/behavior/selfreflection.ts#selfreflectionTopic),
    * a `<topic>` block after them; the topic also rides on the plan as its
-   * `topic` field (the `<plan>` block of the post). The answer goes through parseJsonObject and src/behavior/diary.ts#validatePlan
+   * `topic` field (the `<plan>` block of the post). The answer goes through parseJsonObject and src/behavior/selfreflection.ts#validatePlan
    * (a weighted random kind when it is missing, broken or names no weighted
    * kind; `selfreflection.searchKinds`, `selfreflection.pictureKinds`). While the post may not
    * carry a picture, the kinds in `selfreflection.pictureKinds` are dropped before the
-   * plan request and validatePlan (src/behavior/diary.ts#withoutPictureKinds),
+   * plan request and validatePlan (src/behavior/selfreflection.ts#withoutPictureKinds),
    * so neither the planner nor the random fallback picks one, and the
-   * `diary: planned` line carries `picturesOff: true`. A forced kind
+   * `selfreflection: planned` line carries `picturesOff: true`. A forced kind
    * (`params.kind`) is the only kind offered and replaces the answer's kind,
    * its brief kept (a forced picture kind with pictures off never gets here:
-   * runTurn refuses it first, diaryPictureGate). Then the search the plan asks for (lookup.search, its own
+   * runTurn refuses it first, selfreflectionPictureGate). Then the search the plan asks for (lookup.search, its own
    * cache): its text is `found`; a failure or nothing
-   * found logs `diary: search failed` and the post goes without it. A request
+   * found logs `selfreflection: search failed` and the post goes without it. A request
    * or token cap on the plan request throws (the turn is refused); any other
    * failure of it falls back. A planned kind in `selfreflection.setKinds` (a set post) also draws
    * `selfreflection.set.seedSets` (6) seed combinations for the compose request (`seeds`, the rendered
    * `<seeds>` body; '' for any other kind). Settings come from `config`, the turn's live config.
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
-  async function prepareDiary({
+  async function prepareSelfreflection({
     config,
     channel,
     selfName,
@@ -257,37 +274,45 @@ export function createDiary(ctx: DiaryContext): Diary {
     params,
     memoryOn,
     draft = null,
-  }: Parameters<Diary['prepareDiary']>[0]): Promise<DiaryPrepared> {
+  }: Parameters<Selfreflection['prepareSelfreflection']>[0]): Promise<SelfreflectionPrepared> {
     const prompts = hot.prompts;
     const labels = prompts?.labels;
-    const diaryCfg = config.selfreflection ?? {};
-    const stored = typeof store.getDiary === 'function' ? store.getDiary() : null;
+    const selfreflectionCfg = config.selfreflection ?? {};
+    const stored = typeof store.getSelfreflection === 'function' ? store.getSelfreflection() : null;
     const posts = (Array.isArray(stored?.posts) ? stored.posts : []).filter(
-      (post) => isIssuedInternalContext(draft?.memoryContext) || !diaryRestricted(post)
+      (post) => isIssuedInternalContext(draft?.memoryContext) || !selfreflectionRestricted(post)
     );
     const forcedKind = typeof params?.kind === 'string' && params.kind ? params.kind : null;
-    const topic = diaryTopic(params?.topic);
-    const pictureAllowed = diaryPictureGate(config, channel, now).allowed;
+    const topic = selfreflectionTopic(params?.topic);
+    const pictureAllowed = selfreflectionPictureGate(config, channel, now).allowed;
     // Pictures off: only the text kinds are offered (a forced kind is offered alone).
     const picturesOff = !forcedKind && !pictureAllowed;
     const kinds: Record<string, number> = forcedKind
       ? { [forcedKind]: 1 }
       : picturesOff
         ? // withoutPictureKinds drops entries of `kinds` and keeps the rest as they are, numbers.
-          (withoutPictureKinds(DIARY_KINDS, DEFAULT_PICTURE_KINDS) as Record<string, number>)
-        : DIARY_KINDS;
+          (withoutPictureKinds(SELFREFLECTION_KINDS, DEFAULT_PICTURE_KINDS) as Record<string, number>)
+        : SELFREFLECTION_KINDS;
 
     // What the entry may draw on: the notes of every server she is in.
     const tops = store.topPlaces?.() ?? [];
     let answer: unknown = null;
-    const planPrompt = prompts?.['diary-plan'];
+    const planPrompt = prompts?.['selfreflection-planner'];
     if (typeof planPrompt === 'string' && planPrompt.trim() && labels) {
       const recent = memoryOn
         ? recentOfPlaces(tops, { channel, snapshot: snapshotOfDraft(draft), isPrivate: false, config, now })
         : NO_RECENT;
-      const factsText = memoryOn ? await reflectionFacts(diaryFacts, store, posts, now, labels, log) : '';
-      const seedsText = renderSeedsBlock(pickSeeds(parseSeedFamilies(prompts['diary-seeds']), SEED_SETS, rng), labels);
-      const request = buildDiaryPlanRequest({
+      const factsText = memoryOn ? await reflectionFacts(selfreflectionFacts, store, posts, now, labels, log) : '';
+      // The rail the pulls pass (context.pull.sameAudience): the planner names no room narrower than the post's readers.
+      const snapshot = snapshotOfDraft(draft);
+      const placeAudience = channel.rootId
+        ? (placeId: string) => audienceAllows(channel, snapshot?.get(placeId) ?? null, config)
+        : null;
+      const seedsText = renderSeedsBlock(
+        pickSeeds(parseSeedFamilies(prompts['selfreflection-seeds']), SEED_SETS, rng),
+        labels
+      );
+      const request = buildSelfreflectionPlanRequest({
         config,
         prompts,
         calibrator,
@@ -295,14 +320,15 @@ export function createDiary(ctx: DiaryContext): Diary {
         selfName,
         history,
         placeMemory: memoryOn
-          ? diaryPlaceNotes(store, tops, channel.rootId ? sharedPlaceOf(store, channel) : null)
+          ? selfreflectionPlaceNotes(store, tops, channel.rootId ? sharedPlaceOf(store, channel) : null)
           : null,
         channels: memoryOn ? tops.flatMap((place) => store.listChannels(place)) : [],
         loreEntries: memoryOn ? tops.flatMap((place) => store.getLore(place)) : [],
         currentChannelId: channel.id,
-        diaryChannelIds: diaryConversationIds(store),
+        selfreflectionChannelIds: selfreflectionConversationIds(store),
         recentLines: recent.lines ?? null,
         recentAudience: recent.audience ?? null,
+        placeAudience,
         candidateProfiles: memoryOn ? store.listUserProfiles() : [],
         nameOf: memoryOn ? (id: string) => store.getUser(accountOf(store, id))?.names?.[0] ?? null : null,
         posts,
@@ -310,7 +336,7 @@ export function createDiary(ctx: DiaryContext): Diary {
         seedsText,
         topicText: [renderTopicBlock(topic, labels), factsText].filter(Boolean).join('\n\n'),
       });
-      const planTimeoutMs = diaryCfg.planTimeoutMs ?? 60000;
+      const planTimeoutMs = selfreflectionCfg.planTimeoutMs ?? 60000;
       // A hedged plan request gets the plan's own limit, not llm.hedge.timeoutMs.
       const hedge = hedgeSettings(config);
       const planHedge =
@@ -320,18 +346,18 @@ export function createDiary(ctx: DiaryContext): Diary {
       let completion: unknown = null;
       try {
         completion = await llm.complete(request.messages, {
-          model: roleModel(config, 'analyzer', 'diary-plan'),
+          model: roleModel(config, 'analyzer', 'selfreflection-planner'),
           ...roleRequestOptions(config, {
             role: 'analyzer',
-            maxOutputTokens: diaryCfg.planMaxOutputTokens ?? 2000,
-            purpose: 'diary-plan',
+            maxOutputTokens: selfreflectionCfg.planMaxOutputTokens ?? 2000,
+            purpose: 'selfreflection-planner',
             timeoutMs: planTimeoutMs,
           }),
           ...planHedge,
         });
       } catch (err) {
         if (err instanceof DailyCapError || err instanceof TokenLimitError) throw err;
-        log.warn('diary: plan failed', {
+        log.warn('selfreflection: plan failed', {
           channel: channel.id,
           reason: railReason(err),
           // A thrown value is anything; an HTTP error of the client carries its status.
@@ -342,11 +368,11 @@ export function createDiary(ctx: DiaryContext): Diary {
         try {
           answer = parseJsonObject(textOf(completion));
         } catch {
-          log.warn('diary: plan failed', { channel: channel.id, reason: 'unparsed', status: null });
+          log.warn('selfreflection: plan failed', { channel: channel.id, reason: 'unparsed', status: null });
         }
       }
     } else {
-      log.warn('diary: plan failed', { channel: channel.id, reason: 'no-prompt', status: null });
+      log.warn('selfreflection: plan failed', { channel: channel.id, reason: 'no-prompt', status: null });
     }
     if (forcedKind && answer && typeof answer === 'object' && !Array.isArray(answer))
       answer = { ...answer, kind: forcedKind };
@@ -357,7 +383,7 @@ export function createDiary(ctx: DiaryContext): Diary {
       rng
     );
     // The owner's topic reaches the post even when the planner ignored it.
-    const plan: DiaryPlan = topic ? { ...validated, topic } : validated;
+    const plan: SelfreflectionPlan = topic ? { ...validated, topic } : validated;
 
     let found: string | null = null;
     if (plan.search && typeof lookup?.search === 'function') {
@@ -375,20 +401,20 @@ export function createDiary(ctx: DiaryContext): Diary {
               })
             : op.failed(CODE.NO_RESULT));
         if (found === null)
-          log.info('diary: search failed', { channel: channel.id, reason: result ? 'nothing' : 'refused' });
+          log.info('selfreflection: search failed', { channel: channel.id, reason: result ? 'nothing' : 'refused' });
       } catch (err) {
         if (op.opId) await op.failed(CODE.ERROR);
-        log.warn('diary: search failed', { channel: channel.id, reason: 'error', error: err });
+        log.warn('selfreflection: search failed', { channel: channel.id, reason: 'error', error: err });
       }
     }
     // A set post (selfreflection.setKinds): its compose request gets selfreflection.set.seedSets seed combinations.
     const seeds = isSetKind(plan.kind, DEFAULT_SET_KINDS)
       ? renderSeedsBlock(
-          pickSeeds(parseSeedFamilies(prompts?.['diary-seeds']), setSettings(diaryCfg).seedSets, rng),
+          pickSeeds(parseSeedFamilies(prompts?.['selfreflection-seeds']), setSettings(selfreflectionCfg).seedSets, rng),
           labels ?? {}
         )
       : '';
-    log.info('diary: planned', {
+    log.info('selfreflection: planned', {
       channel: channel.id,
       kind: plan.kind,
       fallback: plan.fallback,
@@ -401,8 +427,12 @@ export function createDiary(ctx: DiaryContext): Diary {
     return { posts, plan, found, pictureAllowed, seeds };
   }
 
-  /** Whether a diary post in `channel` may carry a picture now (src/behavior/diary-turn.ts#pictureGate). */
-  function diaryPictureGate(config: DiaryConfig, channel: ConversationInfo, now: number): PictureGate {
+  /** Whether a selfreflection post in `channel` may carry a picture now (src/behavior/selfreflection-turn.ts#pictureGate). */
+  function selfreflectionPictureGate(
+    config: SelfreflectionConfig,
+    channel: ConversationInfo,
+    now: number
+  ): PictureGate {
     return pictureGate({
       config,
       attach: channel.permissions.attach,
@@ -412,5 +442,5 @@ export function createDiary(ctx: DiaryContext): Diary {
     });
   }
 
-  return { prepareDiary, diaryPictureGate };
+  return { prepareSelfreflection, selfreflectionPictureGate };
 }

@@ -14,7 +14,7 @@
 // - `analyzer`   the core's classifier model: picks one of a few given options (address, room,
 //                merge, elsewhere-pick, rewatch, split, media-pick, missed),
 //                plans a search and turns sources into notes (query-builder, recall-summary,
-//                search-summary, diary-plan);
+//                search-summary, selfreflection-planner);
 // - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
 // - `embedding`  turns text into vectors for search by meaning;
@@ -168,7 +168,7 @@ export const PURPOSE_ROLES = Object.freeze({
   'query-builder': 'analyzer',
   'recall-summary': 'analyzer',
   'search-summary': 'analyzer',
-  'diary-plan': 'analyzer',
+  'selfreflection-planner': 'analyzer',
   speech: 'analyzer',
   // Usage rows and `models.byPurpose` pins written before quick search took its own name still read as this.
   'web-search': 'analyzer',

@@ -8,10 +8,10 @@ import type { PublicationBoundary } from '../tools/publication.ts';
 import { turnBoundary, bindPublicationPort } from '../tools/publication.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { imageFileName } from '../behavior/mirror.ts';
-import { setSettings } from '../behavior/diary.ts';
+import { setSettings } from '../behavior/selfreflection.ts';
 import { mediaPickSettings } from '../behavior/media-pick.ts';
 import type { MediaPickResult } from '../behavior/media-pick.ts';
-import type { PictureGate } from '../behavior/diary-turn.ts';
+import type { PictureGate } from '../behavior/selfreflection-turn.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { Untyped } from '../tools/types.ts';
 import { ImageGenError, UnsupportedImageModelError } from '../llm/images.ts';
@@ -84,14 +84,14 @@ type DrawResult = {
   data: { text: string };
 };
 
-/** A diary post's staged picture. */
+/** A selfreflection post's staged picture. */
 type Staged = { picture: Picture; self: boolean; text: string };
 
 /** What an attempt's draft holds that a picture reads and writes. */
 type DrawDraft = {
   memoryContext?: Context;
   staged?: Array<Staged>;
-  diary?: { set?: unknown } | null;
+  selfreflection?: { set?: unknown } | null;
   avatar?: { reference?: string | null };
   limits?: { add: (limit: { kind: string; where: string }) => void } | null;
 };
@@ -113,7 +113,7 @@ export type DrawGifContext = {
   messageOf: (channel: PostChannel, messageId: string) => MessageRef;
   checkEffect: (skill: string, args: unknown, at: { channel: PostChannel; trigger?: unknown }) => EffectVerdict;
   lastPostAt: Map<string, number>;
-  diaryPictureGate: (config: DrawGifConfig, channel: ConversationInfo, now: number) => PictureGate;
+  selfreflectionPictureGate: (config: DrawGifConfig, channel: ConversationInfo, now: number) => PictureGate;
 };
 
 /** The trigger of a turn, as a picture or a GIF reads it. */
@@ -170,13 +170,13 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     messageOf,
     checkEffect,
     lastPostAt,
-    diaryPictureGate,
+    selfreflectionPictureGate,
   } = ctx;
 
   /**
    * One picture (src/media/draw.ts#drawPicture): her scene verbatim into the drawing prompt, the avatar reference for a
    * picture she is in, one generation. `accountId` is the member whose rail counts it (null: nobody's); `avatar` the
-   * holder a diary set reuses the avatar through; `model` the core model's id when the call is routed there (null: the
+   * holder a selfreflection set reuses the avatar through; `model` the core model's id when the call is routed there (null: the
    * drawing role's own, whose outcome the role health is told). Throws what the image client throws (ImageCapError,
    * ImageGenError).
    */
@@ -223,10 +223,10 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * asked (askedFor), to nobody's otherwise. Every failure is a result she reads, never a limit notice: an image cap is
    * `image-cap-daily` or `image-cap-user-daily`, a generation failure `image-moderation`, `image-timeout` or
    * `image-error`, a refused publication its gateway code, and the port's answer to the upload passes through
-   * (`unknown` when it may have gone out: never generated again). In a diary turn (`mode` 'diary') the picture is
+   * (`unknown` when it may have gone out: never generated again). In a selfreflection turn (`mode` 'selfreflection') the picture is
    * staged into `draft.staged` as `{ picture, self, text }` instead of posted (ok, code `staged`), and refused
-   * `daily-cap` (reason `pictures`, diaryPictureGate: no image client or no Attach Files) while the post may carry none, `loop-cap` past what the post's kind takes (one picture, or `selfreflection.set.pictures[1]`
-   * for a set kind: `draft.diary.set`). Never throws.
+   * `daily-cap` (reason `pictures`, selfreflectionPictureGate: no image client or no Attach Files) while the post may carry none, `loop-cap` past what the post's kind takes (one picture, or `selfreflection.set.pictures[1]`
+   * for a set kind: `draft.selfreflection.set`). Never throws.
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   async function drawTool(
@@ -257,12 +257,15 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's argument may be any JSON value, read as text
     const scene = String(args?.text ?? '');
     const asked = askedFor(trigger, triggerKind);
-    const staging = mode === 'diary';
+    const staging = mode === 'selfreflection';
     if (staging) {
-      // A diary post's pictures: the gate is asked at every picture.
-      const gate = diaryPictureGate(hot.config, channel, clock());
+      // A selfreflection post's pictures: the gate is asked at every picture.
+      const gate = selfreflectionPictureGate(hot.config, channel, clock());
       if (!gate.allowed) return failed(refusalStatus(CODE.DAILY_CAP), CODE.DAILY_CAP, { reason: 'pictures' });
-      if ((draft?.staged?.length ?? 0) >= (draft?.diary?.set ? setSettings(hot.config.selfreflection).pictures[1] : 1))
+      if (
+        (draft?.staged?.length ?? 0) >=
+        (draft?.selfreflection?.set ? setSettings(hot.config.selfreflection).pictures[1] : 1)
+      )
         return failed(refusalStatus(CODE.LOOP_CAP), CODE.LOOP_CAP, { reason: 'extra-call' });
     }
     try {

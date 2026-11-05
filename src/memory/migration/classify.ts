@@ -42,7 +42,7 @@ const KINDS: Array<[RegExp, MapperKind, FileFormat]> = [
   [re('lore\\.json'), 'lore', 'json'],
   [re('participation\\.json'), 'participation', 'json'],
   [re('recent\\.json'), 'recent', 'json'],
-  [re('diary\\.json'), 'diary', 'json'],
+  [re('diary\\.json'), 'selfreflection', 'json'],
   [re('intentions\\.json'), 'intentions', 'json'],
   [re('intentions-archive\\.jsonl'), 'intentions', 'jsonl'],
   [re('errands\\.json'), 'errands', 'json'],

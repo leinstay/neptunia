@@ -35,8 +35,8 @@ Every script that sends model requests spends the simulation's key, read from `k
 | `request-report.ts` | The same per-day numbers from the operational log, for the days before the journal: pipe `journalctl -u neptunia-bot -o cat` into it | no | no | no |
 | `replay.ts` | Answers one real message again with the current code, prompts and memory. `--split` and `--recall` replay the splitter and the server search. `--snapshot <dir>` reads memory from a snapshot. `--show-request` prints the request. `--show-request <turnId>` prints a journal turn's request | no | no | yes, ~0.15 USD per request |
 | `replay.ts --pair` | Two prompt layers answer the same triggers. Writes `sheet.html` (a blind sheet) and `key.json`. Score with `replay-score.ts` | no | no | yes, 2 requests per trigger |
-| `replay.ts --diary` | Runs the diary's scheduled turn in dry run. Nothing is posted or written under `data/` | no | no | yes, 2 requests per brief |
-| `replay.ts --diary-day` | One whole day of the diary. `--draw live` draws for real on the simulation's key. Nothing written under `data/` | no | no | yes, 2 requests per slot; with `--draw live` ~0.025 USD per picture |
+| `replay.ts --selfreflection` | Runs the selfreflection's scheduled turn in dry run. Nothing is posted or written under `data/` | no | no | yes, 2 requests per brief |
+| `replay.ts --selfreflection-day` | One whole day of the selfreflection. `--draw live` draws for real on the simulation's key. Nothing written under `data/` | no | no | yes, 2 requests per slot; with `--draw live` ~0.025 USD per picture |
 | `replay.ts --skills` | Puts invented requests with skills and tools, runs the step engine. A write or paid call is answered canned; reading tools run for real. Nothing written under `data/` | no | no | yes, ~3 requests per decision |
 | `replay.ts --pair-transport` | Same triggers on the native and text transports. Writes the `--pair` files | no | no | yes, ~6 requests per trigger |
 | `replay.ts --loop-triggers` | Same triggers on one side, every turn recorded. Writes `runs.jsonl` and `report.md` | no | no | yes, ~3 requests per trigger |

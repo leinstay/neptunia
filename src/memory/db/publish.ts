@@ -1,10 +1,10 @@
 // Publications (spec 2026-10-24-memory-schema-v7, sections 2 and 6; section 11 item 4 overrides them): every outward
-// send of something she made in her memory (a diary entry first) is a `publications` row with its exact rendered text,
+// send of something she made in her memory (a selfreflection entry first) is a `publications` row with its exact rendered text,
 // the content hash of that text, the destination place, the execution context it is sent in, the grant that allowed it
 // (if one was needed), its state (`queued` | `sending` | `sent` | `failed` | `incomplete` | `unknown`), an idempotency key
 // and the interface's receipts. Schema v10 and v27; publication-delivery.ts holds the claim and the segments of a send.
 //
-// A `diary` row to a place with an enabled diary mirror (schema v15, `mirrors`) needs no grant row: the mirror the owner
+// A `selfreflection` row to a place with an enabled selfreflection mirror (schema v15, `mirrors`) needs no grant row: the mirror the owner
 // set up is his standing grant for every entry to that place.
 //
 // The rule (item 4): an outward act opens a destination context and publishes only what that context produced, or
@@ -15,7 +15,7 @@
 //
 //   preparePublication(handle, { context, rowKind, rowId, rendered, destination, producedIn, idempotencyKey?, pending?, now? })
 //       refuses with a code and writes nothing when the context is not outward (`not-outward`), its destination is not
-//       the publication's (`destination-mismatch`), a diary row refuses the place (storedDiaryPublicationRefusal), or the text was produced elsewhere (an internal context, or an
+//       the publication's (`destination-mismatch`), a selfreflection row refuses the place (storedSelfreflectionPublicationRefusal), or the text was produced elsewhere (an internal context, or an
 //       outward context of another destination) and no grant binds its hash to this destination (`no-grant`).
 //       Otherwise writes one `queued` row. The idempotency key (by default `<row kind>:<row id>:<destination>`) is
 //       unique: a second call with the same key returns the first row (`reused: true`) and writes nothing, so a crash
@@ -25,22 +25,22 @@
 //       or a timeout hid; `reconcile(handle, id, found)` makes it `sent` with the receipts found, never sending again,
 //       or `failed` when the interface has no trace of it.
 //   grantPublication / revokeGrant   the owner's exceptions; a grant is immutable but for its revocation.
-// The diary's mirrors (`diary_mirrors`, written by the sync from diary.json) derive their publication rows here too
+// The selfreflection's mirrors (`selfreflection_mirrors`, written by the sync from the selfreflection unit) derive their publication rows here too
 // (`deriveMirrorPublication`), on the one path every mirror write takes (the sync, rows.ts#insertRows, the v10
 // migration), so a remap keeps the row and never makes a second one.
 //
-// `assignDiaryDestination` gives the diary's publications that name no destination the deployment's diary channel (the
-// v12 data step for the legacy mirrors, and the diary writer under authority `db`, unit-write.ts).
+// `assignSelfreflectionDestination` gives the selfreflection's publications that name no destination the deployment's selfreflection channel (the
+// v12 data step for the legacy mirrors, and the selfreflection writer under authority `db`, unit-write.ts).
 // Every write projects the publication into the graph in the same transaction (graph.ts#projectRow). No live writer
-// uses preparePublication but the diary's mirrors (src/behavior/mirror.ts); the legacy diary posts derive their
-// `sent` publications on the diary's own write like the sync (unit-write.ts). Logs: none; a caller logs codes.
+// uses preparePublication but the selfreflection's mirrors (src/behavior/mirror.ts); the legacy selfreflection posts derive their
+// `sent` publications on the selfreflection's own write like the sync (unit-write.ts). Logs: none; a caller logs codes.
 
 import { createHash } from 'node:crypto';
 import { ownershipRow, hasStorageUnits, ownershipSql } from './storage-units.ts';
 
-import { diaryMetadataOf, diaryPublicationRefusal } from '../../tools/publication.ts';
+import { selfreflectionMetadataOf, selfreflectionPublicationRefusal } from '../../tools/publication.ts';
 
-import { audienceRefusal } from './diary-audience.ts';
+import { audienceRefusal } from './selfreflection-audience.ts';
 import { legacyNativeKind, nativeAuthorityOf } from './ids.ts';
 import { parseExtra } from './map/common.ts';
 import { contextRow } from './scope.ts';
@@ -57,7 +57,7 @@ const refused = (code: string): { ok: false; code: string } => ({ ok: false, cod
 /** The content hash of a rendered text: 64 hex digits of SHA-256 over its UTF-8 bytes. */
 export const contentHash = (text: unknown): string => createHash('sha256').update(String(text), 'utf8').digest('hex');
 
-/** The default idempotency key of a publication: `<row kind>:<row id>:<destination>` (the diary's mirrors use the same). */
+/** The default idempotency key of a publication: `<row kind>:<row id>:<destination>` (the selfreflection's mirrors use the same). */
 export const publicationKey = (rowKind: unknown, rowId: unknown, destination: unknown): string =>
   `${asText(rowKind)}:${asText(rowId)}:${asText(destination ?? '')}`;
 
@@ -125,17 +125,21 @@ export function grantFor(
 }
 
 /**
- * What the stored row says against sending a diary entry to a place, whatever a caller carries and whatever grant
+ * What the stored row says against sending a selfreflection entry to a place, whatever a caller carries and whatever grant
  * exists: its saved restriction (`not-allowed`), then the audience she chose or what an old row reads as
- * (`audience-excluded`, `audience-invalid`, diary-audience.ts). Null when it may go.
+ * (`audience-excluded`, `audience-invalid`, selfreflection-audience.ts). Null when it may go.
  */
-export function storedDiaryPublicationRefusal(handle: Connection, rowId: unknown, destination: unknown): string | null {
+export function storedSelfreflectionPublicationRefusal(
+  handle: Connection,
+  rowId: unknown,
+  destination: unknown
+): string | null {
   const db = dbOf(handle);
-  const row = db.prepare('SELECT extra, scope_kind, scope_iface FROM diary WHERE id = ?').get(String(rowId));
-  const boundary = diaryMetadataOf(row?.extra).publicationBoundary;
+  const row = db.prepare('SELECT extra, scope_kind, scope_iface FROM selfreflection WHERE id = ?').get(String(rowId));
+  const boundary = selfreflectionMetadataOf(row?.extra).publicationBoundary;
   if (boundary !== undefined) {
     const place = db.prepare('SELECT iface, native_id FROM places WHERE id = ?').get(String(destination));
-    const refusal = diaryPublicationRefusal(boundary, {
+    const refusal = selfreflectionPublicationRefusal(boundary, {
       iface: typeof place?.iface === 'string' ? place.iface : '',
       conversationId: typeof place?.native_id === 'string' ? place.native_id : '',
     });
@@ -145,7 +149,7 @@ export function storedDiaryPublicationRefusal(handle: Connection, rowId: unknown
 }
 
 /**
- * Whether the owner set up an enabled `diary` mirror of `destination` (schema v15): his standing grant for every diary
+ * Whether the owner set up an enabled `selfreflection` mirror of `destination` (schema v15): his standing grant for every selfreflection
  * entry to that place. A disabled mirror, or a database before v15, grants nothing.
  */
 function mirroredTo(db: Db, destination: unknown): boolean {
@@ -153,7 +157,7 @@ function mirroredTo(db: Db, destination: unknown): boolean {
   if (table === undefined) return false;
   return (
     db
-      .prepare("SELECT 1 AS ok FROM mirrors WHERE row_kind = 'diary' AND place_id = ? AND enabled = 1 LIMIT 1")
+      .prepare("SELECT 1 AS ok FROM mirrors WHERE row_kind = 'selfreflection' AND place_id = ? AND enabled = 1 LIMIT 1")
       .get(String(destination)) !== undefined
   );
 }
@@ -191,13 +195,13 @@ function sendRefusal(
   )
     return { code: 'not-outward' };
   if (!filled(destination) || (context as Context).destination !== destination) return { code: 'destination-mismatch' };
-  if (rowKind === 'diary') {
-    const restriction = storedDiaryPublicationRefusal(db, rowId, destination);
+  if (rowKind === 'selfreflection') {
+    const restriction = storedSelfreflectionPublicationRefusal(db, rowId, destination);
     if (restriction) return { code: restriction };
   }
   const produced = producedOf(producedIn);
   if (produced.outward === destination) return { code: null, grant: null };
-  if (rowKind === 'diary' && mirroredTo(db, destination)) return { code: null, grant: null };
+  if (rowKind === 'selfreflection' && mirroredTo(db, destination)) return { code: null, grant: null };
   const grant = grantFor(db, { rowKind, rowId, hash, destination });
   return grant ? { code: null, grant } : { code: 'no-grant' };
 }
@@ -308,8 +312,8 @@ export function recheck(
   if (!context || context.mode !== 'outward' || context.internal === true || !filled(context.id))
     return refused('not-outward');
   if (context.destination !== row.destination_place_id) return refused('destination-mismatch');
-  if (row.row_kind === 'diary') {
-    const restriction = storedDiaryPublicationRefusal(handle, row.row_id, row.destination_place_id);
+  if (row.row_kind === 'selfreflection') {
+    const restriction = storedSelfreflectionPublicationRefusal(handle, row.row_id, row.destination_place_id);
     if (restriction) return refused(restriction);
   }
   if (row.grant_id) {
@@ -470,7 +474,7 @@ export function revokeGrant(
 }
 
 /**
- * One write of the diary's mirrors on the writer connection (session-write.ts, kind `publication`): `prepare` queues
+ * One write of the selfreflection's mirrors on the writer connection (session-write.ts, kind `publication`): `prepare` queues
  * a publication (`input`: preparePublication's), `sent` marks it with its `receipts`, `failed` and `unknown` mark it.
  * Returns what the call it names returns. `handle` is an `openMemoryDb` handle (the writer) and `given` is
  * `{ op, id?, input?, receipts?, now? }`.
@@ -499,7 +503,7 @@ export function applyPublicationWrite(handle: Connection, given: unknown): unkno
   });
 }
 
-// ---------- the diary's mirrors ----------
+// ---------- the selfreflection's mirrors ----------
 
 /** The receipts of a mirror: one `{ authority, kind, key }` per native message id it names. */
 export function mirrorReceipts(
@@ -522,9 +526,9 @@ export function mirrorReceipts(
 }
 
 /**
- * The publication row a diary mirror derives (pure): the mirror's id, the diary entry, the entry's text and its hash
+ * The publication row a selfreflection mirror derives (pure): the mirror's id, the selfreflection entry, the entry's text and its hash
  * (null until the text is known), the mirror's place as the destination when that place exists, `sent` with the
- * mirror's message ids as receipts, the key `diary:<entry>:<place>`, the mirror's owner and retirement.
+ * mirror's message ids as receipts, the key `selfreflection:<entry>:<place>`, the mirror's owner and retirement.
  */
 export function mirrorPublicationRow(
   mirror: Row,
@@ -533,15 +537,15 @@ export function mirrorPublicationRow(
   const rendered = typeof text === 'string' ? text : null;
   return {
     id: mirror.id,
-    row_kind: 'diary',
-    row_id: mirror.diary_id,
+    row_kind: 'selfreflection',
+    row_id: mirror.selfreflection_id,
     content_hash: rendered === null ? null : contentHash(rendered),
     rendered,
     destination_place_id: placeExists && filled(mirror.place_id) ? mirror.place_id : null,
     context_id: null,
     grant_id: null,
     status: 'sent',
-    idempotency_key: publicationKey('diary', mirror.diary_id, mirror.place_id ?? ''),
+    idempotency_key: publicationKey('selfreflection', mirror.selfreflection_id, mirror.place_id ?? ''),
     receipts: JSON.stringify(mirrorReceipts(String(mirror.iface), mirror.native_ids)),
     created_at: filled(mirror.posted_at) ? mirror.posted_at : at,
     sent_at: filled(mirror.posted_at) ? mirror.posted_at : null,
@@ -551,7 +555,7 @@ export function mirrorPublicationRow(
 }
 
 /**
- * Writes the publication of a diary mirror (found by its id, or by its entry, interface and place as the sync keys it):
+ * Writes the publication of a selfreflection mirror (found by its id, or by its entry, interface and place as the sync keys it):
  * inserted once by its key; on a later write of the mirror the row follows it (receipts, owner, retirement, a
  * destination or a text that was not known before) and keeps its id, its content once known, and its state. A
  * publication the database wrote itself (no owner file) is never touched. `project: false` leaves the graph to the
@@ -566,21 +570,22 @@ export function deriveMirrorPublication(
   if (!hasPublications(db)) return null;
   let found: Row | undefined;
   if (Number.isInteger(mirror?.rowid))
-    found = db.prepare('SELECT * FROM diary_mirrors WHERE rowid = ?').get(mirror?.rowid);
-  else if (filled(mirror?.id)) found = db.prepare('SELECT * FROM diary_mirrors WHERE id = ?').get(mirror.id);
-  if (!found && filled(mirror?.diary_id)) {
+    found = db.prepare('SELECT * FROM selfreflection_mirrors WHERE rowid = ?').get(mirror?.rowid);
+  else if (filled(mirror?.id)) found = db.prepare('SELECT * FROM selfreflection_mirrors WHERE id = ?').get(mirror.id);
+  if (!found && filled(mirror?.selfreflection_id)) {
     found = db
       .prepare(
         ownershipSql(
           db,
-          "SELECT * FROM diary_mirrors WHERE diary_id = ? AND iface IS ? AND COALESCE(place_id, '') = ? ORDER BY owner_key IS NULL DESC, rowid LIMIT 1"
+          "SELECT * FROM selfreflection_mirrors WHERE selfreflection_id = ? AND iface IS ? AND COALESCE(place_id, '') = ? ORDER BY owner_key IS NULL DESC, rowid LIMIT 1"
         )
       )
-      .get(mirror.diary_id, mirror.iface ?? null, mirror.place_id ?? '');
+      .get(mirror.selfreflection_id, mirror.iface ?? null, mirror.place_id ?? '');
   }
-  if (!found || !filled(found.id) || !filled(found.diary_id)) return null;
+  if (!found || !filled(found.id) || !filled(found.selfreflection_id)) return null;
   const text =
-    (db.prepare('SELECT text FROM diary WHERE id = ?').get(found.diary_id)?.text as string | null | undefined) ?? null;
+    (db.prepare('SELECT text FROM selfreflection WHERE id = ?').get(found.selfreflection_id)?.text as
+      string | null | undefined) ?? null;
   const placeExists =
     filled(found.place_id) && db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(found.place_id) !== undefined;
   const stamp = filled(at) ? at : new Date().toISOString();
@@ -627,12 +632,12 @@ export function deriveMirrorPublication(
 }
 
 /**
- * The deployment's diary channel as the destination of the diary's publications that name none (schema v12's data
- * step for the legacy mirrors, and every diary write under authority `db`, stage W2a): `placeId` (the channel's place)
- * is set on every `diary` publication without a destination (of the unit `owner` only, when given), when that place is
+ * The deployment's selfreflection channel as the destination of the selfreflection's publications that name none (schema v12's data
+ * step for the legacy mirrors, and every selfreflection write under authority `db`, stage W2a): `placeId` (the channel's place)
+ * is set on every `selfreflection` publication without a destination (of the unit `owner` only, when given), when that place is
  * stored; nothing else of a publication changes. Returns how many were set.
  */
-export function assignDiaryDestination(
+export function assignSelfreflectionDestination(
   handle: Connection,
   placeId: string,
   { owner = null, at, project = true }: { owner?: string | null; at?: string; project?: boolean } = {}
@@ -644,7 +649,7 @@ export function assignDiaryDestination(
     .prepare(
       ownershipSql(
         db,
-        `UPDATE publications SET destination_place_id = ? WHERE row_kind = 'diary' AND destination_place_id IS NULL${filled(owner) ? ' AND owner_key = ?' : ''} RETURNING id`
+        `UPDATE publications SET destination_place_id = ? WHERE row_kind = 'selfreflection' AND destination_place_id IS NULL${filled(owner) ? ' AND owner_key = ?' : ''} RETURNING id`
       )
     )
     .all(...(filled(owner) ? [placeId, owner] : [placeId]))
@@ -660,7 +665,9 @@ export function deriveAllMirrorPublications(
 ): number {
   const db = dbOf(handle);
   const rows = db
-    .prepare('SELECT rowid AS rowid FROM diary_mirrors WHERE id IS NOT NULL AND diary_id IS NOT NULL ORDER BY rowid')
+    .prepare(
+      'SELECT rowid AS rowid FROM selfreflection_mirrors WHERE id IS NOT NULL AND selfreflection_id IS NOT NULL ORDER BY rowid'
+    )
     .all();
   for (const row of rows) deriveMirrorPublication(db, { rowid: row.rowid }, { at, project });
   return rows.length;

@@ -78,7 +78,7 @@ export function mediaDescriptionVersions(
 const CHILDREN: Record<string, [string, string]> = {
   episode_sources: ['episodes', 'episode_id'],
   claim_sources: ['claims', 'claim_id'],
-  diary_mirrors: ['diary', 'diary_id'],
+  selfreflection_mirrors: ['selfreflection', 'selfreflection_id'],
 };
 
 const HAS_POSITION = new Set([
@@ -89,7 +89,7 @@ const HAS_POSITION = new Set([
   'episodes',
   'affinity_events',
   'day',
-  'diary',
+  'selfreflection',
   'intentions',
   'work',
   'work_events',
@@ -134,7 +134,7 @@ export function unitRows(db: Db, key: StorageKey | string): Rows {
     rows[child] = db
       .prepare(
         `SELECT c.* FROM "${child}" c JOIN "${parent}" p ON p.id = c."${link}"
-      WHERE (p.${column} = ? OR p.id IN (SELECT key FROM co_owners WHERE tbl = ? AND ${column} = ?)) AND p.retired_at IS NULL AND c.retired_at IS NULL ORDER BY ${child === 'diary_mirrors' ? 'c.rowid' : 'c.position, c.rowid'}`
+      WHERE (p.${column} = ? OR p.id IN (SELECT key FROM co_owners WHERE tbl = ? AND ${column} = ?)) AND p.retired_at IS NULL AND c.retired_at IS NULL ORDER BY ${child === 'selfreflection_mirrors' ? 'c.rowid' : 'c.position, c.rowid'}`
       )
       .all(owner, parent, owner)
       .map((row) => ({ ...row }));

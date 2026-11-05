@@ -64,7 +64,7 @@ function fixture() {
           name: 'other',
         },
       ],
-      diary: [
+      selfreflection: [
         {
           id: 'entry-1',
           at_ms: NOW,
@@ -100,7 +100,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
     const contexts = count(db, 'SELECT COUNT(*) AS n FROM execution_contexts');
     const refusedInternal = preparePublication(handle, {
       context: outward(GENERAL),
-      rowKind: 'diary',
+      rowKind: 'selfreflection',
       rowId: 'entry-1',
       rendered: DRAFT,
       destination: GENERAL,
@@ -112,7 +112,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
     assert.deepEqual(
       preparePublication(handle, {
         context: outward(GENERAL),
-        rowKind: 'diary',
+        rowKind: 'selfreflection',
         rowId: 'entry-1',
         rendered: DRAFT,
         destination: GENERAL,
@@ -124,7 +124,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
     assert.deepEqual(
       preparePublication(handle, {
         context: outward(GENERAL),
-        rowKind: 'diary',
+        rowKind: 'selfreflection',
         rowId: 'entry-1',
         rendered: DRAFT,
         destination: GENERAL,
@@ -137,7 +137,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
     assert.deepEqual(
       preparePublication(handle, {
         context: internal(),
-        rowKind: 'diary',
+        rowKind: 'selfreflection',
         rowId: 'entry-1',
         rendered: DRAFT,
         destination: GENERAL,
@@ -149,7 +149,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
     assert.deepEqual(
       preparePublication(handle, {
         context: outward(OTHER),
-        rowKind: 'diary',
+        rowKind: 'selfreflection',
         rowId: 'entry-1',
         rendered: DRAFT,
         destination: GENERAL,
@@ -161,7 +161,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
     assert.deepEqual(
       preparePublication(handle, {
         context: { mode: 'outward', destination: GENERAL },
-        rowKind: 'diary',
+        rowKind: 'selfreflection',
         rowId: 'entry-1',
         rendered: DRAFT,
         destination: GENERAL,
@@ -179,7 +179,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
 
     // A grant for another destination does not count; a revoked one neither.
     const elsewhere = grantPublication(handle, {
-      rowKind: 'diary',
+      rowKind: 'selfreflection',
       rowId: 'entry-1',
       hash: contentHash(DRAFT),
       destinations: [OTHER],
@@ -190,7 +190,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
       (
         preparePublication(handle, {
           context: outward(GENERAL),
-          rowKind: 'diary',
+          rowKind: 'selfreflection',
           rowId: 'entry-1',
           rendered: DRAFT,
           destination: GENERAL,
@@ -201,7 +201,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
       'no-grant'
     );
     const granted = grantPublication(handle, {
-      rowKind: 'diary',
+      rowKind: 'selfreflection',
       rowId: 'entry-1',
       hash: contentHash(DRAFT),
       destinations: [GENERAL],
@@ -215,7 +215,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
       (
         preparePublication(handle, {
           context: outward(GENERAL),
-          rowKind: 'diary',
+          rowKind: 'selfreflection',
           rowId: 'entry-1',
           rendered: DRAFT,
           destination: GENERAL,
@@ -228,7 +228,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
 
     // An unrevoked grant for this hash and this destination lets it through, and the row names the grant.
     const good = grantPublication(handle, {
-      rowKind: 'diary',
+      rowKind: 'selfreflection',
       rowId: 'entry-1',
       hash: contentHash(DRAFT),
       destinations: [GENERAL, OTHER],
@@ -237,7 +237,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
     });
     const done = preparePublication(handle, {
       context: outward(GENERAL),
-      rowKind: 'diary',
+      rowKind: 'selfreflection',
       rowId: 'entry-1',
       rendered: DRAFT,
       destination: GENERAL,
@@ -250,7 +250,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
     assert.notEqual(done.publication!.grant_id, elsewhere);
     assert.equal(done.publication!.content_hash, contentHash(DRAFT));
     assert.equal(done.publication!.rendered, DRAFT);
-    assert.equal(done.publication!.idempotency_key, publicationKey('diary', 'entry-1', GENERAL));
+    assert.equal(done.publication!.idempotency_key, publicationKey('selfreflection', 'entry-1', GENERAL));
     // A queued internal draft is seen by no outward context in the graph.
     const access = db
       .prepare('SELECT audience_id FROM node_access WHERE node_id = ? AND evidence_id = node_id')
@@ -260,7 +260,7 @@ test('publish: an internal draft never becomes publishable without a grant; noth
     // A text produced in a context for this very destination needs no grant.
     const own = preparePublication(handle, {
       context: outward(OTHER),
-      rowKind: 'diary',
+      rowKind: 'selfreflection',
       rowId: 'entry-1',
       rendered: 'Ένα κείμενο για εδώ.',
       destination: OTHER,
@@ -293,7 +293,7 @@ test('publish: an edit changes the hash and voids the grant; the stored text nev
   const { handle, db, outward, internal } = fixture();
   try {
     grantPublication(handle, {
-      rowKind: 'diary',
+      rowKind: 'selfreflection',
       rowId: 'entry-1',
       hash: contentHash(DRAFT),
       destinations: [GENERAL],
@@ -305,7 +305,7 @@ test('publish: an edit changes the hash and voids the grant; the stored text nev
     assert.deepEqual(
       preparePublication(handle, {
         context: outward(GENERAL),
-        rowKind: 'diary',
+        rowKind: 'selfreflection',
         rowId: 'entry-1',
         rendered: edited,
         destination: GENERAL,
@@ -316,7 +316,7 @@ test('publish: an edit changes the hash and voids the grant; the stored text nev
     );
     const done = preparePublication(handle, {
       context: outward(GENERAL),
-      rowKind: 'diary',
+      rowKind: 'selfreflection',
       rowId: 'entry-1',
       rendered: DRAFT,
       destination: GENERAL,
@@ -356,7 +356,7 @@ test('publish: a crash between queued and sent sends once (the same key returns 
         return [{ authority: 'discord/global', kind: 'message', key: `m-${sent.length}` }];
       },
       find(key: string) {
-        return sent.length > 0 && key === publicationKey('diary', 'entry-1', GENERAL)
+        return sent.length > 0 && key === publicationKey('selfreflection', 'entry-1', GENERAL)
           ? [{ authority: 'discord/global', kind: 'message', key: 'm-1' }]
           : null;
       },
@@ -366,7 +366,7 @@ test('publish: a crash between queued and sent sends once (the same key returns 
     const sendOnce = (ctx: ReturnType<typeof outward>) => {
       const done = preparePublication(handle, {
         context: ctx,
-        rowKind: 'diary',
+        rowKind: 'selfreflection',
         rowId: 'entry-1',
         rendered: text,
         destination: GENERAL,
@@ -397,7 +397,7 @@ test('publish: a crash between queued and sent sends once (the same key returns 
     // The turn asks again: the same key returns the first row, which is sent, so nothing goes out.
     const again = preparePublication(handle, {
       context: outward(GENERAL),
-      rowKind: 'diary',
+      rowKind: 'selfreflection',
       rowId: 'entry-1',
       rendered: text,
       destination: GENERAL,
@@ -419,7 +419,7 @@ test('publish: a crash between queued and sent sends once (the same key returns 
     );
     const lost = preparePublication(handle, {
       context: outward(OTHER),
-      rowKind: 'diary',
+      rowKind: 'selfreflection',
       rowId: 'entry-1',
       rendered: 'Autre.',
       destination: OTHER,
@@ -506,16 +506,16 @@ test('v10 migration: 51 mirrors become sent publications with their text hashes 
       assert.ok(db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(table), table);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
     assert.equal(db.prepare('PRAGMA integrity_check').get()!.integrity_check, 'ok');
-    const mirrors = count(db, 'SELECT COUNT(*) AS n FROM diary_mirrors WHERE retired_at IS NULL');
+    const mirrors = count(db, 'SELECT COUNT(*) AS n FROM selfreflection_mirrors WHERE retired_at IS NULL');
     assert.ok((mirrors as number) >= POSTS, 'the fixture has at least the 51 mirrors');
     const rows = publicationsOf(db);
     assert.equal(rows.length, mirrors, 'one publication per mirror');
     for (let n = 0; n < POSTS; n += 1) {
       const row = rows.find((entry) => entry.row_id === `entry-${n}`)!;
-      const mirror = db.prepare('SELECT * FROM diary_mirrors WHERE diary_id = ?').get(`entry-${n}`)!;
+      const mirror = db.prepare('SELECT * FROM selfreflection_mirrors WHERE selfreflection_id = ?').get(`entry-${n}`)!;
       assert.equal(row.id, mirror.id, 'the publication keeps the mirror id');
       assert.equal(row.status, 'sent');
-      assert.equal(row.idempotency_key, `diary:entry-${n}:`);
+      assert.equal(row.idempotency_key, `selfreflection:entry-${n}:`);
       assert.deepEqual(JSON.parse(row.receipts as string), [
         { authority: 'discord/global', kind: 'message', key: messageOf(n) },
       ]);
@@ -567,7 +567,7 @@ test('v10: a rewrite of the diary keeps the publication; database rows survive',
     const before = publicationsOf(db);
     // Rows the database owns: a grant and a prepared publication; the diary's writes never touch them.
     const grant = grantPublication(handle, {
-      rowKind: 'diary',
+      rowKind: 'selfreflection',
       rowId: 'entry-0',
       hash: contentHash('x'),
       destinations: [`discord:channel:${CHANNEL}`],
@@ -582,7 +582,7 @@ test('v10: a rewrite of the diary keeps the publication; database rows survive',
     });
     const own = preparePublication(handle, {
       context: ctx,
-      rowKind: 'diary',
+      rowKind: 'selfreflection',
       rowId: 'entry-0',
       rendered: 'Une autre fois.',
       destination: `discord:channel:${CHANNEL}`,
@@ -591,7 +591,7 @@ test('v10: a rewrite of the diary keeps the publication; database rows survive',
     });
     assert.equal(own.ok, true);
     // A rewrite: the diary gains a post and a text arrives for an old one (the hash is filled once, then kept).
-    db.prepare('UPDATE diary SET text = ? WHERE id = ?').run('Ημερολόγιο 30', 'entry-30');
+    db.prepare('UPDATE selfreflection SET text = ? WHERE id = ?').run('Ημερολόγιο 30', 'entry-30');
     const file = path.join(guildDir(env.data), 'diary.json');
     const value = JSON.parse(fs.readFileSync(file, 'utf8'));
     value.posts.push({
@@ -640,7 +640,7 @@ test('mirrorPublicationRow: the derived row of a mirror (pure)', () => {
   const row = mirrorPublicationRow(
     {
       id: 'mirror:e:discord:',
-      diary_id: 'e',
+      selfreflection_id: 'e',
       iface: 'discord',
       place_id: null,
       native_ids: '["1","2"]',
@@ -652,7 +652,7 @@ test('mirrorPublicationRow: the derived row of a mirror (pure)', () => {
   );
   assert.deepEqual(row, {
     id: 'mirror:e:discord:',
-    row_kind: 'diary',
+    row_kind: 'selfreflection',
     row_id: 'e',
     content_hash: contentHash('Café'),
     rendered: 'Café',
@@ -660,7 +660,7 @@ test('mirrorPublicationRow: the derived row of a mirror (pure)', () => {
     context_id: null,
     grant_id: null,
     status: 'sent',
-    idempotency_key: 'diary:e:',
+    idempotency_key: 'selfreflection:e:',
     receipts: JSON.stringify([
       { authority: 'discord/global', kind: 'message', key: '1' },
       { authority: 'discord/global', kind: 'message', key: '2' },

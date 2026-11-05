@@ -73,7 +73,7 @@ export async function waitForPreparation(
   // `<participation>`: the persona's own exchanges on other channels this turn may show, and
   // the elsewhere pick's choice among them (src/behavior/elsewhere-pick.ts; it asks
   // nothing when there is no episode to offer). Late or failed, the newest are shown.
-  const participationShown = participationOn(channel) && finalMode !== 'diary';
+  const participationShown = participationOn(channel) && finalMode !== 'selfreflection';
   const participationAudienceOf = participationShown ? participationAudience(channel, config, snapshot) : null;
   const participationStage = participationAudienceOf
     ? track('participation', (): Promise<Array<unknown>> =>

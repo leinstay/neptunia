@@ -10,9 +10,9 @@
 import { placeOfCommunity, placeOfConversation } from '../../src/memory/addresses.ts';
 import { placeCollection } from '../../src/memory/db/storage-keys.ts';
 import { createStore } from '../../src/memory/store.ts';
-import { dbOf, seedMirror } from './diary-mirror.ts';
-import { GUILD, NOW, sceneHot } from './diary-requests.ts';
-import type { sceneLlm } from './diary-requests.ts';
+import { dbOf, seedMirror } from './selfreflection-mirror.ts';
+import { GUILD, NOW, sceneHot } from './selfreflection-requests-recorded.ts';
+import type { sceneLlm } from './selfreflection-requests-recorded.ts';
 import { openTestMemory } from './memory-db/service.ts';
 import { world } from './turn-world.ts';
 import { worldTurnRunner } from './world-runner.ts';
@@ -207,7 +207,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
         messageIds: entry.posts.map((one) => one.id),
         search: null,
       };
-    store.appendDiaryPost(entryPost as Parameters<typeof store.appendDiaryPost>[0], { max: 40 });
+    store.appendSelfreflectionPost(entryPost as Parameters<typeof store.appendSelfreflectionPost>[0], { max: 40 });
   }
   // The describer's cache: what she saw in the picture, by its attachment id.
   const cache = store.getMediaCache(placeOfCommunity(store, GUILD, 'fake')) as Record<string, unknown>;
@@ -260,10 +260,10 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
     const [first] = entry.posts;
     if (!first) continue;
     const text = entry.posts.map((post) => post.text).filter(Boolean).join('\n');
-    db.prepare('UPDATE diary SET text = ? WHERE at_ms = ?').run(text, first.at);
+    db.prepare('UPDATE selfreflection SET text = ? WHERE at_ms = ?').run(text, first.at);
   }
   // The fourth entry's media rows, with the attachment ids its messages carry and the picture's description.
-  const fourth = db.prepare("SELECT id, scope_kind, scope_iface, audience_id FROM diary WHERE kind = 'picture'").all()[0];
+  const fourth = db.prepare("SELECT id, scope_kind, scope_iface, audience_id FROM selfreflection WHERE kind = 'picture'").all()[0];
   if (fourth) {
     const media = db.prepare(
       `INSERT INTO media (id, kind, owner, path, native_ref, description, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, audience_id)
@@ -273,7 +273,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
       `media:diary:${String(fourth.id)}-1`,
       'image',
       fourth.id,
-      `media/diary/${String(fourth.id)}-1.png`,
+      `media/selfreflection/${String(fourth.id)}-1.png`,
       PICTURE.id,
       PICTURE.description,
       2048,
@@ -287,7 +287,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
       `media:diary:${String(fourth.id)}-2`,
       'voice',
       fourth.id,
-      `media/diary/${String(fourth.id)}-2.ogg`,
+      `media/selfreflection/${String(fourth.id)}-2.ogg`,
       VOICE.id,
       null,
       4096,
@@ -297,7 +297,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
       JSON.stringify({ voice: true, durationSec: VOICE.durationSec, messageId: 'm6', url: 'https://cdn.example/voice.ogg' }),
       fourth.audience_id
     );
-    const link = db.prepare("INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('diary', ?, ?, ?)");
+    const link = db.prepare("INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('selfreflection', ?, ?, ?)");
     link.run(fourth.id, 0, `media:diary:${String(fourth.id)}-1`);
     link.run(fourth.id, 1, `media:diary:${String(fourth.id)}-2`);
   }

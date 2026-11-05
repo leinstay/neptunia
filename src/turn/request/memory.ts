@@ -1,6 +1,6 @@
 // The memory blocks of a turn's request: `<recent>` (the last hours' lines and the members' moments), the persona's
 // own exchanges on other channels in `<participation>`, and the anchored window `<earlier>` (this channel's lines
-// older than the chat that matter). buildRequest and buildDiaryPlanRequest (src/behavior/prompt.js) call them.
+// older than the chat that matter). buildRequest and buildSelfreflectionPlanRequest (src/behavior/prompt.js) call them.
 
 import { AGE_AFTER_MINUTES, fill, formatClock, formatDate, formatDuration, formatTranscript } from '../../format.ts';
 import { fitSections } from '../../llm/budget.ts';

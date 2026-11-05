@@ -268,7 +268,7 @@ test('replay flags: --core-tools goes with --skills only; --pair-transport and -
   assert.equal(parseArgs(['--skills', 'a.json']).coreTools, false);
   assert.equal(parseArgs(['--skills', 'a.json', '--transport', 'text']).transport, 'text');
   assert.throws(() => parseArgs(['123456789012345678', '223456789012345678', '--core-tools']), /usage/);
-  assert.throws(() => parseArgs(['--diary-day', '--core-tools']), /usage/);
+  assert.throws(() => parseArgs(['--selfreflection-day', '--core-tools']), /usage/);
   const pair = parseArgs([
     '--pair-transport',
     '--triggers',

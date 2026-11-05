@@ -137,13 +137,13 @@ export function requestHead(given: RequestInput): Base {
   // stored profile gets one in `<directory>` (the stable part), the authors in view on their lines.
   const handlesOn = true;
   // `<people_now>`'s live part: the snapshot of
-  // the gateway's voice states and presences, never in a private chat or a diary post.
+  // the gateway's voice states and presences, never in a private chat or a selfreflection post.
   // The live glance as the turn hands it: checked to be an object with a snapshot below.
   const aroundInput = given.around as
     { snapshot?: AroundSnapshot | null; channelNameOf?: (placeId: string) => string | null } | null | undefined;
   const liveOn =
     !privateChat &&
-    mode !== 'diary' &&
+    mode !== 'selfreflection' &&
     isPlainObject(aroundInput) &&
     Boolean(aroundInput?.snapshot) &&
     Boolean(labels.peopleNow);

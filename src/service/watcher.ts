@@ -168,7 +168,7 @@ export function readMemoryAt<TResult>(dataDir: string, read: (db: ReturnType<typ
 const readMemory = <TResult>(deps: ServiceDeps, read: (db: ReturnType<typeof dbOf>) => TResult): TResult | null =>
   readMemoryAt(deps.dataDir, read);
 
-/** What only the first page of a walk carries, read once per walk: the leftovers, the diary's facts and the CI of `main`. */
+/** What only the first page of a walk carries, read once per walk: the leftovers, the selfreflection's facts and the CI of `main`. */
 async function firstPageFacts(deps: ServiceDeps, window: { from: number; to: number }) {
   return {
     trash: await trashOf(deps),

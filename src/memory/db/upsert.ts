@@ -6,7 +6,7 @@
 
 import { hasStorageUnits, ensureUnit, unitById } from './storage-units.ts';
 import { legacyStorageKey } from '../migration/paths.ts';
-import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations, restrictDiaryMedia } from './rows.ts';
+import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations, restrictSelfreflectionMedia } from './rows.ts';
 import { projectRow } from './graph.ts';
 import { deriveMirrorPublication } from './publish.ts';
 import { resolveParticipationSources } from './participation-sources.ts';
@@ -30,7 +30,7 @@ export const OWNED: Record<string, ReadonlyArray<string>> = {
   episodes: ['id'],
   affinity_events: ['id'],
   day: ['id'],
-  diary: ['id'],
+  selfreflection: ['id'],
   media: ['id'],
   intentions: ['id'],
   work: ['id'],
@@ -44,7 +44,7 @@ export const OWNED: Record<string, ReadonlyArray<string>> = {
 const CHILDREN: Record<string, [string, string]> = {
   episode_sources: ['episodes', 'episode_id'],
   claim_sources: ['claims', 'claim_id'],
-  diary_mirrors: ['diary', 'diary_id'],
+  selfreflection_mirrors: ['selfreflection', 'selfreflection_id'],
 };
 
 const quote = (name: string): string => `"${name}"`;
@@ -177,7 +177,7 @@ function writeRow(db: Db, table: string, row: Row, opts: { ignore?: boolean; at?
   // v9: the row's unit is projected (ensureRelations projects a source with its relations).
   if (table === 'sources') ensureRelations(db, derived, { at: opts.at });
   else projectRow(db, table, derived, { at: opts.at });
-  if (table === 'diary') restrictDiaryMedia(db, derived, opts.at);
+  if (table === 'selfreflection') restrictSelfreflectionMedia(db, derived, opts.at);
   if (found && found.owner_key !== row.owner_key) {
     prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_key = ?').run(
       table,
@@ -219,8 +219,8 @@ function handOver(db: Db, table: string, key: Row, owner: string): boolean {
 
 /** The identity of a child link inside its unit: where it sits under its parent (a mirror: which place it was sent to). */
 const childKey = (child: string, row: Row): string =>
-  child === 'diary_mirrors'
-    ? [row.diary_id, row.iface, row.place_id ?? ''].join('\u0000')
+  child === 'selfreflection_mirrors'
+    ? [row.selfreflection_id, row.iface, row.place_id ?? ''].join('\u0000')
     : [row[CHILDREN[child][1]], row.position].join('\u0000');
 
 /** Retires the active rows of a unit that the given mapping no longer holds. Returns how many. */
@@ -260,7 +260,10 @@ export function retireAbsent(db: Db, owner: string, mapping: Rows, at: string): 
   }
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
     const keep = new Set((mapping[child] ?? []).map((row: Row) => childKey(child, row)));
-    const cols = child === 'diary_mirrors' ? 'rowid, diary_id, iface, place_id' : `rowid, ${quote(link)}, position`;
+    const cols =
+      child === 'selfreflection_mirrors'
+        ? 'rowid, selfreflection_id, iface, place_id'
+        : `rowid, ${quote(link)}, position`;
     const existing = prepared(
       db,
       `SELECT ${cols} FROM ${quote(child)} c WHERE owner_key = ? AND retired_at IS NULL
@@ -269,7 +272,7 @@ export function retireAbsent(db: Db, owner: string, mapping: Rows, at: string): 
     for (const row of existing) {
       if (keep.has(childKey(child, row))) continue;
       prepared(db, `UPDATE ${quote(child)} SET retired_at = ? WHERE rowid = ?`).run(at, row.rowid);
-      if (child === 'diary_mirrors') deriveMirrorPublication(db, row, { at });
+      if (child === 'selfreflection_mirrors') deriveMirrorPublication(db, row, { at });
       projectRow(db, child, row, { at });
       count += 1;
     }
@@ -292,11 +295,13 @@ function writeChildren(
       const out: Row = { ...row, owner_key: owner, retired_at: null };
       const cols = Object.keys(out);
       const where =
-        child === 'diary_mirrors'
-          ? "diary_id = ? AND iface = ? AND coalesce(place_id, '') = ?"
+        child === 'selfreflection_mirrors'
+          ? "selfreflection_id = ? AND iface = ? AND coalesce(place_id, '') = ?"
           : `${quote(link)} = ? AND position = ?`;
       const args =
-        child === 'diary_mirrors' ? [row.diary_id, row.iface, row.place_id ?? ''] : [row[link], bind(row.position)];
+        child === 'selfreflection_mirrors'
+          ? [row.selfreflection_id, row.iface, row.place_id ?? '']
+          : [row[link], bind(row.position)];
       const found = prepared(
         db,
         `SELECT rowid, owner_key FROM ${quote(child)} WHERE ${where} ORDER BY owner_key IS NULL DESC, rowid LIMIT 1`
@@ -360,7 +365,7 @@ export function writeMapping(
   count += writeChildren(db, mapping, owner, skippedParents, touched);
   // Schema v10: a mirror's publication follows the mirror (publish.ts#deriveMirrorPublication), on this one path.
   for (const [child, row] of touched) {
-    if (child === 'diary_mirrors') deriveMirrorPublication(db, row, { at });
+    if (child === 'selfreflection_mirrors') deriveMirrorPublication(db, row, { at });
     projectRow(db, child, row, { at });
   }
   return count;

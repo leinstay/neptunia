@@ -53,7 +53,7 @@ const serviceOfRole = (role: unknown): string => (role === 'memory' ? 'memory' :
 
 /** The service a turn's requests belong to, by the turn's mode and, for an inner turn, its wake. */
 export function turnService(mode: unknown, wakeKind: unknown): string {
-  if (mode === 'diary') return 'selfreflection';
+  if (mode === 'selfreflection') return 'selfreflection';
   if (mode === 'inner' && (wakeKind === 'heartbeat' || wakeKind === 'selfimprovement')) return wakeKind;
   return 'core';
 }

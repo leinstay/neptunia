@@ -1,14 +1,14 @@
-// The scene of tests/diary-mirror-awareness.test.ts: one ordinary reply turn of the real turn runner over a real store
+// The scene of tests/selfreflection-mirror-awareness.test.ts: one ordinary reply turn of the real turn runner over a real store
 // and memory database, on a community of the fake interface with `general` (c1), `journal` (d1) and `notes` (d2), and a
-// scripted model. `diary-mirror-awareness.json` beside this file holds the `<server>` block the turn in c1 built with
-// `diaryChannelId: 'd1'` and no mirror, on the code before `diary.placeId` became a seed. Synthetic text only.
+// scripted model. `selfreflection-mirror-awareness.json` beside this file holds the `<server>` block the turn in c1 built with
+// `selfreflectionChannelId: 'd1'` and no mirror, on the code before `diary.placeId` became a seed. Synthetic text only.
 import { placeOfCommunity, placeOfConversation } from '../../src/memory/addresses.ts';
 import { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { userText } from '../../src/behavior/prompt.ts';
 import { createStore } from '../../src/memory/store.ts';
-import { dbOf, seedMirror } from './diary-mirror.ts';
-import type { MemoryService } from './diary-mirror.ts';
+import { dbOf, seedMirror } from './selfreflection-mirror.ts';
+import type { MemoryService } from './selfreflection-mirror.ts';
 import { openTestMemory } from './memory-db/service.ts';
 import { hotWith, rawMessage, sequenceLlm } from './turn-harness.ts';
 import { freshWorld, world } from './turn-world.ts';
@@ -45,17 +45,17 @@ export function serverBlock(messages: unknown): string {
 
 /**
  * One ordinary reply turn to Alice in `here`, on a community with `general` (c1), `journal` (d1) and `notes` (d2),
- * each with notes in memory and her line ten minutes ago in d1 and d2. Memory holds the `diary` mirrors on
- * `mirrors`; the config sets `diary.placeId` only when `diaryChannelId` is given (the recording).
+ * each with notes in memory and her line ten minutes ago in d1 and d2. Memory holds the `selfreflection` mirrors on
+ * `mirrors`; the config sets `diary.placeId` only when `selfreflectionChannelId` is given (the recording).
  */
 export async function replyTurn({
   here,
   mirrors,
-  diaryChannelId = null,
+  selfreflectionChannelId = null,
 }: {
   here: 'c1' | 'd1';
   mirrors: Array<'d1' | 'd2'>;
-  diaryChannelId?: string | null;
+  selfreflectionChannelId?: string | null;
 }): Promise<{ memory: { memoryDb: MemoryService }; store: ReturnType<typeof createStore>; request: unknown }> {
   const memory = await openTestMemory({ now: () => NOW });
   OPEN.push(memory);
@@ -88,7 +88,7 @@ export async function replyTurn({
   const llm = sequenceLlm(['<msg>γεια</msg>']);
   const turns = worldTurnRunner({
     hot: hotWith({
-      config: diaryChannelId === null ? {} : { selfreflection: { placeId: diaryChannelId } },
+      config: selfreflectionChannelId === null ? {} : { selfreflection: { placeId: selfreflectionChannelId } },
     }),
     store,
     // The memory the runner may read the mirrors from (the store reads the same database).

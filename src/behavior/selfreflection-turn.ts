@@ -1,14 +1,19 @@
-// The diary turn's own steps, beside the turn runner (src/behavior/turn.ts, mode `diary`). A diary turn writes her
-// entry and sends nothing: the entry is recorded in memory first (`recordEntry`, the store's diary unit), and the
-// diary's mirrors publish it (src/behavior/mirror.ts). Run as the `selfreflection` wake it has no conversation, and
-// `wakeInputs` gives it the place her diary is posted to (mirror.ts#diaryPlaces) as its conversation and her diary as
+// The selfreflection turn's own steps, beside the turn runner (src/behavior/turn.ts, mode `selfreflection`). A selfreflection turn writes her
+// entry and sends nothing: the entry is recorded in memory first (`recordEntry`, the store's selfreflection unit), and the
+// selfreflection's mirrors publish it (src/behavior/mirror.ts). Run as the `selfreflection` wake it has no conversation, and
+// `wakeInputs` gives it the place her selfreflection is posted to (mirror.ts#selfreflectionPlaces) as its conversation and her selfreflection as
 // its history: her entries' posts as memory holds them, message by message, read through the same line builder
 // (src/behavior/line-of.ts). `pictureGate` says whether the post may carry a picture, and
-// `diaryVoiceTool` keeps her voice message for the entry instead of posting it. Logs: none.
+// `selfreflectionVoiceTool` keeps her voice message for the entry instead of posting it. Logs: none.
 
 import { entryMedia } from '../memory/db/media-store.ts';
 import { PERSONA_ID } from '../memory/db/storage-keys.ts';
-import { UNRESTRICTED, diaryMetadataOf, diaryRestricted, refusedAudience } from '../tools/publication.ts';
+import {
+  UNRESTRICTED,
+  selfreflectionMetadataOf,
+  selfreflectionRestricted,
+  refusedAudience,
+} from '../tools/publication.ts';
 import type { AudienceChoice, PublicationBoundary } from '../tools/publication.ts';
 import { randomUUID } from 'node:crypto';
 import {
@@ -18,10 +23,10 @@ import {
   gistOf,
   isPictureKind,
   setSettings,
-} from './diary.ts';
+} from './selfreflection.ts';
 import { lineOf } from './line-of.ts';
-import { diaryPlaces, readMirrors } from './mirror.ts';
-import type { DiaryEntry, DiaryPlace, EntryPicture, EntryVoice } from './mirror.ts';
+import { selfreflectionPlaces, readMirrors } from './mirror.ts';
+import type { SelfreflectionEntry, SelfreflectionPlace, EntryPicture, EntryVoice } from './mirror.ts';
 import { CODE } from '../tools/codes.ts';
 import type { ConversationInfo, ConversationRef, MessageEvent } from '../protocol/adapter.ts';
 
@@ -36,11 +41,11 @@ const sectionOf = (config: Config, name: string): Config => {
 const numberOr = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 
-/** Whether a diary post may carry a picture now, and the cap that closed when not (`limit: null` for the switches). */
+/** Whether a selfreflection post may carry a picture now, and the cap that closed when not (`limit: null` for the switches). */
 export type PictureGate = { allowed: boolean; limit: { key: string; used: number; cap: number } | null };
 
 /**
- * Whether a diary post may carry a picture: an image client (`drawing`) and Attach Files in the conversation
+ * Whether a selfreflection post may carry a picture: an image client (`drawing`) and Attach Files in the conversation
  * (`attach`). Pure.
  */
 export function pictureGate({
@@ -57,7 +62,7 @@ export function pictureGate({
 }
 
 /**
- * The refusal of a forced picture kind (`/nep diary post <kind>`) while the post may carry no picture, naming the
+ * The refusal of a forced picture kind (`/nep selfreflection post <kind>`) while the post may carry no picture, naming the
  * gate that closed, or null. Asked before any request.
  */
 export function forcedPictureRefusal({
@@ -74,25 +79,25 @@ export function forcedPictureRefusal({
 }
 
 /**
- * The voice message of a diary post: what was voiced and its length, and the file when the turn made it (a voice
+ * The voice message of a selfreflection post: what was voiced and its length, and the file when the turn made it (a voice
  * posted through her operation instead leaves only the text and the length).
  */
 export type HeldVoice = Partial<EntryVoice> & { text: string; durationSecs: number };
 
-/** What a diary turn holds instead of sending: her messages as written and as they would be sent. */
+/** What a selfreflection turn holds instead of sending: her messages as written and as they would be sent. */
 export type HeldSpeech = { texts: Array<string>; rendered: Array<{ text: string; accountIds: Array<string> }> };
 
 /**
- * `voice.say` as a diary turn runs it (in the turn, src/tools/executors.ts#executeCall's `inTurn`): the voice file is
- * made through `speech.say` and kept in `held.diaryVoice` for the entry; nothing is posted. Without a speech client that
+ * `voice.say` as a selfreflection turn runs it (in the turn, src/tools/executors.ts#executeCall's `inTurn`): the voice file is
+ * made through `speech.say` and kept in `held.selfreflectionVoice` for the entry; nothing is posted. Without a speech client that
  * can say, there is no such tool and the call takes its usual way.
  */
-export function diaryVoiceTool({
+export function selfreflectionVoiceTool({
   speech,
   held,
 }: {
   speech: unknown;
-  held: { diaryVoice?: HeldVoice | null };
+  held: { selfreflectionVoice?: HeldVoice | null };
 }): Record<string, (args: Record<string, unknown>) => Promise<unknown>> {
   const say = (speech as { say?: unknown } | null)?.say;
   if (typeof say !== 'function') return {};
@@ -107,7 +112,12 @@ export function diaryVoiceTool({
         waveform: string;
         voiced: string;
       };
-      held.diaryVoice = { ogg: made.ogg, durationSecs: made.durationSecs, waveform: made.waveform, text: made.voiced };
+      held.selfreflectionVoice = {
+        ogg: made.ogg,
+        durationSecs: made.durationSecs,
+        waveform: made.waveform,
+        text: made.voiced,
+      };
       return { status: 'ok', code: CODE.STAGED, data: { text: '' } };
     },
   };
@@ -117,19 +127,19 @@ export function diaryVoiceTool({
 export type StagedPicture = EntryPicture & { text: string };
 
 /** The part of the store `recordEntry` uses. */
-export type DiaryStore = {
-  appendDiaryPost?: (post: Record<string, unknown>, opts: { max: number }) => unknown;
-  getDiary?: () => { posts: Array<Record<string, unknown>> };
-  setDiaryPosts?: (posts: Array<Record<string, unknown>>, opts: { max: number }) => unknown;
+export type SelfreflectionStore = {
+  appendSelfreflectionPost?: (post: Record<string, unknown>, opts: { max: number }) => unknown;
+  getSelfreflection?: () => { posts: Array<Record<string, unknown>> };
+  setSelfreflectionPosts?: (posts: Array<Record<string, unknown>>, opts: { max: number }) => unknown;
   state: { data: Record<string, unknown>; markDirty(): void };
 };
 
 /**
- * The post of the place's diary an entry is (recordEntry): its gist and its first picture's scene cut to
+ * The post of the place's selfreflection an entry is (recordEntry): its gist and its first picture's scene cut to
  * `selfreflection.gistChars` (200), her full text, the entry's id as its `itemId`, its search query, how it is sent (`send`) and,
  * with a voice message, the text as voiced and its length.
  */
-function diaryPostOf({
+function selfreflectionPostOf({
   config,
   at,
   plan,
@@ -152,10 +162,10 @@ function diaryPostOf({
   rendered: { messages: Array<string>; mentions: Array<Array<string>> };
   maxMessageBytes: number;
 } {
-  const diaryCfg = sectionOf(config, 'selfreflection');
+  const selfreflectionCfg = sectionOf(config, 'selfreflection');
   const gistChars = DEFAULT_GIST_CHARS;
   const first = staged[0];
-  const maxMessageBytes = setSettings(diaryCfg).maxMessageBytes;
+  const maxMessageBytes = setSettings(selfreflectionCfg).maxMessageBytes;
   const rendered = {
     messages: held.rendered.map((part) => part.text),
     mentions: held.rendered.map((part) => part.accountIds),
@@ -177,13 +187,13 @@ function diaryPostOf({
 }
 
 /**
- * A diary post recorded before anything is sent: one post in the place's diary (`store.appendDiaryPost`, the newest
+ * A selfreflection post recorded before anything is sent: one post in the place's selfreflection (`store.appendSelfreflectionPost`, the newest
  * `selfreflection.historyPosts` (150) kept) with its gist and its first picture's scene cut to `selfreflection.gistChars` (200), her
  * full text, the entry's id as its `itemId`, its search query, how it is sent (`send`: her messages as sent, their
- * mentions, the set's byte limit) and, with a voice message, the text as voiced and its length; the day's diary post
+ * mentions, the set's byte limit) and, with a voice message, the text as voiced and its length; the day's selfreflection post
  * counted. Every picture was counted when it was generated. `audience` is what her `<audience>` tags came to: the post
  * keeps it as `publicationAudience`, and a failed choice is kept as a value that publishes nowhere
- * (src/memory/db/diary-audience.ts). Returns the outcome's `diary` field: the counts, the audience and the entry the
+ * (src/memory/db/selfreflection-audience.ts). Returns the outcome's `selfreflection` field: the counts, the audience and the entry the
  * mirrors publish.
  */
 export function recordEntry({
@@ -197,9 +207,9 @@ export function recordEntry({
   voice,
   publicationBoundary,
   audience = { ok: true, audience: UNRESTRICTED },
-  newId = () => `diary:${randomUUID()}`,
+  newId = () => `selfreflection:${randomUUID()}`,
 }: {
-  store: DiaryStore;
+  store: SelfreflectionStore;
   config: Config;
 
   now: number;
@@ -218,10 +228,10 @@ export function recordEntry({
   messages: number;
   pictures: number;
   audience: AudienceChoice;
-  entry: DiaryEntry;
+  entry: SelfreflectionEntry;
 } {
   const id = newId();
-  const { post, rendered, maxMessageBytes } = diaryPostOf({
+  const { post, rendered, maxMessageBytes } = selfreflectionPostOf({
     config,
     at: now,
     plan,
@@ -233,8 +243,9 @@ export function recordEntry({
   });
   if (publicationBoundary !== undefined) post.publicationBoundary = publicationBoundary;
   post.publicationAudience = audience.ok ? audience.audience : { kind: 'invalid', code: audience.code };
-  if (typeof store.appendDiaryPost === 'function') store.appendDiaryPost(post, { max: DEFAULT_HISTORY_POSTS });
-  const entry: DiaryEntry = {
+  if (typeof store.appendSelfreflectionPost === 'function')
+    store.appendSelfreflectionPost(post, { max: DEFAULT_HISTORY_POSTS });
+  const entry: SelfreflectionEntry = {
     id,
     ...(publicationBoundary !== undefined ? { publicationBoundary } : {}),
     ...rendered,
@@ -254,29 +265,29 @@ export function recordEntry({
 }
 
 /**
- * The refusals `posts` showed in a diary request (`<audience_refused>`), marked on their posts once she answered it, so
+ * The refusals `posts` showed in a selfreflection request (`<audience_refused>`), marked on their posts once she answered it, so
  * she hears of each one once. A request that never got an answer marks nothing.
  */
-export function markRefusalsTold(store: DiaryStore, posts: ReadonlyArray<object>): void {
+export function markRefusalsTold(store: SelfreflectionStore, posts: ReadonlyArray<object>): void {
   const shown = new Set(
     posts.flatMap((post) => {
       const { itemId, publicationAudience } = post as { itemId?: unknown; publicationAudience?: unknown };
       return refusedAudience(publicationAudience)?.told === false ? [itemId] : [];
     })
   );
-  if (shown.size === 0 || !store.getDiary || !store.setDiaryPosts) return;
+  if (shown.size === 0 || !store.getSelfreflection || !store.setSelfreflectionPosts) return;
   const marked = store
-    .getDiary()
+    .getSelfreflection()
     .posts.map((post) =>
       shown.has(post.itemId)
         ? { ...post, publicationAudience: { ...(post.publicationAudience as object), told: true } }
         : post
     );
-  store.setDiaryPosts(marked, { max: DEFAULT_HISTORY_POSTS });
+  store.setSelfreflectionPosts(marked, { max: DEFAULT_HISTORY_POSTS });
 }
 
-/** One message of her diary as memory holds it: a message of the platform's shape, and its addressing. */
-type DiaryMessage = { message: Row; addressing: Row | null };
+/** One message of her selfreflection as memory holds it: a message of the platform's shape, and its addressing. */
+type SelfreflectionMessage = { message: Row; addressing: Row | null };
 
 const textOf = (value: unknown): string => (typeof value === 'string' ? value : '');
 
@@ -294,7 +305,9 @@ function jsonOf(value: unknown): unknown {
 function messageIdsOf(db: Db, entryId: string): Array<string> {
   const ids: Array<string> = [];
   for (const row of db
-    .prepare('SELECT native_ids FROM diary_mirrors WHERE diary_id = ? AND retired_at IS NULL ORDER BY rowid')
+    .prepare(
+      'SELECT native_ids FROM selfreflection_mirrors WHERE selfreflection_id = ? AND retired_at IS NULL ORDER BY rowid'
+    )
     .all(entryId)) {
     const parsed = jsonOf(row.native_ids);
     if (Array.isArray(parsed))
@@ -303,7 +316,7 @@ function messageIdsOf(db: Db, entryId: string): Array<string> {
   // Its sent publication's receipts too: a message the v15 step joined to it is named there only.
   for (const row of db
     .prepare(
-      "SELECT receipts FROM publications WHERE row_kind = 'diary' AND row_id = ? AND status = 'sent' AND retired_at IS NULL ORDER BY created_at, id LIMIT 1"
+      "SELECT receipts FROM publications WHERE row_kind = 'selfreflection' AND row_id = ? AND status = 'sent' AND retired_at IS NULL ORDER BY created_at, id LIMIT 1"
     )
     .all(entryId)) {
     const parsed = jsonOf(row.receipts);
@@ -339,17 +352,17 @@ function filesOf(db: Db, entryId: string): Map<string, Array<Row>> {
 }
 
 /**
- * Her diary as memory holds it, the newest `limit` messages, oldest first: each entry's post message by message, each
+ * Her selfreflection as memory holds it, the newest `limit` messages, oldest first: each entry's post message by message, each
  * message's text, time and what it answers from the newest revision of her line in the record of `placeId` (`said`
  * or `seen`, `editedAt` set from the second revision on), its files from the entry's media
  * rows; an entry with no such line is its text as one message under its first message id (or its own id), at the
- * entry's time. Nothing of anyone else: the mirror place's other lines are no part of her diary.
+ * entry's time. Nothing of anyone else: the mirror place's other lines are no part of her selfreflection.
  */
 /** What a stored line of a message holds as its native id: the protocol id, or the key of the message's family once it has one. */
 const FAMILY_OF_MESSAGE = '?, (SELECT native_key FROM message_families WHERE message_id = ? AND generation = 1)';
 
-function diaryMessages(db: Db, placeId: string | null, limit: number): Array<DiaryMessage> {
-  const out: Array<DiaryMessage> = [];
+function selfreflectionMessages(db: Db, placeId: string | null, limit: number): Array<SelfreflectionMessage> {
+  const out: Array<SelfreflectionMessage> = [];
   const said = db.prepare(
     `SELECT native_id, revision, occurred_at, recorded_at, text, reply_to FROM sources
       WHERE place_id = ? AND native_id IN (${FAMILY_OF_MESSAGE}) AND kind IN ('said', 'seen') AND retired_at IS NULL
@@ -359,18 +372,20 @@ function diaryMessages(db: Db, placeId: string | null, limit: number): Array<Dia
     `SELECT 1 AS gone FROM sources WHERE place_id = ? AND native_id IN (${FAMILY_OF_MESSAGE}) AND kind = 'deleted' AND retired_at IS NULL LIMIT 1`
   );
   const entries = db
-    .prepare('SELECT id, at_ms, text, extra FROM diary WHERE retired_at IS NULL ORDER BY at_ms DESC, position DESC')
+    .prepare(
+      'SELECT id, at_ms, text, extra FROM selfreflection WHERE retired_at IS NULL ORDER BY at_ms DESC, position DESC'
+    )
     .all();
   for (const entry of entries) {
-    if (diaryRestricted(diaryMetadataOf(entry.extra))) continue;
+    if (selfreflectionRestricted(selfreflectionMetadataOf(entry.extra))) continue;
     if (out.length >= limit) break;
     const entryId = String(entry.id);
     const ids = messageIdsOf(db, entryId);
     const files = filesOf(db, entryId);
     const lines = placeId ? ids.map((id) => ({ id, line: said.all(placeId, id, id)[0] })) : [];
-    const posted: Array<DiaryMessage> = [];
+    const posted: Array<SelfreflectionMessage> = [];
     for (const { id, line } of lines) {
-      // A message she deleted, or one with neither text nor a file, is no line of her diary.
+      // A message she deleted, or one with neither text nor a file, is no line of her selfreflection.
       if ((!textOf(line?.text) && !files.has(id)) || deleted.all(placeId, id, id).length > 0) continue;
       const at = Date.parse(textOf(line?.occurred_at));
       const recordedAt = Date.parse(textOf(line?.recorded_at));
@@ -397,7 +412,7 @@ function diaryMessages(db: Db, placeId: string | null, limit: number): Array<Dia
   return out.slice(0, limit).sort((a, b) => numberOr(a.message.at, 0) - numberOr(b.message.at, 0));
 }
 
-/** What the selfreflection wake turns in place of the diary channel: its conversation, the channel and its history. */
+/** What the selfreflection wake turns in place of the selfreflection channel: its conversation, the channel and its history. */
 export type WakeInputs = {
   conversation: ConversationRef;
   channel: ConversationInfo;
@@ -405,11 +420,11 @@ export type WakeInputs = {
 };
 
 /**
- * The inputs of a diary turn run as the `selfreflection` wake, which has no conversation: the place her diary is
- * posted to (mirror.ts#diaryPlaces: the first enabled mirror, else the place the last entry was published to), that
- * place as the interface describes it (`conversationInfo`), else as memory names it, and her diary as its history: the
- * newest `context.channelMessages` messages of her entries (diaryMessages), each through the line builder with her as
- * the author. With no place at all the conversation is her diary itself (`selfreflection`), with every permission.
+ * The inputs of a selfreflection turn run as the `selfreflection` wake, which has no conversation: the place her selfreflection is
+ * posted to (mirror.ts#selfreflectionPlaces: the first enabled mirror, else the place the last entry was published to), that
+ * place as the interface describes it (`conversationInfo`), else as memory names it, and her selfreflection as its history: the
+ * newest `context.channelMessages` messages of her entries (selfreflectionMessages), each through the line builder with her as
+ * the author. With no place at all the conversation is her selfreflection itself (`selfreflection`), with every permission.
  */
 /** The native id of the server a place sits under, for a turn whose interface says nothing now; else null. */
 function communityOfPlace(store: unknown, placeId: string): string | null {
@@ -434,7 +449,7 @@ export async function wakeInputs({
   selfName: string;
   config: Config;
 }): Promise<WakeInputs> {
-  const place: DiaryPlace | null = readMirrors(store, diaryPlaces, [])[0] ?? null;
+  const place: SelfreflectionPlace | null = readMirrors(store, selfreflectionPlaces, [])[0] ?? null;
   const conversation = place
     ? { iface: place.iface, conversationId: place.conversationId }
     : { iface, conversationId: 'selfreflection' };
@@ -454,7 +469,7 @@ export async function wakeInputs({
     public: true,
   };
   const limit = Math.max(0, numberOr(sectionOf(config, 'context').channelMessages, 50));
-  const posted = readMirrors(store, (db) => diaryMessages(db as Db, place?.placeId ?? null, limit), []);
+  const posted = readMirrors(store, (db) => selfreflectionMessages(db as Db, place?.placeId ?? null, limit), []);
   const history = posted.map(({ message, addressing }) => {
     const event = {
       conversation: { id: channel.id, name: channel.name, category: channel.category, topic: channel.topic },

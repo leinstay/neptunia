@@ -87,7 +87,11 @@ export async function mechanicsStep(
     'heartbeat: her own wakes for her wishes and plans (on or off):',
     inForce.heartbeat
   );
-  const selfreflection = await askSwitch(deps.ask, 'selfreflection: her diary (on or off):', inForce.selfreflection);
+  const selfreflection = await askSwitch(
+    deps.ask,
+    'selfreflection: her selfreflection (on or off):',
+    inForce.selfreflection
+  );
   let selfimprovement = await askSwitch(
     deps.ask,
     'selfimprovement: her daily look at her own work and the fixes she files (on or off):',

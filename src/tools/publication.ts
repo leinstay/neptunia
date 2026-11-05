@@ -14,7 +14,7 @@ export type PublicationRefusal = Readonly<{
   reason: 'publication-boundary';
 }>;
 
-/** Who may read a diary entry, as she chose it: a post's `publicationAudience`. */
+/** Who may read a selfreflection entry, as she chose it: a post's `publicationAudience`. */
 export type PublicationAudience = Readonly<
   { kind: 'unrestricted' } | { kind: 'interface'; iface: string } | { kind: 'place'; placeId: string }
 >;
@@ -22,7 +22,7 @@ export type PublicationAudience = Readonly<
 export type AudienceProblem = 'audience-unknown-place' | 'audience-unknown-interface' | 'audience-malformed';
 /** What her `<audience>` tags come to: an audience, or the concrete reason none could be read. */
 export type AudienceChoice = { ok: true; audience: PublicationAudience } | { ok: false; code: AudienceProblem };
-/** The places she can name in `<audience>` (src/memory/db/diary-audience.ts#publicationPlaces). */
+/** The places she can name in `<audience>` (src/memory/db/selfreflection-audience.ts#publicationPlaces). */
 export type KnownPlaces = Readonly<{
   interfaces: ReadonlyArray<string>;
   places: ReadonlyArray<Readonly<{ id: string; name: string | null; parentId: string | null }>>;
@@ -145,8 +145,8 @@ export function bindPublicationPort<TPort extends object>(
   });
 }
 
-/** Persisted diary metadata fails closed when its JSON cannot be read. */
-export function diaryMetadataOf(value: unknown): Record<string, unknown> {
+/** Persisted selfreflection metadata fails closed when its JSON cannot be read. */
+export function selfreflectionMetadataOf(value: unknown): Record<string, unknown> {
   if (value === null || value === undefined) return {};
   try {
     const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
@@ -157,11 +157,14 @@ export function diaryMetadataOf(value: unknown): Record<string, unknown> {
   return { publicationBoundary: null };
 }
 
-export function diaryRestricted(post: unknown): boolean {
+export function selfreflectionRestricted(post: unknown): boolean {
   return objOf(post).publicationBoundary !== undefined;
 }
 
-export function diaryPublicationRefusal(value: unknown, destination: ConversationRef): PublicationRefusal | null {
+export function selfreflectionPublicationRefusal(
+  value: unknown,
+  destination: ConversationRef
+): PublicationRefusal | null {
   if (value === undefined) return null;
   if (isPublicationBoundary(value)) return publicationRefusal(value, destination);
   return { status: 'denied', code: 'not-allowed', reason: 'publication-boundary' };

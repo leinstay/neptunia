@@ -25,8 +25,8 @@ export type BackupManifest = {
   [key: string]: unknown;
 };
 
-/** The diary media folder under the data directory. */
-export const DIARY_MEDIA = path.join('media', 'diary');
+/** The selfreflection media folder under the data directory. */
+export const SELFREFLECTION_MEDIA = path.join('media', 'selfreflection');
 /** `memoryDb.backup.*` when missing (config.json carries the same). */
 export const BACKUP_DEFAULTS = Object.freeze({ enabled: false, hour: 3, dir: '../backups/memory', keep: 7 });
 /** A finished backup's folder name. */

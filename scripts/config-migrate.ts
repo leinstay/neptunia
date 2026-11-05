@@ -7,8 +7,8 @@
 //   node scripts/config-migrate.ts --dry-run [--file <private settings file>] [--db <memory.db>] [--compare-with <config.json> [--self <id>]]
 //   node scripts/config-migrate.ts --apply [--file <private settings file>] [--db <memory.db>]
 //
-// `selfreflection.placeId` is the seed of the diary's mirror (schema v15): it moves to the database only when the memory
-// database given with `--db` (opened read-only) has an enabled `diary` mirror, printed as `selfreflection.placeId -> memory
+// `selfreflection.placeId` is the seed of the selfreflection's mirror (schema v15): it moves to the database only when the memory
+// database given with `--db` (opened read-only) has an enabled `selfreflection` mirror, printed as `selfreflection.placeId -> memory
 // database`. Without that mirror, or without `--db`, the key stays and one line says so.
 //
 // The file is `--file`, else the private settings file of `NEPTUNIA_PRIVATE_DIR`, else of the checkout (src/paths.ts):
@@ -49,8 +49,8 @@ import type { Untyped } from '../src/tools/types.ts';
 const USAGE =
   'usage: node scripts/config-migrate.ts --dry-run|--apply [--file <private settings file>] [--db <memory.db>] [--compare-with <config.json> [--self <id>]]';
 
-/** Whether the memory database `file` (opened read-only) has an enabled `diary` mirror; false without a file. */
-function hasDiaryMirror(file: unknown): boolean {
+/** Whether the memory database `file` (opened read-only) has an enabled `selfreflection` mirror; false without a file. */
+function hasSelfreflectionMirror(file: unknown): boolean {
   if (typeof file !== 'string') return false;
   const handle = openMemoryDb(path.resolve(file), { readOnly: true });
   try {
@@ -58,7 +58,8 @@ function hasDiaryMirror(file: unknown): boolean {
     if (db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").get() === undefined)
       return false;
     return (
-      db.prepare("SELECT 1 AS ok FROM mirrors WHERE row_kind = 'diary' AND enabled = 1 LIMIT 1").get() !== undefined
+      db.prepare("SELECT 1 AS ok FROM mirrors WHERE row_kind = 'selfreflection' AND enabled = 1 LIMIT 1").get() !==
+      undefined
     );
   } finally {
     handle.close();
@@ -291,8 +292,14 @@ function migrate(argv: Array<string>): string {
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
     throw new CliError(`${file} must hold a JSON object; nothing was changed`);
-  const diaryMirror = hasDiaryMirror(flags['--db']);
-  const { config: movedConfig, moved, shadowed, dropped, toDatabase } = moveConfigKeys(parsed, { diaryMirror });
+  const selfreflectionMirror = hasSelfreflectionMirror(flags['--db']);
+  const {
+    config: movedConfig,
+    moved,
+    shadowed,
+    dropped,
+    toDatabase,
+  } = moveConfigKeys(parsed, { selfreflectionMirror });
   const destination = path.relative(privateDirOfFile(file), discordFileOf(file));
   const { config: cutConfig, cutLines, discord } = cutReport(movedConfig, destination);
   const { config, lines: keyLines, note } = keySettings(cutConfig, file);
@@ -300,13 +307,13 @@ function migrate(argv: Array<string>): string {
     ...moved.map((move) => `${move.from} -> ${move.to}`),
     ...shadowed.map((move) => `${move.from} -> ${move.to} (already set; the old key is dropped)`),
     ...dropped.map((key) => `${key} dropped (no reader)`),
-    ...toDatabase.map((key) => `${key} -> memory database (its diary mirror)`),
+    ...toDatabase.map((key) => `${key} -> memory database (its selfreflection mirror)`),
     ...cutLines,
     ...keyLines,
   ];
   if (flags['--apply'] && lines.length > 0) writeMigrated(file, config, discord);
   const kept = Object.hasOwn(objectOf(config.selfreflection), 'placeId')
-    ? `selfreflection.placeId kept: the memory database ${typeof flags['--db'] === 'string' ? 'has no diary mirror yet' : 'was not given (--db)'}\n`
+    ? `selfreflection.placeId kept: the memory database ${typeof flags['--db'] === 'string' ? 'has no selfreflection mirror yet' : 'was not given (--db)'}\n`
     : '';
   const moves = `${lines.length === 0 ? 'nothing to move\n' : `${lines.join('\n')}\n`}${kept}${note}`;
   if (typeof flags['--compare-with'] !== 'string') return moves;
