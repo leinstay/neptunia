@@ -448,7 +448,7 @@ function replyQuote(parent: Untyped, labels: Untyped, context: Untyped, maxChars
  * `context` as mediaTags reads it, every map optional). With `mode: 'memory'`
  * (the analyzer's transcript, which shows no `#index`) it renders
  * `labels.transcript.replyToMemory` instead, same `{author}` and `{quote}`,
- * `index` unused. The one copy for both transcript modes and the GIF picker's
+ * `index` unused. The one copy for both transcript modes and the media pick's
  * `<reply>` (src/behavior/turn.ts). Pure.
  * @param parent  A normalized message.
  */
