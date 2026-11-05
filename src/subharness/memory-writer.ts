@@ -5,14 +5,17 @@
 // (src/subharness/memory-path.ts) and sends the request either to the direct client or through the backend. A run that
 // fails rejects with an Error whose `code` says why, which the sweep records as it records a failed request. The child
 // gets the backend's home and the plain variables of `childEnvOf`, never a key of the core. Log lines carry the
-// backend, the exit code and the tokens, never the text.
+// backend, the exit code and the tokens, never the text. `memoryCapabilities` says where a path differs from the direct
+// one: neither installed CLI lists an output-token control in its help (claude 2.1.317, codex 0.164.0), so
+// `maxOutputTokens` reaches neither child and is reported as a gap, and nothing trims the answer instead.
 
 import fs from 'node:fs';
 import nodePath from 'node:path';
-import { childEnvOf, outputLimitEnv, tokensOf } from '../agent-runner/backend.ts';
+import { childEnvOf, tokensOf } from '../agent-runner/backend.ts';
 import { log } from '../log.ts';
 import { SESSION_PURPOSE } from '../memory/db/session.ts';
 import type { Completion, SessionContext } from '../memory/db/session.ts';
+import type { MemoryBackend } from '../keys/file.ts';
 import type { UsageEntry } from '../tools/impl/usage.ts';
 import { markedRun } from './activity.ts';
 import { memoryPath } from './memory-path.ts';
@@ -47,6 +50,31 @@ export type MemoryWriterDeps = {
   /** The run's working directory; the codex schema file and final-message file go into a fresh folder inside it, removed after the run. */
   workDir: string;
 };
+
+/** How the writer's run on a backend compares with the direct request, whose limit and system text the request enforces. */
+export type MemoryCapabilities = {
+  systemPrompt: 'replaced' | 'prefixed';
+  tools: 'none' | 'read-only-sandbox';
+  usage: 'split' | 'total-only';
+  maxOutputTokens: 'gap';
+};
+
+const CAPABILITIES: Readonly<Record<MemoryBackend, MemoryCapabilities>> = {
+  claude: { systemPrompt: 'replaced', tools: 'none', usage: 'split', maxOutputTokens: 'gap' },
+  // codex keeps its own instructions and a shell in its sandbox; the system text arrives first on its stdin.
+  codex: { systemPrompt: 'prefixed', tools: 'read-only-sandbox', usage: 'total-only', maxOutputTokens: 'gap' },
+};
+
+export function memoryCapabilities(backend: MemoryBackend): MemoryCapabilities {
+  return CAPABILITIES[backend];
+}
+
+/** The controls of the direct path that `backend` lacks, by name. */
+export function memoryGaps(backend: MemoryBackend): Array<string> {
+  return Object.entries(CAPABILITIES[backend])
+    .filter(([, value]) => value === 'gap')
+    .map(([name]) => name);
+}
 
 /** The wait of a run whose caller gave none: the default of `memoryDb.session.timeoutMs`. */
 const FALLBACK_TIMEOUT_MS = 300_000;
@@ -113,6 +141,9 @@ function codexArgs(path: SubharnessMemoryPath, schemaFile: string, outFile: stri
 function claudeCompletion(stdout: string): Completion {
   const envelope = objectOf(stdout.trim());
   if (envelope === null || envelope.is_error === true) throw refusal('backend-error');
+  // The answer of a refused or cut run is no memory block: the sweep keeps its cursor and applies nothing.
+  if (envelope.stop_reason === 'refusal') throw refusal('model-refused');
+  if (envelope.stop_reason === 'max_tokens') throw refusal('output-truncated');
   const text = typeof envelope.result === 'string' ? envelope.result : '';
   if (text.trim() === '') throw refusal('empty-answer');
   const usage = isRecord(envelope.usage) ? envelope.usage : {};
@@ -127,14 +158,15 @@ function claudeCompletion(stdout: string): Completion {
   };
 }
 
-/** The completion of codex's final message: its `answer`, else the message as it is; the tokens it printed. */
+/** The completion of codex's final message: its `answer`, else the message as it is; the one total it printed. */
 function codexCompletion(final: string, outcome: ChildOutcome): Completion {
   const message = objectOf(final.trim());
   const text = message !== null && typeof message.answer === 'string' ? message.answer : final.trim();
   if (text.trim() === '') throw refusal('empty-answer');
+  const total = tokensOf(`${outcome.stderr}\n${outcome.stdout}`);
   return {
     text,
-    usage: { prompt_tokens: 0, completion_tokens: tokensOf(`${outcome.stderr}\n${outcome.stdout}`) ?? 0 },
+    usage: { prompt_tokens: 0, completion_tokens: 0, ...(total === undefined ? {} : { total_tokens: total }) },
   };
 }
 
@@ -144,7 +176,8 @@ export async function runMemoryWriter(
   input: { system: string; user: string; timeoutMs: number; maxOutputTokens?: number },
   deps: MemoryWriterDeps
 ): Promise<Completion> {
-  if (!isInstalled(deps.privateDir, path.backend)) throw refusal('not-installed');
+  const ran = { backend: path.backend, model: path.model };
+  if (!isInstalled(deps.privateDir, path.backend)) throw Object.assign(refusal('not-installed'), ran);
   const place = subharnessPlace(deps.privateDir, path.backend);
   fs.mkdirSync(deps.workDir, { recursive: true });
   const dir = fs.mkdtempSync(nodePath.join(deps.workDir, 'memory-'));
@@ -157,7 +190,7 @@ export async function runMemoryWriter(
       deps.runChild({
         binary: place.binary,
         args: codex ? codexArgs(path, schemaFile, outFile) : claudeArgs(path, input.system),
-        env: childEnvOf({ ...place.env, ...outputLimitEnv(path.backend, input.maxOutputTokens) }),
+        env: childEnvOf(place.env),
         stdin: codex ? `${input.system}\n\n${input.user}` : input.user,
         cwd: dir,
         timeoutMs: input.timeoutMs,
@@ -170,15 +203,17 @@ export async function runMemoryWriter(
     });
     if (outcome.error !== undefined) throw refusal(outcome.error);
     if (outcome.exitCode !== 0) throw refusal(`exit-${outcome.exitCode ?? 'signal'}`);
-    const ran = { model: path.model, backend: path.backend, source: 'subprocess' };
-    if (!codex) return { ...claudeCompletion(outcome.stdout), ...ran };
+    if (!codex) return { ...claudeCompletion(outcome.stdout), ...ran, source: 'subprocess' };
     let final = '';
     try {
       final = fs.readFileSync(outFile, 'utf8');
     } catch {
       // no final message: the answer is empty
     }
-    return { ...codexCompletion(final, outcome), ...ran };
+    return { ...codexCompletion(final, outcome), ...ran, source: 'subprocess' };
+  } catch (error) {
+    // The sweep records the path that failed, whichever step refused it.
+    throw Object.assign(error as Error, ran);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -240,7 +275,8 @@ export function memoryWriterClient(deps: {
         );
         record?.({
           role: 'memory',
-          promptTokens: completion.usage?.prompt_tokens ?? 0,
+          // A backend that prints one total counts it as input, where it inflates nothing the writer wrote.
+          promptTokens: completion.usage?.prompt_tokens || completion.usage?.total_tokens || 0,
           cachedTokens: completion.usage?.prompt_tokens_details?.cached_tokens ?? 0,
           completionTokens: completion.usage?.completion_tokens ?? 0,
           cost: 0,
