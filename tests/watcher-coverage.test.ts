@@ -35,7 +35,7 @@ const SERVICES = [
   'heartbeat',
   'selfreflection',
   'selfimprovement',
-  'helpers',
+  'classifiers',
   'thinker',
   'dev',
   'scout',
@@ -43,7 +43,7 @@ const SERVICES = [
   'watcher',
 ];
 const FIELDS = ['request', 'toolResults', 'backend', 'model', 'runIdentity', 'timestamps', 'outcomeLink'] as const;
-const CHAT_CLIENT = ['core', 'heartbeat', 'selfreflection', 'selfimprovement', 'helpers'];
+const CHAT_CLIENT = ['core', 'heartbeat', 'selfreflection', 'selfimprovement', 'classifiers'];
 
 const entryOf = async (service: string) =>
   (await coverage()).ARCHIVE_COVERAGE.find((entry) => entry.service === service) ?? assert.fail(`no entry: ${service}`);
@@ -89,9 +89,9 @@ for (const service of CHAT_CLIENT) {
   });
 }
 
-test('the helpers entry names each model path that bypasses the wrapped client', async () => {
-  // Bug: "helpers: recorded" hides that an embedding or speech request has no row at all.
-  const entry = await entryOf('helpers');
+test('the classifiers entry names each model path that bypasses the wrapped client', async () => {
+  // Bug: "classifiers: recorded" hides that an embedding or speech request has no row at all.
+  const entry = await entryOf('classifiers');
   for (const file of ['src/llm/embed.ts', 'src/speech/synth.ts']) {
     const named = entry.paths.find((one) => one.path === file) ?? assert.fail(`${file} is not on the list`);
     if (named.state === 'gap') assert.notEqual(named.reason.trim(), '');

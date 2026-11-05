@@ -125,7 +125,7 @@ export const ARCHIVE_COVERAGE: ReadonlyArray<CoverageEntry> = [
   chat('selfreflection'),
   chat('selfimprovement'),
   {
-    ...chat('helpers', gap('a helper answers its caller, and no receipt says what the caller did with it')),
+    ...chat('classifiers', gap('a classifier answers its caller, and no receipt says what the caller did with it')),
     paths: [
       CHAT_PATH,
       { path: 'src/llm/embed.ts', state: 'gap', reason: 'an embedding request bypasses `complete` and has no row' },

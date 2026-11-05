@@ -46,8 +46,8 @@ export function currentRequestMeta(): RequestMeta | null {
   return meta.getStore() ?? null;
 }
 
-/** The role of the memory session (src/llm/roles.ts), the one call outside a turn that is no helper's. */
-const serviceOfRole = (role: unknown): string => (role === 'memory' ? 'memory' : 'helpers');
+/** The role of the memory session (src/llm/roles.ts), the one call outside a turn that is no classifier's. */
+const serviceOfRole = (role: unknown): string => (role === 'memory' ? 'memory' : 'classifiers');
 
 /** The service a turn's requests belong to, by the turn's mode and, for an inner turn, its wake. */
 export function turnService(mode: unknown, wakeKind: unknown): string {
