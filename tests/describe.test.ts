@@ -2730,27 +2730,8 @@ test('rewatchGif: logs one describe: rewatch line with kind gif -- never the que
   assert.ok(!all.includes('ex=secret'));
 });
 
-test('describeVideo: media.video.proxy reaches the probe and the clip only for a site in proxySites', async () => {
-  const proxy = 'socks5h://user:pw@proxy.example:1080';
-  const cases: Array<[Record<string, unknown>, string, string | null]> = [
-    [{ proxy, proxySites: ['youtube.com', 'youtu.be'] }, 'https://www.youtube.com/watch?v=abc', proxy],
-    [{ proxy, proxySites: ['youtube.com', 'youtu.be'] }, 'https://www.tiktok.com/@a/video/1', null],
-    [{ proxy: '', proxySites: ['youtube.com', 'youtu.be'] }, 'https://www.youtube.com/watch?v=abc', null],
-    [{ proxy, proxySites: [] }, 'https://www.youtube.com/watch?v=abc', null],
-  ];
-  for (const [video, url, expected] of cases) {
-    const hot = videoHot({ video: { ...video, provider: null } });
-    const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec: 125, title: null } });
-    const { describer } = videoDescriber({ hot, videoFetcher });
-    await describer.describeVideo('g1', videoLink(undefined, { url }));
-    assert.deepEqual(
-      videoFetcher.calls.map((c) => c.fn),
-      ['probeSite', 'fetchSiteClip'],
-      url
-    );
-    for (const call of videoFetcher.calls) assert.equal(call.options.proxy, expected, `${call.fn} ${url}`);
-  }
-});
+// Stage Z: `media.video.proxy` and `media.video.proxySites` are gone. The describer takes the engine proxy for every
+// site, which tests/proxy-video.test.ts covers.
 
 // --- media.recacheBefore: provenance and staleness ------------------------------
 

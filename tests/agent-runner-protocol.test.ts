@@ -97,7 +97,8 @@ test('validateRequest / parseRequestLine: refused secrets come back as a code, n
   const bad = [
     { openrouterKey: '' },
     { openrouterKey: 42 },
-    { proxy: 'http://proxy.example:8000' },
+    // Stage Z: secrets holding the proxy alone are valid (tests/proxy-harness.test.ts); an empty set is not.
+    {},
     { openrouterKey: secret, proxy: '' },
     { openrouterKey: secret, searchKey: ['x'] },
     { openrouterKey: secret, other: 'x' },

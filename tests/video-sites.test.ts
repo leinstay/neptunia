@@ -12,7 +12,6 @@ import {
   ffmpegFitArgs,
   fitBitrate,
   ytdlpProbeArgs,
-  proxyFor,
   ffmpegGifArgs,
   parseProbe,
   safeLocation,
@@ -506,34 +505,8 @@ test('ytdlpProbeArgs: the URL comes after -- so it is never read as an option', 
 });
 
 const PROXY = 'socks5h://usér:pä%40ss@proxy.example:1080';
-const PROXY_CFG = { proxy: PROXY, proxySites: ['youtube.com', 'youtu.be'] };
-
-test('proxyFor: a listed site (or its subdomain) gets the proxy, verbatim', () => {
-  for (const url of ['https://youtu.be/abc', 'https://www.youtube.com/watch?v=abc', 'https://m.YouTube.com/shorts/x']) {
-    assert.equal(proxyFor(url, PROXY_CFG), PROXY, url);
-  }
-});
-
-test('proxyFor: a site outside proxySites runs direct', () => {
-  for (const url of [
-    'https://vk.com/video-1_2',
-    'https://www.tiktok.com/@a/video/1',
-    'https://notyoutube.com/x',
-    'not a url',
-  ]) {
-    assert.equal(proxyFor(url, PROXY_CFG), null, url);
-  }
-});
-
-test('proxyFor: an empty, missing or non-string proxy, or an empty or missing proxySites, never proxies', () => {
-  const url = 'https://youtu.be/abc';
-  // @ts-expect-error: the list holds the odd values a hand-edited config or a bad probe may carry, past the type
-  for (const proxy of ['', undefined, null, 42]) assert.equal(proxyFor(url, { ...PROXY_CFG, proxy }), null);
-  for (const proxySites of [[], undefined, null, 'youtube.com'])
-    // @ts-expect-error: the list holds the odd values a hand-edited config or a bad probe may carry, past the type
-    assert.equal(proxyFor(url, { ...PROXY_CFG, proxySites }), null);
-  assert.equal(proxyFor(url, undefined), null);
-});
+// Stage Z: `proxyFor` and its site list are gone. yt-dlp takes the engine proxy for every site, which
+// tests/proxy-video.test.ts covers through the describer.
 
 test('ytdlpProbeArgs: a proxy is passed verbatim as --proxy before the URL; none without one', () => {
   const withProxy = ytdlpProbeArgs('https://youtu.be/abc', { ytdlpPath: '/opt/yt-dlp', proxy: PROXY });

@@ -84,7 +84,7 @@ function setupRows(run: Run, interfaces: ReadonlyArray<string>): Array<PanelRow>
       'keys.extra.add',
       'Keys'
     ),
-    ...['youtube', 'brave', 'exa', 'videoProxy'].map((name) =>
+    ...['youtube', 'brave', 'exa', 'proxy'].map((name) =>
       action(
         run,
         `service:${name}`,

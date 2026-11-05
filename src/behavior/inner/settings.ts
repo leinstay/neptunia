@@ -78,6 +78,7 @@ export const FEEDBACK_KINDS = Object.freeze([
   'sendFailed',
   'stateLost',
   'memoryFailed',
+  'proxySwitched',
   'interrupted',
   'diagnostic',
 ]);

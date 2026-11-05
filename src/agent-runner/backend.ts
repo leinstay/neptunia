@@ -671,8 +671,9 @@ const FALLBACK_SECONDS = 300;
  * the agent named like the profile, in the mode the owner set for it, and with `--search` when the profile asks. A
  * task's `route` (the backend, model, effort and mode the core decided) is the path of the run and keys.json stays
  * closed; without one, and while the subharness is off, the task fails with `subharness-off`. A backend brings its own
- * login, so a task's `secrets` reach only opencode, and only its `openrouterKey`: it becomes that run's key
- * (`routeKey`). A route that is not one fails `bad-route`, an opencode route with no key `route-no-key`.
+ * login, so a task's `openrouterKey` reaches only opencode: it becomes that run's key (`routeKey`). The task's
+ * `proxy` reaches the child of every backend. A route that is not one fails `bad-route`, an opencode route with no key
+ * `route-no-key`.
  */
 export function createAgentEngine({
   subharness,
@@ -731,7 +732,8 @@ export function createAgentEngine({
         signal: task.signal,
         runId: task.id,
         ...(task.route === undefined ? {} : { route: task.route }),
-        ...(task.secrets === undefined ? {} : { routeKey: task.secrets.openrouterKey }),
+        ...(task.secrets?.openrouterKey === undefined ? {} : { routeKey: task.secrets.openrouterKey }),
+        ...(task.secrets?.proxy === undefined ? {} : { proxy: task.secrets.proxy }),
       },
       subharness
     );

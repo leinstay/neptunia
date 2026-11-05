@@ -989,7 +989,8 @@ test('legacy model and service credentials reach private JSON with roles and gra
     youtube: env.YOUTUBE_API_KEY,
     brave: env.BRAVE_SEARCH_API_KEY,
     exa: env.EXA_API_KEY,
-    videoProxy: env.MEDIA_VIDEO_PROXY,
+    // Stage Z: the old video proxy lands as the engine proxy, the `proxy` service.
+    proxy: env.MEDIA_VIDEO_PROXY,
   });
   assert.deepEqual(
     JSON.parse(fs.readFileSync(path.join(options.dataDir, 'interfaces/discord/credentials.json'), 'utf8')),

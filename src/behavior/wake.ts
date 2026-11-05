@@ -111,6 +111,21 @@ export function diagnosticLines(diagnostics: unknown, labels: unknown): Array<st
 /** How the `<wake>` words a moment. */
 type When = (ts: unknown) => string;
 
+/** The label of `l.feedback` a fact is worded by: its kind, or the variant of an unclear send or a wake with no intention. */
+function feedbackKeyOf(given: Obj, feedback: Obj): string {
+  const unclear =
+    given.kind === 'sendFailed' &&
+    given.unknown === true &&
+    typeof feedback.sendUnknown === 'string' &&
+    feedback.sendUnknown !== '';
+  if (unclear) return 'sendUnknown';
+  const wakeWithoutIntention =
+    (given.kind === 'wakeDropped' || given.kind === 'wakeHeld') &&
+    !given.intentionId &&
+    typeof feedback[`${given.kind}Kind`] === 'string';
+  return wakeWithoutIntention ? `${String(given.kind)}Kind` : asText(given.kind);
+}
+
 /**
  * One feedback fact (src/behavior/inner/facts.ts#feedbackFacts and the facts kept in the state) as a line:
  * `l.feedback.<kind>` filled -- `callFailed`: `{skill}`, `{status}` (`failed`, `partial`, `invalid`,
@@ -120,7 +135,7 @@ type When = (ts: unknown) => string;
  * (its sub-code, worded by `l.feedback.codes.<why>` when there is one), `{id}`, `{purpose}`, with
  * `l.feedback.wakeDroppedKind` (`{kind}`, `{code}`, `{why}`) for a wake with no intention (a review, a feedback wake);
  * `wakeHeld`: the same and `{until}` (when it is expected to run, `when`); `turnFailed`: `{code}`, `{kind}`;
- * `diagnostic`: a kept diagnostic of the parser, worded by diagnosticText when `options.labels` (the whole labels) is given; `sendFailed`: `{code}`, `{n}`, `{total}` (`l.feedback.sendUnknown` when the send's answer never came and it was not found in the channel); `stateLost`: `{code}` (the inner state file could not be read and she started empty); `memoryFailed`: `{code}`, `{n}` (a memory batch could not be applied; `n` lines wait for a new try); `interrupted`: `{kind}`, `{done}` (a turn cut off by a restart after it did what `done` lists). '' without the fact's label.
+ * `diagnostic`: a kept diagnostic of the parser, worded by diagnosticText when `options.labels` (the whole labels) is given; `sendFailed`: `{code}`, `{n}`, `{total}` (`l.feedback.sendUnknown` when the send's answer never came and it was not found in the channel); `stateLost`: `{code}` (the inner state file could not be read and she started empty); `memoryFailed`: `{code}`, `{n}` (a memory batch could not be applied; `n` lines wait for a new try); `proxySwitched`: `{why}` (the engine proxy went down or came back, worded by `l.feedback.codes.<why>`); `interrupted`: `{kind}`, `{done}` (a turn cut off by a restart after it did what `done` lists). '' without the fact's label.
  * `l` is `labels.wake`.
  */
 export function feedbackFactText(
@@ -131,19 +146,7 @@ export function feedbackFactText(
   const given = objOf(fact);
   const feedback = objOf(objOf(l).feedback);
   if (given.kind === 'diagnostic') return labels ? diagnosticText(given, labels) : '';
-  const unclear =
-    given.kind === 'sendFailed' &&
-    given.unknown === true &&
-    typeof feedback.sendUnknown === 'string' &&
-    feedback.sendUnknown !== '';
-  const key = unclear
-    ? 'sendUnknown'
-    : (given.kind === 'wakeDropped' || given.kind === 'wakeHeld') &&
-        !given.intentionId &&
-        typeof feedback[`${given.kind}Kind`] === 'string'
-      ? `${given.kind}Kind`
-      : asText(given.kind);
-  const template = feedback[key];
+  const template = feedback[feedbackKeyOf(given, feedback)];
   if (typeof template !== 'string' || !template) return '';
   const n = (value: unknown) => String(isFiniteNumber(value) ? value : 0);
   const purpose = clampWithEllipsis(oneLine(asText(given.purpose ?? '')), WAKE_PURPOSE_CHARS);
@@ -189,6 +192,8 @@ export function feedbackFactText(
       return fill(template, { code: asText(given.code ?? '') });
     case 'memoryFailed':
       return fill(template, { code: asText(given.code ?? ''), n: n(given.waiting) });
+    case 'proxySwitched':
+      return fill(template, { why });
     case 'interrupted':
       return text(fill(template, { kind: asText(given.wake ?? ''), done: oneLine(asText(given.done ?? '')) }));
     default:

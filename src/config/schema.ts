@@ -22,6 +22,7 @@ import { ELSEWHERE } from './schema/elsewhere.ts';
 import { MEMORY } from './schema/memory.ts';
 import { MEDIA } from './schema/media.ts';
 import { WEB } from './schema/web.ts';
+import { PROXY } from './schema/proxy.ts';
 import { RECALL } from './schema/recall.ts';
 import { IMAGE } from './schema/image.ts';
 import { SPEECH } from './schema/speech.ts';
@@ -78,6 +79,7 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...MEMORY,
   ...MEDIA,
   ...WEB,
+  ...PROXY,
   ...RECALL,
   ...IMAGE,
   ...SPEECH,

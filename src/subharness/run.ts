@@ -13,7 +13,9 @@
 // run uses exactly the route and never opens keys.json. A run in `full` or `sudo` writes one log line before it starts, with
 // the agent and the mode and never the brief, so the log shows who worked without a sandbox. A claude whose `--help` lists
 // `--session-id` gets a fresh one on each run, and src/subharness/sessions.ts maps it to the agent and the run, so the
-// watcher can tell whose transcript it reads. A map that cannot be written is a gap on the result, never a stopped run.
+// watcher can tell whose transcript it reads. The child reaches the network through the engine proxy the caller decided
+// (`proxy`, src/net/proxy.ts#proxyEnvOf): every proxy variable in the http form, or none at all on the direct path,
+// whatever the caller's `env` or the host held. A map that cannot be written is a gap on the result, never a stopped run.
 // A step or output cap asked of a backend with no control for it (`backendLimits`: codex) is a gap too, so nobody reads
 // the cap as enforced where only the timeout ends a run.
 
@@ -33,6 +35,7 @@ import type { EffortLevel } from '../llm/roles.ts';
 import { hasExtraKey, readKeys } from '../keys/file.ts';
 import { helpOfInstalled, isInstalled, modelOfBackend } from './place.ts';
 import { recordSession } from './sessions.ts';
+import { PROXY_ENV_NAMES, proxyEnvOf } from '../net/proxy.ts';
 
 /** One agent run. */
 export type AgentRun = {
@@ -59,8 +62,10 @@ export type AgentRun = {
   route?: TaskRoute;
   /** the key an opencode route spends; it comes with the task and is never read from keys.json */
   routeKey?: string;
-  /** more of the child's environment; the PATH with its refusing `sudo` and the key the engine sets win over it */
+  /** more of the child's environment; the PATH with its refusing `sudo`, the key and the proxy the engine sets win over it */
   env?: Readonly<Record<string, string>>;
+  /** the engine proxy in force for this run; absent or null, the child gets no proxy variable */
+  proxy?: string | null;
   /** what the session map ties this run to: the task or the inspection */
   runId?: string;
 };
@@ -141,6 +146,12 @@ function envOf(deps: RunDeps, mode: AgentMode, keyValue: string | null): Record<
   }
   if (keyValue !== null) env.OPENROUTER_API_KEY = keyValue;
   return env;
+}
+
+/** The child's environment: the caller's without any proxy variable, then the engine's, then the run's proxy. */
+function runEnvOf(run: AgentRun, engine: Record<string, string>): Record<string, string> {
+  const given = Object.entries(run.env ?? {}).filter(([name]) => !PROXY_ENV_NAMES.includes(name));
+  return { ...Object.fromEntries(given), ...engine, ...proxyEnvOf(run.proxy ?? null) };
 }
 
 /** opencode has no step flag: its agent's `steps` comes in through its inline config. */
@@ -242,7 +253,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
   const settled = run.route === undefined ? pathFromStore(run, deps) : pathFromRoute(run, run.route);
   if ('ok' in settled) return settled;
   const { name, mode, model, effort, keyValue, provider } = settled;
-  const env = { ...run.env, ...envOf(deps, mode, keyValue) };
+  const env = runEnvOf(run, envOf(deps, mode, keyValue));
   if (mode === 'full' || mode === 'sudo') log.info('subharness: run without a sandbox', { agent: run.agent, mode });
   const options: BackendRunOptions = {
     cwd: run.cwd,

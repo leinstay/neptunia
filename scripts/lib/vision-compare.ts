@@ -360,7 +360,7 @@ export async function describeOne({
   imageFetcher,
   videoFetcher,
   youtubeApiKey = null,
-  videoProxy = null,
+  proxy = () => null,
   now = Date.now,
 }: {
   base: { config: Rec; prompts: Rec };
@@ -372,7 +372,8 @@ export async function describeOne({
   imageFetcher?: Rec;
   videoFetcher?: Rec;
   youtubeApiKey?: string | null;
-  videoProxy?: string | null;
+  /** the engine proxy yt-dlp takes, null for none */
+  proxy?: () => string | null;
   now?: () => number;
 }): Promise<Cell> {
   const hot = toolHot(base, { model });
@@ -415,7 +416,7 @@ export async function describeOne({
       }
     },
   };
-  const deps: Untyped = { hot, store, llm: toolLlm, state, now, youtubeApiKey, videoProxy };
+  const deps: Untyped = { hot, store, llm: toolLlm, state, now, youtubeApiKey, proxy };
   if (imageFetcher) {
     deps.imageFetcher = {
       async fetchAsDataUrl(url: string, options: Untyped) {

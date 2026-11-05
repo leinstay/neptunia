@@ -120,20 +120,6 @@ export const MEDIA: ReadonlyArray<SchemaEntry> = [
     'text': 'Path to `ffmpeg`',
   },
   {
-    'key': 'media.video.proxy',
-    'types': ['string'],
-    'reader': 'src/media/video-sites.ts',
-    'default': '',
-    'text': 'A proxy URL for `yt-dlp`. `""` = no proxy',
-  },
-  {
-    'key': 'media.video.proxySites',
-    'types': ['array'],
-    'reader': 'src/memory/describe.ts',
-    'default': ['youtube.com', 'youtu.be'],
-    'text': 'Sites that use the proxy',
-  },
-  {
     'key': 'media.video.proxyRetryMinutes',
     'types': ['number'],
     'reader': 'src/media/fetch-video.ts',

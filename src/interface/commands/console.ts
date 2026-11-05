@@ -48,6 +48,9 @@ import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
 import type { ModuleAction } from './module-setup.ts';
 import { isMemoryBrowserCommand, memoryBrowserCommand } from './memory.ts';
 import { serviceCommand } from '../../keys/services.ts';
+import { probeProxy } from '../../net/proxy.ts';
+import { proxyCommand } from './proxy.ts';
+import type { ProxyCommandDeps } from './proxy.ts';
 import { simulationCommand, subharnessCommand, subharnessDeps } from './subharness.ts';
 import { serviceFamily } from '../../service/commands.ts';
 import type { WakeClock } from '../../service/commands.ts';
@@ -129,6 +132,8 @@ export type ConsoleDeps = {
   serviceManager?: RunManager;
   /** What the core knows of one of its wakes, for `/services <name> status`. */
   wakeClock?: (name: ServiceName) => WakeClock | null;
+  /** The core's proxy monitor for `/proxy` (src/interface/commands/proxy.ts); absent, the route reads `off`. */
+  proxy?: Pick<ProxyCommandDeps, 'route'> & Partial<Pick<ProxyCommandDeps, 'probe'>>;
 };
 
 /** The engine checkout, where the shipped interface packages and their setup contracts are. */
@@ -136,16 +141,31 @@ const PLACE_REQUIRED_CODE = 'PLACE_REQUIRED';
 
 const ENGINE_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 
-type OwnCommandDeps = Pick<ConsoleDeps, 'dataDir' | 'hot' | 'memoryDb' | 'memoryWriter' | 'runOp' | 'statusBrief'>;
+type OwnCommandDeps = Pick<
+  ConsoleDeps,
+  'dataDir' | 'hot' | 'memoryDb' | 'memoryWriter' | 'runOp' | 'statusBrief' | 'proxy'
+>;
 
 /** The commands answered by a module of their own, or null for any other. */
 function ownCommand(
-  { dataDir, hot, memoryDb, memoryWriter, runOp, statusBrief: brief }: OwnCommandDeps,
+  { dataDir, hot, memoryDb, memoryWriter, runOp, statusBrief: brief, proxy }: OwnCommandDeps,
   name: string,
   args: Record<string, unknown>,
   dialog: Dialog | null
 ): Promise<Answer> | null {
   if (name.startsWith('keys.service.')) return serviceCommand(dataDir, name, args, dialog);
+  if (name.startsWith('proxy.'))
+    return proxyCommand(
+      {
+        dataDir,
+        probe: proxy?.probe ?? probeProxy,
+        route: proxy?.route ?? (() => 'off'),
+        config: () => objOf(hot).config,
+      },
+      name,
+      args,
+      dialog
+    );
   if (name === 'status.brief') return Promise.resolve({ text: JSON.stringify(brief?.() ?? null), status: 'ok' });
   if (name === 'status.readiness') {
     const read: CoreReadiness = {

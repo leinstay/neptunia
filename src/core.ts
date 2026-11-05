@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { serviceCredential } from './keys/file.ts';
+import { startEngineProxy } from './net/engine-proxy.ts';
 import { assertPersonaLayout } from './config/files.ts';
 
 import { localConfigPath, readInterfaceConfig } from './config/files.ts';
@@ -288,6 +289,10 @@ async function buildCore(
   const hot = createHot({ rootDir: paths.rootDir, privateDir: paths.privateDir }).watch();
   cleanups.push(() => hot.close());
 
+  // The engine proxy (src/net/engine-proxy.ts) in force before anything connects; the interfaces never take it.
+  const proxy = startEngineProxy({ dataDir: paths.dataDir, config: (): unknown => hot.config, now: clock, log });
+  cleanups.push(() => proxy.stop());
+
   const missingPrompts = REQUIRED_PROMPTS.filter((name) => typeof hot.prompts[name] !== 'string' || !hot.prompts[name]);
   if (!hasRequiredLabels(hot.prompts.labels)) missingPrompts.push('labels');
 
@@ -300,8 +305,7 @@ async function buildCore(
   }
 
   // The persona's skills against the operations registered by the imports above: a skill on an unknown operation is a
-  // programming error
-  // and stops the start here.
+  // programming error and stops the start here.
   try {
     skillRegistry();
   } catch (err) {
@@ -420,10 +424,9 @@ async function buildCore(
   const vectors = createVectors({ dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
   // The live embedding queue (src/memory/embedder.js), set once the embedding client exists below.
   let embedQueue: Untyped = null;
-  // The one place the meaning index hears of new record lines: every writer (edits and deletions,
-  // the persona's own lines, feelings) appends through this record,
-  // and once an append took lines they are queued for embedding (the queue keeps what it wants
-  // and is off unless features.meaningSearch and features.embedIndex are both exactly true).
+  // The one place the meaning index hears of new record lines: every writer (edits and deletions, the persona's own
+  // lines, feelings) appends through this record, and once an append took lines they are queued for embedding (the
+  // queue keeps what it wants and is off unless features.meaningSearch and features.embedIndex are both exactly true).
   const record = {
     ...recordWriter,
     async append(placeId: string, lines: Untyped, opts?: Untyped) {
@@ -529,10 +532,9 @@ async function buildCore(
     paused: () => store.state.data.paused === true,
     memoryDb,
   });
-  // The persona's drawings: its own daily rails, counted on the same state.
-  // Pictures are paid with the drawing role's key (`llm.keyByRole.drawing`, the agents' key), read at
-  // each request; the main key when the role names none.
-  // The options are named first: the module does not declare `state`, the daily counter it shares with the chat client.
+  // The persona's drawings: its own daily rails, counted on the same state. Pictures are paid with the drawing role's
+  // key (`llm.keyByRole.drawing`, the agents' key), read at each request; the main key when the role names none. The
+  // options are named first: the module does not declare `state`, the daily counter it shares with the chat client.
   const imageOptions = {
     apiKey: () => keyOf('drawing') ?? roleApiKey(hot.config, env, 'drawing', openrouterKey),
     getConfig: () => hot.config,
@@ -573,7 +575,7 @@ async function buildCore(
     videoFetcher,
     state: store.state,
     youtubeApiKey,
-    videoProxy: serviceCredential(paths.dataDir, 'videoProxy'),
+    proxy: () => proxy.current(),
     track: loopWatch.track,
   });
   // The web lookup (features.webLookup, off by default): link reader + search on a question.
@@ -936,9 +938,9 @@ async function buildCore(
       }),
     log,
     onFinished: (task) => submitErrandEnd(task),
+    proxy: () => proxy.current(),
   });
-  // The persona's intentions: data/places/<id>/intentions.json, her own
-  // `intent.*` calls and the waits on her errands.
+  // The persona's intentions: data/places/<id>/intentions.json, her own `intent.*` calls and the waits on her errands.
   // Both stores send their writes to the database; `flush` is their retry and shutdown step.
   const intentionStores = createIntentionStores({ log, memoryDb });
   const intentions = createIntentionService({ stores: intentionStores, hot, errands, log });
@@ -1157,6 +1159,8 @@ async function buildCore(
       log.warn('index: memory session failure not told', { code: objOf(err).code ?? null });
     }
   }
+  // The engine proxy's fallback and recovery reach her like any failure: a `proxySwitched` fact.
+  proxy.tellTo(inner.facts);
   const tagHistory = createTagHistory();
   // Messages that may have been left without an answer (src/behavior/missed.ts): facts from the
   // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
@@ -1190,9 +1194,8 @@ async function buildCore(
     keeper: gifKeeper,
     log,
   });
-  // The GIF library re-described by watching (src/memory/gif-recache.js): only on /nep gifs recache;
-  // and the pictures an older model described, found through the record: only on /nep media
-  // kind:pictures action:recache.
+  // The GIF library re-described by watching (src/memory/gif-recache.js): only on /nep gifs recache; and the pictures
+  // an older model described, found through the record: only on /nep media kind:pictures action:recache.
   const gifRecache = createGifRecache({
     hot,
     store,
@@ -1497,6 +1500,7 @@ async function buildCore(
       usage,
       metrics,
       wakeClock: (name) => wakeClockOf(name, { now: clock(), inner, selfreflection }),
+      proxy,
       conversationLines: (conversationId, count) => recentChannelLines(conversationId, count),
       now: Date.now,
       // `/mirror` (src/interface/commands/mirror.ts).
@@ -1569,14 +1573,10 @@ async function buildCore(
     timers.push(id);
   }
 
-  /**
-   * RELATIONSHIP_LIMITS.decayPerDay: every stored affinity (public and private) drifts toward zero, one
-   * step per whole day (src/memory/store.js#decayAffinities). Cheap to run hourly: it only applies
-   * full days. Skipped while paused (the owner may be editing data/).
-   */
   /** How often the affinity decay sweeps. */
   const AFFINITY_SWEEP_MS = 3_600_000;
 
+  /** RELATIONSHIP_LIMITS.decayPerDay: every stored affinity drifts toward zero, one step per whole day; not while paused. */
   function sweepAffinityDecay() {
     if (store.state.data.paused) return;
     // Decay counts only time she was running: the sweep runs hourly, so a gap of more than two sweeps since the last one
@@ -1939,9 +1939,8 @@ async function buildCore(
   // The journal's start: an unclean stop, the start record. Awaited, before the reconciliation below.
   await startupStep('journal.start', () => startJournal(), { wait: true });
 
-  // The links of the persona's recent lines to the messages that started their turns, rebuilt
-  // from the journal. Fire-and-forget: a turn before it is done
-  // only lacks the older links.
+  // The links of the persona's recent lines to the messages that started their turns, rebuilt from the journal.
+  // Fire-and-forget: a turn before it is done only lacks the older links.
   await startupStep('journal.triggerLinks', () => eachServed(seedTriggerLinks));
   // The persona's recent skill calls, the same way.
   await startupStep('journal.callMarks', () => eachServed(seedCallMarks));

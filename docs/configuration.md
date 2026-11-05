@@ -265,8 +265,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `media.video.sites` | array | `["youtube.com", "youtu.be", "tiktok.com", "vk.com", "vkvideo.ru", "x.com", "twitter.com", "reddit.com", "twitch.tv"]` | Hostnames treated as video | `src/tools/tools.ts` |
 | `media.video.ytdlpPath` | string | `"yt-dlp"` | Path to `yt-dlp` | `src/media/fetch-video.ts` |
 | `media.video.ffmpegPath` | string | `"ffmpeg"` | Path to `ffmpeg` | `src/media/fetch-video.ts` |
-| `media.video.proxy` | string | `""` | A proxy URL for `yt-dlp`. `""` = no proxy | `src/media/video-sites.ts` |
-| `media.video.proxySites` | array | `["youtube.com", "youtu.be"]` | Sites that use the proxy | `src/memory/describe.ts` |
 | `media.video.proxyRetryMinutes` | number | `10` | Minutes links skip the proxy after a failure | `src/media/fetch-video.ts` |
 | `media.video.errorRetryMinutes` | number | `60` | Minutes before an error-cached video is retried | `src/memory/describe.ts` |
 | `media.video.rewatch.maxOutputTokens` | number | `600` | Max output tokens for the re-watch answer | `src/memory/describe.ts` |
@@ -287,6 +285,19 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `web.quickSearch.classifierMaxOutputTokens` | number | `2000` | Max output tokens for the search classifier the measuring tools ask (no live turn asks it) | `scripts/search-policy-eval.ts` |
 | `web.quickSearch.cacheHours` | number | `24` | Hours a cached search result is served | `src/web/lookup.ts` |
 | `web.quickSearch.timeoutMs` | number | `10000` | Search request timeout (ms) | `src/behavior/recall-run.ts` |
+
+## proxy
+
+The engine proxy is described in [Proxy](proxy.md).
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `proxy.enabled` | boolean | `false` | Send the core's connections, yt-dlp and every agent run through the proxy stored by `/proxy set` | `src/net/proxy.ts` |
+| `proxy.userAgent` | string | `""` | The user agent curl sends in agent runs, written to each harness home's `.curlrc` by `/proxy useragent` | `src/interface/commands/proxy.ts` |
+| `proxy.health.everySeconds` | number | `60` | Seconds between two probes of the proxy | `src/net/proxy.ts` |
+| `proxy.health.failures` | number | `3` | Failed probes in a row that send every connection direct | `src/net/proxy.ts` |
+| `proxy.health.recoveries` | number | `2` | Good probes in a row that take the proxy back | `src/net/proxy.ts` |
+| `proxy.health.timeoutMs` | number | `8000` | How long one probe waits for an answer | `src/net/proxy.ts` |
 
 ## recall
 

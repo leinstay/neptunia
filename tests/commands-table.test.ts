@@ -16,6 +16,8 @@ const TABLE = [
   'errands',
   'intentions',
   'pause',
+  // Stage Z: the engine proxy's commands.
+  'proxy',
   'resume',
   'config',
   'model',

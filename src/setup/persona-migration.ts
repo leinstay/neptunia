@@ -214,7 +214,7 @@ const SERVICES: ReadonlyArray<[string, string]> = [
   ['YOUTUBE_API_KEY', 'youtube'],
   ['BRAVE_SEARCH_API_KEY', 'brave'],
   ['EXA_API_KEY', 'exa'],
-  ['MEDIA_VIDEO_PROXY', 'videoProxy'],
+  ['MEDIA_VIDEO_PROXY', 'proxy'],
 ];
 
 /** Material classification uses the declared persona directories, including complete native backend homes. */

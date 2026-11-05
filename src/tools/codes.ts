@@ -190,6 +190,9 @@ export const CATALOGUE = Object.freeze({
   'no-review-channel': wake(),
   // Every key of the core's list failed on a budget error (src/llm/key-failover.ts); the turn failed with it.
   'keys-exhausted': wake(),
+  // The engine proxy stopped answering and every connection went direct, or it answers again (src/net/proxy.ts).
+  'proxy-down': wake(),
+  'proxy-back': wake('ok'),
 
   // Why a call left the pending queue unanswered (the reasons of a missed fact, src/behavior/missed.ts).
   'pending-full': internal(),

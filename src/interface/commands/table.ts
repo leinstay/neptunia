@@ -640,6 +640,20 @@ export const COMMANDS: ReadonlyArray<Command> = [
     ],
   },
   {
+    name: 'proxy',
+    help: 'Send every outbound connection through one proxy, with a direct fallback while it is down',
+    args: [],
+    defaultSubcommand: 'status',
+    subcommands: [
+      secretSub(sub('set', 'Store the proxy URL; the chat asks for it without showing it'), 'only'),
+      sub('on', 'Send every connection through the stored proxy'),
+      sub('off', 'Send every connection direct'),
+      sub('status', 'Whether the proxy is on and the route connections take now'),
+      sub('test', 'Probe the stored proxy once'),
+      sub('useragent', 'Set the user agent curl sends in agent runs; with no value, clear it', [arg('value', false)]),
+    ],
+  },
+  {
     name: 'keys',
     help: 'Manage API keys, allowances and model role bindings',
     args: [],

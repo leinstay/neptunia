@@ -129,7 +129,7 @@ import { watchedLengths } from '../media/classify.ts';
 import { createImageFetcher, VISION_MAX_BYTES } from '../media/fetch-image.ts';
 import { createVideoFetcher } from '../media/fetch-video.ts';
 import { audioMapSettings, videoAudioNote, withAudioNote } from '../media/audio-map.ts';
-import { isDirectUrlSite, proxyFor, publicVideoUrl, safeLocation, youtubeVideoId } from '../media/video-sites.ts';
+import { isDirectUrlSite, publicVideoUrl, safeLocation, youtubeVideoId } from '../media/video-sites.ts';
 import {
   roleRequestOptions,
   railReason,
@@ -514,7 +514,8 @@ type DescriberDeps = {
   videoFetcher?: Untyped;
   state?: { data: Untyped; markDirty: () => void };
   youtubeApiKey?: string | null;
-  videoProxy?: string | null;
+  /** The engine proxy in force now (src/net/proxy.ts#ProxyMonitor.current), read at each fetch; null goes direct. */
+  proxy?: () => string | null;
   /** The event loop watch's `track` (src/loop-watch.ts); a description is a named operation. */
   track?: Track;
   /** Reads a text file's words: `{ ok, text }` or `{ ok: false, reason }`. */
@@ -605,7 +606,7 @@ function buildDescriber({
   imageFetcher = createImageFetcher(),
   videoFetcher = createVideoFetcher(),
   youtubeApiKey = null,
-  videoProxy = null,
+  proxy: proxyNow = () => null,
   track = untracked,
   fetchText = readTextForm,
 }: DescriberDeps) {
@@ -1318,8 +1319,8 @@ function buildDescriber({
       }
       return got;
     }
-    // Only the listed sites go through the proxy (media.video.proxySites).
-    const proxy = proxyFor(item.url, videoCfg, videoProxy);
+    // Every site goes through the engine proxy while it is in force.
+    const proxy = proxyNow();
     const { proxyRetryMinutes } = videoCfg;
     let probe = await videoFetcher.probeSite(item.url, { ytdlpPath, toolTimeoutMs, proxy, proxyRetryMinutes });
     // yt-dlp can be blocked by YouTube's bot check; the duration alone is
@@ -1937,7 +1938,7 @@ function buildDescriber({
 
   // Which link of the YouTube duration chain works on this host (src/memory/youtube-check.ts):
   // the same fetcher and key as a real link, no LLM call, nothing cached.
-  const checkYoutube = createYoutubeCheck({ hot, videoFetcher, youtubeApiKey, videoProxy });
+  const checkYoutube = createYoutubeCheck({ hot, videoFetcher, youtubeApiKey, proxy: proxyNow });
 
   return {
     describe: ((...args) => track('describe', () => describe(...args))) as typeof describe,

@@ -417,6 +417,7 @@
         "src/llm/**",
         "src/media/**",
         "src/memory/**",
+        "src/net/**",
         "src/protocol/**",
         "src/development/**",
         "src/selfimprovement/**",
@@ -1422,6 +1423,13 @@
       "test": "required"
     },
     {
+      "path": "src/interface/commands/proxy.ts",
+      "purpose": "The `/proxy` commands over the engine proxy. Tested by the proxy command tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/interface/commands/mirror.ts",
       "purpose": "The owner's `/mirror` commands. Tested through the mirror command tests.",
       "layer": "public",
@@ -1543,8 +1551,6 @@
       "test": "none"
     },
     {
-      "path": "src/memory/text-standard.ts",
-      "purpose": "The script check of a stored text form. Tested through `tests/media-memory-standard.test.ts`.",
       "path": "src/memory/db/audit.ts",
       "purpose": "The memory audit: counts of what breaks the rules of the stored rows, over a read connection. Tested through `tests/memory-audit.test.ts`.",
       "layer": "public",
@@ -1725,6 +1731,13 @@
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
+    },
+    {
+      "path": "src/net/",
+      "purpose": "The engine proxy: its route and health monitor, the environment a child gets for it, and the one call that sets it for the whole process. Tested by the proxy monitor, global and harness tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/net/**", "src/keys/**"],
+      "test": "none"
     }
   ]
 }

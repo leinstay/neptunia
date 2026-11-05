@@ -102,6 +102,12 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 <!-- settings: web -->
 
+## proxy
+
+The engine proxy is described in [Proxy](proxy.md).
+
+<!-- settings: proxy -->
+
 ## recall
 
 <!-- settings: recall -->

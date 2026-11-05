@@ -30,6 +30,10 @@ A run's system instructions are the deployment's preamble first and the agent's 
 
 The system instructions replace the backend's own. Claude Code reads them from the file `--system-prompt-file` names, Codex from `-c model_instructions_file=<path>`, and OpenCode as the `build` agent's `prompt` in the config file `OPENCODE_CONFIG` names (the file that also holds a provider pin), which OpenCode merges with the step cap of `OPENCODE_CONFIG_CONTENT`. [src/agent-runner/backend.ts](../src/agent-runner/backend.ts) writes each file mode `600` into a folder of the run's own and removes it when the run ends, whether the child succeeded, failed or never started.
 
+### The proxy of an errand
+
+While the [engine proxy](proxy.md) is in force, the core puts it into every errand's `secrets.proxy` in its http form, whatever the agent and its backend. The runner hands it to the child as `HTTPS_PROXY`, `HTTP_PROXY` and their lower case spellings. The value is the one in force when the errand is sent: after a switch to the direct path an errand carries no proxy, and its child gets no proxy variable at all. Secrets that hold the proxy alone are valid, since a Claude Code or Codex route carries no key.
+
 ## Modes
 
 Execution modes govern the agent's access: `read`, `write`, `full` and `sudo`. The mode in the route sets the backend's sandbox and decides whether `sudo` is refused inside the run. Use `/agent mode <agent> <mode>` to select one. Rerender units with `neptunia setup` and restart the affected unit to apply systemd restrictions. A mode stored in the key store alone does not change an already running service.

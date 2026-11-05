@@ -189,20 +189,21 @@ test('readConfig: env references resolve after the merge; an unset name warns on
   delete process.env.NEP_TEST_UNSET_REF;
   try {
     fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+    // Stage Z: the reference sits under a key of its own, since the loader cuts media.video.proxy.
     fs.writeFileSync(
       path.join(dir, 'config', 'config.json'),
-      JSON.stringify({ media: { video: { proxy: '' } }, other: '${env:NEP_TEST_UNSET_REF}' })
+      JSON.stringify({ sample: { ref: '' }, other: '${env:NEP_TEST_UNSET_REF}' })
     );
     fs.writeFileSync(
       path.join(dir, 'data', 'config', 'config.json'),
-      JSON.stringify({ media: { video: { proxy: '${env:NEP_TEST_PROXY_REF}' } } })
+      JSON.stringify({ sample: { ref: '${env:NEP_TEST_PROXY_REF}' } })
     );
     const { result: cfg, logs } = await withCapturedLogs(() => {
       const first = readConfig(dir);
       readConfig(dir);
       return first;
     });
-    assert.deepEqual(cfg, { media: { video: { proxy: 'http://user:secret@host:1' } }, other: '' });
+    assert.deepEqual(cfg, { sample: { ref: 'http://user:secret@host:1' }, other: '' });
     const warnings = logs.filter((l) => l.msg === 'config: env ref unset');
     assert.deepEqual(
       warnings.map((l) => [l.level, l.name]),

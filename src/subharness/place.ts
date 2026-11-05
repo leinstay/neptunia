@@ -4,7 +4,8 @@
 // executable under `bin/`. The home goes to every run (src/agent-runner/backend.ts, `createInstalledBackend`) and to
 // the owner's login (src/subharness/account.ts), as the variable each CLI reads its home from. The paths are
 // computed; `isInstalled` is the one look at the disk, and `helpOfInstalled` the one run of the binary outside an agent
-// run, which reads its `--help` so the effort flag is offered only to a binary that takes it.
+// run, which reads its `--help` so the effort flag is offered only to a binary that takes it. `CURL_HOME` points curl
+// in every run at the home, where `writeHarnessCurlrc` keeps the `.curlrc` with the user agent `/proxy useragent` set.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -32,10 +33,14 @@ export function subharnessPlace(privateDir: string, backend: BackendName): Subha
       return {
         dir,
         binary: path.join(dir, 'node_modules', '.bin', 'claude'),
-        env: { CLAUDE_CONFIG_DIR: home, DISABLE_AUTOUPDATER: '1' },
+        env: { CLAUDE_CONFIG_DIR: home, DISABLE_AUTOUPDATER: '1', CURL_HOME: home },
       };
     case 'codex':
-      return { dir, binary: path.join(dir, 'node_modules', '.bin', 'codex'), env: { CODEX_HOME: home } };
+      return {
+        dir,
+        binary: path.join(dir, 'node_modules', '.bin', 'codex'),
+        env: { CODEX_HOME: home, CURL_HOME: home },
+      };
     case 'opencode':
       return {
         dir,
@@ -46,9 +51,39 @@ export function subharnessPlace(privateDir: string, backend: BackendName): Subha
           XDG_CACHE_HOME: path.join(home, 'cache'),
           XDG_STATE_HOME: path.join(home, 'state'),
           OPENCODE_DISABLE_AUTOUPDATE: '1',
+          CURL_HOME: home,
         },
       };
   }
+}
+
+/** The backends a `.curlrc` goes to; the order of `BACKEND_NAMES`, kept here so this module stays a leaf. */
+const CURLRC_BACKENDS = ['codex', 'claude', 'opencode'] as const satisfies ReadonlyArray<BackendName>;
+
+/**
+ * Writes `user-agent = "<agent>"` as the `.curlrc` of the home of every installed backend (its folder exists), at mode
+ * 600, a quote or a backslash of the agent escaped as curl reads them; a null or blank agent removes the file. Returns
+ * the backends whose home was written or cleared.
+ */
+export function writeHarnessCurlrc(privateDir: string, agent: string | null): Array<BackendName> {
+  const text = agent === null || agent.trim() === '' ? null : agent.trim();
+  const done: Array<BackendName> = [];
+  for (const backend of CURLRC_BACKENDS) {
+    const { dir } = subharnessPlace(privateDir, backend);
+    if (!fs.existsSync(dir)) continue;
+    const file = path.join(dir, 'home', '.curlrc');
+    if (text === null) {
+      fs.rmSync(file, { force: true });
+    } else {
+      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(file, `user-agent = "${text.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"\n`, {
+        mode: 0o600,
+      });
+      fs.chmodSync(file, 0o600);
+    }
+    done.push(backend);
+  }
+  return done;
 }
 
 /**

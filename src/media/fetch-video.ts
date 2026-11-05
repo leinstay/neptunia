@@ -8,7 +8,7 @@
 // still over `maxBytes` is encoded once more from the same source at a
 // bitrate computed to fit (video-sites.ts#fitBitrate); only when that one is
 // still over is it `size`. Through a proxy
-// (`proxy`, resolved by the caller with video-sites.ts#proxyFor) the video is
+// (`proxy`, the engine proxy the caller has in force, src/net/proxy.ts) the video is
 // downloaded whole -- yt-dlp's sections cut runs ffmpeg, which cannot speak
 // SOCKS -- and ffmpeg trims its first `maxSeconds` locally whenever it may be
 // longer. When a proxied yt-dlp run fails (exit, spawn error, timeout) --
@@ -866,7 +866,7 @@ export function createVideoFetcher(deps: VideoFetcherDeps = {}): VideoFetcher {
 
   /**
    * yt-dlp metadata only: duration and title of a video-site link. Never rejects.
-   * @param options `proxy`: yt-dlp's `--proxy` for this link (proxyFor), never logged; on a
+   * @param options `proxy`: yt-dlp's `--proxy`, the engine proxy in force, never logged; on a
    *   proxied failure the probe runs again directly (see runYtdlp).
    */
   async function probeSite(url: string, options: SiteProbeOptions): Promise<SiteProbeResult> {

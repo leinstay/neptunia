@@ -61,7 +61,7 @@ Use `/search` to inspect and change the engine, model and enabled state. Use `/k
 
 ## Service and module keys
 
-`/keys service set <name>` prompts for a service value. Supported service names include `youtube`, `brave`, `exa` and `videoProxy`. The [setup guide](setup.md#optional-modules) links to the YouTube API instructions.
+`/keys service set <name>` prompts for a service value. Supported service names include `youtube`, `brave`, `exa` and `proxy`. The [setup guide](setup.md#optional-modules) links to the YouTube API instructions. `proxy` is the URL of the engine proxy, which `/proxy set` stores too and `/proxy on` puts in force (see [Proxy](proxy.md)).
 
 `/interfaces token set discord` writes Discord's token to `data/interfaces/discord/credentials.json`. A skill's setup contract declares its own secrets. Removing a platform's credentials does not remove stored memories from it.
 

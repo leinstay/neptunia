@@ -22,7 +22,8 @@ test('claude lives in <private>/subharness/claude with the npm binary and CLAUDE
   assert.equal(place.dir, path.join(PRIVATE, 'subharness', 'claude'));
   assert.equal(place.binary, path.join(place.dir, 'node_modules', '.bin', 'claude'));
   // Changed: the claude run also carries the control that keeps the pinned version from updating itself.
-  assert.deepEqual(Object.keys(place.env), ['CLAUDE_CONFIG_DIR', 'DISABLE_AUTOUPDATER']);
+  // Stage Z: and CURL_HOME, so curl reads the home's .curlrc.
+  assert.deepEqual(Object.keys(place.env), ['CLAUDE_CONFIG_DIR', 'DISABLE_AUTOUPDATER', 'CURL_HOME']);
   assert.ok(inside(place.env.CLAUDE_CONFIG_DIR ?? '', place.dir));
 });
 
@@ -31,7 +32,8 @@ test('codex lives in <private>/subharness/codex with the npm binary and CODEX_HO
   const place = subharnessPlace(PRIVATE, 'codex');
   assert.equal(place.dir, path.join(PRIVATE, 'subharness', 'codex'));
   assert.equal(place.binary, path.join(place.dir, 'node_modules', '.bin', 'codex'));
-  assert.deepEqual(Object.keys(place.env), ['CODEX_HOME']);
+  // Stage Z: CURL_HOME too, so curl reads the home's .curlrc.
+  assert.deepEqual(Object.keys(place.env), ['CODEX_HOME', 'CURL_HOME']);
   assert.ok(inside(place.env.CODEX_HOME ?? '', place.dir));
 });
 
@@ -42,7 +44,9 @@ test('opencode lives in <private>/subharness/opencode with its config and data h
   assert.ok(inside(place.binary, place.dir));
   // Changed: the opencode run also carries the control that keeps the pinned version from updating itself.
   // Changed again: the cache and state homes are set too, because under a read-only home opencode fails on ~/.cache.
+  // Stage Z: CURL_HOME too, so curl reads the home's .curlrc.
   assert.deepEqual(Object.keys(place.env).sort(), [
+    'CURL_HOME',
     'OPENCODE_DISABLE_AUTOUPDATE',
     'XDG_CACHE_HOME',
     'XDG_CONFIG_HOME',
