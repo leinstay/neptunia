@@ -1,14 +1,15 @@
-// The media backfill (src/memory/db/media-backfill.ts): for each old source row with media rows lacking their reference, read
-// its message through the interface's history, match it by message id, and write the one format (`source_media`) through the
-// one writer, stamp stems and queue vectors. A deleted message stays bare and is counted; a run is idempotent and resumable;
-// no model call for a text form already held. Tested over a fake interface: a pure core and an interface read. Synthetic content.
+// The media backfill (src/memory/db/media-backfill.ts): for each old line whose linked items lack their reference, read its
+// message through the interface's history, match it by message id, and write the one format (`media`, `media_links`) through
+// the one writer, with stems and vectors filled once per item. A message the platform no longer returns is `gone`, a line that
+// cannot be read is `bare`, each counted with its reason; a run is idempotent and resumable; no model call for a text form
+// already held. Tested over a fake interface: a pure core and an interface read. Synthetic content.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyMediaBackfill, BACKFILL_FIELDS, backfillMedia } from '../src/memory/db/media-backfill.ts';
+import { lineMedia, tellMedia } from '../src/memory/db/media-store.ts';
 import { search } from '../src/memory/db/recall.ts';
 import { channelPlaceId, dmPlaceId } from '../src/memory/db/ids.ts';
 import { dmContext, internalContext } from '../src/memory/db/scope.ts';
-import { sourceMedia, tellSourceMedia } from '../src/memory/db/source-media.ts';
 import { fillStems } from '../src/memory/db/stems.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import {
@@ -26,13 +27,12 @@ import {
   eventOf,
   fixture,
   group,
-  kindNamed,
+  heldItem,
   neutralRows,
   observeLine,
-  storeDescription,
 } from './fixtures/media-memory.ts';
 import { byMeaning, embedLines } from './fixtures/media-memory-embed.ts';
-import type { Env, Scope } from './fixtures/media-memory.ts';
+import type { Env, Kind, Scope } from './fixtures/media-memory.ts';
 import type { HistoryQuery } from '../src/protocol/adapter.ts';
 import type { Row } from '../src/memory/db/types.ts';
 
@@ -41,10 +41,11 @@ const MINUTE = 60_000;
 const OTHER = channelPlaceId('discord', 'c2');
 const CONVERSATION = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' };
 const IN_OTHER = { id: 'c2', kind: 'channel', rootId: 'g1' };
+const named = (name: string) => KINDS.find((kind) => kind.name === name) as Kind;
 
 /**
- * A source row as the migration left an old one: the kinds as `source_media` rows with no reference, the columns production's
- * old rows hold, no locator.
+ * A source row as the migration left an old one: a bare item per kind with no reference, linked; the columns production's old
+ * rows hold; no locator.
  */
 function oldRow(
   env: Env,
@@ -83,10 +84,17 @@ function oldRow(
        observed_at = occurred_at, seen_at = occurred_at, native_kind = 'message', generation = 1 WHERE id = ?`
     )
     .run(id);
-  const row = env.db.prepare(
-    "INSERT INTO source_media (source_id, position, kind, availability) VALUES (?, ?, ?, 'unread')"
+  const item = env.db.prepare(
+    `INSERT INTO media (id, kind, availability, scope_kind, scope_iface, scope_dm) VALUES (?, ?, 'unknown', ?, ?, ?)`
   );
-  kinds.forEach((kind, position) => row.run(id, position, kind));
+  const link = env.db.prepare(
+    "INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('source', ?, ?, ?)"
+  );
+  kinds.forEach((kind, position) => {
+    const mediaId = `media:bare:${native}:${position}`;
+    item.run(mediaId, kind, scope.scope_kind, scope.scope_iface, scope.scope_dm);
+    link.run(id, position, mediaId);
+  });
   return id;
 }
 
@@ -142,15 +150,15 @@ function run(env: Env, read: ReturnType<typeof fakeInterface>['read'], over: Row
   }).then((report) => ({ report, described, applied }));
 }
 
-const finds = (env: Env, form: string, ctx: unknown = group) =>
+const mediaFinds = (env: Env, form: string, ctx: unknown = group) =>
   search(env.db, {
     ctx,
     plan: { forms: [form], who: [], from: null, to: null },
     now: NOW,
     settings: SETTINGS,
-  }).hits.map((hit) => hit.messageId);
+  }).mediaHits.map((hit) => hit.latest.messageId);
 
-const rowsOf = (env: Env, source: string) => sourceMedia(env.db, [source], internalContext()).get(source) ?? [];
+const rowsOf = (env: Env, source: string) => lineMedia(env.db, [source], internalContext(), 'source').get(source) ?? [];
 
 async function withEnv(body: (env: Env) => void | Promise<void>) {
   const env = fixture();
@@ -166,32 +174,59 @@ async function withEnv(body: (env: Env) => void | Promise<void>) {
 test('an old row gets its references through its message, and a word of a held description then finds it', () =>
   withEnv(async (env) => {
     const source = oldRow(env, { native: '1001', kinds: ['image', 'image'] });
-    storeDescription(env, '1001-a', 'a lighthouse on a cliff');
+    heldItem(env, '1001-a', 'a lighthouse on a cliff');
     fillStems(env.db);
-    assert.deepEqual(finds(env, 'lighthouse'), [], 'before: the description has nothing to name it');
-    const { read } = fakeInterface([imageEvent('1001')]);
-    const { report } = await run(env, read);
-    assert.deepEqual([report.linked, report.bare], [1, 0]);
+    assert.deepEqual(mediaFinds(env, 'lighthouse'), [], 'before: nothing links the description');
+    const { report } = await run(env, fakeInterface([imageEvent('1001')]).read);
+    assert.deepEqual([report.linked, report.bare, report.gone], [1, 0, 0]);
     const [first, second] = rowsOf(env, source);
     assert.deepEqual(
-      [first.nativeRef, first.name, first.text, first.textOrigin, first.availability],
-      ['1001-a', 'p.png', 'a lighthouse on a cliff', 'retelling', 'told']
+      [first.nativeRef, (first.extra as Row).fileName, first.description, first.availability],
+      ['1001-a', 'p.png', 'a lighthouse on a cliff', 'present']
     );
-    assert.deepEqual([second.nativeRef, second.availability], ['1001-b', 'unread']);
+    assert.deepEqual([second.nativeRef, second.availability], ['1001-b', 'unknown']);
     fillStems(env.db);
-    assert.deepEqual(finds(env, 'lighthouse'), ['1001']);
+    assert.deepEqual(mediaFinds(env, 'lighthouse'), ['1001']);
+  }));
+
+test('no bare item is left behind once its line is linked to the held one', () =>
+  withEnv(async (env) => {
+    oldRow(env, { native: '1006', kinds: ['image', 'image'] });
+    heldItem(env, '1006-a', 'held');
+    await run(env, fakeInterface([imageEvent('1006')]).read);
+    assert.equal(env.db.prepare("SELECT COUNT(*) AS n FROM media WHERE id LIKE 'media:bare:%'").get()?.n, 0);
+  }));
+
+test('two old lines showing the same file become one item with two uses', () =>
+  withEnv(async (env) => {
+    oldRow(env, { native: '1007' });
+    oldRow(env, { native: '1008', at: AT + MINUTE });
+    heldItem(env, 'same', 'a lighthouse');
+    const event = (native: string, at: number) => {
+      const made = imageEvent(native, at);
+      (made.message as { attachments: Array<Row> }).attachments = [
+        { id: 'same', kind: 'image', name: 'p.png', url: 'https://x.invalid/p.png' },
+      ];
+      return made;
+    };
+    await run(env, fakeInterface([event('1007', AT), event('1008', AT + MINUTE)]).read);
+    fillStems(env.db);
+    const [hit] = search(env.db, {
+      ctx: group,
+      plan: { forms: ['lighthouse'], who: [], from: null, to: null },
+      now: NOW,
+      settings: SETTINGS,
+    }).mediaHits;
+    assert.deepEqual([hit.uses, hit.latest.messageId], [2, '1008']);
   }));
 
 for (const kind of KINDS.filter((one) => !one.self)) {
   test(`an old ${kind.name} line ends with the same rows as a new one`, () =>
     withEnv(async (env) => {
-      const fresh = observeLine(env, kind, 'absent', { native: '1000' });
-      const held = rowsOf(env, fresh);
+      const held = rowsOf(env, observeLine(env, kind, 'absent', { native: '1000' }));
       assert.ok(held.length > 0);
       const source = oldRow(env, { native: '1002', kinds: held.map((row) => String(row.kind)) });
-      const event = eventOf(kind, '1002', [false, false], { conversation: CONVERSATION });
-      const { read } = fakeInterface([event]);
-      await run(env, read);
+      await run(env, fakeInterface([eventOf(kind, '1002', [false, false], { conversation: CONVERSATION })]).read);
       assert.deepEqual(neutralRows(rowsOf(env, source)), neutralRows(held));
     }));
 }
@@ -217,7 +252,7 @@ test("a message is matched by its id in the line's own conversation, never by th
     ]);
     const { report } = await run(env, read);
     assert.deepEqual([...new Set(reads.map((one) => one.conversationId))].sort(), ['c1', 'c2']);
-    assert.deepEqual([report.linked, report.bare], [1, 1], 'the other id in c2 is not 1202');
+    assert.deepEqual([report.linked, report.gone], [1, 1], 'the other id in c2 is not 1202');
     assert.equal(rowsOf(env, other)[0].nativeRef, null);
   }));
 
@@ -231,7 +266,7 @@ test('a message whose media differ from the kinds stored keeps every kind it has
     (event.message as { attachments: Array<Row> }).attachments.length = 1;
     await run(env, fakeInterface([event]).read);
     assert.deepEqual(
-      rowsOf(env, source).map(({ kind, nativeRef, text }) => [kind, nativeRef, text]),
+      rowsOf(env, source).map(({ kind, nativeRef, description }) => [kind, nativeRef, description]),
       [
         ['image', '1203-a', null],
         ['link', 'l1', 'words'],
@@ -242,59 +277,55 @@ test('a message whose media differ from the kinds stored keeps every kind it has
 test('only the writer changes a row: a run whose writes are dropped leaves the database as it was', () =>
   withEnv(async (env) => {
     const source = oldRow(env, { native: '1301', kinds: ['image', 'image'] });
-    const before = [
+    const snapshot = () => [
       env.db.prepare('SELECT * FROM sources WHERE native_id = ?').get('1301'),
       JSON.stringify(rowsOf(env, source)),
     ];
-    const { read } = fakeInterface([imageEvent('1301')]);
+    const before = snapshot();
     const writes: Array<unknown> = [];
-    await run(env, read, {
+    await run(env, fakeInterface([imageEvent('1301')]).read, {
       write: (update: Row) => {
         writes.push(update);
         return Promise.resolve();
       },
     });
     assert.ok(writes.length > 0);
-    assert.deepEqual(
-      [env.db.prepare('SELECT * FROM sources WHERE native_id = ?').get('1301'), JSON.stringify(rowsOf(env, source))],
-      before
-    );
+    assert.deepEqual(snapshot(), before);
   }));
 
-// ---------- a deleted message ----------
+// ---------- a message the platform no longer returns ----------
 
-test('a deleted message stays bare and is counted, with its row marked gone and its address kept', () =>
+test('a deleted message is gone and counted with its reason, its item marked and its address kept', () =>
   withEnv(async (env) => {
     const source = oldRow(env, { native: '1401' });
     const { report } = await run(env, fakeInterface([]).read);
-    assert.deepEqual([report.linked, report.bare], [0, 1]);
+    assert.deepEqual([report.linked, report.gone, report.classes.deleted], [0, 1, 1]);
     assert.deepEqual(
       rowsOf(env, source).map(({ kind, nativeRef, availability }) => [kind, nativeRef, availability]),
-      [['image', null, 'gone']]
+      [['image', null, 'missing']]
     );
     const extra = env.db.prepare('SELECT extra FROM sources WHERE native_id = ?').get('1401')?.extra;
     assert.ok(String(extra).includes('$messageLocator'), 'its address needs no read');
   }));
 
-test('a GIF library row that names a deleted message still gives it a text form', () =>
+test('a GIF library row that names a gone message still gives it its text form', () =>
   withEnv(async (env) => {
     oldRow(env, { native: '1403', kinds: ['gif'] });
     env.db
       .prepare(
-        `INSERT INTO media (id, kind, native_ref, description, extra, scope_kind, scope_iface, scope_dm)
-         VALUES ('media:gif:k', 'gif', '1403', 'name', ?, 'group', 'discord', NULL)`
+        `INSERT INTO media (id, kind, native_ref, description, availability, extra, scope_kind, scope_iface)
+         VALUES ('media:gif:k', 'gif', '1403', 'a pirouette on ice', 'present', ?, 'group', 'discord')`
       )
       .run(JSON.stringify({ itemId: 'item-1' }));
-    storeDescription(env, 'item-1', 'a pirouette on ice');
     const { report } = await run(env, fakeInterface([]).read);
-    assert.equal(report.bare, 0, 'told through the library row');
+    assert.deepEqual([report.gone, report.linked], [0, 1], 'linked through the library row');
     fillStems(env.db);
-    assert.deepEqual(finds(env, 'pirouette'), ['1403']);
+    assert.deepEqual(mediaFinds(env, 'pirouette'), ['1403']);
   }));
 
 // ---------- idempotent and resumable ----------
 
-test('a second run reads nothing, writes nothing and counts nothing, a deleted message included', () =>
+test('a second run reads nothing, writes nothing and counts nothing, a gone message included', () =>
   withEnv(async (env) => {
     const source = oldRow(env, { native: '1501', kinds: ['image', 'image'] });
     oldRow(env, { native: '1502', at: AT + MINUTE });
@@ -303,7 +334,7 @@ test('a second run reads nothing, writes nothing and counts nothing, a deleted m
     const rows = JSON.stringify(rowsOf(env, source));
     reads.length = 0;
     const { report, applied } = await run(env, read);
-    assert.deepEqual([report.linked, report.bare, report.reads, report.reembedded], [0, 0, 0, 0]);
+    assert.deepEqual([report.linked, report.gone, report.bare, report.reads, report.reembedded], [0, 0, 0, 0, 0]);
     assert.deepEqual(reads, []);
     assert.deepEqual(applied, []);
     assert.equal(JSON.stringify(rowsOf(env, source)), rows);
@@ -322,8 +353,8 @@ test('a failed read of one place is counted and the next run finishes it without
         ? Promise.resolve({ status: 'failed' as const, events: [], complete: false })
         : healthy.read(conversationId, query);
     const first = await run(env, flaky as typeof healthy.read);
-    assert.deepEqual([first.report.linked, first.report.failedPlaces, first.report.bare], [1, 1, 0]);
-    assert.equal(rowsOf(env, later)[0].availability, 'unread', 'a failed read is no deleted message');
+    assert.deepEqual([first.report.linked, first.report.failedPlaces, first.report.gone], [1, 1, 0]);
+    assert.equal(rowsOf(env, later)[0].availability, 'unknown', 'a failed read is no deleted message');
     healthy.reads.length = 0;
     const second = await run(env, healthy.read);
     assert.deepEqual([second.report.linked, second.report.failedPlaces], [1, 0]);
@@ -355,11 +386,11 @@ test('an aborted run stops between reads and the next run takes up what is left'
 
 // ---------- the describe path ----------
 
-test('no model call for a text form we hold, in the cache', () =>
+test('no model call for a text form we hold', () =>
   withEnv(async (env) => {
     oldRow(env, { native: '1801', kinds: ['image', 'image'] });
-    storeDescription(env, '1801-a', 'one');
-    storeDescription(env, '1801-b', 'two');
+    heldItem(env, '1801-a', 'one');
+    heldItem(env, '1801-b', 'two');
     const { described } = await run(env, fakeInterface([imageEvent('1801')]).read);
     assert.deepEqual(described, []);
   }));
@@ -367,7 +398,7 @@ test('no model call for a text form we hold, in the cache', () =>
 test('a missing text form goes through the describe path once, with the fresh address the read gave', () =>
   withEnv(async (env) => {
     oldRow(env, { native: '1802', kinds: ['image', 'image'] });
-    storeDescription(env, '1802-a', 'held');
+    heldItem(env, '1802-a', 'held');
     const { described, report } = await run(env, fakeInterface([imageEvent('1802')]).read);
     assert.deepEqual(
       described.map(({ itemId, kind, url }) => ({ itemId, kind, url })),
@@ -388,7 +419,7 @@ test('a kind no model can read costs no describe call', () =>
 for (const name of ['voice received', 'audio']) {
   test(`an old ${name} goes through the describe path, and its transcript then finds the line`, () =>
     withEnv(async (env) => {
-      const kind = kindNamed(name);
+      const kind = named(name);
       const event = eventOf(kind, '1803', [false, false], { conversation: CONVERSATION });
       const attachments = (event.message as { attachments: Array<Row> }).attachments;
       attachments.length = 1;
@@ -396,24 +427,23 @@ for (const name of ['voice received', 'audio']) {
       await run(env, fakeInterface([event]).read, {
         describe: (_placeId: string, items: Array<Row>) => {
           for (const item of items)
-            tellSourceMedia(env.handle, {
+            tellMedia(env.handle, {
               iface: 'discord',
               nativeRef: String(item.itemId),
-              text: `heard: a ${kind.first.word}`,
+              description: `heard: a ${kind.first.word}`,
               origin: 'transcript',
-              scope: GROUP_SCOPE,
             });
           return Promise.resolve();
         },
       });
-      assert.deepEqual(finds(env, kind.first.word), ['1803']);
+      assert.deepEqual(mediaFinds(env, kind.first.word), ['1803']);
     }));
 }
 
 test('her own old voice message goes through the describe path, since its words are stored nowhere', () =>
   withEnv(async (env) => {
     oldRow(env, { native: '1804', kinds: ['voice'], author: HER });
-    const event = eventOf(kindNamed('voice said'), '1804', [false, false], { conversation: CONVERSATION });
+    const event = eventOf(named('voice said'), '1804', [false, false], { conversation: CONVERSATION });
     (event.message as { attachments: Array<Row> }).attachments = [
       { id: 'v9', kind: 'voice', name: 'voice.ogg', durationSec: 9, url: 'https://cdn.example.invalid/v9.ogg' },
     ];
@@ -426,35 +456,30 @@ test('her own old voice message goes through the describe path, since its words 
 
 // ---------- vectors and the report ----------
 
-test('the report counts the lines queued for embedding: a linked line and the two after it', () =>
+test('the report counts each told item once for embedding; a neighbouring line is not embedded again', () =>
   withEnv(async (env) => {
     oldRow(env, { native: '1901', kinds: ['image', 'image'] });
-    storeDescription(env, '1901-a', 'a lighthouse');
+    heldItem(env, '1901-a', 'a lighthouse');
     env.say({ native: '1902', at: AT + MINUTE, text: 'ναι', place: GENERAL });
-    env.say({ native: '1903', at: AT + 2 * MINUTE, text: 'όχι', place: GENERAL });
-    env.say({ native: '1904', at: AT + 3 * MINUTE, text: 'ίσως', place: GENERAL });
     const { report } = await run(env, fakeInterface([imageEvent('1901')]).read);
-    assert.equal(report.reembedded, 3);
-    const { asked } = await embedLines(env);
-    assert.equal(asked.length, 3);
-    assert.ok(asked.every((chunk) => chunk.includes('lighthouse')));
+    assert.equal(report.reembedded, 1);
+    assert.deepEqual((await embedLines(env)).asked, ['a lighthouse']);
   }));
 
 test('after the backfill a Russian query reaches an old line by its English text form, and only there', () =>
   withEnv(async (env) => {
     oldRow(env, { native: '1905', kinds: ['image', 'image'] });
-    storeDescription(env, '1905-a', 'a lighthouse on a cliff');
+    heldItem(env, '1905-a', 'a lighthouse on a cliff');
     await run(env, fakeInterface([imageEvent('1905')]).read);
-    fillStems(env.db);
     await embedLines(env);
     assert.deepEqual(
-      search(env.db, { ctx: group, ...byMeaning('маяк') }).hits.map((hit) => hit.messageId),
+      search(env.db, { ctx: group, ...byMeaning('маяк') }).mediaHits.map((hit) => hit.latest.messageId),
       ['1905']
     );
-    assert.deepEqual(search(env.db, { ctx: group, ...byMeaning('лавина') }).hits, []);
+    assert.deepEqual(search(env.db, { ctx: group, ...byMeaning('лавина') }).mediaHits, []);
   }));
 
-test('a line with no text form is queued for nothing and costs no embedding', () =>
+test('a line with no text form queues nothing and costs no embedding', () =>
   withEnv(async (env) => {
     oldRow(env, { native: '1906' });
     const { report } = await run(env, fakeInterface([]).read);
@@ -475,57 +500,51 @@ test("a DM's old picture, read through its stored conversation, stays in the DM 
       scope: BOB_SCOPE,
       extra: { dmChannel: 'dm-bob' },
     });
-    storeDescription(env, '2001-a', 'a lighthouse only he saw', BOB_SCOPE);
+    heldItem(env, '2001-a', 'a lighthouse only he saw');
     const conversation = { id: 'dm-bob', kind: 'dm', chatType: 'dm', partnerId: BOB };
     await run(env, fakeInterface([imageEvent('2001', AT, conversation)]).read);
     fillStems(env.db);
     await embedLines(env);
-    assert.deepEqual(finds(env, 'lighthouse', dmContext(BOB_PERSON, 'discord')), ['2001']);
-    assert.deepEqual(finds(env, 'lighthouse'), []);
-    assert.deepEqual(finds(env, 'ighthou'), []);
-    assert.deepEqual(search(env.db, { ctx: group, ...byMeaning('маяк') }).hits, []);
+    assert.deepEqual(mediaFinds(env, 'lighthouse', dmContext(BOB_PERSON, 'discord')), ['2001']);
+    assert.deepEqual(mediaFinds(env, 'lighthouse'), []);
+    assert.deepEqual(mediaFinds(env, 'ighthou'), []);
+    assert.deepEqual(search(env.db, { ctx: group, ...byMeaning('маяк') }).mediaHits, []);
   }));
 
-test('a DM line whose conversation is not stored stays bare, counted, and is not read by its partner id', () =>
+test('a DM line whose conversation is not stored stays bare, counted with its reason, and is not read by its partner id', () =>
   withEnv(async (env) => {
     oldRow(env, { native: '2002', place: dmPlaceId('discord', BOB), author: BOB, scope: BOB_SCOPE });
     const { read, reads } = fakeInterface([]);
     const { report } = await run(env, read);
-    assert.equal(report.bare, 1);
+    assert.deepEqual([report.bare, report.gone, report.classes['no-conversation']], [1, 0, 1]);
     assert.deepEqual(reads, []);
-  }));
-
-test("a group line's description only a DM may read gives the row its reference and no text", () =>
-  withEnv(async (env) => {
-    const source = oldRow(env, { native: '2003', kinds: ['image', 'image'] });
-    storeDescription(env, '2003-a', 'a lighthouse only he saw', BOB_SCOPE);
-    await run(env, fakeInterface([imageEvent('2003')]).read);
-    assert.deepEqual(
-      [rowsOf(env, source)[0].nativeRef, rowsOf(env, source)[0].text, rowsOf(env, source)[0].availability],
-      ['2003-a', null, 'unread']
-    );
-    fillStems(env.db);
-    assert.deepEqual(finds(env, 'lighthouse'), []);
-    assert.deepEqual(finds(env, 'ighthou'), []);
   }));
 
 // ---------- the audit: every field of a new row, on an old one ----------
 
-/** Every field a line carries: its columns with a value, the keys of its `extra`, and each media row's filled fields. */
+/** Every field a line carries: its columns with a value, the keys of its `extra`, and each linked item's filled fields. */
 function fieldsOf(env: Env, id: string): Array<string> {
   const row = env.db.prepare('SELECT * FROM sources WHERE id = ?').get(id) as Row;
   const extra = JSON.parse(String(row.extra ?? '{}')) as Row;
-  const media = env.db.prepare('SELECT * FROM source_media WHERE source_id = ?').all(id);
+  const items = env.db
+    .prepare(
+      `SELECT m.* FROM media m JOIN media_links l ON l.media_id = m.id WHERE l.owner_kind = 'source' AND l.owner_id = ?`
+    )
+    .all(id);
   return [
     ...Object.entries(row)
       .filter(([key, value]) => value !== null && key !== 'extra' && key !== 'rowid')
       .map(([key]) => `sources.${key}`),
     ...Object.keys(extra).map((key) => `sources.extra.${key}`),
-    ...media.flatMap((one) =>
-      Object.entries(one)
-        .filter(([, value]) => value !== null)
-        .map(([key]) => `source_media.${key}`)
-    ),
+    ...items.flatMap((one) => {
+      const inner = JSON.parse(String(one.extra ?? '{}')) as Row;
+      return [
+        ...Object.entries(one)
+          .filter(([key, value]) => value !== null && key !== 'extra' && key !== 'rowid')
+          .map(([key]) => `media.${key}`),
+        ...Object.keys(inner).map((key) => `media.extra.${key}`),
+      ];
+    }),
   ]
     .filter((field, i, all) => all.indexOf(field) === i)
     .sort();
@@ -553,19 +572,22 @@ test('the audit names every field a new line carries, and how it is backfilled',
       'sources.extra.subtype',
       'sources.seen_at',
       'sources.owner_key',
-      'sources.stems',
       'sources.reply_to',
       'sources.mentions',
       'sources.author_kind',
-      'source_media.native_ref',
-      'source_media.name',
-      'source_media.duration_sec',
-      'source_media.title',
-      'source_media.site',
-      'source_media.url',
-      'source_media.text',
-      'source_media.text_origin',
-      'source_media.availability',
+      'media.kind',
+      'media.native_ref',
+      'media.description',
+      'media.described_at',
+      'media.availability',
+      'media.sha1',
+      'media.path',
+      'media.extra.fileName',
+      'media.extra.durationSec',
+      'media.extra.url',
+      'media.extra.title',
+      'media.extra.site',
+      'media.extra.textOrigin',
     ]) {
       assert.ok(field in BACKFILL_FIELDS, `the audit names ${field}`);
     }
@@ -575,7 +597,7 @@ test('an old line carries every field a new line does after the backfill, but fo
   withEnv(async (env) => {
     const wanted = newRowFields(env);
     const source = oldRow(env, { native: '2101', kinds: ['image', 'image'] });
-    storeDescription(env, '2101-a', 'told');
+    heldItem(env, '2101-a', 'present');
     fillEnvAudiences(env);
     await run(env, fakeInterface([imageEvent('2101')]).read);
     fillStems(env.db);
