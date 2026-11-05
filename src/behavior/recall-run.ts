@@ -184,7 +184,17 @@ function failureFields(err: unknown) {
 }
 
 /** The input of one lane's search in the memory database. */
-function laneSearch({ reader, forms, who, until, bounded, vector, settings, candidates, ...rest }: Untyped) {
+function laneSearch({
+  reader,
+  forms,
+  who,
+  until,
+  bounded,
+  vector,
+  settings,
+  candidates,
+  ...rest
+}: Untyped): Record<string, unknown> {
   return {
     ...rest,
     ctx: reader.ctx,
