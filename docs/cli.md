@@ -23,11 +23,19 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 | Alt+Enter or Ctrl+J | Insert a newline |
 | Up and Down | Browse command suggestions or input history |
 | Tab | Complete the selected command |
-| Esc | Close a panel or cancel input |
+| Esc | Close a panel, cancel a panel still loading, cancel a question or clear the input |
 | Ctrl+O | Expand folded answers |
 | Ctrl+C | Exit the CLI |
 
 The Project Neptunia header shows separate lines for the core, memory and enabled interfaces. Missing reports show a check in progress, and old reports are marked outdated. A lost core connection leaves memory and interface states unknown. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation.
+
+## Overlays and questions
+
+One screen element holds the keys and a paste at a time. A question from the core goes first, then an open panel, then the input. `focusOwner` in `cli/app.ts` decides, and a panel that loses the keys stays on the screen.
+
+A question replaces the input and keeps the unfinished line it interrupted. The line comes back after the answer or Esc, and an answer never joins it. A secret answer is drawn as stars and stays out of the input history. A question with choices opens the selector in `cli/selector.ts`. Typing or pasting narrows the list, Enter answers with the choice exactly as the core sent it, and a filter that matches nothing answers nothing. The plain chat prints the choices beside the prompt.
+
+Each slash command replaces the panel request before it. An answer of a request that was replaced or cancelled with Esc opens nothing and runs nothing. The same rule holds inside a selector, whose reducer compares the overlay id and the generation of every answer. Moving and filtering change no setting.
 
 ## Settings and setup panels
 

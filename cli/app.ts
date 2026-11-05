@@ -1,8 +1,11 @@
 // The interactive chat's screen, written with `React.createElement`, so no build step appears: a header with the rotating
 // galaxy and the status line, the conversation with long answers folded, the input with its slash menu, and panels over
-// the chat for `/help`, `/status` and `/config` with a search. The commands and their answers come from the caller, this
-// file knows no command's meaning. A question the core asks replaces the input, a secret drawn as stars and kept out of
-// the history. Clearing the display touches nothing else, and leaving ends only this process. cli/index.ts starts it.
+// the chat for `/help`, `/status` and `/config` with a search. The commands and their
+// answers come from the caller, this file knows no command's meaning. A question the core asks replaces the input and
+// keeps the draft it interrupted, a secret drawn as stars and kept out of the history, and a closed question is a selector
+// over its choices. Keys and a paste have one owner at a time (`focusOwner`), and the answer of a panel that was replaced
+// or closed opens nothing and runs nothing. Clearing the display touches nothing else, and leaving ends only this process.
+// cli/index.ts starts it.
 
 import { createElement as h, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
@@ -11,11 +14,18 @@ import { galaxyFrame } from './galaxy.ts';
 import { PanelView } from './panel-view.ts';
 import type { Panel } from './panel.ts';
 export type { Panel } from './panel.ts';
+import { ChoiceSelector } from './selector.ts';
 import { backspace, browse, emptyInput, foldedText, insert, menuOf, moveCursor, statusLine, submit } from './state.ts';
-import type { MenuCommand, StatusBrief } from './state.ts';
+import type { InputState, MenuCommand, StatusBrief } from './state.ts';
 
 export type ChatEntry = { who: 'owner' | 'her' | 'system'; text: string };
-export type Question = { question: string; secret: boolean; answer: (text: string) => void };
+export type Question = {
+  question: string;
+  secret: boolean;
+  /** a closed question: the answer is one of these, exactly as given */
+  choices?: ReadonlyArray<string> | null;
+  answer: (text: string) => void;
+};
 export type ChatEnv = {
   title: string;
   commands: ReadonlyArray<MenuCommand>;
@@ -39,6 +49,14 @@ export type ChatEnv = {
 
 const GALAXY_MS = 200;
 const POLL_MS = 15_000;
+/** The rows a question's selector draws at most; the input it replaces stays out of the way of the panel above it. */
+const QUESTION_ROWS = 8;
+
+/** Who takes the keys and a paste now. A question goes first, because the core is waiting on it. */
+function focusOwner(question: Question | null, panel: Panel | null): 'choices' | 'input' | 'panel' {
+  if (question !== null) return (question.choices?.length ?? 0) > 0 ? 'choices' : 'input';
+  return panel === null ? 'input' : 'panel';
+}
 
 function Header({ env, line }: { env: ChatEnv; line: string }) {
   const [tick, setTick] = useState(0);
@@ -112,13 +130,29 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
   const [brief, setBrief] = useState<StatusBrief | null>(null);
   const [polledAt, setPolledAt] = useState<number | null>(null);
   const subscribed = useRef(false);
+  // Counts the panel requests: an answer that is not of the newest one belongs to an overlay the owner left.
+  const panelRequest = useRef(0);
+  // The composer as a question found it. The answer is typed in another buffer, so it can reach neither the draft nor the screen.
+  const draft = useRef<InputState | null>(null);
+  const latestInput = useRef(input);
+  latestInput.current = input;
+  const latestQuestion = useRef(question);
+  latestQuestion.current = question;
 
   useEffect(() => {
     if (subscribed.current) return;
     subscribed.current = true;
     env.subscribe({
       entry: (entry) => setEntries((list) => [...list, entry]),
-      question: (asked) => setQuestion(asked),
+      question: (asked) => {
+        const open = latestQuestion.current;
+        // Only one question fits the screen: the older command gets the empty answer of a cancelled one.
+        if (open === null) draft.current = latestInput.current;
+        else open.answer('');
+        latestQuestion.current = asked;
+        setInput(emptyInput(latestInput.current.history));
+        setQuestion(asked);
+      },
       connected: (now) => setConnected(now),
     });
   }, [env]);
@@ -142,6 +176,16 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
   }, [env]);
 
   const items = question === null ? menuOf(input.text, env.commands) : [];
+  const owner = focusOwner(question, panel);
+
+  /** Closes the question and gives the composer back what it held, with what `history` says now. */
+  function endQuestion(history: ReadonlyArray<string>): void {
+    const held = draft.current;
+    draft.current = null;
+    latestQuestion.current = null;
+    setQuestion(null);
+    setInput(held === null ? emptyInput(history) : { ...held, history, browsing: null });
+  }
 
   function send(): void {
     if (
@@ -158,7 +202,7 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
     setSelected(0);
     if (question !== null) {
       question.answer(line);
-      setQuestion(null);
+      endQuestion(next.history);
       return;
     }
     if (line.trim() === '') return;
@@ -168,9 +212,13 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       return;
     }
     setEntries((list) => [...list, { who: 'owner', text: line }]);
+    // A chat line replaces no overlay; a command does, and the older request's answer is dropped whatever it is.
+    if (line.trim().startsWith('/')) panelRequest.current += 1;
+    const request = panelRequest.current;
     void env
       .panelOf(line.trim())
       .then((opened) => {
+        if (request !== panelRequest.current) return;
         if (opened === null) env.send(line);
         else setPanel(opened);
       })
@@ -188,7 +236,7 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       exit();
       return;
     }
-    if (panel !== null && question === null) return;
+    if (owner !== 'input') return;
     if (key.ctrl && typed === 'o') setExpanded((value) => !value);
     else if (key.ctrl && typed === 'd' && input.text === '') exit();
     else if (key.ctrl && typed === 'j') setInput((state) => insert(state, '\n'));
@@ -198,8 +246,11 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
     else if (key.escape) {
       if (question !== null) {
         question.answer('');
-        setQuestion(null);
+        endQuestion(input.history);
+        return;
       }
+      // The panel still on its way opens nothing now.
+      panelRequest.current += 1;
       setInput((state) => ({ ...state, text: '', cursor: 0 }));
     } else if (key.upArrow) {
       if (items.length > 0) setSelected((value) => Math.max(0, value - 1));
@@ -234,8 +285,9 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       panel === null
         ? null
         : h(PanelView, {
+            key: String(panelRequest.current),
             panel,
-            active: question === null,
+            active: owner === 'panel',
             close: () => setPanel(null),
             prefill: (line: string) => {
               setPanel(null);
@@ -248,16 +300,33 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       { flexDirection: 'column', flexShrink: 0 },
       panel === null && items.length > 0 ? h(Menu, { items, selected }) : null,
       question === null ? null : h(Text, { bold: true }, question.question),
-      h(
-        Box,
-        { borderStyle: 'round', paddingX: 1 },
-        h(Text, null, '> ', before, h(Text, { inverse: true }, after[0] ?? ' '), after.slice(1))
-      ),
+      owner === 'choices' && question !== null
+        ? h(ChoiceSelector, {
+            key: question.question,
+            choices: question.choices ?? [],
+            active: true,
+            height: QUESTION_ROWS,
+            answer: (value: string) => {
+              question.answer(value);
+              endQuestion(input.history);
+            },
+            cancel: () => {
+              question.answer('');
+              endQuestion(input.history);
+            },
+          })
+        : h(
+            Box,
+            { borderStyle: 'round', paddingX: 1 },
+            h(Text, null, '> ', before, h(Text, { inverse: true }, after[0] ?? ' '), after.slice(1))
+          ),
       h(
         Text,
         { dimColor: true },
         question !== null
-          ? 'Enter continue · Esc cancel'
+          ? owner === 'choices'
+            ? '↑↓ select · type to filter · Enter choose · Esc cancel'
+            : 'Enter continue · Esc cancel'
           : '/ commands · /setup connections · /config settings · Ctrl+O expand'
       )
     )

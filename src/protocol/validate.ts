@@ -386,6 +386,7 @@ function checkCommandResult(action: Rec): void {
   need(action.files, 'files', Array.isArray, { required: false });
   need(action.ephemeral, 'ephemeral', isBoolean, { required: false });
   need(action.status, 'status', isId, { required: false });
+  need(action.code, 'code', isId, { required: false });
   // The fields of a question (status `ask`): the dialog it opens, its prompt, whether the answer is typed unseen, the choices.
   need(action.dialogId, 'dialogId', isId, { required: false });
   need(action.prompt, 'prompt', isString, { required: false });

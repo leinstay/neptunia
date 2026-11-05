@@ -30,8 +30,11 @@ export function mutableOutput(target: NodeJS.WritableStream): MutableOutput {
 type Key = { name?: string; ctrl?: boolean; meta?: boolean; sequence?: string };
 
 export type Answers = {
-  /** Asks `question` and resolves with the next line the owner enters. A secret answer is echoed as stars only. */
-  ask(question: string, secret: boolean): Promise<string>;
+  /**
+   * Asks `question` and resolves with the next line the owner enters. A secret answer is echoed as stars only, and a
+   * closed question's `choices` are printed with it, because this prompt has no menu.
+   */
+  ask(question: string, secret: boolean, choices?: ReadonlyArray<string> | null): Promise<string>;
   /** Hands `line` to the question waiting for it; false when none waits, and the line is a command. */
   take(line: string): boolean;
   /** Whether a secret question is waiting: the chat must not write its history file meanwhile. */
@@ -100,10 +103,10 @@ export function createAnswers({
   const onClose = (): void => finish('', null);
 
   return {
-    ask(question, secret) {
+    ask(question, secret, choices) {
       return new Promise((resolve) => {
         waiting = { resolve, secret, stars: 0 };
-        target.write(`${question} `);
+        target.write(`${question}${choices == null ? '' : ` (${choices.join(', ')})`} `);
         if (!secret) return;
         if (output !== null) output.muted = true;
         input.on('keypress', onKey);
