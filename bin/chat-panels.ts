@@ -141,10 +141,10 @@ function setupRows(run: Run, interfaces: ReadonlyArray<string>): Array<PanelRow>
     },
     ...['claude', 'codex', 'opencode'].map((backend): PanelRow => ({
       id: `backend:${backend}`,
-      label: `Connect ${backend}`,
-      detail: 'Install and log in with neptunia setup subharness first; connecting performs a reply check.',
+      label: `Log in to ${backend}`,
+      detail: 'Run this in a shell as neptunia subharness; it offers to install the backend first.',
       group: 'Models',
-      prefill: `/subharness enable ${backend}${backend === 'opencode' ? ' --key ' : ''}`,
+      prefill: `/subharness ${backend} login${backend === 'opencode' ? ' --key ' : ''}`,
     })),
     ...['openrouter', 'brave', 'exa'].map((name) =>
       action(

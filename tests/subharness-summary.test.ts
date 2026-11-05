@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { featureRows } from '../src/subharness/summary.ts';
 import { folders, runCli } from './fixtures/core-units.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
+import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 test('both features off: two unavailable rows, each hint names the command that turns it on', async () => {
@@ -22,7 +23,8 @@ test('both features off: two unavailable rows, each hint names the command that 
       ['simulation', false],
     ]
   );
-  assert.ok(rows[0]?.hint?.includes('subharness enable'));
+  // Changed: the account command makes a source available.
+  assert.ok(rows[0]?.hint?.includes('neptunia subharness codex|claude|opencode login'));
   assert.ok(rows[1]?.hint?.includes('simulation enable'));
 });
 
@@ -34,6 +36,8 @@ test('both features on: available rows with no hint', async () => {
     subharness: { backend: 'codex', key: null, modes: {} },
     simulation: { key: 'sim' },
   });
+  // Changed: on is a source that is installed and logged in, not a stored name.
+  fakeVendor(dir, 'codex', { loggedIn: true });
   assert.deepEqual(await featureRows(dir), [
     { name: 'subharness', available: true, hint: null },
     { name: 'simulation', available: true, hint: null },
@@ -79,6 +83,8 @@ test('doctor reports the features ok when both are on, and prints no key value',
     subharness: { backend: 'codex', key: null, modes: {} },
     simulation: { key: 'sim' },
   });
+  // Changed: on is a source that is installed and logged in, not a stored name.
+  fakeVendor(dirs.privateDir, 'codex', { loggedIn: true });
   const run = await runCli(dirs, ['doctor', '--json']);
   const parsed = JSON.parse(run.stdout) as { checks: Array<{ name: string; status: string }> };
   assert.equal(parsed.checks.find((one) => one.name === 'features')?.status, 'ok');

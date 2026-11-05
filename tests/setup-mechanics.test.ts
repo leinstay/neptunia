@@ -11,6 +11,7 @@ import { mechanicsStep } from '../src/setup/mechanics.ts';
 import type { MechanicsStepDeps } from '../src/setup/mechanics.ts';
 import type { GhAnswer } from '../src/selfimprovement/repository.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
+import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
@@ -38,6 +39,8 @@ function rig(
   fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
   fs.writeFileSync(configFile(privateDir), JSON.stringify({ bot: { name: 'kept' }, ...config }));
   writeKeysFile(privateDir, { subharness: { backends, key: null, modes: {} } });
+  // Changed: a source is what is installed and logged in, so each backend the rig calls connected is both.
+  for (const backend of backends) if (backend !== 'opencode') fakeVendor(privateDir, backend, { loggedIn: true });
   const r: Rig = {
     options: { rootDir: ROOT, privateDir },
     answers: [],

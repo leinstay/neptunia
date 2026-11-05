@@ -224,13 +224,6 @@ test('the run waits as long as the sweep allows a request', async () => {
 
 // refused runs
 
-test('a backend that is no longer connected is refused subharness-off and nothing runs', async () => {
-  // Catches: the writer run on a backend the owner disconnected, on a login that may be gone.
-  const { deps, seen } = rig(claudeAnswers(ANSWER), { backends: ['codex'] });
-  await assert.rejects(runMemoryWriter(CLAUDE, INPUT, deps), { code: 'subharness-off' });
-  assert.equal(seen.length, 0);
-});
-
 test('a backend that is not installed is refused not-installed and nothing runs', async () => {
   // Catches: a spawn of a binary that is not there, reported as a vague spawn error.
   const { deps, seen } = rig(claudeAnswers(ANSWER), { installed: false });

@@ -11,6 +11,7 @@ import { SETUP_STEPS, SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '
 import type { RunResult, SetupDeps, SetupOptions } from '../src/setup/run.ts';
 import { DEVELOPMENT_UNIT_FILES, UNIT_FILES } from '../src/setup/units.ts';
 import { keysPath, readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
+import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
@@ -132,8 +133,8 @@ test('setup writes an empty keys.json at 600 with no key in it', async () => {
   const stored = readKeysFile(options.privateDir);
   assert.deepEqual(stored.core, []);
   assert.deepEqual(stored.extra, {});
-  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": an empty store holds an empty list `backends`.
-  assert.deepEqual(stored.subharness.backends, []);
+  // Changed: availability is install and login, so a store written today holds no list of backends.
+  assert.equal(Object.hasOwn(stored.subharness, 'backends'), false);
   assert.equal(stored.simulation.key, null);
 });
 
@@ -226,7 +227,8 @@ test('the report lists every step done and the commands that come next, in the o
     'interface token set discord',
     'interface enable discord',
     'model set',
-    'subharness enable',
+    // Changed: the account command replaced the enable step.
+    'subharness claude login',
     'simulation enable',
   ]);
 });
@@ -543,6 +545,8 @@ test('the watcher hour given in a setup run is in the timer the same run writes'
   // Catches: the units are rendered before the watcher step, or without watcher.at, so the timer keeps 00:00.
   const { options, deps, unitDir } = rig();
   writeKeysFile(options.privateDir, { subharness: { backends: ['codex'], key: null, modes: {} } });
+  // Changed: the watcher's source must be installed and logged in, whatever the stored list says.
+  fakeVendor(options.privateDir, 'codex', { loggedIn: true });
   // Changed: the first three answers decline the interface step, the YouTube key and quick search, which ask before the watcher.
   const answers = ['no', '', '', 'on', '05:30', 'codex', ''];
   const report = await runSetup(options, { ...deps, ask: () => Promise.resolve(answers.shift() ?? '') });

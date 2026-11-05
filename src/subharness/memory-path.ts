@@ -10,7 +10,7 @@ import { EFFORT_LEVELS, isEffortLevel } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { MEMORY_BACKENDS, readKeys, writeKeys } from '../keys/file.ts';
 import type { MemoryBackend, MemoryPathRecord } from '../keys/file.ts';
-import { checkModel } from './models.ts';
+import { MEMORY_CLAIM, checkedSelection, dropClaim } from './selection.ts';
 import type { EnableDeps, SubharnessResult } from './control.ts';
 
 export { MEMORY_BACKENDS };
@@ -28,20 +28,10 @@ export function memoryPath(privateDir: string): MemoryPath {
   return record === null ? { kind: 'direct' } : { kind: 'subharness', ...record };
 }
 
-/** Whether this claude takes `--effort`: its `--help` lists it. A help that cannot be read says no. */
-async function claudeTakesEffort(deps: EnableDeps): Promise<boolean> {
-  if (deps.helpOf === undefined) return false;
-  try {
-    return (await deps.helpOf('claude')).includes('--effort');
-  } catch {
-    return false;
-  }
-}
-
 /**
  * `model set memory --via <backend> <model> [--effort <level>]`: one reply on that model and effort through the
- * backend, then the record, written whole. Without an effort the record holds none, whatever was stored before. A
- * refusal writes nothing and runs nothing.
+ * backend, then the record, written whole, if nothing moved while the reply ran. Without an effort the record holds
+ * none, whatever was stored before. A refusal writes nothing.
  */
 export async function setMemoryPath(
   deps: EnableDeps,
@@ -58,29 +48,34 @@ export async function setMemoryPath(
       'backend-unsupported',
       `${known} cannot carry the memory writer, it takes no system prompt; use ${MEMORY_BACKENDS.join(' or ')}`
     );
-  if (!readKeys(deps.privateDir).subharness.backends.includes(name))
-    return refused('backend-not-connected', `${name} is not connected: subharness enable ${name}; nothing was changed`);
   let level: EffortLevel | undefined;
   if (effort !== undefined) {
     if (!isEffortLevel(effort))
       return refused('unknown-effort', `${effort} is no effort; use ${EFFORT_LEVELS.join(', ')}`);
     level = effort;
   }
-  if (level !== undefined && name === 'claude' && !(await claudeTakesEffort(deps)))
-    return refused('effort-unsupported', 'this claude takes no --effort; nothing was changed');
   if (model.trim() === '') return refused('model-rejected', 'name the model; nothing was changed');
-  const failed = await checkModel(deps, name, '', model, level);
-  if (failed !== null) return { ...failed, message: `${failed.message}; nothing was changed` };
-  const fresh = readKeys(deps.privateDir);
-  const record: MemoryPathRecord = { backend: name, model, effort: level ?? null };
-  writeKeys(deps.privateDir, { ...fresh, subharness: { ...fresh.subharness, memory: record } });
-  return done(
-    `her memory writer runs through ${memoryPathText({ kind: 'subharness', ...record })} from its next sweep`
+  return checkedSelection(
+    deps,
+    { claim: MEMORY_CLAIM, backend: name, keyValue: '', model, ...(level === undefined ? {} : { effort: level }) },
+    () => JSON.stringify(readKeys(deps.privateDir).subharness.memory),
+    () => {
+      const fresh = readKeys(deps.privateDir);
+      const record: MemoryPathRecord = { backend: name, model, effort: level ?? null };
+      writeKeys(deps.privateDir, { ...fresh, subharness: { ...fresh.subharness, memory: record } });
+      return done(
+        `her memory writer runs through ${memoryPathText({ kind: 'subharness', ...record })} from its next sweep`
+      );
+    }
   );
 }
 
-/** Back to the direct path: removes the record. `changed: false` when there was none. */
+/**
+ * Back to the direct path: removes the record, and a check of the subharness path that is still running can no longer
+ * save. `changed: false` when there was none.
+ */
 export function clearMemoryPath(privateDir: string): SubharnessResult {
+  dropClaim(privateDir, MEMORY_CLAIM);
   const store = readKeys(privateDir);
   if (store.subharness.memory === null) return done('her memory writer is on the direct path already', false);
   writeKeys(privateDir, { ...store, subharness: { ...store.subharness, memory: null } });

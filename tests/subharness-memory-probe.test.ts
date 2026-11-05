@@ -104,15 +104,6 @@ test('a subharness probe with no reply answers a failure', async () => {
   assert.equal(result.ok, false);
 });
 
-test('a subharness probe whose backend was disconnected answers subharness-off and runs nothing', async () => {
-  // Catches: the probe passing on a backend the writer may no longer use, so she stays awake writing nothing.
-  const { deps, ran } = probeRig({ subharness: { backends: ['codex'], ...VIA_CLAUDE } });
-  const result = await memoryProbe(deps, T0);
-  assert.equal(result.ok, false);
-  if (!result.ok) assert.equal(result.code, 'subharness-off');
-  assert.deepEqual(ran, []);
-});
-
 // the setting
 
 test('the probe interval is memory.probeMinutes when it is a positive number', () => {

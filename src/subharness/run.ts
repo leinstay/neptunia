@@ -1,13 +1,12 @@
 // The one seam every agent run goes through: errands (scout and server), development and the watcher. It reads
 // keys.json at the moment of the run, as Hermes' approval guard reads its mode on each check
-// (hermes_cli/approval_mode.py), so "subharness disable" and "subharness mode" act on the next run without a restart.
+// (hermes_cli/approval_mode.py), so a logout and "agent mode" act on the next run without a restart.
 //
-// An agent runs through the backend `subharness.uses` names for it, else through the first connected one. A run is
-// refused with `subharness-off` while no backend is connected, when the named backend is not connected, or when
-// opencode is on a key that has left the store, with `bad-route` for a route that is not one, and with `not-installed` while the backend is not in `<private>/subharness/<backend>/` (src/subharness/place.ts),
+// An agent runs through the backend `subharness.uses` names for it. A run is refused with `subharness-off` while it
+// names none, or when opencode is on a key that has left the store, with `bad-route` for a route that is not one, and with `not-installed` while the backend is not in `<private>/subharness/<backend>/` (src/subharness/place.ts),
 // whose binary every run starts with that folder's home in its environment. Otherwise the agent's mode (src/subharness/control.ts) becomes the backend's sandbox, and the child gets a
 // PATH on which `sudo` refuses unless the mode is `sudo`: a stand-in named `sudo` in a folder of its own comes first.
-// OpenCode gets one extra key as OPENROUTER_API_KEY and nothing else key-like: the one it was enabled with, or with a
+// OpenCode gets one extra key as OPENROUTER_API_KEY and nothing else key-like: the one it logged in with, or with a
 // route the one the task brought (`routeKey`, a run without it fails `route-no-key`); codex and claude bring their own
 // login and get no key. A run with a `route` (src/agent-runner/protocol.ts#TaskRoute) is the runner's: the core decided
 // the backend, model, effort and mode when it dispatched the task, because a runner unit may hide keys.json. Such a
@@ -108,7 +107,7 @@ const withGaps = (result: BackendResult, gaps: ReadonlyArray<string>): BackendRe
   gaps.length === 0 ? result : { ...result, gaps: [...(result.gaps ?? []), ...gaps] };
 
 const SUDO_STAND_IN =
-  '#!/bin/sh\necho "sudo: refused, this agent runs without sudo (the owner sets it: subharness mode)" >&2\nexit 1\n';
+  '#!/bin/sh\necho "sudo: refused, this agent runs without sudo (the owner sets it: agent mode)" >&2\nexit 1\n';
 
 /** Writes the `sudo` stand-in into `dir` when it is missing or different. */
 function ensureStandIn(dir: string): void {
@@ -225,7 +224,7 @@ function mapped(run: AgentRun, deps: RunDeps, name: BackendName, sessionId: stri
 
 /**
  * Runs one agent through its backend, in the mode the owner gave it. With a route the path is the route's and
- * keys.json stays closed; without one it resolves `subharness-off` while keys.json connects no backend for the agent.
+ * keys.json stays closed; without one it resolves `subharness-off` while keys.json names no backend for the agent.
  */
 export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendResult> {
   const settled = run.route === undefined ? pathFromStore(run, deps) : pathFromRoute(run, run.route);

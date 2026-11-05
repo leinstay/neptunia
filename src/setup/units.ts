@@ -11,7 +11,7 @@
 // writes it through the private folder of its `ReadWritePaths=`, and the watcher's unit names the whole `subharness/`
 // folder in its own. An agent unit in
 // `read` or `write` hides the home (`ProtectHome=tmpfs`) and sees the private folder read-only, so the folder of every
-// backend connected in keys.json or installed there is bound writable into it, and nothing above it: keys.json stays out of the agent's
+// backend a role names in keys.json or installed there is bound writable into it, and nothing above it: keys.json stays out of the agent's
 // reach.
 //
 // The watcher's timer takes `watcher.schedule` when the render is given it: one `OnCalendar=` per daily time, or an
@@ -68,7 +68,7 @@ export type UnitVars = {
   developmentCheckout?: string | null;
   /** the mode of the agent the unit runs; absent keeps the template's own sandbox */
   mode?: AgentMode;
-  /** the backends connected in keys.json or installed in the private layer; an agent unit binds the folder of each in the private layer writable */
+  /** the backends a role names in keys.json or installed in the private layer; an agent unit binds the folder of each in the private layer writable */
   backends?: ReadonlyArray<BackendName>;
   /** `watcher.schedule`: what the watcher's timer fires on; absent keeps the template's `OnCalendar=` */
   watcherSchedule?: ServiceSchedule;

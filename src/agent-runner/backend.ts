@@ -33,6 +33,7 @@ import type { AgentPaths, BackendName, Profile } from './profiles.ts';
 import type { RunOutcome, RunnerTask, TaskResult, TaskUsage } from './protocol.ts';
 import { runAgent } from '../subharness/run.ts';
 import type { RunDeps } from '../subharness/run.ts';
+import { markedRun } from '../subharness/activity.ts';
 import { isInstalled, subharnessPlace } from '../subharness/place.ts';
 import type { ChildOutcome, ChildRun } from '../subharness/memory-writer.ts';
 
@@ -114,6 +115,8 @@ export type BackendResult = {
   /** claude: what its JSON result reports */
   usage?: BackendUsage;
   error?: BackendError;
+  /** A run that failed on its own: the last line the child printed, for the owner's answer and never for a log. */
+  detail?: string;
   /** claude: the id its transcript has, when the run was given one */
   sessionId?: string;
   /** What this run knows it could not record, by code; a gap never stops a run. */
@@ -290,7 +293,7 @@ export function tokensOf(output: string): number | undefined {
 }
 
 /** What `claude -p --output-format json` printed: its answer, whether it says it failed, and its usage. */
-type ClaudeResult = { text: string; isError: boolean; usage: BackendUsage };
+type ClaudeResult = { text: string; isError: boolean; words: string; usage: BackendUsage };
 
 /** A count of a JSON result, 0 when absent or no number. */
 function countOf(fields: Record<string, unknown>, key: string): number {
@@ -314,6 +317,7 @@ function claudeResultOf(output: string): ClaudeResult | null {
   return {
     text: !isError && typeof fields.result === 'string' ? fields.result.trim() : '',
     isError,
+    words: typeof fields.result === 'string' ? fields.result.trim() : '',
     usage: {
       input: countOf(usage, 'input_tokens') + countOf(usage, 'cache_creation_input_tokens') + cached,
       cached,
@@ -422,6 +426,21 @@ function runChild({
   });
 }
 
+/** How much of a failed child's last line a result keeps. */
+const DETAIL_KEEP = 300;
+
+/** The `detail` of a failed child: the last line it printed, stderr first; nothing when it printed none or succeeded. */
+function detailOf(ok: boolean, outcome: Outcome): Pick<BackendResult, 'detail'> {
+  if (ok) return {};
+  const lastLine = (text: string): string | undefined =>
+    text
+      .split('\n')
+      .map((line) => line.trim())
+      .findLast((line) => line !== '');
+  const detail = (lastLine(outcome.stderr) ?? lastLine(outcome.stdout))?.slice(0, DETAIL_KEEP);
+  return detail === undefined ? {} : { detail };
+}
+
 /** Why a child did not run to its own end: stopped by us, binary missing or unusable, or another spawn failure. */
 function errorOf(outcome: Outcome): BackendError | undefined {
   if (outcome.stopped) return outcome.stopped;
@@ -435,11 +454,16 @@ function resultOf(name: BackendName, outcome: Outcome, written: string | null): 
   const claude = name === 'claude' ? claudeResultOf(printed) : null;
   const text = written ?? claude?.text ?? printed;
   const error = errorOf(outcome) ?? (claude?.isError === true ? 'backend-error' : undefined);
+  const ok = !error && outcome.exitCode === 0 && text !== '';
   return {
-    ok: !error && outcome.exitCode === 0 && text !== '',
+    ok,
     text: outcome.exitCode === 0 || written !== null ? text : '',
     exitCode: outcome.exitCode,
     ...(error ? { error } : {}),
+    // A refused claude says why inside its JSON, and that line is what the owner should read.
+    ...(claude?.isError === true && claude.words !== ''
+      ? { detail: claude.words.slice(0, DETAIL_KEEP) }
+      : detailOf(ok, outcome)),
     ...(claude === null ? {} : { usage: claude.usage }),
   };
 }
@@ -545,7 +569,9 @@ export function createInstalledBackend(
         log.info('agent-runner: backend not installed', { backend: name });
         return Promise.resolve({ ok: false, text: '', exitCode: null, error: 'not-installed' });
       }
-      return backend.run(brief, { ...options, env: { ...options.env, ...place.env } });
+      return markedRun(privateDir, name, () =>
+        backend.run(brief, { ...options, env: { ...options.env, ...place.env } })
+      );
     },
   };
 }

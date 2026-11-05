@@ -14,7 +14,7 @@ Run `neptunia setup <step>` to repeat one part without starting the rest. The `s
 | `keys-file` | Create or secure the key store |
 | `interfaces` | Ask the installed interfaces' setup questions |
 | `services` | Offer the optional YouTube metadata key and optional quick search |
-| `subharness` | Install and connect agent backends |
+| `subharness` | Install agent backends and wait for their logins |
 | `selfimprovement` | Select and check the development repository |
 | `mechanics` | Switch heartbeat and reflection, switch and schedule the development wake |
 | `watcher` | Switch the watcher, choose its schedule, backend and model |
@@ -47,12 +47,16 @@ Quick search is optional and declined by default. The `services` step asks for o
 A subharness is the external CLI that runs an agent or memory session. Supported backends are Claude Code, Codex and OpenCode. Each has its own installation, login and sessions under `data/subharness/<backend>/`.
 
 ```bash
-neptunia setup subharness claude
-neptunia setup subharness codex
-neptunia setup subharness opencode --from /absolute/path/to/opencode
+neptunia subharness claude login
+neptunia subharness codex login
+neptunia subharness opencode login --key <extra-key-name>
 ```
 
-Follow the printed login command, which selects the persona's backend home. For Claude Code the command comes from the commands the installed binary lists in its `--help`, `login` or else `auth login`. `neptunia setup subharness claude` exits `1` naming `claude --help` when that help lists neither, and the setup step asks you to read the backend's own login help when it cannot read one. Logging into your own separate CLI does not authenticate hers. Then connect it with `/subharness enable <backend>`; OpenCode also takes `--key <extra-key-name>`.
+A backend is available when it is installed and its login works: `sourceState` in `src/subharness/sources.ts` reads both at each look and stores neither, so there is no separate switch to turn on. `login` offers to install an absent backend, and on a yes the same command goes on to the login. Declining changes nothing. With no terminal it exits `1` and says what is needed, installing nothing and starting no vendor login. The login runs under the persona's backend home. For Claude Code the command comes from what the installed binary lists first in its `--help`, `auth login` or `login`, and a help that lists neither fails the login with an explanation. Logging into your own separate CLI does not authenticate hers. OpenCode has no vendor login here: `--key` names the extra key it runs on, and the name must be in the store. `neptunia setup subharness opencode --from /absolute/path/to/opencode` copies the executable in, or `login` copies it from `errands.opencodePath`.
+
+`neptunia subharness <backend> status` asks the vendor's own status command, sends no model request and exits `1` when the backend is absent or not logged in. `neptunia subharness <backend> logout` removes that login and exits `1` with `busy` while an agent or the memory writer runs through the backend, in any process. All three run with no core, so they can repair a core that does not start. The same words work in the chat as `/subharness <backend> status`, and there a vendor's login answers the shell command to type.
+
+Login and logout change availability alone. No role moves, no model is chosen, and a role whose source logged out stays on it, shown `unavailable` by `/subharness status`, with no fallback to another source. Model and source are chosen with `/model set <role> <model> --via <backend>` and execution permissions with `/agent mode <agent> [<mode>]`. See [keys and models](keys.md#model-sources).
 
 Versions are recorded in `version.json`. A normal setup preserves the recorded choice. Updating is explicit:
 
