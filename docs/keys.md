@@ -8,13 +8,15 @@ The persona's model credentials live in `data/keys.json`. Interface and skill cr
 
 Use `/keys` to inspect the available commands, `/keys bind` to select an extra key for a target, and `/keys check` to check a supported target. `/model set` changes a model role. The command's result reports whether validation succeeded; a model name alone does not prove that the selected account can use it.
 
+[`checkRole`](../src/keys/check.ts) sends one minimal request for the role on the role's key. Chat roles get a short completion, `embedding` a short embedding, and `speech` a synthesis of two characters on the speech endpoint with `speech.voice`. A failed check means the provider or the network said no. `drawing` has no probe, because one request bills a whole picture, so `/keys check drawing` answers `unsupported` and sends nothing, and `/model set drawing` saves the model unverified. A role that is off answers `not_configured`. Neither answer says anything about the key.
+
 The base conversation roles, the memory writer and the delegated agents are distinct routes. A subscription login for an agent backend does not replace the OpenRouter keys used by the core. See [setup](setup.md#subharness-backends) for those logins.
 
 ## Quick search
 
-Quick search has its own `web.search.model` and `search` key binding, independent of the analyzer. The engines are OpenRouter, Brave and Exa. OpenRouter uses the core key pool unless `search` is bound to a named extra key. It still sends a model request with the search plugin, so the model and its cost matter.
+Quick search has its own `web.search.engine`, `web.search.model` and `search` key binding, independent of the analyzer. Neither setting has a default, so it stays off until `neptunia setup` or `/search engine` chooses an engine. The engines are `openrouter`, `brave` and `exa`, and nothing answers in place of the chosen one. `openrouter` needs `web.search.model` and uses the core key pool unless `search` is bound to a named extra key. It sends a model request with the search plugin, so the model and its cost matter. `brave` and `exa` need their service keys, and they condense a search for the diary on `web.search.model` when one is set.
 
-Use `/search` to inspect and change the engine, model and enabled state. Use `/keys bind search <name>` for an extra key and `/keys check search` to validate the binding. Brave and Exa use their own optional service keys.
+Use `/search` to inspect and change the engine, model and enabled state. Use `/keys bind search <name>` for an extra key and `/keys check search` to validate the binding.
 
 [Deep search](errands.md) runs through the scout. Its availability and credentials are separate from quick search.
 

@@ -13,7 +13,7 @@ Run `neptunia setup <step>` to repeat one part without starting the rest. The `s
 | `folders` | Create the persona directories with private permissions |
 | `keys-file` | Create or secure the key store |
 | `interfaces` | Ask the installed interfaces' setup questions |
-| `services` | Offer the optional YouTube metadata key |
+| `services` | Offer the optional YouTube metadata key and optional quick search |
 | `subharness` | Install and connect agent backends |
 | `selfimprovement` | Select and check the development repository |
 | `mechanics` | Switch heartbeat and reflection, switch and schedule the development wake |
@@ -39,6 +39,8 @@ An interface or skill declares questions in its `setup.json`. The common setup i
 Use `/interface setup <name>` or `/skills setup <name>` to repeat these questions. The corresponding `set`, `clear`, `add` and `remove` commands change individual values. Disabling a module keeps its data. The declaration format is covered by [interfaces](interfaces.md) and [skills](skills.md).
 
 The optional Google YouTube Data API key improves metadata retrieval. Obtain one through [Google's setup guide](https://developers.google.com/youtube/v3/getting-started), then use `/keys service set youtube`. It does not replace the model that watches video.
+
+Quick search is optional and declined by default. The `services` step asks for one engine, `openrouter`, `brave` or `exa`, and then for what that engine needs, a model or a service key. An empty answer to either leaves `web.search.engine` unset and quick search off. `/search engine` sets it later, and [keys](keys.md#quick-search) covers the routing.
 
 ## Subharness backends
 

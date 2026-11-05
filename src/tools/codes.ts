@@ -259,7 +259,7 @@ export const WHAT: Readonly<Record<string, string>> = Object.freeze({
 });
 
 /** What a `not-configured` result may name: the values of `{feature}`. */
-export const FEATURE: Readonly<Record<string, string>> = Object.freeze({ web: 'web' });
+export const FEATURE: Readonly<Record<string, string>> = Object.freeze({ web: 'web', quickSearch: 'quick-search' });
 
 const HTTP_CODE_RE = /^http-(\d{3})$/;
 
@@ -306,5 +306,10 @@ export function reasonText(
     words[key] = typeof named === 'string' && named ? named : String(value);
   }
   const text = fill(template, words);
-  return /\{\w+\}/.test(text) ? null : text;
+  if (/\{\w+\}/.test(text)) return null;
+  // A code said for several causes names the one that holds, when the labels word it.
+  const causes = objOf(params.reason);
+  const cause = String(normal.values.reason);
+  const why = Object.hasOwn(causes, cause) ? causes[cause] : null;
+  return typeof why === 'string' && why ? `${text}: ${why}` : text;
 }

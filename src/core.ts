@@ -253,9 +253,9 @@ async function buildCore(
   const openrouterKey = '';
   // Optional: without it a YouTube duration comes from the watch page only.
   const youtubeApiKey = serviceCredential(paths.dataDir, 'youtube');
-  // Optional: without it the `brave` search engine never runs (the web lookup still reads links). Never logged.
+  // Optional: without it the `brave` engine of quick search stays off (the web lookup still reads links). Never logged.
   const braveApiKey = serviceCredential(paths.dataDir, 'brave');
-  // Optional: the `exa` engine runs keyless; with a key it is sent as a bearer header. Never logged.
+  // Optional: without it the `exa` engine of quick search stays off. Sent as a bearer header, never logged.
   const exaApiKey = serviceCredential(paths.dataDir, 'exa');
 
   fs.mkdirSync(paths.dataDir, { recursive: true });
@@ -554,7 +554,7 @@ async function buildCore(
     llm,
     state: store.state,
     pageFetcher: createPageFetcher(),
-    // web.search.engine picks one of these; web.search.fallback orders the others.
+    // web.search.engine picks one of these, and nothing answers in its place.
     searches: { brave: createBraveSearch(), exa: createExaSearch() },
     keys: { brave: braveApiKey, exa: exaApiKey },
   };
@@ -1276,7 +1276,12 @@ async function buildCore(
       if (keysFileExists(paths.privateDir) || keyVariables.length === 0) return null;
       return importKeys({ env: Object.fromEntries(keyVariables), config: hot.config, store: keyStore });
     },
-    currentModel: (role) => (role === SEARCH_ROLE ? searchModel(hot.config) : (roleModel(hot.config, role) ?? '')),
+    currentModel: (role) =>
+      role === SEARCH_ROLE ? (searchModel(hot.config) ?? '') : (roleModel(hot.config, role) ?? ''),
+    speechVoice: () => {
+      const voice = objOf(objOf(hot.config).speech).voice;
+      return typeof voice === 'string' ? voice : '';
+    },
     saveModel: async (role, model) => {
       await ownerOp('model.set', { role, id: model });
     },

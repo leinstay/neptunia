@@ -2,8 +2,8 @@
 // shell as `web-search <query> [--count N]` through agents/scout/bin/web-search):
 // OpenCode v1.19.3 offers its own `websearch` tool only with Exa or Parallel
 // switched on directly, and Exa is used only through OpenRouter here. So the
-// agent searches with one OpenRouter chat completion carrying the web plugin
-// on Exa, built the way the lookup's `openrouter` engine builds its request
+// agent searches with one OpenRouter chat completion carrying the web plugin,
+// built the way the lookup's `openrouter` engine builds its request
 // (src/web/lookup.ts#webSearchPlugins), and reads the results from the
 // answer's `url_citation` annotations (src/web/lookup.ts#urlCitations),
 // printed as plain numbered lines: title, URL, one-line snippet
@@ -11,9 +11,8 @@
 //
 // The key is the task's OpenRouter key the runner already gives the OpenCode
 // child (OPENROUTER_API_KEY, the agents' key, never the persona's); the model
-// is the one the runner reads from the live config at each task
-// (webSearchModel: the setting `web.search.model`, the model of the
-// persona's own web.search on the same engine) and passes as NEPTUNIA_WEB_SEARCH_MODEL. A failure prints one
+// is NEPTUNIA_WEB_SEARCH_MODEL when the child has it, else `SCOUT_SEARCH_MODEL`
+// (webSearchModel), so the scout searches whether or not quick search was set up. A failure prints one
 // `web-search: <code>` line on stderr and a non-zero exit; neither the key nor
 // a response body is ever printed. Pure but for `fetchImpl`.
 
@@ -40,11 +39,14 @@ const SNIPPET_CHARS = 240;
 const EXIT = Object.freeze({ ok: 0, failed: 1, usage: 2 });
 
 /**
- * The model the scout agent searches with in `config` (the live engine config): the persona's own
- * web.search's, the setting `web.search.model` (src/llm/roles.ts#searchModel).
+ * The model of the scout's search while nothing names another: deep search stays available when quick search, which has
+ * no default model, is off. The owner's choice of 2026-11-03.
  */
-export function webSearchModel(config: unknown): string | undefined {
-  return searchModel(config);
+const SCOUT_SEARCH_MODEL = 'openai/gpt-6.1-sol';
+
+/** The model the scout agent searches with in `config` (the live engine config): `web.search.model`, else its own. */
+export function webSearchModel(config: unknown): string {
+  return searchModel(config) ?? SCOUT_SEARCH_MODEL;
 }
 
 /**
@@ -83,7 +85,7 @@ export function parseSearchArgs(argv: Array<string>): { query: string; count: nu
 }
 
 /**
- * The chat-completions body of one search: the query as the only message, the web plugin on Exa
+ * The chat-completions body of one search: the query as the only message, the web plugin
  * with `max_results` = `count` clamped to 1..10, a short answer.
  */
 export function buildSearchRequest({

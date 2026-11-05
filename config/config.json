@@ -223,9 +223,8 @@
     },
     "search": {
       "enabled": true,
-      "engine": "brave",
-      "model": "openai/gpt-6.1-sol",
-      "fallback": [],
+      "engine": null,
+      "model": null,
       "rawOutputTokens": 256,
       "maxOutputTokens": 4000,
       "classifierMaxOutputTokens": 2000,

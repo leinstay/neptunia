@@ -721,10 +721,7 @@
     },
     "src/web/lookup.ts": {
       "createLookup": {
-        "function-length": 540
-      },
-      "createLookup>search": {
-        "complexity": 21
+        "function-length": 512
       }
     },
     "src/web/readable.ts": {

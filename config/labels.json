@@ -638,7 +638,7 @@
           "channel-not-visible": "you cannot see that channel",
           "gif-failed": "your text posted but the GIF failed to attach",
           "empty-query": "nothing left to search after cleaning the query",
-          "provider": "the search engines did not answer ({status})",
+          "provider": "the search engine did not answer ({status})",
           "cap": "{what} reached today's limit",
           "no-budget": "there is no budget for it now",
           "unsupported": "this chat cannot do that",
@@ -761,7 +761,17 @@
             "picture": "the picture"
           },
           "feature": {
-            "web": "the web lookup"
+            "web": "the web lookup",
+            "quick-search": "quick search"
+          },
+          "reason": {
+            "disabled": "it is switched off",
+            "no-engine": "no search engine is chosen",
+            "no-model": "its engine has no model set",
+            "no-key": "its engine has no key",
+            "timeout": "the search timed out, so a retry may work",
+            "rate-limited": "the engine is rate limiting, so wait before trying again",
+            "credentials": "the engine refused the key, which only the owner can fix"
           },
           "ability": {
             "imagesIn": "looking at pictures",
