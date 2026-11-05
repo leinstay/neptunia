@@ -32,7 +32,6 @@ import type { RunRecord } from '../watcher/lifecycle.ts';
 import { isDay, readReport, readReportRun, reportsDirOf, runLines, watcherDir } from '../watcher/read.ts';
 import {
   WATCHER_EVIDENCE_MAX_CHARS,
-  mainCi,
   mirrorFacts,
   observationInterval,
   openTaskIds,
@@ -168,7 +167,7 @@ export function readMemoryAt<TResult>(dataDir: string, read: (db: ReturnType<typ
 const readMemory = <TResult>(deps: ServiceDeps, read: (db: ReturnType<typeof dbOf>) => TResult): TResult | null =>
   readMemoryAt(deps.dataDir, read);
 
-/** What only the first page of a walk carries, read once per walk: the leftovers, the selfreflection's facts and the CI of `main`. */
+/** What only the first page of a walk carries, read once per walk: the leftovers, the mirrors, the selfreflection's facts, the standards and the audit. */
 async function firstPageFacts(deps: ServiceDeps, window: { from: number; to: number }) {
   return {
     trash: await trashOf(deps),
@@ -176,7 +175,6 @@ async function firstPageFacts(deps: ServiceDeps, window: { from: number; to: num
     selfreflection: readMemory(deps, selfreflectionFacts),
     standards: readMemory(deps, (db) => standardFacts(db, window)),
     audit: readMemory(deps, auditMemory),
-    ci: await mainCi(deps.run),
   };
 }
 
@@ -235,7 +233,7 @@ function joinPages(
  * `evidence [--from <iso>] [--cursor <c>]`: the recorded requests, then the Claude transcripts, of the window from the last
  * successful inspection (or `--from`) to now, under `WATCHER_EVIDENCE_MAX_CHARS`, as JSON. The cursor pins the end of the window,
  * so a walk over pages reads one fixed set of runs. The inspection in progress and its session are left out. The first page,
- * the one with no cursor, also carries `trash`, `mirrors`, `selfreflection`, `standards`, `audit` and `ci`.
+ * the one with no cursor, also carries `trash`, `mirrors`, `selfreflection`, `standards` and `audit`.
  */
 export async function watcherEvidence(
   deps: ServiceDeps,

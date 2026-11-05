@@ -12,6 +12,8 @@ import path from 'node:path';
 import type { Db } from '../memory/db/types.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { DAY_MS } from '../time.ts';
+import { ciFacts, ciLines } from './ci.ts';
+import type { CiFacts } from './ci.ts';
 import { DEVELOPMENT_SECTION, insertInspected, insertUnavailable, maskCredentials, removeSection } from './report.ts';
 import { WATCHER_EVIDENCE_MAX_CHARS } from './requests.ts';
 
@@ -34,6 +36,8 @@ export type DevelopmentFacts = {
     merged: number;
   } | null;
   pullRequests: ReadonlyArray<{ number: number; branch: string; ci: DevelopmentCi }> | null;
+  /** The CI of `main`; null when `gh` gave no list, absent in facts of a caller that never asked. */
+  ci?: CiFacts | null;
   worker: { state: string; since: string | null } | null;
   modules: boolean;
 };
@@ -361,11 +365,12 @@ export async function developmentFacts(input: {
 }): Promise<DevelopmentFacts> {
   const { mode, run, now } = input;
   const git = (...args: Array<string>): Promise<string | null> => outputOf(run, 'git', ['-C', mode.checkout, ...args]);
-  const [behind, listing, branches, pullRequests, worker] = await Promise.all([
+  const [behind, listing, branches, pullRequests, ci, worker] = await Promise.all([
     git('rev-list', '--count', `refs/heads/${mode.base}..refs/remotes/origin/${mode.base}`),
     git('worktree', 'list', '--porcelain'),
     git('for-each-ref', '--format=%(refname:short)', 'refs/heads'),
     pullRequestsOf(run, mode.repository),
+    ciFacts({ run, repository: mode.repository, now }),
     workerOf(run, input.scope),
   ]);
   let board: BoardFacts | null = null;
@@ -385,6 +390,7 @@ export async function developmentFacts(input: {
       .map((name) => ({ name, taskId: board?.branchTasks.get(name) ?? null })),
     tasks: board?.tasks ?? null,
     pullRequests,
+    ci,
     worker,
     modules: fs.statSync(path.join(mode.checkout, 'node_modules'), { throwIfNoEntry: false })?.isDirectory() === true,
   });
@@ -437,6 +443,7 @@ function factLines(facts: DevelopmentFacts): Array<string> {
       : pullRequests.length === 0
         ? ['- open pull requests: 0']
         : pullRequests.map((one) => `- open pull request #${one.number} on ${one.branch}: CI ${one.ci}`)),
+    ...(facts.ci === undefined || facts.ci === null ? [] : ciLines(facts.ci).inspected),
     ...(worker === null
       ? []
       : [`- worker ${WORKER_UNIT}: ${worker.state}${worker.since === null ? '' : ` since ${worker.since}`}`]),
@@ -451,6 +458,7 @@ function gapLines(facts: DevelopmentFacts): Array<string> {
     ...(base.behind === null ? [`- base ${base.name} could not be compared with origin/${base.name}`] : []),
     ...(tasks === null ? ['- board tasks could not be read'] : []),
     ...(pullRequests === null ? ['- pull requests unavailable'] : []),
+    ...(facts.ci === undefined ? [] : ciLines(facts.ci).unavailable),
     ...(worker === null ? [`- worker ${WORKER_UNIT} could not be read`] : []),
     ...(modules ? [] : ["- node_modules is missing, so the executor's tests cannot run"]),
   ];
