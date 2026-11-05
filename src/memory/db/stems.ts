@@ -8,14 +8,13 @@
 // `fillStems` runs from the writers' projection job (unit-write.ts, op `project`): it learns the stemmer when there is
 // none or the text grew by a quarter since it was learned (a new stemmer re-stamps every row), then fills the rows whose
 // stems are still empty. A row whose text changes gets its stems emptied by the upsert (upsert.ts), so it is filled
-// again. A row's stems also hold the words of the descriptions known for its attachments (line-media.ts), so a word search
-// finds a picture by what it shows while `sources.text` stays what was written; `restampAttachment` adds them to the
-// rows already stamped when a description arrives after its line.
+// again. A row's stems also hold the words of its media rows (`source_media`: the text forms, a file's or a sticker's name, a
+// link's title), so a word search finds a picture by what it shows while `sources.text` stays what was written;
+// `restampSource` adds them to a row already stamped when a text form arrives after its line.
 //
 // Pure of the bot; works on an opened database (the writer connection for `fillStems`, any for `loadStemmer`).
 
 import { indexWords, learnEndings, stemmerOf } from '../record-index.ts';
-import { sourceAttachmentIds, sourceDescriptions } from './line-media.ts';
 import type { Db, Row } from './types.ts';
 
 const META_KEY = 'stemmer';
@@ -58,11 +57,35 @@ export function stemsOf(stem: (word: string) => string, text: unknown): string {
 }
 
 /** The columns a source row's stems are computed from. */
-const STAMP_COLUMNS = 'rowid, text, extra, place_id, scope_kind, scope_iface, scope_dm';
+const STAMP_COLUMNS = 'rowid, id, text';
 
-/** The stems of a source row: its text, then the descriptions known for its attachments. */
+const mediaTableKnown = new WeakMap<Db, boolean>();
+/** Whether the database holds `source_media`: a migration older than the table may stamp rows. Once true it stays true. */
+function hasMediaTable(db: Db): boolean {
+  if (mediaTableKnown.get(db)) return true;
+  const known =
+    db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'source_media'").get() !== undefined;
+  mediaTableKnown.set(db, known);
+  return known;
+}
+
+/** The words a line's media add to its stems: every text form, the name a person gave a file or a sticker, a link's title. */
+function mediaWords(db: Db, sourceId: unknown): Array<unknown> {
+  if (!hasMediaTable(db)) return [];
+  return db
+    .prepare('SELECT kind, name, title, text FROM source_media WHERE source_id = ? ORDER BY position')
+    .all(sourceId)
+    .flatMap((row) => [
+      row.kind === 'file' || row.kind === 'audio' || row.kind === 'sticker' ? row.name : null,
+      row.kind === 'link' ? row.title : null,
+      row.text,
+    ])
+    .filter(Boolean);
+}
+
+/** The stems of a source row: its text, then the words of its media. */
 function stampOf(db: Db, stem: (word: string) => string, row: Row): string {
-  return [row.text, ...sourceDescriptions(db, row)]
+  return [row.text, ...mediaWords(db, row.id)]
     .map((text) => stemsOf(stem, text))
     .filter(Boolean)
     .join(' ');
@@ -171,18 +194,12 @@ export function fillStems(db: Db): { stamped: number; relearned: boolean } {
 }
 
 /**
- * The stems of the rows already stamped that hold this attachment, computed again now that its description is stored.
- * A row still waiting for its stems gets them from `fillStems`. Runs inside the writer's transaction.
+ * The stems of one row computed again now that its media changed. A row still waiting for its stems gets them from
+ * `fillStems`. Runs inside the writer's transaction.
  */
-export function restampAttachment(db: Db, attachmentId: string): number {
-  const { stem } = loadStemmer(db);
-  const rows = db
-    .prepare(`SELECT ${STAMP_COLUMNS} FROM sources WHERE stems IS NOT NULL AND instr(extra, ?) > 0`)
-    .all(JSON.stringify(attachmentId));
-  const update = db.prepare('UPDATE sources SET stems = ? WHERE rowid = ?');
-  const holding = rows.filter((row) =>
-    sourceAttachmentIds(JSON.parse(String(row.extra)) as Row).includes(attachmentId)
-  );
-  for (const row of holding) update.run(stampOf(db, stem, row), row.rowid);
-  return holding.length;
+export function restampSource(db: Db, sourceId: string): void {
+  const row = db.prepare(`SELECT ${STAMP_COLUMNS} FROM sources WHERE id = ? AND stems IS NOT NULL`).get(sourceId);
+  if (!row) return;
+  const stamp = stampOf(db, loadStemmer(db).stem, row);
+  db.prepare('UPDATE sources SET stems = ? WHERE rowid = ?').run(stamp, row.rowid);
 }

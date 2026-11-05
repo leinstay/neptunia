@@ -14,6 +14,7 @@ import type { MappedPath } from '../migration/classify.ts';
 import { filesOf } from './map/vectors.ts';
 import { OWNED } from './upsert.ts';
 import { addSessionRows } from './session-rows.ts';
+import { parseExtra } from './map/common.ts';
 import { asText, dbOf, isFiniteNumber } from './types.ts';
 import type { Connection, Db, Row, Rows } from './types.ts';
 
@@ -101,6 +102,29 @@ const KEY_SQL = (table: string) =>
  * The active rows of one unit (`owner` is its full path): table -> rows (every table present), children included; a
  * member's unit with her session's rows about the person.
  */
+/** A record line reads its media as it was written: the kinds and link cards of its `source_media` rows. */
+function addSourceMedia(db: Db, sources: Array<Row>): void {
+  if (sources.length === 0 || !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'source_media'").get()) return;
+  const select = db.prepare(
+    'SELECT kind, native_ref, site, title, url, text, text_origin FROM source_media WHERE source_id = ? ORDER BY position'
+  );
+  for (const source of sources) {
+    const media = select.all(source.id);
+    if (media.length === 0) continue;
+    source.media = JSON.stringify(media.map((row) => row.kind));
+    const links = media
+      .filter((row) => row.kind === 'link' && (row.title !== null || row.text_origin === 'embed'))
+      .map((row) => ({
+        ...(row.native_ref === null ? {} : { id: row.native_ref }),
+        url: row.url,
+        title: row.title ?? '',
+        description: row.text_origin === 'embed' ? row.text : '',
+        site: row.site ?? '',
+      }));
+    if (links.length > 0) source.extra = JSON.stringify({ ...parseExtra(source.extra), links });
+  }
+}
+
 export function unitRows(db: Db, key: StorageKey | string): Rows {
   const current = hasStorageUnits(db);
   const semantic = typeof key === 'string' ? (current ? (unitById(db, key)?.key ?? legacyStorageKey(key)) : null) : key;
@@ -116,6 +140,7 @@ export function unitRows(db: Db, key: StorageKey | string): Rows {
       .all(owner, table, owner)
       .map((row) => ({ ...row }));
   }
+  addSourceMedia(db, rows.sources);
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
     rows[child] = db
       .prepare(
