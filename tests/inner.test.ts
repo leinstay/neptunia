@@ -1,4 +1,4 @@
-// health: allow file-length until 2027-04-01
+// health: allow file-length until 2027-04-01 -- the heartbeat key list grew with the retrieval facts
 // Inner scheduler tests use injected clocks, a real event door and synthetic stores without network calls.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
