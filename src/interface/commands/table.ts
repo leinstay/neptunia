@@ -6,8 +6,8 @@
 // A line is the command, then its subcommand when it has them, then its arguments in order, split on spaces. The
 // `neptunia <words...>` form hands the same parse the words of argv, which it never joins or splits, so a word keeps
 // its spaces, its quotes and its dollar signs. The last argument takes the rest of the words joined by one space, so a
-// rule or a lore text keeps its spaces. A subcommand may be two words
-// (`/memory lore add`), and its parsed name joins the words with dots (`memory.lore.add`). A command without a
+// rule or a lore text keeps its spaces. A subcommand may be up to three words
+// (`/memory places lore add`), and its parsed name joins the words with dots (`memory.places.lore.add`). A command without a
 // subcommand runs its `defaultSubcommand`, or itself when it has none, and a command marked `needsSubcommand`
 // refuses the bare line. An argument with `choices` takes only those values. An argument with a `flag` is written
 // `--key <word>` after the positional words, takes exactly one word, and is refused when its word is missing, when
@@ -168,6 +168,128 @@ const SERVICE_SUBCOMMANDS: ReadonlyArray<Subcommand> = [
   ]),
 ];
 
+/** The flags of a page of an owner read. */
+const PAGE_FLAGS: ReadonlyArray<CommandArg> = [flagArg('limit', false), flagArg('cursor', false)];
+
+/** The flags that choose which graph edges a read follows. */
+const EDGE_FLAGS: ReadonlyArray<CommandArg> = [
+  flagArg('predicates', false),
+  flagArg('mode', false),
+  flagArg('valid-at', false),
+  flagArg('recorded-before', false),
+];
+
+/** The families with one record per id: each opens a record whole and lists every id. */
+const DOMAIN_FAMILIES: ReadonlyArray<string> = [
+  'sources',
+  'claims',
+  'descriptions',
+  'episodes',
+  'diary',
+  'media',
+  'publications',
+  'grants',
+  'sessions',
+  'requests',
+  'turns',
+];
+
+/** The owner's browser of memory (src/interface/commands/memory.ts), each read answering JSON. */
+const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
+  sub('users.list', 'List people, unlinked accounts and anonymous participants', [
+    flagArg('name', false),
+    flagArg('interface', false),
+    flagArg('authority', false),
+    ...PAGE_FLAGS,
+  ]),
+  sub('users.show', 'Show a person: names, accounts, links, merges, relationship and exact records', [arg('person')]),
+  sub('users.accounts', 'Show the accounts of a person and every link with its window', [arg('person')]),
+  sub('users.names', 'Show the names on record for a person', [arg('person')]),
+  sub('users.names.add', "Confirm a member's alias", [arg('user'), arg('name')]),
+  sub('users.names.remove', "Remove a member's alias", [arg('user'), arg('name')]),
+  sub('users.relationship', 'Show the affinity of a person with its history', [arg('person')]),
+  sub('users.private', 'Show the private memory of a person across their DMs', [arg('person')]),
+  sub('users.link', 'Link an account to a person', [arg('person'), arg('account')]),
+  sub('users.unlink', 'Unlink an account from a person', [arg('person'), arg('account')]),
+  sub('places.list', 'List places of any kind and depth', [
+    flagArg('interface', false),
+    flagArg('authority', false),
+    bareFlagArg('roots'),
+    ...PAGE_FLAGS,
+  ]),
+  sub('places.tree', 'Show everything under a place with its depth, and any cycle', [
+    arg('place'),
+    flagArg('limit', false),
+  ]),
+  sub('places.show', 'Show a place, with --include-children its descendants and their descriptions too', [
+    arg('place'),
+    bareFlagArg('include-children'),
+  ]),
+  sub('places.lore', 'Show the lore records of a place by id', [arg('place')]),
+  sub('places.lore.add', 'Add a lore entry to a place', [arg('place'), arg('title'), arg('keys'), arg('text')]),
+  sub('places.lore.list', 'Show the lore entries of a place', [arg('place'), arg('query', false)]),
+  sub('places.lore.show', 'Show one lore entry of a place', [arg('place'), arg('id')]),
+  sub('places.lore.remove', 'Remove a lore entry from a place', [arg('place'), arg('id')]),
+  sub('graph.kinds', 'List node kinds and predicates with their counts, deferred ones as deferred'),
+  sub('graph.nodes', 'List every graph node', [flagArg('kinds', false), ...PAGE_FLAGS]),
+  sub('graph.edges', 'List every graph edge', [...EDGE_FLAGS, ...PAGE_FLAGS]),
+  sub('graph.node', 'Show a node: its typed record, witnesses and edge counts', [arg('node')]),
+  sub('graph.neighbors', 'List the edges at a node', [
+    arg('node'),
+    flagArg('direction', false),
+    ...EDGE_FLAGS,
+    ...PAGE_FLAGS,
+  ]),
+  sub('graph.walk', 'Walk from nodes, each visited once, leaving a frontier at the bounds', [
+    arg('nodes-from'),
+    flagArg('direction', false),
+    ...EDGE_FLAGS,
+    flagArg('depth', false),
+    flagArg('nodes', false),
+    flagArg('cursor', false),
+  ]),
+  sub('graph.path', 'Find the shortest association between two nodes; it is read and never remembered', [
+    arg('from'),
+    arg('to'),
+    flagArg('direction', false),
+    ...EDGE_FLAGS,
+    flagArg('depth', false),
+  ]),
+  sub('inspect.tables', 'List every table of the database with its class', [flagArg('snapshot', false)]),
+  sub('inspect.schema', 'Show the columns, keys, indexes and triggers of a table', [
+    arg('table'),
+    flagArg('snapshot', false),
+  ]),
+  sub('inspect.rows', 'Read the rows of any table by page', [
+    arg('table'),
+    flagArg('snapshot', false),
+    ...PAGE_FLAGS,
+    flagArg('filters', false),
+  ]),
+  sub('inspect.row', 'Read one row by the locator its page gave', [
+    arg('table'),
+    arg('locator'),
+    flagArg('snapshot', false),
+  ]),
+  sub('inspect.value', 'Read a large value of a row from a byte offset', [
+    arg('table'),
+    arg('locator'),
+    arg('column'),
+    flagArg('snapshot', false),
+    flagArg('offset', false),
+  ]),
+  sub('inspect.export', 'Write every table of one snapshot to a new JSONL file at mode 0600', [arg('file')]),
+  sub('inspect.close', 'Close a snapshot', [arg('snapshot')]),
+  ...DOMAIN_FAMILIES.flatMap((family) => [
+    sub(`${family}.show`, `Open one record of ${family} with every stored field and its links`, [arg('id')]),
+    sub(`${family}.list`, `List the ids of ${family}`, PAGE_FLAGS),
+  ]),
+  sub('claims.versions', 'Open every version of a claim in order of recording', [arg('id')]),
+  sub('claims.version', 'Open one version of a claim', [arg('id')]),
+  sub('descriptions.versions', 'Open every version of a description in order of writing', [arg('id')]),
+  sub('descriptions.version', 'Open one version of a description', [arg('id')]),
+];
+
 /** The commands the plural families, `/logs watcher` and `/doctor` replaced: what each is refused with, by the words after it. */
 const RETIRED_COMMANDS: Readonly<Record<string, (rest: ReadonlyArray<string>) => string>> = {
   service: ([first, second]) =>
@@ -188,6 +310,19 @@ const RETIRED_COMMANDS: Readonly<Record<string, (rest: ReadonlyArray<string>) =>
   heartbeat: () => 'services heartbeat',
   selfreflection: () => 'services selfreflection',
   selfimprovement: () => 'services selfimprovement',
+};
+
+/** What replaced each retired leaf of `/memory`, which is refused and runs nothing. */
+const RETIRED_MEMORY: Readonly<Record<string, string>> = {
+  profile: '/memory users show <person>',
+  accounts: '/memory users accounts <person>',
+  unbind: '/memory users unlink <person> <account>',
+  aliases: '/memory users names <person>',
+  affinity: '/memory users relationship <person>',
+  private: '/memory users private <person>',
+  server: '/memory places show <place> --include-children',
+  lore: '/memory places lore <place>',
+  person: '/memory places show <place>',
 };
 
 /** What replaced each retired word of the `subharness` family; `next` is the word after it on the line. */
@@ -346,36 +481,24 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'memory',
-    help: 'Search memories, inspect people and link their accounts',
+    help: 'Search memories, browse people, places and the graph, and inspect every stored row',
     args: [],
     needsSubcommand: true,
     subcommands: [
-      sub('profile', "A member's profile: profile <user> [section]", [arg('user'), arg('section', false)]),
       sub('conversation', "A conversation's newest stored lines", [arg('conversation')]),
       sub('recent', 'Show live recent lines'),
-      sub('affinity', "A member's affinity", [arg('user')]),
       sub('search', 'Search her memory', [arg('query')]),
       sub('backup', 'Make a backup of the memory database and list the kept ones'),
       sub('restore', 'Bring an archived item back', [arg('id')]),
       sub('journal', 'Show journal of a day: journal [<YYYY-MM-DD>]', [arg('day', false)]),
-      sub('private', "A member's private memory", [arg('user')]),
       sub('archive', 'List archived memory items', [arg('kind', false)]),
-      sub('server', 'Show server notes'),
-      sub('lore.add', 'Add a lore entry: lore add <title> <keys> <text>', [arg('title'), arg('keys'), arg('text')]),
-      sub('lore.list', 'Show lore entries', [arg('query', false)]),
-      sub('lore.show', 'Show one lore entry', [arg('id')]),
-      sub('lore.remove', 'Remove a lore entry', [arg('id')]),
       sub('bind', 'Link accounts to one person, to the persona with self, or to the owner with owner', [
         arg('iface'),
         arg('account'),
         arg('target'),
         arg('targetAccount', false),
       ]),
-      sub('unbind', 'Unlink an account from its shared person', [arg('iface'), arg('account')]),
-      sub('accounts', 'Show accounts of the person an account belongs to', [arg('iface'), arg('account')]),
-      sub('aliases.add', "Confirm a member's alias", [arg('user'), arg('name')]),
-      sub('aliases.list', "A member's aliases", [arg('user')]),
-      sub('aliases.remove', "Remove a member's alias", [arg('user'), arg('name')]),
+      ...MEMORY_BROWSER,
       sub('lessons.add', 'Add a lesson', [arg('text')]),
       sub('lessons.list', 'Show lessons'),
       sub('lessons.remove', 'Remove a lesson by its number', [arg('id')]),
@@ -571,8 +694,13 @@ const refuse = (reason: string): Parsed => ({ ok: false, reason });
 
 /** The subcommand the words starting at `words[0]` name, with how many words it took; null when none. */
 function subcommandOf(command: Command, words: ReadonlyArray<string>): { found: Subcommand; used: number } | null {
-  const [first, second] = words;
+  const [first, second, third] = words;
   if (first === undefined) return null;
+  const deep =
+    second === undefined || third === undefined
+      ? undefined
+      : command.subcommands.find((one) => one.name === `${first}.${second}.${third}`);
+  if (deep !== undefined) return { found: deep, used: 3 };
   const nested =
     second === undefined ? undefined : command.subcommands.find((one) => one.name === `${first}.${second}`);
   if (nested !== undefined) return { found: nested, used: 2 };
@@ -686,6 +814,9 @@ const unknownWord = (word: string, rest: ReadonlyArray<string>): string =>
 function retiredWords(first: string, rest: ReadonlyArray<string>): string | null {
   if (first === 'services' && rest[0] === 'watcher' && rest[1] === 'report')
     return '/services watcher report is retired: use neptunia logs watcher';
+  const memoryWord = rest[0];
+  if (first === 'memory' && memoryWord !== undefined && Object.hasOwn(RETIRED_MEMORY, memoryWord))
+    return `/memory ${memoryWord} is retired: use ${RETIRED_MEMORY[memoryWord] ?? '/help'}`;
   return retiredSubharness(first, rest);
 }
 
@@ -747,7 +878,7 @@ function parseWithoutPlace(words: ReadonlyArray<string>): Parsed {
   return refused === null ? { ok: true, name, args: values } : refuse(refused);
 }
 
-/** One typed line (`/memory lore add Tower tower,spire The tower ...`) as its command's dotted name and arguments. */
+/** One typed line (`/memory places lore add g1 Tower tower,spire The tower ...`) as its command's dotted name and arguments. */
 export function parseCommandLine(line: string): Parsed {
   return parseCommandWords(commandLineWords(line));
 }

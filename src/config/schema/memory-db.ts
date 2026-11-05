@@ -33,6 +33,27 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
       'How many days the `ingest` table keeps an event the core took, the window in which a redelivered event is still a duplicate after a restart',
   },
   {
+    'key': 'memoryDb.inspection.pageRows',
+    'types': ['number'],
+    'reader': 'src/interface/commands/memory.ts',
+    'default': 100,
+    'text': 'The most rows one page of an owner memory read holds, whatever limit a command asks for',
+  },
+  {
+    'key': 'memoryDb.inspection.snapshotIdleSeconds',
+    'types': ['number'],
+    'reader': 'src/interface/commands/memory.ts',
+    'default': 60,
+    'text': 'How long an inspection snapshot stays open with no read of it',
+  },
+  {
+    'key': 'memoryDb.inspection.snapshotMaxSeconds',
+    'types': ['number'],
+    'reader': 'src/interface/commands/memory.ts',
+    'default': 300,
+    'text': 'How long an inspection snapshot stays open at most, so it cannot hold the write-ahead log back',
+  },
+  {
     'key': 'memoryDb.backup.enabled',
     'types': ['boolean'],
     'reader': 'src/memory/db/backup.ts',
