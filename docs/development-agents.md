@@ -26,6 +26,10 @@ On `claude` the worker passes each agent's `profile.json` tools, so `--tools` an
 
 No agent gets a gh login. A backend child inherits only `PATH`, `HOME`, the locale and `TMPDIR`. `developmentEdges` in `src/development/edges.ts` takes `GH_TOKEN` and `GITHUB_TOKEN` out of what the worker hands it, and points `GH_CONFIG_DIR` at an empty temporary folder made for that run and removed when the run ends. The thinker's client holds `reviewer` and `worker`, which merge nothing on GitHub. Set the thinker's and dev's backend with `/subharness use`, and their model and effort with `/subharness model <agent> <model> --effort <level>`.
 
+## Mutation testing
+
+`.github/workflows/mutation.yml` runs `npm run mutation` once a week and on demand, apart from the pull request jobs, with a limit of 30 minutes. It mutates the lines that changed on `main` since the last commit older than a week. [scripts/mutation-diff.ts](../scripts/mutation-diff.ts) takes at most 270 changed lines, largest files first, and prints the files and line counts it left out. A score under `thresholds.break` in `scripts/config/stryker.config.json` or a run past the limit turns the workflow red. Read a red run for the survivors and the left-out list, and start it again by hand with an older `base` for what a week could not hold.
+
 ## Inspect past work
 
 Keep the backend's native session files with `data/subharness/`. The board stores attempts and results, while the native session contains the available messages and tool activity. A short final report does not replace that session. An errand's records are not resumed after a restart. A development task is, from its branch and `metadata.development`, and an interrupted agent starts over in a fresh turn.
