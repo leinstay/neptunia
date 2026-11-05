@@ -289,7 +289,6 @@
     "triggers": {
       "mention": "mentioned you",
       "reply": "replied to you",
-      "name": "said your name",
       "followUp": "continued your conversation",
       "overheard": "talked about you, not to you",
       "private": "wrote to you privately",

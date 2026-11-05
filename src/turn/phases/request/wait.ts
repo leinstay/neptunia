@@ -71,7 +71,7 @@ export async function waitForPreparation(
   // The pulled channels started earlier: timed from their own start.
   const pulledStage = isPrivate && !likeServer ? null : track('pulled', () => pulledPending, pullStartedAt);
   // `<participation>`: the persona's own exchanges on other channels this turn may show, and
-  // the pick classifier's choice among them (src/behavior/participation-pick.ts; it asks
+  // the elsewhere pick's choice among them (src/behavior/elsewhere-pick.ts; it asks
   // nothing when there is no episode to offer). Late or failed, the newest are shown.
   const participationShown = participationOn(channel) && finalMode !== 'diary';
   const participationAudienceOf = participationShown ? participationAudience(channel, config, snapshot) : null;
@@ -86,7 +86,6 @@ export async function waitForPreparation(
           triggerKind,
           mode: finalMode,
           selfName,
-          audience: participationAudienceOf,
           limits: draft.limits,
         })
       )

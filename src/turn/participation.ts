@@ -116,7 +116,7 @@ export type Participation = {
   ) => RecentInput;
 };
 
-export function createParticipation({ hot, store, around, clock }: ParticipationContext): Participation {
+export function createParticipation({ store, around, clock }: ParticipationContext): Participation {
   /**
    * Whether a server turn in `channel` has the persona's participation store: features.memory
    * and features.participation on (`config`, the turn's live config; a missing key counts as on),
@@ -252,9 +252,8 @@ export function createParticipation({ hot, store, around, clock }: Participation
     descriptions: unknown;
   }): void {
     try {
-      const config = hot.config;
       if (!participationOn(channel)) return;
-      const settings = participationSettings(config);
+      const settings = participationSettings();
       const at = clock();
       const shape = (message: HistoryMessage): ParticipationMessage =>
         participationMessage(message, { selfName, descriptions });

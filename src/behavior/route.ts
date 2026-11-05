@@ -1,22 +1,10 @@
-// The pure core of the channel route classifier. A conversation often turns
-// to another channel without anyone writing its explicit <#id> ("what was in
-// the diary channel yesterday?"); the pull phase (src/behavior/pull.ts) only
-// sees the explicit tokens, so the persona would be asked about a channel it
-// cannot see. One cheap classifier call reads the chat around the turn and a
-// numbered list of the server's channels and answers one number or `none`;
-// the pick goes to the pull phase as a route hook id. This module holds the
-// decisions -- the `route` settings and the `features.channelRoute` switch,
-// which turns may ask, the numbered list, the request, the answer parser --
-// with no I/O; src/behavior/route-channel.ts is the thin side that reads the
-// store, judges the channels and sends the request. No wording of ours goes
-// into the request: the prompt file says everything, the list lines carry
-// structural fields only.
+// The pure pieces the elsewhere pick (src/behavior/elsewhere-pick.ts) reads a turn through: which line it judges, the
+// transcript and the candidate around it, and the member who writes most of a stored place.
 
-import { block, classifierTranscript, fillPromptTemplate, stableThenTail } from './prompt.ts';
-import { clampText, oneLine } from '../memory/clamp.ts';
+import { block, classifierTranscript } from './prompt.ts';
+import { oneLine } from '../memory/clamp.ts';
 import { topByRank } from '../memory/ranking.ts';
 import { MAX_MESSAGE_CHARS } from '../format.ts';
-import { isFiniteNumber } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { Line } from './lines.ts';
 
@@ -33,71 +21,8 @@ export type StoredChannel = {
 /** A stored member profile, as far as the route classifier names a channel's main writer. */
 export type StoredProfile = { names?: Array<string>; aliases?: Array<Untyped> };
 
-/**
- * The route classifier's measures: production values of the config cut of 2026-10-31, and the fallback of
- * `route.maxOutputTokens`.
- */
-export const ROUTE_DEFAULTS = Object.freeze({
-  contextMessages: 20,
-  maxChannels: 40,
-  purposeChars: 80,
-  maxOutputTokens: 120,
-});
-
 /** How many aliases a channel's writer shows in its list line, best ranked first. */
 const WRITER_ALIASES = 2;
-
-/** Trigger kinds whose turn never asks the route classifier (see routeAllowed). */
-const REFUSED_KINDS = new Set<string | null>(['overheard', 'private']);
-
-/** An integer from a finite `value` of at least `min` (floored), else `fallback`. */
-function intAtLeast(value: unknown, fallback: number, min: number): number {
-  return isFiniteNumber(value) && value >= min ? Math.floor(value) : fallback;
-}
-
-/**
- * The `route` settings: ROUTE_DEFAULTS, with `route.maxOutputTokens` read from the live config (floored, at least 1,
- * else ROUTE_DEFAULTS').
- * @param config  The live config.
- */
-export function routeSettings(
-  config: Record<string, Untyped>
-): { contextMessages: number; maxChannels: number; purposeChars: number; maxOutputTokens: number } | null {
-  const r = config?.route ?? {};
-  const d = ROUTE_DEFAULTS;
-  return {
-    contextMessages: d.contextMessages,
-    maxChannels: d.maxChannels,
-    purposeChars: d.purposeChars,
-    maxOutputTokens: intAtLeast(r.maxOutputTokens, d.maxOutputTokens, 1),
-  };
-}
-
-/**
- * Whether a turn may ask the route classifier: an ordinary reply turn of any
- * trigger kind (`mention`, `reply`, `name`, `followUp`) and a turn without a
- * trigger (`triggerKind` null: interject, initiate, a noticed comment) may;
- * an `overheard` line (talk about the persona asks it nothing) and a private chat (no channels to
- * pull: `private`, or `privateChat` true) may not.
- */
-export function routeAllowed({
-  triggerKind = null,
-  privateChat = false,
-}: { triggerKind?: string | null; privateChat?: boolean } = {}): boolean {
-  if (privateChat === true) return false;
-  return !REFUSED_KINDS.has(triggerKind);
-}
-
-/**
- * The newest-first order of the stored channels by `lastMessageAt` (a number
- * of ms or an ISO string); one without a readable time goes last.
- */
-function lastAt(channel: StoredChannel): number {
-  const value = channel?.lastMessageAt;
-  if (isFiniteNumber(value)) return value;
-  const parsed = typeof value === 'string' ? Date.parse(value) : NaN;
-  return Number.isFinite(parsed) ? parsed : -Infinity;
-}
 
 /**
  * The channel's main writer: its first `topWriters` entry when that writer
@@ -123,98 +48,6 @@ export function routeWriter(
     .map((alias: Untyped) => oneLine(alias?.name))
     .filter(Boolean);
   return { name, aliases };
-}
-
-/** Snowflake ids ascending: shorter first, then by digits; any other string by plain comparison. */
-function compareIds(a: Untyped, b: Untyped) {
-  return a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
-}
-
-/**
- * The channels the classifier may pick from: the stored `channels` except
- * the `exclude` ids, newest `lastMessageAt` first, each judged by `check`
- * (null = the pull would refuse it, so a pick is never wasted on it; else the
- * live channel, whose name stands in for an empty stored one) until `max`
- * are kept. `check` is asked in that order and not after the list is full.
- * The kept ones are returned in channel id order (ascending).
- */
-export function routeEntries({
-  channels,
-  exclude = [],
-  check,
-  profileOf,
-  max,
-  aliasHalfLifeDays,
-}: {
-  channels: Array<StoredChannel>;
-  exclude?: Iterable<string>;
-  check: (id: string) => { name?: string | null } | null;
-  profileOf?: (accountId: string) => StoredProfile | null;
-  max: number;
-  aliasHalfLifeDays?: number;
-}): Array<{ id: string; name: string; writer: { name: string; aliases: Array<string> } | null; purpose: string }> {
-  const skip = new Set(exclude);
-  const limit = intAtLeast(max, 0, 0);
-  const out: Array<{
-    id: string;
-    name: string;
-    writer: { name: string; aliases: Array<string> } | null;
-    purpose: string;
-  }> = [];
-  if (limit === 0 || typeof check !== 'function') return out;
-  const ordered = (Array.isArray(channels) ? channels : [])
-    .filter((channel) => typeof channel?.id === 'string' && channel.id && !skip.has(channel.id))
-    .map((channel, index) => ({ channel, index }))
-    .sort((a, b) => lastAt(b.channel) - lastAt(a.channel) || a.index - b.index)
-    .map(({ channel }) => channel);
-  for (const channel of ordered) {
-    if (out.length >= limit) break;
-    const live = check(channel.id);
-    if (!live) continue;
-    const name = oneLine(channel.name) || oneLine(live.name);
-    if (!name) continue;
-    out.push({
-      id: channel.id,
-      name,
-      writer: routeWriter(channel, profileOf, aliasHalfLifeDays),
-      purpose: typeof channel.purpose === 'string' ? channel.purpose : '',
-    });
-  }
-  // Chosen by recency, listed by id: the text stays the same between turns (the provider's prompt cache).
-  return out.sort((a, b) => compareIds(a.id, b.id));
-}
-
-/**
- * The `<channels>` lines: one per entry (already ordered by the caller), at
- * most `max`, numbered from 1 -- `n | #name | writer (alias, alias) | purpose`.
- * The writer part is empty when there is none (and the name alone when it has
- * no alias); the purpose is put on one line and cut at a clean boundary to
- * `purposeChars` (src/memory/clamp.js#clampText, tolerance 1), 0 leaving it
- * out. Structural fields only: no words of ours. `ids[n - 1]` is the channel
- * of line `n`.
- */
-export function routeChannelList(
-  entries: Array<{
-    id: string;
-    name: string;
-    writer?: { name: string; aliases?: Array<string> } | null;
-    purpose?: string;
-  }>,
-  { max, purposeChars }: { max?: number; purposeChars?: number } = {}
-): { lines: Array<string>; ids: Array<string> } {
-  const limit = intAtLeast(max, ROUTE_DEFAULTS.maxChannels, 0);
-  const chars = intAtLeast(purposeChars, ROUTE_DEFAULTS.purposeChars, 0);
-  const lines = [];
-  const ids = [];
-  for (const entry of (Array.isArray(entries) ? entries : []).slice(0, limit)) {
-    const writer = entry.writer?.name ? oneLine(entry.writer.name) : '';
-    const aliases = (entry.writer?.aliases ?? []).map(oneLine).filter(Boolean);
-    const writerPart = writer && aliases.length > 0 ? `${writer} (${aliases.join(', ')})` : writer;
-    const purpose = chars > 0 ? clampText(oneLine(entry.purpose), chars, { tolerance: 1 }) : '';
-    lines.push(`${ids.length + 1} | #${oneLine(entry.name)} | ${writerPart} | ${purpose}`.trimEnd());
-    ids.push(entry.id);
-  }
-  return { lines, ids };
 }
 
 /**
@@ -269,87 +102,4 @@ export function routeContext({
     transcriptBlock: block('transcript', classifierTranscript(context, { config, selfName, labels })),
     candidateBlock,
   };
-}
-
-/**
- * The route classifier's request: the system message is `prompt` with
- * `{{name}}` filled with the persona's display name; the user message is two
- * text parts: the `<channels>` block (the lines, one per line: the stable
- * bulk, tagged `cacheSegment: 'stable'`, with its separator), then the
- * `transcriptBlock` (may be '') and the `candidateBlock`. Null when the prompt is blank or there is
- * no line.
- */
-export function buildRouteRequest({
-  prompt,
-  selfName,
-  transcriptBlock = '',
-  candidateBlock = '',
-  lines,
-}: {
-  prompt: string | null | undefined;
-  selfName: string;
-  transcriptBlock?: string;
-  candidateBlock?: string;
-  lines: Array<string>;
-}): Array<{ role: string; content: string | Array<Record<string, Untyped>> }> | null {
-  if (typeof prompt !== 'string' || !prompt.trim()) return null;
-  if (!Array.isArray(lines) || lines.length === 0) return null;
-  const user = stableThenTail(block('channels', lines.join('\n')), [transcriptBlock, candidateBlock], '\n');
-  return [
-    { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '' }) },
-    { role: 'user', content: user },
-  ];
-}
-
-/** Quotes that may wrap the whole answer. */
-const WRAPPING = /^["'`«“‘]+|["'`»”’]+$/gu;
-/** Punctuation that may trail the answer. */
-const TRAILING = /[.,;:!?…]+$/u;
-
-/** The words after a number that ask for the page before the last view of that channel. */
-const EARLIER_WORDS = new Set(['earlier', 'older']);
-
-/**
- * The classifier's answer: its first non-empty line, wrapping quotes and
- * trailing punctuation stripped. `none` as the first word (any case) ->
- * `{ index: null, reason: 'none' }`; a number (`3`, `#3`, `3.`) within
- * `1..count` -> `{ index, reason: 'pick' }` (1-based), outside it ->
- * `unknown-id`; nothing -> `empty`; anything else -> `unparsed`. A number may
- * be followed by one word, `earlier` or `older` (any case): the same pick
- * with `direction: 'earlier'` (the page before the last view of that
- * channel); `direction` is null otherwise.
- * @param count  How many lines the list had.
- */
-export function parseRouteAnswer(
-  raw: unknown,
-  count: number
-): {
-  index: number | null;
-  reason: 'pick' | 'none' | 'unknown-id' | 'empty' | 'unparsed';
-  direction: 'earlier' | null;
-} {
-  const answer = (
-    index: number | null,
-    reason: 'pick' | 'none' | 'unknown-id' | 'empty' | 'unparsed',
-    direction: 'earlier' | null = null
-  ) => ({ index, reason, direction });
-  const first = String(raw ?? '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean);
-  if (!first) return answer(null, 'empty');
-  const text = first.replace(WRAPPING, '').trim().replace(TRAILING, '').trim();
-  if (!text) return answer(null, 'empty');
-  const word = text
-    .split(/\s+/u)[0]
-    .replace(/[^\p{L}]/gu, '')
-    .toLowerCase();
-  if (word === 'none') return answer(null, 'none');
-  const number = /^#?(\d+)(?:\s+(\p{L}+))?$/u.exec(text);
-  if (!number) return answer(null, 'unparsed');
-  const direction = number[2] === undefined ? null : EARLIER_WORDS.has(number[2].toLowerCase()) ? 'earlier' : undefined;
-  if (direction === undefined) return answer(null, 'unparsed');
-  const index = Number(number[1]);
-  if (!Number.isSafeInteger(index) || index < 1 || index > count) return answer(null, 'unknown-id');
-  return answer(index, 'pick', direction);
 }

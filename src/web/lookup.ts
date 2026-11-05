@@ -45,6 +45,7 @@ import { isGifHostUrl, siteOf } from '../media/classify.ts';
 import { videoSiteFor, safeLocation } from '../media/video-sites.ts';
 import { SEARCH_ROLE, searchModel } from '../llm/roles.ts';
 import { fillPromptTemplate } from '../behavior/prompt.ts';
+import { createSummaryBuilder, parseSummaryNote, renderResults } from '../behavior/summary-builder.ts';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { clampText, oneLine } from '../memory/clamp.ts';
 import { log } from '../log.ts';
@@ -340,22 +341,7 @@ function searchKey(query: string): string {
   return hashedKey('search', normalizeQuery(query));
 }
 
-/**
- * Numbered search results as plain lines (data, not wording): the search-summary prompt reads
- * them, and the scout agent's search command prints them. Per result `<n>. <title>`, the url, the
- * snippet and the age, each on its own line when present; a blank line between results.
- */
-export function renderResults(
-  results: ReadonlyArray<{ title?: string; url?: string; snippet?: string; age?: string }>
-): string {
-  return results
-    .map((result, index) =>
-      [`${index + 1}. ${result.title ?? ''}`, result.url ?? '', result.snippet ?? '', result.age ?? '']
-        .filter(Boolean)
-        .join('\n')
-    )
-    .join('\n\n');
-}
+export { renderResults };
 
 /**
  * @param deps.hot Live config + prompts; read at the moment of use.
@@ -369,6 +355,7 @@ export function renderResults(
  */
 export function createLookup(deps: LookupDeps): Lookup {
   const { hot, store, llm, pageFetcher, searches = {}, keys = {}, now = Date.now } = deps;
+  const buildSummary = createSummaryBuilder({ hot, llm, now });
   // One in-flight read per place + link: a message prefill and a turn that
   // reach the same new link at once share one request.
   const inFlight = new Map<string, Promise<Fetched>>();
@@ -636,8 +623,10 @@ export function createLookup(deps: LookupDeps): Lookup {
           },
         };
       }
-      const text = cleanText(completion.text, summaryChars);
-      if (!text) return { failure: { reason: 'empty' } };
+      if (!String(completion.text ?? '').trim()) return { failure: { reason: 'empty' } };
+      const note = parseSummaryNote(completion.text, { maxChars: summaryChars });
+      if (!note.text) return { result: { query: asked, text: '', sources: [] } };
+      const text = cleanText(note.text, summaryChars);
       const sources = citationsOf(completion.annotations).map((c) => ({ ...c, site: siteOf(c.url) }));
       return { result: { query: asked, text, sources } };
     }
@@ -656,18 +645,13 @@ export function createLookup(deps: LookupDeps): Lookup {
         },
       };
     }
-    let completion;
-    try {
-      completion = await llm.complete([system, { role: 'user', content: renderResults(found.results) }], options);
-    } catch (err) {
-      return {
-        failure: { reason: llmFailure(err), ...statusOf(err) },
-      };
-    }
-    const text = cleanText(completion.text, summaryChars);
-    if (!text) return { failure: { reason: 'empty' } };
+    const limits = { maxChars: summaryChars, maxOutputTokens: Number(searchCfg.maxOutputTokens) };
+    const note = await buildSummary({ kind: 'web', query: asked, results: found.results }, limits);
+    if (note.status === 'failed') return { failure: { reason: llmFailure(note.error), ...statusOf(note.error) } };
+    if (note.reason === 'empty') return { failure: { reason: 'empty' } };
+    if (!note.text) return { result: { query: asked, text: '', sources: [] } };
     const sources = found.results.map((r) => ({ title: r.title ?? '', url: r.url, site: siteOf(r.url) }));
-    return { result: { query: asked, text, sources } };
+    return { result: { query: asked, text: note.text, sources } };
   }
 
   /**

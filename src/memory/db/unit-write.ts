@@ -759,7 +759,31 @@ export function consolidateInnerState(handle: MemoryHandle, { now }: { now: numb
 }
 
 /**
+ * A name the owner gave a person (`/memory users names add|remove`): an `alias` claim with `author` `owner`, added once or
+ * retired. A name her memory session or the analyzer writes has another author, so the two never mix.
+ */
+function writeOwnerName(db: Db, update: Row, at: string): { personId: string; name: string; stored: boolean } {
+  const personId = typeof update.personId === 'string' ? update.personId : '';
+  const name = typeof update.name === 'string' ? update.name.trim() : '';
+  if (!personId || !name) throw coded('UNIT_BAD_OP');
+  const live = db
+    .prepare(
+      "SELECT id FROM claims WHERE subject_id = ? AND kind = 'alias' AND author = 'owner' AND retired_at IS NULL AND lower(text) = lower(?)"
+    )
+    .get(personId, name) as { id?: string } | undefined;
+  if (update.remove === true) {
+    if (live?.id) db.prepare('UPDATE claims SET retired_at = ? WHERE id = ?').run(at, live.id);
+    return { personId, name, stored: false };
+  }
+  if (!live?.id)
+    db.prepare(
+      `INSERT INTO claims (id, subject_kind, subject_id, kind, text, weight, first_seen_at, last_seen_at, how, author,
+        truth, created_at) VALUES (?, 'person', ?, 'alias', ?, 1, ?, ?, 'owner', 'owner', 'current', ?)`
+    ).run(`claim:owner-name:${personId}:${name.toLowerCase()}:${at}`, personId, name, at, at, at);
+  return { personId, name, stored: true };
+}
 
+/**
  * One write of an append-like memory unit (see the head of this file). `handle` is the writer.
  */
 export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
@@ -774,6 +798,7 @@ export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
     diary: () => writeDiary(db, update, at),
     vectors: () => writeVectors(db, update, at),
     'gif-vector': () => writeGifVector(db, update, at),
+    'owner-name': () => writeOwnerName(db, update, at),
     errand: () => applyErrandUnit(db, update, at, (closing) => writeLines(db, closing, at)),
   };
   const run = typeof op === 'string' ? runs[op] : undefined;

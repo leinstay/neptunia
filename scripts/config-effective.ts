@@ -31,8 +31,7 @@ import { backupSettings } from '../src/memory/db/backup.ts';
 import { captureSettings } from '../src/memory/db/observe.ts';
 import { sessionSettings } from '../src/memory/db/session.ts';
 import { boardSettings } from '../src/board/board.ts';
-import { participationPickSettings } from '../src/behavior/participation-pick.ts';
-import { routeSettings } from '../src/behavior/route.ts';
+import { elsewherePickSettings } from '../src/behavior/elsewhere-pick.ts';
 import { pullSettings } from '../src/behavior/pull.ts';
 import { setSettings } from '../src/behavior/diary.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
@@ -63,8 +62,8 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['dbSettings', (config) => dbSettings(config)],
   ['indexSettings', (config) => indexSettings(config)],
   ['recentSettings', (config) => recentSettings(config)],
-  ['participationSettings', (config) => participationSettings(config)],
-  ['participationPickSettings', (config) => participationPickSettings(config)],
+  ['participationSettings', () => participationSettings()],
+  ['elsewherePickSettings', (config) => elsewherePickSettings(config)],
   ['graphSettings', (config) => graphSettings(config)],
   ['focusSettings', (config) => focusSettings(config)],
   ['captureSettings', (config) => captureSettings(config)],
@@ -81,7 +80,6 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['loopSettings diary', (config) => loopSettings(config, { diary: true })],
   ['hedgeSettings', (config) => hedgeSettings(config)],
   ['boardSettings', (config) => boardSettings(config)],
-  ['routeSettings', (config) => routeSettings(config)],
   ['splitSettings', (config) => splitSettings(config)],
   ['elsewhereSettings', (config) => elsewhereSettings(config)],
   ['missedSettings', (config) => missedSettings(config)],

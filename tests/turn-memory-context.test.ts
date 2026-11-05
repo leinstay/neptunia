@@ -179,7 +179,6 @@ for (const replacement of ['author', 'shorter'] as const) {
       store: { state: { data: {} } },
       pending,
       llm: { complete: () => decision.promise },
-      tagHistory: { hit: () => 1 },
       getSelfName: () => 'Persona',
       itemText: queue.itemText,
       enqueuePending: queue.enqueuePending,

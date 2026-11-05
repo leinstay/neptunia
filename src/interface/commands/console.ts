@@ -154,8 +154,29 @@ function ownCommand(
   }
   if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args, ENGINE_ROOT));
   if (name === 'memory.bind') return personLinkCommand({ memoryDb, runOp, hot }, args);
+  if ((name === 'memory.users.names.add' || name === 'memory.users.names.remove') && personWord(args.user))
+    return ownerNameCommand(memoryDb, name, args);
   const action = moduleActionOf(name);
   return action === null ? null : moduleRun(dataDir, name, action, args, dialog);
+}
+
+/** A person's id (`person:self`, `person:<id>`) where a name command takes an account: the name goes on the person. */
+const personWord = (value: unknown): boolean => typeof value === 'string' && value.startsWith('person:');
+
+/**
+ * `/memory users names add|remove <person> <name>` on a person: the name is written through the one writer as the owner's
+ * (`author` `owner`), so it stands apart from what her memory session writes. Her own record is `person:self`.
+ */
+async function ownerNameCommand(memoryDb: unknown, name: string, args: Record<string, unknown>): Promise<Answer> {
+  const given = typeof args.name === 'string' ? args.name.trim() : '';
+  if (!given) return { text: 'a name is required', status: 'invalid' };
+  const update = { op: 'owner-name', personId: args.user, name: given, remove: name.endsWith('.remove') };
+  try {
+    await (callMethod(memoryDb, 'writeUnit', update) as Promise<unknown>);
+    return { text: `${String(args.user)}: ${update.remove ? 'removed' : 'added'} ${given}`, status: 'ok' };
+  } catch {
+    return { text: `/${name.replaceAll('.', ' ')}: the name could not be written`, status: 'failed' };
+  }
 }
 
 /** The codes of a merge that has nothing to do: the earlier owner person is unknown or already the new one. */

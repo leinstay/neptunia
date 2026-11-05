@@ -55,7 +55,6 @@ function setup(parts: Array<{ index: number; text: string }> = []) {
         return Promise.resolve({ text: '1' });
       },
     },
-    tagHistory: { hit: () => 1 },
     getSelfName: () => 'Nova',
     itemText: queue.itemText,
     enqueuePending: queue.enqueuePending,

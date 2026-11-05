@@ -205,6 +205,11 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
     },
 
     /** The subject of the first collection of `kind` the database holds, for a registry kept in one place. */
+    placesHolding(kind: StorageKind): Array<string> {
+      if (!readable()) return [];
+      return seam.run(() => [...new Set(listUnits(seam.db(), { kind }).map((unit) => unit.key.subject.id))]);
+    },
+
     placeHolding(kind: StorageKind): string | null {
       if (!readable()) return null;
       return seam.run(() => listUnits(seam.db(), { kind })[0]?.key.subject.id ?? null);

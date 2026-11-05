@@ -76,6 +76,7 @@ type Ends = {
 
 /** How a turn ended, as the end hook hears it (src/behavior/missed.ts). */
 export type TurnEnd = {
+  iface?: string;
   placeId: string | null;
   conversationId: string | null;
   privateChat: boolean;
@@ -450,6 +451,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
           : null;
     const end: TurnEnd = {
       placeId: channel ? sharedPlaceOf(store, channel) : null,
+      iface: params?.conversation?.iface,
       conversationId: placeId,
       privateChat: channel ? !inCommunity(channel) : false,
       routed: Boolean(source),

@@ -144,7 +144,10 @@ function stripText(raw: Untyped) {
  * The local prompt files read under a newer name: `data/prompts/selfdev.md` (the brief of src/selfimprovement/ under
  * its older name) loads as `executor-brief` while `data/prompts/executor-brief.md` is absent.
  */
-const LOCAL_PROMPT_MOVES: Readonly<Record<string, string>> = Object.freeze({ selfdev: 'executor-brief' });
+const LOCAL_PROMPT_MOVES: Readonly<Record<string, string>> = Object.freeze({
+  selfdev: 'executor-brief',
+  lookup: 'query-builder',
+});
 
 /** The local file name `file` is read under: its newer name for a file of LOCAL_PROMPT_MOVES, else itself. */
 const localNameOf = (file: string): string => {

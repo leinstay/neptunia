@@ -7,7 +7,6 @@
     "timezone": "UTC",
     "owners": [],
     "ownerPerson": "",
-    "nameTriggers": [],
     "access": {}
   },
   "models": {
@@ -153,6 +152,10 @@
       "fetchTimeoutMs": 10000
     }
   },
+  "address": {
+    "attentionMinutes": 15,
+    "maxTurnsPerAuthor": 50
+  },
   "mention": {
     "neverIgnore": [],
     "pendingMinutes": 10,
@@ -184,9 +187,6 @@
   },
   "split": {
     "maxOutputTokens": 300
-  },
-  "route": {
-    "maxOutputTokens": 120
   },
   "memory": {
     "vaultDir": "vault",
@@ -251,9 +251,11 @@
       "timeoutMs": 10000
     }
   },
-  "participation": {
-    "maxOutputTokens": 60,
-    "pickTimeoutMs": 1500
+  "elsewhere": {
+    "maxPlaces": 40,
+    "maxEpisodes": 30,
+    "maxOutputTokens": 120,
+    "pickTimeoutMs": 3000
   },
   "recall": {
     "timeoutMs": 15000,

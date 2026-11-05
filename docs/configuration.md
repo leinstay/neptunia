@@ -22,7 +22,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `bot.timezone` | string | `"UTC"` | Timezone for model timestamps | `src/behavior/diary.ts` |
 | `bot.owners` | array | `[]` | Native ids of the home interface that count as owners until `bot.ownerPerson` is set; the input of that migration | `src/behavior/core-pause.ts` |
 | `bot.ownerPerson` | string | `""` | The person whose bound accounts are the owner, written by the first line of the command line on a raw install and by `/memory bind <iface> <account> owner`. See [Owner identity](memory.md#owner-identity) | `src/tools/impl/grants.ts` |
-| `bot.nameTriggers` | array | `[]` | Extra trigger strings besides @mention | `src/behavior/sandbox.ts` |
 | `bot.access` | map | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
 
 ## models.base
@@ -48,7 +47,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.byPurpose` | map | `{}` | Model ids keyed by purpose string (`reply`, `lookup`, `recall-summary`, `diary-plan`, `planner`, `web-search` and the like). A match on purpose wins over the role's model. Not probed by the status card | `src/llm/embed.ts` |
+| `models.byPurpose` | map | `{}` | Model ids keyed by purpose string (`reply`, `query-builder`, `recall-summary`, `diary-plan`, `planner`, `web-search` and the like). A match on purpose wins over the role's model. Not probed by the status card | `src/llm/embed.ts` |
 
 ## models.errands
 
@@ -172,11 +171,18 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `context.pull.describeTimeoutMs` | number | `15000` | Timeout for fresh caption requests (ms) | `src/behavior/pull.ts` |
 | `context.pull.sameAudience` | boolean | `true` | Check that every role allowed to view the destination can also view the source. Also governs neighbour channels and server-search windows | `src/behavior/prompt.ts` |
 
+## address
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `address.attentionMinutes` | number | `15` | Minutes after her post in a place during which an unflagged line there goes to the address classifier, and the window of the per-author rail. `0` sends only flagged lines and leaves the rail nothing to count | `src/pipeline/address-attention.ts` |
+| `address.maxTurnsPerAuthor` | number | `50` | Started turns of one author in one place within the window before the next is refused. `0` turns the rail off | `src/pipeline/answer.ts` |
+
 ## mention
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `mention.neverIgnore` | array | `[]` | User IDs never ignored | `src/pipeline/answer.ts` |
+| `mention.neverIgnore` | array | `[]` | User IDs the per-author rail never refuses | `src/pipeline/answer.ts` |
 | `mention.pendingMinutes` | number | `10` | Minutes before a held ping expires | `src/pipeline/drain.ts` |
 | `mention.maxPending` | number | `6` | Total pending calls held across all channels | `src/behavior/pending.ts` |
 | `mention.followUpMaxOutputTokens` | number | `2000` | Max output tokens for the address classifier | `src/pipeline/merge.ts` |
@@ -222,11 +228,14 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 |---|---|---|---|---|
 | `split.maxOutputTokens` | number | `300` | Max output tokens | `src/turn/lookup.ts` |
 
-## route
+## elsewhere
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `route.maxOutputTokens` | number | `120` | Max output tokens | `src/behavior/route-channel.ts` |
+| `elsewhere.maxPlaces` | number | `40` | Other places offered to the elsewhere pick, the most recently active or attended | `src/behavior/elsewhere-pick.ts` |
+| `elsewhere.maxEpisodes` | number | `30` | Stored exchanges offered to the elsewhere pick, the newest | `src/behavior/elsewhere-pick.ts` |
+| `elsewhere.maxOutputTokens` | number | `120` | Max output tokens for the elsewhere pick | `src/behavior/elsewhere-pick.ts` |
+| `elsewhere.pickTimeoutMs` | number, null | `3000` | How long the turn waits for the pick (ms). `null` waits as long as the turn does | `src/behavior/elsewhere-pick.ts` |
 
 ## memory
 
@@ -276,13 +285,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `web.search.classifierMaxOutputTokens` | number | `2000` | Max output tokens for the search classifier the measuring tools ask (no live turn asks it) | `scripts/search-policy-eval.ts` |
 | `web.search.cacheHours` | number | `24` | Hours a cached search result is served | `src/web/lookup.ts` |
 | `web.search.timeoutMs` | number | `10000` | Search request timeout (ms) | `src/behavior/recall-run.ts` |
-
-## participation
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `participation.maxOutputTokens` | number | `60` | Max output tokens for the pick classifier | `src/behavior/participation-pick.ts` |
-| `participation.pickTimeoutMs` | number, null | `1500` | How long the turn waits for the pick (ms). `null` waits indefinitely | `src/behavior/participation-pick.ts` |
 
 ## recall
 

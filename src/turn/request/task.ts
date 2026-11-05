@@ -222,7 +222,7 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
       author: trigger?.authorName ?? '',
       trigger: triggerLabel,
       target: callItem ? `#${callItem.index}` : '',
-      ...(sourceChannel ? { channel: sourceChannel.name, destination: here } : {}),
+      ...(sourceChannel ? { place: sourceChannel.name, destination: here } : {}),
     };
     const baseTask = fillPromptTemplate(
       overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? prompts[mode] ?? '',
