@@ -4553,14 +4553,6 @@
       "count": 6
     }
   },
-  "tests/web-search.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/require-await": {
-      "count": 5
-    }
-  },
   "tests/youtube-check.test.ts": {
     "@typescript-eslint/require-await": {
       "count": 4

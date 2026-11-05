@@ -12,7 +12,7 @@
 // unknown shell class, a missing key, a consultation and development
 // profiles the runner skips (and a bad development key refused);
 // the tools every agent is denied (skill, todowrite, ...) and the scout
-// agent's `web-search` command with its wrapper.
+// agent's shell allow list.
 // Pure but for reading config.json, agents/ and a temporary directory.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,7 +30,6 @@ import {
   AgentProfileError,
   DEVELOPMENT_TOOLS,
   SHELL_CLASSES,
-  SCOUT_TOOLS_DIR,
   listAgents,
   loadProfiles,
   profileOf,
@@ -148,28 +147,15 @@ test('every agent: skill, todowrite and the other tools no profile asks for are 
   }
 });
 
-test("scout shell: the web-search command runs, through the wrapper on the child's PATH; node itself never does", () => {
+// Stage W: the scout's `web-search` shell command and its folder on the child's PATH are gone (one-off rewrite of the
+// test that pinned them); the scout searches with its harness's own tools.
+test('scout shell: no web-search rule; node itself never runs', () => {
   const p = SCOUT.buildConfig({ systemPrompt: 'x', scope: 'core' }).agent['errand-scout'].permission;
-  assert.equal(loose(p.bash)['web-search *'], 'allow');
-  for (const command of ['node *', 'node', 'web-search']) assert.equal(loose(p.bash)[command], undefined, command);
-  assert.equal(actionOf(p.bash, 'web-search olé meme --count 4'), 'allow');
+  for (const command of ['node *', 'node', 'web-search', 'web-search *']) {
+    assert.equal(loose(p.bash)[command], undefined, command);
+  }
+  assert.equal(actionOf(p.bash, 'web-search olé meme --count 4'), 'deny');
   assert.equal(actionOf(p.bash, 'node bin/agent-runner.mjs --profile scout'), 'deny');
-  assert.equal(
-    actionOf(p.bash, 'NODE_OPTIONS=--import=./x.mjs web-search q'),
-    'deny',
-    'OpenCode matches the whole command text, assignments included'
-  );
-  assert.deepEqual([...SCOUT.pathDirs], [SCOUT_TOOLS_DIR]);
-  assert.equal(SCOUT_TOOLS_DIR, path.join(ROOT, 'agents', 'scout', 'bin'));
-  const wrapper = path.join(SCOUT_TOOLS_DIR, 'web-search');
-  assert.ok(fs.statSync(wrapper).mode & 0o111, 'the wrapper is executable');
-  // Stage 4 PR D ("PR D in detail", the errand runner): bin/web-search.mjs moves next to its wrapper in agents/scout/.
-  assert.match(
-    fs.readFileSync(wrapper, 'utf8'),
-    /^#!\/bin\/sh\n[\s\S]*exec node "\$\{0%\/\*\}\/\.\.\/web-search\.ts" "\$@"\n$/
-  );
-  assert.ok(fs.existsSync(path.join(ROOT, 'agents', 'scout', 'web-search.ts')));
-  assert.deepEqual([...SERVER.pathDirs], [], 'the server agent gets no command of its own');
 });
 
 test('scout shell: yt-dlp runs only with --ignore-config; no option that runs another program passes, abbreviated or in = form', () => {

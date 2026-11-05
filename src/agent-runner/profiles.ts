@@ -43,8 +43,8 @@
 // `todowrite`, `lsp`, `plan_exit`, `execute`, `external_directory`; every
 // tool no class asks for is denied (ALWAYS_DENIED). v1.19.3 shows `websearch`
 // only with Exa or Parallel switched on directly, which this engine never
-// does (Exa only through OpenRouter): the scout agent searches with the
-// `web-search` command of its shell instead (src/web/web-search.ts). The permission runtime takes the LAST matching rule,
+// does (Exa only through OpenRouter): the scout agent searches with its
+// harness's own tools instead. The permission runtime takes the LAST matching rule,
 // so for `bash` a catch-all `*: deny` comes first and the allowed commands
 // after (then a class's staged rules, then the denies), and for a path tool (and the server class's `external_directory`)
 // `*: allow` comes first and the withheld-path denies after. The web search provider is chosen by an environment variable
@@ -72,7 +72,6 @@ type ShellClass = {
   tools: ReadonlyArray<string>;
   order: ReadonlyArray<string>;
   env: Readonly<Record<string, string>>;
-  path: ReadonlyArray<string>;
 };
 
 /** The backends an agent can run on: `codex exec`, `claude -p` or OpenCode (src/agent-runner/backend.ts). */
@@ -179,7 +178,6 @@ export type Profile = {
   tools: ReadonlyArray<string>;
   shell: string;
   childEnv: Readonly<Record<string, string>>;
-  pathDirs: ReadonlyArray<string>;
   defaultLimits: Readonly<Record<string, number>>;
   defaultDaily: Readonly<Record<string, number>>;
   defaultSearchProvider: string | null;
@@ -422,9 +420,6 @@ export const SCOUT_SHELL_ALLOW = Object.freeze([
   'cat *',
   'head *',
   'stat *',
-  // The web search (src/web/web-search.ts): the wrapper in SCOUT_TOOLS_DIR, found on the child's
-  // PATH; never `node` itself, so no other script runs.
-  'web-search *',
   'tail *',
   'wc *',
   'sort *',
@@ -446,9 +441,6 @@ export const SCOUT_SHELL_ALLOW = Object.freeze([
   'mv *',
   'rm *',
 ]);
-
-/** The folder of the scout agent's own commands (`web-search`), put first on its child's PATH. */
-export const SCOUT_TOOLS_DIR = path.join(ROOT_DIR, AGENTS_DIRNAME, 'scout', 'bin');
 
 /**
  * The private temporary directory of the scout agent's OpenCode: it saves the files `webfetch`
@@ -840,7 +832,6 @@ export const SHELL_CLASSES: Readonly<Record<string, ShellClass>> = Object.freeze
     tools: Object.freeze(['read', 'grep', 'glob', 'list', 'bash']),
     order: Object.freeze(['read', 'grep', 'glob', 'list', 'bash', 'webfetch', 'websearch']),
     env: SERVER_CHILD_ENV,
-    path: Object.freeze([]),
   }),
   'scout-download': Object.freeze({
     allow: SCOUT_SHELL_ALLOW,
@@ -850,7 +841,6 @@ export const SHELL_CLASSES: Readonly<Record<string, ShellClass>> = Object.freeze
     tools: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'bash']),
     order: Object.freeze(['websearch', 'webfetch', 'read', 'glob', 'list', 'grep', 'bash']),
     env: Object.freeze({}),
-    path: Object.freeze([SCOUT_TOOLS_DIR]),
   }),
 });
 
@@ -1369,7 +1359,6 @@ function makeProfile(definition: WorkerDefinition, paths: ResolvedAgentPaths): P
     // The variables its OpenCode child runs with over the runner's environment (its shell class's `env`).
     childEnv: SHELL_CLASSES[definition.shell].env,
     // The folders of its own commands, first on its child's PATH (its shell class's `path`).
-    pathDirs: SHELL_CLASSES[definition.shell].path,
     defaultLimits: definition.limits,
     defaultDaily: definition.daily,
     defaultSearchProvider: definition.searchProvider,
