@@ -76,7 +76,7 @@ const RECONCILE_SKEW_MS = 60_000;
 /** The phases that close an operation. */
 const CLOSING_PHASES = new Set(['succeeded', 'failed', 'unknown']);
 /** The fields a closing line repeats from its operation (never the input or the intent). */
-const OP_FIELDS = ['turnId', 'name', 'by', 'placeId', 'participants', 'sourceMessageIds', 'dryRun'];
+const OP_FIELDS = ['turnId', 'name', 'by', 'placeId', 'scope', 'participants', 'sourceMessageIds', 'dryRun'];
 /** The characters of `think` a `/nep journal` line shows. */
 export const LINE_THINK_CHARS = 80;
 

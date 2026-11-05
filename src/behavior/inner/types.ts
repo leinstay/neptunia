@@ -246,7 +246,7 @@ export type PlaceIndex = {
 
 /** The record as the inner life reads it: its lines from a time on. */
 export type RecordSource = {
-  iterate?(query: { from: string }): AsyncIterable<unknown> | Iterable<unknown>;
+  iterate?(query: { from?: string }): AsyncIterable<unknown> | Iterable<unknown>;
   /** Her lines appended (src/memory/record.ts): a wake's held post becomes her `said` line once it is sent. */
   append?(lines: ReadonlyArray<unknown>, options?: Obj): unknown;
 };

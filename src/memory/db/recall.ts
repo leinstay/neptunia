@@ -917,7 +917,7 @@ export function search(
     allowPlace = null,
     model = null,
   }: {
-    ctx?: Context;
+    ctx?: unknown;
     plan?: RecallPlan;
     limit?: number;
     now?: number;

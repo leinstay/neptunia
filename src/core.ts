@@ -108,7 +108,7 @@ import type { ApprovalGate, ApprovalResult } from './board/approval-view.ts';
 import { createCheckpointDesk } from './development/checkpoint-desk.ts';
 import { WORKTREE_FOLDER } from './development/edges.ts';
 import { selfimprovementSettings } from './selfimprovement/settings.ts';
-import { conversationLines } from './memory/db/conversation-lines.ts';
+import { conversationLines, recentGroupLines } from './memory/db/conversation-lines.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
 import { wakeClockOf } from './service/commands.ts';
@@ -896,17 +896,7 @@ async function buildCore(
   function recentChannelLines(conversationId: string, count: number) {
     const db = memoryDb.database();
     if (!db || !conversationId || !(count > 0)) return [];
-    // The columns the statement selects.
-    const rows = db
-      .prepare(
-        `SELECT s.kind, s.text, a.names FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
-      WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND length(COALESCE(s.text, '')) > 0 ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
-      )
-      .all(channelPlaceId(identity.iface, String(conversationId)), count) as Array<{
-      kind: string;
-      text: string | null;
-      names: string | null;
-    }>;
+    const rows = recentGroupLines(db, channelPlaceId(identity.iface, String(conversationId)), count);
     const lines: Array<{ author: string; text: string }> = [];
     for (const row of rows) {
       let name = '';

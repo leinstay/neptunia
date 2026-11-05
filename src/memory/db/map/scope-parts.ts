@@ -3,10 +3,11 @@
 // kept in the remainder (`dmChannel`). When the columns cannot rebuild the old scope exactly, the old scope is kept
 // verbatim in the remainder (`scope`), or `$noScope` marks that the line had none, so the round trip is exact either way.
 
-import { channelPlaceId, dmPlaceId } from '../ids.ts';
+import { channelPlaceId, dmPlaceId, personId } from '../ids.ts';
 import { LEGACY_IFACE } from '../legacy-namespace.ts';
-import { dmUserOf, scopeColumns } from '../scope.ts';
+import { audienceOf, dmAudienceId, dmScope, dmUserOf, scopeColumns } from '../scope.ts';
 import { jsonEqual } from './common.ts';
+import type { MapContext } from './common.ts';
 import { asText } from '../types.ts';
 import type { Row } from '../types.ts';
 
@@ -17,21 +18,43 @@ export function privateUserOf(rel: string): string | null {
 }
 
 /**
- * The place and scope columns for an old scope. Notes in `rest` whatever the columns cannot rebuild.
+ * The scope of a row of a DM. A person id that spells this DM place is the whole answer. Any other person (an opaque id,
+ * a place under another authority, an account bound to someone) gets the place's own audience and the partner the place
+ * names, the pair rows.ts#resolveRow accepts.
  */
+export function dmPlaceScope(person: string, iface: string, place: NonNullable<MapContext['dmPlace']>): Row {
+  const scope = dmScope(person, iface);
+  if (audienceOf(scope).audience_id === dmAudienceId(place.id)) return scope;
+  return { scope_kind: 'dm', scope_iface: iface, scope_dm: place.partnerPerson, audience_id: dmAudienceId(place.id) };
+}
+
 /** The `scope` object of a line: the conversation it names, the place it belongs to, or the user. */
 export type OldScope = { user?: unknown; channel?: unknown; place?: unknown };
 
+/**
+ * The place and scope columns for an old scope. Notes in `rest` whatever the columns cannot rebuild. A unit of a DM place
+ * (`dmPlace`) keeps its rows on that place and in its audience, whatever the partner's native id spells.
+ */
 export function scopeInto(
   rest: Row,
   oldScope: OldScope | undefined,
   privateUser: string | null | undefined,
-  iface = LEGACY_IFACE
+  iface = LEGACY_IFACE,
+  dmPlace: MapContext['dmPlace'] = null
 ): Row {
   const channel = typeof oldScope?.channel === 'string' && oldScope.channel ? oldScope.channel : null;
+  const placed = privateUser && dmPlace ? dmPlace : null;
   const cols = {
-    place_id: privateUser ? dmPlaceId(iface, privateUser) : channel ? channelPlaceId(iface, channel) : null,
-    ...scopeColumns(oldScope, { privateUser, iface }),
+    place_id: placed
+      ? placed.id
+      : privateUser
+        ? dmPlaceId(iface, privateUser)
+        : channel
+          ? channelPlaceId(iface, channel)
+          : null,
+    ...(placed
+      ? dmPlaceScope(personId(iface, privateUser), iface, placed)
+      : scopeColumns(oldScope, { privateUser, iface })),
   };
   if (privateUser && channel) rest.dmChannel = channel;
   const rebuilt = scopeFrom(cols, { ...rest }, privateUser, iface);

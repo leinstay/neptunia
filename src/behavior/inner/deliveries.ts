@@ -123,13 +123,39 @@ const settledState = (answer: Sent): DeliveryState =>
   answer.status === 'ok' ? 'sent' : answer.status === 'unknown' ? 'unknown' : 'failed';
 
 /**
+ * The partner of the conversation a delivery goes to, as the interface describes it now; null for a community's and for
+ * one it cannot describe. Without a partner a line of a DM stays sealed (persona-sources.ts), never filed as a group's.
+ */
+export async function partnerOfDelivery(
+  life: Pick<InnerContext, 'reads' | 'log'>,
+  conversation: ConversationRef | null
+): Promise<string | null> {
+  if (!conversation || typeof life.reads?.conversationInfo !== 'function') return null;
+  try {
+    const found = await life.reads.conversationInfo(conversation);
+    const info = found?.conversation;
+    return info && info.communityId === null && typeof info.partnerId === 'string' && info.partnerId
+      ? info.partnerId
+      : null;
+  } catch (err) {
+    life.log.warn('inner: delivery partner not read', { code: errorCode(err) });
+    return null;
+  }
+}
+
+/**
  * Her said line of a sent `message.create` in the record (features.record exactly true, read now), with the message
  * the send became and the turn's id, as recordSaid writes a sent post's. Not awaited; a refused append is logged.
  */
 function recordSaid(
   life: InnerContext,
   delivery: Delivery,
-  { messageId, at, opId }: { messageId: string | null; at: number | null; opId: string | null }
+  {
+    messageId,
+    at,
+    opId,
+    partner,
+  }: { messageId: string | null; at: number | null; opId: string | null; partner: string | null }
 ): void {
   const { record, now, log } = life;
   const noted = notedOf(delivery);
@@ -149,14 +175,14 @@ function recordSaid(
   );
   const failed = (err: unknown): void => log.warn('inner: record failed', { lines: 1, code: errorCode(err) });
   try {
-    Promise.resolve(record.append([line], {})).catch(failed);
+    Promise.resolve(record.append([line], { privateUserId: partner })).catch(failed);
   } catch (err) {
     failed(err);
   }
 }
 
 /** The `post` operation of the delivery's turn in the journal (features.journal exactly true, read now), or null. */
-function postOp(life: InnerContext, delivery: Delivery): InnerJournalOp | null {
+function postOp(life: InnerContext, delivery: Delivery, partner: string | null): InnerJournalOp | null {
   const { journal } = life;
   const noted = notedOf(delivery);
   if (!noted.said || !noted.turnId || typeof journal?.op !== 'function') return null;
@@ -165,7 +191,7 @@ function postOp(life: InnerContext, delivery: Delivery): InnerJournalOp | null {
     name: 'post',
     by: 'persona',
     placeId: delivery.target,
-    privateUserId: null,
+    privateUserId: partner,
     intent: { replyTo: noted.said.replyId, text: noted.said.text },
     participants: noted.said.repliedAuthorId ? [noted.said.repliedAuthorId] : [],
     sourceMessageIds: noted.said.replyId ? [noted.said.replyId] : [],
@@ -231,7 +257,8 @@ async function sendOne(life: InnerContext, delivery: Delivery): Promise<void> {
     return;
   }
   if (!(await move(life, delivery.key, ['queued'], 'sending'))) return;
-  const op = postOp(life, delivery);
+  const partner = await partnerOfDelivery(life, conversation);
+  const op = postOp(life, delivery, partner);
   if (op) await op.started();
   let answer: Sent;
   try {
@@ -248,7 +275,7 @@ async function sendOne(life: InnerContext, delivery: Delivery): Promise<void> {
   const messageId = answer.ref?.messageId ?? answer.parts[0]?.messageId ?? null;
   if (answer.status === 'ok') {
     if (op) await op.succeeded({ messageId });
-    recordSaid(life, delivery, { messageId, at: answer.at, opId: op?.opId ?? null });
+    recordSaid(life, delivery, { messageId, at: answer.at, opId: op?.opId ?? null, partner });
     return;
   }
   if (op)
@@ -310,6 +337,7 @@ export async function resumeDeliveries(life: InnerContext): Promise<void> {
         messageId: found.ref?.messageId ?? null,
         at: found.at,
         opId: null,
+        partner: await partnerOfDelivery(life, conversation),
       });
   }
   const queued = deliveriesIn(backendOf(life).read() ?? read, 'queued');

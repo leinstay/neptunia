@@ -9,11 +9,14 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { MIGRATIONS, lockPathOf, openMemoryDb, schemaVersion } from '../db/open.ts';
 import { keyText, storageId } from '../db/storage-keys.ts';
+import { ensureUnit } from '../db/storage-units.ts';
 import type { StorageKey } from '../db/storage-keys.ts';
 import { dbOf } from '../db/types.ts';
 import { convertConfig } from './convert-config.ts';
 import type { ConfigReport } from './convert-config.ts';
-import { neutralJson, neutralKey, neutralScope } from './convert-map.ts';
+import { neutralJson, neutralKey, neutralScope, personaDayPlan } from './convert-map.ts';
+import { planDmRepair } from './dm-repair.ts';
+import type { DmRepair } from './dm-repair.ts';
 
 type Row = Record<string, unknown>;
 type Db = InstanceType<typeof DatabaseSync>;
@@ -63,6 +66,8 @@ export type ConversionManifest = {
   contradictions: Array<{ table: string; ids: Array<string> }>;
   failures: Array<Failure>;
   config: ConfigReport;
+  /** The rows a shipped engine filed under a group that the conversion moved to their DM's scope, per table. */
+  movedToDm: Record<string, number>;
 };
 export type ConversionOptions = {
   input: string;
@@ -72,6 +77,10 @@ export type ConversionOptions = {
   report: string;
   now: string;
 };
+
+/** Everything the conversion writes holds her memory or names her people. */
+const OWNER_FILE = 0o600;
+const OWNER_FOLDER = 0o700;
 
 const emptyCounts = (): Counts => ({
   input: 0,
@@ -95,6 +104,15 @@ function tablesOf(db: Db): Array<string> {
 
 const columnsOf = (db: Db, table: string): Array<string> =>
   (db.prepare(`PRAGMA table_info(${quote(table)})`).all() as Array<Row>).map((row) => String(row.name));
+
+/** What is wrong with the command's arguments, naming the argument; null when the run may start. */
+export function usageProblem(options: ConversionOptions): string | null {
+  if (!fs.existsSync(options.input) || !fs.statSync(options.input).isFile()) return '--input names no file';
+  if (fs.existsSync(options.configIn) && !fs.statSync(options.configIn).isDirectory())
+    return '--config-in names no folder';
+  if (Number.isNaN(Date.parse(options.now))) return '--now is no date';
+  return null;
+}
 
 function refusal(input: string, output: string): Failure | null {
   if (fs.existsSync(output)) return { code: 'TARGET_EXISTS' };
@@ -207,6 +225,9 @@ type Context = {
   offsets: Map<string, number>;
   iface: string;
   dmPlaceOf: (account: string) => string | null;
+  repair: DmRepair;
+  /** The next free position of a unit in a line table, for a row moved into it. */
+  nextPosition: (unit: string, table: string) => number;
 };
 
 /** The JSON columns of a row with the old identifiers gone. */
@@ -237,7 +258,8 @@ function carried(table: string, row: Row, ctx: Context): Row {
     if (offset !== undefined) out.position = row.position + offset;
   }
   neutralColumns(table, row, out, owner, ctx);
-  return { ...out, ...renamedFields(table, row, ctx) };
+  const neutral = { ...out, ...renamedFields(table, row, ctx) };
+  return { ...neutral, ...ctx.repair.moved(table, neutral, ctx.nextPosition) };
 }
 
 /** The stored words of one row that the neutral schema spells otherwise. */
@@ -245,7 +267,12 @@ function renamedFields(table: string, row: Row, ctx: Context): Row {
   const unit = (id: unknown): unknown =>
     typeof id === 'string' && ctx.plan.newId.has(id) ? ctx.plan.newId.get(id) : id;
   if (table === 'places') return row.kind === 'guild' ? { kind: 'server' } : {};
-  if (table === 'operational') return { kind: row.kind === 'guild' ? 'place' : row.kind, owner: unit(row.owner) };
+  if (table === 'operational')
+    return {
+      kind: row.kind === 'guild' ? 'place' : row.kind,
+      owner: unit(row.owner),
+      ...(row.kind === 'state' ? { value: JSON.stringify(personaDayPlan(neutralJson(parsed(row.value)))) } : {}),
+    };
   if (table === 'legacy_unit_aliases') return { unit_id: unit(row.unit_id) };
   if (table === 'wakes') return { community: null };
   return {};
@@ -339,8 +366,73 @@ function hashOf(db: Db): string {
   return hash.digest('hex');
 }
 
+/** Hands out, per unit and line table, the positions after every row the input's units hold there. */
+function positionsAfter(
+  source: Db,
+  plan: UnitPlan,
+  offsets: Map<string, number>
+): (unit: string, table: string) => number {
+  const next = new Map<string, number>();
+  return (unit, table) => {
+    const key = `${table}\u0000${unit}`;
+    let free = next.get(key);
+    if (free === undefined) {
+      free = 0;
+      for (const old of plan.groups.get(unit) ?? []) {
+        const id = String(old.id);
+        const top = source
+          .prepare(`SELECT MAX(position) AS top FROM ${quote(table)} WHERE owner_key = ?`)
+          .get(id) as Row;
+        if (typeof top.top === 'number') free = Math.max(free, top.top + (offsets.get(`${table}\u0000${id}`) ?? 0) + 1);
+      }
+    }
+    next.set(key, free + 1);
+    return free;
+  };
+}
+
+/**
+ * What the moved rows need beside them: the units and audiences the input did not hold, and each unit's line count past
+ * its last position, so the next append lands after them.
+ */
+function settleRepair(target: Db, repair: DmRepair, tables: Record<string, Counts>): void {
+  for (const [id, key] of repair.units) {
+    if (ensuredUnit(target, id, key)) {
+      tables.storage_units.added += 1;
+      tables.storage_units.output += 1;
+    }
+    for (const table of ['sources', 'day']) {
+      target
+        .prepare(
+          `UPDATE storage_units SET lines = MAX(COALESCE(lines, 0),
+             COALESCE((SELECT MAX(position) + 1 FROM ${quote(table)} WHERE owner_key = ?), 0)) WHERE id = ?`
+        )
+        .run(id, id);
+    }
+  }
+  const insert = target.prepare("INSERT OR IGNORE INTO audiences (id, kind, iface, place_id) VALUES (?, 'dm', ?, ?)");
+  for (const [id, home] of repair.audiences) {
+    if (insert.run(id, home.iface, home.place).changes === 0) continue;
+    tables.audiences.added += 1;
+    tables.audiences.output += 1;
+  }
+}
+
+/** A unit row of `key` in the target; whether it was missing. */
+function ensuredUnit(target: Db, id: string, key: StorageKey): boolean {
+  if (target.prepare('SELECT 1 FROM storage_units WHERE id = ?').get(id)) return false;
+  ensureUnit(target, key);
+  return true;
+}
+
 /** Carries every row of `source` into the empty `target`, and answers what happened to each table. */
-function copyRows(source: Db, target: Db, plan: UnitPlan, failures: Array<Failure>): Record<string, Counts> {
+function copyRows(
+  source: Db,
+  target: Db,
+  plan: UnitPlan,
+  repair: DmRepair,
+  failures: Array<Failure>
+): Record<string, Counts> {
   const dmRows = source
     .prepare("SELECT id, partner_account FROM places WHERE kind = 'dm' OR conversation = 'dm'")
     .all() as Array<Row>;
@@ -348,11 +440,14 @@ function copyRows(source: Db, target: Db, plan: UnitPlan, failures: Array<Failur
   const ifaceRow = source
     .prepare("SELECT iface FROM places WHERE iface IS NOT NULL AND iface <> 'core' LIMIT 1")
     .get() as Row | undefined;
+  const offsets = positionOffsets(source, plan);
   const ctx: Context = {
     plan,
-    offsets: positionOffsets(source, plan),
+    offsets,
     iface: typeof ifaceRow?.iface === 'string' ? ifaceRow.iface : 'discord',
     dmPlaceOf: (account) => dmOf.get(account) ?? null,
+    repair,
+    nextPosition: positionsAfter(source, plan, offsets),
   };
   const tables: Record<string, Counts> = {};
   const sourceTables = tablesOf(source);
@@ -448,12 +543,105 @@ function validate(target: Db, failures: Array<Failure>): void {
   }
 }
 
+/** The report, readable by its owner alone from its first byte, whatever file stood there. */
 function writeReport(file: string, manifest: ConversionManifest): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+  const fd = fs.openSync(file, 'w', OWNER_FILE);
+  try {
+    fs.fchmodSync(fd, OWNER_FILE);
+    fs.writeSync(fd, `${JSON.stringify(manifest, null, 2)}\n`);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
-/** The whole run. Answers the process exit code: 0 converted, 1 refused with `failures` in the report and no output. */
+/** Every file and folder under `root` readable by its owner alone. */
+function ownerOnly(root: string): void {
+  if (!fs.statSync(root).isDirectory()) {
+    fs.chmodSync(root, OWNER_FILE);
+    return;
+  }
+  fs.chmodSync(root, OWNER_FOLDER);
+  for (const name of fs.readdirSync(root)) ownerOnly(path.join(root, name));
+}
+
+/** The built database moves into place, the logs SQLite left beside it first. This is the run's last step. */
+function publishDatabase(built: string, output: string): void {
+  for (const suffix of ['-wal', '-shm']) {
+    if (!fs.existsSync(`${built}${suffix}`)) continue;
+    ownerOnly(`${built}${suffix}`);
+    fs.renameSync(`${built}${suffix}`, `${output}${suffix}`);
+  }
+  ownerOnly(built);
+  fs.renameSync(built, output);
+}
+
+/** The rows carried, the checks passed, the config built, the report written and the database moved, in that order. */
+function run(options: ConversionOptions, manifest: ConversionManifest, work: string): 0 | 1 {
+  const refused = (failures: Array<Failure>): 1 => {
+    manifest.failures.push(...failures);
+    writeReport(options.report, manifest);
+    return 1;
+  };
+  const copy = path.join(work, 'source.db');
+  fs.copyFileSync(options.input, copy);
+  const source = new DatabaseSync(copy);
+  let target: ReturnType<typeof openMemoryDb> | null = null;
+  try {
+    const version = schemaVersion(source);
+    manifest.input.schemaVersion = version;
+    if (version !== SOURCE_VERSION && version !== MIGRATIONS.length) return refused([{ code: 'UNSUPPORTED_SCHEMA' }]);
+    const plan = planUnits(source);
+    const failures = [...plan.failures, ...orphanOwners(source)];
+    if (failures.length > 0) return refused(failures);
+    const built = path.join(work, 'memory.db');
+    target = openMemoryDb(built);
+    const db = dbOf(target) as unknown as Db;
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec('BEGIN');
+    const repair = planDmRepair(source);
+    manifest.tables = copyRows(source, db, plan, repair, failures);
+    settleRepair(db, repair, manifest.tables);
+    manifest.movedToDm = repair.counts;
+    addCurrentVersions(source, db, manifest.tables);
+    db.exec('COMMIT');
+    validate(db, failures);
+    if (failures.length > 0) return refused(failures);
+    manifest.contradictions = contradictionsOf(source, plan);
+    manifest.contentHash = hashOf(db);
+    manifest.output.schemaVersion = schemaVersion(db);
+    target.close();
+    target = null;
+    const builtConfig = path.join(work, 'config');
+    manifest.config = convertConfig(options.configIn, builtConfig);
+    ownerOnly(builtConfig);
+    manifest.changed =
+      manifest.config.removed.length + manifest.config.moved.length > 0 ||
+      Object.values(manifest.tables).some((counts) => counts.transformed + counts.merged + counts.added > 0);
+    writeReport(options.report, manifest);
+    fs.mkdirSync(path.dirname(options.configOut), { recursive: true });
+    fs.cpSync(builtConfig, options.configOut, { recursive: true });
+    ownerOnly(options.configOut);
+    publishDatabase(built, options.output);
+    return 0;
+  } finally {
+    target?.close();
+    source.close();
+  }
+}
+
+/** A failed run's report, when it can still be written: its code only, never what the failure quoted. */
+function reportFailure(options: ConversionOptions, manifest: ConversionManifest, error: unknown): void {
+  const given = (error as { code?: unknown } | null)?.code;
+  manifest.failures.push({ code: typeof given === 'string' && given ? given : 'CONVERSION_FAILED' });
+  try {
+    writeReport(options.report, manifest);
+  } catch {
+    process.stderr.write(`memory-convert-places: failed with ${manifest.failures.at(-1)?.code}, no report written\n`);
+  }
+}
+
+/** The whole run. Answers the process exit code: 0 converted, 1 refused or failed with `failures` in the report and no output. */
 export function convertFile(options: ConversionOptions): 0 | 1 {
   const manifest: ConversionManifest = {
     convertedAt: options.now,
@@ -465,59 +653,24 @@ export function convertFile(options: ConversionOptions): 0 | 1 {
     contradictions: [],
     failures: [],
     config: { removed: [], moved: [] },
+    movedToDm: {},
   };
-  const refused = (failures: Array<Failure>): 1 => {
-    manifest.failures.push(...failures);
-    writeReport(options.report, manifest);
-    return 1;
-  };
-  const stopped = refusal(options.input, options.output);
-  if (stopped) {
-    if (fs.existsSync(options.input)) manifest.input.sha256 = sha256(options.input);
-    return refused([stopped]);
-  }
-  manifest.input.sha256 = sha256(options.input);
-  fs.mkdirSync(path.dirname(options.output), { recursive: true });
-  const work = fs.mkdtempSync(path.join(path.dirname(options.output), '.convert-'));
+  let work: string | null = null;
   try {
-    const copy = path.join(work, 'source.db');
-    fs.copyFileSync(options.input, copy);
-    const source = new DatabaseSync(copy);
-    let target: ReturnType<typeof openMemoryDb> | null = null;
-    try {
-      const version = schemaVersion(source);
-      manifest.input.schemaVersion = version;
-      if (version !== SOURCE_VERSION && version !== MIGRATIONS.length) return refused([{ code: 'UNSUPPORTED_SCHEMA' }]);
-      const plan = planUnits(source);
-      const failures = [...plan.failures, ...orphanOwners(source)];
-      if (failures.length > 0) return refused(failures);
-      const built = path.join(work, 'memory.db');
-      target = openMemoryDb(built);
-      const db = dbOf(target) as unknown as Db;
-      db.exec('PRAGMA foreign_keys = OFF');
-      db.exec('BEGIN');
-      manifest.tables = copyRows(source, db, plan, failures);
-      addCurrentVersions(source, db, manifest.tables);
-      db.exec('COMMIT');
-      validate(db, failures);
-      if (failures.length > 0) return refused(failures);
-      manifest.contradictions = contradictionsOf(source, plan);
-      manifest.contentHash = hashOf(db);
-      manifest.output.schemaVersion = schemaVersion(db);
-      target.close();
-      target = null;
-      fs.renameSync(built, options.output);
-      manifest.config = convertConfig(options.configIn, options.configOut);
-      manifest.changed =
-        manifest.config.removed.length + manifest.config.moved.length > 0 ||
-        Object.values(manifest.tables).some((counts) => counts.transformed + counts.merged + counts.added > 0);
+    const stopped = refusal(options.input, options.output);
+    if (fs.existsSync(options.input)) manifest.input.sha256 = sha256(options.input);
+    if (stopped) {
+      manifest.failures.push(stopped);
       writeReport(options.report, manifest);
-      return 0;
-    } finally {
-      target?.close();
-      source.close();
+      return 1;
     }
+    fs.mkdirSync(path.dirname(options.output), { recursive: true });
+    work = fs.mkdtempSync(path.join(path.dirname(options.output), '.convert-'));
+    return run(options, manifest, work);
+  } catch (error) {
+    reportFailure(options, manifest, error);
+    return 1;
   } finally {
-    fs.rmSync(work, { recursive: true, force: true });
+    if (work !== null) fs.rmSync(work, { recursive: true, force: true });
   }
 }

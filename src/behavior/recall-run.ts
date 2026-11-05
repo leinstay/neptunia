@@ -850,10 +850,10 @@ export function createRecall({
    * channel when its lines may reach this turn, else null -- search hits, record lines, archived
    * items and meaning rows of a refused channel never reach the turn; `privateUserId`, the partner
    * of a private chat (else null): a private entry or line is its member's alone, read only on a
-   * private turn with that member; `allowEntry` (an archive entry, by its `scope`) and
+   * private turn with that member, the partner of the DM place `placeId` the turn stands in; `allowEntry` (an archive entry, by its `scope`) and
    * `allowLine` (a record line: a channel line by its channel, a private one by its member).
    */
-  function scopeOf({ config, snapshot, channel, partnerId }: ScopeOfInput) {
+  function scopeOf({ config, snapshot, channel, partnerId, placeId }: ScopeOfInput) {
     const judged = new Map();
     const sourceOf = (id: Untyped) => {
       if (!judged.has(id)) {
@@ -870,7 +870,9 @@ export function createRecall({
     };
     const privateUserId = !inCommunity(channel) && typeof partnerId === 'string' && partnerId ? partnerId : null;
     const allowScope = (scope: Untyped) => {
-      if (scope?.private === true) return privateUserId !== null && scope.user === privateUserId;
+      // A private item is its partner's: named by their id, or by the DM place this private turn stands in.
+      if (scope?.private === true)
+        return privateUserId !== null && (scope.user === privateUserId || scope.place === placeId);
       return typeof scope?.channel !== 'string' || sourceOf(scope.channel) !== null;
     };
     const allowEntry = (entry: Untyped) => allowScope(entry?.scope);
@@ -906,7 +908,7 @@ export function createRecall({
     asker = null,
     memoryContext = null,
   }: DbReaderInput) {
-    const { privateUserId } = scopeOf({ config, snapshot, channel, partnerId });
+    const { privateUserId } = scopeOf({ config, snapshot, channel, partnerId, placeId });
     const nameOf = namesFor(placeId, profilesFor(placeId));
     const ctx = readContext({ config, channel, privateUserId, asker, memoryContext });
     const placeExists = db?.prepare('SELECT id FROM places WHERE id = ?');
@@ -1185,7 +1187,7 @@ export function createRecall({
     });
 
     // The pull rail toward this turn's channel and the private-owner rule (scopeOf).
-    const scope = scopeOf({ config, snapshot, channel, partnerId });
+    const scope = scopeOf({ config, snapshot, channel, partnerId, placeId });
     const { judged, sourceOf, privateUserId, allowEntry, allowLine } = scope;
     const recent = isRecentCue(server, { now: now(), recordDays: settings.recordDays });
     // A `when:` that only locates the event: it ranks, it bounds no local source (locatorOf).
@@ -1864,7 +1866,7 @@ export function createRecall({
       const bounded = isFiniteNumber(at);
       const controller = new AbortController();
       const signal = controller.signal;
-      const scope = scopeOf({ config, snapshot, channel, partnerId });
+      const scope = scopeOf({ config, snapshot, channel, partnerId, placeId });
       const { sourceOf, privateUserId, allowEntry, allowLine } = scope;
       const profiles = profilesFor(placeId);
       const nameOf = namesFor(placeId, profiles);

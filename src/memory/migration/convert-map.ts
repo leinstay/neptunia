@@ -64,6 +64,24 @@ export function neutralScope(
   return scope;
 }
 
+const isRecord = (value: unknown): value is Record<string, Json> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * A state value with its diary's day plan under the persona: the newest of the plans its communities held, a plan already
+ * under the persona winning a tie, with its done marks and its hunger as they were.
+ */
+export function personaDayPlan(state: Json): Json {
+  if (!isRecord(state) || !isRecord(state.diary)) return state;
+  const dayOf = (plan: Record<string, Json>): string => (typeof plan.day === 'string' ? plan.day : '');
+  const { persona, ...others } = state.diary;
+  let newest = isRecord(persona) ? persona : null;
+  for (const plan of Object.values(others)) {
+    if (isRecord(plan) && (newest === null || dayOf(plan) > dayOf(newest))) newest = plan;
+  }
+  return { ...state, diary: newest === null ? {} : { persona: newest } };
+}
+
 /** A stored JSON value with the old identifiers gone: no server named, `channelId` as `placeId`. */
 export function neutralJson(value: Json): Json {
   if (typeof value === 'string') return value === 'channelId' ? 'placeId' : value === 'channelIds' ? 'placeIds' : value;

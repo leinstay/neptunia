@@ -1042,6 +1042,7 @@ type StoreClosedInput = {
   closed: Untyped;
   opts: Untyped;
   home?: string | null;
+  isPrivate?: boolean;
 };
 
 type ArchiveProfileItemsInput = {
@@ -1051,6 +1052,7 @@ type ArchiveProfileItemsInput = {
   dropped: Untyped;
   ops: Untyped;
   home?: string | null;
+  isPrivate?: boolean;
 };
 
 type ArchiveReplacedInput = {
@@ -1413,11 +1415,11 @@ function buildStore({
    */
   function archiveProfileItems(
     accountId: string,
-    { item, file, previous, dropped, ops, home = null }: ArchiveProfileItemsInput
+    { item, file, previous, dropped, ops, home = null, isPrivate = false }: ArchiveProfileItemsInput
   ) {
     if (!archiving()) return;
     const id = String(accountId);
-    const scope = { user: id };
+    const scope = memberScope(id, isPrivate);
     for (const [field, itemKind, identity] of [
       ['interests', 'interest', 'topic'],
       ['details', 'detail', 'text'],
@@ -1449,7 +1451,10 @@ function buildStore({
    * leaves through the archive with event `replaced` (held like any victim, see `holdVictims`);
    * with the archive off it simply goes.
    */
-  function storeClosed(accountId: string, { item, file, target, closed, opts, home = null }: StoreClosedInput) {
+  function storeClosed(
+    accountId: string,
+    { item, file, target, closed, opts, home = null, isPrivate = false }: StoreClosedInput
+  ) {
     const incoming = CLOSED_KINDS.flatMap((kind) =>
       (Array.isArray(closed?.[kind]) ? closed[kind] : []).map((value) => ({ kind, ...value }))
     );
@@ -1473,7 +1478,7 @@ function buildStore({
         previous: all,
         victims,
         itemKind: kind,
-        scope: { user: id },
+        scope: memberScope(id, isPrivate),
         home,
         accountId: id,
         eventOf: () => 'replaced',
@@ -2449,6 +2454,7 @@ function buildStore({
         dropped,
         ops: { interests: ops?.interests, details: ops?.details },
         home: dmHomeOf(String(accountId)),
+        isPrivate: true,
       });
       storeClosed(accountId, {
         item,
@@ -2457,6 +2463,7 @@ function buildStore({
         closed: dropped.closed,
         opts,
         home: dmHomeOf(String(accountId)),
+        isPrivate: true,
       });
 
       item.dirty = true;

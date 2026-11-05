@@ -106,6 +106,23 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
     placeOfConversation,
     placeOfCommunity,
 
+    /**
+     * Whether a stored place holds this native conversation as a channel, a thread or a group DM. A DM is keyed by its
+     * partner, so its conversation id is never held: a caller with no partner in hand reads `false` as "not a group's".
+     */
+    holdsSharedConversation(conversationId: string, iface?: string): boolean {
+      if (!readable()) return false;
+      const authority = nativeAuthorityOf(String(iface ?? ifaceNow()));
+      return seam.run(() =>
+        ['channel', 'thread', 'group_dm'].some((kind) =>
+          seam
+            .db()
+            .prepare('SELECT 1 FROM places WHERE authority_id = ? AND native_key = ?')
+            .get(authority, `${kind}:${conversationId}`)
+        )
+      );
+    },
+
     /** The place that holds what a conversation shares with its tree: the top of it; a DM is its own. */
     sharedPlaceOf(conversation: ConversationNames, iface?: string): string {
       if (!memoryDb) return String(conversation?.communityId ?? conversation?.id ?? '');

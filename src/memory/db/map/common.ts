@@ -44,7 +44,7 @@ export type MapContext = {
   dmPlaceId?: string;
   /** The membership row of a user unit, as stored. */
   membership?: { id: string; placeId: string | null } | null;
-  /** The stored DM place of a private unit's account, with the partner person the place names. */
+  /** The DM place of the unit (its subject, or a private unit's account's), with the partner person the place names. */
   dmPlace?: { id: string; partnerPerson: string | null } | null;
   privateUserId?: string | null;
   collection?: string;

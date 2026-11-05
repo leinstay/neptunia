@@ -125,8 +125,17 @@ function archiveHolderOf(
   store: { dmHomeOf?: (accountId: string) => string | null },
   scope: { private?: boolean; user?: string; place?: string } | null | undefined
 ): string | null {
-  if (scope?.private === true) return (scope.user ? store.dmHomeOf?.(scope.user) : null) ?? null;
-  return scope?.place ?? null;
+  if (scope?.place) return scope.place;
+  return scope?.private === true && scope.user ? (store.dmHomeOf?.(scope.user) ?? null) : null;
+}
+
+/**
+ * Whether the archive list leaves an entry out: a member's item unless that member was asked for, and a private item
+ * anywhere but in the DM it belongs to, so a group's read and a member's name never reach one.
+ */
+function leftOutOfList(entry: Untyped, userId: string | null, placeId: string): boolean {
+  if (entry?.scope?.private === true) return entry.scope.place !== placeId;
+  return !userId && typeof entry?.scope?.user === 'string';
 }
 
 const handlers = perEnv((env) => {
@@ -342,7 +351,7 @@ const handlers = perEnv((env) => {
         scope: userId ? { user: userId } : null,
         kinds: kind ? [kind] : null,
       })) {
-        if (!userId && typeof entry?.scope?.user === 'string') continue;
+        if (leftOutOfList(entry, userId, placeId)) continue;
         newest.push(entry);
         if (newest.length > n) newest.shift();
       }

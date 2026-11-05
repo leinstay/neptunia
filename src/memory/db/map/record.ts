@@ -76,7 +76,8 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
     scopeRest,
     line.scope as OldScope | undefined,
     ctx.privateUserId ?? privateUserOf(rel),
-    iface
+    iface,
+    ctx.dmPlace
   );
   Object.assign(rest, scopeRest);
   const identity = ctx.messageIdentity;

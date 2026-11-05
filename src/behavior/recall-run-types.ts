@@ -227,6 +227,7 @@ export type ScopeOfInput = {
   snapshot: Untyped;
   channel: Untyped;
   partnerId: Untyped;
+  placeId?: string | null;
 };
 
 /**

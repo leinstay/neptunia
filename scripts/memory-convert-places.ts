@@ -1,10 +1,10 @@
 // The one offline rebuild of a closed v28 memory database into neutral places. Stop every writer first, and run it over a
-// copy when you can. Exit 0 converted, 1 refused (see `failures` in the report, no output is left), 2 usage.
+// copy when you can. Exit 0 converted, 1 refused or failed (see `failures` in the report, no output is left), 2 usage.
 //
 //   node scripts/memory-convert-places.ts --input <memory.db> --output <new memory.db> \
 //     --config-in <dir> --config-out <dir> --report <json> --now <iso>
 
-import { convertFile } from '../src/memory/migration/convert.ts';
+import { convertFile, usageProblem } from '../src/memory/migration/convert.ts';
 
 const NAMES = ['input', 'output', 'config-in', 'config-out', 'report', 'now'] as const;
 
@@ -20,13 +20,17 @@ if (missing.length > 0) {
   );
   process.exit(2);
 }
-process.exit(
-  convertFile({
-    input: argument('input'),
-    output: argument('output'),
-    configIn: argument('config-in'),
-    configOut: argument('config-out'),
-    report: argument('report'),
-    now: argument('now'),
-  })
-);
+const options = {
+  input: argument('input'),
+  output: argument('output'),
+  configIn: argument('config-in'),
+  configOut: argument('config-out'),
+  report: argument('report'),
+  now: argument('now'),
+};
+const problem = usageProblem(options);
+if (problem !== null) {
+  process.stderr.write(`usage: ${problem}\n`);
+  process.exit(2);
+}
+process.exit(convertFile(options));

@@ -8,7 +8,7 @@ import * as errands from './errands.ts';
 import * as gifs from './gifs.ts';
 import type { MapContext } from './common.ts';
 import type { Db, Row, Rows } from '../types.ts';
-import { nativeOfAny, personId } from '../ids.ts';
+import { dmPartnerOfPlace, nativeOfAny, personId } from '../ids.ts';
 import { linkedProfileUnit } from '../person-links.ts';
 import type { StorageKey } from '../storage-keys.ts';
 import * as intentions from './intentions.ts';
@@ -37,7 +37,13 @@ export type Mapper = {
   appendRows?(
     rel: string,
     delta: never,
-    state: { previous: never; keys: Iterable<string>; iface?: string; privateUserId?: string | null }
+    state: {
+      previous: never;
+      keys: Iterable<string>;
+      iface?: string;
+      privateUserId?: string | null;
+      dmPlace?: MapContext['dmPlace'];
+    }
   ): Rows | null;
 };
 
@@ -114,6 +120,13 @@ function dmPlaceOfAccount(db: Db, accountId: string): MapContext['dmPlace'] {
   return { id: place.id, partnerPerson: typeof place.partner_person === 'string' ? place.partner_person : null };
 }
 
+/** A DM place subject as the mappers scope by it; one no row holds yet names its partner by its spelled id. */
+function dmPlaceOfSubject(id: string, place: Row | undefined): NonNullable<MapContext['dmPlace']> {
+  const stored = place?.partner_person;
+  if (typeof stored === 'string') return { id, partnerPerson: stored };
+  return { id, partnerPerson: place ? null : (dmPartnerOfPlace(id)?.person ?? null) };
+}
+
 /** The native id of the partner of a stored DM place, or null for any other place. */
 function partnerNativeOf(db: Db, id: string, place: Row | undefined): string | null {
   // A DM place no row holds yet (a kept write of an older release): its spelled id names the partner.
@@ -151,7 +164,9 @@ export function storageContext(db: Db, key: StorageKey): MapContext {
     versionKind: key.selector?.versionKind,
     itemId: key.selector?.itemId,
     privateUserId: key.subject.type === 'account' && key.kind !== 'user' ? subject.native : partner,
-    ...(key.subject.type === 'place' && partner !== null ? { dmPlaceId: key.subject.id } : {}),
+    ...(key.subject.type === 'place' && partner !== null
+      ? { dmPlaceId: key.subject.id, dmPlace: dmPlaceOfSubject(key.subject.id, subject.row) }
+      : {}),
     ...(key.kind === 'private' && key.subject.type === 'account'
       ? { dmPlace: dmPlaceOfAccount(db, key.subject.id) }
       : {}),
@@ -244,7 +259,11 @@ export function storageMapper(
       ...(original.appendRows
         ? {
             appendRows: (rel, delta, state) => {
-              const rows = original.appendRows!(rel, delta, { ...state, privateUserId: base.privateUserId });
+              const rows = original.appendRows!(rel, delta, {
+                ...state,
+                privateUserId: base.privateUserId,
+                dmPlace: base.dmPlace,
+              });
               return rows ? ownedRows(db, rows, id, undefined, legacyOwner) : null;
             },
           }

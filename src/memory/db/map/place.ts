@@ -4,6 +4,7 @@
 //   descriptions  patterns, starters (subject: the place), one legacy version each
 //   claims        injokes (kind injoke, subject the place), self (kind self_fact, subject her, scope none),
 //                 learned (kind lesson, how taught, `from_person` the teacher)
+//   A DM place's descriptions, in-jokes and lessons are scoped to that DM; every other place's to the groups.
 //   operational   kind place: everything else (`learnedNextId`, emoji usage, notes stamps, the pings-off list, ...)
 //
 // toRows(rel, value, ctx) -> { places, descriptions, description_versions, claims, operational }     ctx: { subjectId }
@@ -11,6 +12,7 @@
 
 import { SELF_PERSON, nativeOfAny, personId } from '../ids.ts';
 import { SCOPE_NONE, groupScope } from '../scope.ts';
+import { dmPlaceScope } from './scope-parts.ts';
 import { claimItems, claimRows } from './lists.ts';
 import type { ListDef } from './lists.ts';
 import { ifaceOf, parseExtra, put, rowsOf } from './common.ts';
@@ -34,33 +36,39 @@ const LEARNED_SPEC: Array<Spec> = [
   },
 ];
 
-const LISTS: Array<ListDef & { subject: string; scope: string }> = [
-  { key: 'injokes', kind: 'injoke', strings: true, subject: 'place', scope: 'group' },
-  { key: 'self', kind: 'self_fact', strings: true, subject: 'self', scope: 'none' },
+const LISTS: Array<ListDef & { subject: string }> = [
+  { key: 'injokes', kind: 'injoke', strings: true, subject: 'place' },
+  { key: 'self', kind: 'self_fact', strings: true, subject: 'self' },
   {
     key: 'learned',
     kind: 'lesson',
     spec: LEARNED_SPEC,
     stable: (item: Row) => [item.id ?? item.text],
     subject: 'place',
-    scope: 'group',
     how: 'taught',
   },
 ];
+
+/** What the notes of a place are shown to: its partner in a DM, the groups elsewhere. */
+function notesScope(iface: string, ctx: MapContext): Row {
+  if (!ctx.dmPlace || !ctx.privateUserId) return groupScope(iface);
+  return dmPlaceScope(personId(iface, ctx.privateUserId), iface, ctx.dmPlace);
+}
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
   const placeId = ctx.subjectId ?? rel;
   const rows: Rows = {};
   const rest = { ...value };
+  const scope = notesScope(iface, ctx);
   if (!ctx.subjectPlace) {
     put(rows, 'places', {
       id: placeId,
       iface,
-      kind: 'server',
+      kind: ctx.dmPlace ? 'dm' : 'server',
       native_id: ctx.subjectNativeId ?? placeId,
       parent_id: null,
-      scope_kind: 'group',
+      scope_kind: ctx.dmPlace ? 'dm' : 'group',
       name: null,
       category: null,
       topic: null,
@@ -77,7 +85,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
       subject_kind: 'place',
       subject_id: placeId,
       field,
-      ...groupScope(iface),
+      ...scope,
       current_version: `${id}:legacy`,
       owner_file: rel,
     });
@@ -108,7 +116,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
       subject_kind: self ? 'self' : 'place',
       subject_id: self ? SELF_PERSON : placeId,
       owner: self ? SELF_PERSON : placeId,
-      scope: self ? { ...SCOPE_NONE } : groupScope(iface),
+      scope: self ? { ...SCOPE_NONE } : scope,
       how: def.how,
     });
     if (ok) {
