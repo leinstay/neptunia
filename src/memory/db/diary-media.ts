@@ -22,12 +22,13 @@
 //
 // Schema v9: each `media` row written is projected into the graph in the same transaction (graph.ts#projectRow).
 
+import { writeEntryFiles } from './media-store.ts';
+import type { EntryFile } from './media-store.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { audienceOf } from './scope.ts';
 import { ensureAudience } from './rows.ts';
-import { projectRow } from './graph.ts';
 import { diaryPlaces } from './mirrors.ts';
 import { REFERENCE_MAX_BYTES } from '../../media/fetch-image.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
@@ -163,10 +164,12 @@ export function pendingDiaryRows(db: Db): Array<PendingDiaryRow> {
           OR json_extract(d.extra, '$.mediaPending') = 1)
         AND (d.text IS NULL
           OR json_extract(d.extra, '$.mediaPending') = 1
-          OR EXISTS (SELECT 1 FROM media y WHERE y.kind = 'diary' AND y.owner = d.id
-            AND json_type(y.native_ref, '$.attachmentId') IS NULL)
+          OR EXISTS (SELECT 1 FROM media_links l JOIN media y ON y.id = l.media_id
+            WHERE l.owner_kind = 'diary' AND l.owner_id = d.id AND y.native_ref IS NULL
+              AND json_type(y.extra, '$.platformRead') IS NULL)
           OR (json_type(d.extra, '$.voice') = 'object'
-            AND NOT EXISTS (SELECT 1 FROM media x WHERE x.kind = 'diary' AND x.owner = d.id AND x.mime LIKE 'audio/%')))
+            AND NOT EXISTS (SELECT 1 FROM media_links l JOIN media x ON x.id = l.media_id
+              WHERE l.owner_kind = 'diary' AND l.owner_id = d.id AND x.mime LIKE 'audio/%')))
       ORDER BY d.position, d.rowid`
     )
     .all();
@@ -221,6 +224,19 @@ function messageIdsOf(nativeIds: unknown, receipts: unknown): Array<string> {
   return [...new Set(ids)];
 }
 
+const parsedRef = (text: unknown): Row => {
+  if (typeof text !== 'string') return {};
+  try {
+    const value: unknown = JSON.parse(text);
+    return value !== null && typeof value === 'object' ? (value as Row) : {};
+  } catch {
+    return {};
+  }
+};
+
+/** A file's place in its entry: the number its id ends in, from one. */
+const positionOf = (id: unknown): number => Math.max(0, Number(/-(\d+)$/.exec(String(id))?.[1] ?? 1) - 1);
+
 /**
  * Writes one row's result on the writer connection: `{ id, text, media: [{ id, path, nativeRef, sha1, bytes, mime, extra? }] }`.
  * The media rows take the diary row's scope and its audience (scope.ts#audienceOf, the one resolver). One transaction.
@@ -238,35 +254,34 @@ export function applyDiaryUpdate(handle: MemoryHandle, given: unknown): void {
          extra = CASE WHEN json_type(extra, '$.mediaPending') IS NULL THEN extra ELSE json_remove(extra, '$.mediaPending') END
        WHERE id = ?`
     ).run(update.text ?? '', update.id);
-    const insert = db.prepare(
-      `INSERT INTO media (id, kind, owner, path, native_ref, description, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, retired_at, audience_id)
-       VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
-       ON CONFLICT(id) DO UPDATE SET path = excluded.path, native_ref = excluded.native_ref, sha1 = excluded.sha1,
-         description = COALESCE(excluded.description, description),
-         bytes = excluded.bytes, mime = excluded.mime, scope_kind = excluded.scope_kind, scope_iface = excluded.scope_iface,
-         scope_dm = excluded.scope_dm, extra = excluded.extra, retired_at = NULL, audience_id = excluded.audience_id`
-    );
     const audience = audienceOf(diary);
     const media = (update.media ?? []) as Array<Row>;
     if (media.length > 0) ensureAudience(db, audience);
-    for (const item of media) {
-      insert.run(
-        item.id,
-        update.id,
-        item.path,
-        item.nativeRef,
-        item.description ?? null,
-        item.sha1,
-        item.bytes,
-        item.mime,
-        diary.scope_kind,
-        diary.scope_iface,
-        diary.scope_dm,
-        item.extra ?? null,
-        audience.audience_id
-      );
-      projectRow(db, 'media', { id: item.id });
-    }
+    writeEntryFiles(
+      db,
+      { ...diary, id: update.id, audience_id: audience.audience_id },
+      media.map((item): EntryFile => {
+        const ref = parsedRef(item.nativeRef);
+        return {
+          id: String(item.id),
+          position: positionOf(item.id),
+          path: (item.path as string | null | undefined) ?? null,
+          attachmentId: typeof ref.attachmentId === 'string' && ref.attachmentId ? ref.attachmentId : null,
+          messageId: typeof ref.messageId === 'string' && ref.messageId ? ref.messageId : null,
+          url: typeof ref.url === 'string' && ref.url ? ref.url : null,
+          description: (item.description as string | null | undefined) ?? null,
+          sha1: (item.sha1 as string | null | undefined) ?? null,
+          bytes: (item.bytes as number | null | undefined) ?? null,
+          mime: (item.mime as string | null | undefined) ?? null,
+          extra: {
+            ...(typeof item.extra === 'string' ? parsedRef(item.extra) : {}),
+            // A post read once and named no attachment is not asked again.
+            ...('attachmentId' in ref ? { platformRead: true } : {}),
+          },
+        };
+      }),
+      null
+    );
   });
 }
 
@@ -290,7 +305,6 @@ export function applyEntryMedia(handle: MemoryHandle, given: unknown): number {
       ref?: { messageId: string; attachmentId: string | null };
     }>;
   };
-  const db = dbOf(handle);
   const base = safeName(update.id);
   const media = (update.items ?? []).map((item, index) => {
     const buffer = Buffer.from(item.data);
@@ -305,7 +319,7 @@ export function applyEntryMedia(handle: MemoryHandle, given: unknown): number {
       path: rel.split(path.sep).join('/'),
       // Once the file is posted: the message and the attachment it became, and what memory saw in that attachment.
       nativeRef: item.ref ? JSON.stringify(item.ref) : null,
-      description: describedAs(db, item.ref?.attachmentId ?? null),
+      description: null,
       sha1: createHash('sha1').update(buffer).digest('hex'),
       bytes: buffer.byteLength,
       mime: item.mime,
@@ -319,7 +333,7 @@ export function applyEntryMedia(handle: MemoryHandle, given: unknown): number {
 /**
  * How a media row of her post names its file on the platform: `native_ref` `{ url, messageId, attachmentId }` (the
  * attachment's own id, as the read's message event gives it) and the description the media cache keeps of that
- * attachment (`media:attachment:<id>`), when it has one.
+ * attachment's item, when it has one.
 
  * `connection` is a connection that can read, `message` the message a read found and `attachment` one of its
  * attachments as the read lists them.
@@ -336,21 +350,17 @@ function platformOf(
   const attachmentId = typeof named === 'string' && named ? named : null;
   return {
     nativeRef: JSON.stringify({ url: attachment.url, messageId: message.messageId, attachmentId }),
-    description: describedAs(database, attachmentId),
+    description: heldDescription(database, attachmentId),
   };
 }
 
-/**
- * What memory saw in the attachment `attachmentId`: the description of its media cache row
- * (`media:attachment:<id>`), or null.
-
- */
-function describedAs(database: Db | null, attachmentId: unknown): string | null {
+/** What memory saw in the attachment `attachmentId`: the description of its item, or null. */
+function heldDescription(database: Db | null, attachmentId: unknown): string | null {
   if (!attachmentId || !database) return null;
-  const cached = database
-    .prepare('SELECT description FROM media WHERE id = ?')
-    .get(`media:attachment:${asText(attachmentId)}`);
-  return typeof cached?.description === 'string' && cached.description ? cached.description : null;
+  const held = database
+    .prepare('SELECT description FROM media WHERE native_ref = ? AND retired_at IS NULL ORDER BY rowid LIMIT 1')
+    .get(asText(attachmentId));
+  return typeof held?.description === 'string' && held.description ? held.description : null;
 }
 
 /** Writes `buffer` to `abs` atomically. */

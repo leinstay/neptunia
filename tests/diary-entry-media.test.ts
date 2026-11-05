@@ -85,8 +85,8 @@ function scene({
       })),
       media: [
         ...Object.entries(described).map(([attachmentId, description]) => ({
-          id: `media:attachment:${attachmentId}`,
-          kind: 'attachment',
+          id: `media:held:${attachmentId}`,
+          kind: 'image',
           owner: null,
           path: null,
           native_ref: attachmentId,
@@ -95,15 +95,22 @@ function scene({
         })),
         ...media.map((item) => ({
           id: item.id,
-          kind: 'diary',
+          kind: 'image',
           owner: item.owner,
           path: `media/diary/${item.id}.png`,
-          native_ref: JSON.stringify(item.nativeRef),
+          native_ref: (item.nativeRef as { attachmentId?: string }).attachmentId ?? null,
+          extra: JSON.stringify(item.nativeRef),
           description: null,
           mime: 'image/png',
           ...group,
         })),
       ],
+      media_links: media.map((item, position) => ({
+        owner_kind: 'diary',
+        owner_id: item.owner,
+        position,
+        media_id: item.id,
+      })),
     },
     { log: SILENT, at: AT }
   );
@@ -153,20 +160,29 @@ function scene({
   /** The diary media rows of `owner`: their id, the attachment id their native ref names, and their description. */
   const mediaOf = (owner: string) =>
     db
-      .prepare("SELECT id, native_ref, description FROM media WHERE kind = 'diary' AND owner = ? ORDER BY id")
+      .prepare(
+        `SELECT m.id, m.native_ref, m.description FROM media m JOIN media_links l ON l.media_id = m.id
+         WHERE l.owner_kind = 'diary' AND l.owner_id = ? ORDER BY l.position`
+      )
       .all(owner)
       .map((row) => ({
         id: String(row.id),
-        attachmentId: (JSON.parse(String(row.native_ref)) as { attachmentId?: unknown }).attachmentId ?? null,
+        attachmentId: row.native_ref ?? null,
         description: row.description ?? null,
       }));
   const textOf = (id: string) => db.prepare('SELECT text FROM diary WHERE id = ?').all(id)[0]?.text ?? null;
   const fetches = () => port.calls.filter((call) => call.op === 'fetchMessages').length;
   const dump = () =>
-    db.prepare("SELECT id, native_ref, description, sha1 FROM media WHERE kind = 'diary' ORDER BY id").all();
+    db
+      .prepare(
+        `SELECT m.id, m.native_ref, m.description, m.sha1 FROM media m JOIN media_links l ON l.media_id = m.id
+         WHERE l.owner_kind = 'diary' ORDER BY m.id`
+      )
+      .all();
   return { job, mediaOf, textOf, fetches, dump, dataDir };
 }
 
+// A file a message and an entry both show is one item: the entry's link goes to the row memory already held.
 test("an entry's picture row keeps the attachment id and the description memory holds for it", async () => {
   const s = scene({
     entries: [{ id: 'd-1', text: null, messageIds: ['m1', 'm2'] }],
@@ -178,7 +194,7 @@ test("an entry's picture row keeps the attachment id and the description memory 
   });
   await s.job().run();
   assert.deepEqual(s.mediaOf('d-1'), [
-    { id: 'media:diary:d-1-1', attachmentId: 'att-1', description: 'a wooden pier at dusk' },
+    { id: 'media:held:att-1', attachmentId: 'att-1', description: 'a wooden pier at dusk' },
   ]);
 });
 
@@ -202,7 +218,7 @@ test('an older picture row with only its url and message is completed once, and 
   });
   await s.job().run();
   assert.deepEqual(s.mediaOf('d-2'), [
-    { id: 'media:diary:d-2-1', attachmentId: 'att-2', description: 'two boats in fog' },
+    { id: 'media:held:att-2', attachmentId: 'att-2', description: 'two boats in fog' },
   ]);
   const settled = s.dump();
   const asked = s.fetches();

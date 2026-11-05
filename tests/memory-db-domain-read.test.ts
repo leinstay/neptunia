@@ -109,7 +109,7 @@ function seedDomains(db: Db): void {
     "INSERT INTO diary (id, at_ms, kind, text, status, audience_id, scope_kind) VALUES ('diary:1', 1, 'entry', 'dear diary', 'done', 'aud:group:zeta', 'group')"
   ).run();
   db.prepare(
-    "INSERT INTO media (id, kind, owner, path, description, audience_id, scope_kind) VALUES ('media:1', 'image', 'synthetic', 'a.png', 'a picture', 'aud:group:zeta', 'group')"
+    "INSERT INTO media (id, kind, owner, path, description, audience_id, scope_kind) VALUES ('media:1', 'image', 'synthetic', 'media/a.png', 'a picture', 'aud:group:zeta', 'group')"
   ).run();
   db.prepare(
     `INSERT INTO publication_grants (id, row_kind, row_id, content_hash, destinations, approved_by, approved_at)

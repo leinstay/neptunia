@@ -124,6 +124,8 @@ import { applyPublicationWrite } from './publish.ts';
 import { applyDeliveryWrite, isDeliveryOp } from './publication-delivery.ts';
 import { applyMirrorWrite } from './mirror-config.ts';
 import { applyEntryMedia } from './diary-media.ts';
+import { applyMediaBackfill } from './media-backfill.ts';
+import { applyMediaEmbed } from './media-store.ts';
 import { writeBackup } from './backup.ts';
 import { applyIngestWrite } from './ingest.ts';
 import { applyWakeQueueWrite } from './wake-queue.ts';
@@ -349,9 +351,9 @@ function insertAnswer(
     ownershipSql(
       db,
       `INSERT OR REPLACE INTO sources (id, kind, iface, native_id, revision, place_id, author_account, reply_to, occurred_at, recorded_at, seen_at, text, stems,
-       media, mentions, direct, turn_id, op_id, think, extra, scope_kind, scope_iface, scope_dm, origin, owner_key, position,
+       mentions, direct, turn_id, op_id, think, extra, scope_kind, scope_iface, scope_dm, origin, owner_key, position,
        audience_id, authority_id, author_kind, observed_at)
-     VALUES (?, ?, NULL, ?, 1, NULL, NULL, NULL, ?, ?, NULL, ?, NULL, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?, ?, 'memory', NULL, NULL, ?, ?, 'self', ?)`
+     VALUES (?, ?, NULL, ?, 1, NULL, NULL, NULL, ?, ?, NULL, ?, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?, ?, 'memory', NULL, NULL, ?, ?, 'self', ?)`
     )
   ).run(
     id,
@@ -957,10 +959,13 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
 ]);
 
 /** Applies one write on the writer connection; returns counts. */
+// health: allow complexity until 2027-04-01 -- one dispatch over every write kind, split would hide the table
 export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): unknown {
   const handle = handleGiven as MemoryHandle;
   const update = updateGiven as Row;
   const kind = update?.kind;
+  if (kind === 'media-embed') return applyMediaEmbed(handle, update);
+  if (kind === 'media-backfill') return applyMediaBackfill(handle, update);
   if (kind === 'context') return writeContext(handle, update);
   if (kind === 'description') return writeDescription(handle, update);
   // Schema v11: the writers of wake runs, the skills registry and the index policy share this one writer path.

@@ -24,7 +24,16 @@ import { unitRows, isMediaDescriptionEntry, mediaDescriptionId } from './export.
 import { unitValue } from './readers/common.ts';
 import { assignDiaryDestination } from './publish.ts';
 import { graphPending, projectPending, projectRow } from './graph.ts';
-import { fillStems, markStemsPending, restampAttachment, stemsPending } from './stems.ts';
+import { storeHeld } from './media-stems.ts';
+import { fillStems, markStemsPending, stemsPending } from './stems.ts';
+import {
+  adoptLibraryRows,
+  keepItemFields,
+  takeRecordMedia,
+  tellFromCacheKey,
+  writeMediaCache,
+  writeRecordMedia,
+} from './media-store.ts';
 import { applyErrandUnit, skippedErrandUnit } from '../../board/errands.ts';
 import { dbOf, asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -305,9 +314,6 @@ function recordReply(db: Db, source: Row, line: Row, identity: ResolvedRecordIde
   source.extra = JSON.stringify({ ...extra, $messageReply: reply });
 }
 
-/** Whether a `media` column names at least one kind. */
-const holdsMedia = (media: unknown): boolean => typeof media === 'string' && media !== '[]';
-
 function adoptedRecord(source: Row, found: Row): Row {
   const adopted: Row = {
     ...found,
@@ -317,7 +323,6 @@ function adoptedRecord(source: Row, found: Row): Row {
     origin: source.origin,
     turn_id: source.turn_id ?? found.turn_id,
     op_id: source.op_id ?? found.op_id,
-    media: holdsMedia(source.media) ? source.media : found.media,
     extra: JSON.stringify({
       ...parseExtra(source.extra),
       ...parseExtra(found.extra),
@@ -347,6 +352,7 @@ function duplicateLine(
   return false;
 }
 
+// health: allow complexity until 2027-04-01 -- the steps of one line write, in their order
 function writeLine(
   db: Db,
   {
@@ -378,7 +384,10 @@ function writeLine(
     found && found.origin === 'observation' && found.owner_key === unit.full && Number.isInteger(found.position);
   // A row is looked up only for a source line, so `keep` holds only with one.
   if (keep) (source as Row).position = found.position;
+  // A source row's media go to `media` and `media_links`: what a record line holds of them leaves its `extra`.
+  const media = source && storeHeld(db) ? takeRecordMedia(source) : null;
   writeMapping(db, qualify(mapping, unit), unit.full, { at, ignoreClaims: archive });
+  if (source && media) writeRecordMedia(db, asText(source.id), media, at);
   return { written: 1, duplicates: 0, adopted: found?.origin === 'observation' ? 1 : 0, advance: keep ? 0 : 1 };
 }
 
@@ -504,7 +513,9 @@ function writeMediaDescriptions(db: Db, unit: Unit, given: unknown, at: string) 
       unit.full,
       { at }
     );
-    if (filled(key.selector?.itemId)) restampAttachment(db, key.selector.itemId);
+    if (storeHeld(db) && filled(key.selector?.itemId) && typeof text === 'string' && text !== '') {
+      tellFromCacheKey(db, { iface: storageContext(db, key).iface ?? null, key: key.selector.itemId, text, at });
+    }
     written += 1;
   }
   noteUnit(db, unit.full, unit.kind, { at });
@@ -517,9 +528,18 @@ const NOT_VALUE_KINDS = new Set(['requests']);
 function writeValue(db: Db, update: Row, at: string): Row {
   const unit = updateUnit(db, update);
   if (unit.format !== 'json' || NOT_VALUE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
+  // The describer's cache lives on the items: an entry is the text form of its row, and a linked row is never trimmed.
+  if (unit.kind === 'media' && storeHeld(db)) {
+    const iface = (unit.key ? storageContext(db, unit.key).iface : null) ?? ifaceOf(update);
+    const cached = writeMediaCache(db, { owner: unit.full, iface, value: (update.value ?? {}) as Row, at });
+    noteUnit(db, unit.full, unit.kind, { at });
+    return { ...cached, destinations: [] };
+  }
   const mapping = qualify(unit.mapper.toRows(unit.rel, update.value ?? {}, { iface: ifaceOf(update) }), unit);
+  if (unit.kind === 'gifs' && storeHeld(db)) keepItemFields(db, mapping.media ?? []);
   const upserted = writeMapping(db, mapping, unit.full, { at });
   const retired = retireAbsent(db, unit.full, mapping, at);
+  if (unit.kind === 'gifs' && storeHeld(db)) adoptLibraryRows(db, unit.full, at);
   noteUnit(db, unit.full, unit.kind, { at });
   const destinations =
     unit.kind === 'diary' && filled(update.destination)

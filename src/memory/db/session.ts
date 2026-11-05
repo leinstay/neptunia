@@ -49,7 +49,9 @@ import type { MemoryPath } from '../../subharness/memory-path.ts';
 import { storageValue } from './export.ts';
 import { accountCollection } from './storage-keys.ts';
 import { SELF_PERSON, shortHash } from './ids.ts';
-import { contextRow, issueContext, scopeWhere } from './scope.ts';
+import { storedMediaTags } from '../../format.ts';
+import { LINE_HOLDS_TOLD_MEDIA, lineMedia, mediaMessageParts } from './media-store.ts';
+import { contextRow, internalContext, issueContext, scopeWhere } from './scope.ts';
 import { scopesOf } from './session-scopes.ts';
 import type { SweepScope } from './session-scopes.ts';
 import { columnsOf } from './rows.ts';
@@ -162,6 +164,8 @@ export type SessionSettings = {
   timeoutMs: number;
   descriptionMaxOutputTokens: number;
   retryLimit: number;
+  /** A bounded pass over old media lines the sessions never saw, once the backfill told them. Off until the owner's word. */
+  mediaPass: boolean;
 };
 
 /** The session settings of this moment, from the live config. */
@@ -200,6 +204,7 @@ export function sessionSettings(configGiven: unknown): SessionSettings {
     timeoutMs: posInt(given.timeoutMs, DEFAULTS.timeoutMs),
     descriptionMaxOutputTokens: posInt(given.descriptionMaxOutputTokens, DEFAULTS.descriptionMaxOutputTokens),
     retryLimit: posInt(given.retryLimit, DEFAULTS.retryLimit),
+    mediaPass: given.mediaPass === true,
   };
 }
 
@@ -323,11 +328,26 @@ export function batchOf(
     maxMessages,
     settleBefore,
     audienceId = null,
-  }: { cursor: number; since: string | null; maxMessages: number; settleBefore: number; audienceId?: string | null }
+    onlyMediaLines = false,
+    upTo = null,
+  }: {
+    cursor: number;
+    since: string | null;
+    maxMessages: number;
+    settleBefore: number;
+    audienceId?: string | null;
+    onlyMediaLines?: boolean;
+    upTo?: number | null;
+  }
 ): Array<BatchLine> {
   const db = dbGiven as Db;
   const where = ['s.rowid > ?'];
   const params: Array<unknown> = [cursor];
+  if (upTo !== null) {
+    where.push('s.rowid <= ?');
+    params.push(upTo);
+  }
+  if (onlyMediaLines) where.push(`TRIM(COALESCE(s.text, '')) = ''`, LINE_HOLDS_TOLD_MEDIA);
   if (typeof audienceId === 'string' && audienceId) {
     where.push('s.audience_id = ?');
     params.push(audienceId);
@@ -359,6 +379,27 @@ export function batchOf(
     out.push({ ...row, at: Number.isFinite(at) ? at : 0, rowid: row.rowid as number });
   }
   return out.sort((a, b) => a.at - b.at || a.rowid - b.rowid);
+}
+
+/**
+ * The lines an old cursor passed because they held no words: media-only lines with a text form, oldest first, after the pass's
+ * own cursor and up to the ordinary cursor, which this pass leaves where it is.
+ */
+export function mediaPassBatch(
+  db: Db,
+  scope: { scope: Scope; audienceId?: string | null },
+  { after, upTo, maxMessages, since }: { after: number; upTo: number; maxMessages: number; since: string | null }
+): Array<BatchLine> {
+  const lines = batchOf(db, scope.scope, {
+    cursor: after,
+    since,
+    maxMessages,
+    settleBefore: Infinity,
+    audienceId: scope.audienceId ?? null,
+    onlyMediaLines: true,
+    upTo,
+  });
+  return lines;
 }
 
 /** Whether a batch is written now, and the settled sessions it holds (see `joinOf`). */
@@ -418,7 +459,9 @@ function lineText(
     timezone,
     handle,
     authorHandle = null,
+    tags = [],
   }: {
+    tags?: ReadonlyArray<string>;
     accounts: Map<string, BatchAccount>;
     participants: Map<string, { name: string }>;
     selfName: unknown;
@@ -439,7 +482,9 @@ function lineText(
   const place = handle ? `[${handle}] ` : '';
   // An author who is not a person yet carries the handle `people:add` names (prompts/memory-session.md, "People").
   const who = !own && authorHandle ? `[${authorHandle}] ` : '';
-  return `${lead}#${n} [${stamp(line.at, timezone)}] ${place}${who}${asText(author)}: ${String(line.text).replace(/\s*\n\s*/g, ' ⏎ ')}`;
+  const words = asText(line.text ?? '').replace(/\s*\n\s*/g, ' ⏎ ');
+  const body = [words, ...tags].filter(Boolean).join(' ');
+  return `${lead}#${n} [${stamp(line.at, timezone)}] ${place}${who}${asText(author)}: ${body}`;
 }
 
 function claimLine(label: unknown, row: Row): string {
@@ -536,6 +581,7 @@ export type SessionRequest = {
  * `pages` is how many requests the batch takes. The context (profiles, claims, episodes) is as of the batch's
  * cutoff, the newest line: what was created or seen after it is left out.
  */
+// health: allow complexity until 2027-04-01 -- the blocks of one request in their order
 export function buildSessionRequest({
   db,
   scope,
@@ -614,8 +660,15 @@ export function buildSessionRequest({
       .filter(([, entry]) => !entry.hasPerson)
       .map(([handle, entry]): [string, string] => [entry.id, handle])
   );
+  // A line's media are part of what was said: its kinds and text forms, as the turn's chat renders them.
+  const mediaOf = lineMedia(
+    db,
+    batch.map((line) => asText(line.id)),
+    internalContext()
+  );
   for (const line of batch) {
-    if (typeof line.text !== 'string' || line.text.trim() === '') continue;
+    const media = mediaOf.get(asText(line.id)) ?? [];
+    if ((typeof line.text !== 'string' || line.text.trim() === '') && media.length === 0) continue;
     n += 1;
     maps.sources.set(`#${n}`, line.id as string);
     read('source_id', line.id, 'batch');
@@ -628,6 +681,7 @@ export function buildSessionRequest({
         timezone,
         handle: handleOf.get(line.place_id) ?? null,
         authorHandle: authorHandleOf.get((line.author_participant ?? line.author_account) as string) ?? null,
+        tags: media.length > 0 ? storedMediaTags(mediaMessageParts(media, line.native_id), labels) : [],
       })
     );
   }
@@ -1332,6 +1386,7 @@ export function sessionStatus({
 
  * entry per request (a scope at its daily cap: `capped`).
  */
+// health: allow complexity until 2027-04-01 -- one pass over the scopes, each outcome one short branch
 export async function sweep(
   ctx: SessionContext,
   options: { scope?: string; scopes?: Set<string>; limit?: number; ignoreSweepCap?: boolean } = {}
@@ -1365,6 +1420,22 @@ export async function sweep(
     );
     if (batch.length < Math.min(settings.minMessages, maxMessages)) {
       runs.push({ scope: scope.key, outcome: 'quiet', lines: batch.length });
+      // A quiet scope reads old media lines it never saw, under the same daily cap.
+      if (
+        settings.mediaPass &&
+        (options.ignoreSweepCap ||
+          scopeSweepsToday(db, scope.key, started, settings.mode) < settings.sweepsPerScopePerDay)
+      ) {
+        const passKey = `${key}:media-pass`;
+        const passCursor = Number(metaOf(db, passKey) ?? 0);
+        const old = mediaPassBatch(db, scope, { after: passCursor, upTo: cursor, maxMessages, since: settings.since });
+        if (old.length > 0) {
+          ran += 1;
+          runs.push(
+            ...(await runBatch(ctx, { scope, batch: old, cursor: passCursor, key: passKey, sweepId, settings }))
+          );
+        }
+      }
       continue;
     }
     // Small sessions wait and join the next batch of their scope: no request, no run row, the cursor stays.

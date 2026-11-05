@@ -10,6 +10,8 @@ The engine does not promise to download every attachment it encounters. Diary or
 
 ## Available abilities
 
+A voice message or an audio file reaches the describer on the `video` role through the prompt `describe-audio`. `fetchAudio` in `src/media/fetch-video.ts` carries it as a short clip, packaged by `ffmpegAudioArgs` in `src/media/video-sites.ts`, and `audioPart` in `src/memory/describe.ts` puts it in the request. A file refused for its size is not tried again, and a passing failure is tried again after an hour, with the cause kept on the cache entry. A text file's text form is the opening of its own words, with no model. A transcript and what she voiced are quoted speech as a whole, so the script check of a description does not apply to them and they stay in the language spoken.
+
 Drawing and voice use their configured model roles and credentials. `ffmpeg` supports audio conversion and video preparation, and `yt-dlp` retrieves supported videos. The optional YouTube Data API key supplies metadata rather than vision. Configure it through [setup](setup.md#optional-modules).
 
 The turn's senses report which abilities are available. A configured credential alone is not proof that a remote provider is reachable. Tool failures return to the turn so the persona can decide how to proceed.

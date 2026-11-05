@@ -116,6 +116,7 @@
       "maxOutputTokens": 8000,
       "timeoutMs": 300000,
       "descriptionMaxOutputTokens": 1500,
+      "mediaPass": false,
       "retryLimit": 3
     }
   },

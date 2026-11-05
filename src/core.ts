@@ -115,6 +115,8 @@ import { createCheckpointDesk } from './development/checkpoint-desk.ts';
 import { WORKTREE_FOLDER } from './development/edges.ts';
 import { selfimprovementSettings } from './selfimprovement/settings.ts';
 import { conversationLines, recentGroupLines } from './memory/db/conversation-lines.ts';
+import { mediaBackfillDesk } from './memory/db/media-backfill.ts';
+import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
 import { wakeClockOf } from './service/commands.ts';
@@ -914,7 +916,7 @@ async function buildCore(
           name = '';
         }
       }
-      lines.push({ author: name, text: row.text ?? '' });
+      lines.push({ author: name, text: [row.text ?? '', mediaText(row.media ?? [])].filter(Boolean).join(' ') });
       if (lines.length >= count) break;
     }
     return lines.reverse();
@@ -1466,6 +1468,7 @@ async function buildCore(
     // The owner's console (src/interface/commands/console.ts): the chat's table over the operations, run as the owner.
     console: createConsole({
       track: loopWatch.track,
+      mediaBackfill: mediaBackfillDesk({ memoryDb, reads, iface: () => identity.iface, describer, now: clock, log }),
       statusBrief: () => ({
         core: {
           state: store.state.data.paused ? 'paused' : 'running',

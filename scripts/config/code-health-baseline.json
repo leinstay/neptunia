@@ -306,9 +306,6 @@
       "formatTranscript": {
         "complexity": 80
       },
-      "mediaTags": {
-        "complexity": 21
-      },
       "withCalls": {
         "complexity": 25
       }
@@ -356,16 +353,6 @@
       },
       "createLlm>complete": {
         "complexity": 44
-      }
-    },
-    "src/media/classify.ts": {
-      "mediaLabelFor": {
-        "complexity": 41
-      }
-    },
-    "src/media/fetch-video.ts": {
-      "createVideoFetcher": {
-        "function-length": 697
       }
     },
     "src/memory/append-store.ts": {
@@ -420,12 +407,7 @@
         "complexity": 38
       },
       "writeObservation": {
-        "complexity": 36
-      }
-    },
-    "src/memory/db/recall.ts": {
-      "search": {
-        "complexity": 21
+        "complexity": 35
       }
     },
     "src/memory/db/rows.ts": {
@@ -447,9 +429,6 @@
       }
     },
     "src/memory/db/session.ts": {
-      "buildSessionRequest": {
-        "complexity": 29
-      },
       "runBatch": {
         "complexity": 25
       },
@@ -513,11 +492,6 @@
       },
       "searchRecordIndex": {
         "complexity": 21
-      }
-    },
-    "src/memory/record.ts": {
-      "toRecordLine": {
-        "complexity": 27
       }
     },
     "src/memory/vectors.ts": {

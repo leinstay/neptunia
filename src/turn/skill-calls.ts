@@ -707,6 +707,23 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       // A voice message a diary turn posted through her operation: the post keeps its text as voiced and its length.
       if (skill === 'voice.say' && draft?.diary && result.voice)
         draft.diaryVoice = { text: result.voice.text, durationSecs: result.voice.durationSecs };
+      // A voice message is a line of hers with no words of its own: what she voiced is its item's text form.
+      if (skill === 'voice.say' && result.voice) {
+        recordSaid({
+          placeId,
+          channel: { id: where },
+          privateChat: false,
+          trigger,
+          draft,
+          op,
+          posted,
+          text: '',
+          replyId: null,
+          repliedAuthorId: null,
+          accountIds: [],
+          voiced: typeof result.voice.text === 'string' ? result.voice.text : '',
+        });
+      }
       if (skill === 'message.create') {
         recordSaid({
           placeId,

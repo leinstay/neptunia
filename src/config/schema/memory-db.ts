@@ -275,6 +275,13 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
     'text': 'Token limit for each call of a description review',
   },
   {
+    'key': 'memoryDb.session.mediaPass',
+    'types': ['boolean'],
+    'reader': 'src/memory/db/session.ts',
+    'default': false,
+    'text': "Whether a quiet scope's session reads old media-only lines its cursor passed, once the backfill told them",
+  },
+  {
     'key': 'memoryDb.session.retryLimit',
     'types': ['number'],
     'reader': 'src/memory/db/session.ts',

@@ -167,7 +167,13 @@ function setup({ posts, config = {} }: { posts?: Untyped; config?: Record<string
     hot,
     dbFile,
     row: (id: Untyped) => sqlOf(handle).prepare('SELECT * FROM diary WHERE id = ?').get(id),
-    media: () => sqlOf(handle).prepare("SELECT * FROM media WHERE kind = 'diary' ORDER BY id").all(),
+    media: () =>
+      sqlOf(handle)
+        .prepare(
+          `SELECT m.* FROM media m JOIN media_links l ON l.media_id = m.id WHERE l.owner_kind = 'diary'
+           ORDER BY l.owner_id, l.position`
+        )
+        .all(),
     writeUnits: () => seedUnits(handle, data),
     /** Turns the diary's mirror on or off. */
     mirrored: (enabled: Untyped) =>
@@ -217,12 +223,13 @@ test('a post gets its messages joined in order, its pictures saved and a media r
       assert.equal(item.bytes, bytes.byteLength);
       assert.equal(item.mime, 'image/png');
       assert.equal(item.owner, 'd-1');
-      assert.equal(item.kind, 'diary');
+      assert.equal(item.kind, 'image');
       assert.equal(item.scope_kind, row.scope_kind);
       assert.equal(item.scope_iface, row.scope_iface);
       assert.equal(item.scope_dm, row.scope_dm);
-      assert.equal(JSON.parse(item.native_ref).messageId, index === 0 ? a : b);
-      assert.match(JSON.parse(item.native_ref).url, /^https:\/\/cdn\.example\//);
+      const held = JSON.parse(item.extra) as { messageId: string; url: string };
+      assert.equal(held.messageId, index === 0 ? a : b);
+      assert.match(held.url, /^https:\/\/cdn\.example\//);
     }
     assert.ok(row.scope_kind);
     assert.deepEqual(
@@ -493,8 +500,11 @@ test('an audio attachment is saved in the picture numbering with a row whose ext
     );
     assert.deepEqual(fs.readFileSync(path.join(env.data, media[1].path)), bytes);
     assert.equal(media[1].sha1, createHash('sha1').update(bytes).digest('hex'));
-    assert.deepEqual(JSON.parse(media[1].extra), { voice: true, text: 'sp+oken', durationSec: 4.25 });
-    assert.equal(media[0].extra, null);
+    // What she voiced is the item's text form; a post's message and address sit in `extra`.
+    assert.equal(media[1].description, 'sp+oken');
+    const voiceExtra = JSON.parse(media[1].extra) as { voice?: unknown; durationSec?: unknown; textOrigin?: unknown };
+    assert.deepEqual([voiceExtra.voice, voiceExtra.durationSec, voiceExtra.textOrigin], [true, 4.25, 'voiced']);
+    assert.equal((JSON.parse(media[0].extra) as { voice?: unknown }).voice, undefined);
   } finally {
     env.done();
   }
@@ -512,7 +522,9 @@ test('an audio attachment without a matching voice field keeps its own duration 
     await env.job().run();
     const [item] = env.media();
     assert.equal(item.path, 'media/diary/d-1-1.mp3');
-    assert.deepEqual(JSON.parse(item.extra), { voice: true, durationSec: 7 });
+    // The post's message and the mark of its read sit beside what the file itself holds.
+    const fileExtra = JSON.parse(item.extra) as { voice?: unknown; durationSec?: unknown; text?: unknown };
+    assert.deepEqual([fileExtra.voice, fileExtra.durationSec, fileExtra.text], [true, 7, undefined]);
   } finally {
     env.done();
   }
