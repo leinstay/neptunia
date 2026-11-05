@@ -38,7 +38,7 @@ import {
   stampMetadata,
 } from './report.ts';
 import { observationInterval } from './requests.ts';
-import { applyRiskRules, findingsOf, markFindings } from './risk.ts';
+import { applyRiskRules, findingsOf, markFindings, openCounts } from './risk.ts';
 import type { RiskHistoryEntry, RiskResult } from './risk.ts';
 import { splitAnswer } from './tasks.ts';
 import type { SplitAnswer } from './tasks.ts';
@@ -91,6 +91,8 @@ export type InspectionResult = {
 
 const DEFAULT_CANCEL_POLL_MS = 1000;
 const DEFAULT_BOARD_TIMEOUT_MS = 30_000;
+/** A task files only from a finding line at one of these levels, as the rules left it. */
+const FILED_LEVELS: ReadonlyArray<string> = ['critical', 'high', 'medium'];
 
 /** A run that ends before its report, carrying how. */
 class RunEnd extends Error {
@@ -233,6 +235,7 @@ function stamped(
   observation: Observation
 ): string {
   const { model, effort } = deps.selected;
+  const open = openCounts(rated.findings);
   const backend = deps.selected.backend ?? 'unknown';
   const from = new Date(observation.from).toISOString();
   const to = new Date(observation.to).toISOString();
@@ -245,6 +248,7 @@ function stamped(
     Effort: effort ?? 'default',
     Risk: rated.risk,
     'New findings': `${rated.newFindings}, repeats: ${rated.repeats}`,
+    'Open findings': `critical ${open.critical}, high ${open.high}, medium ${open.medium}, low ${open.low}`,
   });
 }
 
@@ -287,7 +291,9 @@ async function file(deps: InspectionDeps, runId: string, open: BoardOpener, watc
 }
 
 function filingOutcome(dir: string, runId: string): FilingOutcome {
-  const states = readFilings(dir, runId).map((one) => one.state);
+  const states = readFilings(dir, runId)
+    .map((one) => one.state)
+    .filter((state) => state !== 'unmatched-draft');
   if (states.includes('failed')) return 'failed';
   if (states.includes('deferred')) return 'deferred';
   return states.length === 0 ? 'none' : 'filed';
@@ -315,7 +321,8 @@ async function inspect(deps: InspectionDeps, run: RunRecord, watch: Watch): Prom
   const rated = await rateFindings(deps, report, open, watch);
   watch.check();
   const repeated = new Set(rated.findings.flatMap((one) => (one.repeat === null ? [] : [one.key])));
-  saveDrafts(dir, runId, deps.store.now(), tasks, repeated);
+  const fileable = new Set(rated.findings.flatMap((one) => (FILED_LEVELS.includes(one.level) ? [one.key] : [])));
+  saveDrafts(dir, runId, deps.store.now(), tasks, { repeated, fileable });
   phase('filing');
   await file(deps, runId, open, watch);
   phase('committing');

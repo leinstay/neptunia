@@ -133,7 +133,7 @@ export async function installUnits(
   }
 }
 
-/** The unit file of an agent, or null for an agent with no unit of its own (dev). */
+/** The unit file of an agent, or null for an agent with no unit of its own. */
 export function unitOfAgent(agent: string): string | null {
   return Object.entries(UNIT_AGENTS).find(([, name]) => name === agent)?.[0] ?? null;
 }
@@ -141,7 +141,7 @@ export function unitOfAgent(agent: string): string | null {
 /**
  * The line the core answers after a mode change, with no command run: the agent's unit takes the mode when the owner
  * runs `neptunia setup units`. The core runs under `NoNewPrivileges`, so it never tries the `sudo` a system unit needs.
- * Null for an agent with no unit (dev) or no agent at all.
+ * Null for an agent with no unit or no agent at all.
  */
 export function deferModeToUnit(agent: string): string | null {
   const file = unitOfAgent(agent);

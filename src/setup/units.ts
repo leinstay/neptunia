@@ -51,6 +51,7 @@ const AGENT_RUNNER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner\b/m;
 export const UNIT_AGENTS: Readonly<Record<string, SubharnessAgent>> = {
   'neptunia-agent-scout.service': 'scout',
   'neptunia-agent-server.service': 'server',
+  'neptunia-development.service': 'dev',
   'neptunia-watcher.service': 'watcher',
 };
 
