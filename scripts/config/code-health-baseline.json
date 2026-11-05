@@ -239,7 +239,7 @@
         "complexity": 36
       },
       "createRecall>prefetch": {
-        "complexity": 34
+        "complexity": 26
       },
       "createRecall>recallWith": {
         "complexity": 74,
@@ -465,7 +465,7 @@
     },
     "src/memory/db/session.ts": {
       "buildSessionRequest": {
-        "complexity": 35
+        "complexity": 29
       },
       "peopleOf": {
         "complexity": 24

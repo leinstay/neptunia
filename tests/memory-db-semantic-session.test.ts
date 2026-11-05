@@ -231,7 +231,9 @@ test('a revise appends a snapshot and leaves the sealed text of the version befo
   const first = env.db.prepare("SELECT id, claim_id FROM claim_versions WHERE text = 'Ada likes tea'").get();
   assert.ok(first);
   // The claim must look older than the batch for the request to offer it: the rig's clock stands still after the sweep.
-  env.db.prepare('UPDATE claims SET created_at = ?, last_seen_at = ? WHERE id = ?').run('2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z', first.claim_id);
+  env.db
+    .prepare('UPDATE claims SET created_at = ?, last_seen_at = ? WHERE id = ?')
+    .run('2026-10-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z', first.claim_id);
   env.say({ native: 'm6', minutesAgo: 50, text: 'actually coffee' });
   const given = request(env, APPLY);
   const handle = [...given.maps.claims].find(([, id]) => id === first.claim_id)?.[0];
