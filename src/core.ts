@@ -140,6 +140,7 @@ import { clearMemoryPath } from './subharness/memory-path.ts';
 import { memoryPath, memoryPathText } from './subharness/memory-path.ts';
 import { memoryWriterClient } from './subharness/memory-writer.ts';
 import { createMemoryWatch, memoryProbe } from './subharness/memory-probe.ts';
+import { recordCoreCheck } from './setup/model-check.ts';
 import type { MemoryWatch, ProbeResult } from './subharness/memory-probe.ts';
 import type { EffortLevel } from './llm/roles.ts';
 import type { SessionContext } from './memory/db/session.ts';
@@ -1313,6 +1314,9 @@ async function buildCore(
       return Promise.resolve();
     },
     pause: pauseControl,
+    recordCheck: (role, check) => {
+      if (role === 'core') recordCoreCheck(paths.dataDir, { ...check, at: clock() });
+    },
     // `/model set memory <model>` returns the writer to the direct path once the model passed its check.
     directPath: (role) => {
       if (role === 'memory') clearMemoryPath(paths.privateDir);
@@ -1361,6 +1365,7 @@ async function buildCore(
         },
         interfaces: interfaceLinks.list(),
       }),
+      memoryWriter: () => (lastMemoryProbe === null ? 'unknown' : lastMemoryProbe.ok ? 'ok' : 'down'),
       runOp: (op, args, context) => admin.runSkillOp(op, args, context),
       ownerReads: admin.ownerReads,
       guildId: getGuildId,

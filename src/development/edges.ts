@@ -3,12 +3,13 @@
 // through `.git/info/exclude` so that git in the checkout never lists one and no tracked file changes. The worker's gh and
 // git use the system's gh login with the environment they are given. An agent gets no gh access: each run has an empty gh
 // home of its own in the temporary folder, removed when the run ends, and no gh token. The test runner gets a minimal
-// environment, so no key of the deployment reaches code an agent wrote.
+// environment, so no key of the deployment reaches code an agent wrote. The checkout is never the folder the engine runs from.
 
 import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { BackendResult } from '../agent-runner/backend.ts';
+import { ROOT_DIR } from '../config.ts';
 import { checkDevelopment, spawnGh } from '../selfimprovement/repository.ts';
 import type { DevelopmentCheck } from '../selfimprovement/repository.ts';
 import { runAgent } from '../subharness/run.ts';
@@ -71,9 +72,31 @@ function excludeWorktrees(checkout: string, env: NodeJS.ProcessEnv): void {
   fs.appendFileSync(file, `${text === '' || text.endsWith('\n') ? '' : '\n'}${EXCLUDE_LINE}\n`);
 }
 
-/** Throws without a checkout: the worker must never fall back to the code it runs from. */
+/** The real path of `folder`, through the deepest part of it that exists, since a clone's folder may not exist yet. */
+function realFolder(folder: string): string {
+  const resolved = path.resolve(folder);
+  const parent = path.dirname(resolved);
+  try {
+    return fs.realpathSync(resolved);
+  } catch {
+    return parent === resolved ? resolved : path.join(realFolder(parent), path.basename(resolved));
+  }
+}
+
+/**
+ * Why `folder` cannot be the development checkout: it is the folder the running engine was started from, even through a
+ * link, where one wrong `git checkout` changes the live code. The answer proposes a sibling. Null for any other folder.
+ */
+export function liveCheckoutProblem(folder: string, liveDir: string): string | null {
+  const live = realFolder(liveDir);
+  if (realFolder(folder) !== live) return null;
+  return `${folder} is the folder the running engine was started from; name a development checkout beside it, such as ${live}-dev`;
+}
+
+/** Throws without a checkout, or on the live folder (`liveDir`, the engine's own root unless named): the worker must never work on the code it runs from. */
 export function developmentEdges(options: {
   checkout: string | null;
+  liveDir?: string;
   privateDir: string;
   dataDir: string;
   env: Readonly<NodeJS.ProcessEnv>;
@@ -83,6 +106,8 @@ export function developmentEdges(options: {
   const { checkout, privateDir, denyDir, tmpDir } = options;
   if (checkout === null)
     throw new Error('selfimprovement.checkout is unset; name a development checkout there and run neptunia setup');
+  const live = liveCheckoutProblem(checkout, options.liveDir ?? ROOT_DIR);
+  if (live !== null) throw new Error(live);
   const env = { ...options.env };
   const worktreeRoot = path.join(checkout, WORKTREE_FOLDER);
   const gh = spawnGh(env);

@@ -104,11 +104,11 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 
 ## Diagnostics
 
-`/doctor` and `neptunia doctor` run the checks of the installation with the core up or down. The last check, `runtime`, is the core's own reading of the server, itself and the memory. It is `skipped` when no core answers within 5 seconds. `/doctor server`, `/doctor core` and `/doctor memory` read one of the three from the core (`src/health/`), ask no model, write nothing and exit `1` with no core. `/doctor live` holds `providers` in place of `runtime`: the core sends one test request for each model role.
+`/doctor` and `neptunia doctor` run the checks of the installation with the core up or down. The check `readiness` says whether a chat would open and names each repair, as in [setup](setup.md#chat-readiness). The last check, `runtime`, is the core's own reading of the server, itself and the memory. It is `skipped` when no core answers within 5 seconds. `/doctor server`, `/doctor core` and `/doctor memory` read one of the three from the core (`src/health/`), ask no model, write nothing and exit `1` with no core. `/doctor live` holds `providers` in place of `runtime`: the core sends one test request for each model role.
 
 ## Logs
 
-`/logs` reads the journal of `neptunia-core.service`. Its filters are `errors`, `follow` and `since <value>`, and `follow` works in the chat alone. `/logs watcher [date or run]` reads the watcher's saved report, the newest with no selector, with no core and without opening the journal. A report names its run and the other runs of its day. A selector that matches no report exits `1`, and `/logs watcher errors`, `follow` or `since` exit `2`, since those words belong to the journal.
+`/logs` reads the journal of `neptunia-core.service` in the scope of the installation, and a journal it cannot read exits `1` with the scope and the reason. Its filters are `errors`, `follow` and `since <value>`, and `follow` works in the chat alone. `/logs watcher [date or run]` reads the watcher's saved report, the newest with no selector, with no core and without opening the journal. A report names its run and the other runs of its day. A selector that matches no report exits `1`, and `/logs watcher errors`, `follow` or `since` exit `2`, since those words belong to the journal.
 
 ## Scheduled services
 
@@ -161,7 +161,7 @@ Each of these exits `2`, names its replacement and runs nothing, in the chat and
 
 ## Other entry points
 
-`neptunia setup` performs installation. `neptunia worker development` is what `neptunia-development.service` starts, and `neptunia worker development held` lists the tasks older than its boundary, as in [self-development](selfimprovement.md#enabling-the-worker). `neptunia interface run <name>` starts a platform package and stays singular, because a unit starts it. `neptunia services start|stop|restart|status [unit]` runs `systemctl` for the named units or the core and the two errand runners, in the scope of the installation, with `sudo` in the system scope except for `status`. These verbs exist in the shell alone and never name a mechanic. `neptunia tasks` addresses the [task board](board.md).
+`neptunia setup` performs installation, as one flow with no step of its own to name. `neptunia worker development` is what `neptunia-development.service` starts, and `neptunia worker development held` lists the tasks older than its boundary, as in [self-development](selfimprovement.md#enabling-the-worker). `neptunia interface run <name>` starts a platform package and stays singular, because a unit starts it. `neptunia services start|stop|restart|status [unit]` runs `systemctl` for the named units or the core and the two errand runners, in the scope of the installation, with `sudo` in the system scope except for `status`. These verbs exist in the shell alone and never name a mechanic. `neptunia tasks` addresses the [task board](board.md) as the client `NEPTUNIA_TASK_CLIENT` names, by default `owner`, which `neptunia setup` makes with the board role `owner`. With no token for that client it exits `1` with `unavailable:`, the client's name and the repair.
 
 `/status` needs a core connection. For service logs, use the systemd scope selected during [setup](setup.md#services).
 

@@ -140,12 +140,12 @@ export function unitOfAgent(agent: string): string | null {
 
 /**
  * The line the core answers after a mode change, with no command run: the agent's unit takes the mode when the owner
- * runs `neptunia setup units`. The core runs under `NoNewPrivileges`, so it never tries the `sudo` a system unit needs.
+ * runs `neptunia setup`. The core runs under `NoNewPrivileges`, so it never tries the `sudo` a system unit needs.
  * Null for an agent with no unit or no agent at all.
  */
 export function deferModeToUnit(agent: string): string | null {
   const file = unitOfAgent(agent);
-  return file === null ? null : `${file} takes the mode when you run "neptunia setup units" in a shell`;
+  return file === null ? null : `${file} takes the mode when you run "neptunia setup" in a shell`;
 }
 
 /**
@@ -171,10 +171,20 @@ export async function applyModeToUnit(
 }
 
 /** Runs a command to its end and resolves with its output; `sudo` never waits for a password without a terminal. */
-export function spawnRun(command: string, args: ReadonlyArray<string>): Promise<RunResult> {
+export function spawnRun(
+  command: string,
+  args: ReadonlyArray<string>,
+  options: { cwd?: string; timeoutMs?: number } = {}
+): Promise<RunResult> {
   const given = command === 'sudo' && process.stdin.isTTY !== true ? ['-n', ...args] : [...args];
   return new Promise((resolve) => {
-    execFile(command, given, { timeout: 60_000, encoding: 'utf8' }, (error, stdout, stderr) => {
+    const settings = {
+      timeout: options.timeoutMs ?? 60_000,
+      encoding: 'utf8' as const,
+      maxBuffer: 16 * 1024 * 1024,
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    };
+    execFile(command, given, settings, (error, stdout, stderr) => {
       const code = error === null ? 0 : typeof error.code === 'number' ? error.code : 1;
       resolve({ code, stdout, stderr: error !== null && stderr === '' ? error.message : stderr });
     });

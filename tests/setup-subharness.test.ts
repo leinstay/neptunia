@@ -9,7 +9,7 @@ import path from 'node:path';
 import { subharnessStep } from '../src/setup/subharness.ts';
 import type { SubharnessStepDeps } from '../src/setup/subharness.ts';
 import type { InstallRunResult } from '../src/subharness/install.ts';
-import { loginCommand, subharnessPlace } from '../src/subharness/place.ts';
+import { subharnessPlace } from '../src/subharness/place.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
 import type { FakeVendor } from './fixtures/fake-vendor.ts';
 import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
@@ -28,9 +28,8 @@ type Rig = {
   installs: Array<ReadonlyArray<string>>;
   /** the answer of npm, by backend */
   npm: Record<string, InstallRunResult>;
-  /** the vendor CLIs, each logged in by its login step unless the backend is in `noLogin` */
+  /** the vendor CLIs, whose login the step runs itself */
   vendors: Record<'codex' | 'claude', FakeVendor>;
-  noLogin: Array<string>;
 };
 
 /** Puts an executable file at `file`, as npm or the copy would. */
@@ -53,19 +52,10 @@ function rig(): Rig {
       codex: fakeVendor(privateDir, 'codex', { installed: false }),
       claude: fakeVendor(privateDir, 'claude', { installed: false }),
     },
-    noLogin: [],
     deps: {
       ask: (question, offered) => {
         r.asked.push({ question, offered });
         r.events.push(`ask ${r.asked.length}`);
-        // The owner logs in at the terminal while this question waits.
-        for (const name of ['codex', 'claude'] as const) {
-          const vendor = r.vendors[name];
-          if (question.includes(vendor.binary) && !r.noLogin.includes(name)) {
-            fs.mkdirSync(vendor.home, { recursive: true });
-            fs.writeFileSync(path.join(vendor.home, 'credentials'), '');
-          }
-        }
         return Promise.resolve(r.answers.shift() ?? '');
       },
       install: (command, args) => {
@@ -79,6 +69,7 @@ function rig(): Rig {
         return Promise.resolve(result);
       },
       hostEnv: { PATH: '/usr/bin:/bin', HOME: '/home/alice' },
+      loginStdio: 'ignore',
     },
   };
   return r;
@@ -108,16 +99,16 @@ test("each backend is installed into her place with npm's own prefix", async () 
   assert.ok(r.installs[0]?.includes(subharnessPlace(r.privateDir, 'codex').dir));
 });
 
-test('the login line of her binary is shown after the install of that backend', async () => {
-  // Catches: the owner is told to log in with a binary that is not there yet, or with the installing user's own.
-  // Changed: the backend's own status decides afterwards, so no reply check follows.
+test('the step runs the login of her binary after the install of that backend', async () => {
+  // Catches: the login runs before the binary is there, or the owner is left to find the command himself.
+  // Changed: the step runs the login itself, so the fake vendor records it where a question showed it.
   const r = rig();
   r.answers = ['codex'];
-  await subharnessStep({ privateDir: r.privateDir }, r.deps);
-  const login = loginCommand(r.privateDir, 'codex')?.text ?? 'no login line';
-  const at = r.asked.findIndex((one) => one.question.includes(login));
-  assert.notEqual(at, -1, 'a question shows the login line');
-  assert.ok(r.events.indexOf('install codex') < r.events.indexOf(`ask ${at + 1}`));
+  const outcome = await subharnessStep({ privateDir: r.privateDir }, r.deps);
+  assert.equal(outcome.state, 'done', outcome.detail);
+  assert.equal(r.events[1], 'install codex');
+  assert.ok(r.vendors.codex.calls().includes('login --device-auth'), r.vendors.codex.calls().join('; '));
+  assert.deepEqual(r.vendors.codex.homes().at(-1), r.vendors.codex.home);
 });
 
 test('a rerun with every chosen backend installed and logged in is already done and installs nothing', async () => {
@@ -163,10 +154,10 @@ test('a failed install fails the step and connects nothing for that backend', as
 
 test('a backend whose login did not happen is left out and the one set up before it stays', async () => {
   // Catches: one failed login rolls back the whole step, so a working codex is lost because claude was not logged in.
-  // Changed: the backend's own status decides, in place of a reply check.
+  // Changed: the step runs the login itself, so it is the vendor's login that fails.
   const r = rig();
   r.answers = ['codex claude'];
-  r.noLogin = ['claude'];
+  r.vendors.claude.setLogin('fail');
   const outcome = await subharnessStep({ privateDir: r.privateDir }, r.deps);
   assert.equal(outcome.state, 'failed');
   assert.deepEqual(outcome.available, ['codex']);

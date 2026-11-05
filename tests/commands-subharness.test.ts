@@ -230,12 +230,13 @@ test('/help from the owner chat lists /subharness and /simulation', async () => 
     );
 });
 
-test('inside the core a mode change is stored and the answer names neptunia setup units', async () => {
+test('inside the core a mode change is stored and the answer names neptunia setup', async () => {
   // Catches: the core wires the mode to a sudo re-render that NoNewPrivileges refuses, and the owner reads a failure.
+  // Changed: the step word left the public command, and the one flow re-renders the units.
   const { dir, deps } = rig();
   const inCore: EnableDeps = { ...deps, applyMode: (agent) => Promise.resolve(deferModeToUnit(agent)) };
   const answer = await subharnessCommand(inCore, 'agent.mode', { agent: 'server', mode: 'sudo' });
   assert.equal(answer.status, 'ok');
   assert.equal(readKeysFile(dir).subharness.modes.server, 'sudo');
-  assert.ok(answer.text.includes('neptunia setup units'));
+  assert.ok(answer.text.includes('neptunia setup'));
 });

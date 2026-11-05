@@ -8,6 +8,7 @@ import { accountCommand } from '../../subharness/account.ts';
 import type { AccountAction } from '../../subharness/account.ts';
 import { agentPaths, setAgentMode, setAgentModel, statusText, subharnessView } from '../../subharness/control.ts';
 import { memoryPath, memoryPathText, setMemoryPath } from '../../subharness/memory-path.ts';
+import { memoryGaps } from '../../subharness/memory-writer.ts';
 import type { EnableDeps, SubharnessAgent, SubharnessResult } from '../../subharness/control.ts';
 import { disableSimulation, enableSimulation, simulationStatus } from '../../simulation/key.ts';
 
@@ -77,8 +78,11 @@ async function agentModel(
 /** The memory row of the status: the path, marked when its source cannot run now. */
 function memoryRow(privateDir: string, sources: Awaited<ReturnType<typeof subharnessView>>['sources']): string {
   const path = memoryPath(privateDir);
-  const state = path.kind === 'direct' ? undefined : sources.find((one) => one.backend === path.backend);
-  return `  memory  ${memoryPathText(path)}${state === undefined || state.available ? '' : '  unavailable'}`;
+  if (path.kind === 'direct') return `  memory  ${memoryPathText(path)}`;
+  const state = sources.find((one) => one.backend === path.backend);
+  const unavailable = state === undefined || state.available ? '' : '  unavailable';
+  const gaps = memoryGaps(path.backend).map((gap) => `  no ${gap} control`);
+  return `  memory  ${memoryPathText(path)}${unavailable}${gaps.join('')}`;
 }
 
 /** `subharness.status`: the sources, every agent's line, and last her memory writer's path. No model run. */

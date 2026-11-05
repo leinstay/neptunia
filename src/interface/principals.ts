@@ -5,7 +5,7 @@
 // no `iface`: it says hello under `agent` (src/interface/link.ts). The link resolves the token of every envelope
 // through `principalOfToken`, which reads the files at each call, so a rotated or revoked token stops at the next
 // envelope. The core's boot principal, made at start for its one in-process interface, holds whatever `clients.json`
-// says: its token is random per boot and only the core has it, and `neptunia setup units` writes that file under a running
+// says: its token is random per boot and only the core has it, and `neptunia setup` writes that file under a running
 // interface. A `clients.json` that cannot be read makes every client's token no one. Logs nothing and never throws.
 
 import { createHash, timingSafeEqual } from 'node:crypto';

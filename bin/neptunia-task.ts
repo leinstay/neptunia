@@ -4,7 +4,7 @@
 // answer's JSON. `update`, `triage`, `move`, `cancel`, `fail` and `result` read the task first, as the ledger's did, for
 // its revision or its status. `inbox` pulls the caller's outbox rows and acknowledges them.
 //
-// The token is `NEPTUNIA_TASK_TOKEN` itself, else the token file of the client `NEPTUNIA_TASK_CLIENT`
+// The token is `NEPTUNIA_TASK_TOKEN` itself, else the token file of the client `NEPTUNIA_TASK_CLIENT`, by default `owner`
 // (`<private>/clients/<name>.token`). The socket is `--socket <path>`, else the core's (`<data>/run/core.sock`). The
 // client says hello under the agents' namespace `agent`, so its token must stand for an `agent` principal of
 // clients.json, and the board's roles of that client decide what it may do.
@@ -67,7 +67,7 @@ export const TASK_USAGE = `usage: neptunia tasks <command> [options]   (--socket
   tasks inbox [--json]                          # the caller's outbox rows, acknowledged on read
   tasks costs [--now ISO] [--json]              # the agents: runs, tokens, USD today / 7 / 30 UTC days
 Common: --json, --key <idempotency key>, --socket <path>.
-Token: NEPTUNIA_TASK_TOKEN, else the token file of the client NEPTUNIA_TASK_CLIENT.`;
+Token: NEPTUNIA_TASK_TOKEN, else the token file of the client NEPTUNIA_TASK_CLIENT, by default owner.`;
 
 const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
   'json',
@@ -82,6 +82,9 @@ const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
   'changes',
 ]);
 const AGENT_IFACE = 'agent';
+
+/** The client of a shell that names none: the owner's, which `neptunia setup` provisions (src/setup/clients.ts). */
+const OWNER_CLIENT = 'owner';
 
 type Flags = Record<string, string | boolean | Array<string>>;
 type Parsed = { flags: Flags; positionals: Array<string> };
@@ -525,18 +528,19 @@ function agentAdapter(): Adapter {
 
 const quiet: Logger = { info() {}, warn() {}, error() {} };
 
-/** The token of `NEPTUNIA_TASK_TOKEN`, else of the client `NEPTUNIA_TASK_CLIENT`'s file; null with neither. */
+/** The token of `NEPTUNIA_TASK_TOKEN`, else of the named client's file, else of the owner's; a string says why not. */
 function tokenOf(env: NodeJS.ProcessEnv, privateDir: string): { token: string; name: string } | string {
-  const name = env.NEPTUNIA_TASK_CLIENT || AGENT_IFACE;
   const given = env.NEPTUNIA_TASK_TOKEN;
-  if (given) return { token: given.trim(), name };
-  if (!env.NEPTUNIA_TASK_CLIENT) return 'set NEPTUNIA_TASK_TOKEN or NEPTUNIA_TASK_CLIENT';
+  if (given) return { token: given.trim(), name: env.NEPTUNIA_TASK_CLIENT || AGENT_IFACE };
+  const name = env.NEPTUNIA_TASK_CLIENT || OWNER_CLIENT;
   const file = path.join(privateDir, 'clients', `${name}.token`);
+  const missing = `the client ${name} has no usable token at ${file}`;
+  const repair = name === OWNER_CLIENT ? '; run neptunia setup, which makes it' : '';
   try {
     const token = fs.readFileSync(file, 'utf8').trim();
-    return token === '' ? `the token file ${file} is empty` : { token, name };
+    return token === '' ? `${missing} (empty)${repair}` : { token, name };
   } catch (err) {
-    return `cannot read the token ${file} (${(err as NodeJS.ErrnoException).code ?? 'error'})`;
+    return `${missing} (${(err as NodeJS.ErrnoException).code ?? 'error'})${repair}`;
   }
 }
 

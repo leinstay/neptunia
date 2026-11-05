@@ -1,26 +1,27 @@
 // The subharness step of `neptunia setup` (src/setup/run.ts, docs/setup.md): which backends the persona's agents may
-// run through, each installed into her place (src/subharness/install.ts) and logged in. The owner names none, one or
-// several. For `codex` and `claude` not yet logged in the step shows the login line of her own binary
-// (src/subharness/place.ts#loginCommand), waits until the owner has run it, then asks the backend's own status. When the
-// installed claude's help names no login, the step tells the owner to read that help and guesses nothing; `opencode` is
-// copied in from a path the owner gives and names one extra key (src/subharness/account.ts). A backend whose install or
-// login fails stays out, and the ones available before it stay. No detail holds a key value. The step never runs the
-// login itself.
+// run through, each installed into her place (src/subharness/install.ts) and logged in. The owner names none, one,
+// several or all. A backend not yet logged in goes through the same login as `neptunia subharness <backend> login`
+// (src/subharness/account.ts), at the owner's terminal; `opencode` is copied in from a path the owner gives and names one
+// extra key. A backend whose install or login fails stays out, and the ones available before it stay. One that can run
+// already is left alone, and no role and no model moves. No detail holds a key value.
 
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
+import type { StdioOptions } from 'node:child_process';
 import { readKeys } from '../keys/file.ts';
 import { accountCommand } from '../subharness/account.ts';
 import { installSubharness } from '../subharness/install.ts';
 import type { InstallRun } from '../subharness/install.ts';
-import { helpOfInstalled, isInstalled, loginCommand, subharnessPlace } from '../subharness/place.ts';
-import { availableSources, sourceProblem, sourceState } from '../subharness/sources.ts';
+import { isInstalled } from '../subharness/place.ts';
+import { availableSources, sourceState } from '../subharness/sources.ts';
 import type { Ask } from './mechanics.ts';
 
 export type SubharnessStepDeps = {
   ask: Ask;
   install: InstallRun;
   hostEnv: Readonly<Record<string, string | undefined>>;
+  /** the login's stdio; the owner's terminal by default */
+  loginStdio?: StdioOptions;
 };
 export type SubharnessStepOutcome = {
   state: 'done' | 'already' | 'failed' | 'skipped';
@@ -31,7 +32,7 @@ export type SubharnessStepOutcome = {
 
 /** The first question of the step. */
 const CHOICE =
-  'The subharness backends her agents may run through, separated by spaces (codex, claude, opencode; none for none):';
+  'The subharness backends her agents may run through, separated by spaces (codex, claude, opencode; all for all, none for none):';
 
 /** What one backend came to. */
 type Result = { name: BackendName; state: 'done' | 'already' | 'failed'; detail: string };
@@ -45,18 +46,6 @@ function namesOf(answer: string): Array<BackendName> | { unknown: string } {
     if (!names.includes(name)) names.push(name);
   }
   return names;
-}
-
-/** The instruction of the login step: the login line the installed binary names, or how to find it in its own help. */
-async function loginStep(privateDir: string, name: BackendName): Promise<string> {
-  try {
-    const help = name === 'claude' ? await helpOfInstalled(privateDir, name) : undefined;
-    return `Log in at this terminal, then press Enter: ${loginCommand(privateDir, name, help)?.text ?? name}`;
-  } catch {
-    // `claude login` on a release without the command is a prompt to the model, so nothing is guessed.
-    const { binary } = subharnessPlace(privateDir, name);
-    return `Read the login of ${name} in its own help (${binary} --help), log in at this terminal, then press Enter:`;
-  }
 }
 
 /** Installs and logs in one backend; `already` when it could run and nothing was done. */
@@ -83,11 +72,20 @@ async function setUpOne(privateDir: string, name: BackendName, deps: SubharnessS
     );
     return { name, state: given.status === 'ok' ? 'done' : 'failed', detail: given.text };
   }
-  await deps.ask(await loginStep(privateDir, name), null);
-  const state = await sourceState(privateDir, name);
-  return state.available
+  const login = await accountCommand(
+    {
+      privateDir,
+      hostEnv: deps.hostEnv,
+      install: deps.install,
+      ask: (question) => deps.ask(question, null),
+      ...(deps.loginStdio === undefined ? {} : { loginStdio: deps.loginStdio }),
+    },
+    name,
+    'login'
+  );
+  return login.status === 'ok'
     ? { name, state: 'done', detail: `${name} is installed and logged in` }
-    : { name, state: 'failed', detail: sourceProblem(state) };
+    : { name, state: 'failed', detail: login.text };
 }
 
 export async function subharnessStep(
@@ -100,7 +98,7 @@ export async function subharnessStep(
   const answer = raw === '' ? (offered ?? '') : raw;
   if (answer === '' || answer.toLowerCase() === 'none')
     return { state: 'skipped', detail: 'no backend chosen', available: before };
-  const names = namesOf(answer);
+  const names = answer.toLowerCase() === 'all' ? [...BACKEND_NAMES] : namesOf(answer);
   if (!Array.isArray(names))
     return {
       state: 'failed',

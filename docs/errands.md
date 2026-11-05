@@ -20,7 +20,7 @@ Claude Code and Codex bring their own login, so no key travels with them. An Ope
 
 ## Modes
 
-Execution modes govern the agent's access: `read`, `write`, `full` and `sudo`. The mode in the route sets the backend's sandbox and decides whether `sudo` is refused inside the run. Use `/agent mode <agent> <mode>` to select one. Rerender units with `neptunia setup units` and restart the affected unit to apply systemd restrictions. A mode stored in the key store alone does not change an already running service.
+Execution modes govern the agent's access: `read`, `write`, `full` and `sudo`. The mode in the route sets the backend's sandbox and decides whether `sudo` is refused inside the run. Use `/agent mode <agent> <mode>` to select one. Rerender units with `neptunia setup` and restart the affected unit to apply systemd restrictions. A mode stored in the key store alone does not change an already running service.
 
 The scout and server units bind the folder of every backend a role names or that is installed under `data/subharness/`, writable, so a claude child keeps its config directory there (`CLAUDE_CONFIG_DIR`). The server unit's network also reaches Anthropic's ranges, `160.79.104.0/23` and `2607:6bc0::/48`, next to Cloudflare's.
 

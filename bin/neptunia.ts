@@ -16,13 +16,11 @@
 //   neptunia services watcher trigger|cancel     the operations of one watcher run
 //   neptunia services watcher evidence [--from <iso>] [--cursor <c>]  what the services asked and answered, as JSON
 //   neptunia services start|stop|restart|status [<unit> ...]   the units, through the scope's systemctl
-//   neptunia logs [errors] [follow] [since <when>]   the core's journal
+//   neptunia logs [errors] [follow] [since <when>]   the core's journal, in the scope of the units
 //   neptunia logs watcher [<date or run>]        the watcher's saved report, with no core
-//   neptunia setup [--system] [--node <path>] [<step>]  the install of one user: folders, keys file, her subharness
+//   neptunia setup [--system] [--node <path>]    the install of one user, one flow: folders, keys file, her subharness
 //                                                backends, the repository of her self-development, her mechanics,
-//                                                the watcher, units, linger, the core; a step of those last-named three
-//                                                alone is `neptunia services <name> setup`
-//   neptunia setup subharness <backend> [--from <path>]   one subharness backend into <private>/subharness/<backend>/
+//                                                the watcher, units, linger, the core. A name of a step is refused.
 //   neptunia subharness <backend> login|status|logout   its account, with no core (src/subharness/account.ts)
 //   neptunia tasks <command> [options]           the task board's command line (bin/neptunia-task.ts)
 //
@@ -35,7 +33,7 @@
 // her reply arrives as a send action and is printed. A line starting with `/` is parsed by the command table
 // (src/interface/commands/table.ts), which prints the reason of a line it refuses, and becomes a `command.requested`
 // event: its answer is printed for the owner and never reaches her memory or her requests. `/clear`, `/doctor`,
-// `/logs` (journalctl of the core's unit, from PATH), `/logs watcher` (the saved reports) and `/services`
+// `/logs` (journalctl of the core's unit in the units' scope, src/service/journal.ts), `/logs watcher` (the saved reports) and `/services`
 // (bin/neptunia-service.ts) run here and ask the core nothing, but `/doctor live` asks it for the probes of the model roles. A line typed before the link is up waits in the input until it is. The chat opens with the core's
 // header and, above it, the picture in `<private>/cli/picture.txt` when that file exists. In a terminal the command
 // history is kept in `<private>/cli/history`. The end of the input ends the chat with exit 0, once the answers of the
@@ -49,6 +47,10 @@
 // one typed in the chat: it waits for the `command.result` that names the line's message id, which the core sends when
 // the turn over the line ended (src/interface/neptunia-cli.ts), and prints her reply. A chat with no terminal explains
 // itself and exits 2 unless `NEPTUNIA_PLAIN_CHAT=1` asks for the chat over the pipes. Log lines go to stderr.
+//
+// A chat launch reads its readiness first (src/setup/readiness.ts). At a terminal a gap enters the one setup flow there
+// (src/setup/flow.ts), and over pipes it prints `setup-required` with the repairs and exits 1. Every other command stays
+// reachable, and `doctor` reports the same readiness as a check.
 //
 // `worker` names what a unit starts, and the usage leaves it out: `worker watcher` (deploy/neptunia-watcher.service) ends
 // at once while `watcher.enabled` is false, and otherwise runs one inspection under one run identity
@@ -95,17 +97,22 @@ import { interfacePackageDir } from '../src/config/files.ts';
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
 import { createAgentEngine } from '../src/agent-runner/backend.ts';
-import { BACKEND_NAMES, agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
-import type { BackendName } from '../src/agent-runner/profiles.ts';
+import { agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
 import { spawnGh } from '../src/selfimprovement/repository.ts';
 import { spawnRun } from '../src/setup/install.ts';
+import type { RunResult } from '../src/setup/install.ts';
+import { installGhOfficially } from '../src/setup/development.ts';
+import { runSetupFlow, setupFlowSteps } from '../src/setup/flow.ts';
+import { decideLaunch, evaluateReadiness, gatherHealth, readinessText } from '../src/setup/readiness.ts';
+import type { HealthLink, ReadinessHealth } from '../src/setup/readiness.ts';
+import { followsJournal, journalCall, readJournal } from '../src/service/journal.ts';
+import { unitFolder, unitScope } from '../src/service/manager.ts';
 import { accountCommand } from '../src/subharness/account.ts';
-import { installSubharness, rollbackSubharness, updateSubharness } from '../src/subharness/install.ts';
 import type { InstallRun } from '../src/subharness/install.ts';
 import { SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
-import type { SetupReport } from '../src/setup/run.ts';
+import type { SetupDeps, SetupOptions, SetupReport } from '../src/setup/run.ts';
 import { accountRequest } from '../src/interface/commands/subharness.ts';
 import { featureRows } from '../src/subharness/summary.ts';
 import { defaultDenyDir } from '../src/subharness/run.ts';
@@ -187,8 +194,7 @@ const USAGE = [
   '       neptunia services watcher evidence [--from <iso>] [--cursor <c>]',
   '       neptunia services start|stop|restart|status [<unit> ...]',
   '       neptunia logs watcher [<date or run>]',
-  '       neptunia setup [--system] [--node <path>] [folders|keys-file|interfaces|services|subharness|units|linger|core]',
-  '       neptunia setup subharness codex|claude|opencode [--from <path>] [--version <version>] [--rollback]',
+  '       neptunia setup [--system] [--node <path>]',
   '       neptunia subharness codex|claude login|status|logout',
   '       neptunia subharness opencode login --key <name>|status|logout',
   '       neptunia tasks <command> [options]   (neptunia tasks help)',
@@ -532,50 +538,20 @@ type Reply = Answer & { ask?: CommandResult['ask'] };
 const LOCAL_COMMANDS = new Set(['doctor', 'doctor.live', 'logs', 'logs.watcher', 'clear']);
 const runsHere = (name: string): boolean => LOCAL_COMMANDS.has(name) || isServiceRequest(name);
 
-/** The core's unit, whose journal `/logs` reads (deploy/neptunia-core.service). */
-const CORE_UNIT = 'neptunia-core.service';
+// A journal read in full can be long; the runner's default buffer would cut it.
+const JOURNAL_BUFFER_BYTES = 64 * 1024 * 1024;
 
-/** The arguments of `journalctl` for `/logs` with its words (`errors`, `since <value>`, `follow`). */
-function journalArgs(options: string): { args: Array<string>; follow: boolean } {
-  const words = options.split(' ').filter((word) => word !== '');
-  const args = ['-u', CORE_UNIT, '--no-pager'];
-  let follow = false;
-  for (let i = 0; i < words.length; i += 1) {
-    const word = words[i];
-    if (word === 'errors') args.push('-p', 'err');
-    else if (word === 'follow') follow = true;
-    else if (word === 'since') {
-      i += 1;
-      // The table refused `since` without a value; the value is the rest of the words up to the next keyword.
-      const value: Array<string> = [];
-      while (i < words.length && words[i] !== 'errors' && words[i] !== 'follow') {
-        value.push(words[i] ?? '');
-        i += 1;
-      }
-      i -= 1;
-      args.push('--since', value.join(' '));
-    }
-  }
-  if (follow) args.push('-f');
-  return { args, follow };
-}
-
-/** `/logs` once: journalctl's output, or why it did not run. A follow is the chat's (`followJournal`). */
-function readJournal(options: string): Answer {
-  const { args, follow } = journalArgs(options);
-  if (follow) return { text: '/logs follow: only the chat follows the journal', status: 'invalid' };
-  const run = spawnSync('journalctl', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  if (run.error !== undefined) {
-    const code = (run.error as NodeJS.ErrnoException).code ?? 'error';
-    return { text: `/logs: journalctl does not run here (${code}); it is not on PATH`, status: 'failed' };
-  }
-  const text = run.stdout === '' ? run.stderr : run.stdout;
-  return { text: text === '' ? '(no lines)' : text, status: run.status === 0 ? 'ok' : 'failed' };
+/** The runner of `/logs`: rejects with the code when journalctl cannot start. */
+function runJournal(command: string, args: ReadonlyArray<string>): Promise<RunResult> {
+  const run = spawnSync(command, [...args], { encoding: 'utf8', maxBuffer: JOURNAL_BUFFER_BYTES });
+  if (run.error !== undefined) return Promise.reject(run.error);
+  return Promise.resolve({ code: run.status ?? 1, stdout: run.stdout, stderr: run.stderr });
 }
 
 /** `/logs ... follow` in the chat: journalctl's lines printed as they come, until the chat ends. */
 function followJournal(options: string, print: (text: string) => void): Promise<unknown> {
-  const child = spawn('journalctl', journalArgs(options).args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const [command, args] = journalCall(process.env, options);
+  const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout.on('data', (chunk: Buffer) => print(chunk.toString()));
   process.once('exit', () => child.kill());
   return new Promise<void>((resolve) => {
@@ -596,7 +572,8 @@ const checkLines = (checks: ReadonlyArray<Check>): string =>
 /** A command the command line runs itself; `ask` reaches the core for the probes of `doctor.live`, null when down. */
 async function runLocal(command: Command, ask: ((command: Command) => Promise<Answer>) | null): Promise<Answer> {
   if (command.name === 'clear') return { text: '', status: 'ok' };
-  if (command.name === 'logs') return readJournal(typeof command.args.options === 'string' ? command.args.options : '');
+  if (command.name === 'logs')
+    return readJournal(process.env, typeof command.args.options === 'string' ? command.args.options : '', runJournal);
   const color = process.stdout.isTTY && !process.env.NO_COLOR;
   if (command.name === 'logs.watcher') return watcherLogsHere(command.args, paths(), color);
   if (isServiceRequest(command.name)) {
@@ -849,6 +826,84 @@ async function runInkChat(where: { privateDir: string }, firstLine = ''): Promis
   process.exit(0);
 }
 
+/** The longest a launch waits for the core's health: a core that hangs reads as down, and the chat does not hang on it. */
+const READINESS_WAIT_MS = 5000;
+
+/** The link a health read goes through, closed by `done`. */
+async function healthLink(where: { dataDir: string }): Promise<{ link: HealthLink; done: () => void }> {
+  const opened = await tryCliLink();
+  if (opened === null) {
+    const socket = await checkSocket(where);
+    return { link: { kind: socket.status === 'ok' ? 'listening' : 'down' }, done: () => {} };
+  }
+  const ask = async (command: Command): Promise<Answer> => {
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<Answer>((resolve) => {
+      timer = setTimeout(() => resolve({ text: '', status: 'late' }), READINESS_WAIT_MS);
+    });
+    const answer = await Promise.race([opened.ask(command), late]);
+    clearTimeout(timer);
+    return answer;
+  };
+  return { link: { kind: 'up', ask }, done: () => opened.close() };
+}
+
+/** The health of this installation now, over a link of its own. */
+async function readHealth(where: { privateDir: string; dataDir: string }): Promise<ReadinessHealth> {
+  const { link, done } = await healthLink(where);
+  try {
+    return await gatherHealth({
+      privateDir: where.privateDir,
+      dataDir: where.dataDir,
+      unitDir: unitFolder(process.env),
+      link: () => Promise.resolve(link),
+    });
+  } finally {
+    done();
+  }
+}
+
+/** One command of the setup flow, with its questions at the terminal; the core's refusal when it could not connect. */
+async function askCoreAtTerminal(command: Command): Promise<Answer> {
+  const link = await tryCliLink();
+  if (link === null) return { text: 'no core listens: start it with neptunia services start', status: 'failed' };
+  const questions = openQuestions();
+  try {
+    return await link.ask(command, questions.answers);
+  } finally {
+    questions.close();
+    link.close();
+  }
+}
+
+/** A chat launch: the chat when nothing is missing, else the setup flow at the gap, or `setup-required` over pipes. */
+async function launchChat(): Promise<void> {
+  const where = paths();
+  const terminal = process.stdin.isTTY === true && process.stdout.isTTY === true;
+  const decision = decideLaunch({ terminal, readiness: evaluateReadiness(await readHealth(where)) });
+  switch (decision.kind) {
+    case 'chat':
+      return runChat();
+    case 'setup-required':
+      console.error(`neptunia: ${decision.text}`);
+      process.exit(1);
+      break;
+    case 'setup': {
+      const options = setupOptions({ system: unitScope(process.env) === 'system' });
+      const outcome = await runSetupFlow({
+        dataDir: where.dataDir,
+        health: () => readHealth(where),
+        steps: setupFlowSteps(options, { ...setupDeps(), askCore: askCoreAtTerminal }),
+        ask: askAtTerminal,
+      });
+      if (outcome.status === 'ready') return runChat();
+      die(
+        `setup ${outcome.status} at ${outcome.at ?? 'the start'}${outcome.detail === '' ? '' : `: ${outcome.detail}`}`
+      );
+    }
+  }
+}
+
 /**
  * The chat. With `firstLine` (`neptunia setup` hands it `/keys core add`) that line is typed first, and the chat
  * returns to its caller when the input ends instead of ending the process.
@@ -904,11 +959,7 @@ async function runChat(firstLine?: string): Promise<void> {
     } else if (text.startsWith('/')) {
       const parsed = parseCommandLine(text);
       if (!parsed.ok) printBlock(parsed.reason);
-      else if (
-        parsed.name === 'logs' &&
-        typeof parsed.args.options === 'string' &&
-        journalArgs(parsed.args.options).follow
-      )
+      else if (parsed.name === 'logs' && typeof parsed.args.options === 'string' && followsJournal(parsed.args.options))
         track(followJournal(parsed.args.options, printBlock));
       else if (runsHere(parsed.name))
         track(runLocal(parsed, (asked) => link.ask(asked)).then((answer) => printBlock(answer.text)));
@@ -1174,6 +1225,14 @@ async function checkFeatures(where: { privateDir: string }): Promise<Check> {
   };
 }
 
+/** What a chat launch would find: `fail` with the repairs while it would not open. Reads with no model request. */
+async function checkReadiness(where: { privateDir: string; dataDir: string }): Promise<Check> {
+  const readiness = evaluateReadiness(await readHealth(where));
+  return readiness.ready
+    ? { name: 'readiness', status: 'ok', detail: 'a chat opens' }
+    : { name: 'readiness', status: 'fail', detail: readinessText(readiness) };
+}
+
 /** Every check of the installation, then the core's reading of itself; with `live`, the providers probed through it instead. */
 async function doctorChecks(
   where: { rootDir: string; privateDir: string; dataDir: string },
@@ -1191,6 +1250,8 @@ async function doctorChecks(
     checkDatabase(where),
     await checkSocket(where),
   ];
+  // `live` is the providers' own read; the plain doctor says whether a chat would open.
+  if (!live) checks.push(await checkReadiness(where));
   checks.push(live ? await checkProviders(ask) : await checkRuntime(ask));
   return checks;
 }
@@ -1386,89 +1447,52 @@ const installRun: InstallRun = (command, args, options) =>
     );
   });
 
-/** `setup subharness <backend> --rollback` or `--version <version>`: the owner's explicit change of a pinned version. */
-async function changeSubharnessVersion(backend: BackendName, flag: string, value: string | undefined): Promise<void> {
-  const { privateDir } = paths();
-  if ((flag === '--rollback') !== (value === undefined)) usage();
-  const outcome =
-    value === undefined
-      ? rollbackSubharness(privateDir, backend)
-      : await updateSubharness({ privateDir, backend, hostEnv: process.env, version: value }, installRun);
-  console.log(`${outcome.state.padEnd(8)}  subharness ${backend}  ${outcome.detail}`);
-  if (outcome.state === 'failed') process.exitCode = 1;
+/** Who and where this process installs. */
+function setupOptions({ system, node }: { system: boolean; node?: string }): SetupOptions {
+  const where = paths();
+  return {
+    system,
+    user: os.userInfo().username,
+    group: groupName(),
+    home: os.homedir(),
+    rootDir: where.rootDir,
+    privateDir: where.privateDir,
+    dataDir: where.dataDir,
+    node: nodeOf({ given: node, argv0: process.argv0, execPath: process.execPath, pathEnv: process.env.PATH }),
+    ...(process.env.XDG_CONFIG_HOME ? { xdgConfigHome: process.env.XDG_CONFIG_HOME } : {}),
+  };
 }
 
-/**
- * `setup subharness <backend> [--from <path>]`: the backend installed into the private layer, then the account command
- * that logs it in. opencode is copied from `--from`, else from `errands.opencodePath`.
- */
-async function runSubharnessSetup(argv: ReadonlyArray<string>): Promise<void> {
-  const [name, flag, value, ...extra] = argv;
-  const backend = BACKEND_NAMES.find((known) => known === name);
-  if (backend === undefined || extra.length > 0) usage();
-  if (flag === '--rollback' || flag === '--version') return changeSubharnessVersion(backend, flag, value);
-  if (flag !== undefined && (flag !== '--from' || value === undefined || backend !== 'opencode')) usage();
-  const where = paths();
-  let source = value === undefined ? undefined : path.resolve(value);
-  if (backend === 'opencode' && source === undefined) {
-    const config = readConfig(where.rootDir, { privateDir: where.privateDir });
-    const errands = isObject(config.errands) ? config.errands : {};
-    source = typeof errands.opencodePath === 'string' ? errands.opencodePath : DEFAULT_OPENCODE_PATH;
-  }
-  const outcome = await installSubharness(
-    {
-      privateDir: where.privateDir,
-      backend,
-      hostEnv: process.env,
-      ...(source === undefined ? {} : { opencodeSource: source }),
-    },
-    installRun
-  );
-  console.log(`${outcome.state.padEnd(8)}  subharness ${backend}  ${outcome.detail}`);
-  if (outcome.state === 'failed') process.exit(1);
-  console.log(`next: neptunia subharness ${backend} login${backend === 'opencode' ? ' --key <name>' : ''}`);
-  process.exit(0);
+/** What setup reaches from this process; the questions and the chat only at a terminal, where someone can answer. */
+function setupDeps(): SetupDeps {
+  const terminal = process.stdin.isTTY === true;
+  return {
+    run: spawnRun,
+    openChat: (firstLine) => (terminal ? runChat(firstLine) : Promise.resolve()),
+    report: printSetup,
+    ...(terminal
+      ? {
+          ask: askAtTerminal,
+          gh: spawnGh(process.env),
+          install: installRun,
+          hostEnv: process.env,
+          installGh: () => installGhOfficially(spawnRun, process.getuid?.() === 0),
+        }
+      : {}),
+  };
 }
 
 async function runSetupCommand(argv: ReadonlyArray<string>): Promise<void> {
   const retired = retiredSetupStep(argv);
   if (retired !== null) refuseSyntax(retired);
-  if (argv[0] === 'subharness' && argv.length > 1) return runSubharnessSetup(argv.slice(1));
   let parsed: ReturnType<typeof parseSetupArgs>;
   try {
     parsed = parseSetupArgs(argv);
   } catch (err) {
-    if (err instanceof SetupUsageError) usage();
+    if (err instanceof SetupUsageError) refuseSyntax(err.message);
     throw err;
   }
-  const where = paths();
-  const { node, ...rest } = parsed;
-  const report = await runSetup(
-    {
-      ...rest,
-      user: os.userInfo().username,
-      group: groupName(),
-      home: os.homedir(),
-      rootDir: where.rootDir,
-      privateDir: where.privateDir,
-      dataDir: where.dataDir,
-      node: nodeOf({ given: node, argv0: process.argv0, execPath: process.execPath, pathEnv: process.env.PATH }),
-      ...(process.env.XDG_CONFIG_HOME ? { xdgConfigHome: process.env.XDG_CONFIG_HOME } : {}),
-    },
-    {
-      run: spawnRun,
-      openChat: (firstLine) => runChat(firstLine),
-      report: printSetup,
-      ...(process.stdin.isTTY === true
-        ? {
-            ask: askAtTerminal,
-            gh: spawnGh(process.env),
-            install: installRun,
-            hostEnv: process.env,
-          }
-        : {}),
-    }
-  );
+  const report = await runSetup(setupOptions(parsed), setupDeps());
   process.exit(report.ok ? 0 : 1);
 }
 
@@ -1676,7 +1700,7 @@ switch (group) {
     if ((process.stdin.isTTY !== true || process.stdout.isTTY !== true) && process.env.NEPTUNIA_PLAIN_CHAT !== '1')
       refuseSyntax(panelRefusal('the chat'));
     logToStderr();
-    await runChat().catch(fault);
+    await launchChat().catch(fault);
     break;
   case '-p':
     logToStderr();

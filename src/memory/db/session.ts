@@ -1266,9 +1266,16 @@ export type Completion = {
   usage?: {
     prompt_tokens?: unknown;
     completion_tokens?: unknown;
+    /** A backend that prints one count for the whole run has this alone. */
+    total_tokens?: unknown;
     prompt_tokens_details?: { cached_tokens?: unknown };
   };
 };
+
+/** `<backend>:<model>` of a subharness run, from its completion or its refusal; null for the direct path. */
+function pathThatRan(ran: { backend?: unknown; model?: unknown } | undefined): string | null {
+  return typeof ran?.backend === 'string' && typeof ran.model === 'string' ? `${ran.backend}:${ran.model}` : null;
+}
 
 /**
  * What the sweep and the reviews take from their caller: the connection, the writer, the model client, the live
@@ -1914,8 +1921,10 @@ async function runScope(
     });
   } catch (error) {
     run.errors.push(`llm:${codeOf(error)}`);
+    run.model = pathThatRan(error as Row) ?? run.model;
     return finish(codeOf(error) === 'ROLE_KEY_MISSING' ? CODES.NOT_CONFIGURED : 'llm_error');
   }
+  run.model = pathThatRan(completion) ?? run.model;
   run.tokensPrompt = Number(completion?.usage?.prompt_tokens) || null;
   run.tokensCompletion = Number(completion?.usage?.completion_tokens) || null;
   const answer = typeof completion?.text === 'string' && completion.text ? completion.text : null;

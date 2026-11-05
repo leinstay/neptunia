@@ -4,7 +4,9 @@
 // five-hour and weekly limits cannot be read, so the probe is the only signal of them. The watch probes at core start,
 // every `memory.probeMinutes` (default 30) and at once after a refused writer run. A failed probe while she runs pauses
 // her with the reason `memory-down` through the core's pause (src/keys/commands.ts#PauseControl), the next passing
-// probe resumes her, and neither touches a pause of another reason: the owner's and `no-core-key` stay as they are.
+// probe resumes her, and neither touches a pause of another reason: the owner's and `no-core-key` stay as they are. A
+// source the vendor's own status command reports logged out fails with no model run. A pass on a subharness path names
+// the controls that path lacks in `gaps`, so a green probe claims no parity with the direct one.
 
 import type { BackendResult } from '../agent-runner/backend.ts';
 import { checkRole } from '../keys/check.ts';
@@ -13,6 +15,8 @@ import { log } from '../log.ts';
 import { MEMORY_ROLE } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { memoryPath } from './memory-path.ts';
+import { memoryGaps } from './memory-writer.ts';
+import { sourceState } from './sources.ts';
 
 /** The pause reason of a failed memory probe. */
 export const MEMORY_DOWN = 'memory-down';
@@ -25,7 +29,7 @@ const PROBE_BRIEF = 'Reply with the single word ok.';
 
 const MINUTE_MS = 60_000;
 
-export type ProbeResult = { ok: true; at: number } | { ok: false; code: string; at: number };
+export type ProbeResult = { ok: true; at: number; gaps?: Array<string> } | { ok: false; code: string; at: number };
 
 export type MemoryProbeDeps = {
   privateDir: string;
@@ -57,8 +61,10 @@ async function probeOnce(deps: MemoryProbeDeps, at: number): Promise<ProbeResult
     });
     return result.ok ? { ok: true, at } : { ok: false, code: 'model-failed', at };
   }
+  if ((await sourceState(deps.privateDir, path.backend)).code === 'not-logged-in')
+    return { ok: false, code: 'not-logged-in', at };
   const outcome = await deps.runBackend(path.backend, PROBE_BRIEF, path.model, path.effort ?? undefined);
-  if (outcome.ok && outcome.text.trim() !== '') return { ok: true, at };
+  if (outcome.ok && outcome.text.trim() !== '') return { ok: true, at, gaps: memoryGaps(path.backend) };
   return { ok: false, code: outcome.error ?? 'no-reply', at };
 }
 

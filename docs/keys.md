@@ -10,7 +10,7 @@ Use `/keys` to inspect the available commands, `/keys bind` to select an extra k
 
 [`checkRole`](../src/keys/check.ts) sends one minimal request for the role on the role's key. Chat roles get a short completion, `embedding` a short embedding, and `speech` a synthesis of two characters on the speech endpoint with `speech.voice`. A failed check means the provider or the network said no. `drawing` has no probe, because one request bills a whole picture, so `/keys check drawing` answers `unsupported` and sends nothing, and `/model set drawing` saves the model unverified. A role that is off answers `not_configured`. Neither answer says anything about the key.
 
-The base conversation roles, the memory writer and the delegated agents are distinct routes. A subscription login for an agent backend does not replace the OpenRouter keys used by the core. See [setup](setup.md#subharness-backends) for those logins.
+The base conversation roles, the memory writer and the delegated agents are distinct routes. `/model set core` and `/keys check core` record their check for [chat readiness](setup.md#chat-readiness), so a launch sends no model request of its own. A subscription login for an agent backend does not replace the OpenRouter keys used by the core. See [setup](setup.md#subharness-backends) for those logins.
 
 ## Model sources
 
@@ -28,6 +28,8 @@ A source is OpenRouter or a subharness backend that is installed and logged in. 
 | `source-changed` | The source logged out during the reply |
 
 `modelChoices` in `src/subharness/model-sources.ts` lists the choices of a role by source, so one model name from two sources stays two choices. It labels the fixed names of `codex` and `claude` as suggestions, reports a missing install, a missing login and a provider's refusal as separate notices, and sends no model request. `memory` is never offered `opencode`, which takes no system prompt of its own.
+
+The memory writer differs by path, and `memoryCapabilities` in `src/subharness/memory-writer.ts` says how. On `claude` the session's system text replaces the CLI's own and the run has no tools, and its usage splits into prompt, cached and completion tokens. On `codex` the system text comes first on its stdin, its own instructions stay in force, its sandbox is read-only and its usage is one total, counted as input. `memoryDb.session.maxOutputTokens` reaches `claude` as `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, which it enforces. `codex` has no such control. That gap shows in `/subharness status` and in a passing memory probe on `codex`, and nothing trims her answer instead. An envelope with `stop_reason` `refusal` or `max_tokens` is a failed run (`model-refused`, `output-truncated`), which leaves the session's cursor where it was. The memory probe fails with `not-logged-in` and no model run when the vendor's own status says so, she sleeps with `memory-down`, and no other source answers in its place. `session_runs.model` holds `<backend>:<model>` for a run on a subharness, successful or not, and the role's model on the direct path.
 
 `keys.json` holds a role's source in `subharness.uses` and the memory writer's in `subharness.memory`. A store with the older list `subharness.backends`, or the single `subharness.backend`, reads each agent that names no source as using the list's first name, and the next write leaves the list out.
 

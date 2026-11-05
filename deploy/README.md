@@ -25,7 +25,7 @@ A system unit, written with `neptunia setup --system`, goes to `/etc/systemd/sys
 
 ## The sandbox of an agent unit
 
-The unit of an agent follows the agent's mode (`agent mode <agent> <mode>`, see [Errands](../docs/errands.md#modes)). In `read` and `write` the unit keeps every directive of the template. In `full` it drops the mount sandbox: `ProtectSystem`, `ProtectHome` and the write and bind paths. In `sudo` it also drops `NoNewPrivileges` and `CapabilityBoundingSet`, which would stop `sudo`. `agent mode` in the chat stores the mode in `keys.json` and renders nothing, because the core runs under `NoNewPrivileges` and cannot use `sudo`. Its answer names `neptunia setup units`, which renders the unit again with the stored mode and reloads the manager, and the unit runs in the mode from its next start.
+The unit of an agent follows the agent's mode (`agent mode <agent> <mode>`, see [Errands](../docs/errands.md#modes)). In `read` and `write` the unit keeps every directive of the template. In `full` it drops the mount sandbox: `ProtectSystem`, `ProtectHome` and the write and bind paths. In `sudo` it also drops `NoNewPrivileges` and `CapabilityBoundingSet`, which would stop `sudo`. `agent mode` in the chat stores the mode in `keys.json` and renders nothing, because the core runs under `NoNewPrivileges` and cannot use `sudo`. Its answer names `neptunia setup`, which renders the unit again with the stored mode and reloads the manager, and the unit runs in the mode from its next start.
 
 The scout unit replaces the persona folder with an empty `TemporaryFileSystem=` that shows only `agents/` read-only and the backend's folder, so it reads neither her memory nor `keys.json`. The modes `full` and `sudo` drop it with the rest of the mount sandbox.
 

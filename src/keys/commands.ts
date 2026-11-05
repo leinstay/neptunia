@@ -8,7 +8,15 @@
 // that was refused.
 
 import { matchRoute } from '../llm/openrouter.ts';
-import { EFFORT_LEVELS, MEMORY_ROLE, REASONING_ROLES, SEARCH_ROLE, isEffortLevel, roleGroup } from '../llm/roles.ts';
+import {
+  EFFORT_LEVELS,
+  MEMORY_ROLE,
+  REASONING_ROLES,
+  SEARCH_ROLE,
+  directSelectionOf,
+  isEffortLevel,
+  roleGroup,
+} from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { checkKey, checkRole } from './check.ts';
 import { listRoleModels } from './models.ts';
@@ -116,6 +124,8 @@ export type KeysDeps = {
   saveRoute?(key: string, value: Record<string, unknown>): Promise<void>;
   /** Writes one setting by its dotted path in the local config. */
   saveSetting?(path: string, value: unknown): Promise<void>;
+  /** Told what a check of `role` came to, so a launch's readiness (src/setup/readiness.ts) needs no request of its own. */
+  recordCheck?(role: string, check: { selection: string; ok: boolean; code: string | null }): void;
   /** Returns `role` to its direct path: called after a direct model of `memory` is checked and saved. */
   directPath?(role: string): void;
 };
@@ -136,6 +146,13 @@ const voiceOf = (deps: KeysDeps, role: string): { voice?: string } =>
   role === 'speech' ? { voice: deps.speechVoice?.() ?? '' } : {};
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+/** What a check came to, as readiness keeps it: the provider's status, never its words. */
+const checkRecord = (result: CheckResult): { selection: string; ok: boolean; code: string | null } => ({
+  selection: directSelectionOf(result.model),
+  ok: result.ok,
+  code: result.ok ? null : result.status === null ? 'no-answer' : `http-${result.status}`,
+});
 
 /** The command as the owner typed it, without its arguments: a name or a word of the line may be a pasted key. */
 const typed = (name: string): string => `/${name.replaceAll('.', ' ')}`;
@@ -276,6 +293,7 @@ export function createKeysCommands(deps: KeysDeps): {
       return failed(name, ['nothing is saved, no key and no model.', ...bad.map(checkLine)].join('\n'));
     store.addCore({ name: key, value, ...granted });
     for (const [role, model] of models) await deps.saveModel(role, model);
+    for (const result of results) deps.recordCheck?.(result.role, checkRecord(result));
     const resumed = await resumeIfNoKey();
     const cost = results.reduce((sum, result) => sum + result.cost, 0);
     return {
@@ -399,6 +417,7 @@ export function createKeysCommands(deps: KeysDeps): {
       ...voiceOf(deps, role),
     });
     if (result.capability === 'unsupported') return { text: unsupportedLine(role), status: 'unsupported' };
+    deps.recordCheck?.(role, checkRecord(result));
     return { text: checkLine(result), status: result.ok ? 'ok' : 'failed' };
   }
 
@@ -444,6 +463,8 @@ export function createKeysCommands(deps: KeysDeps): {
     }
     if (!result.ok) return failed(name, `${checkLine(result)}\nThe model is not saved.`);
     await deps.saveModel(role, model);
+    // A refused model saves nothing, so the check of the selection in force stands; only this success replaces it.
+    deps.recordCheck?.(role, checkRecord(result));
     if (role === MEMORY_ROLE) deps.directPath?.(role);
     const saved = await saveFlags(deps, { role, model, provider, effort });
     return { text: [checkLine(result), `The ${role} model is saved.`, ...saved].join('\n'), status: 'ok' };

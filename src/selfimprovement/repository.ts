@@ -59,7 +59,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** `labels.selfimprovement.check.<code>` with `{repository}` filled; the bare code when the label is missing. */
-function lineOf(
+export function repositoryLine(
   labels: Readonly<Record<string, unknown>>,
   code: RepositoryFailure | 'no-modules',
   repository: string
@@ -93,7 +93,7 @@ export async function checkRepository(
   const named = repositoryName(repository);
   const refused = (code: RepositoryFailure): RepositoryCheck => ({
     code,
-    line: lineOf(labels, code, named ?? repository ?? ''),
+    line: repositoryLine(labels, code, named ?? repository ?? ''),
   });
   if (named === null) return refused('repository-unset');
   const auth = await gh(['auth', 'status']);
@@ -118,6 +118,6 @@ export async function checkDevelopment(
   labels: Readonly<Record<string, unknown>>
 ): Promise<DevelopmentCheck> {
   if (!fs.existsSync(path.join(checkout, 'node_modules')))
-    return { code: 'no-modules', line: lineOf(labels, 'no-modules', repository ?? '') };
+    return { code: 'no-modules', line: repositoryLine(labels, 'no-modules', repository ?? '') };
   return await checkRepository(repository, gh, labels);
 }

@@ -32,7 +32,7 @@ export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/setup/run.ts',
     'default': null,
     'text':
-      "The absolute path of the dev checkout the development worker works on: its working repository, with one worktree per task under `.worktrees/`. The worker's own code runs from the install. Setup renders no development unit while it is unset, relative or the deployed checkout itself",
+      "The absolute path of the dev checkout the development worker works on: its working repository, with one worktree per task under `.worktrees/`. The worker's own code runs from the install. `neptunia setup` asks for the folder and clones `selfimprovement.repository` into it when it is empty, and it and the worker refuse the folder the engine runs from. Setup renders no development unit while it is unset, relative or the deployed checkout itself",
   },
   {
     'key': 'selfimprovement.repository',

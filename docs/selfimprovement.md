@@ -53,7 +53,14 @@ A grant lets her call the tool, and the wake still limits where each one runs. `
 
 ## Configure
 
-Only GitHub is supported, through `gh`. It is the system's tool with its existing login, so run `gh auth login` as the user that runs the unit. The engine sets no gh home of its own for the worker, and git authenticates github.com through `gh auth git-credential`. Set `selfimprovement.checkout` to a development checkout and run `npm install` there. Run the full `neptunia setup` to name `selfimprovement.repository` and check the push right. An installation by someone else has no push right to the upstream repository, so it needs a fork, named there. Without the right every filed task blocks with the check's reason. Git needs a commit identity for the user that runs the unit.
+Only GitHub is supported, through `gh`. It is the system's tool with its existing login, so run `gh auth login` as the user that runs the unit. The engine sets no gh home of its own for the worker, and git authenticates github.com through `gh auth git-credential`. Git needs a commit identity for the user that runs the unit.
+
+Development needs two inputs, a repository you can push to and a folder for the development checkout. `neptunia setup` asks for them at a terminal and does the rest in `developmentSetup` of `src/setup/development.ts`, asking for neither once `selfimprovement.repository` and `selfimprovement.checkout` hold them. With no checkout named it first asks whether to set development up at all. The steps run in this order, and a refused one writes no setting:
+
+1. A missing `gh` is installed through GitHub's apt route when the process is root or has passwordless sudo. Otherwise setup says what to install and stops.
+2. `gh auth status` and the push right on the repository must pass. An installation by someone else has no push right to the upstream repository, so it needs a fork, named there. Without the right every filed task blocks with the check's reason.
+3. The folder must be an absolute path other than the folder the running engine was started from, compared by real path, so a link to it is refused too. The refusal proposes the sibling `<live>-dev`. The worker makes the same check when it builds its edges (`liveCheckoutProblem` in `src/development/edges.ts`), so a hand-edited setting cannot get past it.
+4. An absent or empty folder gets `gh repo clone`, then `npm install` in the checkout and in each `interfaces/<name>/` with a `package.json`. A checkout of the same repository downloads and installs nothing, and setup names any package there with no `node_modules`. A folder holding anything else is refused and left as it is.
 
 Connect a backend and choose the thinker's and dev's routes as in [development agents](development-agents.md#what-holds-a-development-agent), which also says what each backend's sandbox allows.
 

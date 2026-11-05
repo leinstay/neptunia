@@ -75,10 +75,9 @@ export async function skillPackage(link: Pick<BoardLink, 'command'>, task: TaskR
 /** The edges over the checkout of the settings, or why the worker cannot work there. */
 function edgesOf(where: { rootDir: string; privateDir: string; dataDir: string }, config: unknown): DevelopmentEdges {
   const { checkout } = selfimprovementSettings(config);
-  if (checkout !== null && path.resolve(checkout) === path.resolve(where.rootDir))
-    throw new Error('selfimprovement.checkout is the install this worker runs from; name a development checkout there');
   const edges = developmentEdges({
     checkout,
+    liveDir: where.rootDir,
     privateDir: where.privateDir,
     dataDir: where.dataDir,
     env: process.env,

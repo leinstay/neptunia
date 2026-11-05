@@ -218,6 +218,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
     args: [],
     subcommands: [
       sub('brief', 'Show core, memory and connection status as JSON'),
+      sub('readiness', 'Show the core model and memory health a chat launch reads, as JSON, with no model request'),
       sub('full', 'Show detailed status, model assignments and today’s costs'),
     ],
   },

@@ -349,12 +349,11 @@ test('--system writes every unit through sudo install and never writes the unit 
   );
 });
 
-test('parseSetupArgs reads --system and a step name, and refuses anything else', () => {
+test('parseSetupArgs reads --system, and refuses anything else', () => {
   // Bug: a typo such as --sytem is ignored and the units are installed as user units.
   assert.deepEqual(parseSetupArgs([]), { system: false });
   assert.deepEqual(parseSetupArgs(['--system']), { system: true });
-  assert.deepEqual(parseSetupArgs(['units']), { system: false, only: 'units' });
-  assert.deepEqual(parseSetupArgs(['--system', 'core']), { system: true, only: 'core' });
+  // Changed: the step words left the public command, so only the flags still parse.
   for (const bad of [['--sytem'], ['bogus'], ['units', 'core']])
     assert.throws(() => parseSetupArgs(bad), SetupUsageError, bad.join(' '));
 });
@@ -378,14 +377,11 @@ test('neptunia setup with an unknown option exits 2 and creates nothing', () => 
 // The node path the units name (spec 2026-11-02, follow-up 6): the node setup was started with, as typed or found on
 // PATH and never resolved through a link, so a symlinked /opt/node stays a link; `--node <path>` overrides it.
 
-test('parseSetupArgs takes --node with an absolute path, beside --system and a step', () => {
+test('parseSetupArgs takes --node with an absolute path, beside --system', () => {
   // Catches: --node is refused as an unknown option, so a deployment cannot name its node by hand.
   assert.deepEqual(parseSetupArgs(['--node', '/opt/node/bin/node']), { system: false, node: '/opt/node/bin/node' });
-  assert.deepEqual(parseSetupArgs(['--system', '--node', '/usr/bin/node', 'units']), {
-    system: true,
-    only: 'units',
-    node: '/usr/bin/node',
-  });
+  // Changed: the step words left the public command.
+  assert.deepEqual(parseSetupArgs(['--system', '--node', '/usr/bin/node']), { system: true, node: '/usr/bin/node' });
 });
 
 test('parseSetupArgs refuses --node with no value or with a relative path', () => {
@@ -531,14 +527,6 @@ test('without a terminal the subharness, mechanics and watcher steps are skipped
   assert.deepEqual(['subharness', 'mechanics', 'watcher'].map(stateOf), ['skipped', 'skipped', 'skipped']);
   assert.equal(report.ok, true);
   assert.deepEqual(chat, ['/keys core add']);
-});
-
-test('parseSetupArgs takes the subharness, mechanics and watcher steps by name', () => {
-  // Catches: the new steps are missing from the step names, so `neptunia setup watcher` is a usage error.
-  assert.deepEqual(
-    ['subharness', 'mechanics', 'watcher'].map((step) => parseSetupArgs([step]).only),
-    ['subharness', 'mechanics', 'watcher']
-  );
 });
 
 test('the watcher hour given in a setup run is in the timer the same run writes', async () => {
