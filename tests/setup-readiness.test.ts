@@ -96,7 +96,7 @@ test('several gaps report the earliest as the place to enter, and all of them as
 test('an unavailable core is a repair of the service, never a reinstall', () => {
   // Catches: a stopped core sends the owner through a setup that erases his settings.
   const [failure] = evaluateReadiness({ ...HEALTHY, core: 'down', link: 'untested' }).failed;
-  assert.ok(failure?.repair.includes('neptunia service start'), failure?.repair);
+  assert.ok(failure?.repair.includes('neptunia services start'), failure?.repair);
 });
 
 // Reading the health
@@ -296,5 +296,5 @@ test('with no terminal a launch that is not ready is setup-required and names th
   // Catches: a script waits on Ink or on a question, instead of getting something it can act on.
   const decision = decideLaunch({ terminal: false, readiness: notReady });
   assert.equal(decision.kind, 'setup-required');
-  assert.ok(decision.kind === 'setup-required' && decision.text.includes('neptunia service start'));
+  assert.ok(decision.kind === 'setup-required' && decision.text.includes('neptunia services start'));
 });

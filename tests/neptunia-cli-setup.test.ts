@@ -45,7 +45,7 @@ test('a plain chat whose core is down returns setup-required and names the servi
   const run = await runChild(dirs, [], { env, open: true, ms: 8000 });
   assert.equal(run.code, 1);
   assert.ok(run.stderr.includes('setup-required'), run.stderr);
-  assert.ok(run.stderr.includes('neptunia service start'), run.stderr);
+  assert.ok(run.stderr.includes('neptunia services start'), run.stderr);
 });
 
 const READY = {
