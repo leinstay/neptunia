@@ -2,7 +2,7 @@
 // the setup of Hermes (hermes_cli/setup.py) with a summary at the end (hermes_cli/setup_summary.py). Every step checks
 // first whether its work is done (`already`), so a rerun after a failure resumes where it stopped. A step that fails
 // stops the run, the steps after it are `skipped`, and no chat opens. The six steps that ask come before `units`, so
-// the units bind the backends just connected and the watcher's timer takes the schedule just given; each is `skipped` with
+// the units bind the backends just installed and the watcher's timer takes the schedule just given; each is `skipped` with
 // no terminal. After the last step the owner's chat opens on `keys core add`, and the chat takes over.
 //
 //   folders          the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, mode 0700
@@ -10,7 +10,7 @@
 //   interfaces       each interface package with a `setup.json`: asked whether to use it, then its own questions
 //                    (src/setup/interfaces.ts, src/setup/modules.ts)
 //   services         the optional YouTube Data API key, with the link that says how to get one (src/setup/services.ts)
-//   subharness       the backends her agents run through, installed and connected (src/setup/subharness.ts)
+//   subharness       the backends her agents may run through, installed and logged in (src/setup/subharness.ts)
 //   selfimprovement  the repository her pull requests go to, checked through the system's gh login
 //                    (src/setup/selfimprovement.ts); skipped while `selfimprovement.checkout` is unset
 //   mechanics        heartbeat, selfreflection and selfimprovement on or off, and `selfimprovement.schedule`
@@ -44,7 +44,6 @@ import type { RunResult, UnitTarget } from './install.ts';
 import { mechanicsStep } from './mechanics.ts';
 import { selfimprovementStep } from './selfimprovement.ts';
 import { subharnessStep } from './subharness.ts';
-import type { SubharnessStepDeps } from './subharness.ts';
 import { watcherStep } from './watcher.ts';
 import type { InstallRun } from '../subharness/install.ts';
 import { DEVELOPMENT_UNIT_FILES, UNIT_FILES } from './units.ts';
@@ -83,14 +82,8 @@ export type SetupDeps = {
   gh?: GhRunner;
   /** npm for the subharness step's install (src/subharness/install.ts); without it that step is skipped. */
   install?: InstallRun;
-  /** One reply of codex or claude, the subharness step's check; without it that step is skipped. */
-  runBackend?: SubharnessStepDeps['runBackend'];
-  /** The `/auth/key` check of opencode's key; without it the subharness step is skipped. */
-  fetch?: typeof fetch;
   /** The environment npm is started with; `process.env` by default. */
   hostEnv?: Readonly<Record<string, string | undefined>>;
-  /** The endpoint of opencode's key check. */
-  baseUrl?: string;
 };
 
 /** What one step came to. */
@@ -108,7 +101,7 @@ const NEXT = [
   'interface token set discord',
   'interface enable discord',
   'model set',
-  'subharness enable',
+  'subharness claude login',
   'simulation enable',
 ];
 
@@ -276,17 +269,9 @@ async function selfimprovementSetupStep(options: SetupOptions, deps: SetupDeps):
 }
 
 async function subharnessSetupStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
-  const { ask, install, runBackend, fetch } = deps;
-  if (ask === undefined || install === undefined || runBackend === undefined || fetch === undefined)
-    return NOT_AT_TERMINAL;
-  const outcome = await subharnessStep(options, {
-    ask,
-    install,
-    runBackend,
-    fetch,
-    hostEnv: deps.hostEnv ?? process.env,
-    ...(deps.baseUrl === undefined ? {} : { baseUrl: deps.baseUrl }),
-  });
+  const { ask, install } = deps;
+  if (ask === undefined || install === undefined) return NOT_AT_TERMINAL;
+  const outcome = await subharnessStep(options, { ask, install, hostEnv: deps.hostEnv ?? process.env });
   return { state: outcome.state, detail: outcome.detail };
 }
 

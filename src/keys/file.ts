@@ -19,22 +19,24 @@ export type KeyStore = {
   extra: Record<string, string>;
   roles: Record<string, string>;
   subharness: {
-    /** the connected backends, in the order they were connected, no name twice */
-    backends: Array<BackendName>;
-    /** the extra key opencode runs on; null while opencode is not connected */
+    /** the extra key opencode runs on; null while opencode has no login */
     key: string | null;
     modes: Record<string, string>;
     /** the model each agent runs on, by agent; an agent with none runs on the backend's own default */
     models: Record<string, string>;
     /** the reasoning effort each agent runs at, by agent; an agent with none runs at its model's default */
     efforts: Record<string, EffortLevel>;
-    /** the backend each agent runs through, by agent; an agent with none runs through backends[0] */
+    /** the source each agent runs through, by agent; an agent with none has no route */
     uses: Record<string, BackendName>;
     /** the memory writer's path through a subharness (src/subharness/memory-path.ts); null is the direct path */
     memory: MemoryPathRecord | null;
   };
   simulation: { key: string | null };
 };
+
+/** The agents that take a subharness route: the two errand agents, the development agents, the watcher and the thinker. */
+export const SUBHARNESS_AGENTS = ['scout', 'server', 'dev', 'watcher', 'thinker'] as const;
+export type SubharnessAgent = (typeof SUBHARNESS_AGENTS)[number];
 
 /** The backends that can carry the memory writer: one run with no tools and the system prompt replaced. */
 export const MEMORY_BACKENDS = ['codex', 'claude'] as const;
@@ -69,26 +71,20 @@ const textMap = (value: unknown): Record<string, string> =>
 const backendOf = (value: unknown): BackendName | undefined => BACKEND_NAMES.find((name) => name === value);
 
 /**
- * The connected backends: the stored list when there is one, unknown names and repeats dropped and the order kept,
- * else the single `backend` of a store written before the list, as a list of that one.
+ * The backend of each agent, entries whose value is no backend dropped. A store written before the role assignments
+ * holds a list `backends`, or the single `backend` before that: an agent that names no backend takes the list's first
+ * name, the one it ran through. The next write leaves the list out, so this reading happens only until then.
  */
-function backendsOf(sub: Record<string, unknown>): Array<BackendName> {
-  const listed = Array.isArray(sub.backends) ? (sub.backends as Array<unknown>) : [sub.backend];
-  const names: Array<BackendName> = [];
-  for (const value of listed) {
-    const name = backendOf(value);
-    if (name !== undefined && !names.includes(name)) names.push(name);
-  }
-  return names;
-}
-
-/** The backend of each agent, entries whose value is no backend dropped. */
-function usesOf(value: unknown): Record<string, BackendName> {
+function usesOf(sub: Record<string, unknown>): Record<string, BackendName> {
   const uses: Record<string, BackendName> = {};
-  for (const [agent, one] of Object.entries(isRecord(value) ? value : {})) {
+  for (const [agent, one] of Object.entries(isRecord(sub.uses) ? sub.uses : {})) {
     const name = backendOf(one);
     if (name !== undefined) uses[agent] = name;
   }
+  const listed: Array<unknown> = Array.isArray(sub.backends) ? sub.backends : [sub.backend];
+  const first = listed.map(backendOf).find((name) => name !== undefined);
+  if (first === undefined) return uses;
+  for (const agent of SUBHARNESS_AGENTS) uses[agent] ??= first;
   return uses;
 }
 
@@ -101,8 +97,8 @@ function effortsOf(value: unknown): Record<string, EffortLevel> {
 
 /**
  * The memory writer's record, or null for one whose backend cannot carry the writer, whose model is no non-empty
- * string or whose effort is neither null nor an effort level. It is kept apart from `uses`: an agent with no entry falls
- * back to the first connected backend, and the writer never runs through a backend nobody chose for it.
+ * string or whose effort is neither null nor an effort level. It is kept apart from `uses`, so the writer never runs
+ * through a backend nobody chose for it.
  */
 function memoryOf(value: unknown): MemoryPathRecord | null {
   if (!isRecord(value)) return null;
@@ -120,7 +116,7 @@ export function emptyKeys(): KeyStore {
     core: [],
     extra: {},
     roles: {},
-    subharness: { backends: [], key: null, modes: {}, models: {}, efforts: {}, uses: {}, memory: null },
+    subharness: { key: null, modes: {}, models: {}, efforts: {}, uses: {}, memory: null },
     simulation: { key: null },
   };
 }
@@ -150,12 +146,11 @@ export function readKeys(privateDir: string): KeyStore {
     extra: textMap(parsed.extra),
     roles: textMap(parsed.roles),
     subharness: {
-      backends: backendsOf(sub),
       key: typeof sub.key === 'string' ? sub.key : null,
       modes: textMap(sub.modes),
       models: textMap(sub.models),
       efforts: effortsOf(sub.efforts),
-      uses: usesOf(sub.uses),
+      uses: usesOf(sub),
       memory: memoryOf(sub.memory),
     },
     simulation: { key: typeof sim.key === 'string' ? sim.key : null },

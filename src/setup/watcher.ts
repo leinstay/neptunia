@@ -2,13 +2,14 @@
 // schedule of its runs (`watcher.schedule`, UTC), the subharness backend it runs through and its model. The watcher
 // is not one of the persona's mechanics, so it has a step of its own after hers (src/setup/mechanics.ts). The switch
 // and the schedule go into `<private>/config.local/config.json`, the backend and the model into keys.json
-// (`subharness.uses.watcher`, `subharness.models.watcher`). On with no connected backend, or with a backend that is
-// not connected, is `refused` and stored off. Nothing is written when no answer changes a value.
+// (`subharness.uses.watcher`, `subharness.models.watcher`). On with no source that is installed and logged in, or with
+// a backend that is not one, is `refused` and stored off. Nothing is written when no answer changes a value.
 
 import { readConfig } from '../config.ts';
 import { readKeys, writeKeys } from '../keys/file.ts';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
+import { availableSources } from '../subharness/sources.ts';
 import { updateLocalSettings } from '../service/local-settings.ts';
 import { formatSchedule } from '../service/schedule.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
@@ -64,7 +65,8 @@ export async function watcherStep(
     "The schedule of the watcher's runs, UTC (at 00:00,12:00 or every 6h):",
     settings.schedule
   );
-  const { backends, uses, models } = readKeys(options.privateDir).subharness;
+  const { uses, models } = readKeys(options.privateDir).subharness;
+  const backends = await availableSources(options.privateDir);
   const offeredBackend = uses.watcher ?? backends[0] ?? null;
   const backendAnswer = (await deps.ask('The subharness backend the watcher runs through:', offeredBackend)).trim();
   const named = backendAnswer === '' ? offeredBackend : backendAnswer;
@@ -73,8 +75,8 @@ export async function watcherStep(
     storeSettings(options.privateDir, false, schedule);
     const why =
       backends.length === 0
-        ? 'no subharness backend is connected (setup subharness)'
-        : `${named ?? 'no backend'} is not connected; connected: ${backends.join(', ')}`;
+        ? 'no subharness source is logged in (neptunia subharness <backend> login)'
+        : `${named ?? 'no backend'} is not logged in; logged in: ${backends.join(', ')}`;
     return { state: 'refused', detail: `the watcher stays off: ${why}` };
   }
   const offeredModel = models.watcher ?? null;

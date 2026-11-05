@@ -29,6 +29,8 @@ const TABLE = [
   'interface',
   'keys',
   'subharness',
+  // Changed: `/agent` holds the execution mode that left `/subharness`.
+  'agent',
   // Changed: `/search` holds quick search's targeted settings.
   'search',
   'simulation',

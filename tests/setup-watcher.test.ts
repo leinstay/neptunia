@@ -6,9 +6,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { readKeys } from '../src/keys/file.ts';
 import { watcherStep } from '../src/setup/watcher.ts';
 import type { WatcherStepDeps } from '../src/setup/watcher.ts';
 import { keysPath, readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
+import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
@@ -37,6 +39,8 @@ function rig(
     JSON.stringify({ bot: { name: 'kept' }, ...(watcher === null ? {} : { watcher }) })
   );
   writeKeysFile(privateDir, { subharness: { backends, key: null, modes: {}, ...extra } });
+  // Changed: a source is what is installed and logged in, so each backend the rig calls connected is both.
+  for (const backend of backends) if (backend !== 'opencode') fakeVendor(privateDir, backend, { loggedIn: true });
   const r: Rig = {
     options: { rootDir: ROOT, privateDir },
     answers: [],
@@ -82,7 +86,8 @@ test('the backend question offers the first connected backend when the watcher h
   r.answers = ['on', '00:00', '', ''];
   await watcherStep(r.options, r.deps);
   assert.equal(r.asked[2]?.offered, 'claude');
-  assert.equal(readKeysFile(r.options.privateDir).subharness.uses?.watcher, 'claude');
+  // Changed: the stored list already migrated to this `uses` entry at read time, so the step has nothing to write.
+  assert.equal(readKeys(r.options.privateDir).subharness.uses.watcher, 'claude');
 });
 
 test('an empty model with none offered stores no model, so the backend runs on its default', async () => {
@@ -90,7 +95,8 @@ test('an empty model with none offered stores no model, so the backend runs on i
   const r = rig();
   r.answers = ['on', '00:00', 'codex', ''];
   await watcherStep(r.options, r.deps);
-  assert.equal(readKeysFile(r.options.privateDir).subharness.uses?.watcher, 'codex');
+  // Changed: the stored list already migrated to this `uses` entry at read time, so the step has nothing to write.
+  assert.equal(readKeys(r.options.privateDir).subharness.uses.watcher, 'codex');
   assert.equal(Object.hasOwn(readKeysFile(r.options.privateDir).subharness.models ?? {}, 'watcher'), false);
 });
 

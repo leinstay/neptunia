@@ -1,13 +1,14 @@
 // The install of one subharness backend into the persona's private layer (src/subharness/place.ts):
-// `npm install --prefix <folder>` for `claude` and `codex`, a copy of one executable for `opencode`. `neptunia setup
-// subharness` (bin/neptunia.ts) calls it with a runner that starts npm; the runner is injected, so the tests reach no
+// `npm install --prefix <folder>` for `claude` and `codex`, a copy of one executable for `opencode`. The account commands
+// (src/subharness/account.ts) and `neptunia setup` call it with a runner that starts npm; the runner is injected, so the tests reach no
 // npm and no network. npm runs with PATH, HOME, TMPDIR and the locale of the host and nothing else, so no install
 // script sees a model key or the bot's token. The outcome is one line; npm's log never leaves this file.
 //
 // Versions are pinned. A first install takes `PINNED_VERSIONS`, and `version.json` beside the binary records what is
 // installed with its integrity; a persona restored to another machine reinstalls the version it recorded, whatever
 // this engine ships. Only `updateSubharness` and `rollbackSubharness` change it, on the owner's explicit command, and
-// both leave the backend's `home/` (login and native sessions) alone.
+// both leave the backend's `home/` (login and native sessions) alone. An install or an update holds the backend's lock
+// (src/subharness/activity.ts), so npm never moves the binary while a login writes the home.
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -15,6 +16,7 @@ import path from 'node:path';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { errorFields } from '../error-fields.ts';
 import { scalarText } from '../tools/types.ts';
+import { BackendLocked, backendLocked, withBackendLock } from './activity.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
 
 /** What a command gave back. */
@@ -54,6 +56,8 @@ const PINNED_VERSIONS: Readonly<Partial<Record<BackendName, string>>> = {
 const SELECTION_FILE = 'version.json';
 /** The previous install, kept for a rollback. */
 const PREVIOUS_DIR = 'previous';
+/** The install in force while an update runs; it becomes `previous/` only once the update succeeded. */
+const OUTGOING_DIR = '.outgoing';
 /** What npm or the copy of opencode put in a backend's folder; `home/` is never one of these. */
 const INSTALLED_ENTRIES = ['node_modules', 'bin', 'package.json', 'package-lock.json'] as const;
 
@@ -168,20 +172,22 @@ function moveInstalled(from: string, to: string): void {
   }
 }
 
-/**
- * The owner's explicit update: the install in force moves to `previous/`, `input.version` is installed, and a failure
- * moves the old one back. opencode takes a new executable through `input.opencodeSource`.
- */
-export async function updateSubharness(
-  input: InstallInput & { version: string },
-  run: InstallRun
-): Promise<InstallOutcome> {
+/** A crash in the middle of an update left the old install in `outgoing`: it goes back when nothing replaced it. */
+function recoverOutgoing(privateDir: string, backend: BackendName, outgoing: string): void {
+  if (!fs.existsSync(outgoing)) return;
+  if (!isInstalled(privateDir, backend)) moveInstalled(outgoing, subharnessPlace(privateDir, backend).dir);
+  fs.rmSync(outgoing, { recursive: true, force: true });
+}
+
+/** The update itself, under the backend's lock. */
+async function updateLocked(input: InstallInput & { version: string }, run: InstallRun): Promise<InstallOutcome> {
   const { privateDir, backend, version } = input;
   const place = subharnessPlace(privateDir, backend);
   const before = readSelection(privateDir, backend);
   const previousDir = path.join(place.dir, PREVIOUS_DIR);
-  fs.rmSync(previousDir, { recursive: true, force: true });
-  moveInstalled(place.dir, previousDir);
+  const outgoing = path.join(place.dir, OUTGOING_DIR);
+  recoverOutgoing(privateDir, backend, outgoing);
+  moveInstalled(place.dir, outgoing);
   const pkg = PACKAGES[backend];
   const problem =
     pkg === undefined
@@ -191,10 +197,12 @@ export async function updateSubharness(
       : await npmInstall(input, pkg, version, run);
   if (problem !== null) {
     for (const entry of INSTALLED_ENTRIES) fs.rmSync(path.join(place.dir, entry), { recursive: true, force: true });
-    moveInstalled(previousDir, place.dir);
-    fs.rmSync(previousDir, { recursive: true, force: true });
+    moveInstalled(outgoing, place.dir);
+    fs.rmSync(outgoing, { recursive: true, force: true });
     return failed(problem);
   }
+  fs.rmSync(previousDir, { recursive: true, force: true });
+  fs.renameSync(outgoing, previousDir);
   const integrity = pkg === undefined ? sha256Of(place.binary) : lockedIntegrity(place.dir, pkg);
   writeSelection(privateDir, backend, {
     version,
@@ -204,8 +212,32 @@ export async function updateSubharness(
   return { state: 'done', detail: `${backend} is now ${version}, the previous install is kept for a rollback` };
 }
 
+/** What `work` came to under the backend's lock; a lock that stays taken is a failed change. */
+async function locked(
+  privateDir: string,
+  backend: BackendName,
+  work: () => Promise<InstallOutcome>
+): Promise<InstallOutcome> {
+  try {
+    return await withBackendLock(privateDir, backend, work);
+  } catch (error) {
+    if (error instanceof BackendLocked) return failed(error.message);
+    throw error;
+  }
+}
+
+/**
+ * The owner's explicit update: the install in force moves aside, `input.version` is installed, and a failure moves the
+ * old one back and leaves the rollback of the last update as it was. A success makes the old one the rollback. opencode
+ * takes a new executable through `input.opencodeSource`.
+ */
+export function updateSubharness(input: InstallInput & { version: string }, run: InstallRun): Promise<InstallOutcome> {
+  return locked(input.privateDir, input.backend, () => updateLocked(input, run));
+}
+
 /** Puts the install kept by the last update back. Fails when no update left one. */
 export function rollbackSubharness(privateDir: string, backend: BackendName): InstallOutcome {
+  if (backendLocked(privateDir, backend)) return failed(`another change of ${backend} is running`);
   const place = subharnessPlace(privateDir, backend);
   const previousDir = path.join(place.dir, PREVIOUS_DIR);
   const selection = readSelection(privateDir, backend);
@@ -222,8 +254,8 @@ export function rollbackSubharness(privateDir: string, backend: BackendName): In
   return { state: 'done', detail: `${backend} is back on ${selection.previous}` };
 }
 
-/** Installs `input.backend` into its place; `already` when it is there. Never rejects. */
-export async function installSubharness(input: InstallInput, run: InstallRun): Promise<InstallOutcome> {
+/** The install itself, under the backend's lock. */
+async function installLocked(input: InstallInput, run: InstallRun): Promise<InstallOutcome> {
   const { privateDir, backend } = input;
   const place = subharnessPlace(privateDir, backend);
   if (isInstalled(privateDir, backend)) {
@@ -245,4 +277,9 @@ export async function installSubharness(input: InstallInput, run: InstallRun): P
   writeSelection(privateDir, backend, { version, integrity: lockedIntegrity(place.dir, pkg) });
   if (backend === 'codex') disableCodexUpdates(privateDir);
   return { state: 'done', detail: `${pkg} installed in ${place.dir}` };
+}
+
+/** Installs `input.backend` into its place; `already` when it is there. Never rejects. */
+export function installSubharness(input: InstallInput, run: InstallRun): Promise<InstallOutcome> {
+  return locked(input.privateDir, input.backend, () => installLocked(input, run));
 }
