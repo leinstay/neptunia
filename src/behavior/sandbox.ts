@@ -938,7 +938,8 @@ export async function answerReply({
     onUsage,
     read: (text: string, completion: Untyped) => {
       const split = answerOf(completion, { transport, step: 1, registry: toolset?.registry ?? skillRegistry() });
-      const shaped = shapeAnswer(parseOutput(split.speechText), view.config, request.handles);
+      const parsed = parseOutput(split.speechText, { cutOff: completion?.finishReason === 'length' });
+      const shaped = shapeAnswer(parsed, view.config, request.handles);
       if (transport === 'text') return split.calls.length > 0 ? { ...shaped, toolCalls: split.calls } : shaped;
       return Array.isArray(completion?.toolCalls) ? { ...shaped, toolCalls: completion.toolCalls } : shaped;
     },
@@ -1453,7 +1454,7 @@ function readStep(
   }: { toolset: Untyped; step: Untyped; config: Untyped; handles: Untyped; registry: Untyped }
 ) {
   const split = answerOf(completion, { transport: toolset.transport, step, registry });
-  const parsed = parseOutput(split.speechText);
+  const parsed = parseOutput(split.speechText, { cutOff: completion?.finishReason === 'length' });
   return {
     ...split,
     parsed,
