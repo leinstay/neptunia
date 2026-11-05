@@ -120,22 +120,24 @@ function mergeEpisodes(publicEpisodes: Untyped, privateEpisodes: Untyped) {
  * paragraph; `interests` a union by topic (the private note wins); `details`
  * public then private (ids are irrelevant for rendering); `episodes` both,
  * sorted by date; `affinity` the `effectiveAffinity` view. Neither input is
- * mutated; a missing private profile returns the public one as is.
+ * mutated; a missing private profile returns the public one as is, and a missing public profile leaves the private
+ * layer's text as stored, under no name.
  */
 export function mergeProfiles(
   publicProfile: Record<string, Untyped> | null,
   privateProfile: Record<string, Untyped> | null | undefined
-): Record<string, Untyped> | null {
-  if (!privateProfile || !publicProfile) return publicProfile;
-  const relationship = [publicProfile.relationship, privateProfile.relationship]
+): (Record<string, Untyped> & { affinity?: ReturnType<typeof effectiveAffinity> }) | null {
+  if (!privateProfile) return publicProfile;
+  const shared = publicProfile ?? {};
+  const relationship = [shared.relationship, privateProfile.relationship]
     .filter((text) => typeof text === 'string' && text.trim())
     .join('\n\n');
   return {
-    ...publicProfile,
+    ...shared,
     relationship,
-    interests: mergeInterests(publicProfile.interests, privateProfile.interests),
-    details: [...listOf(publicProfile.details), ...listOf(privateProfile.details)],
-    episodes: mergeEpisodes(publicProfile.episodes, privateProfile.episodes),
-    affinity: effectiveAffinity(publicProfile.affinity, privateProfile.affinity),
+    interests: mergeInterests(shared.interests, privateProfile.interests),
+    details: [...listOf(shared.details), ...listOf(privateProfile.details)],
+    episodes: mergeEpisodes(shared.episodes, privateProfile.episodes),
+    affinity: effectiveAffinity(shared.affinity, privateProfile.affinity),
   };
 }

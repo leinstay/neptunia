@@ -1,7 +1,8 @@
 // Mapper: a member's private layer `private/<id>.json` (what she learned in direct messages) <-> rows, every row
 // scoped to that member's DM. No `people` or `accounts` row: those belong to the public file of the same member.
 //
-//   claims, episodes, descriptions (relationship), affinity_events    as in src/memory/db/map/user.ts, scope dm
+//   claims, episodes, descriptions (relationship), affinity_events    as in src/memory/db/map/user.ts, scope dm, under
+//                                the stored DM place of the account when its person's id spells no such place
 //   operational (kind private)   the rest: the affinity score, reason and decay stamp, first/last seen, detailsSeq,
 //                                relationshipScore, `replies`, `buffer`, ...
 //
@@ -9,7 +10,7 @@
 // fromRows(rows, ctx) -> the file's value
 
 import { personId } from '../ids.ts';
-import { dmScope } from '../scope.ts';
+import { audienceOf, dmAudienceId, dmScope } from '../scope.ts';
 import { historyFrom, profileFrom, profileRows } from './lists.ts';
 import { ifaceOf, isPlainObject, parseExtra, put, rowsOf } from './common.ts';
 import type { Row, Rows } from '../types.ts';
@@ -19,6 +20,17 @@ const FIELDS = ['relationship'];
 
 /** The member id in `private/<id>.json`. */
 export const privateIdOf = (rel: string): string => /([^/]+)\.json$/.exec(String(rel))?.[1] ?? String(rel);
+
+/**
+ * The scope of a private unit's rows. A person id that spells this DM place is the whole answer. Any other person (an
+ * opaque id, or an account bound to someone) gets the place's own audience and the partner the place names, the pair
+ * rows.ts#resolveRow accepts.
+ */
+function privateScope(person: string, iface: string, place: MapContext['dmPlace']): Row {
+  const scope = dmScope(person, iface);
+  if (!place || audienceOf(scope).audience_id === dmAudienceId(place.id)) return scope;
+  return { scope_kind: 'dm', scope_iface: iface, scope_dm: place.partnerPerson, audience_id: dmAudienceId(place.id) };
+}
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
@@ -30,7 +42,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
     person,
     owner: `${person}:dm`,
     tag: ':dm',
-    scope: dmScope(person, iface),
+    scope: privateScope(person, iface, ctx.dmPlace),
     descFields: FIELDS,
   });
   if (affinity) rest.affinity = affinity;

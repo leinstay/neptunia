@@ -193,6 +193,18 @@ function identityOf(
   return { iface, native, ...(typeof row?.person_id === 'string' ? { person: row.person_id } : {}) };
 }
 
+/** The DM place an account's conversation is stored under, the most recently seen when it holds several. */
+function dmPlaceOfAccount(db: Db, accountId: string): MapContext['dmPlace'] {
+  const place = db
+    .prepare(
+      `SELECT id, partner_person FROM places WHERE partner_account = ? AND (kind = 'dm' OR conversation = 'dm')
+       AND retired_at IS NULL ORDER BY COALESCE(seen_to_at, '') DESC, id LIMIT 1`
+    )
+    .get(accountId);
+  if (typeof place?.id !== 'string') return null;
+  return { id: place.id, partnerPerson: typeof place.partner_person === 'string' ? place.partner_person : null };
+}
+
 /** Context passed to the existing field mappers for a semantic collection. */
 export function storageContext(db: Db, key: StorageKey): MapContext {
   if (key.subject.type === 'persona') return {};
@@ -209,6 +221,9 @@ export function storageContext(db: Db, key: StorageKey): MapContext {
     versionKind: key.selector?.versionKind,
     itemId: key.selector?.itemId,
     privateUserId: key.subject.type === 'account' && key.kind !== 'user' ? subject.native : null,
+    ...(key.kind === 'private' && key.subject.type === 'account'
+      ? { dmPlace: dmPlaceOfAccount(db, key.subject.id) }
+      : {}),
   };
 }
 

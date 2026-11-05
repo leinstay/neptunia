@@ -40,6 +40,8 @@ export type MapContext = {
   /** A linked account whose person's profile is another unit's: its unit holds only what is the account's own. */
   accountOnly?: boolean;
   scopePlaceId?: string;
+  /** The stored DM place of a private unit's account, with the partner person the place names. */
+  dmPlace?: { id: string; partnerPerson: string | null } | null;
   privateUserId?: string | null;
   collection?: string;
   versionKind?: string;

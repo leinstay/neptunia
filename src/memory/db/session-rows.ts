@@ -3,7 +3,7 @@
 //
 // addSessionRows (called by export.ts#unitRows): a member's profile (`users/<id>.json`) and private layer
 // (`private/<id>.json`) also hold what her session wrote about that person in the unit's scope (the group of the
-// person's interface, or the DM with the person): the live claims she shows (`shown`, truth current or disputed), the
+// member's interface, or the stored DM place of the member's account): the live claims she shows (`shown`, truth current or disputed), the
 // episodes and the attitude moves that have no `owner_key`, and the version a description's `current_version` names.
 // They follow the unit's own rows: the claims and the episodes in the order they were made, the moves merged into the
 // file's history by time.
@@ -21,6 +21,8 @@
 // takeOverClaim (called by session-write.ts#applyClaim): a confirm, revise or retire of a claim makes the claim her
 // session's (`owner_key` null, its `co_owners` rows gone), in the transaction of the op.
 
+import { legacyPersonNative } from './ids.ts';
+import { dmAudienceId } from './scope.ts';
 import { hasStorageUnits } from './storage-units.ts';
 
 type Row = Record<string, unknown>;
@@ -45,18 +47,35 @@ function remainderOf(extra: unknown): Row {
 }
 
 /** The person and the scope (an SQL condition and its values) of a member's unit, or null for any other unit. */
-function personScopeOf(kind: unknown, rows: Rows): { person: string; sql: string; args: Array<string> } | null {
+function personScopeOf(
+  db: Db,
+  kind: unknown,
+  rows: Rows,
+  account: string | null
+): { person: string; sql: string; args: Array<string> } | null {
   const person =
     kind === 'user'
       ? text(rows.people?.[0]?.id)
       : kind === 'private'
         ? text(rows.operational?.find((row) => row.kind === 'private')?.owner)
         : null;
-  const iface = /^person:([^:]+):./.exec(person ?? '')?.[1];
-  if (!person || !iface) return null;
-  return kind === 'user'
-    ? { person, sql: "scope_kind = 'group' AND scope_iface = ? AND scope_dm IS NULL", args: [iface] }
-    : { person, sql: "scope_kind = 'dm' AND scope_iface = ? AND scope_dm = ?", args: [iface, person] };
+  if (!person) return null;
+  // A database before the storage units names no account: only a shipped migration reads one, over legacy ids.
+  const legacyIface = account === null ? (legacyPersonNative(person)?.iface ?? null) : null;
+  if (account === null && legacyIface === null) return null;
+  if (kind === 'user') {
+    const iface = legacyIface ?? text(db.prepare('SELECT iface FROM accounts WHERE id = ?').get(account)?.iface);
+    if (iface === null) return null;
+    return { person, sql: "scope_kind = 'group' AND scope_iface = ? AND scope_dm IS NULL", args: [iface] };
+  }
+  if (legacyIface !== null)
+    return { person, sql: "scope_kind = 'dm' AND scope_iface = ? AND scope_dm = ?", args: [legacyIface, person] };
+  const audiences = db
+    .prepare("SELECT id FROM places WHERE partner_account = ? AND (kind = 'dm' OR conversation = 'dm')")
+    .all(account)
+    .map((row) => dmAudienceId(row.id));
+  if (audiences.length === 0) return null;
+  return { person, sql: `audience_id IN (${audiences.map(() => '?').join(', ')})`, args: audiences };
 }
 
 const SESSION_SQL = {
@@ -93,11 +112,11 @@ function mergedByTime(file: ReadonlyArray<Row>, session: ReadonlyArray<Row>): Ar
 
 /**
  * Adds to `rows` (a unit's rows, export.ts#unitRows) what her session wrote about the person of a member's unit of
- * mapper kind `kind` (see the head of this file). Any other unit is left as it is.
+ * mapper kind `kind` (see the head of this file), `account` being the unit's subject. Any other unit is left as it is.
  */
-export function addSessionRows(connection: unknown, kind: unknown, rows: Rows): void {
+export function addSessionRows(connection: unknown, kind: unknown, rows: Rows, account: string | null): void {
   const db = connection as Db; // a node:sqlite connection of the memory database; the queries below read it
-  const scope = personScopeOf(kind, rows);
+  const scope = personScopeOf(db, kind, rows, account);
   if (!scope) return;
   const person = rows.people?.[0];
   const last = person
