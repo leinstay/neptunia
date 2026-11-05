@@ -2,7 +2,7 @@
 // interface and a real store over a memory database, with a scripted model, on fixed inputs that reach every block a
 // selfreflection request can carry. Memory holds two earlier entries with their text, the place `d1` named `journal` with
 // the one enabled mirror on it, the place `c1` named `general`, recent lines of both and the server's notes. The requests
-// that scene produced before the rename are recorded in `diary-requests.json` beside this file (the writer's byte for
+// that scene produced before the rename are recorded in `selfreflection-requests.json` beside this file (the writer's byte for
 // byte, the planner's but for the name of its places block). Synthetic text only.
 import { placeOfCommunity, placeOfConversation } from '../../src/memory/addresses.ts';
 import { createStore } from '../../src/memory/store.ts';

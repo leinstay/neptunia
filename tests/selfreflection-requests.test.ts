@@ -1,18 +1,18 @@
 // B6 and B10 of the master plan, seen from the model's side. The selfreflection wake is the old diary wake under its
 // engine name: the turn mode `selfreflection` (with its `selfreflection` parameter object), the prompts
 // `selfreflection`, `selfreflection-planner` and `selfreflection-seeds`, and the planner's purpose
-// `selfreflection-planner`. The requests are the ones the diary wake sent (tests/fixtures/diary-requests.json, recorded
-// before the rename and left as it was): the writer's byte for byte, the planner's but for one block. The planner's
+// `selfreflection-planner`. The requests are the ones the diary wake sent (tests/fixtures/selfreflection-requests.json, recorded
+// before the rename): the writer's byte for byte, the planner's but for one block. The planner's
 // `<server>` becomes `<places>`, the places the persona follows, and a place whose audience is narrower than the one the
 // post may reach is not named in it, as the lines of `<recent>` from such a place are not shown. The block tags the
 // persona reads (`<diary>`, `<plan>`) keep her word, because they are text of the prompt.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { NOW, SERVER, sceneLlm, sceneMemory, sceneRunner, sceneWorld } from './fixtures/selfreflection-scene.ts';
+import { SERVER, sceneLlm, sceneMemory, sceneRunner, sceneWorld } from './fixtures/selfreflection-scene.ts';
 import type { SceneMemory } from './fixtures/selfreflection-scene.ts';
 
-const RECORDED_FILE = new URL('./fixtures/diary-requests.json', import.meta.url);
+const RECORDED_FILE = new URL('./fixtures/selfreflection-requests.json', import.meta.url);
 
 type Message = { role: string; content: unknown };
 
@@ -69,5 +69,4 @@ test('a place only some of the readers may read is not named in the planner plac
   assert.match(user, /general/);
   assert.equal(user.includes('staff-room'), false);
   assert.equal(user.includes('private planning'), false);
-  assert.equal(NOW > 0, true);
 });
