@@ -35,8 +35,9 @@ export const UNIT_FILES: ReadonlyArray<string> = [
 ];
 
 /**
- * The development worker's unit: rendered over the dev checkout `selfimprovement.checkout` names, never over the deployed
- * one, so it is a list of its own (src/setup/run.ts). Setup writes it and never enables it; that is the owner's step.
+ * The development worker's unit: its code is this install and its working repository the dev checkout
+ * `selfimprovement.checkout` names, so it is a list of its own (src/setup/run.ts). Setup writes it and never enables it;
+ * that is the owner's step.
  */
 export const DEVELOPMENT_UNIT_FILES: ReadonlyArray<string> = ['neptunia-development.service'];
 
@@ -63,6 +64,8 @@ export type UnitVars = {
   dataDir: string;
   /** the absolute path of the node binary */
   node: string;
+  /** `selfimprovement.checkout`, which the development unit may write; `/opt/neptunia/checkout` of its template */
+  developmentCheckout?: string | null;
   /** the mode of the agent the unit runs; absent keeps the template's own sandbox */
   mode?: AgentMode;
   /** the backends connected in keys.json or installed in the private layer; an agent unit binds the folder of each in the private layer writable */
@@ -85,9 +88,10 @@ const MOUNT_SANDBOX = [
 const STOPS_SUDO = ['NoNewPrivileges', 'CapabilityBoundingSet'];
 
 /** The paths of the template's deployment, longest first, and what each becomes. */
-function pathMap(vars: UnitVars): Array<[string, string]> {
+function pathMap(vars: UnitVars): Array<readonly [string, string]> {
   const nodeDir = path.dirname(vars.node);
   return [
+    ...(vars.developmentCheckout ? ([['/opt/neptunia/checkout', vars.developmentCheckout]] as const) : []),
     ['/opt/neptunia/app', vars.rootDir],
     ['/opt/neptunia/etc', vars.dataDir],
     ['/opt/neptunia/data', vars.dataDir],

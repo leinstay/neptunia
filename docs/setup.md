@@ -18,7 +18,7 @@ Run `neptunia setup <step>` to repeat one part without starting the rest. The `s
 | `selfimprovement` | Select and check the development repository |
 | `mechanics` | Switch heartbeat and reflection, switch and schedule the development wake |
 | `watcher` | Switch the watcher, choose its schedule, backend and model |
-| `units` | Render service and timer files |
+| `units` | Render service and timer files, and make the clients `watcher` and `development` with their tokens |
 | `linger` | Let user services continue without an interactive login |
 | `core` | Enable and start the core service |
 

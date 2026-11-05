@@ -1,8 +1,8 @@
 // Tests for the clients of the core (src/interface/principals.ts): which principal a token stands for. The private
 // layer's `clients.json` maps a client's name to its principal (`kind`, `iface` for an interface, `tokenFile` relative
 // to the private directory, `permissions`), and each token is a file of its own. The file is read at the moment of
-// use, so a changed token applies to the next lookup. With no `clients.json`, the boot principal the core made for its
-// one in-process interface is the only one. Every test writes its own private directory under TMPDIR.
+// use, so a changed token applies to the next lookup. The boot principal the core made for its one in-process interface
+// holds whatever `clients.json` says (tests/interface-boot-principal.test.ts). Every test writes its own private directory under TMPDIR.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -50,9 +50,11 @@ test('a token from a token file is the principal of its client, a trailing newli
   assert.equal(discord?.iface, 'discord');
 });
 
-test('once clients.json exists the boot token is no one', () => {
+test('once clients.json exists the boot token still stands for the boot principal', () => {
+  // Changed: `neptunia setup units` writes clients.json under a running in-process interface, which must keep working.
+  // The token is random per boot and held by the core, so the file has nothing to say about it.
   const privateDir = layer({ discord: DISCORD }, { discord: 'd'.repeat(64) });
-  assert.equal(principalOfToken(BOOT_TOKEN, { privateDir, boot: { token: BOOT_TOKEN, principal: BOOT } }), null);
+  assert.deepEqual(principalOfToken(BOOT_TOKEN, { privateDir, boot: { token: BOOT_TOKEN, principal: BOOT } }), BOOT);
 });
 
 test('a token file changed after a lookup applies to the next one: the old token is no one', () => {
@@ -68,12 +70,13 @@ test('an empty token is no one, even when a token file is empty', () => {
   assert.equal(principalOfToken('', { privateDir, boot: null }), null);
 });
 
-test('a clients.json that is not JSON makes every token no one and throws nothing', () => {
+test("a clients.json that is not JSON makes every client's token no one and throws nothing", () => {
   const privateDir = layer(null, { discord: 'd'.repeat(64) });
   fs.writeFileSync(path.join(privateDir, 'clients.json'), '{ not json');
   const boot = { token: BOOT_TOKEN, principal: BOOT };
   assert.equal(principalOfToken('d'.repeat(64), { privateDir, boot }), null);
-  assert.equal(principalOfToken(BOOT_TOKEN, { privateDir, boot }), null);
+  // Changed: the boot token depends on no file, so a broken one keeps the in-process interface up.
+  assert.deepEqual(principalOfToken(BOOT_TOKEN, { privateDir, boot }), BOOT);
 });
 
 test('loadPrincipals lists each client with its kind, iface and token file, and null with no clients.json', () => {

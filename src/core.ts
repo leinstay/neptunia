@@ -571,7 +571,7 @@ async function buildCore(
   const LINK_SOCKET = coreSocketPath(dataDir);
   const linkToken = randomBytes(32).toString('hex');
   // Every client is a principal of the private layer's clients.json (src/interface/principals.ts), read at each
-  // envelope. With no clients.json the token made here is the boot principal of the one in-process interface, named
+  // envelope. The token made here is the boot principal of the one in-process interface whatever that file holds, named
   // after it and bound to the iface its hello names.
   const bootPrincipal = {
     name: interfaces[0]?.name ?? 'boot',

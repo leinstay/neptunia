@@ -455,8 +455,9 @@ test('setup writes no development unit while selfimprovement.checkout is unset',
   for (const name of DEVELOPMENT_UNIT_FILES) assert.equal(fs.existsSync(path.join(unitDir, name)), false, name);
 });
 
-test('setup writes the development unit over the checkout selfimprovement.checkout names', async () => {
-  // Catches: the worker runs in the deployed checkout.
+test('setup writes the development unit, which runs from the install over the checkout selfimprovement.checkout names', async () => {
+  // Catches: the unit is missing, or a dev run edits the code the worker runs from. The expectation below names the
+  // install because the checkout is only the worker's working repository, which its write paths hold.
   const { options, deps, unitDir } = rig();
   const checkout = path.join(path.dirname(options.privateDir), 'dev-checkout');
   withSelfimprovement(options.privateDir, { checkout });
@@ -465,7 +466,7 @@ test('setup writes the development unit over the checkout selfimprovement.checko
   // Changed: the worker is long-lived and woken by board events, so one unit ships and no timer.
   assert.deepEqual([...DEVELOPMENT_UNIT_FILES], ['neptunia-development.service']);
   const service = fs.readFileSync(path.join(unitDir, 'neptunia-development.service'), 'utf8');
-  assert.deepEqual(unitValues(service, 'WorkingDirectory'), [checkout]);
+  assert.deepEqual(unitValues(service, 'WorkingDirectory'), [options.rootDir]);
   // Changed: `worker selfimprovement` ran one beat and is retired; the unit starts the long-lived worker.
   assert.match(unitValues(service, 'ExecStart')[0] ?? '', /^\S+ bin\/neptunia\.ts worker development$/);
   assert.ok(unitValues(service, 'Environment').includes(`NEPTUNIA_DATA_DIR=${options.dataDir}`));

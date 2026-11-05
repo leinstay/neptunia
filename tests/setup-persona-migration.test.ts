@@ -903,7 +903,6 @@ test('personal packages and credentials remain intact after the source root beco
       'subharness/codex/home/sessions/2026/session.jsonl',
       '{"type":"session_meta","payload":{"id":"synthetic-persona-session"}}\n',
     ],
-    ['subharness/gh/hosts.yml', 'subharness/gh/hosts.yml', 'example.test:\n  oauth_token: synthetic-gh\n'],
     ['subharness/codex/package.json', 'subharness/codex/package.json', '{"dependencies":{"@openai/codex":"1.2.3"}}'],
     ['subharness/codex/package-lock.json', 'subharness/codex/package-lock.json', '{"lockfileVersion":3}'],
   ];

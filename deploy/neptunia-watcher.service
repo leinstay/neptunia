@@ -10,9 +10,8 @@
 # not enforce is in docs/watcher.md. It reaches the board through the core's socket and runs the agent backend from its
 # folder in the private layer.
 #
-# `neptunia setup` renders this service and its timer for the installing user (deploy/README.md) and does not start
-# them. The client token of the watcher is made once with scripts/client-token.ts (`add watcher --kind agent --roles
-# watcher`), and `neptunia service watcher enable` enables the timer.
+# `neptunia setup` renders this service and its timer for the installing user (deploy/README.md), makes the client
+# `watcher` with its token and does not start them. `neptunia service watcher enable` enables the timer.
 # Logs:    journalctl -u neptunia-watcher
 
 [Unit]
