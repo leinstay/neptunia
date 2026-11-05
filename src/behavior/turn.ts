@@ -307,6 +307,7 @@ export function createTurnRunner({
   dataDir = null,
   getSelfName = () => 'bot',
   selfId: selfIdOf = () => '',
+  stemmer = () => null,
   reads: readsDep,
   memberOf = () => null,
   membersOf = null,
@@ -534,6 +535,7 @@ export function createTurnRunner({
   const { callView, planToolCall, runCalls } = createSkillCalls({
     hot,
     store,
+    stemmer,
     skills,
     selfIdOf,
     clock,

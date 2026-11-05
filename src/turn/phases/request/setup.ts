@@ -13,6 +13,7 @@ import { createDeadline } from '../../../behavior/turn-parts.ts';
 import type { Deadline } from '../../../behavior/turn-parts.ts';
 import type { Context } from '../../../memory/db/scope.ts';
 import type { MemberInfo } from '../../../protocol/adapter.ts';
+import { ownerNativesOf } from '../../../tools/impl/grants.ts';
 import { transportOf } from '../../../tools/tool-calls.ts';
 import { replyOptionsOf } from '../../calls.ts';
 import type { Diary } from '../../diary.ts';
@@ -188,7 +189,10 @@ export async function setupRequest(
   // The community's listing, once for the attempt (neighbours, pulls, routing, places, audience rails); a private
   // chat is listed for its partner's sake.
   const partnerId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
-  const partnerHint = isCliOwner(channel.iface, partnerId) ? null : partnerId;
+  // On the command line the owner is nobody the community knows: the account the community's owners list gives for
+  // them is the reader whose view of its channels decides which of them a read may name.
+  const cliOwner = isCliOwner(channel.iface, partnerId);
+  const partnerHint = cliOwner ? (ownerNativesOf(config)[0] ?? null) : partnerId;
   const snapshotPending = takeSnapshotOf(
     ifaceReads,
     reading.length > 0 ? reading : [placeId],
@@ -198,6 +202,9 @@ export async function setupRequest(
   const historyStartedAt = clock();
   const snapshot = await beforeBar(snapshotPending);
   draft.snapshot = snapshot;
+  // Whom the places a read may name are judged by in a private chat: its partner when the server shows through (below),
+  // the owner's account on the command line.
+  draft.readerId = cliOwner && partnerHint ? String(partnerHint) : null;
   // The first part of a split message reuses the history its message's turn fetched.
   // Part of the history: the messages replies of the window answer from outside it,
   // prepended as its oldest lines (withReplyParents). The
@@ -222,6 +229,7 @@ export async function setupRequest(
   draft.requesterGroups = (await beforeBar(requesterPending))?.member?.groupIds ?? [];
   // A private chat on its partner's behalf: pulls and the server search from the served community (none otherwise).
   const likeServer = isPrivate && partner !== null;
+  if (likeServer && partnerId) draft.readerId = String(partnerId);
   const servedPlace = isPrivate && !likeServer ? null : { id: placeId };
   const servedSnapshot = servedPlace ? snapshot : null;
   // What the analyzer requests judge: the trigger, or on a part of a split message the trigger with

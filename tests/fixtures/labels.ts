@@ -479,6 +479,7 @@ export const labels = {
       read: { source: 'from web.read, {url}; page text, cut at {maxChars}', title: 'title: {title}', cut: 'cut at {maxChars}', none: 'no readable text' },
       memory: { source: 'from memory.search; quoted messages with time and author', sampled: 'a sample across the time and place named', window: '{date} in #{channel}:', handles: 'quoted lines carry message numbers', windowCut: '({dropped} lines cut)', windowsLeft: '{count} stretches not shown: {where}', degraded: 'words only', partial: '{failed} of {total} searches incomplete', none: 'no messages found' },
       describe: { closest: 'no such skill; closest: {names}' },
+      place: { several: '{given} fits {count} places', none: 'no place called {given}', line: '{ref} {name}', more: '{count} more' },
       look: { image: 'from media.look; the image model on {name}, asked {question}:', video: 'from media.look; the video model on {name}, asked {question}:', notVideoSite: 'only these sites: {sites}' },
     },
     diagnostics: {
