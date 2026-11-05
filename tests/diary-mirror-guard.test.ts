@@ -273,6 +273,7 @@ function handlerOver(core: Community) {
     reads: core.reads,
     selfId: () => 'self-id',
     getSelfName: () => 'Bot',
+    isServedCommunity: (id: unknown) => id === GUILD,
     turns: {
       ...runner,
       runTurn: (params) => {

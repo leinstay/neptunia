@@ -288,14 +288,16 @@ test('a triggerless private inner turn writes its completed turn only to its par
     });
     assert.equal(result.outcome, 'spoke');
     const day = new Date(NOW).toISOString().slice(0, 10);
-    const privateTurns = await journal.read('g1', { day, kind: 'turn', privateUserId: 'u1' });
+    // A private chat is its own place since places: its turn is journalled there and in no server's journal.
+    const privateTurns = await journal.read('private-room', { day, kind: 'turn' });
     const groupTurns = await journal.read('g1', { day, kind: 'turn' });
     assert.equal(groupTurns.length, 0);
     assert.equal(privateTurns.length, 1);
     const privateTurn = privateTurns[0];
     assert.ok('mode' in privateTurn && 'scope' in privateTurn);
     assert.equal(privateTurn.mode, 'inner');
-    assert.deepEqual(privateTurn.scope, { user: 'u1', private: true });
+    // Its place says it is private; the scope of a record is the conversation it happened in.
+    assert.deepEqual(privateTurn.scope, { channel: 'private-room' });
   } finally {
     await memory.close();
   }

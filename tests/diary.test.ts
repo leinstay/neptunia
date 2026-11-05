@@ -819,7 +819,7 @@ function diaryHarness({
     });
   const turns = {
     runTurn: async (params: Untyped) => {
-      turnCalls.push({ params, done: [...(loose(store.state.data).diary?.g1?.done ?? [])] });
+      turnCalls.push({ params, done: [...(loose(store.state.data).diary?.persona?.done ?? [])] });
       return (
         outcomes.shift() ?? { outcome: 'spoke', diary: { kind: 'status', picture: false, search: false, messages: 1 } }
       );
@@ -984,7 +984,15 @@ test('tick: a new day takes its hunger from the last plan and logs it', async ()
   const h = diaryHarness({
     data: {
       diary: {
-        g1: { day: '2026-10-05', slots: [fired], done: [fired], posted: [], quiet: false, hunger: [1], quietStreak: 0 },
+        persona: {
+          day: '2026-10-05',
+          slots: [fired],
+          done: [fired],
+          posted: [],
+          quiet: false,
+          hunger: [1],
+          quietStreak: 0,
+        },
       },
     },
   });

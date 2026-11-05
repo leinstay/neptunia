@@ -456,7 +456,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
     run('scout', { input: 12_400, output: 3_100, usd: 0.12 });
     run('server', { input: 1_000, output: 100, usd: 0.01 });
   });
-  const errands = { store: (placeId: string) => (placeId === 'g1' ? tasks : null) };
+  const errands = { store: () => tasks };
   const env = createOpsEnv({
     discord: DISCORD,
     hot,

@@ -579,8 +579,8 @@ test('diary turn: records the post with gists and message ids', async () => {
   const entry = entryOf(result);
   assert.deepEqual(entry.messages, ['un quai dans la brume, très calme ce soir']);
   assert.equal(store.appended.length, 1);
-  const { placeId, post, opts } = appendedPost(store);
-  assert.equal(placeId, 'g1');
+  // Her diary is the persona's, so the append names no place.
+  const { post, opts } = appendedPost(store);
   // Stage 3: the post is recorded before anything is sent, so it carries her full text and the entry's id and no
   // message ids (the receipts of its publications hold those); the turn itself sends nothing.
   assert.deepEqual(

@@ -191,8 +191,8 @@ export type HistoryMemory = {
 export async function historyMemory({ edited = false, deleted = false }: Changes = {}): Promise<HistoryMemory> {
   const memory = await openTestMemory({ now: () => NOW, iface: () => 'fake' });
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
-  store.touchChannel(placeOfConversation(store, { id: 'd1' }), { name: 'journal' }, NOW - DAY);
-  store.touchChannel(placeOfConversation(store, { id: 'c1' }), { name: 'general' }, NOW - DAY);
+  store.touchChannel(placeOfConversation(store, { id: 'd1', iface: 'fake' }), { name: 'journal' }, NOW - DAY);
+  store.touchChannel(placeOfConversation(store, { id: 'c1', iface: 'fake' }), { name: 'general' }, NOW - DAY);
   for (const entry of ENTRIES) {
     const [first] = entry.posts;
     if (!first) continue;
@@ -210,9 +210,9 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
     store.appendDiaryPost(entryPost as Parameters<typeof store.appendDiaryPost>[0], { max: 40 });
   }
   // The describer's cache: what she saw in the picture, by its attachment id.
-  const cache = store.getMediaCache(placeOfCommunity(store, GUILD)) as Record<string, unknown>;
+  const cache = store.getMediaCache(placeOfCommunity(store, GUILD, 'fake')) as Record<string, unknown>;
   cache[PICTURE.id] = { text: PICTURE.description, ts: NOW - 2 * DAY + 5000 };
-  store.markMediaCacheDirty(placeOfCommunity(store, GUILD));
+  store.markMediaCacheDirty(placeOfCommunity(store, GUILD, 'fake'));
   store.flush();
   await store.flushSettled({});
   for (const post of [...ENTRIES.flatMap((entry) => entry.posts).map((one) => ({ post: one, self: true })), { post: ALICE, self: false }]) {
@@ -220,7 +220,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
     await memory.memoryDb.writeUnit({
       kind: 'unit',
       op: 'lines',
-      key: placeCollection('record', placeOfCommunity(store, GUILD), { partition: day }),
+      key: placeCollection('record', placeOfCommunity(store, GUILD, 'fake'), { partition: day }),
       lines: [recordLine(post.post, post.self)],
     });
   }
@@ -230,7 +230,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
     return memory.memoryDb.writeUnit({
       kind: 'unit',
       op: 'lines',
-      key: placeCollection('record', placeOfCommunity(store, GUILD), { partition: day }),
+      key: placeCollection('record', placeOfCommunity(store, GUILD, 'fake'), { partition: day }),
       lines: [line],
     });
   };
@@ -298,9 +298,12 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
   }
   const hasMirrors = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").all();
   if (hasMirrors.length > 0) seedMirror(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: NOW });
+  db.prepare("INSERT OR IGNORE INTO places (id, iface, kind) VALUES (?, 'fake', 'server')").run(
+    placeOfCommunity(store, GUILD, 'fake')
+  );
   db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(
-    placeOfCommunity(store, GUILD),
-    placeOfConversation(store, { id: 'd1' })
+    placeOfCommunity(store, GUILD, 'fake'),
+    placeOfConversation(store, { id: 'd1', iface: 'fake' })
   );
   return { memory, store };
 }

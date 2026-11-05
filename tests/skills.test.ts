@@ -895,7 +895,7 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
   assert.equal(ran, 2);
   // The posting point of the operations asks again: a send is refused, a read is not a post.
   const context = {
-    placeId: HERE,
+    conversationId: HERE,
     ownInitiative: true,
     wakeKind: 'heartbeat',
     env: { hot: { config: { heartbeat: { tools: ['voice.say'] } } } },

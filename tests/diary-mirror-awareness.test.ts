@@ -30,8 +30,9 @@ test('a turn marks the mirrored place as her diary in <server>, byte for byte as
 test('a turn in the mirrored place keeps no participation there', async () => {
   const { store } = await replyTurn({ here: 'd1', mirrors: ['d1'] });
   // The store is JS; its participation unit holds the episodes of every channel.
-  const episodes = (store.getParticipation(placeOfCommunity(store, GUILD)) as { episodes: Array<{ placeId: string }> })
-    .episodes;
+  const episodes = (
+    store.getParticipation(placeOfCommunity(store, GUILD, 'fake')) as { episodes: Array<{ placeId: string }> }
+  ).episodes;
   assert.deepEqual(
     episodes.filter((episode) => episode.placeId === 'd1'),
     []

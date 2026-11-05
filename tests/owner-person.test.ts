@@ -136,7 +136,11 @@ test('/memory bind <iface> <account> owner makes that person the owner person in
     const local = JSON.parse(readFileSync(path.join(dirs.privateDir, 'config', 'config.json'), 'utf8')) as {
       bot: { ownerPerson: string };
     };
-    assert.equal(local.bot.ownerPerson, `person:fake:${author}`);
+    // A person's id is opaque and spells no account, so the setting is compared with the account's stored person.
+    const [account] = query(dirs, 'SELECT person_id FROM accounts WHERE native_key = ?', author) as Array<{
+      person_id: string;
+    }>;
+    assert.equal(local.bot.ownerPerson, account?.person_id);
     assert.equal(ownerOn('fake', author, local), true);
     assert.equal(ownerOn('fake', 'someone-else', local), false);
     assert.equal(ownerOn('telegram', author, local), false);

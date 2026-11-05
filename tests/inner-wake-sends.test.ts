@@ -72,8 +72,9 @@ function keptRecord(): Record_ {
   const lines: Array<unknown> = [];
   return {
     lines,
-    append: (_guildId, appended) => {
-      lines.push(...appended);
+    // The turn runner names the place first and the inner life's persona record does not.
+    append: (first: unknown, second: unknown) => {
+      lines.push(...(Array.isArray(first) ? first : (second as Array<unknown>)));
       return Promise.resolve();
     },
     iterate: () => [],

@@ -187,7 +187,7 @@ test('door: envelopes -- hello and ping are acked, an event envelope is acked by
 test('door: two removals of the same emoji at different times both pass; the same instant is a duplicate', async () => {
   const { reactionEvent, reactionClearAllEvent, reactionClearEmojiEvent } =
     await import('../interfaces/discord/index.ts');
-  const message = { id: 'm1', conversationId: 'c1', placeId: 'g1', partial: false, author: { id: 'a1' } };
+  const message = { id: 'm1', channelId: 'c1', guildId: 'g1', partial: false, author: { id: 'a1' } };
   const react = { message, emoji: { name: '\u{1F389}' } };
   const user = { id: 'u1' };
   const got: Array<Untyped> = [];

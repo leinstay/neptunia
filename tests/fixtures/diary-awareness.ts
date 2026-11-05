@@ -2,7 +2,7 @@
 // and memory database, on a community of the fake interface with `general` (c1), `journal` (d1) and `notes` (d2), and a
 // scripted model. `diary-mirror-awareness.json` beside this file holds the `<server>` block the turn in c1 built with
 // `diaryChannelId: 'd1'` and no mirror, on the code before `diary.placeId` became a seed. Synthetic text only.
-import { placeOfConversation } from '../../src/memory/addresses.ts';
+import { placeOfCommunity, placeOfConversation } from '../../src/memory/addresses.ts';
 import { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { userText } from '../../src/behavior/prompt.ts';
@@ -62,8 +62,8 @@ export async function replyTurn({
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
   const names = { c1: 'general', d1: 'journal', d2: 'notes' } as const;
   for (const [id, name] of Object.entries(names)) {
-    store.touchChannel(placeOfConversation(store, { id: id }), { name }, NOW - 5 * MINUTE);
-    store.updateChannel(placeOfConversation(store, { id: id }), { purpose: `${name} purpose` });
+    store.touchChannel(placeOfConversation(store, { id, iface: 'fake' }), { name }, NOW - 5 * MINUTE);
+    store.updateChannel(placeOfConversation(store, { id, iface: 'fake' }), { purpose: `${name} purpose` });
   }
   store.flush();
   await store.flushSettled({});
@@ -73,6 +73,11 @@ export async function replyTurn({
   const hasMirrors = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").all();
   if (hasMirrors.length > 0)
     for (const id of mirrors) seedMirror(memory.memoryDb, { iface: 'fake', conversationId: id, name: names[id], at: NOW });
+  // Her channels sit under the server, as the observation of their first lines leaves them.
+  const server = placeOfCommunity(store, GUILD, 'fake');
+  db.prepare("INSERT OR IGNORE INTO places (id, iface, kind) VALUES (?, 'fake', 'server')").run(server);
+  for (const id of Object.keys(names))
+    db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(server, placeOfConversation(store, { id, iface: 'fake' }));
   freshWorld();
   const trigger = rawMessage({ id: 'm1', ts: NOW - 1000, content: 'γεια σου' });
   for (const id of ['d1', 'd2'] as const) {

@@ -294,7 +294,7 @@ export function wakeClockOf(
         selfimprovement: { lastAt: number | null } | null;
         queue: ReadonlyArray<{ kind: string }>;
         inflight: { kind: string } | null;
-      };
+      } | null;
     };
     diary: { status(): { slots: ReadonlyArray<number>; done: ReadonlyArray<number>; lastPosted?: number | null } };
   }
@@ -310,6 +310,7 @@ export function wakeClockOf(
   }
   if (name === 'watcher') return null;
   const state = inner.state();
+  if (!state) return null;
   const running = state.inflight?.kind === name || state.queue.some((wake) => wake.kind === name);
   return name === 'heartbeat'
     ? { running, lastAt: state.heartbeat?.lastAt ?? null, nextAt: state.heartbeat?.nextAt ?? null }
