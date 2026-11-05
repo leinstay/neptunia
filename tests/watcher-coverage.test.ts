@@ -195,7 +195,7 @@ test('a refusal never quotes the block', () => {
   assert.equal(checked.detail.includes(PLANTED_KEY), false);
 });
 
-test('prompt.md keeps its eleven sections and asks for the coverage block', () => {
+test('prompt.md keeps its twelve sections and asks for the coverage block', () => {
   // Bug: the validator requires a block the prompt never asks for, so every live inspection fails its check.
   const prompt = fs.readFileSync(path.join(REPO, 'agents', 'watcher', 'prompt.md'), 'utf8');
   const headings = prompt.split('\n').filter((line) => line.startsWith('## '));

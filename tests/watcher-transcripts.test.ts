@@ -567,7 +567,7 @@ for (const [name, flags, flag] of [
   });
 }
 
-test('evidence writes nothing, spawns nothing, asks no model and shows no credential', async () => {
+test('evidence writes nothing, starts nothing, asks no model and shows no credential', async () => {
   // Bug: the "read" recovers pending rows through a second writer, or learns the source by asking the backend.
   const where = rig();
   putRow(where, 'row-1', FROM + 60_000, { system_text: `leak ${PLANTED_KEY}` });
@@ -584,7 +584,9 @@ test('evidence writes nothing, spawns nothing, asks no model and shows no creden
     assert.equal(page?.totalRuns, 2);
     assert.equal(answer.text.includes(PLANTED_KEY), false);
     assert.equal(fetched, 0);
-    assert.deepEqual(where.calls, []);
+    // Changed: evidence now carries the trash, whose reads go through `run`. What must stay true is that none of them changes anything.
+    for (const call of where.calls)
+      assert.doesNotMatch(call, /\b(start|stop|enable|disable|restart|prune|clean|remove)\b/);
     assert.equal(fs.readFileSync(file, 'utf8'), before);
   } finally {
     globalThis.fetch = realFetch;

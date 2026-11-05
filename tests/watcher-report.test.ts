@@ -1,4 +1,4 @@
-// The watcher's report (src/watcher/report.ts): exactly the eleven headings in order, each with a line, no key or
+// The watcher's report (src/watcher/report.ts): exactly the twelve headings in order, each with a line, no key or
 // token anywhere, and a report committed only when the text passes. A refused text leaves no file.
 // Changed: `writeReport` had no caller left, so its cases now hold `commitReport`, which every report goes through. The lines
 // under "Tasks filed" are asserted through an inspection in tests/watcher-filing-board.test.ts.
@@ -15,11 +15,11 @@ const codeOf = (text: string): string | null => {
   return checked.ok ? null : checked.code;
 };
 
-test('the report headings are the eleven of the design, in order', () => {
+test('the report headings are the twelve of the design, in order', () => {
   assert.deepEqual([...REPORT_HEADINGS], [...HEADINGS]);
 });
 
-test('a report with the eleven headings, each saying nothing found, is accepted: a quiet day is a good day', () => {
+test('a report with the twelve headings, each saying nothing found, is accepted: a quiet day is a good day', () => {
   assert.equal(checkReport(reportText()).ok, true);
 });
 

@@ -1,5 +1,5 @@
 // Every watcher report is one Markdown file in one exact template (`checkTemplate` of src/watcher/report.ts): the title
-// with its day, the fixed metadata block, the eleven sections, the same four subheadings in each, and the coverage block
+// with its day, the fixed metadata block, the twelve sections, the same four subheadings in each, and the coverage block
 // at the end. A text outside it is refused with a code, the run fails, and the last successful view stays.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -56,7 +56,7 @@ test('a report in the template passes, and the check gives back its day and meta
   });
 });
 
-test('the sections are the eleven of the owner, exact and in order', () => {
+test('the sections are the twelve of the owner, exact and in order', () => {
   // Bug: a section is renamed in one place, and the check, the prompt and the readers hold different lists.
   assert.deepEqual(
     [...reports.REPORT_HEADINGS],
@@ -68,6 +68,7 @@ test('the sections are the eleven of the owner, exact and in order', () => {
       'Misunderstandings',
       'Project',
       'Modules and structure',
+      'Trash',
       'The server',
       'Wishes',
       'Tasks filed',
