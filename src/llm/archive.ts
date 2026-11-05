@@ -142,6 +142,20 @@ const answerFields = (answer: Row | null | undefined): Row => ({
   usage: answer?.usage === undefined ? null : JSON.stringify(answer.usage),
 });
 
+/**
+ * The `error_code` of a failed request. A string code wins, so `keys-exhausted` stays, then the provider's status as
+ * `http_<status>`, then `timeout`, `aborted` and `network` by the error's name and shape, else `error`.
+ */
+function failureCause(error: unknown): string {
+  const { code, statusCode, name, message } = (error ?? {}) as Row;
+  if (typeof code === 'string') return code;
+  if (Number.isInteger(statusCode)) return `http_${String(statusCode)}`;
+  if (name === 'TimeoutError') return 'timeout';
+  if (name === 'AbortError') return 'aborted';
+  if (error instanceof TypeError && /fetch failed|network/i.test(String(message))) return 'network';
+  return 'error';
+}
+
 /** `llm` whose `complete` keeps each request and its outcome. Every other member passes through. */
 export function archivedLlm<TLlm extends { complete: (...args: Array<never>) => Promise<unknown> }>(
   llm: TLlm,
@@ -174,14 +188,7 @@ export function archivedLlm<TLlm extends { complete: (...args: Array<never>) => 
       await keep(id, { op: 'finish', id, at: now(), status: 'ok', ...answerFields(answer) });
       return answer;
     } catch (error) {
-      const code = (error as { code?: unknown } | null)?.code;
-      await keep(id, {
-        op: 'finish',
-        id,
-        at: now(),
-        status: 'failed',
-        error_code: typeof code === 'string' ? code : 'error',
-      });
+      await keep(id, { op: 'finish', id, at: now(), status: 'failed', error_code: failureCause(error) });
       throw error;
     }
   };

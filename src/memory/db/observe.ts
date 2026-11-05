@@ -74,6 +74,7 @@ import {
   nodeId,
   resolveAlias,
 } from './ids.ts';
+import { hasMessageFamilies } from './message-family-catalog.ts';
 import { addKey, addRelation, deriveRow, ensureAuthority, ensureInterface, resolveRelationsTo } from './rows.ts';
 import { AUD_INTERNAL, SCOPE_INTERNAL, dmAudienceId, groupAudienceId, groupScope } from './scope.ts';
 import {
@@ -851,8 +852,27 @@ function editRevisionOf(db: Db, envelope: Envelope): { revision: number; sourceI
 const sourceKeyOf = (n: Envelope['native']): string => canonicalKey(n.kind, [n.key, n.revision, n.subtype ?? null]);
 
 /**
+ * Her line recorded before its echo names no author, and the echo brings her account. Only a line in a message family:
+ * the importer's rows keep the author they were written with. 1 when it was filled, else 0.
+ */
+function fillOwnAuthor(db: Db, e: Envelope, sourceId: string, at: string): number {
+  if (e.author.kind !== 'self' || !hasMessageFamilies(db)) return 0;
+  const stored = db
+    .prepare(
+      `SELECT s.author_account FROM sources s JOIN message_families f ON f.authority_id = s.authority_id
+       AND f.native_kind = s.native_kind AND f.native_key = s.native_id AND f.generation = s.generation WHERE s.id = ?`
+    )
+    .get(sourceId);
+  if (!stored || stored.author_account !== null) return 0;
+  const { account } = authorOf(db, e, placeOf(db, e, at), at);
+  db.prepare('UPDATE sources SET author_account = ? WHERE id = ?').run(account, sourceId);
+  return 1;
+}
+
+/**
  * A line already stored (by the sync or an earlier observation): it is registered under its native key when it is not
- * yet, gets the connection it came by when it has none, and the relations it lacks. Nothing else of it changes.
+ * yet, gets the connection it came by when it has none, her account when it is her line recorded before its echo, and
+ * the relations it lacks. Nothing else of it changes.
  */
 function replayOf(
   db: Db,
@@ -887,7 +907,7 @@ function replayOf(
       sourceId
     );
   }
-  let relations = 0;
+  let relations = fillOwnAuthor(db, e, sourceId, at);
   for (const relation of e.relations ?? []) {
     const target =
       relation.target.source !== undefined

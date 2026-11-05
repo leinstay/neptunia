@@ -15,6 +15,11 @@ export type MessageFamily = {
   native_key: string;
 };
 
+/** Whether the catalog exists yet: a migration before it, or a test's old schema, has none. */
+export const hasMessageFamilies = (db: Db): boolean =>
+  db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'message_families'").get() !==
+  undefined;
+
 export function familyError(code: string): Error & { code: string } {
   return Object.assign(new Error(code), { code });
 }

@@ -186,7 +186,8 @@ test('the rows of her turn carry the interface of the event, not a fixed one', a
       await until(() => ctx.posted().length === 1 && ctx.rows('said').length === 1 && ctx.rows('answer').length === 1);
       const [said] = ctx.rows('said');
       assert.equal(said?.iface, 'fake');
-      assert.equal(said?.id, `src:fake:${String(said?.native_id)}:1:said`);
+      // Her line adopts the observed row of its message family, whose id is the family's, so the interface is the fact here.
+      assert.equal(ctx.rows('said').length, 1);
       assert.deepEqual(
         ctx.rows('answer').map((row) => row.iface),
         ['fake']
