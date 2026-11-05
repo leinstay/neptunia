@@ -327,15 +327,12 @@ function clampResults(value: unknown, fallback = 5): number {
 }
 
 /**
- * The `plugins` of a request that searches through OpenRouter's web plugin, which picks its own search engine (`auto`):
+ * The `plugins` of a request that searches through OpenRouter's web plugin, with no `engine` set so the plugin chooses:
  * the lookup's `openrouter` engine and the scout agent's search command (src/web/web-search.ts). `results` becomes
  * `max_results`, an integer in 1..10, `fallback` when not a number.
  */
-export function webSearchPlugins(
-  results: unknown,
-  fallback: number = 5
-): Array<{ id: 'web'; engine: 'auto'; max_results: number }> {
-  return [{ id: 'web', engine: 'auto', max_results: clampResults(results, fallback) }];
+export function webSearchPlugins(results: unknown, fallback: number = 5): Array<{ id: 'web'; max_results: number }> {
+  return [{ id: 'web', max_results: clampResults(results, fallback) }];
 }
 
 /** The cache key of one search. */
