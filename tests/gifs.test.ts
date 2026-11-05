@@ -4,11 +4,13 @@
 // poster (src/behavior/turn.js).
 
 import { placeOfCommunity } from '../src/memory/addresses.ts';
-import { existsRaw, memDataDir, readRaw, writeRaw } from './fixtures/store-kit.ts';
+import { personaKey } from '../src/memory/db/storage-keys.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { unitValue } from '../src/memory/db/readers/common.ts';
+import { memDataDir } from './fixtures/store-kit.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
 
 import {
   GIF_STORE_MAX,
@@ -22,12 +24,13 @@ import {
 } from '../src/memory/gifs.ts';
 import { createStore } from '../src/memory/store.ts';
 import { createMemoryUpdater } from '../src/memory/update.ts';
-import { parseOutput } from '../src/llm/parse.ts';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { userText } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { onWorld, world } from './fixtures/turn-world.ts';
+import type { Posted } from './fixtures/turn-world.ts';
+import type { GifLibrary } from '../src/memory/gifs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
@@ -276,7 +279,8 @@ test('resetGifCounts: every entry kept with count 0, handles, last and nextId un
   assert.equal(reset.nextId, 3);
   assert.equal(wrongly<Untyped>(present(reset.backfill)).at, '2026-09-30T00:00:00.000Z');
   assert.equal(gifs.entries.a1.count, 1, 'the input is never mutated');
-  assert.deepEqual(resetGifCounts(null), { nextId: 1, entries: {}, backfill: null });
+  // B7: the library holds a stamp per place beside the newest one.
+  assert.deepEqual(resetGifCounts(null), { nextId: 1, entries: {}, backfill: null, backfills: {} });
 });
 
 test('mergeGifs: a reset entry seen again keeps its handle and counts afresh', () => {
@@ -330,7 +334,14 @@ test('rankGifs: a zero count ranks below any positive count, however recent', ()
   const recent: Record<string, Untyped> = mergeGifs(old, [
     msg({ id: 'm2', ts: T0 + 400 * DAY, attachments: [gifAttachment('a2')] }),
   ]).gifs;
-  const library = { ...recent, entries: { ...recent.entries, a2: { ...recent.entries.a2, count: 0 } } };
+  // B7: the global count is the sum over places, so the reset is on the counter of the place.
+  const library = {
+    ...recent,
+    entries: {
+      ...recent.entries,
+      a2: { ...recent.entries.a2, count: 0, places: { c1: { count: 0, last: T0 + 400 * DAY } } },
+    },
+  };
   assert.deepEqual(
     rankGifs(library, 30).map((entry) => entry.key),
     ['a1', 'a2']
@@ -372,8 +383,9 @@ test('mergeGifs: past storeMax zero-count entries are evicted first, handles nev
 });
 
 test('normalizeGifs: garbage in -> the empty library; broken entries dropped; bad handles reassigned', () => {
-  assert.deepEqual(normalizeGifs(null), { nextId: 1, entries: {}, backfill: null });
-  assert.deepEqual(normalizeGifs([1, 2]), { nextId: 1, entries: {}, backfill: null });
+  // B7: the library holds a stamp per place beside the newest one.
+  assert.deepEqual(normalizeGifs(null), { nextId: 1, entries: {}, backfill: null, backfills: {} });
+  assert.deepEqual(normalizeGifs([1, 2]), { nextId: 1, entries: {}, backfill: null, backfills: {} });
   const out = normalizeGifs({
     nextId: 2,
     entries: {
@@ -401,41 +413,45 @@ test('normalizeGifs: garbage in -> the empty library; broken entries dropped; ba
 
 // --- storage -----------------------------------------------------------------
 
+/** B7: the library's unit of the persona as the database holds it, undefined when it holds none. */
+function libraryUnit(memoryDb: Untyped): Untyped {
+  const found: Untyped = unitValue(dbOf(memoryDb.readHandle()), personaKey('gifs'));
+  return found.found ? found.value : undefined;
+}
+
 test('store.recordGifs: persists its unit; getGifs/findGif read it back after a restart', async () => {
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb });
-  const file = path.join(dir, 'guilds', 'g1', 'gifs.json');
   const g1 = placeOfCommunity(store, 'g1');
-  assert.deepEqual(store.getGifs(g1), { nextId: 1, entries: {}, backfill: null });
+  assert.deepEqual(store.getGifs(), { nextId: 1, entries: {}, backfill: null, backfills: {} });
   assert.equal(store.recordGifs(g1, [msg({ self: true, links: [gifLink('m1#e0')] })], { storeMax: 300 }), 0);
   store.flush();
   await store.flushSettled({});
-  assert.equal(existsRaw(file), false, 'nothing counted, nothing written');
+  assert.equal(libraryUnit(memoryDb), undefined, 'nothing counted, nothing written');
 
   assert.equal(store.recordGifs(g1, [msg({ links: [gifLink('m1#e0')] })], { storeMax: 300 }), 1);
   store.flush();
   await store.flushSettled({});
-  const onDisk = JSON.parse(readRaw(file));
+  const onDisk = libraryUnit(memoryDb);
   assert.equal(onDisk.nextId, 2);
   assert.equal(onDisk.entries['m1#e0'].id, 'g1');
 
   const reopened = createStore({ dataDir: dir, memoryDb });
-  assert.equal(wrongly<Untyped>(present(reopened.findGif(g1, 'g1'))).url, TENOR);
-  assert.equal(reopened.findGif(g1, 'g2'), null);
+  assert.equal(wrongly<Untyped>(present(reopened.findGif('g1'))).url, TENOR);
+  assert.equal(reopened.findGif('g2'), null);
 });
 
 test('store.getGifs: a hand-broken unit is normalised on read, never wiped by reading', async () => {
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb });
-  const file = path.join(dir, 'guilds', 'g1', 'gifs.json');
   const raw = { entries: { a: { kind: 'link', url: TENOR, count: 3, last: T0 } } };
-  await writeRaw(file, raw);
-  const gifs = store.getGifs(placeOfCommunity(store, 'g1'));
+  await memoryDb.writeUnit({ op: 'value', key: personaKey('gifs'), value: raw });
+  const gifs = store.getGifs();
   assert.equal(wrongly<Record<string, { id: string }>>(gifs.entries).a.id, 'g1');
   assert.equal(gifs.nextId, 2);
   store.flush();
   await store.flushSettled({});
-  assert.deepEqual(JSON.parse(readRaw(file)), raw);
+  assert.deepEqual(libraryUnit(memoryDb), raw);
 });
 
 test('markOwnGif: stamps ownLast and counts ownUses on the entry; an unknown key changes nothing; never mutates', () => {
@@ -484,12 +500,12 @@ test('store.recordOwnGif: persists the stamp; an unknown key writes nothing', as
   assert.equal(store.recordOwnGif(g1, 'm1#e0', T0), false);
   store.flush();
   await store.flushSettled({});
-  assert.equal(existsRaw(path.join(dir, 'guilds', 'g1', 'gifs.json')), false, 'nothing marked, nothing written');
+  assert.equal(libraryUnit(memoryDb), undefined, 'nothing marked, nothing written');
   store.recordGifs(g1, [msg({ links: [gifLink('m1#e0')] })]);
   assert.equal(store.recordOwnGif(g1, 'm1#e0', T0 + DAY), true);
   store.flush();
   await store.flushSettled({});
-  const entry = createStore({ dataDir: dir, memoryDb }).findGif(g1, 'g1');
+  const entry = createStore({ dataDir: dir, memoryDb }).findGif('g1');
   assert.equal(wrongly<Untyped>(present(entry)).ownLast, T0 + DAY);
   assert.equal(wrongly<Untyped>(present(entry)).ownUses, 1);
 });
@@ -507,7 +523,7 @@ test("observe: a member's gif joins the library with its url", async () => {
     const { logs } = await withCapturedLogs(() =>
       updater.observe(placeOfCommunity(updater, 'g1'), msg({ links: [gifLink('m1#e0')] }))
     );
-    assert.equal(store.findGif(placeOfCommunity(store, 'g1'), 'g1').url, TENOR);
+    assert.equal(store.findGif('g1').url, TENOR);
     const line = logs.find((l) => l.msg === 'memory: gifs recorded');
     assert.equal(present(line).gifs, 1);
     assert.equal(JSON.stringify(line).includes('tenor'), false);
@@ -521,7 +537,7 @@ test('observe: a private chat, the persona and paused never feed the library', (
     on.observe(placeOfCommunity(on, 'g1'), msg({ id: 'm3', self: true, links: [gifLink('m3#e0')] }));
     store.state.data.paused = true;
     on.observe(placeOfCommunity(on, 'g1'), msg({ id: 'm4', links: [gifLink('m4#e0')] }));
-    assert.deepEqual(store.getGifs(placeOfCommunity(store, 'g1')).entries, {});
+    assert.deepEqual(store.getGifs().entries, {});
   });
 });
 
@@ -535,31 +551,14 @@ test('observe: gifs.storeMax caps the library', () => {
         placeOfCommunity(updater, 'g1'),
         msg({ id: `m${n}`, ts: T0 + DAY + n, attachments: [gifAttachment(`a${n}`)] })
       );
-    const kept = Object.keys(store.getGifs(placeOfCommunity(store, 'g1')).entries);
+    const kept = Object.keys(store.getGifs().entries);
     assert.deepEqual([kept.length, kept.includes('a0')], [GIF_STORE_MAX, false]);
   });
 });
 
 // --- the <gif> tag -----------------------------------------------------------
 
-test('parseOutput: <gif> with and without reply', () => {
-  assert.deepEqual(parseOutput('<gif>g12</gif>').gif, { id: 'g12', replyTo: null });
-  assert.deepEqual(parseOutput('<gif reply="#87"> G012 </gif>').gif, { id: 'g12', replyTo: 87 });
-});
-
-test('parseOutput: one <gif> per turn -- the first valid one; an invalid body is ignored', () => {
-  assert.deepEqual(parseOutput('<gif>cat</gif><gif>g3</gif><gif>g4</gif>').gif, { id: 'g3', replyTo: null });
-});
-
-test('parseOutput: a <gif> alone is not silence; an invalid one alone is', () => {
-  const alone = parseOutput('<gif>g1</gif>');
-  assert.equal(alone.skip, false);
-  assert.deepEqual(alone.messages, []);
-  const bad = parseOutput('<gif>γάτα</gif>');
-  assert.equal(bad.skip, true);
-  assert.equal(bad.gif, null);
-  assert.deepEqual(bad.messages, []);
-});
+// B7: `<gif>` left the output contract; tests/parse-gif-retired.test.ts holds what the parser does with one.
 
 // --- the poster --------------------------------------------------------------
 
@@ -635,10 +634,6 @@ function fakeHot() {
   };
 }
 
-function fakeLlm(text: Record<string, Untyped>) {
-  return { complete: async () => ({ text, usage: {}, estimated: 10 }) };
-}
-
 function calibrator() {
   return { ratio: 1, apply: (n: Record<string, Untyped>) => n, observe: () => {} };
 }
@@ -649,135 +644,157 @@ function seedLibrary(store: Record<string, Untyped>) {
     msg({ id: 'm-old', placeId: 'c1', ts: NOW - DAY, links: [gifLink('m-old#e0')] }),
     msg({ id: 'm-att', placeId: 'c2', ts: NOW - DAY, attachments: [gifAttachment('att1')] }),
   ]);
+  // B7: the pick's search reads the caption on the entry; `ha` is the word of the replies below.
+  store.setGifCaption('m-old#e0', { caption: 'ha a cat dancing', vector: null });
+  store.setGifCaption('att1', { caption: 'ha an attached gif', vector: null });
 }
+
+/**
+ * B7: one turn with the media pick on an interface that declares GIF links and files: `output` is her answer and `pick`
+ * the classifier's. `<gif>` left her output, so a GIF of hers goes out only through the pick.
+ */
+type GifTurnRun = {
+  result: { outcome: unknown };
+  logs: Array<Record<string, Untyped>>;
+  channel: { sent: Array<Posted> };
+  gifs: GifLibrary;
+};
 
 async function runGifTurn({
   output,
+  pick = 'none',
   channelOpts = {},
   prepare,
   triggerKind = 'mention',
-}: { output?: Untyped; channelOpts?: Record<string, Untyped>; prepare?: Untyped; triggerKind?: string } = {}) {
+}: {
+  output?: Untyped;
+  pick?: string;
+  channelOpts?: Record<string, Untyped>;
+  prepare?: Untyped;
+  triggerKind?: string;
+} = {}): Promise<GifTurnRun> {
   return withStore(async (store: Record<string, Untyped>) => {
     seedLibrary(store);
     if (prepare) prepare(store);
     const raw = rawMessage('m1');
     const channel = fakeChannel({ historyMessages: [raw], ...channelOpts });
+    const port = world().port as unknown as { capabilities: () => object };
+    const declared = port.capabilities.bind(port);
+    port.capabilities = () => ({ ...declared(), mediaPick: { gifForms: ['file', 'link'] } });
+    const hot: Untyped = fakeHot();
+    Object.assign(hot.prompts, { 'media-pick': 'Pick for {{name}}.' });
+    hot.config.models = { base: { analyzer: 'cheap/classifier' } };
+    const llm = {
+      complete: (_messages: Untyped, options: Untyped) =>
+        Promise.resolve({ text: options?.purpose === 'media-pick' ? pick : output, usage: {}, estimated: 10 }),
+    };
     const turns = createTurnRunner({
-      hot: fakeHot(),
+      hot,
       store,
-      llm: fakeLlm(output),
+      llm,
       calibrator: calibrator(),
       now: () => NOW,
     });
     const { result, logs } = await withCapturedLogs(() =>
       turns.runTurn({ channel, mode: 'reply', trigger: trigger(raw), triggerKind })
     );
-    return { result, logs, channel, state: store.state.data, gifs: store.getGifs(placeOfCommunity(store, 'g1')) };
+    return { result, logs, channel, state: store.state.data, gifs: store.getGifs() };
   });
 }
 
-test('turn <gif>: a link handle sends the stored url after the messages, as a reply', async () => {
-  const { result, channel } = await runGifTurn(wrongly({ output: '<msg>ha</msg><gif reply="#1">g1</gif>' }));
+test('the pick: a link handle sends the stored url in place of the first message, as a reply', async () => {
+  const { result, channel } = await runGifTurn({ output: '<msg reply="#1">ha</msg><msg>more</msg>', pick: 'gif g1' });
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent.length, 2);
-  assert.equal(channel.sent[0].content, 'ha');
-  assert.equal(channel.sent[1].content, TENOR);
-  assert.equal(channel.sent[1].reply.messageReference, 'm1');
-  assert.deepEqual(channel.sent[1].allowedMentions, { parse: [] });
+  assert.equal(channel.sent[0].content, TENOR);
+  assert.equal(channel.sent[1].content, 'more');
+  assert.equal(channel.sent[0].reply?.messageReference, 'm1');
+  assert.deepEqual(channel.sent[0].allowedMentions, { parse: [] });
 });
 
-test('turn <gif>: a sent gif stamps ownLast and ownUses on its library entry', async () => {
-  const { gifs } = await runGifTurn(wrongly({ output: '<msg>ha</msg><gif>g1</gif>' }));
+test('the pick: a sent gif stamps ownLast and ownUses on its entry, for the place it went to', async () => {
+  const { gifs } = await runGifTurn({ output: '<msg>ha</msg>', pick: 'gif g1' });
   assert.equal(gifs.entries['m-old#e0'].ownLast, NOW);
   assert.equal(gifs.entries['m-old#e0'].ownUses, 1);
+  assert.equal(gifs.entries['m-old#e0'].places.c1?.ownLast, NOW);
   assert.equal(gifs.entries['m-old#e0'].count, 1, "the members' count is not touched");
   assert.equal('ownLast' in gifs.entries.att1, false);
 });
 
-test('turn <gif>: a gif alone is a turn; a follow-up never replies', async () => {
-  const withReply = await runGifTurn(wrongly({ output: '<gif reply="#1">g1</gif>' }));
+test('the pick: a gif alone is a turn; a follow-up never replies', async () => {
+  const withReply = await runGifTurn({ output: '<msg reply="#1">ha</msg>', pick: 'gif g1' });
   assert.equal(withReply.result.outcome, 'spoke');
   assert.equal(withReply.channel.sent.length, 1);
-  assert.equal(withReply.channel.sent[0].reply.messageReference, 'm1');
-  const followUp = await runGifTurn(wrongly({ output: '<gif reply="#1">g1</gif>', triggerKind: 'followUp' }));
+  assert.equal(withReply.channel.sent[0].reply?.messageReference, 'm1');
+  const followUp = await runGifTurn({ output: '<msg reply="#1">ha</msg>', pick: 'gif g1', triggerKind: 'followUp' });
   assert.equal(followUp.channel.sent.length, 1);
   assert.equal(followUp.channel.sent[0].reply, undefined);
 });
 
-test('turn <gif>: an attachment handle re-fetches its message and sends the fresh url', async () => {
+test('the pick: an attachment with no cached file re-fetches its message and sends the fresh url', async () => {
   const fresh = 'https://cdn.discordapp.com/attachments/c2/att1/r%C3%A9action.gif?ex=fresh';
   const original = rawMessage('m-att', { attachments: new Map([['att1', { id: 'att1', url: fresh }]]) });
   const source = fakeChannel({ id: 'c2', historyMessages: [original] });
-  const { channel, logs } = await runGifTurn(wrongly({ output: '<gif>g2</gif>' }));
+  const { channel, logs } = await runGifTurn({ output: '<msg>ha</msg>', pick: 'gif g2' });
   assert.deepEqual(source.fetched, ['m-att']);
   assert.equal(channel.sent[0].content, fresh);
   const line = logs.find((l: Record<string, Untyped>) => l.msg === 'turn: gif sent');
-  assert.equal(line.fresh, true);
-  assert.equal(line.gif, 'g2');
+  assert.equal(line?.fresh, true);
+  assert.equal(line?.gif, 'g2');
 });
 
-test('turn <gif>: an attachment in a forwarded snapshot is found too', async () => {
+test('the pick: an attachment in a forwarded snapshot is found too', async () => {
   const fresh = 'https://cdn.discordapp.com/attachments/c2/att1/x.gif?ex=fwd';
   const snapshots = new Map([['s', { attachments: new Map([['att1', { id: 'att1', url: fresh }]]) }]]);
   const original = rawMessage('m-att', wrongly({ messageSnapshots: snapshots }));
   fakeChannel({ id: 'c2', historyMessages: [original] });
-  const { channel } = await runGifTurn(wrongly({ output: '<gif>g2</gif>' }));
+  const { channel } = await runGifTurn({ output: '<msg>ha</msg>', pick: 'gif g2' });
   assert.equal(channel.sent[0].content, fresh);
 });
 
-test('turn <gif>: a failed re-fetch falls back to the stored url', async () => {
-  const { channel, logs } = await runGifTurn(wrongly({ output: '<gif>g2</gif>' }));
+test('the pick: a failed re-fetch falls back to the stored url', async () => {
+  const { channel, logs } = await runGifTurn({ output: '<msg>ha</msg>', pick: 'gif g2' });
   assert.equal(channel.sent[0].content, gifAttachment('att1').url);
   assert.ok(logs.find((l: Record<string, Untyped>) => l.msg === 'turn: gif refetch failed'));
-  assert.equal(logs.find((l: Record<string, Untyped>) => l.msg === 'turn: gif sent').fresh, false);
+  assert.equal(logs.find((l: Record<string, Untyped>) => l.msg === 'turn: gif sent')?.fresh, false);
 });
 
-test('turn <gif>: an unknown handle is dropped and logged without a url', async () => {
-  const { result, channel, logs } = await runGifTurn(wrongly({ output: '<msg>ok</msg><gif>g99</gif>' }));
+test('the pick: an unknown handle posts the text as written', async () => {
+  const { result, channel, logs } = await runGifTurn({ output: '<msg>ha</msg>', pick: 'gif g99' });
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(
     channel.sent.map((p: Record<string, Untyped>) => p.content),
-    ['ok']
+    ['ha']
   );
-  const line = logs.find((l: Record<string, Untyped>) => l.msg === 'turn: gif dropped');
-  assert.equal(line.reason, 'unknown');
-  const alone = await runGifTurn(wrongly({ output: '<gif>g99</gif>' }));
-  assert.equal(alone.result.outcome, 'skip');
-  assert.equal(alone.channel.sent.length, 0);
+  assert.equal(logs.find((l: Record<string, Untyped>) => l.msg === 'media-pick: answered')?.kind, 'none');
 });
 
-test('turn request: the library reaches the prompt as <gifs> with cached captions', async () => {
-  async function requestText() {
-    return withStore(async (store: Record<string, Untyped>) => {
-      seedLibrary(store);
-      store.getMediaCache(placeOfCommunity(store, 'g1'))['m-old#e0'] = { text: 'a cat dancing', ts: NOW };
-      const raw = rawMessage('m1');
-      const channel = fakeChannel({ historyMessages: [raw] });
-      const seen: Array<Untyped> = [];
-      const llm = {
-        complete: async (messages: Record<string, Untyped>) => {
-          seen.push(messages);
-          return { text: '<skip/>', usage: {}, estimated: 10 };
-        },
-      };
-      const turns = createTurnRunner({
-        hot: fakeHot(),
-        store,
-        llm,
-        calibrator: calibrator(),
-        now: () => NOW,
-      });
-      await withCapturedLogs(() =>
-        turns.runTurn({ channel, mode: 'reply', trigger: trigger(raw), triggerKind: 'mention' })
-      );
-      return userText(seen[0][1].content);
+// B7: the library left her request; a GIF of the chat keeps its handle in the transcript.
+test('turn request: the library does not reach her request', async () => {
+  const on = await withStore(async (store: Record<string, Untyped>) => {
+    seedLibrary(store);
+    store.getMediaCache(placeOfCommunity(store, 'g1'))['m-old#e0'] = { text: 'a cat dancing', ts: NOW };
+    const raw = rawMessage('m1');
+    const channel = fakeChannel({ historyMessages: [raw] });
+    const seen: Array<Untyped> = [];
+    const llm = {
+      complete: async (messages: Record<string, Untyped>) => {
+        seen.push(messages);
+        return { text: '<skip/>', usage: {}, estimated: 10 };
+      },
+    };
+    const turns = createTurnRunner({
+      hot: fakeHot(),
+      store,
+      llm,
+      calibrator: calibrator(),
+      now: () => NOW,
     });
-  }
-
-  const on = await requestText();
-  // Both entries tie on count and date: their order is sortByRank's, not asserted here.
-  const block = present(/<gifs>\n([\s\S]*?)\n<\/gifs>/.exec(on))[1].split('\n');
-  assert.equal(block[0], labels.gifs.header);
-  assert.deepEqual(block.slice(1).sort(), ['g1 -- a cat dancing', 'g2']);
-  assert.ok(on.includes(labels.senses.gifs));
+    await withCapturedLogs(() =>
+      turns.runTurn({ channel, mode: 'reply', trigger: trigger(raw), triggerKind: 'mention' })
+    );
+    return userText(seen[0][1].content);
+  });
+  assert.equal(on.includes('<gifs>'), false);
+  assert.equal(on.includes('a cat dancing'), false);
 });

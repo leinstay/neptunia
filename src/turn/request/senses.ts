@@ -25,8 +25,7 @@ export type SensesOptions = {
   recallAvailable?: boolean;
   drawOn?: boolean;
   privateChat?: boolean;
-  customEmoji?: boolean;
-  gifs?: boolean;
+  interfaceText?: string | null;
   gifWatching?: boolean;
   elsewhereDestination?: { name?: unknown } | null;
   diaryChannel?: string | null;
@@ -137,8 +136,7 @@ function abilitiesOffLine(config: RequestConfig, labels: SensesLabels): string |
  * recall line `senses.recallTool` (`recallAvailable`), each only when `toolsGranted`
  * (her granted in-turn tools) holds `web.search` / `memory.search`; else neither. With `web.read` granted,
  * `senses.readTool` follows the links lines, and `senses.lookTool` shows when `media.look` is granted.
- * `customEmoji` (the `<emoji>` block is possible) adds `senses.customEmoji`;
- * `gifs` (a non-empty library) adds `senses.gifs` right after it.
+ * `interfaceText` (what the interface declares for its custom emoji, src/behavior/turn.ts) comes as its own line.
  * `gifWatching` (GIFs are watched now, src/memory/gif-watch.ts#gifWatchBlocker)
  * swaps `senses.gifDescribed` for `senses.gifWatched` when the labels have it.
  * Right after the files line, `senses.abilitiesOff` while an optional model role is off (abilitiesOffLine), then `senses.time` (how to read clock times, line
@@ -160,8 +158,7 @@ export function renderSenses(
     recallAvailable = false,
     drawOn,
     privateChat = false,
-    customEmoji = false,
-    gifs = false,
+    interfaceText = null,
     gifWatching = false,
     elsewhereDestination = null,
     diaryChannel = null,
@@ -193,11 +190,8 @@ export function renderSenses(
   // image); senses.lottie only shows up alongside them -- an animated
   // built-in (Lottie) sticker is never a picture, name only.
   if (senses.stickerDescribed) lines.push(senses.stickerDescribed, senses.lottie);
-  // The server's custom emoji (`customEmoji`: a non-empty index); an older labels.json without the line shows
-  // nothing.
-  if (customEmoji && senses.customEmoji) lines.push(senses.customEmoji);
-  // The GIF library (`gifs`: a non-empty library); an older labels.json without the line shows nothing.
-  if (gifs && senses.gifs) lines.push(senses.gifs);
+  // What the interface says of its custom emoji, as it declares it.
+  if (interfaceText) lines.push(interfaceText);
 
   // The web lookup: the links line stays as it is and the read-excerpt line follows it; the search line follows
   // only when a search key is configured (`searchAvailable`). An older labels.json without either line shows
@@ -373,7 +367,7 @@ export type SensesOf = {
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
 export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
-  const { config, prompts, labels, privateChat, customEmoji, gifsOn, participationOffered } = given;
+  const { config, prompts, labels, privateChat, customEmoji, participationOffered } = given;
   const sensesOptions: SensesOptions = {
     searchAvailable: given.searchAvailable === true,
     recallAvailable: given.recallAvailable === true,
@@ -385,8 +379,8 @@ export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
     drawOn: given.drawOn,
     window: given.history,
     privateChat,
-    customEmoji: customEmoji.length > 0,
-    gifs: gifsOn,
+    // The interface's text speaks of its custom emoji, so it comes with a non-empty index.
+    interfaceText: customEmoji.length > 0 ? (given.mediaPickText ?? null) : null,
     // Whether a GIF in the transcript was watched rather than seen in one frame, under the live config and prompts.
     gifWatching: gifWatchBlocker(prompts) === null,
     elsewhereDestination: given.elsewhereDestination ?? null,

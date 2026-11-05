@@ -17,6 +17,7 @@ Agent prompts use `agents/<name>/` and `data/agents/<name>/`. They are not loade
 | Tool descriptions and arguments | [tool texts](../config/tools.json), [tool registry](../src/tools/) |
 | Memory-session instructions | [memory implementation](../src/memory/), [session writes](../src/memory/db/session-write.ts) |
 | Turn context blocks | [request builders](../src/turn/request/) |
+| Media pick | [prompt](../prompts/media-pick.md) as `prompts['media-pick']`, its request and answer in [src/behavior/media-pick.ts](../src/behavior/media-pick.ts), its lines from `labels.gifs` |
 | Heartbeat wake | [heartbeat prompt](../prompts/heartbeat.md), `<wake>` from [src/behavior/wake.ts](../src/behavior/wake.ts), its calls in [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) |
 | Selfimprovement wake | [wake prompt](../prompts/selfimprovement.md) as `prompts.selfimprovement`, `<wake>` from [src/behavior/selfimprovement-text.ts](../src/behavior/selfimprovement-text.ts) with `labels.wake.selfimprovement`, its calls in [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) |
 | Development brief | [brief](../prompts/executor-brief.md) as `prompts['executor-brief']`, filled by `briefFrom` in [src/development/brief.ts](../src/development/brief.ts), after the agent's `agents/<name>/prompt.md` in [bin/development.ts](../bin/development.ts) |
@@ -38,13 +39,21 @@ The active skill index contains descriptions; `skill.read` retrieves the procedu
 
 ## Output
 
-The conversation parser recognizes `<think>`, `<msg>`, `<react>`, `<gif>` and `<skip/>`. A message can name a reply target, and a reaction names its target message. Native tool calls arrive separately; textual tool calls are extracted before the conversation parser runs.
+The conversation parser recognizes `<think>`, `<msg>`, `<react>` and `<skip/>`. The tracked `format.md` tells her of a unicode emoji in `<react>`. A custom one as `:name:` still resolves through the emoji index, and the interface's capability text says so where an interface offers them. A message can name a reply target, and a reaction names its target message. Native tool calls arrive separately; textual tool calls are extracted before the conversation parser runs.
 
-`parseOutput` in `src/llm/parse.ts` reads the `<msg>` tags outside inline code and fences, so a tag example in code stays literal text. An opening `<msg>` while a message is open ends that message there. A last `<msg>` that is never closed ends at the first `<react>`, `<gif>` or `<skip/>` after it, or with the output. Its words go out when the answer stopped on its own. The caller passes `cutOff` for an answer cut at the output cap, as `src/turn/phases/response.ts` does for the finish reason `length`, and that last message is dropped. A `</msg>` with no open message is never sent.
+`parseOutput` in `src/llm/parse.ts` reads the `<msg>` tags outside inline code and fences, so a tag example in code stays literal text. An opening `<msg>` while a message is open ends that message there. A last `<msg>` that is never closed ends at the first `<react>` or `<skip/>` after it, or with the output. Its words go out when the answer stopped on its own. The caller passes `cutOff` for an answer cut at the output cap, as `src/turn/phases/response.ts` does for the finish reason `length`, and that last message is dropped. A `</msg>` with no open message is never sent.
 
 An output with such a breach yields one `{ kind: 'msgMalformed', nested, unclosed, stray }` diagnostic, placed before any `messagesMerged`. It holds counts and no contents, and a message dropped by `cutOff` is not counted. The persona reads it through `labels.tools.diagnostics.msgMalformed`, whose `{count}` is the sum of the three counts.
 
 Think text is private planning, not a public chat message. An unfinished think block produces silence rather than publishing its contents. The request archive retains available response text and parsed think text for later inspection.
+
+A `<gif>` is a retired tag, like a call tag and a draw tag: `parseOutput` cuts it out and tells it as a `retiredTag` diagnostic, and an answer that holds nothing else is silence.
+
+### Media pick
+
+`createMediaPick` in `src/behavior/media-pick.ts` sends one request on the `analyzer` role with the purpose `media-pick` after a reply, on an interface that declares `mediaPick`. The system message is `prompts/media-pick.md` with `{{name}}`. The user message holds `<gifs>`, one line per candidate through `labels.gifs.entry` with its handle and caption, `<gifs_recent>` when she posted one of them in this place in the last 24 hours, with its handle and `labels.gifs.ownMark`, `<emoji>` on an interface with the emoji form, one line per candidate through `labels.emoji.entry` or `labels.emoji.entryNoText`, then `<context>` and `<reply>`. An empty block is left out.
+
+The answer is one line, `none`, `gif <handle>`, `emoji <name>` or `replace <name>`, in any case and spacing. `parseMediaPick` reads anything else as `none`: a name the request did not list, an action the interface does not support, and two forms in one line. `none` is the normal answer. The persona's turn carries no block of this request, and `<skip/>` stays her word: no pick prompt uses it.
 
 ### Diary audience
 

@@ -23,7 +23,7 @@ import { cacheTtlMs } from '../../llm/openrouter.ts';
 import { gifHandleMap, normalizeGifs } from '../../memory/index.ts';
 import { accountIdOf } from '../../memory/recent.ts';
 import { freezePerBucket, gifFieldChars, gifFieldsMap } from './emoji-gifs.ts';
-import type { Held } from './emoji-gifs.ts';
+import type { Held, MediaCache } from './emoji-gifs.ts';
 import { anchoredOn } from './memory.ts';
 import { authorsInView } from './pulled.ts';
 import { nowBlock } from './tail.ts';
@@ -68,7 +68,6 @@ export type Base = {
   gifLibrary: ReturnType<typeof normalizeGifs> | null;
   gifsOn: boolean;
   customEmoji: Array<EmojiRef>;
-  emojiOnce: boolean;
   formatOptions: FormatOptions;
   system: string;
   anchored: boolean;
@@ -78,6 +77,32 @@ export type Base = {
 
 /** The room the request's sections share, its caps and the price of a text. */
 export type Room = { caps: Caps; cost: Cost; limit: number };
+
+/**
+ * `descriptions` with the cached caption of every custom emoji of `history` it lacks: the turn describes what it gathers,
+ * and the cache knows an emoji the turn did not ask about.
+ */
+function withEmojiCaptions(
+  descriptions: Map<string, string> | undefined,
+  history: ReadonlyArray<Message>,
+  mediaCache: unknown
+): Map<string, string> | undefined {
+  const cache = mediaCache as MediaCache | null | undefined;
+  if (!cache) return descriptions;
+  const known = new Map(descriptions ?? []);
+  for (const message of history) {
+    for (const emoji of [
+      ...(message.emojis ?? []),
+      ...(message.forwarded ?? []).flatMap((part) => part?.emojis ?? []),
+    ]) {
+      const key = `emoji:${emoji?.id}`;
+      const cached = cache[key];
+      if (!known.has(key) && cached && !cached.miss && typeof cached.text === 'string' && cached.text.trim())
+        known.set(key, cached.text.trim());
+    }
+  }
+  return known;
+}
 
 /** The labels, switches, handles, transcript options, system prompt and chat lines of a request. */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
@@ -98,7 +123,7 @@ export function requestHead(given: RequestInput): Base {
   // The caller's resolver of a member id to a name.
   const nameOf: NameOf = typeof given.nameOf === 'function' ? (given.nameOf as NameOf) : () => null;
   const { timezone } = config.bot;
-  // What memory changes inside the stable part (`<self_facts>`, `<gifs>`) is held for one cache
+  // What memory changes inside the stable part (`<self_facts>`) is held for one cache
   // TTL bucket while the prompt cache is on (freezePerBucket): a memory batch or the persona's
   // GIF post rewrites the cached prefix at most once per bucket.
   const stableFreeze =
@@ -197,7 +222,7 @@ export function requestHead(given: RequestInput): Base {
   const shownMoves = RELATIONSHIP_LIMITS.shownMoves;
   const episodesOn = true;
   const loreOn = true;
-  // The GIF library: the switch (a missing key counts as on) and at least one entry.
+  // The GIF library, for the handles of the transcript: at least one entry.
   const gifLibrary = given.gifs ? normalizeGifs(given.gifs) : null;
   const gifsOn = gifLibrary !== null && Object.keys(gifLibrary.entries).length > 0;
   // The server's custom emoji: the switch (a missing key counts as on) and a non-empty index.
@@ -205,12 +230,8 @@ export function requestHead(given: RequestInput): Base {
     ? // The emoji index's list as the turn hands it (src/behavior/emoji-index.ts).
       (given.customEmoji as Array<EmojiRef>)
     : [];
-  // A custom emoji of the transcript is described once, in `<emoji>` (emojiItems), when that
-  // block can carry it; otherwise its lines keep the inline `transcript.emojiDescribed` tag.
-  const emojiLabels = labels.emoji;
-  const emojiOnce =
-    Boolean(emojiLabels?.header && emojiLabels.entryNoText && emojiLabels.entry && emojiLabels.seenInChat) &&
-    customEmoji.some((emoji) => emoji?.id && emoji.name);
+  // A custom emoji of the transcript carries its description in the line: the persona's turn lists no emoji.
+  const described = withEmojiCaptions(descriptions, history, given.mediaCache);
   const formatOptions = {
     timezone,
     selfName,
@@ -221,8 +242,7 @@ export function requestHead(given: RequestInput): Base {
     seeReactions: true,
     // Who reacted to the persona's own lines, named like authors.
     reactionNames: true,
-    emojiInline: !emojiOnce,
-    descriptions,
+    descriptions: described,
     videos,
     reads,
     // A picture's second look on a question renders under its tag.
@@ -241,7 +261,7 @@ export function requestHead(given: RequestInput): Base {
       : undefined,
     // A GIF the library knows carries its handle in the transcript.
     gifHandles: gifsOn ? gifHandleMap(gifLibrary) : undefined,
-    // ...and its three caption fields, cut like the `<gifs>` list (transcript.gifKnownFields).
+    // ...and its three caption fields, cut for display (transcript.gifKnownFields).
     gifFields:
       gifsOn && labels.transcript?.gifKnownFields && given.mediaCache
         ? gifFieldsMap(given.mediaCache, gifFieldChars())
@@ -293,7 +313,6 @@ export function requestHead(given: RequestInput): Base {
     gifLibrary,
     gifsOn,
     customEmoji,
-    emojiOnce,
     formatOptions,
     system,
     anchored,

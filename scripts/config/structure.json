@@ -918,7 +918,7 @@
     },
     {
       "path": "src/turn/draw-gif.ts",
-      "purpose": "The pictures and GIFs of a turn: her `draw.create` tool, a `<gif>` resolved and posted, and the GIF picker. Tested through the turn, media draw, draw parity and gifs tests.",
+      "purpose": "The pictures and GIFs of a turn: her `draw.create` tool, the post of the GIF the media pick chose and the grace of its answer. Tested through the turn, media draw, draw parity and gifs tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -939,7 +939,7 @@
     },
     {
       "path": "src/turn/act.ts",
-      "purpose": "The act of a turn: her reactions, messages and GIF posted, checked, typed out, journaled and recorded, and a diary post's speech held. Tested through the turn, journal turn, gifs and diary turn tests.",
+      "purpose": "The act of a turn: her reactions, her messages and the picked GIF posted, checked, typed out, journaled and recorded, and a diary post's speech held. Tested through the turn, journal turn, gifs and diary turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1184,7 +1184,7 @@
     },
     {
       "path": "src/turn/request/emoji-gifs.ts",
-      "purpose": "The custom emoji and the GIF library in a request: `<emoji>`, `<gifs>` held per cache bucket, `<gifs_recent>` and the caption fields of a library GIF. Tested through the prompt emoji, prompt gifs and prompt freeze tests.",
+      "purpose": "The custom emoji in a request and the caption fields of a library GIF. Tested through the prompt emoji, prompt gifs and prompt freeze tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

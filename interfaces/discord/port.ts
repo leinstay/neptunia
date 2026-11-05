@@ -90,6 +90,16 @@ export const DISCORD_LIMITS = Object.freeze({
 });
 
 /**
+ * What Discord declares for the media pick (docs/interfaces.md): a GIF as its file or as a link Discord embeds, a custom
+ * emoji appended to a message or standing for it, its markup, and the line the persona's turn reads of them.
+ */
+const DISCORD_MEDIA_PICK = Object.freeze({
+  gifForms: ['file', 'link'] as const,
+  emoji: { actions: ['append', 'replace'] as const, render: { still: '<:{name}:{id}>', animated: '<a:{name}:{id}>' } },
+  text: "You can use this server's custom emoji by writing :name: exactly as they appear in the chat, in a message or as a reaction. The engine turns a known name into the real emoji; an unknown name stays as plain text.",
+});
+
+/**
  * How a message is addressed on Discord (`capabilities().messageUrl`): a message of a guild and one of a private chat
  * (`@me`), the links the persona sends and the chat shows as a jump to a message.
  */
@@ -526,6 +536,7 @@ export function createDiscordAdapter({
         messageUrl: DISCORD_MESSAGE_URL,
         reads: [...READ_ACTIONS],
         reconcile: true,
+        mediaPick: DISCORD_MEDIA_PICK,
       };
     },
 

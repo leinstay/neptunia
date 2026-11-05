@@ -35,6 +35,8 @@ export type CreateTurnRunnerInput = {
   images?: Untyped;
   speech?: Untyped;
   emoji?: ReturnType<typeof createEmojiIndex>;
+  embedQuery?: ((text: string) => Promise<ArrayLike<number> | null>) | null;
+  dataDir?: string | null;
   getSelfName?: (placeId: string | null) => string;
   selfId?: () => string;
   reads: Reads;

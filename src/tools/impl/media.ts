@@ -69,7 +69,7 @@ const handlers = perEnv((env) => {
     freshenIfPaused();
     const placeId = requirePlaceId(context);
 
-    const library = store.getGifs(placeId);
+    const library = store.getGifs();
     const ranked = rankGifs(library, GIF_HALF_LIFE_DAYS) as Array<Untyped>;
     const cache = store.getMediaCache(placeId);
     const captionOf = (entry: Untyped): string => {

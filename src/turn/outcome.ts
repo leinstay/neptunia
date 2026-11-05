@@ -203,7 +203,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   request carries `<wake>` (src/behavior/wake.ts over `wake`) and the task `prompts.inner`, its
    *   history is the last `wakes.chatMessages` lines of `channel`, its prefetch searches the
    *   purposes of the intentions it woke for, no planner runs. What she writes in tags (a `<msg>`,
-   *   a `<gif>`, a `<react to>`) is lowered into the calls they stand for, in the current channel
+   *   a `<react to>`) is lowered into the calls they stand for, in the current channel
    *   (`currentChannel`: an id, or null for none, then a post is refused `destination-required`;
    *   absent: the turn's own channel; src/behavior/inner-output.ts) and made with her own, after them; her calls pass
    *   the gateway as her own initiative (her grants alone) and then innerVerdict: a read runs; with
@@ -261,7 +261,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   prompts.forced to the task), then composed with `prompts.diary` as
    *   the task and the `<world>`, `<diary>`, `<plan>` and `<found>` blocks. Its speech keeps only
    *   `<msg>` (every reply attribute dropped, links removed, at most `selfreflection.maxMessages` (3), a
-   *   message left empty not posted) and `<skip/>`; no reaction, no GIF, no GIF pick. It runs on the
+   *   message left empty not posted) and `<skip/>`; no reaction and no media pick. It runs on the
    *   step engine with `selfreflection.loop`: only her `draw.create` calls run (any other is refused
    *   `diary-draw-only`; at most `selfreflection.set.pictures[1]` in a step), each picture staged as it is
    *   generated and counted against the day's diary pictures then; a picture while the post may
@@ -285,7 +285,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   delivered?: boolean, reason?: string, limit?: { key: string, used: number, cap: number }|null }>}
    *   `delivered` on a
    *   `spoke` turn posted for real: whether anything reached the chat (a reaction put, a message,
-   *   the GIF or a diary post's pictures posted; a send that fails stops the
+   *   the picked GIF or a diary post's pictures posted; a send that fails stops the
    *   posting and the turn still ends `spoke` with what reached the chat); `limit` on `outcome:
    *   'refused'` (a request or token cap; a diary picture gate with `reason: 'pictures'`; a diary
    *   set short of `selfreflection.set.minPosted` pictures has `reason: 'set-short'` and no `limit`), for

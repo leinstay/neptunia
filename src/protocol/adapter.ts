@@ -38,6 +38,20 @@ export type Delivery = {
  */
 export type MessageUrlTemplate = { community: string; direct: string };
 
+/**
+ * What an interface declares for the media pick (docs/interfaces.md, "Media pick"): the forms it posts a library GIF in,
+ * and for its custom emoji the actions it supports and the template that renders one (`{name}` and `{id}`). `text` goes
+ * into the persona's turn as it stands. An interface with none of it never triggers the pick.
+ */
+export type MediaPickCapability = {
+  gifForms: ReadonlyArray<'file' | 'link'>;
+  emoji?: {
+    actions: ReadonlyArray<'append' | 'replace'>;
+    render: { still: string; animated?: string };
+  };
+  text?: string;
+};
+
 export type Capabilities = {
   operations: ReadonlyArray<string>;
   maxChars: number;
@@ -58,6 +72,7 @@ export type Capabilities = {
   messageUrl?: MessageUrlTemplate | null;
   /** True when `fetchMessages` finds a send by its idempotency key (src/interface/reconcile.ts); absent: it cannot. */
   reconcile?: boolean;
+  mediaPick?: MediaPickCapability;
 };
 
 /**

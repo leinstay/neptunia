@@ -53,6 +53,8 @@ export type EditsContext = {
   selfIdOf: () => string;
   record: EditsRecord | null;
   now: () => number;
+  /** The keeper of the GIF library (src/memory/gif-keeper.ts), absent in a run without one. */
+  gifKeeper?: { keep: (placeId: string, message: Record<string, unknown>) => unknown } | null;
   /** The media prefill of an observed message (createMessageHandler's warmMediaCache), never awaited here. */
   warmMediaCache: (placeId: string, message: object) => Promise<void> | null;
   /** The live observation of a line in the memory database (createMessageHandler's observeLine). */
@@ -108,6 +110,7 @@ export function createEdits({
   selfIdOf,
   record,
   now,
+  gifKeeper = null,
   warmMediaCache,
   observeLine,
   deleteLine,
@@ -171,6 +174,7 @@ export function createEdits({
         return;
       }
       const gifs = store ? store.recordGifs(placeId, [late], gifOpts()) : 0;
+      if (gifs > 0) void gifKeeper?.keep(placeId, late);
       // Fire-and-forget, as on arrival: the prefill never rejects.
       void warmMediaCache(placeId, late);
       log.info('events: embeds folded', { ...fields, gifs });

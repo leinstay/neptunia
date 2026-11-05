@@ -1078,7 +1078,7 @@ export function findGifs(
 
 /**
  * The text of a media.find result: `labels.tools.tools.find.source` (`{query}`, `{count}`), then one
- * line per GIF as the `<gifs>` block writes an entry (its handle and stored description, gifLine:
+ * line per GIF (its handle and stored description, gifLine:
  * `labels.gifs.entryFields` / `.entry`); `labels.tools.tools.find.none` when there is none. A missing
  * label adds nothing. Pure.
  * `found` is findGifs' entries.
@@ -1119,7 +1119,7 @@ export function runMediaFind({
   placeId,
   args,
 }: {
-  store: { getGifs?: (placeId: string) => unknown; getMediaCache?: (placeId: string) => unknown } | null;
+  store: { getGifs?: () => unknown; getMediaCache?: (placeId: string) => unknown } | null;
   config: unknown;
   labels: unknown;
   placeId: string | null;
@@ -1142,7 +1142,7 @@ export function runMediaFind({
       return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.n:range' };
     const cache = typeof store.getMediaCache === 'function' ? store.getMediaCache(placeId) : null;
     const mediaCache = isObj(cache) ? cache : null;
-    const found = findGifs(store.getGifs(placeId), mediaCache, query, { n: given });
+    const found = findGifs(store.getGifs(), mediaCache, query, { n: given });
     return { status: 'ok', data: { text: mediaFindText(found, { query, labels, mediaCache, config }) } };
   } catch {
     return { status: 'failed', code: CODE.ERROR };

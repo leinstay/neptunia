@@ -132,6 +132,9 @@ test('reopening skips completed imports instead of duplicating rows or overwriti
     const current = { v: 1, stopped: true, queue: [] };
     applyUnitWrite(handle, { kind: 'unit', op: 'value', owner: INNER, value: current });
     applyUnitWrite(handle, { op: 'value', key: legacyStorageKey('state.json'), value: { paused: false } });
+    // B7: the next open carries the imported GIF library into the shared one, once; later opens change nothing.
+    handle.close();
+    handle = openMemoryDb(fixture.file);
     const before = rows(handle);
     for (let opening = 0; opening < 2; opening += 1) {
       handle.close();

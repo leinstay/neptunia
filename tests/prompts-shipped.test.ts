@@ -30,6 +30,7 @@ import { createMessageHandler as createMessageHandlerOf } from '../src/behavior/
 import { normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
 import { takeSnapshot } from '../src/behavior/snapshot.ts';
 import { onWorld, onWorldIface, useIface, useSelf, world, worldChannels } from './fixtures/turn-world.ts';
+import { declarePick, twoCaptionedGifs } from './fixtures/turn-pick.ts';
 
 const worldChannelsOf = (channels: Parameters<typeof worldChannels>[1]) => worldChannels(GUILD, channels);
 import { withTextPreviews } from '../src/media/text-preview.ts';
@@ -138,6 +139,12 @@ function withoutLiterals(text: string) {
  * reason. Until the dev agent adds them, the block they head is simply left out of the request.
  */
 const PENDING_LABELS = {
+  // B7 and B8: retired, and the fixture keeps their words so a test can see that the core renders none.
+  'senses.gifs': 'retired',
+  'senses.customEmoji': 'retired',
+  'gifs.header': 'retired',
+  'emoji.header': 'retired',
+  'emoji.seenInChat': 'retired',
   'recent.header': 'the <recent> view (spec-recall R3): its wording is a text task for the dev agent',
   'recent.line': 'the <recent> view (spec-recall R3): its wording is a text task for the dev agent',
   'recent.lineIn': 'the <recent> view (spec-recall R3): its wording is a text task for the dev agent',
@@ -175,7 +182,7 @@ const LOADS = {
   split: ['split'],
   merge: ['merge'],
   missed: ['missed'],
-  gifPick: ['gif-pick'],
+  mediaPick: ['media-pick'],
   turn: [...SYSTEM, 'reply'],
 };
 
@@ -760,8 +767,6 @@ const TURN_BLOCKS = [
   'now',
   'senses',
   'about_chat',
-  'emoji',
-  'gifs',
   'server',
   'lore',
   'self_facts',
@@ -1753,7 +1758,7 @@ test('createTurnRunner: the splitter fills split.md; each part, its queued calls
 
 // ---- the GIF picker ---------------------------------------------------------------------
 
-test('createTurnRunner: the GIF picker fills gif-pick.md', async () => {
+test('createTurnRunner: the media pick fills media-pick.md', async () => {
   const hot = shippedHot();
   const line = rawMessage(GENERAL_INFO, {
     ts: NOW - MINUTE_MS,
@@ -1762,37 +1767,13 @@ test('createTurnRunner: the GIF picker fills gif-pick.md', async () => {
     mentions: [SELF_ID],
   });
   const channel = worldChannelsOf([[GENERAL_INFO, [...generalRaws(), line]]])[GENERAL];
-  const gifs = {
-    nextId: 3,
-    entries: {
-      k1: {
-        id: 'g1',
-        kind: 'link',
-        url: 'https://tenor.com/view/chat-qui-danse-1',
-        itemId: 'gif-item-1',
-        messageId: 'm1',
-        placeId: GENERAL,
-        count: 3,
-        last: NOW - HOUR_MS,
-      },
-      k2: {
-        id: 'g2',
-        kind: 'link',
-        url: 'https://tenor.com/view/haussement-2',
-        itemId: 'gif-item-2',
-        messageId: 'm2',
-        placeId: GENERAL,
-        count: 1,
-        last: NOW - DAY_MS,
-        ownLast: NOW - HOUR_MS,
-      },
-    },
-  };
-  const mediaCache = { 'gif-item-1': { text: 'un chat qui danse' }, 'gif-item-2': { text: "un haussement d'épaules" } };
+  const gifs = twoCaptionedGifs(channel.id, GENERAL, NOW, HOUR_MS, DAY_MS);
   const llm = recordingLlm((messages, options) =>
-    options.purpose === 'gif-pick' ? 'none' : '<msg>oui, bien sûr</msg>'
+    options.purpose === 'media-pick' ? 'none' : '<msg>oui, bien sûr</msg>'
   );
-  const store = { ...bareStore(), getMediaCache: () => mediaCache, getGifs: () => gifs, findGif: () => null };
+  // B7: the pick runs where the interface declares it, over the captions on the shared library's entries.
+  declarePick();
+  const store = { ...bareStore(), getGifs: () => gifs, findGif: () => null };
   const turns = createTurnRunner({
     hot,
     store,
@@ -1806,20 +1787,20 @@ test('createTurnRunner: the GIF picker fills gif-pick.md', async () => {
     turns.runTurn({ channel, mode: 'reply', trigger: history.at(-1), triggerKind: 'mention' })
   );
 
-  const [pick] = llm.calls.filter((call) => call.options.purpose === 'gif-pick');
+  const [pick] = llm.calls.filter((call) => call.options.purpose === 'media-pick');
   const text = assertFilled(
     pick?.messages,
-    { files: LOADS.gifPick, blocks: ['context', 'reply', 'gifs', 'gifs_recent'] },
-    'gif-pick'
+    { files: LOADS.mediaPick, blocks: ['context', 'reply', 'gifs', 'gifs_recent'] },
+    'media-pick'
   );
-  assert.ok(text.includes(SELF_NAME), 'gif-pick: {{name}} is the persona');
+  assert.ok(text.includes(SELF_NAME), 'media-pick: {{name}} is the persona');
   assert.ok(
-    text.includes(fill(LABELS.gifs.entry, { id: 'g1', text: 'un chat qui danse' })),
-    'gif-pick: an entry through labels.gifs.entry'
+    text.includes(fill(LABELS.gifs.entry, { id: 'g1', text: 'oui un chat qui danse' })),
+    'media-pick: an entry through labels.gifs.entry'
   );
   assert.ok(
     text.includes(`g2 ${fill(LABELS.gifs.ownMark, { ago: `1 ${LABELS.units.hour}` })}`),
-    'gif-pick: the own post in <gifs_recent> through labels.gifs.ownMark'
+    'media-pick: the own post in <gifs_recent> through labels.gifs.ownMark'
   );
 });
 

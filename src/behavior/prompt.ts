@@ -37,13 +37,12 @@
 //       right after `<lookup>`
 //   7. neighbouring channels
 //   8. the server's custom emoji (`<emoji>`)
-//   9. the GIF library (`<gifs>`)
 //  10. the `<people_now>` entries of the people in voice the request has no profile for,
 //      capped by `context.around.maxTokens`
 // The rendered order is different, and laid out for the provider's prompt
 // cache: what changes least first, in three text parts -- the stable part
 // (the senses that read only the config, her tools in text on the text transport, `<self_facts>`,
-// `<about_chat>`, `<gifs>`, the people directory `<directory>`), the profiles (`<people>` with the interlocutor alone), then the
+// `<about_chat>`, the people directory `<directory>`), the profiles (`<people>` with the interlocutor alone), then the
 // tail that changes every turn, opening with a second `<people>` for everyone
 // else, with `<people_now>` (what is current about each person) right before the chat,
 // the clock, the per-turn senses, the tempo and the task last, where the model attends best (see assembleUser and
@@ -64,7 +63,6 @@ import type { MemoryRead, Prompts, RequestConfig } from '../turn/request/types.t
 import { RECENT_EPISODES_PER_MEMBER, recentSettings, recentView } from '../memory/recent.ts';
 import { DEFAULT_HISTORY_POSTS, renderKindsBlock } from './diary.ts';
 import { diaryHistoryLines, diaryOf, worldText } from '../turn/request/diary.ts';
-import { gifListOf, trimLists } from '../turn/request/emoji-gifs.ts';
 import { requestHead, requestRoom } from '../turn/request/head.ts';
 import {
   keptEarlier,
@@ -107,7 +105,6 @@ export {
   gifFields,
   gifFieldsMap,
   gifLine,
-  ownGifLines,
 } from '../turn/request/emoji-gifs.ts';
 import type { Untyped } from '../tools/types.ts';
 import type {
@@ -295,24 +292,15 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   renders, right after the web search line, only when it is true (and never in a private chat).
  * @param [input.drawOn]  Whether this turn may draw (an image client and Attach Files);
  *   false or omitted -> no drawing line in `<senses>`.
- * @param [input.customEmoji]  The served
- *   place's custom emoji (src/behavior/emoji-index.ts#createEmojiIndex's `list()`). With
- *   `features.customEmoji` on (a missing key counts as on) and a non-empty list, `<emoji>`
- *   renders (ranked by `placeMemory.emojiUsage`, see `emojiItems`) and `<senses>` carries
- *   `senses.customEmoji`. Omitted or [] -> neither. With `labels.emoji.seenInChat` (and
- *   `entry`) set, the transcript's lines keep a custom emoji as a bare `:name:` and `<emoji>`
- *   describes the described ones not in its top list once, under that sub-heading; without
- *   it they keep the inline `transcript.emojiDescribed` tag.
+ * @param [input.customEmoji]  The custom emoji the interface offers (src/behavior/emoji-index.ts). With a non-empty list
+ *   the interface's text (`input.mediaPickText`) shows in `<senses>`.
+ * @param [input.mediaPickText]  What the interface declares for the turn (src/interface/capabilities.ts#portMediaPick).
  * @param [input.mediaCache]  The describer cache (store.getMediaCache), read only
- *   for the `emoji:<id>` captions of `<emoji>`, the GIF captions of `<gifs>` and the three
+ *   for the `emoji:<id>` captions of a custom emoji in the chat and the three
  *   caption fields of a library GIF in the transcript (`transcript.gifKnownFields`, see
  *   gifFieldsMap).
- * @param [input.gifs]  The place's GIF library (store.getGifs). With `features.gifs`
- *   on (a missing key counts as on) and at least one entry, `<gifs>` renders (see `gifItems`;
- *   held per cache bucket with `stableFreeze`), the tail's `<gifs_recent>` names the listed GIFs
- *   the persona posted within `gifs.ownMarkHours` (ownGifLines, after `<emoji>`, paid from what
- *   the request has left), `<senses>` carries `senses.gifs`, and a GIF of the library in the
- *   transcript carries its handle (`transcript.gifKnownFields`/`gifKnown`/`gifKnownNoText`).
+ * @param [input.gifs]  The GIF library (store.getGifs). A GIF of the library in the transcript carries its handle
+ *   (`transcript.gifKnownFields`/`gifKnown`/`gifKnownNoText`).
  *   Omitted or empty -> none of it.
  * @param [input.pulled]  Other channels pulled into this turn, rendered as
  *   `<channel_view>` (one item per channel, see `fitPulledChannel`) after `<other_channels>`:
@@ -464,7 +452,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   the tail right after `<places>`, paid for with the fixed part and never cut; null leaves it out.
  * @param [input.stableFreeze]  The caller's long-lived holder of what
  *   the stable part shows from memory (src/behavior/turn.ts keeps one per place): with
- *   `features.promptCache` exactly true, `<self_facts>` (and `<gifs>`) render as they were at the
+ *   `features.promptCache` exactly true, `<self_facts>` renders as they were at the
  *   first request of the current time bucket, one bucket being the cache TTL
  *   (src/llm/openrouter.js#cacheTtlMs: an hour for `llm.cache.ttl` `'1h'`), see freezePerBucket;
  *   a memory batch's change shows at the next bucket edge. Omitted, null or the cache off ->
@@ -553,6 +541,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     recallAvailable: input.recallAvailable,
     drawOn: input.drawOn,
     customEmoji: input.customEmoji,
+    mediaPickText: input.mediaPickText,
     mediaCache: input.mediaCache,
     gifs: input.gifs,
     pulled: input.pulled,
@@ -619,7 +608,6 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   const placed = placeAskedAbout({ ...given, ...base, ...room, ...speaker, ...asked, ...recent, ...ahead });
   const people = peopleOfferedOf({ ...given, ...base, ...room, ...speaker, ...asked, ...placed });
   const attitudesText = attitudesOf({ ...given, ...base, ...room, ...recent, ...placed, ...people });
-  const gifList = gifListOf({ ...given, ...base });
   const fit = fitAll({
     ...given,
     ...base,
@@ -630,10 +618,8 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     ...people,
     neighborItems,
     attitudesText,
-    gifList,
   });
   // What the budget kept, made whole: each step only shortens the request, so the fit holds.
-  trimLists(fit, { ...given, ...base, ...room, gifList });
   const keptPeopleEntries = keptPeopleNow(fit, { ...room, ...speaker, ...placed, ...people });
   // The memory-read collector, filled from what the request kept (see noteItems; `memoryReads` in the result).
   const memoryReads: Array<MemoryRead> = [];

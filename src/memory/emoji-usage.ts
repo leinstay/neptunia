@@ -1,7 +1,7 @@
 // Which of the server's custom emoji the members actually use, counted
 // deterministically (no LLM) from every analyzer batch and kept in place.json
-// as `emojiUsage: { [id]: { name, count, last } }`. The `<emoji>` block
-// (src/behavior/prompt.js) shows the top-ranked ones, so the persona picks up
+// as `emojiUsage: { [id]: { name, count, last } }`. The media pick
+// (src/behavior/media-pick.ts) offers the top-ranked ones, so the classifier sees
 // the server's habits instead of a random slice of a long emoji list. Rank is
 // the shared one of src/memory/ranking.ts: `count` is the weight, `last` (the
 // ts of the latest use) drives the decay.

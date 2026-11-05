@@ -3,7 +3,7 @@
 // each read answers a default instead of throwing (src/behavior/turn.ts reads the limits of a message and the address
 // form of a message here).
 
-import type { MessageUrlTemplate } from '../protocol/adapter.ts';
+import type { MediaPickCapability, MessageUrlTemplate } from '../protocol/adapter.ts';
 
 type Port = { iface?: unknown; capabilities?: unknown };
 
@@ -32,4 +32,40 @@ export function portMessageUrl(port: unknown): MessageUrlTemplate | null {
   return typeof template?.community === 'string' && typeof template.direct === 'string'
     ? { community: template.community, direct: template.direct }
     : null;
+}
+
+const GIF_FORMS: ReadonlyArray<string> = ['file', 'link'];
+const EMOJI_ACTIONS: ReadonlyArray<string> = ['append', 'replace'];
+
+/** The members of `known` that `given` lists. */
+function knownOf<T extends string>(given: unknown, known: ReadonlyArray<string>): Array<T> {
+  return Array.isArray(given) ? (given.filter((item) => known.includes(item as string)) as Array<T>) : [];
+}
+
+/** What a port declares for its emoji forms: at least one action and the still rendering, or nothing. */
+function emojiOf(given: unknown): MediaPickCapability['emoji'] {
+  if (given === null || typeof given !== 'object') return undefined;
+  const { actions, render } = given as { actions?: unknown; render?: unknown };
+  const known = knownOf<'append' | 'replace'>(actions, EMOJI_ACTIONS);
+  const { still, animated } = (render ?? {}) as { still?: unknown; animated?: unknown };
+  if (known.length === 0 || typeof still !== 'string') return undefined;
+  return { actions: known, render: { still, ...(typeof animated === 'string' ? { animated } : {}) } };
+}
+
+/**
+ * What a port declares for the media pick, read without trusting its shape: null when it has no form to use, so the pick
+ * never runs for it. An unknown form or action is dropped, and a text that is no string is no text.
+ */
+export function portMediaPick(port: unknown): MediaPickCapability | null {
+  const declared = capabilitiesOf(port).mediaPick;
+  if (declared === null || typeof declared !== 'object') return null;
+  const { gifForms, emoji, text } = declared as { gifForms?: unknown; emoji?: unknown; text?: unknown };
+  const forms = knownOf<'file' | 'link'>(gifForms, GIF_FORMS);
+  const emojiForm = emojiOf(emoji);
+  if (forms.length === 0 && !emojiForm) return null;
+  return {
+    gifForms: forms,
+    ...(emojiForm ? { emoji: emojiForm } : {}),
+    ...(typeof text === 'string' ? { text } : {}),
+  };
 }

@@ -16,7 +16,6 @@ import type { Reads } from '../../interface/reads.ts';
 import type { ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
 import type { SkillMap } from '../../tools/types.ts';
 import type { Diary, DiaryConfig } from '../diary.ts';
-import type { DrawGif } from '../draw-gif.ts';
 import type { Facts } from '../facts.ts';
 import type { InTurnTools, InTurnConfig } from '../in-turn-tools.ts';
 import type { Inputs, InputsConfig } from '../inputs.ts';
@@ -83,7 +82,7 @@ export type PhaseStore = Parameters<typeof recordEntry>[0]['store'] & {
   listUserProfiles: () => unknown;
   listChannels: (placeId: string) => unknown;
   getLore: (placeId: string) => unknown;
-  getGifs?: (placeId: string) => unknown;
+  getGifs?: () => unknown;
   getMediaCache: (placeId: string) => unknown;
   getParticipation: (placeId: string) => unknown;
 };
@@ -141,7 +140,6 @@ export type PhaseContext = {
   > &
   Pick<JournalNotes, 'linkTriggers' | 'linkCalls' | 'earlierThinkFor' | 'journalOn' | 'offPeriodsFor' | 'journalOp'> &
   Pick<Diary, 'prepareDiary' | 'diaryPictureGate'> &
-  Pick<DrawGif, 'resolveGif'> &
   Pick<Sends, 'emojiLookup' | 'settleAuthor' | 'diaryChannelName'> &
   Pulls &
   Pick<ToolRound, 'readHistory' | 'noteThink' | 'stepTranscript' | 'runSteps'> & {

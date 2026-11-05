@@ -1,40 +1,24 @@
-// The pictures and GIFs of a turn: one picture and her `draw.create` tool, the day's
-// GIF count, a `<gif>` resolved against the library, the GIF's post, and the GIF picker that may answer her first
-// message with a GIF. createTurnRunner (src/behavior/turn.ts) builds it once per runner with createDrawGif; the act,
-// her calls and the attempt call its functions.
+// The pictures and GIFs of a turn: one picture and her `draw.create` tool, the post of the GIF the media pick chose
+// (src/behavior/media-pick.ts) and the grace its answer gets. createTurnRunner (src/behavior/turn.ts) builds it once per
+// runner with createDrawGif; the act and her calls call its functions.
 
+import fs from 'node:fs';
+import path from 'node:path';
 import type { PublicationBoundary } from '../tools/publication.ts';
 import { turnBoundary, bindPublicationPort } from '../tools/publication.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { imageFileName } from '../behavior/mirror.ts';
 import { setSettings } from '../behavior/diary.ts';
-import {
-  block,
-  classifierTranscript,
-  fillPromptTemplate,
-  freezePerBucket,
-  gifFieldChars,
-  ownGifLines,
-  stableThenTail,
-} from '../behavior/prompt.ts';
-import {
-  captionedEntries,
-  gifPickSettings,
-  parseGifPick,
-  pickCandidates,
-  pickContext,
-  renderGifLibrary,
-} from '../behavior/gif-pick.ts';
+import { mediaPickSettings } from '../behavior/media-pick.ts';
+import type { MediaPickResult } from '../behavior/media-pick.ts';
 import type { PictureGate } from '../behavior/diary-turn.ts';
-import { replyMarker } from '../format.ts';
 import type { Reads } from '../interface/reads.ts';
+import type { Untyped } from '../tools/types.ts';
 import { ImageGenError, UnsupportedImageModelError } from '../llm/images.ts';
-import { cacheTtlMs, railReason, roleRequestOptions } from '../llm/openrouter.ts';
-import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { drawPicture } from '../media/draw.ts';
-import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostUrl } from '../media/gif-post.ts';
-import { rankGifs } from '../memory/index.ts';
+import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostForm, gifPostUrl } from '../media/gif-post.ts';
+import type { GifForm } from '../media/gif-post.ts';
 import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { refusalStatus } from '../tools/executors.ts';
@@ -44,23 +28,14 @@ import type { JournalOp, PortResult } from './journal.ts';
 import { sendArgs, withLink } from './targets.ts';
 import { askedFor } from './triggers.ts';
 import type { TriggerKind } from './triggers.ts';
-import { GIF_HALF_LIFE_DAYS } from '../memory/gifs.ts';
-import { OWN_MARK_HOURS } from './request/emoji-gifs.ts';
 
 /** The live config, as far as the pictures and GIFs read it; the settings functions read their own sections. */
 export type DrawGifConfig = {
   selfreflection?: unknown;
 };
 
-/** The labels the GIF picker reads (prompts.labels). */
-type GifLabels = {
-  gifs?: unknown;
-  transcript?: { replyTo?: unknown } | null;
-  elsewhere?: { link?: unknown } | null;
-} & object;
-
 /** The prompt files the pictures and GIFs read (hot.prompts). */
-type DrawGifPrompts = { labels?: GifLabels; 'gif-pick'?: unknown } & object;
+type DrawGifPrompts = { labels?: Parameters<typeof withLink>[2] } & object;
 
 /** The library entry of a GIF (src/memory/gifs.ts), as its post reads it. */
 type GifEntry = {
@@ -71,26 +46,16 @@ type GifEntry = {
   messageId?: string;
   placeId?: string;
   itemId?: string;
+  file?: string;
 };
 
-/** A `<gif>` of hers: its handle and the `#n` it replies to. */
-type GifCall = { id: string; replyTo?: number | null };
-
-/** A `<gif>` resolved against the library. */
-export type ResolvedGif = GifCall & { entry: GifEntry };
+/** The GIF the pick chose: its entry and the `#n` it replies to. */
+export type ResolvedGif = { replyTo?: number | null; entry: GifEntry };
 
 /** The memory store, as the pictures and GIFs read and write it. */
 export type DrawGifStore = {
   state: { data: object; markDirty: () => void };
-  findGif: (placeId: string, handle: string) => GifEntry | null | undefined;
-  getGifs?: (placeId: string) => unknown;
-  getMediaCache?: (placeId: string) => object | null | undefined;
-  recordOwnGif?: (placeId: string, key: string, at: number) => void;
-};
-
-/** The language model client (src/llm/openrouter.ts#createLlm), as the GIF picker uses it. */
-type DrawGifLlm = {
-  complete: (messages: Array<{ role: string; content: unknown }>, options: object) => Promise<unknown>;
+  recordOwnGif?: (placeId: string, key: string, at: number) => unknown;
 };
 
 /** The image client (src/llm/images.ts#createImageGen). */
@@ -135,7 +100,7 @@ type DrawDraft = {
 export type DrawGifContext = {
   hot: { readonly config: DrawGifConfig; readonly prompts: DrawGifPrompts };
   store: DrawGifStore;
-  llm: DrawGifLlm;
+  dataDir: string | null;
   images: DrawGifImages | null | undefined;
   imageFetcher: NonNullable<Parameters<typeof drawPicture>[0]>['imageFetcher'];
   ifaceReads: Reads;
@@ -144,8 +109,6 @@ export type DrawGifContext = {
   selfIdOf: () => string;
   clock: () => number;
   schedule: (run: () => void, ms: number) => () => void;
-  /** The place's stable freeze (src/behavior/prompt.ts#freezePerBucket); each key holds one kind of value. */
-  stableFreezeOf: <TValue>(placeId: string) => Map<string, { bucket: number; signature: string; value: TValue }>;
   conversationOf: (channel: PostChannel) => ConversationRef;
   messageOf: (channel: PostChannel, messageId: string) => MessageRef;
   checkEffect: (skill: string, args: unknown, at: { channel: PostChannel; trigger?: unknown }) => EffectVerdict;
@@ -155,17 +118,6 @@ export type DrawGifContext = {
 
 /** The trigger of a turn, as a picture or a GIF reads it. */
 type DrawTrigger = { id?: string; authorId?: string | null } | null;
-
-type PickArgs = {
-  placeId: string;
-  conversationId: string;
-  messages: ReadonlyArray<{ text: string; replyTo?: number | null }>;
-  gif: unknown;
-  history: Array<{ id?: string } & object>;
-  selfName: string;
-  idByIndex?: ReadonlyMap<number, string>;
-  trigger?: DrawTrigger;
-};
 
 export type DrawGif = {
   drawTool: (
@@ -182,38 +134,30 @@ export type DrawGif = {
     },
     model?: string | null
   ) => Promise<DrawResult>;
-  resolveGif: (placeId: string, gif: GifCall | null | undefined) => ResolvedGif | null;
   postGif: (
     channel: PostChannel,
-    placeId: string,
     gif: ResolvedGif,
     replyId: string | null,
     link: string | null,
-    options?: {
+    options: {
+      forms: ReadonlyArray<GifForm>;
       openOp?: () => JournalOp | Readonly<JournalOp>;
       trigger?: DrawTrigger;
       publicationBoundary?: PublicationBoundary;
     }
   ) => Promise<{ message: ReturnType<typeof postedOf>; op: JournalOp | Readonly<JournalOp> } | null>;
   pickedInTime: (
-    picking: Promise<ResolvedGif | null>,
+    picking: Promise<MediaPickResult>,
     at: { placeId: string; draft?: DrawDraft | null }
-  ) => Promise<ResolvedGif | null>;
-  pickGifSafely: (args: PickArgs) => Promise<ResolvedGif | null>;
+  ) => Promise<MediaPickResult>;
 };
-
-/** The completion's text, when the client answered with one. */
-function textOf(completion: unknown): unknown {
-  // The client answers a record whose `text` is the model's words.
-  return (completion as { text?: unknown } | null | undefined)?.text;
-}
 
 // health: allow function-length until 2027-04-01 -- the pictures and GIFs share the runner state of src/behavior/turn.ts, moved whole in stage 5b
 export function createDrawGif(ctx: DrawGifContext): DrawGif {
   const {
     hot,
     store,
-    llm,
+    dataDir,
     images,
     imageFetcher,
     ifaceReads,
@@ -222,7 +166,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     selfIdOf,
     clock,
     schedule,
-    stableFreezeOf,
     conversationOf,
     messageOf,
     checkEffect,
@@ -428,20 +371,6 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   }
 
   /**
-   * The persona's `<gif>` resolved against the place's library: `{ id,
-   * replyTo, entry }`, or null (logged with its reason, never a URL) when the handle is unknown.
-   */
-  function resolveGif(placeId: string, gif: GifCall | null | undefined): ResolvedGif | null {
-    if (!gif) return null;
-    const entry: GifEntry | null | undefined = store.findGif(placeId, gif.id);
-    if (!entry) {
-      log.info('turn: gif dropped', { placeId, reason: 'unknown' });
-      return null;
-    }
-    return { ...gif, entry };
-  }
-
-  /**
    * A fresh URL of an attached GIF: its original message is fetched again
    * (an attachment's address may expire) and the attachment found by id, in the
    * message itself or in a forwarded snapshot. Null when anything fails.
@@ -456,40 +385,65 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     });
   }
 
+  /** The bytes of a GIF's cached file, null when it cannot be read. */
+  function cachedFile(entry: GifEntry): { name: string; data: Buffer } | null {
+    if (!dataDir || !entry.file) return null;
+    try {
+      return { name: path.basename(entry.file), data: fs.readFileSync(path.join(dataDir, entry.file)) };
+    } catch (err) {
+      log.warn('turn: gif file unreadable', { gif: entry.id, error: err });
+      return null;
+    }
+  }
+
+  /** What a GIF posts as in the interface's form, and what the gateway checks of it; null when there is no form for it. */
+  async function gifBody(channel: PostChannel, entry: GifEntry, link: string | null, forms: ReadonlyArray<GifForm>) {
+    const form = gifPostForm({ kind: entry.kind ?? 'link', ...(entry.file ? { file: entry.file } : {}) }, forms);
+    if (form === null) return null;
+    const file = form === 'file' ? cachedFile(entry) : null;
+    if (file) {
+      return {
+        form: 'file',
+        fresh: false,
+        check: { media: file.name },
+        content: { attachments: [{ name: file.name, data: file.data }] },
+      };
+    }
+    if (form === 'file' && !forms.includes('link')) return null;
+    const fresh = entry.kind === 'attachment' ? await freshAttachmentUrl(channel, entry) : null;
+    const text = withLink(gifPostUrl(entry, fresh), link, hot.prompts?.labels);
+    return { form: 'link', fresh: Boolean(fresh), check: { text }, content: { text } };
+  }
+
   /**
-   * Post the persona's GIF (after its messages, or in place of the first one
-   * when the GIF picker chose it): a link GIF as its stored
-   * URL (the platform embeds tenor and giphy links), an attached one as a fresh URL of
-   * its attachment, the stored one when that fails. Stamped once sent on its library entry of
-   * `placeId` (store.recordOwnGif: `ownLast`/`ownUses`, the `<gifs>` list's
-   * own-post mark). Never throws; resolves `{ message, op }` once sent
-   * (`message`: postedOf the port's answer; `op`: its journal operation),
-   * else null. The post is a `message.create` with the URL as its text
-   * (checkEffect, right before it; a refusal posts nothing and resolves null),
-   * made through the port; its journal operation (`openOp()`, by sendGif)
-   * starts only once the check passed.
-   * `replyId`: the chat line it quotes as a platform reply (replyTarget), or
-   * null; `link`: the jump link it carries after its URL (withLink, so the
-   * URL comes first and still embeds), or null; `trigger`: the turn's (the requester).
+   * Post the GIF the media pick chose, in place of the first message, in the form the interface takes it
+   * (src/media/gif-post.ts#gifPostForm, `forms`): its cached file, a link GIF as its stored URL (the platform embeds tenor
+   * and giphy links), an attached one as a fresh URL of its attachment, the stored one when that fails. A file that
+   * cannot be read goes through its link on an interface that declares links. Stamped once sent on its library entry for
+   * the place it went to (store.recordOwnGif). Never throws; resolves `{ message, op }` once sent (`message`: postedOf the
+   * port's answer; `op`: its journal operation), else null, a refused post included, so the first message goes as written.
+   * The post is a `message.create` (checkEffect, right before it; a refusal posts nothing), made through the port; its
+   * journal operation (`openOp()`, by sendGif) starts only once the check passed. `replyId`: the chat line it quotes as a
+   * platform reply (replyTarget), or null; `link`: the jump link it carries after its URL (withLink, so the URL comes
+   * first and still embeds), or null; `trigger`: the turn's (the requester).
    */
   async function postGif(
     channel: PostChannel,
-    placeId: string,
     gif: ResolvedGif,
     replyId: string | null,
     link: string | null,
-    { openOp = () => NO_OP, trigger = null, publicationBoundary }: NonNullable<Parameters<DrawGif['postGif']>[5]> = {}
+    { forms, openOp = () => NO_OP, trigger = null, publicationBoundary }: Parameters<DrawGif['postGif']>[4]
   ): Promise<{ message: ReturnType<typeof postedOf>; op: JournalOp | Readonly<JournalOp> } | null> {
     const { entry } = gif;
     let op: JournalOp | Readonly<JournalOp> = NO_OP;
     try {
-      const fresh = entry.kind === 'attachment' ? await freshAttachmentUrl(channel, entry) : null;
-      const text = withLink(gifPostUrl(entry, fresh), link, hot.prompts?.labels);
-      if (!checkEffect('message.create', sendArgs({ text, replyId }), { channel, trigger }).ok) return null;
+      const body = await gifBody(channel, entry, link, forms);
+      if (!body) return null;
+      if (!checkEffect('message.create', sendArgs({ ...body.check, replyId }), { channel, trigger }).ok) return null;
       op = openOp();
       if (op.opId) await op.started();
       const result = await bindPublicationPort(iface, publicationBoundary).send(conversationOf(channel), {
-        text,
+        ...body.content,
         ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}),
       });
       // The port answers every send with a result.
@@ -500,13 +454,14 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       }
       const message = postedOf(result);
       if (op.opId) await op.succeeded({ messageId: message.id });
-      if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(placeId, entry.key, clock());
+      if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(channel.id, entry.key, clock());
       lastPostAt.set(channel.id, clock());
       log.info('turn: gif sent', {
         channel: channel.id,
         gif: entry.id,
         kind: entry.kind,
-        fresh: Boolean(fresh),
+        form: body.form,
+        fresh: body.fresh,
         ...(link ? { link: true } : {}),
       });
       return { message, op };
@@ -518,152 +473,15 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   }
 
   /**
-   * The GIF picker (src/behavior/gif-pick.ts), on the turn's FIRST message as
-   * the model wrote it (a picked GIF takes its place; the rest are posted as
-   * written): with prompts['gif-pick'] present, the place's library readable
-   * and pickCandidates saying yes (a first
-   * message of at most `gifs.pick.maxChars` code points, no `<gif>` of the
-   * turn's own -- the model's own GIF is never second-guessed --, at least one
-   * captioned entry), ONE `analyzer` request on the classifier model
-   * (role `analyzer`, purpose `gif-pick`, its answer capped at
-   * `gifs.pick.maxOutputTokens`): system = the prompt with `{{name}}`, user =
-   * `<gifs>` (renderGifLibrary over the WHOLE captioned library in rank order, with no own-post
-   * mark, `gifs.reactionChars` and `gifs.actionChars` read now: the stable bulk first, the part
-   * tagged for the provider's prompt cache; with `features.promptCache` exactly true it is held
-   * per cache bucket in the place's stable freeze, like the reply's `<gifs>`, see
-   * src/behavior/prompt.ts#freezePerBucket, so a GIF post or a use that reranks the library
-   * rewrites the cached prefix at most once per `llm.cache.ttl`), then the per-call tail:
-   * `<gifs_recent>` (ownGifLines: the listed GIFs the persona posted within `gifs.ownMarkHours`,
-   * with how long ago, from the live library), `<context>` (pickContext: the last `gifs.pick.contextMessages` lines of
-   * `history`, preceded by the line the first message answers when that one is
-   * older -- its `reply` target, else the trigger --, as classifierTranscript
-   * renders them; no block for 0), `<reply>` (the first message, preceded by
-   * `transcript.replyTo` naming the `#n` of the line it answers when that line
-   * is in `<context>`). A handle it lists (parseGifPick) resolves through resolveGif,
-   * replying where the first message would have; `none` or anything else
-   * resolves null. Logs `gifs: picked` (`handle`: whether one was named,
-   * `library`: how many entries were listed) or `gifs: pick failed` with the
-   * rail's code. Counts only. `gif`: the turn's own resolved GIF; `idByIndex`: the request's `#n` -> message id;
-   * `trigger`: the message the turn answers, if any. Answers the GIF to post in place of the first message
-   * (resolveGif's shape), or null.
-   */
-  // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
-  async function pickGif({
-    conversationId,
-    placeId,
-    messages,
-    gif,
-    history,
-    selfName,
-    idByIndex = new Map(),
-    trigger = null,
-  }: PickArgs): Promise<ResolvedGif | null> {
-    const config = hot.config;
-    const prompt = hot.prompts?.['gif-pick'];
-    if (typeof prompt !== 'string' || prompt.trim() === '') return null;
-    if (typeof store.getGifs !== 'function' || typeof store.findGif !== 'function' || messages.length === 0)
-      return null;
-    const settings = gifPickSettings(config);
-    const first = messages[0];
-    const chars = gifFieldChars();
-    const labels = hot.prompts?.labels;
-    const at = clock();
-    // The library as the first pick of this cache bucket rendered it (no clock in it); the
-    // signature lets an edit of its labels or settings show at once.
-    const freeze = stableFreezeOf<{ library: Array<string>; handles: Array<string> }>(placeId);
-    const { library, handles } = freezePerBucket<{ library: Array<string>; handles: Array<string> }>(
-      freeze,
-      'gif-pick',
-      { now: at, bucketMs: cacheTtlMs(config), signature: JSON.stringify([labels?.gifs ?? null]) },
-      () => {
-        const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(placeId) ?? null) : null;
-        const listed = captionedEntries(
-          // The check above found getGifs on the store.
-          rankGifs(store.getGifs!(placeId), GIF_HALF_LIFE_DAYS),
-          mediaCache,
-          chars.actionChars
-        );
-        return {
-          // Passed as it is: without labels the picker fails, and pickGifSafely logs it.
-          library: renderGifLibrary(listed, mediaCache, labels!, { now: 0, ownMarkHours: 0, ...chars }),
-          // The library's entries (src/memory/gifs.ts) each carry their handle.
-          handles: listed.map((entry) => (entry as { id: string }).id),
-        };
-      }
-    );
-    if (!pickCandidates({ text: first.text, postsGif: Boolean(gif), captioned: library.length }, settings)) return null;
-    // The line the first message answers: its reply target (a pulled line is not in `history`), else the trigger.
-    const replyId =
-      first.replyTo !== null && first.replyTo !== undefined ? (idByIndex.get(first.replyTo) ?? null) : null;
-    const answeredId = replyId ?? trigger?.id ?? null;
-    const context = pickContext(history, { contextMessages: settings.contextMessages, answeredId });
-    const contextBody =
-      context.messages.length > 0
-        ? // Passed as it is: without labels the picker fails, and pickGifSafely logs it.
-          classifierTranscript(context.messages, { config, selfName, labels: labels! })
-        : '';
-    // The reply is marked as a transcript line replying to that line would be: its #n, author and a quote.
-    const answersMark =
-      context.answeredIndex !== null && labels?.transcript?.replyTo
-        ? replyMarker(context.messages[context.answeredIndex - 1], context.answeredIndex, {
-            labels,
-            selfName,
-          })
-        : '';
-    const replyBody = answersMark ? `${answersMark} ${first.text}` : first.text;
-    // Which of the listed GIFs the persona posted lately, with how long ago: per call, in the tail.
-    const recent = labels
-      ? ownGifLines(store.getGifs(placeId), handles, labels, { ownMarkHours: OWN_MARK_HOURS, now: at })
-      : [];
-    let completion: unknown;
-    try {
-      completion = await llm.complete(
-        [
-          { role: 'system', content: fillPromptTemplate(prompt, { name: selfName ?? '' }) },
-          {
-            role: 'user',
-            content: stableThenTail(
-              block('gifs', library.join('\n')),
-              [block('gifs_recent', recent.join('\n')), block('context', contextBody), block('reply', replyBody)],
-              '\n\n'
-            ),
-          },
-        ],
-        {
-          model: roleModel(config, 'analyzer', 'gif-pick'),
-          ...roleRequestOptions(config, {
-            role: 'analyzer',
-            maxOutputTokens: settings.maxOutputTokens,
-            purpose: 'gif-pick',
-          }),
-        }
-      );
-    } catch (err) {
-      log.warn('gifs: pick failed', {
-        channel: conversationId,
-        reason: railReason(err),
-        // A thrown value is anything; an HTTP error of the client carries its status.
-        status: (err as { statusCode?: unknown } | null)?.statusCode ?? null,
-      });
-      return null;
-    }
-    const handle = parseGifPick(textOf(completion), handles);
-    log.info('gifs: picked', { channel: conversationId, handle: handle !== null, library: library.length });
-    if (handle === null) return null;
-    return resolveGif(placeId, { id: handle, replyTo: first.replyTo ?? null });
-  }
-
-  /**
-   * What `picking` (pickGifSafely's promise) answers within `gifs.pick.graceMs` (gifPickSettings,
-   * read now; on `schedule`) from now, else null: the picker is left behind for this turn, logged
-   * `gifs: pick late` (`channel`, `graceMs`) and journaled as a `helper-timeout` limit on
-   * `gif-pick`. An answer already there wins over a grace of 0. `graceMs` null -> `picking` itself.
+   * What `picking` answers within the pick's grace (mediaPickSettings, read now; on `schedule`) from now, else `none`: the
+   * pick is left behind for this turn, logged `media-pick: late` (`channel`, `graceMs`) and journaled as a `helper-timeout`
+   * limit on `media-pick`. An answer already there wins over a grace of 0. `graceMs` null -> `picking` itself.
    */
   async function pickedInTime(
-    picking: Promise<ResolvedGif | null>,
+    picking: Promise<MediaPickResult>,
     { placeId, draft }: { placeId: string; draft?: DrawDraft | null }
-  ): Promise<ResolvedGif | null> {
-    const { graceMs } = gifPickSettings(hot.config);
+  ): Promise<MediaPickResult> {
+    const { graceMs } = mediaPickSettings(hot.config as Record<string, Untyped>);
     if (graceMs === null) return picking;
     const LATE = Symbol('late');
     let cancel: (() => void) | null = null;
@@ -674,18 +492,10 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     // The executor of `timer` ran synchronously and set `cancel`.
     (cancel as (() => void) | null)?.();
     if (answer !== LATE) return answer.value;
-    log.info('gifs: pick late', { channel: placeId, graceMs });
-    draft?.limits?.add({ kind: 'helper-timeout', where: 'gif-pick' });
-    return null;
+    log.info('media-pick: late', { channel: placeId, graceMs });
+    draft?.limits?.add({ kind: 'helper-timeout', where: 'media-pick' });
+    return { kind: 'none' };
   }
 
-  /** pickGif that never rejects: an unexpected failure (`gifs: pick failed`) posts the messages as written. */
-  function pickGifSafely(args: PickArgs): Promise<ResolvedGif | null> {
-    return pickGif(args).catch((err: unknown) => {
-      log.warn('gifs: pick failed', { channel: args.placeId, error: err });
-      return null;
-    });
-  }
-
-  return { drawTool, resolveGif, postGif, pickedInTime, pickGifSafely };
+  return { drawTool, postGif, pickedInTime };
 }

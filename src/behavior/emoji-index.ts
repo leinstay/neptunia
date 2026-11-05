@@ -24,7 +24,7 @@ export type EmojiIndex = {
   urlOf(id: string): string | null;
 };
 
-/** Reads the place's custom emoji again when `features.customEmoji` is not off (the `<emoji>` block and her `:name:`). */
+/** Reads the place's custom emoji again when `features.customEmoji` is not off (the media pick and her `:name:`). */
 export function refreshEmojiIfOn(emoji: EmojiIndex | null | undefined, placeId: string | null): Promise<void> {
   return emoji ? emoji.refresh(placeId) : Promise.resolve();
 }

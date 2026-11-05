@@ -541,11 +541,12 @@ test('buildRequest: the user content is the stable part, the profiles and the ta
       ['text', null],
     ]
   );
-  assert.deepEqual(blockTags(content[0].text), ['senses', 'self_facts', 'about_chat', 'gifs']);
+  // B7: `<gifs>` left the turn, so `<about_chat>` closes the stable part.
+  assert.deepEqual(blockTags(content[0].text), ['senses', 'self_facts', 'about_chat']);
   assert.deepEqual(blockTags(content[1].text), ['people']);
   assert.ok(!('cacheSegment' in content[2]), 'the tail carries no segment');
   assert.ok(
-    content[0].text.endsWith('</gifs>\n\n') && content[1].text.endsWith('</people>\n\n'),
+    content[0].text.endsWith('</about_chat>\n\n') && content[1].text.endsWith('</people>\n\n'),
     'each part but the last ends with the block separator'
   );
   assert.ok(content[2].text.endsWith('</task>'));
@@ -571,8 +572,8 @@ test('buildRequest: the tail ends with <now>, <senses>, <tempo> and <task>, afte
   assert.equal(tags.at(-4), 'now');
   assert.equal(tags.at(-1), 'task');
   const tail = blockTags(request.messages[1].content[2].text);
-  // The persona's own GIF of the scene is named right after <emoji> (none here), before the neighbours.
-  assert.deepEqual(tail.slice(0, 3), ['server', 'gifs_recent', 'other_channels'], 'the tail opens with the server map');
+  // B7: `<gifs_recent>` left the turn, so the neighbours follow the server map.
+  assert.deepEqual(tail.slice(0, 2), ['server', 'other_channels'], 'the tail opens with the server map');
 });
 
 test('buildRequest: without pictures the user content is still an array of text parts', () => {
@@ -619,8 +620,8 @@ test('buildRequest: two builds a minute apart keep the stable and profiles parts
   const later = buildRequest(segmentScene({ now: NOW + MIN, messageCount: 44 })).messages[1].content;
   assert.equal(later[0].text, first[0].text);
   assert.equal(later[1].text, first[1].text);
-  assert.ok(/<gifs>\n[\s\S]*\bg2\n[\s\S]*<\/gifs>/.test(first[0].text), "the persona's own GIF is in it, unmarked");
-  assert.ok(first[2].text.includes('<gifs_recent>\ng2 (you, '), 'her post of it is said in the tail');
+  // B7: her own GIF posts are told to the media pick, never to her turn.
+  assert.ok(!first[0].text.includes('<gifs>') && !first[2].text.includes('<gifs_recent>'), 'no GIF list in the turn');
   for (const shown of ['## Alice', 'a long talk', labels.profile.staleMark, labels.profile.unsureMark]) {
     assert.ok(first[1].text.includes(shown), `the profile shows ${shown}`);
   }
@@ -860,23 +861,24 @@ function blocksOf(text: string) {
   return [...text.matchAll(/^<([a-z_]+)>\n([\s\S]*?)\n<\/\1>$/gm)].map((match) => ({ tag: match[1], body: match[2] }));
 }
 
-test('buildRequest: the senses lines are the ones of one block, only moved; <emoji> stays whole in the tail; the stable part holds no per-turn value', (t) => {
+test('buildRequest: the senses lines are the ones of one block, only moved; the stable part holds no per-turn value', (t) => {
   const request = buildRequest(cacheScene());
   const [stable, profiles, tail] = request.messages[1].content;
   assert.deepEqual([stable.cacheSegment, profiles.cacheSegment, tail.cacheSegment], ['stable', 'profiles', undefined]);
   const stableBlocks = blocksOf(stable.text);
   const tailBlocks = blocksOf(tail.text);
-  // Most stable first; the emoji list, whose ranking moves with use several times a day, stays out.
+  // Most stable first.
   assert.deepEqual(
     stableBlocks.map((b) => b.tag),
-    ['senses', 'self_facts', 'about_chat', 'gifs']
+    ['senses', 'self_facts', 'about_chat']
   );
   assert.deepEqual(
     blocksOf(profiles.text).map((b) => b.tag),
     ['people']
   );
   const tailTags = tailBlocks.map((b) => b.tag);
-  assert.equal(tailTags[tailTags.indexOf('server') + 1], 'emoji', '<emoji> where it always stood');
+  // B8: custom emoji left the turn.
+  assert.ok(!tailTags.includes('emoji'), 'no <emoji>');
   assert.equal(tailTags[tailTags.indexOf('now') + 1], 'senses', 'the per-turn senses stay where <senses> stood');
   // Every other block once in the whole request.
   const all = [...stableBlocks, ...blocksOf(profiles.text), ...tailBlocks].map((b) => b.tag);
@@ -890,8 +892,6 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
     S.videoWatch,
     S.stickerDescribed,
     S.lottie,
-    S.customEmoji,
-    S.gifs,
     S.voice,
     S.linksWatch,
     S.linksRead,
@@ -914,19 +914,6 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
     body(tailBlocks, 'senses'),
     oneBlock.filter((line) => perTurn.has(line))
   );
-  // One `<emoji>` block: the list, then the emoji of the chat that are not on it.
-  const e = labels.emoji;
-  assert.deepEqual(body(tailBlocks, 'emoji'), [
-    e.header,
-    fill(e.entry, { name: 'beta', text: 'a dancing bean' }),
-    fill(e.entryNoText, { name: 'alpha' }),
-    // PR 7d: context.customEmoji.max is the constant 30, so the whole list of three is shown.
-    fill(e.entryNoText, { name: 'gamma' }),
-    e.seenInChat,
-    fill(e.entry, { name: 'pog', text: 'a surprised cat face' }),
-  ]);
-  assert.equal(request.stats.emoji.kept, 6);
-
   // Nothing of this turn in the cached part: its clock, tempo, channel, quotas, private flag, chat emoji.
   const turnValues = [
     tailBlocks.find((b) => b.tag === 'now')!.body,
@@ -938,14 +925,12 @@ test('buildRequest: the senses lines are the ones of one block, only moved; <emo
     (S as Record<string, string>).recall,
     S.participation,
     S.privateChat,
-    e.header,
-    e.seenInChat,
     ':beta:',
     ':pog:',
   ];
   for (const value of turnValues) assert.ok(!stable.text.includes(value), `the stable part carries ${value}`);
 
-  // The stable part before the move held only <self_facts>, <about_chat> and <gifs>.
+  // The stable part before the move held only <self_facts> and <about_chat>.
   const before = estimateTokens(
     stableBlocks
       .filter((b) => b.tag !== 'senses')

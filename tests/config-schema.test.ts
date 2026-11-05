@@ -34,7 +34,7 @@ import { pullSettings } from '../src/behavior/pull.ts';
 import { setSettings } from '../src/behavior/diary.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
 import { splitSettings } from '../src/behavior/split.ts';
-import { gifPickSettings } from '../src/behavior/gif-pick.ts';
+import { mediaPickSettings } from '../src/behavior/media-pick.ts';
 import { innerSettings } from '../src/behavior/inner/settings.ts';
 import { missedSettings } from '../src/behavior/missed.ts';
 import { recallSettings } from '../src/behavior/recall.ts';
@@ -165,7 +165,15 @@ const READERS: ReadonlyArray<{ name: string; group: CutGroup; read: (config: Tre
     read: (config) => audioMapSettings(at(config, 'media.video.audioMap')),
   },
   { name: 'setSettings', group: 'media and diary', read: (config) => setSettings(config.selfreflection) },
-  { name: 'gifPickSettings', group: 'media and diary', read: (config) => gifPickSettings(config) },
+  // B7: the media pick took over the GIF pick's settings; the snapshot holds the four that existed then.
+  {
+    name: 'gifPickSettings',
+    group: 'media and diary',
+    read: (config) => {
+      const { maxChars, contextMessages, maxOutputTokens, graceMs } = mediaPickSettings(config);
+      return { maxChars, contextMessages, maxOutputTokens, graceMs };
+    },
+  },
   { name: 'loopSettings diary', group: 'media and diary', read: (config) => loopSettings(config, { diary: true }) },
   { name: 'hedgeSettings', group: 'llm and models', read: (config) => hedgeSettings(config) },
   { name: 'boardSettings', group: 'the rest', read: (config) => boardSettings(config) },

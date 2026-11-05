@@ -1,5 +1,4 @@
 // health: allow file-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
-import { placeOfCommunity } from '../src/memory/addresses.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -5071,7 +5070,7 @@ function updateScene({ config, describer }: { config?: Untyped; describer?: Unty
 }
 
 function gifEntries(store: Record<string, Untyped>) {
-  return Object.values(store.getGifs(placeOfCommunity(store, 'g1')).entries);
+  return Object.values(store.getGifs().entries);
 }
 
 test('onMessageUpdate: a late gifv embed is counted into the library and prefilled', async () => {

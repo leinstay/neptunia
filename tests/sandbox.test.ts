@@ -129,7 +129,6 @@ test("answerReply: sends the live system prompt and renders the member's profile
     {
       messages: [{ text: 'δεν ξέρω', replyTo: 2 }],
       reactions: [{ to: 1, emoji: '👍' }],
-      gif: null,
       skip: false,
       think: '',
     },
@@ -374,7 +373,7 @@ const MEDIA_CACHE = {
   k1: { text: 'a dancing cat', ts: NOW - 1000 },
 };
 
-test("answerReply: the server's custom emoji and GIF library render as in a live turn, with their cached captions", async () => {
+test("answerReply: the server's custom emoji and the GIF library stay out of the turn", async () => {
   const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const result = await answerReply({
     view,
@@ -389,16 +388,12 @@ test("answerReply: the server's custom emoji and GIF library render as in a live
     gifs: GIF_LIBRARY,
     mediaCache: MEDIA_CACHE,
   });
-  assert.ok(
-    result.request.user.includes(`<emoji>\n${labels.emoji.header}\n:wave: -- a waving hand\n</emoji>`),
-    result.request.user
-  );
-  assert.ok(
-    result.request.user.includes(`<gifs>\n${labels.gifs.header}\ng1 -- a dancing cat\n</gifs>`),
-    result.request.user
-  );
-  assert.ok(result.request.user.includes(labels.senses.customEmoji));
-  assert.ok(result.request.user.includes(labels.senses.gifs));
+  // B8: the emoji list left the turn too.
+  assert.ok(!result.request.user.includes('<emoji>'), result.request.user);
+  // B7: the GIF library left the turn.
+  assert.ok(!result.request.user.includes('<gifs>'), result.request.user);
+  assert.ok(!result.request.user.includes(labels.senses.customEmoji));
+  assert.ok(!result.request.user.includes(labels.senses.gifs));
 
   // Nothing handed in, nothing rendered.
   const bare = await answerReply({
@@ -415,37 +410,21 @@ test("answerReply: the server's custom emoji and GIF library render as in a live
   assert.ok(!bare.request.user.includes('<gifs>'));
 });
 
-test('answerReply: a GIF alone is an action, not silence; with no library or an unknown handle, nothing is left to do', async () => {
-  const answer = async (text: string, { features = {}, gifs = GIF_LIBRARY } = {}) => {
-    const view = liveView({ hot: fakeHot(features), store: fakeStore(), placeId: 'g1' });
-    const result = await answerReply({
-      view,
-      situation: twoLines(),
-      selfId: SELF_ID,
-      selfName: 'Zoë',
-      channel: CHANNEL,
-      llm: fakeLlm(text),
-      samples: 1,
-      at: NOW,
-      gifs,
-    });
-    return result.answers[0];
-  };
-  const gif = await answer('<gif reply="#2">g1</gif>');
-  assert.equal(gif.skip, false);
-  assert.deepEqual(gif.gif, { id: 'g1', replyTo: 2 });
-
-  for (const [text, options] of [
-    ['<gif>g9</gif>', {}],
-    ['<gif>g1</gif>', { gifs: null }],
-  ]) {
-    const dropped = await answer(
-      text as unknown as Parameters<typeof answer>[0],
-      options as unknown as Parameters<typeof answer>[1]
-    );
-    assert.equal(dropped.skip, true, `${text} ${JSON.stringify(options)}`);
-    assert.equal(dropped.gif, null);
-  }
+// B7: `<gif>` left the output contract, so one alone leaves nothing to do, as a retired tag does in a live turn.
+test('answerReply: a <gif> alone is nothing to do', async () => {
+  const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
+  const result = await answerReply({
+    view,
+    situation: twoLines(),
+    selfId: SELF_ID,
+    selfName: 'Zoë',
+    channel: CHANNEL,
+    llm: fakeLlm('<gif reply="#2">g1</gif>'),
+    samples: 1,
+    at: NOW,
+    gifs: GIF_LIBRARY,
+  });
+  assert.equal(result.answers[0].skip, true);
 });
 
 test('answerReply: an aborted signal stops before the next sample', async () => {

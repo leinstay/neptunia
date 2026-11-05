@@ -1,7 +1,6 @@
-// The pieces of posting one of the persona's library GIFs that the reply turn
-// (src/behavior/turn.ts#postGif, a `<gif>`) and `message.create`'s `gif` option
-// (src/tools/impl/message.ts) share: a fresh URL of an attached GIF, the URL a GIF
-// posts as. No wording here.
+// The pieces of posting one of the persona's library GIFs that the media pick's post
+// (src/turn/draw-gif.ts#postGif) and `message.create`'s `gif` option (src/tools/impl/message.ts) share: a fresh URL of an
+// attached GIF, the URL a GIF posts as, and the form the interface takes it in. No wording here.
 
 import type { Reads } from '../interface/reads.ts';
 import { objOf } from '../tools/types.ts';
@@ -59,4 +58,20 @@ export async function freshAttachmentUrl({
  */
 export function gifPostUrl(entry: { url: string }, fresh: string | null): string {
   return fresh ?? entry.url;
+}
+
+/** A form an interface takes a GIF in: its cached file, or its native link. */
+export type GifForm = 'file' | 'link';
+
+/**
+ * How a library GIF goes out on an interface that declares `forms`: every media she sends is a file by default, and an
+ * interface may post the native link when it declares that form. A link GIF takes its link where it may, since it posts
+ * again for good; an attached GIF takes its file, since its link expires, and its link only while no file is cached.
+ * Null when the interface has no form for it. Pure.
+ */
+export function gifPostForm(entry: { kind: string; file?: string }, forms: ReadonlyArray<GifForm>): GifForm | null {
+  const file = Boolean(entry.file) && forms.includes('file');
+  const link = forms.includes('link');
+  if (entry.kind === 'link' ? link : !file && link) return 'link';
+  return file ? 'file' : null;
 }
