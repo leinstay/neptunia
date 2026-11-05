@@ -92,11 +92,6 @@ export async function subharnessView(privateDir: string): Promise<SubharnessView
   return { sources, key: stored.key, modes };
 }
 
-/** The model each agent runs on, by agent; an agent that is not in the map runs on the backend's default. */
-export function agentModels(privateDir: string): Readonly<Record<string, string>> {
-  return readKeys(privateDir).subharness.models;
-}
-
 /** The refusal of a name that is no agent: its own code for a model role that runs on the direct path alone. */
 function notAnAgent(name: string): SubharnessResult {
   if (DIRECT_ONLY_ROLES.some((role) => role === name))
