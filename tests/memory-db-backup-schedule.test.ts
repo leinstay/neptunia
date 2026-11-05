@@ -37,6 +37,7 @@ function prepared() {
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
+  // B10 of the master plan: her files live under media/selfreflection, by the owner's word.
   fs.mkdirSync(path.join(data, 'media', 'selfreflection'), { recursive: true });
   fs.writeFileSync(path.join(data, 'media', 'selfreflection', 'd-1-1.png'), Buffer.from([137, 80, 78, 71, 4, 5, 6]));
   fs.writeFileSync(path.join(data, 'media', 'selfreflection', 'd-1-2.ogg'), Buffer.from('Ωδή'));

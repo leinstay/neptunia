@@ -435,6 +435,7 @@ test("v7 writers: a given audience that is not the triple's is quarantined; her 
       media: [
         {
           id: 'media:d-1:1',
+          // B10 of the master plan: her files live under media/selfreflection, by the owner's word.
           path: 'media/selfreflection/d-1-1.png',
           nativeRef: 'r',
           sha1: 's',

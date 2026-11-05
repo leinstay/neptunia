@@ -331,6 +331,7 @@ test('media availability: her diary media is present or missing by its file; for
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-media-'));
   const handle = openMemoryDb(':memory:');
   try {
+    // B10 of the master plan: her files live under media/selfreflection, by the owner's word.
     fs.mkdirSync(path.join(root, 'media', 'selfreflection'), { recursive: true });
     fs.writeFileSync(path.join(root, 'media', 'selfreflection', 'd-1-1.png'), Buffer.alloc(10));
     fs.writeFileSync(path.join(root, 'media', 'selfreflection', 'd-1-2.png'), Buffer.alloc(3));

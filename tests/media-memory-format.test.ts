@@ -610,6 +610,7 @@ test(
     env.db.prepare("INSERT INTO selfreflection (id, scope_kind, scope_iface) VALUES ('d9', 'group', 'discord')").run();
     legacyMedia(env, 'media:diary:d9-1', 'selfreflection', JSON.stringify({ messageId: 'm4', attachmentId: 'd1' }), {
       description: 'a walrus',
+      // B10 of the master plan: her files live under media/selfreflection, by the owner's word.
       path: 'media/selfreflection/d9-1.png',
       sha1: 'aa',
       mime: 'image/png',

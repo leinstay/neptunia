@@ -219,6 +219,7 @@ test('a post gets its messages joined in order, its pictures saved and a media r
     assert.equal(media.length, 2);
     assert.deepEqual(
       media.map((m) => m.path),
+      // B10 of the master plan: her files live under media/selfreflection, by the owner's word.
       ['media/selfreflection/d-1-1.png', 'media/selfreflection/d-1-2.png']
     );
     for (const [index, item] of media.entries()) {

@@ -234,24 +234,21 @@ function rekeyUnits(db: Db): void {
         .filter((column) => column === 'owner_key' || column === 'unit_id')
         .map((column) => [table, column] as const)
     );
-  const guarded = owners.map(([table]) => table).filter((table) => GUARDED.includes(table));
-  withoutGuards(db, [...new Set(guarded)], () => {
-    for (const unit of units) {
-      // The catalog wrote this key from a typed StorageKey; only its kind changes.
-      const key = { ...(JSON.parse(String(unit.key_json)) as StorageKey), kind: NEW } as StorageKey;
-      const id = storageId(key);
-      db.prepare(
-        `INSERT OR IGNORE INTO storage_units (id, kind, subject_type, subject_id, scope_place_id, partition, selector, key_json, lines, offset, synced_at, retired_at)
-          SELECT ?, ?, subject_type, subject_id, scope_place_id, partition, selector, ?, lines, offset, synced_at, retired_at
-            FROM storage_units WHERE id = ?`
-      ).run(id, NEW, keyText(key), unit.id);
-      for (const [table, column] of owners)
-        db.prepare(`UPDATE "${table}" SET "${column}" = ? WHERE "${column}" = ?`).run(id, unit.id);
-      // A converted database's operational row names its unit in `owner` too.
-      db.prepare('UPDATE operational SET owner = ? WHERE owner = ?').run(id, unit.id);
-      db.prepare('DELETE FROM storage_units WHERE id = ?').run(unit.id);
-    }
-  });
+  for (const unit of units) {
+    // The catalog wrote this key from a typed StorageKey; only its kind changes.
+    const key = { ...(JSON.parse(String(unit.key_json)) as StorageKey), kind: NEW } as StorageKey;
+    const id = storageId(key);
+    db.prepare(
+      `INSERT OR IGNORE INTO storage_units (id, kind, subject_type, subject_id, scope_place_id, partition, selector, key_json, lines, offset, synced_at, retired_at)
+        SELECT ?, ?, subject_type, subject_id, scope_place_id, partition, selector, ?, lines, offset, synced_at, retired_at
+          FROM storage_units WHERE id = ?`
+    ).run(id, NEW, keyText(key), unit.id);
+    for (const [table, column] of owners)
+      db.prepare(`UPDATE "${table}" SET "${column}" = ? WHERE "${column}" = ?`).run(id, unit.id);
+    // A converted database's operational row names its unit in `owner` too.
+    db.prepare('UPDATE operational SET owner = ? WHERE owner = ?').run(id, unit.id);
+    db.prepare('DELETE FROM storage_units WHERE id = ?').run(unit.id);
+  }
 }
 
 /** The pending marks of the data steps under their new names. */

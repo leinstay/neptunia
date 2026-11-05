@@ -108,6 +108,7 @@ const INVENTORY: Array<[string, ListName]> = [
   ['memory-pending/0a1b2c3d4e5f60718293a4b5c6d7e8f901234567.json', 'operational'],
   [`vault/forget-${MEMBER}-1761300000000/users/${MEMBER}.json`, 'operational'],
   [`snapshots/2026-10-20/${G}/users/${MEMBER}.json`, 'operational'],
+  // B10 of the master plan: her files live under media/selfreflection, by the owner's word.
   ['media/selfreflection/d-1-1.png', 'operational'],
   ['media/selfreflection/d-1-2.ogg', 'operational'],
   [`${G}/journal/2026-10-20.jsonl.torn-1761300000000`, 'operational'],

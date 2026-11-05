@@ -273,6 +273,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
       `media:diary:${String(fourth.id)}-1`,
       'image',
       fourth.id,
+      // B10 of the master plan: her files live under media/selfreflection, by the owner's word.
       `media/selfreflection/${String(fourth.id)}-1.png`,
       PICTURE.id,
       PICTURE.description,

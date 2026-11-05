@@ -2282,7 +2282,7 @@ function pullScene({
   const channel = fakeTurnChannel({ historyMessages: [asked, ...between, call] });
   const other = addChannel(channel, {
     id: DIARY,
-    name: 'selfreflection',
+    name: 'diary',
     messages: selfreflectionLines(),
     ...selfreflection,
   });
@@ -2895,7 +2895,7 @@ function privatePullScene({
   // The interface tells whether the partner (u1) can view each conversation of the listing.
   const selfreflection = addChannel(server, {
     id: DIARY,
-    name: 'selfreflection',
+    name: 'diary',
     messages: selfreflectionLines(),
     viewers: { u1: canView },
   });
@@ -3053,7 +3053,7 @@ function routedScene({
   });
   const other = addChannel(channel, {
     id: DIARY,
-    name: 'selfreflection',
+    name: 'diary',
     messages: [...selfreflectionLines(), ...before, call, ...after],
     readOnly: true,
   });
@@ -3213,7 +3213,7 @@ test("runTurn: a routed call's pictures are captioned through the pull, never as
 
 test('runTurn: a read-only neighbour is marked in the server map', async () => {
   const store = fakeStore({
-    channels: [{ id: DIARY, name: 'selfreflection', lastMessageAt: NOW - 10 * MINUTE, days: {} }],
+    channels: [{ id: DIARY, name: 'diary', lastMessageAt: NOW - 10 * MINUTE, days: {} }],
   });
   for (const readOnly of [true, false]) {
     const scene = pullScene({
@@ -3225,7 +3225,7 @@ test('runTurn: a read-only neighbour is marked in the server map', async () => {
       scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
     );
     const server = userText(scene.llm).split('<server>\n')[1].split('\n</server>')[0];
-    assert.ok(server.includes('selfreflection'), server);
+    assert.ok(server.includes('diary'), server);
     assert.equal(server.includes(labels.server.readOnly), readOnly, server);
   }
 });

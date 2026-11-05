@@ -97,6 +97,7 @@ function scene({
           id: item.id,
           kind: 'image',
           owner: item.owner,
+          // B10 of the master plan: her files live under media/selfreflection, by the owner's word.
           path: `media/selfreflection/${item.id}.png`,
           native_ref: (item.nativeRef as { attachmentId?: string }).attachmentId ?? null,
           extra: JSON.stringify(item.nativeRef),
