@@ -35,7 +35,8 @@ import { createImageGen } from '../src/llm/images.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { fill } from '../src/format.ts';
 import { fillPromptTemplate } from '../src/behavior/prompt.ts';
-import { parseLookupAnswer, recallSettings } from '../src/behavior/recall.ts';
+import { recallSettings } from '../src/behavior/recall.ts';
+import { parseQueryPlan } from '../src/behavior/query-builder.ts';
 import { zonedDay } from '../src/time.ts';
 import { roleModel } from '../src/llm/roles.ts';
 import { cacheTtlFor, roleRequestOptions, withCacheMarker } from '../src/llm/openrouter.ts';
@@ -1104,7 +1105,7 @@ const PRE_DEPS = {
   zonedDay,
   roleModel,
   roleRequestOptions,
-  parseLookupAnswer,
+  parseQueryPlan,
   recallSettings,
 };
 
@@ -1153,7 +1154,7 @@ async function preTurn({
   };
   const out = await preTurnLookup({
     config,
-    prompts: { lookup: 'LOOKUP {{name}} {{today}} {{skills}}', labels },
+    prompts: { 'query-builder': 'LOOKUP {{name}} {{today}} {{skills}}', labels },
     llm,
     lookup,
     recall,
@@ -1174,9 +1175,9 @@ async function preTurn({
 }
 
 test("preTurnLookup: the live classifier request; its web and server parts run and come back as the request's <lookup>; its skills: line is handed on", async () => {
-  const { out, requests, ran } = await preTurn({ answer: 'web: τελικός 2026\nserver: τελικός\nskills: inventory' });
+  const { out, requests, ran } = await preTurn({ answer: 'web: τελικός 2026\nhistory: τελικός\nskills: inventory' });
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].options.purpose, 'lookup');
+  assert.equal(requests[0].options.purpose, 'query-builder'); // plan 2026-11-04-cli-and-memory B4
   assert.ok(
     requests[0].messages[0].content.includes('SKILLS-INDEX') && requests[0].messages[0].content.includes('Persona')
   );

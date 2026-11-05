@@ -441,7 +441,7 @@
 // `--recall`: no reply either. Reproduces the server search of a live turn
 // (src/behavior/turn.js#maybeLookup) for the trigger, or for `--text` in its
 // place (same author, time and lines before it, as with --split):
-// 1. the search classifier's request, once: system = prompts.lookup with
+// 1. the search classifier's request, once: system = prompts['query-builder'] with
 //    `{{name}}` and `{{today}}` (the trigger's day in `bot.timezone`); user =
 //    the `<transcript>` of the last `web.search.contextMessages` fetched
 //    messages before the trigger (cached captions with
@@ -449,7 +449,7 @@
 //    cached link reads with features.webLookup and web.links on) and the
 //    `<candidate>` line; on the analyzer model (roleModel) with roleRequestOptions
 //    (role `analyzer`, `web.search.classifierMaxOutputTokens`, purpose
-//    `lookup`); the answer parsed by src/behavior/recall.js#parseLookupAnswer
+//    `query-builder`); the answer parsed by src/behavior/query-builder.ts#parseQueryPlan
 //    at the trigger's time;
 // 2. when the answer has a server part, the `run()` of
 //    src/behavior/recall-run.js#createRecall with the turn's arguments (the
@@ -938,6 +938,8 @@ const FOUND_LINE_RE = /^(>> )?#\d+ \[/;
  */
 async function loadRecallMods(load: Untyped) {
   const recall = (await load('behavior/recall.ts')) as Rec;
+  const queryBuilder = (await load('behavior/query-builder.ts')) as Rec;
+  const summaryBuilder = (await load('behavior/summary-builder.ts')) as Rec;
   const runner = (await load('behavior/recall-run.ts')) as Rec;
   const prompt = (await load('behavior/prompt.ts')) as Rec;
   const roles = (await load('llm/roles.ts')) as Rec;
@@ -949,9 +951,9 @@ async function loadRecallMods(load: Untyped) {
   const media = (await load('media/classify.ts')) as Rec;
   const pull = (await load('../interfaces/discord/index.ts')) as Rec;
   const mods = {
-    parseLookupAnswer: recall.parseLookupAnswer,
+    parseQueryPlan: queryBuilder.parseQueryPlan,
     recallSettings: recall.recallSettings,
-    parseRecallAnswer: recall.parseRecallAnswer,
+    parseSummaryNote: summaryBuilder.parseSummaryNote,
     createRecall: runner.createRecall,
     classifierTranscript: prompt.classifierTranscript,
     fillPromptTemplate: prompt.fillPromptTemplate,
@@ -1063,9 +1065,9 @@ async function runRecall({
   signal,
 }: Rec) {
   const {
-    parseLookupAnswer,
+    parseQueryPlan,
     recallSettings,
-    parseRecallAnswer,
+    parseSummaryNote,
     createRecall,
     classifierTranscript,
     fillPromptTemplate,
@@ -1080,9 +1082,11 @@ async function runRecall({
     checkPull,
   } = mods;
   const config = hot.config;
-  const prompt = hot.prompts?.lookup;
+  const prompt = hot.prompts?.['query-builder'];
   if (!prompt)
-    throw new CliError('replay-cli: prompts.lookup is missing (prompts/lookup.md or prompts.local/lookup.md)');
+    throw new CliError(
+      'replay-cli: prompts.query-builder is missing (prompts/query-builder.md or data/prompts/query-builder.md)'
+    );
   const labels = hot.prompts?.labels;
   const timezone = config.bot?.timezone;
   const selfName = self.name;
@@ -1152,7 +1156,7 @@ async function runRecall({
   // The skills list of skills discovery is left empty: a replay reads only the search lines.
   const lookupSystem = fillPromptTemplate(prompt, { today: zonedDay(at, timezone), name: selfName ?? '', skills: '' });
   const lookupUser = `${transcriptBlock}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>`;
-  const model = roleModel(config, 'analyzer', 'lookup');
+  const model = roleModel(config, 'analyzer', 'query-builder');
   let classifierRaw = null;
   let classifierError = null;
   try {
@@ -1166,7 +1170,7 @@ async function runRecall({
         ...roleRequestOptions(config, {
           role: 'analyzer',
           maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 200,
-          purpose: 'lookup',
+          purpose: 'query-builder',
           signal,
         }),
       }
@@ -1180,10 +1184,10 @@ async function runRecall({
   if (classifierError === null) {
     // An empty answer is a failed call in the live turn too (`lookup: classifier failed`, `empty`).
     if (String(classifierRaw ?? '').trim())
-      parsed = parseLookupAnswer(classifierRaw, { timezone, now: at, maxForms: recallSettings(config)?.maxForms });
+      parsed = parseQueryPlan(classifierRaw, { timezone, now: at, maxForms: recallSettings(config)?.maxForms });
     else classifierError = 'empty';
   }
-  const server = parsed?.server ?? null;
+  const server = parsed?.history ?? null;
 
   // 2. The server search, when the answer asks for it and the rails allow it.
   const recallHot = {
@@ -1322,7 +1326,7 @@ async function runRecall({
   const answered = stats?.summary === 'answered';
   const named =
     answered && summaryCall?.raw != null
-      ? parseRecallAnswer(summaryCall.raw, { answerChars: settings?.answerChars, count: sections.length }).stretch
+      ? parseSummaryNote(summaryCall.raw, { maxChars: settings?.answerChars, count: sections.length }).stretch
       : null;
   const stretch = found?.stretch
     ? {
@@ -5594,12 +5598,12 @@ const DIRECT_CALL_KINDS = Object.freeze(['mention', 'reply', 'name', 'followUp',
 
 /**
  * What a live turn with features.coreTools off runs before her reply (src/behavior/turn.js#maybeLookup,
- * the classifier path; the turn planner's is not reproduced): the search classifier -- prompts.lookup
+ * the classifier path; the turn planner's is not reproduced): the search classifier -- prompts['query-builder']
  * with `{{name}}`, `{{today}}` (`at`'s day in `bot.timezone`) and `{{skills}}` (`discovery.index`), the
  * user part lookupClassifierInput builds, on the `analyzer` (roleModel, roleRequestOptions, purpose
  * `lookup`) -- asked when its prompt is there and a side can run: the web side under
  * features.webLookup, web.search.enabled, `web.search.maxPerTurn` >= 1, the lookup's search and its
- * daily slots; the server side when the recall runner is available. Its answer (parseLookupAnswer) runs
+ * daily slots; the server side when the recall runner is available. Its answer (parseQueryPlan) runs
  * a `web` query through `lookup.search` and a `server` part through `recall.run` (the chat as
  * history, the trigger as candidate), in parallel, a failing part counting as nothing; a failed or
  * empty answer on a direct call falls back to the server search on the question's own words
@@ -5636,7 +5640,7 @@ export async function preTurnLookup({
     zonedDay,
     roleModel,
     roleRequestOptions,
-    parseLookupAnswer,
+    parseQueryPlan,
     recallSettings,
     fallbackLookupPlan,
   } = deps;
@@ -5670,7 +5674,7 @@ export async function preTurnLookup({
     recallAvailable: serverOn,
     trace,
   });
-  const prompt = prompts?.lookup;
+  const prompt = prompts?.['query-builder'];
   if (!prompt || (!webCan && !serverOn)) return done(null);
   const { triggerText, user } = lookupClassifierInput({
     config,
@@ -5699,16 +5703,16 @@ export async function preTurnLookup({
         { role: 'user', content: user },
       ],
       {
-        model: roleModel(config, 'analyzer', 'lookup'),
+        model: roleModel(config, 'analyzer', 'query-builder'),
         ...roleRequestOptions(config, {
           role: 'analyzer',
           maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
-          purpose: 'lookup',
+          purpose: 'query-builder',
         }),
       }
     );
     if (String(completion?.text ?? '').trim())
-      parsed = parseLookupAnswer(completion.text, {
+      parsed = parseQueryPlan(completion.text, {
         timezone,
         now: at,
         maxForms: recallSettings(config)?.maxForms,
@@ -5719,7 +5723,7 @@ export async function preTurnLookup({
     trace.error = err?.name ?? 'classifier-failed';
   }
   let web = parsed?.web ?? null;
-  let server = parsed?.server ?? null;
+  let server = parsed?.history ?? null;
   if (!parsed) {
     // The failed classifier's fallback: on a direct call, the server search on the question's own words.
     const settings = recallSettings(config);
@@ -6368,7 +6372,8 @@ async function loopDepsOf({
   const { prefetchLanes = null, prefetchOn = null } = await load('behavior/prefetch.ts').catch(() => ({}));
   // The search classifier's path before her reply with features.coreTools off (preTurnLookup).
   const { fillPromptTemplate } = await load('behavior/prompt.ts');
-  const { parseLookupAnswer, recallSettings } = await load('behavior/recall.ts');
+  const { recallSettings } = await load('behavior/recall.ts');
+  const { parseQueryPlan } = await load('behavior/query-builder.ts');
   const { zonedDay } = await load('time.ts');
   const { roleModel } = await load('llm/roles.ts');
   const { roleRequestOptions } = await load('llm/openrouter.ts');
@@ -6379,7 +6384,7 @@ async function loopDepsOf({
     zonedDay,
     roleModel,
     roleRequestOptions,
-    parseLookupAnswer,
+    parseQueryPlan,
     recallSettings,
   };
   const { createAppendStore } = await load('memory/append-store.ts');
@@ -6798,8 +6803,10 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
         : DEFAULT_BEFORE);
   if (args.split && !hot.prompts?.split)
     throw new CliError('replay-cli: prompts.split is missing (prompts/split.md or prompts.local/split.md)');
-  if (args.recall && !hot.prompts?.lookup)
-    throw new CliError('replay-cli: prompts.lookup is missing (prompts/lookup.md or prompts.local/lookup.md)');
+  if (args.recall && !hot.prompts?.['query-builder'])
+    throw new CliError(
+      'replay-cli: prompts.query-builder is missing (prompts/query-builder.md or data/prompts/query-builder.md)'
+    );
 
   let client: Untyped = null;
   const sides = [];

@@ -13,7 +13,7 @@
 //                is the core's, it is not listed by `/nep model`, and its key never falls back;
 // - `analyzer`   the core's classifier model: picks one of a few given options (address, room,
 //                merge, elsewhere-pick, rewatch, split, gif-pick, missed),
-//                plans a search and turns sources into notes (lookup, recall-summary,
+//                plans a search and turns sources into notes (query-builder, recall-summary,
 //                search-summary, diary-plan);
 // - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
@@ -165,7 +165,7 @@ export const PURPOSE_ROLES = Object.freeze({
   split: 'analyzer',
   'gif-pick': 'analyzer',
   missed: 'analyzer',
-  lookup: 'analyzer',
+  'query-builder': 'analyzer',
   'recall-summary': 'analyzer',
   'search-summary': 'analyzer',
   'diary-plan': 'analyzer',

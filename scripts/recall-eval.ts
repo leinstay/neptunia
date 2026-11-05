@@ -20,7 +20,7 @@
 // scripts/lib/recall-eval.ts#parseQuestions; `none` means the answer is not in memory.
 //
 // Each question is asked as a live turn asks it (src/behavior/turn.ts#maybeLookup): the search
-// classifier (prompts.lookup, purpose `lookup`) reads the channel's last lines and the question
+// classifier (prompts['query-builder'], purpose `query-builder`) reads the channel's last lines and the question
 // as a new message of `askerId` in `placeId`, now; its server part goes to the real recall
 // runner (src/behavior/recall-run.ts#createRecall `run`) as the persona's own memory.search does
 // (`quotes`: the stretches of src/memory/db/recall.ts, no summary request, so no `confident`
@@ -652,7 +652,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
 
   const { createHot } = await import('../src/hot.ts');
   const { createRecall } = await import('../src/behavior/recall-run.ts');
-  const { parseLookupAnswer } = await import('../src/behavior/recall.ts');
+  const { parseQueryPlan } = await import('../src/behavior/query-builder.ts');
   const { fallbackLookupPlan } = await import('../src/behavior/turn.ts');
   const { prefetchLanes } = await import('../src/behavior/prefetch.ts');
   const { classifierTranscript, fillPromptTemplate } = await import('../src/behavior/prompt.ts');
@@ -675,7 +675,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   };
   const config = hot.config;
   const settings = await recallSettingsOf(config);
-  if (!dry && !hot.prompts?.lookup) throw new CliError('recall-eval: prompts.lookup is missing');
+  if (!dry && !hot.prompts?.['query-builder']) throw new CliError('recall-eval: prompts.query-builder is missing');
   if (useWeb && !hot.prompts?.['search-summary']) throw new CliError('recall-eval: --web needs prompts.search-summary');
   const meaningOn = !dry;
   const stages = { classifier: !dry, database: true, meaning: meaningOn, discord: useDiscord, web: useWeb };
@@ -833,7 +833,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
         [
           {
             role: 'system',
-            content: fillPromptTemplate(hot.prompts.lookup, {
+            content: fillPromptTemplate(hot.prompts['query-builder'], {
               today: zonedDay(now(), hot.config.bot?.timezone),
               name: selfName,
               skills: '',
@@ -842,11 +842,11 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
           { role: 'user', content: `${transcript}<candidate>\n${trigger.authorName}: ${triggerText}\n</candidate>` },
         ],
         {
-          model: roleModel(hot.config, 'analyzer', 'lookup'),
+          model: roleModel(hot.config, 'analyzer', 'query-builder'),
           ...roleRequestOptions(hot.config, {
             role: 'analyzer',
             maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
-            purpose: 'lookup',
+            purpose: 'query-builder',
           }),
         }
       );
@@ -854,13 +854,13 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
       return fallback(railReason(err, 'classifier-failed'));
     }
     if (!String(completion?.text ?? '').trim()) return fallback('empty');
-    const parsed = parseLookupAnswer(completion.text, {
+    const parsed = parseQueryPlan(completion.text, {
       timezone: hot.config.bot?.timezone,
       now: now(),
       maxForms: settings.maxForms,
     });
     return {
-      server: parsed.server ?? null,
+      server: parsed.history ?? null,
       web: parsed.web ?? null,
       how: 'classifier',
       reason: parsed.reason ?? null,

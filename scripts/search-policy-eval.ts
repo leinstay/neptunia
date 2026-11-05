@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Operations tool: measure the search classifier (prompts.lookup, purpose `lookup`) against a
+// Operations tool: measure the search classifier (prompts['query-builder'], purpose `query-builder`) against a
 // labelled sheet of questions, so a change to the search policy is judged by numbers -- the
 // confusion matrix of the owner's tier against the classifier's decision, the agreement, the
 // disagreements, latency and cost -- instead of by a few live turns.
@@ -14,15 +14,15 @@
 // Each row is asked as a live turn asks it (src/behavior/turn.ts#maybeLookup): the user message
 // is src/behavior/turn.ts#lookupClassifierInput over the row's `context` lines (one minute apart
 // before now; a line by the persona's name is hers) and the question as the trigger (by the row's
-// `author`, else `-`), under the live config and labels; the system prompt is prompts.lookup
-// (tracked, or the deployment's prompts.local/lookup.md through the usual loader, src/hot.ts)
+// `author`, else `-`), under the live config and labels; the system prompt is prompts['query-builder']
+// (tracked, or the deployment's data/prompts/query-builder.md through the usual loader, src/hot.ts)
 // with `{{today}}` = today in `bot.timezone`, `{{name}}` = the persona's name (`--self-name`,
 // else the first name of the card's `## Aliases`) and `{{skills}}` = the skills index when discovery
 // is on (src/tools/discovery.ts), as the turn fills them. One completion on the `analyzer` role
-// (roleModel for purpose `lookup`; `--model` pins another for this run only), with the turn's
+// (roleModel for purpose `query-builder`; `--model` pins another for this run only), with the turn's
 // helper options (roleRequestOptions: its temperature, timeout and hedge), the answer capped at
 // `web.search.classifierMaxOutputTokens`. The answer is read by
-// src/behavior/recall.ts#parseLookupAnswer and mapped to a decision
+// src/behavior/query-builder.ts#parseQueryPlan and mapped to a decision
 // (scripts/lib/search-policy-eval.ts#decisionOf): `web:` -> fast, a server part without `web:` ->
 // memory, nothing -> none (never agent: the classifier asks for no errand); a call that threw or
 // answered nothing -> failed.
@@ -149,7 +149,8 @@ export async function main(
 
   const { lookupClassifierInput } = await import('../src/behavior/turn.ts');
   const { fillPromptTemplate } = await import('../src/behavior/prompt.ts');
-  const { parseLookupAnswer, recallSettings } = await import('../src/behavior/recall.ts');
+  const { recallSettings } = await import('../src/behavior/recall.ts');
+  const { parseQueryPlan } = await import('../src/behavior/query-builder.ts');
   const { roleRequestOptions } = await import('../src/llm/openrouter.ts');
   const { roleModel } = await import('../src/llm/roles.ts');
   const { skillsIndex } = await import('../src/tools/discovery.ts');
@@ -159,16 +160,16 @@ export async function main(
   const hot: Hot =
     givenHot ?? (await import('../src/hot.ts')).createHot({ rootDir, privateDir: privateDirOf(rootDir, env) });
   const model = flags['--model'] ?? null;
-  /** The live config, with `--model` pinned for purpose `lookup` in this process only. */
+  /** The live config, with `--model` pinned for purpose `query-builder` in this process only. */
   const configNow = () => {
     const live = hot.config ?? {};
     if (!model) return live;
     const models = live.models ?? {};
-    return { ...live, models: { ...models, byPurpose: { ...(models.byPurpose ?? {}), lookup: model } } };
+    return { ...live, models: { ...models, byPurpose: { ...(models.byPurpose ?? {}), 'query-builder': model } } };
   };
 
   try {
-    if (!hot.prompts?.lookup) throw new CliError('search-policy-eval: prompts.lookup is missing');
+    if (!hot.prompts?.['query-builder']) throw new CliError('search-policy-eval: prompts.query-builder is missing');
     if (!hot.prompts?.labels) throw new CliError('search-policy-eval: prompts.labels is missing');
     const selfName = flags['--self-name'] ?? cardAliases(hot.prompts?.['character-card'])[0] ?? 'bot';
 
@@ -178,7 +179,7 @@ export async function main(
       const { history, trigger } = rowChat(row, { now: now(), selfName });
       const { user } = lookupClassifierInput({ config, labels: hot.prompts.labels, selfName, history, trigger });
       const discovery = { index: skillsIndex(skillRegistry(), hot.prompts?.tools), names: [...skillRegistry().keys()] };
-      const system = fillPromptTemplate(hot.prompts.lookup, {
+      const system = fillPromptTemplate(hot.prompts['query-builder'], {
         today: zonedDay(now(), config.bot?.timezone),
         name: selfName,
         skills: discovery.index,
@@ -189,7 +190,7 @@ export async function main(
     if (dry) {
       const { config, system, user } = requestOf(asked[0]);
       process.stderr.write(`search-policy-eval: dry run, ${asked.length} row(s), nothing sent\n`);
-      return `# row ${asked[0].id} (model ${roleModel(config, 'analyzer', 'lookup') ?? '-'})\n\n## system\n\n${system}\n\n## user\n\n${user}\n`;
+      return `# row ${asked[0].id} (model ${roleModel(config, 'analyzer', 'query-builder') ?? '-'})\n\n## system\n\n${system}\n\n## user\n\n${user}\n`;
     }
 
     process.stderr.write(
@@ -227,11 +228,11 @@ export async function main(
             { role: 'user', content: user },
           ],
           {
-            model: roleModel(config, 'analyzer', 'lookup'),
+            model: roleModel(config, 'analyzer', 'query-builder'),
             ...roleRequestOptions(config, {
               role: 'analyzer',
               maxOutputTokens: config.web?.search?.classifierMaxOutputTokens ?? 2000,
-              purpose: 'lookup',
+              purpose: 'query-builder',
             }),
             origin: ORIGIN,
             countAgainstDailyCap: false,
@@ -257,7 +258,7 @@ export async function main(
       spent += costUsd;
       if (!String(completion?.text ?? '').trim())
         return { ...base, decision: 'failed', query: null, forms: [], who: [], ms, ok: false, error: 'empty', costUsd };
-      const parsed = parseLookupAnswer(completion.text, {
+      const parsed = parseQueryPlan(completion.text, {
         timezone: config.bot?.timezone,
         now: now(),
         maxForms: recallSettings(config)?.maxForms,
@@ -267,8 +268,8 @@ export async function main(
         ...base,
         decision: decisionOf(parsed),
         query: parsed.web ?? null,
-        forms: parsed.server?.forms ?? [],
-        who: parsed.server?.who ?? [],
+        forms: parsed.history?.forms ?? [],
+        who: parsed.history?.who ?? [],
         ms,
         ok: true,
         costUsd,
@@ -297,7 +298,7 @@ export async function main(
     const markdown = renderSummary(summary, {
       at: new Date(now()).toISOString(),
       sheet: path.basename(sheetFile),
-      model: roleModel(configNow(), 'analyzer', 'lookup') ?? null,
+      model: roleModel(configNow(), 'analyzer', 'query-builder') ?? null,
       skipped: asked.length - done.length,
       stopped,
     });

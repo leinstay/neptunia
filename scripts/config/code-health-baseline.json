@@ -1,6 +1,6 @@
 {
   "files": {
-    "src/behavior/recall.ts": 2375,
+    "src/behavior/recall.ts": 2364,
     "tests/openrouter.test.ts": 3557,
     "tests/prompt.test.ts": 6594,
     "tests/recall.test.ts": 2419,
@@ -218,11 +218,6 @@
         "complexity": 32
       }
     },
-    "src/behavior/participation-pick.ts": {
-      "createParticipationPicker>pickParticipation": {
-        "complexity": 21
-      }
-    },
     "src/behavior/prefetch.ts": {
       "prefetchLanes": {
         "complexity": 24
@@ -272,11 +267,6 @@
       },
       "parseSearchLines": {
         "complexity": 35
-      }
-    },
-    "src/behavior/route-channel.ts": {
-      "createChannelRouter>routeChannels": {
-        "complexity": 23
       }
     },
     "src/behavior/sandbox.ts": {
@@ -675,7 +665,7 @@
     },
     "src/web/lookup.ts": {
       "createLookup": {
-        "function-length": 512
+        "function-length": 510
       }
     },
     "src/web/readable.ts": {
@@ -712,7 +702,6 @@
       "interfaces/discord/port.ts",
       "src/behavior/pipeline.ts",
       "src/behavior/random.ts",
-      "src/behavior/route-channel.ts",
       "src/behavior/wake.ts",
       "src/errands/blocks.ts",
       "src/errands/turns.ts",

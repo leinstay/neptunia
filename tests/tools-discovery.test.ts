@@ -22,7 +22,7 @@ import '../src/tools/impl/index.ts';
 import { loadSkills, skillNames, skillRegistry } from '../src/tools/registry.ts';
 import { listSkills } from '../src/tools/gateway.ts';
 import type { Rights } from '../src/tools/types.ts';
-import { parseLookupAnswer } from '../src/behavior/recall.ts';
+import { parseQueryPlan } from '../src/behavior/query-builder.ts';
 
 const NAMES = ['message.create', 'message.edit', 'draw.create', 'memory.profile.read', 'status.show'];
 const NOW = Date.UTC(2026, 9, 14, 12, 0, 0);
@@ -103,35 +103,35 @@ test('parseSkillsLines: at most four names, in the order given', () => {
 });
 
 test('takeSkillsLines: splits the skills lines out, the rest unchanged', () => {
-  assert.deepEqual(takeSkillsLines('web: Αθήνα\n- **skills:** inventory\nserver: κουνέλι'), {
-    rest: 'web: Αθήνα\nserver: κουνέλι',
+  assert.deepEqual(takeSkillsLines('web: Αθήνα\n- **skills:** inventory\nhistory: κουνέλι'), {
+    rest: 'web: Αθήνα\nhistory: κουνέλι',
     values: ['inventory'],
   });
   assert.deepEqual(takeSkillsLines('none'), { rest: 'none', values: [] });
 });
 
-test('parseLookupAnswer: answers without a skills line read as before, with no skills key', () => {
-  for (const raw of ['none', 'champions final', 'web: Αθήνα\nserver: κουνέλι', '', 'server: none']) {
-    const parsed = parseLookupAnswer(raw, { now: NOW });
+test('parseQueryPlan: answers without a skills line read as before, with no skills key', () => {
+  for (const raw of ['none', 'champions final', 'web: Αθήνα\nhistory: κουνέλι', '', 'history: none']) {
+    const parsed = parseQueryPlan(raw, { now: NOW });
     assert.equal('skills' in parsed, false, raw);
   }
 });
 
-test('parseLookupAnswer: a skills line is read apart; the other lines read exactly as without it', () => {
-  const lines = 'web: Αθήνα σήμερα\nserver: κουνέλι, κουνελιού\nwhen: 2026-10-01 .. 2026-10-03';
-  const without = parseLookupAnswer(lines, { now: NOW });
-  const withSkills = parseLookupAnswer(`${lines}\nskills: draw.create, message.edit`, { now: NOW, skillNames: NAMES });
-  assert.deepEqual({ web: withSkills.web, server: withSkills.server, reason: withSkills.reason }, without);
+test('parseQueryPlan: a skills line is read apart; the other lines read exactly as without it', () => {
+  const lines = 'web: Αθήνα σήμερα\nhistory: κουνέλι, κουνελιού\nwhen: 2026-10-01 .. 2026-10-03';
+  const without = parseQueryPlan(lines, { now: NOW });
+  const withSkills = parseQueryPlan(`${lines}\nskills: draw.create, message.edit`, { now: NOW, skillNames: NAMES });
+  assert.deepEqual({ web: withSkills.web, history: withSkills.history, reason: withSkills.reason }, without);
   assert.deepEqual(withSkills.skills, { state: 'named', inventory: false, names: ['draw.create', 'message.edit'] });
 
   // The old single-line shape keeps working beside it.
-  const old = parseLookupAnswer('champions final winner\nskills: none', { skillNames: NAMES });
+  const old = parseQueryPlan('champions final winner\nskills: none', { skillNames: NAMES });
   assert.deepEqual([old.web, old.reason, old.skills?.state], ['champions final winner', 'ok', 'none']);
   // A skills line alone, or beside none: the search part is none.
   for (const raw of ['skills: inventory', 'none\nskills: inventory']) {
-    const alone = parseLookupAnswer(raw, { skillNames: NAMES });
+    const alone = parseQueryPlan(raw, { skillNames: NAMES });
     assert.deepEqual(
-      [alone.web, alone.server, alone.reason, alone.skills?.state],
+      [alone.web, alone.history, alone.reason, alone.skills?.state],
       [null, null, 'none', 'inventory'],
       raw
     );

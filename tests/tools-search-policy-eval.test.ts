@@ -51,7 +51,7 @@ const ROWS = [
 const ANSWERS = new Map([
   ['what is the weather in Lisboa today', 'web: Lisboa weather today'],
   ['good night all', 'none'],
-  ['what did Nikos say about the chess night', 'server: chess night\nwho: Nikos'],
+  ['what did Nikos say about the chess night', 'history: chess night\nwho: Nikos'],
 ]);
 
 function hotFixture(overrides = {}) {
@@ -66,7 +66,7 @@ function hotFixture(overrides = {}) {
       ...overrides,
     },
     prompts: {
-      lookup: 'Today is {{today}}. You are {{name}}.{{skills}}',
+      'query-builder': 'Today is {{today}}. You are {{name}}.{{skills}}',
       'character-card': '## Aliases\n\nPersona\n',
       labels,
     },
@@ -178,7 +178,7 @@ test('search-policy-eval: three rows -> decisions, results.jsonl, the confusion 
   const { messages, options } = llm.calls[1];
   assert.equal(options.model, 'test/analyzer');
   assert.equal(options.role, 'analyzer');
-  assert.equal(options.purpose, 'lookup');
+  assert.equal(options.purpose, 'query-builder'); // plan 2026-11-04-cli-and-memory B4
   assert.equal(options.maxOutputTokens, 300);
   assert.equal(options.isRoleRequest, true);
   assert.equal(options.timeoutMs, 9000);
@@ -320,18 +320,18 @@ test('parseSheet: rows checked line by line; blank lines skipped', () => {
 });
 
 test('decisionOf: web -> fast, a server part -> memory, nothing -> none, never agent', () => {
-  assert.equal(decisionOf({ web: 'q', server: { forms: ['a'], who: [] } }), 'fast');
-  assert.equal(decisionOf({ web: null, server: { forms: [], who: ['nikos'] } }), 'memory');
+  assert.equal(decisionOf({ web: 'q', history: { forms: ['a'], who: [] } }), 'fast');
+  assert.equal(decisionOf({ web: null, history: { forms: [], who: ['nikos'] } }), 'memory');
   assert.equal(
-    decisionOf({ web: null, server: null, reason: 'none' } as unknown as Parameters<typeof decisionOf>[0]),
+    decisionOf({ web: null, history: null, reason: 'none' } as unknown as Parameters<typeof decisionOf>[0]),
     'none'
   );
   assert.equal(
-    decisionOf({ web: null, server: null, reason: 'unparsed' } as unknown as Parameters<typeof decisionOf>[0]),
+    decisionOf({ web: null, history: null, reason: 'unparsed' } as unknown as Parameters<typeof decisionOf>[0]),
     'none'
   );
   assert.equal(
-    decisionOf({ agent: 'dig', web: null, server: null } as unknown as Parameters<typeof decisionOf>[0]),
+    decisionOf({ agent: 'dig', web: null, history: null } as unknown as Parameters<typeof decisionOf>[0]),
     'none',
     'an agent field is ignored'
   );

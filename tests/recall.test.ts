@@ -21,8 +21,6 @@ import {
   meaningQuery,
   memorySearchPlan,
   mergeWindows,
-  parseLookupAnswer,
-  parseRecallAnswer,
   proximityBonus,
   queryKey,
   rankClusters,
@@ -34,6 +32,8 @@ import {
   scanArchive,
   searchPlan,
 } from '../src/behavior/recall.ts';
+import { parseQueryPlan } from '../src/behavior/query-builder.ts'; // plan B4: `history:`, was `server:`
+import { parseSummaryNote } from '../src/behavior/summary-builder.ts'; // plan B4: `none`, was `nothing`
 import { estimateTokens } from '../src/llm/tokens.ts';
 import { createRecord, toRecordLine } from '../src/memory/record.ts';
 import { labels } from './fixtures/labels.ts';
@@ -73,17 +73,17 @@ import {
 // ---- the lookup answer -----------------------------------------------------------------------
 
 test('parseLookupAnswer: the old single-line answer is still a web query, none is none', () => {
-  assert.deepEqual(parseLookupAnswer('"Café Müller opening hours".'), {
+  assert.deepEqual(parseQueryPlan('"Café Müller opening hours".'), {
     web: 'Café Müller opening hours',
-    server: null,
+    history: null,
     reason: 'ok',
   });
-  assert.deepEqual(parseLookupAnswer('None needed.'), { web: null, server: null, reason: 'none' });
-  assert.deepEqual(parseLookupAnswer('`none`'), { web: null, server: null, reason: 'none' });
-  assert.deepEqual(parseLookupAnswer('  \n '), { web: null, server: null, reason: 'empty' });
-  assert.deepEqual(parseLookupAnswer(null), { web: null, server: null, reason: 'empty' });
-  assert.equal(parseLookupAnswer('first line\nsecond line').web, 'first line', 'only the first line of the old shape');
-  assert.equal([...(parseLookupAnswer('x'.repeat(300)).web ?? '')].length, 200);
+  assert.deepEqual(parseQueryPlan('None needed.'), { web: null, history: null, reason: 'none' });
+  assert.deepEqual(parseQueryPlan('`none`'), { web: null, history: null, reason: 'none' });
+  assert.deepEqual(parseQueryPlan('  \n '), { web: null, history: null, reason: 'empty' });
+  assert.deepEqual(parseQueryPlan(null), { web: null, history: null, reason: 'empty' });
+  assert.equal(parseQueryPlan('first line\nsecond line').web, 'first line', 'only the first line of the old shape');
+  assert.equal([...(parseQueryPlan('x'.repeat(300)).web ?? '')].length, 200);
 });
 
 test('parseLookupAnswer: the old shape -- none only as a whole first word in any wrapping; a line of punctuation alone is empty', () => {
@@ -96,25 +96,25 @@ test('parseLookupAnswer: the old shape -- none only as a whole first word in any
     '``none``',
     '  NONE.\nextra',
   ]) {
-    assert.deepEqual(parseLookupAnswer(raw), { web: null, server: null, reason: 'none' }, raw);
+    assert.deepEqual(parseQueryPlan(raw), { web: null, history: null, reason: 'none' }, raw);
   }
-  assert.equal(parseLookupAnswer('nonexistent planets list').web, 'nonexistent planets list');
-  assert.equal(parseLookupAnswer('nonetheless the score').web, 'nonetheless the score');
-  assert.deepEqual(parseLookupAnswer('"..."'), { web: null, server: null, reason: 'empty' });
+  assert.equal(parseQueryPlan('nonexistent planets list').web, 'nonexistent planets list');
+  assert.equal(parseQueryPlan('nonetheless the score').web, 'nonetheless the score');
+  assert.deepEqual(parseQueryPlan('"..."'), { web: null, history: null, reason: 'empty' });
 });
 
 test('parseLookupAnswer: labelled lines in any order and case; unlabelled lines are ignored', () => {
   const answer = [
     'Here you go:',
     'WHO: Ἀλέξανδρος, alexandros',
-    'Server: "κουνέλι", κουνελιού, κουνέλι',
+    'History: "κουνέλι", κουνελιού, κουνέλι',
     '- **web:** rabbit hunting season',
     'When: none',
   ].join('\n');
-  const parsed = parseLookupAnswer(answer, { timezone: 'UTC', now: NOW });
+  const parsed = parseQueryPlan(answer, { timezone: 'UTC', now: NOW });
   assert.equal(parsed.reason, 'ok');
   assert.equal(parsed.web, 'rabbit hunting season');
-  assert.deepEqual(parsed.server, {
+  assert.deepEqual(parsed.history, {
     forms: ['κουνέλι', 'κουνελιού'],
     who: ['ἀλέξανδρος', 'alexandros'],
     from: null,
@@ -123,47 +123,47 @@ test('parseLookupAnswer: labelled lines in any order and case; unlabelled lines 
 });
 
 test('parseLookupAnswer: forms are cleaned, bounded in length and words, capped at maxForms', () => {
-  const parsed = parseLookupAnswer(
-    'server: a, "Νέο Έτος", one two three four, ' + 'x'.repeat(41) + ', ÉTÉ., été, b2, c3, d4',
+  const parsed = parseQueryPlan(
+    'history: a, "Νέο Έτος", one two three four, ' + 'x'.repeat(41) + ', ÉTÉ., été, b2, c3, d4',
     { maxForms: 4 }
   );
-  assert.deepEqual(parsed.server?.forms, ['νέο έτος', 'été', 'b2', 'c3']);
+  assert.deepEqual(parsed.history?.forms, ['νέο έτος', 'été', 'b2', 'c3']);
   assert.equal(parsed.web, null);
 });
 
 test('parseLookupAnswer: labelled lines that all say none are none; unusable ones are unparsed', () => {
-  assert.deepEqual(parseLookupAnswer('web: none\nserver: none'), { web: null, server: null, reason: 'none' });
-  assert.deepEqual(parseLookupAnswer('when: last tuesday', { now: NOW }), {
+  assert.deepEqual(parseQueryPlan('web: none\nhistory: none'), { web: null, history: null, reason: 'none' });
+  assert.deepEqual(parseQueryPlan('when: last tuesday', { now: NOW }), {
     web: null,
-    server: null,
+    history: null,
     reason: 'unparsed',
   });
-  assert.deepEqual(parseLookupAnswer('server: x', { now: NOW }), { web: null, server: null, reason: 'unparsed' });
+  assert.deepEqual(parseQueryPlan('history: x', { now: NOW }), { web: null, history: null, reason: 'unparsed' });
 });
 
 test('parseLookupAnswer: an agent: line is ignored: alone it is none, never a web query; beside other lines they read as without it', () => {
-  assert.deepEqual(parseLookupAnswer('agent:   find a calm piano track for studying, under five minutes  '), {
+  assert.deepEqual(parseQueryPlan('agent:   find a calm piano track for studying, under five minutes  '), {
     web: null,
-    server: null,
+    history: null,
     reason: 'none',
   });
   assert.deepEqual(
-    parseLookupAnswer('Agent: "compare three reviews of the café"'),
-    { web: null, server: null, reason: 'none' },
+    parseQueryPlan('Agent: "compare three reviews of the café"'),
+    { web: null, history: null, reason: 'none' },
     'any case'
   );
   assert.deepEqual(
-    parseLookupAnswer('web: café opening hours\nagent: find a photo of the café terrace'),
-    parseLookupAnswer('web: café opening hours')
+    parseQueryPlan('web: café opening hours\nagent: find a photo of the café terrace'),
+    parseQueryPlan('web: café opening hours')
   );
-  const withServer = parseLookupAnswer('agent: find the trailer\nserver: κουνέλι');
-  assert.deepEqual(withServer, parseLookupAnswer('server: κουνέλι'));
+  const withServer = parseQueryPlan('agent: find the trailer\nhistory: κουνέλι');
+  assert.deepEqual(withServer, parseQueryPlan('history: κουνέλι'));
   assert.equal('agent' in withServer, false, 'no agent field');
 });
 
 test('parseLookupAnswer: a range alone makes a server search; one date is that whole local day', () => {
-  const parsed = parseLookupAnswer('when: 2025-12-18', { timezone: BERLIN, now: NOW });
-  assert.deepEqual(parsed.server, {
+  const parsed = parseQueryPlan('when: 2025-12-18', { timezone: BERLIN, now: NOW });
+  assert.deepEqual(parsed.history, {
     forms: [],
     who: [],
     from: Date.UTC(2025, 11, 17, 23, 0),
@@ -172,28 +172,32 @@ test('parseLookupAnswer: a range alone makes a server search; one date is that w
 });
 
 test('parseLookupAnswer: a range across a daylight saving change keeps local wall times', () => {
-  const parsed = parseLookupAnswer('when: 2026-03-28 18:00 .. 2026-03-29 06:00', { timezone: BERLIN, now: NOW });
-  assert.equal(parsed.server?.from, Date.UTC(2026, 2, 28, 17, 0), 'before the change: +01:00');
-  assert.equal(parsed.server?.to, Date.UTC(2026, 2, 29, 4, 0), 'after the change: +02:00');
-  const days = parseLookupAnswer('when: 2025-10-26..2025-10-26', { timezone: BERLIN, now: NOW });
-  assert.equal(asRecord(days.server).to + 1 - asRecord(days.server).from, 25 * HOUR, 'a fall-back day lasts 25 hours');
+  const parsed = parseQueryPlan('when: 2026-03-28 18:00 .. 2026-03-29 06:00', { timezone: BERLIN, now: NOW });
+  assert.equal(parsed.history?.from, Date.UTC(2026, 2, 28, 17, 0), 'before the change: +01:00');
+  assert.equal(parsed.history?.to, Date.UTC(2026, 2, 29, 4, 0), 'after the change: +02:00');
+  const days = parseQueryPlan('when: 2025-10-26..2025-10-26', { timezone: BERLIN, now: NOW });
+  assert.equal(
+    asRecord(days.history).to + 1 - asRecord(days.history).from,
+    25 * HOUR,
+    'a fall-back day lasts 25 hours'
+  );
 });
 
 test('parseLookupAnswer: reversed bounds are swapped, a future end is clamped, a future start drops the range', () => {
-  const reversed = parseLookupAnswer('when: 2026-01-01 .. 2025-12-31', { timezone: 'UTC', now: NOW });
-  assert.equal(reversed.server?.from, Date.UTC(2025, 11, 31));
-  assert.equal(reversed.server?.to, Date.UTC(2026, 0, 2) - 1);
-  const today = parseLookupAnswer('when: 2026-10-05', { timezone: 'UTC', now: NOW });
-  assert.equal(today.server?.to, NOW);
-  assert.equal(parseLookupAnswer('when: 2026-12-01', { timezone: 'UTC', now: NOW }).server, null);
+  const reversed = parseQueryPlan('when: 2026-01-01 .. 2025-12-31', { timezone: 'UTC', now: NOW });
+  assert.equal(reversed.history?.from, Date.UTC(2025, 11, 31));
+  assert.equal(reversed.history?.to, Date.UTC(2026, 0, 2) - 1);
+  const today = parseQueryPlan('when: 2026-10-05', { timezone: 'UTC', now: NOW });
+  assert.equal(today.history?.to, NOW);
+  assert.equal(parseQueryPlan('when: 2026-12-01', { timezone: 'UTC', now: NOW }).history, null);
 });
 
 test('parseLookupAnswer: an open side is allowed; an unparsable side gives no range', () => {
-  const open = parseLookupAnswer('when: 2025-12-31 18:00 ..', { timezone: 'UTC', now: NOW });
-  assert.deepEqual([open.server?.from, open.server?.to], [Date.UTC(2025, 11, 31, 18, 0), null]);
-  const bad = parseLookupAnswer('server: κουνέλι\nwhen: 2025-12-31 .. soon', { timezone: 'UTC', now: NOW });
-  assert.deepEqual(bad.server, { forms: ['κουνέλι'], who: [], from: null, to: null });
-  assert.equal(parseLookupAnswer('when: 2025-02-30', { now: NOW }).server, null, 'a date that does not exist');
+  const open = parseQueryPlan('when: 2025-12-31 18:00 ..', { timezone: 'UTC', now: NOW });
+  assert.deepEqual([open.history?.from, open.history?.to], [Date.UTC(2025, 11, 31, 18, 0), null]);
+  const bad = parseQueryPlan('history: κουνέλι\nwhen: 2025-12-31 .. soon', { timezone: 'UTC', now: NOW });
+  assert.deepEqual(bad.history, { forms: ['κουνέλι'], who: [], from: null, to: null });
+  assert.equal(parseQueryPlan('when: 2025-02-30', { now: NOW }).history, null, 'a date that does not exist');
 });
 
 // ---- the plan ------------------------------------------------------------------------------
@@ -727,39 +731,35 @@ test('buildRecallRequest: no prompt or no window line gives null; no people leav
 });
 
 test('parseRecallAnswer: a stretch line names a section; out of range or none names nothing', () => {
-  assert.deepEqual(parseRecallAnswer('stretch: 2\nAna did it on October 1.', { answerChars: 500, count: 3 }), {
+  assert.deepEqual(parseSummaryNote('stretch: 2\nAna did it on October 1.', { maxChars: 500, count: 3 }), {
     text: 'Ana did it on October 1.',
     stretch: 2,
   });
-  assert.deepEqual(parseRecallAnswer('Stretch: #1\nΗ Άννα.', { answerChars: 500, count: 1 }), {
+  assert.deepEqual(parseSummaryNote('Stretch: #1\nΗ Άννα.', { maxChars: 500, count: 1 }), {
     text: 'Η Άννα.',
     stretch: 1,
   });
-  assert.deepEqual(parseRecallAnswer('stretch: 4\nAna.', { answerChars: 500, count: 3 }), {
+  assert.deepEqual(parseSummaryNote('stretch: 4\nAna.', { maxChars: 500, count: 3 }), {
     text: 'Ana.',
     stretch: null,
   });
-  assert.deepEqual(parseRecallAnswer('stretch: none\nAna.', { answerChars: 500, count: 3 }), {
+  assert.deepEqual(parseSummaryNote('stretch: none\nAna.', { maxChars: 500, count: 3 }), {
     text: 'Ana.',
     stretch: null,
   });
   assert.deepEqual(
-    parseRecallAnswer('Ana did it.\nstretch: 1', { answerChars: 500, count: 3 }),
+    parseSummaryNote('Ana did it.\nstretch: 1', { maxChars: 500, count: 3 }),
     { text: 'Ana did it.\nstretch: 1', stretch: null },
     'only a first line names one'
   );
 });
 
 test('parseRecallAnswer: nothing or an empty answer gives no text and no stretch; the text is clamped', () => {
-  for (const raw of ['nothing', 'Nothing.', '"nothing"', 'stretch: 1\nnothing', '', '  ', 'stretch: 2', null]) {
-    assert.deepEqual(
-      parseRecallAnswer(raw, { answerChars: 500, count: 3 }),
-      { text: null, stretch: null },
-      String(raw)
-    );
+  for (const raw of ['none', 'None.', '"none"', 'stretch: 1\nnone', '', '  ', 'stretch: 2', null]) {
+    assert.deepEqual(parseSummaryNote(raw, { maxChars: 500, count: 3 }), { text: null, stretch: null }, String(raw));
   }
   const long = 'Ana did it. '.repeat(40).trim();
-  const { text } = parseRecallAnswer(long, { answerChars: 100, count: 0 });
+  const { text } = parseSummaryNote(long, { maxChars: 100, count: 0 });
   assert.ok((text?.length ?? Infinity) <= 125 && text?.endsWith('.'), text ?? '');
 });
 
@@ -1320,11 +1320,11 @@ test('recall: archive hits render as archived <kind> with the date and dedupe ag
 });
 
 test('recall: a vague recently ranks recency first and her own exchanges first', () => {
-  assert.equal(parseLookupAnswer('server: κουνέλι\nrecent: yes', { now: NOW }).server?.recent, true);
-  assert.equal('recent' in asRecord(parseLookupAnswer('server: κουνέλι\nrecent: no', { now: NOW }).server), false);
+  assert.equal(parseQueryPlan('history: κουνέλι\nrecent: yes', { now: NOW }).history?.recent, true);
+  assert.equal('recent' in asRecord(parseQueryPlan('history: κουνέλι\nrecent: no', { now: NOW }).history), false);
   assert.deepEqual(
-    parseLookupAnswer('recent: yes', { now: NOW }),
-    { web: null, server: null, reason: 'none' },
+    parseQueryPlan('recent: yes', { now: NOW }),
+    { web: null, history: null, reason: 'none' },
     'recent alone asks nothing'
   );
   const DAY = 24 * HOUR;
@@ -2092,27 +2092,27 @@ const DAY = 24 * HOUR;
 const LATER = Date.UTC(2026, 9, 14, 12, 0);
 
 test('parseLookupAnswer: a when: beside forms locates by default; when-role: scope keeps it a hard bound', () => {
-  const lines = 'server: censure, retirer\nwhen: 2026-10-07';
-  const located = parseLookupAnswer(lines, { timezone: 'UTC', now: LATER });
+  const lines = 'history: censure, retirer\nwhen: 2026-10-07';
+  const located = parseQueryPlan(lines, { timezone: 'UTC', now: LATER });
   assert.deepEqual(
-    located.server,
+    located.history,
     { forms: ['censure', 'retirer'], who: [], from: OCT_7.from, to: OCT_7.to, locator: true },
     'no role: a locator'
   );
-  const explicit = parseLookupAnswer(`${lines}\nWhen-Role: **locator**`, { timezone: 'UTC', now: LATER });
-  assert.equal(explicit.server?.locator, true);
+  const explicit = parseQueryPlan(`${lines}\nWhen-Role: **locator**`, { timezone: 'UTC', now: LATER });
+  assert.equal(explicit.history?.locator, true);
   for (const role of ['when-role: scope', 'WHEN_ROLE: Scope.', '- when role: scope']) {
-    const scoped = parseLookupAnswer(`${role}\n${lines}`, { timezone: 'UTC', now: LATER });
+    const scoped = parseQueryPlan(`${role}\n${lines}`, { timezone: 'UTC', now: LATER });
     assert.deepEqual(
-      scoped.server,
+      scoped.history,
       { forms: ['censure', 'retirer'], who: [], from: OCT_7.from, to: OCT_7.to },
       `${role}: today's shape, no locator key`
     );
   }
-  const unknown = parseLookupAnswer(`${lines}\nwhen-role: maybe`, { timezone: 'UTC', now: LATER });
-  assert.equal(unknown.server?.locator, true, 'an unusable role is the safe default');
-  const who = parseLookupAnswer('who: Éloïse\nwhen: 2026-10-07', { timezone: 'UTC', now: LATER });
-  assert.equal(who.server?.locator, true, 'a name form locates too');
+  const unknown = parseQueryPlan(`${lines}\nwhen-role: maybe`, { timezone: 'UTC', now: LATER });
+  assert.equal(unknown.history?.locator, true, 'an unusable role is the safe default');
+  const who = parseQueryPlan('who: Éloïse\nwhen: 2026-10-07', { timezone: 'UTC', now: LATER });
+  assert.equal(who.history?.locator, true, 'a name form locates too');
 });
 
 test('parseLookupAnswer: a question only about a time is always scope; the role line alone or without a range asks nothing', () => {
@@ -2121,20 +2121,20 @@ test('parseLookupAnswer: a question only about a time is always scope; the role 
     'when: 2026-10-07\nwhen-role: locator',
     'when-role: locator\nwhen: 2026-10-07\nrecent: yes',
   ]) {
-    const parsed = parseLookupAnswer(raw, { timezone: 'UTC', now: LATER });
+    const parsed = parseQueryPlan(raw, { timezone: 'UTC', now: LATER });
     assert.equal(parsed.reason, 'ok', raw);
-    assert.equal('locator' in asRecord(parsed.server), false, raw);
-    assert.deepEqual([parsed.server?.from, parsed.server?.to], [OCT_7.from, OCT_7.to], raw);
+    assert.equal('locator' in asRecord(parsed.history), false, raw);
+    assert.deepEqual([parsed.history?.from, parsed.history?.to], [OCT_7.from, OCT_7.to], raw);
   }
-  const dateless = parseLookupAnswer('server: censure\nwhen-role: locator', { timezone: 'UTC', now: LATER });
+  const dateless = parseQueryPlan('history: censure\nwhen-role: locator', { timezone: 'UTC', now: LATER });
   assert.deepEqual(
-    dateless.server,
+    dateless.history,
     { forms: ['censure'], who: [], from: null, to: null },
     'no range: nothing to locate'
   );
-  assert.deepEqual(parseLookupAnswer('when-role: locator', { now: LATER }), {
+  assert.deepEqual(parseQueryPlan('when-role: locator', { now: LATER }), {
     web: null,
-    server: null,
+    history: null,
     reason: 'none',
   });
 });

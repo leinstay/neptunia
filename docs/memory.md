@@ -62,6 +62,12 @@ The authenticated owner CLI has a separate internal view across stored memory. T
 
 [Scope resolution](../src/memory/db/scope.ts) controls visibility. [Recall](../src/memory/db/recall.ts) applies scope and place filters before ranking, limits and surrounding message windows.
 
+## The query and summary builders
+
+A search has two steps with a model around it. The query builder (`createQueryBuilder` and `parseQueryPlan` in `src/behavior/query-builder.ts`, purpose `query-builder`, prompt `prompts/query-builder.md`) plans before the search: `web:`, `history:`, `who:`, `when:`, `when-role:` and `recent:`, or `none`. A live turn has no such step, because the persona's own tools search during her reply, so `src/turn/phases/request/lookup.ts` logs `lookup: skipped` with the reason `core-tools` and adds no helper model. Its callers are `scripts/replay.ts`, `scripts/recall-eval.ts` and `scripts/search-policy-eval.ts`.
+
+The summary builder (`createSummaryBuilder` and `parseSummaryNote` in `src/behavior/summary-builder.ts`) condenses what a search found into a note bounded by `maxChars`. Chat evidence reads `prompts/recall-summary.md` under the purpose `recall-summary` on the analyzer, and web evidence reads `prompts/search-summary.md` under the purpose `search-summary` on the `search` role with `web.search.model`. The single word `none` is no note. `src/behavior/recall-run.ts` and `src/web/lookup.ts` both go through it.
+
 ## Searches and backups off the main thread
 
 `searchRecord` in `src/memory/db/service.ts` runs a search of the record on the reader thread (`src/memory/db/reader-worker.ts`) and answers what `search` in `src/memory/db/recall.ts` answers over the same rows. The thread holds one read-only connection, takes no lock and refuses every message but `open`, `places`, `search` and `close`. The caller's callbacks stay on the main thread: `allowPlace` judges the list `visiblePlaces` gives before the search, and `nameOf` and `channelNameOf` fill in the names `searchMarked` marked once the answer is back. A service without a worker searches on its own connection.

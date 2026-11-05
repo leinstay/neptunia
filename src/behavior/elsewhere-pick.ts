@@ -284,6 +284,31 @@ const NOTHING = (): ElsewhereResult => ({ place: null, episodes: [] });
 /** The modes and trigger kinds that never ask: nobody waits on a place view in a diary post or a missed recovery. */
 const refusesPick = (mode: string, triggerKind: string | null): boolean => mode === 'diary' || triggerKind === 'missed';
 
+/** One request under a time limit: past it the request is aborted, and an answer that came with the abort is not taken. */
+async function askWithin(
+  timeoutMs: number | null,
+  schedule: NonNullable<PickerDeps['schedule']>,
+  ask: (signal: AbortSignal | undefined) => unknown
+): Promise<{ late: boolean; completion?: unknown } | { late: false; error: unknown }> {
+  const abort = timeoutMs === null ? null : new AbortController();
+  let late = false;
+  const cancel =
+    abort && timeoutMs !== null
+      ? schedule(() => {
+          late = true;
+          abort.abort();
+        }, timeoutMs)
+      : null;
+  try {
+    const completion: unknown = await ask(abort?.signal);
+    return late ? { late } : { late, completion };
+  } catch (error) {
+    return late ? { late } : { late, error };
+  } finally {
+    cancel?.();
+  }
+}
+
 /** What createElsewherePicker reads. */
 type PickerDeps = {
   hot: { config: Record<string, Untyped>; prompts: Record<string, unknown> | null | undefined };
@@ -375,47 +400,33 @@ export function createElsewherePicker({
       if (!messages) return NOTHING();
 
       const at = now();
-      const timeoutMs = settings.pickTimeoutMs;
-      const abort = timeoutMs === null ? null : new AbortController();
-      let late = false;
-      const cancel = abort
-        ? schedule(() => {
-            late = true;
-            abort.abort();
-          }, timeoutMs as number) // `abort` exists only for a numeric `timeoutMs`
-        : null;
       const counts = { places: places.length, episodes: listed.ids.length };
-      const lateResult = () => {
-        log.info('elsewhere: late', { channel: placeId, ...counts, timeoutMs });
-        args.limits?.add?.({ kind: 'helper-timeout', where: 'elsewhere-pick' });
-        return NOTHING();
-      };
-      let completion: unknown;
-      try {
-        completion = await llm.complete(messages, {
+      const ended = await askWithin(settings.pickTimeoutMs, schedule, (signal) =>
+        llm.complete(messages, {
           model: roleModel(config, 'analyzer', 'elsewhere-pick'),
           ...roleRequestOptions(config, {
             role: 'analyzer',
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'elsewhere-pick',
-            signal: abort?.signal,
+            signal,
           }),
-        });
-      } catch (err) {
-        if (late) return lateResult();
+        })
+      );
+      if (ended.late) {
+        log.info('elsewhere: late', { channel: placeId, ...counts, timeoutMs: settings.pickTimeoutMs });
+        args.limits?.add?.({ kind: 'helper-timeout', where: 'elsewhere-pick' });
+        return NOTHING();
+      }
+      if ('error' in ended) {
         log.warn('elsewhere: failed', {
           channel: placeId,
-          reason: railReason(err),
-          status: objOf(err).statusCode ?? null,
-          name: objOf(err).name ?? null,
+          reason: railReason(ended.error),
+          status: objOf(ended.error).statusCode ?? null,
+          name: objOf(ended.error).name ?? null,
         });
         return NOTHING();
-      } finally {
-        cancel?.();
       }
-      // An answer that came with the abort is not taken either: the turn was told there is none.
-      if (late) return lateResult();
-      const answer = parseElsewhereAnswer(objOf(completion).text, counts);
+      const answer = parseElsewhereAnswer(objOf(ended.completion).text, counts);
       const place = answer.place.index === null ? null : places[answer.place.index - 1];
       const picked = answer.episodes.indices.map((n) => listed.ids[n - 1]);
       log.info('elsewhere: classified', {
