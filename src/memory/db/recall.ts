@@ -13,6 +13,11 @@
 //   meaning  the stored vectors within the context's scope, a plain scan, cosine on the int8 rows (the question's
 //            embedding is the caller's: it is given as `vector`);
 //   people   the lines of the members the plan's `who` forms name.
+// A fifth stream, `time`, runs only for a caller that passes `sampleTime` (the persona's own search, never the prefetch)
+// and only when those four found nothing and the plan names a place or a side of a range: it cuts the span into `limit`
+// equal slices and takes the line nearest each slice's middle, so the answer is spread over what she named. An open side
+// closes at the first or last line the context may see. Its result says `sampled: true` and its hits `streams: ['time']`;
+// `stats` counts the four streams only.
 // The streams are fused by reciprocal rank (k 60, src/behavior/recall.js#fuseRanks); every hit keeps the streams that
 // found it. A relevance gate drops hits far below the best, the rest is ranked by closeness to the plan's date range
 // (its middle; the nearest end of an open range); with no date, by what a hit holds first (terms, phrases) and
@@ -39,6 +44,7 @@
 // as arguments. Rows are read here; wording and rendering are the caller's (`quotesOf` turns windows into the
 // stretches `recall.run` returns when it renders them with src/behavior/recall.js#renderRecallWindows).
 
+import { sourceAttachmentIds } from './line-media.ts';
 import { nativeLocatorOf } from './source-locator.ts';
 import { locatorText } from './message-locator.ts';
 import { MINUTE_MS } from '../../time.ts';
@@ -74,7 +80,7 @@ const PEOPLE_WEIGHT_WITH_FORMS = 0.5;
 /** Fallback of the window length of a window read when neither `messages` nor `minutes` is given: `recall.windowMessages`. */
 const WINDOW_FALLBACK = 16;
 
-const STREAMS = ['words', 'trigram', 'meaning', 'people'];
+const STREAMS = ['words', 'trigram', 'meaning', 'people', 'time'];
 
 /** `current`: the newest revision of a chat line, once, and not a deleted message. Needs the alias `s`. */
 const SOURCE_FAMILY = `t.native_id IS s.native_id AND t.iface IS s.iface AND t.place_id IS s.place_id
@@ -259,6 +265,12 @@ function storedRefOf(row: Row, extra: Row): StoredSourceRef {
 /** A name as a line shows it: one line, `-` when nothing is left. */
 const shownName = (name: string | null): string => (name ?? '').replace(/\s+/g, ' ').trim() || '-';
 
+/** The native id of the `at`-th attachment, kept on the row by the observation, as a field of the attachment. */
+function attachmentIdAt(extra: Row, at: number): { attachmentId?: string } {
+  const id = sourceAttachmentIds(extra)[at];
+  return typeof id === 'string' ? { attachmentId: id } : {};
+}
+
 /** One source row as a normalized chat message (the shape renderRecallWindows reads). */
 function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | 'selfName'>): RecallMessage {
   const extra = (parseJson(row.extra) ?? {}) as Row;
@@ -286,7 +298,12 @@ function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | '
     mentionedChannelIds: [],
     attachments: (Array.isArray(media) ? (media as Array<unknown>) : [])
       .filter((kind) => typeof kind === 'string' && kind)
-      .map((kind, i) => ({ id: `${asText(row.native_id)}#m${i}`, kind, name: kind })),
+      .map((kind, i) => ({
+        id: `${asText(row.native_id)}#m${i}`,
+        kind,
+        name: kind,
+        ...attachmentIdAt(extra, i),
+      })),
     links: links
       .filter((link) => link && typeof link === 'object' && (str(link.title) || str(link.description)))
       .map((link, i) => ({
@@ -637,6 +654,77 @@ function peopleRows(
     .all(...accounts, ...filter.params, limit);
 }
 
+/**
+ * The time stream: at most `limit` lines of the scope, spread over its span (see the head of this file). Nothing unless
+ * the caller asked for it (`wanted`) and the plan names a place or a side of a range. A scope of no more lines than the
+ * limit gives every line; a busier one gives the line nearest the middle of each of `limit` equal slices. Lines the read
+ * leaves out (`skip`) are out of the query, so a slice holding only those stays empty.
+ */
+function timeRows(
+  db: Db,
+  ctx: Context,
+  scopeArgs: ScopeArgs,
+  {
+    wanted,
+    found,
+    placeShown,
+    skip,
+    limit,
+  }: {
+    wanted: unknown;
+    found: number;
+    placeShown: (place: unknown) => boolean;
+    skip: ReadonlySet<unknown>;
+    limit: number;
+  }
+): Array<Row> {
+  const { from, to, placeId } = scopeArgs;
+  if (!wanted || found > 0 || (from === null && to === null && placeId === null)) return [];
+  const sampleRule = Array.isArray(wanted)
+    ? (place: unknown) => wanted.includes(place)
+    : typeof wanted === 'function'
+      ? (wanted as (place: unknown) => boolean)
+      : () => true;
+  const places = placesAllowed(db, ctx, (place: unknown) => placeShown(place) && sampleRule(place));
+  const filter = filters(ctx, { ...scopeArgs, places });
+  const left = JSON.stringify([...skip]);
+  const rows = (tail: string, ...more: Array<string | number>): Array<Row> =>
+    db
+      .prepare(
+        `SELECT ${WORD_COLUMNS} FROM sources s
+         WHERE ${filter.sql} AND s.id NOT IN (SELECT value FROM json_each(?)) AND ${CURRENT_SOURCE} ${tail}`
+      )
+      .all(...filter.params, left, ...more);
+  const few = rows('LIMIT ?', limit + 1);
+  if (few.length <= limit) return few;
+  const edge = (order: 'ASC' | 'DESC') =>
+    Date.parse(rows(`ORDER BY s.occurred_at ${order} LIMIT 1`)[0].occurred_at as string);
+  const start = from ?? edge('ASC');
+  const span = (to ?? edge('DESC')) - start;
+  const at = (share: number) => iso(Math.round(start + span * share));
+  const picked: Array<Row> = [];
+  for (let slice = 0; slice < limit; slice += 1) {
+    const middle = at((slice + 0.5) / limit);
+    const end = slice === limit - 1 ? '<=' : '<';
+    const near = [
+      ...rows(
+        `AND s.occurred_at >= ? AND s.occurred_at ${end} ? ORDER BY s.occurred_at ASC, s.rowid ASC LIMIT 1`,
+        middle,
+        at((slice + 1) / limit)
+      ),
+      ...rows(
+        'AND s.occurred_at >= ? AND s.occurred_at < ? ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT 1',
+        at(slice / limit),
+        middle
+      ),
+    ];
+    const distance = (row: Row) => Math.abs(Date.parse(row.occurred_at as string) - Date.parse(middle));
+    const [nearest] = near.sort((a, b) => distance(a) - distance(b));
+    if (nearest) picked.push(nearest);
+  }
+  return picked;
+}
+
 // ---------- windows ----------
 
 /**
@@ -942,6 +1030,11 @@ export type SearchInput = {
   allowPlace?: unknown;
   allowedPlaces?: ReadonlyArray<string | null>;
   model?: unknown;
+  /**
+   * Whether a plan the four streams found nothing for is answered by the time stream. A function or a list also says
+   * which places a sample may read, on top of the caller's place rule; a reader is given the list.
+   */
+  sampleTime?: boolean | ((placeId: unknown) => boolean) | ReadonlyArray<string | null>;
 };
 
 /** What a search answers: the windows, the hits, whether a DM holds better, the counts per stream. */
@@ -949,6 +1042,7 @@ export type SearchResult = {
   windows: Array<RecallWindow>;
   hits: Array<RecallHit>;
   hidden: boolean;
+  sampled: boolean;
   stats: Record<string, number>;
 };
 
@@ -1013,6 +1107,7 @@ export function search(
     allowPlace = null,
     allowedPlaces,
     model = null,
+    sampleTime,
   }: SearchInput = {},
   marks: NameMarks | null = null
 ): SearchResult {
@@ -1084,14 +1179,25 @@ export function search(
   talk.forEach(remember);
   stats.people = talk.length;
 
-  const lists = [words, trigram, meaning, talk].map((list) => list.map((row) => row.rowid));
-  const weights = [1, 1, 1, terms.length > 0 ? PEOPLE_WEIGHT_WITH_FORMS : 1];
   const skip = excludedSources(db, context, exclusions, exclude);
+  const keep = Math.max(1, Number.isInteger(limit) ? limit : RECALL_DEFAULTS.maxClusters);
+  const timed = timeRows(db, context, scopeArgs, {
+    wanted: sampleTime,
+    found: rowsOf.size,
+    placeShown,
+    skip,
+    limit: keep,
+  });
+  timed.forEach(remember);
+  const sampled = timed.length > 0;
+  const lists = [words, trigram, meaning, talk, timed].map((list) => list.map((row) => row.rowid));
+  const weights = [1, 1, 1, terms.length > 0 ? PEOPLE_WEIGHT_WITH_FORMS : 1, 1];
   const shown = (row: Row): boolean => !skip.has(row.id);
   const visible = fuseRanks(lists, { k: RRF_K, weights }).filter((entry) => shown(rowsOf.get(entry.id) as Row));
   const target = targetOf(scopeArgs, now);
   const dated = scopeArgs.from !== null || scopeArgs.to !== null;
-  const hits = passGate(visible, (entry) => holds(terms, rowsOf.get(entry.id) as Row).terms, gateShare)
+  // No hit of the time stream is weaker than another: a share of 0 keeps every one.
+  const hits = passGate(visible, (entry) => holds(terms, rowsOf.get(entry.id) as Row).terms, gateShare * +!sampled)
     .map((entry): RecallHit => {
       const row = rowsOf.get(entry.id) as Row;
       const held = holds(terms, row);
@@ -1121,7 +1227,6 @@ export function search(
     );
 
   const read = readerOf(db, context, { nameOf, selfName, channelNameOf, exclude: skip, marks });
-  const keep = Math.max(1, Number.isInteger(limit) ? limit : RECALL_DEFAULTS.maxClusters);
   const byScore = [...hits].sort((a, b) => b.score - a.score);
   const chosen = new Set(hits.slice(0, keep * HITS_PER_WINDOW).map((hit) => hit.rowid));
   for (const hit of byScore.slice(0, keep)) chosen.add(hit.rowid);
@@ -1178,7 +1283,7 @@ export function search(
     context.kind === 'group' && terms.length > 0
       ? hiddenBetter(db, context, terms, scopeArgs, (row) => shown(row) && placeShown(row.place_id), askersOf(context))
       : false;
-  return { windows, hits, hidden, stats };
+  return { windows, hits, hidden, sampled, stats };
 }
 
 /** The person ids of whoever asked, from the context's optional `asker` (one id or a list). */

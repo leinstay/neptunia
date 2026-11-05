@@ -75,7 +75,13 @@ function makeFixture() {
       db.prepare(
         `INSERT INTO sources (id, kind, iface, native_id, place_id, occurred_at, scope_kind, scope_iface)
         VALUES (?, 'deleted', 'discord', ?, ?, ?, 'group', 'discord')`
-      ).run(`src:discord:${native}:none:deleted:x`, String(native), MAIN, new Date(at).toISOString());
+      ).run(
+        `src:discord:${native}:none:deleted:x`,
+        String(native),
+        // A deletion stands in the place of the line it deletes.
+        db.prepare('SELECT place_id FROM sources WHERE native_id = ? LIMIT 1').get(String(native))?.place_id ?? MAIN,
+        new Date(at).toISOString()
+      );
     },
     account(accountId: string, names: Array<string>) {
       db.prepare(

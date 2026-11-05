@@ -197,7 +197,7 @@ export function createReaderClient({
   }
 
   async function search(input: SearchInput, signal?: AbortSignal): Promise<SearchResult> {
-    const { nameOf, channelNameOf, allowPlace, ...data } = input;
+    const { nameOf, channelNameOf, allowPlace, sampleTime, ...data } = input;
     // `allowPlace` is typed `unknown` in `SearchInput`, as `search` reads it; a function of a place is its one use.
     const allows = typeof allowPlace === 'function' ? (allowPlace as (place: string | null) => unknown) : null;
     const allowedPlaces = allows
@@ -205,9 +205,20 @@ export function createReaderClient({
           Boolean(allows(place))
         )
       : undefined;
+    // A sample rule crosses the thread as the list of places it allows, like `allowPlace`.
+    const sample = typeof sampleTime === 'function' ? sampleTime : null;
+    const sampledPlaces = sample
+      ? (await call<Array<string | null>>('places', { ctx: input.ctx }, signal)).filter((place) => sample(place))
+      : sampleTime;
     const marked = await call<Parameters<typeof namedResult>[0]>(
       'search',
-      { input: { ...data, ...(allowedPlaces ? { allowedPlaces } : {}) } },
+      {
+        input: {
+          ...data,
+          ...(allowedPlaces ? { allowedPlaces } : {}),
+          ...(sampledPlaces === undefined ? {} : { sampleTime: sampledPlaces }),
+        },
+      },
       signal
     );
     return namedResult(marked, { nameOf, channelNameOf });

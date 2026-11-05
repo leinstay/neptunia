@@ -8,12 +8,15 @@
 // `fillStems` runs from the writers' projection job (unit-write.ts, op `project`): it learns the stemmer when there is
 // none or the text grew by a quarter since it was learned (a new stemmer re-stamps every row), then fills the rows whose
 // stems are still empty. A row whose text changes gets its stems emptied by the upsert (upsert.ts), so it is filled
-// again.
+// again. A row's stems also hold the words of the descriptions known for its attachments (line-media.ts), so a word search
+// finds a picture by what it shows while `sources.text` stays what was written; `restampAttachment` adds them to the
+// rows already stamped when a description arrives after its line.
 //
 // Pure of the bot; works on an opened database (the writer connection for `fillStems`, any for `loadStemmer`).
 
 import { indexWords, learnEndings, stemmerOf } from '../record-index.ts';
-import type { Db } from './types.ts';
+import { sourceAttachmentIds, sourceDescriptions } from './line-media.ts';
+import type { Db, Row } from './types.ts';
 
 const META_KEY = 'stemmer';
 const PENDING_KEY = 'stems_pending';
@@ -52,6 +55,17 @@ const metaSet = (db: Db, key: string, value: unknown): unknown =>
 /** The stems of `text` under a key function (`stem`): the keys of its words, space-joined. */
 export function stemsOf(stem: (word: string) => string, text: unknown): string {
   return indexWords(text).map(stem).join(' ');
+}
+
+/** The columns a source row's stems are computed from. */
+const STAMP_COLUMNS = 'rowid, text, extra, place_id, scope_kind, scope_iface, scope_dm';
+
+/** The stems of a source row: its text, then the descriptions known for its attachments. */
+function stampOf(db: Db, stem: (word: string) => string, row: Row): string {
+  return [row.text, ...sourceDescriptions(db, row)]
+    .map((text) => stemsOf(stem, text))
+    .filter(Boolean)
+    .join(' ');
 }
 
 type Stemmer = { stem: (word: string) => string; endings: Array<string> };
@@ -141,17 +155,34 @@ export function fillStems(db: Db): { stamped: number; relearned: boolean } {
     });
   }
   const { stem } = loadStemmer(db);
-  const select = db.prepare('SELECT rowid, text FROM sources WHERE stems IS NULL AND text IS NOT NULL LIMIT ?');
+  const select = db.prepare(`SELECT ${STAMP_COLUMNS} FROM sources WHERE stems IS NULL AND text IS NOT NULL LIMIT ?`);
   const update = db.prepare('UPDATE sources SET stems = ? WHERE rowid = ?');
   let stamped = 0;
   for (;;) {
     const rows = select.all(BATCH);
     if (rows.length === 0) break;
     inTransaction(db, () => {
-      for (const row of rows) update.run(stemsOf(stem, row.text), row.rowid);
+      for (const row of rows) update.run(stampOf(db, stem, row), row.rowid);
     });
     stamped += rows.length;
   }
   if (metaGet(db, PENDING_KEY) !== '0') metaSet(db, PENDING_KEY, '0');
   return { stamped, relearned };
+}
+
+/**
+ * The stems of the rows already stamped that hold this attachment, computed again now that its description is stored.
+ * A row still waiting for its stems gets them from `fillStems`. Runs inside the writer's transaction.
+ */
+export function restampAttachment(db: Db, attachmentId: string): number {
+  const { stem } = loadStemmer(db);
+  const rows = db
+    .prepare(`SELECT ${STAMP_COLUMNS} FROM sources WHERE stems IS NOT NULL AND instr(extra, ?) > 0`)
+    .all(JSON.stringify(attachmentId));
+  const update = db.prepare('UPDATE sources SET stems = ? WHERE rowid = ?');
+  const holding = rows.filter((row) =>
+    sourceAttachmentIds(JSON.parse(String(row.extra)) as Row).includes(attachmentId)
+  );
+  for (const row of holding) update.run(stampOf(db, stem, row), row.rowid);
+  return holding.length;
 }
