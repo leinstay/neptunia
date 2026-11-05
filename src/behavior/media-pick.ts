@@ -85,7 +85,7 @@ export function mediaPickSettings(config: Record<string, Untyped>): MediaPickSet
 
 /** The embedding model of the pick's query and of the captions it is compared with: one model, or no comparing. */
 export function gifVectorModel(config: unknown): string | null {
-  return roleModel(config, 'embedding', 'media-pick') ?? null;
+  return roleModel(config, 'embedding', 'recall-query') ?? null;
 }
 
 /** What a request offered, which an answer must stay inside. */
