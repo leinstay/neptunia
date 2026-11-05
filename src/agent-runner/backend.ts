@@ -17,7 +17,7 @@ import type { ChildProcess } from 'node:child_process';
 import { log } from '../log.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { errorFields } from '../error-fields.ts';
-import { scalarText } from '../tools/types.ts';
+import { objOf, scalarText } from '../tools/types.ts';
 import {
   DEFAULT_OPENCODE_PATH,
   collectFiles,
@@ -30,7 +30,7 @@ import type { RunnerDeps, Runner } from './opencode.ts';
 import { redactorFor, scopeOf } from './policy.ts';
 import { BACKEND_NAMES, profileOf } from './profiles.ts';
 import type { AgentPaths, BackendName, Profile } from './profiles.ts';
-import type { RunnerTask, TaskResult } from './protocol.ts';
+import type { RunOutcome, RunnerTask, TaskResult, TaskUsage } from './protocol.ts';
 import { runAgent } from '../subharness/run.ts';
 import type { RunDeps } from '../subharness/run.ts';
 import { isInstalled, subharnessPlace } from '../subharness/place.ts';
@@ -61,6 +61,11 @@ export type BackendRunOptions = {
    * `steps` through `OPENCODE_CONFIG_CONTENT`. codex has no such control, so only the timeout bounds it.
    */
   maxSteps?: number;
+  /**
+   * The most output tokens per model answer: claude `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, opencode
+   * `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`. codex has no such control either. `backendLimits` says the same per backend.
+   */
+  maxOutputTokens?: number;
   /** codex: `-s <sandbox>`, `read-only` unless told otherwise; `none` runs without a sandbox (the modes full and sudo) */
   sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access' | 'none';
   /** the model flag of the backend (`-m`, `--model`); absent runs the backend's own default */
@@ -90,7 +95,11 @@ export type BackendError =
   | 'subharness-off'
   | 'not-installed'
   | 'bad-route'
-  | 'route-no-key';
+  | 'route-no-key'
+  | 'backend-error';
+
+/** A run's tokens and model steps, as far as its backend reports them. `input` counts the cached tokens too. */
+export type BackendUsage = { input: number; cached: number; output: number; steps: number };
 
 /** What a run gives back. */
 export type BackendResult = {
@@ -102,6 +111,8 @@ export type BackendResult = {
   exitCode: number | null;
   /** codex: the number after the `tokens used` line of stdout */
   tokens?: number;
+  /** claude: what its JSON result reports */
+  usage?: BackendUsage;
   error?: BackendError;
   /** claude: the id its transcript has, when the run was given one */
   sessionId?: string;
@@ -195,6 +206,8 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
     tail: false,
     args: (options) => [
       '-p',
+      '--output-format',
+      'json',
       ...(options.sessionId === undefined ? [] : ['--session-id', options.sessionId]),
       ...claudeToolArgs(options),
       ...(options.maxSteps === undefined ? [] : ['--max-turns', String(options.maxSteps)]),
@@ -214,6 +227,34 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
     ],
   },
 };
+
+/** One limit of a backend: a control it enforces and what carries it, or none, and then only the timeout bounds a run. */
+export type BackendLimit = { enforced: true; via: string } | { enforced: false; bound: 'timeout' };
+
+const NO_LIMIT: BackendLimit = { enforced: false, bound: 'timeout' };
+
+const LIMITS: Readonly<Record<BackendName, { steps: BackendLimit; output: BackendLimit }>> = {
+  claude: {
+    steps: { enforced: true, via: '--max-turns' },
+    output: { enforced: true, via: 'CLAUDE_CODE_MAX_OUTPUT_TOKENS' },
+  },
+  opencode: {
+    steps: { enforced: true, via: 'OPENCODE_CONFIG_CONTENT' },
+    output: { enforced: true, via: 'OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX' },
+  },
+  codex: { steps: NO_LIMIT, output: NO_LIMIT },
+};
+
+/** Which step and output limits a backend enforces, and through what. A prompt line or a count of tool calls is no control. */
+export function backendLimits(name: BackendName): { steps: BackendLimit; output: BackendLimit } {
+  return LIMITS[name];
+}
+
+/** The variable that carries a run's output cap into the child of `name`; none for a backend without the control. */
+export function outputLimitEnv(name: BackendName, maxOutputTokens: number | undefined): Record<string, string> {
+  const limit = LIMITS[name].output;
+  return maxOutputTokens === undefined || !limit.enforced ? {} : { [limit.via]: String(maxOutputTokens) };
+}
 
 /** The environment of a child: the inherited variables the parent has, then `extra`. Nothing else. */
 export function childEnvOf(extra: Record<string, string> | undefined): Record<string, string> {
@@ -246,6 +287,40 @@ export function tokensOf(output: string): number | undefined {
   if (!found) return undefined;
   const tokens = Number(found[1].replaceAll(',', ''));
   return Number.isFinite(tokens) ? tokens : undefined;
+}
+
+/** What `claude -p --output-format json` printed: its answer, whether it says it failed, and its usage. */
+type ClaudeResult = { text: string; isError: boolean; usage: BackendUsage };
+
+/** A count of a JSON result, 0 when absent or no number. */
+function countOf(fields: Record<string, unknown>, key: string): number {
+  const value = fields[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/** The JSON result claude printed, or null for any other output, which then stands as the answer. */
+function claudeResultOf(output: string): ClaudeResult | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    return null;
+  }
+  const fields = objOf(parsed);
+  if (fields.type !== 'result') return null;
+  const usage = objOf(fields.usage);
+  const cached = countOf(usage, 'cache_read_input_tokens');
+  const isError = fields.is_error === true;
+  return {
+    text: !isError && typeof fields.result === 'string' ? fields.result.trim() : '',
+    isError,
+    usage: {
+      input: countOf(usage, 'input_tokens') + countOf(usage, 'cache_creation_input_tokens') + cached,
+      cached,
+      output: countOf(usage, 'output_tokens'),
+      steps: countOf(fields, 'num_turns'),
+    },
+  };
 }
 
 /** What a child process came to: its exit, its stdout, or why it never ran. */
@@ -354,6 +429,21 @@ function errorOf(outcome: Outcome): BackendError | undefined {
   return outcome.spawnCode ? 'spawn' : undefined;
 }
 
+/** What a finished child gives back: `written` is the final message of a backend that writes one to a file. */
+function resultOf(name: BackendName, outcome: Outcome, written: string | null): BackendResult {
+  const printed = outcome.stdout.trim();
+  const claude = name === 'claude' ? claudeResultOf(printed) : null;
+  const text = written ?? claude?.text ?? printed;
+  const error = errorOf(outcome) ?? (claude?.isError === true ? 'backend-error' : undefined);
+  return {
+    ok: !error && outcome.exitCode === 0 && text !== '',
+    text: outcome.exitCode === 0 || written !== null ? text : '',
+    exitCode: outcome.exitCode,
+    ...(error ? { error } : {}),
+    ...(claude === null ? {} : { usage: claude.usage }),
+  };
+}
+
 /**
  * The child runner of the memory writer (src/subharness/memory-writer.ts): one run with exactly `run.env`, its own
  * process group, the group killed when `run.timeoutMs` passes. Resolves, never rejects; `error` says why the child did
@@ -407,20 +497,13 @@ export function createBackend(name: BackendName, deps: BackendDeps = {}): Backen
           args: recipe.stdin ? args : [...args, brief],
           stdin: recipe.stdin ? brief : undefined,
           options,
-          env: childEnvOf(options.env),
+          env: childEnvOf({ ...options.env, ...outputLimitEnv(name, options.maxOutputTokens) }),
           spawnImpl,
           tail: recipe.tail,
         });
         if (name === 'codex') tokens = tokensOf(`${outcome.stderr}\n${outcome.stdout}`);
-        let text = outcome.stdout.trim();
-        if (outFile) text = (await fsp.readFile(outFile, 'utf8').catch(() => '')).trim();
-        const error = errorOf(outcome);
-        result = {
-          ok: !error && outcome.exitCode === 0 && text !== '',
-          text: outcome.exitCode === 0 || outFile ? text : '',
-          exitCode: outcome.exitCode,
-        };
-        if (error) result.error = error;
+        const written = outFile ? (await fsp.readFile(outFile, 'utf8').catch(() => '')).trim() : null;
+        result = resultOf(name, outcome, written);
       }
     } catch (err) {
       log.warn('agent-runner: backend failed', { backend: name, reason: scalarText(errorFields(err).code ?? 'error') });
@@ -434,6 +517,7 @@ export function createBackend(name: BackendName, deps: BackendDeps = {}): Backen
       exitCode: result.exitCode,
       durationMs: now() - startedAt,
       ...(tokens === undefined ? {} : { tokens }),
+      ...(result.usage === undefined ? {} : { tokens: result.usage.input + result.usage.output }),
       ...(result.error ? { error: result.error } : {}),
     });
     return result;
@@ -481,7 +565,11 @@ const FALLBACK_SECONDS = 300;
  * login, so a task's `secrets` reach only opencode, and only its `openrouterKey`: it becomes that run's key
  * (`routeKey`). A route that is not one fails `bad-route`, an opencode route with no key `route-no-key`.
  */
-export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDeps): Runner {
+export function createAgentEngine({
+  subharness,
+  agentPaths,
+  ...deps
+}: EngineDeps): Omit<Runner, 'run'> & { run: (task: RunnerTask) => Promise<RunOutcome & { usage: TaskUsage }> } {
   const { outDir } = deps;
   function currentProfile(): Profile {
     if (!agentPaths) return deps.profile;
@@ -537,13 +625,7 @@ export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDep
       },
       subharness
     );
-    const usage = {
-      input: 0,
-      output: outcome.tokens ?? 0,
-      usd: 0,
-      steps: 0,
-      seconds: Math.round(((deps.now ?? Date.now)() - startedAt) / 100) / 10,
-    };
+    const usage = usageOf(outcome, Math.round(((deps.now ?? Date.now)() - startedAt) / 100) / 10);
     const { files, dropped } = await deliverableFiles(await collectFiles(outDir, task.id), {
       scope,
       withheldCount: 0,
@@ -569,6 +651,17 @@ export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDep
   }
 
   return { run, checkPrompt };
+}
+
+/** A finished run's usage in its protocol shape: what the backend reports, else codex's token count as the output. */
+function usageOf(outcome: BackendResult, seconds: number): TaskUsage {
+  return {
+    input: outcome.usage?.input ?? 0,
+    output: outcome.usage?.output ?? outcome.tokens ?? 0,
+    usd: 0,
+    steps: outcome.usage?.steps ?? 0,
+    seconds,
+  };
 }
 
 /** The result code of a finished run, in the runner's own vocabulary (src/agent-runner/opencode.ts), or undefined. */

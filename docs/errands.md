@@ -30,4 +30,20 @@ One finished errand opens one result turn. [src/errands/turns.ts](../src/errands
 
 A personal `profile.json` or `prompt.md` under `data/agents/<id>/` is opened once without following a link and read from that descriptor, so a link placed after the check fails the run with `no-prompt` or the profile's error.
 
+## Step and output limits
+
+`backendLimits` in [src/agent-runner/backend.ts](../src/agent-runner/backend.ts) says which caps a backend enforces and through what. These are the controls that reach the child process.
+
+| Backend | Steps | Output tokens |
+|---|---|---|
+| `claude` | `--max-turns` | `CLAUDE_CODE_MAX_OUTPUT_TOKENS` |
+| `opencode` | `OPENCODE_CONFIG_CONTENT` | `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX` |
+| `codex` | none, the timeout bounds it | none, the timeout bounds it |
+
+A run that asks a backend for a cap it has no control for carries the gap `step-limit-not-enforced` or `output-limit-not-enforced` and writes one log line. The profile's seconds and the global request caps in `llm.*` apply on every backend, and no dollar budget exists.
+
+A `claude` run prints `--output-format json`. The engine takes the answer and the run's real usage from it, and a result with `is_error` fails the errand with `backend-error` whatever the exit code.
+
+## Search from an errand
+
 The scout's deep search and the core's [quick search](keys.md#quick-search) have separate configuration. Implementation starts in [src/agent-runner/backend.ts](../src/agent-runner/backend.ts) and [agent profiles](../agents/).
