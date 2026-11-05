@@ -97,6 +97,9 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `memoryDb.closeTimeoutMs` | number | `10000` | At shutdown, how long to wait for the pass under way before the worker is terminated | `src/memory/db/service.ts` |
 | `memoryDb.observeTimeoutMs` | number | `5000` | How long the message handler waits for an observation's commit before going on | `src/behavior/pipeline.ts` |
 | `memoryDb.ingestKeepDays` | number | `7` | How many days the `ingest` table keeps an event the core took, the window in which a redelivered event is still a duplicate after a restart | `src/memory/db/ingest.ts` |
+| `memoryDb.inspection.pageRows` | number | `100` | The most rows one page of an owner memory read holds, whatever limit a command asks for | `src/interface/commands/memory.ts` |
+| `memoryDb.inspection.snapshotIdleSeconds` | number | `60` | How long an inspection snapshot stays open with no read of it | `src/interface/commands/memory.ts` |
+| `memoryDb.inspection.snapshotMaxSeconds` | number | `300` | How long an inspection snapshot stays open at most, so it cannot hold the write-ahead log back | `src/interface/commands/memory.ts` |
 | `memoryDb.backup.enabled` | boolean | `false` | Daily backup of the persona data, including a consistent memory database snapshot | `src/memory/db/backup.ts` |
 | `memoryDb.backup.hour` | number | `3` | The UTC hour (0 to 23) from which the day's backup is taken | `src/memory/db/backup.ts` |
 | `memoryDb.backup.dir` | string | `"../backups/memory"` | Where the backups go, relative to the data directory or absolute | `src/memory/db/backup.ts` |
