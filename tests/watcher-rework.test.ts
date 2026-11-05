@@ -1,5 +1,6 @@
-// The rework after the watcher's first real report: only a finding at `medium` or above files a task, `For the owner` opens
-// with `### Decisions needed`, the metadata counts what stays open, `Misunderstandings` cites its turns, and the evidence
+// The rework after the watcher's first real report: only a finding line at `medium` or above files a task, and any other
+// draft is reported as `unmatched-draft`. `For the owner` opens with `### Decisions needed`, the metadata counts what this
+// report still holds open, `Misunderstandings` cites its turns, and the evidence
 // page brings the diary's mirrors, selfreflection and the CI of `main`. Synthetic reports and rows, the board and the
 // commands are fakes, the clock is injected.
 import { test } from 'node:test';
@@ -72,9 +73,10 @@ test('a low finding stays in the report and files nothing, and no later retry fi
   assert.ok(saved(rig).text.includes(`- [low] rail: ${FINDING}`));
   await retryFilings({ dir: rig.dir, board: rig.fake.board, now: rig.store.now });
   assert.equal(rig.fake.adds.length, 0);
-  for (const one of readFilings(rig.dir, result.runId)) {
-    assert.ok(!['pending', 'deferred', 'filed'].includes(one.state), one.state);
-  }
+  assert.deepEqual(
+    readFilings(rig.dir, result.runId).map((one) => one.state),
+    ['unmatched-draft']
+  );
 });
 
 test('a low finding under Suspicious evidence files nothing either', async () => {
@@ -117,6 +119,50 @@ test('a repeat the code lowered to low files nothing, whatever level the model w
   await saying(rig, answerSaying(`- [high] rail: ${FINDING}`));
   const repeat = await saying(rig, answerSaying(`- [critical] rail: ${FINDING}`, [DRAFT]));
   assert.equal(repeat.state, 'succeeded', repeat.code ?? '');
+  assert.equal(rig.fake.adds.length, 0);
+});
+
+for (const [name, draft] of [
+  ['with a key no finding line holds', DRAFT],
+  ['with no key at all', { kind: 'fix', title: 'Retry rail', evidence: 'src/a.ts:1', done: 'It holds' }],
+] as const) {
+  test(`a draft ${name} files nothing and is reported as unmatched-draft`, async () => {
+    // Bug: the model leaves the finding line out, and the threshold never sees the task it files.
+    const rig = inspectionRig();
+    let opened = 0;
+    const result = await saying(rig, templateOf() + tasksBlock([draft]), {
+      openBoard: () => {
+        opened += 1;
+        return Promise.resolve(rig.fake.board);
+      },
+    });
+    assert.equal(result.state, 'succeeded', result.code ?? '');
+    assert.equal(opened, 0);
+    assert.equal(result.filing, 'none');
+    assert.equal(rig.fake.adds.length, 0);
+    assert.equal(readFilings(rig.dir, result.runId)[0]?.state, 'unmatched-draft');
+    const filed = sectionOf(saved(rig).text, 'Tasks filed');
+    assert.ok(filed.includes('unmatched-draft'), filed);
+    assert.ok(filed.includes(draft.title), filed);
+  });
+}
+
+test('an unmatched draft is settled: no later run or retry files it', async () => {
+  // Bug: it waits among the pending drafts, and the next run with a board files what the threshold refused.
+  const rig = inspectionRig();
+  const result = await saying(rig, templateOf() + tasksBlock([DRAFT]));
+  assert.equal(result.state, 'succeeded', result.code ?? '');
+  await retryFilings({ dir: rig.dir, board: rig.fake.board, now: rig.store.now });
+  await saying(rig, templateOf());
+  assert.equal(rig.fake.adds.length, 0);
+});
+
+test('a finding that matches a draft only under Inspected without a finding files nothing', async () => {
+  // Bug: the match reads the whole report for the key, and a plain mention carries the draft through.
+  const rig = inspectionRig();
+  const text = templateOf({ bodies: { Errors: { 'Inspected without a finding': `- rail: ${FINDING}` } } });
+  const result = await saying(rig, text + tasksBlock([DRAFT]));
+  assert.equal(result.state, 'succeeded', result.code ?? '');
   assert.equal(rig.fake.adds.length, 0);
 });
 
@@ -237,49 +283,59 @@ for (const [name, value] of [
   });
 }
 
-test('a repeat stays open at the level it came in at, and Risk stays with it', async () => {
-  // Bug: the first real risk line falls to none on the second run, while the high defect is still there.
+test('a repeat counts open at the level it came in at, and Risk stays with the new findings', async () => {
+  // Bug: a repeat counts at the low the code gave it and hides a high defect, or keeps the header loud every day.
   const rig = inspectionRig();
   await saying(rig, answerSaying(`- [high] rail: ${FINDING}`));
   await saying(rig, answerSaying(`- [critical] rail: ${FINDING}`));
   const { metadata } = saved(rig);
   assert.deepEqual(metadata.open, { critical: 0, high: 1, medium: 0, low: 0 });
-  assert.equal(metadata.risk, 'high');
+  assert.equal(metadata.risk, 'none');
   assert.equal(metadata.newFindings, 0);
   assert.equal(metadata.repeats, 1);
 });
 
-test('a finding the next report does not mention stays open until it is resolved', async () => {
-  // Bug: the model forgets to repeat a line one day, and a live defect leaves the count with no fix.
+test('a repeat keeps its level through later runs, where the saved line already says low', async () => {
+  // Bug: the level is read from the last saved line, so the third run counts the high defect as low.
+  const rig = inspectionRig();
+  for (let run = 0; run < 3; run += 1) await saying(rig, answerSaying(`- [high] rail: ${FINDING}`));
+  assert.deepEqual(saved(rig).metadata.open, { critical: 0, high: 1, medium: 0, low: 0 });
+});
+
+test('a finding the latest report omits is closed', async () => {
+  // Bug: the count can only grow, so a month of reports says more is open each day whatever happened.
   const rig = inspectionRig();
   await saying(rig, answerSaying(`- [high] rail: ${FINDING}`));
   await saying(rig, templateOf());
   const { metadata } = saved(rig);
-  assert.deepEqual(metadata.open, { critical: 0, high: 1, medium: 0, low: 0 });
-  assert.equal(metadata.risk, 'high');
+  assert.deepEqual(metadata.open, { critical: 0, high: 0, medium: 0, low: 0 });
+  assert.equal(metadata.risk, 'none');
 });
 
-test('a resolved finding leaves the count, and Risk falls to the next open level', async () => {
-  // Bug: the count only grows, so the top line says critical for ever after one fixed bug.
+test('new and repeated findings count together, and Risk reads the new one alone', async () => {
+  // Bug: the two numbers are drawn from one list, and either the old high lifts the header or leaves the count.
   const rig = inspectionRig();
-  const text = templateOf({
-    bodies: {
-      Errors: { 'Observed defects': `- [critical] rail: ${FINDING}` },
-      Project: { 'Observed defects': '- [medium] drift: the build failed in src/b.ts:2' },
-    },
-  });
-  await saying(rig, text + tasksBlock([DRAFT]));
-  const row = rig.fake.rows[0] ?? assert.fail('no task was filed');
-  Object.assign(row, {
-    status: 'done',
-    metadata: { merged: { pr: 7 } },
-    updated_at: iso(rig.clock.t),
-  });
-  rig.clock.t += MINUTE;
-  await saying(rig, templateOf());
+  await saying(rig, answerSaying(`- [high] rail: ${FINDING}`));
+  const both = `- [high] rail: ${FINDING}\n- [medium] drift: the build failed in src/b.ts:2`;
+  await saying(rig, answerSaying(both));
   const { metadata } = saved(rig);
-  assert.deepEqual(metadata.open, { critical: 0, high: 0, medium: 1, low: 0 });
+  assert.deepEqual(metadata.open, { critical: 0, high: 1, medium: 1, low: 0 });
   assert.equal(metadata.risk, 'medium');
+  assert.equal(metadata.newFindings, 1);
+  assert.equal(metadata.repeats, 1);
+});
+
+test('a finding that came back after its fix counts at the level the model gives it now', async () => {
+  // Bug: the level it came in at the first time outlives its resolution.
+  const rig = inspectionRig();
+  await saying(rig, answerSaying(`- [high] rail: ${FINDING}`, [DRAFT]));
+  const row = rig.fake.rows[0] ?? assert.fail('no task was filed');
+  Object.assign(row, { status: 'done', metadata: { merged: { pr: 7 } }, updated_at: iso(rig.clock.t) });
+  rig.clock.t += MINUTE;
+  await saying(rig, answerSaying(`- [critical] rail: ${FINDING}`));
+  const { metadata } = saved(rig);
+  assert.deepEqual(metadata.open, { critical: 1, high: 0, medium: 0, low: 0 });
+  assert.equal(metadata.risk, 'critical');
 });
 
 test('changed evidence under one key counts once, at the level of the change', async () => {
@@ -290,13 +346,14 @@ test('changed evidence under one key counts once, at the level of the change', a
   const { metadata } = saved(rig);
   assert.deepEqual(metadata.open, { critical: 0, high: 1, medium: 0, low: 0 });
   assert.equal(metadata.newFindings, 1);
+  assert.equal(metadata.risk, 'high');
 });
 
-test('the same evidence under a new key counts once', async () => {
-  // Bug: a rename adds a second open finding for one defect.
+test('the same evidence under a new key is one repeat at the level it came in at', async () => {
+  // Bug: a rename adds a second open finding for one defect, or loses the level the first name carried.
   const rig = inspectionRig();
   await saying(rig, answerSaying(`- [high] rail: ${FINDING}`));
-  await saying(rig, answerSaying(`- [high] another-name: ${FINDING}`));
+  await saying(rig, answerSaying(`- [medium] another-name: ${FINDING}`));
   assert.deepEqual(saved(rig).metadata.open, { critical: 0, high: 1, medium: 0, low: 0 });
 });
 
@@ -312,7 +369,7 @@ test('a failed attempt adds nothing open', async () => {
   assert.equal(metadata.risk, 'none');
 });
 
-test('the engine stamps the open counts over what the agent wrote', async () => {
+test('the engine stamps the open counts and the risk over what the agent wrote', async () => {
   // Bug: the model's own tally stands, and it says what it remembers.
   const rig = inspectionRig();
   await saying(rig, templateOf({ metadata: withRow('Open findings', 'critical 9, high 9, medium 9, low 9') }));

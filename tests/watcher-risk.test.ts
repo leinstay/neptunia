@@ -246,15 +246,14 @@ test('a new finding keeps its level and sets the stamped risk and counts', async
   assert.equal(metadata.repeats, 0);
 });
 
-test('a repeat is saved as low with its fixed mark, and the stamped risk stays with what is open', async () => {
+test('a repeat is saved as low with its fixed mark, and the stamped risk falls to none', async () => {
   // Bug: the rule runs in memory only, and the saved report still says critical.
   const rig = inspectionRig();
   await saying(rig, answer(`- [high] rail: ${CODE_500}`));
   await saying(rig, answer(`- [critical] rail: ${CODE_500}`));
   const { text, metadata } = saved(rig);
   assert.ok(text.includes(`- [low] rail: ${CODE_500} (repeat 2, first ${DAY})\n`), text.slice(0, 900));
-  // Changed: `Risk` is the highest open level, by the owner's word after the first real report, so a repeat keeps it high.
-  assert.equal(metadata.risk, 'high');
+  assert.equal(metadata.risk, 'none');
   assert.equal(metadata.newFindings, 0);
   assert.equal(metadata.repeats, 1);
 });

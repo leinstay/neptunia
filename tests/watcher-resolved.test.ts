@@ -112,12 +112,10 @@ test('a board that cannot be reached leaves no resolved list, the repeat stays a
   assert.ok(saved(rig).text.includes(`- [low] rail: ${FINDING} (repeat 2, first ${DAY})\n`));
 });
 
-// Changed: the open counts need the resolved list whenever a filed finding may have closed, so only a run with no filed
-// finding keeps the board shut.
-test('a run with no filed finding never opens the board for the resolved list', async () => {
+test('a run with no repeat never opens the board for the resolved list', async () => {
   // Bug: every run opens a link to the core to read something no finding of this report can use.
   const rig = inspectionRig();
-  await saying(rig, answer());
+  await saying(rig, answer([DRAFT]));
   let opened = 0;
   await saying(rig, templateOf(), {
     openBoard: () => {
