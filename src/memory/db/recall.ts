@@ -76,7 +76,7 @@ const SOURCE_FAMILY = `t.native_id IS s.native_id AND t.iface IS s.iface AND t.p
   AND COALESCE(t.authority_id, t.iface || '/global') IS COALESCE(s.authority_id, s.iface || '/global')
   AND COALESCE(t.native_kind, 'message') IS COALESCE(s.native_kind, 'message')
   AND COALESCE(t.generation, 1) IS COALESCE(s.generation, 1)`;
-const CURRENT = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL
+export const CURRENT_SOURCE = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL
   AND s.revision IS (SELECT MAX(t.revision) FROM sources t WHERE ${SOURCE_FAMILY} AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL)
   AND s.rowid = (SELECT MIN(t.rowid) FROM sources t WHERE ${SOURCE_FAMILY} AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision IS s.revision)
   AND NOT EXISTS (SELECT 1 FROM sources d WHERE d.native_id IS s.native_id AND d.iface IS s.iface
@@ -421,7 +421,7 @@ function wordRows(db: Db, ctx: Context, terms: ReadonlyArray<Term>, scopeArgs: S
   return db
     .prepare(
       `SELECT ${WORD_COLUMNS}, bm25(sources_fts, 0.0, 1.0) AS rank FROM sources_fts JOIN sources s ON s.rowid = sources_fts.rowid
-    WHERE sources_fts MATCH ? AND ${CURRENT} AND ${filter.sql} ORDER BY rank LIMIT ?`
+    WHERE sources_fts MATCH ? AND ${CURRENT_SOURCE} AND ${filter.sql} ORDER BY rank LIMIT ?`
     )
     .all(matchOf(terms), ...filter.params, limit);
 }
@@ -433,7 +433,7 @@ function wordFinds(db: Db, ctx: Context, term: Term, scopeArgs: ScopeArgs): bool
     db
       .prepare(
         `SELECT 1 AS ok FROM sources_fts JOIN sources s ON s.rowid = sources_fts.rowid
-    WHERE sources_fts MATCH ? AND ${CURRENT} AND ${filter.sql} LIMIT 1`
+    WHERE sources_fts MATCH ? AND ${CURRENT_SOURCE} AND ${filter.sql} LIMIT 1`
       )
       .get(matchOf([term]), ...filter.params) !== undefined
   );
@@ -454,7 +454,7 @@ function trigramRows(
       ...db
         .prepare(
           `SELECT ${WORD_COLUMNS}, bm25(sources_tri) AS rank FROM sources_tri JOIN sources s ON s.rowid = sources_tri.rowid
-      WHERE sources_tri MATCH ? AND ${CURRENT} AND ${filter.sql} ORDER BY rank LIMIT ?`
+      WHERE sources_tri MATCH ? AND ${CURRENT_SOURCE} AND ${filter.sql} ORDER BY rank LIMIT ?`
         )
         .all(quoteFts(term.form.trim()), ...filter.params, limit)
     );
@@ -510,7 +510,7 @@ function meaningRows(
       `SELECT s.rowid AS source_rowid, v.scale AS scale, v.norm AS norm, v.bytes AS bytes, v.model AS model
     FROM vectors v JOIN sources o ON o.rowid = v.source_rowid
     JOIN sources s ON s.native_id = o.native_id AND (s.rowid = o.rowid OR s.text IS o.text)
-    WHERE v.retired_at IS NULL AND v.bytes IS NOT NULL${notEvicted(db)} AND v.dims = ?${modelSql} AND ${CURRENT} AND ${filter.sql}`
+    WHERE v.retired_at IS NULL AND v.bytes IS NOT NULL${notEvicted(db)} AND v.dims = ?${modelSql} AND ${CURRENT_SOURCE} AND ${filter.sql}`
     )
     .iterate(q.length, ...modelParams, ...filter.params);
   const heap: Array<{ source_rowid: unknown; score: number }> = [];
@@ -543,7 +543,9 @@ function currentRows(db: Db, ctx: Context, rowids: ReadonlyArray<unknown>, scope
   const out = new Map<unknown, Row>();
   if (rowids.length === 0) return out;
   const filter = filters(ctx, scopeArgs);
-  const select = db.prepare(`SELECT ${WORD_COLUMNS} FROM sources s WHERE s.rowid = ? AND ${CURRENT} AND ${filter.sql}`);
+  const select = db.prepare(
+    `SELECT ${WORD_COLUMNS} FROM sources s WHERE s.rowid = ? AND ${CURRENT_SOURCE} AND ${filter.sql}`
+  );
   for (const rowid of rowids) {
     const row = select.get(rowid, ...filter.params);
     if (row) out.set(rowid, row);
@@ -604,7 +606,7 @@ function peopleRows(
   const marks = [...accounts].map(() => '?').join(', ');
   return db
     .prepare(
-      `SELECT ${WORD_COLUMNS} FROM sources s WHERE s.author_account IN (${marks}) AND ${CURRENT} AND ${filter.sql}
+      `SELECT ${WORD_COLUMNS} FROM sources s WHERE s.author_account IN (${marks}) AND ${CURRENT_SOURCE} AND ${filter.sql}
     ORDER BY s.occurred_at DESC LIMIT ?`
     )
     .all(...accounts, ...filter.params, limit);
@@ -631,7 +633,7 @@ function neighbours(
     : null;
   const bound = limitMs === null ? '' : ` AND s.occurred_at ${earlier ? '>=' : '<='} ?`;
   // The boundary is read as ids and scope columns only; the text is fetched for the lines the context may open.
-  const sql = `SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.place_id = ? AND ${CURRENT}
+  const sql = `SELECT s.rowid AS rowid, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id FROM sources s WHERE s.place_id = ? AND ${CURRENT_SOURCE}
     AND (s.occurred_at, s.rowid) ${earlier ? '<' : '>'} (?, ?)${bound} ORDER BY s.occurred_at ${earlier ? 'DESC' : 'ASC'}, s.rowid ${earlier ? 'DESC' : 'ASC'} LIMIT ?`;
   const found = db
     .prepare(sql)
@@ -677,7 +679,7 @@ function sourceByNative(db: Db, ctx: Context, nativeId: unknown, origin: Row): R
   const matches = db
     .prepare(
       `SELECT ${SOURCE_METADATA} FROM sources s
-    WHERE s.native_id = ? AND s.place_id IS ? AND s.iface IS ? AND ${CURRENT}`
+    WHERE s.native_id = ? AND s.place_id IS ? AND s.iface IS ? AND ${CURRENT_SOURCE}`
     )
     .all(String(nativeId), origin.place_id, origin.iface);
   return readableSource(db, ctx, matches);
@@ -712,7 +714,7 @@ function sourceForAnchor(db: Db, ctx: Context, raw: unknown, resolved?: Resolved
       .prepare(
         `SELECT ${SOURCE_METADATA} FROM sources s WHERE s.iface = ?
       AND (s.native_id = ? OR CASE WHEN json_valid(s.extra)
-        THEN json_extract(s.extra, '$."$messageLocator".messageId') END = ?) AND ${CURRENT}`
+        THEN json_extract(s.extra, '$."$messageLocator".messageId') END = ?) AND ${CURRENT_SOURCE}`
       )
       .all(locator.iface, locator.messageId, locator.messageId)
       .filter((row) => {
@@ -733,7 +735,7 @@ function sourceForAnchor(db: Db, ctx: Context, raw: unknown, resolved?: Resolved
     db
       .prepare(
         `SELECT ${SOURCE_METADATA} FROM sources s
-    WHERE (s.id = ? OR s.native_id = ?) AND ${CURRENT}`
+    WHERE (s.id = ? OR s.native_id = ?) AND ${CURRENT_SOURCE}`
       )
       .all(id, id)
   );
@@ -825,7 +827,7 @@ function excludedSources(
   for (const value of values) {
     if (!locatorText(value)) continue;
     const rows = db
-      .prepare(`SELECT s.id FROM sources s WHERE s.iface = ? AND s.native_id = ? AND ${CURRENT}`)
+      .prepare(`SELECT s.id FROM sources s WHERE s.iface = ? AND s.native_id = ? AND ${CURRENT_SOURCE}`)
       .all(ctx.iface, value);
     if (rows.length === 1) ids.add(rows[0].id);
   }
@@ -1148,7 +1150,7 @@ function hiddenBetter(
     .prepare(
       `SELECT s.native_id AS native_id, s.place_id AS place_id, s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.scope_dm AS scope_dm, s.audience_id AS audience_id
     FROM sources_fts JOIN sources s ON s.rowid = sources_fts.rowid
-    WHERE sources_fts MATCH ? AND ${CURRENT} ${parts.map((part) => `AND ${part}`).join(' ')} ORDER BY bm25(sources_fts, 0.0, 1.0)`
+    WHERE sources_fts MATCH ? AND ${CURRENT_SOURCE} ${parts.map((part) => `AND ${part}`).join(' ')} ORDER BY bm25(sources_fts, 0.0, 1.0)`
     )
     .iterate(matchOf(terms), ...params);
   for (const row of rows) {

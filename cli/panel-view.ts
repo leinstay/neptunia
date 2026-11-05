@@ -6,6 +6,7 @@ import { Box, Text, useInput, useStdout } from 'ink';
 import type { Key } from 'ink';
 import type { Panel, PanelRow } from './panel.ts';
 import { panelRows } from './panel.ts';
+import { displaySafe } from './transcript.ts';
 import { backspace, emptyInput, insert, moveCursor } from './state.ts';
 import type { InputState } from './state.ts';
 
@@ -96,7 +97,8 @@ export function PanelView({ panel, active, close, prefill }: Props): ReactElemen
       else if (key.rightArrow) switchTab(1);
       else if (key.upArrow) setSelected(Math.max(0, index - 1));
       else if (key.downArrow) setSelected(Math.min(count - 1, index + 1));
-      else if (key.return) activate();
+      // A held Enter can come as one chunk of returns, which Ink hands over as text: it is one press here.
+      else if (key.return || /^\r+$/.test(typed)) activate();
       else if (key.backspace || key.delete) {
         setSearch((old) => [...old].slice(0, -1).join(''));
         setSelected(0);
@@ -121,6 +123,8 @@ export function PanelView({ panel, active, close, prefill }: Props): ReactElemen
         )
       : null,
     h(Text, { dimColor: true }, `search: ${search || 'type to filter'}${search ? ' (all tabs)' : ''}`),
+    // Rows may come under a few lines that say what they act on.
+    ...(panel.rows === undefined ? [] : lines.slice(0, height).map((line, i) => h(Text, { key: `line${i}` }, line))),
     ...(panel.rows === undefined
       ? lines.slice(start, start + height).map((line, i) => h(Text, { key: String(i) }, line))
       : rows
@@ -129,7 +133,7 @@ export function PanelView({ panel, active, close, prefill }: Props): ReactElemen
             h(
               Text,
               { key: one.id, inverse: start + i === index, wrap: 'truncate' },
-              `${start + i === index ? '›' : ' '} ${one.label}  ${valueOf(one)}`
+              `${start + i === index ? '›' : ' '} ${one.label}  ${displaySafe(valueOf(one))}`
             )
           )),
     count === 0 ? h(Text, { dimColor: true }, 'No matches') : h(Text, { dimColor: true }, `${index + 1}/${count}`),

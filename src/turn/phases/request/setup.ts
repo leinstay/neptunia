@@ -20,23 +20,41 @@ import { withReplyParents } from '../../history.ts';
 import type { Lookup } from '../../lookup.ts';
 import { paceSettings } from '../../settings.ts';
 import type { PaceSettings } from '../../settings.ts';
-import { TOO_SLOW } from '../../timers.ts';
+import { TOO_SLOW, TURN_CANCELLED } from '../../timers.ts';
 import { askedFor, unhurried } from '../../triggers.ts';
 import type { BeforeBar, Ended, HistoryLine, PhaseConfig, PhaseContext, PhaseParams, TurnTrigger } from '../context.ts';
 import type { Opened } from '../preflight.ts';
 
-/** The cancellation point at `bar`: the work, or TOO_SLOW thrown once the bar is reached (none without a bar). */
-export function beforeBarOf(bar: Deadline): BeforeBar {
+/**
+ * The cancellation point at `bar`: the work, or TOO_SLOW thrown once the bar is reached (none without a bar). A turn the owner
+ * can cancel also gives `cancel`, whose abort throws TURN_CANCELLED at the same points.
+ */
+export function beforeBarOf(bar: Deadline, cancel: AbortSignal | null = null): BeforeBar {
+  const cancelled =
+    cancel === null
+      ? null
+      : new Promise<never>((_resolve, reject) => {
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- TURN_CANCELLED is the turn's own signal, caught by its end
+          if (cancel.aborted) reject(TURN_CANCELLED);
+          // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the same signal
+          else cancel.addEventListener('abort', () => reject(TURN_CANCELLED), { once: true });
+        });
+  // A wait may end before the cancel comes, and then nothing else reads this rejection.
+  cancelled?.catch(() => {});
+  const beforeCancel = <TValue>(promise: Promise<TValue>): Promise<TValue> =>
+    cancelled === null ? promise : Promise.race([promise, cancelled]);
   return (promise) =>
     bar.leftMs() === null
-      ? promise
-      : Promise.race([
-          promise,
-          bar.reached.then(() => {
-            // eslint-disable-next-line @typescript-eslint/only-throw-error -- TOO_SLOW is the turn's own signal, caught by its end
-            throw TOO_SLOW;
-          }),
-        ]);
+      ? beforeCancel(promise)
+      : beforeCancel(
+          Promise.race([
+            promise,
+            bar.reached.then(() => {
+              // eslint-disable-next-line @typescript-eslint/only-throw-error -- TOO_SLOW is the turn's own signal, caught by its end
+              throw TOO_SLOW;
+            }),
+          ])
+        );
 }
 
 /** What the setup made: the attempt's settings, its bar, the history and the work started beside it. */
@@ -53,6 +71,8 @@ export type Setup = {
   waitsForAll: boolean;
   bar: Deadline;
   barAbort: AbortController;
+  /** The owner's cancel of this turn (src/turn/control.ts), null for a turn nobody can cancel. */
+  cancel: AbortSignal | null;
   beforeBar: BeforeBar;
   replyOptions: () => ReturnType<typeof replyOptionsOf>;
   asked: boolean;
@@ -93,6 +113,7 @@ export async function setupRequest(
     startPrefetch,
     turnContextOf,
     prepareDiary,
+    cancelOf,
   } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, reuseHistory = null } = params;
   const diaryParams = params.diary ?? null;
@@ -123,8 +144,23 @@ export async function setupRequest(
     life.stopTyping();
     barAbort.abort();
   });
-  const beforeBar = beforeBarOf(bar);
-  const replyOptions = () => replyOptionsOf(hot.config, { draft, bar, barAbort });
+  const cancel = cancelOf(trigger?.id ?? null);
+  // eslint-disable-next-line @typescript-eslint/only-throw-error -- TURN_CANCELLED is the turn's own signal, caught by its end
+  if (cancel?.aborted === true) throw TURN_CANCELLED;
+  cancel?.addEventListener(
+    'abort',
+    () => {
+      life.stopTyping();
+      barAbort.abort();
+    },
+    { once: true }
+  );
+  const beforeBar = beforeBarOf(bar, cancel);
+  const replyOptions = () => ({
+    ...replyOptionsOf(hot.config, { draft, bar, barAbort }),
+    // A turn without a bar has no signal of its own, and a cancel still has to reach its request.
+    ...(cancel === null ? {} : { signal: barAbort.signal }),
+  });
   // Someone asked for this turn (askedFor): not a spontaneous or an overheard one.
   const asked = askedFor(trigger, triggerKind);
   // A turn a returned errand opened answers with its result: the engine's own search
@@ -245,6 +281,7 @@ export async function setupRequest(
     waitsForAll,
     bar,
     barAbort,
+    cancel,
     beforeBar,
     replyOptions,
     asked,

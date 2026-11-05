@@ -38,7 +38,7 @@ export type Line = {
 };
 
 /** Why a turn ended (src/behavior/turn.ts#TurnOutcome). */
-export type TurnOutcome = 'spoke' | 'skip' | 'busy' | 'refused' | 'paused' | 'not-now' | 'error';
+export type TurnOutcome = 'spoke' | 'skip' | 'busy' | 'refused' | 'paused' | 'not-now' | 'cancelled' | 'error';
 
 /** A rail's limit a refused turn carries, as the limit notice quotes it. */
 export type Limit = { key: string; used?: number; cap?: number };

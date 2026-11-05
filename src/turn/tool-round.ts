@@ -33,6 +33,7 @@ import type { Act, ActArgs, ActOutcome, HeldSpeech, HoldArgs } from './act.ts';
 import { CALL_STATUS_NAMES, callTextOf, defaultSkills, ifaceOption, searchHandles, speechItemsOf } from './calls.ts';
 import type { CallEnvelope, SearchRefs } from './calls.ts';
 import { cutOffOf, untoldDiagnostics } from './journal.ts';
+import { TURN_CANCELLED } from './timers.ts';
 import { snapshotOfDraft } from './routing.ts';
 import { INNER_TERMINAL_SKILLS, LOOP_MIN_CALL_MS, LOOP_WHY, loopSettings } from './settings.ts';
 import { resultCharsFor } from './settings.ts';
@@ -183,6 +184,10 @@ type Routed = 'idByIndex' | 'history' | 'lines' | 'pulledIds' | 'handles' | 'cha
 type StepActArgs = Omit<ActArgs, Routed> & Omit<HoldArgs, Routed>;
 
 export type RunStepsArgs = {
+  /** The owner's cancel of this turn: it takes effect between steps. */
+  cancel?: AbortSignal | null;
+  /** What her tools do, for the owner's chat. */
+  noteStep?: (step: { name: string; detail: string }) => void;
   channel: CallContext['channel'];
   placeId: string;
   trigger: (CallContext['trigger'] & { content?: unknown }) | null | undefined;
@@ -407,8 +412,11 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     triggerKind,
     lateMedia = null,
     typing,
+    cancel = null,
+    noteStep = () => {},
   }: RunStepsArgs & { typing: { stop: () => void; started: boolean } }): Promise<Stepped> {
     const inner = Boolean(draft.inner);
+    const isCancelled = (): boolean => cancel?.aborted === true;
     const wakeKind = draft.inner?.wake?.kind ?? null;
     // A diary post (draft.diary): only draw.create runs; its pictures are staged and posted with the messages.
     const diary = Boolean(draft.diary);
@@ -513,6 +521,8 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     };
 
     for (;;) {
+      // Nothing more runs or goes out once the owner cancelled.
+      if (isCancelled()) break;
       const { parsed } = answer;
       const records = answer.calls;
       const loweredCalls = parsed.loweredCalls ?? [];
@@ -586,12 +596,14 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           if (record.problem === CODE.TRUNCATED_CALL) draft.format.truncated += 1;
           if (preRefuse?.code === CODE.LOOP_CAP) draft.format.capped += 1;
         }
+        for (const plan of plans) noteStep({ name: plan.record.name, detail: 'started' });
         const leftMs = settings.timeBudgetMs - (clock() - loopStartedAt);
         const actionsBefore = draft.innerActions?.length ?? 0;
         results = await runCalls(
           plans,
           contextOf(routed, Math.min(callTimeoutCap, Math.max(LOOP_MIN_CALL_MS, leftMs)))
         );
+        for (const result of results) noteStep({ name: result.skill, detail: result.status });
         ranActions = draft.innerActions?.slice(actionsBefore) ?? [];
         made += results.length;
         // The calls and how they ended, for the use of her skills (src/skills/uses.ts).
@@ -620,7 +632,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         speak = terminalAt >= 0 && coversSpeech(definitionOf(results[terminalAt].skill), results[terminalAt]);
       let loweredResults: Array<CallOutcome> = [];
       const deliveries: Array<{ n: number; total: number; code: string }> = [];
-      if (speak && heldItems > 0) {
+      if (speak && heldItems > 0 && !isCancelled()) {
         const posted = await postSpeech({ parsed, loweredCalls });
         loweredResults = posted.loweredResults;
         deliveries.push(...posted.deliveries);
@@ -645,6 +657,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       )
         delivered = true;
       const posted = stepResults.some((result) => result.skill === 'message.create' && result.status === 'ok');
+      if (isCancelled()) break;
 
       // 3. What follows: a request when something is left to read and room is left, else the end.
       const verdict = stepVerdict(
@@ -758,6 +771,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           ...(draft.started ? { limits: draft.limits } : {}),
           ...ifaceOption(draft),
           ...tools,
+          ...(cancel === null ? {} : { signal: cancel }),
         });
       } catch (err) {
         log.warn('skills: follow-up failed', {
@@ -809,6 +823,9 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       }
     }
 
+    // A cancel with nothing of the turn out is a cancelled turn. Once something went out the turn stands as it spoke.
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TURN_CANCELLED is the turn's own signal, caught by its end
+    if (isCancelled() && !delivered) throw TURN_CANCELLED;
     // The end: calls no request followed are either dropped (a fact for her next request) or failed unseen (a fact too).
     const dropped = unseen.filter((result) => result.code === CODE.LOOP_CAP);
     if (dropped.length > 0) {

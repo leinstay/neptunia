@@ -123,6 +123,8 @@ export async function toolRoundPhase(
       : null;
   // Her calls, then her speech, then (when something is left to read) another request, and so on (runSteps).
   const stepped = await runSteps({
+    cancel: setup.cancel,
+    noteStep: (step) => ctx.noteProgress(trigger?.id ?? null, step),
     channel,
     placeId,
     trigger,

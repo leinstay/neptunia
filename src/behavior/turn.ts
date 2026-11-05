@@ -80,7 +80,7 @@ export { chunkPictures };
  * other failure, logged -- a turn dropped unposted at its bar
  * (pace.dropAfterMs, `turn: dropped`) included.
  */
-export type TurnOutcome = 'spoke' | 'skip' | 'busy' | 'refused' | 'paused' | 'not-now' | 'error';
+export type TurnOutcome = 'spoke' | 'skip' | 'busy' | 'refused' | 'paused' | 'not-now' | 'cancelled' | 'error';
 
 /** A turn's result with its outcome named. */
 export type ReportedTurn = Omit<Awaited<ReturnType<ReturnType<typeof createOutcome>['runTurn']>>, 'outcome'> & {
@@ -338,6 +338,8 @@ export function createTurnRunner({
   attention = new Set(),
   roleHealth = null,
   track = untracked,
+  cancelOf = () => null,
+  noteProgress = () => {},
 }: CreateTurnRunnerInput): TurnRunner {
   const ifaceReads: Reads = readsDep;
   const busy = attention;
@@ -641,6 +643,8 @@ export function createTurnRunner({
     noteThink,
     stepTranscript,
     runSteps,
+    cancelOf,
+    noteProgress,
     inTurnTools,
     classifierContext,
     startPrefetch,

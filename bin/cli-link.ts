@@ -15,6 +15,8 @@ import type {
 } from '../src/protocol/adapter.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';
+import { TURN_EVENT_STATUS, readTurnEvent } from '../src/protocol/turn-control.ts';
+import type { TurnEvent } from '../src/protocol/turn-control.ts';
 import type { Transport } from '../src/protocol/wire.ts';
 import { classifyAttachment } from '../src/media/classify.ts';
 import type { Attachment } from '../src/protocol/actions.ts';
@@ -241,11 +243,25 @@ export type CliLink = {
   say(text: string, images?: ReadonlyArray<LineImage>): Promise<string>;
   /** Sends a line and waits for the end of the turn over it. */
   turn(text: string, images?: ReadonlyArray<LineImage>): Promise<Answer>;
+  /** Replaces the lines the core's history reads answer from, with those of a resumed or branched conversation. */
+  showLines(lines: ReadonlyArray<{ id: string; at: number; who: string; text: string; nativeId?: string }>): void;
   /** Sends a command; a question it asks goes to `answers`, and without them the command is refused. */
   ask(command: Command, answers?: LinkAnswers): Promise<Answer>;
   closed: Promise<void>;
   close(): void;
 };
+
+/** A turn event from a result's text to `onEvent`. Anything else in that place is dropped: it names no turn. */
+function readEvent(text: string, onEvent: ((event: TurnEvent) => void) | null): void {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return;
+  }
+  const read = readTurnEvent(value);
+  if (read.ok) onEvent?.(read.event);
+}
 
 /** The `cli` client on `transport`. `print` takes her replies and `deliver` her files, null or absent for none. */
 export function openLinkOver(
@@ -254,13 +270,18 @@ export function openLinkOver(
     token,
     print,
     deliver = null,
+    onTurnEvent = null,
+    transcript = [],
   }: {
     token: string;
     print: ((text: string) => void) | null;
     deliver?: ((file: Attachment) => Promise<void>) | null;
+    /** What the core says of the turns, once this client subscribed with `turn.replay`. */
+    onTurnEvent?: ((event: TurnEvent) => void) | null;
+    /** The lines the core's history reads answer from. A reconnect hands the same array to the new link. */
+    transcript?: Array<MessageEvent>;
   }
 ): CliLink {
-  const transcript: Array<MessageEvent> = [];
   const waiting = new Map<string, (result: Reply) => void>();
   const closed = new Promise<void>((resolve) =>
     transport.onClose(() => {
@@ -283,6 +304,10 @@ export function openLinkOver(
     adapter: cliAdapter(print, deliver, transcript),
     log: quiet,
     onCommandResult: (result: CommandResult) => {
+      if (result.status === TURN_EVENT_STATUS) {
+        readEvent(result.text, onTurnEvent);
+        return;
+      }
       const resolveAnswer = waiting.get(result.replyRef);
       waiting.delete(result.replyRef);
       resolveAnswer?.({
@@ -308,6 +333,11 @@ export function openLinkOver(
       if (acked === 'ok') return ended;
       waiting.delete(replyRef);
       return { text: `the core did not take the line (${acked})`, status: acked };
+    },
+    showLines(lines) {
+      transcript.length = 0;
+      for (const line of lines.slice(-TRANSCRIPT_LINES))
+        transcript.push(lineEvent(line.text, line.at, { id: line.nativeId ?? line.id, self: line.who === 'her' }));
     },
     async ask(command, answers) {
       /** One request and the reply to it: a result, or a question. */

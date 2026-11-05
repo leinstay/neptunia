@@ -10,6 +10,7 @@
 //     since it by the board's clock. A claim another caller won goes on to the next task. Nothing ready is `ok` with no
 //     data and writes nothing.
 //   - `task.events { from = 0, limit = 1000 }` answers the board's events after `from`.
+//   - `task.approvals` and `task.approval.answer` read and answer the owner's gates (src/board/approval-view.ts).
 // Two arguments are the command layer's and never reach the board: `json` (true: the text is the data's JSON) and
 // `idempotency` (the key of `Board.call`). A holder call carries the generation of its lease: `task.heartbeat`,
 // `task.release`, `task.block`, `task.submit` and `task.attempt.end` always, `task.result` and `task.ask` when the
@@ -18,6 +19,8 @@
 // error code with its message and no data (`board-unavailable` with no board, `error` for any other failure). The
 // plain text is the ledger's command line's (src/board/text.ts). Nothing here logs.
 
+import { answerApproval, pendingApprovals } from './approval-view.ts';
+import type { ApprovalAnswer } from './approval-view.ts';
 import { BOARD_OPS } from './board.ts';
 import type { Board, BoardOp, TaskRecord } from './board.ts';
 import { BoardError } from './machine.ts';
@@ -140,6 +143,9 @@ function dataOf(deps: TaskCommandDeps, board: Board, call: { principal: string; 
   if (idempotency !== undefined && typeof idempotency !== 'string') throw invalid('idempotency must be a string');
   if (name === 'task.next') return nextTask(board, principal, args, deps.briefWaitMs());
   if (name === 'task.events') return eventsOf(board, principal, args);
+  if (name === 'task.approvals') return pendingApprovals(board, principal);
+  // The answer's fields go to `task.approve`, which checks each of them.
+  if (name === 'task.approval.answer') return answerApproval(board, principal, args as ApprovalAnswer);
   const op = opOf(name);
   if (op === null) throw invalid(`unknown command ${name}`);
   requireGeneration(board, principal, name, op, args);

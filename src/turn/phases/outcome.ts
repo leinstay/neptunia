@@ -17,7 +17,7 @@ import type { HeldSpeech } from '../act.ts';
 import type { Draft } from '../draft.ts';
 import { SKIP_NOTHING_TO_DO, untoldDiagnostics } from '../journal.ts';
 import { NO_LOOP } from '../settings.ts';
-import { TOO_SLOW } from '../timers.ts';
+import { TOO_SLOW, TURN_CANCELLED } from '../timers.ts';
 import type { AttemptResult, PhaseContext, PhaseParams } from './context.ts';
 import type { Opened } from './preflight.ts';
 import type { Rounded } from './tool-round.ts';
@@ -125,6 +125,11 @@ export function outcomeOfError(
   const { clock } = ctx;
   const { triggerKind = null } = params;
   const { channel, life } = opened;
+  if (err === TURN_CANCELLED) {
+    log.info('turn: cancelled', { channel: channel.id, mode: life.turnMode, triggerKind: triggerKind ?? null });
+    draft.reason = 'cancelled';
+    return { outcome: 'cancelled', reason: 'cancelled' };
+  }
   if (err === TOO_SLOW) {
     // Past the bar: nothing is posted; `error`, like a failed request (a routed call stays unanswered).
     log.warn('turn: dropped', {

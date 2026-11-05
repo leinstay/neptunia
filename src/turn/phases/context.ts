@@ -144,8 +144,10 @@ export type PhaseContext = {
   Pick<DrawGif, 'resolveGif'> &
   Pick<Sends, 'emojiLookup' | 'settleAuthor' | 'diaryChannelName'> &
   Pulls &
-  Pick<ToolRound, 'readHistory' | 'noteThink' | 'stepTranscript' | 'runSteps'> &
-  InTurnTools &
+  Pick<ToolRound, 'readHistory' | 'noteThink' | 'stepTranscript' | 'runSteps'> & {
+    cancelOf: (triggerId: string | null) => AbortSignal | null;
+    noteProgress: (triggerId: string | null, step: { name: string; detail: string }) => void;
+  } & InTurnTools &
   Rewatch &
   Pick<Lookup, 'startPrefetch' | 'recallAvailable' | 'turnDirectory' | 'privatePartner' | 'maybeSplit'>;
 
