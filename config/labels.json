@@ -648,6 +648,7 @@
           "channel-not-visible": "you cannot see that channel",
           "gif-failed": "your text posted but the GIF failed to attach",
           "empty-query": "nothing left to search after cleaning the query",
+          "think-in-text": "the text holds a think tag, and a think tag never goes out; nothing was sent, so write the message again without it",
           "provider": "the search engine did not answer ({status})",
           "cap": "{what} reached today's limit",
           "no-budget": "there is no budget for it now",
@@ -864,7 +865,9 @@
         "messageCut": "Your message was too long and lost its last {chars} characters",
         "msgMalformed": "Message tags out of place in your answer: {count}. Your text was split or ended at those tags, and none of them was posted. Close each <msg> before you open the next.",
         "messagesMerged": "{count} of your messages were merged into the last one",
-        "thinkUnclosed": "Your thinking was never closed, so nothing was posted"
+        "thinkUnclosed": "Your thinking was never closed, so nothing was posted",
+        "thinkUnopened": "Your answer closed a thinking it never opened, so nothing was posted",
+        "thinkLeaked": "Two answers in a row broke their <think>, one left open or closed with no opening, so neither was posted and your turn ended there"
       },
       "refusals": {
         "agentRequired": "{arg} was not given; name one of: {agents}",

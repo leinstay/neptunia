@@ -8,12 +8,20 @@ import { resolveReactionEmoji } from '../../behavior/emoji.ts';
 import { innerOutputCalls } from '../../behavior/inner-output.ts';
 import { thinkMissing } from '../../behavior/tool-step.ts';
 import { markRefusalsTold } from '../../behavior/diary-turn.ts';
-import { parseOutput, takeAudience } from '../../llm/parse.ts';
+import { parseOutput, shapedThink, takeAudience } from '../../llm/parse.ts';
 import { log } from '../../log.ts';
 import { countDashes, stripDashes } from '../../memory/clamp.ts';
-import { answerOf, defaultSkills } from '../calls.ts';
+import { isOffScript } from '../../memory/text-standard.ts';
+import { answerLeaked, answerOf, askUnleaked, defaultSkills } from '../calls.ts';
 import type { Draft } from '../draft.ts';
-import { SKIP_NOTHING_TO_DO, SKIP_SILENCE, cutOffOf, journalUsage, noteDiagnostics } from '../journal.ts';
+import {
+  SKIP_NOTHING_TO_DO,
+  SKIP_SILENCE,
+  SKIP_THINK_LEAKED,
+  cutOffOf,
+  journalUsage,
+  noteDiagnostics,
+} from '../journal.ts';
 import { TOO_SLOW, TURN_CANCELLED } from '../timers.ts';
 import type { PlannedCall } from '../skill-calls.ts';
 import type { StepAnswer, StepCompletion } from '../tool-round.ts';
@@ -68,6 +76,9 @@ export async function responsePhase(
   const messages = request.messages;
 
   let completion: Completion;
+  // Answers dropped for a broken think, and whether a second one ended the turn.
+  let leaks = 0;
+  let leakEnded = false;
   // What the client was given: the tool round continues from it.
   const sentMessages = messages;
   // Her tools travel as the request's `tools` on the native transport (the text transport described them in `<tools>`).
@@ -75,7 +86,21 @@ export async function responsePhase(
     transport === 'native' && draft.tools.length > 0 ? { tools: draft.tools, toolChoice: 'auto' } : null;
   const replyStartedAt = clock();
   try {
-    completion = await beforeBar(llm.complete(messages, { ...replyOptions(), ...(toolsSent ?? {}) }));
+    const asked = await askUnleaked(
+      () => beforeBar(llm.complete(messages, { ...replyOptions(), ...(toolsSent ?? {}) })),
+      (answer) =>
+        answerLeaked(answer as Parameters<typeof answerLeaked>[0], {
+          transport,
+          step: 1,
+          registry: skills ?? defaultSkills(),
+        }),
+      () => {
+        leaks += 1;
+        log.info('turn: think leaked', { channel: channel.id, step: 0, leaks });
+      }
+    );
+    completion = asked.completion;
+    leakEnded = asked.ended;
   } catch (err) {
     // The owner's cancel aborted the request, or is the turn's own signal already.
     // eslint-disable-next-line @typescript-eslint/only-throw-error -- TURN_CANCELLED is the turn's own signal, caught by its end
@@ -159,7 +184,18 @@ export async function responsePhase(
   };
   // One answer read: split into speech and calls (answerOf), the speech parsed and shaped, the think kept,
   // her answer counted when it did not begin with her thinking. `number`: 1 for the reply's answer, one more for each after.
-  draft.format = { thinkMissing: 0, coerced: 0, malformed: 0, truncated: 0, capped: 0, held: 0 };
+  draft.format = {
+    thinkMissing: 0,
+    coerced: 0,
+    malformed: 0,
+    truncated: 0,
+    capped: 0,
+    held: 0,
+    thinkLeaked: leaks,
+    leakEnded: leakEnded ? 1 : 0,
+    tagInOutgoing: 0,
+    thinkOffScript: 0,
+  };
   draft.steps = 0;
   const readAnswer = (answered: StepCompletion, number: number): ReadAnswer => {
     // The language model client answers its tool calls as a list (src/llm/openrouter.ts#complete).
@@ -181,8 +217,16 @@ export async function responsePhase(
       draft.format.thinkMissing += 1;
       log.info('turn: think missing', { channel: channel.id, step: number - 1 });
     }
-    return { completion: answered, ...split, parsed: shaped };
+    if (isOffScript(shaped.think)) draft.format.thinkOffScript += 1;
+    // The next request hands on her answer in the one shape every stored reply has; her words stay as they are.
+    return { completion: answered, ...split, rawText: shapedThink(split.rawText), parsed: shaped };
   };
+  // Both answers leaked: nothing of them is acted on, and she learns of it as a fact of her next request.
+  if (leakEnded) {
+    if (draft.started) draft.usage = journalUsage(completion);
+    (draft.diagnostics ??= []).push({ kind: 'thinkLeaked', told: false });
+    return { ended: { outcome: 'skip', mode: finalMode, reason: SKIP_THINK_LEAKED } };
+  }
   const first = readAnswer(completion, 1);
   const parsed = first.parsed;
   const nothingToDo = parsed.messages.length === 0 && parsed.reactions.length === 0 && parsed.loweredCalls.length === 0;

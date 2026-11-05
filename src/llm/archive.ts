@@ -9,6 +9,8 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { REPLY_REQUEST } from './openrouter.ts';
+import { shapedThink } from './parse.ts';
 
 type Row = Record<string, unknown>;
 /** What a request led to: `confirmed` by a receipt, `failed`, or `unlinked` with no receipt to read. */
@@ -94,9 +96,13 @@ function systemOf(messages: unknown): string | null {
   return first === undefined ? null : JSON.stringify(first.content);
 }
 
-function thinkOf(text: unknown): string | null {
+/**
+ * The think of an answer. `response_text` keeps the answer as it came and is never rewritten, so a reply request's answer with
+ * text and no `<think>` shows the one shape of a stored reply here, an empty think. A helper's answer has none.
+ */
+function thinkOf(text: unknown, purpose: unknown): string | null {
   if (typeof text !== 'string') return null;
-  const match = /<think>([\s\S]*?)<\/think>/.exec(text);
+  const match = /<think>([\s\S]*?)<\/think>/.exec(purpose === REPLY_REQUEST.purpose ? shapedThink(text) : text);
   return match?.[1] ?? null;
 }
 
@@ -132,12 +138,12 @@ function startRecord(
 const textOrNull = (value: unknown): string | null => (typeof value === 'string' ? value : null);
 
 /** The fields of a row an answer closes it with. */
-const answerFields = (answer: Row | null | undefined): Row => ({
+const answerFields = (answer: Row | null | undefined, purpose: unknown): Row => ({
   model: textOrNull(answer?.model),
   backend: textOrNull(answer?.backend),
   source: textOrNull(answer?.source),
   response_text: textOrNull(answer?.text),
-  think: thinkOf(answer?.text),
+  think: thinkOf(answer?.text, purpose),
   tool_calls: answer?.toolCalls === undefined ? null : JSON.stringify(answer.toolCalls),
   usage: answer?.usage === undefined ? null : JSON.stringify(answer.usage),
 });
@@ -185,7 +191,7 @@ export function archivedLlm<TLlm extends { complete: (...args: Array<never>) => 
         options,
         ...rest
       );
-      await keep(id, { op: 'finish', id, at: now(), status: 'ok', ...answerFields(answer) });
+      await keep(id, { op: 'finish', id, at: now(), status: 'ok', ...answerFields(answer, options.purpose) });
       return answer;
     } catch (error) {
       await keep(id, { op: 'finish', id, at: now(), status: 'failed', error_code: failureCause(error) });

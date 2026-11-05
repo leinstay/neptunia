@@ -85,9 +85,11 @@ test('a reply with no think posts her words as she wrote them, in one request, a
   assert.equal(turnRecord(lines).format.thinkLeaked, 0);
 });
 
-// Bug: the request archive, the record the standard is measured on, keeps the old shape, or every helper's plain answer
-// gets a think it never wrote.
-test('the request archive stores a reply with no think with an empty one, and a helper answer as it came', async () => {
+// Bug: the request archive, the record the standard is measured on, loses the raw answer or shows another shape, or every
+// helper's plain answer gets a think it never wrote. Stage U, the lead's ruling: `response_text` stays the raw answer because
+// the archive is never rewritten, so this test pins the shape in the reply's `think`. The history she reads back holds it too,
+// which the two transport tests above pin.
+test('the request archive keeps a reply as it came with an empty think, and a helper answer with none', async () => {
   const writes: Array<Record<string, unknown>> = [];
   const llm = archivedLlm(sequenceLlm(['<msg>χωρίς σκέψη</msg>']), {
     write: (update) => {
@@ -98,7 +100,7 @@ test('the request archive stores a reply with no think with an empty one, and a 
   });
   await coreTurn({ answers: [], runner: { llm } });
   const stored = writes.filter((update) => typeof update.response_text === 'string').at(-1);
-  assert.equal(stored?.response_text, '<think></think><msg>χωρίς σκέψη</msg>');
+  assert.equal(stored?.response_text, '<msg>χωρίς σκέψη</msg>');
   assert.equal(stored?.think, '');
 
   const helperWrites: Array<Record<string, unknown>> = [];
@@ -113,7 +115,9 @@ test('the request archive stores a reply with no think with an empty one, and a 
     }
   );
   await withRequestMeta(() => helper.complete());
-  assert.equal(helperWrites.filter((update) => typeof update.response_text === 'string').at(-1)?.response_text, 'none');
+  const helperStored = helperWrites.filter((update) => typeof update.response_text === 'string').at(-1);
+  assert.equal(helperStored?.response_text, 'none');
+  assert.equal(helperStored?.think, null);
 });
 
 // ---------- a leaked answer, once ----------

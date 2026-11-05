@@ -57,7 +57,7 @@ const GIF = {
   itemId: 'm1#e0',
   kind: 'gif',
   url: 'https://images-ext-1.discordapp.net/external/t/https/media.tenor.com/x/AAAAe/still.png',
-  sourceUrl: 'https://media.tenor.com/x/AAAPo/loop.mp4',
+  animationUrl: 'https://media.tenor.com/x/AAAPo/loop.mp4',
 };
 
 // Bug: an English description costs a second request.

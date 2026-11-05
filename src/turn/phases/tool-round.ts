@@ -7,6 +7,7 @@ import { lateMediaTeller } from '../../behavior/turn-parts.ts';
 import { wakeCallKey } from '../../tools/wake-tools.ts';
 import { callEnvelope } from '../calls.ts';
 import type { Draft } from '../draft.ts';
+import { SKIP_THINK_LEAKED } from '../journal.ts';
 import type { Stepped } from '../tool-round.ts';
 import type { Acting } from './act.ts';
 import type { Ended, PhaseContext, PhaseParams } from './context.ts';
@@ -155,6 +156,9 @@ export async function toolRoundPhase(
     draft.reason = 'cut-off';
     return { ended: { outcome: 'error', mode: finalMode, reason: 'cut-off' } };
   }
+  // Two answers of a later step broke their think and nothing of the turn reached the chat: an answer she lost, and a fact says so.
+  if (stepped.leakEnded && !stepped.delivered)
+    return { ended: { outcome: 'skip', mode: finalMode, reason: SKIP_THINK_LEAKED } };
   // A set kind that ended below selfreflection.set.minPosted staged pictures (runSteps): nothing was posted.
   if (draft.setShort !== undefined) return { ended: setShort(draft.setShort) };
 

@@ -130,6 +130,7 @@ export const CATALOGUE = Object.freeze({
   'loop-cap': skill('invalid'),
   'malformed-call': skill('invalid'),
   'truncated-call': skill('invalid'),
+  'think-in-text': skill('invalid'),
 
   // What it needs is not set up.
   'not-configured': skill('not_configured', ['feature']),
