@@ -18,6 +18,12 @@ The core decides an errand's path when it dispatches the errand. `routeOfAgent` 
 
 Claude Code and Codex bring their own login, so no key travels with them, and an errand agent searches with its harness's own tools. An OpenCode route spends the extra key that `subharness.key` names in `keys.json`. The core puts its value in the task's `secrets.openrouterKey`, and the runner uses it for that run alone. When that key is missing, the errand fails with `route-no-key`. When the core cannot read `keys.json` at dispatch, the errand fails with `keys-unreadable` and nothing is sent.
 
+### The preamble and the system instructions
+
+A run's system instructions are the deployment's preamble first and the agent's prompt after it, joined by a blank line. The prompt text of the run is the task alone, its goal and context. `composePreamble` in [src/errands/preambles.ts](../src/errands/preambles.ts) builds the preamble from the files of `prompts.local/preambles/` that match the run, `all.md`, `<agent>.md`, `@<model>.md` and `<agent>@<model>.md` in that order. Every matching file goes in whole, and the preamble has no length cap.
+
+The system instructions replace the backend's own. Claude Code reads them from the file `--system-prompt-file` names, Codex from `-c model_instructions_file=<path>`, and OpenCode as the `build` agent's `prompt` in the config file `OPENCODE_CONFIG` names, which OpenCode merges with the step cap of `OPENCODE_CONFIG_CONTENT`. [src/agent-runner/backend.ts](../src/agent-runner/backend.ts) writes each file mode `600` into a folder of the run's own and removes it when the run ends, whether the child succeeded, failed or never started.
+
 ## Modes
 
 Execution modes govern the agent's access: `read`, `write`, `full` and `sudo`. The mode in the route sets the backend's sandbox and decides whether `sudo` is refused inside the run. Use `/agent mode <agent> <mode>` to select one. Rerender units with `neptunia setup` and restart the affected unit to apply systemd restrictions. A mode stored in the key store alone does not change an already running service.

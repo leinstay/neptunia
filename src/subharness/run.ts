@@ -38,7 +38,10 @@ import { recordSession } from './sessions.ts';
 export type AgentRun = {
   /** The agent's name: scout, server, dev or watcher; any other runs in `read`. */
   agent: string;
+  /** the prompt text: the task alone */
   brief: string;
+  /** the system instructions, which replace the backend's own (see `BackendRunOptions.system`); any length */
+  system?: string;
   cwd: string;
   timeoutMs: number;
   /** The most model steps the run may take, where the backend has a control for it. */
@@ -249,6 +252,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     ...(run.tools === undefined ? {} : { tools: run.tools }),
     ...(run.images === undefined ? {} : { images: run.images }),
     ...(run.signal === undefined ? {} : { signal: run.signal }),
+    ...(run.system === undefined ? {} : { system: run.system }),
   };
   const backend = deps.backendFactory?.(name) ?? createInstalledBackend(name, deps.privateDir);
   const sessionId = await sessionIdOf(name, deps);

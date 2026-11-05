@@ -20,7 +20,6 @@ import {
   normalizeResult,
   SECRET_KEYS,
   httpProxyForm,
-  MAX_PREAMBLE_CHARS,
 } from '../src/agent-runner/protocol.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
@@ -283,7 +282,7 @@ test('validateRequest: context.recent passes as { author, text } lines, the late
 });
 
 test('validateRequest: a run carries the shared preamble trimmed; a blank one is dropped, none given none passed on', () => {
-  assert.equal(MAX_PREAMBLE_CHARS, 8000);
+  // Stage X: the preamble has no cap, so the constant this line pinned is gone (tests/preamble-no-cap.test.ts).
   const ok = validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: '  Shared text for every agent.\n' });
   assert.equal(ok.ok, true);
   assert.equal(loose(ok.message).preamble, 'Shared text for every agent.');
@@ -305,7 +304,7 @@ test('validateRequest: a run carries the shared preamble trimmed; a blank one is
   );
 });
 
-test('validateRequest / parseRequestLine: a non-string or over-long preamble is refused with its code, never its text', () => {
+test('validateRequest / parseRequestLine: a non-string preamble is refused with its code, never its text', () => {
   for (const preamble of [42, null, ['PREAMBLE-TEXT'], { text: 'PREAMBLE-TEXT' }, true]) {
     assert.deepEqual(
       validateRequest({ op: 'run', id: 'a', goal: 'x', preamble }),
@@ -313,12 +312,11 @@ test('validateRequest / parseRequestLine: a non-string or over-long preamble is 
       JSON.stringify(preamble)
     );
   }
-  const long = `PREAMBLE-TEXT${'x'.repeat(8000)}`;
-  assert.deepEqual(validateRequest({ op: 'run', id: 'a', goal: 'x', preamble: long }), {
-    ok: false,
-    error: 'preamble-too-long',
-  });
-  const parsed = parseRequestLine(JSON.stringify({ op: 'run', id: 'task-p', goal: 'g', preamble: long }));
-  assert.deepEqual(parsed, { ok: false, error: 'preamble-too-long', id: 'task-p' });
+  // Stage X: the owner removed the preamble cap, so the over-long case and its `preamble-too-long` code are gone; the
+  // refusal that leaks no text is checked on a non-string preamble instead.
+  const parsed = parseRequestLine(
+    JSON.stringify({ op: 'run', id: 'task-p', goal: 'g', preamble: { text: 'PREAMBLE-TEXT' } })
+  );
+  assert.deepEqual(parsed, { ok: false, error: 'bad-preamble', id: 'task-p' });
   assert.ok(!encodeLine(errorEvent(parsed.error, parsed.id)).includes('PREAMBLE-TEXT'));
 });

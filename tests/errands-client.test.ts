@@ -5,7 +5,7 @@
 // reopened, a profile that is not set up answers `not-configured` without connecting, and each
 // outcome of the connect loop reaches the `onLink` listeners. The deployment's preamble goes out
 // on a run's line only when non-empty, read at each run: the files of prompts.local/preambles/ are
-// picked by agent and by the agent's role model and capped by whole files; prompts.local/agents.md
+// picked by agent and by the agent's role model; prompts.local/agents.md
 // (`hot.prompts.agents`) is never read as one. A run carries the live role model and the live
 // `agents.<profile>.cost` (when usable), since the runners cannot read the private config.
 import { consumers, consumerRig } from './fixtures/agent-consumers.ts';
@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createErrandClient } from '../src/errands/client.ts';
-import { encodeLine, MAX_PREAMBLE_CHARS } from '../src/agent-runner/protocol.ts';
+import { encodeLine } from '../src/agent-runner/protocol.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -320,34 +320,8 @@ test('errands client: without a role in the live config the run carries the engi
   }
 });
 
-test('errands client: a composed preamble over MAX_PREAMBLE_CHARS sends the whole files that fit and warns with their names', async () => {
-  const sock = socketPath();
-  const runner = await fakeRunner(sock);
-  const hot = hotFor(sock);
-  loose(hot.config).models = { errands: { scout: 'openrouter/vendor/model' } };
-  const big = 'b'.repeat(MAX_PREAMBLE_CHARS - 10);
-  loose(hot).prompts = { preambles: { all: big, scout: 'w'.repeat(20), '@vendor-model': 'MODEL' } };
-  const client = createErrandClient({ hot });
-  try {
-    const { logs } = await withCapturedLogs(async () => {
-      const running = client.run({ agent: 'scout', id: 'task-cap', goal: 'look' });
-      const request = await runner.next((r: Untyped) => r.op === 'run' && r.id === 'task-cap');
-      assert.equal(loose(request).preamble, `${big}\n\nMODEL`);
-      assert.ok(loose(request).preamble.length <= MAX_PREAMBLE_CHARS, 'the runner would not refuse it');
-      runner.reply({ id: 'task-cap', event: 'end', status: 'done', result: { text: 'ok' }, usage: {} });
-      assert.equal((await running).status, 'done');
-    });
-    const warned = logs.filter((entry) => entry.msg === 'errands: preamble over the cap');
-    assert.equal(warned.length, 1);
-    assert.equal(warned[0].level, 'warn');
-    assert.deepEqual(warned[0].files, ['preambles/all.md', 'preambles/@vendor-model.md']);
-    assert.deepEqual(warned[0].dropped, ['preambles/scout.md']);
-    assert.ok(!JSON.stringify(logs).includes('bbbbbbbbbb'), 'no preamble text in a log line');
-  } finally {
-    client.close();
-    await runner.close();
-  }
-});
+// Stage X: the cap test that stood here is gone with the cap; tests/errands-client-preamble.test.ts checks a long
+// preamble goes out whole.
 
 test('errands client: cancel and ping go out as lines; a pong answers the ping', async () => {
   const sock = socketPath();

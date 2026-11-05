@@ -9,11 +9,9 @@
 // <model> is the run's model id lowercased, every character outside [a-z0-9.] replaced by `-`
 // (`openrouter/moonshotai/kimi-k3` -> `openrouter-moonshotai-kimi-k3`); an id with a leading
 // `openrouter/` provider prefix also matches without it (`moonshotai-kimi-k3`), the full form
-// first when both files exist. An empty file is skipped.
-// The composed text is capped at `maxChars` (the protocol's MAX_PREAMBLE_CHARS): over it, the
-// files are taken in order, whole, each only while it still fits, and the rest are named as
-// dropped, so a run is never refused for its preamble. Pure: no I/O, no log; the caller logs the
-// file names and lengths, never a text.
+// first when both files exist. An empty file is skipped. Every matching file goes in whole: the
+// composed text has no length cap, how much to write is the deployment's choice. Pure: no I/O, no
+// log; the caller logs the file names and lengths, never a text.
 
 import { objOf } from '../tools/types.ts';
 
@@ -61,38 +59,24 @@ function textOf(value: unknown): string {
 
 /**
  * The preamble of one run.
- * `prompts` is the live prompts (`preambles`: base name to text), `model` the run's model id and `maxChars` the cap
- * of the composed text. `files` are the sent files (`preambles/<name>.md`), in order, `dropped` the matching files
- * the cap left out, `chars` the length of `text`.
+ * `prompts` is the live prompts (`preambles`: base name to text) and `model` the run's model id. `files` are the sent
+ * files (`preambles/<name>.md`), in order, and `chars` the length of `text`.
  */
 export function composePreamble({
   prompts,
   agent,
   model = null,
-  maxChars = Infinity,
 }: {
   prompts?: { preambles?: unknown };
   agent?: string;
   model?: string | null;
-  maxChars?: number;
-} = {}): { text: string; files: Array<string>; dropped: Array<string>; chars: number } {
+} = {}): { text: string; files: Array<string>; chars: number } {
   const folder = objOf(prompts?.preambles);
   const parts: Array<{ file: string; text: string }> = [];
   for (const name of preambleNames(agent, model)) {
     const text = Object.hasOwn(folder, name) ? textOf(folder[name]) : '';
     if (text) parts.push({ file: `preambles/${name}.md`, text });
   }
-  const files: Array<string> = [];
-  const dropped: Array<string> = [];
-  let text = '';
-  for (const part of parts) {
-    const next = text ? `${text}${SEPARATOR}${part.text}` : part.text;
-    if (next.length > maxChars) {
-      dropped.push(part.file);
-      continue;
-    }
-    text = next;
-    files.push(part.file);
-  }
-  return { text, files, dropped, chars: text.length };
+  const text = parts.map((part) => part.text).join(SEPARATOR);
+  return { text, files: parts.map((part) => part.file), chars: text.length };
 }
