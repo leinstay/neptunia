@@ -98,6 +98,9 @@ function mayOpen(db: Db, family: DomainFamily, id: string, context: Context): bo
 
 const idsOf = (rows: ReadonlyArray<Row>): Array<string> =>
   rows.filter((row) => typeof row.id === 'string').map((row) => String(row.id));
+/** The link of a turn's read evidence to the row it read. */
+const READ_LINK = 'read';
+
 const linksOf = (rows: ReadonlyArray<Row>, family: DomainFamily, role: string): Array<DomainLink> =>
   idsOf(rows).map((id) => ({ family, id, role }));
 
@@ -137,8 +140,8 @@ function turnLinks(db: Db, id: string): Array<DomainLink> {
     const family = READ_FAMILIES[String(row.row_kind)];
     if (family === undefined) return [];
     if (family.version !== undefined && typeof row.version_id === 'string')
-      return [{ family: family.version, id: row.version_id, role: 'read' }];
-    return [{ family: family.row, id: String(row.row_id), role: 'read' }];
+      return [{ family: family.version, id: row.version_id, role: READ_LINK }];
+    return [{ family: family.row, id: String(row.row_id), role: READ_LINK }];
   });
   const requests = db.prepare('SELECT id FROM model_requests WHERE turn_id = ? ORDER BY id').all(id);
   return [...links, ...linksOf(requests, 'requests', 'request')];
