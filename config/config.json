@@ -251,7 +251,7 @@
       "reembed": false
     },
     "prefetch": {
-      "deadlineMs": 1000,
+      "deadlineMs": 15000,
       "maxTokens": 1500,
       "contextTokens": 500,
       "trivial": [

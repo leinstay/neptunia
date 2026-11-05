@@ -294,7 +294,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `recall.prefetch.deadlineMs` | number | `1000` | How long the prefetch may take (ms) | `src/behavior/recall-run.ts` |
+| `recall.prefetch.deadlineMs` | number | `15000` | How long the prefetch may take (ms) | `src/behavior/recall-run.ts` |
 | `recall.prefetch.maxTokens` | number | `1500` | Most estimated tokens of all excerpts together | `src/behavior/prompt.ts` |
 | `recall.prefetch.contextTokens` | number | `500` | Most tokens of that lane's lines | `src/behavior/recall.ts` |
 | `recall.prefetch.trivial` | array | `["hi", "hello", "hey", "yo", "ok", "okay", "k", "thanks", "thank you", "thx", "ty", "yes", "no", "yep", "nope", "lol", "haha", "good night", "good morning", "bye"]` | Bare greetings that are not searched | `src/behavior/prefetch.ts` |

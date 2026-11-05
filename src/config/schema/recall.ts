@@ -63,7 +63,7 @@ export const RECALL: ReadonlyArray<SchemaEntry> = [
     'key': 'recall.prefetch.deadlineMs',
     'types': ['number'],
     'reader': 'src/behavior/recall-run.ts',
-    'default': 1000,
+    'default': 15000,
     'text': 'How long the prefetch may take (ms)',
   },
   {
