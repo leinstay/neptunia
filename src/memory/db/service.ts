@@ -118,6 +118,14 @@ import { linkedDmScopes } from './person-links.ts';
 import { createInspectionPort } from './inspection-snapshots.ts';
 import type { InspectionPort } from './inspection-snapshots.ts';
 import { privateByPerson, privateByPlace } from './private-read.ts';
+import { recallSettings } from '../../behavior/recall.ts';
+import { retrieveMemory } from './retrieve.ts';
+import type { RetrieveDeps } from './retrieve.ts';
+import { dbSettings } from './recall.ts';
+import { embedSemanticDocuments } from './semantic-search.ts';
+import type { MemoryPage, MemoryQuery, RetrievalBounds } from './semantic-types.ts';
+import { memoryQueryFor, retrievalBounds } from '../retrieval-input.ts';
+import type { RetrievalInput } from '../retrieval-input.ts';
 import type { PrivatePersonView, PrivatePlaceView } from './private-read.ts';
 import { recoverRequestArchive } from './request-archive.ts';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.ts';
@@ -176,12 +184,40 @@ const READER_FILE = new URL('./reader-worker.ts', import.meta.url);
 const noop = () => {};
 const silent: Log = { info: noop, warn: noop, error: noop, debug: noop };
 
+/** The kinds of read that name their row by its id, and the table each row is in. */
+const DIRECT_READS: Readonly<Record<string, string>> = Object.freeze({
+  claim: 'claims',
+  claim_version: 'claim_versions',
+  episode: 'episodes',
+  participation: 'episodes',
+  recent_line: 'claims',
+  source_id: 'sources',
+  description: 'descriptions',
+  place: 'places',
+  intention: 'intentions',
+});
+
+/** What a read of a row showed: a claim's newest version, a description's current one, the exact version it names, a source's revision. */
+function readVersions(db: Db): (rowKind: string, rowId: string) => { version_id: unknown; revision: unknown } {
+  const claimVersion = db.prepare(NEWEST_CLAIM_VERSION_SQL);
+  const descriptionVersion = db.prepare('SELECT current_version AS id FROM descriptions WHERE id = ?');
+  const sourceRevision = db.prepare('SELECT revision FROM sources WHERE id = ?');
+  return (rowKind, rowId) => {
+    const shown = { version_id: null as unknown, revision: null as unknown };
+    if (rowKind === 'claims') shown.version_id = claimVersion.get(rowId)?.id ?? null;
+    else if (rowKind === 'descriptions') shown.version_id = descriptionVersion.get(rowId)?.id ?? null;
+    else if (rowKind === 'claim_versions') shown.version_id = rowId;
+    else if (rowKind === 'sources') shown.revision = sourceRevision.get(rowId)?.revision ?? null;
+    return shown;
+  };
+}
+
 /**
  * The turn_reads rows of one `memoryReads` list (prompt.js#buildRequest), resolved against the database now:
  * `{ row_kind, row_id, block, ord, version_id, revision }`. `block` and `ord` are the block the read sat in and its place
  * in the request; `version_id` is the newest claim version or the current description version; `revision` a source's.
  * Besides the kinds her turns name, a read may name a row by its database id (her memory session's request does):
- * `source_id`, `description`, `place`, `intention`.
+ * `source_id`, `description`, `place`, `intention`, and `claim_version`, one exact version with its own id as `version_id`.
  */
 export function turnReadRows(
   db: Db,
@@ -190,26 +226,18 @@ export function turnReadRows(
 ): Array<Row> {
   const authority = nativeAuthorityOf(iface);
   const rows = new Map<string, Row>();
-  const claimVersion = db.prepare(NEWEST_CLAIM_VERSION_SQL);
-  const descriptionVersion = db.prepare('SELECT current_version AS id FROM descriptions WHERE id = ?');
-  const sourceRevision = db.prepare('SELECT revision FROM sources WHERE id = ?');
+  const versionOfRead = readVersions(db);
   let at = 0;
   const put = (rowKind: string, rowId: unknown, read: Row): void => {
     if (typeof rowId !== 'string' || !rowId) return;
     const key = `${rowKind}\u0000${rowId}`;
     if (rows.has(key)) return;
-    let versionId: unknown = null;
-    let revision: unknown = null;
-    if (rowKind === 'claims') versionId = claimVersion.get(rowId)?.id ?? null;
-    else if (rowKind === 'descriptions') versionId = descriptionVersion.get(rowId)?.id ?? null;
-    else if (rowKind === 'sources') revision = sourceRevision.get(rowId)?.revision ?? null;
     rows.set(key, {
       row_kind: rowKind,
       row_id: rowId,
       block: typeof read.block === 'string' ? read.block : null,
       ord: Number.isInteger(read.ord) ? read.ord : at,
-      version_id: versionId,
-      revision,
+      ...versionOfRead(rowKind, rowId),
     });
   };
   const hasRow = (table: string, id: string): boolean =>
@@ -223,52 +251,14 @@ export function turnReadRows(
     at += 1;
     const id = read?.id === undefined || read?.id === null ? '' : asText(read.id);
     if (!id) continue;
-    switch (read.kind) {
-      case 'claim':
-        put('claims', id, read);
-        break;
-      case 'episode':
-        put('episodes', id, read);
-        break;
-      case 'participation':
-        put('episodes', id, read);
-        break;
-      case 'recent_line':
-        put('claims', id, read);
-        break;
-      case 'lore':
-        put('claims', `lore:${id}`, read);
-        break;
-      case 'channel':
-        put('places', channelPlaceId(iface, id), read);
-        break;
-      case 'place_note':
-        if (placeId) put('descriptions', `desc:${placeId}:${id}`, read);
-        break;
-      case 'item':
-        if (hasRow('claims', id)) put('claims', id, read);
-        else if (hasRow('episodes', id)) put('episodes', id, read);
-        break;
-      case 'source': {
-        const found = latestMessage.get(id, authority);
-        if (found) put('sources', found.id, read);
-        break;
-      }
-      case 'source_id':
-        put('sources', id, read);
-        break;
-      case 'description':
-        put('descriptions', id, read);
-        break;
-      case 'place':
-        put('places', id, read);
-        break;
-      case 'intention':
-        put('intentions', id, read);
-        break;
-      default:
-        break;
-    }
+    const direct = DIRECT_READS[asText(read.kind)];
+    if (direct !== undefined) put(direct, id, read);
+    else if (read.kind === 'lore') put('claims', `lore:${id}`, read);
+    else if (read.kind === 'channel') put('places', channelPlaceId(iface, id), read);
+    else if (read.kind === 'place_note' && placeId) put('descriptions', `desc:${placeId}:${id}`, read);
+    else if (read.kind === 'item' && hasRow('claims', id)) put('claims', id, read);
+    else if (read.kind === 'item' && hasRow('episodes', id)) put('episodes', id, read);
+    else if (read.kind === 'source') put('sources', latestMessage.get(id, authority)?.id, read);
   }
   return [...rows.values()];
 }
@@ -594,6 +584,20 @@ export type MemoryDbService = {
   keepPending(update: unknown): string;
   recordWake(update: unknown): Promise<unknown> | null;
   issueContext(spec?: Parameters<typeof issuePureContext>[0]): Context;
+  /** The budget of one retrieval from the settings read now; null while they are absent. */
+  retrievalBoundsFor(purpose: MemoryQuery['purpose']): RetrievalBounds | null;
+  /** One read of the retrieval service (retrieve.ts) on the read connection; null while memory is closed. */
+  retrieveQuery(
+    ctx: Context,
+    query: MemoryQuery,
+    options?: Pick<RetrieveDeps, 'sources' | 'plainClaims'>
+  ): Promise<MemoryPage | null>;
+  /** A consumer's input (retrieval-input.ts) read through `retrieveQuery`; null without settings or an open memory. */
+  retrieve(
+    ctx: Context,
+    input: RetrievalInput,
+    options?: Pick<RetrieveDeps, 'sources' | 'plainClaims'>
+  ): Promise<MemoryPage | null>;
   /** The owner's binding of an account to a person (person-links.ts). */
   personLink(update: Row): Promise<Row>;
   /** The owner's snapshots of the whole database (inspection-snapshots.ts), null while it is closed. */
@@ -1175,6 +1179,30 @@ export function createMemoryDb({
       });
   }
 
+  // The embeddings of new semantic documents (semantic-search.ts#embedSemanticDocuments), at most once a minute. A search
+  // stays lexical for a document until its vector is written.
+  let semanticRun: Promise<void> | null = null;
+  let semanticAt = -Infinity;
+  function startSemanticEmbed() {
+    if (closing || !handle || semanticRun || engine?.dead || typeof embed !== 'function') return;
+    const config = hot.config;
+    if ((config?.memoryDb?.retrieval as Row | undefined)?.embedDocuments !== true) return;
+    const at = now();
+    if (at - semanticAt < REEMBED_EVERY_MS) return;
+    semanticAt = at;
+    const db = dbOf(handle);
+    semanticRun = (async () => {
+      const { roleModel } = await import('../../llm/roles.ts');
+      const model = roleModel(config, 'embedding');
+      if (typeof model !== 'string' || model === '') return;
+      await embedSemanticDocuments({ db, write, embed, config, model, now: at });
+    })()
+      .catch((error: unknown) => log.warn('memory db: semantic embedding failed', { code: codeOf(error) }))
+      .finally(() => {
+        semanticRun = null;
+      });
+  }
+
   // The re-embed job (index-policy.ts#reembedTouched): `recall.db.reembed` with an embedding client, at most once a minute.
   let reembedRun: Promise<void> | null = null;
   let reembedAt = -Infinity;
@@ -1538,6 +1566,7 @@ export function createMemoryDb({
     startFocus();
     startIndexPolicy();
     startReembed();
+    startSemanticEmbed();
     startSession();
     startBackup();
   }
@@ -1695,6 +1724,47 @@ export function createMemoryDb({
     }
   }
 
+  function retrievalBoundsFor(purpose: MemoryQuery['purpose']): RetrievalBounds | null {
+    const config = hot.config;
+    if (!config?.memoryDb?.retrieval) return null;
+    const prefetch = recallSettings(config)?.prefetch;
+    return retrievalBounds({ recall: { prefetch }, memoryDb: config.memoryDb }, purpose);
+  }
+
+  async function retrieveQuery(
+    ctx: Context,
+    query: MemoryQuery,
+    options: Pick<RetrieveDeps, 'sources' | 'plainClaims'> = {}
+  ): Promise<MemoryPage | null> {
+    if (!handle) return null;
+    const config = hot.config;
+    const { roleModel } = await import('../../llm/roles.ts');
+    const model = roleModel(config, 'embedding', 'recall-query');
+    const recall = dbSettings(config);
+    const embedOne = embed;
+    return retrieveMemory(database() as Db, ctx, query, {
+      ...options,
+      now,
+      model: typeof model === 'string' ? model : null,
+      embedQuery:
+        typeof embedOne === 'function' && typeof model === 'string'
+          ? async (text) =>
+              ((await embedOne([text], { config, purpose: 'recall-query' })) as Array<ArrayLike<number>>)?.[0] ?? null
+          : null,
+      recall,
+      minSimilarity: recall?.minMeaning,
+    });
+  }
+
+  async function retrieve(
+    ctx: Context,
+    input: RetrievalInput,
+    options: Pick<RetrieveDeps, 'sources' | 'plainClaims'> = {}
+  ): Promise<MemoryPage | null> {
+    const bounds = retrievalBoundsFor(input.purpose);
+    return bounds === null ? null : retrieveQuery(ctx, memoryQueryFor(input, bounds), options);
+  }
+
   /**
    * Issues an execution context for one turn, session or wake (scope.ts#issueContext); its row is written deferred.
    */
@@ -1794,6 +1864,9 @@ export function createMemoryDb({
     keepPending,
     recordWake,
     issueContext,
+    retrievalBoundsFor,
+    retrieveQuery,
+    retrieve,
     personLink: (update: Row) => write({ ...update, kind: 'person-link' }),
     inspection,
     ...privateReads(() => dbOf(opened())),

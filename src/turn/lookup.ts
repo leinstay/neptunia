@@ -2,6 +2,8 @@
 // holds several requests, and the directory and partner a turn's searches and mentions read. createTurnRunner
 // (src/behavior/turn.ts) builds it once per runner with createLookup; the attempt calls its functions.
 
+import { attentionRetrieval } from '../intentions/model.ts';
+import { personOfMember } from '../memory/addresses.ts';
 import { isCliOwner } from '../behavior/core-pause.ts';
 import { prefetchLanes, prefetchOn, wakeLanes } from '../behavior/prefetch.ts';
 import { fillPromptTemplate } from '../behavior/prompt.ts';
@@ -235,6 +237,9 @@ export function createLookup(ctx: LookupContext): Lookup {
           selfName,
           history,
           lanes,
+          ...(mode === 'inner'
+            ? { retrieval: attentionRetrieval(wake?.intentions ?? [], (id) => personOfMember(store, id)) }
+            : {}),
           asker: candidate?.authorId ?? null,
           decorate: (lines: Array<object>) => linkCalls(lines, { channel, snapshot, placeId }),
         });

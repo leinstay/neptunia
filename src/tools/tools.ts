@@ -23,6 +23,7 @@
 // would be a new background job) and returns the library's handles, which post exactly as the
 // `<gifs>` block's do.
 
+import { factStateWords } from '../memory/retrieval-input.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import type { ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
 import type { SearchRef } from '../turn/calls.ts';
@@ -569,6 +570,47 @@ export async function runWebRead({
   }
 }
 
+/**
+ * The stored facts of a search as lines: `.facts`, one `.fact` per fact (`{state}` from `labels.prefetch.factStates`, her words as she
+ * wrote them) and `.factsCut` when more exist. Nothing without a fact. Pure.
+ */
+function factLines(found: Obj, labels: unknown): Array<string> {
+  const facts = listOf(found.assertions).filter(isObj);
+  if (facts.length === 0) return [];
+  const l = toolLabels(labels, 'memory');
+  const states = objOf(objOf(objOf(labels).prefetch).factStates) as ToolLabels;
+  const lines = l.facts ? [l.facts] : [];
+  for (const fact of facts) {
+    if (l.fact) lines.push(fill(l.fact, { state: factStateWords(fact, states), text: plain(fact.text) }));
+  }
+  if (found.factsCut === true && l.factsCut) lines.push(l.factsCut);
+  return lines;
+}
+
+/** The persona's filters of the stored facts; a moment that is no date is refused by the caller. */
+function factFilters(
+  given: Obj
+): { entity: string; predicate: string; asOf: string | null; historical: boolean } | null {
+  const when = text(given.asOf);
+  const at = when === '' ? null : Date.parse(when);
+  if (at !== null && !Number.isFinite(at)) return null;
+  return {
+    entity: text(given.entity),
+    predicate: text(given.predicate),
+    asOf: at === null ? null : new Date(at).toISOString(),
+    historical: given.historical === true,
+  };
+}
+
+/** A search needs words or an entity, and a moment that is a date. */
+function searchRefusal(plan: unknown, retrieval: ReturnType<typeof factFilters>): ToolResult | null {
+  if (retrieval === null) return { status: 'invalid', code: CODE.NO_QUERY, reason: 'args.as_of' };
+  return !plan && retrieval.entity === '' ? { status: 'invalid', code: CODE.NO_QUERY } : null;
+}
+
+/** An entity-only read searches no line. */
+const serverPlan = <TPlan>(plan: TPlan | null | undefined) => plan ?? { forms: [], who: [], from: null, to: null };
+
 function memoryTimezone(config: unknown): string {
   const zone = objOf(objOf(config).bot).timezone;
   return typeof zone === 'string' ? zone : 'UTC';
@@ -692,7 +734,9 @@ export async function runMemorySearch({
       timezone,
       now,
     });
-    if (!plan) return { status: 'invalid', code: CODE.NO_QUERY };
+    const retrieval = factFilters(given);
+    const refused = searchRefusal(plan, retrieval);
+    if (refused !== null) return refused;
     const candidate = { id: null, content: text(given.question), authorId: asker };
     const found = objOf(
       await recall.run({
@@ -705,9 +749,10 @@ export async function runMemorySearch({
         history: [...history],
         historyRef,
         candidate,
-        server: plan,
+        server: serverPlan(plan),
         decorate,
         quotes: true,
+        retrieval,
         ...(memoryContext ? { memoryContext } : {}),
       })
     );
@@ -734,7 +779,7 @@ export async function runMemorySearch({
     const l = toolLabels(labels, 'memory');
     const lines: Array<string> = [];
     if (outcome.degraded === true && l.degraded) lines.push(l.degraded);
-    lines.push(shown());
+    lines.push(shown(), ...factLines(found, labels));
     if (typeof outcome.failed === 'number' && outcome.failed > 0 && l.partial)
       lines.push(fill(l.partial, { failed: String(outcome.failed), total: plain(outcome.total) }));
     return { status: 'ok', data: { text: lines.join('\n') } };

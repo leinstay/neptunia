@@ -2,6 +2,7 @@
 // built (twice for a heartbeat whose handles follow the request's own lines), the record of the memory rows it carried
 // and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it last.
 
+import { pageReads } from '../../../memory/db/retrieve.ts';
 import { accountOf } from '../../../memory/addresses.ts';
 import { buildRequest } from '../../../behavior/prompt.ts';
 import { NO_PLACES, diaryConversationIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
@@ -268,7 +269,9 @@ export function buildTurnRequest(
   // What `<recent>` showed, held back or cut: counts only.
   if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
   // The memory rows this request carried, for the database's per-turn record (deferred there; it never fails a turn).
-  if (memoryReads && draft.started?.turnId && request.memoryReads?.length) {
+  const wakeMemory = draft.inner?.wake?.heartbeat?.memory ?? draft.inner?.wake?.selfimprovement?.memory ?? null;
+  const allReads = [...(request.memoryReads ?? []), ...(wakeMemory ? pageReads(wakeMemory, { block: 'wake' }) : [])];
+  if (memoryReads && draft.started?.turnId && allReads.length > 0) {
     // One step: the steps of her tool loop add tool results to this request, never memory reads of their own.
     try {
       const readContext = turnContextOf(draft, channel) as { id?: string } | null | undefined;
@@ -276,7 +279,7 @@ export function buildTurnRequest(
         turnId: draft.started.turnId,
         step: 's0',
         placeId,
-        reads: request.memoryReads,
+        reads: allReads,
         ...(readContext?.id ? { contextId: readContext.id } : {}),
       });
     } catch {

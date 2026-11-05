@@ -333,6 +333,7 @@ export function createTurnRunner({
   places = null,
   // The memory rows a request carried (src/memory/db/service.js#recordTurnReads) and a turn's execution context (#issueContext, `(spec) => ctx`); null: none.
   memoryReads = null,
+  diaryFacts = null,
   memoryContext = null,
   // Her attention, one turn at a time (src/behavior/attention.ts mirrors it as leases; a plain set without them), the model roles that are down (src/llm/role-health.ts, her tool roles route on it); null: none.
   attention = new Set(),
@@ -451,6 +452,7 @@ export function createTurnRunner({
     images,
     journalOp,
     recentOfPlaces,
+    diaryFacts,
   });
   const { drawTool, resolveGif, postGif, pickedInTime, pickGifSafely } = createDrawGif({
     hot,

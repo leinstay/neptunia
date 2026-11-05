@@ -84,6 +84,8 @@ import { createLookup } from './web/lookup.ts';
 import { createAdmin } from './admin.ts';
 import { createErrandClient } from './errands/client.ts';
 import { createErrandStores } from './errands/store.ts';
+import { groupsContext } from './memory/db/scope.ts';
+import type { RetrievalInput } from './memory/retrieval-input.ts';
 import { createErrandService } from './errands/service.ts';
 import { channelPlaceId } from './memory/db/ids.ts';
 import { createMemberDirectory } from './interface/members.ts';
@@ -923,6 +925,11 @@ async function buildCore(
     hot,
     env,
     memory: { recentLines: recentChannelLines },
+    // An errand's facts: a group read, because a runner never sees a private chat.
+    retrieve: (input) =>
+      memoryDb.retrieve(memoryDb.issueContext({ kind: 'group', iface: currentIface() ?? identity.iface }), input, {
+        sources: false,
+      }),
     log,
     onFinished: (task) => submitErrandEnd(task),
   });
@@ -947,6 +954,8 @@ async function buildCore(
     roleHealth,
     // The memory rows a turn's request carried go to the database.
     memoryReads: (args: Untyped) => memoryDb.recordTurnReads(args),
+    // A diary post's stored facts, read through the one retrieval service under the diary's context.
+    diaryFacts: (input: RetrievalInput) => memoryDb.retrieve(groupsContext(), input, { sources: false }),
     // One execution context per turn for its memory reads (recorded while the database is open).
     memoryContext: (spec: Untyped) => memoryDb.issueContext({ iface: currentIface() ?? identity.iface, ...spec }),
     // Her attention, mirrored as leases in the memory database (attention.ts).

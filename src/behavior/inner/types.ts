@@ -3,6 +3,8 @@
 // (src/behavior/inner.ts) builds over them. Types only, nothing runs here. src/behavior/inner/*.ts, the heartbeat view
 // (src/behavior/heartbeat-view.ts), the `<wake>` block (src/behavior/wake.ts) and the turn runner's JavaScript read them.
 
+import type { Context } from '../../memory/db/scope.ts';
+import type { MemoryPage, MemoryQuery, RetrievalBounds } from '../../memory/db/semantic-types.ts';
 import type { ServiceSchedule } from '../../service/schedule.ts';
 import type { StorageKey } from '../../memory/db/storage-keys.ts';
 import type { Obj } from '../../tools/types.ts';
@@ -491,4 +493,7 @@ export type InnerMemoryDb = {
   memoryWrite?(update: WakeQueueUpdate): Promise<unknown>;
   writeUnit?(update: { op: 'value'; key: StorageKey; value: unknown }): Promise<unknown>;
   readHandle?(): { db: object } | null;
+  issueContext?(spec?: { kind?: 'internal' }): Context;
+  retrievalBoundsFor?(purpose: MemoryQuery['purpose']): RetrievalBounds | null;
+  retrieveQuery?(ctx: Context, query: MemoryQuery): Promise<MemoryPage | null>;
 };

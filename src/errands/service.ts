@@ -58,6 +58,7 @@ import type {
   Limits,
   Logger,
   PingAnswer,
+  RetrieveForErrand,
   RunContext,
   RunRequest,
   RunSecrets,
@@ -170,6 +171,35 @@ function recentLinesOf(
     .slice(-count);
 }
 
+/** The share of an errand's context its stored facts may take: a context over the runner's cap refuses the whole run. */
+const MEMORY_CONTEXT_CHARS = 8000;
+
+/**
+ * The stored facts of one errand's goal, through the one retrieval service. A private errand reads none, as it sends no
+ * recent line, and a failed read leaves the errand its goal.
+ */
+async function memoryOf(
+  retrieve: RetrieveForErrand | null | undefined,
+  errand: ErrandRecord,
+  log: Logger
+): Promise<NonNullable<RunContext['memory']>> {
+  if (typeof retrieve !== 'function' || errand.scope === 'dm') return [];
+  try {
+    const page = await retrieve({ purpose: 'task', goal: errand.goal, refs: [] });
+    const out: NonNullable<RunContext['memory']> = [];
+    let used = 0;
+    for (const fact of page?.assertions ?? []) {
+      used += fact.text.length;
+      if (used > MEMORY_CONTEXT_CHARS) break;
+      out.push({ text: fact.text, state: fact.state, polarity: fact.polarity });
+    }
+    return out;
+  } catch (err) {
+    log.warn('errands: retrieval failed', { code: errorCode(err) });
+    return [];
+  }
+}
+
 /** The origin and visible recent lines that accompany one dispatched errand. */
 function dispatchContext(errand: ErrandRecord, recent: RunContext['recent']): RunContext {
   return {
@@ -186,10 +216,11 @@ function runRequestOf(
   recent: RunContext['recent'],
   limits: Limits,
   secrets: RunSecrets | null,
-  route: TaskRoute | null
+  route: TaskRoute | null,
+  memory: NonNullable<RunContext['memory']> = []
 ): RunRequest {
   const { agent, id, goal } = errand;
-  const context = dispatchContext(errand, recent);
+  const context = { ...dispatchContext(errand, recent), ...(memory.length > 0 ? { memory } : {}) };
   return { agent, id, goal, context, limits, ...(secrets ? { secrets } : {}), ...(route ? { route } : {}) };
 }
 
@@ -207,6 +238,7 @@ export function createErrandService({
   agentPaths,
   privateDir,
   memory = null,
+  retrieve = null,
   onFinished = null,
   log = defaultLog,
   defer = (fn) => setImmediate(fn),
@@ -288,7 +320,16 @@ export function createErrandService({
         error !== undefined
           ? { status: 'failed', error }
           : // `run` is always on the core's client; a fake without it throws into the catch
-            await client.run!(runRequestOf(errand, recent, limitsOf(errand.agent), secrets, route));
+            await client.run!(
+              runRequestOf(
+                errand,
+                recent,
+                limitsOf(errand.agent),
+                secrets,
+                route,
+                await memoryOf(retrieve, errand, log)
+              )
+            );
     } catch (err) {
       log.warn('errands: run failed', { id: errand.id, agent: errand.agent, error: err });
       outcome = { status: 'failed', error: 'client-error' };

@@ -376,7 +376,22 @@ test('describeRows: an exact name gives the skill in full, a family one line eac
   );
   assert.deepEqual(
     exact.rows[0].args.map((arg) => arg.name),
-    ['question', 'people', 'channel', 'when', 'terms', 'anchor', 'move', 'messages', 'minutes']
+    // The contract gained the stored facts' filters: entity, predicate, as_of and historical (docs/prompt-contract.md).
+    [
+      'question',
+      'people',
+      'channel',
+      'when',
+      'terms',
+      'anchor',
+      'move',
+      'messages',
+      'minutes',
+      'entity',
+      'predicate',
+      'as_of',
+      'historical',
+    ]
   );
   const off = describeRows({ config, selfId: self, registry, texts, name: 'memory.journal.read' });
   assert.equal(off.rows[0].reason, 'not-allowed', 'not switched on for her');

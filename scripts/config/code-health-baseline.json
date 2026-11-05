@@ -1,7 +1,6 @@
 {
   "files": {
     "src/behavior/recall.ts": 2375,
-    "tests/inner.test.ts": 2373,
     "tests/openrouter.test.ts": 3557,
     "tests/prompt.test.ts": 6595,
     "tests/recall.test.ts": 2419,
@@ -239,10 +238,10 @@
         "complexity": 36
       },
       "createRecall>prefetch": {
-        "complexity": 33
+        "complexity": 26
       },
       "createRecall>recallWith": {
-        "complexity": 73,
+        "complexity": 74,
         "function-length": 478
       },
       "createRecall>run": {
@@ -453,9 +452,6 @@
     "src/memory/db/service.ts": {
       "createMemoryDb>sessionJob": {
         "complexity": 30
-      },
-      "turnReadRows": {
-        "complexity": 23
       }
     },
     "src/memory/db/session-write.ts": {
@@ -468,7 +464,7 @@
     },
     "src/memory/db/session.ts": {
       "buildSessionRequest": {
-        "complexity": 35
+        "complexity": 29
       },
       "peopleOf": {
         "complexity": 24

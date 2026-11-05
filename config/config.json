@@ -76,6 +76,17 @@
     "closeTimeoutMs": 10000,
     "observeTimeoutMs": 5000,
     "ingestKeepDays": 7,
+    "retrieval": {
+      "seeds": 12,
+      "hops": 2,
+      "nodes": 40,
+      "edges": 120,
+      "assertions": 16,
+      "evidence": 24,
+      "tokens": 1500,
+      "deadlineMs": 1000,
+      "embedDocuments": true
+    },
     "inspection": {
       "pageRows": 100,
       "snapshotIdleSeconds": 60,
