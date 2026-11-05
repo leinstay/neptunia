@@ -850,6 +850,12 @@
           "earlier": "To read earlier: before=#{n}",
           "later": "To read later: after=#{n}"
         },
+        "place": {
+          "several": "\"{given}\" fits {count} places. Call again with one of these:",
+          "none": "No place you can read is called \"{given}\". These are the places you can read:",
+          "line": "{name}, written as {ref}",
+          "more": "{count} more places not shown."
+        },
         "look": {
           "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",
           "video": "Source: media.look, a closer look at {name} for the question \"{question}\":",

@@ -26,9 +26,19 @@ import type { RoleDownReason, RoleHealth } from '../llm/role-health.ts';
 import { idText, isObj, objOf } from './types.ts';
 import type { Skill, SkillMap } from './types.ts';
 import type { WakeAction } from './access.ts';
+import type { PlaceCandidate, PlaceChoices } from './place-names.ts';
 
-/** A refusal of a call: its code and a short machine-readable detail. */
-export type Refusal = { ok: false; code: string; reason: string };
+/**
+ * A refusal of a call: its code and a short machine-readable detail. A read call that named a place which is not one
+ * place also carries `choices`, the places she may read (src/tools/place-names.ts), and `place`, what renders them.
+ */
+export type Refusal = {
+  ok: false;
+  code: string;
+  reason: string;
+  choices?: ReadonlyArray<PlaceCandidate>;
+  place?: { match: PlaceChoices & { kind: 'several' | 'none' }; given: string };
+};
 
 /** The member whose message led to a call. */
 export type Requester = { id?: string | null; roleIds?: ReadonlyArray<string> };

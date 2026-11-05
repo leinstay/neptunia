@@ -87,6 +87,7 @@ const READ_METHODS: Record<string, string> = {
   [MESSAGES_FETCH]: 'fetchMessages',
   'messages.history': 'history',
   'member.info': 'memberInfo',
+  'dm.conversation': 'dmConversationOf',
   'messages.search': 'searchMessages',
   'members.search': 'searchMembers',
   'emoji.list': 'emoji',
@@ -112,6 +113,8 @@ function readArguments(body: Record<string, unknown>): Array<unknown> {
       return [body.conversation, pick(body, ['limit', 'before', 'after', 'around', 'since'])];
     case 'member.info':
       return [pick(body, ['placeId', 'accountId'])];
+    case 'dm.conversation':
+      return [pick(body, ['iface', 'accountId'])];
     case 'messages.search':
       return [community, pick(body, ['text', 'authorId', 'after', 'before', 'offset'])];
     case 'members.search':

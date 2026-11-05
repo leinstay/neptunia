@@ -137,5 +137,6 @@ test('accepts a limit of one and exactly 25 viewers and 50 texts of 2000 charact
 test('lists every read action, the message fetch included', () => {
   const names = ['conversation.info', 'conversations.list', 'messages.fetch', 'messages.history', 'member.info'];
   const more = ['messages.search', 'members.search', 'emoji.list', 'links.parse', 'message.reactors'];
-  assert.deepEqual([...READ_ACTIONS].sort(), [...names, ...more].sort());
+  // The port gained `dm.conversation`, which opens a DM's channel for the media backfill.
+  assert.deepEqual([...READ_ACTIONS].sort(), [...names, ...more, 'dm.conversation'].sort());
 });

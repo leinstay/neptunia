@@ -518,6 +518,7 @@ function agentAdapter(): Adapter {
     conversations: read,
     history: read,
     memberInfo: read,
+    dmConversationOf: read,
     searchMessages: read,
     searchMembers: read,
     emoji: read,

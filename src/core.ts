@@ -961,6 +961,11 @@ async function buildCore(
     describer,
     log,
   });
+  // The memory's learned stemmer, read at each use: the alias gate and the places a read call names match with it.
+  const learnedStemmer = () => {
+    const handle = memoryDb.readHandle();
+    return handle ? loadStemmer(handle.db as Parameters<typeof loadStemmer>[0]) : null;
+  };
   const turns = createTurnRunner({
     track: loopWatch.track,
     dataDir,
@@ -993,6 +998,7 @@ async function buildCore(
     reactors,
     getSelfName,
     selfId: () => identity.selfId,
+    stemmer: learnedStemmer,
     reads,
     memberOf: (placeId: string, accountId: string) => members.infoOf(nativeOfPlace(placeId), accountId),
     membersOf: (placeId: string) => members.list(nativeOfPlace(placeId)),
@@ -1211,10 +1217,7 @@ async function buildCore(
     memory,
     tagHistory,
     // The alias gate reads the memory's learned stemmer; while the database is closed it matches whole words.
-    stemmer: () => {
-      const handle = memoryDb.readHandle();
-      return handle ? loadStemmer(handle.db as Parameters<typeof loadStemmer>[0]) : null;
-    },
+    stemmer: learnedStemmer,
     // Her aliases: the names the owner gave her own person record, `/memory users names add person:self <name>`.
     selfNames: () => {
       const handle = memoryDb.readHandle();

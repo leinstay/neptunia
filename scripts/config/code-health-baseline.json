@@ -524,7 +524,7 @@
         "complexity": 22
       },
       "resolveCall": {
-        "complexity": 70
+        "complexity": 69
       }
     },
     "src/tools/gateway.ts": {

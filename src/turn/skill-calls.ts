@@ -18,7 +18,8 @@ import { CODE } from '../tools/codes.ts';
 import { executeCall, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
 import type { CallResult, CallView, ExecuteDeps, Resolved, RunOperation } from '../tools/executors.ts';
 import { checkSkill } from '../tools/gateway.ts';
-import type { GateContext } from '../tools/gateway.ts';
+import type { GateContext, Refusal } from '../tools/gateway.ts';
+import { placeChoicesText } from '../tools/place-names.ts';
 import type { HeldNote, SendHold } from '../tools/send-hold.ts';
 import { objOf } from '../tools/types.ts';
 import type { Obj, SkillMap } from '../tools/types.ts';
@@ -55,6 +56,8 @@ type CallsErrands = {
 export type SkillCallsContext = {
   hot: { readonly config: CallsConfig; readonly prompts: { labels?: CallsLabels } | null | undefined };
   store: Parameters<typeof callViewOf>[0]['store'];
+  /** The learned stemmer, read at the moment of use; null while no memory is open (src/memory/db/stems.ts#loadStemmer). */
+  stemmer?: () => { stem: (word: string) => string } | null;
   skills: SkillMap | null;
   selfIdOf: () => string;
   clock: () => number;
@@ -77,7 +80,7 @@ export type SkillCallsContext = {
 };
 
 /** Why a call cannot run: its code, a machine reason and the values its label names. */
-export type CallRefusal = { code: string; reason?: string; values?: unknown };
+export type CallRefusal = { code: string; reason?: string; values?: unknown; place?: Refusal['place'] };
 
 /** One call of hers as it is planned: a tool call of her answer, or an inner turn's tag lowered to its call. */
 export type PlannedCall = {
@@ -141,6 +144,8 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     selfreflectionVoice?: { text: unknown; durationSecs: unknown };
     turnMarks?: Array<CallMark>;
     snapshot?: Snapshot | null;
+    /** Whom a private chat's or the command line's reads are judged by (setup.ts): the partner, or the owner's account. */
+    readerId?: string | null;
   };
 
 /** The channel a call is made from. */
@@ -205,6 +210,8 @@ export type SkillCalls = {
     trigger?: { content?: unknown } | null;
     deletedIds?: unknown;
     searchRefs?: ViewArgs['searchRefs'];
+    /** The reader of a private chat or the command line, whom the places a read may name are judged by. */
+    partnerId?: string | null;
   }) => CallView;
   planToolCall: (args: {
     call: PlannedCall;
@@ -228,6 +235,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
   const {
     hot,
     store,
+    stemmer = () => null,
     skills,
     selfIdOf,
     clock,
@@ -267,6 +275,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     trigger = null,
     deletedIds = null,
     searchRefs = null,
+    partnerId = null,
   }: Parameters<SkillCalls['callView']>[0]): CallView {
     const fileOf =
       typeof errands?.fileOf === 'function'
@@ -292,6 +301,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       triggerText: typeof trigger?.content === 'string' ? trigger.content : null,
       deletedIds,
       searchRefs,
+      partnerId,
+      config: hot.config,
+      stem: stemmer?.()?.stem ?? null,
     });
   }
 
@@ -450,7 +462,17 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
           reason: resolved.reason,
           channel: channel.id,
         });
-      return { call, op, envelope, resolved: null, refusal: { code: resolved.code, reason: resolved.reason } };
+      return {
+        call,
+        op,
+        envelope,
+        resolved: null,
+        refusal: {
+          code: resolved.code,
+          reason: resolved.reason,
+          ...(resolved.place ? { place: resolved.place } : {}),
+        },
+      };
     }
     // The message's own channel taken over the one she named: logged, never the ids.
     if (resolved.channelFixed)
@@ -591,6 +613,10 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       code: refusal.code,
       ...(refusal.reason ? { reason: refusal.reason } : {}),
       ...(refusal.values ? { values: refusal.values } : {}),
+      // A place she named that is not one place: the places she may read, as data to call again with.
+      ...(refusal.place
+        ? { data: { text: placeChoicesText(refusal.place.match, hot.prompts?.labels, refusal.place.given) } }
+        : {}),
     });
     // An inner turn (src/behavior/inner.ts): anything but a read is only proposed in shadow mode,
     // refused once the kill switch stopped it (asked right here, before the action), and a public
