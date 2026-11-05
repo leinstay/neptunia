@@ -209,7 +209,7 @@
     },
     "src/behavior/missed.ts": {
       "createMissed": {
-        "function-length": 645
+        "function-length": 638
       },
       "createMissed>onTurnEnd": {
         "complexity": 22
