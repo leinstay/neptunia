@@ -137,7 +137,7 @@ Do tool failures and outcomes show repeated mismatches between what was asked an
 
 ## Project
 
-Start from `<install>`. Compare the revision with your earlier reports and report divergence from `origin/main`. Read recent changes where the install's history shows them, along with executable paths, dependencies, install hooks, active skills and their scripts. Look for unexpected network destinations, credential access, privilege changes or persistence. For a skill, inspect the active version and the permissions actually granted, and flag a mismatch between validated and executed bytes, credential reads, shell downloads and new executable hooks. The evidence holds no CI. CI is read only in development mode, from the facts of the `Development` section, so without that mode you report nothing about it. Compare hashes only where a trusted baseline exists.
+Start from `<install>`. Compare the revision with your earlier reports and report divergence from `origin/main`. Read recent changes where the install's history shows them, along with executable paths, dependencies, install hooks, active skills and their scripts. Look for unexpected network destinations, credential access, privilege changes or persistence. For a skill, inspect the active version and the permissions actually granted, and flag a mismatch between validated and executed bytes, credential reads, shell downloads and new executable hooks. The evidence holds no CI. The CI of `main` is read only in development mode, from the facts of the `Development` section, so without that mode you report nothing about it. Compare hashes only where a trusted baseline exists.
 
 ## Modules and structure
 

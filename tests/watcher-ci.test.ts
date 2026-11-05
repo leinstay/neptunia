@@ -107,7 +107,8 @@ test('counts the shards of this week and of the week before by their times', asy
   // Bug: the report says CI is slow without a number the owner can compare with last week.
   const { run } = fakeGh(SCENE.runs, SCENE.jobs);
   const facts = await ciFacts({ run, repository: REPOSITORY, now: () => NOW });
-  assert.ok(facts !== null);
+  // The lint refuses a presence assertion; a null summary fails here with its reason instead.
+  if (facts === null) assert.fail('the CI summary is unavailable');
   assert.deepEqual(facts.thisWeek, { runs: 3, shards: 6, nearLimit: 1, cancelledAtLimit: 1, slowestSeconds: 300 });
   assert.deepEqual(facts.weekBefore, { runs: 1, shards: 2, nearLimit: 1, cancelledAtLimit: 0, slowestSeconds: 260 });
 });
