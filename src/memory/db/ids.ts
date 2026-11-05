@@ -14,6 +14,7 @@
 // Stage 4 adds `interfaceAccountId` and `interfacePlaceOf`, the one spelling the observation and the unit mappers share.
 
 import { createHash, randomUUID } from 'node:crypto';
+import { CORE_AUTHORITY, nativeAuthorityOf } from '../../protocol/identity.ts';
 import { LEGACY_IFACE } from './legacy-namespace.ts';
 
 export const SELF_PERSON = 'person:self';
@@ -59,17 +60,9 @@ export function nativeOfAny(id: unknown): string | null {
   return match ? (match[1] ?? null) : null;
 }
 
-/** The core's own namespace (`person:self`, rows with no interface). */
-export const CORE_AUTHORITY = 'core/local';
+export { CORE_AUTHORITY, nativeAuthorityOf };
 /** The namespace of the full legacy id spellings (every row id from before schema v7 is an alias here too). */
 export const LEGACY_AUTHORITY = 'legacy/local';
-
-/** The native authority of an interface: `<iface>/local` for the command line and the core, `<iface>/global` for any other interface until it declares its own. */
-export function nativeAuthorityOf(iface: unknown): string {
-  if (typeof iface !== 'string' || !iface) return CORE_AUTHORITY;
-  if (iface === 'cli' || iface === 'core') return `${iface}/local`;
-  return `${iface}/global`;
-}
 
 /** The community-local namespace of an interface (nicks, roles). */
 export const guildAuthorityOf = (guildId: unknown, iface: unknown): string => `${text(iface)}/guild:${text(guildId)}`;
