@@ -89,10 +89,11 @@ test('the units take the backend from keys.json, and the core names no home of t
 // `subharness mode` inside the core (spec 2026-11-02, follow-up 8): the core runs under NoNewPrivileges, so it never
 // tries sudo; it stores the mode and answers that `neptunia setup units` puts it into the unit.
 
-test('inside the core a mode change names neptunia setup units for an agent with a unit, and runs nothing', () => {
+test('inside the core a mode change names neptunia setup for an agent with a unit, and runs nothing', () => {
   // Catches: the core answers a stored mode as if its unit were updated, so the owner never re-renders it.
+  // Changed: the step word left the public command, and the one flow re-renders the units.
   for (const agent of ['scout', 'server', 'watcher'])
-    assert.ok(deferModeToUnit(agent)?.includes('neptunia setup units'), agent);
+    assert.ok(deferModeToUnit(agent)?.includes('neptunia setup'), agent);
 });
 
 test('inside the core an agent with no unit, or no agent, gets no unit line', () => {
@@ -100,7 +101,7 @@ test('inside the core an agent with no unit, or no agent, gets no unit line', ()
   // dev now has a unit of its own, so a mode change names it.
   assert.equal(
     deferModeToUnit('dev'),
-    'neptunia-development.service takes the mode when you run "neptunia setup units" in a shell'
+    'neptunia-development.service takes the mode when you run "neptunia setup" in a shell'
   );
   assert.equal(deferModeToUnit('nobody'), null);
 });

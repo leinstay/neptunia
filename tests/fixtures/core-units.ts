@@ -17,6 +17,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startCore } from '../../src/core.ts';
+import { readConfig } from '../../src/config.ts';
+import { coreSelection, recordCoreCheck } from '../../src/setup/model-check.ts';
 import { onLog } from '../../src/log.ts';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { ANSWER, channelInfo, lineEvent } from './core-over-fake.ts';
@@ -85,6 +87,12 @@ export function folders(config: Settings = {}): Dirs {
   const privateDir = dataDir;
   mkdirSync(join(dataDir, 'config'), { recursive: true });
   writeFileSync(join(dataDir, 'config', 'config.json'), JSON.stringify(merged(BASE_CONFIG, config)));
+  // A chat launch reads its readiness first, so a rig is an install that setup finished: its core unit and a passed check
+  // of the core model, whose selection is what these settings name. A rig with no client still reads as no identity.
+  mkdirSync(join(root, 'xdg', 'systemd', 'user'), { recursive: true });
+  writeFileSync(join(root, 'xdg', 'systemd', 'user', 'neptunia-core.service'), '[Unit]\n');
+  const selection = coreSelection(readConfig(REPO, { privateDir })) ?? '';
+  recordCoreCheck(dataDir, { selection, ok: true, code: null, at: 1 });
   return { root, dataDir, privateDir, paths: { rootDir: REPO, privateDir, dataDir } };
 }
 
@@ -319,7 +327,8 @@ export function spawnCli(dirs: Dirs, args: ReadonlyArray<string>, extraEnv: Node
   const child = spawn(process.execPath, [BIN, ...args], {
     cwd: REPO,
     // A chat over a pipe is asked for by name; without it the chat with no terminal explains itself and ends.
-    env: { ...env(dirs), NEPTUNIA_PLAIN_CHAT: '1', ...extraEnv },
+    // Only a chat reads its readiness, which looks for the rig's units; another command keeps its own service scope.
+    env: { ...env(dirs), NEPTUNIA_PLAIN_CHAT: '1', ...(args.length === 0 ? { XDG_CONFIG_HOME: join(dirs.root, 'xdg') } : {}), ...extraEnv },
     stdio: 'pipe',
   });
   let out = '';

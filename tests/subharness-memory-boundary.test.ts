@@ -1,5 +1,7 @@
 // PR 3, memory path parity: the memory writer proved at the spawn boundary, with a disposable executable that records the
-// argv, the environment and stdin it really got (`runChildProcess`, src/agent-runner/backend.ts). The installed releases
+// argv, the environment and stdin it really got (`runChildProcess`, src/agent-runner/backend.ts). Claude 2.1.317 enforces
+// `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, measured live: with 20 a run ended is_error at 80 output tokens, with none 436 end_turn.
+// So the writer passes it. Codex lists no such control, so there `maxOutputTokens` stays a reported gap. The installed releases
 // list no output-token control in their help (claude 2.1.317, codex 0.164.0), so `maxOutputTokens` is a reported capability
 // gap: nothing invents a flag and nothing trims her text. The tests also pin what the writer's parity consists of, how a
 // failed selection and a failed source behave, and what `session_runs` records as the path that really ran.
@@ -90,27 +92,38 @@ const after = (argv: ReadonlyArray<string>, flag: string): string | undefined =>
 
 const INVENTED = /max.?(output|tokens|budget)/i;
 
-for (const [path_, backend, tail, final] of [
-  [CLAUDE, 'claude', envelope({ result: 'text' }), ''],
-  [CODEX, 'codex', 'exit 0', JSON.stringify({ answer: 'text' })],
-] as const) {
-  test(`${backend} reports maxOutputTokens as a gap and no invented control reaches its argv or environment`, async () => {
-    // Catches: a limit passed to a mock and called enforced, a guessed flag that makes the CLI exit, or a dollar budget.
-    assert.equal(memoryWriter.memoryCapabilities(backend).maxOutputTokens, 'gap');
-    const { deps, seen } = boundary(backend, tail, final);
-    await runMemoryWriter(path_, INPUT, deps);
-    const { argv, env } = seen();
-    assert.equal(
-      argv.some((word) => INVENTED.test(word)),
-      false,
-      argv.join(' ')
-    );
-    assert.equal(
-      Object.keys(env).some((name) => INVENTED.test(name)),
-      false
-    );
-  });
-}
+test('claude gets the output cap in the variable it enforces, and reports no gap', async () => {
+  // Catches: the sweep's cap stopping at the subharness path, or a guessed flag or a dollar budget that makes the CLI exit.
+  // Changed: the variable was measured enforced, where the help alone had left this a gap.
+  assert.equal(memoryWriter.memoryCapabilities('claude').maxOutputTokens, 'enforced');
+  assert.deepEqual(memoryWriter.memoryGaps('claude'), []);
+  const { deps, seen } = boundary('claude', envelope({ result: 'text' }));
+  await runMemoryWriter(CLAUDE, INPUT, deps);
+  const { argv, env } = seen();
+  assert.equal(env.CLAUDE_CODE_MAX_OUTPUT_TOKENS, String(INPUT.maxOutputTokens));
+  assert.equal(
+    argv.some((word) => INVENTED.test(word)),
+    false,
+    argv.join(' ')
+  );
+});
+
+test('codex reports maxOutputTokens as a gap and no invented control reaches its argv or environment', async () => {
+  // Catches: a limit passed to a mock and called enforced, or a guessed flag that makes the CLI exit.
+  assert.equal(memoryWriter.memoryCapabilities('codex').maxOutputTokens, 'gap');
+  const { deps, seen } = boundary('codex', 'exit 0', JSON.stringify({ answer: 'text' }));
+  await runMemoryWriter(CODEX, INPUT, deps);
+  const { argv, env } = seen();
+  assert.equal(
+    argv.some((word) => INVENTED.test(word)),
+    false,
+    argv.join(' ')
+  );
+  assert.equal(
+    Object.keys(env).some((name) => INVENTED.test(name)),
+    false
+  );
+});
 
 test('an answer past the limit reaches the sweep whole, never trimmed', async () => {
   // Catches: "enforcing" the limit by cutting her generated text after the fact.
@@ -144,23 +157,20 @@ function statusDeps(privateDir: string): EnableDeps {
 
 const memoryRowOf = (text: string): string => text.split('\n').find((line) => line.trim().startsWith('memory ')) ?? '';
 
-test('/subharness status names the gap on a subharness memory path and claims nothing on the direct one', async () => {
-  // Catches: the owner reads the Claude path as equal to the direct one, whose limit the request does enforce.
-  const onClaude = tempDir('nep-memory-boundary-');
-  writeKeysFile(onClaude, {
-    subharness: {
-      backends: ['claude'],
-      key: null,
-      modes: {},
-      memory: { backend: 'claude', model: 'claude-opus-4-6', effort: null },
-    },
-  });
-  const row = memoryRowOf((await subharnessCommand(statusDeps(onClaude), 'subharness.status', {})).text);
-  assert.ok(row.includes('maxOutputTokens'), row);
-  const direct = tempDir('nep-memory-boundary-');
-  writeKeysFile(direct);
-  const plain = memoryRowOf((await subharnessCommand(statusDeps(direct), 'subharness.status', {})).text);
-  assert.equal(plain.includes('maxOutputTokens'), false, plain);
+test('/subharness status names the gap of a codex memory path, and none on claude or on the direct one', async () => {
+  // Catches: the owner reads the codex path as equal to the direct one, whose limit the request does enforce.
+  // Changed: claude enforces the cap now, so the gap is codex's alone.
+  const rowOn = async (memory: { backend: string; model: string; effort: null } | null): Promise<string> => {
+    const dir = tempDir('nep-memory-boundary-');
+    writeKeysFile(dir, { subharness: { key: null, modes: {}, memory } });
+    return memoryRowOf((await subharnessCommand(statusDeps(dir), 'subharness.status', {})).text);
+  };
+  const onCodex = await rowOn({ backend: 'codex', model: 'gpt-6.1-sol', effort: null });
+  assert.ok(onCodex.includes('maxOutputTokens'), onCodex);
+  const onClaude = await rowOn({ backend: 'claude', model: 'claude-opus-4-6', effort: null });
+  assert.equal(onClaude.includes('maxOutputTokens'), false, onClaude);
+  const direct = await rowOn(null);
+  assert.equal(direct.includes('maxOutputTokens'), false, direct);
 });
 
 function probeDeps(privateDir: string, ran: Array<string>, answer: { ok: boolean; detail?: string }) {
@@ -195,13 +205,19 @@ function selectedClaude(loggedIn: boolean) {
   return { privateDir, vendor };
 }
 
-test('a passing probe of a subharness path carries the gap, so a green probe claims no parity', async () => {
+test('a passing probe carries the gap of its backend, so a green probe on codex claims no parity', async () => {
   // Catches: "memory: ok" read as full parity by status and by the operator.
-  const { privateDir } = selectedClaude(true);
-  const ran: Array<string> = [];
-  const result = await memoryProbe(probeDeps(privateDir, ran, { ok: true }).deps, 1);
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.ok && result.gaps, ['maxOutputTokens']);
+  // Changed: claude enforces the cap now, so its probe carries no gap.
+  const onClaude = selectedClaude(true);
+  const claude = await memoryProbe(probeDeps(onClaude.privateDir, [], { ok: true }).deps, 1);
+  assert.deepEqual(claude.ok && claude.gaps, []);
+  const dir = tempDir('nep-memory-boundary-');
+  writeKeysFile(dir, {
+    subharness: { key: null, modes: {}, memory: { backend: 'codex', model: 'gpt-6.1-sol', effort: null } },
+  });
+  fakeVendor(dir, 'codex', { loggedIn: true });
+  const codex = await memoryProbe(probeDeps(dir, [], { ok: true }).deps, 1);
+  assert.deepEqual(codex.ok && codex.gaps, ['maxOutputTokens']);
 });
 
 // The rest of parity, at the boundary

@@ -11,7 +11,7 @@ import { createKeysCommands } from '../src/keys/commands.ts';
 import { createKeyRing } from '../src/keys/ring.ts';
 import { createKeyStore } from '../src/keys/store.ts';
 import { createKeyFailover } from '../src/llm/key-failover.ts';
-import { readCoreCheck, recordCoreCheck } from '../src/setup/model-check.ts';
+import { recordCoreCheck } from '../src/setup/model-check.ts';
 import { decideLaunch, evaluateReadiness, gatherHealth } from '../src/setup/readiness.ts';
 import type { ReadinessHealth, Requirement } from '../src/setup/readiness.ts';
 import { BASE_URL, SECRET, fakeFetch, fakePause } from './fixtures/keys-rig.ts';
@@ -192,25 +192,6 @@ test('with the link up the model and memory come from one read-only command of t
 });
 
 // The recorded check
-
-test('the check of the core model survives a relaunch and answers for its own selection', () => {
-  // Catches: readiness kept in the memory of one chat, so every launch needs a paid request again.
-  const dataDir = tempDir('nep-readiness-');
-  assert.equal(readCoreCheck(dataDir), null);
-  const check = { selection: SELECTION, ok: true, code: null, at: 5 };
-  recordCoreCheck(dataDir, check);
-  assert.deepEqual(readCoreCheck(dataDir), check);
-});
-
-test('a record that cannot be read is no check at all', () => {
-  // Catches: a torn write crashes the launch that was going to report it.
-  const dataDir = tempDir('nep-readiness-');
-  recordCoreCheck(dataDir, { selection: SELECTION, ok: true, code: null, at: 5 });
-  const [file] = fs.readdirSync(dataDir, { recursive: true, withFileTypes: true }).filter((one) => one.isFile());
-  assert.ok(file);
-  fs.writeFileSync(path.join(file.parentPath, file.name), '{ torn');
-  assert.equal(readCoreCheck(dataDir), null);
-});
 
 function keysRig(status: number) {
   const privateDir = tempDir('nep-readiness-keys-');

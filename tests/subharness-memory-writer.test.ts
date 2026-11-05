@@ -211,7 +211,9 @@ test('codex answers with the answer field of its final message and the tokens it
   const { deps } = rig(codexAnswers(JSON.stringify({ answer: ANSWER }), 'tokens used\n17,065\n'));
   const completion = await runMemoryWriter(CODEX, INPUT, deps);
   assert.equal(completion.text, ANSWER);
-  assert.equal(completion.usage?.completion_tokens, 17065);
+  // Changed: codex prints one total, which is not the writer's output, so it stays apart from the completion count.
+  assert.equal(completion.usage?.completion_tokens, 0);
+  assert.equal(completion.usage?.total_tokens, 17065);
   assert.equal(completion.usage?.prompt_tokens, 0);
 });
 

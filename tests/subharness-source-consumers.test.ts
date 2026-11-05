@@ -137,7 +137,8 @@ test('the memory probe reaches a selected backend the old list omits', async () 
   fakeVendor(privateDir, 'claude', { loggedIn: true });
   const ran: Array<string> = [];
   const result = await memoryProbe(probeOf(privateDir, ran).deps, 1000);
-  assert.deepEqual(result, { ok: true, at: 1000 });
+  // Changed: claude enforces the output cap, so its probe carries no gap.
+  assert.deepEqual(result, { ok: true, at: 1000, gaps: [] });
   assert.deepEqual(ran, ['claude']);
 });
 
