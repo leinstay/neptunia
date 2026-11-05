@@ -1,4 +1,2174 @@
 {
+  "chains": {
+    "bin/neptunia.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "cli/app.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "cli/chat-controller.ts": {
+      "deep": 16,
+      "repeated": 1
+    },
+    "cli/composer.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "cli/model-picker.ts": {
+      "deep": 9,
+      "repeated": 0
+    },
+    "interfaces/discord/around.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "interfaces/discord/audience-warm.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "interfaces/discord/collect.ts": {
+      "deep": 18,
+      "repeated": 0
+    },
+    "interfaces/discord/embed.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "interfaces/discord/port.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "interfaces/discord/search.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "interfaces/discord/session.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "scripts/broken-module-run.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "scripts/code-health.ts": {
+      "deep": 2,
+      "repeated": 3
+    },
+    "scripts/eslint-test-rules.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "scripts/inner-week.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "scripts/lib/fault-run.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "scripts/lib/inner-week-fixture.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "scripts/lib/inner-week.ts": {
+      "deep": 12,
+      "repeated": 2
+    },
+    "scripts/lib/labels-catalogue.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "scripts/lib/platform-objects.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "scripts/lib/recall-eval.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "scripts/lib/report.ts": {
+      "deep": 2,
+      "repeated": 3
+    },
+    "scripts/memory-repair-dm-vectors.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "scripts/memory-session.ts": {
+      "deep": 2,
+      "repeated": 1
+    },
+    "scripts/recall-eval.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "scripts/replay-compare.ts": {
+      "deep": 3,
+      "repeated": 1
+    },
+    "scripts/replay.ts": {
+      "deep": 39,
+      "repeated": 6
+    },
+    "scripts/search-policy-eval.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "scripts/vision-compare.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/agent-runner/server.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "src/behavior/elsewhere-pick.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "src/behavior/inner/deliveries.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/behavior/inner/drain.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/behavior/inner/places.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/behavior/inner/queue.ts": {
+      "deep": 3,
+      "repeated": 1
+    },
+    "src/behavior/inner/recovery.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "src/behavior/inner/settings.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/behavior/inner/wake-store.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/behavior/mention.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/behavior/mirror-drain.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/behavior/mirror.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/behavior/missed.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "src/behavior/prompt.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/behavior/pull-fetch.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/behavior/recall-run.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "src/behavior/recall.ts": {
+      "deep": 2,
+      "repeated": 1
+    },
+    "src/behavior/reply-parents.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/behavior/sandbox.ts": {
+      "deep": 8,
+      "repeated": 1
+    },
+    "src/behavior/selfimprovement-text.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/behavior/selfreflection-turn.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/behavior/turn-parts.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/behavior/turn.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/behavior/wake.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/board/board.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "src/board/text.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/config/check.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/core.ts": {
+      "deep": 13,
+      "repeated": 1
+    },
+    "src/development/worker.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "src/errands/blocks.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/errands/client.ts": {
+      "deep": 1,
+      "repeated": 5
+    },
+    "src/errands/service.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/errands/store.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "src/errands/turns.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/format.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "src/health/server.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/hot.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "src/intentions/model.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/intentions/service.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/intentions/store.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/interface/chat-turns.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "src/interface/commands/console.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/interface/commands/skills.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/interface/neptunia-cli.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "src/keys/commands.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/keys/store.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "src/media/video-sites.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/memory/db/gif-library-merge.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/memory/db/graph.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/memory/db/index-policy.ts": {
+      "deep": 0,
+      "repeated": 4
+    },
+    "src/memory/db/inspection-values.ts": {
+      "deep": 0,
+      "repeated": 6
+    },
+    "src/memory/db/inspection.ts": {
+      "deep": 1,
+      "repeated": 2
+    },
+    "src/memory/db/map/archive.ts": {
+      "deep": 0,
+      "repeated": 4
+    },
+    "src/memory/db/map/intentions.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/memory/db/media-store.ts": {
+      "deep": 0,
+      "repeated": 5
+    },
+    "src/memory/db/observe.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/memory/db/readers/archive.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/memory/db/readers/record.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "src/memory/db/recall.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/memory/db/retrieve.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "src/memory/db/rows.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/memory/db/selfreflection-media.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/memory/db/semantic-registry.ts": {
+      "deep": 0,
+      "repeated": 4
+    },
+    "src/memory/db/semantic-search.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/memory/db/service.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "src/memory/db/session-rows.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/memory/db/session-write.ts": {
+      "deep": 0,
+      "repeated": 10
+    },
+    "src/memory/db/session.ts": {
+      "deep": 2,
+      "repeated": 10
+    },
+    "src/memory/db/unit-write.ts": {
+      "deep": 5,
+      "repeated": 1
+    },
+    "src/memory/db/writer-switch.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "src/memory/emoji-backfill.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/memory/gif-backfill.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "src/memory/gif-keeper.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/memory/gif-recache.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "src/memory/journal.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/memory/migration/convert.ts": {
+      "deep": 10,
+      "repeated": 4
+    },
+    "src/memory/participation.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "src/memory/record-index.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/memory/store-addresses.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/memory/store.ts": {
+      "deep": 9,
+      "repeated": 5
+    },
+    "src/memory/update.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/memory/vectors.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/pipeline/address-attention.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/pipeline/answer.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/pipeline/call-outcome.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/pipeline/conversations.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/pipeline/drain.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/pipeline/edits.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/pipeline/handle-message.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "src/pipeline/media-prefill.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/pipeline/merge.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/protocol/reads.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/protocol/serve.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/protocol/validate.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "src/selfimprovement/landed.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/service/watcher.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "src/setup/flow.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/skills/agent-commands.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/speech/index.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "src/subharness/control.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/subharness/install.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/subharness/memory-probe.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/subharness/memory-writer.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/tools/executors.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "src/tools/impl/draw.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/tools/impl/env.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/tools/impl/errand.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "src/tools/impl/index.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/tools/impl/intention.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "src/tools/impl/memory.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/tools/impl/message.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "src/tools/impl/metrics.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/tools/impl/pause.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "src/tools/impl/route.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/tools/impl/search.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/tools/impl/shared.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/tools/impl/skill.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/tools/impl/skills.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "src/tools/impl/status.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "src/tools/impl/usage.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "src/turn/act.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/calls.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/control.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/turn/draw-gif.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/inputs.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "src/turn/journal.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/mentions.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/outcome.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/participation.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/turn/phases/preflight.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/phases/request/build.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "src/turn/phases/request/facts.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/turn/phases/request/gather.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "src/turn/phases/request/lookup.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/turn/phases/request/pulls.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/phases/request/searches.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/phases/request/stages.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "src/turn/phases/response.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/phases/tool-round.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "src/turn/pulls.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "src/turn/request/head.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/request/people.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "src/turn/request/profiles.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/request/sections.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/turn/request/senses.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "src/turn/selfreflection.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "src/turn/skill-calls.ts": {
+      "deep": 4,
+      "repeated": 1
+    },
+    "src/turn/tool-round.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "src/watcher/brief.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "src/watcher/trash.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "src/web/lookup.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/admin.test.ts": {
+      "deep": 42,
+      "repeated": 0
+    },
+    "tests/agent-backend-engine-route.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/agent-backend-engine.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/agent-backend-limits.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/agent-backend-opencode-provider.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/agent-backend-system-file.test.ts": {
+      "deep": 0,
+      "repeated": 4
+    },
+    "tests/agent-runner-overrides.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/agent-runner-profiles.test.ts": {
+      "deep": 15,
+      "repeated": 0
+    },
+    "tests/agent-runner-protocol.test.ts": {
+      "deep": 3,
+      "repeated": 2
+    },
+    "tests/agent-runner-server-route.test.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "tests/aliases.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/audience-warm.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/avatars.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/board-commands.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/board-cutover.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/board-development-return.test.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "tests/board-workflow.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/boundary.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/brave.test.ts": {
+      "deep": 4,
+      "repeated": 1
+    },
+    "tests/channel-handles.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/channels-selfreflection.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/chat-panels-memory.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/cli-attachments.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/cli-clipboard.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/cli-editor-actions.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/cli-keymap.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/cli-layout.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/cli-link-transcript.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/cli-session-picker.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/collect-references.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/collect.test.ts": {
+      "deep": 54,
+      "repeated": 2
+    },
+    "tests/commands-console.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/commands-memory-inspect.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/commands-memory-semantic.test.ts": {
+      "deep": 4,
+      "repeated": 3
+    },
+    "tests/commands-naming-handlers.test.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/commands-naming.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/commands-service.test.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "tests/commands-subharness.test.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/config-effective.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/conversation-read.test.ts": {
+      "deep": 4,
+      "repeated": 1
+    },
+    "tests/core-identity.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/core-message-producers.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/core-pause-dm.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/core-process.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/core-slice.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/core-two-interfaces.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/deleted-lines.test.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/describe-text-standard.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/describe.test.ts": {
+      "deep": 120,
+      "repeated": 0
+    },
+    "tests/development-boundary.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/development-owner-changes.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/development-pull-request.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/development-risk-gate.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/development-unit-layout.test.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "tests/development-worker.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/discord-port-voice.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/discord-reads.test.ts": {
+      "deep": 10,
+      "repeated": 0
+    },
+    "tests/door-address.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/elsewhere-hooks.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/elsewhere-pick.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/elsewhere.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/embed.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/embedder.test.ts": {
+      "deep": 18,
+      "repeated": 0
+    },
+    "tests/emoji-backfill.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/episodes.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/errand-deadline-wake.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/errands-boundary.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/errands-client.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/errands-costs.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/errands-service-harness-key.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/errands-service-route.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/errands-service.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/errands-store.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/events.test.ts": {
+      "deep": 165,
+      "repeated": 3
+    },
+    "tests/exa.test.ts": {
+      "deep": 9,
+      "repeated": 0
+    },
+    "tests/fake-interface.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/fake-reads.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/fault-injection.test.ts": {
+      "deep": 37,
+      "repeated": 2
+    },
+    "tests/fetch-page.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/fetch-video.test.ts": {
+      "deep": 52,
+      "repeated": 0
+    },
+    "tests/fixtures/core-tools-scenes.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/development-rig.ts": {
+      "deep": 0,
+      "repeated": 3
+    },
+    "tests/fixtures/events-rig.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/memory-db/roundtrip.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/memory-db/service.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/fixtures/memory-db/session-rig.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/fixtures/prompt-rig.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/fixtures/recall-lines.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/recording-core.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/selfreflection-history.ts": {
+      "deep": 1,
+      "repeated": 2
+    },
+    "tests/fixtures/turn-harness.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/fixtures/turn-kit.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/turn-split.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/turn-world.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/two-fakes.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/fixtures/wake-life.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/format-message-refs.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/format.test.ts": {
+      "deep": 102,
+      "repeated": 0
+    },
+    "tests/gif-backfill.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/gif-keeper.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/gif-library-merge.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/gif-library-store.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/gif-library.test.ts": {
+      "deep": 15,
+      "repeated": 0
+    },
+    "tests/gif-recache.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/gifs.test.ts": {
+      "deep": 64,
+      "repeated": 1
+    },
+    "tests/heartbeat-intents.test.ts": {
+      "deep": 19,
+      "repeated": 0
+    },
+    "tests/heartbeat-view.test.ts": {
+      "deep": 61,
+      "repeated": 0
+    },
+    "tests/hot.test.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "tests/images.test.ts": {
+      "deep": 18,
+      "repeated": 0
+    },
+    "tests/inner-selfimprovement-daily.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/inner-selfimprovement.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/inner-skip-outcome.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/inner-stored-stop.test.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/inner-turn.test.ts": {
+      "deep": 105,
+      "repeated": 0
+    },
+    "tests/inner-wake-sends.test.ts": {
+      "deep": 8,
+      "repeated": 0
+    },
+    "tests/inner-wakes.test.ts": {
+      "deep": 13,
+      "repeated": 0
+    },
+    "tests/inner-week.test.ts": {
+      "deep": 26,
+      "repeated": 0
+    },
+    "tests/inner.test.ts": {
+      "deep": 173,
+      "repeated": 1
+    },
+    "tests/intention-due-jitter.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/intentions-model.test.ts": {
+      "deep": 2,
+      "repeated": 1
+    },
+    "tests/intentions-service.test.ts": {
+      "deep": 11,
+      "repeated": 0
+    },
+    "tests/interests.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/interface-chat-turns.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/interface-contract.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/interface-fake-replay.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/interface-link-clients.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/interface-link.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/interface-socket-link.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/interface-socket.test.ts": {
+      "deep": 14,
+      "repeated": 0
+    },
+    "tests/interfaces-discord-session.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/journal-archive-places.test.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "tests/journal-turn.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/journal.test.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "tests/keys-check-media.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/keys-check.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/keys-commands.test.ts": {
+      "deep": 6,
+      "repeated": 1
+    },
+    "tests/labels-move.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/lines.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/llm-archive-cause.test.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "tests/lookup.test.ts": {
+      "deep": 21,
+      "repeated": 0
+    },
+    "tests/loop-watch.test.ts": {
+      "deep": 16,
+      "repeated": 0
+    },
+    "tests/lore.test.ts": {
+      "deep": 28,
+      "repeated": 0
+    },
+    "tests/media-draw.test.ts": {
+      "deep": 13,
+      "repeated": 0
+    },
+    "tests/media-memory-format.test.ts": {
+      "deep": 2,
+      "repeated": 1
+    },
+    "tests/media-memory-reads.test.ts": {
+      "deep": 2,
+      "repeated": 1
+    },
+    "tests/media-memory-search.test.ts": {
+      "deep": 11,
+      "repeated": 0
+    },
+    "tests/media-pick-emoji-contract.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/media-pick-emoji-turn.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/media-pick-emoji.test.ts": {
+      "deep": 1,
+      "repeated": 14
+    },
+    "tests/media-pick-turn.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/media-pick.test.ts": {
+      "deep": 1,
+      "repeated": 18
+    },
+    "tests/media-voice-backfill.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/memory-convert-places.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/memory-db-audience.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/memory-db-backup-schedule.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/memory-db-backup-secrets.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/memory-db-describe.test.ts": {
+      "deep": 12,
+      "repeated": 0
+    },
+    "tests/memory-db-entities-read.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/memory-db-export.test.ts": {
+      "deep": 9,
+      "repeated": 0
+    },
+    "tests/memory-db-focus.test.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "tests/memory-db-graph.test.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/memory-db-index-policy.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/memory-db-inspection-snapshots.test.ts": {
+      "deep": 3,
+      "repeated": 3
+    },
+    "tests/memory-db-inspection.test.ts": {
+      "deep": 6,
+      "repeated": 1
+    },
+    "tests/memory-db-map-archive.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/memory-db-map-episodes.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/memory-db-map-journal.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/memory-db-map-media.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/memory-db-map-place.test.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "tests/memory-db-map-record.test.ts": {
+      "deep": 12,
+      "repeated": 0
+    },
+    "tests/memory-db-map-user.test.ts": {
+      "deep": 9,
+      "repeated": 0
+    },
+    "tests/memory-db-map-vectors.test.ts": {
+      "deep": 8,
+      "repeated": 0
+    },
+    "tests/memory-db-map-verbatim.test.ts": {
+      "deep": 9,
+      "repeated": 0
+    },
+    "tests/memory-db-map-work.test.ts": {
+      "deep": 11,
+      "repeated": 0
+    },
+    "tests/memory-db-observe-event.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/memory-db-observe.test.ts": {
+      "deep": 2,
+      "repeated": 2
+    },
+    "tests/memory-db-participation-sources.test.ts": {
+      "deep": 1,
+      "repeated": 2
+    },
+    "tests/memory-db-readers-journal.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/memory-db-readers-vectors.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/memory-db-recall-attribution.test.ts": {
+      "deep": 22,
+      "repeated": 0
+    },
+    "tests/memory-db-recall-carrier.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/memory-db-recall-exclusions.test.ts": {
+      "deep": 1,
+      "repeated": 3
+    },
+    "tests/memory-db-recall-off-main.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/memory-db-recall-source-handles.test.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "tests/memory-db-recall.test.ts": {
+      "deep": 26,
+      "repeated": 3
+    },
+    "tests/memory-db-retrieve.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/memory-db-selfreflection-media.test.ts": {
+      "deep": 13,
+      "repeated": 0
+    },
+    "tests/memory-db-semantic-read.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/memory-db-semantic-search.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/memory-db-service.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/memory-db-session-join.test.ts": {
+      "deep": 18,
+      "repeated": 1
+    },
+    "tests/memory-db-session-people.test.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "tests/memory-db-session.test.ts": {
+      "deep": 44,
+      "repeated": 7
+    },
+    "tests/memory-db-skills.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/memory-db-storage-keys.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/memory-db-storage-units.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/memory-db-stored-keys.test.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/memory-db-units.test.ts": {
+      "deep": 8,
+      "repeated": 0
+    },
+    "tests/memory-db-v14.test.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "tests/memory-db-wakes.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/memory-db-worker.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/memory-describe.test.ts": {
+      "deep": 9,
+      "repeated": 0
+    },
+    "tests/memory-dm-never-linked.test.ts": {
+      "deep": 1,
+      "repeated": 1
+    },
+    "tests/memory-dm-one-scope.test.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/memory-private-identity.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/memory-retrieval-consumers.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/memory-retrieval-wiring.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/memory-search-place-day.test.ts": {
+      "deep": 5,
+      "repeated": 2
+    },
+    "tests/mention-feedback.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/mirror-audience.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/mirror-delivery.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/mirror.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/missed-every-place.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/missed.test.ts": {
+      "deep": 14,
+      "repeated": 0
+    },
+    "tests/model-capabilities.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/neighbors.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/openrouter-role-keys.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/openrouter.test.ts": {
+      "deep": 34,
+      "repeated": 0
+    },
+    "tests/owner-config-write.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/parse-gif-retired.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/parse.test.ts": {
+      "deep": 8,
+      "repeated": 0
+    },
+    "tests/participation.test.ts": {
+      "deep": 8,
+      "repeated": 0
+    },
+    "tests/pending.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/pipeline-merge.test.ts": {
+      "deep": 8,
+      "repeated": 0
+    },
+    "tests/pipeline-no-raw.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/place-names-cli-turn.test.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/place-names-turn.test.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/prefetch.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/previous-think.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/prompt-anchors.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/prompt-budget.test.ts": {
+      "deep": 46,
+      "repeated": 0
+    },
+    "tests/prompt-directory.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/prompt-emoji.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/prompt-freeze.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/prompt-gifs.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/prompt-memory-reads.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/prompt-participation.test.ts": {
+      "deep": 8,
+      "repeated": 0
+    },
+    "tests/prompt-selfreflection.test.ts": {
+      "deep": 10,
+      "repeated": 0
+    },
+    "tests/prompt.test.ts": {
+      "deep": 217,
+      "repeated": 0
+    },
+    "tests/prompts-shipped.test.ts": {
+      "deep": 19,
+      "repeated": 0
+    },
+    "tests/prose-check.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/protocol-serve.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/protocol-wire.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/protocol.test.ts": {
+      "deep": 0,
+      "repeated": 8
+    },
+    "tests/proxy-command.test.ts": {
+      "deep": 0,
+      "repeated": 1
+    },
+    "tests/proxy-global.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/proxy-harness.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/pull-fetch-core.test.ts": {
+      "deep": 28,
+      "repeated": 0
+    },
+    "tests/pull-fetch.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/pull-seen.test.ts": {
+      "deep": 9,
+      "repeated": 0
+    },
+    "tests/query-builder.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/quick-search.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/reactor-store.test.ts": {
+      "deep": 9,
+      "repeated": 0
+    },
+    "tests/reactors-core.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/reads-loopback.test.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "tests/reads-unsupported.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/recall-run-boundaries.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/recall-run.test.ts": {
+      "deep": 48,
+      "repeated": 5
+    },
+    "tests/recall.test.ts": {
+      "deep": 26,
+      "repeated": 0
+    },
+    "tests/recent.test.ts": {
+      "deep": 18,
+      "repeated": 0
+    },
+    "tests/record-index.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/replay-compare.test.ts": {
+      "deep": 3,
+      "repeated": 4
+    },
+    "tests/replay-inner.test.ts": {
+      "deep": 3,
+      "repeated": 1
+    },
+    "tests/replay-loop.test.ts": {
+      "deep": 50,
+      "repeated": 5
+    },
+    "tests/replay-skills.test.ts": {
+      "deep": 36,
+      "repeated": 0
+    },
+    "tests/roles.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/rules-list.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/sandbox.test.ts": {
+      "deep": 87,
+      "repeated": 0
+    },
+    "tests/search-reads.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/search.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/second-instance.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/selfimprovement-answers.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/selfimprovement-landed.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/selfimprovement-view.test.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "tests/selfimprovement-wake-request.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/selfreflection-audience-refusal.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/selfreflection-turn.test.ts": {
+      "deep": 28,
+      "repeated": 0
+    },
+    "tests/selfreflection.test.ts": {
+      "deep": 12,
+      "repeated": 1
+    },
+    "tests/service-mechanics.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/setup-mechanics.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/setup-readiness.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/setup-run.test.ts": {
+      "deep": 0,
+      "repeated": 7
+    },
+    "tests/setup-subharness.test.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "tests/setup-watcher.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/skills-request.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/skills-task-activation.test.ts": {
+      "deep": 53,
+      "repeated": 0
+    },
+    "tests/skills-wiring.test.ts": {
+      "deep": 20,
+      "repeated": 0
+    },
+    "tests/skills.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/snapshot-once.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/status-drawing-costs.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/status-inner.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/store.test.ts": {
+      "deep": 37,
+      "repeated": 0
+    },
+    "tests/subharness-control.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/subharness-memory-boundary.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/subharness-memory-probe.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/subharness-memory-writer.test.ts": {
+      "deep": 9,
+      "repeated": 0
+    },
+    "tests/subharness-run-route.test.ts": {
+      "deep": 9,
+      "repeated": 0
+    },
+    "tests/subharness-run.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/subharness-summary.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/subharness-usage-codex.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/subharness-usage-opencode.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/subharness-usage-openrouter.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/subharness-usage.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/summary-builder.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/text-preview.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/tool-calls.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/tool-step.test.ts": {
+      "deep": 13,
+      "repeated": 0
+    },
+    "tests/tool-text.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/tools-answers-dir.test.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "tests/tools-discovery.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/tools-executors-reply-channel.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/tools-executors.test.ts": {
+      "deep": 12,
+      "repeated": 1
+    },
+    "tests/tools-file-move.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/tools-impl-board.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/tools-impl-errand.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/tools-impl-selfreflection.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/tools-recall-eval.test.ts": {
+      "deep": 9,
+      "repeated": 1
+    },
+    "tests/tools-replay.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/tools-search-compare.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/tools-search-policy-eval.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/tools-send-hold.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/tools-tools.test.ts": {
+      "deep": 27,
+      "repeated": 15
+    },
+    "tests/tools-vision-compare.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/turn-ability-route.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/turn-calls.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/turn-cancel.test.ts": {
+      "deep": 3,
+      "repeated": 5
+    },
+    "tests/turn-channel-links.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/turn-control.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    },
+    "tests/turn-conversation-read.test.ts": {
+      "deep": 17,
+      "repeated": 1
+    },
+    "tests/turn-conversation-ref.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/turn-core-tools.test.ts": {
+      "deep": 34,
+      "repeated": 5
+    },
+    "tests/turn-errands.test.ts": {
+      "deep": 12,
+      "repeated": 0
+    },
+    "tests/turn-failed-earlier.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/turn-in-turn-tools.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/turn-lookup.test.ts": {
+      "deep": 0,
+      "repeated": 2
+    },
+    "tests/turn-memory-context.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/turn-message-links.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/turn-publication.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/turn-request-senses.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/turn-think-standard.test.ts": {
+      "deep": 13,
+      "repeated": 0
+    },
+    "tests/turn-tool-steps.test.ts": {
+      "deep": 70,
+      "repeated": 0
+    },
+    "tests/turn.test.ts": {
+      "deep": 294,
+      "repeated": 8
+    },
+    "tests/usage.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/wake-separation.test.ts": {
+      "deep": 7,
+      "repeated": 0
+    },
+    "tests/watcher-coverage.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/watcher-development-run.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/watcher-filing-board.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/watcher-filing-hers.test.ts": {
+      "deep": 3,
+      "repeated": 0
+    },
+    "tests/watcher-filing.test.ts": {
+      "deep": 19,
+      "repeated": 0
+    },
+    "tests/watcher-lifecycle.test.ts": {
+      "deep": 6,
+      "repeated": 0
+    },
+    "tests/watcher-requests.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/watcher-resolved.test.ts": {
+      "deep": 1,
+      "repeated": 0
+    },
+    "tests/watcher-retry.test.ts": {
+      "deep": 8,
+      "repeated": 0
+    },
+    "tests/watcher-rework.test.ts": {
+      "deep": 12,
+      "repeated": 0
+    },
+    "tests/watcher-risk.test.ts": {
+      "deep": 8,
+      "repeated": 0
+    },
+    "tests/watcher-stamp.test.ts": {
+      "deep": 0,
+      "repeated": 4
+    },
+    "tests/watcher-template.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/watcher-transcripts.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
+    "tests/watcher-trash.test.ts": {
+      "deep": 2,
+      "repeated": 0
+    },
+    "tests/watcher-versions.test.ts": {
+      "deep": 8,
+      "repeated": 0
+    },
+    "tests/youtube-check.test.ts": {
+      "deep": 5,
+      "repeated": 0
+    }
+  },
   "files": {
     "src/behavior/recall.ts": 2364,
     "tests/openrouter.test.ts": 3557,
@@ -9,6 +2179,11 @@
     "interfaces/discord/collect.ts": {
       "audienceOf": {
         "complexity": 22
+      }
+    },
+    "scripts/code-health.ts": {
+      "main": {
+        "complexity": 21
       }
     },
     "scripts/lib/inner-week-fixture.ts": {
