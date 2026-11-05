@@ -6,12 +6,13 @@
 // fails rejects with an Error whose `code` says why, which the sweep records as it records a failed request. The child
 // gets the backend's home and the plain variables of `childEnvOf`, never a key of the core. Log lines carry the
 // backend, the exit code and the tokens, never the text. `memoryCapabilities` says where a path differs from the direct
-// one: neither installed CLI lists an output-token control in its help (claude 2.1.317, codex 0.164.0), so
-// `maxOutputTokens` reaches neither child and is reported as a gap, and nothing trims the answer instead.
+// one. Claude 2.1.317 enforces `CLAUDE_CODE_MAX_OUTPUT_TOKENS` (measured 2026-11-05: with 20 a run ended `is_error` at 80
+// output tokens, with none 436 at `end_turn`), so the cap goes there. Codex 0.164.0 has no such control, so its gap is
+// reported, and nothing trims the answer instead.
 
 import fs from 'node:fs';
 import nodePath from 'node:path';
-import { childEnvOf, tokensOf } from '../agent-runner/backend.ts';
+import { childEnvOf, outputLimitEnv, tokensOf } from '../agent-runner/backend.ts';
 import { log } from '../log.ts';
 import { SESSION_PURPOSE } from '../memory/db/session.ts';
 import type { Completion, SessionContext } from '../memory/db/session.ts';
@@ -56,11 +57,11 @@ export type MemoryCapabilities = {
   systemPrompt: 'replaced' | 'prefixed';
   tools: 'none' | 'read-only-sandbox';
   usage: 'split' | 'total-only';
-  maxOutputTokens: 'gap';
+  maxOutputTokens: 'enforced' | 'gap';
 };
 
 const CAPABILITIES: Readonly<Record<MemoryBackend, MemoryCapabilities>> = {
-  claude: { systemPrompt: 'replaced', tools: 'none', usage: 'split', maxOutputTokens: 'gap' },
+  claude: { systemPrompt: 'replaced', tools: 'none', usage: 'split', maxOutputTokens: 'enforced' },
   // codex keeps its own instructions and a shell in its sandbox; the system text arrives first on its stdin.
   codex: { systemPrompt: 'prefixed', tools: 'read-only-sandbox', usage: 'total-only', maxOutputTokens: 'gap' },
 };
@@ -190,7 +191,7 @@ export async function runMemoryWriter(
       deps.runChild({
         binary: place.binary,
         args: codex ? codexArgs(path, schemaFile, outFile) : claudeArgs(path, input.system),
-        env: childEnvOf(place.env),
+        env: childEnvOf({ ...place.env, ...outputLimitEnv(path.backend, input.maxOutputTokens) }),
         stdin: codex ? `${input.system}\n\n${input.user}` : input.user,
         cwd: dir,
         timeoutMs: input.timeoutMs,
