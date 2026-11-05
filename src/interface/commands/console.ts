@@ -403,13 +403,14 @@ function typed(name: string, args: Readonly<Record<string, unknown>>): string {
 /**
  * The answer of a `model set` that neither the key commands nor the `model.set` operation take, or null. An agent's
  * model and effort live in its subharness, checked with one reply there, and so does the memory writer's with `--via`.
- * `--provider` and `--effort` are checked on the role's key, so they need the key commands of `keys.json`.
+ * `--provider` of an agent pins its opencode run to an OpenRouter provider. For any other role `--provider` and `--effort` are checked on the role's key, so they need the key commands of `keys.json`.
  */
 function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Promise<Answer> | null {
   const typedLine = `/model set ${text(args.role)}`;
   const refuse = (why: string): Promise<Answer> => Promise.resolve({ text: `${typedLine}: ${why}`, status: 'invalid' });
   const isAgent = SUBHARNESS_AGENTS.some((agent) => agent === args.role);
   const flags = args.effort === undefined ? {} : { effort: args.effort };
+  const pin = text(args.provider) === '' ? {} : { provider: args.provider };
   if (text(args.via) !== '') {
     if (!isAgent && args.role !== 'memory')
       return Promise.resolve({
@@ -417,19 +418,18 @@ function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Pr
         status: 'invalid',
         code: 'role-unsupported',
       });
-    if (text(args.provider) !== '') return refuse('a role on a subharness takes no --provider');
+    if (!isAgent && text(args.provider) !== '') return refuse('the memory writer takes no --provider');
     if (text(args.model) === '') return refuse(`name the model: /model set ${text(args.role)} <model> --via <backend>`);
     if (isAgent) {
-      const given = { agent: args.role, model: args.model, via: args.via, ...flags };
+      const given = { agent: args.role, model: args.model, via: args.via, ...flags, ...pin };
       return subharnessCommand(subharnessDeps(deps), 'subharness.model', given);
     }
     const given = { backend: args.via, model: args.model, ...flags };
     return subharnessCommand(subharnessDeps(deps), 'subharness.memory', given);
   }
   if (isAgent) {
-    if (text(args.provider) !== '') return refuse('an agent takes no --provider');
     if (text(args.model) === '') return refuse('name the model: /model set <agent> <model>');
-    const given = { agent: args.role, model: args.model, ...flags };
+    const given = { agent: args.role, model: args.model, ...flags, ...pin };
     return subharnessCommand(subharnessDeps(deps), 'subharness.model', given);
   }
   const hasFlags = text(args.provider) !== '' || text(args.effort) !== '';

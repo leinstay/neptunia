@@ -6,6 +6,7 @@
 // change is in this file. No result, log line or status text carries a key value, only a key's name.
 
 import type { BackendResult } from '../agent-runner/backend.ts';
+import { isProviderSlug } from '../agent-runner/protocol.ts';
 import type { TaskRoute } from '../agent-runner/protocol.ts';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
@@ -105,24 +106,52 @@ function notAnAgent(name: string): SubharnessResult {
 
 /** What a stored route of `agent` is, for telling whether it moved while a check ran. */
 const routeText = (store: KeyStore, agent: string): string => {
-  const { uses, models, efforts } = store.subharness;
-  return JSON.stringify([uses[agent] ?? null, models[agent] ?? null, efforts[agent] ?? null]);
+  const { uses, models, efforts, providers } = store.subharness;
+  return JSON.stringify([uses[agent] ?? null, models[agent] ?? null, efforts[agent] ?? null, providers[agent] ?? null]);
 };
+
+/** The refusal of a provider that is no slug, or null. */
+function badProvider(provider: string | undefined): SubharnessResult | null {
+  if (provider === undefined || isProviderSlug(provider)) return null;
+  return refused('bad-provider', 'a provider is lower case letters, digits and hyphens, as in amazon-bedrock');
+}
+
+/** The refusal of a provider asked of a backend other than opencode, or null. */
+function providerUnsupported(provider: string | undefined, backend: BackendName): SubharnessResult | null {
+  if (provider === undefined || backend === 'opencode') return null;
+  return refused('provider-unsupported', `${backend} has no provider control; only opencode takes --provider`);
+}
+
+/** The stored providers with `agent`'s entry replaced by `provider`, or dropped when there is none. */
+function pinnedTo(
+  stored: Readonly<Record<string, string>>,
+  agent: string,
+  provider: string | undefined
+): Record<string, string> {
+  const others = Object.fromEntries(Object.entries(stored).filter(([role]) => role !== agent));
+  return provider === undefined ? others : { ...others, [agent]: provider };
+}
 
 /**
  * Sets the source, the model and the effort of one agent in one write, after one reply from that model at that effort
  * through that source. `via` absent keeps the source in force. An effort that is not given stays while the source stays,
  * and goes with a source that changes, because no reply checked it there, and `default` drops it. A level past
- * EFFORT_LEVELS is taken only from a backend whose help lists it. The key of opencode is the stored one.
+ * EFFORT_LEVELS is taken only from a backend whose help lists it. The key of opencode is the stored one. A `provider`
+ * pins an opencode agent to that OpenRouter provider alone, with no fallback, and the check goes out through it too;
+ * claude and codex refuse it as `provider-unsupported`. A selection with no `provider` drops the one stored for the agent,
+ * as a move to claude or codex does, because no reply checked it on the new model.
  */
 export async function setAgentModel(
   deps: EnableDeps,
   agent: string,
   typed: string,
   effort?: string,
-  via?: string
+  via?: string,
+  provider?: string
 ): Promise<SubharnessResult> {
   if (!isAgent(agent)) return notAnAgent(agent);
+  const badSlug = badProvider(provider);
+  if (badSlug !== null) return badSlug;
   const level = effort === DEFAULT_EFFORT ? undefined : effort;
   const noEffort = (word: string): SubharnessResult =>
     refused('unknown-effort', `${word} is no effort; use ${EFFORT_LEVELS.join(', ')}`);
@@ -136,12 +165,21 @@ export async function setAgentModel(
     return noEffort(level);
   if (backend === null)
     return refused('subharness-off', `${agent} has no source yet: /model set ${agent} <model> --via <backend>`);
+  const unsupported = providerUnsupported(provider, backend);
+  if (unsupported !== null) return unsupported;
   const { key } = store.subharness;
   const value = key === null ? '' : (store.extra[key] ?? '');
   const model = modelOfBackend(backend, typed);
   return checkedSelection(
     deps,
-    { claim: agent, backend, keyValue: value, model, ...(level === undefined ? {} : { effort: level }) },
+    {
+      claim: agent,
+      backend,
+      keyValue: value,
+      model,
+      ...(level === undefined ? {} : { effort: level }),
+      ...(provider === undefined ? {} : { provider }),
+    },
     () => routeText(readKeys(deps.privateDir), agent),
     () => {
       const fresh = readKeys(deps.privateDir);
@@ -154,13 +192,15 @@ export async function setAgentModel(
         ...fresh,
         subharness: {
           ...fresh.subharness,
+          providers: pinnedTo(fresh.subharness.providers, agent, provider),
           uses: { ...fresh.subharness.uses, [agent]: backend },
           models: { ...fresh.subharness.models, [agent]: model },
           efforts: level === undefined ? kept : { ...kept, [agent]: level },
         },
       });
       const at = level === undefined ? '' : ` at ${level} effort`;
-      return done(`${agent} runs through ${backend} on ${model}${at} from its next run`);
+      const pin = provider === undefined ? '' : `, pinned to ${provider} alone`;
+      return done(`${agent} runs through ${backend} on ${model}${at}${pin} from its next run`);
     }
   );
 }
@@ -175,7 +215,7 @@ export function backendOfAgent(
 
 /**
  * The path the core puts inside a task for `agent`: the backend it runs through, its model and effort (null where the
- * owner set none) and its mode, as keys.json holds them now. Null while the agent has no source; a source that is
+ * owner set none), its mode and the provider it is pinned to (absent where none), as keys.json holds them now. Null while the agent has no source; a source that is
  * gone from the machine fails the run with `not-installed`, where a runner can see it. Throws when keys.json cannot be
  * read.
  */
@@ -188,6 +228,7 @@ export function routeOfAgent(privateDir: string, agent: string): TaskRoute | nul
     model: Object.hasOwn(stored.models, agent) ? (stored.models[agent] ?? null) : null,
     effort: Object.hasOwn(stored.efforts, agent) ? (stored.efforts[agent] ?? null) : null,
     mode: modeOf(stored.modes, agent),
+    ...(Object.hasOwn(stored.providers, agent) ? { provider: stored.providers[agent] ?? '' } : {}),
   };
 }
 
@@ -229,12 +270,13 @@ function sourceLine(view: SubharnessView, state: SourceState): string {
   return `  ${name}: logged in${key}: ${held}`;
 }
 
-/** The path of one agent: the backend it runs through (null when it names none), its model and its effort. */
+/** The path of one agent: the backend it runs through (null when it names none), its model, its effort and its pinned provider. */
 export type AgentPath = {
   agent: SubharnessAgent;
   backend: BackendName | null;
   model: string | null;
   effort: EffortLevel | null;
+  provider?: string;
 };
 
 /** Each agent's path as keys.json holds it now. */
@@ -245,12 +287,13 @@ export function agentPaths(privateDir: string): Array<AgentPath> {
     backend: backendOfAgent(stored, agent),
     model: stored.models[agent] ?? null,
     effort: stored.efforts[agent] ?? null,
+    ...(Object.hasOwn(stored.providers, agent) ? { provider: stored.providers[agent] ?? '' } : {}),
   }));
 }
 
 /**
  * The status the owner reads: every source as it stands, with its key's name, then every agent with its mode, its source,
- * its model and its effort. A source that cannot run stays on the row of the agent that chose it, marked unavailable. No
+ * its model, its effort and its provider where one is pinned. A source that cannot run stays on the row of the agent that chose it, marked unavailable. No
  * key value.
  */
 export function statusText(view: SubharnessView, paths: ReadonlyArray<AgentPath>): string {
@@ -259,7 +302,8 @@ export function statusText(view: SubharnessView, paths: ReadonlyArray<AgentPath>
     const mark = state === undefined || state.available ? '' : '  unavailable';
     const model = path.model ?? 'default';
     const effort = path.effort ?? 'default';
-    return `  ${path.agent}  ${view.modes[path.agent]}  ${path.backend ?? 'none'}${mark}  model ${model}  effort ${effort}`;
+    const pin = path.provider === undefined ? '' : `  provider ${path.provider}`;
+    return `  ${path.agent}  ${view.modes[path.agent]}  ${path.backend ?? 'none'}${mark}  model ${model}  effort ${effort}${pin}`;
   });
   return ['subharness:', ...view.sources.map((state) => sourceLine(view, state)), 'modes:', ...rows].join('\n');
 }

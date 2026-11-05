@@ -44,13 +44,17 @@ const endpoint = (deps: Pick<EnableDeps, 'baseUrl'>, path: string): string =>
 
 const refused = (code: string, message: string): SubharnessResult => ({ ok: false, code, changed: false, message });
 
-/** One reply from `model` at `effort` under `backend`: null when it answered, else the refusal. */
+/**
+ * One reply from `model` at `effort` under `backend`: null when it answered, else the refusal. An opencode check with a
+ * `provider` asks OpenRouter for that provider alone with no fallback, as the pinned run will.
+ */
 export async function checkModel(
   deps: EnableDeps,
   backend: BackendName,
   keyValue: string,
   model: string,
-  effort?: EffortLevel
+  effort?: EffortLevel,
+  provider?: string
 ): Promise<SubharnessResult | null> {
   if (backend !== 'opencode') {
     const outcome = await deps.runBackend(backend, CHECK_BRIEF, model, effort);
@@ -73,6 +77,7 @@ export async function checkModel(
         messages: [{ role: 'user', content: CHECK_BRIEF }],
         max_tokens: 8,
         ...(effort === undefined ? {} : { reasoning: { effort } }),
+        ...(provider === undefined ? {} : { provider: { order: [provider], allow_fallbacks: false } }),
       }),
       signal: AbortSignal.timeout(REQUEST_MS),
     });

@@ -58,6 +58,8 @@ export type Selection = {
   keyValue: string;
   model: string;
   effort?: string;
+  /** the OpenRouter provider the check of opencode is pinned to */
+  provider?: string;
 };
 
 /**
@@ -70,7 +72,7 @@ export async function checkedSelection(
   stored: () => string,
   commit: () => SubharnessResult
 ): Promise<SubharnessResult> {
-  const { claim, backend, keyValue, model, effort } = selection;
+  const { claim, backend, keyValue, model, effort, provider } = selection;
   const before = await sourceState(deps.privateDir, backend);
   if (!before.available) return refused(before.code, `${sourceProblem(before)}; nothing was changed`);
   const level: EffortLevel | undefined = effort !== undefined && isListedEffort(effort) ? effort : undefined;
@@ -81,7 +83,7 @@ export async function checkedSelection(
   claims.set(key, mine);
   const seen = stored();
   try {
-    const failed = await checkModel(deps, backend, keyValue, model, level);
+    const failed = await checkModel(deps, backend, keyValue, model, level, provider);
     if (failed !== null) return { ...failed, message: `${failed.message}; nothing was changed` };
     const after = await sourceState(deps.privateDir, backend);
     if (claims.get(key) !== mine || stored() !== seen)

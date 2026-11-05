@@ -91,6 +91,12 @@ export type BackendRunOptions = {
    * names. Each file is mode 600 in a folder of the run's own (mode 700) and is removed when the run ends.
    */
   system?: string;
+  /**
+   * opencode: the OpenRouter provider the model is pinned to, written into the run's `OPENCODE_CONFIG` file as the
+   * model's `provider` option (`order` with this provider alone, `allow_fallbacks` off). claude and codex have no such
+   * control, so a run that names one is refused `provider-unsupported`.
+   */
+  provider?: string;
 };
 
 /** Why a run did not start or was stopped by us. */
@@ -104,6 +110,7 @@ export type BackendError =
   | 'not-installed'
   | 'bad-route'
   | 'route-no-key'
+  | 'provider-unsupported'
   | 'backend-error';
 
 /** A run's tokens and model steps, as far as its backend reports them. `input` counts the cached tokens too. */
@@ -504,21 +511,57 @@ export async function runChildProcess(run: ChildRun): Promise<ChildOutcome> {
   };
 }
 
+/** Why a run cannot start before anything is spawned, or null: an empty brief, or a provider pin only an opencode run with a model can take. */
+function refusalOf(
+  brief: string,
+  name: BackendName,
+  options: Pick<BackendRunOptions, 'provider' | 'model'>
+): BackendError | null {
+  if (brief.trim() === '') return 'empty-brief';
+  return options.provider !== undefined && (name !== 'opencode' || options.model === undefined)
+    ? 'provider-unsupported'
+    : null;
+}
+
+/** Whether a run has a file to write: system instructions, or a provider pin. */
+function hasConfig(options: Pick<BackendRunOptions, 'system' | 'provider'>): boolean {
+  return options.system !== undefined || options.provider !== undefined;
+}
+
 /**
- * Writes the system instructions of a run of `name` into `dir`, mode 600: the text itself for claude and codex, an
- * OpenCode config whose `build` agent has it as its `prompt` for opencode. OpenCode merges that file
- * (`OPENCODE_CONFIG`) with `OPENCODE_CONFIG_CONTENT`, so the agent's `steps` set there stays.
+ * Writes the config a run of `name` reads from `dir`, mode 600. claude and codex read the system instructions as a file of
+ * their own. opencode reads one config file (`OPENCODE_CONFIG`, merged with `OPENCODE_CONFIG_CONTENT`, so the agent's
+ * `steps` set there stays) that holds the `build` agent's `prompt` and, for a pinned run, the model's OpenRouter
+ * `provider` option, keyed by the model id without the `openrouter/` prefix opencode is started with.
  */
-async function writeSystem(
+async function writeConfig(
   name: BackendName,
   dir: string,
-  system: string
-): Promise<{ file?: string; env?: Record<string, string> }> {
+  options: Pick<BackendRunOptions, 'system' | 'provider' | 'model'>
+): Promise<{ file?: string; env?: Record<string, string> } | undefined> {
+  const { system, provider, model } = options;
   if (name === 'opencode') {
+    if (system === undefined && provider === undefined) return undefined;
     const config = path.join(dir, 'opencode.json');
-    await fsp.writeFile(config, JSON.stringify({ agent: { build: { prompt: system } } }), { mode: 0o600 });
+    const pin =
+      provider === undefined || model === undefined
+        ? {}
+        : {
+            provider: {
+              openrouter: {
+                models: {
+                  [model.replace(/^openrouter\//, '')]: {
+                    options: { provider: { order: [provider], allow_fallbacks: false } },
+                  },
+                },
+              },
+            },
+          };
+    const agent = system === undefined ? {} : { agent: { build: { prompt: system } } };
+    await fsp.writeFile(config, JSON.stringify({ ...agent, ...pin }), { mode: 0o600 });
     return { env: { OPENCODE_CONFIG: config } };
   }
+  if (system === undefined) return undefined;
   const file = path.join(dir, 'system.md');
   await fsp.writeFile(file, system, { mode: 0o600 });
   return { file };
@@ -539,18 +582,18 @@ export function createBackend(name: BackendName, deps: BackendDeps = {}): Backen
     let tokens: number | undefined;
     let result: BackendResult;
     let tmpDir: string | undefined;
-    const system = options.system;
     try {
-      if (brief.trim() === '') {
-        result = { ok: false, text: '', exitCode: null, error: 'empty-brief' };
+      const refusal = refusalOf(brief, name, options);
+      if (refusal !== null) {
+        result = { ok: false, text: '', exitCode: null, error: refusal };
       } else if (!findBinary(binary)) {
         result = { ok: false, text: '', exitCode: null, error: 'backend-missing' };
       } else {
         // mkdtemp makes the folder mode 700, so only this user reads the system instructions written into it.
-        tmpDir =
-          recipe.outFile || system !== undefined ? await fsp.mkdtemp(path.join(os.tmpdir(), `${name}-`)) : undefined;
+        const needsConfig = hasConfig(options);
+        tmpDir = recipe.outFile || needsConfig ? await fsp.mkdtemp(path.join(os.tmpdir(), `${name}-`)) : undefined;
         const outFile = recipe.outFile && tmpDir ? path.join(tmpDir, 'final.txt') : undefined;
-        const systemForm = system !== undefined && tmpDir ? await writeSystem(name, tmpDir, system) : undefined;
+        const systemForm = needsConfig && tmpDir ? await writeConfig(name, tmpDir, options) : undefined;
         const args = recipe.args(options, { outFile, systemFile: systemForm?.file });
         const outcome = await runChild({
           binary,

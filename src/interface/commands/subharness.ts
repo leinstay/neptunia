@@ -35,7 +35,7 @@ function typedOf(name: string, args: Readonly<Record<string, unknown>>): string 
   const words = ['/' + name.replaceAll('.', ' ')];
   for (const [key, value] of Object.entries(args))
     if (typeof value === 'string' && value !== '')
-      words.push(key === 'key' || key === 'effort' ? `--${key} ${value}` : value);
+      words.push(key === 'key' || key === 'effort' || key === 'provider' ? `--${key} ${value}` : value);
   return words.join(' ');
 }
 
@@ -53,7 +53,7 @@ function answerOf(name: string, args: Readonly<Record<string, unknown>>, result:
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 
-/** An agent's source, model and effort, after one reply from it; with no `--via` the source stays. */
+/** An agent's source, model, effort and provider pin, after one reply from it; with no `--via` the source stays. */
 async function agentModel(
   deps: EnableDeps,
   name: string,
@@ -61,13 +61,15 @@ async function agentModel(
 ): Promise<SubharnessAnswer> {
   const effort = text(args.effort);
   const via = text(args.via);
+  const provider = text(args.provider);
   try {
     const result = await setAgentModel(
       deps,
       text(args.agent),
       text(args.model),
       effort === '' ? undefined : effort,
-      via === '' ? undefined : via
+      via === '' ? undefined : via,
+      provider === '' ? undefined : provider
     );
     return answerOf(name, args, result);
   } catch {

@@ -16,7 +16,7 @@ The base conversation roles, the memory writer and the delegated agents are dist
 
 ## Model sources
 
-A source is OpenRouter or a subharness backend that is installed and logged in. `/model set <role> <model> --via <backend> [--effort <effort>]` serves every agent role (`scout`, `server`, `dev`, `watcher`, `thinker`) and `memory`, and it writes the source, the model and the effort in one change. `/model set <agent> <model>` with no `--via` keeps the source in force. An effort that is not given stays while the source stays and goes with a source that changes, because no reply checked it there.
+A source is OpenRouter or a subharness backend that is installed and logged in. `/model set <role> <model> --via <backend> [--effort <effort>]` serves every agent role (`scout`, `server`, `dev`, `watcher`, `thinker`) and `memory`, and it writes the source, the model and the effort in one change. `/model set <agent> <model>` with no `--via` keeps the source in force. An effort that is not given stays while the source stays and goes with a source that changes, because no reply checked it there. `--provider <slug>` with `--via opencode` pins an agent to one OpenRouter provider, see [errands](errands.md#the-provider-of-an-opencode-route).
 
 `checkedSelection` in `src/subharness/selection.ts` checks the source first, then asks one reply from that model, and saves only when the source can still run and nobody changed the selection during the reply. A refusal saves nothing and answers one of these codes.
 
