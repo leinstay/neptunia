@@ -260,6 +260,8 @@ export type ReadContextInput = {
 };
 
 export type DbQuotesInput = {
+  db: Untyped;
+  ctx: Untyped;
   config: Untyped;
   settings: RecallSettings;
   placeId: string | null;

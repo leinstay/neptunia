@@ -2327,20 +2327,19 @@ export function fallbackLookupPlan({
   return { forms, who, from: null, to: null };
 }
 
-/** The separator of the list arguments of memory.search (`people`, `terms`). */
 const TOOL_LIST_SPLIT_RE = /[,;\n]/;
+
+const namedPlace = (placeId: unknown): { placeId?: string } =>
+  typeof placeId === 'string' && placeId ? { placeId } : {};
 
 /**
  * The server search the persona's own `memory.search` call asks for (src/tools/tools.ts): no model role, only the deterministic expansion -- her `terms` (exact
- * words or phrases, comma-separated) and `people` (names, comma-separated) cleaned as the
- * classifier's `server:` and `who:` values are (2 to 40 characters, at most three words each,
- * lowercased, each once), then what fallbackLookupPlan finds in her `question` (its long words,
+ * words or phrases, comma-separated) and `people` (names, comma-separated) cleaned as the classifier's `server:` and `who:` values are (2 to 40 characters, at most three words each, lowercased, each once), then what fallbackLookupPlan finds in her `question` (its long words,
  * a stored member's name or alias), her own first, at most `maxForms` each. `when` is read as
  * a `when:` value (`YYYY-MM-DD`, `YYYY-MM-DD HH:MM`, `A..B` with either side open, in
  * `timezone`; a future side cut to `now`): it bounds the search (never a mere locator). Her
  * `channel` (an id, resolved by the caller) is kept as `placeId`: the stretches of other
- * channels are left out (src/behavior/recall-run.ts `quotes`). Null when nothing is left to
- * search (no form, no name, no range). Pure.
+ * channels are left out (src/behavior/recall-run.ts `quotes`). Null when nothing is left to search (no form, no name, no range, no channel). Pure.
  */
 export function memorySearchPlan({
   question = '',
@@ -2364,12 +2363,13 @@ export function memorySearchPlan({
   for (const form of fromQuestion?.forms ?? []) if (forms.length < cap && !forms.includes(form)) forms.push(form);
   for (const form of fromQuestion?.who ?? []) if (who.length < cap && !who.includes(form)) who.push(form);
   const range = typeof when === 'string' && when.trim() ? parseRange(when, timezone, now) : null;
-  if (forms.length === 0 && who.length === 0 && !range) return null;
+  const place = namedPlace(placeId);
+  if (forms.length === 0 && who.length === 0 && !range && !place.placeId) return null;
   return {
     forms,
     who,
     from: range?.from ?? null,
     to: range?.to ?? null,
-    ...(typeof placeId === 'string' && placeId ? { placeId } : {}),
+    ...place,
   };
 }

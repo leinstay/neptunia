@@ -74,7 +74,7 @@ import { clampChars, oneLine } from '../memory/clamp.ts';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.ts';
 import { DAY_MS } from '../time.ts';
 import { audienceCovers } from './elsewhere.ts';
-import { audienceAllows, railAudience } from './snapshot.ts';
+import { audienceAllows, isReadable, railAudience } from './snapshot.ts';
 import { checkPull } from './pull-fetch.ts';
 import { roleModel } from '../llm/roles.ts';
 import { pullPictures } from './pull.ts';
@@ -106,8 +106,9 @@ import {
 import { fitExcerpts, focusHits, lanePlan, lexicalKeep, rankPrefetch } from './prefetch.ts';
 import { indexWords } from '../memory/record-index.ts';
 import { CODE } from '../tools/codes.ts';
+import { knownDescriptions, lineDescriptions } from '../memory/db/line-media.ts';
 import { dbSettings, quotesOf, search as searchRows, window as windowRows } from '../memory/db/recall.ts';
-import { personId } from '../memory/db/ids.ts';
+import { nativeOf, personId } from '../memory/db/ids.ts';
 import { currentIface } from '../memory/db/current-iface.ts';
 import { isIssuedInternalContext, issueContext, readContextSpec } from '../memory/db/scope.ts';
 import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
@@ -125,6 +126,7 @@ import {
 } from './recall-reads.ts';
 import { isFiniteNumber, objOf } from '../tools/types.ts';
 import { untracked } from '../loop-watch.ts';
+import type { ConversationInfo } from '../protocol/adapter.ts';
 import type { Untyped } from '../tools/types.ts';
 import type {
   EmptyStatsResult,
@@ -177,8 +179,38 @@ const TRACE_TEXT_CHARS = 120;
 function asksServer(server: Untyped) {
   if (!server || typeof server !== 'object') return false;
   const some = (list: Untyped) => Array.isArray(list) && list.length > 0;
-  return some(server.forms) || some(server.who) || Number.isFinite(server.from) || Number.isFinite(server.to);
+  const named = typeof server.placeId === 'string' && server.placeId !== '';
+  return some(server.forms) || some(server.who) || Number.isFinite(server.from) || Number.isFinite(server.to) || named;
 }
+
+/**
+ * Which places a sample of the persona's own search may read: a sample hands her a stretch of a channel with no word of
+ * hers behind it, so it keeps to the conversations the turn's live view allows (readable, the audience rule of
+ * `context.pull.sameAudience`). A stored place the view does not hold, her DM among them, stays with the read context.
+ */
+function samplePlaceRule({
+  snapshot,
+  channel,
+  partnerId,
+  config,
+}: {
+  snapshot: { get: (id: string) => ConversationInfo | undefined } | null;
+  channel: ConversationInfo;
+  partnerId: string | null;
+  config: object;
+}) {
+  return (placeId: unknown): boolean => {
+    const entry = snapshot?.get(nativeOf(placeId) ?? '') ?? null;
+    return entry === null || (isReadable(entry) && audienceAllows(channel, entry, config, { partnerId }));
+  };
+}
+
+/** The captions of a window: what the cache holds, with what the database stores for its lines over it. */
+function joinedCaptions(cached: Map<string, string> | undefined, stored: Map<string, string> | null) {
+  return stored && stored.size > 0 ? new Map([...(cached ?? []), ...stored]) : cached;
+}
+
+const noCaptions = (): null => null;
 
 /**
  * The locator of a run (the options recall.js matchRecord, matchMemory and
@@ -949,12 +981,20 @@ export function createRecall({
     return privateAccountId || !asker ? issued : { ...issued, asker: [personId(spec.iface, String(asker))] };
   }
 
-  /** The stretches of db windows as `recall.run` returns them (decorated, captioned from the cache only, cut to `recall.stretchChars`). */
-  function dbQuotes({ config, settings, placeId, selfName, windows, decorate }: DbQuotesInput) {
+  /**
+   * The stretches of db windows as `recall.run` returns them (decorated, captioned from the cache and from the
+   * descriptions stored for each line's pictures, cut to `recall.stretchChars`). Never a request.
+   */
+  function dbQuotes({ db, ctx, config, settings, placeId, selfName, windows, decorate }: DbQuotesInput) {
     const shown = windows.map((window: Untyped) =>
       typeof decorate === 'function' ? { ...window, messages: decorate(window.messages) } : window
     );
-    const descriptions = cachedCaptions(config, placeId, shown);
+    const cached = cachedCaptions(config, placeId, shown);
+    const lines: Array<object> = shown.flatMap((window: { messages: Array<object> }) => window.messages);
+    const descriptions = joinedCaptions(
+      cached as Map<string, string> | undefined,
+      lineDescriptions({ db, ctx, lines })
+    );
     for (const window of shown) window.descriptions = descriptions;
     const render = {
       labels: hot.prompts.labels,
@@ -1033,11 +1073,21 @@ export function createRecall({
       channelNameOf: reader.channelNameOf,
       allowPlace: reader.allowPlace,
       model: reader.model,
+      sampleTime: samplePlaceRule({ snapshot, channel, partnerId, config }),
     });
     stats.hits = found.hits.length;
     stats.meaning = found.stats.meaning;
     stats.windows = found.windows.length;
-    const quotes = dbQuotes({ config, settings, placeId, selfName, windows: found.windows, decorate });
+    const quotes = dbQuotes({
+      db,
+      ctx: reader.ctx,
+      config,
+      settings,
+      placeId,
+      selfName,
+      windows: found.windows,
+      decorate,
+    });
     stats.kept = quotes.length;
     stats.summary = 'quotes';
     log.info('recall: quoted', {
@@ -1045,6 +1095,7 @@ export function createRecall({
       windows: found.windows.length,
       quoted: quotes.length,
       hidden: found.hidden,
+      sampled: found.sampled,
       totalMs: now() - started,
     });
     // `hitIds`: the messages the search matched (scripts/recall-eval.ts scores them); the persona's tool ignores it.
@@ -1053,6 +1104,7 @@ export function createRecall({
       stretch: null,
       quotes,
       hidden: found.hidden === true,
+      sampled: found.sampled === true,
       hitIds: found.hits.map((hit: Untyped) => hit.messageId),
       people: [],
       stats: { ...stats, ms: now() - started },
@@ -1117,7 +1169,16 @@ export function createRecall({
         allowPlace: reader.allowPlace,
       });
       if (found.unknown) return out({ outcome: { kind: 'unknown-anchor' } });
-      const quotes = dbQuotes({ config, settings, placeId, selfName, windows: found.windows, decorate });
+      const quotes = dbQuotes({
+        db,
+        ctx: reader.ctx,
+        config,
+        settings,
+        placeId,
+        selfName,
+        windows: found.windows,
+        decorate,
+      });
       log.info('recall: window', {
         channel: channel.id,
         move: move === 'down' ? 'down' : 'up',
@@ -1924,6 +1985,7 @@ export function createRecall({
       // The database answers the words and the meaning of every lane (while it is not open, the stored memory alone).
       const db = recallDatabase(memoryDb);
       const dbMeaning = Boolean(db) && typeof embed === 'function';
+      let storedCaptions: (lines: Array<object>) => Map<string, string> | null = noCaptions;
       // One embedding request for every lane's text.
       const laneVectors = dbMeaning
         ? timed(
@@ -1972,6 +2034,7 @@ export function createRecall({
         // hits. A word hit is relevant by lexicalKeep (its terms and phrases, its cosine when the meaning search found
         // it); a meaning hit by the same floors the vector files use, with a term of the lane or a strong cosine.
         const reader = dbReader({ db, config, snapshot, placeId, channel, partnerId, asker, memoryContext });
+        storedCaptions = (lines) => knownDescriptions({ db, ctx: reader.ctx, lines });
         const exclusions = historyExclusions({ history, historyRef, context: reader.ctx, channel });
         list.forEach((lane, i) => {
           const plan = plans[i];
@@ -2073,7 +2136,8 @@ export function createRecall({
         );
         const focused = { ...unit.window, hitIds: new Set(focus) };
         const window = typeof decorate === 'function' ? { ...focused, messages: decorate(focused.messages) } : focused;
-        window.descriptions = cachedCaptions(config, placeId, [window]);
+        const cached = cachedCaptions(config, placeId, [window]);
+        window.descriptions = joinedCaptions(cached, storedCaptions(window.messages as Array<object>));
         const [shown] = renderRecallWindows([window], render);
         const lines = cutStretch(shown?.lines ?? [], p.excerptChars);
         if (lines.length === 0) continue;

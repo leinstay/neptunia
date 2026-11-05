@@ -457,7 +457,7 @@
   },
   "memory.search": {
     "title": "Search this server's messages",
-    "whenToUse": "Find what was said. With anchor, read lines around a known line instead. Quoted sample with time and author.",
+    "whenToUse": "Find what was said. With anchor, read lines around a known line instead. Quoted sample with time and author. With only when or channel, a sample of lines from there.",
     "whenNotToUse": "Not for what chat shows.",
     "args": {
       "when": "YYYY-MM-DD or range (A..B).",

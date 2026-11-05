@@ -14,6 +14,7 @@
 //             with her account (kind `self`);
 //   relations `replies_to` the replied message, `mentions` each mentioned member (by user id);
 //   media     the kinds of the attachments, links and stickers (the record's `media`);
+//   extra     `attachmentIds`: each attachment's id, in the order of `media`, the `extra` the observation stores;
 //   times     `occurredAt` the message's time, `observedAt` the event's.
 // Returns null for an event that is no observable line: a deletion, a partial edit, a malformed event.
 
@@ -77,6 +78,15 @@ function mediaKindsOf(message: EventMessage): Array<string> {
   }
   for (const sticker of Array.isArray(message.stickers) ? message.stickers : []) if (sticker) kinds.push('sticker');
   return kinds;
+}
+
+/** The ids of the attachments `media` names, position for position; `{}` when no attachment has one. */
+function attachmentIdsOf(message: EventMessage): Pick<Envelope, 'extra'> {
+  const attachments = Array.isArray(message.attachments) ? (message.attachments as Array<Row | null>) : [];
+  const ids = attachments
+    .filter((item) => item && filled(item.kind))
+    .map((item) => (filled(item?.id) ? item.id : null));
+  return ids.some((id) => id !== null) ? { extra: { attachmentIds: ids } } : {};
 }
 
 /** The authority an event's place is observed under: the one its conversation declares, or the interface's. */
@@ -278,6 +288,7 @@ export function observationOf(
     observedAt,
     text: message.content,
     ...(media.length > 0 ? { media } : {}),
+    ...attachmentIdsOf(message),
     mentions: mentioned,
     direct: direct === true,
     relations,
