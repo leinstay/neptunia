@@ -452,7 +452,19 @@ test('journalTurnRecord: format counts and steps are written only when the turn 
     outcome: 'delivered',
     mode: 'reply',
   });
-  assert.deepEqual(noted.format, { thinkMissing: 1, coerced: 2, malformed: 0, truncated: 0, capped: 0, held: 1 });
+  // Stage U adds the standard's counts.
+  assert.deepEqual(noted.format, {
+    thinkMissing: 1,
+    coerced: 2,
+    malformed: 0,
+    truncated: 0,
+    thinkLeaked: 0,
+    leakEnded: 0,
+    tagInOutgoing: 0,
+    thinkOffScript: 0,
+    capped: 0,
+    held: 1,
+  });
   assert.equal(noted.steps, 3);
 
   // The record survives the journal's line round trip.
