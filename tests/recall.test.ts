@@ -199,7 +199,7 @@ test('parseLookupAnswer: an open side is allowed; an unparsable side gives no ra
 // ---- the plan ------------------------------------------------------------------------------
 
 test('searchPlan: content forms round-robin server and who forms up to maxForms, then authors', () => {
-  const plan = searchPlan({ forms: ['α', 'β', 'γ'], who: ['δ', 'α'], memberIds: ['u1', 'u1', 'u2'], maxForms: 4 });
+  const plan = searchPlan({ forms: ['α', 'β', 'γ'], who: ['δ', 'α'], accountIds: ['u1', 'u1', 'u2'], maxForms: 4 });
   assert.deepEqual(
     plan.map((q) => q.content ?? q.authorId),
     ['α', 'δ', 'β', 'γ', 'u1', 'u2']
@@ -208,7 +208,7 @@ test('searchPlan: content forms round-robin server and who forms up to maxForms,
 });
 
 test('searchPlan: each content query carries its kind, form for a server form and who for a name form', () => {
-  const plan = searchPlan({ forms: ['α', 'β', 'γ'], who: ['δ', 'α'], memberIds: ['u1', 'u1', 'u2'], maxForms: 4 });
+  const plan = searchPlan({ forms: ['α', 'β', 'γ'], who: ['δ', 'α'], accountIds: ['u1', 'u1', 'u2'], maxForms: 4 });
   assert.deepEqual(
     plan.map((q) => q.kind),
     ['form', 'who', 'form', 'form', 'author', 'author']
@@ -803,8 +803,8 @@ test('matchMemory: forms match word stems, folded; an inflected form matches its
     ],
     'κουνελιού reaches κουνέλι by its stem; κουνελάκια is in reach of κουνέλι only'
   );
-  assert.deepEqual([items[0].date, items[0].memberId], ['2026-10-01', ANA]);
-  assert.deepEqual([items[4].date, items[4].memberId], [null, null]);
+  assert.deepEqual([items[0].date, items[0].accountId], ['2026-10-01', ANA]);
+  assert.deepEqual([items[4].date, items[4].accountId], [null, null]);
   assert.deepEqual(
     matchMemory({ forms: ['lapin'], lore, max: 10 }).map((i) => i.text),
     ['Le Lapin: The rabbit of the garden, buried in L’Été.', 'Lapins: The hutch.'],
@@ -845,7 +845,7 @@ test('matchMemory: a feeling is never searched; learned items and recent lines a
   ];
   const items = matchMemory({ forms: ['κουνέλι'], profiles, learned, recentLines, max: 10, timezone: 'Europe/Berlin' });
   assert.deepEqual(
-    items.map((i) => [i.kind, i.date, i.memberId, i.text]),
+    items.map((i) => [i.kind, i.date, i.accountId, i.text]),
     [
       ['recent', '2026-10-05', null, `<@${ANA}> lost her κουνέλι`],
       ['learned', null, ELO, 'a κουνέλι lives in the garden'],
@@ -876,7 +876,7 @@ test("matchMemory: name forms bring the member's moments and the lines that name
   ];
   const items = matchMemory({ forms: [], who: ['κιτέζου'], profiles, max: 10 });
   assert.deepEqual(
-    items.map((i) => [i.memberId, i.text, i.score]),
+    items.map((i) => [i.accountId, i.text, i.score]),
     [
       [KITE, 'moved to the coast', 1],
       [KITE, 'won the chess night', 1],
@@ -932,9 +932,9 @@ test('matchMemory: a range keeps only dated items inside it', () => {
 test('buildRecallRequest: the memory block comes before found, one structural line per item, tokens resolved', () => {
   const t = Date.UTC(2026, 9, 1, 18, 40);
   const memory = [
-    { kind: 'episode', text: `shot the κουνέλι with <@${KITE}>`, date: '2026-10-01', memberId: ANA, score: 2 },
-    { kind: 'lore', text: 'Le Lapin: the garden rabbit', date: null, memberId: null, score: 1 },
-    { kind: 'learned', text: 'a fact', date: null, memberId: '499999999999999999', score: 1 },
+    { kind: 'episode', text: `shot the κουνέλι with <@${KITE}>`, date: '2026-10-01', accountId: ANA, score: 2 },
+    { kind: 'lore', text: 'Le Lapin: the garden rabbit', date: null, accountId: null, score: 1 },
+    { kind: 'learned', text: 'a fact', date: null, accountId: '499999999999999999', score: 1 },
   ];
   const names: Record<string, string> = { [ANA]: 'Ana', [KITE]: 'Kitezu' };
   const base = {
@@ -1280,7 +1280,7 @@ test('recall: archive hits render as archived <kind> with the date and dedupe ag
   assert.ok(!scanned.some((e) => e.itemId === 'ep-felt'), 'a feeling is never searched');
   const items = matchMemory({ forms: ['κουνέλι'], profiles, archived: scanned, max: 10, timezone: BERLIN });
   assert.deepEqual(
-    items.map((i) => [i.kind, i.itemId, i.date, i.memberId, i.text]),
+    items.map((i) => [i.kind, i.itemId, i.date, i.accountId, i.text]),
     [
       ['episode', 'ep-hot', '2026-10-02', ANA, 'fed the κουνέλι'],
       ['archived episode', 'ep-old', '2026-08-01', ANA, 'buried the κουνέλι under the oak "αντίο"'],
@@ -1404,9 +1404,9 @@ test('recall: a vague recently ranks recency first and her own exchanges first',
 
 test('recall: the memory block stops at memoryTokens', () => {
   const memory = [
-    { kind: 'episode', text: 'one κουνέλι line', date: '2026-10-01', memberId: null, score: 1 },
-    { kind: 'lore', text: 'two: a longer lore text about the garden', date: null, memberId: null, score: 1 },
-    { kind: 'learned', text: 'three', date: null, memberId: null, score: 1 },
+    { kind: 'episode', text: 'one κουνέλι line', date: '2026-10-01', accountId: null, score: 1 },
+    { kind: 'lore', text: 'two: a longer lore text about the garden', date: null, accountId: null, score: 1 },
+    { kind: 'learned', text: 'three', date: null, accountId: null, score: 1 },
   ];
   const lines = [
     'episode | 2026-10-01 | - | one κουνέλι line',
@@ -2070,7 +2070,7 @@ test('matchMemory: archive rows found by meaning join the items by reciprocal ra
   const joined = matchMemory({ ...base, meaning: [meant] });
   assert.deepEqual(keys(joined), ['ep-meant', 'lore'], 'ahead of the word-only items of its rank');
   assert.deepEqual(
-    [joined[0].kind, joined[0].text, joined[0].date, joined[0].memberId],
+    [joined[0].kind, joined[0].text, joined[0].date, joined[0].accountId],
     ['archived episode', 'he made the whole story up', '2026-08-01', ANA]
   );
   assert.deepEqual(

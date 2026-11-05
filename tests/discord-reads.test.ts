@@ -172,7 +172,7 @@ test('reports a server channel with its name, topic, category and community, and
   if (result.status !== 'ok') throw new Error(result.status);
   const { conversation } = result;
   assert.equal(conversation.kind, 'channel');
-  assert.equal(conversation.communityId, 'g1');
+  assert.equal(conversation.rootId, 'g1');
   assert.equal(conversation.name, 'general');
   assert.equal(conversation.topic, 'daily talk');
   assert.equal(conversation.category, 'main');
@@ -208,7 +208,7 @@ test('reports a private chat as a direct conversation with its partner and no co
   const result = await createDiscordAdapter({ client, config: () => ({}) }).conversationInfo(CHANNEL);
   if (result.status !== 'ok') throw new Error(result.status);
   assert.equal(result.conversation.kind, 'dm');
-  assert.equal(result.conversation.communityId, null);
+  assert.equal(result.conversation.rootId, null);
   assert.equal(result.conversation.partnerId, 'u1');
 });
 
@@ -242,7 +242,7 @@ test('lists text channels, threads and voice rooms of a community with its group
     client: clientOf(guild, [text, thread, voice, category]),
     config: () => ({}),
   });
-  const result = await adapter.conversations({ communityId: 'g1' });
+  const result = await adapter.conversations({ placeId: 'g1' });
   if (result.status !== 'ok') throw new Error(result.status);
   assert.deepEqual(result.conversations.map((entry) => entry.id).sort(), ['t1', 't2', 'v1']);
   assert.equal(result.conversations.find((entry) => entry.id === 'v1')?.voice, true);
@@ -327,11 +327,11 @@ test('answers a member with the ids of their roles, and null for a user who is n
   const member = { id: 'u1', displayName: 'Eleni', user, avatar: null, roles: { cache: roles } };
   const { adapter, guild } = world();
   (guild.members as { cache: Map<string, Raw> }).cache.set('u1', member);
-  const found = await adapter.memberInfo({ communityId: 'g1', memberId: 'u1' });
+  const found = await adapter.memberInfo({ placeId: 'g1', accountId: 'u1' });
   if (found.status !== 'ok') throw new Error(found.status);
   assert.deepEqual(found.member?.groupIds, ['r1', 'r2']);
   assert.equal(found.member?.name, 'Eleni');
-  const stranger = await adapter.memberInfo({ communityId: 'g1', memberId: 'u9' });
+  const stranger = await adapter.memberInfo({ placeId: 'g1', accountId: 'u9' });
   if (stranger.status !== 'ok') throw new Error(stranger.status);
   assert.equal(stranger.member, null);
 });
@@ -346,7 +346,7 @@ test('gives the persona a large static avatar address of 1024 pixels', async () 
   };
   const { adapter, guild } = world();
   (guild.members as { cache: Map<string, Raw> }).cache.set(SELF, me);
-  const result = await adapter.memberInfo({ communityId: 'g1', memberId: SELF });
+  const result = await adapter.memberInfo({ placeId: 'g1', accountId: SELF });
   if (result.status !== 'ok') throw new Error(result.status);
   assert.equal(result.member?.avatar.largeUrl, 'https://cdn/self.png?size=1024');
 });
@@ -381,7 +381,7 @@ test('searches messages by text and author with the time bounds turned into snow
   const { sent, client } = restWith(body);
   const { adapter } = world({ client: { rest: client.rest } });
   const result = await adapter.searchMessages(
-    { communityId: 'g1' },
+    { placeId: 'g1' },
     { text: 'pasta', authorId: 'u1', after: 1_700_000_000_000, before: 1_700_100_000_000, offset: 25 }
   );
   if (result.status !== 'ok') throw new Error(result.status);
@@ -402,14 +402,14 @@ test('searches messages by text and author with the time bounds turned into snow
 test('fails a message search when Discord has not indexed the community yet', async () => {
   const { client } = restWith({ message: 'Index not yet available' });
   const { adapter } = world({ client: { rest: client.rest } });
-  assert.equal((await adapter.searchMessages({ communityId: 'g1' }, { text: 'x' })).status, 'failed');
+  assert.equal((await adapter.searchMessages({ placeId: 'g1' }, { text: 'x' })).status, 'failed');
 });
 
 test('searches members by the start of a name and names the fields neutrally', async () => {
   const body = [{ user: { id: 'u1', username: 'eleni', global_name: 'Eleni', bot: false }, nick: 'Ele' }];
   const { sent, client } = restWith(body);
   const { adapter } = world({ client: { rest: client.rest } });
-  const result = await adapter.searchMembers({ communityId: 'g1' }, { prefix: 'el', limit: 5 });
+  const result = await adapter.searchMembers({ placeId: 'g1' }, { prefix: 'el', limit: 5 });
   if (result.status !== 'ok') throw new Error(result.status);
   assert.deepEqual(result.members, [{ id: 'u1', handle: 'eleni', displayName: 'Eleni', nickname: 'Ele', bot: false }]);
   assert.equal(sent[0]?.query.get('query'), 'el');
@@ -422,7 +422,7 @@ test('lists the custom emoji of a server with their pictures and leaves out an u
     ['e2', { id: 'e2', name: 'gone', animated: true, available: false }],
   ]);
   const { adapter } = world({ guild: { emojis: { cache: emojis } } });
-  const result = await adapter.emoji({ communityId: 'g1' });
+  const result = await adapter.emoji({ placeId: 'g1' });
   if (result.status !== 'ok') throw new Error(result.status);
   assert.deepEqual(
     result.emoji.map((entry) => [entry.id, entry.name, entry.animated]),
@@ -469,7 +469,7 @@ test('lists the members who put an emoji on a message, asking Discord for at mos
   const adapter = createDiscordAdapter({ client: clientOf(guildOf([channel]), [channel]), config: () => ({}) });
   const result = await adapter.reactors({ ...CHANNEL, messageId: '1005' }, '🔥', 7);
   if (result.status !== 'ok') throw new Error(result.status);
-  assert.deepEqual(result.memberIds, ['u1', 'u2']);
+  assert.deepEqual(result.accountIds, ['u1', 'u2']);
   assert.deepEqual(fetched, [{ limit: 7 }]);
 });
 

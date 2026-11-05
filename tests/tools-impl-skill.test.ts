@@ -52,7 +52,7 @@ async function callOf(skills: SkillsPort | null, name: string, args: Record<stri
       env,
       placeId: 'g1',
       conversationId: 'c1',
-      userId: null,
+      accountId: null,
       roleIds: [],
       actor: 'persona',
     })
@@ -161,7 +161,7 @@ test('skill.run runs the activated version only, with the credentials its script
         env,
         placeId: 'g1',
         conversationId: 'c1',
-        userId: null,
+        accountId: null,
         roleIds: [],
         actor: 'persona',
       })

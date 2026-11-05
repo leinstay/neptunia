@@ -83,7 +83,7 @@ test('new reproduction: an interface event naming the command-line chat is refus
           conversation: { id: 'cli:dm:owner', kind: 'dm' },
           messageId: 'm1',
           emoji: { name: 'x' },
-          userId: 'u1',
+          accountId: 'u1',
           added: true,
         },
         { id: 'forged' }

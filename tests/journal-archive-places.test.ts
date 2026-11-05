@@ -5,7 +5,7 @@
 //   journal.start(placeId, input), journal.actionLine(placeId, record), journal.system(record): persona collection
 //   record.append(placeId, lines, opts?), record.iterate(placeId, query?)
 //   archive.append(placeId, entries), archive.iterate(placeId, query?)
-//   `privateUserId` leaves all three: the DM place is the private address.
+//   `privateAccountId` leaves all three: the DM place is the private address.
 // Appendix entries: src/memory/{journal,record,record-index,archive,vectors,embedder,describe,update,root}.ts,
 // src/memory/db/readers/{archive,common,record,vectors}.ts, src/memory/db/request-archive.ts, src/turn/journal-notes.ts,
 // src/turn/lookup.ts, src/turn/outcome.ts, src/web/lookup.ts.
@@ -52,7 +52,7 @@ async function scene() {
 }
 
 test('a journal line of a DM goes to a collection of its DM place, and a private flag changes nothing', async () => {
-  // Bug: `communityKey` wraps the id, and `privateUserId` moves the line to an account's collection, away from its place.
+  // Bug: `communityKey` wraps the id, and `privateAccountId` moves the line to an account's collection, away from its place.
   const { mem } = await scene();
   try {
     const journal = createJournal({ dataDir: mem.dataDir, memoryDb: mem.memoryDb, now: () => NOW, log: quiet });

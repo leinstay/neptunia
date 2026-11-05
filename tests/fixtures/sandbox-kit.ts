@@ -10,7 +10,7 @@ export const CHANNEL = { id: '500000000000000001', name: 'general', category: 'T
 
 /** A moment as normalized channel messages (interfaces/discord/collect.ts#normalizeMessage), oldest first:
  * one `[authorId, authorName, text, minutesBefore]` per line, the last one the trigger. */
-export function moment(lines: Array<[string, string, string, number]>): { history: Array<{ id: string; authorId: string; authorName: string; content: string; ts: number; placeId: string; channelName: string; channelCategory: string; channelTopic: null; self: boolean; bot: boolean; mentionedUserIds: Array<never>; replyToId: null; forwardedFrom: null; attachments: Array<never>; links: Array<never>; forwarded: Array<never>; stickers: Array<never>; emojis: Array<never>; reactions: Array<never>; }>; } {
+export function moment(lines: Array<[string, string, string, number]>): { history: Array<{ id: string; authorId: string; authorName: string; content: string; ts: number; placeId: string; channelName: string; channelCategory: string; channelTopic: null; self: boolean; bot: boolean; mentionedAccountIds: Array<never>; replyToId: null; forwardedFrom: null; attachments: Array<never>; links: Array<never>; forwarded: Array<never>; stickers: Array<never>; emojis: Array<never>; reactions: Array<never>; }>; } {
   const base = {
     placeId: CHANNEL.id,
     channelName: CHANNEL.name,
@@ -18,7 +18,7 @@ export function moment(lines: Array<[string, string, string, number]>): { histor
     channelTopic: null,
     self: false,
     bot: false,
-    mentionedUserIds: [],
+    mentionedAccountIds: [],
     replyToId: null,
     forwardedFrom: null,
     attachments: [],
@@ -40,7 +40,7 @@ export function moment(lines: Array<[string, string, string, number]>): { histor
   };
 }
 
-export function twoLines(): { history: Array<{ id: string; authorId: string; authorName: string; content: string; ts: number; placeId: string; channelName: string; channelCategory: string; channelTopic: null; self: boolean; bot: boolean; mentionedUserIds: Array<never>; replyToId: null; forwardedFrom: null; attachments: Array<never>; links: Array<never>; forwarded: Array<never>; stickers: Array<never>; emojis: Array<never>; reactions: Array<never>; }>; } {
+export function twoLines(): { history: Array<{ id: string; authorId: string; authorName: string; content: string; ts: number; placeId: string; channelName: string; channelCategory: string; channelTopic: null; self: boolean; bot: boolean; mentionedAccountIds: Array<never>; replyToId: null; forwardedFrom: null; attachments: Array<never>; links: Array<never>; forwarded: Array<never>; stickers: Array<never>; emojis: Array<never>; reactions: Array<never>; }>; } {
   return moment([
     [BRUNO, 'Bruno', 'καλημέρα', 5],
     [ALICE, 'Alice', 'what do you think about chess?', 1],
@@ -106,7 +106,7 @@ export function fakeStore({
 } = {}): {
   writes: Array<string>;
   getPlace: () => Record<string, unknown>;
-  getUser: (userId: string) => unknown;
+  getUser: (accountId: string) => unknown;
   getPrivate: () => never;
   listChannels: () => Array<unknown>;
   listUserProfiles: () => Array<unknown>;
@@ -120,7 +120,7 @@ export function fakeStore({
   return {
     writes,
     getPlace: () => placeMemory,
-    getUser: (userId: string) => userProfiles[userId] ?? null,
+    getUser: (accountId: string) => userProfiles[accountId] ?? null,
     getPrivate: () => {
       throw new Error('the private layer is out of bounds for the sandbox');
     },

@@ -17,7 +17,7 @@ const GOOD: ReadonlyArray<Row> = [
     name: 'conversation info with audience and viewers',
     action: { action: 'conversation.info', conversation: CONVERSATION, audience: true, viewers: ['u1', 'u2'] },
   },
-  { name: 'conversations list', action: { action: 'conversations.list', communityId: 'g1' } },
+  { name: 'conversations list', action: { action: 'conversations.list', placeId: 'g1' } },
   {
     name: 'history of the newest lines',
     action: { action: 'messages.history', conversation: CONVERSATION, limit: 50 },
@@ -30,13 +30,13 @@ const GOOD: ReadonlyArray<Row> = [
     name: 'history at the largest limit',
     action: { action: 'messages.history', conversation: CONVERSATION, limit: 10000 },
   },
-  { name: 'member info', action: { action: 'member.info', communityId: 'g1', memberId: 'u1' } },
-  { name: 'member info of a private chat', action: { action: 'member.info', communityId: null, memberId: 'u1' } },
+  { name: 'member info', action: { action: 'member.info', placeId: 'g1', accountId: 'u1' } },
+  { name: 'member info of a private chat', action: { action: 'member.info', placeId: null, accountId: 'u1' } },
   {
     name: 'message search with every field',
     action: {
       action: 'messages.search',
-      communityId: 'g1',
+      rootId: 'g1',
       text: 'pasta',
       authorId: 'u1',
       after: 1000,
@@ -44,8 +44,8 @@ const GOOD: ReadonlyArray<Row> = [
       offset: 25,
     },
   },
-  { name: 'member search', action: { action: 'members.search', communityId: 'g1', prefix: 'el', limit: 5 } },
-  { name: 'emoji list', action: { action: 'emoji.list', communityId: 'g1' } },
+  { name: 'member search', action: { action: 'members.search', placeId: 'g1', prefix: 'el', limit: 5 } },
+  { name: 'emoji list', action: { action: 'emoji.list', placeId: 'g1' } },
   { name: 'link parse', action: { action: 'links.parse', texts: ['https://x/y', 'plain'] } },
   { name: 'reactors', action: { action: 'message.reactors', message: MESSAGE, emoji: '🔥', limit: 10 } },
 ];
@@ -68,7 +68,7 @@ const BAD: ReadonlyArray<Row> = [
       viewers: Array.from({ length: 26 }, (_, n) => `u${n}`),
     },
   },
-  { name: 'conversations list with an empty community', action: { action: 'conversations.list', communityId: '' } },
+  { name: 'conversations list with an empty community', action: { action: 'conversations.list', placeId: '' } },
   { name: 'history without a limit', action: { action: 'messages.history', conversation: CONVERSATION } },
   {
     name: 'history with a limit of zero',
@@ -96,13 +96,13 @@ const BAD: ReadonlyArray<Row> = [
     name: 'history with a floor that is not finite',
     action: { action: 'messages.history', conversation: CONVERSATION, limit: 5, since: Infinity },
   },
-  { name: 'member info without a member', action: { action: 'member.info', communityId: 'g1' } },
+  { name: 'member info without a member', action: { action: 'member.info', placeId: 'g1' } },
   {
     name: 'message search with a time that is not finite',
-    action: { action: 'messages.search', communityId: 'g1', after: Number.NaN },
+    action: { action: 'messages.search', placeId: 'g1', after: Number.NaN },
   },
   { name: 'message search without a community', action: { action: 'messages.search', text: 'x' } },
-  { name: 'member search without a prefix', action: { action: 'members.search', communityId: 'g1', limit: 5 } },
+  { name: 'member search without a prefix', action: { action: 'members.search', placeId: 'g1', limit: 5 } },
   {
     name: 'reactors for a reference without a message id',
     action: { action: 'message.reactors', message: CONVERSATION, emoji: '🔥', limit: 10 },

@@ -53,7 +53,7 @@ type EffectVerdict = { ok: boolean };
 /** What createAct reads: the dependencies and the functions of the other topic modules it calls. */
 export type ActContext = {
   hot: { readonly config: ActConfig };
-  store: { isPingsOff?: (placeId: string, userId: string | null | undefined) => boolean };
+  store: { isPingsOff?: (placeId: string, accountId: string | null | undefined) => boolean };
   rng: () => number;
   clock: () => number;
   selfIdOf: () => string;
@@ -175,7 +175,7 @@ export type HeldSpeech = {
   delivered: false;
   answered: Set<string>;
   texts: Array<string>;
-  rendered: Array<{ text: string; userIds: Array<string | undefined> }>;
+  rendered: Array<{ text: string; accountIds: Array<string | undefined> }>;
   staged: Array<HeldPicture>;
   posts: Array<PostNote>;
   reacted: Array<ReactNote>;
@@ -217,8 +217,8 @@ export function createAct(ctx: ActContext): Act {
   function holdSpeech({ channel, placeId, privateChat, parsed, set, draft = null, ...routing }: HoldArgs): HeldSpeech {
     const options = { channel, snapshot: snapshotOfDraft(draft), placeId, privateChat, ...routing, link: null };
     const rendered = parsed.messages.map((message) => {
-      const { text, userIds } = renderPost(message.text, options);
-      return { text, userIds: userIds.filter((id) => !store.isPingsOff?.(placeId, id)) };
+      const { text, accountIds } = renderPost(message.text, options);
+      return { text, accountIds: accountIds.filter((id) => !store.isPingsOff?.(placeId, id)) };
     });
     const texts = parsed.messages.map((message) => message.text);
     const staged = set?.pictures ?? [];
@@ -477,8 +477,11 @@ export function createAct(ctx: ActContext): Act {
     // Members who turned the persona's notifications off (`/nep pings off`), read from the store at
     // each send: their `<@id>` stays in the text but notifies nobody, and a reply to their line
     // does not ping them (server channels only).
-    const pingsOff = (userId: string | null | undefined): boolean =>
-      !privateChat && Boolean(userId) && typeof store.isPingsOff === 'function' && store.isPingsOff(placeId, userId);
+    const pingsOff = (accountId: string | null | undefined): boolean =>
+      !privateChat &&
+      Boolean(accountId) &&
+      typeof store.isPingsOff === 'function' &&
+      store.isPingsOff(placeId, accountId);
     // A message that did not go out ends the posting; the turn then ends `partial` with a `sendFailed` fact (its code, how many of how many went out).
     // A send whose answer never came (`unknown`: a timeout, a network error) may have gone out: it keeps the hash of its text, and her next turn here looks for it before telling.
     const failSend = (code: unknown, { unknown = false, text: sentText = '' } = {}): void => {
@@ -500,7 +503,7 @@ export function createAct(ctx: ActContext): Act {
         ? (lines.find((line) => line.id === replyId)?.authorId ?? (trigger?.id === replyId ? trigger.authorId : null))
         : null;
       // Links on the text sent; the typing time stays on the text before them.
-      const { text, spoken, userIds } = renderPost(message.text, {
+      const { text, spoken, accountIds } = renderPost(message.text, {
         channel,
         snapshot: snapshotOfDraft(draft),
         placeId,
@@ -544,7 +547,7 @@ export function createAct(ctx: ActContext): Act {
       const result = await port.send(conversationOf(channel), {
         text,
         ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}),
-        mentions: { users: userIds.filter((id) => !pingsOff(id)), repliedUser: !pingsOff(repliedAuthorId) },
+        mentions: { users: accountIds.filter((id) => !pingsOff(id)), repliedUser: !pingsOff(repliedAuthorId) },
       });
       if (result.status !== 'ok') {
         if (op.opId) await closeResult(op, result);
@@ -572,7 +575,7 @@ export function createAct(ctx: ActContext): Act {
         text: message.text,
         replyId,
         repliedAuthorId,
-        userIds,
+        accountIds,
       });
       delivered = true;
       if (pulledId) answered.add(pulledId);

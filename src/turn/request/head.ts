@@ -21,7 +21,7 @@ import { requestTokenLimit, sectionCost } from '../../llm/budget.ts';
 import { rulesPromptOf } from '../../rules-list.ts';
 import { cacheTtlMs } from '../../llm/openrouter.ts';
 import { gifHandleMap, normalizeGifs } from '../../memory/index.ts';
-import { memberIdOf } from '../../memory/recent.ts';
+import { accountIdOf } from '../../memory/recent.ts';
 import { freezePerBucket, gifFieldChars, gifFieldsMap } from './emoji-gifs.ts';
 import type { Held } from './emoji-gifs.ts';
 import { anchoredOn } from './memory.ts';
@@ -53,13 +53,13 @@ export type Base = {
   liveOn: boolean;
   liveSnapshot: AroundSnapshot | null;
   voiceChannelNameOf: ((placeId: string) => string | null) | undefined;
-  selfMemberId: string | null;
+  selfAccountId: string | null;
   handleById: Map<string, string> | null;
   directoryText: string;
   memberNames: Map<string, Array<string>> | null;
   channelHandleById: Map<string, string> | null;
   channelDirectoryText: string;
-  handleFor: (memberId: string | null) => string | null;
+  handleFor: (accountId: string | null) => string | null;
   nowText: string;
   relationships: boolean;
   shownMoves: number;
@@ -125,16 +125,16 @@ export function requestHead(given: RequestInput): Base {
   // liveOn holds only for an object with a snapshot.
   const liveSnapshot = liveOn ? aroundInput!.snapshot! : null;
   const voiceChannelNameOf = liveOn ? aroundInput!.channelNameOf : undefined;
-  const selfMemberId = memberIdOf(given.selfId);
+  const selfAccountId = accountIdOf(given.selfId);
   // Everyone in a voice channel the audience may see, the persona aside: each gets a handle, so
   // their `<people_now>` entry joins by it like everyone's.
   const inVoice =
     liveOn && liveSnapshot
       ? voiceOccupants(liveSnapshot, {
-          excludeIds: new Set([selfMemberId].filter((id): id is string => Boolean(id))),
+          excludeIds: new Set([selfAccountId].filter((id): id is string => Boolean(id))),
           nameOf,
           channelNameOf: voiceChannelNameOf,
-        }).map((occupant) => occupant.memberId)
+        }).map((occupant) => occupant.accountId)
       : [];
   const directory = handlesOn
     ? // The served place's stored profiles, as the store lists them.
@@ -148,7 +148,7 @@ export function requestHead(given: RequestInput): Base {
       ? (given.otherProfiles as Array<Profile | null | undefined>).map((profile) => profile?.id)
       : []),
   ]
-    .map(memberIdOf)
+    .map(accountIdOf)
     .filter((id): id is string => Boolean(id));
   const handleById = handlesOn
     ? assignHandles({
@@ -188,8 +188,8 @@ export function requestHead(given: RequestInput): Base {
     : '';
   // A member's handle in this request (null with the switch off or none given): on their profile
   // heading and at the start of their `<people_now>` entry, as `<directory>` lists it.
-  const handleFor = (memberId: string | null) =>
-    memberId !== null && handleById ? (handleById.get(memberId) ?? null) : null;
+  const handleFor = (accountId: string | null) =>
+    accountId !== null && handleById ? (handleById.get(accountId) ?? null) : null;
   // `<now>`: the clock, then the persona's recent time away.
   const nowText = nowBlock(now, timezone, labels, given.offPeriods);
   const relationships = true;
@@ -278,7 +278,7 @@ export function requestHead(given: RequestInput): Base {
     liveOn,
     liveSnapshot,
     voiceChannelNameOf,
-    selfMemberId,
+    selfAccountId,
     handleById,
     directoryText,
     memberNames,

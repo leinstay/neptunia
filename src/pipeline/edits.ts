@@ -49,7 +49,7 @@ export type EditsContext = {
   } | null;
   reads: Reads;
   /** A community some connected interface serves. */
-  isServedCommunity: (communityId: string | null | undefined) => boolean;
+  isServedCommunity: (placeId: string | null | undefined) => boolean;
   selfIdOf: () => string;
   record: EditsRecord | null;
   now: () => number;
@@ -138,7 +138,7 @@ export function createEdits({
     await recordEdit(event as MessageEvent, options);
     try {
       if (store?.state?.data?.paused) return;
-      const community = event.conversation.communityId ?? null;
+      const community = event.conversation.rootId ?? null;
       if (!community || !isServedCommunity(community)) return;
       const placeId = sharedPlaceOf(store, event.conversation, event.iface);
       let edited = event as MessageEvent;
@@ -186,7 +186,7 @@ export function createEdits({
    */
   function recordable(event: MessageReceived): boolean {
     if (!record) return false;
-    const community = event.conversation?.communityId ?? null;
+    const community = event.conversation?.rootId ?? null;
     if (!community || !isServedCommunity(community)) return false;
     const message = event.message;
     if ('system' in message && message.system === true) return false;

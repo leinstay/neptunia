@@ -32,8 +32,8 @@ export type Line = {
   readonly content?: string;
   readonly ts: number;
   readonly replyToId: string | null;
-  readonly mentionedUserIds: Array<string>;
-  readonly replyPingUserId?: string | null;
+  readonly mentionedAccountIds: Array<string>;
+  readonly replyPingAccountId?: string | null;
   readonly self?: boolean;
 };
 

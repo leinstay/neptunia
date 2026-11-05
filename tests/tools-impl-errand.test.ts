@@ -95,11 +95,11 @@ function makeEnv({ errandSettings = {}, agents = {}, configured = true } = {}) {
   return { env, client, errands, finished, stores };
 }
 
-const ctx = (env: unknown, userId: string | null, extra = {}) => ({
+const ctx = (env: unknown, accountId: string | null, extra = {}) => ({
   env,
   placeId: 'g1',
   conversationId: 'c1',
-  userId,
+  accountId,
   roleIds: [],
   ...extra,
 });
@@ -118,7 +118,7 @@ test('errand.run: a member may run the scout agent; the answer is at once, the e
     assert.match(result.summary, new RegExp(`^task ${id}: queued`));
     assert.equal(client.runs.length, 0, 'nothing was sent before the answer');
     const task = stores.get()?.get(id);
-    assert.deepEqual(task?.requester, { userId: MEMBER, kind: 'member' });
+    assert.deepEqual(task?.requester, { accountId: MEMBER, kind: 'member' });
     assert.deepEqual(task?.origin, { placeId: 'c1', messageId: 'm5' });
     assert.equal(task?.scope, 'group');
     await new Promise((r) => setImmediate(r));

@@ -886,7 +886,7 @@ export function buildSessionRequest({
     const record = parseJson(row.record) as (Row & Intention) | null;
     if (!record || !isOpen(record.status)) continue;
     const concerns =
-      shown.some((person) => concernsMember(record, { userId: person.native, names: [person.name] })) ||
+      shown.some((person) => concernsMember(record, { accountId: person.native, names: [person.name] })) ||
       placeIds.some((id) => JSON.stringify(record).includes(nativeOf(id) ?? '\u0000'));
     if (concerns && typeof record.purpose === 'string') {
       intentionLines.push(`${record.status}: ${record.purpose}`);

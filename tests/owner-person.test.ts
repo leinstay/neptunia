@@ -57,7 +57,7 @@ test('an equal native id on a second interface has no owner rights once the owne
     assert.equal(ownerOn('discord', '111', config), true);
     assert.equal(ownerOn('telegram', '111', config), false);
     assert.equal(
-      withIface('telegram', () => rightsRefusal(OWNER_ONLY, { userId: '111', config })),
+      withIface('telegram', () => rightsRefusal(OWNER_ONLY, { accountId: '111', config })),
       'owner-only'
     );
   });
@@ -71,11 +71,11 @@ test('every account bound to the owner person has the owner rights, and an unbou
     const config = { bot: { ownerPerson: OWNER_PERSON, owners: [] } };
     assert.equal(ownerOn('telegram', '555', config), true);
     assert.equal(
-      withIface('telegram', () => rightsRefusal(OWNER_ONLY, { userId: '555', config })),
+      withIface('telegram', () => rightsRefusal(OWNER_ONLY, { accountId: '555', config })),
       null
     );
     assert.equal(
-      withIface('telegram', () => isOwnerCaller(config, { userId: '555' })),
+      withIface('telegram', () => isOwnerCaller(config, { accountId: '555' })),
       true
     );
     link(handle, 'unbind', 'telegram', '555');

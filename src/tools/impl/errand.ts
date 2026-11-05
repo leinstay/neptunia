@@ -60,9 +60,9 @@ const handlers = perEnv((env) => {
 
   /** Who asks: an owner, a member, or the persona on her own (her call with nobody asking). */
   function requesterOf(context: OpContext) {
-    const userId = context?.userId ? idText(context.userId) : null;
-    if (!userId) return { userId: null, kind: context?.actor === 'persona' ? 'persona' : 'member' };
-    return { userId, kind: ownerCalls(context) ? 'owner' : 'member' };
+    const accountId = context?.accountId ? idText(context.accountId) : null;
+    if (!accountId) return { accountId: null, kind: context?.actor === 'persona' ? 'persona' : 'member' };
+    return { accountId, kind: ownerCalls(context) ? 'owner' : 'member' };
   }
 
   /** Whether the conversation the command runs in is a private chat. */
@@ -74,7 +74,9 @@ const handlers = perEnv((env) => {
   /** Whether the caller may see `errand`: a group errand anyone; a private chat's only its requester or an owner. */
   function mayView(errand: ErrandRecord, context: OpContext): boolean {
     if (errand.scope !== 'dm') return true;
-    return ownerCalls(context) || (Boolean(context?.userId) && idText(context.userId) === errand.requester?.userId);
+    return (
+      ownerCalls(context) || (Boolean(context?.accountId) && idText(context.accountId) === errand.requester?.accountId)
+    );
   }
 
   /** One line of an errand: id, agent, state (with the error code and `files-expired`), age, goal. */
@@ -231,7 +233,7 @@ const handlers = perEnv((env) => {
     const store = service.store();
     const errand = store?.get(id) ?? null;
     if (!errand || !mayView(errand, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
-    const own = Boolean(context?.userId) && idText(context.userId) === errand.requester?.userId;
+    const own = Boolean(context?.accountId) && idText(context.accountId) === errand.requester?.accountId;
     const hers = context?.actor === 'persona' && errand.requester?.kind === 'persona';
     if (!ownerCalls(context) && !own && !hers)
       throw denied('only the requester of the task or an owner may cancel it', CODE.NOT_REQUESTER);

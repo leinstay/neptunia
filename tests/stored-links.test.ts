@@ -358,10 +358,10 @@ function opsEnv(store: ReturnType<typeof tmpStore>) {
 test('ops lore.add / learning.add / alias.add: what they store holds no link', async () => {
   const store = tmpStore();
   store.touchUser(accountOf(store, '7'), 'Ελένη', 1000);
-  const ctx = { env: opsEnv(store), placeId: 'g1', userId: '42', roleIds: [] };
+  const ctx = { env: opsEnv(store), placeId: 'g1', accountId: '42', roleIds: [] };
   await runOp('lore.add', { title: `Ο βράχος ${URL}`, keys: `βράχος, ${URL}`, text: `Το αστείο ${URL}` }, ctx);
   await runOp('learning.add', { text: `το café κλείνει νωρίς ${URL}` }, ctx);
-  await runOp('alias.add', { userId: '7', name: `Λένα ${URL}` }, ctx);
+  await runOp('alias.add', { accountId: '7', name: `Λένα ${URL}` }, ctx);
   const [entry] = store.getLore(placeOfCommunity(store, 'g1'));
   assert.deepEqual(
     [asRecord(entry).title, asRecord(entry).keys, asRecord(entry).text],
@@ -379,7 +379,7 @@ test('ops lore.add / learning.add / alias.add: what they store holds no link', a
 
 test('ops lore.add: a text that is only a link is refused and stores nothing', async () => {
   const store = tmpStore();
-  const ctx = { env: opsEnv(store), placeId: 'g1', userId: '42', roleIds: [] };
+  const ctx = { env: opsEnv(store), placeId: 'g1', accountId: '42', roleIds: [] };
   const result = await runOp('lore.add', { title: 'Κενό', keys: 'κενό', text: URL }, ctx);
   assert.notEqual(asRecord(result).ok, true);
   assert.deepEqual(store.getLore(placeOfCommunity(store, 'g1')), []);

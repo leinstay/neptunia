@@ -704,9 +704,9 @@ test('normalizeMessage: a forward with no guild on the message never throws, for
   assert.equal(m.replyToId, null);
 });
 
-// --- normalizeMessage: mentionedUserIds ---------------------------------
+// --- normalizeMessage: mentionedAccountIds ---------------------------------
 
-test('normalizeMessage: mentionedUserIds carries the real mention ids, in order', () => {
+test('normalizeMessage: mentionedAccountIds carries the real mention ids, in order', () => {
   const raw = rawMessage({
     mentions: {
       users: new Map([
@@ -716,7 +716,7 @@ test('normalizeMessage: mentionedUserIds carries the real mention ids, in order'
     },
   });
   const m = normalizeMessage(raw, 'self');
-  assert.deepEqual(m.mentionedUserIds, ['u2', 'u3']);
+  assert.deepEqual(m.mentionedAccountIds, ['u2', 'u3']);
 });
 
 test("normalizeMessage: mentionedUsers names each mention as the text reads it (the member's display name, else the user's)", () => {
@@ -751,7 +751,7 @@ test('normalizeMessage: channel mentions in the raw text become mentionedChannel
   const m = normalizeMessage(raw, 'self');
   assert.deepEqual(m.mentionedChannelIds, [a, b]);
   assert.equal(m.content, 'είδες το #ημερολόγιο; και #τέχνη πάλι #ημερολόγιο @Ελένη @ρόλος #12345');
-  assert.deepEqual(m.mentionedUserIds, []);
+  assert.deepEqual(m.mentionedAccountIds, []);
 });
 
 test('normalizeMessage: no channel mention gives an empty list', () => {
@@ -787,46 +787,46 @@ test('normalizeMessage: at most 5 channel ids in first appearance order', () => 
   assert.deepEqual(m.mentionedChannelIds, [c, a, g, b, e]);
 });
 
-// --- normalizeMessage: replyPingUserId -----------------------------------
+// --- normalizeMessage: replyPingAccountId -----------------------------------
 
-test('normalizeMessage: replyPingUserId is the replied-to author put into mentions by the reply ping alone', () => {
+test('normalizeMessage: replyPingAccountId is the replied-to author put into mentions by the reply ping alone', () => {
   const raw = rawMessage({
     content: 'só isso',
     reference: { messageId: 'm0', channelId: 'c1' },
     mentions: { users: new Map([['u2', {}]]), repliedUser: { id: 'u2' } },
   });
   const m = normalizeMessage(raw, 'self');
-  assert.deepEqual(m.mentionedUserIds, ['u2'], 'mentionedUserIds itself is unchanged');
-  assert.equal(m.replyPingUserId, 'u2');
+  assert.deepEqual(m.mentionedAccountIds, ['u2'], 'mentionedAccountIds itself is unchanged');
+  assert.equal(m.replyPingAccountId, 'u2');
 });
 
-test('normalizeMessage: replyPingUserId is null when the replied-to author is also typed as <@id>', () => {
+test('normalizeMessage: replyPingAccountId is null when the replied-to author is also typed as <@id>', () => {
   for (const content of ['<@u2> look', '<@!u2> look']) {
     const raw = rawMessage({
       content,
       reference: { messageId: 'm0', channelId: 'c1' },
       mentions: { users: new Map([['u2', {}]]), repliedUser: { id: 'u2' } },
     });
-    assert.equal(normalizeMessage(raw, 'self').replyPingUserId, null, content);
+    assert.equal(normalizeMessage(raw, 'self').replyPingAccountId, null, content);
   }
 });
 
-test('normalizeMessage: replyPingUserId is null for a reply with the ping off (author not in mentions)', () => {
+test('normalizeMessage: replyPingAccountId is null for a reply with the ping off (author not in mentions)', () => {
   const raw = rawMessage({
     content: 'quiet reply',
     reference: { messageId: 'm0', channelId: 'c1' },
     mentions: { users: new Map(), repliedUser: { id: 'u2' } },
   });
-  assert.equal(normalizeMessage(raw, 'self').replyPingUserId, null);
+  assert.equal(normalizeMessage(raw, 'self').replyPingAccountId, null);
 });
 
-test('normalizeMessage: replyPingUserId is null without a reply, and for a forward', () => {
-  assert.equal(normalizeMessage(rawMessage(), 'self').replyPingUserId, null);
+test('normalizeMessage: replyPingAccountId is null without a reply, and for a forward', () => {
+  assert.equal(normalizeMessage(rawMessage(), 'self').replyPingAccountId, null);
   const forward = rawMessage({
     reference: { messageId: 'orig', channelId: 'c2', type: MessageReferenceType.Forward },
     mentions: { users: new Map([['u2', {}]]), repliedUser: { id: 'u2' } },
   });
-  assert.equal(normalizeMessage(forward, 'self').replyPingUserId, null);
+  assert.equal(normalizeMessage(forward, 'self').replyPingAccountId, null);
 });
 
 // --- fetchHistory: embedTextChars reaches normalizeMessage -------------------
@@ -1569,7 +1569,7 @@ function guildMessage(overrides = {}) {
   };
   return rawMessage({
     guild: { id: 'g1' },
-    communityId: 'g1',
+    rootId: 'g1',
     channel,
     content: 'hello <@self> <#222222222222222222>',
     cleanContent: 'hello @Bot #news',
@@ -1595,7 +1595,7 @@ test('toEvent: a message becomes a valid message.received event, field for field
   assert.deepEqual(event.conversation, {
     id: 'c1',
     kind: 'channel',
-    communityId: 'g1',
+    rootId: 'g1',
     name: 'γενικά',
     topic: 'κουβέντα',
     category: 'κοινότητα',
@@ -1608,12 +1608,12 @@ test('toEvent: a message becomes a valid message.received event, field for field
   assert.deepEqual(event.addressing, {
     mentioned: true,
     replyToSelf: false,
-    mentionedUserIds: ['self', 'u2'],
+    mentionedAccountIds: ['self', 'u2'],
     mentionedUsers: [],
     mentionedConversationIds: ['222222222222222222'],
   });
   assert.equal(event.raw, raw, 'the discord.js message rides along for the Discord side only');
-  for (const key of ['channelId', 'authorId', 'authorName', 'ts', 'channelName', 'mentionedUserIds'])
+  for (const key of ['channelId', 'authorId', 'authorName', 'ts', 'channelName', 'mentionedAccountIds'])
     assert.ok(!(key in event.message), key);
 });
 
@@ -1622,7 +1622,7 @@ test('toEvent: a direct chat is a dm conversation, a thread a thread', () => {
   assert.deepEqual(dm.conversation, {
     id: 'd1',
     kind: 'dm',
-    communityId: null,
+    rootId: null,
     name: null,
     topic: null,
     category: null,
@@ -1704,7 +1704,7 @@ test('toEvent: replyToSelf is the cached answer only; a forward replies to nothi
 test('toEvent: no mention of the persona is mentioned false, whatever else is mentioned', () => {
   const event = toEvent(guildMessage({ mentions: { users: new Map([['u2', { id: 'u2' }]]) } }), 'self');
   assert.equal(loose(event.addressing).mentioned, false);
-  assert.deepEqual(loose(event.addressing).mentionedUserIds, ['u2']);
+  assert.deepEqual(loose(event.addressing).mentionedAccountIds, ['u2']);
   assert.equal(loose(toEvent(rawMessage(), 'self').addressing).mentioned, false, 'no mentions at all');
 });
 
@@ -1742,7 +1742,7 @@ test('toEvent: an edit of a partial message carries only its id, and a deletion 
   assert.deepEqual(deleted.conversation, {
     id: 'c1',
     kind: 'channel',
-    communityId: 'g1',
+    rootId: 'g1',
     name: null,
     topic: null,
     category: null,
@@ -1754,7 +1754,7 @@ test('reactionEvent: a reaction becomes a valid reaction.changed event, its part
   const message = {
     id: 'm1',
     channelId: 'c1',
-    communityId: 'g1',
+    rootId: 'g1',
     channel: { id: 'c1', name: 'γενικά', isThread: () => false },
   };
   const reaction = { message, emoji: { name: '\u{1F389}', id: null } };
@@ -1768,7 +1768,7 @@ test('reactionEvent: a reaction becomes a valid reaction.changed event, its part
       conversation: event.conversation.id,
       messageId: event.messageId,
       emoji: event.emoji,
-      userId: event.userId,
+      accountId: event.accountId,
       added: event.added,
     },
     {
@@ -1777,7 +1777,7 @@ test('reactionEvent: a reaction becomes a valid reaction.changed event, its part
       conversation: 'c1',
       messageId: 'm1',
       emoji: { name: '\u{1F389}' },
-      userId: 'u2',
+      accountId: 'u2',
       added: true,
     }
   );

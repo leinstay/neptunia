@@ -300,7 +300,7 @@ function traceItem(item: Untyped) {
     date: item?.date ?? null,
     itemId,
     text: itemId ? null : clampChars(oneLine(item?.text), TRACE_TEXT_CHARS),
-    memberId: item?.memberId ?? null,
+    accountId: item?.accountId ?? null,
     self: item?.self === true,
     score: Number.isFinite(item?.score) ? item.score : null,
     // A locator run's slot: the share reserved for content, or the dated one.
@@ -466,10 +466,7 @@ export function createRecall({
         now() >= searchUntil
       )
         continue;
-      const searched = await untilAborted(
-        signal,
-        reads.searchMembers({ communityId: placeId }, { prefix: form, limit: maxPeople })
-      );
+      const searched = await untilAborted(signal, reads.searchMembers({ placeId }, { prefix: form, limit: maxPeople }));
       for (const member of searched?.members ?? []) {
         if (member.bot && member.id !== selfId) continue;
         const known = found.get(member.id);
@@ -529,7 +526,7 @@ export function createRecall({
     server,
     recent,
     allowEntry,
-    privateUserId,
+    privateAccountId,
     signal,
     meaning = [],
     locator = null,
@@ -558,7 +555,7 @@ export function createRecall({
       const stream = (query: Untyped) =>
         (async function* (): AsyncGenerator<ArchiveEntry> {
           yield* source.iterate(placeId, query);
-          if (privateUserId) yield* source.iterate(placeId, { ...query, privateUserId });
+          if (privateAccountId) yield* source.iterate(placeId, { ...query, privateAccountId });
         })();
       let archived: Array<Untyped> = [];
       if (typeof source?.iterate === 'function' && (ranged || settings.archiveMonths > 0)) {
@@ -636,7 +633,7 @@ export function createRecall({
     people,
     recent,
     allowLine,
-    privateUserId,
+    privateAccountId,
     ownIds,
     selfName,
     signal,
@@ -662,7 +659,7 @@ export function createRecall({
       const source = {
         async *iterate(id: Untyped, query: Untyped) {
           yield* record.iterate(id, query);
-          if (privateUserId) yield* record.iterate(id, { ...query, privateUserId });
+          if (privateAccountId) yield* record.iterate(id, { ...query, privateAccountId });
         },
       };
       const found = await matchRecord(placeId, {
@@ -709,7 +706,7 @@ export function createRecall({
     candidate,
     lines,
     server,
-    privateUserId,
+    privateAccountId,
     sourceOf,
     ownIds,
     signal,
@@ -772,8 +769,8 @@ export function createRecall({
     let rows;
     try {
       rows = await vectors.search(placeId, vector, { ...range, k, filter: shared });
-      if (privateUserId)
-        rows = [...rows, ...(await vectors.search(placeId, vector, { ...range, k, filter: unseen, privateUserId }))];
+      if (privateAccountId)
+        rows = [...rows, ...(await vectors.search(placeId, vector, { ...range, k, filter: unseen, privateAccountId }))];
     } catch (err) {
       return failed('search', err);
     }
@@ -848,7 +845,7 @@ export function createRecall({
    * What a run may read toward `channel` (the turn's; a private chat on behalf of `partnerId`):
    * `sourceOf(placeId)`, the pull rail's verdict judged once per channel (`judged`): the
    * channel when its lines may reach this turn, else null -- search hits, record lines, archived
-   * items and meaning rows of a refused channel never reach the turn; `privateUserId`, the partner
+   * items and meaning rows of a refused channel never reach the turn; `privateAccountId`, the partner
    * of a private chat (else null): a private entry or line is its member's alone, read only on a
    * private turn with that member, the partner of the DM place `placeId` the turn stands in; `allowEntry` (an archive entry, by its `scope`) and
    * `allowLine` (a record line: a channel line by its channel, a private one by its member).
@@ -868,11 +865,11 @@ export function createRecall({
       }
       return judged.get(id);
     };
-    const privateUserId = !inCommunity(channel) && typeof partnerId === 'string' && partnerId ? partnerId : null;
+    const privateAccountId = !inCommunity(channel) && typeof partnerId === 'string' && partnerId ? partnerId : null;
     const allowScope = (scope: Untyped) => {
       // A private item is its partner's: named by their id, or by the DM place this private turn stands in.
       if (scope?.private === true)
-        return privateUserId !== null && (scope.user === privateUserId || scope.place === placeId);
+        return privateAccountId !== null && (scope.user === privateAccountId || scope.place === placeId);
       return typeof scope?.channel !== 'string' || sourceOf(scope.channel) !== null;
     };
     const allowEntry = (entry: Untyped) => allowScope(entry?.scope);
@@ -880,7 +877,7 @@ export function createRecall({
       line?.scope?.private === true
         ? allowScope(line.scope)
         : typeof line?.scope?.channel === 'string' && allowScope(line.scope);
-    return { judged, sourceOf, privateUserId, allowEntry, allowLine };
+    return { judged, sourceOf, privateAccountId, allowEntry, allowLine };
   }
 
   function profilesFor(placeId: string | null): Array<Untyped> {
@@ -908,9 +905,9 @@ export function createRecall({
     asker = null,
     memoryContext = null,
   }: DbReaderInput) {
-    const { privateUserId } = scopeOf({ config, snapshot, channel, partnerId, placeId });
+    const { privateAccountId } = scopeOf({ config, snapshot, channel, partnerId, placeId });
     const nameOf = namesFor(placeId, profilesFor(placeId));
-    const ctx = readContext({ config, channel, privateUserId, asker, memoryContext });
+    const ctx = readContext({ config, channel, privateAccountId, asker, memoryContext });
     const placeExists = db?.prepare('SELECT id FROM places WHERE id = ?');
     const knownPlaces = new Map<string, boolean>();
     return {
@@ -928,11 +925,11 @@ export function createRecall({
   /**
    * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read; an issued internal context spans every audience.
    */
-  function readContext({ channel, privateUserId, asker, memoryContext = null }: ReadContextInput) {
-    const named = readContextSpec(currentIface(), iface, channel?.id, privateUserId);
+  function readContext({ channel, privateAccountId, asker, memoryContext = null }: ReadContextInput) {
+    const named = readContextSpec(currentIface(), iface, channel?.id, privateAccountId);
     const spec =
-      named.kind === 'dm' && privateUserId
-        ? { ...named, person: personOfMember(store, String(privateUserId), named.iface) }
+      named.kind === 'dm' && privateAccountId
+        ? { ...named, person: personOfMember(store, String(privateAccountId), named.iface) }
         : named;
     const fits =
       memoryContext &&
@@ -941,7 +938,7 @@ export function createRecall({
       memoryContext.id.length > 0 &&
       (isIssuedInternalContext(memoryContext) ||
         (!memoryContext.internal &&
-          (privateUserId
+          (privateAccountId
             ? memoryContext.kind === 'dm' && spec.kind === 'dm' && memoryContext.person === spec.person
             : memoryContext.kind === 'group')));
     const issued = fits
@@ -949,7 +946,7 @@ export function createRecall({
       : typeof memoryDb?.issueContext === 'function'
         ? memoryDb.issueContext(spec)
         : issueContext({ ...spec, now });
-    return privateUserId || !asker ? issued : { ...issued, asker: [personId(spec.iface, String(asker))] };
+    return privateAccountId || !asker ? issued : { ...issued, asker: [personId(spec.iface, String(asker))] };
   }
 
   /** The stretches of db windows as `recall.run` returns them (decorated, captioned from the cache only, cut to `recall.stretchChars`). */
@@ -1188,7 +1185,7 @@ export function createRecall({
 
     // The pull rail toward this turn's channel and the private-owner rule (scopeOf).
     const scope = scopeOf({ config, snapshot, channel, partnerId, placeId });
-    const { judged, sourceOf, privateUserId, allowEntry, allowLine } = scope;
+    const { judged, sourceOf, privateAccountId, allowEntry, allowLine } = scope;
     const recent = isRecentCue(server, { now: now(), recordDays: settings.recordDays });
     // A `when:` that only locates the event: it ranks, it bounds no local source (locatorOf).
     const locator = locatorOf(server, settings);
@@ -1207,7 +1204,7 @@ export function createRecall({
       candidate,
       lines: chatLines,
       server,
-      privateUserId,
+      privateAccountId,
       sourceOf,
       ownIds,
       signal: searchSignal,
@@ -1234,7 +1231,7 @@ export function createRecall({
       server,
       recent,
       allowEntry,
-      privateUserId,
+      privateAccountId,
       signal,
       meaning: meaning?.archive ?? [],
       locator,
@@ -1271,7 +1268,7 @@ export function createRecall({
     const plan = searchPlan({
       forms: server.forms ?? [],
       who: server.who ?? [],
-      memberIds: people.map((p) => p.id),
+      accountIds: people.map((p) => p.id),
       from: server.from ?? null,
       to: server.to ?? null,
       maxForms: settings.maxForms,
@@ -1288,7 +1285,7 @@ export function createRecall({
       people,
       recent,
       allowLine,
-      privateUserId,
+      privateAccountId,
       ownIds,
       selfName,
       signal,
@@ -1336,10 +1333,7 @@ export function createRecall({
       if (signal.aborted) return null;
       if (searchSignal.aborted || (stats.queries > 0 && now() >= searchUntil)) break;
       const query = queue.shift();
-      const page = await untilAborted(
-        searchSignal,
-        reads.searchMessages({ communityId: placeId }, searchQueryOf(query))
-      );
+      const page = await untilAborted(searchSignal, reads.searchMessages({ placeId }, searchQueryOf(query)));
       stats.queries += 1;
       const traced = planned.get(query);
       if (traced) {
@@ -1867,7 +1861,7 @@ export function createRecall({
       const controller = new AbortController();
       const signal = controller.signal;
       const scope = scopeOf({ config, snapshot, channel, partnerId, placeId });
-      const { sourceOf, privateUserId, allowEntry, allowLine } = scope;
+      const { sourceOf, privateAccountId, allowEntry, allowLine } = scope;
       const profiles = profilesFor(placeId);
       const nameOf = namesFor(placeId, profiles);
       const channelNameOf = (id: Untyped) => snapshot?.get(id)?.name ?? null;
@@ -1961,7 +1955,7 @@ export function createRecall({
                 server: { forms, who: used.who, from: null, to: bounded ? until : null },
                 recent: false,
                 allowEntry,
-                privateUserId,
+                privateAccountId,
                 signal,
                 source: archiveShared,
               })
@@ -2063,8 +2057,8 @@ export function createRecall({
             source: 'memory',
             kind: item.kind,
             date: item.date ?? null,
-            memberId: item.memberId ?? null,
-            who: item.memberId ? nameOf(item.memberId) : null,
+            accountId: item.accountId ?? null,
+            who: item.accountId ? nameOf(item.accountId) : null,
             id: item.itemId ?? null,
             lines: item.text,
             text: item.text,

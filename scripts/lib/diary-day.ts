@@ -163,7 +163,7 @@ export class PictureCapError extends Error {
 export type Picture = { buffer: Buffer; mediaType?: string; cost?: number; seconds?: number };
 
 /** One drawing call of a slot, as `recordingImages` recorded it. */
-type DrawCall = { reference?: unknown; userId?: string | null; result?: unknown; file?: string; prompt?: string };
+type DrawCall = { reference?: unknown; accountId?: string | null; result?: unknown; file?: string; prompt?: string };
 
 /** One slot of a diary day's report. */
 export type DiarySlot = {
@@ -181,7 +181,7 @@ export type DiarySlot = {
 
 /**
  * An image client over `images` (createImageGen's shape) whose `generate()` records every call
- * first -- `{ prompt, reference: referenceOf(reference), userId }` -- in `calls`, then, past
+ * first -- `{ prompt, reference: referenceOf(reference), accountId }` -- in `calls`, then, past
  * `maxPictures` generations (`maxPictures` null: no cap), refuses it with `PictureCapError` (key
  * MAX_PICTURES_KEY, as a rail error reads to the turn) before anything is sent. Each call's
  * `result` is filled once it ends: `{ bytes, mediaType, cost, seconds }`, or `{ error, reason }`;
@@ -212,7 +212,7 @@ export function recordingImages({
       const call: Rec = {
         prompt: args.prompt,
         reference: referenceOf(args.reference ?? null),
-        userId: args.userId ?? null,
+        accountId: args.accountId ?? null,
         result: null,
       };
       calls.push(call);
@@ -288,7 +288,7 @@ export function renderDiaryDayReport(report: {
     for (const [i, draw] of (slot.draws ?? []).entries()) {
       lines.push('', `### Drawing ${i + 1}`, '');
       lines.push(`- reference: ${draw.reference ? `\`${JSON.stringify(draw.reference)}\`` : 'none'}`);
-      lines.push(`- userId: ${draw.userId ?? 'none'}`);
+      lines.push(`- accountId: ${draw.accountId ?? 'none'}`);
       lines.push(`- result: ${draw.result ? `\`${JSON.stringify(draw.result)}\`` : '-'}`);
       if (draw.file) lines.push(`- file: ${draw.file}`);
       lines.push('', '```text', String(draw.prompt ?? ''), '```');

@@ -7,7 +7,7 @@ function info(id: string, over: Partial<ConversationInfo> = {}): ConversationInf
   return {
     id,
     kind: 'channel',
-    communityId: 'g1',
+    rootId: 'g1',
     name: id,
     topic: null,
     category: null,
@@ -37,14 +37,14 @@ function eventAt(id: string, at: number, conversationId = 'c1'): MessageEvent {
     iface: 'fake',
     at,
     id: `fake:message:${id}`,
-    conversation: { id: conversationId, kind: 'channel', communityId: 'g1', name: conversationId },
+    conversation: { id: conversationId, kind: 'channel', rootId: 'g1', name: conversationId },
     message: {
       id,
       author: { id: 'u1', name: 'Alice', self: false, bot: false },
       content: `text ${id}`,
       at,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -53,7 +53,7 @@ function eventAt(id: string, at: number, conversationId = 'c1'): MessageEvent {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
   };
 }
 
@@ -156,7 +156,7 @@ test('reactors gives at most the limit of the members seeded for an emoji and fa
   const fake = chat();
   fake.seedReactors({ ...REF, messageId: 'm1' }, '🔥', ['u1', 'u2', 'u3']);
   const some = await fake.reactors({ ...REF, messageId: 'm1' }, '🔥', 2);
-  assert.deepEqual(some.status === 'ok' && some.memberIds, ['u1', 'u2']);
+  assert.deepEqual(some.status === 'ok' && some.accountIds, ['u1', 'u2']);
   const none = await fake.reactors({ ...REF, messageId: 'm1' }, '👍', 2);
   assert.equal(none.status, 'failed');
 });

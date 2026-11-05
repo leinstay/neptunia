@@ -383,7 +383,7 @@ test('replay --skills: the flags it takes; the invented message; a run as its JS
   assert.equal(trigger.ts, NOW);
   assert.ok(BigInt(trigger.id) > 0n && /^\d{17,20}$/.test(trigger.id), 'a snowflake of its moment');
   assert.deepEqual(
-    [trigger.mentionedUserIds, trigger.replyToId, trigger.self, trigger.content],
+    [trigger.mentionedAccountIds, trigger.replyToId, trigger.self, trigger.content],
     [[SELF], null, false, 'Γεια σου']
   );
 
@@ -830,7 +830,7 @@ test('replay --skills steps: a burst of two named calls gets two turns in arriva
   );
   const lines = steps[0].situation.history;
   assert.deepEqual(
-    lines.slice(-2).map((line: Untyped) => [line.authorId, line.content, line.mentionedUserIds]),
+    lines.slice(-2).map((line: Untyped) => [line.authorId, line.content, line.mentionedAccountIds]),
     [
       [OWNER, 'Persona, πρόσθεσε κανόνα', []],
       [MEMBER, 'Persona, κι εμένα έναν', []],
@@ -889,7 +889,7 @@ test('replay --skills steps: plain follow-ups after a call share one slot; the n
   const lines = steps[0].situation.history;
   const [call, older, newer] = lines.slice(-3);
   assert.deepEqual(
-    [call, older, newer].map((line) => line.mentionedUserIds),
+    [call, older, newer].map((line) => line.mentionedAccountIds),
     [[SELF], [], []],
     "the step's own message tags her; the burst does not"
   );
@@ -1144,7 +1144,7 @@ test('burstTurns: the live queue over a burst -- the first message starts the tu
   const c = line(MEMBER, 'γ', 2);
   const d = line(OTHER, `<@${SELF}> δ`, 3);
   const e = line(MEMBER, 'ε', 4);
-  assert.deepEqual(asRecord(d).mentionedUserIds, [SELF], 'a tag written in the text tags her');
+  assert.deepEqual(asRecord(d).mentionedAccountIds, [SELF], 'a tag written in the text tags her');
   const config = { bot: { nameTriggers: ['Persona'] } };
   const plan = burstTurns([a, b, c, d, e], { selfId: SELF, config });
   assert.deepEqual(

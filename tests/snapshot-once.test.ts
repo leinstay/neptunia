@@ -54,6 +54,6 @@ test('asks the listing for the audience of every conversation and the speaker as
     await rig.emit(deliver(rig.fake, { id: 'm1', text: 'hello', at: NOW - 500, mention: true }));
     await until(() => rig.posted('c1').length === 1);
     const call = rig.fake.calls.filter((c) => c.op === 'conversations').at(-1);
-    assert.deepEqual(call?.args[0], { communityId: 'g1', audience: true, viewers: [] });
+    assert.deepEqual(call?.args[0], { rootId: 'g1', audience: true, viewers: [] });
   });
 });

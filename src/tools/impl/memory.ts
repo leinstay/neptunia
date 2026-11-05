@@ -133,9 +133,9 @@ function archiveHolderOf(
  * Whether the archive list leaves an entry out: a member's item unless that member was asked for, and a private item
  * anywhere but in the DM it belongs to, so a group's read and a member's name never reach one.
  */
-function leftOutOfList(entry: Untyped, userId: string | null, placeId: string): boolean {
+function leftOutOfList(entry: Untyped, accountId: string | null, placeId: string): boolean {
   if (entry?.scope?.private === true) return entry.scope.place !== placeId;
-  return !userId && typeof entry?.scope?.user === 'string';
+  return !accountId && typeof entry?.scope?.user === 'string';
 }
 
 const handlers = perEnv((env) => {
@@ -167,11 +167,11 @@ const handlers = perEnv((env) => {
    */
   function cmdMemoryShow(args: Obj, context: OpContext) {
     freshenIfPaused();
-    const userId = idText(args.userId);
-    if (!userId) throw invalid('a user is required');
+    const accountId = idText(args.accountId);
+    if (!accountId) throw invalid('a user is required');
 
     const placeId = requirePlaceId(context);
-    const profile = requireProfile(placeId, userId);
+    const profile = requireProfile(placeId, accountId);
 
     const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     const requested = typeof args.section === 'string' ? args.section : '';
@@ -344,14 +344,14 @@ const handlers = perEnv((env) => {
       throw invalid(`unknown kind; one of: ${ARCHIVE_KINDS.join(', ')}`);
     const asked = args.n;
     const n = typeof asked === 'number' && Number.isInteger(asked) ? Math.min(100, Math.max(1, asked)) : 20;
-    const userId = args.userId ? accountOf(store, idText(args.userId)) : null;
+    const accountId = args.accountId ? accountOf(store, idText(args.accountId)) : null;
     const newest: Array<Untyped> = [];
     for (const holder of [placeId, null])
       for await (const entry of archive.iterate(holder, {
-        scope: userId ? { user: userId } : null,
+        scope: accountId ? { user: accountId } : null,
         kinds: kind ? [kind] : null,
       })) {
-        if (leftOutOfList(entry, userId, placeId)) continue;
+        if (leftOutOfList(entry, accountId, placeId)) continue;
         newest.push(entry);
         if (newest.length > n) newest.shift();
       }
@@ -504,14 +504,14 @@ const handlers = perEnv((env) => {
   function cmdPrivateShow(args: Obj) {
     freshenIfPaused();
     if (args.person !== undefined || args.place !== undefined) return privateView(env, args);
-    const userId = idText(args.userId);
-    if (!userId) throw invalid('a user is required');
+    const accountId = idText(args.accountId);
+    if (!accountId) throw invalid('a user is required');
 
-    const publicProfile = store.getUser(accountOf(store, userId));
+    const publicProfile = store.getUser(accountOf(store, accountId));
     const name = publicProfile?.names?.[0];
-    const label = name ? `${name} (id:${userId})` : String(userId);
+    const label = name ? `${name} (id:${accountId})` : String(accountId);
 
-    const priv = store.getPrivate(accountOf(store, userId));
+    const priv = store.getPrivate(accountOf(store, accountId));
     if (!priv) return `No private memory for this member: ${label}.`;
 
     const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
@@ -570,11 +570,11 @@ const handlers = perEnv((env) => {
   /** `/nep memory affinity`: the attitude view (`affinityView`) of a member who has a profile.
    * Read only: the attitude changes only through the memory analyzer, for nobody by hand. */
   function cmdMemoryAffinity(args: Obj, context: OpContext) {
-    const userId = idText(args.userId);
-    if (!userId) throw invalid('a user is required');
+    const accountId = idText(args.accountId);
+    if (!accountId) throw invalid('a user is required');
     const placeId = requirePlaceId(context);
     freshenIfPaused();
-    const profile = requireProfile(placeId, userId);
+    const profile = requireProfile(placeId, accountId);
     return affinityView(profile.affinity, tokenResolver().resolve);
   }
 
@@ -615,7 +615,7 @@ defineOp({
 defineOp({
   name: 'memory.affinity.read',
   rights: { kind: 'read' },
-  run: (args, ctx) => handlers(ctx.env).cmdMemoryAffinity({ userId: args.userId }, ctx),
+  run: (args, ctx) => handlers(ctx.env).cmdMemoryAffinity({ accountId: args.accountId }, ctx),
 });
 defineOp({
   name: 'memory.journal.read',

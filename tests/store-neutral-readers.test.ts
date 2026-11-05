@@ -58,7 +58,7 @@ const save = async (store: Store): Promise<void> => {
 const namesOf = (profile: unknown): unknown => Reflect.get(Object(profile), 'names');
 
 test('a public profile is one collection of its account, whatever community the person spoke in', async () => {
-  // Bug: `getUser(guildId, userId)` keeps one profile per community, so a second community starts a stranger.
+  // Bug: `getUser(guildId, accountId)` keeps one profile per community, so a second community starts a stranger.
   const { store, read } = rig();
   store.touchUser('account:a21', 'Anna', 1000);
   await save(store);

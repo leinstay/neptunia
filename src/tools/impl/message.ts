@@ -7,7 +7,7 @@
 // posted through her interface (src/interface/port.ts, `env.port`), replying to a message when
 // one is named, and a reply notifies the replied author unless they turned pings off. Her text
 // (a post or an edit) arrives rendered as a `<msg>` of hers (src/tools/executors.ts#executeCall);
-// only the members it mentions (`context.mentionUserIds`) are notified, none with pings off. Edit,
+// only the members it mentions (`context.mentionAccountIds`) are notified, none with pings off. Edit,
 // delete and react go through the interface too. The rules live here, for every caller: a post,
 // an edit, a deletion or a reaction in the conversation the command runs in, or in any text
 // channel of the served place where the bot holds the platform permissions it needs
@@ -163,10 +163,10 @@ function gifEntry(env: Env, args: Obj, placeId: string | null): Untyped {
   return entry;
 }
 
-/** True when member `userId` turned pings off here. */
-function pingsOff(env: Env, { context, userId }: { context: OpContext; userId: unknown }): boolean {
-  if (!userId || typeof env.store?.isPingsOff !== 'function') return false;
-  return env.store.isPingsOff(env.resolvedPlaceId(context), idText(userId)) === true;
+/** True when member `accountId` turned pings off here. */
+function pingsOff(env: Env, { context, accountId }: { context: OpContext; accountId: unknown }): boolean {
+  if (!accountId || typeof env.store?.isPingsOff !== 'function') return false;
+  return env.store.isPingsOff(env.resolvedPlaceId(context), idText(accountId)) === true;
 }
 
 const handlers = perEnv((env) => {
@@ -176,12 +176,12 @@ const handlers = perEnv((env) => {
   const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
   const clock = typeof env.now === 'function' ? env.now : Date.now;
 
-  /** The members her rendered text mentions (`context.mentionUserIds`, her own calls only), less those with pings off. */
+  /** The members her rendered text mentions (`context.mentionAccountIds`, her own calls only), less those with pings off. */
   function mentionedUsers(context: OpContext) {
-    if (context?.actor !== 'persona' || !Array.isArray(context.mentionUserIds)) return [];
-    return (context.mentionUserIds as Array<unknown>)
+    if (context?.actor !== 'persona' || !Array.isArray(context.mentionAccountIds)) return [];
+    return (context.mentionAccountIds as Array<unknown>)
       .map(idText)
-      .filter((id) => id && !pingsOff(env, { context, userId: id }));
+      .filter((id) => id && !pingsOff(env, { context, accountId: id }));
   }
 
   /**
@@ -251,7 +251,7 @@ const handlers = perEnv((env) => {
     if (given && reply?.placeId && given !== reply.placeId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const conversationId = await postTarget(env, p, context, given ?? reply?.placeId ?? null, reply !== null);
-    const repliedUser = Boolean(reply) && !pingsOff(env, { context, userId: context?.repliedAuthorId });
+    const repliedUser = Boolean(reply) && !pingsOff(env, { context, accountId: context?.repliedAuthorId });
     const placeId = resolvedPlaceId(context);
     const entry = gifEntry(env, args, placeId);
     const attachment = (await errandFile(env, args, context, conversationId, p)) ?? (await mediaFile(args, context, p));
@@ -333,8 +333,8 @@ const handlers = perEnv((env) => {
     const ref = { iface: p.iface, conversationId: placeId };
     if ((await needReads(reads).conversationInfo(ref)) === null) throw invalid(`no channel ${placeId}`, CODE.NOT_FOUND);
     // The person who ran the command is the requester of what she does in that turn.
-    const requester = context.userId
-      ? { id: context.userId, roleIds: Array.isArray(context.roleIds) ? context.roleIds.map(idText) : [] }
+    const requester = context.accountId
+      ? { id: context.accountId, roleIds: Array.isArray(context.roleIds) ? context.roleIds.map(idText) : [] }
       : null;
     if (!args.replyTo) {
       const result = await spontaneous.force(ref, null, { requester });

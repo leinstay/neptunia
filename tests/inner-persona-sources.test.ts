@@ -35,7 +35,7 @@ test('her own journal lines go to the persona, and a cut-off turn is looked for 
   const source = personaJournal(journal, () => ['p1', 'p2']);
   source.inner?.({ event: 'x' });
   assert.deepEqual(written, ['persona:local']);
-  assert.deepEqual(await source.turnOperations?.({ turnId: 't', days: [], privateUserId: null }), ['op']);
+  assert.deepEqual(await source.turnOperations?.({ turnId: 't', days: [], privateAccountId: null }), ['op']);
 });
 
 test('a cut-off private turn is looked for in the place of its direct message', async () => {
@@ -47,6 +47,6 @@ test('a cut-off private turn is looked for in the place of its direct message', 
     placeOfConversation: (conversation: { partnerId?: string }) => `dm:${conversation.partnerId}`,
   };
   const source = personaJournal(journal, () => ['p1'], store);
-  assert.deepEqual(await source.turnOperations?.({ turnId: 't', days: [], privateUserId: 'u1' }), ['op']);
-  assert.deepEqual(await source.turnOperations?.({ turnId: 't', days: [], privateUserId: null }), []);
+  assert.deepEqual(await source.turnOperations?.({ turnId: 't', days: [], privateAccountId: 'u1' }), ['op']);
+  assert.deepEqual(await source.turnOperations?.({ turnId: 't', days: [], privateAccountId: null }), []);
 });

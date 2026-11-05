@@ -407,13 +407,13 @@ test('replay: --diary-day records every generate() call at the image client and 
   });
   const avatar = `data:image/png;base64,${Buffer.from('avatar bytes').toString('base64')}`;
   const { result: picture } = await withCapturedLogs(() =>
-    images.generate({ prompt: 'A drawing.\n\nScene: a café', reference: avatar, userId: null })
+    images.generate({ prompt: 'A drawing.\n\nScene: a café', reference: avatar, accountId: null })
   );
   assert.ok(picture.buffer.equals(FIXTURE_PNG));
   assert.equal(FIXTURE_PNG.subarray(1, 4).toString('latin1'), 'PNG');
   // PR 7d: the engine's ImageCapError went with the daily caps; the tool's own --max-pictures cap throws PictureCapError.
   await assert.rejects(
-    withCapturedLogs(() => images.generate({ prompt: 'second', reference: null, userId: 'u1' })),
+    withCapturedLogs(() => images.generate({ prompt: 'second', reference: null, accountId: 'u1' })),
     (err: unknown) =>
       err instanceof PictureCapError && asRecord(err).key === MAX_PICTURES_KEY && asRecord(err).cap === 1
   );
@@ -422,11 +422,11 @@ test('replay: --diary-day records every generate() call at the image client and 
     {
       prompt: 'A drawing.\n\nScene: a café',
       reference: { mediaType: 'image/png', bytes: 12, sha256: asRecord(images.calls[0]).reference.sha256 },
-      userId: null,
+      accountId: null,
       result: { bytes: FIXTURE_PNG.length, mediaType: 'image/png', cost: 0, seconds: 0 },
       file: 'pictures/picture-1.png',
     },
-    { prompt: 'second', reference: null, userId: 'u1', result: { error: 'PictureCapError', reason: 'daily' } },
+    { prompt: 'second', reference: null, accountId: 'u1', result: { error: 'PictureCapError', reason: 'daily' } },
   ]);
   assert.match(images.calls[0].reference?.sha256, /^[0-9a-f]{16}$/);
   const md = renderDiaryDayReport({

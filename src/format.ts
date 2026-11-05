@@ -923,7 +923,7 @@ type MediaContext = Pick<
  *   without the label: the bare name, as before.
  * @param [options.memberNames]  Member id -> the names and aliases the request
  *   knows (src/behavior/handles.ts#memberNameMap). With `handles` (chat mode, the same conditions),
- *   a member a line really mentions (`mentionedUserIds`; their name from the line's `mentionedUsers`
+ *   a member a line really mentions (`mentionedAccountIds`; their name from the line's `mentionedUsers`
  *   or here) reads in its text as their `@handle`, not the platform's `@DisplayName`
  *   (withUserHandles); a mentioned member without a handle keeps the name. With a non-empty
  *   `transcript.untagged`, a line of the persona's whose text holds a whole `@name` of a member
@@ -1123,7 +1123,7 @@ export function formatTranscript(
       previousChannelId = message.placeId;
       continue;
     }
-    const mentionedIds = Array.isArray(message.mentionedUserIds) ? message.mentionedUserIds : [];
+    const mentionedIds = Array.isArray(message.mentionedAccountIds) ? message.mentionedAccountIds : [];
     const named =
       authorHandles && mentionedIds.length > 0
         ? withUserHandles(message.content, mentionedIds, { names: mentionNamesOf(message), handles: authorHandles })

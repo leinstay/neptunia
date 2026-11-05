@@ -51,7 +51,7 @@ function setup(options: { reads?: ReadonlyArray<string>; profiles?: Array<Profil
       },
     },
     isServedCommunity: (id: unknown) => id === COMMUNITY,
-    servedCommunity: () => COMMUNITY,
+    servedPlaces: () => [COMMUNITY],
     selfId: () => SELF_ID,
     reads: world.reads,
     now: () => NOW,
@@ -67,14 +67,14 @@ test('asks the interface for each profiled member of the community and queues th
   assert.deepEqual(counts, { profiles: 1, queued: 1, gone: 0 });
   assert.deepEqual(queue.pending(), ['u1']);
   assert.deepEqual(requests, []);
-  assert.deepEqual(asked('memberInfo'), [{ communityId: COMMUNITY, memberId: 'u1' }]);
+  assert.deepEqual(asked('memberInfo'), [{ placeId: COMMUNITY, accountId: 'u1' }]);
 });
 
 test('counts a profiled person the interface does not know as a member as gone', async () => {
   const { queue, asked } = setup();
   assert.deepEqual(await queue.scan(COMMUNITY), { profiles: 1, queued: 0, gone: 1 });
   assert.deepEqual(queue.pending(), []);
-  assert.deepEqual(asked('memberInfo'), [{ communityId: COMMUNITY, memberId: 'u1' }]);
+  assert.deepEqual(asked('memberInfo'), [{ placeId: COMMUNITY, accountId: 'u1' }]);
 });
 
 test('counts every profiled person as gone, with no round trip, when the interface does not offer the read', async () => {

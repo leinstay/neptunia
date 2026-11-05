@@ -878,7 +878,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
     self: false,
     bot: false,
     replyToId: null,
-    mentionedUserIds: [],
+    mentionedAccountIds: [],
     attachments: [],
     links: [],
     stickers: [],

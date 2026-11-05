@@ -62,12 +62,12 @@ export function createReads(
     return (async (...args: Array<unknown>) => {
       if (!offers(WIRE[name])) return null;
       const scope: unknown = args[0];
-      const named = (scope as { communityId?: unknown } | null)?.communityId;
+      const named = (scope as { placeId?: unknown } | null)?.placeId;
       if (scope === PERSONA_ID || named === PERSONA_ID) return null;
       if (typeof named === 'string' && nativeCommunityOf) {
         const native = nativeCommunityOf(named);
         if (native === null) return null;
-        args[0] = { ...(scope as object), communityId: native };
+        args[0] = { ...(scope as object), placeId: native };
       } else if (typeof scope === 'string' && nativeCommunityOf) {
         const native = nativeCommunityOf(scope);
         if (native === null) return null;

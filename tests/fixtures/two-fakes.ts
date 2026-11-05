@@ -141,24 +141,24 @@ export const postedIn = (running: Running, conversation: string): Array<unknown>
 /** Every read of this interface that named community `id`, by method. */
 export const readsOf = (running: Running, id: string): Array<string> =>
   running.adapter.calls
-    .filter((call) => call.args[0] === id || (call.args[0] as { communityId?: unknown } | null)?.communityId === id)
+    .filter((call) => call.args[0] === id || (call.args[0] as { placeId?: unknown } | null)?.placeId === id)
     .map((call) => call.op);
 
-export function seedRoom(running: Running, conversation: string, communityId: string): void {
-  running.adapter.seedConversation(channelInfo(conversation, { communityId, iface: running.iface }));
+export function seedRoom(running: Running, conversation: string, placeId: string): void {
+  running.adapter.seedConversation(channelInfo(conversation, { rootId: placeId, iface: running.iface }));
 }
 
 export function seedDm(running: Running, conversation: string, partner: string): void {
   const info: ConversationInfo = channelInfo(conversation, {
     kind: 'dm',
-    communityId: null,
+    rootId: null,
     partnerId: partner,
     iface: running.iface,
   });
   running.adapter.seedConversation(info);
 }
 
-export function seedPerson(running: Running, communityId: string, id: string, name: string): void {
+export function seedPerson(running: Running, placeId: string, id: string, name: string): void {
   const member: MemberInfo = {
     id,
     name,
@@ -166,14 +166,14 @@ export function seedPerson(running: Running, communityId: string, id: string, na
     groupIds: [],
     avatar: { hash: null, url: null, largeUrl: null },
   };
-  running.adapter.seedMember(communityId, member);
+  running.adapter.seedMember(placeId, member);
 }
 
 /** A mention of the persona in a room of this interface, seeded into its history and emitted. */
 export async function mentionIn(
   running: Running,
   conversation: string,
-  communityId: string,
+  placeId: string,
   id: string
 ): Promise<void> {
   const line = lineEvent({ conversationId: conversation, id, text: 'Nova, hello', at: Date.now(), mention: true });
@@ -181,7 +181,7 @@ export async function mentionIn(
     ...line,
     iface: running.iface,
     id: `${running.iface}:message:${id}`,
-    conversation: { ...line.conversation, communityId },
+    conversation: { ...line.conversation, rootId: placeId },
   };
   running.adapter.seedEvent(event);
   assert.equal(await running.emit(event), 'ok');
@@ -194,7 +194,7 @@ export async function directIn(running: Running, conversation: string, author: s
     ...line,
     iface: running.iface,
     id: `${running.iface}:message:${id}`,
-    conversation: { id: conversation, kind: 'dm', communityId: null, partnerId: author, name: 'Eleni' },
+    conversation: { id: conversation, kind: 'dm', rootId: null, partnerId: author, name: 'Eleni' },
   };
   running.adapter.seedEvent(event);
   assert.equal(await running.emit(event), 'ok');

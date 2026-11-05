@@ -33,7 +33,7 @@ function info(id: string, over: Partial<ConversationInfo> = {}): ConversationInf
   return {
     id,
     kind: 'channel',
-    communityId: 'g1',
+    rootId: 'g1',
     name: id,
     topic: null,
     category: null,
@@ -64,7 +64,7 @@ test('audienceAllows lets a private chat in on exactly the sources its partner c
   const open = info('open', { viewers: { [IASON]: true, [ZOE]: true } });
   const closed = info('closed', { viewers: { [IASON]: false, [ZOE]: true } });
   const named = info('named', { viewers: { [IASON]: true, [ZOE]: false } });
-  const dm = info('dm', { kind: 'dm', communityId: null, audience: null });
+  const dm = info('dm', { kind: 'dm', rootId: null, audience: null });
   for (const rail of [SAME_AUDIENCE, RAIL_OFF]) {
     assert.equal(audienceAllows(dm, open, rail, { partnerId: IASON }), true);
     assert.equal(audienceAllows(dm, closed, rail, { partnerId: ZOE }), true, 'her role views it');
@@ -78,7 +78,7 @@ test('audienceAllows lets a private chat in on exactly the sources its partner c
 test('isReadable refuses a thread, a private chat and an unreadable conversation', () => {
   assert.equal(isReadable(info('open')), true);
   assert.equal(isReadable(info('thread', { kind: 'thread' })), false);
-  assert.equal(isReadable(info('dm', { kind: 'dm', communityId: null })), false);
+  assert.equal(isReadable(info('dm', { kind: 'dm', rootId: null })), false);
   assert.equal(
     isReadable(info('hidden', { permissions: { read: false, send: true, attach: true, react: true } })),
     false
@@ -125,7 +125,7 @@ test('takeSnapshot lists the community once with the audience and the viewers as
   const asked = world().port.calls.filter((call) => call.op === 'conversations');
   assert.deepEqual(
     asked.map((call) => call.args[0]),
-    [{ communityId: 'g1', audience: true, viewers: [ZOE] }]
+    [{ rootId: 'g1', audience: true, viewers: [ZOE] }]
   );
 });
 

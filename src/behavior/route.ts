@@ -109,7 +109,7 @@ function lastAt(channel: StoredChannel): number {
  */
 export function routeWriter(
   channel: StoredChannel,
-  profileOf: ((userId: string) => StoredProfile | null) | undefined,
+  profileOf: ((accountId: string) => StoredProfile | null) | undefined,
   aliasHalfLifeDays?: number
 ): { name: string; aliases: Array<string> } | null {
   const top = Array.isArray(channel?.topWriters) ? channel.topWriters[0] : null;
@@ -149,7 +149,7 @@ export function routeEntries({
   channels: Array<StoredChannel>;
   exclude?: Iterable<string>;
   check: (id: string) => { name?: string | null } | null;
-  profileOf?: (userId: string) => StoredProfile | null;
+  profileOf?: (accountId: string) => StoredProfile | null;
   max: number;
   aliasHalfLifeDays?: number;
 }): Array<{ id: string; name: string; writer: { name: string; aliases: Array<string> } | null; purpose: string }> {

@@ -34,7 +34,7 @@ const CONFIG = {
 const ASKED = {
   agent: 'scout',
   goal: 'find the opening hours of the library',
-  requester: { userId: 'u1', kind: 'member' },
+  requester: { accountId: 'u1', kind: 'member' },
   origin: { placeId: 'c1', messageId: 'm7' },
   scope: 'group' as const,
 };

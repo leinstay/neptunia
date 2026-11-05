@@ -64,7 +64,7 @@ function notedOf(delivery: Delivery): Noted {
             text: said.text,
             replyId: text(said.replyId),
             repliedAuthorId: text(said.repliedAuthorId),
-            userIds: Array.isArray(said.userIds) ? said.userIds.filter((id) => typeof id === 'string') : [],
+            accountIds: Array.isArray(said.accountIds) ? said.accountIds.filter((id) => typeof id === 'string') : [],
           }
         : null,
   };
@@ -134,9 +134,7 @@ export async function partnerOfDelivery(
   try {
     const found = await life.reads.conversationInfo(conversation);
     const info = found?.conversation;
-    return info && info.communityId === null && typeof info.partnerId === 'string' && info.partnerId
-      ? info.partnerId
-      : null;
+    return info && info.rootId === null && typeof info.partnerId === 'string' && info.partnerId ? info.partnerId : null;
   } catch (err) {
     life.log.warn('inner: delivery partner not read', { code: errorCode(err) });
     return null;
@@ -169,13 +167,13 @@ function recordSaid(
       ts: at ?? now(),
       replyToId: said.replyId,
       replyToAuthorId: said.repliedAuthorId,
-      mentionedUserIds: said.userIds,
+      mentionedAccountIds: said.accountIds,
     },
     { kind: 'said', now, turnId: noted.turnId ?? null, opId }
   );
   const failed = (err: unknown): void => log.warn('inner: record failed', { lines: 1, code: errorCode(err) });
   try {
-    Promise.resolve(record.append([line], { privateUserId: partner })).catch(failed);
+    Promise.resolve(record.append([line], { privateAccountId: partner })).catch(failed);
   } catch (err) {
     failed(err);
   }
@@ -191,7 +189,7 @@ function postOp(life: InnerContext, delivery: Delivery, partner: string | null):
     name: 'post',
     by: 'persona',
     placeId: delivery.target,
-    privateUserId: partner,
+    privateAccountId: partner,
     intent: { replyTo: noted.said.replyId, text: noted.said.text },
     participants: noted.said.repliedAuthorId ? [noted.said.repliedAuthorId] : [],
     sourceMessageIds: noted.said.replyId ? [noted.said.replyId] : [],

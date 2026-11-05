@@ -17,7 +17,7 @@ import {
   topEpisodes,
 } from '../../memory/index.ts';
 import { topByRank } from '../../memory/ranking.ts';
-import { foldText, memberIdOf } from '../../memory/recent.ts';
+import { foldText, accountIdOf } from '../../memory/recent.ts';
 import { DAY_MS, zonedDay } from '../../time.ts';
 import { fieldLine } from '../../behavior/around.ts';
 import { noteItems } from './reads.ts';
@@ -561,7 +561,7 @@ export function renderAttitudes(
   const taken = new Set<string>();
   const candidates: Array<{ score: number; text: string }> = [];
   for (const profile of profilesOf(profiles)) {
-    const id = memberIdOf(profile?.id);
+    const id = accountIdOf(profile?.id);
     const score = profile?.affinity?.score;
     const name = profile?.names?.[0];
     if (id === null || skipIds.has(id) || taken.has(id)) continue;

@@ -140,7 +140,7 @@ export function liveFields(
     voice: Map<string, VoiceRecord>;
     presence: Map<string, PresenceRecord>;
   },
-  memberId: string,
+  accountId: string,
   {
     labels,
     channelNameOf,
@@ -148,16 +148,16 @@ export function liveFields(
   }: { labels?: AroundLabels; channelNameOf?: (placeId: string) => string | null; now?: number } = {}
 ): Array<string> {
   const l = peopleNowOf(labels);
-  if (!l || !snapshot || typeof memberId !== 'string' || memberId === '') return [];
+  if (!l || !snapshot || typeof accountId !== 'string' || accountId === '') return [];
   const values = l.values ?? {};
   const stale = snapshot.stale === true;
-  const record = snapshot.presence.get(memberId);
+  const record = snapshot.presence.get(accountId);
   const status = record ? record.status : 'offline';
   // What the activity side may say: the activities, or one word for why it says nothing.
   const unknown = stale ? 'stale' : snapshot.presences !== true || !STATUSES.has(status) ? 'unavailable' : null;
   const lines = [];
 
-  const here = snapshot.voice.get(memberId);
+  const here = snapshot.voice.get(accountId);
   const seat = here as VoiceRecord;
   const channel = here && typeof channelNameOf === 'function' ? cleanText(channelNameOf(here.placeId) ?? '') : '';
   const voice = stale
@@ -215,19 +215,19 @@ export function voiceOccupants(
     channelNameOf,
   }: {
     excludeIds?: Set<string>;
-    nameOf?: (memberId: string) => string | null;
+    nameOf?: (accountId: string) => string | null;
     channelNameOf?: (placeId: string) => string | null;
   } = {}
-): Array<{ memberId: string; name: string }> {
+): Array<{ accountId: string; name: string }> {
   if (!snapshot?.voice || typeof channelNameOf !== 'function') return [];
-  const out: Array<{ memberId: string; name: string }> = [];
+  const out: Array<{ accountId: string; name: string }> = [];
   for (const entry of snapshot.voice.values()) {
-    if (excludeIds.has(entry.memberId)) continue;
+    if (excludeIds.has(entry.accountId)) continue;
     if (!cleanText(channelNameOf(entry.placeId) ?? '')) continue;
-    const name = cleanText((typeof nameOf === 'function' ? nameOf(entry.memberId) : null) ?? entry.name ?? '');
-    if (name) out.push({ memberId: entry.memberId, name });
+    const name = cleanText((typeof nameOf === 'function' ? nameOf(entry.accountId) : null) ?? entry.name ?? '');
+    if (name) out.push({ accountId: entry.accountId, name });
   }
-  return out.sort((a, b) => byText(a.name, b.name) || byText(a.memberId, b.memberId));
+  return out.sort((a, b) => byText(a.name, b.name) || byText(a.accountId, b.accountId));
 }
 
 /**

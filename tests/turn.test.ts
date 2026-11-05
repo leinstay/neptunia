@@ -117,14 +117,14 @@ test('resolveMentions: replaces a known @name with a real Discord mention', () =
   const history = [historyMsg('Alice', 'u1')];
   const result = resolveMentions('γεια @Alice πώς είσαι', history);
   assert.equal(result.text, 'γεια <@u1> πώς είσαι');
-  assert.deepEqual(result.userIds, ['u1']);
+  assert.deepEqual(result.accountIds, ['u1']);
 });
 
 test('resolveMentions: an unknown name is left untouched', () => {
   const history = [historyMsg('Alice', 'u1')];
   const result = resolveMentions('γεια @Ghost', history);
   assert.equal(result.text, 'γεια @Ghost');
-  assert.deepEqual(result.userIds, []);
+  assert.deepEqual(result.accountIds, []);
 });
 
 test('resolveMentions: excludes its own lines and bot lines from candidates', () => {
@@ -135,7 +135,7 @@ test('resolveMentions: excludes its own lines and bot lines from candidates', ()
   ];
   const result = resolveMentions('@Zoë @SomeBot @Alice', history);
   assert.equal(result.text, '@Zoë @SomeBot <@u1>');
-  assert.deepEqual(result.userIds, ['u1']);
+  assert.deepEqual(result.accountIds, ['u1']);
 });
 
 test('resolveMentions: longer names are matched before their shorter prefixes', () => {
@@ -143,20 +143,20 @@ test('resolveMentions: longer names are matched before their shorter prefixes', 
   const result = resolveMentions('γεια @AnnaMaria', history);
   // Must not first match "@Anna" inside "@AnnaMaria" and leave "Maria" dangling.
   assert.equal(result.text, 'γεια <@long-id>');
-  assert.deepEqual(result.userIds, ['long-id']);
+  assert.deepEqual(result.accountIds, ['long-id']);
 });
 
 test('resolveMentions: replaces every occurrence of the same name', () => {
   const history = [historyMsg('Alice', 'u1')];
   const result = resolveMentions('@Alice γεια @Alice', history);
   assert.equal(result.text, '<@u1> γεια <@u1>');
-  assert.deepEqual(result.userIds, ['u1']);
+  assert.deepEqual(result.accountIds, ['u1']);
 });
 
 test('resolveMentions: deduplicates authors that appear more than once in history', () => {
   const history = [historyMsg('Alice', 'u1'), historyMsg('Alice', 'u1', { content: 'again' })];
   const result = resolveMentions('@Alice', history);
-  assert.deepEqual(result.userIds, ['u1']);
+  assert.deepEqual(result.accountIds, ['u1']);
 });
 
 test('resolveMentions: a stored multi-word name of a member shown resolves', () => {
@@ -167,14 +167,14 @@ test('resolveMentions: a stored multi-word name of a member shown resolves', () 
   ];
   const result = resolveMentions('@Más tarde nunca ναι', history, known);
   assert.equal(result.text, '<@u3> ναι');
-  assert.deepEqual(result.userIds, ['u3']);
+  assert.deepEqual(result.accountIds, ['u3']);
 });
 
 test('resolveMentions: a transcript author wins a name a stored profile shares', () => {
   const history = [historyMsg('Bob', 'u2')];
   const result = resolveMentions('@Bob ναι', history, [{ name: 'Bob', id: 'u7' }]);
   assert.equal(result.text, '<@u2> ναι');
-  assert.deepEqual(result.userIds, ['u2']);
+  assert.deepEqual(result.accountIds, ['u2']);
 });
 
 test('resolveMentions: a name only a member not handed over carries stays text', () => {
@@ -182,14 +182,14 @@ test('resolveMentions: a name only a member not handed over carries stays text',
   const history = [historyMsg('Alice', 'u1')];
   const result = resolveMentions('@Ταξιάρχης γεια', history, [{ name: 'Αλίκη', id: 'u1' }]);
   assert.equal(result.text, '@Ταξιάρχης γεια');
-  assert.deepEqual(result.userIds, []);
+  assert.deepEqual(result.accountIds, []);
 });
 
 test('resolveMentions: a stored name containing a shorter transcript name is matched first', () => {
   const history = [historyMsg('Anna', 'short-id')];
   const result = resolveMentions('@Anna María, @Anna', history, [{ name: 'Anna María', id: 'long-id' }]);
   assert.equal(result.text, '<@long-id>, <@short-id>');
-  assert.deepEqual(result.userIds, ['long-id', 'short-id']);
+  assert.deepEqual(result.accountIds, ['long-id', 'short-id']);
 });
 
 test('resolveMentions: the first member handed over keeps a stored name two share; empty names are skipped', () => {
@@ -201,7 +201,7 @@ test('resolveMentions: the first member handed over keeps a stored name two shar
   ];
   const result = resolveMentions('@Zoé @ x', [], known);
   assert.equal(result.text, '<@z1> @ x');
-  assert.deepEqual(result.userIds, ['z1']);
+  assert.deepEqual(result.accountIds, ['z1']);
 });
 
 // The fallback directory: every member of the served guild the bot knows, behind the request's own sources.
@@ -223,7 +223,7 @@ test('resolveMentions: a member the request never showed resolves through the fa
   const directory = [{ name: 'Ταξιάρχης', id: 'u9' }];
   const result = resolveMentions('@Ταξιάρχης https://example.com/a', [historyMsg('Alice', 'u1')], [], directory);
   assert.equal(result.text, '<@u9> https://example.com/a');
-  assert.deepEqual(result.userIds, ['u9']);
+  assert.deepEqual(result.accountIds, ['u9']);
 });
 
 test('resolveMentions: a fallback name two members carry stays text, whatever its case', () => {
@@ -234,7 +234,7 @@ test('resolveMentions: a fallback name two members carry stays text, whatever it
   ];
   const result = resolveMentions('@Zoé @ZOÉ ναι', [], [], directory);
   assert.equal(result.text, '@Zoé @ZOÉ ναι');
-  assert.deepEqual(result.userIds, []);
+  assert.deepEqual(result.accountIds, []);
 });
 
 test("resolveMentions: the request's own sources win a name the fallback directory also has", () => {
@@ -251,7 +251,7 @@ test("resolveMentions: the request's own sources win a name the fallback directo
     '<@u2> <@u1> <@u2>',
     'a shown member keeps the name in any case; an ambiguous fallback never takes it'
   );
-  assert.deepEqual(result.userIds, ['u1', 'u2']);
+  assert.deepEqual(result.accountIds, ['u1', 'u2']);
 });
 
 test('resolveMentions: the fallback matches case-insensitively, longest first and only as a whole name', () => {
@@ -262,13 +262,13 @@ test('resolveMentions: the fallback matches case-insensitively, longest first an
   ];
   const result = resolveMentions('@anna maría, @ANNA, @Kaiser', [], [], directory);
   assert.equal(result.text, '<@long>, <@short>, @Kaiser');
-  assert.deepEqual(result.userIds, ['long', 'short']);
+  assert.deepEqual(result.accountIds, ['long', 'short']);
 });
 
 test('resolveMentions: the case-insensitive fallback is for the directory only, never a shown name', () => {
   const result = resolveMentions('@alice', [historyMsg('Alice', 'u1')], [], []);
   assert.equal(result.text, '@alice');
-  assert.deepEqual(result.userIds, []);
+  assert.deepEqual(result.accountIds, []);
 });
 
 test('mentionDirectory: every name of the cached members and of the stored profiles, never a bot or the persona', () => {
@@ -1119,9 +1119,9 @@ test('createTurnRunner: a video in the trigger renders by its tag, nothing is do
 function storeWithPingsOff(pingsOff: Untyped) {
   const store = fakeStore();
   store.pingsCalls = [];
-  store.isPingsOff = (placeId: string, userId: string) => {
-    store.pingsCalls.push([placeId, userId]);
-    return pingsOff.includes(userId);
+  store.isPingsOff = (placeId: string, accountId: string) => {
+    store.pingsCalls.push([placeId, accountId]);
+    return pingsOff.includes(accountId);
   };
   return store;
 }
@@ -1411,7 +1411,7 @@ test('runTurn: a draw.create call goes out before her messages, as a file; the m
 
   assert.equal(images.generateCalls.length, 1);
   const request = images.generateCalls[0];
-  assert.equal(request.userId, 'u1');
+  assert.equal(request.accountId, 'u1');
   assert.equal(request.reference, null, 'a non-self picture never carries the avatar');
   assert.equal(request.prompt, 'Drawing for Bot.\n\na cat on a roof');
 });
@@ -1437,7 +1437,7 @@ test('runTurn: a self <draw> passes the avatar as reference', async () => {
   // sizes it for its platform; the size the Discord adapter asks for is that adapter's own test.
   const avatarAsks: Array<Untyped> = [];
   world().tap('memberInfo', ([member]: Array<Untyped>) => {
-    if (member.memberId === 'self-id') avatarAsks.push(member.memberId);
+    if (member.accountId === 'self-id') avatarAsks.push(member.accountId);
   });
   world().member('g1', {
     id: 'self-id',
@@ -1471,7 +1471,7 @@ test('runTurn: a self <draw> passes the avatar as reference', async () => {
 test('runTurn: reference none skips the avatar', async () => {
   let avatarAsked = false;
   world().tap('memberInfo', ([member]: Array<Untyped>) => {
-    if (member.memberId === 'self-id') avatarAsked = true;
+    if (member.accountId === 'self-id') avatarAsked = true;
   });
   world().member('g1', {
     id: 'self-id',
@@ -1677,7 +1677,7 @@ test('runTurn: a private turn takes placeId from params and reads the private la
   assert.equal(result.outcome, 'spoke');
   // The request's guild memory: nothing reads the guild again before the message is posted.
   assert.deepEqual(store.guildCalls, ['g1']);
-  assert.deepEqual(store.privateCalls, [{ userId: 'u1' }]);
+  assert.deepEqual(store.privateCalls, [{ accountId: 'u1' }]);
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].content, 'hi');
   assert.deepEqual(
@@ -1757,7 +1757,7 @@ test('runTurn: a private turn may draw (no Attach Files check in a DM), counted 
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(images.generateCalls.length, 1);
-  assert.equal(images.generateCalls[0].userId, 'u1');
+  assert.equal(images.generateCalls[0].accountId, 'u1');
   assert.equal(images.generateCalls[0].prompt, 'Drawing for GuildBot.\n\na cat');
   assert.equal(channel.sent.length, 2);
   assert.equal(channel.sent[0].files?.length, 1, 'the picture first, then her message');
@@ -2148,7 +2148,7 @@ test('runTurn: an overheard turn draws unasked: a plain post charged to no membe
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(images.generateCalls.length, 1);
-  assert.equal(images.generateCalls[0].userId, null);
+  assert.equal(images.generateCalls[0].accountId, null);
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].files?.length, 1);
   assert.equal(channel.sent[0].reply, undefined);
@@ -2889,7 +2889,7 @@ function privatePullScene({
   world().member('g1', { id: 'u1', name: 'Alice' });
   const memberFetches: Array<Untyped> = [];
   world().tap('memberInfo', ([member]: Array<Untyped>) => {
-    memberFetches.push(member.memberId);
+    memberFetches.push(member.accountId);
   });
   // The interface tells whether the partner (u1) can view each conversation of the listing.
   const diary = addChannel(server, { id: DIARY, name: 'diary', messages: diaryLines(), viewers: { u1: canView } });
@@ -2962,7 +2962,7 @@ test('runTurn: a private chat asks the route hook for its partner and pulls the 
   // Changed with the contract: the hook gets the conversation's info, the served community's listing and the
   // partner's member record (the hook's arguments held platform objects before).
   assert.equal(calls[0].channel.id, scene.channel.id);
-  assert.equal(calls[0].snapshot.communityId, 'g1', 'judged in the served community');
+  assert.equal(calls[0].snapshot.rootId, 'g1', 'judged in the served community');
   assert.equal(calls[0].partner.id, 'u1');
   assert.equal(calls[0].triggerKind, 'private');
   assert.deepEqual(
@@ -3013,7 +3013,7 @@ test('runTurn: a private chat whose partner left the guild pulls nothing and log
   assert.equal(calls.length, 0);
   assert.deepEqual(scene.diary.fetches, []);
   const failed = logs.find((l) => l.msg === 'turn: partner failed');
-  assert.deepEqual([failed?.placeId, failed?.userId], ['g1', 'u1']);
+  assert.deepEqual([failed?.placeId, failed?.accountId], ['g1', 'u1']);
 });
 
 /**
@@ -3066,7 +3066,7 @@ function routedScene({
     imageFetcher: fakeImageFetcher(),
     now: () => NOW,
   });
-  const trigger = { ...normalizedTrigger(call), mentionedUserIds: ['self-id'] };
+  const trigger = { ...normalizedTrigger(call), mentionedAccountIds: ['self-id'] };
   const params: TurnParams = {
     channel,
     mode: 'reply',
@@ -7891,7 +7891,7 @@ test('skill call: a quiet success in an addressed turn ends the turn: no step, n
     agent: 'scout',
     state: 'done',
     goal: 'find a meme',
-    requester: { userId: null, kind: 'persona' },
+    requester: { accountId: null, kind: 'persona' },
     origin: { placeId: 'c1', messageId: null },
     result: { text: 'found', files: [] },
   };
@@ -8022,7 +8022,7 @@ test('skill call: the result turn of her own errand (requester kind persona, nob
     agent: 'scout',
     state: 'done',
     goal: 'find a meme',
-    requester: { userId: null, kind: 'persona' },
+    requester: { accountId: null, kind: 'persona' },
     origin: { placeId: 'c1', messageId: null },
     result: { text: 'found', files: [] },
   };
@@ -8046,7 +8046,7 @@ test('skill call: the result turn of her own errand (requester kind persona, nob
       mode: 'interject',
       trigger: null,
       triggerKind: 'errand',
-      taskResult: { ...task, requester: { userId: null, kind: 'member' } },
+      taskResult: { ...task, requester: { accountId: null, kind: 'member' } },
     },
   });
   assert.deepEqual(nobody.sends, [], 'no requester, no write');

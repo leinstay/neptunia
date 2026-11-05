@@ -17,10 +17,10 @@ test('readAction turns a method call into its wire action and gives null for a m
     limit: 5,
     before: 'm1',
   });
-  assert.deepEqual(readAction('memberInfo', [{ communityId: 'g1', memberId: 'u1' }]), {
+  assert.deepEqual(readAction('memberInfo', [{ placeId: 'g1', accountId: 'u1' }]), {
     action: 'member.info',
-    communityId: 'g1',
-    memberId: 'u1',
+    rootId: 'g1',
+    accountId: 'u1',
   });
   assert.deepEqual(readAction('reactors', [{ ...REF, messageId: 'm1' }, '🔥', 10]), {
     action: 'message.reactors',
@@ -67,7 +67,7 @@ test('readActionProblem bounds the reactor and member limits and needs a whole m
     'message.messageId',
     'required',
   ]);
-  assert.deepEqual(readActionProblem({ action: 'members.search', communityId: 'g1', prefix: 'a', limit: 1001 }), [
+  assert.deepEqual(readActionProblem({ action: 'members.search', placeId: 'g1', prefix: 'a', limit: 1001 }), [
     'limit',
     'type',
   ]);

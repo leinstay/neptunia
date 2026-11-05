@@ -40,7 +40,7 @@ function namesOf(store: ReturnType<typeof createReactorStore>): ReactorNames {
     known: () => null,
     cache: new Map(),
     selfId: SELF,
-    communityId: GUILD,
+    placeId: GUILD,
     log: { info() {}, warn() {}, error() {} },
   };
 }

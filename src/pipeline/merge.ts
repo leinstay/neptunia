@@ -170,7 +170,7 @@ export function createMerge({
     }
     const config = hot.config;
     const startedAt = now();
-    const placeId = String(channel.communityId ?? channel.id);
+    const placeId = String(channel.rootId ?? channel.id);
     const waiting = items.map((item, i) => `${i + 1}. ${item.text}`).join('\n');
     const user = [
       block('waiting', waiting),

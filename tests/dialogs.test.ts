@@ -136,7 +136,7 @@ test('a command.requested with an answer needs its dialog, and a command.result 
     iface: 'cli',
     at: 1,
     id: 'cli:command:r1',
-    conversation: { id: 'cli:dm:owner', kind: 'dm', communityId: null, name: 'owner', partnerId: 'owner' },
+    conversation: { id: 'cli:dm:owner', kind: 'dm', rootId: null, name: 'owner', partnerId: 'owner' },
     name: 'keys.core.add',
     args: { name: 'core-1' },
     requester: { id: 'owner', name: 'owner', roles: [], owner: true },

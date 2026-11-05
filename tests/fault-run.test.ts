@@ -35,7 +35,7 @@ test('observe counts a send by conversation and text and a reaction by message, 
   adapter.seedConversation({
     id: 'c1',
     kind: 'channel',
-    communityId: 'g1',
+    rootId: 'g1',
     name: 'room',
     topic: null,
     category: null,

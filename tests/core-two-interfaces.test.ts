@@ -99,13 +99,13 @@ test('each message is answered on its own interface and community when their nat
   await withCapturedLogs(async () => {
     await withTwoInterfaces(async ({ fake, other, dataDir }) => {
       fake.adapter.seedConversation(channelInfo('c1'));
-      fake.adapter.seedConversation({ ...channelInfo('c2'), communityId: 'g2' });
-      other.adapter.seedConversation({ ...channelInfo('c1'), communityId: 'g3', iface: 'other' });
+      fake.adapter.seedConversation({ ...channelInfo('c2'), rootId: 'g2' });
+      other.adapter.seedConversation({ ...channelInfo('c1'), rootId: 'g3', iface: 'other' });
       const postedIn = (running: Running, conversation: string) =>
         running.adapter.messagesIn(conversation).filter((message) => message.authorId === SELF.id);
 
       const onOther = deliver(other.adapter, { id: 'm1', text: 'Nova, hello', at: Date.now(), mention: true });
-      await other.emit({ ...onOther, iface: 'other', conversation: { ...onOther.conversation, communityId: 'g3' } });
+      await other.emit({ ...onOther, iface: 'other', conversation: { ...onOther.conversation, rootId: 'g3' } });
       await until(() => postedIn(other, 'c1').length > 0);
       assert.equal(postedIn(fake, 'c1').length, 0);
 
@@ -116,7 +116,7 @@ test('each message is answered on its own interface and community when their nat
         at: Date.now(),
         mention: true,
       });
-      await fake.emit({ ...inSecond, conversation: { ...inSecond.conversation, communityId: 'g2' } });
+      await fake.emit({ ...inSecond, conversation: { ...inSecond.conversation, rootId: 'g2' } });
       await until(() => postedIn(fake, 'c2').length > 0);
       assert.deepEqual(
         postedIn(fake, 'c2').map((message) => message.text),
@@ -145,13 +145,13 @@ test('a read of a community goes to the interface that serves it', async () => {
   // Bug: a member or emoji read of the second interface's community is asked of the first and answers nothing.
   await withCapturedLogs(async () => {
     await withTwoInterfaces(async ({ fake, other }) => {
-      other.adapter.seedConversation({ ...channelInfo('c1'), communityId: 'g3', iface: 'other' });
+      other.adapter.seedConversation({ ...channelInfo('c1'), rootId: 'g3', iface: 'other' });
       const event = deliver(other.adapter, { id: 'm1', text: 'Nova, hello', at: Date.now(), mention: true });
-      await other.emit({ ...event, iface: 'other', conversation: { ...event.conversation, communityId: 'g3' } });
+      await other.emit({ ...event, iface: 'other', conversation: { ...event.conversation, rootId: 'g3' } });
       await until(() => other.adapter.messagesIn('c1').some((message) => message.authorId === SELF.id));
       const communityReads = (running: Running) =>
         running.adapter.calls.filter(
-          (call) => call.args[0] === 'g3' || (call.args[0] as { communityId?: string })?.communityId === 'g3'
+          (call) => call.args[0] === 'g3' || (call.args[0] as { rootId?: string })?.rootId === 'g3'
         );
       assert.notEqual(communityReads(other).length, 0);
       assert.equal(communityReads(fake).length, 0);
@@ -163,16 +163,16 @@ test('a DM on the second interface is answered there and kept in that account ow
   // Bug: the turn's memory context names the home interface, so the DM lands in a person nobody can read it back as.
   await withCapturedLogs(async () => {
     await withTwoInterfaces(async ({ other, dataDir }) => {
-      other.adapter.seedConversation({ ...channelInfo('c1'), communityId: 'g3', iface: 'other' });
+      other.adapter.seedConversation({ ...channelInfo('c1'), rootId: 'g3', iface: 'other' });
       other.adapter.seedMember('g3', { id: 'u1', name: 'Eleni' } as Parameters<Running['adapter']['seedMember']>[1]);
       const first = deliver(other.adapter, { id: 'm1', text: 'Nova, hello', at: Date.now(), mention: true });
-      await other.emit({ ...first, iface: 'other', conversation: { ...first.conversation, communityId: 'g3' } });
+      await other.emit({ ...first, iface: 'other', conversation: { ...first.conversation, rootId: 'g3' } });
       await until(() => other.adapter.messagesIn('c1').some((message) => message.authorId === SELF.id));
 
       other.adapter.seedConversation({
         ...channelInfo('d1'),
         kind: 'dm',
-        communityId: null,
+        rootId: null,
         partnerId: 'u1',
         iface: 'other',
       });
@@ -180,7 +180,7 @@ test('a DM on the second interface is answered there and kept in that account ow
       await other.emit({
         ...direct,
         iface: 'other',
-        conversation: { id: 'd1', kind: 'dm', communityId: null, partnerId: 'u1', name: 'Eleni' },
+        conversation: { id: 'd1', kind: 'dm', rootId: null, partnerId: 'u1', name: 'Eleni' },
       });
       await until(() => other.adapter.messagesIn('d1').some((message) => message.authorId === SELF.id));
       const handle = openMemoryDb(join(dataDir, 'memory.db'), { readOnly: true });

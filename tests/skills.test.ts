@@ -50,7 +50,7 @@ const MEMBER = '7';
 const SELF = 'self-1';
 const HERE = 'c-here';
 const persona = Object.freeze({ kind: 'persona' });
-const audience = Object.freeze({ conversationId: HERE, memberIds: [MEMBER] });
+const audience = Object.freeze({ conversationId: HERE, accountIds: [MEMBER] });
 
 /** A config with the settings these tests read, each set here (never the shipped defaults). */
 type Grant = { everyone?: boolean; roles?: Array<string>; users?: Array<string> };
@@ -77,7 +77,7 @@ function granting(names: Array<string>, cfg: ReturnType<typeof config> & Record<
 /** An images client whose quota answers `quota`. */
 function imagesWith(quota: Record<string, unknown>) {
   return {
-    quota: ({ userId }: { userId?: string } = {}) => ({
+    quota: ({ accountId }: { accountId?: string } = {}) => ({
       used: 0,
       cap: 5,
       userUsed: 0,
@@ -85,7 +85,7 @@ function imagesWith(quota: Record<string, unknown>) {
       spent: false,
       userSpent: false,
       ...quota,
-      askedFor: userId,
+      askedFor: accountId,
     }),
   };
 }
@@ -1029,10 +1029,10 @@ function makeEnv({ cfg = config(), roles = [] }: Record<string, Untyped> = {}) {
   // The interface says who the persona is and which groups she holds (`memberInfo`).
   const client = {};
   const reads = {
-    memberInfo: ({ memberId }: Untyped) =>
+    memberInfo: ({ accountId }: Untyped) =>
       Promise.resolve({
         member: {
-          id: memberId,
+          id: accountId,
           name: null,
           bot: false,
           groupIds: roles,
@@ -1059,10 +1059,10 @@ function makeEnv({ cfg = config(), roles = [] }: Record<string, Untyped> = {}) {
 
 test('persona grants: a grant to her user opens a skill by name, owner-only ones included; revoke closes it', async () => {
   const t = makeEnv();
-  const owner = { env: t.env, placeId: 'g1', userId: OWNER, roleIds: [] };
+  const owner = { env: t.env, placeId: 'g1', accountId: OWNER, roleIds: [] };
   try {
     for (const name of ['memory.private.read', 'message.edit', 'lore.add']) {
-      const result = await runOp('access.grant', { command: name, userId: SELF }, owner);
+      const result = await runOp('access.grant', { command: name, accountId: SELF }, owner);
       assert.equal(result.status, 'ok', `${name}: ${result.summary}`);
     }
     const access = t.stored();
@@ -1079,7 +1079,7 @@ test('persona grants: a grant to her user opens a skill by name, owner-only ones
       }
     );
     // for a person the owner-only operation stays closed, as before
-    const person = await runOp('access.grant', { command: 'memory.private.read', userId: MEMBER }, owner);
+    const person = await runOp('access.grant', { command: 'memory.private.read', accountId: MEMBER }, owner);
     assert.deepEqual(
       [person.status, person.summary],
       ['invalid', 'memory.private.read is owner-only and cannot be granted']
@@ -1088,14 +1088,17 @@ test('persona grants: a grant to her user opens a skill by name, owner-only ones
     const list = (await runOp('access.list', {}, owner)).summary.split('\n');
     for (const name of ['memory.private.read', 'message.edit', 'lore.add'])
       assert.ok(list.includes(`${name}: user id:${SELF}`), name);
-    assert.equal((await runOp('access.revoke', { command: 'memory.private.read', userId: SELF }, owner)).status, 'ok');
+    assert.equal(
+      (await runOp('access.revoke', { command: 'memory.private.read', accountId: SELF }, owner)).status,
+      'ok'
+    );
     assert.equal(
       skillAccess({ skill: privateRead, config: config({ access: t.stored() }), selfId: SELF } as unknown as Parameters<
         typeof skillAccess
       >[0]).allowed,
       false
     );
-    const unknown = await runOp('access.grant', { command: 'message.pin', userId: SELF }, owner);
+    const unknown = await runOp('access.grant', { command: 'message.pin', accountId: SELF }, owner);
     assert.deepEqual([unknown.status, unknown.code], ['invalid', 'unknown-skill']);
   } finally {
     t.cleanup();
@@ -1104,10 +1107,10 @@ test('persona grants: a grant to her user opens a skill by name, owner-only ones
 
 test('persona grants: an irreversible or administrative operation is refused for her with a clear message', async () => {
   const t = makeEnv();
-  const owner = { env: t.env, placeId: 'g1', userId: OWNER, roleIds: [] };
+  const owner = { env: t.env, placeId: 'g1', accountId: OWNER, roleIds: [] };
   try {
     for (const name of NOT_GRANTABLE_TO_PERSONA) {
-      const result = await runOp('access.grant', { command: name, userId: SELF }, owner);
+      const result = await runOp('access.grant', { command: name, accountId: SELF }, owner);
       assert.deepEqual([result.status, result.code], ['invalid', 'not-grantable'], name);
       assert.match(result.summary, /cannot be granted to the persona yet/, name);
     }
@@ -1119,9 +1122,9 @@ test('persona grants: an irreversible or administrative operation is refused for
 
 test('persona grants: a group or * opens her read skills under it, owner-only reads included, never a write', async () => {
   const t = makeEnv();
-  const owner = { env: t.env, placeId: 'g1', userId: OWNER, roleIds: [] };
+  const owner = { env: t.env, placeId: 'g1', accountId: OWNER, roleIds: [] };
   try {
-    assert.equal((await runOp('access.grant', { command: '*', userId: SELF }, owner)).status, 'ok');
+    assert.equal((await runOp('access.grant', { command: '*', accountId: SELF }, owner)).status, 'ok');
     const access = t.stored();
     const reads = [...skillRegistry().values()]
       .filter((skill) => skill.kind === 'read' && !NOT_GRANTABLE_TO_PERSONA.includes(skill.name))
@@ -1139,7 +1142,7 @@ test('persona grants: a group or * opens her read skills under it, owner-only re
     });
     const t2 = makeEnv();
     try {
-      await runOp('access.grant', { command: 'memory', userId: SELF }, { ...owner, env: t2.env });
+      await runOp('access.grant', { command: 'memory', accountId: SELF }, { ...owner, env: t2.env });
       assert.ok(t2.stored()['memory.server.read']);
       assert.equal(t2.stored()['memory.restore'], undefined);
     } finally {
@@ -1152,14 +1155,14 @@ test('persona grants: a group or * opens her read skills under it, owner-only re
 
 test('persona grants: she never changes her effective authority -- not herself, not everyone, not a role she holds, not the governed config', async () => {
   const t = makeEnv({ roles: ['r-hers'] });
-  const owner = { env: t.env, placeId: 'g1', userId: OWNER, roleIds: [] };
+  const owner = { env: t.env, placeId: 'g1', accountId: OWNER, roleIds: [] };
   const asPersona = { ...owner, actor: 'persona' };
   try {
     for (const [name, args] of [
-      ['access.grant', { command: 'lore.add', userId: SELF }],
+      ['access.grant', { command: 'lore.add', accountId: SELF }],
       ['access.grant', { command: 'lore.add' }],
       ['access.grant', { command: 'lore.add', roleId: 'r-hers' }],
-      ['access.revoke', { command: 'lore.add', userId: SELF }],
+      ['access.revoke', { command: 'lore.add', accountId: SELF }],
     ]) {
       const result = await runOp(
         name as unknown as Parameters<typeof runOp>[0],
@@ -1184,8 +1187,8 @@ test('persona grants: she never changes her effective authority -- not herself, 
     // a member who asks her may not (access.grant is owner-only)
     const member = await runOp(
       'access.grant',
-      { command: 'lore.add', userId: MEMBER },
-      { ...asPersona, userId: MEMBER }
+      { command: 'lore.add', accountId: MEMBER },
+      { ...asPersona, accountId: MEMBER }
     );
     assert.deepEqual([member.status, member.code], ['denied', 'owner-only']);
   } finally {

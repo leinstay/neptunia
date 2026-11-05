@@ -50,7 +50,7 @@ function reaction(id: string, extra: Record<string, unknown> = {}): Record<strin
     conversation: { id: 'c1', kind: 'channel' },
     messageId: 'm1',
     emoji: { name: 'x' },
-    userId: 'u1',
+    accountId: 'u1',
     added: true,
     ...extra,
   };

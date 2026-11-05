@@ -33,8 +33,8 @@ async function observeLine(
   const event = {
     iface: IFACE,
     at,
-    conversation: { id: ROOM, kind: 'channel', chatType: 'channel', communityId: COMMUNITY },
-    addressing: { mentionedUserIds: [] },
+    conversation: { id: ROOM, kind: 'channel', chatType: 'channel', rootId: COMMUNITY },
+    addressing: { mentionedAccountIds: [] },
     message: {
       id,
       at,
@@ -53,7 +53,7 @@ async function observeLine(
 
 async function recordSent(memory: Memory): Promise<void> {
   const line = toRecordLine(
-    { id: 'sent-1', placeId: ROOM, content: WORDS, ts: SENT, replyToId: null, mentionedUserIds: [] },
+    { id: 'sent-1', placeId: ROOM, content: WORDS, ts: SENT, replyToId: null, mentionedAccountIds: [] },
     { kind: 'said', now: () => NOW, turnId: 't-1', opId: 'op-1' }
   );
   await createRecord({ ...memory, now: () => NOW }).append(TOP, [line], {});
@@ -155,7 +155,7 @@ test('the echo of her line in a second room with the same message id stays its o
   // Bug: a lookup by the message id alone joins two conversations' lines of an interface with per-room ids.
   await withOrder('echo-first', async (memory, db) => {
     const line = toRecordLine(
-      { id: 'sent-1', placeId: 'room-b', content: WORDS, ts: SENT, replyToId: null, mentionedUserIds: [] },
+      { id: 'sent-1', placeId: 'room-b', content: WORDS, ts: SENT, replyToId: null, mentionedAccountIds: [] },
       { kind: 'said', now: () => NOW, turnId: 't-2', opId: 'op-2' }
     );
     await createRecord({ ...memory, now: () => NOW }).append(TOP, [line], {});

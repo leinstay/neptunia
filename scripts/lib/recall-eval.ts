@@ -576,7 +576,7 @@ function localInfo(placeId: string, id: string, name: string) {
   return {
     id,
     kind: 'channel' as const,
-    communityId: placeId,
+    placeId: placeId,
     name,
     topic: null,
     category: null,
@@ -623,7 +623,7 @@ export function localReads({
     searchMembers: () => Promise.resolve({ members: [] }),
     emoji: () => Promise.resolve({ emoji: [] }),
     parseLinks: (texts: ReadonlyArray<string>) => Promise.resolve({ refs: texts.map(() => null) }),
-    reactors: () => Promise.resolve({ memberIds: [] }),
+    reactors: () => Promise.resolve({ accountIds: [] }),
   };
 }
 
@@ -644,7 +644,7 @@ export function localScope({
   return {
     channel: info(conversationId),
     snapshot: {
-      communityId: placeId,
+      placeId: placeId,
       conversations: [],
       groups: [],
       get: (id: string) => (typeof id === 'string' && id !== '' ? info(id) : null),

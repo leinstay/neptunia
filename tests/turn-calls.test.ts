@@ -20,7 +20,7 @@ function quote(stored: typeof first, text: string) {
 
 function view(draft: { searchRefs?: SearchRefs }) {
   return callViewOf({
-    channel: { id: 'current-room', communityId: 'g1' },
+    channel: { id: 'current-room', rootId: 'g1' },
     currentIface: 'primary',
     idByIndex: new Map([[1, 'transcript-one']]),
     lines: [{ id: 'transcript-one', authorId: 'reader' }],

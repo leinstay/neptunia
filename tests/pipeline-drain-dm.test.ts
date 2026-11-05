@@ -23,7 +23,7 @@ type Drained = {
 
 /** Drains one DM written on interface `iface`, with `home` as the core's home community. */
 async function drainDm(iface: string, home: string | null): Promise<Drained> {
-  const channel = channelInfo('d1', { iface, kind: 'dm', communityId: null, partnerId: 'u1' });
+  const channel = channelInfo('d1', { iface, kind: 'dm', rootId: null, partnerId: 'u1' });
   const pending: PendingQueue = {
     list: [
       {
@@ -38,7 +38,7 @@ async function drainDm(iface: string, home: string | null): Promise<Drained> {
           content: 'hello',
           ts: NOW,
           replyToId: null,
-          mentionedUserIds: [],
+          mentionedAccountIds: [],
         },
       },
     ],

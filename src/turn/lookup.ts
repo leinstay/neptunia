@@ -67,14 +67,14 @@ export type LookupContext = {
   llm: ClassifierLlm;
   clock: () => number;
   recall: LookupRecall;
-  membersOf: ((communityId: string) => Iterable<unknown>) | null;
+  membersOf: ((placeId: string) => Iterable<unknown>) | null;
   selfIdOf: () => string;
   ifaceReads: Reads;
   classifierContext: Rewatch['classifierContext'];
   linkCalls: JournalNotes['linkCalls'];
 };
 
-type Channel = { id: string; communityId?: string | null };
+type Channel = { id: string; rootId?: string | null };
 
 /** One lane of a prefetch, and the prefetch of a trigger: its lanes and the search they make. */
 type Lane = { kind: string; text: string; words: string };
@@ -126,7 +126,7 @@ export type Lookup = {
   privatePartner: (args: {
     iface: string | undefined;
     placeId: string;
-    userId: string | null | undefined;
+    accountId: string | null | undefined;
     config: LookupConfig;
   }) => Promise<MemberInfo | null>;
   maybeSplit: (args: {
@@ -306,13 +306,13 @@ export function createLookup(ctx: LookupContext): Lookup {
   async function privatePartner({
     iface,
     placeId,
-    userId,
+    accountId,
     config,
   }: Parameters<Lookup['privatePartner']>[0]): Promise<MemberInfo | null> {
-    if (config.private?.likeServer === false || !userId || isCliOwner(iface, userId)) return null;
-    const found = await ifaceReads.memberInfo({ communityId: placeId, memberId: String(userId) });
+    if (config.private?.likeServer === false || !accountId || isCliOwner(iface, accountId)) return null;
+    const found = await ifaceReads.memberInfo({ placeId, accountId: String(accountId) });
     if (found?.member) return found.member;
-    log.warn('turn: partner failed', { placeId, userId });
+    log.warn('turn: partner failed', { placeId, accountId });
     return null;
   }
 

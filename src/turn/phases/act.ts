@@ -73,7 +73,7 @@ export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, a
   const channelHandles = request.channelHandles ?? null;
   const knownNames =
     memoryOn && !handles
-      ? storedNames(request.peopleShown, shownLines, (userId) => store.getUser(accountOf(store, userId)))
+      ? storedNames(request.peopleShown, shownLines, (accountId) => store.getUser(accountOf(store, accountId)))
       : [];
   // Behind those, every member of the served place the bot knows (built once, on the first `@`).
   const directory = handles ? null : turnDirectory({ placeId, memoryOn });

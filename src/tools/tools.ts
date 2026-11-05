@@ -616,7 +616,7 @@ export async function runMemorySearch({
   labels: unknown;
   placeId: string | null;
   snapshot?: unknown;
-  channel?: { communityId?: unknown } | null;
+  channel?: { rootId?: unknown } | null;
   partnerId?: string | null;
   selfId?: string | null;
   selfName?: string;

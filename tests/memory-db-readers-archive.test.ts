@@ -22,8 +22,8 @@ test('archive db reader: iterate answers every guild, layer, range, kind and sco
       { kinds: ['detail'] },
       { kinds: ['episode'] },
       { scope: { user: MEMBER } },
-      { privateUserId: MEMBER },
-      { privateUserId: MEMBER, from: '2026-11-01T00:00:00.000Z' },
+      { privateAccountId: MEMBER },
+      { privateAccountId: MEMBER, from: '2026-11-01T00:00:00.000Z' },
     ];
     const pair = (suffix: string) => [`ar-1${suffix}`, `ar-2${suffix}`];
     const expected: Record<string, Array<Array<string>>> = {
@@ -33,7 +33,7 @@ test('archive db reader: iterate answers every guild, layer, range, kind and sco
     for (const placeId of [GUILD, GUILD_2]) {
       for (const [index, query] of queries.entries()) {
         // A DM place has no guild: the private queries run once, under the first guild.
-        if (placeId === GUILD_2 && 'privateUserId' in query) continue;
+        if (placeId === GUILD_2 && 'privateAccountId' in query) continue;
         const { placeId: holder, rest } = readAt(placeId, query);
         assert.deepEqual(
           (await all(archive.iterate(holder, rest))).map(idOf),

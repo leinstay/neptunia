@@ -203,7 +203,7 @@ async function journalDmTurn(w: World, place = DM) {
   await w.journal.memory(place, {
     batchId: 'b1',
     note: 'batch',
-    attitude: [{ userId: PARTNER, delta: 1, applied: 1, reason: `shared the ${SECRET}` }],
+    attitude: [{ accountId: PARTNER, delta: 1, applied: 1, reason: `shared the ${SECRET}` }],
   });
   await settled();
 }
@@ -217,7 +217,7 @@ async function wakePostInDm(w: World) {
       name: 'post',
       by: 'persona',
       placeId: DM_CONVERSATION,
-      privateUserId: null,
+      privateAccountId: null,
       intent: { replyTo: null, text: `said ${SECRET} to the partner` },
     })
   );
@@ -452,7 +452,7 @@ function recaller(w: World) {
   );
   const dm = channelInfo(DM_CONVERSATION, {
     kind: 'dm',
-    communityId: null,
+    rootId: null,
     chatType: 'dm',
     partnerId: PARTNER,
     audience: null,
@@ -515,7 +515,7 @@ test('the archive list of a group names no private item of a member who has no D
   const w = world();
   w.store.touchUser('discord:n9', 'Late', NOW);
   await evictedPrivate(w, 'discord:n9');
-  const listed: unknown = await admin(w).run('memory.archive.read', { userId: 'n9' }, { placeId: GROUP });
+  const listed: unknown = await admin(w).run('memory.archive.read', { accountId: 'n9' }, { placeId: GROUP });
   assert.equal(JSON.stringify(listed).includes(SECRET), false);
 });
 
@@ -532,7 +532,7 @@ test("a lesson taught in a DM is out of a group's reach", async () => {
 // ---- the pull rail and conversation.read ----------------------------------------------------------------------------
 
 const dmInfo = (id: string, partnerId: string) =>
-  channelInfo(id, { kind: 'dm', communityId: null, chatType: 'dm', partnerId, audience: null });
+  channelInfo(id, { kind: 'dm', rootId: null, chatType: 'dm', partnerId, audience: null });
 
 test('the pull rail refuses a DM conversation toward a group', () => {
   // Bug: a DM in the directory's snapshot passes the rail because the same-audience rule compares no audience.
@@ -644,7 +644,7 @@ test("the partner's own recall reads an item archived under their own id", async
 });
 
 test("the partner's own recall reads an item archived from their DM", async () => {
-  // Bug: `allowScope` asks `scope.user === privateUserId`, and a DM's archived item names `{ place, private }` with no user.
+  // Bug: `allowScope` asks `scope.user === privateAccountId`, and a DM's archived item names `{ place, private }` with no user.
   const w = world();
   await evictedPrivate(w);
   const r = recaller(w);

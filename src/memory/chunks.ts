@@ -82,11 +82,11 @@ export function embeddableLine(line: RecordLine | null | undefined): boolean {
 }
 
 /**
- * The key of a channel's lines in one layer: the place record (`privateUserId` null or empty) or
+ * The key of a channel's lines in one layer: the place record (`privateAccountId` null or empty) or
  * a member's private record, then the channel.
  */
-export function layerChannelKey(privateUserId: string | null, placeId: string | null): string {
-  return `${typeof privateUserId === 'string' ? privateUserId : ''}|${placeId ?? ''}`;
+export function layerChannelKey(privateAccountId: string | null, placeId: string | null): string {
+  return `${typeof privateAccountId === 'string' ? privateAccountId : ''}|${placeId ?? ''}`;
 }
 
 /** The channel of a record line, or null. */

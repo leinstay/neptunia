@@ -116,7 +116,7 @@ for (const replacement of ['author', 'shorter'] as const) {
       content: incomingText,
       ts: NOW,
       replyToId: null,
-      mentionedUserIds: [],
+      mentionedAccountIds: [],
     };
     const mergeChannel = channelInfo('c1');
     const llm = splitLlm({

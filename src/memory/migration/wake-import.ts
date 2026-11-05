@@ -60,7 +60,7 @@ function importGuild(db: Db, community: string, state: Record<string, unknown>):
     kind: textOrNull(inflight.kind) ?? '',
     placeId: textOrNull(inflight.channelId),
     privateChat: inflight.privateChat === true,
-    privateUserId: textOrNull(inflight.privateUserId),
+    privateAccountId: textOrNull(inflight.privateAccountId),
   };
   let count = 0;
   for (const entry of Array.isArray(state.queue) ? state.queue : []) {

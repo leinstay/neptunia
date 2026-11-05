@@ -490,7 +490,7 @@ function peopleOf({
   book: RefBook;
   nameOf: ((id: string) => unknown) | null;
   placeName: (id: unknown) => string;
-  activePlaces: ((memberId: string) => unknown) | null;
+  activePlaces: ((accountId: string) => unknown) | null;
   warn: Warn;
 }): Array<Person> {
   const safe = <TValue>(fn: () => TValue | null | undefined, fallback: TValue): TValue => {
@@ -925,7 +925,7 @@ export type HeartbeatInput = {
   nameOf?: ((id: string) => unknown) | null;
   placeName?: (id: string) => unknown;
   /** Where a member wrote lately (names). */
-  activePlaces?: ((memberId: string) => unknown) | null;
+  activePlaces?: ((accountId: string) => unknown) | null;
   /** Her focus set as member ids; null or absent: the profiles' affinity ranks. */
   focusPeople?: (() => unknown) | null;
   /** The fixes that merged and were not told to her yet. */

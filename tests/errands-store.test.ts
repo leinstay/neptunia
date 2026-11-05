@@ -97,7 +97,7 @@ function makeStore({
 const asked: AddInput = {
   agent: 'scout',
   goal: 'find the release notes',
-  requester: { userId: 'u1', kind: 'member' },
+  requester: { accountId: 'u1', kind: 'member' },
   origin: { placeId: 'c1', messageId: 'm1' },
   scope: 'group',
 };
@@ -114,7 +114,7 @@ test('task store: a new task is queued and written to the board as an approved e
     assert.equal(task.state, 'queued');
     assert.equal(task.agent, 'scout');
     assert.equal(task.goal, 'find the release notes');
-    assert.deepEqual(task.requester, { userId: 'u1', kind: 'member' });
+    assert.deepEqual(task.requester, { accountId: 'u1', kind: 'member' });
     assert.deepEqual(task.origin, { placeId: 'c1', messageId: 'm1' });
     assert.equal(task.scope, 'group');
     assert.equal(task.createdAt, T0);
@@ -214,7 +214,7 @@ test('task store: the caps refuse with cap-open and cap-tasks, a dollar figure n
     store.finish(store.open()[0].id, { status: 'done', result: { text: '' }, usage: { usd: 0.1 } });
     store.finish(second.errand.id, { status: 'failed', error: 'x' });
     // server: two tasks a day.
-    const server: AddInput = { ...asked, agent: 'server', requester: { userId: 'owner', kind: 'owner' } };
+    const server: AddInput = { ...asked, agent: 'server', requester: { accountId: 'owner', kind: 'owner' } };
     const s1 = store.add(server).errand;
     store.finish(loose(s1).id, { status: 'done', usage: { usd: 0.1 } });
     const s2 = store.add(server).errand;
@@ -291,7 +291,7 @@ test("task store: a DM task journals into the requester's private layer", async 
     store.add({ ...asked, scope: 'dm', origin: { placeId: 'dm1', messageId: 'm9' } });
     await new Promise((r) => setImmediate(r));
   });
-  assert.equal(lines[0].privateUserId, 'u1');
+  assert.equal(lines[0].privateAccountId, 'u1');
   assert.equal(lines[0].placeId, undefined);
 });
 
@@ -407,7 +407,7 @@ test('task store: costs and the daily caps read the same spend records, rebuilt 
     const a = store.add(asked).errand;
     store.start(loose(a).id);
     store.finish(loose(a).id, { status: 'done', usage: { input: 1000, output: 100, usd: 0.6, steps: 2 } });
-    const b = store.add({ ...asked, requester: { userId: 'u2', kind: 'member' } }).errand;
+    const b = store.add({ ...asked, requester: { accountId: 'u2', kind: 'member' } }).errand;
     store.finish(loose(b).id, { status: 'failed', error: 'x', usage: { input: 2000, output: 200, usd: 0.3 } });
     const costs = store.costs(['scout', 'dev']);
     assert.deepEqual(Object.keys(costs), ['scout', 'dev']);
@@ -443,7 +443,7 @@ test("task store: the persona's call keeps its turn and its brief as written; th
     const hers: AddInput = {
       ...asked,
       goal: brief,
-      requester: { userId: 'u1', kind: 'member' },
+      requester: { accountId: 'u1', kind: 'member' },
       origin: { placeId: 'c1', messageId: 'm1', turnId: 'turn-7' },
       idempotencyKey: 'turn-7.1:0',
     };
@@ -485,7 +485,7 @@ test('an existing store reads the personal daily cap again after a profile edit'
         agent: 'scout',
         goal: 'inspect synthetic files',
         scope: 'group',
-        requester: { userId: 'synthetic-user', kind: 'member' },
+        requester: { accountId: 'synthetic-user', kind: 'member' },
         origin: { placeId: 'synthetic-room', messageId: 'synthetic-message' },
       }).ok,
       true
@@ -505,7 +505,7 @@ test('an errand an internal turn asked for keeps its publication restriction on 
   const added = first.add({
     agent: 'scout',
     goal: 'find it',
-    requester: { kind: 'owner', userId: 'u1' },
+    requester: { kind: 'owner', accountId: 'u1' },
     origin: { placeId: 'dm-owner', messageId: null, publicationBoundary: boundary },
     scope: 'dm',
   });

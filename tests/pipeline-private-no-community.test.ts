@@ -25,7 +25,7 @@ const CONFIG = {
 type TurnAsked = Parameters<PipelineTurns['runTurn']>[0];
 
 async function drainDm(): Promise<{ turns: Array<TurnAsked>; gates: Array<Array<unknown>>; after: number }> {
-  const channel = channelInfo('d1', { iface: 'fake', kind: 'dm', communityId: null, partnerId: 'u1' });
+  const channel = channelInfo('d1', { iface: 'fake', kind: 'dm', rootId: null, partnerId: 'u1' });
   const pending: PendingQueue = {
     list: [
       {
@@ -40,7 +40,7 @@ async function drainDm(): Promise<{ turns: Array<TurnAsked>; gates: Array<Array<
           content: 'hello',
           ts: NOW,
           replyToId: null,
-          mentionedUserIds: [],
+          mentionedAccountIds: [],
         },
       },
     ],
@@ -125,7 +125,7 @@ test('a paused line of a group is observed by its own conversation with no home 
   const line = {
     kind: 'message.received',
     iface: 'other',
-    conversation: { id: 'c1', kind: 'channel', communityId: 'g3' },
+    conversation: { id: 'c1', kind: 'channel', rootId: 'g3' },
     message: { id: 'm1', author: { id: 'u1', name: 'Eleni', self: false, bot: false } },
     addressing: { mentioned: false },
   };

@@ -79,11 +79,11 @@ const handlers = perEnv((env) => {
         hot,
         // The persona's large avatar, asked of the interface only when the picture needs the reference.
         avatarUrl: async () => {
-          const found = await reads?.memberInfo({ communityId: placeId, memberId: String(env.selfId() ?? '') });
+          const found = await reads?.memberInfo({ placeId, accountId: String(env.selfId() ?? '') });
           return found?.member?.avatar.largeUrl ?? null;
         },
         imageFetcher,
-        input: { scene: request, selfName, self, withTime: false, userId: null },
+        input: { scene: request, selfName, self, withTime: false, accountId: null },
       }));
       if (referenceMissing) log.warn('admin: draw avatar reference unavailable', {});
     } catch (err) {

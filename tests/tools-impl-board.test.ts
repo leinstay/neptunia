@@ -90,7 +90,7 @@ function setUp(t: { after: (fn: () => void) => void }): {
     env,
     placeId: 'g1',
     conversationId: 'c1',
-    userId: null,
+    accountId: null,
     roleIds: [],
     actor: 'persona',
     ...extra,
@@ -273,7 +273,7 @@ test('board.propose answers failed board-unavailable when the core has no board'
     board: null,
   });
   const { result } = await withCapturedLogs(() =>
-    runOp('board.propose', { title: 'x', evidence: 'y' }, { env, placeId: 'g1', userId: null, actor: 'persona' })
+    runOp('board.propose', { title: 'x', evidence: 'y' }, { env, placeId: 'g1', accountId: null, actor: 'persona' })
   );
   const answer = result as Result;
   assert.equal(answer.status, 'failed');

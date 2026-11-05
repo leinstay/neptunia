@@ -126,7 +126,7 @@ test('resolveHandles: an exact @handle becomes a mention; names and look-alikes 
     result.text,
     '<@111111111111111111> γεια, <@222222222222222222>! <@111111111111111111> @Ana mail@uaaaa @uaaaab @uaaaaά'
   );
-  assert.deepEqual(result.userIds, ['111111111111111111', '222222222222222222']);
+  assert.deepEqual(result.accountIds, ['111111111111111111', '222222222222222222']);
   assert.equal(result.unknown, 1, 'only @uaaaab is a handle nobody has');
 });
 
@@ -134,10 +134,10 @@ test('resolveHandles: a handle inside a URL is part of the address; @everyone is
   const ids = new Map([['uaaaa', '111111111111111111']]);
   const result = resolveHandles('https://example.com/@uaaaa @everyone @here @uaaaa', ids);
   assert.equal(result.text, 'https://example.com/@uaaaa @everyone @here <@111111111111111111>');
-  assert.deepEqual(result.userIds, ['111111111111111111']);
+  assert.deepEqual(result.accountIds, ['111111111111111111']);
   assert.equal(result.unknown, 0);
 });
 
 test('resolveHandles: no map resolves nothing', () => {
-  assert.deepEqual(resolveHandles('@uaaaa', wrongly(null)), { text: '@uaaaa', userIds: [], unknown: 1 });
+  assert.deepEqual(resolveHandles('@uaaaa', wrongly(null)), { text: '@uaaaa', accountIds: [], unknown: 1 });
 });

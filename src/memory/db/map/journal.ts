@@ -44,7 +44,7 @@ const ANSWER_SPEC: Array<Spec> = [{ col: 'think', key: 'think', type: 'text' }];
 const ATTITUDE_SPEC: Array<Spec> = [
   {
     col: 'person_id',
-    key: 'userId',
+    key: 'accountId',
     type: 'text',
     enc: (v: unknown, iface: string) => personId(iface, v),
     dec: nativeOfAny,
@@ -106,7 +106,7 @@ function memoryRows(rel: string, line: Row, ctx: MapContext, privateUser: string
 
 export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
-  const privateUser = ctx.privateUserId ?? privateUserOf(rel);
+  const privateUser = ctx.privateAccountId ?? privateUserOf(rel);
   if (line.kind === 'memory') return memoryRows(rel, line, ctx, privateUser);
   const rows: Rows = {};
   const body = { ...line };
@@ -175,7 +175,7 @@ export function fromRows(rows: Rows, ctx: MapContext = {}): Row {
   const scope = scopeFrom(
     day,
     rest,
-    ctx.privateUserId ?? privateUserOf(String(day.owner_file)),
+    ctx.privateAccountId ?? privateUserOf(String(day.owner_file)),
     ifaceOf(day, 'scope_iface')
   );
   const line = join(day, rest, DAY_SPEC);

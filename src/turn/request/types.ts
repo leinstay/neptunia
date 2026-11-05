@@ -147,7 +147,7 @@ export type Message = {
   readonly replyParent?: boolean;
   readonly replyToId?: string | null;
   readonly triggerId?: string | null;
-  readonly mentionedUserIds?: Array<string>;
+  readonly mentionedAccountIds?: Array<string>;
   readonly placeId?: string;
   readonly channelName?: string;
   readonly channelCategory?: string | null;

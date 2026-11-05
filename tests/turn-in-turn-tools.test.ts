@@ -112,7 +112,7 @@ function registerCached(scene: ReturnType<typeof cacheScene>, name: string, nati
 
 async function cachedCall(scene: ReturnType<typeof cacheScene>, skill: 'web.read' | 'media.look', n: number) {
   const view = callViewOf({
-    channel: { id: 'room', communityId: 'g1' },
+    channel: { id: 'room', rootId: 'g1' },
     currentIface: 'fake',
     skills: skillRegistry(),
     searchRefs: scene.draft.searchRefs,

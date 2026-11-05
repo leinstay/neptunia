@@ -38,7 +38,7 @@ export type BuildRequestInput = {
   taggedCall?: boolean | null;
   placeMemory: RequestInput['placeMemory'];
   interlocutor: RequestInput['interlocutor'];
-  privateChat?: { userId: string } | null;
+  privateChat?: { accountId: string } | null;
   privateProfile?: RequestInput['privateProfile'];
   otherProfiles: Array<Untyped>;
   candidateProfiles?: Array<Untyped>;

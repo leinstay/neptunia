@@ -50,7 +50,7 @@ export type CreateRecallInput = {
   /** The core's reads of the interface: the message and member searches and the history windows around a hit. */
   reads: Reads;
   /** The name the member directory holds for a member, the last resort for a person no stored profile names. */
-  memberName?: (communityId: string, memberId: string) => string | null;
+  memberName?: (placeId: string, accountId: string) => string | null;
   /** From createDescriber (src/memory/describe.js): only its `cachedDescriptions` is used, never a fresh caption. */
   describer?: Untyped;
   /** From createArchive (src/memory/archive.js): only `iterate` is used (read only); without it the archive is not searched. */
@@ -141,7 +141,7 @@ export type StoredMemoryInput = {
   server: Untyped;
   recent: Untyped;
   allowEntry: Untyped;
-  privateUserId: Untyped;
+  privateAccountId: Untyped;
   signal: AbortSignal;
   meaning?: Array<Untyped>;
   locator?: Untyped;
@@ -173,7 +173,7 @@ export type RecordWindowsForInput = {
   people: Untyped;
   recent: Untyped;
   allowLine: Untyped;
-  privateUserId: Untyped;
+  privateAccountId: Untyped;
   ownIds: Untyped;
   selfName: string;
   signal: AbortSignal;
@@ -207,7 +207,7 @@ export type MeaningSearchInput = {
   candidate: Untyped;
   lines: Untyped;
   server: Untyped;
-  privateUserId: Untyped;
+  privateAccountId: Untyped;
   sourceOf: Untyped;
   ownIds: Untyped;
   signal: AbortSignal;
@@ -255,7 +255,7 @@ export type DbReaderInput = {
 export type ReadContextInput = {
   config?: Untyped;
   channel: Untyped;
-  privateUserId: Untyped;
+  privateAccountId: Untyped;
   asker: Untyped;
   memoryContext?: Untyped;
 };
@@ -438,7 +438,7 @@ export type RunInput = {
  * deadline passed before anything relevant settled) or `unavailable` (no place to read on behalf
  * of, or every search failed); `basis` the lane kinds; each excerpt `{ source: 'history',
  * placeId, channelName, startTs, endTs, id, ids, hitIds, lines }` or `{ source: 'memory', kind,
- * date, memberId, who, id, lines }`; `partial` true when the deadline cut some searches. Logs
+ * date, accountId, who, id, lines }`; `partial` true when the deadline cut some searches. Logs
  * `recall: prefetched` (counts and codes only). Never rejects.
  */
 export type PrefetchInput = {
