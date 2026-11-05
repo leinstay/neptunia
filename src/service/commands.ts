@@ -13,7 +13,14 @@ import { objOf } from '../tools/types.ts';
 import { reportDays, reportsDirOf, watcherDir } from '../watcher/read.ts';
 import { watcherSettings } from '../watcher/settings.ts';
 import { updateLocalSettings } from './local-settings.ts';
-import { cancelWatcher, readyWatcherFolder, triggerWatcher, watcherReport, watcherStatusFields } from './watcher.ts';
+import {
+  cancelWatcher,
+  readyWatcherFolder,
+  triggerWatcher,
+  watcherEvidence,
+  watcherReport,
+  watcherStatusFields,
+} from './watcher.ts';
 import { moveTimer, renderTimer, timerState, workerRunning } from './manager.ts';
 import type { Environment, RunManager } from './manager.ts';
 import {
@@ -241,6 +248,8 @@ export function serviceFamily(
       return Promise.resolve(cancelWatcher(deps));
     case 'report':
       return Promise.resolve(watcherReport(deps, typeof args.target === 'string' ? args.target : undefined));
+    case 'evidence':
+      return watcherEvidence(deps, args);
     default:
       return Promise.resolve(invalid(`no such command: service ${String(word)} ${String(action)}`));
   }

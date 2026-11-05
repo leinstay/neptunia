@@ -65,8 +65,17 @@ function sameFinding(a: FilingReceipt, b: FilingReceipt): boolean {
   return normalized(a.evidence) === normalized(b.evidence);
 }
 
-/** Saves a run's validated drafts as `pending`; a repeat inside the answer is a `duplicate` from the start. */
-export function saveDrafts(dir: string, runId: string, at: number, drafts: ReadonlyArray<TaskDraft>): void {
+/**
+ * Saves a run's validated drafts as `pending`. A repeat inside the answer is a `duplicate` from the start, and so is a draft
+ * for a finding in `repeated`, a key the risk rules found to repeat an earlier report with no new evidence.
+ */
+export function saveDrafts(
+  dir: string,
+  runId: string,
+  at: number,
+  drafts: ReadonlyArray<TaskDraft>,
+  repeated: ReadonlySet<string> = new Set()
+): void {
   if (drafts.length === 0) return;
   fs.mkdirSync(filingsDir(dir), { recursive: true });
   const receipts: Array<FilingReceipt> = [];
@@ -80,7 +89,7 @@ export function saveDrafts(dir: string, runId: string, at: number, drafts: Reado
       state: 'pending',
       taskId: null,
     };
-    if (receipts.some((one) => sameFinding(one, receipt))) receipt.state = 'duplicate';
+    if (repeated.has(receipt.finding) || receipts.some((one) => sameFinding(one, receipt))) receipt.state = 'duplicate';
     receipts.push(receipt);
   }
   writeFile(dir, { runId, at, receipts });
@@ -128,6 +137,37 @@ export function deferFilings(dir: string, runId: string): void {
   if (file === null || !file.receipts.some((one) => one.state === 'pending')) return;
   for (const receipt of file.receipts) if (receipt.state === 'pending') receipt.state = 'deferred';
   writeFile(dir, file);
+}
+
+/** Every run's receipts that name a task and a key of the model's: what a resolution can be read from. */
+function linkedReceipts(dir: string): Array<FilingReceipt> {
+  let names: Array<string> = [];
+  try {
+    names = fs.readdirSync(filingsDir(dir)).filter((name) => name.endsWith('.json'));
+  } catch {
+    // No filing yet.
+  }
+  return names.flatMap((name) =>
+    (readFile(dir, name.slice(0, -'.json'.length))?.receipts ?? []).filter(
+      (one) => one.taskId !== null && hasOwnKey(one)
+    )
+  );
+}
+
+export const hasLinkedFilings = (dir: string): boolean => linkedReceipts(dir).length > 0;
+
+/**
+ * The findings whose filed task is `done` with its pull request merged (`metadata.merged`, src/development/worker.ts), each
+ * with the moment the task last moved. A key seen after that moment is new. Throws when the board does not answer.
+ */
+export async function resolvedFindings(dir: string, board: BoardCaller): Promise<Array<{ key: string; at: number }>> {
+  const rows = await board.call(WATCHER, 'task.list', { requester: WATCHER });
+  return linkedReceipts(dir).flatMap((receipt) => {
+    const row = rows.find((one) => one.id === receipt.taskId);
+    const merged = row?.metadata?.merged;
+    if (row?.status !== 'done' || typeof merged !== 'object' || merged === null) return [];
+    return [{ key: receipt.finding, at: Date.parse(row.updated_at) }];
+  });
 }
 
 const metaText = (row: TaskRecord, key: string): string | null => {

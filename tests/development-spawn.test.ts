@@ -209,7 +209,8 @@ test('an agent env cannot put its own PATH over the refusing sudo', async (t) =>
     { agent: 'dev', brief: 'Do it.', cwd: world.repoDir, timeoutMs: MINUTE, env: { PATH: '/evil', EXTRA: 'kept' } },
     realRun
   );
-  const [run] = recordedRuns(recordDir);
+  // The agent's own run, past the `--help` read that asks whether the backend takes `--session-id`.
+  const run = recordedRuns(recordDir).find((one) => one.args.includes('-p'));
   assert.ok((run?.env.get('PATH') ?? '').startsWith(realRun.denyDir));
   assert.equal(run?.env.get('EXTRA'), 'kept');
 });

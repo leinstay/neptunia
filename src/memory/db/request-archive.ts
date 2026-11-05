@@ -1,5 +1,5 @@
 // The durable record of every model request: table `model_requests`, one row per request with its whole system text, its
-// messages, its answer and its outcome. Pictures stay markers (src/llm/archive.ts), the media tables hold what was kept
+// messages, its answer and its result. Pictures stay markers (src/llm/archive.ts), the media tables hold what was kept
 // of them. The row is written before the request goes out, as `pending`, and closed afterwards; a process that dies in
 // between leaves it `pending`, and the next open marks it `unknown`. No answer is invented and nothing is sent again.
 // The table has no index into recall, so ordinary search never reads it. Written through the memory writer. `importRequestDumps` reads the
@@ -36,6 +36,9 @@ const COLUMNS = [
   'usage',
   'error_code',
   'source',
+  'service',
+  'backend',
+  'run_id',
 ] as const;
 
 const iso = (at: unknown): string => new Date(typeof at === 'number' ? at : Date.now()).toISOString();
@@ -49,7 +52,16 @@ function insert(db: Db, record: Row): number {
   );
 }
 
-/** One archive write on the writer connection: `start`, `finish` or `interrupt`. */
+/** The row of the one request a memory session run makes; `session-write.ts` links its outcome by this id. */
+export const sessionRequestId = (runId: string): string => `request:${runId}`;
+
+/** What a request led to, on its row: read by the watcher (src/watcher/requests.ts). No row, no change. */
+export function setRequestOutcome(db: Db, id: unknown, outcome: unknown): number {
+  const result = db.prepare('UPDATE model_requests SET outcome = ? WHERE id = ?').run(JSON.stringify(outcome), id);
+  return Number(result.changes);
+}
+
+/** One archive write on the writer connection: `start`, `finish`, `outcome` or `interrupt`. */
 export function applyRequestArchiveWrite(handle: MemoryHandle, update: Row): { changed: number } {
   return handle.transaction(() => {
     const db = dbOf(handle);
@@ -68,7 +80,8 @@ export function applyRequestArchiveWrite(handle: MemoryHandle, update: Row): { c
       const result = db
         .prepare(
           `UPDATE model_requests SET status = ?, finished_at = ?, response_text = ?, think = ?, tool_calls = ?, usage = ?,
-           error_code = ? WHERE id = ? AND status = 'pending'`
+           error_code = ?, model = COALESCE(?, model), backend = COALESCE(?, backend), source = COALESCE(?, source)
+           WHERE id = ? AND status = 'pending'`
         )
         .run(
           update.status,
@@ -78,10 +91,14 @@ export function applyRequestArchiveWrite(handle: MemoryHandle, update: Row): { c
           update.tool_calls ?? null,
           update.usage ?? null,
           update.error_code ?? null,
+          update.model ?? null,
+          update.backend ?? null,
+          update.source ?? null,
           update.id
         );
       return { changed: Number(result.changes) };
     }
+    if (update.op === 'outcome') return { changed: setRequestOutcome(db, update.id, update.outcome) };
     if (update.op === 'interrupt') {
       const result = db
         .prepare("UPDATE model_requests SET status = 'unknown', finished_at = ? WHERE status = 'pending'")

@@ -14,6 +14,7 @@ import {
   inspectionRig,
   said,
   sectionOf,
+  templateOf,
   watcherBoard,
 } from './fixtures/watcher-inspection-rig.ts';
 import { taskRow } from './fixtures/watcher-rig.ts';
@@ -230,15 +231,21 @@ test('one line per filed task comes before the agent text, with the id, the kind
   }
 });
 
-test('a section that said only nothing found gives that up once a task is filed', async () => {
-  // Bug: the report says "nothing found" right beside the task it filed.
-  const { section } = await tasksFiled('nothing found', DRAFT);
-  assert.ok(section.includes(DRAFT.title));
-  assert.equal(/nothing found/i.test(section), false);
+// Changed: the report template puts the engine's lines under `### Observed defects` of the section, where `none` is the one
+// empty word, so the two cases below read that subsection instead of a section of one line.
+test('a subsection that said none gives that up once a task is filed', async () => {
+  // Bug: the report says "none" right beside the task it filed.
+  const { section } = await tasksFiled('AGENT-LINE', DRAFT);
+  const [defects] = section.split('### Suspicious evidence');
+  assert.ok(defects?.includes(DRAFT.title));
+  assert.doesNotMatch(defects ?? '', /^none$/m);
 });
 
 test('with nothing to file the section stays as the agent wrote it', async () => {
   // Bug: an empty batch still rewrites the section and drops its one line, and the report fails its own check.
   const { section } = await tasksFiled('AGENT-LINE');
-  assert.equal(section.trim(), 'AGENT-LINE');
+  assert.equal(
+    section.trim(),
+    sectionOf(templateOf({ bodies: { 'Tasks filed': 'AGENT-LINE' } }), 'Tasks filed').trim()
+  );
 });

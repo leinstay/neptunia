@@ -12,6 +12,7 @@
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
 //   neptunia service <name> setup|enable|disable|status   one of the four scheduled mechanics (src/service/commands.ts)
 //   neptunia service watcher trigger|cancel|report [<day or run>]   the operations of one watcher run
+//   neptunia service watcher evidence [--from <iso>] [--cursor <c>]  what the services asked and answered, as JSON
 //   neptunia service start|stop|restart|status [<unit> ...]   the units, through the scope's systemctl
 //   neptunia setup [--system] [--node <path>] [<step>]  the install of one user: folders, keys file, her subharness
 //                                                backends, the repository of her self-development, her mechanics,
@@ -176,6 +177,7 @@ const USAGE = [
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia service <name> setup|enable|disable|status   (heartbeat, selfreflection, selfimprovement, watcher)',
   '       neptunia service watcher trigger|cancel|report [<day or run>]',
+  '       neptunia service watcher evidence [--from <iso>] [--cursor <c>]',
   '       neptunia service start|stop|restart|status [<unit> ...]',
   '       neptunia setup [--system] [--node <path>] [folders|keys-file|interfaces|services|subharness|units|linger|core]',
   '       neptunia setup subharness codex|claude|opencode [--from <path>] [--version <version>] [--rollback]',

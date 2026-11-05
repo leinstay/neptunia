@@ -54,6 +54,7 @@ import { columnsOf } from './rows.ts';
 import { turnReadRows } from './service.ts';
 import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';
+import { sessionRequestId } from './request-archive.ts';
 import type { Intention } from '../../intentions/types.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import type { Labels, Profile } from '../../turn/request/types.ts';
@@ -1256,6 +1257,10 @@ export type SweepRun = Row & { scope: string; outcome: string; lines: number; er
 /** What a model call answers: the text and the tokens it took. */
 export type Completion = {
   text?: unknown;
+  /** What a subharness run really used, for the archive (src/llm/archive.ts). */
+  model?: unknown;
+  backend?: unknown;
+  source?: unknown;
   usage?: {
     prompt_tokens?: unknown;
     completion_tokens?: unknown;
@@ -1823,6 +1828,10 @@ async function runScope(
       run.errors.push(`write:${codeOf(error)}`);
       state.ok = false;
       log.warn?.('memory session: write failed', { code: codeOf(error) });
+      const lost = { kind: 'memory-write', state: 'failed', ref: run.id };
+      await write({ kind: 'request-archive', op: 'outcome', id: sessionRequestId(run.id), outcome: lost }).catch(
+        () => null
+      );
       return {
         scope: scope.key,
         outcome: 'write_failed',
@@ -1887,6 +1896,7 @@ async function runScope(
     completion = await llm.complete(request.messages, {
       role: MEMORY_ROLE,
       purpose: SESSION_PURPOSE,
+      archiveId: sessionRequestId(run.id),
       model: roleModel(config, MEMORY_ROLE),
       maxOutputTokens: settings.maxOutputTokens,
       timeoutMs: settings.timeoutMs,
