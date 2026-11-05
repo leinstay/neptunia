@@ -12,6 +12,7 @@ import { errorFields } from '../error-fields.ts';
 import { objOf, scalarText } from '../tools/types.ts';
 import { containsSecret, isFiltered } from './policy.ts';
 import type { RunnerTask, RunOutcome } from './protocol.ts';
+import { readWithoutLinks } from './profiles.ts';
 import type { Profile } from './profiles.ts';
 
 /** The OpenCode binary by default. */
@@ -52,7 +53,7 @@ const warnedUnreadable = new Set<string>();
  */
 export function readPromptFile(
   paths: Array<string>,
-  { read = (file: string) => fs.readFileSync(file, 'utf8') }: { read?: (file: string) => string } = {}
+  { read = readWithoutLinks }: { read?: (file: string) => string } = {}
 ): string {
   const list = (Array.isArray(paths) ? paths : [paths]).filter((p) => typeof p === 'string' && p);
   for (const [index, file] of list.entries()) {

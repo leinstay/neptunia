@@ -26,4 +26,8 @@ The scout and server units bind the folder of every backend that is connected or
 
 Native backend sessions belong to `data/subharness/<backend>/`. A task's final answer is only part of its history; keep native sessions for later inspection of the work.
 
+One finished errand opens one result turn. [src/errands/turns.ts](../src/errands/turns.ts) runs one attempt at a time and arms one retry at a time for an errand, whichever of the service's restart, the door's replay of `errand.done` and the retry timer reaches it, and each attempt reads `readAt` from the store first.
+
+A personal `profile.json` or `prompt.md` under `data/agents/<id>/` is opened once without following a link and read from that descriptor, so a link placed after the check fails the run with `no-prompt` or the profile's error.
+
 The scout's deep search and the core's [quick search](keys.md#quick-search) have separate configuration. Implementation starts in [src/agent-runner/backend.ts](../src/agent-runner/backend.ts) and [agent profiles](../agents/).
