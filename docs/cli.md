@@ -21,19 +21,83 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 |---|---|
 | Enter | Send |
 | Alt+Enter or Ctrl+J | Insert a newline |
-| Up and Down | Browse command suggestions or input history |
+| Up and Down | Select a command suggestion, move a row inside a multiline draft, or browse the input history |
+| Left, Right, Home and End | Move the caret, by whole characters and across a chip in one step |
+| Backspace and Delete | Delete a whole character or a whole chip |
 | Tab | Complete the selected command |
-| Esc | Close a panel, cancel a panel still loading, cancel a question or clear the input |
-| Ctrl+O | Expand folded answers |
-| Ctrl+C | Exit the CLI |
+| Esc | Close a panel, cancel a panel still loading, cancel a question, leave a search or clear the input |
+| Ctrl+R | Search the history, and again for the next older match |
+| Ctrl+F | Search the transcript, and again for the next older match |
+| Alt+Up and Alt+Down | Jump to your line above or below |
+| Ctrl+Z and Ctrl+Y | Undo and redo in the draft |
+| Ctrl+S | Stash the draft, or bring back the stashed draft on an empty input |
+| Ctrl+G | Edit the draft in `$VISUAL` or `$EDITOR` |
+| Ctrl+O | Expand or fold the newest folded answer on the screen, or show the text behind the chip before the caret |
+| Page Up and Page Down | Scroll the transcript |
+| Ctrl+V | Attach an image from the clipboard of this machine |
+| Ctrl+C, or Ctrl+D on an empty input | Exit the CLI |
 
-The Project Neptunia header shows separate lines for the core, memory and enabled interfaces. Missing reports show a check in progress, and old reports are marked outdated. A lost core connection leaves memory and interface states unknown. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation.
+The Project Neptunia header shows separate lines for the core, memory and enabled interfaces. Missing reports show a check in progress, and old reports are marked outdated. A lost core connection leaves memory and interface states unknown. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation, and `NEPTUNIA_LINEAR=1` draws the plain column described under [Rendering](#rendering).
+
+## Pastes and history
+
+`cli/composer.ts` keeps the draft as ordered parts with their own ids: text, pastes and attachments. A bracketed paste reaches the owner of the keys through Ink's `usePaste`, and nothing is sent until an explicit Enter. A paste of more lines than `cli.paste.collapseLines` (default `10`) or more characters than `cli.paste.collapseChars` (default `2000`) draws as one chip such as `[pasted 40 lines]`. A paste at either limit stays text in the input. The turn gets the exact text of every paste in its place, with newlines, tabs and trailing spaces. Backspace after a chip removes that paste alone, and Ctrl+O shows its text. A draft whose paste text is gone stays in the input with a message and is not sent until Backspace removes the chip.
+
+`bin/cli-history.ts` keeps `data/cli/history` as one record per draft, so Up recalls a multiline draft whole, its text collapsed by the same limits. Up sets the unfinished draft aside, and Down past the newest row brings it back. A file in the older format, one draft per line, is read as it is and rewritten as records on the next send. Each write goes through a temporary file and a rename, and the file is private to the owner.
+
+## Images
+
+Ctrl+V reads the clipboard of the machine the chat runs on, with `wl-paste`, `xclip` or `pngpaste` as literal arguments (`cli/clipboard.ts`). Over SSH that machine is the server, so the chat says the clipboard is out of reach, starts no process and keeps the draft. `/attach <file>` takes a file on this machine in every session, and its path never reaches the core as text. `neptunia -p "<text>" --attach <file>` does the same for one turn, and a refused file exits `1` with nothing sent. The flag repeats for several images.
+
+An image is staged before it joins the draft, as a chip such as `[image chart.png]`. `src/media/staging.ts` copies its bytes to `data/staging/images/`, private to the user, and takes the content type from the bytes. Only PNG, JPEG, GIF and WebP up to the vision reader's limit of 1,500,000 bytes pass. Enter sends the caption and its images as one message with a `neptunia-staged:` reference, which the core's image fetcher opens like any address, so the file may be deleted afterwards. The core and the chat must run as the same user. Backspace on the chip frees the image at once. Any other staged image goes one week after it was staged, so a line waiting for `/resume` keeps its image. A draft recalled after that week still sends, and the describer logs a failed download for its image.
+
+An image the persona sends is kept the same way, up to 10 MiB, and the transcript shows its name and text alternative. `/attach open` opens the newest one with `xdg-open` or `open`, and `/attach save <file>` writes it to a file. A failure says why, and the same command tries again. The plain chat and `-p` print `[image <name>]` and the path of the kept file.
+
+## Rendering
+
+`cli/app.ts` gives the transcript what the other parts leave: the transcript budget is `max(0, R - F - C - O)` (`transcriptBudget` in `cli/layout.ts`), with `R` the terminal's rows, `F` the header, footer, notice and question rows, `C` the input with its borders, and `O` the slash menu or a panel. Everything is counted in cells by `cli/layout.ts`: Backspace and the caret cross a whole grapheme, wrapping never splits a wide glyph, and the caret stands on the next row when its row is full. The input grows to at most 8 rows, then scrolls inside its box with the caret's row in view and a row counting what is hidden. Deleting rows gives them back to the transcript.
+
+`cli/transcript.ts` wraps each entry to the width and draws only the rows that fit, however long the session. Following the tail and reading further up are separate views. Page Up anchors the view to an entry and a row inside it, so a new answer or a resize leaves the reader in place, and reaching the end follows the tail again. An answer folds to at most 20 lines, fewer when the terminal has less room, so it starts on the screen. Ctrl+O changes one entry, and an expanded last entry may go past the budget. The full text stays in the entry.
+
+A stored control character is drawn as one visible character (`displaySafe`), so a line from memory can neither run an escape sequence nor vanish unseen. The owner's line starts with `> `, a command's answer with `· ` and her reply with no mark, so the kinds differ without colour. The selected row of the slash menu carries `›` beside its inverse video. Fenced code, quotes and headings get a style by their line, and their text stays as it arrived.
+
+`cli/theme.ts` holds the semantic tokens: `text`, `muted`, `title`, `mark`, `userMarker`, `activeBorder`, `inactiveBorder`, `selection`, `caret`, `code`, `quote`, `heading`, `success`, `warning` and `error`. A token asks for an ANSI style. The font family, its faces and the cell size belong to the terminal emulator.
+
+`NEPTUNIA_LINEAR=1` draws one plain column in reading order for a screen reader, with no borders and no galaxy. It sets `ChatEnv.linear`.
+
+### Measured geometry
+
+These rows were read from frames the chat wrote into the fake terminal of `tests/fixtures/chat-rig.ts`, with one owner line, one reply and one command result. They count cells and rows, say nothing about pixels, and were taken without an emulator, a font or a theme. No comparison with another program's layout was made.
+
+| Element | 80 by 24 | 40 by 18 | 20 by 6 | Linear, 80 by 24 |
+|---|---|---|---|---|
+| Header | 5 rows and 1 blank | 5 rows and 1 blank | None | 1 row |
+| Transcript budget | 14 rows | 8 rows | 2 rows | 21 rows |
+| Input with one row of text | 3 rows, on rows 20 to 22 | 3 rows, on rows 14 to 16 | 3 rows, on rows 2 to 4 | 1 row |
+| Text column of the input | 4 | 4 | 4 | 2 |
+| Footer | 1 row, cut with `…` | 1 row, cut with `…` | 1 row, cut with `…` | 1 row |
+| Blank rows above an owner line | 1 | 1 | 1 | 1 |
+| Blank rows between a reply and a command result | 0 | 0 | 0 | 0 |
+
+The galaxy needs at least 16 rows and 40 columns. Below that the header is one line, and under 8 rows it goes.
+
+## Editing and keys
+
+`buildKeymap` in `cli/keymap.ts` is the one registry of these keys, read by dispatch and by the footer. A key resolves against the focus context first: `composer`, `attachment` (the caret right after a chip), `menu`, `secret` (any open question), `search` or `panel`. The `secret` context binds no history, stash, undo, editor or clipboard action, so what is typed there reaches no store. The setting `cli.bindings` (default `[]`) overrides a key with entries such as `{ "context": "composer", "key": "ctrl+t", "action": "history.search" }`. An override that collides with a bound key, names an unknown action or names one its context does not allow is not bound, and the chat says so when it opens.
+
+`cli/editor-actions.ts` works on the draft of `cli/composer.ts` and the transcript's entries. A search shows its match in the input and sends and stores nothing. Enter on a history match loads it into the draft, and the next Enter sends it. Esc restores the draft and the view exactly. The letters of one word undo together, up to 100 steps, and a send starts over. Undo cannot bring back an image whose chip was removed, because its staged bytes went with it. Stashed drafts keep their parts and last until the chat ends.
+
+Ctrl+G hands the terminal to the editor with the draft in a private temporary file under `$TMPDIR`, removed afterwards. The command is `$VISUAL` or `$EDITOR` split on spaces, with no shell. Images stay in the draft. A failing editor leaves the draft as it was and says so, and an emptied file cancels.
+
+Raw mode clears `IXON` and `ISIG` (checked with `stty -a` under a pseudo-terminal), so Ctrl+S and Ctrl+Z reach the chat instead of the terminal's flow control and job control.
+
+`cli.mouse` (default `false`) takes the terminal's SGR mouse reports for the wheel, which scrolls the transcript or the slash menu, and for a click in the input, which places the caret on a whole character. Tracking takes native text selection away, so it stays off until asked for, and `mouseAvailable` refuses it for `TERM=dumb` and the linear mode. With it off, Ink drops a stray report before it can reach the draft. Every mouse action has its key.
 
 ## Overlays and questions
 
 One screen element holds the keys and a paste at a time. A question from the core goes first, then an open panel, then the input. `focusOwner` in `cli/app.ts` decides, and a panel that loses the keys stays on the screen.
 
-A question replaces the input and keeps the unfinished line it interrupted. The line comes back after the answer or Esc, and an answer never joins it. A secret answer is drawn as stars and stays out of the input history. A question with choices opens the selector in `cli/selector.ts`. Typing or pasting narrows the list, Enter answers with the choice exactly as the core sent it, and a filter that matches nothing answers nothing. The plain chat prints the choices beside the prompt.
+A question replaces the input and keeps the unfinished line it interrupted. The line comes back after the answer or Esc, and an answer never joins it. Enter does nothing for 700 ms after the question closes, counted again from each Enter it swallows, so a held key cannot send a draft its owner has not seen. A secret answer is drawn as stars and stays out of the input history. A question with choices opens the selector in `cli/selector.ts`. Typing or pasting narrows the list, Enter answers with the choice exactly as the core sent it, and a filter that matches nothing answers nothing. The plain chat prints the choices beside the prompt.
 
 Each slash command replaces the panel request before it. An answer of a request that was replaced or cancelled with Esc opens nothing and runs nothing. The same rule holds inside a selector, whose reducer compares the overlay id and the generation of every answer. Moving and filtering change no setting.
 
@@ -65,8 +129,6 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Set what an agent may do | `/agent mode <agent> [<mode>]` |
 | Schedule, switch and inspect the four scheduled mechanics | `/services` |
 | Read a watcher report | `/logs watcher` |
-
-A secret question hides its answer and excludes it from input history. History lives in `data/cli/`.
 
 ## Backend usage
 

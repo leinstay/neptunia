@@ -504,3 +504,12 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `diagnostics.loopStallMs` | number | `1000` | A tick of the event loop watch later than this logs a stall with the operations around it (ms, 0 is off) | `src/loop-watch.ts` |
+
+## cli
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `cli.paste.collapseLines` | number | `10` | A paste of more lines than this draws as one chip in the chat input. The turn still gets its exact text | `bin/neptunia.ts` |
+| `cli.paste.collapseChars` | number | `2000` | A paste of more characters than this draws as one chip in the chat input. The turn still gets its exact text | `bin/neptunia.ts` |
+| `cli.mouse` | boolean | `false` | Whether the chat takes mouse reports for the wheel and for clicks in the input. Tracking takes native text selection away, so it is off until asked for. Read when the chat opens | `bin/neptunia.ts` |
+| `cli.bindings` | array | `[]` | Overrides of the chat keys, each `{ context, key, action }`. A collision or an action the context does not allow shows when the chat opens and is not bound. Read when the chat opens | `bin/neptunia.ts` |

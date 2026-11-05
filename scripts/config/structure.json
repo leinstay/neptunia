@@ -289,7 +289,7 @@
       "path": "tests/fixtures/",
       "purpose": "Fakes, harnesses and sample data the tests share.",
       "layer": "public",
-      "imports": ["discord.js", "node:*", "src/**", "interfaces/**", "scripts/**", "bin/**", "tests/**"],
+      "imports": ["cli/**", "discord.js", "node:*", "src/**", "interfaces/**", "scripts/**", "bin/**", "tests/**"],
       "test": "none"
     },
     {

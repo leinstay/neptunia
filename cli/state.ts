@@ -1,5 +1,6 @@
 // The chat's state as pure functions over plain values: the input line, its history, the slash menu, folded answers and the
 // status line. Nothing here touches a terminal, so each behaviour is tested without one. cli/app.ts draws it.
+import { graphemes } from './layout.ts';
 
 export type MenuCommand = { name: string; help: string };
 export type StatusBrief = {
@@ -28,17 +29,15 @@ export function insert(state: InputState, typed: string): InputState {
   return { ...state, text, cursor: state.cursor + typed.length, browsing: null };
 }
 
-/** Removes the whole character before the cursor, an astral one included. */
+/** Removes the whole grapheme before the cursor, a joined emoji or a letter with its accent included. */
 export function backspace(state: InputState): InputState {
   if (state.cursor === 0) return state;
-  const before = [...state.text.slice(0, state.cursor)];
-  before.pop();
-  const head = before.join('');
+  const head = graphemes(state.text.slice(0, state.cursor)).slice(0, -1).join('');
   return { ...state, text: head + state.text.slice(state.cursor), cursor: head.length };
 }
 
 export function moveCursor(state: InputState, delta: -1 | 1): InputState {
-  const chars = delta < 0 ? [...state.text.slice(0, state.cursor)] : [...state.text.slice(state.cursor)];
+  const chars = delta < 0 ? graphemes(state.text.slice(0, state.cursor)) : graphemes(state.text.slice(state.cursor));
   const size = (delta < 0 ? chars.at(-1) : chars[0])?.length ?? 0;
   return { ...state, cursor: state.cursor + delta * size };
 }
@@ -73,10 +72,14 @@ export function menuOf(text: string, commands: ReadonlyArray<MenuCommand>): Arra
 }
 
 /** An answer as drawn: past the limit its first lines and how many more, unless expanded. */
-export function foldedText(text: string, expanded: boolean): { text: string; hidden: number } {
+export function foldedText(
+  text: string,
+  expanded: boolean,
+  limit: number = FOLD_LINES
+): { text: string; hidden: number } {
   const lines = text.split('\n');
-  if (expanded || lines.length <= FOLD_LINES) return { text, hidden: 0 };
-  return { text: lines.slice(0, FOLD_LINES).join('\n'), hidden: lines.length - FOLD_LINES };
+  if (expanded || lines.length <= limit) return { text, hidden: 0 };
+  return { text: lines.slice(0, limit).join('\n'), hidden: lines.length - limit };
 }
 
 /** Lines of a panel that hold what the owner typed in its search. */
