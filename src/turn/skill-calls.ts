@@ -3,6 +3,7 @@
 // planned calls made in segments. createTurnRunner (src/behavior/turn.ts) builds it once per runner with
 // createSkillCalls; the tool round and the attempt call its functions.
 
+import type { Conversation } from '../protocol/events.ts';
 import { turnBoundary } from '../tools/publication.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import { placeOfConversation } from '../memory/addresses.ts';
@@ -50,7 +51,7 @@ type CallsErrands = {
     handle: string;
     privateChannelId: string | null;
   }) => ReturnType<NonNullable<CallView['fileOf']>>;
-  budget: (args: { placeId: string | null; agent: unknown }) => unknown;
+  budget: (args: { agent: unknown }) => unknown;
 } | null;
 
 /** What createSkillCalls reads: the dependencies, the runner's state and the functions of the other topic modules. */
@@ -149,8 +150,8 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     readerId?: string | null;
   };
 
-/** The channel a call is made from. */
-type CallChannel = { id: string; rootId?: string | null; name?: unknown };
+/** The channel a call is made from, as the interface described it. */
+type CallChannel = Pick<Conversation, 'id' | 'rootId'> & { name?: unknown };
 
 type ViewArgs = Parameters<typeof callViewOf>[0];
 
@@ -340,10 +341,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         now: clock(),
         ...(images ? { images } : {}),
         ...(speech ? { speech } : {}),
-        // An errand's caps are its budget (src/errands/service.ts#budget), in the turn's place.
-        ...(errands
-          ? { tasks: { budget: (agent: unknown) => errands.budget({ placeId: channel.rootId ?? null, agent }) } }
-          : {}),
+        // An errand's caps are its budget (src/errands/service.ts#budget).
+        ...(errands ? { tasks: { budget: (agent: unknown) => errands.budget({ agent }) } } : {}),
       },
     });
     if (!verdict.ok)

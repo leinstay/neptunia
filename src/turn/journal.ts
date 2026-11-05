@@ -366,9 +366,11 @@ function formatCountsOf(format: Partial<Record<keyof FormatCounts, unknown>>): F
 
 /** What a turn attempt notes in its draft for the journal's `turn` record. */
 export type JournalDraft = {
-  started: { turnId: string; attemptId: string; startedAt: number };
+  /** The journal's ids of the attempt, and the place whose journal it is written to. */
+  started: { turnId: string; attemptId: string; startedAt: number; placeId: string };
   seen?: { messageIds: Array<string>; parents: Array<unknown>; parts: { filePreviews: Array<unknown> } } | null;
-  conversationId?: string;
+  /** The conversation as the interface described it when the attempt began. */
+  info?: { id: string } | null;
   privateAccountId?: string | null;
   mode?: string | null;
   reason?: string | null;
@@ -399,7 +401,7 @@ export function journalTurnRecord(
     turnId: draft.started.turnId,
     attemptId: draft.started.attemptId,
     startedAt: draft.started.startedAt,
-    placeId: draft.conversationId ?? null,
+    placeId: draft.info?.id ?? null,
     mode: result?.mode ?? draft.mode ?? null,
     outcome: result?.outcome ?? 'error',
     reason: typeof result?.reason === 'string' ? result.reason : (draft.reason ?? null),

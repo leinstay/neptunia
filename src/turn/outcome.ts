@@ -3,7 +3,7 @@
 // inputs. createTurnRunner (src/behavior/turn.ts) builds it once per runner with createOutcome over its attempt
 // (runTurnOnce); the runner's facade hands out runTurn and the chain and idle functions.
 
-import { sharedPlaceOf } from '../memory/addresses.ts';
+import type { Conversation } from '../protocol/events.ts';
 import { PERSONA_ID } from '../memory/db/storage-keys.ts';
 import type { PublicationBoundary } from '../tools/publication.ts';
 import type { Context } from '../memory/db/scope.ts';
@@ -25,8 +25,8 @@ import type { TriggerKind } from './triggers.ts';
 
 type WakeArgs = Parameters<typeof wakeInputs>[0];
 
-/** The conversation a turn ran in, as its end reads it. */
-type EndChannel = { id: string; rootId?: string | null };
+/** The conversation a turn ran in, as the interface described it: its id, and whether it is in a community. */
+type EndChannel = Pick<Conversation, 'id' | 'rootId'>;
 
 /** The trigger of a turn, as its end reads it; the attempt reads the rest. */
 type EndTrigger = {
@@ -77,7 +77,6 @@ type Ends = {
 /** How a turn ended, as the end hook hears it (src/behavior/missed.ts). */
 export type TurnEnd = {
   iface?: string;
-  placeId: string | null;
   conversationId: string | null;
   privateChat: boolean;
   routed: boolean;
@@ -366,12 +365,11 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
       const { trigger = null, triggerKind = null, mode = null } = params ?? {};
       const channel = ends.info;
       if (!channel || mode !== 'reply' || !askedFor(trigger, triggerKind) || !trigger?.id) return;
-      const placeId = params.placeId ?? channel.rootId ?? null;
       const scope = { placeId: String(channel.id), privateChat: !inCommunity(channel) };
       const at = clock();
       const outcome = result?.outcome ?? 'error';
       if (outcome !== 'error' && outcome !== 'busy' && outcome !== 'paused' && outcome !== 'cancelled') {
-        const own = factsOfKind(placeId, scope, 'failedTurn', at)
+        const own = factsOfKind(scope, 'failedTurn', at)
           .filter((fact) => fact.messageId === String(trigger.id))
           .map((fact) => fact.id);
         const told = [...(ends.factsShown ?? []), ...own];
@@ -386,13 +384,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
             : ends.reasons.includes('too-slow')
               ? 'too-slow'
               : ((outcome === 'refused' ? ends.reasons.at(-1) : null) ?? outcome);
-      keepFact(
-        placeId,
-        scope,
-        'failedTurn',
-        { messageId: String(trigger.id), authorId: trigger.authorId ?? null, code },
-        at
-      );
+      keepFact(scope, 'failedTurn', { messageId: String(trigger.id), authorId: trigger.authorId ?? null, code }, at);
     } catch (err) {
       log.warn('turn: failed turn not kept', { error: err });
     }
@@ -450,7 +442,6 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
           ? 'too-slow'
           : null;
     const end: TurnEnd = {
-      placeId: channel ? sharedPlaceOf(store, channel) : null,
       iface: params?.conversation?.iface,
       conversationId: placeId,
       privateChat: channel ? !inCommunity(channel) : false,

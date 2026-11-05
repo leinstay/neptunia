@@ -5,6 +5,7 @@
 // pull phase and request phase both want it and share the one answer. No wording of ours goes into the request: the
 // prompt file says everything, the list lines carry structural fields only.
 
+import type { Conversation } from '../protocol/events.ts';
 import { formatDuration } from '../format.ts';
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
@@ -322,7 +323,8 @@ type PickerDeps = {
 
 /** One pick's arguments. */
 export type PickArgs = {
-  channel: { id?: string | null; rootId?: string | null } | null | undefined;
+  /** The conversation as the interface described it: its id, and whether it is in a community (`rootId`). */
+  channel: Partial<Pick<Conversation, 'id' | 'rootId'>> | null | undefined;
   history: Array<unknown>;
   trigger: unknown;
   triggerKind?: string | null;

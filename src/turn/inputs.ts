@@ -4,6 +4,7 @@
 // (src/behavior/turn.ts) builds it once per runner with createInputs; the attempt and the other topic modules call its
 // functions.
 
+import type { Conversation } from '../protocol/events.ts';
 import { accountOf } from '../memory/addresses.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { placesBlockText } from '../behavior/wake.ts';
@@ -81,7 +82,7 @@ type EffectVerdict = ReturnType<typeof checkReplyEffect>;
 
 type InputArgs = {
   placeId: string;
-  channel: { id: string; rootId?: string | null };
+  channel: { id: string };
   isPrivate: boolean;
   config: InputsConfig;
   labels: InputsLabels;
@@ -91,7 +92,7 @@ type InputArgs = {
 export type Inputs = {
   turnContextOf: (
     draft: InputsDraft | null | undefined,
-    channel: { id?: string; rootId?: string | null } | null | undefined
+    channel: Partial<Pick<Conversation, 'id' | 'rootId'>> | null | undefined
   ) => unknown;
   stableFreezeOf: (placeId: string | null | undefined) => Map<string, unknown>;
   conversationOf: (channel: { id: string }) => ConversationRef;
@@ -115,7 +116,7 @@ export function createInputs(ctx: InputsContext): Inputs {
    */
   function turnContextOf(
     draft: InputsDraft | null | undefined,
-    channel: { id?: string; rootId?: string | null } | null | undefined
+    channel: Partial<Pick<Conversation, 'id' | 'rootId'>> | null | undefined
   ): unknown {
     if (!draft) return null;
     if (draft.memoryContext !== undefined) return draft.memoryContext;
@@ -254,8 +255,7 @@ export function createInputs(ctx: InputsContext): Inputs {
       log.warn('turn: intentions view failed', { channel: channel.id, error: err });
       return '';
     }
-    const channelNameOf = (id: string): string | null =>
-      inCommunity(channel) ? (snapshot?.get(String(id))?.name ?? null) : null;
+    const channelNameOf = (id: string): string | null => (isPrivate ? null : (snapshot?.get(String(id))?.name ?? null));
     const nameOf = (id: string): string | null =>
       typeof store?.getUser === 'function' ? (store.getUser(accountOf(store, String(id)))?.names?.[0] ?? null) : null;
     return intentionsBlockText(shown, labels, {

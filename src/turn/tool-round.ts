@@ -241,7 +241,7 @@ type TranscriptOptions = {
 
 export type ToolRound = {
   readHistory: (
-    channel: { id: string; rootId?: string | null },
+    channel: { id: string },
     config: ToolRoundConfig,
     options?: { inner?: boolean; draft?: ToolRoundDraft | null; placeId?: string | null }
   ) => Promise<Array<Line>>;
@@ -282,12 +282,12 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * Throws when the interface cannot read the history.
    */
   function readHistory(
-    channel: { id: string; rootId?: string | null },
+    channel: { id: string },
     config: ToolRoundConfig,
     { inner = false, draft = null, placeId = null }: NonNullable<Parameters<ToolRound['readHistory']>[2]> = {}
   ): Promise<Array<Line>> {
     const namesOn = reactors;
-    const place = placeId ?? channel.rootId ?? null;
+    const place = placeId;
     const names: ReactorNames | null = namesOn
       ? {
           store: reactors,

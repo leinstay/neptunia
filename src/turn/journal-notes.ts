@@ -4,6 +4,7 @@
 // createTurnRunner (src/behavior/turn.js) builds it once per runner with createJournalNotes over the runner's state;
 // the attempt, the calls, the act and the pulls call its functions.
 
+import type { Conversation } from '../protocol/events.ts';
 import { messageLinkOf } from '../behavior/elsewhere.ts';
 import type { FactInput, FactsApi, Fact } from '../behavior/inner.ts';
 import { placeKey } from '../behavior/previous-think.ts';
@@ -67,24 +68,23 @@ export type CallMark = object;
 
 /** The ids an attempt is known by: the journal's, or the turn key of one that is not journalled. */
 type TurnIds = {
-  started?: { turnId: string; attemptId: string } | null;
+  started?: { turnId: string; attemptId: string; placeId: string } | null;
   turnKey?: { turnId?: string | null } | null;
 };
 
 /** What an attempt's draft holds that the notes read and write. */
 export type NotesDraft = TurnIds & {
-  placeId?: string;
-  conversationId?: string;
   privateAccountId?: string | null;
   inner?: { wake?: { chainId?: string | null } | null } | null;
-  info?: { id: string; rootId?: string | null } | null;
+  /** The conversation as the interface described it when the attempt began. */
+  info?: NotesChannel | null;
   deliveredIn?: Iterable<string> | null;
   finalThink?: unknown;
   actions?: Array<unknown>;
 };
 
-/** A channel the notes name: its id and the community it is in, when one. */
-type NotesChannel = { id: string; rootId?: string | null };
+/** A channel the notes name, as the interface described it: its id, and whether it is in a community (`rootId`). */
+type NotesChannel = Pick<Conversation, 'id' | 'rootId'>;
 
 /** One of her posted messages as a `said` line takes it. */
 type SaidArgs = {
@@ -126,25 +126,18 @@ export type JournalNotesContext = {
 type FactScopeOf = { placeId: string | null; privateChat?: boolean };
 
 export type JournalNotes = {
-  factsOfKind: (placeId: string | null, scope: FactScopeOf, kind: string, at: number) => Array<Fact>;
-  keepFact: (
-    placeId: string | null,
-    scope: FactScopeOf,
-    kind: string,
-    payload: Record<string, unknown>,
-    at: number
-  ) => void;
+  factsOfKind: (scope: FactScopeOf, kind: string, at: number) => Array<Fact>;
+  keepFact: (scope: FactScopeOf, kind: string, payload: Record<string, unknown>, at: number) => void;
   noteTrigger: (postedId: unknown, triggerId: unknown) => void;
   linkTriggers: (lines: Array<object>) => Array<object>;
   earlierThinkFor: (args: {
     channel: NotesChannel;
-    placeId: string | null;
     isPrivate: boolean;
     draft: NotesDraft;
     mode: string | null | undefined;
   }) => { text: string; relation: 'earlier'; ageMs: number } | null;
   recordTurnThink: (
-    args: { placeId?: string | null; inner?: unknown },
+    args: { inner?: unknown; [key: string]: unknown },
     draft: NotesDraft,
     result: { outcome?: string } | null | undefined
   ) => void;
@@ -159,11 +152,11 @@ export type JournalNotes = {
   journalOn: () => boolean;
   offPeriodsFor: (placeId: string) => Promise<unknown>;
   writeTurnRecords: (
-    attempts: Iterable<{ draft: JournalDraft & { placeId: string }; result: Parameters<typeof journalTurnRecord>[1] }>
+    attempts: Iterable<{ draft: JournalDraft; result: Parameters<typeof journalTurnRecord>[1] }>
   ) => Promise<void>;
   recordSaid: (args: SaidArgs) => void;
   journalOp: (
-    draft: (NotesDraft & { started?: { turnId: string } | null }) | null | undefined,
+    draft: (NotesDraft & { started?: { turnId: string; placeId: string } | null }) | null | undefined,
     name: string,
     by: string,
     fields?: Record<string, unknown>
@@ -193,31 +186,25 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   } = ctx;
 
   /** The facts of `kind` of the conversation `scope` still in their window, oldest first. */
-  function factsOfKind(placeId: string | null, scope: FactScopeOf, kind: string, at: number): Array<Fact> {
+  function factsOfKind(scope: FactScopeOf, kind: string, at: number): Array<Fact> {
     return facts()
       .pending(scope)
       .filter((fact) => fact.kind === kind && fact.placeId === scope.placeId && at - fact.at < FAILED_TURN_KEEP_MS);
   }
   /** A fact of `kind` kept (at most `FAILED_TURNS_KEPT` of the kind per conversation, the newest; one per message). */
-  function keepFact(
-    placeId: string | null,
-    scope: FactScopeOf,
-    kind: string,
-    payload: Record<string, unknown>,
-    at: number
-  ): void {
+  function keepFact(scope: FactScopeOf, kind: string, payload: Record<string, unknown>, at: number): void {
     const kept = FAILED_TURNS_KEPT;
     if (kept <= 0) return;
     const store = facts();
     if (payload.messageId)
       store.markTold(
-        factsOfKind(placeId, scope, kind, at)
+        factsOfKind(scope, kind, at)
           .filter((fact) => fact.messageId === payload.messageId)
           .map((fact) => fact.id)
       );
     const fact: FactInput = { kind, ...scope, at, ...payload };
     store.add(fact);
-    const live = factsOfKind(placeId, scope, kind, at);
+    const live = factsOfKind(scope, kind, at);
     const over = live.slice(0, Math.max(0, live.length - kept)).map((fact) => fact.id);
     if (over.length > 0) store.markTold(over);
   }
@@ -259,13 +246,11 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
    */
   function earlierThinkFor({
     channel,
-    placeId,
     isPrivate,
     draft,
     mode,
   }: {
     channel: NotesChannel;
-    placeId: string | null;
     isPrivate: boolean;
     draft: NotesDraft;
     mode: string | null | undefined;
@@ -295,7 +280,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
 
   /** The turn ended: its final think goes to the places it ran in and delivered to (previous-think.js#record). Never throws. */
   function recordTurnThink(
-    args: { placeId?: string | null; inner?: unknown },
+    args: { inner?: unknown; [key: string]: unknown },
     draft: NotesDraft,
     result: { outcome?: string } | null | undefined
   ): void {
@@ -381,11 +366,11 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
 
   /** The turn records of runTurn's attempts, in order; a failed append is the journal's to log. */
   async function writeTurnRecords(
-    attempts: Iterable<{ draft: JournalDraft & { placeId: string }; result: Parameters<typeof journalTurnRecord>[1] }>
+    attempts: Iterable<{ draft: JournalDraft; result: Parameters<typeof journalTurnRecord>[1] }>
   ): Promise<void> {
     for (const { draft, result } of attempts) {
       // writeTurnRecords runs only for a runner whose journal is on (runTurn checks journalOn first).
-      await journal!.turn(draft.placeId, journalTurnRecord(draft, result));
+      await journal!.turn(draft.started.placeId, journalTurnRecord(draft, result));
     }
   }
 
@@ -447,17 +432,17 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
    * its `started` line is written.
    */
   function journalOp(
-    draft: (NotesDraft & { started?: { turnId: string } | null }) | null | undefined,
+    draft: (NotesDraft & { started?: { turnId: string; placeId: string } | null }) | null | undefined,
     name: string,
     by: string,
     fields: Record<string, unknown> = {}
   ): JournalOp | Readonly<JournalOp> {
     if (!draft?.started || typeof journal?.op !== 'function') return NO_OP;
-    const handle = journal.op(draft.placeId, {
+    const handle = journal.op(draft.started.placeId, {
       turnId: draft.started.turnId,
       name,
       by,
-      placeId: draft.conversationId,
+      placeId: draft.info?.id,
       privateAccountId: draft.privateAccountId,
       ...fields,
     });

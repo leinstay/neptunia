@@ -107,10 +107,10 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   // The journal: the turn starts here, past the pause and
   // attention rails; a later attempt of the same turn (journalTurn) keeps its id.
   if (journalOn()) {
-    draft.placeId = placeId;
-    draft.conversationId = channel.id;
     draft.mode = mode;
-    draft.started = journal.start(placeId, journalStartOf({ draft, channel, trigger, triggerKind, mode, journalTurn }));
+    const started = journal.start(placeId, journalStartOf({ draft, channel, trigger, triggerKind, mode, journalTurn }));
+    // The journal of the tree's top keeps the attempt's records.
+    draft.started = { ...started, placeId };
     // The archive's rows of this attempt name its turn (src/llm/archive.ts).
     Object.assign(currentRequestMeta() ?? {}, {
       turnId: draft.started?.turnId,

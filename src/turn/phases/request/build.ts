@@ -253,7 +253,7 @@ export function buildTurnRequest(
         ? placesInputFor({ placeId, config, labels: prompts?.labels })
         : null,
     // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).
-    previousThink: earlierThinkFor({ channel, placeId, isPrivate, draft, mode: finalMode }),
+    previousThink: earlierThinkFor({ channel, isPrivate, draft, mode: finalMode }),
     // `<self_facts>` held per cache bucket, so a memory batch rewrites the cache once at most.
     stableFreeze: stableFreezeOf(placeId),
   });

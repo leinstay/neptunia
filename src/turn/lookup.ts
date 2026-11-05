@@ -76,7 +76,7 @@ export type LookupContext = {
   linkCalls: JournalNotes['linkCalls'];
 };
 
-type Channel = { id: string; rootId?: string | null };
+type Channel = { id: string };
 
 /** One lane of a prefetch, and the prefetch of a trigger: its lanes and the search they make. */
 type Lane = { kind: string; text: string; words: string };
