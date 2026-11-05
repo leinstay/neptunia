@@ -14,6 +14,7 @@ import { formatSchedule, parseSchedule } from './schedule.ts';
 
 export const WATCHER_TIMER = 'neptunia-watcher.timer';
 export const WATCHER_WORKER = 'neptunia-watcher.service';
+export const CORE_UNIT = 'neptunia-core.service';
 
 export type Environment = Readonly<Record<string, string | undefined>>;
 export type RunManager = (command: string, args: ReadonlyArray<string>) => Promise<RunResult>;
@@ -26,11 +27,12 @@ const userUnitDir = (env: Environment): string =>
 export const unitFolder = (env: Environment): string =>
   unitScope(env) === 'user' ? userUnitDir(env) : '/etc/systemd/system';
 
-/** `NEPTUNIA_UNIT_SCOPE` when it says, else the user manager when the watcher's timer is installed under it. */
+/** `NEPTUNIA_UNIT_SCOPE` when it says, else the user manager when the core's unit or the watcher's timer is installed under it. */
 export function unitScope(env: Environment): 'user' | 'system' {
   const said = env[UNIT_SCOPE_ENV];
   if (said === 'user' || said === 'system') return said;
-  return fs.existsSync(path.join(userUnitDir(env), WATCHER_TIMER)) ? 'user' : 'system';
+  const installed = [CORE_UNIT, WATCHER_TIMER].some((unit) => fs.existsSync(path.join(userUnitDir(env), unit)));
+  return installed ? 'user' : 'system';
 }
 
 /** The `systemctl` of the scope for a call that changes something: through `sudo` in the system scope. */

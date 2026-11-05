@@ -200,6 +200,9 @@ export function isRole(role: unknown): boolean {
  * `role` that is not one of ROLES and no `byPurpose` entry.
  * @param config The whole live config, read at the moment of use.
  */
+/** A model on the direct path as a source-qualified selection, as readiness records its check. */
+export const directSelectionOf = (model: string): string => `openrouter:${model}`;
+
 export function roleModel(config: unknown, role: string, purpose?: string): string | undefined {
   if (OPTIONAL_ROLES.includes(role as (typeof OPTIONAL_ROLES)[number]) && !roleOn(config, role)) return undefined;
   const models = objOf(config).models;

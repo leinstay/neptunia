@@ -1,7 +1,7 @@
 // The clients of the core and their tokens on disk (src/interface/principals.ts reads them): one entry of `clients.json`
 // and one token file `clients/<name>.token` of mode 0600, in a folder of mode 0700. scripts/client-token.ts adds, rotates
 // and revokes a client by hand. The `units` step of `neptunia setup` (src/setup/run.ts) calls `provisionClients` for the
-// clients its units connect as. Nothing here prints or returns a token.
+// owner's command line and the clients its units connect as, with no core running. Nothing here prints or returns a token.
 
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -47,6 +47,17 @@ export function writeClients(privateDir: string, clients: Readonly<Record<string
   writePrivate(path.join(privateDir, CLIENTS_FILE), `${JSON.stringify(clients, null, 2)}\n`);
 }
 
+/** The token file of an interface's client in place: a missing client is registered, an empty or absent token written, a valid one kept. */
+export function provisionInterfaceClient(privateDir: string, name: string): void {
+  const entry = readClients(privateDir)[name];
+  if (entry === undefined) {
+    addClient(privateDir, name, { kind: 'interface', iface: name, permissions: [], boardRoles: null });
+    return;
+  }
+  const file = path.join(privateDir, entry.tokenFile);
+  if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8').trim() === '') writeToken(privateDir, entry.tokenFile);
+}
+
 /** Writes a fresh token to the client's file; 32 random bytes as hex. */
 export function writeToken(privateDir: string, tokenFile: string): void {
   const folder = path.join(privateDir, path.dirname(tokenFile));
@@ -83,22 +94,25 @@ export function addClient(
   return tokenFile;
 }
 
+/** The owner's command line, the client a chat and a direct command connect as (bin/neptunia.ts). */
+export const CLI_CLIENT = { name: 'cli', kind: 'cli', boardRoles: null };
+
 /**
- * The agent clients `wanted` in place, every other client kept. A client with its entry and its token is left as it is,
+ * The clients `wanted` in place, agents unless they say another kind, every other client kept. A client with its entry and its token is left as it is,
  * because a new token would close the link of a running unit. A missing token is written, and a missing entry added.
  * Answers the names it wrote a token for and the names that were there. A broken file throws before anything is written.
  */
 export function provisionClients(
   privateDir: string,
-  wanted: ReadonlyArray<{ name: string; boardRoles: ReadonlyArray<string> }>
+  wanted: ReadonlyArray<{ name: string; kind?: string; boardRoles: ReadonlyArray<string> | null }>
 ): { made: Array<string>; there: Array<string> } {
   const clients = readClients(privateDir);
   const made: Array<string> = [];
   const there: Array<string> = [];
-  for (const { name, boardRoles } of wanted) {
+  for (const { name, kind, boardRoles } of wanted) {
     const entry = clients[name];
     if (entry === undefined) {
-      addClient(privateDir, name, { kind: 'agent', iface: null, permissions: [], boardRoles });
+      addClient(privateDir, name, { kind: kind ?? 'agent', iface: null, permissions: [], boardRoles });
       made.push(name);
     } else if (fs.existsSync(path.join(privateDir, entry.tokenFile))) {
       there.push(name);

@@ -32,6 +32,8 @@ import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
 import type { SkillsAccess } from '../../skills/port.ts';
 import type { ConsoleSubharness } from './subharness.ts';
+import { coreSelection, readCoreCheck } from '../../setup/model-check.ts';
+import type { CoreReadiness } from '../../setup/readiness.ts';
 import { mirrorCommand } from './mirror.ts';
 import type { MirrorDesk } from '../../behavior/mirror-desk.ts';
 import { searchCommand } from './search.ts';
@@ -74,6 +76,8 @@ export type ConsoleDeps = {
   dataDir: string;
   /** What the chat's status line reads: what the core already knows, with no probe (src/core.ts). */
   statusBrief?: () => unknown;
+  /** The memory writer as its last probe left it, for `status.readiness`; `unknown` before the first. */
+  memoryWriter?: () => 'ok' | 'down' | 'unknown';
   /** The memory database (src/memory/db/service.ts): `database()` is its read connection, null while it is closed. */
   memoryDb: unknown;
   usage: { byRole(): Array<RoleRow>; sumDays(days: number): DaysSum } | null;
@@ -108,15 +112,27 @@ export type ConsoleDeps = {
 /** The engine checkout, where the shipped interface packages and their setup contracts are. */
 const ENGINE_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 
+type OwnCommandDeps = Pick<ConsoleDeps, 'dataDir' | 'hot' | 'memoryDb' | 'memoryWriter' | 'runOp' | 'statusBrief'>;
+
 /** The commands answered by a module of their own, or null for any other. */
 function ownCommand(
-  { dataDir, memoryDb, runOp, statusBrief: brief }: Pick<ConsoleDeps, 'dataDir' | 'memoryDb' | 'runOp' | 'statusBrief'>,
+  { dataDir, hot, memoryDb, memoryWriter, runOp, statusBrief: brief }: OwnCommandDeps,
   name: string,
   args: Record<string, unknown>,
   dialog: Dialog | null
 ): Promise<Answer> | null {
   if (name.startsWith('keys.service.')) return serviceCommand(dataDir, name, args, dialog);
   if (name === 'status.brief') return Promise.resolve({ text: JSON.stringify(brief?.() ?? null), status: 'ok' });
+  if (name === 'status.readiness') {
+    const read: CoreReadiness = {
+      model: { selection: coreSelection(objOf(hot).config), check: readCoreCheck(dataDir) },
+      memory: {
+        service: callMethod(memoryDb, 'database') == null ? 'down' : 'ok',
+        writer: memoryWriter?.() ?? 'unknown',
+      },
+    };
+    return Promise.resolve({ text: JSON.stringify(read), status: 'ok' });
+  }
   if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args, ENGINE_ROOT));
   if (name === 'memory.bind' || name === 'memory.unbind') return personLinkCommand(memoryDb, runOp, name, args);
   if (name === 'memory.accounts') return Promise.resolve(accountsCommand(memoryDb, args));

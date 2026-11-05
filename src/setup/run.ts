@@ -1,5 +1,6 @@
-// `neptunia setup`: the install of one user, in eleven steps that each run on their own and again, like the sections of
-// the setup of Hermes (hermes_cli/setup.py) with a summary at the end (hermes_cli/setup_summary.py). Every step checks
+// `neptunia setup`: the install of one user, one flow of eleven internal steps, like the sections of the setup of Hermes
+// (hermes_cli/setup.py) with a summary at the end (hermes_cli/setup_summary.py). The steps are no public commands, and
+// `parseSetupArgs` refuses their names. Every step checks
 // first whether its work is done (`already`), so a rerun after a failure resumes where it stopped. A step that fails
 // stops the run, the steps after it are `skipped`, and no chat opens. The six steps that ask come before `units`, so
 // the units bind the backends just installed and the watcher's timer takes the schedule just given; each is `skipped` with
@@ -7,8 +8,8 @@
 //
 //   folders          the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, mode 0700
 //   keys-file        an empty `keys.json` at mode 0600; one that exists keeps its content and is made 0600
-//   interfaces       each interface package with a `setup.json`: asked whether to use it, then its own questions
-//                    (src/setup/interfaces.ts, src/setup/modules.ts)
+//   interfaces       each interface package with a `setup.json`: asked whether to use it, then its own questions,
+//                    its client and token, and its instance started (src/setup/interfaces.ts, src/setup/modules.ts)
 //   services         the optional YouTube Data API key, with the link that says how to get one, and optional quick
 //                    search, declined by default (src/setup/services.ts)
 //   subharness       the backends her agents may run through, installed and logged in (src/setup/subharness.ts)
@@ -19,7 +20,8 @@
 //   watcher          the watcher on or off, `watcher.schedule`, its backend and its model (src/setup/watcher.ts)
 //   units            the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ; the
 //                    development unit too when `selfimprovement.checkout` names a checkout other than this one; and the
-//                    clients of the units that need one, with their tokens (src/setup/clients.ts)
+//                    clients of the owner's command line and of the units that need one, with their tokens
+//                    (src/setup/clients.ts), which need no core socket
 //   linger           `loginctl enable-linger` for the user, so the user units run without a login (user units only)
 //   core             `enable --now neptunia-core.service`, the one unit setup starts
 //
@@ -37,7 +39,7 @@ import { assertPersonaLayout } from '../config/files.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { emptyKeys, writeKeys } from '../keys/file.ts';
 import type { GhRunner } from '../selfimprovement/repository.ts';
-import { provisionClients } from './clients.ts';
+import { CLI_CLIENT, provisionClients } from './clients.ts';
 import { interfacesStep } from './interfaces.ts';
 import { servicesStep } from './services.ts';
 import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
@@ -67,7 +69,7 @@ export const SETUP_STEPS = [
 ] as const;
 export type SetupStep = (typeof SETUP_STEPS)[number];
 
-/** Who and where `setup` installs; `only` runs one step. */
+/** Who and where `setup` installs; `only` runs one step, for the tests. */
 export type SetupOptions = UnitTarget & { only?: SetupStep };
 
 /** What `setup` reaches outside the files: commands, and the owner's chat. */
@@ -112,10 +114,16 @@ const FIRST_LINE = '/keys core add';
 /** The usage error of the command line: nothing has been touched when it is raised. */
 export class SetupUsageError extends Error {}
 
-/** `setup [--system] [--node <path>] [step]` as options, or a SetupUsageError. */
-export function parseSetupArgs(argv: ReadonlyArray<string>): { system: boolean; only?: SetupStep; node?: string } {
+/** Why a word of the command line is refused: a step is internal, and `setup subharness` became the account command. */
+function refusedWord(word: string, next: string | undefined): string {
+  if (word === 'subharness')
+    return `neptunia setup subharness is gone: use neptunia subharness ${next ?? '<backend>'} login, and neptunia setup for the whole flow`;
+  return `setup takes no ${word}: neptunia setup runs the one flow, and skips what is done`;
+}
+
+/** `setup [--system] [--node <path>]` as options, or a SetupUsageError. */
+export function parseSetupArgs(argv: ReadonlyArray<string>): { system: boolean; node?: string } {
   let system = false;
-  let only: SetupStep | undefined;
   let node: string | undefined;
   for (let at = 0; at < argv.length; at += 1) {
     const word = argv[at] ?? '';
@@ -127,14 +135,9 @@ export function parseSetupArgs(argv: ReadonlyArray<string>): { system: boolean; 
       node = given;
       at += 1;
     } else if (word.startsWith('-')) throw new SetupUsageError(`setup has no option ${word}`);
-    else {
-      const step = SETUP_STEPS.find((known) => known === word);
-      if (step === undefined) throw new SetupUsageError(`${word} is no step; use ${SETUP_STEPS.join(', ')}`);
-      if (only !== undefined) throw new SetupUsageError('setup runs one step at a time');
-      only = step;
-    }
+    else throw new SetupUsageError(refusedWord(word, argv[at + 1]));
   }
-  return { system, ...(only === undefined ? {} : { only }), ...(node === undefined ? {} : { node }) };
+  return { system, ...(node === undefined ? {} : { node }) };
 }
 
 /**
@@ -222,7 +225,7 @@ async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcom
   try {
     clients = provisionClients(
       options.privateDir,
-      hasDevelopment ? [DEVELOPMENT_CLIENT, WATCHER_CLIENT] : [WATCHER_CLIENT]
+      hasDevelopment ? [CLI_CLIENT, DEVELOPMENT_CLIENT, WATCHER_CLIENT] : [CLI_CLIENT, WATCHER_CLIENT]
     );
   } catch (err) {
     return failed(`the clients cannot be written: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`);
@@ -251,7 +254,7 @@ async function lingerStep(options: SetupOptions, deps: SetupDeps): Promise<Outco
   return enabled.code === 0 ? done(`linger is on for ${options.user}`) : failed(`enable-linger: ${whyFailed(enabled)}`);
 }
 
-async function coreStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
+export async function coreStep(options: SetupOptions, deps: Pick<SetupDeps, 'run'>): Promise<Outcome> {
   const [check, checkArgs] = systemctlOf(options, 'is-active', 'neptunia-core.service');
   const active = await deps.run(check, checkArgs);
   if (active.code === 0) return already('the core is running');
@@ -284,7 +287,17 @@ async function stepOutcome(step: SetupStep, options: SetupOptions, deps: SetupDe
     case 'keys-file':
       return keysFileStep(options);
     case 'interfaces':
-      return deps.ask === undefined ? NOT_AT_TERMINAL : interfacesStep(options, { ask: deps.ask });
+      return deps.ask === undefined
+        ? NOT_AT_TERMINAL
+        : interfacesStep(options, {
+            ask: deps.ask,
+            run: (command, args) => deps.run(command, args),
+            prepareUnits: async () => {
+              // An instance cannot start before its template is in place, and the template's step comes later.
+              const units = await unitsStep(options, deps);
+              return units.state === 'failed' ? units.detail : null;
+            },
+          });
     case 'services':
       return deps.ask === undefined ? NOT_AT_TERMINAL : servicesStep(options, { ask: deps.ask });
     case 'subharness':

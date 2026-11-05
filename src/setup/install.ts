@@ -140,12 +140,12 @@ export function unitOfAgent(agent: string): string | null {
 
 /**
  * The line the core answers after a mode change, with no command run: the agent's unit takes the mode when the owner
- * runs `neptunia setup units`. The core runs under `NoNewPrivileges`, so it never tries the `sudo` a system unit needs.
+ * runs `neptunia setup`. The core runs under `NoNewPrivileges`, so it never tries the `sudo` a system unit needs.
  * Null for an agent with no unit or no agent at all.
  */
 export function deferModeToUnit(agent: string): string | null {
   const file = unitOfAgent(agent);
-  return file === null ? null : `${file} takes the mode when you run "neptunia setup units" in a shell`;
+  return file === null ? null : `${file} takes the mode when you run "neptunia setup" in a shell`;
 }
 
 /**
