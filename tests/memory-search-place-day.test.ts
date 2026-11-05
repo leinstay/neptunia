@@ -20,6 +20,7 @@ import { loadStemmer } from '../src/memory/db/stems.ts';
 import { memorySearchText, runMemorySearch } from '../src/tools/tools.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { fixture } from './fixtures/memory-db-recall.ts';
+import { joinLabels } from '../src/config/labels.ts';
 import { labels } from './fixtures/labels.ts';
 import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts';
 
@@ -687,7 +688,8 @@ test('memorySearchText names a sample after the source line, and only when it ho
 // Without the label a sampled day reads as a match for words that matched nothing.
 test('the shipped labels hold the line that names a sample', () => {
   const quote = { channelName: 'general', startTs: DAY_START, lines: 'line one' };
-  const shipped = shippedJson('labels.json');
+  // The engine reads labels through joinLabels; the file itself is split by owner and model.
+  const shipped = joinLabels(shippedJson('labels.json') as never);
   assert.notEqual(
     memorySearchText([quote], { labels: shipped, sampled: true }),
     memorySearchText([quote], { labels: shipped })
