@@ -4,6 +4,8 @@ import { CONFIG_SCHEMA, schemaDefaults } from '../src/config/schema.ts';
 import { deepMerge } from '../src/config.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import type { Panel, PanelResult, PanelRow } from '../cli/panel.ts';
+import { boundaryPanel, checkpointPanel, sessionsPanel } from '../cli/session-picker.ts';
+import type { CheckpointPoint, SessionClient, SessionLineView, SessionRowView } from '../cli/session-picker.ts';
 import type { PickerEnv } from '../cli/model-picker.ts';
 import { modelRoleRegistry } from '../src/subharness/model-capabilities.ts';
 import type { RoleSources } from '../src/subharness/model-capabilities.ts';
@@ -231,12 +233,98 @@ async function queuePanel(run: Run): Promise<Panel> {
   return { title: 'Queue', lines: rows.length === 0 ? ['No line waits.'] : [], rows };
 }
 
+/** What a session command changes in the chat: the transcript it shows and the lines the core's history reads get. */
+export type ChatView = { showLines: (lines: ReadonlyArray<SessionLineView & { nativeId?: string }>) => void };
+
+/** The sessions over the core's `session.*` commands. A resume or a branch shows its lines at once. */
+function sessionClient(run: Run, view: ChatView): SessionClient {
+  async function shown(answer: PanelResult, say: (name: string, count: number) => string): Promise<PanelResult> {
+    if (answer.status !== 'ok') return answer;
+    const { session, lines } = JSON.parse(answer.text) as {
+      session: { name: string };
+      lines: Array<SessionLineView & { nativeId?: string }>;
+    };
+    view.showLines(lines);
+    return Promise.resolve({ status: 'ok', text: say(session.name, lines.length) });
+  }
+  return {
+    async list() {
+      const answer = await run({ name: 'session.list', args: {} });
+      if (answer.status !== 'ok') throw new Error(answer.text);
+      return JSON.parse(answer.text) as Array<SessionRowView>;
+    },
+    async inspect(id) {
+      const answer = await run({ name: 'session.inspect', args: { id } });
+      if (answer.status !== 'ok') throw new Error(answer.text);
+      return JSON.parse(answer.text) as Awaited<ReturnType<SessionClient['inspect']>>;
+    },
+    resume: async (id) =>
+      shown(await run({ name: 'session.resume', args: { id } }), (name, count) => `Resumed ${name}: ${count} lines.`),
+    branch: async (id, boundary) =>
+      shown(
+        await run({ name: 'session.branch', args: { from: id, boundary } }),
+        (name, count) => `Branched ${name} at ${count} lines. Memory stays as it is.`
+      ),
+  };
+}
+
+/** `/checkpoints`, or `/checkpoints take <task>` for a checkpoint of a development task's worktree. */
+async function checkpointsPanel(line: string, run: Run): Promise<Panel> {
+  const [, word, task] = line.split(/\s+/);
+  if (word === 'take') {
+    const taken = await run({ name: 'checkpoint.take', args: { task: task ?? '' } });
+    return { title: 'Checkpoints', lines: [taken.text] };
+  }
+  const answer = await run({ name: 'checkpoint.list', args: {} });
+  if (answer.status !== 'ok') return { title: 'Checkpoints', lines: [answer.text], rows: [] };
+  const { capability, points } = JSON.parse(answer.text) as {
+    capability: Parameters<typeof checkpointPanel>[0];
+    points: Array<Omit<CheckpointPoint, 'restore'> & { taskId: string }>;
+  };
+  return checkpointPanel(
+    capability,
+    points.map((point) => ({
+      ...point,
+      restore: (id) => run({ name: 'checkpoint.restore', args: { task: point.taskId, id, revision: point.revision } }),
+    }))
+  );
+}
+
+/** The session `/branch` cuts: the one it names, else the one the chat is in. */
+async function branchPanel(line: string, client: SessionClient, run: Run): Promise<Panel> {
+  const named = line.split(/\s+/)[1];
+  if (named !== undefined) return boundaryPanel(client, named);
+  const current = await run({ name: 'session.current', args: {} });
+  const session = current.status === 'ok' ? (JSON.parse(current.text) as { id: string } | null) : null;
+  return session === null
+    ? { title: 'Branch', lines: ['No conversation is stored yet.'], rows: [] }
+    : boundaryPanel(client, session.id);
+}
+
+/** The panel of a line of the chat's own, or null for any other line. */
+async function localPanel(line: string, run: Run, view: ChatView): Promise<Panel | null> {
+  const word = line.split(/\s+/)[0];
+  const client = sessionClient(run, view);
+  if (line === '/sessions') return sessionsPanel(client);
+  if (word === '/branch') return branchPanel(line, client, run);
+  if (word === '/checkpoints') return checkpointsPanel(line, run);
+  // Bare `/resume` stays the command that ends a pause: only a session's id makes this one.
+  if (word === '/resume' && line !== word) {
+    const answer = await client.resume(line.slice(word.length).trim());
+    return { title: 'Sessions', lines: [answer.text] };
+  }
+  return null;
+}
+
 /** A local presentation for a supported command, or null so the caller uses the normal command path. */
 export async function chatPanel(
   line: string,
   run: Run,
-  interfaces: ReadonlyArray<string> = ['discord']
+  interfaces: ReadonlyArray<string> = ['discord'],
+  view: ChatView = { showLines: () => {} }
 ): Promise<Panel | null> {
+  const local = await localPanel(line, run, view);
+  if (local !== null) return local;
   if (line === '/setup') return { title: 'Setup', lines: [], rows: setupRows(run, interfaces) };
   // Only the bare line: `/model show` and `/model set ...` stay commands, and the same word in a shell stays `show`.
   if (line === '/model') return { title: 'Model', lines: [], picker: modelPicker(run) };

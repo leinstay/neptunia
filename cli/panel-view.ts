@@ -6,6 +6,7 @@ import { Box, Text, useInput, useStdout } from 'ink';
 import type { Key } from 'ink';
 import type { Panel, PanelRow } from './panel.ts';
 import { panelRows } from './panel.ts';
+import { displaySafe } from './transcript.ts';
 import { backspace, emptyInput, insert, moveCursor } from './state.ts';
 import type { InputState } from './state.ts';
 
@@ -129,7 +130,7 @@ export function PanelView({ panel, active, close, prefill }: Props): ReactElemen
             h(
               Text,
               { key: one.id, inverse: start + i === index, wrap: 'truncate' },
-              `${start + i === index ? '›' : ' '} ${one.label}  ${valueOf(one)}`
+              `${start + i === index ? '›' : ' '} ${one.label}  ${displaySafe(valueOf(one))}`
             )
           )),
     count === 0 ? h(Text, { dimColor: true }, 'No matches') : h(Text, { dimColor: true }, `${index + 1}/${count}`),

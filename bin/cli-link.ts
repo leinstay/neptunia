@@ -243,6 +243,8 @@ export type CliLink = {
   say(text: string, images?: ReadonlyArray<LineImage>): Promise<string>;
   /** Sends a line and waits for the end of the turn over it. */
   turn(text: string, images?: ReadonlyArray<LineImage>): Promise<Answer>;
+  /** Replaces the lines the core's history reads answer from, with those of a resumed or branched conversation. */
+  showLines(lines: ReadonlyArray<{ id: string; at: number; who: string; text: string; nativeId?: string }>): void;
   /** Sends a command; a question it asks goes to `answers`, and without them the command is refused. */
   ask(command: Command, answers?: LinkAnswers): Promise<Answer>;
   closed: Promise<void>;
@@ -331,6 +333,11 @@ export function openLinkOver(
       if (acked === 'ok') return ended;
       waiting.delete(replyRef);
       return { text: `the core did not take the line (${acked})`, status: acked };
+    },
+    showLines(lines) {
+      transcript.length = 0;
+      for (const line of lines.slice(-TRANSCRIPT_LINES))
+        transcript.push(lineEvent(line.text, line.at, { id: line.nativeId ?? line.id, self: line.who === 'her' }));
     },
     async ask(command, answers) {
       /** One request and the reply to it: a result, or a question. */

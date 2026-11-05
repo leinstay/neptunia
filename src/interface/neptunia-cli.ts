@@ -401,6 +401,8 @@ export function createCommandIntake(deps: {
   linesHeld?(): boolean;
   /** How many lines wait behind a running turn (`cli.queue.capacity`), read at each line. */
   queueCapacity?(): number;
+  /** The chat's other reads (src/interface/commands/chat-state.ts): an answer, or null for a name it does not own. */
+  chatCommands?(name: string, args: Record<string, unknown>): Promise<Answer> | null;
   log: Logger;
 }): {
   doorOf(link: () => AdapterLink): LinkDoor;
@@ -468,8 +470,8 @@ export function createCommandIntake(deps: {
         .catch((err: unknown) => deps.log.warn('commands: answer not sent', { error: err }));
       return ackOf(value, 'ok');
     }
-    void desk
-      .run(event, principal)
+    const chatAnswer = principal.kind === 'cli' ? deps.chatCommands?.(event.name, event.args) : null;
+    void (chatAnswer ?? desk.run(event, principal))
       .then((answer) => link.answerCommand({ replyRef: event.replyRef, ...answer }))
       .catch((err: unknown) => deps.log.warn('commands: answer not sent', { error: err }));
     return ackOf(value, 'ok');

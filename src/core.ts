@@ -11,7 +11,7 @@
 // extraction converts it to TypeScript.
 
 import { createMessageProducers } from './behavior/core-message-producers.ts';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -100,6 +100,15 @@ import {
   openAdapterLink,
 } from './interface/link.ts';
 import { createCommandDesk, createCommandIntake, coreStatusFacts } from './interface/neptunia-cli.ts';
+import { createChatState } from './interface/commands/chat-state.ts';
+import type { ChatState } from './interface/commands/chat-state.ts';
+import { createConversationSessions } from './conversation/sessions.ts';
+import { createConversationStore } from './conversation/store.ts';
+import { createCheckpointDesk } from './development/checkpoint-desk.ts';
+import { WORKTREE_FOLDER } from './development/edges.ts';
+import { selfimprovementSettings } from './selfimprovement/settings.ts';
+import { conversationLines } from './memory/db/conversation-lines.ts';
+import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
 import { wakeClockOf } from './service/commands.ts';
 import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
@@ -685,12 +694,14 @@ async function buildCore(
   // memory or a turn. The desk exists once the admin does, below; a command that arrives sooner waits for the door.
   // The link of the owner's chat that sent the last line is where her replies in `cli:dm:owner` go.
   let commandDesk: ReturnType<typeof createCommandDesk> | null = null;
+  let chatState: ChatState | null = null;
   const intake = createCommandIntake({
     door: linkDoor,
     ready: () => doorReady.promise,
     desk: () => commandDesk,
     linesHeld: () => isPausedIn(store),
     queueCapacity: () => hot.config.cli.queue.capacity,
+    chatCommands: (name: string, args: Record<string, unknown>) => chatState?.command(name, args) ?? null,
     log,
   });
   const linkServer = await listenSocket({
@@ -1358,6 +1369,31 @@ async function buildCore(
     pause: pauseControl,
     now: clock,
     config: (): unknown => hot.config,
+  });
+  // The chat's conversation sessions and development checkpoints (docs/cli.md). Sessions live in a file of their own, and their
+  // lines are a read of memory's stored sources.
+  chatState = createChatState({
+    sessions: createConversationSessions({
+      store: createConversationStore({
+        file: path.join(paths.privateDir, 'cli', 'sessions.json'),
+        readLines: (placeId) => {
+          const db = memoryDb.database();
+          return db === null ? [] : conversationLines(db, placeId);
+        },
+      }),
+      now: clock,
+      newId: randomUUID,
+    }),
+    checkpoints: createCheckpointDesk({
+      tasks: async () => (await board.command(OWNER_CLIENT.name, 'task.list', { lane: 'dev' })).data,
+      worktreeRoot: () => {
+        const { checkout } = selfimprovementSettings(hot.config);
+        return checkout === null ? null : path.join(checkout, WORKTREE_FOLDER);
+      },
+      storeDir: path.join(paths.privateDir, 'development', 'checkpoints'),
+      now: clock,
+      newId: randomUUID,
+    }),
   });
   // The owner's commands over the link: the `neptunia` chat and `-p`, and the board commands of the agents.
   commandDesk = createCommandDesk({

@@ -553,6 +553,7 @@ async function runInkChat(
   let linked: (connected: boolean) => void = () => {};
   let turnEvent: (event: TurnEvent) => void = () => {};
   let coreRestarted: () => void = () => {};
+  let showView: (entries: ReadonlyArray<ChatEntry>) => void = () => {};
   const say = (text: string): void => entry({ who: 'her', text });
   const transcript: Array<ChatLine> = [];
   let lastSeq = 0;
@@ -631,6 +632,9 @@ async function runInkChat(
       { name: 'attach open', help: 'Open the newest image she sent' },
       { name: 'attach save', help: 'Save the newest image she sent to a file' },
       { name: 'queue', help: 'Edit or remove the lines waiting behind her running turn' },
+      { name: 'sessions', help: 'List stored conversations and resume one' },
+      { name: 'branch', help: 'Continue this conversation from an earlier line' },
+      { name: 'checkpoints', help: "Preview and restore a development task's files" },
       ...COMMANDS.flatMap((command) => [
         { name: command.name, help: command.help },
         ...command.subcommands.map((sub) => ({
@@ -659,7 +663,10 @@ async function runInkChat(
       linked = listeners.connected;
       turnEvent = listeners.turn;
       coreRestarted = listeners.coreRestarted;
+      showView = listeners.view;
       void followTurns();
+      // The conversation starts as its root: a new process holds no branch's lines.
+      void link.ask({ name: 'session.open', args: {} });
     },
     saveHistory(_lines, added) {
       if (added === undefined) return;
@@ -674,7 +681,13 @@ async function runInkChat(
       const answer = await link.ask({ name: 'status.brief', args: {} });
       return answer.status === 'ok' ? (JSON.parse(answer.text) as StatusBrief | null) : null;
     },
-    panelOf: (line) => chatPanel(line, run, interfaceNames(where.privateDir)),
+    panelOf: (line) =>
+      chatPanel(line, run, interfaceNames(where.privateDir), {
+        showLines(lines) {
+          link.showLines(lines);
+          showView(lines.map((one) => ({ who: one.who === 'her' ? 'her' : 'owner', text: one.text })));
+        },
+      }),
     cancelTurn(turnId) {
       void link.ask({ name: 'turn.cancel', args: { turnId } }).then((answer) => {
         if (answer.status !== 'ok')
