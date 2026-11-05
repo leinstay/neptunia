@@ -51,6 +51,7 @@ Every script that sends model requests spends the simulation's key, read from `k
 | `vision-compare.ts` | Describes the same media with each model. `--from-cache` reads from the guild's media cache via Discord REST. Writes one HTML page | `data/vision-compare/` only | no | yes, 1 request per item and model |
 | `memory-db.ts` | The memory database: `stats`, `hash`, `reproject`, `rebuild`, `backup`, `restore`, `restore-test`, `media-check`, `index-policy`. Opens the database read-only | no | no | no |
 | `board-import.ts` | Imports a ledger's development history onto the task board of a stopped core. `--dry-run` opens the database read-only and only counts. See [The task board](../docs/board.md) | the `board_*` tables of `memory.db` | yes | no |
+| `memory-repair-dm-vectors.ts` | Rebuilds the months of the meaning index that disagree with their manifest: a DM's rows go back to their own place and audience, a repeated record is retired, the manifest is counted again. A dry run unless `--apply`, which needs a stopped core. `--dm-only` leaves group months alone. Prints counts | `vectors` and `operational` rows of `memory.db`, with `--apply` | yes, with `--apply` | no |
 | `memory-session.ts` | Runs her memory session once, on a copy, in shadow. Says what she proposed | no | no | yes |
 
 Pure helpers live in `scripts/lib/` and are tested by `tests/tools-*.test.js`.
