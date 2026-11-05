@@ -913,10 +913,20 @@ function fillOwnAuthor(db: Db, e: Envelope, sourceId: string, at: string): numbe
   return 1;
 }
 
+/** A line stored before its echo knows only its media kinds: the echo brings the attachment ids it lacks. */
+function fillAttachmentIds(db: Db, e: Envelope, sourceId: string): void {
+  const ids = e.extra?.attachmentIds;
+  if (!Array.isArray(ids)) return;
+  db.prepare(
+    `UPDATE sources SET extra = json_set(COALESCE(extra, '{}'), '$.extra.attachmentIds', json(?))
+     WHERE id = ? AND (extra IS NULL OR (json_valid(extra) AND json_extract(extra, '$.extra.attachmentIds') IS NULL))`
+  ).run(JSON.stringify(ids), sourceId);
+}
+
 /**
  * A line already stored (by the sync or an earlier observation): it is registered under its native key when it is not
- * yet, gets the connection it came by when it has none, her account when it is her line recorded before its echo, and
- * the relations it lacks. Nothing else of it changes.
+ * yet, gets the connection it came by when it has none, her account when it is her line recorded before its echo, the
+ * attachment ids it lacks, and the relations it lacks. Nothing else of it changes.
  */
 function replayOf(
   db: Db,
@@ -951,6 +961,7 @@ function replayOf(
       sourceId
     );
   }
+  fillAttachmentIds(db, e, sourceId);
   let relations = fillOwnAuthor(db, e, sourceId, at);
   for (const relation of e.relations ?? []) {
     const target =
