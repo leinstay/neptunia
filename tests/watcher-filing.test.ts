@@ -240,7 +240,7 @@ test('a draft with no finding key falls back to its evidence', async () => {
   // Bug: an older answer without the key files a duplicate on every run.
   const { runInspection } = await inspection();
   const rig = inspectionRig();
-  const { finding: _dropped, ...plain } = DRAFT;
+  const plain = { kind: DRAFT.kind, title: DRAFT.title, evidence: DRAFT.evidence, done: DRAFT.done };
   await runInspection(inspectionDeps(rig, { runAgent: answering(plain) }));
   rig.clock.t += MINUTE;
   await runInspection(inspectionDeps(rig, { runAgent: answering({ ...plain, title: 'Another title' }) }));
@@ -262,7 +262,7 @@ test('a repeat of an open task from before finding keys files nothing, by its ev
     metadata: { kind: 'fix', evidence: DRAFT.evidence },
   });
   const rig = inspectionRig(undefined, watcherBoard({ rows: [old] }));
-  const { finding: _dropped, ...plain } = DRAFT;
+  const plain = { kind: DRAFT.kind, title: DRAFT.title, evidence: DRAFT.evidence, done: DRAFT.done };
   await runInspection(inspectionDeps(rig, { runAgent: answering(plain) }));
   assert.equal(rig.fake.rows.length, 1);
 });

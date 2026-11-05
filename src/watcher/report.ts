@@ -6,7 +6,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { VERSIONS_DIR, isDay, versionFileOf } from './read.ts';
-import type { Filed } from './tasks.ts';
 
 export const REPORT_HEADINGS = [
   'Her day',
@@ -94,21 +93,6 @@ export function checkReport(text: string): ReportCheck {
 }
 
 /**
- * Writes `<reportsDir>/<day>.md` (the folder is made when missing) only when the text passes `checkReport`; a day that
- * is no date is refused. The file appears whole or not at all.
- */
-export function writeReport(reportsDir: string, day: string, text: string): ReportCheck & { path?: string } {
-  if (!isDay(day)) return { ok: false, code: 'invalid-day', detail: 'the day is not a date' };
-  const checked = checkReport(text);
-  if (!checked.ok) return checked;
-  fs.mkdirSync(reportsDir, { recursive: true });
-  const file = path.join(reportsDir, `${day}.md`);
-  fs.writeFileSync(`${file}.tmp`, text);
-  fs.renameSync(`${file}.tmp`, file);
-  return { ok: true, path: file };
-}
-
-/**
  * Commits the report of one run: its immutable file in `runs/`, then `<day>.md` swapped atomically to link to it, so a day
  * reader sees the old report or the new one and never a part. A plain `<day>.md` from before versions stays readable
  * under the identity `legacy-<day>`. Only a text that passes `checkReport` is committed.
@@ -143,17 +127,9 @@ export function commitReport(input: {
 const NOTHING = /^nothing found\.?$/i;
 
 /**
- * One line per filed task right under the "Tasks filed" heading, before the agent's own text. A section that says only
- * "nothing found" gives that line up, since tasks were filed. No tasks leave the text as it was.
+ * The engine's lines right under the "Tasks filed" heading, before the agent's own text. A section that says only "nothing
+ * found" gives that line up, since there is something to say. No lines leave the text as it was.
  */
-export function insertFiled(text: string, filed: ReadonlyArray<Filed>): string {
-  return insertFilingLines(
-    text,
-    filed.map((one) => `- ${one.id} (${one.kind}): ${one.title.replace(/\s+/g, ' ').trim()}`)
-  );
-}
-
-/** `added` right under the "Tasks filed" heading, in the way of `insertFiled`. */
 export function insertFilingLines(text: string, added: ReadonlyArray<string>): string {
   if (added.length === 0) return text;
   const lines = text.split('\n');

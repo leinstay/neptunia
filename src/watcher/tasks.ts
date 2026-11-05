@@ -3,7 +3,6 @@
 // calls it, and src/watcher/filing.ts files the drafts. `normalized` is how filing compares evidence.
 
 export type TaskDraft = { kind: 'fix' | 'chore'; title: string; evidence: string; done: string; finding?: string };
-export type Filed = { id: string; kind: 'fix' | 'chore'; title: string };
 export type SplitAnswer =
   { ok: true; report: string; tasks: Array<TaskDraft> } | { ok: false; code: 'bad-tasks'; detail: string };
 

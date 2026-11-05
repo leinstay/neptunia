@@ -199,3 +199,46 @@ test('the same evidence twice in one answer with no key is filed once', async ()
   // Bug: the comparison looks only at the board, and two drafts of one answer both pass it.
   assert.equal((await filedOver({}, PLAIN, { ...PLAIN, title: 'Same thing again' })).adds.length, 1);
 });
+
+// ---- what the report says under "Tasks filed" ---------------------------------------------------------------------
+
+/** The "Tasks filed" section of the report an inspection answering `body` and `drafts` committed, and the rows. */
+async function tasksFiled(body: string, ...drafts: Array<Record<string, unknown>>) {
+  const { runInspection } = await inspection();
+  const rig = inspectionRig();
+  const bodies = { 'Tasks filed': body };
+  const result = await runInspection(
+    inspectionDeps(rig, { runAgent: () => Promise.resolve(said(answerOf(bodies, drafts))) })
+  );
+  assert.equal(result.state, 'succeeded');
+  const read = readReport(rig.reportsDir, DAY);
+  return { section: read.ok ? sectionOf(read.report.text, 'Tasks filed') : '', rows: rig.fake.rows };
+}
+
+test('one line per filed task comes before the agent text, with the id, the kind and the key', async () => {
+  // Bug: the agent's claim reads as the record, or a later report has no key to repeat for the same problem.
+  const { section, rows } = await tasksFiled('AGENT-LINE', DRAFT, OTHER);
+  for (const [row, draft] of [
+    [rows[0], DRAFT],
+    [rows[1], OTHER],
+  ] as const) {
+    const line = section.split('\n').find((one) => one.includes(draft.title)) ?? '';
+    assert.ok(line.includes(String(row?.id)), line);
+    assert.ok(line.includes(draft.kind), line);
+    assert.ok(line.includes(draft.finding), line);
+    assert.ok(section.indexOf(draft.title) < section.indexOf('AGENT-LINE'));
+  }
+});
+
+test('a section that said only nothing found gives that up once a task is filed', async () => {
+  // Bug: the report says "nothing found" right beside the task it filed.
+  const { section } = await tasksFiled('nothing found', DRAFT);
+  assert.ok(section.includes(DRAFT.title));
+  assert.equal(/nothing found/i.test(section), false);
+});
+
+test('with nothing to file the section stays as the agent wrote it', async () => {
+  // Bug: an empty batch still rewrites the section and drops its one line, and the report fails its own check.
+  const { section } = await tasksFiled('AGENT-LINE');
+  assert.equal(section.trim(), 'AGENT-LINE');
+});
