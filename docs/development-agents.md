@@ -22,6 +22,8 @@ The worker keeps the same worktree layout on every backend, and each backend hol
 | `codex` | `-s workspace-write` allows writes in the worktree and refuses writes outside it and the network. | The checkout's `.git` in `sandbox_workspace_write.writable_roots` of the backend's `config.toml` for its own commits, and `sandbox_workspace_write.network_access = true` when a board command cannot reach the socket. `/subharness mode thinker full` lifts the sandbox altogether. |
 | `opencode` | No sandbox flag. The unit alone limits what it writes. | Nothing: the same unit paths as `claude`. |
 
+On `claude` the worker passes each agent's `profile.json` tools, so `--tools` and `--allowedTools` name Read, Grep, Glob and Bash, plus Edit and Write in `write` mode, and `--dangerously-skip-permissions` replaces the approval list in `full` and `sudo`.
+
 No agent gets a gh login: a backend child inherits only `PATH`, `HOME`, the locale and `TMPDIR`, and the worker points its `GH_CONFIG_DIR` at an empty folder. The thinker's client holds `reviewer` and `worker`, which merge nothing on GitHub. Set the thinker's and dev's backend with `/subharness use`, and their model and effort with `/subharness model <agent> <model> --effort <level>`.
 
 ## Inspect past work
