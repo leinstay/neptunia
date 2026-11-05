@@ -119,7 +119,7 @@ export type PullTarget = { placeId: string; reason: 'routed' | 'noticed' | 'ment
  *    bot's line or the persona's own in that span never pulls but still uses
  *    up its place in the span; the trigger is scanned once, as the newest,
  *    and not counted among them -- newest mention first;
- * 3. `extra` ids (the route hook's: src/behavior/route-channel.ts, wired in
+ * 3. `extra` ids (the route hook's: src/behavior/elsewhere-pick.ts, wired in
  *    src/index.ts), reason `route`;
  * 4. `kept` ids (the channels an earlier turn of the same exchange pulled and the
  *    exchange still keeps: turn.js#keptPullIds), reason `kept`.

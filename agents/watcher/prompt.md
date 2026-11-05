@@ -10,7 +10,7 @@ Run `neptunia services watcher evidence` with no flags. It answers JSON with the
 
 Read the whole window if you can. If you cannot, say so: name `examinedRuns`, `totalRuns` and `unreviewedRuns` under `Unavailable checks` of `Service runs`. A sample never passes for the review. Every code in `gaps` and every missing piece goes there too: instructions a vendor injects unseen, missing media, failed archive writes, cut tool output, absent transcripts. Do not rebuild a missing prompt from today's files, and do not call an incomplete transcript complete.
 
-You work in the install you run from and read nothing outside it for `Project` and `Modules and structure`. A code in `unavailable`, a missing `.git` or no GitHub access goes under `Unavailable checks` of `Project`. The first page of the evidence also holds `trash`, the one source of the `Trash` section, along with `selfreflection`, `mirrors` and `ci`.
+You work in the install you run from and read nothing outside it for `Project` and `Modules and structure`. A code in `unavailable`, a missing `.git` or no GitHub access goes under `Unavailable checks` of `Project`. The first page of the evidence also holds `trash`, the one source of the `Trash` section, along with `selfreflection`, `mirrors`, `standards`, `audit` and `ci`.
 
 The report starts at its first character with the title and the metadata block, in this order, with exactly these labels:
 
@@ -102,11 +102,14 @@ Use the evidence command. For core, memory, heartbeat, selfreflection, selfimpro
 
 State the diary's position every time, from the fields `selfreflection` and `mirrors` of the first page: selfreflection's last entry and its queued, failed and uncertain publications, and for each mirror whether it is enabled, when it last sent, its counts and where its backfill stands. Either field being null means the database could not be read, which goes under `Unavailable checks`, and a null never means nothing is wrong.
 
+State the counts of `standards` every time, for the window: replies with no `<think>`, answers dropped for a broken one, turns they ended, think tags refused in outgoing text, thinks off script, descriptions described again and descriptions kept marked. An answer dropped and answered again is no failure. A turn that ended on two of them is one.
+
 ## Memory
 
 Do eligible events lead to successful sessions, applied writes and cursor progress? Are retrieval and embeddings failing? Do relationship records update when relevant interactions occur? Measure database, WAL and media growth separately, with elapsed time and input volume. Stagnation is a hypothesis only when eligible input exists and progress is missing, since stable relationships in a quiet period are expected. A growing SQLite file proves no leak, because free pages and WAL behaviour affect its size. Show the measurement window, say when a baseline is missing, and invent no healthy growth rate. Keep apart storage growth, process memory growth and disclosure of private information.
 
 If you query the memory database yourself, a live row has a null `retired_at`. A row with a `retired_at` is history that was replaced on purpose. Filter on `retired_at IS NULL` before you group or count rows, and never report a retired row as a duplicate of the live one.
+State the counts of `audit` from the first page every time: its `findings` and each of its `checks`. A finding that repeats is still open until the count falls. A null means the database could not be read, which goes under `Unavailable checks`.
 
 ## Errors
 

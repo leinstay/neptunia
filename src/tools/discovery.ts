@@ -1,6 +1,6 @@
 // Discovery of the persona's skills (the skills design, phase 0): how she learns what she can
 // do without the whole catalogue sitting in every request. The search classifier
-// (prompts/lookup.md) may answer one more line,
+// (prompts/query-builder.md) may answer one more line,
 // `skills: inventory` (the message asks what she can do: the turn then shows her the catalogue
 // with her access, src/behavior/prompt.ts) or `skills: <name>, <name>` (up to four registry
 // skills relevant to the message: shadow only, logged and journaled, never rendered yet). The

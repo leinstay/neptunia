@@ -122,7 +122,10 @@ function scriptedLlm() {
   const requests: Array<unknown> = [];
   return {
     requests,
-    complete: (messages: unknown): Promise<{ text: string; usage: object; estimated: number }> => {
+    // Plan 2026-11-04-cli-and-memory B1: the door asks the address classifier first; it says yes and is not recorded.
+    complete: (messages: unknown, given?: unknown): Promise<{ text: string; usage: object; estimated: number }> => {
+      if ((given as { purpose?: unknown } | undefined)?.purpose === 'address')
+        return Promise.resolve({ text: 'yes', usage: {}, estimated: 1 });
       requests.push(messages);
       return Promise.resolve({ text: `<msg>${ANSWER}</msg>`, usage: {}, estimated: 10 });
     },

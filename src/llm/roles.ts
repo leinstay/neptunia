@@ -12,8 +12,8 @@
 // - `memory`     her memory session and description review (src/memory/db/session.ts); its default
 //                is the core's, it is not listed by `/nep model`, and its key never falls back;
 // - `analyzer`   the core's classifier model: picks one of a few given options (address, room,
-//                merge, route-channel, participation-pick, rewatch, split, media-pick, missed),
-//                plans a search and turns sources into notes (lookup, recall-summary,
+//                merge, elsewhere-pick, rewatch, split, media-pick, missed),
+//                plans a search and turns sources into notes (query-builder, recall-summary,
 //                search-summary, diary-plan);
 // - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
@@ -160,13 +160,12 @@ export const PURPOSE_ROLES = Object.freeze({
   address: 'analyzer',
   room: 'analyzer',
   merge: 'analyzer',
-  'route-channel': 'analyzer',
-  'participation-pick': 'analyzer',
+  'elsewhere-pick': 'analyzer',
   rewatch: 'analyzer',
   split: 'analyzer',
   'media-pick': 'analyzer',
   missed: 'analyzer',
-  lookup: 'analyzer',
+  'query-builder': 'analyzer',
   'recall-summary': 'analyzer',
   'search-summary': 'analyzer',
   'diary-plan': 'analyzer',

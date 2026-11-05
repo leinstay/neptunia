@@ -84,7 +84,7 @@ const HELPER_ALLOWED: ReadonlyArray<Allowed> = [
   },
   { file: 'src/llm/limits.ts', pattern: /'helper-(timeout|fallback)'/, why: 'limit kinds the journal stores' },
   { file: 'src/turn/phases/request/wait.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
-  { file: 'src/behavior/participation-pick.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
+  { file: 'src/behavior/elsewhere-pick.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/turn/act.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/turn/draw-gif.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/behavior/missed.ts', pattern: /'missed: helper failed'/, why: 'a log line name' },

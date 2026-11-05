@@ -9,7 +9,7 @@
 //   with a picture/video/audio/archive/pdf extension) is fetched through the
 //   SSRF-guarded page fetcher (src/web/fetch-page.ts; `web.acceptLanguage`
 //   sent as its Accept-Language). The excerpt is the opening of the page's own extracted
-//   text, cut at `LINK_PREVIEW_CHARS` -- what a link preview shows -- cached as
+//   text, cut at `LINK_EXCERPT_CHARS` -- what a link preview shows -- cached as
 //   `preview:<link id>`, no model request.
 // - search: one web search whose numbered results are condensed through prompts/search-summary.md, sources kept.
 //   `web.search.engine` picks the engine, and it has no default: `brave` (src/web/brave.ts) and `exa` (src/web/exa.ts) each
@@ -27,7 +27,9 @@
 // - readPage: the persona's own web.read: one page by url through the same fetcher, its
 //   extracted main text (src/web/readable.ts) cut at `PAGE_READ_CHARS`, with its title
 //   and final url; no model request. Cached (`page:<sha1 prefix of the url>`) for
-//   `web.links.readCacheHours`; a failure is not cached.
+//   `web.links.readCacheHours`; a failure is not cached. Past those hours the entry stays until a later read replaces it,
+//   because it is the link's text form: every link to that address holds this text instead of its preview, with no fetch.
+//   A transcript shows it cut at `LINK_EXCERPT_CHARS` (src/format.ts), so a request grows no more than by a preview.
 //
 // Both share the media cache (data/places/<id>/media.json, LRU-trimmed to
 // `MEDIA_CACHE_ENTRIES` of src/web/cache.ts): `preview:<link id>` holds an excerpt `{ text, ts }` or a
@@ -45,11 +47,12 @@ import { isGifHostUrl, siteOf } from '../media/classify.ts';
 import { videoSiteFor, safeLocation } from '../media/video-sites.ts';
 import { SEARCH_ROLE, searchModel } from '../llm/roles.ts';
 import { fillPromptTemplate } from '../behavior/prompt.ts';
+import { createSummaryBuilder, parseSummaryNote, renderResults } from '../behavior/summary-builder.ts';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { clampText, oneLine } from '../memory/clamp.ts';
 import { log } from '../log.ts';
 import { MINUTE_MS, utcDay } from '../time.ts';
-import { MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from './cache.ts';
+import { LINK_EXCERPT_CHARS, MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from './cache.ts';
 import { truncateText } from './readable.ts';
 import { CODE } from '../tools/codes.ts';
 import { errorFields } from '../error-fields.ts';
@@ -101,6 +104,7 @@ export type LookupDeps = {
   store: {
     getMediaCache: (placeId: string) => Record<string, CacheEntry>;
     markMediaCacheDirty: (placeId: string) => void;
+    linkedMediaKeys?: () => ReadonlySet<string>;
   };
   llm: {
     complete: (messages: Array<ChatMessage>, options?: CompleteOptions) => Promise<CompleteResult>;
@@ -171,8 +175,6 @@ const PAGE_CACHE_HOURS_FALLBACK = 6;
 const LINK_MAX_BYTES = 1500000;
 /** The characters of a page's text kept from the fetch. */
 const LINK_TEXT_CHARS = 6000;
-/** The length of a link's excerpt, the opening of the page's text. */
-const LINK_PREVIEW_CHARS = 700;
 /** The length of a page read whole (`web.read`). */
 const PAGE_READ_CHARS = 4000;
 /** The length of a search's condensed answer. */
@@ -262,6 +264,11 @@ function linkKey(config: unknown, link: { id: string }): string {
   return `preview:${link.id}`;
 }
 
+/** The media cache key of a page read, by the address it was asked for: `page:<sha1 prefix>`. */
+function pageKey(url: string): string {
+  return hashedKey('page', url.trim());
+}
+
 /** A positive number from the config, else `fallback`. */
 function positiveOr(value: unknown, fallback: number): number {
   return typeof value === 'number' && value > 0 ? value : fallback;
@@ -340,22 +347,7 @@ function searchKey(query: string): string {
   return hashedKey('search', normalizeQuery(query));
 }
 
-/**
- * Numbered search results as plain lines (data, not wording): the search-summary prompt reads
- * them, and the scout agent's search command prints them. Per result `<n>. <title>`, the url, the
- * snippet and the age, each on its own line when present; a blank line between results.
- */
-export function renderResults(
-  results: ReadonlyArray<{ title?: string; url?: string; snippet?: string; age?: string }>
-): string {
-  return results
-    .map((result, index) =>
-      [`${index + 1}. ${result.title ?? ''}`, result.url ?? '', result.snippet ?? '', result.age ?? '']
-        .filter(Boolean)
-        .join('\n')
-    )
-    .join('\n\n');
-}
+export { renderResults };
 
 /**
  * @param deps.hot Live config + prompts; read at the moment of use.
@@ -369,6 +361,7 @@ export function renderResults(
  */
 export function createLookup(deps: LookupDeps): Lookup {
   const { hot, store, llm, pageFetcher, searches = {}, keys = {}, now = Date.now } = deps;
+  const buildSummary = createSummaryBuilder({ hot, llm, now });
   // One in-flight read per place + link: a message prefill and a turn that
   // reach the same new link at once share one request.
   const inFlight = new Map<string, Promise<Fetched>>();
@@ -376,7 +369,7 @@ export function createLookup(deps: LookupDeps): Lookup {
   function putEntry(placeId: string, key: string, value: CacheEntry): void {
     const cache = store.getMediaCache(placeId);
     touchKey(cache, key, value);
-    trimCache(cache, MEDIA_CACHE_ENTRIES);
+    trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? new Set<string>());
     store.markMediaCacheDirty(placeId);
   }
 
@@ -443,7 +436,7 @@ export function createLookup(deps: LookupDeps): Lookup {
     if (!body) return miss('empty');
 
     // The opening of the page's own text, no model request.
-    const opening = cleanText(body, LINK_PREVIEW_CHARS);
+    const opening = cleanText(body, LINK_EXCERPT_CHARS);
     if (!opening) return miss('empty');
     putEntry(placeId, key, { text: opening, ts: now() });
     report('read', null, { chars: opening.length, preview: true });
@@ -454,7 +447,8 @@ export function createLookup(deps: LookupDeps): Lookup {
   async function readLinkCharged(placeId: string, link: LinkItem, { cacheOnly = false }: Only = {}): Promise<Got> {
     if (!readable(link)) return { result: null, attempted: false };
     const key = linkKey(hot.config, link);
-    const cached = cachedRead(placeId, key);
+    // The text form of a link she read with web.read comes first: the page entry of its address, whatever its age.
+    const cached = cachedRead(placeId, pageKey(link.url)) ?? cachedRead(placeId, key);
     if (cached === 'miss') return { result: null, attempted: false };
     if (cached) return { result: { ...cached, cached: true }, attempted: false };
     if (cacheOnly) return { result: null, attempted: false };
@@ -515,7 +509,7 @@ export function createLookup(deps: LookupDeps): Lookup {
       if (!link?.id || seen.has(link.id)) continue;
       seen.add(link.id);
       if (!readable(link)) continue;
-      const cached = cachedRead(placeId, linkKey(hot.config, link));
+      const cached = cachedRead(placeId, pageKey(link.url)) ?? cachedRead(placeId, linkKey(hot.config, link));
       if (cached && cached !== 'miss') reads.set(link.id, cached.text);
     }
     return reads;
@@ -636,8 +630,10 @@ export function createLookup(deps: LookupDeps): Lookup {
           },
         };
       }
-      const text = cleanText(completion.text, summaryChars);
-      if (!text) return { failure: { reason: 'empty' } };
+      if (!String(completion.text ?? '').trim()) return { failure: { reason: 'empty' } };
+      const note = parseSummaryNote(completion.text, { maxChars: summaryChars });
+      if (!note.text) return { result: { query: asked, text: '', sources: [] } };
+      const text = cleanText(note.text, summaryChars);
       const sources = citationsOf(completion.annotations).map((c) => ({ ...c, site: siteOf(c.url) }));
       return { result: { query: asked, text, sources } };
     }
@@ -656,18 +652,13 @@ export function createLookup(deps: LookupDeps): Lookup {
         },
       };
     }
-    let completion;
-    try {
-      completion = await llm.complete([system, { role: 'user', content: renderResults(found.results) }], options);
-    } catch (err) {
-      return {
-        failure: { reason: llmFailure(err), ...statusOf(err) },
-      };
-    }
-    const text = cleanText(completion.text, summaryChars);
-    if (!text) return { failure: { reason: 'empty' } };
+    const limits = { maxChars: summaryChars, maxOutputTokens: Number(searchCfg.maxOutputTokens) };
+    const note = await buildSummary({ kind: 'web', query: asked, results: found.results }, limits);
+    if (note.status === 'failed') return { failure: { reason: llmFailure(note.error), ...statusOf(note.error) } };
+    if (note.reason === 'empty') return { failure: { reason: 'empty' } };
+    if (!note.text) return { result: { query: asked, text: '', sources: [] } };
     const sources = found.results.map((r) => ({ title: r.title ?? '', url: r.url, site: siteOf(r.url) }));
-    return { result: { query: asked, text, sources } };
+    return { result: { query: asked, text: note.text, sources } };
   }
 
   /**
@@ -820,7 +811,7 @@ export function createLookup(deps: LookupDeps): Lookup {
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: page', { state: outcome, reason, location, ...extra });
     const cache = store.getMediaCache(placeId);
-    const key = hashedKey('page', asked);
+    const key = pageKey(asked);
     const hit = cache[key];
     if (hit && typeof hit.text === 'string') {
       if (now() - hit.ts < positiveOr(linksCfg.readCacheHours, PAGE_CACHE_HOURS_FALLBACK) * 60 * MINUTE_MS) {
@@ -836,8 +827,6 @@ export function createLookup(deps: LookupDeps): Lookup {
           cached: true,
         };
       }
-      delete cache[key];
-      store.markMediaCacheDirty(placeId);
     }
     const page = await pageFetcher.fetchText(asked, {
       maxBytes: LINK_MAX_BYTES,

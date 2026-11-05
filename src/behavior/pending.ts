@@ -34,7 +34,7 @@ export type PendingPing = {
   placeId: string;
   channel?: Untyped;
   trigger: Record<string, Untyped>;
-  kind: 'mention' | 'reply' | 'name' | 'private' | 'followUp' | 'overheard';
+  kind: 'mention' | 'reply' | 'private' | 'followUp' | 'overheard';
   arrivedAt: number;
   decided?: boolean;
   added?: Array<{ id: string; text: string; ts: number }>;
@@ -92,7 +92,7 @@ export function requeuePending(
 const SLOT_KINDS = new Set(['followUp', 'overheard']);
 
 /** The direct calls of a channel that take a waiting overheard line's place. */
-const DIRECT_KINDS = new Set(['mention', 'reply', 'name']);
+const DIRECT_KINDS = new Set(['mention', 'reply']);
 
 /**
  * The priority rule of a channel's follow-up slot -- the one deferred

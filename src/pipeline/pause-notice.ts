@@ -45,12 +45,10 @@ export function createPauseNotice({
 
   /**
    * How `message` (arriving while paused) called the persona directly, by the
-   * rules of the live path without its model request: on the server a
-   * mention, a reply to one of its messages or its name (each behind its
-   * switch) in the served place, outside threads, in a channel the bot can
-   * send in, from a human; in a private chat
+   * flags of the live path without its model request: a mention or a reply to one of its messages in a served place
+   * the bot can send in, from a human; in a private chat
    * (private.enabled) an author the private gate lets through. `{ channel, trigger, kind }`, or null for anything else
-   * (an untagged follow-up included: it would need the address classifier).
+   * (an unflagged line included: it would need the address classifier).
    */
   async function pausedCall(event: MessageEvent, config: PipelineConfig): Promise<PausedCall | null> {
     const author = event.message.author;
@@ -67,19 +65,16 @@ export function createPauseNotice({
       return privateChannel ? { channel: privateChannel, trigger: normalize(), kind: 'private' } : null;
     }
 
-    if (!isServedCommunity(event.conversation.rootId) || event.conversation.kind === 'thread') return null;
+    if (!isServedCommunity(event.conversation.rootId)) return null;
     const channel = await infoNow(event.iface, event.conversation.id);
     if (!channel?.permissions.send) return null;
     const normalized = normalize();
     // The door refuses a whole message without its addressing (src/protocol/validate.ts).
-    const kind: unknown = detectTrigger({
+    const kind = detectTrigger({
       mentionsSelf: event.addressing!.mentioned,
       repliesToSelf: event.addressing!.replyToSelf || (await resolveReference(refOf(channel), normalized.replyToId)),
-      content: normalized.content,
-      nameTriggers: config.bot.nameTriggers,
     });
-    // detectTrigger answers a trigger kind or null (src/behavior/mention.ts).
-    return kind ? { channel, trigger: normalized, kind: kind as string } : null;
+    return kind ? { channel, trigger: normalized, kind } : null;
   }
 
   /**

@@ -1,7 +1,7 @@
 // health: allow file-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 // The recall runner: the server part of a lookup. When the lookup classifier
 // names word forms, name forms or a date range (src/behavior/recall.ts
-// parseLookupAnswer), this module searches the server's own history through
+// parseQueryPlan), this module searches the server's own history through
 // the interface's message search (reads.searchMessages) and has one analyzer request
 // (prompts/recall-summary.md) say what that history answers, optionally
 // singling out one stretch the persona gets verbatim. Steps: the people the
@@ -46,7 +46,7 @@
 // windows and archive rows the stored-memory items, each fused with the word
 // hits by reciprocal rank (recall.js fuseRanks). A failed embedding or search
 // logs `recall: meaning failed` and the run goes on with words only.
-// A `when:` range the lookup marked a locator (recall.js parseLookupAnswer:
+// A `when:` range the lookup marked a locator (recall.js parseLookupLines:
 // `locator: true`, a date that only helps find the event) bounds none of the
 // local sources: the record is read over its last `recall.recordDays` days
 // (and the locator's own days), the archive over its usual months, the
@@ -71,7 +71,8 @@
 // health: allow file-length until 2027-04-01 -- one runner over the recall sources, grown by the one dependency that names the loop watch
 import { personOfMember } from '../memory/addresses.ts';
 import { log } from '../log.ts';
-import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
+import { createSummaryBuilder } from './summary-builder.ts';
+import { railReason } from '../llm/openrouter.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
 import { foldText, liveRecent, recentSettings } from '../memory/recent.ts';
 import { DAY_MS } from '../time.ts';
@@ -94,7 +95,6 @@ import {
   matchRecord,
   meaningQuery,
   mergeWindows,
-  parseRecallAnswer,
   queryKey,
   rankClusters,
   rareFormKeys,
@@ -484,6 +484,8 @@ export function createRecall({
   timers = DEFAULT_TIMERS,
   track = untracked,
 }: CreateRecallInput): CreateRecallResult {
+  const buildSummary = createSummaryBuilder({ hot, llm, now });
+
   /** One search of the database: on the reader thread, or synchronously over a memory that offers only `database()`. */
   function searchDb(db: Untyped, input: Untyped, signal: AbortSignal): Promise<Untyped> {
     if (typeof memoryDb?.searchRecord === 'function') return memoryDb.searchRecord(input, { signal });
@@ -1719,39 +1721,39 @@ export function createRecall({
     progress.fallback = fallback;
     if (started + settings.timeoutMs - now() < settings.minSummaryMs) return fallback('skipped');
     asked = now();
-    let completion;
-    try {
-      completion = await llm.complete(messages, {
-        model: roleModel(config, 'analyzer', 'recall-summary'),
-        ...roleRequestOptions(config, {
-          role: 'analyzer',
-          maxOutputTokens: settings.maxOutputTokens,
-          purpose: 'recall-summary',
-          signal,
-          timeoutMs: Math.max(1, started + settings.timeoutMs - asked),
-          long: true,
-        }),
-      });
-    } catch (err) {
-      if (signal.aborted) return null;
+    const answer = await buildSummary(
+      {
+        kind: 'history',
+        selfName,
+        question: candidate ?? {},
+        windows,
+        messages,
+      },
+      {
+        maxChars: settings.answerChars,
+        maxOutputTokens: settings.maxOutputTokens,
+        signal,
+        timeoutMs: Math.max(1, started + settings.timeoutMs - asked),
+      }
+    );
+    if (signal.aborted) return null;
+    if (answer.status === 'failed') {
       log.warn('recall: failed', {
         channel: conversationId,
-        reason: railReason(err),
-        status: objOf(err).statusCode ?? null,
-        ...failureFields(err),
+        reason: answer.reason,
+        status: objOf(answer.error).statusCode ?? null,
+        ...failureFields(answer.error),
       });
-      return fallback(summaryFailure(err));
+      return fallback(summaryFailure(answer.error));
     }
-    if (signal.aborted) return null;
     stats.summary = 'answered';
-    const answer = parseRecallAnswer(completion?.text, { answerChars: settings.answerChars, count: windows.length });
     const stretch = answer.stretch !== null ? stretchOf(windows[answer.stretch - 1]) : null;
     if (trace)
       trace.summary = {
         answer: answer.text ? 'text' : 'nothing',
         stretch: stretch ? answer.stretch : null,
         text: answer.text,
-        note: typeof completion?.text === 'string' ? completion.text : null,
+        note: answer.raw ?? null,
       };
     log.info('recall: summary', {
       channel: conversationId,

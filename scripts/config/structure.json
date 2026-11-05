@@ -1316,7 +1316,7 @@
       "test": "none"
     },
     {
-      "path": "src/pipeline/follow-up-window.ts",
+      "path": "src/pipeline/address-attention.ts",
       "purpose": "A channel's follow-up window, opened by the persona's post, kept in the state and closed by a run of `no` verdicts, and the checks in front of the address classifier. Tested through the events tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
@@ -1498,6 +1498,13 @@
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
+    },
+    {
+      "path": "src/memory/db/audit.ts",
+      "purpose": "The memory audit: counts of what breaks the rules of the stored rows, over a read connection. Tested through `tests/memory-audit.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
     },
     {
       "path": "src/memory/db/diary-past.ts",

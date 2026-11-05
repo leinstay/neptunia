@@ -207,7 +207,7 @@ function slotEntry(placeId: string, kind: string, id: string) {
 
 test('followUpSlot: an empty slot admits any newcomer and replaces nothing', () => {
   const list = [ping('c1', 50)];
-  for (const kind of ['followUp', 'overheard', 'mention', 'reply', 'name', 'private'] as const) {
+  for (const kind of ['followUp', 'overheard', 'mention', 'reply', 'private'] as const) {
     assert.deepEqual(followUpSlot(list, 'c1', kind), { admit: true, replaced: null }, kind);
   }
 });
@@ -221,7 +221,8 @@ test('followUpSlot: a waiting followUp is replaced by a later followUp, never by
 
 test('followUpSlot: a waiting followUp stays beside a direct call of its channel, as before', () => {
   const list = [slotEntry('c1', 'followUp', 'f1')];
-  for (const kind of ['mention', 'reply', 'name', 'private'] as const) {
+  // Plan 2026-11-04-cli-and-memory B1: the `name` kind is gone with name triggers.
+  for (const kind of ['mention', 'reply', 'private'] as const) {
     assert.deepEqual(followUpSlot(list, 'c1', kind), { admit: true, replaced: null }, kind);
   }
 });
@@ -229,7 +230,7 @@ test('followUpSlot: a waiting followUp stays beside a direct call of its channel
 test('followUpSlot: a waiting overheard is replaced by a later followUp, overheard, mention, reply or name', () => {
   const waiting = slotEntry('c1', 'overheard', 'o1');
   const list = [ping('c1', 50), waiting];
-  for (const kind of ['followUp', 'overheard', 'mention', 'reply', 'name'] as const) {
+  for (const kind of ['followUp', 'overheard', 'mention', 'reply'] as const) {
     assert.deepEqual(followUpSlot(list, 'c1', kind), { admit: true, replaced: waiting }, kind);
   }
   assert.deepEqual(

@@ -287,7 +287,6 @@ function storedLineRenderer({
 export function participationView(
   participation: ParticipationInput | null | undefined,
   {
-    config,
     labels,
     privateChat,
     currentChannelId,
@@ -318,7 +317,7 @@ export function participationView(
   if (privateChat) return null;
   if (!p?.header || !p.episode) return null;
   if (!participation || typeof participation !== 'object' || !participation.state) return null;
-  const settings = participationSettings(config);
+  const settings = participationSettings();
   const pickedIds = Array.isArray(participation.pickedIds) ? participation.pickedIds : [];
   // selectEpisodes groups the stored episodes, which it returns as plain objects.
   const groups = selectEpisodes(
@@ -447,7 +446,6 @@ export function anchoredOn(config: RequestConfig, labels: Labels, privateChat: b
 export function anchorsView(
   participation: ParticipationInput | null | undefined,
   {
-    config,
     labels,
     currentChannelId,
     history,
@@ -474,7 +472,7 @@ export function anchorsView(
 ): AnchorsView | null {
   // Only a request that anchoredOn holds true for builds `<earlier>`: `labels.participation` is there.
   const p = labels.participation!;
-  const settings = participationSettings(config);
+  const settings = participationSettings();
   const parents = history.filter((message) => message.replyParent === true);
   const windowLines = history.filter((message) => message.replyParent !== true);
   const indexOf = new Map(history.map((message, i) => [message.id, i + 1]));

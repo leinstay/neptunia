@@ -208,7 +208,8 @@ test('a handle recalled from a real received event reads and replies with its na
     let recalledText = '';
     const rig = await boot((messages, options) => {
       const purpose = options !== null && typeof options === 'object' && 'purpose' in options ? options.purpose : null;
-      if (purpose === 'lookup' || purpose === 'route-channel') return Promise.resolve(toolAnswer('none'));
+      if (purpose === 'address') return Promise.resolve(toolAnswer('yes'));
+      if (purpose === 'lookup' || purpose === 'elsewhere-pick') return Promise.resolve(toolAnswer('none'));
       if (purpose === 'split') return Promise.resolve(toolAnswer('one'));
       step += 1;
       if (step === 1) return Promise.resolve(toolAnswer('', [call('memory.search', { question: 'gardenrabbit731' })]));
