@@ -39,6 +39,8 @@ export type AgentRun = {
   maxSteps?: number;
   /** codex: live web search */
   search?: boolean;
+  /** The profile's OpenCode tool names; claude turns them into its own tool list. Absent for an agent with no profile tools. */
+  tools?: ReadonlyArray<string>;
   /** codex: pictures handed to the agent */
   images?: ReadonlyArray<string>;
   signal?: AbortSignal;
@@ -182,6 +184,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     ...(effort === null ? {} : { effort }),
     ...(run.maxSteps === undefined ? {} : { maxSteps: run.maxSteps }),
     ...(run.search === undefined ? {} : { search: run.search }),
+    ...(run.tools === undefined ? {} : { tools: run.tools }),
     ...(run.images === undefined ? {} : { images: run.images }),
     ...(run.signal === undefined ? {} : { signal: run.signal }),
   };
