@@ -264,6 +264,7 @@ export type DiscordReads = Pick<
   | 'fetchMessages'
   | 'history'
   | 'memberInfo'
+  | 'dmConversationOf'
   | 'searchMessages'
   | 'searchMembers'
   | 'emoji'
@@ -534,6 +535,18 @@ export function createDiscordReads(deps: {
       if (found.member === undefined || Object.keys(found.member).length === 0)
         return { status: 'ok' as const, member: null };
       return { status: 'ok' as const, member: memberInfoOf(found.member, who.accountId, selfId(), client) };
+    },
+
+    /** discord.js's `users.createDM`: Discord answers the one channel it holds for the pair, and no message is sent. */
+    async dmConversationOf(partner: { accountId: string }) {
+      try {
+        const users = obj(client.users);
+        const opened = await (users.createDM as (id: string) => Promise<unknown>).call(users, partner.accountId);
+        const conversationId = text(obj(opened).id);
+        return conversationId === null ? failed('no-conversation') : { status: 'ok' as const, conversationId };
+      } catch (err) {
+        return failure(err);
+      }
     },
 
     ...createLookupReads({ client, iface, guildOf, servedGuilds }),

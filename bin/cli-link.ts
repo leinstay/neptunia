@@ -146,6 +146,7 @@ function cliAdapter(
         ? Promise.resolve({ status: 'ok', events: historyOf(transcript, query), complete: true })
         : unsupported(),
     memberInfo: unsupported,
+    dmConversationOf: unsupported,
     searchMessages: unsupported,
     searchMembers: unsupported,
     emoji: unsupported,

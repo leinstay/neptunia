@@ -16,6 +16,7 @@ export const READ_ACTIONS: ReadonlyArray<string> = Object.freeze([
   MESSAGES_FETCH,
   'messages.history',
   'member.info',
+  'dm.conversation',
   'messages.search',
   'members.search',
   'emoji.list',
@@ -53,6 +54,8 @@ export function readAction(operation: string, args: ReadonlyArray<unknown>): Fie
       return { action: 'messages.history', conversation: target, ...definedOnly(second) };
     case 'memberInfo':
       return { action: 'member.info', placeId: scope.placeId, accountId: scope.accountId };
+    case 'dmConversationOf':
+      return { action: 'dm.conversation', iface: scope.iface, accountId: scope.accountId };
     case 'searchMessages':
       return { action: 'messages.search', placeId: scope.placeId, ...definedOnly(second) };
     case 'searchMembers':
@@ -184,6 +187,11 @@ export function readActionProblem(given: unknown): Problem | null {
     case 'member.info':
       return firstOf(
         () => field(action.placeId, 'placeId', (value) => value === null || isId(value)),
+        () => field(action.accountId, 'accountId', isId)
+      );
+    case 'dm.conversation':
+      return firstOf(
+        () => field(action.iface, 'iface', isId),
         () => field(action.accountId, 'accountId', isId)
       );
     case 'messages.search':

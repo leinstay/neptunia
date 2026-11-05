@@ -13,7 +13,7 @@
 // whose answer was lost when its capabilities say `reconcile: true` (src/interface/reconcile.ts).
 //
 // The conversation reads (src/protocol/adapter.ts) answer from what a test seeds: `seedConversation(info)`,
-// `seedGroups(placeId, groups)`, `seedMember(placeId, member)`, `seedEmoji(placeId, emoji)`,
+// `seedGroups(placeId, groups)`, `seedMember(placeId, member)`, `seedDmConversation(accountId, conversationId)`, `seedEmoji(placeId, emoji)`,
 // `seedReactors(ref, emoji, accountIds)` and `seedEvent(event)`, a whole `message.received` event kept as the
 // message it carries. Every message the fake holds, seeded or sent, is history: `history` reads them oldest
 // first, ordered by time and then by arrival, and answers each as the event an interface would deliver.
@@ -145,6 +145,7 @@ export function createFakeAdapter({
   removeConversation(conversationId: string): void;
   seedGroups(placeId: string, list: Array<GroupInfo>): void;
   seedMember(placeId: string, member: MemberInfo): void;
+  seedDmConversation(accountId: string, conversationId: string): void;
   seedEmoji(placeId: string, list: Array<EmojiInfo>): void;
   seedReactors(ref: MessageRef, emoji: string, accountIds: Array<string>): void;
   seedEvent(event: MessageEvent, extra?: { attachments?: StoredMessage['attachments'] }): void;

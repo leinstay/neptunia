@@ -407,6 +407,8 @@ export function openAdapterLink(options: {
   // A read changes nothing: a closed link answers it `failed`, never `unknown`.
   const read = (operation: string, args: ReadonlyArray<unknown>): Promise<Result> =>
     call(portAction(operation, [...args]), 'read');
+  const reading = <K extends keyof Adapter>(operation: K): Adapter[K] =>
+    ((...args: Array<unknown>) => read(operation, args)) as unknown as Adapter[K];
 
   function send(
     conversation: Parameters<Adapter['send']>[0],
@@ -445,23 +447,17 @@ export function openAdapterLink(options: {
       effect('unreact', [message, emoji]) as ReturnType<Adapter['unreact']>,
     typing: (conversation: Parameters<Adapter['typing']>[0]) =>
       effect('typing', [conversation]) as ReturnType<Adapter['typing']>,
-    fetchMessages: (...args: Parameters<Adapter['fetchMessages']>) =>
-      read('fetchMessages', args) as ReturnType<Adapter['fetchMessages']>,
-    conversationInfo: (...args: Parameters<Adapter['conversationInfo']>) =>
-      read('conversationInfo', args) as ReturnType<Adapter['conversationInfo']>,
-    conversations: (...args: Parameters<Adapter['conversations']>) =>
-      read('conversations', args) as ReturnType<Adapter['conversations']>,
-    history: (...args: Parameters<Adapter['history']>) => read('history', args) as ReturnType<Adapter['history']>,
-    memberInfo: (...args: Parameters<Adapter['memberInfo']>) =>
-      read('memberInfo', args) as ReturnType<Adapter['memberInfo']>,
-    searchMessages: (...args: Parameters<Adapter['searchMessages']>) =>
-      read('searchMessages', args) as ReturnType<Adapter['searchMessages']>,
-    searchMembers: (...args: Parameters<Adapter['searchMembers']>) =>
-      read('searchMembers', args) as ReturnType<Adapter['searchMembers']>,
-    emoji: (...args: Parameters<Adapter['emoji']>) => read('emoji', args) as ReturnType<Adapter['emoji']>,
-    parseLinks: (...args: Parameters<Adapter['parseLinks']>) =>
-      read('parseLinks', args) as ReturnType<Adapter['parseLinks']>,
-    reactors: (...args: Parameters<Adapter['reactors']>) => read('reactors', args) as ReturnType<Adapter['reactors']>,
+    fetchMessages: reading('fetchMessages'),
+    conversationInfo: reading('conversationInfo'),
+    conversations: reading('conversations'),
+    history: reading('history'),
+    memberInfo: reading('memberInfo'),
+    dmConversationOf: reading('dmConversationOf'),
+    searchMessages: reading('searchMessages'),
+    searchMembers: reading('searchMembers'),
+    emoji: reading('emoji'),
+    parseLinks: reading('parseLinks'),
+    reactors: reading('reactors'),
   };
   /** The effects waiting now, given `ms` to finish; then the link closes and the rest end `unknown`. */
   async function drain(ms: number): Promise<Drained> {
@@ -543,6 +539,7 @@ export function createLinkSwitch(first: AdapterLink | null): {
     conversations: (...args: Parameters<Adapter['conversations']>) => now().conversations(...args),
     history: (...args: Parameters<Adapter['history']>) => now().history(...args),
     memberInfo: (...args: Parameters<Adapter['memberInfo']>) => now().memberInfo(...args),
+    dmConversationOf: (...args: Parameters<Adapter['dmConversationOf']>) => now().dmConversationOf(...args),
     searchMessages: (...args: Parameters<Adapter['searchMessages']>) => now().searchMessages(...args),
     searchMembers: (...args: Parameters<Adapter['searchMembers']>) => now().searchMembers(...args),
     emoji: (...args: Parameters<Adapter['emoji']>) => now().emoji(...args),
@@ -614,6 +611,7 @@ export function createIfaceRouter(
     conversations: (...args: Parameters<Adapter['conversations']>) => byCommunity(args[0]).conversations(...args),
     history: (...args: Parameters<Adapter['history']>) => by(args[0]).history(...args),
     memberInfo: (...args: Parameters<Adapter['memberInfo']>) => byCommunity(args[0]).memberInfo(...args),
+    dmConversationOf: (...args: Parameters<Adapter['dmConversationOf']>) => by(args[0]).dmConversationOf(...args),
     searchMessages: (...args: Parameters<Adapter['searchMessages']>) => byCommunity(args[0]).searchMessages(...args),
     searchMembers: (...args: Parameters<Adapter['searchMembers']>) => byCommunity(args[0]).searchMembers(...args),
     emoji: (...args: Parameters<Adapter['emoji']>) => byCommunity(args[0]).emoji(...args),

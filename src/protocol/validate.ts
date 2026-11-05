@@ -416,6 +416,7 @@ export function validateAction(given: unknown): { ok: true } | { ok: false; reas
       case 'conversations.list':
       case 'messages.history':
       case 'member.info':
+      case 'dm.conversation':
       case 'messages.search':
       case 'members.search':
       case 'emoji.list':

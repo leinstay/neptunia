@@ -614,11 +614,13 @@ export function localReads({
   const info = (id: string) => localInfo(placeId, id, channelNameOf(id) ?? id);
   return {
     offers: () => true,
+    answer: () => Promise.resolve({ status: 'unsupported' as const, code: 'not-offered' }),
     conversationInfo: (ref: { conversationId: string }) => Promise.resolve({ conversation: info(ref.conversationId) }),
     conversations: () => Promise.resolve({ conversations: [], groups: [] }),
     fetchMessages: () => Promise.resolve(null),
     history: () => Promise.resolve(null),
     memberInfo: () => Promise.resolve(null),
+    dmConversationOf: () => Promise.resolve(null),
     searchMessages: () => Promise.resolve({ total: 0, hits: [] }),
     searchMembers: () => Promise.resolve({ members: [] }),
     emoji: () => Promise.resolve({ emoji: [] }),

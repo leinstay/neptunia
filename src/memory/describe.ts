@@ -491,7 +491,13 @@ export function isStaleDescription(entry: StoredRecord, cutoffMs: number | null)
   return !(typeof at === 'number' && isFiniteNumber(at) && at >= cutoffMs);
 }
 
-type DescribeManyOptions = { maxNew?: number; concurrency?: number; onCharge?: (r: Untyped) => void };
+type DescribeManyOptions = {
+  maxNew?: number;
+  concurrency?: number;
+  onCharge?: (r: Untyped) => void;
+  /** The owner's backfill asked again: a passing failure is tried now, whatever its age. A refused file stays refused. */
+  retryMisses?: boolean;
+};
 
 type DescriberDeps = {
   hot: { readonly config: Untyped; readonly prompts: Untyped };
@@ -631,11 +637,14 @@ function buildDescriber({
    * see dueForRecache), FRESH_MISS while a failure younger than an hour is
    * remembered, or null when it must be described.
    */
-  function cachedPicture(placeId: string, itemId: string) {
+  function cachedPicture(placeId: string, itemId: string, retryMisses = false) {
     const cache = store.getMediaCache(placeId);
     const cached = readEntry(placeId, itemId);
     if (!cached) return null;
-    if (cached.miss) return isRefused(cached) || now() - cached.ts < MISS_TTL_MS ? FRESH_MISS : null;
+    if (cached.miss) {
+      if (isRefused(cached)) return FRESH_MISS;
+      return !retryMisses && now() - cached.ts < MISS_TTL_MS ? FRESH_MISS : null;
+    }
     touchHit(placeId, cache, itemId, cached);
     const result = { text: cached.text, usage: null, estimated: 0, cached: true };
     return { result, stale: dueForRecache(cached, MISS_TTL_MS), entry: cached };
@@ -650,9 +659,9 @@ function buildDescriber({
    * call waited on another caller's description of the same picture (its
    * request was not this call's).
    */
-  async function describeShared(placeId: string, item: MediaItem) {
+  async function describeShared(placeId: string, item: MediaItem, retryMisses = false) {
     if (!picturesOn()) return { result: null, joined: false };
-    const hit = cachedPicture(placeId, item.itemId);
+    const hit = cachedPicture(placeId, item.itemId, retryMisses);
     if (hit === FRESH_MISS) return { result: null, joined: false };
     if (hit && !hit.stale) return { result: hit.result, joined: false };
     // A stale caption (media.recacheBefore) is described again; its old text is the fallback.
@@ -1114,6 +1123,7 @@ function buildDescriber({
    * Returns `{ descriptions, newCount }` -- `descriptions` maps `itemId` to
    * caption text, ready to hand to formatTranscript's `descriptions` option;
    * `newCount` is the number of picked items.
+   * `retryMisses` picks a passing failure of any age as new; a refused file stays out.
    * `onCharge(result)` is called once per successful NEW request of this call
    * (never for a cache hit or a description shared with another caller) so a
    * caller with its own separate token budget can account for it.
@@ -1121,7 +1131,7 @@ function buildDescriber({
   async function describeMany(
     placeId: string,
     items: Array<MediaItem>,
-    { maxNew = Infinity, concurrency = Infinity, onCharge }: DescribeManyOptions = {}
+    { maxNew = Infinity, concurrency = Infinity, onCharge, retryMisses = false }: DescribeManyOptions = {}
   ): Promise<{ descriptions: Map<string, string>; newCount: number }> {
     const found = new Map();
     const picked: Array<Untyped> = [];
@@ -1132,7 +1142,7 @@ function buildDescriber({
       if (!item?.itemId || seen.has(item.itemId) || item.kind === 'file') continue;
       if (item.kind !== 'text' && !roleOn(hot.config, mediaRoleOf(item))) continue;
       seen.add(item.itemId);
-      const hit = cachedPicture(placeId, item.itemId);
+      const hit = cachedPicture(placeId, item.itemId, retryMisses);
       if (hit === FRESH_MISS) continue;
       // A stale caption (media.recacheBefore) is picked like a new picture;
       // past `maxNew` (or with the cap spent) its old text is served.
@@ -1146,7 +1156,7 @@ function buildDescriber({
       while (next < picked.length) {
         const item = picked[next];
         next += 1;
-        const { result, joined } = await describeShared(placeId, item);
+        const { result, joined } = await describeShared(placeId, item, retryMisses);
         if (!result) continue;
         if (!result.cached && !joined) onCharge?.(result);
         found.set(item.itemId, result.text);
