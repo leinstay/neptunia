@@ -7,6 +7,7 @@ import type { StorageKey } from '../storage-keys.ts';
 import { storageContext } from '../map/index.ts';
 import { LEGACY_IFACE } from '../legacy-namespace.ts';
 import { guildPlaceId } from '../ids.ts';
+import { hasMessageFamilies } from '../message-family-catalog.ts';
 import { unitLines, layerDir } from './common.ts';
 import type { NativeMessageLocator } from '../recall.ts';
 import type { Db } from '../types.ts';
@@ -67,10 +68,17 @@ export function recordNewestRevision(
         .get(locator.iface, locator.conversationId, locator.messageId)
     : null;
   if (locator && (!family || locator.messageId !== messageId)) return null;
-  const clause = family ? 'authority_id=? AND native_kind=? AND native_id=? AND generation=?' : 'native_id=?';
+  // With no locator the message id still names its family: an observed line holds the family's key.
+  const clause = family
+    ? 'authority_id=? AND native_kind=? AND native_id=? AND generation=?'
+    : hasMessageFamilies(db)
+      ? 'native_id IN (?, (SELECT native_key FROM message_families WHERE iface=? AND message_id=? AND generation=1))'
+      : 'native_id=?';
   const values = family
     ? [family.authority_id, family.native_kind, family.native_key, family.generation]
-    : [String(messageId)];
+    : hasMessageFamilies(db)
+      ? [String(messageId), iface, String(messageId)]
+      : [String(messageId)];
   const ids = units.map((unit) => storageId(unit.key));
   const rows = db
     .prepare(
