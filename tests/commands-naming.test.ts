@@ -61,6 +61,8 @@ test('the table holds the plural collections and none of the retired singular or
       'mirror',
       'model',
       'pause',
+      // Stage Z: the engine proxy's commands.
+      'proxy',
       'resume',
       'routes',
       'rules',

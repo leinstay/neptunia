@@ -1423,6 +1423,13 @@
       "test": "required"
     },
     {
+      "path": "src/interface/commands/proxy.ts",
+      "purpose": "The `/proxy` commands over the engine proxy. Tested by the proxy command tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/interface/commands/mirror.ts",
       "purpose": "The owner's `/mirror` commands. Tested through the mirror command tests.",
       "layer": "public",

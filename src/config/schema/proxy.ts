@@ -11,6 +11,13 @@ export const PROXY: ReadonlyArray<SchemaEntry> = [
     'text': "Send the core's connections, yt-dlp and every agent run through the proxy stored by `/proxy set`",
   },
   {
+    'key': 'proxy.userAgent',
+    'types': ['string'],
+    'reader': 'src/interface/commands/proxy.ts',
+    'default': '',
+    'text': "The user agent curl sends in agent runs, written to each harness home's `.curlrc` by `/proxy useragent`",
+  },
+  {
     'key': 'proxy.health.everySeconds',
     'types': ['number'],
     'reader': 'src/net/proxy.ts',

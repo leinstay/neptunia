@@ -288,9 +288,12 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 ## proxy
 
+The engine proxy is described in [Proxy](proxy.md).
+
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `proxy.enabled` | boolean | `false` | Send the core's connections, yt-dlp and every agent run through the proxy stored by `/proxy set` | `src/net/proxy.ts` |
+| `proxy.userAgent` | string | `""` | The user agent curl sends in agent runs, written to each harness home's `.curlrc` by `/proxy useragent` | `src/interface/commands/proxy.ts` |
 | `proxy.health.everySeconds` | number | `60` | Seconds between two probes of the proxy | `src/net/proxy.ts` |
 | `proxy.health.failures` | number | `3` | Failed probes in a row that send every connection direct | `src/net/proxy.ts` |
 | `proxy.health.recoveries` | number | `2` | Good probes in a row that take the proxy back | `src/net/proxy.ts` |

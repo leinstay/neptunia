@@ -200,6 +200,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/intentions/types.ts` | public | The shapes the intention modules share. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
 | `src/interface/` | public | The core side of the interface port: the door that admits events, the link to an interface, the socket server, the fake interface and typing leases. | `node:*`, `src/**` | required |
 | `src/interface/commands/` | public | The owner's command table of the chat and `neptunia -p`, its parse, and the console that runs a parsed command in the core as the owner. | `node:*`, `src/**` | required |
+| `src/interface/commands/proxy.ts` | public | The `/proxy` commands over the engine proxy. Tested by the proxy command tests. | `node:*`, `src/**` | none |
 | `src/interface/commands/mirror.ts` | public | The owner's `/mirror` commands. Tested through the mirror command tests. | `node:*`, `src/**` | none |
 | `src/keys/` | public | The model keys of a deployment: the key store (`keys.json`), the core key list with its failover, the probes that check a key and a model, the owner's key commands and the one-time import of the old `.env` variables. | `node:*`, `src/keys/**`, `src/agent-runner/profiles.ts`, `src/llm/key-failover.ts`, `src/llm/openrouter.ts`, `src/llm/roles.ts`, `src/log.ts`, `src/time.ts` | required |
 | `src/llm/` | public | The language model calls: OpenRouter, roles, budgets, token counts, limits and output parsing. | `node:*`, `src/**` | required |

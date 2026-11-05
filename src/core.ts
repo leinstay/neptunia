@@ -1500,6 +1500,7 @@ async function buildCore(
       usage,
       metrics,
       wakeClock: (name) => wakeClockOf(name, { now: clock(), inner, selfreflection }),
+      proxy,
       conversationLines: (conversationId, count) => recentChannelLines(conversationId, count),
       now: Date.now,
       // `/mirror` (src/interface/commands/mirror.ts).

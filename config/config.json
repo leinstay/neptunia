@@ -253,6 +253,7 @@
   },
   "proxy": {
     "enabled": false,
+    "userAgent": "",
     "health": {
       "everySeconds": 60,
       "failures": 3,
