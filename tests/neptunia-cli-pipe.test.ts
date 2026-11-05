@@ -59,7 +59,7 @@ function readSlowly(stream: NodeJS.ReadableStream): Promise<Buffer> {
     });
     const tick = (): void => {
       if (ended) return;
-      const piece = readable.read(16 * 1024);
+      const piece = readable.read(16 * 1024) as Buffer | null;
       if (piece !== null) pieces.push(piece);
       setTimeout(tick, 20);
     };
