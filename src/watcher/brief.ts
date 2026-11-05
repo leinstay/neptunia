@@ -12,7 +12,7 @@ const EARLIER_REPORTS = 7;
 const iso = (at: number): string => new Date(at).toISOString();
 
 /**
- * The prompt, `<day>`, `<observation from to day-from>` and `<install>` when the run has them, and one `<report day="...">`
+ * The prompt, `<day>`, `<observation from to day-from>`, `<install>` and `<memory>` when the run has them, and one `<report day="...">`
  * per earlier report, with `run="..."` on those of the run's day.
  */
 export function buildBrief({
@@ -21,12 +21,15 @@ export function buildBrief({
   reportsDir,
   observation,
   install,
+  memory = [],
 }: {
   prompt: string;
   day: string;
   reportsDir: string;
   observation?: { from: number; to: number; dayFrom: number };
   install?: InstallFacts;
+  /** Stored facts from group conversations that bear on failing work, one line each. */
+  memory?: ReadonlyArray<string>;
 }): string {
   const earlier: Array<string> = [];
   for (const one of reportDays(reportsDir).filter((other) => other < day)) {
@@ -46,6 +49,7 @@ export function buildBrief({
           `<observation from="${iso(observation.from)}" to="${iso(observation.to)}" day-from="${iso(observation.dayFrom)}"/>`,
         ]),
     ...(install === undefined ? [] : [`<install>\n${JSON.stringify(install, null, 2)}\n</install>`]),
+    ...(memory.length === 0 ? [] : [`<memory>\n${memory.join('\n')}\n</memory>`]),
     ...earlier.slice(-EARLIER_REPORTS),
   ];
   return `${parts.join('\n\n')}\n`;

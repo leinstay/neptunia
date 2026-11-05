@@ -7,6 +7,10 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { retrieveMemory } from '../memory/db/retrieve.ts';
+import { groupsContext } from '../memory/db/scope.ts';
+import { dbOf } from '../memory/db/types.ts';
+import { memoryQueryFor, retrievalBounds } from '../memory/retrieval-input.ts';
 import { openMemoryDb } from '../memory/db/open.ts';
 import { listSkills } from '../memory/db/skills.ts';
 
@@ -116,4 +120,37 @@ export function installFacts(input: { rootDir: string; dataDir: string; git?: Gi
     activeSkills,
     unavailable,
   };
+}
+
+/** What the watcher asks memory about: the words a failing run leaves behind. */
+const FAILURE_WORDS = 'failed failure error timeout';
+
+/**
+ * Stored facts about failures for the watcher's brief, through the one retrieval service on a read-only connection. The
+ * context reads group memory only: a report can reach a public filing, so no DM does. Never throws, and [] without a database
+ * or without a fact.
+ */
+export async function watcherMemory(input: {
+  dataDir: string;
+  config: { recall?: unknown; memoryDb?: unknown };
+  now?: () => number;
+}): Promise<Array<string>> {
+  const file = path.join(input.dataDir, 'memory.db');
+  if (!fs.existsSync(file)) return [];
+  let handle: ReturnType<typeof openMemoryDb> | null = null;
+  try {
+    handle = openMemoryDb(file, { readOnly: true });
+    const bounds = retrievalBounds(input.config as Parameters<typeof retrievalBounds>[0], 'watcher');
+    const page = await retrieveMemory(
+      dbOf(handle),
+      groupsContext(),
+      memoryQueryFor({ purpose: 'watcher', goal: FAILURE_WORDS, runIds: [] }, bounds),
+      { now: input.now ?? Date.now, embedQuery: null, model: null, sources: false }
+    );
+    return page.assertions.map((fact) => `(${fact.state}) ${fact.text}`);
+  } catch {
+    return [];
+  } finally {
+    handle?.close();
+  }
 }

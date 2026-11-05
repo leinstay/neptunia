@@ -6,7 +6,14 @@
 import { accountOf, sharedPlaceOf } from '../memory/addresses.ts';
 import { PERSONA_ID } from '../memory/db/storage-keys.ts';
 import { diaryRestricted } from '../tools/publication.ts';
+import { fill } from '../format.ts';
+import { personOfMember } from '../memory/addresses.ts';
+import { listOf, objOf } from '../tools/types.ts';
+import { block } from './request/text.ts';
 import { isIssuedInternalContext } from '../memory/db/scope.ts';
+import type { MemoryPage } from '../memory/db/semantic-types.ts';
+import { factStateWords } from '../memory/retrieval-input.ts';
+import type { RetrievalInput } from '../memory/retrieval-input.ts';
 import type { Context } from '../memory/db/scope.ts';
 import {
   DEFAULT_PICTURE_KINDS,
@@ -84,6 +91,8 @@ export type DiaryImages = { quota?: (options: object) => { used: number; cap: nu
 
 /** What createDiary reads: the dependencies and the functions of the notes and of participation it calls. */
 export type DiaryContext = {
+  /** A diary post's stored facts through the one retrieval service. */
+  diaryFacts?: ((input: RetrievalInput) => Promise<MemoryPage | null>) | null;
   hot: { readonly prompts: DiaryPrompts | null | undefined };
   store: DiaryStore;
   llm: DiaryLlm;
@@ -154,6 +163,43 @@ function mergedNotes(notes: ReadonlyArray<PlaceNotes>): PlaceNotes {
 }
 
 /**
+ * The stored facts of a diary post's interval, for its plan: the people she knows and the days since her last post, read
+ * under the diary's context, so no DM reaches a mirror. '' when there are none or the read failed.
+ */
+async function reflectionFacts(
+  read: ((input: RetrievalInput) => Promise<MemoryPage | null>) | null,
+  store: { listUserProfiles?: () => unknown },
+  posts: ReadonlyArray<{ at?: unknown }>,
+  now: number,
+  labels: unknown,
+  warn: { warn(message: string, fields: Record<string, unknown>): void }
+): Promise<string> {
+  if (typeof read !== 'function') return '';
+  try {
+    const last = Math.max(0, ...posts.map((post) => Number(post.at) || 0));
+    const profiles = listOf(store.listUserProfiles?.()).map(objOf);
+    const page = await read({
+      purpose: 'reflection',
+      from: new Date(last).toISOString(),
+      to: new Date(now).toISOString(),
+      participants: profiles.flatMap((one: Record<string, unknown>) =>
+        typeof one.id === 'string' ? [personOfMember(store, one.id)] : []
+      ),
+      entities: [],
+    });
+    const words = objOf(objOf(labels).diaryFacts);
+    if (!page?.assertions.length || typeof words.header !== 'string' || typeof words.fact !== 'string') return '';
+    const states = objOf(objOf(objOf(labels).prefetch).factStates);
+    const line = words.fact;
+    const lines = page.assertions.map((fact) => fill(line, { state: factStateWords(fact, states), text: fact.text }));
+    return block('stored_facts', [words.header, ...lines].join('\n'));
+  } catch (err) {
+    warn.warn('diary: retrieval failed', { code: objOf(err).code ?? null });
+    return '';
+  }
+}
+
+/**
  * What a diary plan reads of the places she knows: the notes of the top places the entry's readers may see. With one top
  * place, its notes. With several, a place's notes reach the plan only when the entry stays inside its tree (its readers
  * read that server), and every place's when the entry is posted in no server at all: nobody outside reads it yet.
@@ -171,7 +217,7 @@ export function diaryPlaceNotes(
 }
 
 export function createDiary(ctx: DiaryContext): Diary {
-  const { hot, store, llm, calibrator, rng, lookup, images, journalOp, recentOfPlaces } = ctx;
+  const { hot, store, llm, calibrator, rng, lookup, images, journalOp, recentOfPlaces, diaryFacts = null } = ctx;
 
   /**
    * A diary post's first step (mode `diary`), before its request is built:
@@ -239,6 +285,7 @@ export function createDiary(ctx: DiaryContext): Diary {
       const recent = memoryOn
         ? recentOfPlaces(tops, { channel, snapshot: snapshotOfDraft(draft), isPrivate: false, config, now })
         : NO_RECENT;
+      const factsText = memoryOn ? await reflectionFacts(diaryFacts, store, posts, now, labels, log) : '';
       const seedsText = renderSeedsBlock(pickSeeds(parseSeedFamilies(prompts['diary-seeds']), SEED_SETS, rng), labels);
       const request = buildDiaryPlanRequest({
         config,
@@ -261,7 +308,7 @@ export function createDiary(ctx: DiaryContext): Diary {
         posts,
         kinds,
         seedsText,
-        topicText: renderTopicBlock(topic, labels),
+        topicText: [renderTopicBlock(topic, labels), factsText].filter(Boolean).join('\n\n'),
       });
       const planTimeoutMs = diaryCfg.planTimeoutMs ?? 60000;
       // A hedged plan request gets the plan's own limit, not llm.hedge.timeoutMs.

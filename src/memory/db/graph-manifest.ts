@@ -100,8 +100,23 @@ export const NODE_KINDS: Readonly<Record<string, NodeKindSpec>> = Object.freeze(
   work: { table: 'work', key: 'id', created: 'created_ms', ms: true, audience: 'audience_id', retired: 'retired_at' },
   decision: { table: 'decisions', key: 'id', created: 'at', internal: true, retired: 'retired_at' },
   publication: { table: 'publications', key: 'id', created: 'created_at', retired: 'retired_at' },
+  semantic_entity: { table: 'semantic_entities', key: 'id', created: 'created_at', retired: 'retired_at' },
   skill: { table: null, deferred: DEFERRED.skill },
 });
+
+/** The node kinds a semantic argument can point at. */
+const SEMANTIC_ENDPOINTS = [
+  'semantic_entity',
+  'person',
+  'account',
+  'participant',
+  'place',
+  'source',
+  'claim',
+  'claim_version',
+  'episode',
+  'media',
+] as const;
 
 /**
  * Predicates: `from` and `to` (node kinds), `table` (the typed table the edge comes from) and the `columns` the rule
@@ -235,7 +250,7 @@ export const PREDICATES = Object.freeze({
   },
   about: {
     from: ['claim', 'episode', 'description'],
-    to: ['person', 'place'],
+    to: ['person', 'place', 'semantic_entity'],
     table: 'claims',
     columns: ['subject_kind', 'subject_id', 'retired_at'],
     also: {
@@ -280,6 +295,30 @@ export const PREDICATES = Object.freeze({
     rule: 'each receipt of a sent publication that names a stored line (its native tuple, the first stored revision)',
     audience: 'as published_as',
   },
+  has_role: {
+    from: ['claim_version'],
+    to: [...SEMANTIC_ENDPOINTS],
+    table: 'semantic_arguments',
+    columns: ['version_id', 'role', 'position', 'ref_kind', 'ref_id'],
+    rule: 'each reference argument of a sealed version, keyed by role and position; retired when a successor follows or when the version itself says retired; a literal projects nothing',
+    audience: 'the version',
+  },
+  asserts: {
+    from: [...SEMANTIC_ENDPOINTS],
+    to: [...SEMANTIC_ENDPOINTS],
+    table: 'semantic_assertion_versions',
+    columns: ['version_id', 'assertion_kind', 'predicate_id', 'polarity', 'truth_state', 'audience_id'],
+    rule: 'the navigation shortcut of a positive binary relation, in the order of its predicate roles, naming its exact version in evidence_id; a version with state retired has none',
+    audience: 'the version',
+  },
+  denies: {
+    from: [...SEMANTIC_ENDPOINTS],
+    to: [...SEMANTIC_ENDPOINTS],
+    table: 'semantic_assertion_versions',
+    columns: ['version_id', 'assertion_kind', 'predicate_id', 'polarity', 'truth_state', 'audience_id'],
+    rule: 'as asserts, for a negative relation: it never reads as an affirmative edge',
+    audience: 'the version',
+  },
 });
 
 /** Every projected table and the unit it belongs to: [unit table, the column naming the unit] (null: the row is its own unit). */
@@ -301,6 +340,7 @@ export const UNIT_OF: Readonly<Record<string, readonly [string, string] | null>>
   intentions: null,
   work: null,
   decisions: null,
+  semantic_entities: null,
   account_person_links: ['accounts', 'account_id'],
   participant_links: ['participants', 'participant_id'],
   source_relations: ['sources', 'source_id'],
@@ -334,6 +374,7 @@ export const UNIT_ORDER: ReadonlyArray<string> = Object.freeze([
   'intentions',
   'work',
   'decisions',
+  'semantic_entities',
 ]);
 
 /** The relation predicates of `source_relations` that are graph predicates (`edits` and `references` are not in the list). */

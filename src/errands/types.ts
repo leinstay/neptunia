@@ -2,6 +2,8 @@
 // and the small value types between them. Types only, nothing runs here. src/errands/*.ts, the errand
 // operations (src/tools/impl/errand.ts) and the intention service (src/intentions/) import them.
 
+import type { MemoryPage } from '../memory/db/semantic-types.ts';
+import type { RetrievalInput } from '../memory/retrieval-input.ts';
 import type { PublicationBoundary } from '../tools/publication.ts';
 import type net from 'node:net';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
@@ -196,7 +198,11 @@ export type RunContext = {
   channel: string | null;
   asker: string | null;
   recent: Array<{ author: string; text: string }>;
+  /** Stored facts that bear on the goal, each with its standing; absent when there are none. */
+  memory?: Array<{ text: string; state: string; polarity: string }>;
 };
+/** The retrieval an errand reads through. */
+export type RetrieveForErrand = (input: RetrievalInput) => Promise<MemoryPage | null>;
 export type RunSecrets = { openrouterKey: string; proxy?: string; searchKey?: string };
 export type RunRequest = {
   agent: string;
@@ -284,6 +290,8 @@ export type ErrandServiceOptions = {
     recentLines: (conversationId: string, count: number) => Array<{ author?: unknown; text?: unknown }>;
   } | null;
 
+  /** The stored facts of an errand's goal through the one retrieval service, under a group context. */
+  retrieve?: RetrieveForErrand | null;
   onFinished?: ((errand: ErrandRecord) => unknown) | null;
   log?: Logger;
   defer?: (fn: () => unknown) => unknown;

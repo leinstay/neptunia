@@ -318,7 +318,9 @@ test('call sites: every request role is one of the roles, every purpose goes out
   const chatRoles = new Set(['system', 'user', 'assistant', 'tool']);
   let pairs = 0;
   for (const [file, text] of sources()) {
-    for (const [, role] of text.matchAll(/\brole: '([\w.-]+)'/g)) {
+    // A semantic predicate's argument also has a `role`; those files send no request.
+    const semantic = /memory[\\/]db[\\/]semantic-/.test(file);
+    for (const [, role] of semantic ? [] : text.matchAll(/\brole: '([\w.-]+)'/g)) {
       if (!chatRoles.has(role)) assert.ok(isRole(role), `${file}: role '${role}'`);
       assert.ok(
         !OPENCODE_ROLES.includes(role),

@@ -59,9 +59,10 @@ test('tools.describe: an exact name comes back in full with its arguments and wh
   const env = envOf({ 'memory.search': grant });
   const result = await call(env, 'memory.search');
   assert.equal(result.status, 'ok');
+  // The argument list follows memory.search's schema, which S7 extends with the semantic filters.
   assert.equal(
     dataText(result),
-    'memory.search: Search -- find old talk (allowed) Arguments: question, people, channel, when, terms, anchor, move, messages, minutes.'
+    'memory.search: Search -- find old talk (allowed) Arguments: question, people, channel, when, terms, anchor, move, messages, minutes, entity, predicate, as_of, historical.'
   );
   const off = await call(env, 'memory.journal.read');
   assert.match(dataText(off), /\(off\)/);

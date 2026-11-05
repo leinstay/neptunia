@@ -22,6 +22,7 @@
 //     key is null when its variable is unset: no other key stands in. Names only, never a value.
 //   effectiveModelsLine(list) -> string[]    `purpose=model@KEY` per entry, for the start-up log line
 
+import { entityLabels } from './semantic-read.ts';
 import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../../llm/openrouter.ts';
 import { MEMORY_PURPOSES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';
 import {
@@ -139,7 +140,7 @@ export function openFlags(
     const kind = op?.subjectKind as string | undefined;
     if (
       !op ||
-      !['person', 'place', 'self'].includes(kind as string) ||
+      !['person', 'place', 'self', 'entity'].includes(kind as string) ||
       typeof op.subjectId !== 'string' ||
       !DESCRIPTION_FIELDS.includes(op.field as string)
     )
@@ -154,7 +155,10 @@ export function openFlags(
     // A flag an accepted review answered since is closed; a later flag of the same description opens it again.
     if (seen.has(key) || skip.has(key) || reviewed.get(key, row.at)) continue;
     seen.add(key);
-    const name = subjectName(db, subject.kind, subject.id, selfName);
+    const name =
+      subject.kind === 'entity'
+        ? (entityLabels(db, readCtx, subject.id, { recordedBefore: null })[0]?.text ?? null)
+        : subjectName(db, subject.kind, subject.id, selfName);
     flags.push({ key, at: row.at, subject: name ? { ...subject, name } : subject, field: op.field as string, readCtx });
   }
   const close = closePeople(db);

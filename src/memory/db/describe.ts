@@ -21,7 +21,8 @@
 // `desc:<scope>:<subject>:<field>`; a stored row of the same subject, field and scope keeps the id it has.
 //
 // reviewDescription(db, subject, field, { ctx }) -> { status, code?, draft?, final?, reason?, row? }
-//   subject: { kind: 'person' | 'place' | 'self', id, name? }
+//   subject: { kind: 'person' | 'place' | 'self' | 'entity', id, name? }
+//            An entity's claims are the assertions that name it, read under the review's own context.
 //   ctx:     { llm, hot ({ config, prompts }), env, now, write, log, selfName, readCtx (a scope context, group by default) }
 //   The review reads (and finds its description) through `audience_id`, not the triple.
 
@@ -180,6 +181,13 @@ export type ReviewResult = Row & {
   reason?: string | null;
 };
 
+/** Which claims a subject's review reads: an entity's are the assertions that name it. Two parameters, kind and id. */
+const claimsOfSubject = (kind: string): string =>
+  kind === 'entity'
+    ? `c.subject_kind = 'semantic' AND ? IS NOT NULL AND c.id IN (SELECT v.claim_id FROM semantic_arguments g
+        JOIN claim_versions v ON v.id = g.version_id WHERE g.ref_kind = 'entity' AND g.ref_id = ?)`
+    : 'c.subject_kind = ? AND c.subject_id = ?';
+
 /** What the first call of a review is given, from the database. */
 export type Gathered = {
   descriptionId: string;
@@ -211,7 +219,7 @@ export function gatherReview(
   const claims = db
     .prepare(
       `SELECT c.id, c.kind, c.text, c.first_seen_at, c.last_seen_at, c.valid_to, c.truth, c.shown FROM claims c
-      WHERE c.subject_kind = ? AND c.subject_id = ? AND c.retired_at IS NULL AND ${scope.sql} ORDER BY c.first_seen_at, c.id LIMIT 300`
+      WHERE ${claimsOfSubject(subject.kind)} AND c.retired_at IS NULL AND ${scope.sql} ORDER BY c.first_seen_at, c.id LIMIT 300`
     )
     .all(subject.kind, subject.id, ...scope.params);
   const currentRow = db
@@ -362,7 +370,11 @@ export async function reviewDescription(
   const now = ctx.now ?? Date.now;
   const refused = reviewRefusal(config, ctx.env, prompts, ctx.ring);
   if (refused) return { status: refused === CODES.OFF ? 'off' : 'refused', code: refused };
-  if (!DESCRIPTION_FIELDS.includes(field) || !subject?.id || !['person', 'place', 'self'].includes(subject.kind))
+  if (
+    !DESCRIPTION_FIELDS.includes(field) ||
+    !subject?.id ||
+    !['person', 'place', 'self', 'entity'].includes(subject.kind)
+  )
     return { status: 'refused', code: 'bad_subject' };
   // Read through `audience_id`, as every context the core issues reads.
   const readCtx: Context = { ...(ctx.readCtx ?? groupContext(ifaceOrLegacy(ctx))), audienceColumn: true };

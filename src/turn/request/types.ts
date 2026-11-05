@@ -31,9 +31,11 @@ export type PrefetchLabels = {
   readonly caution?: unknown;
   readonly excerpt?: unknown;
   readonly memoryExcerpt?: unknown;
+  readonly factExcerpt?: unknown;
+  readonly factStates?: { readonly [state: string]: unknown };
   readonly lanes?: { readonly [kind: string]: unknown };
   readonly status?: { readonly [status: string]: unknown };
-  readonly sources?: { readonly memory?: string; readonly history?: string };
+  readonly sources?: { readonly memory?: string; readonly history?: string; readonly fact?: string };
 };
 
 /** `labels.tools`: the `<skills>` line, the access words, the argument forms and the proposed notes. */

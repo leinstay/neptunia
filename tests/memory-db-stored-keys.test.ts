@@ -28,7 +28,8 @@ test('the migration renames the keys of a stored row and leaves a value spelled 
       note: 'the word "userId" in a text',
     };
     raw.prepare('INSERT INTO operational (kind, owner, value) VALUES (?, ?, ?)').run('state', 'o', JSON.stringify(row));
-    const step = MIGRATIONS.at(-1);
+    // The step that rewrites stored key names keeps its place in the list when later migrations append to it.
+    const step = MIGRATIONS[29];
     if (typeof step !== 'function') throw new Error('the last migration is a function of the connection');
     step(dbOf({ db: raw }), {});
     const value = raw.prepare('SELECT value FROM operational WHERE owner = ?').get('o') as { value: string };

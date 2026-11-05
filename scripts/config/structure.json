@@ -1556,6 +1556,34 @@
       "test": "none"
     },
     {
+      "path": "src/memory/db/semantic-rows.ts",
+      "purpose": "What the semantic writer and reader share: the label and merge rows a version derives, and the versions a context selects at a cutoff. Tested through the semantic write and read tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/semantic-answer.ts",
+      "purpose": "The entities and assertions groups of a memory session's answer, checked and resolved to typed ids. Tested through the semantic session tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/session-scopes.ts",
+      "purpose": "The scopes a memory session sweeps: the groups of an interface, each DM alone, a DM of an opaque partner by its stored place. Tested through the session tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/semantic-types.ts",
+      "purpose": "The shapes of semantic memory: references, arguments, candidates, resolved writes and the retrieval page. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/map/",
       "purpose": "The mapping of memory rows to records and back.",
       "layer": "public",

@@ -467,7 +467,11 @@
       "anchor": "#N from a result or the chat, or a message id. Reads nearby lines instead of searching.",
       "move": "up for earlier, down for later.",
       "messages": "How many lines (1 to 60).",
-      "minutes": "Lines within this many minutes of the anchor (1 to 1440)."
+      "minutes": "Lines within this many minutes of the anchor (1 to 1440).",
+      "entity": "An entity id from a stored fact: its facts and what sits next to them.",
+      "predicate": "Only facts of this predicate, such as project.works_on.",
+      "as_of": "A date: stored facts as you had recorded them at its start.",
+      "historical": "Also older versions and retired facts."
     }
   },
   "conversation.read": {

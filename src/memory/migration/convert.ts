@@ -97,7 +97,11 @@ const sha256 = (file: string): string => createHash('sha256').update(fs.readFile
 /** The ordinary tables of a database: no FTS shadow, no sqlite table. */
 function tablesOf(db: Db): Array<string> {
   return (db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table'").all() as Array<Row>)
-    .filter((row) => !/^(sqlite_|sources_(fts|tri)_)/.test(String(row.name)) && !/VIRTUAL/i.test(String(row.sql)))
+    .filter(
+      (row) =>
+        !/^(sqlite_|sources_(fts|tri)_|semantic_search_fts_)/.test(String(row.name)) &&
+        !/VIRTUAL/i.test(String(row.sql))
+    )
     .map((row) => String(row.name))
     .sort();
 }
@@ -425,7 +429,39 @@ function ensuredUnit(target: Db, id: string, key: StorageKey): boolean {
   return true;
 }
 
-/** Carries every row of `source` into the empty `target`, and answers what happened to each table. */
+/** The rows of the semantic search index's own tables: derived from its documents, so they are only counted. */
+function countSemanticShadows(source: Db, target: Db, tables: Record<string, Counts>): void {
+  const names = target
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'semantic_search_fts_*'")
+    .all() as Array<Row>;
+  const count = (db: Db, name: string): number =>
+    Number((db.prepare(`SELECT COUNT(*) AS n FROM ${quote(name)}`).get() as Row).n);
+  const inSource = source.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?");
+  for (const row of names) {
+    const name = String(row.name);
+    const held = count(target, name);
+    tables[name] = inSource.get(name)
+      ? { ...emptyCounts(), input: count(source, name), preserved: held, output: held }
+      : { ...emptyCounts(), added: held, output: held };
+  }
+}
+
+/** The guards of sealed semantic versions: lifted while rows are carried, because each sealed row arrives whole. */
+function liftSemanticGuards(target: Db): () => void {
+  const guards = target
+    .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'trigger' AND name GLOB 'semantic_*_no_*'")
+    .all() as Array<Row>;
+  for (const guard of guards) target.exec(`DROP TRIGGER ${quote(String(guard.name))}`);
+  return () => {
+    for (const guard of guards) target.exec(String(guard.sql));
+  };
+}
+
+/**
+ * Carries every row of `source` into the empty `target`, and answers what happened to each table. A table of the current
+ * schema that the input does not hold (the semantic tables of a shipped v28) keeps what the migrations gave it: the
+ * registry's first versions, counted as added, and no semantic row, because the conversion infers nothing from prose.
+ */
 function copyRows(
   source: Db,
   target: Db,
@@ -452,7 +488,15 @@ function copyRows(
   const tables: Record<string, Counts> = {};
   const sourceTables = tablesOf(source);
   const targetTables = new Set(tablesOf(target));
-  for (const table of targetTables) target.exec(`DELETE FROM ${quote(table)}`);
+  const restoreGuards = liftSemanticGuards(target);
+  for (const table of targetTables) {
+    if (sourceTables.includes(table)) {
+      target.exec(`DELETE FROM ${quote(table)}`);
+      continue;
+    }
+    const held = Number((target.prepare(`SELECT COUNT(*) AS n FROM ${quote(table)}`).get() as Row).n);
+    tables[table] = { ...emptyCounts(), added: held, output: held };
+  }
   for (const table of sourceTables) {
     const counts = emptyCounts();
     tables[table] = counts;
@@ -509,6 +553,8 @@ function copyRows(
   target.exec('DELETE FROM sqlite_sequence');
   const sequence = target.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)');
   for (const row of sequences) sequence.run(String(row.name), Number(row.seq));
+  restoreGuards();
+  countSemanticShadows(source, target, tables);
   return tables;
 }
 
