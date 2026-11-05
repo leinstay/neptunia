@@ -178,8 +178,6 @@ export type Profile = {
   tools: ReadonlyArray<string>;
   shell: string;
   childEnv: Readonly<Record<string, string>>;
-  /** always empty: no agent has commands of its own on its PATH (tests/scout-harness-search.test.ts pins it) */
-  pathDirs: ReadonlyArray<string>;
   defaultLimits: Readonly<Record<string, number>>;
   defaultDaily: Readonly<Record<string, number>>;
   defaultSearchProvider: string | null;
@@ -1360,7 +1358,6 @@ function makeProfile(definition: WorkerDefinition, paths: ResolvedAgentPaths): P
     shell: definition.shell,
     // The variables its OpenCode child runs with over the runner's environment (its shell class's `env`).
     childEnv: SHELL_CLASSES[definition.shell].env,
-    pathDirs: [],
     // The folders of its own commands, first on its child's PATH (its shell class's `path`).
     defaultLimits: definition.limits,
     defaultDaily: definition.daily,

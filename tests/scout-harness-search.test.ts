@@ -106,5 +106,6 @@ test('the scout profile keeps its own websearch tool and has no command folder',
   const scout = profileOf('scout');
   assert.ok(scout);
   assert.ok(scout.tools.includes('websearch'));
-  assert.deepEqual([...scout.pathDirs], []);
+  // Stage W: the owner changed this from an empty `pathDirs` list to no `pathDirs` field at all.
+  assert.equal('pathDirs' in scout, false);
 });
