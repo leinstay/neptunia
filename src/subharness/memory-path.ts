@@ -6,11 +6,11 @@
 // opencode cannot carry the writer, because `opencode run` takes no system prompt of its own.
 
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
-import { EFFORT_LEVELS, isEffortLevel } from '../llm/roles.ts';
+import { EFFORT_LEVELS, isEffortLevel, isListedEffort } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { MEMORY_BACKENDS, readKeys, writeKeys } from '../keys/file.ts';
 import type { MemoryBackend, MemoryPathRecord } from '../keys/file.ts';
-import { MEMORY_CLAIM, checkedSelection, dropClaim } from './selection.ts';
+import { MEMORY_CLAIM, checkedSelection, dropClaim, listsEffort } from './selection.ts';
 import type { EnableDeps, SubharnessResult } from './control.ts';
 
 export { MEMORY_BACKENDS };
@@ -50,8 +50,8 @@ export async function setMemoryPath(
     );
   let level: EffortLevel | undefined;
   if (effort !== undefined) {
-    if (!isEffortLevel(effort))
-      return refused('unknown-effort', `${effort} is no effort; use ${EFFORT_LEVELS.join(', ')}`);
+    if (!isListedEffort(effort) || !(isEffortLevel(effort) || (await listsEffort(deps, name, effort))))
+      return refused('unknown-effort', `${effort} is no effort of ${name}; use ${EFFORT_LEVELS.join(', ')}`);
     level = effort;
   }
   if (model.trim() === '') return refused('model-rejected', 'name the model; nothing was changed');

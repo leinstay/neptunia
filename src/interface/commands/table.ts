@@ -310,6 +310,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
     defaultSubcommand: 'show',
     subcommands: [
       sub('show', 'Show model of every model role'),
+      sub(
+        'sources',
+        'Show what can serve a role, with its evidence and setup commands, as JSON, with no model request',
+        [arg('role', true, MODEL_SET_CHOICES)]
+      ),
       sub('set', 'Choose a role’s model and source, test it with one reply and optionally set provider or effort', [
         arg('role', true, MODEL_SET_CHOICES),
         arg('model', false),

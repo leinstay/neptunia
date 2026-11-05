@@ -70,6 +70,8 @@ export type CommandAnswer = {
   replyRef: string;
   text: string;
   status: string;
+  /** Why a refused command was refused, when the command names it. */
+  code?: string;
   /** A question (status `ask`): the dialog to answer by, the prompt, whether the answer is secret and its choices. */
   dialogId?: string;
   prompt?: string;

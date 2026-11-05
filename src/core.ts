@@ -134,6 +134,8 @@ import { createLeasedAttention } from './behavior/attention.ts';
 import { RELATIONSHIP_LIMITS } from './memory/text-limits.ts';
 import { createInstalledBackend, runChildProcess } from './agent-runner/backend.ts';
 import { helpOfInstalled } from './subharness/place.ts';
+import { DEFAULT_BASE_URL } from './subharness/models.ts';
+import { backendUsageReader, execUsage, spawnUsageChild } from './subharness/usage.ts';
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
 import { clearMemoryPath } from './subharness/memory-path.ts';
@@ -1388,6 +1390,20 @@ async function buildCore(
       skills: skillsWiring.access,
       // `/keys` and the checked `/model set` (src/keys/commands.ts), over the key store.
       keys: { enabled: () => true, run: (name, args, dialog) => keysCommands.run(name, args, dialog) },
+      roleKey: (role) => keyRing.route(role),
+      // The backends' own accounts for `/usage` (src/subharness/usage.ts): reads of their accounts, no model run.
+      backendUsage: backendUsageReader(() => {
+        const base = objOf(objOf(hot.config).llm).baseUrl;
+        return {
+          privateDir: paths.privateDir,
+          now: Date.now,
+          fetch,
+          baseUrl: typeof base === 'string' ? base : DEFAULT_BASE_URL,
+          openRouterKey: keyRing.route('core'),
+          spawn: spawnUsageChild,
+          exec: execUsage,
+        };
+      }),
       // `/model set --via` checks with one reply of the backend (src/subharness/selection.ts); a mode change goes into
       // the agent's unit (src/setup/install.ts).
       subharness: {
