@@ -277,7 +277,6 @@ export const labels = {
   triggers: {
     mention: 'tagged you',
     reply: 'replied to your message',
-    name: 'mentioned you by name, without a tag',
     followUp: 'continued the conversation with you without tagging you',
     overheard: 'talked about you to someone else, not to you',
     private: 'wrote to you privately',

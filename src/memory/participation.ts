@@ -43,9 +43,6 @@ export type ParticipationSettings = {
   shown: number;
   perChannel: number;
   episodeChars: number;
-  contextMessages: number;
-  maxOutputTokens: number;
-  pickTimeoutMs: number;
   earlierHours: number;
   earlierShown: number;
 };
@@ -79,11 +76,8 @@ export type Episode = {
 export type ParticipationState = { episodes: Array<Episode>; nextId: number };
 
 /**
- * The participation measures: production values of the config cut of 2026-10-31, and the fallbacks of the two
- * keys `participation.maxOutputTokens` and `participation.pickTimeoutMs`. `contextMessages`, `maxOutputTokens` and
- * `pickTimeoutMs` belong to the pick classifier (src/behavior/participation-pick.js, which
- * applies the time limit), `earlierHours` and `earlierShown` to the current channel's
- * `<earlier>` block (`earlierEpisodes`).
+ * The participation measures: production values of the config cut of 2026-10-31. `earlierHours` and `earlierShown`
+ * belong to the current channel's `<earlier>` block (`earlierEpisodes`).
  */
 export const PARTICIPATION_DEFAULTS: Readonly<ParticipationSettings> = Object.freeze({
   hours: 72,
@@ -98,9 +92,6 @@ export const PARTICIPATION_DEFAULTS: Readonly<ParticipationSettings> = Object.fr
   shown: 4,
   perChannel: 2,
   episodeChars: 1800,
-  contextMessages: 6,
-  maxOutputTokens: 60,
-  pickTimeoutMs: 1500,
   earlierHours: 3,
   earlierShown: 3,
 });
@@ -116,16 +107,9 @@ const HEADLINE_JOIN = ' / ';
 /** How many messages at each end of an episode a priority cut keeps when the budget allows. */
 const CUT_EDGE = 2;
 
-/**
- * The participation settings: `PARTICIPATION_DEFAULTS` (production values, config cut of 2026-10-31), with the
- * pick classifier's `maxOutputTokens` and `pickTimeoutMs` read from `config.participation` at the moment of use.
- */
-export function participationSettings(config: StoredRecord): ParticipationSettings {
-  const section = isRecord(config?.participation) ? config.participation : {};
-  const out = { ...PARTICIPATION_DEFAULTS };
-  for (const key of ['maxOutputTokens', 'pickTimeoutMs'] as const)
-    out[key] = section[key] ?? PARTICIPATION_DEFAULTS[key];
-  return out;
+/** The participation settings: PARTICIPATION_DEFAULTS, production values of the config cut of 2026-10-31. */
+export function participationSettings(): ParticipationSettings {
+  return { ...PARTICIPATION_DEFAULTS };
 }
 
 /**

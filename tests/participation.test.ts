@@ -66,15 +66,9 @@ const ids = (episode: { messages: Array<{ id: string }> }) => episode.messages.m
 
 // --- settings ------------------------------------------------------------------
 
-// PR 7d: the participation measures are constants; the request's output cap and pick timeout are the settings left.
-test('participation: missing keys fall back to the defaults, the two settings are read', () => {
-  assert.deepEqual(participationSettings({}), { ...PARTICIPATION_DEFAULTS });
-  assert.deepEqual(participationSettings({ participation: { maxOutputTokens: 9, pickTimeoutMs: 700 } }), {
-    ...PARTICIPATION_DEFAULTS,
-    maxOutputTokens: 9,
-    pickTimeoutMs: 700,
-  });
-  assert.ok(Object.isFrozen(PARTICIPATION_DEFAULTS));
+// Plan 2026-11-04-cli-and-memory B3: the output cap and the timeout moved to `elsewhere.*`, so only constants are left.
+test('participation: the settings are the production constants', () => {
+  assert.deepEqual(participationSettings(), { ...PARTICIPATION_DEFAULTS });
 });
 // --- recordOwnLine ---------------------------------------------------------------
 

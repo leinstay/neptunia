@@ -2,13 +2,32 @@
 
 import type { SchemaEntry } from '../schema.ts';
 
+export const ADDRESS: ReadonlyArray<SchemaEntry> = [
+  {
+    'key': 'address.attentionMinutes',
+    'types': ['number'],
+    'reader': 'src/pipeline/address-attention.ts',
+    'default': 15,
+    'text':
+      'Minutes after her post in a place during which an unflagged line there goes to the address classifier, and the window of the per-author rail. `0` sends only flagged lines and leaves the rail nothing to count',
+  },
+  {
+    'key': 'address.maxTurnsPerAuthor',
+    'types': ['number'],
+    'reader': 'src/pipeline/answer.ts',
+    'default': 50,
+    'text':
+      'Started turns of one author in one place within the window before the next is refused. `0` turns the rail off',
+  },
+];
+
 export const MENTION: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'mention.neverIgnore',
     'types': ['array'],
     'reader': 'src/pipeline/answer.ts',
     'default': [],
-    'text': 'User IDs never ignored',
+    'text': 'User IDs the per-author rail never refuses',
   },
   {
     'key': 'mention.pendingMinutes',

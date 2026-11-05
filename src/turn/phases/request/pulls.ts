@@ -54,6 +54,7 @@ export async function pullRequest(
           trigger,
           candidate,
           triggerKind,
+          mode: mode === 'auto' ? undefined : mode,
           source,
           selfName,
           config,

@@ -12,17 +12,16 @@ import { LLM } from './schema/llm.ts';
 import { MEMORY_DB } from './schema/memory-db.ts';
 import { EMBED } from './schema/embed.ts';
 import { CONTEXT } from './schema/context.ts';
-import { MENTION } from './schema/mention.ts';
+import { ADDRESS, MENTION } from './schema/mention.ts';
 import { MISSED } from './schema/missed.ts';
 import { TYPING } from './schema/typing.ts';
 import { PACE } from './schema/pace.ts';
 import { FORMAT } from './schema/format.ts';
 import { SPLIT } from './schema/split.ts';
-import { ROUTE } from './schema/route.ts';
+import { ELSEWHERE } from './schema/elsewhere.ts';
 import { MEMORY } from './schema/memory.ts';
 import { MEDIA } from './schema/media.ts';
 import { WEB } from './schema/web.ts';
-import { PARTICIPATION } from './schema/participation.ts';
 import { RECALL } from './schema/recall.ts';
 import { IMAGE } from './schema/image.ts';
 import { SPEECH } from './schema/speech.ts';
@@ -68,17 +67,17 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...MEMORY_DB,
   ...EMBED,
   ...CONTEXT,
+  ...ADDRESS,
   ...MENTION,
   ...MISSED,
   ...TYPING,
   ...PACE,
   ...FORMAT,
   ...SPLIT,
-  ...ROUTE,
+  ...ELSEWHERE,
   ...MEMORY,
   ...MEDIA,
   ...WEB,
-  ...PARTICIPATION,
   ...RECALL,
   ...IMAGE,
   ...SPEECH,

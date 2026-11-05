@@ -116,7 +116,7 @@ function sceneHot({ coreTools, access = {} }: { coreTools?: boolean; access?: ob
       reply: 'Someone called you: {{author}}.',
       interject: 'Jump into the conversation.',
       initiate: 'Start a topic.',
-      lookup: 'Decide whether {{name}} needs to look something up.\n{{skills}}',
+      'query-builder': 'Decide whether {{name}} needs to look something up.\n{{skills}}',
       labels,
     },
   };

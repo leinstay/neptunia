@@ -6,7 +6,7 @@
 import type { Track } from '../../loop-watch.ts';
 import type { SkillUse } from '../../memory/db/skills.ts';
 import type { IndexedSkill } from '../../skills/uses.ts';
-import type { createParticipationPicker } from '../../behavior/participation-pick.ts';
+import type { createElsewhereHooks } from '../../behavior/elsewhere-pick.ts';
 import type { createPullViews } from '../../behavior/pull-fetch.ts';
 import type { recordEntry } from '../../behavior/diary-turn.ts';
 import type { refreshEmojiIfOn } from '../../behavior/emoji-index.ts';
@@ -125,7 +125,7 @@ export type PhaseContext = {
   pullViews: ReturnType<typeof createPullViews>;
   // Whether the last turn that wanted prompts['follow-up'] found it missing or blank.
   promptState: { followUpMissing: boolean };
-  pickParticipation: ReturnType<typeof createParticipationPicker>;
+  pickParticipation: ReturnType<typeof createElsewhereHooks>['pickEpisodes'];
   notifyIdle: () => void;
   facts: Facts['facts'];
   /** The event loop watch's `track` (src/loop-watch.ts); the stages of the request phase are named operations. */

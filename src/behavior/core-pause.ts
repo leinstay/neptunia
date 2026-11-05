@@ -91,7 +91,7 @@ function pausedObservation(
     if (conversation.partnerId === undefined || conversation.partnerId === null) return null;
     return { direct: true, where: { placeId: placeOf(place, conversation, fields.iface) } };
   }
-  if (!place.isServed(conversation.rootId as string | null | undefined) || conversation.kind === 'thread') return null;
+  if (!place.isServed(conversation.rootId as string | null | undefined)) return null;
   if (author.bot === true && author.id !== place.selfId) return null;
   return {
     direct: looseOf(fields.addressing).mentioned === true,

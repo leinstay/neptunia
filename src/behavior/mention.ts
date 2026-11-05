@@ -1,30 +1,20 @@
-// Decides whether the persona reacts to being called at all — before any LLM
-// money is spent: she almost always ignores tag spam. The model gets a second veto later
-// (<skip/>) for calls that are simply not interesting.
+// The pure pieces of the door (src/pipeline/handle-message.ts): how a line carries the interface's flags, the attention
+// window and the per-author rail in front of a turn, and the answers of the address classifier. A flag is a fact an
+// interface reports; whether the line was said to her is the classifier's verdict.
 
-import { occursAsWholeWord } from '../memory/mentions.ts';
 import { MINUTE_MS } from '../time.ts';
 import type { Untyped } from '../tools/types.ts';
 
-/** How the persona was called. Order matters: a pinged reply is a 'reply', not a 'mention'. */
+/** How a line carries the interface's flags. Order matters: a pinged reply is a 'reply', not a 'mention'. */
 export function detectTrigger({
   mentionsSelf,
   repliesToSelf,
-  content,
-  nameTriggers,
 }: {
-  mentionsSelf: Untyped;
-  repliesToSelf: Untyped;
-  content?: string;
-  nameTriggers: Untyped;
-}): 'reply' | 'mention' | 'name' | null {
+  mentionsSelf: unknown;
+  repliesToSelf: unknown;
+}): 'reply' | 'mention' | null {
   if (repliesToSelf) return 'reply';
-  if (mentionsSelf) return 'mention';
-  const lowered = (content ?? '').toLowerCase();
-  // Whole word only, so a name trigger inside a longer word or URL does not count;
-  // an empty trigger never matches.
-  const named = nameTriggers.some((name: string) => occursAsWholeWord(lowered, name.toLowerCase()));
-  return named ? 'name' : null;
+  return mentionsSelf ? 'mention' : null;
 }
 
 /**
@@ -40,17 +30,24 @@ export function strippedLength(content: string, selfName: string): number {
 }
 
 /**
- * Remembers when each user called the persona, to spot repeated tags and spam.
- * Deliberately in-memory only: a restart forgiving everyone is fine.
+ * Remembers when a turn started under a key, for the per-author rail (decideTurn). Deliberately in-memory only: a
+ * restart forgiving everyone is fine.
  */
-export function createTagHistory(): { hit(accountId: string, now: number, windowMs: Untyped): number } {
-  const times = new Map();
+export function createTagHistory(): {
+  count(key: string, now: number, windowMs: number): number;
+  hit(key: string, now: number, windowMs: number): number;
+} {
+  const times = new Map<string, Array<number>>();
+  const recentOf = (key: string, now: number, windowMs: number) =>
+    (times.get(key) ?? []).filter((ts) => now - ts < windowMs);
   return {
-    /** Register a call and return how many calls this user made within `windowMs`, this one included. */
-    hit(accountId: string, now: number, windowMs: Untyped) {
-      const recent = (times.get(accountId) ?? []).filter((ts: Untyped) => now - ts <= windowMs);
+    /** How many hits `key` has within `windowMs`. */
+    count: (key, now, windowMs) => recentOf(key, now, windowMs).length,
+    /** Register a hit and return how many `key` has within `windowMs`, this one included. */
+    hit(key, now, windowMs) {
+      const recent = recentOf(key, now, windowMs);
       recent.push(now);
-      times.set(accountId, recent);
+      times.set(key, recent);
       return recent.length;
     },
   };
@@ -70,80 +67,54 @@ export function isTaggedCall(
   return ids.includes(selfId) && normalized.replyPingAccountId !== selfId;
 }
 
-// The call decision's measures. Production values, config cut of 2026-10-31.
-/** The calls by one member inside SPAM_WINDOW_MINUTES from which on they are spam. */
-const SPAM_THRESHOLD = 50;
-/** The chance a spam call is ignored. */
-const SPAM_IGNORE_CHANCE = 0.9;
-/** The chance a call by her name is noticed. */
-const NAME_TRIGGER_CHANCE = 1;
-/** The window in which one member's calls add up for the spam count, in minutes. */
-const SPAM_WINDOW_MINUTES = 10;
-
 /**
- * Whether the persona answers a call. A `name` call is noticed at NAME_TRIGGER_CHANCE; any other call is answered
- * unless it is tag spam (SPAM_THRESHOLD calls by the member inside the window, ignored at SPAM_IGNORE_CHANCE);
- * neverIgnore always answers. An ignored call's reason is `ignored:spam`.
- * @param input.recentCalls    Calls by this user within the spam window, this one included.
- * @returns `roll`
- *   is the rng value drawn (absent for neverIgnore, which rolls nothing), for the decision log.
+ * The per-author rail in front of a turn the classifier asked for: past `limit` started turns (`turns`, of one author
+ * in one place within `address.attentionMinutes`) a turn is refused. `limit` 0 switches the rail off, and an author in
+ * `mention.neverIgnore` is never refused.
  */
-export function decideMention({
-  kind,
-  recentCalls,
-  neverIgnore,
-  rng,
-}: {
-  kind: 'mention' | 'reply' | 'name' | 'followUp';
-  recentCalls: number;
-  neverIgnore: boolean;
-  rng: () => number;
-}): { respond: boolean; reason: string; ignoreChance: number; roll?: number } {
-  if (neverIgnore) return { respond: true, reason: 'never-ignore', ignoreChance: 0 };
-
-  if (kind === 'name') {
-    const roll = rng();
-    const respond = roll < NAME_TRIGGER_CHANCE;
-    return { respond, reason: respond ? 'name' : 'name-unnoticed', ignoreChance: 1 - NAME_TRIGGER_CHANCE, roll };
-  }
-
-  const ignoreChance = recentCalls >= SPAM_THRESHOLD ? SPAM_IGNORE_CHANCE : 0;
-  const roll = rng();
-  const respond = roll >= ignoreChance;
-  return { respond, reason: respond ? 'respond' : 'ignored:spam', ignoreChance, roll };
+export function decideTurn({ turns, limit, neverIgnore }: { turns: number; limit: number; neverIgnore: boolean }): {
+  respond: boolean;
+  reason: 'never-ignore' | 'respond' | 'refused';
+} {
+  if (neverIgnore) return { respond: true, reason: 'never-ignore' };
+  return limit > 0 && turns >= limit ? { respond: false, reason: 'refused' } : { respond: true, reason: 'respond' };
 }
 
-/** The window in which one member's calls add up for the spam count, in ms. */
-export const SPAM_WINDOW_MS = SPAM_WINDOW_MINUTES * MINUTE_MS;
-
-// --- The address classifier --------------------------------------------------
-// Production values, config cut of 2026-10-31.
-/** How long a follow-up window stays open after her answer, in minutes. */
-export const FOLLOW_UP_MINUTES = 15;
-/** The "no" verdicts in a row that close a follow-up window. */
-export const FOLLOW_UP_NO_STREAK = 5;
-
-// After the persona answers in a channel, a conversation window stays open for
-// a little while: an UNTAGGED message inside it is not answered blindly, it is
-// checked by a cheap classifier first (see pipeline.js and
-// docs/prompt-contract.md, "The address classifier"). The functions
-// below are the pure pieces of that decision.
+/** The words of a text, case-folded: runs of letters and digits. */
+const wordsOf = (text: string | null | undefined): Array<string> =>
+  (text ?? '')
+    .normalize('NFC')
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
 
 /**
- * Whether a follow-up window (per channel; see pipeline.js) is currently open:
- * the persona answered within FOLLOW_UP_MINUTES, and has not been ignored
- * FOLLOW_UP_NO_STREAK times in a row since.
+ * Whether `text` names one of `aliases`: its words, each through `stemmer` when there is one, hold the words of an alias
+ * in a row. Without a stemmer a word must equal the alias's word, so a short alias never matches inside a longer word.
  */
-export function isFollowUpOpen(
-  state: { lastAnswerAt: number; noStreak: number } | null | undefined,
-  now: number
+export function namesAlias(
+  text: string | null | undefined,
+  aliases: ReadonlyArray<string>,
+  stemmer: { stem: (word: string) => string } | null
 ): boolean {
-  if (!state) return false;
-  return now - state.lastAnswerAt < FOLLOW_UP_MINUTES * MINUTE_MS && state.noStreak < FOLLOW_UP_NO_STREAK;
+  const key = (word: string): string => (stemmer ? stemmer.stem(word) : word);
+  const words = wordsOf(text).map(key);
+  return aliases.some((alias) => {
+    const wanted = wordsOf(alias).map(key);
+    if (wanted.length === 0) return false;
+    for (let i = 0; i + wanted.length <= words.length; i += 1)
+      if (wanted.every((word, j) => words[i + j] === word)) return true;
+    return false;
+  });
+}
+
+/** Whether her post at `lastPostAt` still holds attention at `now`: the window excludes its own edge. */
+export function inAttention(lastPostAt: number | undefined, now: number, minutes: number): boolean {
+  return lastPostAt !== undefined && now - lastPostAt < minutes * MINUTE_MS;
 }
 
 /**
- * A mention of another member (not the persona) is always `no` before the
+ * An unflagged line that mentions another member (not the persona) is `no` before the
  * classifier is ever asked — see the prompt contract. A reply to another
  * member's message goes to the classifier like plain text; the reply ping
  * the platform adds for the replied-to author (`replyPingAccountId`) is not a

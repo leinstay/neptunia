@@ -86,7 +86,6 @@ const WORDS: Record<string, string> = {
   aboutChat: 'Conversation background',
   pulled: 'Retrieved conversations',
   neverIgnore: 'Always answer these accounts',
-  nameTriggers: 'Names that trigger a reply',
   ownerPerson: 'Owner identity',
   owners: 'Legacy owner accounts',
   placeId: 'Home community',

@@ -6,8 +6,8 @@ import {
   detectTrigger,
   strippedLength,
   createTagHistory,
-  decideMention,
-  isFollowUpOpen,
+  decideTurn,
+  inAttention,
   followUpPreFilter,
   deprecatedModelKeys,
   parseFollowUpVerdict,
@@ -17,70 +17,16 @@ import {
 } from '../src/behavior/mention.ts';
 import { ROLE_DEFAULTS, roleModel } from '../src/llm/roles.ts';
 
-const NAME_TRIGGERS = ['νεπτούνια'];
-
 // --- detectTrigger ----------------------------------------------------------
+// Plan 2026-11-04-cli-and-memory B1: name triggers leave the door, so the whole-word name tests of this section went
+// with them. The flag order survives.
 
 test('detectTrigger: a reply takes priority over a mention', () => {
-  const kind = detectTrigger({ mentionsSelf: true, repliesToSelf: true, content: '', nameTriggers: NAME_TRIGGERS });
-  assert.equal(kind, 'reply');
+  assert.equal(detectTrigger({ mentionsSelf: true, repliesToSelf: true }), 'reply');
 });
 
-test('detectTrigger: a mention takes priority over a name match', () => {
-  const kind = detectTrigger({
-    mentionsSelf: true,
-    repliesToSelf: false,
-    content: 'νεπτούνια γεια',
-    nameTriggers: NAME_TRIGGERS,
-  });
-  assert.equal(kind, 'mention');
-});
-
-test('detectTrigger: falls back to a name match when neither reply nor mention', () => {
-  const kind = detectTrigger({
-    mentionsSelf: false,
-    repliesToSelf: false,
-    content: 'έι νεπτούνια πώς είσαι',
-    nameTriggers: NAME_TRIGGERS,
-  });
-  assert.equal(kind, 'name');
-});
-
-test('detectTrigger: name matching is case-insensitive', () => {
-  const kind = detectTrigger({
-    mentionsSelf: false,
-    repliesToSelf: false,
-    content: 'ΕΙ ΝΕΠΤΟΎΝΙΑ ΤΙ ΓΙΝΕΤΑΙ',
-    nameTriggers: NAME_TRIGGERS,
-  });
-  assert.equal(kind, 'name');
-});
-
-test('detectTrigger: only matches whole words, not a substring inside a longer word', () => {
-  const kind = detectTrigger({
-    mentionsSelf: false,
-    repliesToSelf: false,
-    content: 'νεπτούνιαπου ακατανόητο εντελώς',
-    nameTriggers: NAME_TRIGGERS,
-  });
-  assert.equal(kind, null);
-});
-
-test('detectTrigger: whole-word matching works with non-Latin word boundaries (punctuation)', () => {
-  const kind = detectTrigger({
-    mentionsSelf: false,
-    repliesToSelf: false,
-    content: 'άκου, νεπτούνια, είσαι εδώ;',
-    nameTriggers: NAME_TRIGGERS,
-  });
-  assert.equal(kind, 'name');
-});
-
-test('detectTrigger: an empty name trigger matches nothing, an attachment-only message included', () => {
-  for (const content of ['', 'απλή κουβέντα']) {
-    const kind = detectTrigger({ mentionsSelf: false, repliesToSelf: false, content, nameTriggers: [''] });
-    assert.equal(kind, null, `content "${content}"`);
-  }
+test('detectTrigger: a line with no flag has no kind', () => {
+  assert.equal(detectTrigger({ mentionsSelf: false, repliesToSelf: false }), null);
 });
 
 // --- strippedLength -----------------------------------------------------------
@@ -118,30 +64,26 @@ test('createTagHistory: tracks different users independently', () => {
   assert.equal(history.hit('u2', 100, 60_000), 1);
 });
 
-// --- decideMention -----------------------------------------------------------
+// --- decideTurn -------------------------------------------------------------
+// Plan 2026-11-04-cli-and-memory B1: the per-author rail replaces the mention chance and the spam silence, and rolls
+// nothing. neverIgnore survives from decideMention.
 
-function rngReturning(value: number) {
-  return () => value;
-}
-
-test('decideMention: neverIgnore always responds regardless of rng', () => {
-  const result = decideMention({ kind: 'mention', recentCalls: 60, neverIgnore: true, rng: rngReturning(0) });
-  assert.deepEqual(result, { respond: true, reason: 'never-ignore', ignoreChance: 0 });
+test('decideTurn: neverIgnore always responds, whatever the count', () => {
+  const result = decideTurn({ turns: 60, limit: 1, neverIgnore: true });
+  assert.equal(result.respond, true);
+  assert.equal(result.reason, 'never-ignore');
 });
 
-// PR 7d: `mention.nameTriggerChance` is the constant 1, so a name is always noticed.
-test('decideMention: a name trigger is answered', () => {
-  const result = decideMention({ kind: 'name', recentCalls: 1, neverIgnore: false, rng: rngReturning(0.99) });
-  assert.deepEqual([result.respond, result.reason], [true, 'name']);
+test('decideTurn: the limit refuses the turn past it, and under it every turn starts', () => {
+  assert.equal(decideTurn({ turns: 50, limit: 50, neverIgnore: false }).respond, false);
+  assert.equal(decideTurn({ turns: 49, limit: 50, neverIgnore: false }).respond, true);
 });
 
-// PR 7d: the threshold (50 calls) and its ignore chance (0.9) are constants; no other ignore chance is left.
-test('decideMention: the spam threshold sets the ignore chance; under it every call is answered', () => {
-  const spam = decideMention({ kind: 'reply', recentCalls: 50, neverIgnore: false, rng: rngReturning(0) });
-  assert.deepEqual([spam.ignoreChance, spam.reason], [0.9, 'ignored:spam']); // rng 0 < 0.9 -> ignored
-  const under = decideMention({ kind: 'reply', recentCalls: 49, neverIgnore: false, rng: rngReturning(0) });
-  assert.deepEqual([under.ignoreChance, under.respond], [0, true]);
+test('decideTurn: a limit of zero turns the rail off', () => {
+  assert.equal(decideTurn({ turns: 1000, limit: 0, neverIgnore: false }).respond, true);
 });
+
+// The owner moved aliases to her person record, so the card's `## Aliases` reader and its tests went.
 
 test('isTaggedCall: a typed tag counts, the reply ping alone does not', () => {
   assert.equal(isTaggedCall({ mentionedAccountIds: ['s1'], replyPingAccountId: null }, 's1'), true);
@@ -150,28 +92,19 @@ test('isTaggedCall: a typed tag counts, the reply ping alone does not', () => {
   assert.equal(isTaggedCall({}, 's1'), false);
 });
 
-// --- The address classifier: isFollowUpOpen / followUpPreFilter / parseFollowUpVerdict --
+// --- The address classifier: inAttention / followUpPreFilter / parseFollowUpVerdict --
 
 // PR 7d: the window (15 minutes) and the streak that closes it (5) are constants of src/behavior/mention.ts.
 
-test('isFollowUpOpen: false when there is no window at all', () => {
-  assert.equal(isFollowUpOpen(null, 1000), false);
-  assert.equal(isFollowUpOpen(undefined, 1000), false);
+// Plan 2026-11-04-cli-and-memory B1: attention replaces the follow-up window, and a run of `no` verdicts no longer
+// closes it, so the no-streak cases went.
+test('inAttention: false with no post of hers', () => {
+  assert.equal(inAttention(undefined, 1000, 15), false);
 });
 
-test('isFollowUpOpen: false once followUpMinutes has passed since the last answer', () => {
-  const state = { openedAt: 1000, lastAnswerAt: 1000, noStreak: 0 };
-  assert.equal(isFollowUpOpen(state, 1000 + 15 * 60_000), false);
-});
-
-test('isFollowUpOpen: false once noStreak reaches followUpNoStreak, even if still fresh', () => {
-  const state = { openedAt: 1000, lastAnswerAt: 1000, noStreak: 5 };
-  assert.equal(isFollowUpOpen(state, 1000), false);
-});
-
-test('isFollowUpOpen: true just below the noStreak cap', () => {
-  const state = { openedAt: 1000, lastAnswerAt: 1000, noStreak: 4 };
-  assert.equal(isFollowUpOpen(state, 1000), true);
+test('inAttention: false at the edge of the window, true a moment before', () => {
+  assert.equal(inAttention(1000, 1000 + 15 * 60_000, 15), false);
+  assert.equal(inAttention(1000, 1000 + 15 * 60_000 - 1, 15), true);
 });
 
 test('followUpPreFilter: a reply to another member reaches the classifier', () => {

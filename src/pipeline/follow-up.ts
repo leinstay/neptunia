@@ -1,15 +1,16 @@
-// The follow-up path of an untagged line in an open window: at most one address classifier call in flight per channel,
-// the lines that arrive meanwhile held and worked off one at a time, and the follow-up or overheard turn a verdict asks
-// for, started now or deferred to the pending queue. createMessageHandler (src/behavior/pipeline.ts) builds it once
-// with createFollowUp; handleMessage asks maybeFollowUp first for a line that called nobody.
+// The door's two paths through the address classifier. A flagged line goes to it at once and its verdict decides the
+// turn (answerFlagged). An unflagged line goes only within attention, with at most one call in flight per place, the
+// lines that arrive meanwhile held and worked off one at a time (maybeFollowUp). The follow-up or overheard turn a
+// verdict asks for starts now or is deferred to the pending queue. createMessageHandler (src/behavior/pipeline.ts) builds
+// it once with createFollowUp; handleMessage calls one of the two for every line of a group place.
 
 import { followUpTriggerKind } from '../behavior/mention.ts';
 import { log } from '../log.ts';
-import type { AddressAnswer, ClassifyFollowUp } from './address-classifier.ts';
+import type { AddressAnswer, ClassifyAddress } from './address-classifier.ts';
+import type { AddressAttention, AddressGate } from './address-attention.ts';
 import type { Answer } from './answer.ts';
 import type { CallOutcome } from './call-outcome.ts';
 import type { ConversationRef } from './conversations.ts';
-import type { FollowUpGate, FollowUpWindows } from './follow-up-window.ts';
 import type { PendingQueueOps } from './pending-queue.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot, PipelineTurns } from './types.ts';
 
@@ -29,14 +30,15 @@ type FollowUpKind = 'followUp' | 'overheard';
 export type FollowUpContext = {
   hot: PipelineHot;
   turns: PipelineTurns;
-  followUpGate: FollowUpWindows['followUpGate'];
-  followUpMuted: FollowUpWindows['followUpMuted'];
+  addressGate: AddressAttention['addressGate'];
+  followUpMuted: AddressAttention['followUpMuted'];
   currentOf: (channel: Conv) => Promise<Conv>;
   refOf: (channel: Conv) => ConversationRef;
-  classifyFollowUp: ClassifyFollowUp;
+  classifyAddress: ClassifyAddress;
   turnBlocked: (placeId: string, config: PipelineConfig) => boolean;
   deferFollowUp: PendingQueueOps['deferFollowUp'];
   decideAndLog: Answer['decideAndLog'];
+  answerCall: Answer['answerCall'];
   drainPending: () => Promise<void>;
   announceRefusal: CallOutcome['announceRefusal'];
 };
@@ -48,33 +50,57 @@ export type MaybeFollowUp = (
   ownPrefill?: Promise<void> | null
 ) => Promise<boolean>;
 
+export type AnswerFlagged = (
+  channel: Conv,
+  normalized: Line,
+  kind: 'mention' | 'reply',
+  ownPrefill?: Promise<void> | null
+) => Promise<boolean>;
+
 export function createFollowUp({
   hot,
   turns,
-  followUpGate,
+  addressGate,
   followUpMuted,
   currentOf,
   refOf,
-  classifyFollowUp,
+  classifyAddress,
   turnBlocked,
   deferFollowUp,
   decideAndLog,
+  answerCall,
   drainPending,
   announceRefusal,
-}: FollowUpContext): { maybeFollowUp: MaybeFollowUp } {
-  const followUpInFlight = new Set<string>(); // placeIds with a classifier call running right now
+}: FollowUpContext): { maybeFollowUp: MaybeFollowUp; answerFlagged: AnswerFlagged } {
+  /**
+   * A line that carries the interface's mention or reply flag: its verdict at once, past any call in flight for
+   * unflagged lines, so no flagged line is held or replaced. `yes` is an ordinary call of its kind, `overheard` an
+   * overheard turn, `no` nothing. Resolves whether the verdict asked for a turn.
+   */
+  async function answerFlagged(
+    channel: Conv,
+    normalized: Line,
+    kind: 'mention' | 'reply',
+    ownPrefill: Promise<void> | null = null
+  ): Promise<boolean> {
+    const config = hot.config;
+    const answer = await classifyAddress(channel, normalized, { config, flagged: true }, ownPrefill);
+    if (answer === 'no') return false;
+    if (answer === 'overheard') startFollowUpTurn({ channel, normalized }, 'overheard');
+    else answerCall({ channel, normalized, kind, config: hot.config });
+    return true;
+  }
+
+  const followUpInFlight = new Set<string>(); // places with a classifier call running right now
   const followUpHeld = new Map<string, Held>(); // placeId -> the latest message that arrived in flight
 
   /**
-   * Whether an untagged `normalized` message was fully handled by the address
+   * Whether an unflagged `normalized` message was fully handled by the address
    * classifier (pre-filter or a real model verdict, any answer, or
-   * held for a classifier call already in flight in its channel) -- the
-   * caller must then NOT handle it any further. Never
+   * held for a classifier call already in flight in its place). Never
    * throws: an LLM/context-building error is treated as a "no" per the
-   * contract. `false` means none of this applied (feature off, no open
-   * window, a turn running that blocks this one with mention.classifyWhileBusy
-   * off -- see followUpGate) and the caller falls back to its usual
-   * handling. `ownPrefill` is the message's picture prefill from
+   * contract. `false` means none of this applied (outside attention, cannot send: see addressGate).
+   * `ownPrefill` is the message's picture prefill from
    * warmMediaCache (or null), awaited before its classifier request is built.
    */
   async function maybeFollowUp(
@@ -83,7 +109,7 @@ export function createFollowUp({
     selfId: string,
     ownPrefill: Promise<void> | null = null
   ): Promise<boolean> {
-    const gate = followUpGate(channel, normalized, selfId);
+    const gate = addressGate(channel, normalized, selfId);
     if (gate.kind === 'skip') return false;
     if (gate.kind === 'handled') return true;
 
@@ -97,12 +123,12 @@ export function createFollowUp({
     // so it waits instead: the held message is classified first
     // (settleFollowUp). The slot stays taken until the held messages are
     // worked off, one at a time.
-    const placeId = channel.id;
+    const placeId = JSON.stringify([channel.iface, channel.id]);
     if (followUpInFlight.has(placeId)) {
       const replaced = followUpHeld.has(placeId);
       followUpHeld.set(placeId, { channel, normalized, selfId, ownPrefill });
       log.info('follow-up: held while a classifier call is in flight', {
-        channel: placeId,
+        channel: channel.id,
         message: normalized.id,
         replaced,
       });
@@ -112,7 +138,7 @@ export function createFollowUp({
     followUpInFlight.add(placeId);
     let settled: Settled;
     try {
-      const answer = await classifyFollowUp(channel, normalized, selfId, gate, ownPrefill);
+      const answer = await classifyAddress(channel, normalized, { config: gate.config, flagged: false }, ownPrefill);
       settled = settleFollowUp(placeId, { channel, normalized }, answer);
     } catch (err) {
       followUpHeld.delete(placeId);
@@ -156,9 +182,9 @@ export function createFollowUp({
         // never reach the classifier (and pause forbids marking the store dirty).
         const muted = followUpMuted();
         const here = muted ? held.channel : await currentOf(held.channel);
-        const gate: FollowUpGate = muted
+        const gate: AddressGate = muted
           ? { kind: 'skip', reason: muted }
-          : followUpGate(here, held.normalized, held.selfId);
+          : addressGate(here, held.normalized, held.selfId);
         if (gate.kind === 'skip') {
           log.info('follow-up: held message dropped', {
             channel: placeId,
@@ -170,7 +196,12 @@ export function createFollowUp({
           break;
         }
         if (gate.kind === 'handled') break;
-        const answer = await classifyFollowUp(here, held.normalized, held.selfId, gate, held.ownPrefill);
+        const answer = await classifyAddress(
+          here,
+          held.normalized,
+          { config: gate.config, flagged: false },
+          held.ownPrefill
+        );
         ({ started, waiting } = settleFollowUp(placeId, held, answer, waiting));
       }
       if (waiting) await startWaitingLine(placeId, waiting);
@@ -229,19 +260,11 @@ export function createFollowUp({
   }
 
   /**
-   * Start the reply turn a follow-up verdict asked for, `triggerKind` being
-   * `followUp` or `overheard` (followUpTriggerKind). Never awaits the turn;
-   * returns whether it was started: a turn started
-   * elsewhere while the classifier was thinking (turnBlocked, read now)
-   * would answer 'busy', so none is started (and a held message is not
-   * dropped as already answered). A `followUp` that finds the attention
-   * taken -- here, or as runTurn's 'busy' -- waits in the pending queue
-   * (deferFollowUp); so does an `overheard` one while
-   * mention.pendingOverheard is on (missing = on, read at that moment),
-   * keeping its kind; with the switch off it is dropped (`follow-up:
-   * dropped`, `busy`). A `followUp` the ignore roll lets pass
-   * (mention.followUpIgnoreChance, `ignored:follow-up`) starts no turn and
-   * returns false, so a line held meanwhile is classified next.
+   * Start the reply turn a verdict asked for, `triggerKind` being `followUp` or `overheard` (followUpTriggerKind).
+   * Never awaits the turn; returns whether it was started: a turn started elsewhere while the classifier was thinking
+   * (turnBlocked, read now) would answer 'busy', so none is started (and a held message is not dropped as already
+   * answered) and the line waits in the pending queue (deferFollowUp) keeping its kind. A turn the per-author rail
+   * refuses starts nothing and returns false, so a line held meanwhile is classified next.
    */
   function startFollowUpTurn({ channel, normalized }: Candidate, triggerKind: FollowUpKind): boolean {
     const placeId = channel.id;
@@ -251,10 +274,7 @@ export function createFollowUp({
       deferFollowUp(channel, normalized, triggerKind);
       return false;
     }
-    // A follow-up is counted for spam (decideAndLog). An ignored one starts no turn and leaves the window and its
-    // no-streak as they are. Talk about the persona (overheard) is not a call
-    // to it: neither counted nor rolled.
-    if (triggerKind === 'followUp' && !decideAndLog(channel, normalized, 'followUp', config).respond) return false;
+    if (!decideAndLog(channel, normalized, triggerKind, config).respond) return false;
     turns
       .runTurn({ conversation: refOf(channel), mode: 'reply', trigger: normalized, triggerKind })
       .then((result) => {
@@ -269,5 +289,5 @@ export function createFollowUp({
     return true;
   }
 
-  return { maybeFollowUp };
+  return { maybeFollowUp, answerFlagged };
 }

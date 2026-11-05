@@ -95,7 +95,9 @@ function script(answers: Array<Completion>, split = 'one'): Llm {
     options,
     complete: (messages, given) => {
       const purpose = given && typeof given === 'object' && 'purpose' in given ? given.purpose : null;
-      if (purpose === 'lookup' || purpose === 'route-channel')
+      // Plan 2026-11-04-cli-and-memory B1 and B3: the door asks the classifier first, and a started turn the one pick.
+      if (purpose === 'address') return Promise.resolve({ text: 'yes', usage: {}, estimated: 1 });
+      if (purpose === 'lookup' || purpose === 'elsewhere-pick')
         return Promise.resolve({ text: 'none', usage: {}, estimated: 1 });
       if (purpose === 'split') return Promise.resolve({ text: split, usage: {}, estimated: 1 });
       requests.push(messages);
@@ -344,7 +346,8 @@ test('a live CLI query queued behind a blocked turn retains its own internal rea
       options,
       complete: async (messages, given) => {
         const purpose = given && typeof given === 'object' && 'purpose' in given ? given.purpose : null;
-        if (purpose === 'lookup' || purpose === 'route-channel') return toolAnswer('none');
+        if (purpose === 'address') return toolAnswer('yes');
+        if (purpose === 'lookup' || purpose === 'elsewhere-pick') return toolAnswer('none');
         if (purpose === 'split') return toolAnswer('one');
         requests.push(messages);
         options.push(given);

@@ -158,7 +158,6 @@ export function createEdits({
       if (message.system === true) return;
       const selfId = selfIdOf();
       if (!message.author || message.author.bot || message.author.id === selfId) return;
-      if (event.conversation.kind === 'thread') return;
 
       // lineOf gives the normalized line of a message event.
       const normalized = lineOf(edited) as Line;
@@ -195,7 +194,7 @@ export function createEdits({
     const message = event.message;
     if ('system' in message && message.system === true) return false;
     if (message?.author?.bot && message.author.self !== true) return false;
-    return event.conversation.kind !== 'thread';
+    return true;
   }
 
   /** The text of a message as written (`sourceText`, else what the chat shows), for telling an edit from an embed update. */

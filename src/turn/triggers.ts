@@ -4,13 +4,12 @@
 
 /**
  * Why a reply turn runs: a `@mention`, a platform reply to the persona, a
- * name trigger, a follow-up the address classifier said "yes" to, a line the
+ * follow-up the address classifier said "yes" to, a line the
  * address classifier found to be about the persona but said to someone else
  * or to the room (`overheard`), a private chat message, or a message to the persona left unanswered
  * earlier (`missed`, src/behavior/missed.ts). Each has a `labels.triggers` entry.
  */
-export type TriggerKind =
-  'mention' | 'reply' | 'name' | 'followUp' | 'overheard' | 'private' | 'missed' | 'errand' | 'inner';
+export type TriggerKind = 'mention' | 'reply' | 'followUp' | 'overheard' | 'private' | 'missed' | 'errand' | 'inner';
 
 /**
  * Whether a turn of `triggerKind` posts plain, never as a platform reply: the
@@ -30,7 +29,6 @@ export function postsPlain(triggerKind: TriggerKind | null | undefined): boolean
 export const DIRECT_CALLS: ReadonlySet<string | null | undefined> = new Set([
   'mention',
   'reply',
-  'name',
   'followUp',
   'private',
 ]);

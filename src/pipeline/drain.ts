@@ -10,7 +10,7 @@ import type { Answer } from './answer.ts';
 import type { CallOutcome } from './call-outcome.ts';
 import { missingReason } from './call-outcome.ts';
 import type { ConversationRef } from './conversations.ts';
-import type { FollowUpWindows } from './follow-up-window.ts';
+import type { AddressAttention } from './address-attention.ts';
 import type { PendingQueueOps } from './pending-queue.ts';
 import { isDeferredFollowUp } from './pending-queue.ts';
 import type { PrivateGate } from './private-gate.ts';
@@ -41,7 +41,7 @@ export type DrainContext = {
   checkPrivateGate: PrivateGate['checkPrivateGate'];
   dropPrivate: PrivateGate['dropPrivate'];
   afterPrivateTurn: PrivateGate['afterPrivateTurn'];
-  followUpStale: FollowUpWindows['followUpStale'];
+  followUpStale: AddressAttention['followUpStale'];
   decideAndLog: Answer['decideAndLog'];
 };
 
@@ -74,8 +74,8 @@ export function createDrain({
    * Answers pending direct pings, oldest first, one at a time, each after a
    * human "switch" pause (mention.switchDelayMs) -- called once a turn
    * finishes anywhere (src/index.ts wires this to src/behavior/turn.ts's
-   * `setOnIdle`, in the same `finally` that frees the channel). The ignore
-   * decision (decideMention) is rolled HERE, not when the ping arrived. A
+   * `setOnIdle`, in the same `finally` that frees the channel). The per-author
+   * rail (decideAndLog) decides HERE, not when the ping arrived. A
    * ping whose message was deleted meanwhile (`gone`) or cannot be fetched
    * now (`fetch-failed`: messageStillExists), a channel that lost send
    * permission, or a ping the last turn that spoke in its channel already
@@ -86,20 +86,15 @@ export function createDrain({
    * (`added`) go with it. Each call's turn gets the other calls waiting in its
    * channel (`queued`, queuedFor) and the messages folded into it (`added`).
    * A ping queued in a channel whose own turn was running is picked up the
-   * same way once that turn frees the channel. A deferred follow-up is never
-   * rolled (counted for spam only) and is dropped when its window closed
-   * (followUpStale) or a turn that spoke had it in view, or when
-   * features.followUp is off now. Guarded against re-entrancy:
+   * same way once that turn frees the channel. A deferred follow-up or overheard line is dropped when attention
+   * has passed (followUpStale) or a turn that spoke had it in view. Guarded against re-entrancy:
    * the turn this function itself starts also frees the channel through the very same `onIdle`,
    * which would otherwise start a second overlapping drain. A no-op while
-   * paused; a pause that lands during the switch pause puts the ping in hand back and ends the pass. A server ping is also dropped when its
-   * switch (features.mentions / features.replies / features.nameTriggers) was turned
-   * off while it waited (callSwitchOff).
+   * paused; a pause that lands during the switch pause puts the ping in hand back and ends the pass.
    *
    * A turn that started during the switch pause makes runTurn answer 'busy':
    * the ping is re-queued (requeueBusy; a server ping keeps its `respond`
-   * decision, so the retry neither counts it again toward spamThreshold nor
-   * re-rolls the ignore chance) and the pass stops -- the running turn calls
+   * decision, so the retry does not count it again) and the pass stops -- the running turn calls
    * drainPending again when it ends. From the busy result to `draining =
    * false` nothing is awaited, so that onIdle call either finds `draining`
    * already cleared, or the blocking turn had already ended when requeueBusy
@@ -154,7 +149,7 @@ export function createDrain({
         let stop = false; // set by requeueBusy while the turn that blocked this ping still runs
 
         // A private message is answered like a direct ping, without the
-        // ignore roll; the channel has no community, so the live path's answer for this person is passed, which may
+        // per-author rail; the channel has no community, so the live path's answer for this person is passed, which may
         // be none. The gate is checked again here: the switch or the profile may have
         // changed while the ping waited.
         if (ping.kind === 'private') {
@@ -183,24 +178,19 @@ export function createDrain({
           continue;
         }
 
-        // A deferred follow-up or overheard line: its window must still be
-        // open (a post the line came too late for is no answer: the
-        // spokeAfterSeeing check above decides that). A follow-up is
-        // counted for spam and rolled for the ignore chance like a live one,
-        // an overheard line is neither (startFollowUpTurn).
+        // A deferred follow-up or overheard line: attention must still hold
+        // (a post the line came too late for is no answer: the
+        // spokeAfterSeeing check above decides that).
         if (isDeferredFollowUp(ping)) {
           const stale = followUpStale(ping, config);
           if (stale) {
             logPending(ping, 'dropped', { reason: stale });
             continue;
           }
-          if (ping.kind === 'followUp' && !ping.decided) {
-            if (!decideAndLog(ping.channel, ping.trigger, ping.kind, config, { deferred: true }).respond) continue;
-          }
         }
         // A re-queued ping was already counted and decided `respond` on the
-        // pass whose turn found another one running: not counted or rolled again.
-        else if (!ping.decided) {
+        // pass whose turn found another one running: not counted again.
+        if (!ping.decided) {
           if (!decideAndLog(ping.channel, ping.trigger, ping.kind, config, { deferred: true }).respond) continue;
         }
 

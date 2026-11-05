@@ -28,6 +28,8 @@ Names, model suggestions and statements inside a conversation do not create a ve
 
 Her own accounts need no bind. When she is the author of an observed line, the observation links the account to `person:self` on any interface, by the event's own mark and never by a name (`linkSelfAccount` in `src/memory/db/identity-links.ts`). `personDetail` reads her claims and descriptions of subject kind `self` like anyone's records, and a DM context reads of her only what was said in that DM. The memory session never lists her among the people of a batch and gives her accounts no author handle.
 
+The owner names a person with `/memory users names add PERSON NAME` and `/memory users names remove PERSON NAME`. On a person id the name goes through the writer's `owner-name` op as an `alias` claim with `author` `owner`, and `ownerNamesOf` in `src/memory/db/people-read.ts` reads those claims back; a person's `names` show them beside the account names. Her own record is `person:self`, and its owner names are her aliases, which the door and the address classifier read at each line. A name her memory session or the analyzer writes about her is a claim with another author, so it never widens the door.
+
 Profile and affinity read through the person. The member unit that owns the person's `people` row holds the character, details, episodes and the one affinity score, and `linkedProfileUnit` in `src/memory/db/person-links.ts` finds that unit for any linked account on any interface. `src/memory/store.ts` asks it at every use, so an unlink takes effect at the next read, and a change through any account moves the same score. A decay sweep moves the score of one person once. What belongs to one account stays with it: its native id, its display names, its avatar and how it is addressed. A linked account's own unit writes only those facts (`accountOnly` in `src/memory/db/map/user.ts`), and a `people` row it held before the link rests under its own id until an unlink gives it back. A profile write leaves the account's link columns as the database holds them.
 
 ## Owner identity
@@ -75,6 +77,12 @@ A private unit writes its rows under the stored DM place of its account, and `ad
 The authenticated owner CLI has a separate internal view across stored memory. The owner's ordinary group or DM conversation retains that conversation's audience rules. Permissions to read stored material do not grant permission to fetch or publish arbitrary live platform content.
 
 [Scope resolution](../src/memory/db/scope.ts) controls visibility. [Recall](../src/memory/db/recall.ts) applies scope and place filters before ranking, limits and surrounding message windows.
+
+## The query and summary builders
+
+A search has two steps with a model around it. The query builder (`createQueryBuilder` and `parseQueryPlan` in `src/behavior/query-builder.ts`, purpose `query-builder`, prompt `prompts/query-builder.md`) plans before the search: `web:`, `history:`, `who:`, `when:`, `when-role:` and `recent:`, or `none`. A live turn has no such step, because the persona's own tools search during her reply, so `src/turn/phases/request/lookup.ts` logs `lookup: skipped` with the reason `core-tools` and adds no helper model. Its callers are `scripts/replay.ts`, `scripts/recall-eval.ts` and `scripts/search-policy-eval.ts`.
+
+The summary builder (`createSummaryBuilder` and `parseSummaryNote` in `src/behavior/summary-builder.ts`) condenses what a search found into a note bounded by `maxChars`. Chat evidence reads `prompts/recall-summary.md` under the purpose `recall-summary` on the analyzer, and web evidence reads `prompts/search-summary.md` under the purpose `search-summary` on the `search` role with `web.search.model`. The single word `none` is no note. `src/behavior/recall-run.ts` and `src/web/lookup.ts` both go through it.
 
 ## Searches and backups off the main thread
 

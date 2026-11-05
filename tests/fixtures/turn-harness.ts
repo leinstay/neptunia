@@ -179,7 +179,7 @@ export function hotWith({
       reply: 'Someone called you: {{author}}.',
       interject: 'Jump into the conversation.',
       initiate: 'Start a topic.',
-      lookup: 'Decide whether {{name}} needs to look something up.',
+      'query-builder': 'Decide whether {{name}} needs to look something up.',
       labels,
     },
   };
