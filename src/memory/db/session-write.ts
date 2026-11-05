@@ -65,10 +65,12 @@
 //                 the uuid minted here; `update.uuid` injects it in tests), a `proposed` link (`account_person_links`
 //                 or `participant_links`, evidence the first source) and a `decisions` row `people_add`. The account's
 //                 `person_id` is not set: it stays the projection of a verified link. A subject that already has a
-//                 person or a live link is rejected (`has_person`); the request does not offer the op yet.
-// mergePeople(handle, from, into, { by, reason, evidence, now }) is the writer of `people_merges` (no session op yet):
-// one row, the merged person's `status` `merged_into:<into>`; nothing else is rewritten (claims keep their subject,
-// links keep their rows); a merge into a person that resolves back to `from` is refused (`MERGE_CYCLE`).
+//                 person or a live link is rejected (`has_person`), and so is the account of the owner's command line
+//                 or one of hers (`known_person`, identity-links.ts).
+// mergePeople(handle, from, into, { by, reason, evidence, now }) records a merge and moves nothing (no session op yet):
+// one row, the merged person's `status` `merged_into:<into>`; claims keep their subject, links keep their rows; a merge
+// into a person that resolves back to `from` is refused (`MERGE_CYCLE`). The owner's merge, which moves the rows, is
+// `{ kind: 'person-merge', from, into, by, reason, now }` (person-merge.ts).
 //
 // Schema v9 (stage 3):
 //   - every new claim version writes its sources into `claim_version_sources` (`supports` for add, confirm and revise,
@@ -89,6 +91,8 @@
 // Counts and codes only, never a text.
 
 import { applyPersonLinkWrite } from './person-links.ts';
+import { applyPersonMergeWrite } from './person-merge.ts';
+import { OWNER_CONSOLE_IFACE } from './identity-links.ts';
 import { applyRequestArchiveWrite, sessionRequestId, setRequestOutcome } from './request-archive.ts';
 import { randomUUID } from 'node:crypto';
 import { ownershipSql } from './storage-units.ts';
@@ -796,12 +800,17 @@ function applyPeopleAdd(db: Db, op: Row, state: WriteState): void {
     return reject(db, state, 'people', op, 'bad_subject');
   const subject =
     op.subjectKind === 'account'
-      ? db.prepare('SELECT id, person_id FROM accounts WHERE id = ? AND retired_at IS NULL').get(op.subjectId)
+      ? db
+          .prepare('SELECT id, person_id, iface, kind FROM accounts WHERE id = ? AND retired_at IS NULL')
+          .get(op.subjectId)
       : db.prepare('SELECT id, NULL AS person_id FROM participants WHERE id = ?').get(op.subjectId);
   if (!subject) {
     counts.missing += 1;
     return;
   }
+  // The owner's command line and her own accounts belong to known people (identity-links.ts), never to a new one.
+  if (subject.iface === OWNER_CONSOLE_IFACE || subject.kind === 'self')
+    return reject(db, state, 'people', op, 'known_person');
   if (subject.person_id || liveLinkOf(db, op.subjectKind, op.subjectId))
     return reject(db, state, 'people', op, 'has_person');
   const person = newPersonId(state.uuid);
@@ -931,6 +940,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['wake-queue', applyWakeQueueWrite],
   ['board', applyBoardWrite],
   ['person-link', applyPersonLinkWrite],
+  ['person-merge', applyPersonMergeWrite],
   ['request-archive', applyRequestArchiveWrite],
   // The diary's mirrors: the state of a send, then the owner's configuration.
   [

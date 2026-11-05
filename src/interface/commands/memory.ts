@@ -171,6 +171,23 @@ async function usersWrite(memoryDb: unknown, db: Db, name: string, args: Args): 
   }
 }
 
+/** `/memory users merge`: both people checked on the read connection, the merge through the one writer as the owner. */
+async function usersMerge(memoryDb: unknown, db: Db, name: string, args: Args): Promise<Answer> {
+  const from = word(args, 'from');
+  const into = word(args, 'into');
+  const stored = db.prepare('SELECT 1 AS ok FROM people WHERE id = ?');
+  if (!stored.get(from) || !stored.get(into)) return refused(name, 'PERSON_NOT_FOUND', 'nobody stored that person');
+  const reason = wordOrNull(args, 'reason');
+  try {
+    const merged = await (callMethod(memoryDb, 'personMerge', { from, into, by: 'owner', reason }) as Promise<unknown>);
+    return ok(merged);
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code;
+    if (typeof code === 'string' && code !== 'DB_CLOSED') return refused(name, code, 'those two people cannot merge');
+    return { text: `/${name.replaceAll('.', ' ')}: the merge could not be written`, status: 'failed' };
+  }
+}
+
 function placesRead(db: Db, name: string, args: Args, bounds: InspectionBounds): Answer | null {
   const context = internalContext();
   const place = word(args, 'place');
@@ -450,6 +467,7 @@ export async function memoryBrowserCommand(
     const db = callMethod(memoryDb, 'database') as Db | null | undefined;
     if (db == null) return closedDatabase(name);
     if (name === 'memory.users.link' || name === 'memory.users.unlink') return usersWrite(memoryDb, db, name, args);
+    if (name === 'memory.users.merge') return usersMerge(memoryDb, db, name, args);
     const bounds = boundsOf(hot);
     return (
       usersRead(db, name, args, bounds) ??

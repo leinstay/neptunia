@@ -211,6 +211,11 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
   sub('users.private', 'Show the private memory of a person across their DMs', [arg('person')]),
   sub('users.link', 'Link an account to a person', [arg('person'), arg('account')]),
   sub('users.unlink', 'Unlink an account from a person', [arg('person'), arg('account')]),
+  sub('users.merge', 'Merge a person into another, moving everything stored about them', [
+    arg('from'),
+    arg('into'),
+    flagArg('reason', false),
+  ]),
   sub('places.list', 'List places of any kind and depth', [
     flagArg('interface', false),
     flagArg('authority', false),

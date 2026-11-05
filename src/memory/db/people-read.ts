@@ -3,6 +3,7 @@
 // keeps its history. The context decides before anything is counted. Reading writes nothing. Private views are
 // private-read.ts's. src/interface/commands/memory.ts answers `/memory users`.
 
+import { SELF_PERSON } from './ids.ts';
 import { personMembers } from './person-links.ts';
 import { placeVisibleWhere } from './places-read.ts';
 import { privateByPerson } from './private-read.ts';
@@ -71,8 +72,8 @@ const SAFE_NAMES = "json_each(CASE WHEN json_valid(a.names) THEN a.names ELSE '[
 
 // The tables whose rows are about a person, and the column that says which one.
 const SUBJECT_TABLES = [
-  { table: 'claims', where: "t.subject_kind = 'person' AND t.subject_id" },
-  { table: 'descriptions', where: "t.subject_kind = 'person' AND t.subject_id" },
+  { table: 'claims', where: "t.subject_kind IN ('person', 'self') AND t.subject_id" },
+  { table: 'descriptions', where: "t.subject_kind IN ('person', 'self') AND t.subject_id" },
   { table: 'episodes', where: 't.subject_id' },
   { table: 'affinity_events', where: 't.person_id' },
 ] as const;
@@ -321,7 +322,10 @@ export function personDetail(db: Db, personId: string, context: Context): Person
   const internal = context.internal === true;
   const members = personMembers(db, personId, { ownerMergesOnly: !internal });
   const ids = [members.survivor, ...members.mergedFrom];
-  const records = recordsOf(db, context, ids);
+  // What she knows of herself reaches a private chat only when it was said in that chat: a group's fact about her stays
+  // the group's, where anyone's group fact is public knowledge in a DM.
+  const ownOnly = members.survivor === SELF_PERSON && context.kind === 'dm';
+  const records = recordsOf(db, context, ids).filter((one) => !ownOnly || !one.audienceId?.startsWith('aud:group:'));
   if (!internal && records.length === 0) return { found: false, code: 'PERSON_NOT_FOUND' };
   const history = internal ? identityHistory(db, ids) : { links: [], merges: [] };
   const presence = internal

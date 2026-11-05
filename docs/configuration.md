@@ -21,7 +21,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 |---|---|---|---|---|
 | `bot.timezone` | string | `"UTC"` | Timezone for model timestamps | `src/behavior/diary.ts` |
 | `bot.owners` | array | `[]` | Native ids of the home interface that count as owners until `bot.ownerPerson` is set; the input of that migration | `src/behavior/core-pause.ts` |
-| `bot.ownerPerson` | string | `""` | The person whose bound accounts are the owner, written by `/memory bind <iface> <account> owner`. See [One person, several accounts](memory.md#one-person-several-accounts) | `src/tools/impl/grants.ts` |
+| `bot.ownerPerson` | string | `""` | The person whose bound accounts are the owner, written by the first line of the command line on a raw install and by `/memory bind <iface> <account> owner`. See [Owner identity](memory.md#owner-identity) | `src/tools/impl/grants.ts` |
 | `bot.nameTriggers` | array | `[]` | Extra trigger strings besides @mention | `src/behavior/sandbox.ts` |
 | `bot.access` | map | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
 
