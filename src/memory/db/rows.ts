@@ -178,6 +178,16 @@ export function ensureDmPlace(
   projectRow(db, 'places', { id: placeId }, { at });
 }
 
+/**
+ * The newest live version of a claim (recorded time, then row order): the version a read of the claim is said to have
+ * read (service.ts#turnReadRows) and the one a `base` is checked against. Its one spelling.
+ */
+export const NEWEST_CLAIM_VERSION_SQL =
+  "SELECT id FROM claim_versions WHERE claim_id = ? AND retired_at IS NULL ORDER BY COALESCE(recorded_at, '') DESC, rowid DESC LIMIT 1";
+/** The id of the newest live version of a claim, or null. */
+export const newestClaimVersion = (db: Db, claimId: unknown): unknown =>
+  db.prepare(NEWEST_CLAIM_VERSION_SQL).get(claimId)?.id ?? null;
+
 /** The audience row of a resolved scope (and its interface, and the DM place), when missing. */
 export function ensureAudience(db: Db, resolved: Row, { at }: { at?: string } = {}): void {
   if (!hasV7(db)) return;

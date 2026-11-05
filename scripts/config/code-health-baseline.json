@@ -453,9 +453,6 @@
     "src/memory/db/service.ts": {
       "createMemoryDb>sessionJob": {
         "complexity": 30
-      },
-      "turnReadRows": {
-        "complexity": 23
       }
     },
     "src/memory/db/session-write.ts": {

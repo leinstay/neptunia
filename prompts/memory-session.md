@@ -39,6 +39,21 @@ Your answer has two parts: `<think>` for your reasoning, then one `<memory>` blo
   ],
   "people": [
     { "op": "add", "subject": "", "reason": "", "sources": [] }
+  ],
+  "entities": [
+    { "handle": "", "kind": "", "name": "", "language": "", "sources": [] }
+  ],
+  "assertions": [
+    {
+      "predicate": { "id": "", "version": 1 },
+      "assertionKind": "",
+      "text": "",
+      "arguments": [{ "role": "", "position": 0, "ref": "" }, { "role": "", "position": 0, "literal": "" }],
+      "polarity": "",
+      "how": "",
+      "state": "",
+      "sources": []
+    }
   ]
 }
 ```
@@ -103,9 +118,36 @@ Propose that an author become a tracked person. An author handle (`a1`, `a2`, â€
 
 Two accounts that share a name are still separate people until the batch itself shows they are one. A name match alone never merges them.
 
+### Entities
+
+A project, object, concept, organization, event, topic or location that facts will hang on. People and chat places are already known, so they never become entities. Most batches add none.
+
+`handle`: a label of your own for this answer (`n1`, `n2`, â€¦), which `assertions` use to name it. `kind`: one of `project`, `object`, `concept`, `organization`, `event`, `topic`, `location`, `other`. `name`: the name the batch uses. `language`: its language code. `sources`: the `#n` lines.
+
+Two things that share a name are two entities until the batch itself shows they are one.
+
+### Assertions
+
+A fact with a fixed shape, about entities, people or places. A fact that fits none of these shapes stays a plain claim.
+
+`predicate` and `assertionKind` come from this list, each at version 1, followed by its roles:
+
+- `entity.label`, `label`: `entity`, `alias` (text), `language` (text). Another name for an entity.
+- `project.status`, `property`: `project`, `status` (text).
+- `project.works_on`, `relation`: `person`, `project`.
+- `concept.part_of`, `relation`: `part`, `whole`.
+- `event.participant`, `relation`: `event`, `person`.
+- `object.owned_by`, `relation`: `object`, `owner`.
+- `identity.same_as`, `relation`: `from`, `into`. Two entities turn out to be one.
+- `event.occurrence`, `nary`: `event`, and any of `organizer`, `speaker`, `attendee`, `project`, `location`, `during` (interval), `on` (date). Everyone who took part goes into the one assertion.
+
+`text`: the fact in your own words, stored as you write it. `arguments`: one entry per role, with `position` 0, counting up when a role is filled several times. Each has a `ref` or a `literal`. A `ref` is an entity's handle from this answer, a person's name or id, a place handle or `"self"`. A `literal` is text, a number, `true`, `false`, `null`, `{ "kind": "date", "value": "" }` or `{ "kind": "interval", "from": "", "to": "" }`, each time with its timezone. `polarity`: `positive`, or `negative` when the fact says something did not happen or is not so. `how`: as for claims. `state`: `current`, or `historical` or `disputed`; leave it out for `current`. `sources`: the `#n` lines.
+
+Each entity and assertion stands or falls alone. An assertion that names a refused entity is refused with it.
+
 ## Rules
 
-Every add, revise, retire and episode names its sources from the batch. Do not invent a source.
+Every add, revise, retire, episode, entity and assertion names its sources from the batch. Do not invent a source.
 
 A passing mood is an episode or an attitude change. It never rewrites a lasting description of someone. Feelings about a moment belong in an episode's `feeling` or in an affinity `reason`.
 

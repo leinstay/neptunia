@@ -260,10 +260,19 @@ export function audienceOf(
   return out;
 }
 
-/** Whether a triple is one of the four well-formed kinds (a malformed one resolves to internal). */
+/** A person id that spells no interface: its DM place is only found through `places`, never from the id. */
+const OPAQUE_PERSON = /^person:[^:]+$/;
+export const isOpaquePerson = (person: unknown): boolean => typeof person === 'string' && OPAQUE_PERSON.test(person);
+
+/**
+ * Whether a triple is one of the four well-formed kinds (a malformed one resolves to internal). A DM with an opaque partner
+ * is well formed: its audience comes from its stored DM place, which the triple cannot spell.
+ */
 export function wellFormed(scope: unknown): boolean {
-  const kind = (scope as Partial3 | null | undefined)?.scope_kind ?? null;
+  const row = scope as Partial3 | null | undefined;
+  const kind = row?.scope_kind ?? null;
   if (kind === 'internal') return true;
+  if (kind === 'dm' && filled(row?.scope_iface) && isOpaquePerson(row?.scope_dm)) return true;
   return audienceOf(scope).audience_id !== AUD_INTERNAL;
 }
 

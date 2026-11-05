@@ -56,6 +56,14 @@ The contract lives in the label because a nonempty `data/prompts/diary.md` repla
 
 People, channels and messages in the request have handles supplied by the formatters. The model must reuse these handles rather than inventing native IDs. The interface resolves outgoing references for its platform.
 
+### Memory session answer
+
+A memory session answers `<think>`, then one `<memory>` block holding a JSON object. `parseSessionAnswer` in `src/memory/db/session.ts` reads the block and `validateAnswer` checks its groups: `claims`, `episodes`, `affinity`, `descriptions`, `people`, `entities` and `assertions`, as `prompts/memory-session.md` spells them. Any other group counts one `unknown_group`, and a dropped op counts its reason in `counts.dropped`.
+
+`validateSemanticAnswer` in `src/memory/db/semantic-answer.ts` takes the last two groups. An entity holds `handle`, `kind`, `name`, `language` and `sources`. An assertion holds `predicate` (`id` and `version`), `assertionKind`, `text`, `arguments`, `polarity`, `how`, `sources`, and optionally `state`, `validFrom`, `validTo` and `premises` (`handle` and `role`). No request offers a premise handle yet. An argument holds `role`, `position` and one of `ref` or `literal`. A field outside these is `unknown_field`, a line outside the batch is `unknown_source`, a `ref` that names no person, place or entity of this answer is `unknown_ref`, and the op goes whole. `text` is stored byte for byte.
+
+The writer refuses what only the database can judge, and each refusal is a `decisions` row `rejected:<code>` that leaves the other ops standing. `validateSemanticCandidate` in `src/memory/db/semantic-write.ts` answers `unknown_kind`, `bad_name`, `unknown_predicate`, `bad_assertion_kind`, `bad_role`, `bad_arity`, `bad_endpoint`, `bad_literal`, `bad_how`, `bad_polarity`, `bad_state`, `bad_interval`, `no_text`, `no_evidence`, `bad_evidence`, `unknown_source`, `unread_source`, `out_of_scope`, `unknown_ref`, `unknown_version`, `unread_version`, `bad_dependency`, `stale_base`, `premise_cycle` or `equivalence_loop`. The predicates and kinds the prompt lists are `INITIAL_PREDICATES` and `INITIAL_ENTITY_KINDS` in `src/memory/db/semantic-registry.ts`. A nonempty `data/prompts/memory-session.md` replaces the shipped file whole, so a deployment with its own copy offers these two groups only after adding them.
+
 ## Watcher answer
 
 `agents/watcher/prompt.md` asks for one report in the exact template `checkTemplate` of [src/watcher/report.ts](../src/watcher/report.ts) enforces, and a text outside it fails the run with the code below.
