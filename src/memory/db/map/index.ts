@@ -261,6 +261,7 @@ export function storageMapper(
             appendRows: (rel, delta, state) => {
               const rows = original.appendRows!(rel, delta, {
                 ...state,
+                iface: base.iface,
                 privateAccountId: base.privateAccountId,
                 dmPlace: base.dmPlace,
               });

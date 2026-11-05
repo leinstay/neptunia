@@ -536,7 +536,7 @@
     },
     "src/memory/vectors.ts": {
       "createVectors": {
-        "function-length": 468
+        "function-length": 459
       },
       "createVectors>search": {
         "complexity": 35
