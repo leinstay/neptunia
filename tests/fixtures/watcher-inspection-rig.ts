@@ -56,6 +56,7 @@ export const METADATA: ReadonlyArray<readonly [string, string]> = [
   ['Available sources', 'model_requests, service journal'],
   ['Risk', 'none'],
   ['New findings', '0, repeats: 0'],
+  ['Open findings', 'critical 0, high 0, medium 0, low 0'],
 ];
 
 /** One section's body: a string goes under `Inspected without a finding`, an object names the subheadings it fills. */
@@ -85,7 +86,8 @@ export function templateOf(
       if (typeof body !== 'string') return body[name] ?? 'none';
       return name === 'Inspected without a finding' ? body : 'none';
     };
-    return [`## ${heading}`, ...subheadings.map((name) => `### ${name}\n\n${of(name)}`)].join('\n\n');
+    const own = heading === 'For the owner' ? ['Decisions needed', ...subheadings] : subheadings;
+    return [`## ${heading}`, ...own.map((name) => `### ${name}\n\n${of(name)}`)].join('\n\n');
   });
   return [title, metadata, ...sections, options.end ?? coverageBlock()].join('\n\n').trimEnd() + '\n';
 }
