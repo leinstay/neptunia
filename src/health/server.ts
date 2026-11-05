@@ -79,6 +79,9 @@ export async function serverHealth(probe: ServerProbe, options: { now: number })
   return { part: 'server', status, text: lines.join('\n'), disk, load, units, lastBackup, firewall };
 }
 
+/** How the probe runs a program: its exit code and stdout, or null when it does not exist or fails to start. */
+type Exec = (file: string, args: ReadonlyArray<string>) => Promise<{ code: number; stdout: string } | null>;
+
 /** A program's stdout, or null when it does not exist or fails to start. Never rejects. */
 function run(file: string, args: ReadonlyArray<string>): Promise<{ code: number; stdout: string } | null> {
   return new Promise((resolve) => {
@@ -92,8 +95,8 @@ function run(file: string, args: ReadonlyArray<string>): Promise<{ code: number;
   });
 }
 
-/** The real probe of the machine the core runs on, over the data folder `dataDir` and the live `config`. */
-export function systemProbe(config: unknown, dataDir: string): ServerProbe {
+/** The real probe of the machine the core runs on, over the data folder `dataDir` and the live `config`, its commands through `exec`. */
+export function systemProbe(config: unknown, dataDir: string, exec: Exec = run): ServerProbe {
   return {
     async disk() {
       const stat = await fs.promises.statfs(dataDir);
@@ -104,13 +107,13 @@ export function systemProbe(config: unknown, dataDir: string): ServerProbe {
       return { one, five, fifteen, cpus: os.cpus().length };
     },
     async units() {
-      const listed = await run('systemctl', ['list-units', '--all', '--plain', '--no-legend', INTERFACE_UNITS]);
+      const listed = await exec('systemctl', ['list-units', '--all', '--plain', '--no-legend', INTERFACE_UNITS]);
       const interfaces = (listed?.stdout ?? '')
         .split('\n')
         .map((line) => line.trim().split(/\s+/)[0] ?? '')
         .filter((name) => name.endsWith('.service'));
       const names = [...ENGINE_UNITS, ...interfaces];
-      const states = await Promise.all(names.map((name) => run('systemctl', ['is-active', name])));
+      const states = await Promise.all(names.map((name) => exec('systemctl', ['is-active', name])));
       if (states.every((state) => state === null)) return [];
       return names.map((name, index) => ({ name, active: states[index]?.stdout.trim() === 'active' }));
     },
@@ -121,7 +124,7 @@ export function systemProbe(config: unknown, dataDir: string): ServerProbe {
     },
     async firewall() {
       // `ufw status` needs root: a refusal tells nothing about the firewall, so it reads as no ufw.
-      const answer = await run('ufw', ['status']);
+      const answer = await exec('ufw', ['status']);
       if (answer === null || answer.code !== 0) return null;
       return { active: /^Status:\s*active/m.test(answer.stdout) };
     },

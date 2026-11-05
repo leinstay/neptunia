@@ -99,7 +99,7 @@ export type ConsoleDeps = {
   subharness?: ConsoleSubharness;
   /** The diary's mirrors (src/behavior/mirror-desk.ts); `/mirror` fails while there is none. */
   mirrors?: MirrorDesk | null;
-  /** How `/services watcher` reaches the service manager, `spawnRun` when absent. A test always gives its own. */
+  /** How `/services` and `/doctor server` reach the service manager, the machine's own when absent. A test always gives its own. */
   serviceManager?: RunManager;
   /** What the core knows of one of its wakes, for `/services <name> status`. */
   wakeClock?: (name: ServiceName) => WakeClock | null;
@@ -454,7 +454,8 @@ export function createConsole(deps: ConsoleDeps): {
     const settings = config();
     const parts: Array<{ status: HealthStatus; text: string }> = [];
     const now = deps.now();
-    if (part === '' || part === 'server') parts.push(await serverHealth(systemProbe(settings, deps.dataDir), { now }));
+    if (part === '' || part === 'server')
+      parts.push(await serverHealth(systemProbe(settings, deps.dataDir, deps.serviceManager), { now }));
     if (part === '' || part === 'core' || part === 'memory') {
       if (db === null) return { text: 'the memory database is not open', status: 'failed' };
       if (part !== 'memory') parts.push(coreHealth(db, { now, turnDurationsMs: replyDurations() }));

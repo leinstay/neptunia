@@ -177,10 +177,12 @@ test('every read command of the table answers with exit 0 and asks no model', as
       '/tools describe web.search',
       '/interfaces list',
     ];
+    // `/services list` runs in the core, in this process, and reads the units.
+    const manager = fakeManager(dirs.root);
     const asked = await withoutFetch(async () => {
       for (const line of lines)
         await t.test(line, async () => {
-          const run = await p(dirs, line);
+          const run = await withPath(manager, () => p(dirs, line));
           assert.equal(run.code, 0, `${line}: ${run.stdout.slice(-500)}${run.stderr.slice(-1000)}`);
           assert.notEqual(run.stdout.trim(), '', `${line} prints an answer`);
         });
@@ -469,6 +471,14 @@ async function withPath<T>(dir: string, body: () => Promise<T>, only = false): P
   }
 }
 
+/** A folder with a `systemctl` that answers `inactive` and moves nothing, for a read that runs in the core. */
+function fakeManager(root: string): string {
+  const bin = join(root, 'fakemanager');
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, 'systemctl'), '#!/bin/sh\necho inactive\nexit 3\n', { mode: 0o755 });
+  return bin;
+}
+
 /** The arguments the fake journalctl got. */
 const argsOf = (file: string): Array<string> =>
   readFileSync(file, 'utf8')
@@ -532,9 +542,11 @@ function doctorChecks(stdout: string): Map<string, string> {
 test('/doctor in the chat runs the checks of neptunia doctor and ends as it ends', async () => {
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const direct = await runCli(dirs, ['doctor', '--json']);
+    // The `runtime` check reads the server's units in the core, which runs in this process.
+    const bin = fakeManager(dirs.root);
+    const direct = await withPath(bin, () => runCli(dirs, ['doctor', '--json']));
     const checks = doctorChecks(direct.stdout);
-    const chat = await p(dirs, '/doctor');
+    const chat = await withPath(bin, () => p(dirs, '/doctor'));
     assert.equal(chat.code, direct.code);
     for (const name of checks.keys()) assert.ok(chat.stdout.includes(name), `the chat's doctor names ${name}`);
   });
