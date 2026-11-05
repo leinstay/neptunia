@@ -13,6 +13,10 @@ import type { ReportedTurn } from './turn.ts';
 export type CreateTurnRunnerInput = {
   /** The event loop watch's `track` (src/loop-watch.ts); the stages of the request phase are named operations. */
   track?: Track;
+  /** The signal of a turn the owner can cancel, by the message that started it (src/interface/chat-turns.ts). */
+  cancelOf?: (triggerId: string | null) => AbortSignal | null;
+  /** What a turn's tools do, for the owner's chat, by the message that started it. */
+  noteProgress?: (triggerId: string | null, step: { name: string; detail: string }) => void;
   // The live config and prompts; a test hands in a stand-in that holds what it reads.
   hot: { config: Untyped; prompts: Untyped };
   store: Untyped;

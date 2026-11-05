@@ -25,10 +25,15 @@
 // is the line's message id: status `ok` when she spoke or chose silence, else the turn's outcome, and the turn's reason
 // as the text. A line taken while the core is paused has no turn yet, so it is answered `paused` at once. A client
 // waiting for no such result ignores it.
+//
+// Every line of the command line goes through the chat's turn control (src/interface/chat-turns.ts), so a second line waits
+// for the end of the first and can be edited or cancelled until then. The `turn.*` commands of the `cli` principal reach it,
+// and a `chatCommands` dependency answers the chat's other reads (sessions, approvals, checkpoints).
 
 import fs from 'node:fs';
 import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
+import { createChatTurns } from './chat-turns.ts';
 import { COMMANDS } from './commands/table.ts';
 import { createDialogBroker } from './commands/dialogs.ts';
 import type { DialogBroker, Question } from './commands/dialogs.ts';
@@ -379,6 +384,12 @@ type Desk = ReturnType<typeof createCommandDesk>;
 /** The most lines of the command line kept waiting for their turn: the owner's, and a pending call may never run. */
 const KEPT_LINES = 64;
 
+/** The prefix of the commands that reach the turn control. */
+const TURN_PREFIX = 'turn.';
+
+/** The queue without a setting: the default of `cli.queue.capacity`. */
+const DEFAULT_QUEUE = 8;
+
 /** The turn outcomes that are an answer to the line: she spoke, or chose silence. */
 const ANSWERED: ReadonlySet<string> = new Set(['spoke', 'skip']);
 
@@ -388,12 +399,28 @@ export function createCommandIntake(deps: {
   desk(): Desk | null;
   /** Whether the core holds a new line instead of starting a turn over it; absent, it never does. */
   linesHeld?(): boolean;
+  /** How many lines wait behind a running turn (`cli.queue.capacity`), read at each line. */
+  queueCapacity?(): number;
   log: Logger;
 }): {
   doorOf(link: () => AdapterLink): LinkDoor;
   chat(): Adapter | null;
-  turnEnded(end: { trigger: { id: string | null } | null; outcome: string; reason: string | null }): void;
+  turnEnded(end: {
+    trigger: { id: string | null } | null;
+    outcome: string;
+    reason: string | null;
+    turnId?: unknown;
+  }): void;
+  /** The owner's cancel of the turn over the message `triggerId`, null for every other turn. */
+  cancelOf(triggerId: string | null): AbortSignal | null;
+  noteProgress(triggerId: string | null, step: { name: string; detail: string }): void;
 } {
+  const turns = createChatTurns({
+    door: deps.door,
+    linesHeld: () => deps.linesHeld?.() === true,
+    capacity: () => deps.queueCapacity?.() ?? DEFAULT_QUEUE,
+    log: deps.log,
+  });
   let chatLink: AdapterLink | null = null;
   const lines = new Map<string, AdapterLink>();
 
@@ -415,9 +442,16 @@ export function createCommandIntake(deps: {
       if (lines.size <= KEPT_LINES) break;
       lines.delete(oldest);
     }
-    const ack = await deps.door.receive(value, from);
-    if (deps.linesHeld?.() === true) answerLine(id, 'paused', 'the core is paused: the line waits for /resume');
-    return ack;
+    const message = looseOf(body.message);
+    // The door refuses what it refuses at once: a malformed line never takes a place in the queue.
+    if (!validateEvent(body).ok) return deps.door.receive(value, from);
+    return turns.take({
+      id,
+      value: value as Envelope,
+      message,
+      ...(from === undefined ? {} : { from }),
+      onHeld: () => answerLine(id, 'paused', 'the core is paused: the line waits for /resume'),
+    });
   }
 
   async function take(link: AdapterLink, value: Envelope, body: Loose): Promise<Envelope> {
@@ -428,6 +462,12 @@ export function createCommandIntake(deps: {
     // The event passed validation as a command.requested: its fields are those of CommandEvent.
     const event = body as unknown as CommandEvent & { replyRef: string };
     const principal = link.principal() ?? { kind: 'interface', name: '' };
+    if (principal.kind === 'cli' && event.name.startsWith(TURN_PREFIX)) {
+      void link
+        .answerCommand({ replyRef: event.replyRef, ...turns.command(link, event.name, event.args) })
+        .catch((err: unknown) => deps.log.warn('commands: answer not sent', { error: err }));
+      return ackOf(value, 'ok');
+    }
     void desk
       .run(event, principal)
       .then((answer) => link.answerCommand({ replyRef: event.replyRef, ...answer }))
@@ -453,7 +493,10 @@ export function createCommandIntake(deps: {
       };
     },
     chat: () => (chatLink !== null && !chatLink.isClosed() ? chatLink.adapter : null),
+    cancelOf: (triggerId) => turns.cancelOf(triggerId),
+    noteProgress: (triggerId, step) => turns.noteProgress(triggerId, step),
     turnEnded(end) {
+      turns.turnEnded(end);
       const id = end.trigger?.id;
       if (typeof id !== 'string') return;
       if (ANSWERED.has(end.outcome)) answerLine(id, 'ok', '');

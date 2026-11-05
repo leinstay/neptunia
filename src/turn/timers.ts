@@ -19,6 +19,9 @@ export const PREPARE_STAGES = Object.freeze([
 /** What a turn throws to itself once its bar (pace.dropAfterMs) has passed: caught by runTurnOnce. */
 export const TOO_SLOW = Symbol('too-slow');
 
+/** What a turn throws to itself once the owner cancelled it (src/turn/control.ts): caught by runTurnOnce. */
+export const TURN_CANCELLED = Symbol('turn-cancelled');
+
 // A chat platform shows a typing indicator for about ten seconds: it is sent again before it fades.
 export const PREPARE_TYPING_REFRESH_MS = 8000;
 

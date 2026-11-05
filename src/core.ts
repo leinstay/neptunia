@@ -690,6 +690,7 @@ async function buildCore(
     ready: () => doorReady.promise,
     desk: () => commandDesk,
     linesHeld: () => isPausedIn(store),
+    queueCapacity: () => hot.config.cli.queue.capacity,
     log,
   });
   const linkServer = await listenSocket({
@@ -933,6 +934,10 @@ async function buildCore(
   const connection: { lastReconnectAt: number | null } = { lastReconnectAt: null };
   const turns = createTurnRunner({
     track: loopWatch.track,
+    // A cancel and the steps of a turn over a line of the owner's chat (src/interface/chat-turns.ts).
+    cancelOf: (triggerId: string | null) => intake.cancelOf(triggerId),
+    noteProgress: (triggerId: string | null, step: { name: string; detail: string }) =>
+      intake.noteProgress(triggerId, step),
     hot,
     store,
     roleHealth,

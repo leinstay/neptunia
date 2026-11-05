@@ -15,6 +15,8 @@ import type {
 } from '../src/protocol/adapter.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';
+import { TURN_EVENT_STATUS, readTurnEvent } from '../src/protocol/turn-control.ts';
+import type { TurnEvent } from '../src/protocol/turn-control.ts';
 import type { Transport } from '../src/protocol/wire.ts';
 import { classifyAttachment } from '../src/media/classify.ts';
 import type { Attachment } from '../src/protocol/actions.ts';
@@ -247,6 +249,18 @@ export type CliLink = {
   close(): void;
 };
 
+/** A turn event from a result's text to `onEvent`. Anything else in that place is dropped: it names no turn. */
+function readEvent(text: string, onEvent: ((event: TurnEvent) => void) | null): void {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return;
+  }
+  const read = readTurnEvent(value);
+  if (read.ok) onEvent?.(read.event);
+}
+
 /** The `cli` client on `transport`. `print` takes her replies and `deliver` her files, null or absent for none. */
 export function openLinkOver(
   transport: Transport,
@@ -254,13 +268,18 @@ export function openLinkOver(
     token,
     print,
     deliver = null,
+    onTurnEvent = null,
+    transcript = [],
   }: {
     token: string;
     print: ((text: string) => void) | null;
     deliver?: ((file: Attachment) => Promise<void>) | null;
+    /** What the core says of the turns, once this client subscribed with `turn.replay`. */
+    onTurnEvent?: ((event: TurnEvent) => void) | null;
+    /** The lines the core's history reads answer from. A reconnect hands the same array to the new link. */
+    transcript?: Array<MessageEvent>;
   }
 ): CliLink {
-  const transcript: Array<MessageEvent> = [];
   const waiting = new Map<string, (result: Reply) => void>();
   const closed = new Promise<void>((resolve) =>
     transport.onClose(() => {
@@ -283,6 +302,10 @@ export function openLinkOver(
     adapter: cliAdapter(print, deliver, transcript),
     log: quiet,
     onCommandResult: (result: CommandResult) => {
+      if (result.status === TURN_EVENT_STATUS) {
+        readEvent(result.text, onTurnEvent);
+        return;
+      }
       const resolveAnswer = waiting.get(result.replyRef);
       waiting.delete(result.replyRef);
       resolveAnswer?.({

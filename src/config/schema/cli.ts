@@ -19,6 +19,14 @@ export const CLI: ReadonlyArray<SchemaEntry> = [
       'A paste of more characters than this draws as one chip in the chat input. The turn still gets its exact text',
   },
   {
+    'key': 'cli.queue.capacity',
+    'types': ['number'],
+    'reader': 'src/interface/chat-turns.ts',
+    'default': 8,
+    'text':
+      'How many lines of the chat wait behind a running turn. A line past it is refused and the core keeps what it holds. Read at each line',
+  },
+  {
     'key': 'cli.mouse',
     'types': ['boolean'],
     'reader': 'bin/neptunia.ts',

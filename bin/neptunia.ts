@@ -146,6 +146,9 @@ import type { HistoryRecord } from './cli-history.ts';
 import { CLI_CLIENT, openLinkOver } from './cli-link.ts';
 import type { Answer, CliLink, Command, LineImage, LinkAnswers } from './cli-link.ts';
 import { runDevelopment } from './development.ts';
+import { readTurnEvent } from '../src/protocol/turn-control.ts';
+import type { TurnEvent } from '../src/protocol/turn-control.ts';
+import type { MessageEvent as ChatLine } from '../src/protocol/adapter.ts';
 import { runTask } from './neptunia-task.ts';
 import { runWatcherWorker } from './neptunia-watcher.ts';
 import {
@@ -258,12 +261,13 @@ function readObject(file: string): Settings | null {
 /** Connects as the `cli` client; rejects when no core listens. `print` takes her replies, null for none. */
 async function openCliLink(
   print: ((text: string) => void) | null,
-  deliver?: (file: Attachment) => Promise<void>
+  deliver?: (file: Attachment) => Promise<void>,
+  chat: { onTurnEvent: (event: TurnEvent) => void; transcript: Array<ChatLine> } | null = null
 ): Promise<CliLink> {
   const where = paths();
   const token = readToken(where.privateDir, CLI_CLIENT);
   const transport = await connectSocket({ path: coreSocketPath(where.dataDir), maxFrameBytes: MAX_FRAME_BYTES });
-  return openLinkOver(transport, { token, print, deliver: deliver ?? printedFile(print) });
+  return openLinkOver(transport, { token, print, deliver: deliver ?? printedFile(print), ...(chat ?? {}) });
 }
 
 /** A file she sends to a chat with no screen of its own: kept in the staging folder, and one printed line says where. */
@@ -532,6 +536,9 @@ function interfaceNames(dataDir: string): Array<string> {
   return [...names].sort();
 }
 
+/** How often the chat tries the core again after a lost link. Decided 2026-11-05: short, and a local socket costs nothing. */
+const RECONNECT_MS = 2000;
+
 async function runInkChat(
   where: { rootDir: string; privateDir: string; dataDir: string },
   firstLine = ''
@@ -544,19 +551,67 @@ async function runInkChat(
   let entry: (one: ChatEntry) => void = () => {};
   let question: (asked: Question) => void = () => {};
   let linked: (connected: boolean) => void = () => {};
+  let turnEvent: (event: TurnEvent) => void = () => {};
+  let coreRestarted: () => void = () => {};
   const say = (text: string): void => entry({ who: 'her', text });
+  const transcript: Array<ChatLine> = [];
+  let lastSeq = 0;
+  let coreInstance: string | null = null;
+  const onTurnEvent = (event: TurnEvent): void => {
+    lastSeq = Math.max(lastSeq, event.seq);
+    turnEvent(event);
+  };
+  const openChatLink = (): Promise<CliLink> =>
+    openCliLink(
+      say,
+      async (file) => {
+        const kept = await keepReceived(where.dataDir, file);
+        entry(
+          'note' in kept ? { who: 'system', text: kept.note } : { who: 'her', text: '', attachments: [kept.attachment] }
+        );
+      },
+      { onTurnEvent, transcript }
+    );
   let link: CliLink;
   try {
-    link = await openCliLink(say, async (file) => {
-      const kept = await keepReceived(where.dataDir, file);
-      entry(
-        'note' in kept ? { who: 'system', text: kept.note } : { who: 'her', text: '', attachments: [kept.attachment] }
-      );
-    });
+    link = await openChatLink();
   } catch (err) {
     die(`no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia services start`);
   }
-  void link.closed.then(() => linked(false));
+  /** Subscribes this link to the turn events and takes what the last link missed. Another core held none of the old turns. */
+  async function followTurns(): Promise<void> {
+    const answer = await link.ask({ name: 'turn.replay', args: { after: lastSeq } });
+    if (answer.status !== 'ok') return;
+    const { instance, events } = JSON.parse(answer.text) as { instance: string; events: Array<unknown> };
+    if (coreInstance !== null && coreInstance !== instance) {
+      lastSeq = 0;
+      coreRestarted();
+    }
+    coreInstance = instance;
+    for (const one of events) {
+      const read = readTurnEvent(one);
+      if (read.ok) onTurnEvent(read.event);
+    }
+  }
+  /** When `current` closes: the chat says so, tries again until a core answers, and then takes the turns back up. */
+  function watchLink(current: CliLink): void {
+    void current.closed.then(async () => {
+      linked(false);
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, RECONNECT_MS));
+        try {
+          link = await openChatLink();
+          break;
+        } catch {
+          // No core listens yet: the next try.
+        }
+      }
+      linked(true);
+      watchLink(link);
+      await followTurns();
+    });
+  }
+  watchLink(link);
   const answers: LinkAnswers = {
     ask: (asked, secret, choices) =>
       new Promise((resolve) => {
@@ -575,6 +630,7 @@ async function runInkChat(
       { name: 'attach', help: 'Attach an image file from this machine to the next message' },
       { name: 'attach open', help: 'Open the newest image she sent' },
       { name: 'attach save', help: 'Save the newest image she sent to a file' },
+      { name: 'queue', help: 'Edit or remove the lines waiting behind her running turn' },
       ...COMMANDS.flatMap((command) => [
         { name: command.name, help: command.help },
         ...command.subcommands.map((sub) => ({
@@ -601,6 +657,9 @@ async function runInkChat(
       entry = listeners.entry;
       question = listeners.question;
       linked = listeners.connected;
+      turnEvent = listeners.turn;
+      coreRestarted = listeners.coreRestarted;
+      void followTurns();
     },
     saveHistory(_lines, added) {
       if (added === undefined) return;
@@ -616,11 +675,18 @@ async function runInkChat(
       return answer.status === 'ok' ? (JSON.parse(answer.text) as StatusBrief | null) : null;
     },
     panelOf: (line) => chatPanel(line, run, interfaceNames(where.privateDir)),
+    cancelTurn(turnId) {
+      void link.ask({ name: 'turn.cancel', args: { turnId } }).then((answer) => {
+        if (answer.status !== 'ok')
+          entry({ who: 'system', text: `the cancel did not reach the core (${answer.status})` });
+      });
+    },
     send(line, attachments = []) {
       const text = line.trim();
       if (!text.startsWith('/')) {
         void link.say(line, attachments).then((status) => {
-          if (status !== 'ok') entry({ who: 'system', text: `the core did not take the line (${status})` });
+          if (status !== 'ok' && status !== 'duplicate')
+            entry({ who: 'system', text: `the core did not take the line (${status})` });
         });
         return;
       }

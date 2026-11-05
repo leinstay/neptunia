@@ -462,6 +462,9 @@
       "collapseLines": 10,
       "collapseChars": 2000
     },
+    "queue": {
+      "capacity": 8
+    },
     "mouse": false,
     "bindings": []
   }

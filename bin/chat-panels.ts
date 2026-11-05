@@ -211,6 +211,26 @@ function modelPicker(run: Run): PickerEnv {
   };
 }
 
+/** The lines that wait behind her running turn: a row edits its line, and an empty line takes it out. */
+async function queuePanel(run: Run): Promise<Panel> {
+  const answer = await run({ name: 'turn.queue', args: {} });
+  if (answer.status !== 'ok') return { title: 'Queue', lines: [answer.text] };
+  const queued = JSON.parse(answer.text) as Array<{ turnId: string; text: string }>;
+  const rows = queued.map((one, index): PanelRow => ({
+    id: one.turnId,
+    label: `${index + 1}. ${one.text.split('\n')[0] ?? ''}`,
+    detail: 'Enter edits this line before its turn starts. An empty line takes it out of the queue.',
+    group: 'Queue',
+    value: one.text,
+    edit: { kind: 'text', value: one.text },
+    apply: (next) =>
+      next.trim() === ''
+        ? run({ name: 'turn.remove', args: { turnId: one.turnId } })
+        : run({ name: 'turn.edit', args: { turnId: one.turnId, text: next } }),
+  }));
+  return { title: 'Queue', lines: rows.length === 0 ? ['No line waits.'] : [], rows };
+}
+
 /** A local presentation for a supported command, or null so the caller uses the normal command path. */
 export async function chatPanel(
   line: string,
@@ -220,6 +240,7 @@ export async function chatPanel(
   if (line === '/setup') return { title: 'Setup', lines: [], rows: setupRows(run, interfaces) };
   // Only the bare line: `/model show` and `/model set ...` stay commands, and the same word in a shell stays `show`.
   if (line === '/model') return { title: 'Model', lines: [], picker: modelPicker(run) };
+  if (line === '/queue') return queuePanel(run);
   const parsed = parseCommandLine(line);
   if (!parsed.ok) return null;
   if (parsed.name === 'config.show') {

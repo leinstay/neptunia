@@ -21,6 +21,8 @@ The interface supplies a message and its conversation, author and audience. The 
 
 The request builder combines that context with the persona's prompts. The model can call tools before answering. Tool results return to the same turn; final output tags describe messages, reactions or silence. The interface executes supported actions and reports what happened.
 
+A line of the owner's CLI waits its place in `src/turn/control.ts` before it reaches the door, which leaves the rest of its turn as on any interface. The runner reads a cancel signal only for such a line (`cancelOf`, `src/behavior/turn.ts`), and it ends `cancelled` with nothing out. [CLI](cli.md#turns-the-queue-and-cancelling) explains the queue.
+
 A heartbeat or completed errand can also cause a turn. It uses the same persona and memory rather than a separate conversational agent. [Inner life](inner-life.md) explains those triggers.
 
 ## Boundaries

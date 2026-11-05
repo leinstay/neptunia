@@ -25,7 +25,7 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 | Left, Right, Home and End | Move the caret, by whole characters and across a chip in one step |
 | Backspace and Delete | Delete a whole character or a whole chip |
 | Tab | Complete the selected command |
-| Esc | Close a panel, cancel a panel still loading, cancel a question, leave a search or clear the input |
+| Esc | Close a panel, cancel a panel still loading, cancel a question, leave a search or clear the input. On an empty input it asks the core to cancel her running turn |
 | Ctrl+R | Search the history, and again for the next older match |
 | Ctrl+F | Search the transcript, and again for the next older match |
 | Alt+Up and Alt+Down | Jump to your line above or below |
@@ -100,6 +100,18 @@ One screen element holds the keys and a paste at a time. A question from the cor
 A question replaces the input and keeps the unfinished line it interrupted. The line comes back after the answer or Esc, and an answer never joins it. Enter does nothing for 700 ms after the question closes, counted again from each Enter it swallows, so a held key cannot send a draft its owner has not seen. A secret answer is drawn as stars and stays out of the input history. A question with choices opens the selector in `cli/selector.ts`. Typing or pasting narrows the list, Enter answers with the choice exactly as the core sent it, and a filter that matches nothing answers nothing. The plain chat prints the choices beside the prompt.
 
 Each slash command replaces the panel request before it. An answer of a request that was replaced or cancelled with Esc opens nothing and runs nothing. The same rule holds inside a selector, whose reducer compares the overlay id and the generation of every answer. Moving and filtering change no setting.
+
+## Turns, the queue and cancelling
+
+`createTurnControl` in `src/turn/control.ts` owns the state of every line the chat or `neptunia -p` sends: accepted, queued, running, and committed, cancelled or failed. Each event names its turn and carries a rising `seq`. The core sends them to a client that asked with `turn.replay`, as a `command.result` of status `turn` (`src/protocol/turn-control.ts`), and `cli/turn-state.ts` builds the chat's picture from them and from nothing else. Her replies still arrive as messages, so the events carry the turn's state and the reply its words.
+
+One line runs at a time. A line sent during a turn goes to the core and waits there, up to `cli.queue.capacity` lines (default `8`), past which the core refuses it and the chat says so. The row above the input shows the running turn, its newest tool step and how many lines wait. `/queue` lists the waiting lines: Enter edits one, and an empty line takes it out. The same request id sent twice is one turn. Attachments stay with their line until its turn starts. A failed turn leaves a line in the transcript, and the next line runs once.
+
+Esc on an empty input asks the core to cancel the running turn, once. The chat keeps showing the turn as running until the core acknowledges, and Esc with text in the input clears only the input. Leaving the chat cancels nothing, and an errand, a task or the watcher is never reached by a chat cancel. A queued line that is cancelled never reaches the event door, so memory does not observe it. The signal of a running turn stops the wait in progress, aborts the provider request and takes effect between tool steps. A turn with a message already out ends committed, whatever the cancel asked. A line that was running stays in memory, because it was observed when it passed the door.
+
+`src/interface/chat-turns.ts` puts a line through the event door when its turn comes, the same door every interface uses, and adds no helper model. Lines of other interfaces do not pass through it, so a turn over one has no signal. A line whose turn does not end in 15 minutes fails with `no-turn-end`, and a line taken during a pause fails with `paused` while the core still holds it for `/resume`.
+
+The queue lives in the core's process and does not survive a restart. A lost link leaves the state as the core last said it. The chat tries again every 2 seconds, and `turn.replay` returns what it missed, or names another core instance, in which case the chat drops the turns it held and says how many lines to send again. The core's routes return completed output, so `running` carries `streaming: false` and the transcript shows no text until her reply. The reducer takes `text` events, and no route produces them.
 
 ## Settings and setup panels
 
