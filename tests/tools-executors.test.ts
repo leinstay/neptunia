@@ -314,6 +314,9 @@ function makeAdmin({
     getUser: () => null,
     getPlace: () => ({}),
     isPingsOff: (placeId: string, accountId: string) => accountId === '8',
+    // The tree of each channel the interface describes (plan T.4: a tool asks the store for the top of its place).
+    rootPlaceOf: (placeId: string) =>
+      placeId === OTHER_GUILD ? 'g2' : placeId === 'g1' || channels.has(placeId) ? 'g1' : null,
   };
   // What the interface says of each channel: its community and what she may do there.
   freshWorld();
@@ -357,7 +360,9 @@ function deps(
     }),
     runOp: admin.runSkillOp,
     runOwnOp: admin.runOwnSkillOp,
-    opContext: { placeId: 'g1', conversationId: HERE },
+    // The call's place alone, and the turn's own conversation for a post here (plan T.4).
+    here: { iface: 'fake', conversationId: HERE },
+    opContext: { placeId: HERE },
     ...over,
   };
 }
@@ -753,7 +758,7 @@ test("executeCall: a person who runs message.create gives her a turn; her own ca
   const person = await admin.runSkillOp(
     'message.create',
     { text: 'πες αυτό' },
-    { placeId: 'g1', conversationId: HERE, accountId: OWNER, roleIds: [] }
+    { placeId: HERE, accountId: OWNER, roleIds: [] }
   );
   assert.equal(person.status, 'ok');
   assert.deepEqual(forced, [[HERE, null, { requester: { id: OWNER, roleIds: [] } }]]);
@@ -1017,15 +1022,15 @@ test('executeCall: an operation that does not answer in time is unknown, never r
       seen.push(args);
       return { status: 'ok', summary: 'none' };
     },
-    opContext: { placeId: 'g1', conversationId: HERE },
+    // The call's place alone (plan T.4).
+    opContext: { placeId: HERE },
   });
   assert.deepEqual(seen, [
     [
       'lore.list',
       { query: undefined },
       {
-        placeId: 'g1',
-        conversationId: HERE,
+        placeId: HERE,
         accountId: MEMBER,
         roleIds: ['r1'],
         actor: 'persona',
@@ -1444,6 +1449,8 @@ function pingsStore(off: Array<string> = []) {
     state: { data: {}, markDirty() {} },
     getUser: () => null,
     getPlace: () => ({}),
+    // Every channel of the rig sits in g1 (plan T.4: the switch is kept under the top of the call's place).
+    rootPlaceOf: () => 'g1',
     isPingsOff: (placeId: string, accountId: string) => keys.has(`${placeId}:${accountId}`),
     setPingsOff(placeId: string, accountId: string, value: unknown) {
       if (value) keys.add(`${placeId}:${accountId}`);

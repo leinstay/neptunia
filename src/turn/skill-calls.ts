@@ -5,6 +5,7 @@
 
 import { turnBoundary } from '../tools/publication.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
+import { placeOfConversation } from '../memory/addresses.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { DESTINATION_REQUIRED } from '../behavior/inner-output.ts';
 import { POSTING_SKILLS } from '../behavior/inner.ts';
@@ -644,6 +645,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         result = await executeCall(resolvedCall, {
           publicationBoundary,
           port: iface,
+          here: conversationOf(channel),
           refOf: (conversationId) => conversationOf({ id: String(conversationId) }),
           renderText,
           envelope,
@@ -652,8 +654,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
           ...(runInitiativeOp ? { runInitiativeOp } : {}),
           opContext: {
             publicationBoundary,
-            placeId,
-            conversationId: String(channel.id),
+            // The place the call runs in; an operation on what the tree shares asks for its top.
+            placeId: placeOfConversation(store, channel),
             ...(privateChat ? { privateChat: true } : {}),
             // A live wake turn's posts wait in its hold (src/tools/send-hold.ts).
             ...(inner?.hold ? { hold: inner.hold } : {}),

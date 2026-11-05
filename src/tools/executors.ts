@@ -690,14 +690,13 @@ function fromPort(answer: unknown): CallResult {
 /** What an in-turn tool is told about the call it answers: who asked, where, and the call's key. */
 function inTurnCallOf(deps: ExecuteDeps, resolved: Resolved): InTurnCall {
   const asked = deps.envelope?.requester ?? null;
-  const placeId = deps.opContext?.conversationId;
   return {
     ...(resolved.skill === 'memory.search' && resolved.memoryAnchor ? { memoryAnchor: resolved.memoryAnchor } : {}),
     ...((resolved.skill === 'web.read' || resolved.skill === 'media.look') && resolved.messageRef
       ? { messageRef: resolved.messageRef }
       : {}),
     requester: asked === null ? null : { id: asked.id ?? null, roleIds: [...(asked.roleIds ?? [])] },
-    conversationId: typeof placeId === 'string' ? placeId : null,
+    conversationId: deps.here?.conversationId ?? null,
     idempotencyKey: deps.envelope?.idempotencyKey ?? deps.envelope?.invocationId ?? null,
   };
 }
@@ -721,7 +720,7 @@ function callPublicationRefusal(
   const channel = resolved.args.channel;
   return publicationRefusal(
     boundary,
-    deps.refOf(typeof channel === 'string' ? channel : deps.opContext?.conversationId)
+    typeof channel === 'string' ? deps.refOf(channel) : (deps.here ?? deps.refOf(null))
   );
 }
 
@@ -753,7 +752,7 @@ async function postReturnedFiles(
     return { name: argText(file.name ?? 'file'), data: file.attachment };
   });
   // A wake turn's post of them is held for its end (src/tools/send-hold.ts), under the call's key.
-  const destination = deps.refOf(deps.opContext?.conversationId);
+  const destination = deps.here ?? deps.refOf(null);
   const refusal = publicationRefusal(boundary, destination);
   if (refusal) return refusal;
   const port = heldPort(bindPublicationPort(deps.port, boundary), {
@@ -779,14 +778,14 @@ async function postReturnedFiles(
  * `deps.runInitiativeOp` (src/admin.ts#runInitiativeSkillOp, the same for any operation) -- on
  * the call's envelope (`deps.envelope`, built by the turn, never by
  * the model: the requester's `accountId` and `roleIds`, null with nobody; the invocation id) in the
- * turn's context (`deps.opContext`: `placeId`, `placeId`), the persona as the actor, the replied
+ * turn's context (`deps.opContext`: `placeId`, the place the call runs in), the persona as the actor, the replied
  * author for a reply's notification; not back within `deps.timeoutMs` (`tools.callTimeoutMs`)
  * it is `unknown` (`timeout`), never retried. Its answer is the call's `data.text`
  * whatever the status -- the reply text, a card's fields, or the error or refusal the owner would
  * read -- with its code when it is not `ok`, `ref` when a message went out, and `taskId` when it
  * queued an errand (`errand.run`). Files it answers
  * with (`/nep draw` without a channel) are posted to the current conversation through
- * `deps.port` (`deps.refOf`), as the owner's command shows them to the owner: the call is then
+ * `deps.port` (`deps.here`), as the owner's command shows them to the owner: the call is then
  * that post's result, never generated again. A skill `deps.inTurn` holds (the turn's in-turn
  * tools: name -> `(args) => result`) runs there instead, on the operation's
  * arguments her call maps to (`dispatch.toOp`, as above), under the same timeout; its result is the call's as it is (a result without a
@@ -1057,5 +1056,7 @@ export type ExecuteDeps = {
   opContext?: Obj & { placeId?: unknown; publicationBoundary?: PublicationBoundary };
   timeoutMs?: number;
   port: { send(ref: unknown, body: unknown): Promise<unknown> };
-  refOf(placeId: unknown): ConversationRef;
+  /** The conversation the turn speaks in, as its interface names it. */
+  here?: ConversationRef;
+  refOf(conversationId: unknown): ConversationRef;
 };

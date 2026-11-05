@@ -782,7 +782,7 @@ test('run: pings with no mode shows the state of the caller; off and on change o
   const rootDir = makeRoot();
   const store = storeWithPings();
   const { admin } = makeAdmin(rootDir, { store });
-  const context = { placeId: 'g1', conversationId: 'c1', accountId: '999' };
+  const context = { placeId: 'g1', accountId: '999' };
 
   assert.equal(await admin.run('pings.get', {}, context), 'Pings: on');
   assert.equal(await admin.run('pings.set', { mode: 'off' }, context), 'Pings: off');
@@ -813,7 +813,7 @@ test('run: pings works while paused, a change included, reading fresh off disk f
   const rootDir = makeRoot();
   const store = storeWithPings();
   const { admin } = makeAdmin(rootDir, { store });
-  const context = { placeId: 'g1', conversationId: 'c1', accountId: '999' };
+  const context = { placeId: 'g1', accountId: '999' };
   store.state.data.paused = true;
 
   assert.equal(await admin.run('pings.set', { mode: 'off' }, context), 'Pings: off');
@@ -2510,7 +2510,7 @@ test('run: message create gives the persona a turn in the context channel, the o
   world().channel({ id: 'c1' });
   const { admin } = makeAdmin(rootDir, { spontaneous });
 
-  const result = await admin.run('message.create', {}, { conversationId: 'c1', accountId: '42', roleIds: ['r1'] });
+  const result = await admin.run('message.create', {}, { placeId: 'c1', accountId: '42', roleIds: ['r1'] });
 
   // No mode: the turn reads the channel and joins it or starts a topic itself.
   assert.deepEqual(spontaneous.calls, [['c1', null, { requester: { id: '42', roleIds: ['r1'] } }]]);
@@ -2524,7 +2524,7 @@ test('run: message create uses the channel argument when given, overriding the c
   const { admin } = makeAdmin(rootDir, { spontaneous });
 
   // The mode is the server's: a person always gets her turn, whatever text the arguments carry.
-  await admin.run('message.create', { placeId: 'other', text: 'Σ' }, { conversationId: 'c1' });
+  await admin.run('message.create', { placeId: 'other', text: 'Σ' }, { placeId: 'c1' });
 
   assert.deepEqual(spontaneous.calls, [['other', null, { requester: null }]]);
 });
@@ -2694,7 +2694,7 @@ test('run: every command that writes data/ is refused while paused, with a hint 
   ];
   for (const [key, args] of attempts) {
     await assert.rejects(
-      () => admin.run(key, args, { placeId: 'g1', conversationId: 'c1' }),
+      () => admin.run(key, args, { placeId: 'c1' }),
       /paused.*resume/i,
       `${key} must be refused while paused`
     );

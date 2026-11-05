@@ -34,6 +34,12 @@ const BOUNDARY = [
   'src/memory/addresses.ts',
   'src/memory/store-addresses.ts',
   'src/memory/db/observe-event.ts',
+  // A member's voice state as the wire carries it: the community and the native voice conversations (plan T.4).
+  'src/protocol/events.ts#VoiceChanged',
+  // A mirror row maps one place to its own native conversation, the one its posts go to (plan T.4).
+  'src/memory/db/mirror-config.ts#MirrorRow',
+  // A selfreflection place maps one place to its own native conversation (plan T.4).
+  'src/memory/db/mirrors.ts#SelfreflectionPlace',
 ];
 
 const exemptFile = (file: string): boolean =>

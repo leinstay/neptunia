@@ -55,7 +55,6 @@ function checkedConversation(
     reads: env.reads,
     store: env.store,
     iface: p.iface,
-    placeId: env.resolvedPlaceId(context),
     conversationId,
     context,
     need,
@@ -320,7 +319,7 @@ const handlers = perEnv((env) => {
 
   /** One turn of hers in the channel, now, for a person: an answer to the named message, else her own pick. */
   async function turn(args: Obj, context: OpContext) {
-    const placeId = idText(args.placeId) || context.conversationId;
+    const placeId = idText(args.placeId) || env.conversationOf(context);
     if (!placeId) throw invalid('a channel is required');
     const p = requirePort();
     const ref = { iface: p.iface, conversationId: placeId };

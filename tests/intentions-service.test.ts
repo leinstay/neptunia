@@ -170,8 +170,8 @@ function makeEnv({
 /** Her own call's context in turn `turnId` (an owner asked). */
 const hers = (env: Env, turnId: string, extra = {}) => ({
   env,
-  placeId: 'g1',
-  conversationId: 'c1',
+  // The place of the call alone (plan T.4).
+  placeId: 'c1',
   accountId: OWNER,
   roleIds: [],
   actor: 'persona',
@@ -180,7 +180,7 @@ const hers = (env: Env, turnId: string, extra = {}) => ({
   ...extra,
 });
 /** An owner's command. */
-const owner = (env: Env) => ({ env, placeId: 'g1', conversationId: 'c1', accountId: OWNER, roleIds: [] });
+const owner = (env: Env) => ({ env, placeId: 'c1', accountId: OWNER, roleIds: [] });
 
 function onlyIntention(intentions: IntentionService) {
   const list = intentions.list();
@@ -411,7 +411,7 @@ test('intentions: markExpiredShown marks an expired intention once; an open one,
 
 test("private chats: her intention in a DM is the DM's own -- never in a server turn, not movable from a server channel, gone with a forget of the member", async () => {
   const { env, intentions } = makeEnv();
-  const dm = (extra = {}) => hers(env, 'T1', { conversationId: 'dm1', privateChat: true, ...extra });
+  const dm = (extra = {}) => hers(env, 'T1', { placeId: 'dm1', privateChat: true, ...extra });
   await withCapturedLogs(async () => {
     const set = await runOp('intention.set', { text: 'ρώτα την για τις εξετάσεις' }, dm());
     assert.equal(set.status, 'ok', set.summary);
@@ -732,7 +732,7 @@ test("intent dropped: a drop from a recurring or waiting one ends it; a private 
       'ok'
     );
     assert.equal(present(present(intentions.store()).get(id)).status, 'dropped');
-    const dm = (extra = {}) => hers(env, 'T3', { conversationId: 'dm1', privateChat: true, ...extra });
+    const dm = (extra = {}) => hers(env, 'T3', { placeId: 'dm1', privateChat: true, ...extra });
     const priv = await runOp('intention.set', { text: 'ρώτα την', state: 'dropped', reason: 'private matter' }, dm());
     assert.equal(priv.status, 'ok');
     assert.deepEqual(

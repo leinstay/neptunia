@@ -18,7 +18,12 @@ type Addressing = {
   placeOfCommunity?: (nativeId: string, iface?: string) => string;
   accountOf?: (nativeId: string, iface?: string) => string;
   personOfAccount?: (accountId: string) => string;
+  rootPlaceOf?: (placeId: string) => string | null;
+  conversationOfPlace?: (placeId: string, dmConversationOf?: DmConversationOf | null) => string | null;
 };
+
+/** The direct chat an interface saw with a member, by the member's native id. */
+type DmConversationOf = (partnerId: string) => string | null;
 
 const given = (conversation: Conversationish): string => String(conversation.rootId ?? conversation.id ?? '');
 
@@ -53,4 +58,23 @@ export function personOfMember(store: unknown, nativeId: string, iface?: string)
   const addressing = store as Addressing | null | undefined;
   const account = accountOf(store, nativeId, iface);
   return addressing?.personOfAccount ? addressing.personOfAccount(account) : `person:${iface ?? ''}:${nativeId}`;
+}
+
+/** The top of a place's stored tree (the store's `rootPlaceOf`), the place itself when the store holds no tree for it. */
+export function topPlaceOf(store: unknown, placeId: string): string {
+  const addressing = store as Addressing | null | undefined;
+  return addressing?.rootPlaceOf?.(placeId) ?? placeId;
+}
+
+/**
+ * The native conversation of a place, for a call that speaks to its interface: the store's answer, a DM's chat from
+ * `dmConversationOf`; the place as given when the store cannot say (a stand-in store holds native ids).
+ */
+export function conversationOfPlace(
+  store: unknown,
+  placeId: string,
+  dmConversationOf: DmConversationOf | null = null
+): string | null {
+  const addressing = store as Addressing | null | undefined;
+  return addressing?.conversationOfPlace ? addressing.conversationOfPlace(placeId, dmConversationOf) : placeId;
 }

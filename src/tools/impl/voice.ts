@@ -87,7 +87,7 @@ async function sayOnRoute({
 }
 
 const handlers = perEnv((env) => {
-  const { hot, speech, assertNotPaused, resolvedPlaceId } = env;
+  const { hot, speech, assertNotPaused } = env;
   const { reads } = env;
   const port = env.port as Adapter | null | undefined;
 
@@ -120,7 +120,6 @@ const handlers = perEnv((env) => {
       reads,
       store: env.store,
       iface: port.iface,
-      placeId: resolvedPlaceId(context),
       conversationId: target,
       context,
       need: 'attach',

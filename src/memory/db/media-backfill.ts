@@ -290,12 +290,9 @@ function markPlaceholders(db: Db, sourceId: unknown): void {
 }
 
 /** Keeps on a DM place the conversation the interface opened for its partner. */
-function keepDmConversation(db: Db, placeId: unknown, conversationId: unknown): void {
+function keepDmConversation(db: Db, placeId: unknown, dmConversation: unknown): void {
   const extra = parsed(db.prepare('SELECT extra FROM places WHERE id = ?').get(placeId)?.extra);
-  db.prepare('UPDATE places SET extra = ? WHERE id = ?').run(
-    JSON.stringify({ ...extra, dmConversation: conversationId }),
-    placeId
-  );
+  db.prepare('UPDATE places SET extra = ? WHERE id = ?').run(JSON.stringify({ ...extra, dmConversation }), placeId);
 }
 
 /** Links a line's placeholder to a row that names its message, and tells the writer's caller whether any changed. */

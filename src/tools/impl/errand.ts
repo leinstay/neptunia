@@ -68,7 +68,8 @@ const handlers = perEnv((env) => {
   /** Whether the conversation the command runs in is a private chat. */
   function inPrivate(context: OpContext) {
     if (context?.privateChat === true) return true;
-    return context?.conversationId ? env.directory.isPrivate(idText(context.conversationId)) : false;
+    const here = env.conversationOf(context);
+    return here ? env.directory.isPrivate(here) : false;
   }
 
   /** Whether the caller may see `errand`: a group errand anyone; a private chat's only its requester or an owner. */
@@ -111,7 +112,7 @@ const handlers = perEnv((env) => {
     // Her own call carries its turn and its idempotency key (src/tools/executors.ts); a command neither.
     const persona = context?.actor === 'persona';
     const origin = {
-      placeId: context?.conversationId ? idText(context.conversationId) : null,
+      placeId: env.conversationOf(context),
       messageId: context?.sourceMessageId ? idText(context.sourceMessageId) : null,
       ...(persona && context?.turnId ? { turnId: idText(context.turnId) } : {}),
       ...(context?.publicationBoundary ? { publicationBoundary: context.publicationBoundary } : {}),

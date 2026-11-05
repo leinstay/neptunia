@@ -24,18 +24,40 @@ type ConversationNames = Parameters<typeof conversationPlaceKey>[0] & {
 
 type Seam = { db(): Db; run<TResult>(fn: () => TResult): TResult };
 
+/** The DM chat the media backfill kept on a DM place (`extra.dmConversation`), or null. */
+function keptDmConversation(extra: unknown): string | null {
+  if (typeof extra !== 'string' || extra === '') return null;
+  try {
+    const kept: unknown = (JSON.parse(extra) as Record<string, unknown> | null)?.dmConversation;
+    return typeof kept === 'string' && kept ? kept : null;
+  } catch {
+    return null;
+  }
+}
+
 type AddressedDb = { readHandle?(): unknown; namespace?(): unknown } | null | undefined;
+
+/** The most places the addressing remembers it named from a conversation; the oldest goes first. */
+const NAMED_MAX = 2000;
 
 function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam }) {
   const readable = (): boolean => Boolean(memoryDb?.readHandle?.());
+  // The places named from a conversation the interface described: its native id and the top of its tree, for a place
+  // the database holds no row of yet (no message of it observed) or a store with no database.
+  const named = new Map<string, { conversation: string; top: string }>();
+  const remember = (placeId: string, conversation: string, top: string): void => {
+    named.delete(placeId);
+    named.set(placeId, { conversation, top });
+    if (named.size > NAMED_MAX) named.delete(named.keys().next().value ?? placeId);
+  };
   const ifaceNow = (): string => {
     const named: unknown = typeof memoryDb?.namespace === 'function' ? memoryDb.namespace() : null;
     return currentIface() ?? (typeof named === 'string' && named ? named : LEGACY_IFACE);
   };
 
   function rootPlaceOf(placeId: string): string | null {
-    if (!readable()) return null;
-    return seam.run(() => rootPlaceInDb(seam.db(), placeId));
+    const stored = readable() ? seam.run(() => rootPlaceInDb(seam.db(), placeId)) : null;
+    return stored ?? named.get(placeId)?.top ?? null;
   }
 
   /** The account a stored DM place is with, or null. */
@@ -88,6 +110,22 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
   }
 
   function placeOfConversation(conversation: ConversationNames, iface?: string): string {
+    const placeId = placeIdOf(conversation, iface);
+    const native = conversation?.id;
+    if (typeof native === 'string' && native) {
+      const root = conversation.rootId;
+      const top =
+        typeof root === 'string' && root
+          ? memoryDb
+            ? placeOfCommunity(root, conversation.iface ?? iface)
+            : root
+          : placeId;
+      remember(placeId, native, top);
+    }
+    return placeId;
+  }
+
+  function placeIdOf(conversation: ConversationNames, iface?: string): string {
     if (!memoryDb) return String(conversation?.id ?? '');
     const name = String(conversation?.iface ?? iface ?? ifaceNow());
     const authority = String(conversation?.authorityId ?? nativeAuthorityOf(name));
@@ -175,9 +213,32 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
 
     /**
      * The top of a place's stored tree: the place itself when it has no parent, the last stored place when a parent is
-     * missing, null for an unknown id and for a cycle. A DM is its own root.
+     * missing, null for a cycle. A DM is its own root. A place with no row answers the top of the conversation it was
+     * named from (`placeOfConversation`); an unknown id answers null.
      */
     rootPlaceOf,
+
+    /**
+     * The native conversation of a place, for a call that speaks to its interface: the native id of a channel, a thread
+     * or a group, and for a DM the chat `dmConversationOf` names for its partner's native id, else the one this store
+     * named the place from, else the one kept on the place. With no row: the conversation the place was named from,
+     * else the id as given (already native). Null for a DM whose chat is unknown.
+     */
+    conversationOfPlace(
+      placeId: string,
+      dmConversationOf?: ((partnerId: string) => string | null) | null
+    ): string | null {
+      const known = named.get(placeId)?.conversation ?? null;
+      if (!readable()) return known ?? placeId;
+      const row = seam.run(() =>
+        seam.db().prepare('SELECT kind, native_id, partner_account, extra FROM places WHERE id = ?').get(placeId)
+      );
+      if (!row) return known ?? nativeOfAny(placeId) ?? placeId;
+      if (row.kind !== 'dm') return typeof row.native_id === 'string' && row.native_id ? row.native_id : null;
+      const partner = typeof row.partner_account === 'string' ? nativeOfRow('accounts', row.partner_account) : null;
+      const open = partner === null ? null : (dmConversationOf?.(partner) ?? null);
+      return open ?? known ?? keptDmConversation(row.extra);
+    },
 
     /** The stored child places of a place, one level of `places.parent_id` down, in id order. */
     listChildren(placeId: string): Array<Record<string, unknown>> {
