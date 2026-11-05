@@ -2380,7 +2380,7 @@ export async function heartbeatReplayWake({
     });
     if (queued?.status !== 'queued')
       throw new CliError(`replay-cli: the heartbeat wake was not queued (${queued?.status ?? 'unknown'})`);
-    const drained = await life.drain(placeId);
+    const drained = await life.drain();
     if (!seen) {
       const why =
         drained?.deferred ??
@@ -2732,7 +2732,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     } else {
       let conversationIds = [];
       if (args.inner !== 'review') {
-        intention = intentions.store(placeId)?.get(args.intention) ?? null;
+        intention = intentions.store()?.get(args.intention) ?? null;
         if (!intention) throw new CliError(`replay-cli: no intention ${args.intention}`);
         if (!['pending', 'waiting'].includes(intention.status))
           log.warn('replay-cli: the intention is not open; the scheduler would not wake her for it', {
@@ -3984,7 +3984,7 @@ export function createReplayTools({
       const settings = recallSettings(hot.config)?.prefetch;
       if (!settings) return null;
       const names = new Map<Untyped, Untyped>(
-        (store.listUserProfiles?.(placeId) ?? [])
+        (store.listUserProfiles?.() ?? [])
           .filter((p: Rec) => p?.id)
           .map((p: Rec) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null])
       );
@@ -5732,7 +5732,7 @@ export async function preTurnLookup({
       serverOn && DIRECT_CALL_KINDS.includes(triggerKind) && settings?.fallbackOnClassifierFailure
         ? fallbackLookupPlan({
             text: triggerText,
-            profiles: store.listUserProfiles?.(placeId) ?? [],
+            profiles: store.listUserProfiles?.() ?? [],
             selfId,
             selfName,
             maxForms: settings.maxForms,

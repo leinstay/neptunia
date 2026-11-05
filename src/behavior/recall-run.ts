@@ -441,7 +441,7 @@ export function createRecall({
     let profiles = null;
     for (const form of who) {
       if (found.size >= maxPeople || signal.aborted) break;
-      profiles ??= store.listUserProfiles?.(placeId) ?? [];
+      profiles ??= store.listUserProfiles?.() ?? [];
       let matched = false;
       const folded = foldText(form);
       for (const profile of profiles) {
