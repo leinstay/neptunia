@@ -1,8 +1,8 @@
-// The core part of `/health`, read from the memory database: the errands stuck on an expired lease, the sends that
+// The core part of `/doctor`, read from the memory database: the errands stuck on an expired lease, the sends that
 // failed or still wait, the depths of the ingest, outbox and delivery queues, the wakes claimed more than once, and
 // the latency of her replies. A stuck errand is the board's own reclaim condition (src/board/board.ts, `reap`): a
 // task of lane `errand`, `approved` or `in_progress`, whose lease expired. The owner's console
-// (src/interface/commands/console.ts) calls `coreHealth` for `/health core` over the core's read connection; the
+// (src/interface/commands/console.ts) calls `coreHealth` for `/doctor core` over the core's read connection; the
 // turn durations come from the `reply` metric (src/tools/impl/metrics.ts). Pure over the database and its options.
 
 import type { DatabaseSync } from 'node:sqlite';

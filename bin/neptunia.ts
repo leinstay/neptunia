@@ -8,19 +8,23 @@
 //   neptunia -p "/<command> [args]"              one command as a typed line
 //   neptunia -p "<text>"                         one turn with the persona; her reply on stdout
 //   neptunia doctor [live] [--live] [--json]     the checks of the installation, with the core up or down
+//   neptunia doctor server|core|memory           one read of the running core, which answers it
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
-//   neptunia service <name> setup|enable|disable|status   one of the four scheduled mechanics (src/service/commands.ts)
-//   neptunia service watcher trigger|cancel|report [<day or run>]   the operations of one watcher run
-//   neptunia service watcher evidence [--from <iso>] [--cursor <c>]  what the services asked and answered, as JSON
-//   neptunia service start|stop|restart|status [<unit> ...]   the units, through the scope's systemctl
+//   neptunia services list                       the four scheduled mechanics (src/service/commands.ts)
+//   neptunia services <name> setup|enable|disable|status   one of them
+//   neptunia services watcher trigger|cancel     the operations of one watcher run
+//   neptunia services watcher evidence [--from <iso>] [--cursor <c>]  what the services asked and answered, as JSON
+//   neptunia services start|stop|restart|status [<unit> ...]   the units, through the scope's systemctl
+//   neptunia logs [errors] [follow] [since <when>]   the core's journal
+//   neptunia logs watcher [<date or run>]        the watcher's saved report, with no core
 //   neptunia setup [--system] [--node <path>] [<step>]  the install of one user: folders, keys file, her subharness
 //                                                backends, the repository of her self-development, her mechanics,
 //                                                the watcher, units, linger, the core; a step of those last-named three
-//                                                alone is `neptunia service <name> setup`
+//                                                alone is `neptunia services <name> setup`
 //   neptunia setup subharness <backend> [--from <path>]   one subharness backend into <private>/subharness/<backend>/
 //   neptunia subharness <backend> login|status|logout   its account, with no core (src/subharness/account.ts)
-//   neptunia task <command> [options]            the task board's command line (bin/neptunia-task.ts)
+//   neptunia tasks <command> [options]           the task board's command line (bin/neptunia-task.ts)
 //
 // Every command reads `NEPTUNIA_PRIVATE_DIR` (the local layer) and `NEPTUNIA_DATA_DIR` (the data folder), as the core
 // does (src/paths.ts). A usage error exits 2.
@@ -31,8 +35,8 @@
 // her reply arrives as a send action and is printed. A line starting with `/` is parsed by the command table
 // (src/interface/commands/table.ts), which prints the reason of a line it refuses, and becomes a `command.requested`
 // event: its answer is printed for the owner and never reaches her memory or her requests. `/clear`, `/doctor`,
-// `/logs` (journalctl of the core's unit, from PATH) and `/service` (bin/neptunia-service.ts)
-// run here and ask the core nothing, but `/doctor live` asks it for the probes of the model roles. A line typed before the link is up waits in the input until it is. The chat opens with the core's
+// `/logs` (journalctl of the core's unit, from PATH), `/logs watcher` (the saved reports) and `/services`
+// (bin/neptunia-service.ts) run here and ask the core nothing, but `/doctor live` asks it for the probes of the model roles. A line typed before the link is up waits in the input until it is. The chat opens with the core's
 // header and, above it, the picture in `<private>/cli/picture.txt` when that file exists. In a terminal the command
 // history is kept in `<private>/cli/history`. The end of the input ends the chat with exit 0, once the answers of the
 // commands still running have arrived.
@@ -54,9 +58,10 @@
 // docs/selfimprovement.md) as the client `development`: a filed task starts a thinker, and a finished one a pull request.
 // `worker development held` lists the tasks older than its boundary. It exits 1 when the board is not reachable.
 //
-// `doctor` writes nothing and asks the core nothing without `--live`: it checks Node, the binaries the engine runs, config.json and
+// `doctor` writes nothing and asks no model without `--live`: it checks Node, the binaries the engine runs, config.json and
 // config.local.json, the local layer, the key store's keys of the enabled roles, the client tokens, the features (the
-// subharness and the simulation, a warning while either is off), the memory database (read only, with no lock) and the socket. `--live` adds `providers`, the core's probes of the model roles, which is
+// subharness and the simulation, a warning while either is off), the memory database (read only, with no lock) and the socket. `runtime` is the core's reading of the server, itself and the memory
+// (`/doctor server`, `core` and `memory` read one each), `skipped` when no core answers in time. `--live` adds `providers` in its place, the core's probes of the model roles, which is
 // `skipped` when no core answers, since the command line holds no key. `--json` prints
 // `{ checks: [{ name, status, detail }] }`. A check is `ok`, `warn`, `fail` or `skipped`, and any `fail` exits 1. No
 // key or token value is ever printed.
@@ -148,6 +153,7 @@ import {
   retiredSetupStep,
   runServiceHere,
   runUnitVerbs,
+  watcherLogsHere,
 } from './neptunia-service.ts';
 import {
   COMMANDS_LINE,
@@ -172,17 +178,20 @@ const USAGE = [
   '       neptunia -p "/<command> [args]"   the same as a typed line',
   '       neptunia -p "<text>"          one turn with the persona, her reply on stdout',
   '       neptunia doctor [live] [--live] [--json]',
+  '       neptunia doctor server|core|memory',
   '       neptunia errand-runner --profile <name>',
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
-  '       neptunia service <name> setup|enable|disable|status   (heartbeat, selfreflection, selfimprovement, watcher)',
-  '       neptunia service watcher trigger|cancel|report [<day or run>]',
-  '       neptunia service watcher evidence [--from <iso>] [--cursor <c>]',
-  '       neptunia service start|stop|restart|status [<unit> ...]',
+  '       neptunia services list',
+  '       neptunia services <name> setup|enable|disable|status   (heartbeat, selfreflection, selfimprovement, watcher)',
+  '       neptunia services watcher trigger|cancel',
+  '       neptunia services watcher evidence [--from <iso>] [--cursor <c>]',
+  '       neptunia services start|stop|restart|status [<unit> ...]',
+  '       neptunia logs watcher [<date or run>]',
   '       neptunia setup [--system] [--node <path>] [folders|keys-file|interfaces|services|subharness|units|linger|core]',
   '       neptunia setup subharness codex|claude|opencode [--from <path>] [--version <version>] [--rollback]',
   '       neptunia subharness codex|claude login|status|logout',
   '       neptunia subharness opencode login --key <name>|status|logout',
-  '       neptunia task <command> [options]   (neptunia task help)',
+  '       neptunia tasks <command> [options]   (neptunia tasks help)',
   COMMANDS_LINE,
 ].join('\n');
 
@@ -519,8 +528,8 @@ type Answer = { text: string; status: string };
 /** What the core sent for one request: an answer, or a question to put to the owner (`ask`). */
 type Reply = Answer & { ask?: CommandResult['ask'] };
 
-/** The commands the command line runs itself, with no core: the doctor, the journal, the screen and the service family. */
-const LOCAL_COMMANDS = new Set(['doctor', 'doctor.live', 'logs', 'clear']);
+/** The commands the command line runs itself: the doctor, the journal, the saved reports, the screen and the service family. */
+const LOCAL_COMMANDS = new Set(['doctor', 'doctor.live', 'logs', 'logs.watcher', 'clear']);
 const runsHere = (name: string): boolean => LOCAL_COMMANDS.has(name) || isServiceRequest(name);
 
 /** The core's unit, whose journal `/logs` reads (deploy/neptunia-core.service). */
@@ -588,11 +597,13 @@ const checkLines = (checks: ReadonlyArray<Check>): string =>
 async function runLocal(command: Command, ask: ((command: Command) => Promise<Answer>) | null): Promise<Answer> {
   if (command.name === 'clear') return { text: '', status: 'ok' };
   if (command.name === 'logs') return readJournal(typeof command.args.options === 'string' ? command.args.options : '');
+  const color = process.stdout.isTTY && !process.env.NO_COLOR;
+  if (command.name === 'logs.watcher') return watcherLogsHere(command.args, paths(), color);
   if (isServiceRequest(command.name)) {
     if (ask !== null && prefersCore(command.name)) return ask(command);
-    return runServiceHere(command, paths(), process.stdout.isTTY && !process.env.NO_COLOR);
+    return runServiceHere(command, paths(), color);
   }
-  const checks = await doctorChecks(paths(), command.name === 'doctor.live' ? { ask } : null);
+  const checks = await doctorChecks(paths(), { ask, live: command.name === 'doctor.live' });
   return { text: checkLines(checks), status: checks.some((check) => check.status === 'fail') ? 'failed' : 'ok' };
 }
 
@@ -618,7 +629,7 @@ async function requireCliLink(print: ((text: string) => void) | null): Promise<C
     return await openCliLink(print);
   } catch (err) {
     return die(
-      `no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia service start`
+      `no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia services start`
     );
   }
 }
@@ -633,7 +644,7 @@ async function runCommand({ parsed, secretStdin }: Request): Promise<never> {
     const isBareSetup =
       named.name.endsWith('.setup') && isServiceRequest(named.name) && Object.keys(named.args).length === 0;
     const command = isBareSetup && process.stdin.isTTY === true ? await askSetup(named, askAtTerminal) : named;
-    const link = command.name === 'doctor.live' || prefersCore(command.name) ? await tryCliLink() : null;
+    const link = command.name.startsWith('doctor') || prefersCore(command.name) ? await tryCliLink() : null;
     const answer = await runLocal(command, link === null ? null : (asked) => link.ask(asked));
     link?.close();
     if (isServiceRequest(command.name) && answer.status === 'invalid') return refuseSyntax(answer.text);
@@ -777,7 +788,7 @@ async function runInkChat(where: { privateDir: string }, firstLine = ''): Promis
   try {
     link = await openCliLink(say);
   } catch (err) {
-    die(`no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia service start`);
+    die(`no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia services start`);
   }
   void link.closed.then(() => linked(false));
   const answers: Answers = {
@@ -850,7 +861,7 @@ async function runChat(firstLine?: string): Promise<void> {
   try {
     link = await openCliLink(printBlock);
   } catch (err) {
-    die(`no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia service start`);
+    die(`no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia services start`);
   }
   const picture = path.join(where.privateDir, 'cli', 'picture.txt');
   if (fs.existsSync(picture)) printBlock(fs.readFileSync(picture, 'utf8'));
@@ -1123,6 +1134,26 @@ async function checkProviders(ask: ((command: Command) => Promise<Answer>) | nul
   return { name: 'providers', status: answer.status === 'failed' ? 'warn' : 'fail', detail: answer.text };
 }
 
+/** The longest the doctor waits for a core to answer `runtime`: a core that hangs is what the owner came to find. */
+const RUNTIME_WAIT_MS = 5000;
+
+/** The core's reading of the server, itself and the memory (the console's `doctor`), `skipped` when none answers in time. */
+async function checkRuntime(ask: ((command: Command) => Promise<Answer>) | null): Promise<Check> {
+  const skipped: Check = { name: 'runtime', status: 'skipped', detail: 'no core answers: its reads need it' };
+  if (ask === null) return skipped;
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), RUNTIME_WAIT_MS);
+  });
+  try {
+    const answer = await Promise.race([ask({ name: 'doctor', args: {} }), late]);
+    if (answer === null) return skipped;
+    return { name: 'runtime', status: answer.status === 'ok' ? 'ok' : 'fail', detail: answer.text };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * The two features the owner switches on from the chat, the subharness and the simulation (src/subharness/summary.ts):
  * `warn` naming each one that is off with the command that turns it on, never `fail`.
@@ -1143,10 +1174,10 @@ async function checkFeatures(where: { privateDir: string }): Promise<Check> {
   };
 }
 
-/** Every check of the installation; with `live`, the providers probed through the core too. */
+/** Every check of the installation, then the core's reading of itself; with `live`, the providers probed through it instead. */
 async function doctorChecks(
   where: { rootDir: string; privateDir: string; dataDir: string },
-  live: { ask: ((command: Command) => Promise<Answer>) | null } | null
+  { ask, live }: { ask: ((command: Command) => Promise<Answer>) | null; live: boolean }
 ): Promise<Array<Check>> {
   const checks: Array<Check> = [
     checkNode(),
@@ -1160,7 +1191,7 @@ async function doctorChecks(
     checkDatabase(where),
     await checkSocket(where),
   ];
-  if (live !== null) checks.push(await checkProviders(live.ask));
+  checks.push(live ? await checkProviders(ask) : await checkRuntime(ask));
   return checks;
 }
 
@@ -1169,11 +1200,8 @@ async function runDoctor(argv: ReadonlyArray<string>): Promise<void> {
   const live = argv.includes('--live') || argv.includes('live');
   if (argv.some((arg) => arg !== '--json' && arg !== '--live' && arg !== 'live')) usage();
   const where = paths();
-  const link = live ? await tryCliLink() : null;
-  const checks = await doctorChecks(
-    where,
-    live ? { ask: link === null ? null : (command) => link.ask(command) } : null
-  );
+  const link = await tryCliLink();
+  const checks = await doctorChecks(where, { ask: link === null ? null : (command) => link.ask(command), live });
   link?.close();
   if (json) process.stdout.write(`${JSON.stringify({ checks })}\n`);
   else
@@ -1656,12 +1684,14 @@ switch (group) {
     break;
   case 'doctor':
     logToStderr();
-    await runDoctor(rest).catch(fault);
+    if (rest[0] === 'server' || rest[0] === 'core' || rest[0] === 'memory')
+      await runDirect([group, ...rest]).catch(fault);
+    else await runDoctor(rest).catch(fault);
     break;
   case 'errand-runner':
     await runErrandRunner(rest).catch(fault);
     break;
-  case 'service':
+  case 'services':
     runUnitVerbs(rest, refuseSyntax);
     logToStderr();
     await runDirect([group, ...rest]).catch(fault);
@@ -1670,7 +1700,7 @@ switch (group) {
     await runSetupCommand(rest).catch(fault);
     break;
   case 'interface':
-    // `interface run` is the runner a unit starts; the other forms are the table's management family.
+    // `interface run` is the runner a unit starts; the table refuses the other forms and names `interfaces`.
     if (rest[0] === 'run') {
       await runInterface(rest).catch(fault);
     } else {
@@ -1678,7 +1708,7 @@ switch (group) {
       await runDirect([group, ...rest]).catch(fault);
     }
     break;
-  case 'task':
+  case 'tasks':
     process.exit(await runTask(rest).catch(fault));
     break;
   case 'worker':

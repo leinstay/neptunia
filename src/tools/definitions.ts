@@ -254,8 +254,6 @@ export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'intention.list': 'intention_list',
   'places.list': 'places_list',
   'tools.describe': 'tools_describe',
-  'inner.stop': 'inner_stop',
-  'inner.start': 'inner_start',
   'inner.status': 'inner_status',
   'web.search': 'web_search',
   'web.read': 'web_read',
@@ -780,16 +778,6 @@ const ENTRIES: Array<Definition> = [
     body: 'name',
     effects: 'read',
     toArgs: (a) => ({ name: val(a, 'name') }),
-  }),
-  def('inner.stop', {
-    params: EMPTY(),
-    effects: 'administrative',
-    toArgs: () => ({ action: 'stop' }),
-  }),
-  def('inner.start', {
-    params: EMPTY(),
-    effects: 'administrative',
-    toArgs: () => ({ action: 'start' }),
   }),
   def('inner.status', { params: EMPTY(), effects: 'read', toArgs: () => ({ action: 'status' }) }),
   def('web.search', {

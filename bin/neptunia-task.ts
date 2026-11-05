@@ -1,4 +1,4 @@
-// `neptunia task <command> [options]` (bin/neptunia.ts hands it `runTask`): the task board's command line, a client
+// `neptunia tasks <command> [options]` (bin/neptunia.ts hands it `runTask`): the task board's command line, a client
 // of the core's socket. It takes the commands and flags of the ledger's `task` command line, maps each to the board
 // command of the same op (src/board/commands.ts) and prints the core's answer: the plain text, or with `--json` the
 // answer's JSON. `update`, `triage`, `move`, `cancel`, `fail` and `result` read the task first, as the ledger's did, for
@@ -31,41 +31,41 @@ import { serveAdapter } from '../src/protocol/serve.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';
 import { MAX_FRAME_BYTES, connectSocket } from '../src/protocol/wire.ts';
 
-export const TASK_USAGE = `usage: neptunia task <command> [options]   (--socket PATH; default the core's socket)
+export const TASK_USAGE = `usage: neptunia tasks <command> [options]   (--socket PATH; default the core's socket)
 
-  task add --lane dev --project core --title "..." [--description -] [--acceptance -] [--priority 2]
+  tasks add --lane dev --project core --title "..." [--description -] [--acceptance -] [--priority 2]
            [--risk normal] [--role implementer] [--budget 3] [--steps 60] [--estimate 40] [--defer ISO]
            [--requester owner] [--subscriber lead] [--parent T-xxxxxx] [--auto [--no-brief]]
            # --auto: triaged and approved at once; role, budget, steps, estimate left out come from the config
            # with a reviewer on the board a dev task stops at triaged until it is briefed; --no-brief approves at once
-  task list [--lane dev] [--status approved[,triaged]] [--project core] [--requester owner] [--ready] [--json]
-  task show T-xxxxxx [--full] [--json]      # --full: result bodies, questions and answers whole; prompts and specs last
-  task update T-xxxxxx [--title ..] [--priority N] [--risk ..] [--role ..] [--budget N] [--steps N]
+  tasks list [--lane dev] [--status approved[,triaged]] [--project core] [--requester owner] [--ready] [--json]
+  tasks show T-xxxxxx [--full] [--json]      # --full: result bodies, questions and answers whole; prompts and specs last
+  tasks update T-xxxxxx [--title ..] [--priority N] [--risk ..] [--role ..] [--budget N] [--steps N]
            [--estimate N] [--defer ISO|none] [--description -] [--acceptance -] [--meta key=value]...
            # a closed task: only --budget, --steps, --estimate (the owner, a reviewer)
-  task risk T-xxxxxx <low|normal|high> --reason "..."   # recorded; only the owner lowers, never below a dev task
-  task triage T-xxxxxx --role implementer --estimate 40 --budget 3 [--steps 60]
-  task approve T-xxxxxx [--scope plan|merge|deploy] [--note "..."] [--reject]
-  task reject T-xxxxxx --reason "..."
-  task cancel T-xxxxxx --reason "..."          task fail T-xxxxxx [--reason "..."]
-  task retry T-xxxxxx [--note "..."] [--budget N] [--steps N]   # a failed task back to approved, its attempts kept
-  task move T-xxxxxx <status> [--reason ".."] [--comment ".."]
-  task next --lane dev --role <role>           # claims the first ready task of the role; prints nothing ready
-  task claim T-xxxxxx [--ttl 30]   task heartbeat T-xxxxxx --generation N [--ttl 30]
-  task release T-xxxxxx --generation N
-  task block T-xxxxxx --generation N --reason "..." --unblocks "..."   task unblock T-xxxxxx --note "..."
-  task submit T-xxxxxx --generation N --handoff <file|->   # the handoff JSON: result, evidence, artifacts, tests, open_issues
-  task review T-xxxxxx --accept | --changes --comment "..."
-  task orient                                  # what the caller holds, blocked, reviews and is asked
-  task depend T-xxxxxx --on T-yyyyyy [--type blocks]   task undepend T-xxxxxx --on T-yyyyyy
-  task ask T-xxxxxx --to owner [--generation N] "..."   task answer Q-xxxxxx "..."
-  task escalate Q-xxxxxx [--note "..."]        # the question's addressee hands it up to the owner
-  task comment T-xxxxxx "..."                  task result T-xxxxxx --kind pr --uri https://... [--body -] [--no-submit]
+  tasks risk T-xxxxxx <low|normal|high> --reason "..."   # recorded; only the owner lowers, never below a dev task
+  tasks triage T-xxxxxx --role implementer --estimate 40 --budget 3 [--steps 60]
+  tasks approve T-xxxxxx [--scope plan|merge|deploy] [--note "..."] [--reject]
+  tasks reject T-xxxxxx --reason "..."
+  tasks cancel T-xxxxxx --reason "..."          tasks fail T-xxxxxx [--reason "..."]
+  tasks retry T-xxxxxx [--note "..."] [--budget N] [--steps N]   # a failed task back to approved, its attempts kept
+  tasks move T-xxxxxx <status> [--reason ".."] [--comment ".."]
+  tasks next --lane dev --role <role>           # claims the first ready task of the role; prints nothing ready
+  tasks claim T-xxxxxx [--ttl 30]   tasks heartbeat T-xxxxxx --generation N [--ttl 30]
+  tasks release T-xxxxxx --generation N
+  tasks block T-xxxxxx --generation N --reason "..." --unblocks "..."   tasks unblock T-xxxxxx --note "..."
+  tasks submit T-xxxxxx --generation N --handoff <file|->   # the handoff JSON: result, evidence, artifacts, tests, open_issues
+  tasks review T-xxxxxx --accept | --changes --comment "..."
+  tasks orient                                  # what the caller holds, blocked, reviews and is asked
+  tasks depend T-xxxxxx --on T-yyyyyy [--type blocks]   tasks undepend T-xxxxxx --on T-yyyyyy
+  tasks ask T-xxxxxx --to owner [--generation N] "..."   tasks answer Q-xxxxxx "..."
+  tasks escalate Q-xxxxxx [--note "..."]        # the question's addressee hands it up to the owner
+  tasks comment T-xxxxxx "..."                  tasks result T-xxxxxx --kind pr --uri https://... [--body -] [--no-submit]
                                                [--generation N]
-  task skill-pending [<name>] [--json]         # the pending versions; with a name, checks that package
-  task events [--from <seq>] [--limit N] [--json]
-  task inbox [--json]                          # the caller's outbox rows, acknowledged on read
-  task costs [--now ISO] [--json]              # the agents: runs, tokens, USD today / 7 / 30 UTC days
+  tasks skill-pending [<name>] [--json]         # the pending versions; with a name, checks that package
+  tasks events [--from <seq>] [--limit N] [--json]
+  tasks inbox [--json]                          # the caller's outbox rows, acknowledged on read
+  tasks costs [--now ISO] [--json]              # the agents: runs, tokens, USD today / 7 / 30 UTC days
 Common: --json, --key <idempotency key>, --socket <path>.
 Token: NEPTUNIA_TASK_TOKEN, else the token file of the client NEPTUNIA_TASK_CLIENT.`;
 
@@ -654,7 +654,7 @@ async function send(link: { ask: Ask }, command: Command, { flags, positionals }
   }
 }
 
-/** Runs `neptunia task ...argv`; resolves with the exit code. Prints the answer on stdout, a refusal on stderr. */
+/** Runs `neptunia tasks ...argv`; resolves with the exit code. Prints the answer on stdout, a refusal on stderr. */
 export async function runTask(argv: ReadonlyArray<string>, env: NodeJS.ProcessEnv = process.env): Promise<number> {
   const line = await lineOf(argv);
   if (typeof line === 'number') return line;

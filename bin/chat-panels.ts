@@ -92,7 +92,7 @@ function setupRows(run: Run, interfaces: ReadonlyArray<string>): Array<PanelRow>
         `interface:${name}`,
         `Set up ${name}`,
         'Answer the interface’s own setup questions.',
-        'interface.setup',
+        'interfaces.setup',
         { name },
         'Interfaces'
       )
@@ -103,7 +103,7 @@ function setupRows(run: Run, interfaces: ReadonlyArray<string>): Array<PanelRow>
         `enable:${name}`,
         `Enable ${name}`,
         'Enable this interface in the persona settings.',
-        'interface.enable',
+        'interfaces.enable',
         { name },
         'Interfaces'
       ),
@@ -112,7 +112,7 @@ function setupRows(run: Run, interfaces: ReadonlyArray<string>): Array<PanelRow>
         `disable:${name}`,
         `Disable ${name}`,
         'Keep its settings and stored memories.',
-        'interface.disable',
+        'interfaces.disable',
         { name },
         'Interfaces'
       ),

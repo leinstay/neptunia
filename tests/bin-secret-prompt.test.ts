@@ -90,8 +90,8 @@ test('echo is back after a secret answer', async () => {
   const asked = term.answers.ask('Paste the key.', true);
   await term.type('1\r');
   await asked;
-  await term.type('/health\r');
-  assert.ok(term.shown().includes('/health'));
+  await term.type('/doctor\r');
+  assert.ok(term.shown().includes('/doctor'));
   term.rl.close();
 });
 

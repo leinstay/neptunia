@@ -1,5 +1,5 @@
 // What the watcher's `Trash` section lists: leftovers by category, with a name, a reason and where each sits. It is the one
-// place the watcher looks at a development checkout, which only `service watcher evidence` passes in, and an install with
+// place the watcher looks at a development checkout, which only `services watcher evidence` passes in, and an install with
 // none reports its own half. Every command is a read through the injected `run`, nothing is deleted, and no leftover's
 // contents are opened: names, link targets' existence and file times only, a name shaped like a key masked. A category
 // that cannot be read is named in `unavailable`, so an empty one means it was looked at. The owner decides what goes.

@@ -1,7 +1,7 @@
 // The cutover's done-criteria (PR 6e of the stage 6 cut): one board in the core serves the development work and her
 // errands with no ledger service anywhere. The core runs in the test process as the units run it
 // (tests/fixtures/core-units.ts), over temporary folders and a scripted model; the development agents are
-// `neptunia task` children over the core's socket with their tokens; her errand goes to a fake scout runner on its own
+// `neptunia tasks` children over the core's socket with their tokens; her errand goes to a fake scout runner on its own
 // socket, which answers the runner protocol (src/agent-runner/protocol.ts). A listening socket stands where the ledger
 // mirror's was, so any connection to it shows. No dollar cap is read: a spent `daily.usd` of an agent changes nothing.
 // The tests read ids, statuses, generations, codes, exit codes and row counts, never a label's wording.
@@ -57,25 +57,25 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const tokenOf = (dirs: Dirs, name: string): string =>
   readFileSync(join(dirs.privateDir, 'clients', `${name}.token`), 'utf8').trim();
 
-/** Runs `neptunia task ...args` as the agent `name` to its end, with its input closed. */
+/** Runs `neptunia tasks ...args` as the agent `name` to its end, with its input closed. */
 async function task(dirs: Dirs, name: string, args: ReadonlyArray<string>, ms = 15000): Promise<Run> {
-  const cli = spawnCli(dirs, ['task', ...args], { NEPTUNIA_TASK_TOKEN: tokenOf(dirs, name) });
+  const cli = spawnCli(dirs, ['tasks', ...args], { NEPTUNIA_TASK_TOKEN: tokenOf(dirs, name) });
   cli.end();
   const timer = setTimeout(() => void cli.kill(), ms);
   const exit = await cli.exited;
   clearTimeout(timer);
-  assert.equal(exit.signal, null, `neptunia task ${args.join(' ')} did not end:\n${cli.stderr().slice(-2000)}`);
+  assert.equal(exit.signal, null, `neptunia tasks ${args.join(' ')} did not end:\n${cli.stderr().slice(-2000)}`);
   return { ...exit, stdout: cli.stdout(), stderr: cli.stderr() };
 }
 
-/** `neptunia task ...args` that must succeed; its standard output. */
+/** `neptunia tasks ...args` that must succeed; its standard output. */
 async function ok(dirs: Dirs, name: string, args: ReadonlyArray<string>): Promise<string> {
   const run = await task(dirs, name, args);
   assert.equal(run.code, 0, `${name}: task ${args.join(' ')}: ${run.stderr}`);
   return run.stdout;
 }
 
-/** `neptunia task show <id> --json` as the lead. */
+/** `neptunia tasks show <id> --json` as the lead. */
 async function shown(dirs: Dirs, id: string): Promise<TaskView> {
   const view: unknown = JSON.parse(await ok(dirs, 'lead', ['show', id, '--json']));
   assert.ok(isRecord(view) && isRecord(view.task), 'show --json answers a view');
@@ -83,7 +83,7 @@ async function shown(dirs: Dirs, id: string): Promise<TaskView> {
   return view as TaskView;
 }
 
-/** `neptunia task next` as `name`: the task it holds, with its generation. */
+/** `neptunia tasks next` as `name`: the task it holds, with its generation. */
 async function next(dirs: Dirs, name: string): Promise<TaskRecord> {
   const held: unknown = JSON.parse(await ok(dirs, name, ['next', '--lane', 'dev', '--role', 'dev', '--json']));
   assert.ok(isRecord(held) && typeof held.id === 'string', `${name} got a task`);
@@ -185,7 +185,7 @@ function errandConfig(runner: string, out: string, extra: Settings = {}): Settin
 const errandTasks = (dirs: Dirs): Array<Record<string, unknown>> =>
   query(dirs, "SELECT id, role, status FROM board_tasks WHERE lane = 'errand' ORDER BY created_at, rowid");
 
-test('a development task goes from filing to done through neptunia task alone, with no ledger anywhere', async () => {
+test('a development task goes from filing to done through neptunia tasks alone, with no ledger anywhere', async () => {
   await withRig({ config: { board: BOARD }, clients: DEV_CLIENTS }, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
     const id = (
@@ -229,7 +229,7 @@ test('a development task goes from filing to done through neptunia task alone, w
   });
 });
 
-test("a late worker's submit after a reclaim is refused stale-lease through neptunia task, and the new holder's task is unchanged", async () => {
+test("a late worker's submit after a reclaim is refused stale-lease through neptunia tasks, and the new holder's task is unchanged", async () => {
   await withRig({ config: { board: BOARD }, clients: DEV_CLIENTS }, async ({ dirs, llm, cores }) => {
     let clock = T0;
     cores.push(await startUnitsCore(dirs, llm, () => clock));

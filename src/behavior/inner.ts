@@ -67,9 +67,9 @@
 //
 // `wakes.mode`: `shadow` (the default) runs the turn with nothing leaving it -- her reads run,
 // every other call is recorded as proposed -- and `live` lets her calls run through the gateway on
-// her own grants. The kill switch (`/nep task inner action:stop`) is persisted with the state,
-// drops the queue, and is asked again right before any external action of a running inner turn
-// (`mayAct`). Off (`features.wakes` not exactly true, read at every tick) nothing is listed and
+// her own grants. The kill switch is persisted with the state, drops the queue, and is asked again right before any
+// external action of a running inner turn (`mayAct`). No command throws it, and the core clears a stored one before
+// each tick (status.ts#releaseStoredStop). Off (`features.wakes` not exactly true, read at every tick) nothing is listed and
 // nothing is written. The queue, the handled ids and the turn in flight are rows of the memory
 // database's `wakes` (src/behavior/inner/wake-store.ts: a turn claims its wakes with fenced leases
 // before it asks the model and completes them after); the rest of the state per guild (the day's
@@ -116,7 +116,7 @@ import {
 import type { WakeAnswer } from './inner/queue.ts';
 import { reviewDue } from './inner/review.ts';
 import { innerSettings } from './inner/settings.ts';
-import { start, status, stop } from './inner/status.ts';
+import { releaseStoredStop, start, status, stop } from './inner/status.ts';
 import type { InnerStatus, SwitchAnswer, SwitchOptions } from './inner/status.ts';
 import type {
   CostMeter,
@@ -230,6 +230,8 @@ export type InnerLife = {
   mayAct: (guildId: unknown) => boolean;
   stop: (guildId?: string | null, options?: SwitchOptions) => SwitchAnswer;
   start: (guildId?: string | null, options?: SwitchOptions) => SwitchAnswer;
+  /** Clears a stop kept in the stored state (status.ts#releaseStoredStop). */
+  releaseStoredStop: () => boolean;
   status: (guildId?: string | null) => InnerStatus;
   places: (guildId?: string | null, options?: PlacesQuery) => PlacesPage;
   state: (guildId?: unknown) => InnerState;
@@ -422,6 +424,7 @@ export function createInnerLife({
     mayAct: (guildId) => mayAct(life, guildId),
     stop: (guildId, options) => stop(life, guildId, options),
     start: (guildId, options) => start(life, guildId, options),
+    releaseStoredStop: () => releaseStoredStop(life),
     status: (guildId) => status(life, guildId),
     places: (guildId, options) => places(life, guildId, options),
     state: (guildId) => stateOf(life, guildId),

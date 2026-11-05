@@ -1,5 +1,5 @@
 // The owner's commands over the setup contract of a module (src/setup/modules.ts): `setup`, `settings`, `set`, `clear`,
-// `add` and `remove` of `/interface` and `/skills`. Answers name keys and masked values, never a secret. A secret is
+// `add` and `remove` of `/interfaces` and `/skills`. Answers name keys and masked values, never a secret. A secret is
 // asked in the chat's secret dialog and never travels as an argument. Called by src/interface/commands/console.ts.
 
 import {

@@ -88,8 +88,6 @@ export const OP_EFFECTS: Readonly<Record<string, EffectClass>> = Object.freeze({
   'intention.list': 'read',
   'places.list': 'read',
   'tools.describe': 'read',
-  'inner.stop': 'administrative',
-  'inner.start': 'administrative',
   'inner.status': 'read',
 });
 

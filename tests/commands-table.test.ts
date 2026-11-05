@@ -9,24 +9,22 @@ import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 const TABLE = [
   'status',
   'doctor',
-  'health',
   'logs',
-  // Changed: `/report` is retired, the report reads as `/service watcher report`, so the one new command is `service`.
-  'service',
+  // Changed: `/report` is retired, the report reads as `/logs watcher`, so the one new command is `services`.
+  'services',
   'usage',
   'errands',
   'intentions',
-  'wakes',
   'pause',
   'resume',
   'config',
   'model',
-  'route',
+  'routes',
   'memory',
   'rules',
   'tools',
   'skills',
-  'interface',
+  'interfaces',
   'keys',
   'subharness',
   // Changed: `/agent` holds the execution mode that left `/subharness`.
@@ -68,8 +66,8 @@ test('a missing required argument is refused', () => {
   assert.equal(parseCommandLine('/config set pace.settleMs').ok, false);
 });
 
-test('a /health part and a /usage window outside the table are refused', () => {
-  assert.equal(parseCommandLine('/health disks').ok, false);
+test('a /doctor part and a /usage window outside the table are refused', () => {
+  assert.equal(parseCommandLine('/doctor disks').ok, false);
   assert.equal(parseCommandLine('/usage 90d').ok, false);
 });
 
@@ -82,12 +80,12 @@ test('the last argument takes the rest of the line', () => {
   );
 });
 
-test('every listed part of /health and window of /usage parses', () => {
+test('every listed part of /doctor and window of /usage parses', () => {
   for (const line of [
-    '/health',
-    '/health server',
-    '/health core',
-    '/health memory',
+    '/doctor',
+    '/doctor server',
+    '/doctor core',
+    '/doctor memory',
     '/usage',
     '/usage 7d',
     '/usage 30d',

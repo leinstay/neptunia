@@ -2,7 +2,7 @@
 #
 # `neptunia worker watcher` claims one run, asks the watcher agent once, checks its answer, files the tasks it asks for on the
 # board as the client `watcher` and commits one report per run under `data/agents/watcher/reports/`.
-# neptunia-watcher.timer starts it on `watcher.schedule`, and `neptunia service watcher trigger` starts it at once. The unit
+# neptunia-watcher.timer starts it on `watcher.schedule`, and `neptunia services watcher trigger` starts it at once. The unit
 # is a oneshot, so a start during a run does nothing, and it never restarts itself after a failed run.
 #
 # The file system is read-only for this unit but for the watcher folder, which holds its reports and run records, and the
@@ -11,7 +11,7 @@
 # folder in the private layer.
 #
 # `neptunia setup` renders this service and its timer for the installing user (deploy/README.md), makes the client
-# `watcher` with its token and does not start them. `neptunia service watcher enable` enables the timer.
+# `watcher` with its token and does not start them. `neptunia services watcher enable` enables the timer.
 # Logs:    journalctl -u neptunia-watcher
 
 [Unit]

@@ -2,7 +2,7 @@
 
 The board stores work, its status, evidence, attempts and results in `memory.db`. It lets the persona and development agents refer to the same task without using a chat transcript as the work queue.
 
-Use `neptunia task` for task commands. Clients authenticate through the core socket; their `boardRoles` determine which transitions they may perform. Roles include owner, reviewer, worker, scheduler, persona, watcher and errand runner. A valid client token alone does not grant every board operation. `task.add` with `unique_open_title` refuses a title the requester already has open, ignoring case and spacing, with the board error `duplicate`.
+Use `neptunia tasks` for task commands. Clients authenticate through the core socket; their `boardRoles` determine which transitions they may perform. Roles include owner, reviewer, worker, scheduler, persona, watcher and errand runner. A valid client token alone does not grant every board operation. `task.add` with `unique_open_title` refuses a title the requester already has open, ignoring case and spacing, with the board error `duplicate`.
 
 A claimed task has a lease and progress records. Results can include a pull request or another artifact. Approval and completion are explicit board transitions. A saved unfinished task is evidence for later work, not permission to repeat an interrupted external action.
 

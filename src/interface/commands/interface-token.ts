@@ -52,17 +52,17 @@ export async function setInterfaceToken({
 }): Promise<{ text: string; status: 'ok' | 'invalid' | 'failed' }> {
   if (!IFACE_NAME.test(iface))
     return {
-      text: '/interface token set: an interface name is lowercase letters, digits and dashes, starting with a letter',
+      text: '/interfaces token set: an interface name is lowercase letters, digits and dashes, starting with a letter',
       status: 'invalid',
     };
   if (dialog === null)
-    return { text: '/interface token set: the token is asked in the chat; run the command there', status: 'invalid' };
+    return { text: '/interfaces token set: the token is asked in the chat; run the command there', status: 'invalid' };
   const variable = tokenVariableOf(iface);
   // A paste often carries a trailing newline or space.
   const token = (await dialog.ask(`Token of ${iface} (${variable}):`, { secret: true })).trim();
   if (token === '' || /\s/.test(token))
     return {
-      text: '/interface token set: a token is not blank and holds no whitespace; nothing is written',
+      text: '/interfaces token set: a token is not blank and holds no whitespace; nothing is written',
       status: 'invalid',
     };
   const dir = path.join(privateDir, 'interfaces', iface);
@@ -76,7 +76,7 @@ export async function setInterfaceToken({
       code: (err as NodeJS.ErrnoException).code ?? null,
     });
     return {
-      text: `/interface token set: interfaces/${iface}/credentials.json could not be written`,
+      text: `/interfaces token set: interfaces/${iface}/credentials.json could not be written`,
       status: 'failed',
     };
   }

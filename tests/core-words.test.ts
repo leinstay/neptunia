@@ -31,7 +31,7 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
   },
   {
     file: 'src/setup/run.ts',
-    pattern: /'interface (token set|enable) discord'/,
+    pattern: /'interfaces (token set|enable) discord'/,
     why: 'the setup guide names the interface the owner enables first',
   },
   { file: 'src/config/cut.ts', pattern: /discord/i, why: 'the config cut moves the Discord keys to their package' },

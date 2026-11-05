@@ -137,7 +137,7 @@ test("the link refuses an agent's skill.activate by name and lets its filing pas
 
 async function task(dirs: Dirs, args: ReadonlyArray<string>) {
   const token = fs.readFileSync(path.join(dirs.privateDir, 'clients', 'hand.token'), 'utf8').trim();
-  const cli = spawnCli(dirs, ['task', ...args], { NEPTUNIA_TASK_TOKEN: token });
+  const cli = spawnCli(dirs, ['tasks', ...args], { NEPTUNIA_TASK_TOKEN: token });
   cli.end();
   const exit = await cli.exited;
   return { code: exit.code, out: cli.stdout() + cli.stderr() };

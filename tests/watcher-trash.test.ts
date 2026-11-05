@@ -2,7 +2,7 @@
 // a category and a reason, read-only and bounded. It is the one place the watcher looks at a development checkout, and it
 // reports names, never contents. A category it cannot read is named as unavailable. Folders are synthetic, and every
 // command goes through a fake `run` that answers from a table, so no real user, unit or repository is read, except by the
-// one test of `service watcher evidence`, whose fake `run` still answers for all of them.
+// one test of `services watcher evidence`, whose fake `run` still answers for all of them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -591,7 +591,7 @@ test('nothing is changed: every command is a read, and the leftovers are still t
 
 // ---- through service watcher evidence --------------------------------------------------------------------------------
 
-test('service watcher evidence carries the trash, with the configured checkout in it', async () => {
+test('services watcher evidence carries the trash, with the configured checkout in it', async () => {
   // Bug: the collector exists and the agent's one read path does not reach it, so `Trash` is written from guesses.
   const where = folders();
   const checkout = checkoutOf(where);
@@ -608,7 +608,7 @@ test('service watcher evidence carries the trash, with the configured checkout i
       coreUp: false,
       run: fake.run,
     },
-    'service.watcher.evidence',
+    'services.watcher.evidence',
     {}
   );
   assert.equal(answer.status, 'ok', answer.text.slice(0, 200));

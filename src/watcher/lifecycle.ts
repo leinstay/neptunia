@@ -1,7 +1,7 @@
 // The watcher's durable run. A run is one JSON record under `<watcher dir>/runs/`, `active` names the run in progress, and
 // every change happens under `.lock`, so a manual trigger and a timer start share one atomic claim whichever process
 // they come from. Reads take no lock and write nothing: a replaced record appears whole, and a run whose holder is
-// gone reads as finished before any writer records it. `claimRun` with no owner is what `service watcher trigger`
+// gone reads as finished before any writer records it. `claimRun` with no owner is what `services watcher trigger`
 // does before it asks the manager for a worker, and the worker that starts adopts that claim and keeps its identity. A
 // holder is the pair of pid and start identity, so a reused pid never counts as alive and nothing here signals a
 // process. The start identity comes from /proc, because the watcher's units are systemd's and run on Linux only.

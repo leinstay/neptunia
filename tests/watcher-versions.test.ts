@@ -129,24 +129,24 @@ test('the next inspection reads the preceding successful report of the same day,
 /** `where` of a CLI call: the rig's persona root as the private and data folders, the checkout as the root. */
 const whereOf = (rig: InspectionRig) => ({ rootDir: REPO, privateDir: rig.root, dataDir: rig.root });
 
-test('service watcher report of a day names its run and the other runs of that day', async () => {
+test('services watcher report of a day names its run and the other runs of that day', async () => {
   // Bug: the owner sees a day's text with no way to reach the morning's report beside it.
   const rig = inspectionRig();
   const first = await inspected(rig, 'MARK-FIRST');
   const second = await inspected(rig, 'MARK-SECOND');
-  const done = await runServiceHere({ name: 'service.watcher.report', args: { target: DAY } }, whereOf(rig), false);
+  const done = await runServiceHere({ name: 'services.watcher.report', args: { target: DAY } }, whereOf(rig), false);
   assert.equal(done.status, 'ok', done.text.slice(0, 200));
   assert.ok(done.text.includes('MARK-SECOND'));
   assert.ok(done.text.includes(first));
   assert.ok(done.text.includes(second));
 });
 
-test('service watcher report of a run identity shows that run, in the shell and with no core', async () => {
+test('services watcher report of a run identity shows that run, in the shell and with no core', async () => {
   // Bug: commands.ts refuses anything but a date, so `report <run>` answers "reports are kept by date".
   const rig = inspectionRig();
   const first = await inspected(rig, 'MARK-FIRST');
   await inspected(rig, 'MARK-SECOND');
-  const done = await runServiceHere({ name: 'service.watcher.report', args: { target: first } }, whereOf(rig), false);
+  const done = await runServiceHere({ name: 'services.watcher.report', args: { target: first } }, whereOf(rig), false);
   assert.equal(done.status, 'ok', done.text.slice(0, 200));
   assert.ok(done.text.includes('MARK-FIRST'));
   assert.equal(done.text.includes('MARK-SECOND'), false);

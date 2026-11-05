@@ -1,4 +1,4 @@
-// `neptunia service <name> setup|enable|disable|status` and `/service ...`. The argument matrix and the answers run in
+// `neptunia services <name> setup|enable|disable|status` and `/services ...`. The argument matrix and the answers run in
 // this process: a line goes through the parser the shell and the chat use (`parseRequest`, `parseCommandLine`) into the
 // handler (`serviceFamily`) over temporary folders, with the manager injected. A few children of bin/neptunia.ts hold
 // what only a process proves: the direct form end to end, the exit codes, the real argv of a fake `systemctl` and `sudo`
@@ -49,11 +49,11 @@ type Rig = {
 /** How the injected manager answers: the word a call fails on, the two reads, or no manager at all. */
 type ManagerAnswers = { fail?: string; isActive?: string; isEnabled?: string; absent?: boolean };
 
-const direct = (words: string): Parsed => parseRequest(['service', ...words.split(' ')]).parsed;
+const direct = (words: string): Parsed => parseRequest(['services', ...words.split(' ')]).parsed;
 /** The two spellings of one command: the same words through the shell's parser and through the chat's. */
 const FORMS: ReadonlyArray<{ form: string; parse: (words: string) => Parsed }> = [
-  { form: 'neptunia service', parse: (words) => direct(words) },
-  { form: 'neptunia -p', parse: (words) => parseCommandLine(`/service ${words}`) },
+  { form: 'neptunia services', parse: (words) => direct(words) },
+  { form: 'neptunia -p', parse: (words) => parseCommandLine(`/services ${words}`) },
 ];
 
 /**
@@ -263,7 +263,7 @@ for (const { form, parse } of FORMS) {
 }
 
 for (const name of MECHANICS) {
-  test(`service ${name} setup --every saves one interval and answers times one interval apart`, async () => {
+  test(`services ${name} setup --every saves one interval and answers times one interval apart`, async () => {
     // Catches: one of the four keeps its own key or answers a time that is no step of its schedule.
     const where = rig();
     const done = await run(where, `${name} setup --every 6h`);
@@ -274,7 +274,7 @@ for (const name of MECHANICS) {
   });
 
   for (const enabled of [true, false]) {
-    test(`service ${name} setup leaves a flag of ${enabled} as it was`, async () => {
+    test(`services ${name} setup leaves a flag of ${enabled} as it was`, async () => {
       // Catches: `setup` turns the mechanic on, or writes off over a flag that was on.
       const where = rig({ [name]: { enabled } });
       assert.equal((await run(where, `${name} setup --at 06:00`)).code, 0);
@@ -338,21 +338,21 @@ for (const [what, words, names] of [
   }
 }
 
-test('service heartbeat setup --jitter alone changes the jitter and keeps the interval', async () => {
+test('services heartbeat setup --jitter alone changes the jitter and keeps the interval', async () => {
   // Catches: the jitter cannot be changed without retyping the schedule, or its run resets the schedule.
   const where = rig({ heartbeat: { schedule: 'every 4h', jitterMinutes: 45 } });
   assert.equal((await run(where, 'heartbeat setup --jitter 20m')).code, 0);
   assert.deepEqual(settingsOf(where).heartbeat, { schedule: 'every 4h', jitterMinutes: 20 });
 });
 
-test('service heartbeat setup --jitter 0m turns the jitter off', async () => {
+test('services heartbeat setup --jitter 0m turns the jitter off', async () => {
   // Catches: zero is read as a missing or invalid duration, so a fixed interval cannot be asked for.
   const where = rig({ heartbeat: { schedule: 'every 4h', jitterMinutes: 45 } });
   assert.equal((await run(where, 'heartbeat setup --every 2h --jitter 0m')).code, 0);
   assert.deepEqual(settingsOf(where).heartbeat, { schedule: 'every 2h', jitterMinutes: 0 });
 });
 
-test('service heartbeat setup --jitter is refused while the schedule is daily times', async () => {
+test('services heartbeat setup --jitter is refused while the schedule is daily times', async () => {
   // Catches: a stored `at` schedule takes a jitter that nothing applies, and the answer claims it.
   const where = rig({ heartbeat: { schedule: 'at 06:00' } });
   const before = rawSettings(where);
@@ -439,7 +439,7 @@ test('watcher setup in the system scope installs through sudo and reloads the sy
 });
 
 for (const name of WAKES) {
-  test(`service ${name} setup calls no manager: her wakes run in the core`, async () => {
+  test(`services ${name} setup calls no manager: her wakes run in the core`, async () => {
     // Catches: a persona wake gets a daemon or a timer of its own beside the core's scheduler.
     const where = rig();
     assert.equal((await run(where, `${name} setup --at 06:00`)).code, 0);
@@ -656,14 +656,14 @@ function unitVerbRefusal(words: ReadonlyArray<string>): string {
 }
 
 for (const name of MECHANICS) {
-  test(`service status ${name} is refused and names service ${name} status, with no manager called`, () => {
+  test(`services status ${name} is refused and names services ${name} status, with no manager called`, () => {
     // Catches: the mechanic's name reaches systemctl as a unit, so a wrong word order reports "unit not found".
-    assert.ok(unitVerbRefusal(['status', name]).includes(`service ${name} status`));
+    assert.ok(unitVerbRefusal(['status', name]).includes(`services ${name} status`));
   });
 }
 
 for (const verb of ['start', 'stop', 'restart']) {
-  test(`service watcher ${verb} is refused and touches no unit`, async () => {
+  test(`services watcher ${verb} is refused and touches no unit`, async () => {
     // Catches: the two orders of the words are read as one family, so a mechanic is started through systemctl.
     const where = rig();
     const done = await run(where, `watcher ${verb}`);
@@ -682,14 +682,14 @@ for (const { form, parse } of FORMS) {
     const before = rawSettings(where);
     const done = await run(where, 'watcher trigger', {}, parse);
     assert.equal(done.code, 1, done.out.slice(0, 300));
-    assert.ok(done.stderr.includes('service watcher enable'), done.stderr.slice(0, 300));
+    assert.ok(done.stderr.includes('services watcher enable'), done.stderr.slice(0, 300));
     assert.equal(rawSettings(where), before);
     assert.deepEqual(managerChanges(where), []);
   });
 }
 
-for (const words of ['watcher cancel', 'watcher report', 'watcher report 2026-11-03', 'watcher report run-71']) {
-  test(`service ${words} is recognized by the shell`, async () => {
+for (const words of ['watcher cancel']) {
+  test(`services ${words} is recognized by the shell`, async () => {
     // Catches: the table holds the operation while the direct form answers usage.
     const done = await run(rig({ watcher: { enabled: true } }), words);
     assert.notEqual(done.code, 2, done.out.slice(0, 300));
@@ -700,11 +700,11 @@ for (const words of ['watcher cancel', 'watcher report', 'watcher report 2026-11
 // ---- the competing controls -----------------------------------------------------------------------------------------
 
 for (const [argv, names] of [
-  [['watcher', 'run'], 'service watcher'],
-  [['watcher'], 'service watcher'],
-  [['selfimprovement', 'run'], 'service selfimprovement'],
-  [['selfimprovement'], 'service selfimprovement'],
-  [['report'], 'service watcher report'],
+  [['watcher', 'run'], 'services watcher'],
+  [['watcher'], 'services watcher'],
+  [['selfimprovement', 'run'], 'services selfimprovement'],
+  [['selfimprovement'], 'services selfimprovement'],
+  [['report'], 'logs watcher'],
 ] as const) {
   test(`neptunia ${argv.join(' ')} is refused before any handler and names ${names}`, () => {
     // Catches: the old form still parses into a command that runs an inspection or a beat.
@@ -715,18 +715,18 @@ for (const [argv, names] of [
 }
 
 for (const line of ['/report', '/report 2026-11-03']) {
-  test(`neptunia -p ${line} is refused before any handler and names service watcher report`, () => {
+  test(`neptunia -p ${line} is refused before any handler and names logs watcher`, () => {
     // Catches: the line of the chat still reads a report, so the old command lives on behind -p.
     const parsed = parseCommandLine(line);
     assert.equal(parsed.ok, false);
-    assert.ok(!parsed.ok && parsed.reason.includes('service watcher report'), parsed.ok ? '' : parsed.reason);
+    assert.ok(!parsed.ok && parsed.reason.includes('logs watcher'), parsed.ok ? '' : parsed.reason);
   });
 }
 
 for (const [step, names] of [
-  ['watcher', 'service watcher setup'],
-  ['selfimprovement', 'service selfimprovement setup'],
-  ['mechanics', 'neptunia service'],
+  ['watcher', 'services watcher setup'],
+  ['selfimprovement', 'services selfimprovement setup'],
+  ['mechanics', 'neptunia services'],
 ] as const) {
   test(`neptunia setup ${step} is retired and names ${names}`, () => {
     // Catches: the step runs its old dialog, a second way to set what the family sets.
@@ -739,7 +739,7 @@ for (const [step, names] of [
 test('child: the direct form saves, renders the timer through a real systemctl argv, answers on stdout and exits 0', async () => {
   // Catches: bin/neptunia.ts routes `service` elsewhere than the handler, or wires a manager that never spawns.
   const where = rig({ watcher: { enabled: false } });
-  const done = await child(where, ['service', 'watcher', 'setup', '--at', '00:00,12:00']);
+  const done = await child(where, ['services', 'watcher', 'setup', '--at', '00:00,12:00']);
   assert.equal(done.code, 0, done.stderr.slice(0, 300));
   assert.equal(field(done.stdout, 'timezone'), 'UTC');
   assert.equal(settingsOf(where).watcher?.schedule, 'at 00:00,12:00');
@@ -750,7 +750,7 @@ test('child: the direct form saves, renders the timer through a real systemctl a
 test('child: -p reaches the same handler with no core and exits 0', async () => {
   // Catches: `-p` sends the line to a core that is down, so a mechanic cannot be read while it is down.
   const where = rig({ heartbeat: { enabled: true, schedule: 'at 06:00,18:00' } });
-  const done = await child(where, ['-p', '/service heartbeat status']);
+  const done = await child(where, ['-p', '/services heartbeat status']);
   assert.equal(done.code, 0, done.out.slice(0, 300));
   assert.equal(field(done.stdout, 'enabled'), 'true');
   assert.equal(field(done.stdout, 'running'), 'unknown');
@@ -759,7 +759,7 @@ test('child: -p reaches the same handler with no core and exits 0', async () => 
 test('child: setup with no option and no terminal exits 2 at once, with the input left open', async () => {
   // Catches: the dialog waits on a pipe nobody writes to, so a script hangs.
   const where = rig();
-  const done = await child(where, ['service', 'watcher', 'setup'], {}, 5000);
+  const done = await child(where, ['services', 'watcher', 'setup'], {}, 5000);
   assert.equal(done.code, 2, done.out.slice(0, 300));
   assert.equal(done.stdout, '');
   assert.ok(done.stderr.includes('--at') && done.stderr.includes('--every'), done.stderr.slice(0, 300));
@@ -769,7 +769,7 @@ test('child: setup with no option and no terminal exits 2 at once, with the inpu
 test('child: enable in the user scope spawns systemctl --user for the timer and starts no worker', async () => {
   // Catches: the spawned argv differs from the injected one, or the worker starts at once on enable.
   const where = rig({ watcher: { enabled: false } }, 'user');
-  const done = await child(where, ['service', 'watcher', 'enable']);
+  const done = await child(where, ['services', 'watcher', 'enable']);
   assert.equal(done.code, 0, done.out.slice(0, 300));
   assert.equal(settingsOf(where).watcher?.enabled, true);
   assert.deepEqual(changesOf(childCalls(where)), ['systemctl --user enable --now neptunia-watcher.timer']);
@@ -779,7 +779,7 @@ test('child: enable in the user scope spawns systemctl --user for the timer and 
 test('child: enable in the system scope spawns systemctl through sudo and starts no worker', async () => {
   // Catches: `sudo -n` is lost or the wrong manager is asked, so the system's timer never moves.
   const where = rig({ watcher: { enabled: false } }, 'system');
-  const done = await child(where, ['service', 'watcher', 'enable']);
+  const done = await child(where, ['services', 'watcher', 'enable']);
   assert.equal(done.code, 0, done.out.slice(0, 300));
   assert.deepEqual(changesOf(childCalls(where)), [
     'sudo systemctl enable --now neptunia-watcher.timer',
@@ -791,7 +791,7 @@ test('child: enable in the system scope spawns systemctl through sudo and starts
 test('child: a failed manager call exits 1 and reports desired against applied', async () => {
   // Catches: the process exits 0 on a refused call, whatever the handler answered.
   const where = rig({ watcher: { enabled: false } });
-  const done = await child(where, ['service', 'watcher', 'enable'], { FAKE_FAIL: 'enable' });
+  const done = await child(where, ['services', 'watcher', 'enable'], { FAKE_FAIL: 'enable' });
   assert.equal(done.code, 1, done.out.slice(0, 300));
   assert.equal(settingsOf(where).watcher?.enabled, true, 'the wish is kept');
   assert.equal(field(done.out, 'desired'), 'enabled');
@@ -804,14 +804,14 @@ test('child: neptunia watcher run exits 2, names the family and runs nothing', a
   const before = treeOf(where.root);
   const done = await child(where, ['watcher', 'run']);
   assert.equal(done.code, 2, done.out.slice(0, 300));
-  assert.ok(done.stderr.includes('service watcher'), done.stderr.slice(0, 300));
+  assert.ok(done.stderr.includes('services watcher'), done.stderr.slice(0, 300));
   assert.deepEqual(treeOf(where.root), before);
 });
 
 test('child: service restart in a user install goes to the user manager', async () => {
   // Catches: the unit verbs ignore the scope, so a user install's restart asks the system manager for units it lacks.
   const where = rig();
-  assert.equal((await child(where, ['service', 'restart', 'neptunia-core.service'])).code, 0);
+  assert.equal((await child(where, ['services', 'restart', 'neptunia-core.service'])).code, 0);
   assert.deepEqual(childCalls(where), ['systemctl --user restart neptunia-core.service']);
 });
 
@@ -821,7 +821,7 @@ test('child: the usage shows the family and none of the retired forms, and hides
   const exec = /^ExecStart=\S+ bin\/neptunia\.ts (.+)$/m.exec(unit)?.[1] ?? assert.fail('it starts bin/neptunia.ts');
   const done = await child(rig(), ['no-such-word-71']);
   assert.equal(done.code, 2, done.out.slice(0, 300));
-  assert.ok(done.stderr.includes('service <name>'), done.stderr.slice(0, 600));
+  assert.ok(done.stderr.includes('services <name>'), done.stderr.slice(0, 600));
   for (const gone of ['watcher run', 'selfimprovement run', 'mechanics', '/report', exec.split(' ')[0] ?? ''])
     assert.equal(done.stderr.includes(gone), false, gone);
 });
@@ -839,7 +839,7 @@ test('child: the worker the watcher unit starts is a word the command knows', as
 test('children: concurrent setups of the four keep every schedule', async () => {
   // Catches: each process reads and rewrites the whole settings file, so the last writer drops the others' schedules.
   const where = rig({ bot: { timezone: 'UTC' } });
-  const runs = await Promise.all(MECHANICS.map((name) => child(where, ['service', name, 'setup', '--at', '06:00'])));
+  const runs = await Promise.all(MECHANICS.map((name) => child(where, ['services', name, 'setup', '--at', '06:00'])));
   assert.deepEqual(
     runs.map((one) => one.code),
     [0, 0, 0, 0]

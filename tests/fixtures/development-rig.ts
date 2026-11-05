@@ -428,7 +428,7 @@ export function ownerTask(world: DevelopmentWorld, over: Readonly<Record<string,
 /** The current lease generation of a task. */
 export const generationOf = (world: DevelopmentWorld, id: string): number => world.show(id).task.lease_generation;
 
-/** What a thinker does with `neptunia task add --parent`: one scoped dev task under its task; the new id. */
+/** What a thinker does with `neptunia tasks add --parent`: one scoped dev task under its task; the new id. */
 export function fileDevTask(world: DevelopmentWorld, parent: string, title: string): string {
   return world.board.call(WORKER, 'task.add', {
     parent,
@@ -442,7 +442,7 @@ export function fileDevTask(world: DevelopmentWorld, parent: string, title: stri
   }).id;
 }
 
-/** What a thinker does with `neptunia task ask`: a question to the persona, as the holder of the task. */
+/** What a thinker does with `neptunia tasks ask`: a question to the persona, as the holder of the task. */
 export function askPersona(world: DevelopmentWorld, id: string, text: string): void {
   world.board.call(WORKER, 'task.ask', { id, generation: generationOf(world, id), text, to_whom: 'persona:self' });
 }

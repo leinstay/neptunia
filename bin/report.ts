@@ -1,4 +1,4 @@
-// `service watcher report [<date or run>]` of the command line (bin/neptunia-service.ts runs it with no core): the
+// `logs watcher [<date or run>]` of the command line (bin/neptunia-service.ts runs it with no core): the
 // watcher's latest report, the report of a date or of a run, read from the reports folder (src/watcher/read.ts) and rendered
 // for the terminal (bin/markdown.ts). A report that is not there is one line, never an error trace.
 
@@ -26,7 +26,7 @@ export function reportAnswer({
   }
   if (runId !== undefined) return { text: `no report for ${runId}`, status: 'failed' };
   if (read.code === 'invalid-day') {
-    return { text: `service watcher report takes a date written YYYY-MM-DD, not "${day ?? ''}"`, status: 'invalid' };
+    return { text: `logs watcher takes a date written YYYY-MM-DD, not "${day ?? ''}"`, status: 'invalid' };
   }
   return { text: day === undefined ? 'no report yet' : `no report for ${day}`, status: 'failed' };
 }
