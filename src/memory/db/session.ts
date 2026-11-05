@@ -40,7 +40,6 @@
 // A chat line's revisions are matched by the line's native tuple (authority, native kind, generation, native id).
 
 import { block, fillPromptTemplate, renderProfile } from '../../behavior/prompt.ts';
-import { concernsMember, isOpen } from '../../intentions/model.ts';
 import { ROLE_KEY_NAME } from '../../llm/openrouter.ts';
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
 import { estimateMessages } from '../../llm/tokens.ts';
@@ -58,13 +57,11 @@ import { turnReadRows } from './service.ts';
 import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { ASSERTION_HOW } from './semantic-registry.ts';
 import { validateSemanticAnswer } from './semantic-answer.ts';
-import { entityLabels } from './semantic-read.ts';
-import { retrieveMemory } from './retrieve.ts';
-import type { MemoryPage, RetrievedAssertion } from './semantic-types.ts';
-import { memoryQueryFor, retrievalBounds } from '../retrieval-input.ts';
+import { episodeLinesOf, intentionLinesOf } from './session-blocks.ts';
+import { readRetrieved, requestCapOf, retrievedLines } from './session-retrieved.ts';
+import type { MemoryPage } from './semantic-types.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import { sessionRequestId } from './request-archive.ts';
-import type { Intention } from '../../intentions/types.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import type { Labels, Profile } from '../../turn/request/types.ts';
 import type { Config, Db, Log, Row } from './types.ts';
@@ -716,44 +713,23 @@ export function buildSessionRequest({
   }
   const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...rendered].join('\n');
 
-  // <retrieved>: exact prior versions, the entities they name and the lines they rest on, numbered on past the batch. Only
-  // what this block renders becomes a handle and a read, so a claim shown here never licenses a line it does not show.
-  const retrievedLines: Array<string> = [];
+  // <retrieved>
+  let shownRetrieved: Array<string> = [];
   if (retrieved) {
     maps.priorVersions = new Map();
     maps.priorEntities = new Map();
-    const stateOf = (fact: RetrievedAssertion): string =>
-      fact.polarity === 'negative' ? `${fact.state}, not so` : fact.state;
-    for (const fact of retrieved.assertions) {
-      const handle = `v${maps.priorVersions.size + 1}`;
-      maps.priorVersions.set(handle, fact.versionId);
-      read('claim_version', fact.versionId, 'retrieved');
-      const named = fact.arguments.flatMap((one) => ('ref' in one && one.ref.kind === 'entity' ? [one.ref.id] : []));
-      const handles = named.map((id) => {
-        const known = [...maps.priorEntities!].find(([, entity]) => entity === id)?.[0];
-        if (known !== undefined) return known;
-        const entityHandle = `x${maps.priorEntities!.size + 1}`;
-        maps.priorEntities!.set(entityHandle, id);
-        const name = entityLabels(db, ctx, id, { recordedBefore: cutoffIso })[0]?.text ?? '';
-        retrievedLines.push(`[${entityHandle}] ${name}`);
-        return entityHandle;
-      });
-      retrievedLines.push(
-        `[${handle}] (${stateOf(fact)}) ${fact.text}${handles.length > 0 ? ` {${handles.join(', ')}}` : ''}`
-      );
-    }
-    const scoped = scopeWhere(ctx, 's');
-    const stored = db.prepare(`SELECT s.id, s.text, s.occurred_at FROM sources s WHERE s.id = ? AND ${scoped.sql}`);
-    const evidence = retrieved.assertions.flatMap((fact) => fact.evidence.map((one) => one.sourceId));
-    const shownLines = new Set(maps.sources.values());
-    for (const id of new Set([...retrieved.sourceIds, ...evidence])) {
-      const row = shownLines.has(id) ? undefined : stored.get(id, ...scoped.params);
-      if (!row || typeof row.text !== 'string' || row.text.trim() === '') continue;
-      n += 1;
-      maps.sources.set(`#${n}`, id);
-      read('source_id', id, 'retrieved');
-      retrievedLines.push(`#${n} [${stamp(Date.parse(String(row.occurred_at)), timezone)}] ${row.text}`);
-    }
+    shownRetrieved = retrievedLines({
+      db,
+      ctx,
+      retrieved,
+      cutoffIso,
+      lineNumber: n,
+      sources: maps.sources,
+      versions: maps.priorVersions,
+      entities: maps.priorEntities,
+      read,
+      timeOf: (ms) => stamp(ms, timezone),
+    }).lines;
   }
 
   // <self>
@@ -866,48 +842,13 @@ export function buildSessionRequest({
     peopleBodies.push(lines.join('\n'));
   }
 
-  // <episodes>
-  const episodeLines: Array<string> = [];
-  if (shown.length > 0) {
-    const episodeScope = scopeWhere(ctx, 'e');
-    const ids = shown.map((person) => person.id);
-    const rows = db
-      .prepare(
-        `SELECT e.id, e.subject_id, e.date, e.what, e.feeling FROM episodes e
-        WHERE e.retired_at IS NULL AND (e.status IS NULL OR e.status != 'closed') AND e.subject_id IN (${ids.map(() => '?').join(', ')}) AND ${episodeScope.sql}
-          AND (e.created_at IS NULL OR e.created_at <= ?)
-        ORDER BY COALESCE(e.last_ms, 0) DESC, e.date DESC, e.id LIMIT ?`
-      )
-      .all(...ids, ...episodeScope.params, cutoffIso, settings.episodesMax);
-    rows.forEach((row: Row, index: number) => {
-      maps.episodes.set(`e${index + 1}`, row.id as string);
-      read('episode', row.id, 'episodes');
-      const who = shown.find((person) => person.id === row.subject_id)?.name ?? row.subject_id;
-      episodeLines.push(
-        `[e${index + 1}] ${[row.date, who].filter(Boolean).join(' ')}: ${asText(row.what)}${row.feeling ? ` (${asText(row.feeling)})` : ''}`
-      );
-    });
-  }
-
-  // <intentions>
-  const intentionLines: Array<string> = [];
-  const intentionScope = scopeWhere(ctx, 'i');
-  const records = db
-    .prepare(
-      `SELECT i.id, i.record FROM intentions i WHERE i.archived = 0 AND i.retired_at IS NULL AND ${intentionScope.sql} ORDER BY i.created_ms`
-    )
-    .all(...intentionScope.params);
-  for (const row of records) {
-    const record = parseJson(row.record) as (Row & Intention) | null;
-    if (!record || !isOpen(record.status)) continue;
-    const concerns =
-      shown.some((person) => concernsMember(record, { accountId: person.native, names: [person.name] })) ||
-      placeIds.some((id) => JSON.stringify(record).includes(nativeOf(id) ?? '\u0000'));
-    if (concerns && typeof record.purpose === 'string') {
-      intentionLines.push(`${record.status}: ${record.purpose}`);
-      read('intention', row.id, 'intentions');
-    }
-  }
+  const episodeLines = episodeLinesOf(db, ctx, shown, {
+    max: settings.episodesMax,
+    cutoffIso,
+    episodes: maps.episodes,
+    read,
+  });
+  const intentionLines = intentionLinesOf(db, ctx, shown, placeIds, read);
 
   const system = systemTextOf(prompts, selfName, prompts?.['memory-session']);
   // The stable blocks first (the cache marker covers them and the system text), the lines last: the stable part holds
@@ -926,7 +867,7 @@ export function buildSessionRequest({
     { type: 'text' as const, text: `${stable}\n\n`, cacheSegment: 'stable' as const },
     {
       type: 'text' as const,
-      text: [block('retrieved', retrievedLines.join('\n')), block('batch', batchBody)].filter(Boolean).join('\n\n'),
+      text: [block('retrieved', shownRetrieved.join('\n')), block('batch', batchBody)].filter(Boolean).join('\n\n'),
     },
   ];
   // A read's order is its place in the request: the blocks in the order the user content has them, then as built.
@@ -1238,14 +1179,17 @@ export function validateAnswer(
     keep('affinity', { personId: found.id, delta: Math.round(item.delta), reason: text(item.reason), sources });
   }
 
+  // A stored entity the request showed is flagged by its `xN`.
+  const flagSubjectOf = (item: Row) => {
+    const stored = maps.priorEntities?.get(text(item.subject));
+    return stored === undefined ? subjectOf(item) : { kind: 'entity', id: stored };
+  };
   for (const item of list('descriptions')) {
     if (!isObject(item)) {
       drop('bad_op');
       continue;
     }
-    // A stored entity the request showed is flagged by its `xN`.
-    const stored = maps.priorEntities?.get(text(item.subject));
-    const subject = stored === undefined ? subjectOf(item) : { kind: 'entity', id: stored };
+    const subject = flagSubjectOf(item);
     if (!subject) continue;
     if (!DESCRIPTION_FIELDS.includes(item.field as string)) {
       drop('bad_field');
@@ -1527,12 +1471,6 @@ export async function sweep(
 /** The share of `llm.maxRequestTokens` a session request may take (the estimate is not the provider's count). */
 const CAP_SHARE = 0.85;
 
-/** The most tokens a session request may estimate at, or null without a cap. */
-function requestCap(config: Config): number | null {
-  const cap = Number(config?.llm?.maxRequestTokens);
-  return Number.isFinite(cap) && cap > 0 ? Math.floor(cap * CAP_SHARE) : null;
-}
-
 /**
  * `batch` cut to the first lines by arrival (rowid) until the largest page of its request fits CAP_SHARE of the request
  * cap, halving each time, never below `min` lines (a batch that still does not fit is returned as it is and fails as
@@ -1801,47 +1739,6 @@ async function skipBatch(
 
 /** One request (one page of the batch): build, send, parse, validate, write. Never throws; the outcome is in the result. */
 /** The context a run's reads are recorded under. */
-/**
- * What the retrieval service knows about a batch, under the scope's own context and as of the batch's newest line: structured
- * facts and the lines they rest on. Null when there is nothing to read or the read failed: the session runs as it always did.
- */
-async function sessionRetrieved(
-  ctx: SessionContext,
-  scope: SweepScope,
-  batch: ReadonlyArray<BatchLine>
-): Promise<MemoryPage | null> {
-  const config = ctx.hot.config;
-  const retrieval = config?.memoryDb?.retrieval;
-  if (!retrieval) return null;
-  try {
-    const bounds = retrievalBounds(
-      { memoryDb: config.memoryDb, recall: { prefetch: config.recall?.prefetch } },
-      'session'
-    );
-    const query = memoryQueryFor(
-      {
-        purpose: 'session',
-        batch: batch.map((line) => asText(line.text)),
-        people: peopleOf(ctx.db, batch, ctx.selfName ?? '').people.map((person) => person.id),
-        places: [...new Set(batch.map((line) => line.place_id).filter((id): id is string => typeof id === 'string'))],
-        entities: [],
-      },
-      bounds
-    );
-    const recordedBefore = new Date(Math.max(...batch.map((line) => line.at))).toISOString();
-    const page = await retrieveMemory(
-      ctx.db,
-      scope.ctx,
-      { ...query, recordedBefore },
-      { now: ctx.now ?? Date.now, embedQuery: null, model: null, sources: false, plainClaims: false }
-    );
-    return page.assertions.length > 0 ? page : null;
-  } catch (error) {
-    ctx.log?.warn?.('memory session: retrieval failed', { code: codeOf(error) });
-    return null;
-  }
-}
-
 const issuedSessionContext = (scope: SweepScope, runId: string, startedAt: number): Context =>
   issueContext({
     kind: scope.scope.scope_kind === 'dm' ? 'dm' : 'group',
@@ -1982,7 +1879,15 @@ async function runScope(
     };
   };
 
-  const retrieved = await sessionRetrieved(ctx, scope, batch);
+  const retrieved = await readRetrieved({
+    db,
+    ctx: scope.ctx,
+    config,
+    batch,
+    people: peopleOf(db, batch, ctx.selfName ?? '').people.map((person) => person.id),
+    now,
+    log,
+  });
   let request: SessionRequest;
   try {
     request = (ctx.track ?? untracked)('session.request', () => {
@@ -1998,7 +1903,7 @@ async function runScope(
       };
       const whole = buildSessionRequest({ ...given, retrieved });
       // The batch was fitted to the request cap without this block: the block gives way, never the batch.
-      const cap = requestCap(config);
+      const cap = requestCapOf(config, CAP_SHARE);
       return retrieved && cap !== null && estimateMessages(whole.messages) > cap ? buildSessionRequest(given) : whole;
     });
   } catch (error) {

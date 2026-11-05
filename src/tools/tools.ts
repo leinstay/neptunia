@@ -602,6 +602,15 @@ function factFilters(
   };
 }
 
+/** A search needs words or an entity, and a moment that is a date. */
+function searchRefusal(plan: unknown, retrieval: ReturnType<typeof factFilters>): ToolResult | null {
+  if (retrieval === null) return { status: 'invalid', code: CODE.NO_QUERY, reason: 'args.as_of' };
+  return !plan && retrieval.entity === '' ? { status: 'invalid', code: CODE.NO_QUERY } : null;
+}
+
+/** An entity-only read searches no line. */
+const serverPlan = <TPlan>(plan: TPlan | null | undefined) => plan ?? { forms: [], who: [], from: null, to: null };
+
 function memoryTimezone(config: unknown): string {
   const zone = objOf(objOf(config).bot).timezone;
   return typeof zone === 'string' ? zone : 'UTC';
@@ -726,8 +735,8 @@ export async function runMemorySearch({
       now,
     });
     const retrieval = factFilters(given);
-    if (retrieval === null) return { status: 'invalid', code: CODE.NO_QUERY, reason: 'args.as_of' };
-    if (!plan && retrieval.entity === '') return { status: 'invalid', code: CODE.NO_QUERY };
+    const refused = searchRefusal(plan, retrieval);
+    if (refused !== null) return refused;
     const candidate = { id: null, content: text(given.question), authorId: asker };
     const found = objOf(
       await recall.run({
@@ -740,7 +749,7 @@ export async function runMemorySearch({
         history: [...history],
         historyRef,
         candidate,
-        server: plan ?? { forms: [], who: [], from: null, to: null },
+        server: serverPlan(plan),
         decorate,
         quotes: true,
         retrieval,

@@ -92,7 +92,7 @@ function argumentsOf(db: Db, versionId: string): Array<SemanticArgument> {
     .all(versionId)
     .map((row) => {
       const place = { role: String(row.role), position: Number(row.position) };
-      if (row.ref_kind === null) return { ...place, literal: parseLiteral(row.literal_json) } as SemanticArgument;
+      if (row.ref_kind === null) return { ...place, literal: parseLiteral(row.literal_json) };
       return { ...place, ref: { kind: row.ref_kind, id: String(row.ref_id) } } as SemanticArgument;
     });
 }
@@ -262,8 +262,18 @@ class Walk {
     this.tokens += estimateTokens(one.text);
     this.emitted += 1;
     this.seen.add(one.versionId);
-    const { recordedAt: _recordedAt, ...assertion } = one;
-    this.page.assertions.push({ ...assertion, evidence });
+    this.page.assertions.push({
+      claimId: one.claimId,
+      versionId: one.versionId,
+      assertionKind: one.assertionKind,
+      text: one.text,
+      polarity: one.polarity,
+      state: one.state,
+      arguments: one.arguments,
+      evidence,
+      dependencies: one.dependencies,
+      needsReview: one.needsReview,
+    });
     this.page.signals.push({ versionId: one.versionId, ...signal });
     if (evidence.length < one.evidence.length) this.stop('evidence');
   }
@@ -593,7 +603,7 @@ function sourceStream(
 // ---------- the cursor ----------
 
 const bindOf = (ctx: Context, query: MemoryQuery): string => {
-  const { cursor: _cursor, purpose: _purpose, ...shape } = query;
+  const shape = query;
   return createHash('sha256')
     .update(
       JSON.stringify([

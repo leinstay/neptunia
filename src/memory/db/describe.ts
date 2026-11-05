@@ -181,6 +181,13 @@ export type ReviewResult = Row & {
   reason?: string | null;
 };
 
+/** Which claims a subject's review reads: an entity's are the assertions that name it. Two parameters, kind and id. */
+const claimsOfSubject = (kind: string): string =>
+  kind === 'entity'
+    ? `c.subject_kind = 'semantic' AND ? IS NOT NULL AND c.id IN (SELECT v.claim_id FROM semantic_arguments g
+        JOIN claim_versions v ON v.id = g.version_id WHERE g.ref_kind = 'entity' AND g.ref_id = ?)`
+    : 'c.subject_kind = ? AND c.subject_id = ?';
+
 /** What the first call of a review is given, from the database. */
 export type Gathered = {
   descriptionId: string;
@@ -212,12 +219,7 @@ export function gatherReview(
   const claims = db
     .prepare(
       `SELECT c.id, c.kind, c.text, c.first_seen_at, c.last_seen_at, c.valid_to, c.truth, c.shown FROM claims c
-      WHERE ${
-        subject.kind === 'entity'
-          ? `c.subject_kind = 'semantic' AND ? IS NOT NULL AND c.id IN (SELECT v.claim_id FROM semantic_arguments g
-              JOIN claim_versions v ON v.id = g.version_id WHERE g.ref_kind = 'entity' AND g.ref_id = ?)`
-          : 'c.subject_kind = ? AND c.subject_id = ?'
-      } AND c.retired_at IS NULL AND ${scope.sql} ORDER BY c.first_seen_at, c.id LIMIT 300`
+      WHERE ${claimsOfSubject(subject.kind)} AND c.retired_at IS NULL AND ${scope.sql} ORDER BY c.first_seen_at, c.id LIMIT 300`
     )
     .all(subject.kind, subject.id, ...scope.params);
   const currentRow = db

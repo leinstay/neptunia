@@ -4,7 +4,7 @@
 // an addressed turn, and `createLocalFacts` keeps them in process when no inner life runs. Pure.
 
 import type { InnerContext } from './types.ts';
-import type { MemoryQuery } from '../../memory/db/semantic-types.ts';
+import type { MemoryPage, MemoryQuery, RetrievalBounds } from '../../memory/db/semantic-types.ts';
 import { isFiniteNumber, listOf, objOf } from '../../tools/types.ts';
 import { CODE } from '../../tools/codes.ts';
 import { DELIVERY_SKILLS } from './settings.ts';
@@ -214,7 +214,10 @@ export function createLocalFacts({ now = Date.now }: { now?: () => number } = {}
  * The retrieval a wake's view reads through: the one service under an internal context issued for this wake, with the budget
  * of its purpose read now. Nothing without a memory that offers it: the view then holds no page.
  */
-export function wakeRetrieval(life: Pick<InnerContext, 'memoryDb'>, purpose: MemoryQuery['purpose']) {
+export function wakeRetrieval(
+  life: Pick<InnerContext, 'memoryDb'>,
+  purpose: MemoryQuery['purpose']
+): { bounds?: RetrievalBounds; retrieve?: (query: MemoryQuery) => Promise<MemoryPage | null> } {
   const service = life.memoryDb;
   if (!service?.retrieveQuery || !service.issueContext || !service.retrievalBoundsFor) return {};
   const bounds = service.retrievalBoundsFor(purpose);

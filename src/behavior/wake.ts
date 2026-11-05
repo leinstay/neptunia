@@ -632,7 +632,12 @@ export function placesBlockText(page: unknown, labels: unknown): string {
  * What retrieval brought for this wake as lines: `labels.wake.memory.header`, then one `.fact` per fact with its standing.
  * Nothing without a fact, so a wake on a memory with no such fact reads as it always did.
  */
-function memoryLines(page: MemoryPage | null, words: Obj, all: Obj): Array<string> {
+function memoryLines(
+  wake: { heartbeat?: { memory?: MemoryPage | null } | null; selfimprovement?: { memory?: MemoryPage | null } | null },
+  words: Obj,
+  all: Obj
+): Array<string> {
+  const page = wake.heartbeat?.memory ?? wake.selfimprovement?.memory ?? null;
   const facts = page?.assertions ?? [];
   if (facts.length === 0 || typeof words.header !== 'string' || typeof words.fact !== 'string') return [];
   const states = objOf(objOf(all.prefetch).factStates);
@@ -803,7 +808,7 @@ export function wakeBlockText(
     lines.push(...heartbeatLines(wake.heartbeat, l.heartbeat, when, placesBlock, { handleBase, onRefs }));
   else lines.push(...placesBlock);
   lines.push(...selfimprovementLines(wake.selfimprovement, l.selfimprovement, when, selfimprovementReason(wake.items)));
-  lines.push(...memoryLines(wake.heartbeat?.memory ?? wake.selfimprovement?.memory ?? null, objOf(l.memory), all));
+  lines.push(...memoryLines(wake, objOf(l.memory), all));
   lines.push(...landedLines([wake.selfimprovement?.news.landed], l.landed));
   lines.push(...budgetLines(wake.budgets ?? {}, l, when));
   return lines.join('\n');

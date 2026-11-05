@@ -164,6 +164,9 @@ export function factStateWords(
   fact: { state?: unknown; polarity?: unknown },
   states: Readonly<Record<string, unknown>> | null | undefined
 ): string {
-  const words = [states?.[String(fact.state ?? 'unknown')], fact.polarity === 'negative' ? states?.negative : ''];
+  const words = [
+    states?.[typeof fact.state === 'string' ? fact.state : 'unknown'],
+    fact.polarity === 'negative' ? states?.negative : '',
+  ];
   return words.filter((word) => typeof word === 'string' && word !== '').join(', ');
 }

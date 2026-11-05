@@ -250,7 +250,7 @@ export function attentionRetrieval(
   return {
     purpose: 'attention',
     intention: {
-      purpose: open.map((one) => String(one.purpose ?? '')).join('\n'),
+      purpose: open.map((one) => (typeof one.purpose === 'string' ? one.purpose : '')).join('\n'),
       people: [...new Set(people)],
       entities: [],
       place: [open[0].attend?.place, open[0].destination].find((id): id is string => typeof id === 'string') ?? null,
