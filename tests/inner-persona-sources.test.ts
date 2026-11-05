@@ -10,6 +10,7 @@ test('the record is read from every place and a line goes to the place of its co
   const appended: Array<[string, unknown]> = [];
   const record = {
     async *iterate(placeId: string) {
+      await Promise.resolve();
       yield { placeId };
     },
     append(placeId: string, lines: ReadonlyArray<unknown>) {

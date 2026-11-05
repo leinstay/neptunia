@@ -24,7 +24,7 @@ import {
 import { applyDiaryUpdate } from '../src/memory/db/diary-media.ts';
 import { canonicalKey, dmPlaceId, linkId, newPersonId, nodeId, personId, resolveAlias } from '../src/memory/db/ids.ts';
 import { main } from '../scripts/memory-db.ts';
-import { GUILD, MEMBER, buildDataDir, guildDir, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.ts';
+import { MEMBER, buildDataDir, guildDir, seen, writeJson, writeLines } from './fixtures/memory-db/datadir.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 
 const PROPOSED = '100000000000000007';

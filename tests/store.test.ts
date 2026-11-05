@@ -975,7 +975,9 @@ test('touchChannel: the tally keeps channelWritersStored writers, 20 unless told
   const stored = (placeId: string, opts?: Parameters<typeof writeLines>[5]) => {
     for (let n = 0; n < 25; n += 1)
       writeLines(store, placeId, `γράφων-${String(n).padStart(2, '0')}`, 1, WRITERS_T0 + n, opts);
-    return Object.keys(asRecord(store.getChannel(placeOfConversation(store, { id: placeId }))).writers).sort();
+    return Object.keys(
+      asRecord(store.getChannel(placeOfConversation(store, { id: placeId }))).writers as object
+    ).sort();
   };
   const newest = (count: number) =>
     Array.from({ length: count }, (_, i) => `γράφων-${String(25 - count + i).padStart(2, '0')}`);

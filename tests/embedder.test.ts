@@ -82,7 +82,7 @@ function scene({
     llm: { maxRequestTokens: 50000 },
   };
   const hot = { config };
-  const appended: Array<Untyped> = [];
+  const appended: Array<{ placeId: string; rows: Array<Untyped>; opts: Untyped }> = [];
   /** Rows already in the index before the scene (`chunkKey`s by layer and month). */
   const preIndexed: Array<Untyped> = [];
   const vectors = fakeOf<Parameters<typeof createEmbedder>[0]['vectors']>({

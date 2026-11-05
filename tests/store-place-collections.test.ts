@@ -81,7 +81,8 @@ const save = async (store: Store): Promise<void> => {
   store.flush();
   await store.flushSettled({});
 };
-const titles = (entries: ReadonlyArray<object>): Array<unknown> => entries.map((one) => Reflect.get(one, 'title'));
+const titles = (entries: ReadonlyArray<object>): Array<unknown> =>
+  entries.map((one): unknown => Reflect.get(one, 'title'));
 
 test('lore belongs to the place it was written for, under the id as given', async () => {
   // Bug: `communityKey` wraps the id in `<iface>:guild:`, and the catalog holds a place nobody can look up.

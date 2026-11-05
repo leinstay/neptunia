@@ -8,7 +8,6 @@ import { createTurnRunner } from '../src/behavior/turn.ts';
 import { userText } from '../src/behavior/prompt.ts';
 import { fill } from '../src/format.ts';
 import { FOLLOW_UP_MINUTES, FOLLOW_UP_NO_STREAK, createTagHistory } from '../src/behavior/mention.ts';
-import { pingStatus } from '../src/behavior/elsewhere.ts';
 import { MessageReferenceType, PermissionFlagsBits } from 'discord.js';
 import { deepMerge } from '../src/config.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
@@ -4172,12 +4171,6 @@ async function routeSend(
   channel.messages.cache.set(message.id, message);
   world().seed(channel.id, [message]);
   await scene.handler(message);
-}
-
-/** Move the clock to `seconds` after ROUTE_T0 and fire every live settle timer. */
-async function routeFire(scene: RouteScene, seconds: number) {
-  scene.clock.set(routeAt(seconds));
-  await scene.timers.fire();
 }
 
 const byMsg = (logs: Record<string, Untyped>, msg: string) =>

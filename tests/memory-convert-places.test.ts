@@ -153,7 +153,7 @@ test('every unit id is the storage id of its own key, and its columns agree with
 test('the two partitions of one account become one unit that owns the rows of both', () => {
   // Bug: the second partition overwrites the first, or its rows point at a unit that is gone.
   const report = reportOf(done());
-  assert.ok(report.tables.storage_units!.merged >= 1);
+  assert.ok(report.tables.storage_units.merged >= 1);
   const owners = rowsOf(done().output, 'descriptions')
     .filter((row) => String(row.id).startsWith('description:said-'))
     .map((row) => row.owner_key);
@@ -313,7 +313,7 @@ test('a request keeps its v28 links', () => {
 test('a retired row stays retired', () => {
   // Bug: a rebuild from current readers resurrects what the writer retired, or loses it.
   const row = rowsOf(done().output, 'claims').find((one) => one.id === 'claim:retired');
-  assert.notEqual(row?.retired_at ?? null, null);
+  assert.equal(row?.retired_at, '2026-10-01T12:00:00.000Z');
 });
 
 test('the output is a healthy database of the current schema, with the immutable triggers in place', () => {
@@ -360,7 +360,7 @@ test('the engine opens the output and reads the converted memory through its neu
     );
     assert.equal(Reflect.get(store.getPlace(SERVER), 'patterns'), 'short synthetic lines');
     assert.deepEqual(
-      store.getLore(SERVER).map((one) => Reflect.get(one, 'title')),
+      store.getLore(SERVER).map((one): unknown => Reflect.get(one, 'title')),
       ['a synthetic fact']
     );
     assert.equal(store.rootPlaceOf('discord:channel:c1'), SERVER);

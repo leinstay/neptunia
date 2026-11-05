@@ -40,7 +40,6 @@ import type { ChannelSpec } from './fixtures/turn-world.ts';
 import type { TriggerKind } from '../src/turn/triggers.ts';
 import type { TurnParams } from '../src/turn/outcome.ts';
 import { createTurnRunner } from './fixtures/turn-runner.ts';
-import { snapshotOf } from '../src/behavior/snapshot.ts';
 import { openTestMemorySync, journalLabel } from './fixtures/memory-db/service.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -1648,7 +1647,6 @@ async function runPrivateTurn({
   store = privateStore(),
   images = fakeImages(),
   selfName = 'GuildBot',
-  placeId = 'g1',
   errands = null,
 }: Record<string, Untyped> = {}) {
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', content: 'hey' });

@@ -113,7 +113,7 @@ test('the catalog registers, finds and lists a person collection like any other'
       listUnits(db, { subject: { type: 'person', id: 'person:0b7a4c1e' } }).map((unit) => unit.id),
       [id]
     );
-    assert.equal(JSON.parse(keyText(key)).subject.type, 'person');
+    assert.equal((JSON.parse(keyText(key)) as { subject: { type: string } }).subject.type, 'person');
   } finally {
     handle.close();
   }

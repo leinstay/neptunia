@@ -392,7 +392,6 @@ test('a day of writes with the memory files gone writes every kind of unit to th
       assert.deepEqual(errandEvents(dbOf(right), 'find the café hours'), ['approved', 'in_progress', 'done']);
       assert.equal(count('SELECT COUNT(*) AS n FROM work') + count('SELECT COUNT(*) AS n FROM work_events'), 0);
       // Runtime ownership follows the catalog's semantic collection, including scope and active/archive selection.
-      const place = legacyServerPlaceId('discord', GUILD);
       const units = listUnits(dbOf(right), {
         kind: 'intentions',
         subject: { type: 'persona', id: 'persona:local' },

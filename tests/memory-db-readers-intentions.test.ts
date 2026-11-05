@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createIntentionStores } from '../src/intentions/store.ts';
-import { GUILD, placeOfGuild, readAt, GUILD_2, readerEnv } from './fixtures/memory-db/readers.ts';
+import { readerEnv } from './fixtures/memory-db/readers.ts';
 
 const ids = (records: Array<{ id: string }>) => records.map((record) => record.id);
 

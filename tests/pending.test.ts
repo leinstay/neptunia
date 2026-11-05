@@ -83,7 +83,7 @@ test('pending: a ping keeps its source channel beside a later call of the same c
   );
   assert.equal(list[1].channel.id, 's1', 'the channel stays the source');
   const { list: back } = requeuePending([], { ...first, decided: true }, 6);
-  assert.equal(back[0].channel.id, 's1');
+  assert.equal(back[0].channel, first.channel);
 });
 
 test("addPending: a routed ping past maxPending evicts the oldest entry of any channel, its destination's included", () => {

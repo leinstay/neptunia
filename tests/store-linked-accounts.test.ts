@@ -86,7 +86,7 @@ type Profile = {
 };
 
 /** The profile `store` answers for an account, which must have one. */
-function profileOf(store: Store, native: string, guild = 'g1'): Profile {
+function profileOf(store: Store, native: string): Profile {
   const found = store.getUser(accountOf(store, native));
   assert.ok(found, `account ${native} reads no profile`);
   return found as Profile;
@@ -112,7 +112,7 @@ test('an account on another interface with an equal native id reads the person o
     null
   );
   await bind('111', FIRST, 'telegram');
-  const profile = withIface('telegram', () => profileOf(fresh(), '111', 'g9'));
+  const profile = withIface('telegram', () => profileOf(fresh(), '111'));
   assert.equal(profile.character, 'chatty');
   assert.equal(profile.affinity.score, 12);
 });

@@ -274,7 +274,6 @@ function makeAdmin(rootDir: string, extra: AdminExtra = {}) {
     getSelfName: extra.getSelfName ?? (() => 'Persona'),
     spontaneous: extra.spontaneous ?? {},
     calibrator: extra.calibrator ?? { ratio: 1 },
-    placeIdOfHome: extra.placeIdOfHome ?? (() => 'g1'),
     turns: extra.turns,
     memory: extra.memory,
     pending: extra.pending,
@@ -768,12 +767,13 @@ test('runSkillOp: the full rights check -- a member granted memory.affinity.read
 /** makeStore with the pings-off list of one guild, the way src/memory/store.ts keeps it. */
 function storeWithPings() {
   const store = makeStore();
-  store.pingsOff = new Set();
-  store.isPingsOff = (placeId: string, userId: string) => store.pingsOff.has(`${placeId}:${userId}`);
+  const pingsOff = new Set<string>();
+  store.pingsOff = pingsOff;
+  store.isPingsOff = (placeId: string, userId: string) => pingsOff.has(`${placeId}:${userId}`);
   store.setPingsOff = (placeId: string, userId: string, off: boolean) => {
-    if (off) store.pingsOff.add(`${placeId}:${userId}`);
-    else store.pingsOff.delete(`${placeId}:${userId}`);
-    return store.pingsOff.has(`${placeId}:${userId}`);
+    if (off) pingsOff.add(`${placeId}:${userId}`);
+    else pingsOff.delete(`${placeId}:${userId}`);
+    return pingsOff.has(`${placeId}:${userId}`);
   };
   return store;
 }
@@ -1039,7 +1039,9 @@ test('migrateAccess: once per guild, the old command-key grants re-expanded unde
     assert.equal(Object.hasOwn(access, key), false, key);
   }
   assert.equal(store.getPlace(placeOfCommunity(store, 'g1')).accessMigrated, 1);
-  const records = journal.calls.filter(([kind]) => kind === 'system');
+  const records = journal.calls.filter(([kind]) => kind === 'system') as Array<
+    [string, { event: string; note: string }]
+  >;
   assert.equal(records.length, 1);
   assert.equal(records[0][1].event, 'access-migrated');
   assert.match(
@@ -1964,8 +1966,8 @@ test('status: the memory field shows the coverage of every kind of memory, compu
   };
   const coverageAsked: Array<Untyped> = [];
   const embedQueue = {
-    async indexSummary() {
-      return { rows: 1234, missing: 5 };
+    indexSummary() {
+      return Promise.resolve({ rows: 1234, missing: 5 });
     },
     async coverage(placeId: string, options: Untyped) {
       coverageAsked.push([placeId, options.hours]);

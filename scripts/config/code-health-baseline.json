@@ -5,7 +5,7 @@
     "tests/openrouter.test.ts": 3557,
     "tests/prompt.test.ts": 6595,
     "tests/recall.test.ts": 2419,
-    "tests/turn.test.ts": 8957
+    "tests/turn.test.ts": 8955
   },
   "functions": {
     "interfaces/discord/collect.ts": {
@@ -611,9 +611,6 @@
       }
     },
     "src/tools/impl/message.ts": {
-      "<anonymous>": {
-        "function-length": 305
-      },
       "<anonymous>>mediaFile": {
         "complexity": 26
       },

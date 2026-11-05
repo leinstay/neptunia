@@ -43,27 +43,28 @@ import type { Content } from '../../protocol/actions.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';
 
-/**
- * The conversation `placeId` names, checked for what a post (a reply when `reply`) needs there
- * (src/tools/impl/shared.ts#postingConversation).
- */
-async function postTarget(
+/** The conversation `conversationId` names, checked for what `need` asks there (src/tools/impl/shared.ts#postingConversation). */
+function checkedConversation(
   env: Env,
   p: Adapter,
   context: OpContext,
-  placeId: string | null,
-  reply: boolean
+  conversationId: string | null,
+  need: Parameters<typeof postingConversation>[0]['need']
 ): Promise<string> {
-  const need = reply ? 'reply' : 'send';
   return postingConversation({
     reads: env.reads,
     store: env.store,
     iface: p.iface,
     placeId: env.resolvedPlaceId(context),
-    conversationId: placeId,
+    conversationId,
     context,
     need,
   });
+}
+
+/** The conversation `placeId` names, checked for what a post (a reply when `reply`) needs there. */
+function postTarget(env: Env, p: Adapter, context: OpContext, placeId: string | null, reply: boolean): Promise<string> {
+  return checkedConversation(env, p, context, placeId, reply ? 'reply' : 'send');
 }
 
 /**
@@ -195,15 +196,7 @@ const handlers = perEnv((env) => {
     if (textOf(args.file).trim() || textOf(args.gif).trim())
       throw invalid('one attachment per post', CODE.INVALID_ARGS);
     const ref = await messageRefOf(raw, reads);
-    const sourceId = await postingConversation({
-      reads,
-      store: env.store,
-      iface: p.iface,
-      placeId: resolvedPlaceId(context),
-      conversationId: ref.placeId,
-      context,
-      need: 'read',
-    });
+    const sourceId = await checkedConversation(env, p, context, ref.placeId, 'read');
     const found = await needReads(reads).fetchMessages({ iface: p.iface, conversationId: sourceId }, [ref.messageId]);
     const message = found?.messages[0] ?? null;
     if (message?.missing === true) throw invalid(`message ${ref.messageId} was deleted`, CODE.MESSAGE_DELETED);
@@ -394,15 +387,7 @@ const handlers = perEnv((env) => {
     const given = args.placeId ? idText(args.placeId) : null;
     if (given && message.placeId && given !== message.placeId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const placeId = await postingConversation({
-      reads,
-      store: env.store,
-      iface: p.iface,
-      placeId: resolvedPlaceId(context),
-      conversationId: given ?? message.placeId,
-      context,
-      need,
-    });
+    const placeId = await checkedConversation(env, p, context, given ?? message.placeId, need);
     return {
       placeId,
       messageId: message.messageId,
@@ -417,15 +402,7 @@ const handlers = perEnv((env) => {
    */
   async function lastTarget(args: Obj, context: OpContext, need: Need): Promise<Target> {
     const p = requirePort();
-    const placeId = await postingConversation({
-      reads,
-      store: env.store,
-      iface: p.iface,
-      placeId: resolvedPlaceId(context),
-      conversationId: args.placeId ? idText(args.placeId) : null,
-      context,
-      need,
-    });
+    const placeId = await checkedConversation(env, p, context, args.placeId ? idText(args.placeId) : null, need);
     const page = await needReads(reads).history({ iface: p.iface, conversationId: placeId }, { limit: LAST_LOOKBACK });
     let newest: NonNullable<typeof page>['events'][number] | null = null;
     for (const event of page?.events ?? []) {

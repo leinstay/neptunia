@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createErrandStores } from '../src/errands/store.ts';
-import { GUILD, placeOfGuild, readAt, GUILD_2, readerEnv } from './fixtures/memory-db/readers.ts';
+import { GUILD, readerEnv } from './fixtures/memory-db/readers.ts';
 
 const NOW = 1792000600000;
 

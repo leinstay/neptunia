@@ -22,7 +22,7 @@ type Drained = {
 };
 
 /** Drains one DM written on interface `iface`, with `home` as the core's home community. */
-async function drainDm(iface: string, home: string | null, dmCommunity: string | null): Promise<Drained> {
+async function drainDm(iface: string, home: string | null): Promise<Drained> {
   const channel = channelInfo('d1', { iface, kind: 'dm', communityId: null, partnerId: 'u1' });
   const pending: PendingQueue = {
     list: [
@@ -91,7 +91,7 @@ async function drainDm(iface: string, home: string | null, dmCommunity: string |
 
 test('a queued DM with no community anywhere runs its turn on its own interface', async () => {
   // Bug: the drain requires a home community and drops the DM of a core that serves none.
-  const { turns, gates, afterTurns } = await drainDm('other', null, null);
+  const { turns, gates, afterTurns } = await drainDm('other', null);
   assert.deepEqual(
     turns.map((turn) => turn.conversation),
     [{ iface: 'other', conversationId: 'd1' }]
@@ -105,7 +105,7 @@ test('a queued DM is gated on its own interface whatever another one serves', as
   // Bug: a DM on the second interface is gated and remembered under the first interface's community.
   // The third test of this file asked for the community of `dmCommunityOf`, which the owner's decision removed: a
   // private chat is its own place, whichever servers its interface holds.
-  const { turns, gates } = await drainDm('other', 'home-of-first', null);
+  const { turns, gates } = await drainDm('other', 'home-of-first');
   assert.equal(turns.length, 1);
   assert.equal(turns[0]?.placeId ?? null, null);
   assert.equal(gates[0]?.iface, 'other');

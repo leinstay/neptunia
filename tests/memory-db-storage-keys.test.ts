@@ -1,5 +1,4 @@
 // Semantic account collections keep equal native IDs in distinct namespaces separate.
-import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';

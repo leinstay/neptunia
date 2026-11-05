@@ -13,7 +13,14 @@ function converted(config: object): { config: Record<string, Record<string, unkn
   fs.mkdirSync(from);
   fs.writeFileSync(path.join(from, 'config.json'), JSON.stringify(config));
   const report = convertConfig(from, out);
-  return { config: JSON.parse(fs.readFileSync(path.join(out, 'config.json'), 'utf8')), out, report };
+  return {
+    config: JSON.parse(fs.readFileSync(path.join(out, 'config.json'), 'utf8')) as Record<
+      string,
+      Record<string, unknown>
+    >,
+    out,
+    report,
+  };
 }
 
 test('the diary channel of the old setting becomes the selfreflection place', () => {

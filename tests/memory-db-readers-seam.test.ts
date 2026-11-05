@@ -10,7 +10,7 @@ import { createStore, operationalJsonPath } from '../src/memory/store.ts';
 import { createRecord } from '../src/memory/record.ts';
 import { createVectors } from '../src/memory/vectors.ts';
 import { createEmbedder } from '../src/memory/embedder.ts';
-import { GUILD, placeOfGuild, readAt, GUILD_2, MEMBER, readerEnv } from './fixtures/memory-db/readers.ts';
+import { GUILD, placeOfGuild, GUILD_2, MEMBER, readerEnv } from './fixtures/memory-db/readers.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 
 const silent = { info() {}, debug() {}, warn() {}, error() {} };

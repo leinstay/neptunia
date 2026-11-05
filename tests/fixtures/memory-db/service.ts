@@ -6,7 +6,6 @@
 // builds its stores synchronously; `unitFile` is a memory unit as the file it stands for (its text, from the database
 // alone). Synthetic data only.
 import fs from 'node:fs';
-import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { dbOf, type Config, type Log } from '../../../src/memory/db/types.ts';
@@ -19,7 +18,6 @@ import { seedUnits } from './seed.ts';
 import { legacyStorageKey } from '../../../src/memory/migration/paths.ts';
 import { listUnits } from '../../../src/memory/db/storage-units.ts';
 import { unitValue, unitLines } from '../../../src/memory/db/readers/common.ts';
-import { nativeOfAny } from '../../../src/memory/db/ids.ts';
 import type { StorageKey } from '../../../src/memory/db/storage-keys.ts';
 
 const silent = { info() {}, debug() {}, warn() {}, error() {} };

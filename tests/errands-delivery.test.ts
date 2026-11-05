@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { createErrandStore } from '../src/errands/store.ts';
 import type { ErrandStore } from '../src/errands/types.ts';
 import { openTestMemorySync, tempDataDir } from './fixtures/memory-db/service.ts';
-import { GUILD, T0 } from './fixtures/errand-archive.ts';
+import { T0 } from './fixtures/errand-archive.ts';
 
 const NOW = T0 + 60 * 60 * 1000;
 const SILENT = { info() {}, warn() {}, error() {}, debug() {} };

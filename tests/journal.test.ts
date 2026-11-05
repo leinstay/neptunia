@@ -15,8 +15,6 @@ import { tempDir } from './fixtures/tmp.ts';
 import { journalLabel, openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
-import { nativeOfAny } from '../src/memory/db/ids.ts';
-import { legacyStorageKey } from '../src/memory/migration/paths.ts';
 import type { StorageKey } from '../src/memory/db/storage-keys.ts';
 
 const DATA = path.join('fake-root', 'data');
@@ -215,7 +213,7 @@ test('journal: read returns the last n records of a kind, newest last', async ()
     ['turn.start']
   );
   assert.deepEqual(
-    (await journal.read(null, { day: '2026-10-13' })).map((r: Record<string, Untyped>) => r.kind),
+    (await journal.read(null, { day: '2026-10-13' })).map((r) => (r as { kind?: unknown }).kind),
     ['system']
   );
   const startD: Record<string, Untyped> = (await journal.read('g1', { day: '2026-10-13', kind: 'turn.start' }))[0];

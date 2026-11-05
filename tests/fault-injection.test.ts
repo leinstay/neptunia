@@ -555,7 +555,7 @@ function boot(
     turns: recorded,
     intentions,
     record,
-    journal: journal ? personaJournal(journal, () => [GUILD]) : journal,
+    journal: journal ? personaJournal(wrongly(journal), () => [GUILD]) : null,
     reads,
     iface: () => 'fake',
     ...(ready ? { ready } : {}),
