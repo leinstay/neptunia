@@ -43,6 +43,7 @@ export const TASK_USAGE = `usage: neptunia task <command> [options]   (--socket 
   task update T-xxxxxx [--title ..] [--priority N] [--risk ..] [--role ..] [--budget N] [--steps N]
            [--estimate N] [--defer ISO|none] [--description -] [--acceptance -] [--meta key=value]...
            # a closed task: only --budget, --steps, --estimate (the owner, a reviewer)
+  task risk T-xxxxxx <low|normal|high> --reason "..."   # recorded; only the owner lowers, never below a dev task
   task triage T-xxxxxx --role implementer --estimate 40 --budget 3 [--steps 60]
   task approve T-xxxxxx [--scope plan|merge|deploy] [--note "..."] [--reject]
   task reject T-xxxxxx --reason "..."
@@ -303,6 +304,12 @@ const COMMANDS: Readonly<Record<string, Command>> = {
     const set = fieldsFrom(flags, stdin);
     if (!Object.keys(set).length) throw new UsageError('nothing to update');
     return fetchTask(ask, id).then((task) => ({ name: 'task.update', args: { id, revision: task.revision, set } }));
+  },
+  risk: ({ flags, positionals }) => {
+    const id = needId(positionals, 'T');
+    const risk = positionals[1];
+    if (!risk) throw new UsageError('a risk level is required');
+    return { name: 'task.risk', args: { id, risk, reason: needFlag(flags, 'reason') } };
   },
   triage: ({ ask, flags, positionals, stdin }) => {
     const id = needId(positionals, 'T');
