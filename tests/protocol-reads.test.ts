@@ -19,7 +19,7 @@ test('readAction turns a method call into its wire action and gives null for a m
   });
   assert.deepEqual(readAction('memberInfo', [{ placeId: 'g1', accountId: 'u1' }]), {
     action: 'member.info',
-    rootId: 'g1',
+    placeId: 'g1',
     accountId: 'u1',
   });
   assert.deepEqual(readAction('reactors', [{ ...REF, messageId: 'm1' }, '🔥', 10]), {

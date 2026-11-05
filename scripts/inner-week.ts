@@ -360,7 +360,6 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
       llm,
       calibrator,
       client,
-      placeId,
       self,
       images: null,
       state,

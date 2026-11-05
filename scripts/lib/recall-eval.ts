@@ -576,7 +576,7 @@ function localInfo(placeId: string, id: string, name: string) {
   return {
     id,
     kind: 'channel' as const,
-    placeId: placeId,
+    rootId: placeId,
     name,
     topic: null,
     category: null,
@@ -644,7 +644,7 @@ export function localScope({
   return {
     channel: info(conversationId),
     snapshot: {
-      placeId: placeId,
+      placeId,
       conversations: [],
       groups: [],
       get: (id: string) => (typeof id === 'string' && id !== '' ? info(id) : null),

@@ -182,7 +182,7 @@ export type DrawGif = {
     },
     model?: string | null
   ) => Promise<DrawResult>;
-  resolveGif: (placeId: string, gif: GifCall | null | undefined, conversationId: string) => ResolvedGif | null;
+  resolveGif: (placeId: string, gif: GifCall | null | undefined) => ResolvedGif | null;
   postGif: (
     channel: PostChannel,
     placeId: string,
@@ -431,11 +431,11 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * The persona's `<gif>` resolved against the place's library: `{ id,
    * replyTo, entry }`, or null (logged with its reason, never a URL) when the handle is unknown.
    */
-  function resolveGif(placeId: string, gif: GifCall | null | undefined, conversationId: string): ResolvedGif | null {
+  function resolveGif(placeId: string, gif: GifCall | null | undefined): ResolvedGif | null {
     if (!gif) return null;
     const entry: GifEntry | null | undefined = store.findGif(placeId, gif.id);
     if (!entry) {
-      log.info('turn: gif dropped', { channel: conversationId, reason: 'unknown' });
+      log.info('turn: gif dropped', { placeId, reason: 'unknown' });
       return null;
     }
     return { ...gif, entry };
@@ -650,7 +650,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     const handle = parseGifPick(textOf(completion), handles);
     log.info('gifs: picked', { channel: conversationId, handle: handle !== null, library: library.length });
     if (handle === null) return null;
-    return resolveGif(placeId, { id: handle, replyTo: first.replyTo ?? null }, conversationId);
+    return resolveGif(placeId, { id: handle, replyTo: first.replyTo ?? null });
   }
 
   /**

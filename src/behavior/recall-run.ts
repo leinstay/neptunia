@@ -797,12 +797,12 @@ export function createRecall({
    * store call. A write that throws logs `recall: trace failed` and costs the
    * run nothing.
    */
-  function writeTrace({ placeId, conversationId, trace, out, maxLines }: WriteTraceInput) {
+  function writeTrace({ placeId, trace, out, maxLines }: WriteTraceInput) {
     if (typeof store.appendRecallTrace !== 'function' || !placeId) return;
     try {
       store.appendRecallTrace(placeId, traceLine(trace, out), { maxLines });
     } catch (err) {
-      log.warn('recall: trace failed', { channel: conversationId, name: objOf(err).name ?? null });
+      log.warn('recall: trace failed', { placeId, name: objOf(err).name ?? null });
     }
   }
 
@@ -1668,7 +1668,7 @@ export function createRecall({
     let timer = null;
     let cut = null;
     const finish = (out: Untyped) => {
-      if (trace) writeTrace({ placeId, conversationId, trace, out, maxLines: traceMaxLines });
+      if (trace) writeTrace({ placeId, trace, out, maxLines: traceMaxLines });
       return out;
     };
     // The journal's closing line of a run that started (`op`): what it found, never the text.

@@ -2962,7 +2962,7 @@ test('runTurn: a private chat asks the route hook for its partner and pulls the 
   // Changed with the contract: the hook gets the conversation's info, the served community's listing and the
   // partner's member record (the hook's arguments held platform objects before).
   assert.equal(calls[0].channel.id, scene.channel.id);
-  assert.equal(calls[0].snapshot.rootId, 'g1', 'judged in the served community');
+  assert.equal(calls[0].snapshot.placeId, 'g1', 'judged in the served community');
   assert.equal(calls[0].partner.id, 'u1');
   assert.equal(calls[0].triggerKind, 'private');
   assert.deepEqual(

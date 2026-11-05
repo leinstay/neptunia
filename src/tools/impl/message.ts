@@ -272,7 +272,7 @@ const handlers = perEnv((env) => {
           `sent in ${conversationId} (message ${result?.ref?.messageId ?? '?'})`
         );
     }
-    const sent = await postGif(p, to, entry, placeId, conversationId, text || attachment ? null : content);
+    const sent = await postGif(p, to, entry, placeId, text || attachment ? null : content);
     if (sent?.status !== 'ok')
       return text || attachment
         ? {
@@ -304,14 +304,13 @@ const handlers = perEnv((env) => {
     to: ConversationRef,
     entry: Untyped,
     placeId: string | null,
-    conversationId: string,
     lead: Content | null
   ): Promise<Untyped> {
     const fresh =
       entry.kind === 'attachment'
         ? await freshAttachmentUrl({
             reads: needReads(reads),
-            channel: { iface: p.iface, conversationId },
+            channel: to,
             entry,
           })
         : null;

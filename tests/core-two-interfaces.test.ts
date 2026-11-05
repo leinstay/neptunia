@@ -151,7 +151,7 @@ test('a read of a community goes to the interface that serves it', async () => {
       await until(() => other.adapter.messagesIn('c1').some((message) => message.authorId === SELF.id));
       const communityReads = (running: Running) =>
         running.adapter.calls.filter(
-          (call) => call.args[0] === 'g3' || (call.args[0] as { rootId?: string })?.rootId === 'g3'
+          (call) => call.args[0] === 'g3' || (call.args[0] as { placeId?: string })?.placeId === 'g3'
         );
       assert.notEqual(communityReads(other).length, 0);
       assert.equal(communityReads(fake).length, 0);

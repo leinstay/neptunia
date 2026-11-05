@@ -477,3 +477,25 @@ test('fails the reactors of an emoji nobody put on the message', async () => {
   const { adapter } = world();
   assert.equal((await adapter.reactors({ ...CHANNEL, messageId: '1005' }, '🔥', 7)).status, 'failed');
 });
+
+test('lists the emoji of every listed server for a read with no place', async () => {
+  // Bug: a private chat reads one server's emoji, whichever was named first, or none at all.
+  const emoji = (id: string): Raw => ({ id, name: id, animated: false, available: true });
+  const guild = (id: string, ids: Array<string>): Raw => ({
+    id,
+    emojis: { cache: new Map(ids.map((one) => [one, emoji(one)])) },
+  });
+  const guilds = new Map([
+    ['g1', guild('g1', ['e1'])],
+    ['g2', guild('g2', ['e2'])],
+    ['g3', guild('g3', ['e3'])],
+  ]);
+  const client = { guilds: { cache: guilds }, user: { id: SELF }, channels: { cache: new Map() } };
+  const adapter = createDiscordAdapter({ client, config: () => ({ servers: ['g1', 'g2'] }) });
+  const result = await adapter.emoji({ placeId: null });
+  if (result.status !== 'ok') throw new Error(result.status);
+  assert.deepEqual(
+    result.emoji.map((entry) => entry.id),
+    ['e1', 'e2']
+  );
+});

@@ -88,7 +88,7 @@ const EVENTS = {
     iface: 'discord',
     at: 1000,
     id: 'discord:member:g1:u1:joined:1000',
-    rootId: 'g1',
+    placeId: 'g1',
     accountId: 'u1',
     change: 'joined',
     member: { id: 'u1', name: 'Ελένη', bot: false },
@@ -98,7 +98,7 @@ const EVENTS = {
     iface: 'discord',
     at: 1000,
     id: 'discord:voice:g1:u1:1000',
-    rootId: 'g1',
+    placeId: 'g1',
     accountId: 'u1',
     conversationId: 'v1',
     previousId: null,
@@ -109,7 +109,7 @@ const EVENTS = {
     kind: 'inner.wake',
     at: 1000,
     id: 'inner.wake:review:2026-10-19',
-    rootId: 'g1',
+    placeId: 'g1',
     wake: { kind: 'review' },
   },
   // Stage 2 PR 4 added these four kinds; the detailed refusals are in protocol-events.test.ts.
@@ -441,7 +441,7 @@ test('validateEvent: membership and voice events need their community, member an
   const { member: _m, ...left } = { ...member, change: 'left' };
   assert.deepEqual(validateEvent(left), { ok: true });
   assert.deepEqual(validateEvent({ ...member, change: 'banned' }), { ok: false, reason: 'change:unknown' });
-  assert.deepEqual(validateEvent({ ...member, rootId: undefined }), { ok: false, reason: 'rootId:required' });
+  assert.deepEqual(validateEvent({ ...member, placeId: undefined }), { ok: false, reason: 'placeId:required' });
   assert.deepEqual(validateEvent({ ...member, member: { id: 'u1', name: null } }), {
     ok: false,
     reason: 'member.bot:required',

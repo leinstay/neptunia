@@ -157,7 +157,7 @@ function nicknameChange(accountId: string, name: string, n: number): Row {
     iface: 'fake',
     at: Date.now(),
     id: `fake:membership:g1:${accountId}:updated:${n}`,
-    rootId: 'g1',
+    placeId: 'g1',
     accountId,
     change: 'updated',
     member: { id: accountId, name, bot: accountId === SELF_ID },

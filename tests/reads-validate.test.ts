@@ -36,7 +36,7 @@ const GOOD: ReadonlyArray<Row> = [
     name: 'message search with every field',
     action: {
       action: 'messages.search',
-      rootId: 'g1',
+      placeId: 'g1',
       text: 'pasta',
       authorId: 'u1',
       after: 1000,

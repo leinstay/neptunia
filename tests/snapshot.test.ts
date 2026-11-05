@@ -125,7 +125,7 @@ test('takeSnapshot lists the community once with the audience and the viewers as
   const asked = world().port.calls.filter((call) => call.op === 'conversations');
   assert.deepEqual(
     asked.map((call) => call.args[0]),
-    [{ rootId: 'g1', audience: true, viewers: [ZOE] }]
+    [{ placeId: 'g1', audience: true, viewers: [ZOE] }]
   );
 });
 

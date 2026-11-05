@@ -22,7 +22,7 @@ export function createFedAround({ presences = false, now = Date.now }: { presenc
   const voiceStates = new Map<string, Raw>();
   const presenceList = new Map<string, Raw>();
   const stamp = (state: Raw): Raw => ({ ...state, guild: GUILD });
-  const keyOf = (state: Raw): string => String(state.id ?? state.accountId ?? (state.member as Raw | undefined)?.id);
+  const keyOf = (state: Raw): string => String(state.id ?? state.userId ?? (state.member as Raw | undefined)?.id);
   return {
     voiceUpdate(state: Raw): void {
       voiceStates.set(keyOf(state), state);

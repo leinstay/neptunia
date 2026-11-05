@@ -247,7 +247,7 @@ test('a guild builds one snapshot event with its voice states and presences and 
       ]),
     },
     presences: {
-      cache: new Map<string, object>([['u1', { accountId: 'u1', guild: GUILD, status: 'dnd', activities: [] }]]),
+      cache: new Map<string, object>([['u1', { userId: 'u1', guild: GUILD, status: 'dnd', activities: [] }]]),
     },
   };
   const event = presenceSnapshotEvent(guild, 9000);

@@ -29,7 +29,7 @@ const nameOf = (id: string) => loose(NAMES)[id] ?? null;
 
 const voice = (id: string, channelId: string, flags = {}) => ({ id, channelId, ...flags });
 const presence = (accountId: string, status: string, activities: Array<Record<string, unknown>> = []) => ({
-  accountId,
+  userId: accountId,
   status,
   activities,
 });

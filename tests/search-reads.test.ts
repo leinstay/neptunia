@@ -201,8 +201,8 @@ test('searches each form over the whole community, one after another and in orde
   assert.deepEqual(
     s.searches().map(([scope, query]) => [scope, query.text]),
     [
-      [{ rootId: COMMUNITY }, 'κουνέλι'],
-      [{ rootId: COMMUNITY }, 'κουνελιού'],
+      [{ placeId: COMMUNITY }, 'κουνέλι'],
+      [{ placeId: COMMUNITY }, 'κουνελιού'],
     ]
   );
   assert.equal(
@@ -275,7 +275,7 @@ test('finds a person by a Latin name form through the member search and then sea
   const { result } = await s.run({ server: { forms: [], who: ['kitezu'], from: null, to: null } });
   assert.deepEqual(
     s.fake.calls.filter((call) => call.op === 'searchMembers').map((call) => call.args),
-    [[{ rootId: COMMUNITY }, { prefix: 'kitezu', limit: RECALL.maxPeople }]]
+    [[{ placeId: COMMUNITY }, { prefix: 'kitezu', limit: RECALL.maxPeople }]]
   );
   assert.deepEqual(
     s.searches().map(([, query]) => query.text ?? query.authorId),

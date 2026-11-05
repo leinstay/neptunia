@@ -216,7 +216,6 @@ export type MeaningSearchInput = {
 
 export type WriteTraceInput = {
   placeId: string | null;
-  conversationId: string | null;
   trace: RecallTrace;
   out: Untyped;
   maxLines: Untyped;
