@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { interfaceProxy, localConfigPath } from '../src/config/files.ts';
+import { localConfigPath } from '../src/config/files.ts';
 import { proxyCommand } from '../src/interface/commands/proxy.ts';
 import type { ProxyCommandDeps } from '../src/interface/commands/proxy.ts';
 import { parseCommandLine, takesSecretStdin } from '../src/interface/commands/table.ts';
@@ -96,18 +96,8 @@ test('set without a chat to ask in is refused', async () => {
   assert.equal(serviceCredential(dataDir, 'proxy'), null);
 });
 
-test("set hands the URL to every interface in its credentials file and keeps the interface's token", async () => {
-  // Catches: the Discord interface, which cannot read keys.json, never learns the proxy, or loses its token on the rewrite.
-  const { dataDir, run } = rig();
-  const dir = path.join(dataDir, 'interfaces', 'discord');
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'credentials.json'), JSON.stringify({ token: 'discord-token' }), { mode: 0o600 });
-  await run('proxy.set', {}, [PROXY]);
-  assert.equal(interfaceProxy(dataDir, 'discord'), PROXY);
-  const stored = JSON.parse(fs.readFileSync(path.join(dir, 'credentials.json'), 'utf8')) as { token: string };
-  assert.equal(stored.token, 'discord-token');
-  assert.equal(fs.statSync(path.join(dir, 'credentials.json')).mode & 0o777, 0o600);
-});
+// Stage Z: the owner ruled that interfaces are never proxied, so `proxy set` writes no interface file and
+// the test that required one is removed.
 
 test('on needs a stored URL; on and off then write the switch to the settings file', async () => {
   // Catches: `proxy on` with nothing stored reports success and the engine stays direct without a word.
