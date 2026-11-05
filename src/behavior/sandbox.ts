@@ -136,7 +136,7 @@ const MODES = new Set(['reply', 'interject', 'initiate']);
 /** The modes of a turn nobody asked for: no trigger. */
 const SPONTANEOUS = new Set<unknown>(['interject', 'initiate']);
 /** src/behavior/turn.ts#TriggerKind without `private`: a private chat is never replayed. */
-const KINDS = new Set(['mention', 'reply', 'name', 'followUp', 'overheard']);
+const KINDS = new Set(['mention', 'reply', 'followUp', 'overheard']);
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** The kinds of items `momentView` hides, in the order `hiddenLater` reports them. */
@@ -1986,10 +1986,9 @@ const MAX_PENDING = 6;
  * The turns one step of a skill scenario gets when its messages (`incoming`, normalized lines in
  * arrival order, all of one channel) come in a burst, as the live queue gives them
  * (src/behavior/pipeline.ts, src/behavior/pending.ts). How each message calls her is read as the
- * live pipeline reads it (src/behavior/mention.ts#detectTrigger, each input masked by its switch:
- * a tag of hers among `mentionedAccountIds` with features.mentions on, a reply to a line of hers in
- * `history` or the burst with features.replies on, one of `bot.nameTriggers` as a whole word with
- * features.nameTriggers on -- a missing key counts as on); a message that does not call her is a
+ * live pipeline reads it (src/behavior/mention.ts#detectTrigger:
+ * a tag of hers among `mentionedAccountIds`, a reply to a line of hers in `history` or the burst); a message that
+ * does not call her is a
  * follow-up the address classifier said `yes` to (it is never asked here). The first message finds
  * her attention free and starts a turn; the rest come in while that turn runs: a call waits in the
  * queue (addPending, `mention.maxPending` the cap: the oldest waiting entry is `dropped`, reason
@@ -1999,7 +1998,7 @@ const MAX_PENDING = 6;
  * `queued` is what still waits besides it, arrival order, as src/pipeline/pending-queue.ts#queuedFor lists
  * it: the trigger author's own as `{ id, text }`, another member's as `{ id, text, author }`
  * (their display name), the text on one line cut to `MAX_MESSAGE_CHARS`. Not modelled: the
- * ignore rolls, the merge classifier folding a call into an earlier one, a follow-up's window and
+ * address classifier, the per-author rail, the merge classifier folding a call into an earlier one, a follow-up's window and
  * staleness checks. Pure; nothing handed in is changed.
  */
 export function burstTurns(
@@ -2009,7 +2008,6 @@ export function burstTurns(
   const lines = (Array.isArray(incoming) ? incoming : []).filter(Boolean);
   if (lines.length === 0) return { turns: [], replaced: [], dropped: [] };
   const self = String(selfId);
-  const nameTriggers = Array.isArray(config?.bot?.nameTriggers) ? config.bot.nameTriggers : [];
   const herLines = new Set(
     [...(Array.isArray(history) ? history : []), ...lines].filter((line) => line?.self === true).map((line) => line.id)
   );
@@ -2017,8 +2015,6 @@ export function burstTurns(
     detectTrigger({
       mentionsSelf: (line.mentionedAccountIds ?? []).includes(self),
       repliesToSelf: Boolean(line.replyToId) && herLines.has(line.replyToId),
-      content: String(line.content ?? ''),
-      nameTriggers,
     }) ?? 'followUp';
   const maxPending = config?.mention?.maxPending ?? MAX_PENDING;
   const maxChars = MAX_MESSAGE_CHARS;

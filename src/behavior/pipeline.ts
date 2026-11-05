@@ -21,7 +21,7 @@ import { createClassifierRequest } from '../pipeline/classifier-request.ts';
 import { createConversations } from '../pipeline/conversations.ts';
 import { createDrain } from '../pipeline/drain.ts';
 import { createEdits } from '../pipeline/edits.ts';
-import { createFollowUpWindows } from '../pipeline/follow-up-window.ts';
+import { createAddressAttention } from '../pipeline/address-attention.ts';
 import { createFollowUp } from '../pipeline/follow-up.ts';
 import { createFollowing } from '../pipeline/following.ts';
 import { createHandleMessage } from '../pipeline/handle-message.ts';
@@ -62,10 +62,9 @@ export type MessageHandler = ((event: MessageReceived, options?: MessageReadOpti
  *   (src/interface/reads.ts): the conversation a message is in, its newest messages, a message by id,
  *   a member, and the listing of the community the route of a call reads.
  * @param [deps.selfId]  The persona's id on the interface (`hello`).
- * @param [deps.llm]  From createLlm() (src/llm/openrouter.js), used for the address
- *   classifier: a message with no trigger, arriving while a conversation window this instance opened by
- *   answering is still open, is checked here before ever running a turn. Absent -- an older/direct caller, or a test
- *   that never opens a window -- the follow-up never fires (nothing reaches this dependency otherwise).
+ * @param [deps.llm]  From createLlm() (src/llm/openrouter.js), used for the address classifier: every line of a group
+ *   place that carries a flag, and an unflagged one within attention, is checked here before ever running a turn.
+ *   Absent -- a test with no classifier -- a flagged line opens and an unflagged one is a `no`.
  * @param [deps.getSelfName]  The persona's display name in a place
  *   (src/core.ts). Default: `bot`.
  * @param [deps.describer]  From createDescriber() (src/memory/describe.js), optional: when
@@ -188,14 +187,8 @@ export function createMessageHandler({
     now,
   });
 
-  // The follow-up windows load their saved entries back here, before anything else is built.
-  const { noteFollowUpSend, bumpFollowUpNoStreak, followUpMuted, followUpGate, followUpStale } = createFollowUpWindows({
-    hot,
-    store,
-    now,
-    turns,
-    turnBlocked,
-  });
+  // Attention loads its saved times back here, before anything else is built.
+  const { noteAttention, followUpMuted, addressGate, followUpStale } = createAddressAttention({ hot, store, now });
   const { buildClassifierRequest } = createClassifierRequest({ reads, store, refOf, cachedFollowUpMedia });
   const { announceRefusal, afterCallTurn, heldCallState } = createCallOutcome({
     hot,
@@ -218,7 +211,6 @@ export function createMessageHandler({
     store,
     now,
     turns,
-    tagHistory,
     getSelfName,
     pending,
     itemText,
@@ -229,7 +221,6 @@ export function createMessageHandler({
   const { decideAndLog, answerCall } = createAnswer({
     store,
     now,
-    rng,
     turns,
     tagHistory,
     selfIdOf,
@@ -240,27 +231,27 @@ export function createMessageHandler({
     afterCallTurn,
   });
 
-  // The address classifier and the follow-up path.
-  const { classifyFollowUp } = createAddressClassifier({
+  // The address classifier and the door's two paths through it.
+  const { classifyAddress } = createAddressClassifier({
     hot,
     llm,
     now,
     getSelfName,
     missed,
     buildClassifierRequest,
-    bumpFollowUpNoStreak,
   });
-  const { maybeFollowUp } = createFollowUp({
+  const { maybeFollowUp, answerFlagged } = createFollowUp({
     hot,
     turns,
-    followUpGate,
+    addressGate,
     followUpMuted,
     currentOf,
     refOf,
-    classifyFollowUp,
+    classifyAddress,
     turnBlocked,
     deferFollowUp,
     decideAndLog,
+    answerCall,
     drainPending,
     announceRefusal,
   });
@@ -342,10 +333,10 @@ export function createMessageHandler({
     resolveReference,
     turnPlaceOf,
     warmMediaCache,
-    noteFollowUpSend,
+    noteAttention,
     noteFollowingLine,
     maybeFollowUp,
-    answerCall,
+    answerFlagged,
   });
 
   // An edit and a deletion of a message (src/pipeline/edits.ts).

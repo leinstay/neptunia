@@ -812,7 +812,7 @@ test('labels: every code of the catalogue has its words in the tracked labels.js
 // ---- the chat turn ----------------------------------------------------------------
 
 test('buildRequest: a reply fills system-prompt, character-card, rules, format and reply for every trigger kind', async () => {
-  for (const triggerKind of ['mention', 'reply', 'name', 'followUp']) {
+  for (const triggerKind of ['mention', 'reply', 'followUp']) {
     const request = buildRequest(await turnInput({ triggerKind }));
     // A follow-up takes the follow-up task instead of reply.md; a reply with no tagged state stays on reply.md.
     const files = triggerKind === 'followUp' ? LOADS.followUp : LOADS.reply;
@@ -1924,7 +1924,8 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
     waitingParts: () => [{ index: 2, text: 'regarde le canal du jardin' }],
     addToPart: (...args: Array<unknown>) => folded.push(args) > 0,
   };
-  const llm = recordingLlm(() => '1');
+  // Plan 2026-11-04-cli-and-memory B1: a flagged line asks the address classifier first.
+  const llm = recordingLlm((_messages, options) => (options.purpose === 'address' ? 'yes' : '1'));
   const handler = createMessageHandler({
     hot,
     store: { state: { data: {}, markDirty() {} }, getUser: () => null },
@@ -1948,9 +1949,9 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
     for (let i = 0; i < 20 && folded.length === 0; i += 1) await new Promise((resolve) => setImmediate(resolve));
   });
 
-  assert.equal(llm.calls.length, 1, 'one merge request');
-  assertFilled(llm.calls[0].messages, { files: LOADS.merge, blocks: ['waiting', 'candidate'] }, 'merge');
-  assert.equal(llm.calls[0].options.purpose, 'merge');
+  const merges = llm.calls.filter((call) => call.options.purpose === 'merge');
+  assert.equal(merges.length, 1, 'one merge request');
+  assertFilled(merges[0].messages, { files: LOADS.merge, blocks: ['waiting', 'candidate'] }, 'merge');
   assert.equal(folded.length, 1, 'folded into the waiting part');
 });
 

@@ -25,6 +25,16 @@ A line of the owner's CLI reaches the door when it arrives, as on any interface,
 
 A heartbeat or completed errand can also cause a turn. It uses the same persona and memory rather than a separate conversational agent. [Inner life](inner-life.md) explains those triggers.
 
+## The door
+
+`createHandleMessage` in `src/pipeline/handle-message.ts` takes every new line. A DM and the owner's CLI are addressed already, so they go to the private path and never ask a classifier, and the persona's own turn decides whether to speak. Every other line belongs to a group place, which is a channel, a thread or a group that is its own root, on any interface.
+
+The address classifier in `src/pipeline/address-classifier.ts` decides whether a group line starts a turn. A line with the interface's `addressing.mentioned` or `addressing.replyToSelf` goes to it at once, as a call of kind `mention` or `reply` (`answerFlagged` in `src/pipeline/follow-up.ts`). Any other line goes only while the persona wrote in that place within `address.attentionMinutes`, 15 by default, and only when it mentions no other member (`addressGate` in `src/pipeline/address-attention.ts`), and its turn has the kind `followUp`. A verdict of `overheard` starts an overheard turn and `no` starts nothing. Her name in a line opens nothing by itself. The classifier reads the names of the `## Aliases` section of the character card as `<aliases>`, one per line, and a card without the section adds no block.
+
+A failed classifier call on a flagged line opens: the turn starts and the line leaves a `gate-failopen` fact for the missed-answer check. A failed call on an unflagged line opens only for the member she is talking with one to one at that moment.
+
+`decideAndLog` in `src/pipeline/answer.ts` holds a rail in front of each turn a verdict asks for. Past `address.maxTurnsPerAuthor` started turns, 50 by default, of one author in one place within `address.attentionMinutes`, the turn is refused and logged as `address: refused` with its counts. `0` in `address.maxTurnsPerAuthor` turns the rail off, and `mention.neverIgnore` lists authors it never refuses. A line caught up after a restart follows the same path when it carries a flag, and is only observed otherwise.
+
 ## Boundaries
 
 The core writes memory through one writer. Interfaces neither open the database nor decide what the persona remembers. Stored recall and fetching live platform history are separate operations with separate access checks.

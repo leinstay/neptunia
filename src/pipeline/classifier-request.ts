@@ -1,9 +1,9 @@
-// The request of the address classifier about one new message: the
-// prompt with the persona's name, the channel's last lines, the author's stored aliases and the new message as the
-// candidate. createMessageHandler (src/behavior/pipeline.ts) builds it once with createClassifierRequest.
+// The request of the address classifier about one new message: the prompt with the persona's name, her aliases from
+// the character card, the place's last lines, the author's stored aliases and the new message as the candidate. createMessageHandler (src/behavior/pipeline.ts) builds it once with createClassifierRequest.
 
 import { accountOf, sharedPlaceOf } from '../memory/addresses.ts';
 import { historyLines } from '../behavior/lines.ts';
+import { cardAliases } from '../behavior/mention.ts';
 import { fill, formatTranscript, renderTranscript } from '../format.ts';
 import type { Reads } from '../interface/reads.ts';
 import { topByRank } from '../memory/ranking.ts';
@@ -46,8 +46,9 @@ export function createClassifierRequest({ reads, store, refOf, cachedFollowUpMed
 } {
   /**
    * The request of the address classifier about one new message: system =
-   * `prompt` (address.md, `{{name}}` filled), user = the last `mention.followUpContext`
-   * lines of the channel, then an `<author>` block when the new message's
+   * `prompt` (address.md, `{{name}}` filled), user = an `<aliases>` block when the character card has a `## Aliases`
+   * section (it changes only with the card, so it goes first), the last FOLLOW_UP_CONTEXT
+   * lines of the place, then an `<author>` block when the new message's
    * author has stored aliases (followUpAuthorLine), then the new message
    * wrapped in a `<candidate>` block (tags structural, not model-facing
    * wording). Pictures, stickers, emoji and videos carry the captions the
@@ -86,9 +87,11 @@ export function createClassifierRequest({ reads, store, refOf, cachedFollowUpMed
     const transcript = renderTranscript(items.slice(0, -1), config.bot.timezone, labels);
     const author = followUpAuthorLine(placeId, normalized, config, labels);
     const authorBlock = author ? `\n<author>\n${author}\n</author>` : '';
+    const aliases = cardAliases((prompts as NonNullable<PipelineHot['prompts']>)['character-card']);
+    const aliasesBlock = aliases.length > 0 ? `<aliases>\n${aliases.join('\n')}\n</aliases>\n` : '';
     return {
       system: fillPromptTemplate(prompt, { name: selfName }),
-      user: `${transcript}${authorBlock}\n<candidate>\n${candidateItem.text}\n</candidate>`,
+      user: `${aliasesBlock}${transcript}${authorBlock}\n<candidate>\n${candidateItem.text}\n</candidate>`,
       // The fetched lines themselves (never sent): a failed address call decides from them (activeExchangeWith).
       history,
     };

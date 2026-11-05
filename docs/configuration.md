@@ -22,7 +22,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `bot.timezone` | string | `"UTC"` | Timezone for model timestamps | `src/behavior/diary.ts` |
 | `bot.owners` | array | `[]` | Native ids of the home interface that count as owners until `bot.ownerPerson` is set; the input of that migration | `src/behavior/core-pause.ts` |
 | `bot.ownerPerson` | string | `""` | The person whose bound accounts are the owner, written by `/memory bind <iface> <account> owner`. See [One person, several accounts](memory.md#one-person-several-accounts) | `src/tools/impl/grants.ts` |
-| `bot.nameTriggers` | array | `[]` | Extra trigger strings besides @mention | `src/behavior/sandbox.ts` |
 | `bot.access` | map | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
 
 ## models.base
@@ -174,11 +173,18 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `context.pull.describeTimeoutMs` | number | `15000` | Timeout for fresh caption requests (ms) | `src/behavior/pull.ts` |
 | `context.pull.sameAudience` | boolean | `true` | Check that every role allowed to view the destination can also view the source. Also governs neighbour channels and server-search windows | `src/behavior/prompt.ts` |
 
+## address
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `address.attentionMinutes` | number | `15` | Minutes after her post in a place during which an unflagged line there goes to the address classifier, and the window of the per-author rail. `0` sends only flagged lines and leaves the rail nothing to count | `src/pipeline/address-attention.ts` |
+| `address.maxTurnsPerAuthor` | number | `50` | Started turns of one author in one place within the window before the next is refused. `0` turns the rail off | `src/pipeline/answer.ts` |
+
 ## mention
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `mention.neverIgnore` | array | `[]` | User IDs never ignored | `src/pipeline/answer.ts` |
+| `mention.neverIgnore` | array | `[]` | User IDs the per-author rail never refuses | `src/pipeline/answer.ts` |
 | `mention.pendingMinutes` | number | `10` | Minutes before a held ping expires | `src/pipeline/drain.ts` |
 | `mention.maxPending` | number | `6` | Total pending calls held across all channels | `src/behavior/pending.ts` |
 | `mention.followUpMaxOutputTokens` | number | `2000` | Max output tokens for the address classifier | `src/pipeline/merge.ts` |

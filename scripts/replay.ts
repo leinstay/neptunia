@@ -142,9 +142,8 @@
 // each by its own real author, 5 s apart), joins the channel `gapMinutes`
 // (default 1) after the newest line so far. The step's own message tags the
 // persona (a `mention`); a burst's message calls her only as a live message
-// would -- her tag `<@id>` in its text, one of `bot.nameTriggers` as a whole
-// word, read by the live classifier (src/behavior/mention.js#detectTrigger,
-// each switch as live) -- and is otherwise a plain follow-up the address
+// would -- her tag `<@id>` in its text (src/behavior/mention.js#detectTrigger)
+// -- and is otherwise a plain follow-up the address
 // classifier said yes to (it is not asked). The step is then played as the
 // live queue plays it (src/behavior/sandbox.js#burstTurns, playSteps): the
 // first message starts her turn; every call after it waits for its own turn,
@@ -513,6 +512,7 @@
 // issue or a chat. It never prints a token. Exit code 0 on success, 1 on any
 // error (the message on stderr). Ctrl-C once stops the sampling; twice exits.
 
+import { cardAliases } from '../src/behavior/mention.ts';
 import { accountOf, placeOfCommunity } from '../src/memory/addresses.ts';
 import fs from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
@@ -3994,7 +3994,7 @@ export function createReplayTools({
         settings,
         selfId,
         selfName,
-        selfNames: hot.config.bot?.nameTriggers ?? [],
+        selfNames: cardAliases(hot.prompts?.['character-card']),
         nameOf,
       });
       if (skip) return null;

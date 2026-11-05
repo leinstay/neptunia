@@ -27,13 +27,6 @@ export const BOT: ReadonlyArray<SchemaEntry> = [
       'The person whose bound accounts are the owner, written by `/memory bind <iface> <account> owner`. See [One person, several accounts](memory.md#one-person-several-accounts)',
   },
   {
-    'key': 'bot.nameTriggers',
-    'types': ['array'],
-    'reader': 'src/behavior/sandbox.ts',
-    'default': [],
-    'text': 'Extra trigger strings besides @mention',
-  },
-  {
     'key': 'bot.access',
     'types': ['map'],
     'reader': 'src/behavior/sandbox.ts',

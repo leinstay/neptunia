@@ -1,12 +1,12 @@
-// The pending direct pings. A @mention, a reply to the persona or her name that arrives while a turn is running in its
+// The pending direct pings. A mention or a reply to the persona the classifier said `yes` to that arrives while a turn is running in its
 // own channel (mention.pendingSameChannel) or, with one turn at a time (mention.oneAtATime), in another channel is
 // remembered here instead of dropped, and answered once the turn frees up -- every one of them, in arrival order
 // (src/behavior/pending.js), unless the turn that spoke there already had it in view (turns.spokeAfterSeeing; a turn
 // that named it as still waiting for its own turn does not count). A call whose author already has items waiting in that channel may be about one of them: the merge classifier
 // (src/pipeline/merge.ts) folds it into that item instead of queueing it, and the item's turn names it
 // (labels.task.added). A follow-up the address classifier said `yes` to that found the attention taken waits here too
-// (deferFollowUp, kind `followUp`), and so does an `overheard` one (kind `overheard`, mention.pendingOverheard): one of
-// them per channel (followUpSlot), logged as `follow-up: ...`; at pickup its window must still be open (followUpStale)
+// (deferFollowUp, kind `followUp`), and so does an `overheard` one (kind `overheard`): one of
+// them per channel (followUpSlot), logged as `follow-up: ...`; at pickup attention must still hold (followUpStale)
 // and, like any call, it is dropped as answered only when the turn that spoke there had it in its history
 // (turns.spokeAfterSeeing). Never persisted. createMessageHandler (src/behavior/pipeline.js) builds it once with
 // createPendingQueue over the queue it shares with the merge and the drain (src/pipeline/drain.ts).
@@ -15,7 +15,7 @@ import { addPending, authorCalls, followUpSlot, requeuePending } from '../behavi
 import { log } from '../log.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
 import { CODE } from '../tools/codes.ts';
-import type { FollowUpWindows } from './follow-up-window.ts';
+import type { AddressAttention } from './address-attention.ts';
 import type {
   Conv,
   Line,
@@ -42,7 +42,7 @@ export type PendingQueueContext = {
   turns: PipelineTurns;
   missed: PipelineMissed | null;
   pending: PendingQueue;
-  followUpMuted: FollowUpWindows['followUpMuted'];
+  followUpMuted: AddressAttention['followUpMuted'];
 };
 
 export type PendingQueueOps = {
@@ -73,7 +73,7 @@ export function isDeferredFollowUp(ping: Pick<Ping, 'kind'>): boolean {
 }
 
 /** The kinds of call somebody waits on an answer for; an overheard line is nobody's debt. */
-const OWED_PING_KINDS = new Set<string | undefined>(['mention', 'reply', 'name', 'private', 'followUp']);
+const OWED_PING_KINDS = new Set<string | undefined>(['mention', 'reply', 'private', 'followUp']);
 
 export function createPendingQueue({
   hot,
@@ -154,7 +154,7 @@ export function createPendingQueue({
   /**
    * A follow-up `yes` (trigger kind `followUp`) that found the attention
    * taken (startFollowUpTurn): held in the pending queue like a direct call,
-   * answered by drainPending once the turn frees up, after the window check
+   * answered by drainPending once the turn frees up, after the attention check
    * (followUpStale) and the "already answered" one (spokeAfterSeeing) there. Read now: muted
    * (paused), features.followUp / features.mentions off, or its
    * own channel busy with mention.pendingSameChannel off -- not held, dropped
@@ -212,7 +212,7 @@ export function createPendingQueue({
   }
 
   /**
-   * Remember a direct ping (mention/reply/name/private message) that arrived while a turn is running in its own channel
+   * Remember a direct ping (mention, reply or private message) that arrived while a turn is running in its own channel
    * or, with one turn at a time, elsewhere. Every call waits, in arrival order (`arrivedAt`, default now): none replaces
    * another, of its channel or of its author. At most mention.maxPending entries; the oldest of any channel is evicted
    * when full (logEvicted). A direct call takes the place of an overheard line waiting in its channel (followUpSlot,

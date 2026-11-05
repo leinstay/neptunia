@@ -7,7 +7,6 @@
     "timezone": "UTC",
     "owners": [],
     "ownerPerson": "",
-    "nameTriggers": [],
     "access": {}
   },
   "models": {
@@ -154,6 +153,10 @@
     "vision": {
       "fetchTimeoutMs": 10000
     }
+  },
+  "address": {
+    "attentionMinutes": 15,
+    "maxTurnsPerAuthor": 50
   },
   "mention": {
     "neverIgnore": [],

@@ -12,7 +12,7 @@ import { LLM } from './schema/llm.ts';
 import { MEMORY_DB } from './schema/memory-db.ts';
 import { EMBED } from './schema/embed.ts';
 import { CONTEXT } from './schema/context.ts';
-import { MENTION } from './schema/mention.ts';
+import { ADDRESS, MENTION } from './schema/mention.ts';
 import { MISSED } from './schema/missed.ts';
 import { TYPING } from './schema/typing.ts';
 import { PACE } from './schema/pace.ts';
@@ -69,6 +69,7 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...MEMORY_DB,
   ...EMBED,
   ...CONTEXT,
+  ...ADDRESS,
   ...MENTION,
   ...MISSED,
   ...TYPING,

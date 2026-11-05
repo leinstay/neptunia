@@ -3,6 +3,7 @@
 // (src/behavior/turn.ts) builds it once per runner with createLookup; the attempt calls its functions.
 
 import { attentionRetrieval } from '../intentions/model.ts';
+import { cardAliases } from '../behavior/mention.ts';
 import { personOfMember } from '../memory/addresses.ts';
 import { isCliOwner } from '../behavior/core-pause.ts';
 import { prefetchLanes, prefetchOn, wakeLanes } from '../behavior/prefetch.ts';
@@ -27,7 +28,7 @@ import type { TriggerKind } from './triggers.ts';
 
 /** The live config, as far as the lookup reads it; the settings functions read their own sections. */
 export type LookupConfig = ClassifierContextInput['config'] & {
-  bot?: { timezone?: string; nameTriggers?: Array<string> } | null;
+  bot?: { timezone?: string } | null;
   private?: { likeServer?: unknown } | null;
 };
 
@@ -63,7 +64,7 @@ export type JournalStep = (
 /** What createLookup reads: the dependencies and the functions of the other topic modules it calls. */
 export type LookupContext = {
   hot: {
-    readonly prompts: { labels: object };
+    readonly prompts: { labels: object; 'character-card'?: unknown };
   };
   store: LookupStore;
   llm: ClassifierLlm;
@@ -145,7 +146,7 @@ export type Lookup = {
 
 // health: allow function-length until 2027-04-01 -- the lookup shares the runner state of src/behavior/turn.ts, moved whole in stage 5b
 export function createLookup(ctx: LookupContext): Lookup {
-  const { store, llm, clock, recall, membersOf, selfIdOf, ifaceReads, classifierContext, linkCalls } = ctx;
+  const { hot, store, llm, clock, recall, membersOf, selfIdOf, ifaceReads, classifierContext, linkCalls } = ctx;
 
   // A trigger reuses its prefetch only within the same issued read context.
   // An ordinary turn cannot reuse private evidence fetched for the owner.
@@ -205,7 +206,7 @@ export function createLookup(ctx: LookupContext): Lookup {
           settings,
           selfId,
           selfName,
-          selfNames: config.bot?.nameTriggers ?? [],
+          selfNames: cardAliases(hot.prompts?.['character-card']),
           nameOf,
         });
     if (skip) {

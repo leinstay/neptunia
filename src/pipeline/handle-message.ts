@@ -11,24 +11,15 @@ import { lineOf } from '../behavior/line-of.ts';
 import { detectTrigger } from '../behavior/mention.ts';
 import { log } from '../log.ts';
 import type { MessageReceived } from '../protocol/events.ts';
-import type { Answer } from './answer.ts';
 import type { Conversations } from './conversations.ts';
 import type { MessageEvent } from './edits.ts';
-import type { FollowUpWindows } from './follow-up-window.ts';
-import type { MaybeFollowUp } from './follow-up.ts';
+import type { AddressAttention } from './address-attention.ts';
+import type { AnswerFlagged, MaybeFollowUp } from './follow-up.ts';
 import type { NoteFollowingLine } from './following.ts';
 import type { MediaPrefill } from './media-prefill.ts';
 import type { ObserveLine } from './observe.ts';
 import type { PrivateGate } from './private-gate.ts';
-import type {
-  Line,
-  MessageReadOptions,
-  PipelineHot,
-  PipelineMissed,
-  PipelineState,
-  PipelineTurns,
-  TriggerKind,
-} from './types.ts';
+import type { Line, MessageReadOptions, PipelineHot, PipelineMissed, PipelineState, PipelineTurns } from './types.ts';
 
 /** How many message ids each path of handleMessage remembers (the live one, the start's catch-up). */
 const CATCH_UP_IDS_KEPT = 1000;
@@ -56,10 +47,10 @@ export type HandleMessageContext = {
   resolveReference: Conversations['resolveReference'];
   turnPlaceOf: Conversations['turnPlaceOf'];
   warmMediaCache: MediaPrefill['warmMediaCache'];
-  noteFollowUpSend: FollowUpWindows['noteFollowUpSend'];
+  noteAttention: AddressAttention['noteAttention'];
   noteFollowingLine: NoteFollowingLine;
   maybeFollowUp: MaybeFollowUp;
-  answerCall: Answer['answerCall'];
+  answerFlagged: AnswerFlagged;
 };
 
 export type HandleMessage = {
@@ -85,10 +76,10 @@ export function createHandleMessage({
   resolveReference,
   turnPlaceOf,
   warmMediaCache,
-  noteFollowUpSend,
+  noteAttention,
   noteFollowingLine,
   maybeFollowUp,
-  answerCall,
+  answerFlagged,
 }: HandleMessageContext): HandleMessage {
   // The ids of the messages the gateway delivered and of those the start's catch-up delivered
   // (catchUpMessage), each the newest CATCH_UP_IDS_KEPT: a message the gateway also delivers is
@@ -120,8 +111,9 @@ export function createHandleMessage({
    * One message posted while the bot was offline (src/behavior/catch-up.ts, at start), handled
    * like a live one with three differences: it is dropped when the gateway (or an earlier
    * catch-up) already delivered it; nothing at all happens while paused (no pause notice), in a
-   * private chat or for a line that is no call (no follow-up for stale chatter); and a call (a mention, a reply to the persona, her name -- the live
-   * detectTrigger) reaches the ordinary call path (answerCall) only with `trigger` true, otherwise it is only observed. Never throws.
+   * private chat or for a line that carries no flag (no follow-up for stale chatter); and a flagged line (a mention, a
+   * reply to the persona) reaches the classifier and its verdict's turn only with `trigger` true, otherwise it is only
+   * observed. Never throws.
    */
   async function catchUpMessage(
     event: MessageReceived & { raw: object },
@@ -167,16 +159,15 @@ export function createHandleMessage({
       // 2. DMs: private chat (features.privateMessages, off by default) --
       // see onPrivateMessage. Owner commands are slash commands
       // (the interface's command handler), never DMs.
-      if (event.conversation.rootId === null) {
+      if (event.conversation.rootId === null && event.conversation.chatType !== 'group_dm') {
         if (catchUp) return 'ignored';
         await onPrivateMessage(event, config, options);
         return;
       }
 
-      // 3. This instance serves exactly one place; no threads. Which channels
-      // it sees is the platform's permissions alone.
-      if (!isServed(event.conversation.rootId)) return 'ignored';
-      if (event.conversation.kind === 'thread') return 'ignored';
+      // 3. A place under a root the interface serves, or a group that has no root. Threads are followed places like
+      // any other; which places it sees is the platform's permissions alone.
+      if (event.conversation.rootId !== null && !isServed(event.conversation.rootId)) return 'ignored';
 
       // 3c. When this author last wrote in this channel, for a turn that waits until the person
       // it answers stops writing (pace.settleMs). The persona's own messages never count.
@@ -191,15 +182,14 @@ export function createHandleMessage({
       // A served community is a string: the door refuses any other shape, and the gate above admits only those.
       const placeId = sharedPlaceOf(store, event.conversation, event.iface);
 
-      // 5. Its own message: only bookkeeping. Also (re)opens/extends the
-      // follow-up window for this channel -- see noteFollowUpSend above. A
-      // limit notice is not the persona's speech: the post is noted, but it
-      // never opens a window or reaches memory.
+      // 5. Its own message: only bookkeeping. Also opens or extends attention
+      // in this place (noteAttention). A limit notice is not the persona's
+      // speech: the post is noted, but it never opens attention or reaches memory.
       if (normalized.self) {
         turns.notePost(normalized.placeId, normalized.ts);
         // isLimitNotice reads the labels it is given, a missing labels file as none.
         if (isLimitNotice(hot.prompts?.labels as object, normalized.content)) return 'ignored';
-        noteFollowUpSend(normalized.placeId, normalized.ts);
+        noteAttention(event.iface, normalized.placeId, normalized.ts);
         if (memoryOn) {
           memory.observe(placeId, normalized);
           const observing = observeLine(event, false, { placeId }, options?.acceptedEvent);
@@ -214,9 +204,7 @@ export function createHandleMessage({
       // 6b. A line soon after the persona's own one here joins her participation episode.
       noteFollowingLine(placeId, normalized, config);
 
-      // 8. Detect how (if at all) the persona was called, masking each input
-      // by its own feature switch so detectTrigger itself stays pure. Done
-      // BEFORE memory observes the message, so the buffer can mark it. A
+      // 8. The flags the interface reports. Done BEFORE memory observes the message, so the buffer can mark it. A
       // forward of the persona's own message has no replyToId: not a reply.
       // The door refuses a whole message without its addressing (src/protocol/validate.ts).
       const mentionsSelf = event.addressing!.mentioned;
@@ -224,14 +212,7 @@ export function createHandleMessage({
       const repliesToSelf =
         event.addressing!.replyToSelf ||
         (await resolveReference({ iface: event.iface, conversationId: event.conversation.id }, normalized.replyToId));
-      const nameTriggers = config.bot.nameTriggers;
-      // detectTrigger answers a trigger kind or null (src/behavior/mention.ts).
-      const kind = detectTrigger({
-        mentionsSelf,
-        repliesToSelf,
-        content: normalized.content,
-        nameTriggers,
-      }) as TriggerKind | null;
+      const kind = detectTrigger({ mentionsSelf, repliesToSelf });
 
       // 9. Everyone else feeds memory; a message addressed to the persona is
       // marked `direct` so the analyzer can weigh it separately.
@@ -242,11 +223,8 @@ export function createHandleMessage({
         if (observing) await observing;
       }
 
-      // 10. No trigger: maybe a follow-up inside a window the persona itself opened by answering -- fully handled by
-      // maybeFollowUp either way (a computed verdict or a deliberate no-op, see its own header comment), nothing more.
-      // A caught-up line stops here: no follow-up for chatter from before the start; so does a caught-up call not to
-      // be answered. Nothing opens a turn in a diary mirror's place: only her diary writes there
-      // (src/behavior/mirror.ts).
+      // 10. A caught-up line stops here unless it is a flagged line to answer: no classifier for chatter from before
+      // the start. Nothing opens a turn in a diary mirror's place: only her diary writes there (src/behavior/mirror.ts).
       if (catchUp && (!kind || !catchUp.trigger)) return 'observed';
       const channel = await turnPlaceOf(event);
       if (!channel) return 'observed';
@@ -255,17 +233,15 @@ export function createHandleMessage({
         return;
       }
 
-      // 11. The persona was called where she cannot write: no conversation stands in for it, so the call is never
-      // queued and leaves a trace.
+      // 11. A flagged line where she cannot write: no conversation stands in for it, so it is never asked about or
+      // queued, and leaves a trace.
       if (!channel.permissions.send) {
         log.info('mention: dropped', { channel: channel.id, kind, reason: 'cannot-send' });
         return 'observed';
       }
 
-      // 11b. Decide whether to actually answer, or keep a direct call
-      // pending while a turn runs (answerCall).
-      answerCall({ channel, normalized, kind, config });
-      return 'triggered';
+      // 11b. Its verdict decides: a turn now, a held call while a turn runs, or nothing.
+      return (await answerFlagged(channel, normalized, kind, ownPrefill)) ? 'triggered' : 'observed';
     } catch (err) {
       log.error('events: message handler failed', { error: err });
       return 'ignored';

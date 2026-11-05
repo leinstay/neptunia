@@ -58,6 +58,10 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 <!-- settings: context.pull -->
 
+## address
+
+<!-- settings: address -->
+
 ## mention
 
 <!-- settings: mention -->

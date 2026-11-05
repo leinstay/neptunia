@@ -2,7 +2,7 @@
   "files": {
     "src/behavior/recall.ts": 2375,
     "tests/openrouter.test.ts": 3557,
-    "tests/prompt.test.ts": 6595,
+    "tests/prompt.test.ts": 6594,
     "tests/recall.test.ts": 2419,
     "tests/turn.test.ts": 8955
   },
@@ -93,7 +93,7 @@
         "complexity": 24
       },
       "traces": {
-        "complexity": 31
+        "complexity": 30
       }
     },
     "scripts/replay.ts": {

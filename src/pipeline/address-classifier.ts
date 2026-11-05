@@ -1,7 +1,7 @@
-// The address classifier's call about one untagged line in an open follow-up window (prompts/address.md): its verdict
-// `yes`, `overheard` or `no`, the window's no-streak bumped on a "no", and a failed call let through while the line
-// keeps an active one-to-one exchange. createMessageHandler (src/behavior/pipeline.ts) builds it once with
-// createAddressClassifier; the follow-up path (src/pipeline/follow-up.ts) calls it once the gate passed.
+// The address classifier's call about one line of a group place (prompts/address.md): its verdict `yes`, `overheard` or
+// `no`. A failed call opens for a line that carries the interface's flag, so nobody who addressed her is dropped in
+// silence, and for an unflagged line that keeps an active one-to-one exchange. createMessageHandler
+// (src/behavior/pipeline.ts) builds it once with createAddressClassifier; the door (src/pipeline/follow-up.ts) calls it.
 
 import { parseAddressAnswer } from '../behavior/mention.ts';
 import { roleRequestOptions } from '../llm/openrouter.ts';
@@ -9,7 +9,6 @@ import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { MINUTE_MS } from '../time.ts';
 import type { ClassifierParams, ClassifierRequest } from './classifier-request.ts';
-import type { FollowUpWindow, FollowUpWindows } from './follow-up-window.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot, PipelineLlm, PipelineMissed } from './types.ts';
 
 /** How recent a one-to-one exchange keeps a line when the classifier fails. Production value, config cut of 2026-10-31. */
@@ -26,14 +25,12 @@ export type AddressClassifierContext = {
   getSelfName: (placeId: string) => string;
   missed: PipelineMissed | null;
   buildClassifierRequest: (params: ClassifierParams) => Promise<ClassifierRequest | null>;
-  bumpFollowUpNoStreak: FollowUpWindows['bumpFollowUpNoStreak'];
 };
 
-export type ClassifyFollowUp = (
+export type ClassifyAddress = (
   channel: Conv,
   normalized: Line,
-  selfId: string,
-  gate: { config: PipelineConfig; state: FollowUpWindow },
+  gate: { config: PipelineConfig; flagged: boolean },
   ownPrefill?: Promise<void> | null
 ) => Promise<AddressAnswer>;
 
@@ -83,26 +80,21 @@ export function createAddressClassifier({
   getSelfName,
   missed,
   buildClassifierRequest,
-  bumpFollowUpNoStreak,
-}: AddressClassifierContext): { classifyFollowUp: ClassifyFollowUp } {
+}: AddressClassifierContext): { classifyAddress: ClassifyAddress } {
   let missingAddressPromptLogged = false;
 
   /**
-   * One classifier call for `normalized` (the gate already passed): logs the
-   * verdict and bumps the no-streak on a "no"; a "yes" or an "overheard"
-   * leaves the streak alone (the persona is still part of the exchange).
-   * Resolves to the answer (parseAddressAnswer); the caller starts the turn
-   * (settleFollowUp) and owns the in-flight slot. A call that threw or
-   * answered nothing is a "yes" while the message keeps an active one-to-one
-   * exchange (activeExchangeWith, within FAIL_OPEN_MINUTES;
-   * 0 = off), a "no" otherwise -- `follow-up: fail-open` says which.
+   * One classifier call for `normalized` (the gate already passed): logs the verdict and resolves the answer
+   * (parseAddressAnswer); the caller starts the turn and owns the in-flight slot. A flagged line that could not be
+   * judged (no model, no prompt, a failed build or call) is a `yes`. A failed call on an unflagged line is a `yes` while
+   * it keeps an active one-to-one exchange (activeExchangeWith, within FAIL_OPEN_MINUTES), a `no` otherwise;
+   * `follow-up: fail-open` says which.
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.ts in stage 5d, a pure move
-  async function classifyFollowUp(
+  async function classifyAddress(
     channel: Conv,
     normalized: Line,
-    selfId: string,
-    { config, state }: { config: PipelineConfig; state: FollowUpWindow },
+    { config, flagged }: { config: PipelineConfig; flagged: boolean },
     ownPrefill: Promise<void> | null = null
   ): Promise<AddressAnswer> {
     const placeId = channel.id;
@@ -135,19 +127,26 @@ export function createAddressClassifier({
         log.warn('follow-up: prompts.address is missing, every follow-up is treated as "no"', {});
       }
       // A failed build is a failed gate (src/behavior/missed.ts); a missing prompt is the deployment's.
-      if (buildFailed) missed?.noteFact({ reason: 'gate-failed', message: normalized, failure: 'build-failed' });
+      const unjudged = flagged ? 'yes' : 'no';
+      if (buildFailed)
+        missed?.noteFact({
+          reason: flagged ? 'gate-failopen' : 'gate-failed',
+          message: normalized,
+          failure: 'build-failed',
+          iface: channel.iface,
+        });
       log.info('follow-up: verdict', {
         channel: placeId,
         author: normalized.authorId,
-        verdict: 'no',
-        answer: 'no',
+        verdict: unjudged,
+        answer: unjudged,
         ms: now() - startedAt,
       });
-      bumpFollowUpNoStreak(placeId, state);
-      return 'no';
+      return unjudged;
     }
 
-    let answer: AddressAnswer = 'no';
+    // No model to ask: a flagged line opens as it does on a failed call, and nothing failed.
+    let answer: AddressAnswer = flagged && !llm ? 'yes' : 'no';
     let failure: 'classifier-failed' | 'empty' | null = null; // set when the call gave no answer
     if (llm) {
       // Read once: the request and its empty-answer warning name the same model.
@@ -191,20 +190,28 @@ export function createAddressClassifier({
       }
     }
 
-    // A failed call (provider slowness, a timeout) does not drop a line from
+    // A failed call (provider slowness, a timeout) does not drop a line that addressed her, nor a line from
     // the member the persona is talking with one to one right now.
     let open = false;
     if (failure) {
-      open = activeExchangeWith(
-        request.history,
-        { authorId: normalized.authorId, ts: normalized.ts ?? now() },
-        FAIL_OPEN_MINUTES
-      );
+      open =
+        flagged ||
+        activeExchangeWith(
+          request.history,
+          { authorId: normalized.authorId, ts: normalized.ts ?? now() },
+          FAIL_OPEN_MINUTES
+        );
       log.info('follow-up: fail-open', { channel: placeId, author: normalized.authorId, reason: failure, open });
       if (open) answer = 'yes';
     }
     // A failed gate is a fact for the missed-answer registry (src/behavior/missed.ts), let through or not.
-    if (failure) missed?.noteFact({ reason: open ? 'gate-failopen' : 'gate-failed', message: normalized, failure });
+    if (failure)
+      missed?.noteFact({
+        reason: open ? 'gate-failopen' : 'gate-failed',
+        message: normalized,
+        failure,
+        iface: channel.iface,
+      });
 
     // `verdict` is the two-way projection (overheard counts as yes), `answer` the word itself.
     const verdict = answer === 'no' ? 'no' : 'yes';
@@ -216,9 +223,8 @@ export function createAddressClassifier({
       ms: now() - startedAt,
     });
     if (answer === 'no') missed?.noteNotAddressed?.(normalized);
-    if (answer === 'no') bumpFollowUpNoStreak(placeId, state);
     return answer;
   }
 
-  return { classifyFollowUp };
+  return { classifyAddress };
 }

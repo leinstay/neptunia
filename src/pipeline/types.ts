@@ -72,9 +72,9 @@ export type PipelineConfig = {
   };
   readonly memoryDb?: { readonly observeTimeoutMs?: number; readonly ingestKeepDays?: number };
   readonly mention: MentionConfig;
+  readonly address?: { readonly attentionMinutes?: number; readonly maxTurnsPerAuthor?: number };
   readonly bot: {
     readonly timezone: string;
-    readonly nameTriggers?: Array<string>;
   };
   readonly memory?: { readonly aliasHalfLifeDays?: number };
 };
@@ -82,8 +82,6 @@ export type PipelineConfig = {
 /** The `mention` settings (config.json), as the pipeline reads them. */
 export type MentionConfig = {
   readonly followUpContext?: number;
-  readonly followUpMinutes?: number;
-  readonly followUpNoStreak?: number;
   readonly followUpAliases?: number;
   readonly followUpMaxOutputTokens?: number;
   readonly followUpClassifyReplies?: boolean;
@@ -106,6 +104,7 @@ export type PipelineHot = {
   readonly prompts?: {
     readonly labels: PipelineLabels;
     readonly address?: string;
+    readonly 'character-card'?: unknown;
     readonly room?: string;
     readonly merge?: string;
   } | null;
@@ -118,7 +117,8 @@ export type PipelineLabels = { readonly address?: { readonly author?: string } }
 export type PipelineState = {
   data?: {
     paused?: unknown;
-    followUpWindows?: Record<string, { openedAt: number; lastAnswerAt: number; noStreak: number }>;
+    /** When she last wrote in a place, by its interface and native id (src/pipeline/address-attention.ts). */
+    addressAttention?: Record<string, number>;
     elsewherePings?: unknown;
   };
   markDirty?: () => void;

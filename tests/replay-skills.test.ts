@@ -457,10 +457,10 @@ const OTHER = '100000000000000009';
 const NAMES: Record<string, string> = { [OWNER]: 'Élodie', [MEMBER]: 'Zoë', [OTHER]: 'Νίκος' };
 
 /** The config of a sequence's view: what buildRequest reads, the owner, her grants laid over it. */
-function sequenceConfig(grants: Untyped, nameTriggers = []) {
+function sequenceConfig(grants: Untyped) {
   return personaGrantsConfig(
     {
-      bot: { owners: [OWNER], timezone: 'UTC', access: {}, nameTriggers },
+      bot: { owners: [OWNER], timezone: 'UTC', access: {} },
       context: {
         channelMessages: 100,
         maxMessageChars: 800,
@@ -507,14 +507,10 @@ function userOf(call: Untyped) {
 async function playSequence(
   rawSteps: unknown,
   texts: unknown,
-  {
-    grants = ['message.create', 'rule.add', 'rule.list'],
-    history = [],
-    nameTriggers = [],
-  }: Record<string, Untyped> = {}
+  { grants = ['message.create', 'rule.add', 'rule.list'], history = [] }: Record<string, Untyped> = {}
 ) {
   const [scenario] = load([{ id: 'seq', placeId: HERE, steps: rawSteps, grants: [], result: 'SCENARIO_RESULT' }]);
-  const config = sequenceConfig(grants, nameTriggers);
+  const config = sequenceConfig(grants);
   const hot = {
     config,
     prompts: {
@@ -802,13 +798,14 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
   assert.deepEqual(played.records, records);
 });
 
-test('replay --skills steps: a burst of two named calls gets two turns in arrival order; the first names the waiting call under the queued labels', async () => {
+// Plan 2026-11-04-cli-and-memory B1: a name in the text no longer calls her, so the burst tags her instead.
+test('replay --skills steps: a burst of two tagged calls gets two turns in arrival order; the first names the waiting call under the queued labels', async () => {
   const { steps, records, llm, played } = await playSequence(
     [
       {
         burst: [
-          { author: OWNER, text: 'Persona, πρόσθεσε κανόνα' },
-          { author: MEMBER, text: 'Persona, κι εμένα έναν' },
+          { author: OWNER, text: `<@${SELF}> πρόσθεσε κανόνα` },
+          { author: MEMBER, text: `<@${SELF}> κι εμένα έναν` },
         ],
       },
     ],
@@ -816,32 +813,31 @@ test('replay --skills steps: a burst of two named calls gets two turns in arriva
       toolAnswer('<think>t</think><msg>έγινε</msg>', [call('rule.add', { text: 'όχι spoilers' })]),
       toolAnswer('<think>t</think>', [call('rule.add', { text: 'κι άλλος' })]),
       '<think>t</think><msg>όχι από σένα</msg>',
-    ],
-    { nameTriggers: ['persona'] }
+    ]
   );
   assert.equal(played.stopped, false);
   assert.equal(steps.length, 2, 'one turn per call');
   assert.deepEqual(
     steps.map((s) => [s.trigger.authorId, s.situation.kind]),
     [
-      [OWNER, 'name'],
-      [MEMBER, 'name'],
+      [OWNER, 'mention'],
+      [MEMBER, 'mention'],
     ]
   );
   const lines = steps[0].situation.history;
   assert.deepEqual(
     lines.slice(-2).map((line: Untyped) => [line.authorId, line.content, line.mentionedAccountIds]),
     [
-      [OWNER, 'Persona, πρόσθεσε κανόνα', []],
-      [MEMBER, 'Persona, κι εμένα έναν', []],
+      [OWNER, `<@${SELF}> πρόσθεσε κανόνα`, [SELF]],
+      [MEMBER, `<@${SELF}> κι εμένα έναν`, [SELF]],
     ]
   );
   assert.equal(lines.at(-1).ts - lines.at(-2).ts, 5000);
 
   // The first turn sees the second call waiting, by another member: labels.task.queuedOthers.
-  assert.deepEqual(steps[0].queued, [{ id: lines.at(-1).id, text: 'Persona, κι εμένα έναν', author: 'Zoë' }]);
+  assert.deepEqual(steps[0].queued, [{ id: lines.at(-1).id, text: `<@${SELF}> κι εμένα έναν`, author: 'Zoë' }]);
   const first = userOf(llm.calls[0]);
-  assert.ok(first.includes(fill(labels.task.queuedOthers, { others: '1. Zoë: Persona, κι εμένα έναν' })), first);
+  assert.ok(first.includes(fill(labels.task.queuedOthers, { others: `1. Zoë: <@${SELF}> κι εμένα έναν` })), first);
   assert.ok(first.includes('Élodie') && first.indexOf('πρόσθεσε κανόνα') < first.indexOf('κι εμένα έναν'), first);
   // The second turn: nothing waits any more, and her first turn is in the channel it reads.
   assert.deepEqual(steps[1].queued, []);
@@ -862,8 +858,8 @@ test('replay --skills steps: a burst of two named calls gets two turns in arriva
   assert.deepEqual(records[1].followUp.messages, ['όχι από σένα']);
   assert.deepEqual(records[0].queue, {
     turns: 2,
-    kind: 'name',
-    trigger: { id: lines.at(-2).id, author: OWNER, text: 'Persona, πρόσθεσε κανόνα' },
+    kind: 'mention',
+    trigger: { id: lines.at(-2).id, author: OWNER, text: `<@${SELF}> πρόσθεσε κανόνα` },
     queued: 1,
     replaced: [],
     dropped: [],
@@ -1139,19 +1135,20 @@ test('burstTurns: the live queue over a burst -- the first message starts the tu
       at: NOW + i * 5000,
       tagged: false,
     });
-  const a = line(OWNER, 'Persona, α', 0);
-  const b = line(OWNER, 'persona β', 1);
+  const a = line(OWNER, `<@${SELF}> α`, 0);
+  const b = line(OWNER, `<@${SELF}> β`, 1);
   const c = line(MEMBER, 'γ', 2);
   const d = line(OTHER, `<@${SELF}> δ`, 3);
   const e = line(MEMBER, 'ε', 4);
   assert.deepEqual(asRecord(d).mentionedAccountIds, [SELF], 'a tag written in the text tags her');
-  const config = { bot: { nameTriggers: ['Persona'] } };
+  // Plan 2026-11-04-cli-and-memory B1: a name in the text no longer calls her.
+  const config = {};
   const plan = burstTurns([a, b, c, d, e], { selfId: SELF, config });
   assert.deepEqual(
     plan.turns.map((t) => [t.line.id, t.kind]),
     [
-      [asRecord(a).id, 'name'],
-      [asRecord(b).id, 'name'],
+      [asRecord(a).id, 'mention'],
+      [asRecord(b).id, 'mention'],
       [asRecord(d).id, 'mention'],
       [asRecord(e).id, 'followUp'],
     ]
@@ -1160,7 +1157,7 @@ test('burstTurns: the live queue over a burst -- the first message starts the tu
   assert.deepEqual(plan.dropped, []);
   // The trigger author's own waiting calls carry no author (labels.task.queued); another member's do.
   assert.deepEqual(plan.turns[0].queued, [
-    { id: asRecord(b).id, text: 'persona β' },
+    { id: asRecord(b).id, text: `<@${SELF}> β` },
     { id: asRecord(d).id, text: `<@${SELF}> δ`, author: 'Νίκος' },
     { id: asRecord(e).id, text: 'ε', author: 'Zoë' },
   ]);
@@ -1169,12 +1166,6 @@ test('burstTurns: the live queue over a burst -- the first message starts the tu
     { id: asRecord(e).id, text: 'ε', author: 'Zoë' },
   ]);
   assert.deepEqual(plan.turns[3].queued, []);
-  // PR 7d: the name switch is code; an empty bot.nameTriggers is what leaves a named line a plain follow-up.
-  const off = burstTurns([a, b], { selfId: SELF, config: { ...config, bot: { ...config.bot, nameTriggers: [] } } });
-  assert.deepEqual(
-    off.turns.map((t) => t.kind),
-    ['followUp', 'followUp']
-  );
   // mention.maxPending: the oldest waiting entry is dropped when the queue is full.
   const capped = burstTurns([a, b, d, e], { selfId: SELF, config: { ...config, mention: { maxPending: 2 } } });
   assert.deepEqual(capped.dropped, [{ id: asRecord(b).id, reason: 'full' }]);

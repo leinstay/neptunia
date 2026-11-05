@@ -1316,7 +1316,7 @@
       "test": "none"
     },
     {
-      "path": "src/pipeline/follow-up-window.ts",
+      "path": "src/pipeline/address-attention.ts",
       "purpose": "A channel's follow-up window, opened by the persona's post, kept in the state and closed by a run of `no` verdicts, and the checks in front of the address classifier. Tested through the events tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],

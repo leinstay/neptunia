@@ -633,8 +633,9 @@ test('answerReply: a moment stored as overheard is replayed with the overheard t
   assert.ok(guessed.request.user.includes(labels.peopleNow.marks.interlocutor));
 });
 
-test("answerReply: a follow-up and a name call keep their trigger labels; a spontaneous moment takes its mode's task", async () => {
-  for (const kind of ['followUp', 'name']) {
+// Plan 2026-11-04-cli-and-memory B1: the `name` kind is gone with name triggers.
+test("answerReply: a follow-up keeps its trigger label; a spontaneous moment takes its mode's task", async () => {
+  for (const kind of ['followUp']) {
     const result = await replay({ ...storedMoment(), mode: 'reply', kind, triggerId: TRIGGER_ID });
     assert.ok(
       result.request.user.includes(`REPLY_TASK Alice: ${(labels.triggers as Record<string, string>)[kind]}`),

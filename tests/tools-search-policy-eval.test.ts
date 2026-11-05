@@ -57,7 +57,7 @@ const ANSWERS = new Map([
 function hotFixture(overrides = {}) {
   return {
     config: {
-      bot: { timezone: 'UTC', nameTriggers: ['Persona'] },
+      bot: { timezone: 'UTC' },
       features: { tools: false },
       models: { base: { analyzer: 'test/analyzer' } },
       context: { maxMessageChars: 2000 },
@@ -65,7 +65,11 @@ function hotFixture(overrides = {}) {
       llm: { analyzerTimeoutMs: 9000 },
       ...overrides,
     },
-    prompts: { lookup: 'Today is {{today}}. You are {{name}}.{{skills}}', labels },
+    prompts: {
+      lookup: 'Today is {{today}}. You are {{name}}.{{skills}}',
+      'character-card': '## Aliases\n\nPersona\n',
+      labels,
+    },
   };
 }
 
