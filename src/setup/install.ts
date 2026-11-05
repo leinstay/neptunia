@@ -12,9 +12,10 @@ import path from 'node:path';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import { readConfig } from '../config.ts';
 import { readKeys } from '../keys/file.ts';
-import { modeOf } from '../subharness/control.ts';
+import { backendOfAgent, modeOf } from '../subharness/control.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
 import { isInstalled } from '../subharness/place.ts';
+import { developmentMode } from '../watcher/development.ts';
 import { watcherSettings } from '../watcher/settings.ts';
 import { ClientsError, readClients } from './clients.ts';
 import { UNIT_AGENTS, renderUnit } from './units.ts';
@@ -64,6 +65,17 @@ function watcherSchedule(target: UnitTarget): ServiceSchedule | null {
   }
 }
 
+/** The checkout the watcher's unit reads while its development mode is on, or null with the mode off or no readable settings. */
+function watcherDevelopment(target: UnitTarget, devAgent: string | null): { checkout: string } | null {
+  try {
+    const config = readConfig(target.rootDir, { privateDir: target.dataDir });
+    const mode = developmentMode({ config, rootDir: target.rootDir, devAgent });
+    return mode.on ? { checkout: mode.checkout } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The names of the clients and of the interfaces of the install: the folders under `interfaces/` and the interface of each client. */
 function secretsOf(privateDir: string): { clients: Array<string>; interfaces: Array<string> } {
   const clients = readClients(privateDir);
@@ -87,7 +99,12 @@ export function unitText(target: UnitTarget, template: string, file: string): st
   // installed backend finds it bound before keys.json says so.
   const named = new Set<string>([...Object.values(subharness.uses), subharness.memory?.backend ?? '']);
   const backends = BACKEND_NAMES.filter((name) => named.has(name) || isInstalled(target.dataDir, name));
-  const vars: UnitVars = { ...target, backends, ...secretsOf(target.privateDir) };
+  const vars: UnitVars = {
+    ...target,
+    backends,
+    ...secretsOf(target.privateDir),
+    watcherDevelopment: watcherDevelopment(target, backendOfAgent(subharness, 'dev')),
+  };
   const schedule = watcherSchedule(target);
   if (schedule !== null) vars.watcherSchedule = schedule;
   if (agent !== undefined) vars.mode = modeOf(subharness.modes, agent);
