@@ -98,7 +98,7 @@ function systemOf(messages: unknown): string | null {
 
 /**
  * The think of an answer. `response_text` keeps the answer as it came and is never rewritten, so a reply request's answer with
- * text and no `<think>` shows the one shape of a stored reply here, an empty think. A helper's answer has none.
+ * text and no `<think>` shows the one shape of a stored reply here, an empty think. An analyzer's answer has none.
  */
 function thinkOf(text: unknown, purpose: unknown): string | null {
   if (typeof text !== 'string') return null;
