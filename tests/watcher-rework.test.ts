@@ -460,17 +460,6 @@ test('the prompt gives the threshold and the decisions block', () => {
 
 // ---- 4 and 5. the evidence page ------------------------------------------------------------------------------------------
 
-type Run = { command: string; args: ReadonlyArray<string> };
-const MAIN_RUN = {
-  headBranch: 'main',
-  conclusion: 'success',
-  status: 'completed',
-  name: 'test',
-  headSha: 'abc1234',
-  createdAt: '2026-11-05T10:00:00Z',
-};
-const BRANCH_RUN = { ...MAIN_RUN, headBranch: 'spec-stale-branch', conclusion: 'failure', headSha: 'def5678' };
-
 function evidenceRig(options: { db?: boolean } = {}) {
   const data = tempDir('nep-rework-');
   fs.mkdirSync(path.dirname(localConfigPath(data)), { recursive: true });
@@ -480,8 +469,7 @@ function evidenceRig(options: { db?: boolean } = {}) {
   return data;
 }
 
-async function evidenceOf(data: string, gh: string | null = JSON.stringify([MAIN_RUN, BRANCH_RUN])) {
-  const calls: Array<Run> = [];
+async function evidenceOf(data: string) {
   const answer = await serviceFamily(
     {
       rootDir: REPO,
@@ -491,24 +479,18 @@ async function evidenceOf(data: string, gh: string | null = JSON.stringify([MAIN
       now: () => NOW,
       env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_CONFIG_HOME: data },
       coreUp: false,
-      run: (command, args) => {
-        calls.push({ command, args });
-        if (command === 'gh' && gh !== null) return Promise.resolve({ code: 0, stdout: gh, stderr: '' });
-        return Promise.resolve({ code: 1, stdout: '', stderr: 'unavailable here' });
-      },
+      run: () => Promise.resolve({ code: 1, stdout: '', stderr: 'unavailable here' }),
     },
     'service.watcher.evidence',
     {}
   );
   assert.equal(answer.status, 'ok', answer.text.slice(0, 200));
   return {
-    calls,
     text: answer.text,
     page: JSON.parse(answer.text) as {
       gaps: Array<{ kind: string }>;
       selfreflection: Record<string, unknown> | null;
       mirrors: Array<Record<string, unknown>> | null;
-      ci: { branch: string; runs: Array<Record<string, unknown>>; unavailable: string | null };
     },
   };
 }
@@ -605,28 +587,4 @@ test('with no database the facts are null beside the named gap, never zero', asy
   assert.ok(page.gaps.some((gap) => gap.kind === 'memory-unavailable'));
 });
 
-test('the evidence gives the CI of main alone, and asks for main alone', async () => {
-  // Bug: the first real report filed `ci-pr-failures` from pull request branches that were never the project's state.
-  const { page, calls, text } = await evidenceOf(evidenceRig());
-  assert.equal(page.ci.branch, 'main');
-  assert.equal(page.ci.unavailable, null);
-  assert.deepEqual(
-    page.ci.runs.map((run) => [run.conclusion, run.headSha]),
-    [['success', 'abc1234']]
-  );
-  assert.equal(text.includes('spec-stale-branch'), false);
-  const asked = calls.find((call) => call.command === 'gh') ?? assert.fail('gh was not asked');
-  assert.equal(asked.args[asked.args.indexOf('--branch') + 1], 'main');
-});
-
-for (const [name, gh] of [
-  ['that cannot be asked', null],
-  ['that answers no JSON', 'not json'],
-] as const) {
-  test(`a gh ${name} leaves the CI unavailable by name, never empty`, async () => {
-    // Bug: an install with no GitHub access reads as "no CI failures".
-    const { page } = await evidenceOf(evidenceRig(), gh);
-    assert.deepEqual(page.ci.runs, []);
-    assert.notEqual((page.ci.unavailable ?? '').trim(), '');
-  });
-}
+// The CI of `main` is no part of the evidence page since stage AA: development mode reads it (tests/watcher-ci*.test.ts).

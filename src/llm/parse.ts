@@ -2,7 +2,8 @@
 //   <think>…</think>          hidden planning, discarded
 //   <msg reply="#87">…</msg>   a chat message, optionally a reply to message #87 (at most 3:
 //                              any later one is joined into the third, a line each)
-//   <react to="#87">💀</react> a reaction on message #87 (a custom emoji as :name: too)
+//   <react to="#87">💀</react> a reaction on message #87 (a custom emoji as :name: too); a tag of another
+//                              action ends it, and a reaction inside a closed <msg> is cut from its words
 //   <skip/>                    stay silent
 // Her tool calls are not text any more: native tool calls come with the answer, and the text
 // transport's `<tool_call>` blocks are cut out before this parser sees the text
@@ -13,7 +14,7 @@
 // message (`untagged`). An answer whose `<think>` is broken has no action at all and names its shape in `thinkLeak`:
 // `unclosed` (a think left open, `thinkOpen`, its text so far kept in `think` for the journal) or `unopened` (a closing
 // tag with no opening). A spelling of the tag other than plain `<think>` and `</think>` counts as broken, wherever it
-// stands, so no think tag is ever in a message that comes out. The parser never repairs such an answer. It also accounts for
+// stands, and a think tag in code, a whole one too, so no think tag is ever in a message that comes out. The parser never repairs such an answer. It also accounts for
 // what it did not use: `diagnostics`, one `{ kind, ... }` per thing it dropped, cut or joined
 // (`retiredTag` with its `tag`, `msgMalformed` with its counts, `messagesMerged`, `thinkUnclosed`, `thinkUnopened`), so the
 // caller can tell the persona what happened to her output (src/behavior/turn.ts).
@@ -90,17 +91,34 @@ function codeSpanEnd(text: string, at: number, mark: string): number {
 /** A `<msg>` read and not closed yet: its attributes, where its words start, and the first tag of another action in it. */
 type OpenMessage = { attributes: string; start: number; actionAt: number | null };
 
+/** Where a `<react>` stands in the text, from its opening tag to the end of its closing one or the tag that ended it. */
+type Span = { start: number; end: number };
+
+/** `text` from `start` to `end` without the spans inside it, a run of blanks where one stood made one. */
+function withoutSpans(text: string, start: number, end: number, spans: ReadonlyArray<Span>): string {
+  const inside = spans.filter((span) => span.start >= start && span.end <= end);
+  if (inside.length === 0) return text.slice(start, end);
+  let out = '';
+  let at = start;
+  for (const span of inside) {
+    out += text.slice(at, span.start);
+    at = span.end;
+  }
+  return (out + text.slice(at, end)).replace(/[ \t]{2,}/g, ' ');
+}
+
 /**
  * The messages of `text`, read tag by tag outside code, with what was wrong at their boundary. A message left open
  * ends at the next opening or with the output, and at the first tag of another action before that, so no such tag
- * lands in its words. `cutOff`: the last message left open is a fragment and is dropped, uncounted.
+ * lands in its words. A closed message keeps its words around a reaction in it, without the reaction (`reactions`, the
+ * spans `readReactions` found). `cutOff`: the last message left open is a fragment and is dropped, uncounted.
  */
-function readMessages(text: string, cutOff: boolean) {
+function readMessages(text: string, cutOff: boolean, reactions: ReadonlyArray<Span>) {
   const bodies: Array<{ text: string; replyTo: number | null }> = [];
   const count = { nested: 0, unclosed: 0, stray: 0 };
   let open: OpenMessage | null = null;
   const deliver = (message: OpenMessage, end: number): void => {
-    const body = text.slice(message.start, end).trim();
+    const body = withoutSpans(text, message.start, end, reactions).trim();
     if (!body) return;
     const reply = /reply\s*=\s*"([^"]*)"/i.exec(message.attributes);
     bodies.push({ text: body, replyTo: reply ? parseIndex(reply[1]) : null });
@@ -130,6 +148,43 @@ function readMessages(text: string, cutOff: boolean) {
     deliver(open, open.actionAt ?? text.length);
   }
   return { bodies, ...count };
+}
+
+// What the `<react>` boundary reads, in order: the marks of code, the two reaction tags and the tags of other actions.
+const REACT_TOKEN_RE = /```|`|<react(\s[^>]*)?>|<\/react\s*>|<\/?msg(?:\s[^>]*)?>|<skip(?:\s[^>]*)?\/?>/gi;
+
+/**
+ * The reactions of `text`, read tag by tag outside code, each with its target attributes, its emoji and its span. A
+ * reaction ends at its closing tag, or at the first tag of a message, of another reaction or of `<skip/>` before that,
+ * so its emoji is the text up to there and no other action's tag lands in it. A reaction that nothing ends is dropped.
+ */
+function readReactions(text: string): Array<Span & { attributes: string; emoji: string }> {
+  const found: Array<Span & { attributes: string; emoji: string }> = [];
+  let open: { attributes: string; start: number; body: number } | null = null;
+  const end = (at: number, after: number): void => {
+    if (open)
+      found.push({
+        attributes: open.attributes,
+        emoji: text.slice(open.body, at).trim(),
+        start: open.start,
+        end: after,
+      });
+    open = null;
+  };
+  const tokens = new RegExp(REACT_TOKEN_RE);
+  for (let match = tokens.exec(text); match; match = tokens.exec(text)) {
+    const token = match[0];
+    if (token.startsWith('`')) {
+      const spanEnd = codeSpanEnd(text, match.index, token);
+      if (spanEnd !== -1) tokens.lastIndex = spanEnd;
+    } else if (/^<\/react/i.test(token)) {
+      end(match.index, tokens.lastIndex);
+    } else {
+      end(match.index, match.index);
+      if (/^<react/i.test(token)) open = { attributes: match[1] ?? '', start: match.index, body: tokens.lastIndex };
+    }
+  }
+  return found;
 }
 
 /** What `takeAudience` leaves alone: a think block and code, where a tag is only being talked about. */
@@ -202,9 +257,38 @@ function leakOfLeftover(leftover: string): ThinkLeak | null {
   return tag[1] === '/' ? 'unopened' : 'unclosed';
 }
 
-/** The shape of the broken `<think>` of an answer, null for a whole one or an answer with none. */
+/**
+ * The shape of the first think tag inside a code span or block of `raw`, or null for none. Read from the start: a whole
+ * `<think>` outside code is her thinking and is passed over with the backticks in it, and a code span after it is
+ * checked whole.
+ */
+function thinkInCode(raw: string): ThinkLeak | null {
+  if (!raw.includes('`')) return null;
+  const tokens = /```|`|<think>/gi;
+  for (let match = tokens.exec(raw); match; match = tokens.exec(raw)) {
+    const token = match[0];
+    if (!token.startsWith('`')) {
+      const closing = /<\/think>/gi;
+      closing.lastIndex = tokens.lastIndex;
+      if (closing.exec(raw) === null) return null;
+      tokens.lastIndex = closing.lastIndex;
+      continue;
+    }
+    const end = codeSpanEnd(raw, match.index, token);
+    if (end === -1) continue;
+    const leak = leakOfLeftover(raw.slice(match.index, end));
+    if (leak !== null) return leak;
+    tokens.lastIndex = end;
+  }
+  return null;
+}
+
+/**
+ * The shape of the broken `<think>` of an answer, null for a whole one or an answer with none. A think tag in code,
+ * a whole one too, is broken and has the shape of its first tag there.
+ */
 export function thinkLeakOf(raw: string): ThinkLeak | null {
-  return leakOfLeftover(raw.replace(WHOLE_THINK_RE, ''));
+  return thinkInCode(raw) ?? leakOfLeftover(raw.replace(WHOLE_THINK_RE, ''));
 }
 
 /**
@@ -269,6 +353,15 @@ export function parseOutput(
   };
   let text = String(raw ?? '');
 
+  // A think tag in code comes first: stripped as her thinking, it would leave the code around it in her words. Nothing
+  // of the code moves into `think`.
+  result.thinkLeak = thinkInCode(text);
+  if (result.thinkLeak !== null) {
+    result.skip = true;
+    result.thinkOpen = result.thinkLeak === 'unclosed';
+    result.diagnostics.push({ kind: result.thinkOpen ? 'thinkUnclosed' : 'thinkUnopened' });
+    return result;
+  }
   text = text.replace(WHOLE_THINK_RE, (all, inner) => {
     result.think += inner.trim();
     return '';
@@ -278,7 +371,8 @@ export function parseOutput(
   // The retired tags come out first: never a message, never run.
   text = withoutRetiredTags(text, RETIRED_TAGS, result.diagnostics);
 
-  const { bodies, nested, unclosed, stray } = readMessages(text, cutOff);
+  const reactions = readReactions(text);
+  const { bodies, nested, unclosed, stray } = readMessages(text, cutOff, reactions);
   if (nested + unclosed + stray > 0) result.diagnostics.push({ kind: 'msgMalformed', nested, unclosed, stray });
   // Every message past the cap is joined into the last kept one, a line each, so no tail is
   // lost unseen; the last kept one keeps its own reply target, theirs are dropped.
@@ -291,10 +385,9 @@ export function parseOutput(
   }
   for (const { text: body, replyTo } of bodies) result.messages.push({ text: body, replyTo });
 
-  for (const match of text.matchAll(/<react(\s[^>]*)?>([\s\S]*?)<\/react>/gi)) {
-    const target = /\bto\s*=\s*"([^"]*)"/i.exec(match[1] ?? '');
+  for (const { attributes, emoji } of reactions) {
+    const target = /\bto\s*=\s*"([^"]*)"/i.exec(attributes);
     const to = target ? parseIndex(target[1]) : null;
-    const emoji = match[2].trim();
     const fits = emoji.length <= MAX_REACTION_CHARS || CUSTOM_REACTION_RE.test(emoji);
     if (!emoji || !fits) continue;
     // A reaction that names no message is kept apart: an addressed turn ignores it, an inner turn refuses it.

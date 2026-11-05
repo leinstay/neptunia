@@ -2137,7 +2137,7 @@
       "repeated": 0
     },
     "tests/watcher-rework.test.ts": {
-      "deep": 12,
+      "deep": 11,
       "repeated": 0
     },
     "tests/watcher-risk.test.ts": {
