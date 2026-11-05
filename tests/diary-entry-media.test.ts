@@ -98,7 +98,7 @@ function scene({
           kind: 'image',
           owner: item.owner,
           path: `media/diary/${item.id}.png`,
-          native_ref: item.nativeRef.attachmentId ?? null,
+          native_ref: (item.nativeRef as { attachmentId?: string }).attachmentId ?? null,
           extra: JSON.stringify(item.nativeRef),
           description: null,
           mime: 'image/png',

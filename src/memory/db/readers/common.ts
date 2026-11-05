@@ -10,7 +10,7 @@ import { legacyStorageKey, rootStateKind } from '../../migration/paths.ts';
 import { filesOfUnit, unitRows, storageValue, storageLines } from '../export.ts';
 import { classify } from '../../migration/classify.ts';
 import type { MappedPath } from '../../migration/classify.ts';
-import type { Db, Log } from '../types.ts';
+import type { Db } from '../types.ts';
 
 /** An Error with a code. */
 export function codedError(code: string, message = code): Error & { code: string } {

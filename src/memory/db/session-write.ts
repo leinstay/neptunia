@@ -954,6 +954,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
 ]);
 
 /** Applies one write on the writer connection; returns counts. */
+// health: allow complexity until 2027-04-01 -- one dispatch over every write kind, split would hide the table
 export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): unknown {
   const handle = handleGiven as MemoryHandle;
   const update = updateGiven as Row;

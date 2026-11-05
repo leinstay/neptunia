@@ -499,6 +499,23 @@ function ownerContextOf(
   return { placeId: placeOf(deps, args), accountId: requester.id, roleIds: [], actor: 'owner', asOwner: true };
 }
 
+/**
+ * The owner's media backfill (src/memory/db/media-backfill.ts): started once and resumable, with its counts readable while it
+ * runs and after it ends. `--dry-run` counts what it would do, with no read and no write.
+ */
+async function memoryBackfillMedia(
+  desk: ConsoleDeps['mediaBackfill'],
+  name: string,
+  args: Record<string, unknown>
+): Promise<Answer> {
+  const fail = (why: string): Answer => ({ text: `/${name.replaceAll('.', ' ')}: ${why}`, status: 'invalid' });
+  if (!desk) return fail('the media backfill is not available here');
+  const mode = typeof args.mode === 'string' ? args.mode : '';
+  if (mode !== '' && mode !== '--dry-run' && mode !== 'status') return fail('usage: backfill-media [--dry-run|status]');
+  const state = mode === 'status' ? desk.status() : await desk.start({ dryRun: mode === '--dry-run' });
+  return { text: JSON.stringify(state), status: 'ok' };
+}
+
 export function createConsole(deps: ConsoleDeps): {
   run(name: string, args: Record<string, unknown>, requester: { id: string }, dialog?: Dialog | null): Promise<Answer>;
 } {
@@ -609,22 +626,6 @@ export function createConsole(deps: ConsoleDeps): {
     const found = ownValueAt(settings, splitPath(text(args.path), settings));
     if (!found.found) return refused(name, args, 'no such setting');
     return { text: JSON.stringify(found.value, null, 2) ?? 'null', status: 'ok' };
-  }
-
-  /**
-   * The owner's media backfill (src/memory/db/media-backfill.ts): started once and resumable, with its counts readable while it
-   * runs and after it ends. `--dry-run` counts what it would do, with no read and no write.
-   */
-  async function memoryBackfillMedia(name: string, args: Record<string, unknown>): Promise<Answer> {
-    if (!deps.mediaBackfill) return refused(name, args, 'the media backfill is not available here', 'failed');
-    const mode = text(args.mode);
-    if (mode !== '' && mode !== '--dry-run' && mode !== 'status')
-      return refused(name, args, 'usage: backfill-media [--dry-run|status]');
-    const state =
-      mode === 'status'
-        ? deps.mediaBackfill.status()
-        : await deps.mediaBackfill.start({ dryRun: mode === '--dry-run' });
-    return { text: JSON.stringify(state), status: 'ok' };
   }
 
   /** The owner's backup: on its own thread, because it copies the whole data folder (backup.ts). */
@@ -763,7 +764,7 @@ export function createConsole(deps: ConsoleDeps): {
       case 'memory.backup':
         return memoryBackup(name, args);
       case 'memory.backfill-media':
-        return memoryBackfillMedia(name, args);
+        return memoryBackfillMedia(deps.mediaBackfill, name, args);
       case 'memory.conversation':
         return memoryConversation(args);
       case 'memory.lessons.list':

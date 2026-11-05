@@ -210,6 +210,14 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/` | public | The memory modules above the database: records, lore, episodes, recall ranking, vectors and backfills. | `node:*`, `src/**` | required |
 | `src/memory/types.ts` | public | The types the memory modules share: untyped JSON, the settings handle, the logger and the memory database. Types and two small guards, tested through the modules that use them. | `node:*`, `src/**` | none |
 | `src/memory/db/` | public | The memory database: schema, the single writer, sessions, wakes and the read paths. | `node:*`, `src/**` | required |
+| `src/memory/db/media-store.ts` | public | The one store of media: its read, its writes, its vectors, its search and the forward migration. Tested through the media memory tests. | `node:*`, `src/**` | none |
+| `src/memory/db/media-backfill.ts` | public | The historical backfill of media over an interface's history. Tested through tests/media-memory-backfill.test.ts. | `node:*`, `src/**` | none |
+| `src/memory/db/media-stems.ts` | public | The stems of a media row. Tested through the media memory tests. | `node:*`, `src/**` | none |
+| `src/memory/db/source-current.ts` | public | Which rows of sources are a chat line as it stands now, as SQL. Tested through the recall tests. | `node:*`, `src/**` | none |
+| `src/memory/db/source-kinds.ts` | public | The kinds of a source row that are the persona's own. Tested through the memory database tests. | `node:*`, `src/**` | none |
+| `src/memory/db/readers/seam.ts` | public | The read seam of a module over the memory database. Tested through the memory database tests. | `node:*`, `src/**` | none |
+| `src/memory/describe-audio.ts` | public | How the describer tells a voice message, an audio file and a text file. Tested through tests/media-memory-audio.test.ts. | `node:*`, `src/**` | none |
+| `src/memory/text-standard.ts` | public | The script check of a stored text form. Tested through tests/media-memory-standard.test.ts. | `node:*`, `src/**` | none |
 | `src/memory/db/diary-past.ts` | public | Schema v15's data step that makes her past messages in a diary mirror's place entries. Tested through the v15 migration tests. | `node:*`, `src/**` | none |
 | `src/memory/db/diary-audience.ts` | public | The audience of a diary entry over the memory database: the places she can name and whether a stored entry may reach a place. Tested through the mirror audience tests. | `node:*`, `src/**` | none |
 | `src/memory/db/mirror-config.ts` | public | The owner's configuration of the diary's mirrors, written by the one writer, and the scans of what a mirror still lacks. Tested through the mirror command and backfill tests. | `node:*`, `src/**` | none |

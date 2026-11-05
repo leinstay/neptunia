@@ -482,7 +482,7 @@ function lineText(
   const place = handle ? `[${handle}] ` : '';
   // An author who is not a person yet carries the handle `people:add` names (prompts/memory-session.md, "People").
   const who = !own && authorHandle ? `[${authorHandle}] ` : '';
-  const words = String(line.text ?? '').replace(/\s*\n\s*/g, ' ⏎ ');
+  const words = asText(line.text ?? '').replace(/\s*\n\s*/g, ' ⏎ ');
   const body = [words, ...tags].filter(Boolean).join(' ');
   return `${lead}#${n} [${stamp(line.at, timezone)}] ${place}${who}${asText(author)}: ${body}`;
 }
@@ -581,6 +581,7 @@ export type SessionRequest = {
  * `pages` is how many requests the batch takes. The context (profiles, claims, episodes) is as of the batch's
  * cutoff, the newest line: what was created or seen after it is left out.
  */
+// health: allow complexity until 2027-04-01 -- the blocks of one request in their order
 export function buildSessionRequest({
   db,
   scope,
@@ -1385,6 +1386,7 @@ export function sessionStatus({
 
  * entry per request (a scope at its daily cap: `capped`).
  */
+// health: allow complexity until 2027-04-01 -- one pass over the scopes, each outcome one short branch
 export async function sweep(
   ctx: SessionContext,
   options: { scope?: string; scopes?: Set<string>; limit?: number; ignoreSweepCap?: boolean } = {}

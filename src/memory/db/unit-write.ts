@@ -349,6 +349,8 @@ function duplicateLine(
   return false;
 }
 
+// health: allow complexity until 2027-04-01 -- the steps of one line write, in their order
+
 function writeLine(
   db: Db,
   {

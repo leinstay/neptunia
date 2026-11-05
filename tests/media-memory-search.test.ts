@@ -30,7 +30,7 @@ import {
 } from './fixtures/media-memory.ts';
 import { byMeaning, embedLines } from './fixtures/media-memory-embed.ts';
 import type { Env, Kind, Presence } from './fixtures/media-memory.ts';
-import type { Db, Row } from '../src/memory/db/types.ts';
+import type { Row } from '../src/memory/db/types.ts';
 
 const PLAN = { forms: [] as Array<string>, who: [] as Array<string>, from: null, to: null };
 const IMAGE = KINDS[0];
@@ -145,7 +145,7 @@ test("a text form is stemmed on its media row: the message's stems and text stay
   withLine(IMAGE, 'full', (env) => {
     const row = env.db.prepare('SELECT text, stems FROM sources WHERE native_id = ?').get('pic');
     assert.equal(row?.text, '');
-    assert.ok(!String(row?.stems ?? '').includes(IMAGE.first.word));
+    assert.ok(!((row?.stems as string | null) ?? '').includes(IMAGE.first.word));
   }));
 
 test('a text form told after the line was observed is found at once, by a word and by a fragment', () =>
@@ -279,7 +279,7 @@ function floodItem(env: Env, count: number) {
     const id = `src:discord:flood-${i}:1:seen`;
     const at = new Date(AT - i * 1000).toISOString();
     source.run(id, `flood-${i}`, place, at, at);
-    link.run(id, media as string);
+    link.run(id, media);
   }
   env.db.exec('COMMIT');
 }
@@ -403,7 +403,7 @@ test('a search over 100000 links reads media and its links through indexes', () 
         const value = Reflect.get(target, property) as unknown;
         return typeof value === 'function' ? (value as (...args: Array<unknown>) => unknown).bind(target) : value;
       },
-    }) as Db;
+    });
     const found = search(recording, {
       ctx: group,
       plan: { ...PLAN, forms: ['lighthouse'] },

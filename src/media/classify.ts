@@ -454,6 +454,7 @@ function extraOf(...extras: Array<LabelTag | Array<LabelTag> | null>): LabelTag 
  * `videoAnswered` instead: its clip was watched again, as a video's. Every
  * other kind ignores it (a video's answer lives in its state, `context.video.answer`).
  */
+// health: allow complexity until 2027-04-01 -- one switch over every media kind, split would hide the table
 export function mediaLabelFor(
   item: MediaItem,
   {

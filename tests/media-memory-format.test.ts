@@ -117,8 +117,8 @@ test('an observed attachment is one item per position, with its reference, and n
       nativeRef,
       file,
       availability,
-      fileName: (extra as Row).fileName,
-      durationSec: (extra as Row).durationSec,
+      fileName: extra.fileName,
+      durationSec: extra.durationSec,
     })),
     [0, 1].map((position) => ({
       position,
@@ -151,7 +151,7 @@ test("an observed link's title, site and posted address are in extra, its embed 
       ref: first.nativeRef,
       description: first.description,
       availability: first.availability,
-      ...(first.extra as Row),
+      ...first.extra,
     },
     {
       kind: 'link',
@@ -172,7 +172,7 @@ test('an observed text attachment is kind text, waiting for its preview; its pre
     const source = observeLine(env, kind, 'part');
     const [first, second] = rowsOf(env, source);
     assert.deepEqual(
-      [first.kind, first.description, (first.extra as Row).textOrigin],
+      [first.kind, first.description, first.extra.textOrigin],
       ['text', 'a retelling with a marzipan in it', 'preview']
     );
     assert.deepEqual([second.kind, second.availability], ['text', 'unknown']);
@@ -270,7 +270,7 @@ test("the describer's write tells the item, and every line that links it reads i
     });
     const [first, second] = rowsOf(env, one);
     assert.deepEqual(
-      [first.description, first.availability, (first.extra as Row).textOrigin],
+      [first.description, first.availability, first.extra.textOrigin],
       ['a lighthouse', 'present', 'retelling']
     );
     assert.ok(first.describedAt, 'with the time it was told');
@@ -283,7 +283,7 @@ test("a page she read becomes its link's text form", () =>
     const source = observeLine(env, kind, 'absent');
     tellMedia(env.handle, { iface: 'discord', nativeRef: 'pic-a', description: 'the page says this', origin: 'page' });
     const [row] = rowsOf(env, source);
-    assert.deepEqual([row.description, (row.extra as Row).textOrigin], ['the page says this', 'page']);
+    assert.deepEqual([row.description, row.extra.textOrigin], ['the page says this', 'page']);
   }));
 
 test("a linked item is never trimmed by the cache's cap", () =>
@@ -358,7 +358,7 @@ for (const [order, steps] of [
           nativeRef,
           description,
           availability,
-          (extra as Row).textOrigin,
+          extra.textOrigin,
         ]),
         [['voice', 'v1', VOICED, 'present', 'voiced']]
       );
@@ -395,7 +395,7 @@ test("a diary entry's files are items linked to it, each with its path under med
       assert.ok(fs.existsSync(path.join(dataDir, String(row.path))), 'the mirror finds the file');
       assert.ok(row.sha1);
     }
-    assert.deepEqual([rows[1].description, (rows[1].extra as Row).textOrigin], ['a cathedral', 'voiced']);
+    assert.deepEqual([rows[1].description, rows[1].extra.textOrigin], ['a cathedral', 'voiced']);
   }));
 
 test('a diary entry and a message showing the same file are one item with two links', () =>
@@ -448,10 +448,10 @@ function legacyMedia(env: Env, id: string, kind: string, nativeRef: string | nul
       id,
       kind,
       nativeRef,
-      (row.description as string) ?? null,
-      (row.path as string) ?? null,
-      (row.sha1 as string) ?? null,
-      (row.mime as string) ?? null,
+      row.description ?? null,
+      row.path ?? null,
+      row.sha1 ?? null,
+      row.mime ?? null,
       row.extra ? JSON.stringify(row.extra) : null
     );
 }
@@ -518,7 +518,7 @@ test(
         nativeRef,
         description,
         availability,
-        (extra as Row).textOrigin ?? null,
+        extra.textOrigin ?? null,
       ]),
       [
         ['image', 'a1', 'a lighthouse', 'present', 'retelling'],
@@ -560,9 +560,9 @@ test(
     legacyMedia(env, 'media:attachment:v2', 'attachment', 'v2', { description: 'a frame only' });
     migrateMediaStore(env.db);
     const [watched] = rowsOf(env, both);
-    assert.deepEqual([watched.description, (watched.extra as Row).textOrigin], ['an avalanche, watched', 'retelling']);
+    assert.deepEqual([watched.description, watched.extra.textOrigin], ['an avalanche, watched', 'retelling']);
     const [frame] = rowsOf(env, still);
-    assert.deepEqual([frame.description, (frame.extra as Row).textOrigin], ['a frame only', 'frame']);
+    assert.deepEqual([frame.description, frame.extra.textOrigin], ['a frame only', 'frame']);
     assert.equal(env.db.prepare("SELECT COUNT(*) AS n FROM media WHERE native_ref LIKE '%v1'").get()?.n, 1);
   })
 );
@@ -599,7 +599,7 @@ test(
       [row.kind, row.nativeRef, row.description, row.path],
       ['gif', 'item-1', 'a pirouette', 'media/gifs/k.gif']
     );
-    assert.equal((row.extra as Row).name, 'its name', 'the library keeps its name');
+    assert.equal(row.extra.name, 'its name', 'the library keeps its name');
   })
 );
 
@@ -627,7 +627,7 @@ test(
       ['image', 'd1', 'a walrus', 'media/diary/d9-1.png']
     );
     assert.deepEqual(
-      [voice.kind, voice.nativeRef, voice.description, (voice.extra as Row).textOrigin],
+      [voice.kind, voice.nativeRef, voice.description, voice.extra.textOrigin],
       ['voice', 'd2', 'a cathedral at dusk', 'voiced']
     );
     assert.deepEqual(
@@ -646,7 +646,7 @@ test(
     migrateMediaStore(env.db);
     const [first, second] = rowsOf(env, source);
     assert.deepEqual(
-      [first.nativeRef, first.description, first.availability, (first.extra as Row).title, (first.extra as Row).url],
+      [first.nativeRef, first.description, first.availability, first.extra.title, first.extra.url],
       ['l1', 'an observatory', 'present', 'page', 'https://x.invalid/a']
     );
     assert.equal(second.availability, 'unknown');

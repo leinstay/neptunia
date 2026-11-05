@@ -5,19 +5,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { call, textAnswer, toolAnswer } from './fixtures/tool-answers.ts';
 import { coreTurn } from './fixtures/turn-harness.ts';
-import type { Untyped } from '../src/tools/types.ts';
 
 const VOICED = '[sighs] "собор на закате"';
 
-async function voiceTurn(outcome: Untyped) {
-  const appended: Array<Untyped> = [];
+type SaidLine = { kind?: unknown; messageId?: unknown; text?: unknown; media?: unknown; voiced?: unknown };
+
+async function voiceTurn(outcome: unknown) {
+  const appended: Array<SaidLine> = [];
   await coreTurn({
     answers: [toolAnswer('', [call('voice.say', { text: 'ignored' })]), textAnswer('')],
     allowed: ['voice.say'],
     runner: {
       runOwnOp: () => Promise.resolve(outcome),
       record: {
-        append: (_place: string, lines: Array<Untyped>) => {
+        append: (_place: string, lines: Array<SaidLine>) => {
           appended.push(...lines);
           return Promise.resolve({ written: lines.length, duplicates: 0 });
         },

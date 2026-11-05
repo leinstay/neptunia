@@ -1073,6 +1073,7 @@ export function namedResult(
 /**
  * Searches the record in a scope context. `marks` is for `searchMarked` alone.
  */
+// health: allow complexity until 2027-04-01 -- the streams of a search, fused in one place
 export function search(
   dbGiven: unknown,
   {

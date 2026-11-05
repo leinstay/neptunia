@@ -373,6 +373,35 @@ export function indexRows(
  * `minMeaningScore` (or there is none); one term only when the cosine is at least
  * `singleTermScore`. Pure.
  */
+/** One media item a search found, as the prefetch keeps it: at its latest use, by its words or its meaning. */
+type FoundItem = {
+  latest: { messageId: string };
+  streams: ReadonlyArray<string>;
+  terms: number;
+  cosine: number | null;
+};
+
+/** The messages a lane's media items answer through, kept by the same floors a line's words and meaning are. */
+export function itemLines(
+  hits: ReadonlyArray<FoundItem>,
+  shown: { has(id: string): boolean },
+  settings: { minMeaningScore: number; singleTermScore: number; strongMeaningScore: number }
+): { lexical: Array<string>; meaning: Array<string> } {
+  const items = hits.filter((hit) => shown.has(hit.latest.messageId));
+  const heard = items.filter(
+    (hit) =>
+      (hit.streams.includes('words') || hit.streams.includes('trigram')) &&
+      lexicalKeep({ messageId: hit.latest.messageId, terms: hit.terms, phrases: 0 }, null, settings)
+  );
+  const meant = items.filter(
+    (hit) =>
+      hit.streams.includes('meaning') &&
+      (hit.cosine ?? -1) >= settings.minMeaningScore &&
+      ((hit.cosine ?? -1) >= settings.strongMeaningScore || hit.terms > 0)
+  );
+  return { lexical: heard.map((hit) => hit.latest.messageId), meaning: meant.map((hit) => hit.latest.messageId) };
+}
+
 export function lexicalKeep(
   hit: { messageId: string; terms: number; phrases: number },
   cosines: Map<string, number> | null,

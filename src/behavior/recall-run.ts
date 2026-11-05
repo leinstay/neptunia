@@ -105,7 +105,7 @@ import {
   scanArchive,
   searchPlan,
 } from './recall.ts';
-import { fitExcerpts, focusHits, lanePlan, lexicalKeep, rankPrefetch } from './prefetch.ts';
+import { fitExcerpts, focusHits, itemLines, lanePlan, lexicalKeep, rankPrefetch } from './prefetch.ts';
 import { indexWords } from '../memory/record-index.ts';
 import { CODE } from '../tools/codes.ts';
 import { dbSettings, quotesOf, search as searchRows, window as windowRows } from '../memory/db/recall.ts';
@@ -2244,22 +2244,7 @@ export function createRecall({
                 )
                 .map((hit) => hit.messageId);
               // An item's own words and meaning count as a line's would, at the message that shows it.
-              const items = found.mediaHits.filter((hit: Untyped) => shown.has(hit.latest.messageId));
-              const heardItems = items
-                .filter(
-                  (hit: Untyped) =>
-                    (hit.streams.includes('words') || hit.streams.includes('trigram')) &&
-                    lexicalKeep({ messageId: hit.latest.messageId, terms: hit.terms, phrases: 0 }, null, p)
-                )
-                .map((hit: Untyped) => hit.latest.messageId);
-              const meantItems = items
-                .filter(
-                  (hit: Untyped) =>
-                    hit.streams.includes('meaning') &&
-                    hit.cosine >= p.minMeaningScore &&
-                    (hit.cosine >= p.strongMeaningScore || hit.terms > 0)
-                )
-                .map((hit: Untyped) => hit.latest.messageId);
+              const items = itemLines(found.mediaHits, shown, p);
               const meant = byScore
                 .filter(
                   (hit) =>
@@ -2269,12 +2254,12 @@ export function createRecall({
                     (hit.cosine >= p.strongMeaningScore || hit.terms > 0)
                 )
                 .map((hit) => hit.messageId);
-              stats.meaning += meant.length + meantItems.length;
+              stats.meaning += meant.length + items.meaning.length;
               return {
                 lane: lane.kind,
                 windows,
-                lexical: [...lexical, ...heardItems],
-                meaning: [...meant, ...meantItems],
+                lexical: [...lexical, ...items.lexical],
+                meaning: [...meant, ...items.meaning],
               };
             })
           );

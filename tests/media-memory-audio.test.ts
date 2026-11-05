@@ -22,8 +22,10 @@ const NOW = Date.parse('2026-11-05T12:00:00.000Z');
 
 function audioRig({
   video = 'x/flash',
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- the default widens the parameter a caller replaces
   fetched = { ok: true, dataUrl: AUDIO_CLIP, seconds: 9, bytes: 4 } as Rec,
   now = () => NOW,
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- the default widens the parameter a caller replaces
   answer = { text: HEARD, model: 'x/flash' } as unknown,
 } = {}) {
   const store = createStore({ dataDir: tempDir('nep-media-memory-') });
@@ -51,7 +53,7 @@ function audioRig({
     videoFetcher,
     now,
     state: fakeState(),
-  } as unknown as Parameters<typeof createDescriber>[0]);
+  });
   return { describer, llm, fetchedUrls, store };
 }
 
@@ -145,7 +147,7 @@ test('a text file is kept as its text form from its own words, with no model', a
     store,
     llm,
     fetchText: () => Promise.resolve({ ok: true, text: 'marzipan recipes' }),
-  } as unknown as Parameters<typeof createDescriber>[0]);
+  });
   const item = { ...voiceItem('text'), itemId: 't1', url: 'https://x.invalid/notes.txt' };
   const { descriptions } = await describer.describeMany('g1', [item]);
   assert.equal(descriptions.get('t1'), 'marzipan recipes');
@@ -181,7 +183,10 @@ test('a replayed moment shows a voice message with the text form the cache held 
   const history = [
     { id: 'm1', attachments: [{ id: 'v1', kind: 'voice', url: 'https://x.invalid/v.ogg', name: 'v.ogg' }] },
   ];
-  const { descriptions } = replayMedia(history, { cache: { v1: { text: 'told', ts: 1 } } });
+  // A slim history holds only what the media collectors read.
+  const { descriptions } = replayMedia(history as unknown as Parameters<typeof replayMedia>[0], {
+    cache: { v1: { text: 'told', ts: 1 } },
+  });
   assert.equal(descriptions.get('v1'), 'told');
 });
 
@@ -198,7 +203,7 @@ function pictureRig(answers: Array<Rec>) {
     store,
     llm,
     imageFetcher: fakeImageFetcher(),
-  } as unknown as Parameters<typeof createDescriber>[0]);
+  });
   const item = { itemId: 'p1', kind: 'image', url: 'https://x.invalid/p.png' };
   return { describer, llm, store, item };
 }

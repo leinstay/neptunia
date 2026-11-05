@@ -181,7 +181,7 @@ test('an old row gets its references through its message, and a word of a held d
     assert.deepEqual([report.linked, report.bare, report.gone], [1, 0, 0]);
     const [first, second] = rowsOf(env, source);
     assert.deepEqual(
-      [first.nativeRef, (first.extra as Row).fileName, first.description, first.availability],
+      [first.nativeRef, first.extra.fileName, first.description, first.availability],
       ['1001-a', 'p.png', 'a lighthouse on a cliff', 'present']
     );
     assert.deepEqual([second.nativeRef, second.availability], ['1001-b', 'unknown']);
@@ -525,7 +525,7 @@ test('a DM line whose conversation is not stored stays bare, counted with its re
 /** Every field a line carries: its columns with a value, the keys of its `extra`, and each linked item's filled fields. */
 function fieldsOf(env: Env, id: string): Array<string> {
   const row = env.db.prepare('SELECT * FROM sources WHERE id = ?').get(id) as Row;
-  const extra = JSON.parse(String(row.extra ?? '{}')) as Row;
+  const extra = JSON.parse((row.extra as string | null) ?? '{}') as Row;
   const items = env.db
     .prepare(
       `SELECT m.* FROM media m JOIN media_links l ON l.media_id = m.id WHERE l.owner_kind = 'source' AND l.owner_id = ?`
@@ -537,7 +537,7 @@ function fieldsOf(env: Env, id: string): Array<string> {
       .map(([key]) => `sources.${key}`),
     ...Object.keys(extra).map((key) => `sources.extra.${key}`),
     ...items.flatMap((one) => {
-      const inner = JSON.parse(String(one.extra ?? '{}')) as Row;
+      const inner = JSON.parse((one.extra as string | null) ?? '{}') as Row;
       return [
         ...Object.entries(one)
           .filter(([key, value]) => value !== null && key !== 'extra' && key !== 'rowid')

@@ -12,7 +12,6 @@ import { fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.
 import { fixture, kindNamed, observeLine, tell } from './fixtures/media-memory.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Rec } from './fixtures/describe-fakes.ts';
-import type { Row } from '../src/memory/db/types.ts';
 
 const UNQUOTED = 'грибы рано в этом году, и дождь идёт каждый день';
 
@@ -38,7 +37,7 @@ test('a transcript with no quotation marks stays as heard: one request and no ma
       fetchAudio: () => Promise.resolve({ ok: true, dataUrl: 'data:video/mp4;base64,YQ==', seconds: 9, bytes: 1 }),
     },
     state: fakeState(),
-  } as unknown as Parameters<typeof createDescriber>[0]);
+  });
   const item = { source: 'attachment', messageId: 'm1', itemId: 'v1', kind: 'voice', url: 'https://x.invalid/v.ogg' };
   const { descriptions } = await describer.describeMany('g1', [item]);
   assert.equal(descriptions.get('v1'), UNQUOTED);
@@ -54,7 +53,7 @@ test('what she voiced stays in its own language, origin voiced, with no later te
     tell(env, { ...kind, origin: 'voiced' }, { id: 'pic-a', told: UNQUOTED });
     tell(env, { ...kind, origin: 'transcript' }, { id: 'pic-a', told: 'a guess at what was said' });
     const [voice] = lineMedia(env.db, [source], internalContext()).get(source) ?? [];
-    assert.deepEqual([voice.description, (voice.extra as Row).textOrigin], [UNQUOTED, 'voiced']);
+    assert.deepEqual([voice.description, voice.extra.textOrigin], [UNQUOTED, 'voiced']);
   } finally {
     env.done();
   }

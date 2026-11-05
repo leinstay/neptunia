@@ -141,11 +141,14 @@ test('an integrated database opens at the new version with every old row byte fo
     assert.ok(MIGRATIONS.length > INTEGRATED.length);
     // Stage M rewrites `media` and takes `media` off `sources`, on purpose; every other shipped table stays byte for byte.
     const asOfOld = (text: Record<string, string>) => {
-      const { media: _rewritten, sources, ...rest } = text;
-      return {
-        ...rest,
-        sources: JSON.stringify((JSON.parse(sources) as Array<Row>).map(({ media: _kinds, ...row }) => row)),
-      };
+      const rest = { ...text };
+      delete rest.media;
+      const lines = (JSON.parse(text.sources) as Array<Row>).map((row) => {
+        const line = { ...row };
+        delete line.media;
+        return line;
+      });
+      return { ...rest, sources: JSON.stringify(lines) };
     };
     assert.deepEqual(asOfOld(contentOf(db, tables)), asOfOld(before));
     const after = definitions(db);

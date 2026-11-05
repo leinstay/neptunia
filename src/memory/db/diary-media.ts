@@ -29,7 +29,6 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { audienceOf } from './scope.ts';
 import { ensureAudience } from './rows.ts';
-import { projectRow } from './graph.ts';
 import { diaryPlaces } from './mirrors.ts';
 import { REFERENCE_MAX_BYTES } from '../../media/fetch-image.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
@@ -306,7 +305,6 @@ export function applyEntryMedia(handle: MemoryHandle, given: unknown): number {
       ref?: { messageId: string; attachmentId: string | null };
     }>;
   };
-  const db = dbOf(handle);
   const base = safeName(update.id);
   const media = (update.items ?? []).map((item, index) => {
     const buffer = Buffer.from(item.data);

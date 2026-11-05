@@ -30,6 +30,10 @@ Delivery reports distinguish success, failure and unknown outcome. Preserve the 
 
 The diary's publisher passes `idempotencyKey` on each send and keeps it stable on a retry. When a platform can find a send by its key, declare `capabilities().reconcile` and have `fetchMessages(conversation, ids, { idempotencyKey })` answer the messages posted under it. An `ok` answer with no message is a claim that the send did not happen, and the publisher then sends again. An adapter that cannot know, such as one asked about a key from before its restart, answers a failed read, which leaves the send uncertain. On a platform with no lookup, only the owner's `/mirror reconcile` settles it.
 
+## Media of a message
+
+An interface reports a message's media in its `attachments`, `links`, `stickers` and `emojis`, and `mediaItemsOf` in `src/memory/db/media-store.ts` turns them into items of the closed kinds, in that order. An item's `id` is kept as its `native_ref` and never parsed, so any shape of reference works. A reference must name the same item whenever it comes back, because that is how a message and the describer's cache find one row. A sticker with no `url` is unreadable. A link's `text` is its text form at once, origin `embed`. An attachment's file address is used to read it and never stored.
+
 ## Media pick
 
 The media pick is a short classifier call after the persona's reply. It may post one GIF of the shared library in place of a short first message, or put one custom emoji after that message or in its place. The core owns the call, its prompt, its rails and its parse, because an interface never calls a model and the request and daily caps stay in one place. Declare `mediaPick` in `capabilities()` to take part. An interface without it gets nothing: no block in the turn and no call.

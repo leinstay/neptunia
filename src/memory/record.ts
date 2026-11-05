@@ -135,6 +135,7 @@ export function recordLinks(
  * the message id and its author as a participant. `placeId` is stamped on append.
  *
  */
+// health: allow complexity until 2027-04-01 -- one copy of whitelisted fields
 export function toRecordLine(
   slim: StoredRecord,
   {

@@ -246,7 +246,7 @@ export function observationOf(
       : []),
     ...mentioned.map((id) => ({ predicate: 'mentions', target: { kind: 'user', key: id } })),
   ];
-  const media = mediaItemsOf(message as Row);
+  const media = mediaItemsOf(message);
   return {
     v: OBSERVATION_VERSION,
     iface,

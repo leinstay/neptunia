@@ -117,6 +117,10 @@ One optional fenced `tasks` block may follow the report and is cut from it befor
 
 The brief carries `<day>`, `<observation from="..." to="..." day-from="..."/>`, `<install>` with the JSON of `installFacts` from [src/watcher/install.ts](../src/watcher/install.ts), `<memory>` with one line per stored fact about failures when `watcherMemory` finds any, and `<report day="...">`, with `run="..."` on an earlier report of the same day. A second attempt holds the first brief whole, then `agents/watcher/retry.md`, then `<refusal code="...">` with the check's detail and `<previous-answer>` with the refused text, a string shaped like a key masked. The selfimprovement wake's labels `watcher`, `watcherFinding` and `watcherTask` take `{day}` and `{findings}`, `{title}`, `{state}` and `{task}`, and `{task}`, and nothing else of a report goes into them.
 
+## Media text forms
+
+A stored media text form is in English, with speech, captions and on-screen text quoted in their original language. A transcript and what she voiced are quoted speech as a whole. The transcript labels `voiceDescribed` and `audioDescribed` take `{duration}` and `{text}`, and `audioDescribed` also `{name}`. `fileUnreadable` and `stickerUnreadable` take `{name}` and state that no model can read the item. `senses.voiceHeard` replaces `senses.voice` while the `video` role is on. The prompt `describe-audio` takes `{{maxChars}}` and `{{today}}`. The memory session's `<batch>` shows a line's media with the same tags as the turn's chat, and numbers a line that holds only media.
+
 ## Labels
 
 `config/labels.json` holds inserted wording and result explanations. Personal wording belongs in `data/config/labels.json`. Preserve every placeholder a label reader supplies. A result code and its label must remain aligned with the catalogue.

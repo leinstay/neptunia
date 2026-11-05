@@ -135,6 +135,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `memoryDb.session.maxOutputTokens` | number | `8000` | Token limit for a session request | `src/memory/db/session.ts` |
 | `memoryDb.session.timeoutMs` | number | `300000` | Timeout of a session request | `src/memory/db/session.ts` |
 | `memoryDb.session.descriptionMaxOutputTokens` | number | `1500` | Token limit for each call of a description review | `src/memory/db/session.ts` |
+| `memoryDb.session.mediaPass` | boolean | `false` | Whether a quiet scope's session reads old media-only lines its cursor passed, once the backfill told them | `src/memory/db/session.ts` |
 | `memoryDb.session.retryLimit` | number | `3` | How many sweeps an `all_dropped` batch is retried before it is skipped | `src/memory/db/session.ts` |
 
 ## embed

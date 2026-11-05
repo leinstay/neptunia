@@ -223,7 +223,8 @@ export function lineMedia(
   const rows = db
     .prepare(
       `SELECT l.owner_id AS owner_id, l.position AS at_position, m.id AS media_id, m.kind AS kind, m.native_ref AS native_ref,
-         m.path AS path, m.description AS description, m.described_at AS described_at, m.availability AS availability,
+         m.path AS path, CASE WHEN m.retired_at IS NULL THEN m.description END AS description,
+         m.described_at AS described_at, m.availability AS availability,
          m.sha1 AS sha1, m.extra AS extra
        FROM media_links l JOIN media m ON m.id = l.media_id JOIN ${OWNER_TABLE[ownerKind]} o ON o.id = l.owner_id
        WHERE l.owner_kind = ? AND l.owner_id IN (SELECT value FROM json_each(?)) AND ${scope.sql}
@@ -285,6 +286,7 @@ export function recordFieldsOf(db: Db, sourceId: string): { media: Array<string>
 }
 
 /** A stored line's media in the fields of a normalized message, as src/format.ts renders them. Pure. */
+// health: allow complexity until 2027-04-01 -- one switch over the closed kinds
 export function mediaMessageParts(
   rows: ReadonlyArray<MediaRow>,
   lineId: unknown
@@ -538,10 +540,10 @@ function insertItem(db: Db, line: LineRow, item: MediaItem, id: string): void {
     item.nativeRef,
     item.availability === 'present' ? 'unknown' : item.availability,
     JSON.stringify(item.extra),
-    (line.scope_kind ?? null) as string | null,
-    (line.scope_iface ?? null) as string | null,
-    (line.scope_dm ?? null) as string | null,
-    (line.audience_id ?? null) as string | null
+    line.scope_kind ?? null,
+    line.scope_iface ?? null,
+    line.scope_dm ?? null,
+    line.audience_id ?? null
   );
 }
 
@@ -557,14 +559,7 @@ function mergeItem(db: Db, row: Row, item: MediaItem): void {
   const stems = filled(row.description) ? stampOf(db, { kind: item.kind, description: row.description, extra }) : null;
   db.prepare(
     'UPDATE media SET kind = ?, native_ref = COALESCE(native_ref, ?), extra = ?, availability = ?, stems = ? WHERE id = ?'
-  ).run(
-    item.kind,
-    item.nativeRef,
-    JSON.stringify(extra),
-    availability,
-    stems ?? (row.stems as string | null) ?? null,
-    row.id
-  );
+  ).run(item.kind, item.nativeRef, JSON.stringify(extra), availability, stems ?? row.stems ?? null, row.id);
 }
 
 const linkStatement = (db: Db) =>
@@ -750,19 +745,21 @@ export function writeMediaCache(
   const groupOf = groupScope(iface === null ? null : asText(iface));
   const kept = new Set<string>();
   let upserted = 0;
+  /** A key whose message was not observed yet: a row its observation will find by reference. */
+  const newCacheRow = (key: string): Row => {
+    const { ref, kinds } = cacheKeyParts(key);
+    const id = NEW_ID(iface, key);
+    db.prepare(
+      `INSERT OR IGNORE INTO media (id, kind, native_ref, availability, extra, scope_kind, scope_iface, scope_dm, audience_id, owner_key)
+       VALUES (?, ?, ?, 'unknown', '{}', ?, ?, ?, ?, ?)`
+    ).run(id, kinds?.[0] ?? 'image', ref, groupOf.scope_kind, groupOf.scope_iface, groupOf.scope_dm, null, owner);
+    return db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
+  };
   for (const [key, given] of Object.entries(value)) {
     const entry: Row =
       given !== null && typeof given === 'object' && !Array.isArray(given) ? (given as Row) : { $raw: given };
-    const { ref, kinds, watched } = cacheKeyParts(key);
-    let row = rowOfCacheKey(db, iface, key);
-    if (!row) {
-      const id = NEW_ID(iface, key);
-      db.prepare(
-        `INSERT OR IGNORE INTO media (id, kind, native_ref, availability, extra, scope_kind, scope_iface, scope_dm, audience_id, owner_key)
-         VALUES (?, ?, ?, 'unknown', '{}', ?, ?, ?, ?, ?)`
-      ).run(id, kinds?.[0] ?? 'image', ref, groupOf.scope_kind, groupOf.scope_iface, groupOf.scope_dm, null, owner);
-      row = db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
-    }
+    const { watched } = cacheKeyParts(key);
+    const row = rowOfCacheKey(db, iface, key) ?? newCacheRow(key);
     kept.add(String(row.id));
     const extra = parsedObject(row.extra);
     const entries = { ...((extra.cache as Row | undefined) ?? {}), [key]: entryRest(entry) };
@@ -800,7 +797,7 @@ const ITEM_EXTRA = ['textOrigin', 'frame', 'watched', 'cache'];
 /** What an item's row keeps across a write of its GIF library, added to the row the mapper made. */
 export function keepItemFields(db: Db, rows: ReadonlyArray<Row>): void {
   for (const row of rows) {
-    const held = db.prepare('SELECT extra FROM media WHERE id = ?').get(row.id as string);
+    const held = db.prepare('SELECT extra FROM media WHERE id = ?').get(row.id);
     if (!held) continue;
     const kept = parsedObject(held.extra);
     const fields = Object.fromEntries(ITEM_EXTRA.filter((key) => key in kept).map((key) => [key, kept[key]]));
@@ -897,17 +894,17 @@ export function writeEntryFiles(db: Db, entry: Row, files: ReadonlyArray<EntryFi
       ).run(
         id,
         kindOfFile(file.mime, file.extra),
-        (entry.id ?? null) as string | null,
+        entry.id ?? null,
         file.path,
         file.attachmentId,
         file.sha1,
         file.bytes,
         file.mime,
         JSON.stringify(extra),
-        (entry.scope_kind ?? null) as string | null,
-        iface as string | null,
-        (entry.scope_dm ?? null) as string | null,
-        (entry.audience_id ?? null) as string | null
+        entry.scope_kind ?? null,
+        iface,
+        entry.scope_dm ?? null,
+        entry.audience_id ?? null
       );
     }
     link.run('diary', entry.id, position, id);
@@ -1018,16 +1015,16 @@ export function applyMediaEmbed(connection: Connection, { rows }: Row): { writte
       ).run(
         item.id,
         vectorKey(item.id),
-        (row.model ?? null) as string | null,
-        row.dims as number,
-        row.scale as number,
-        row.norm as number,
+        row.model ?? null,
+        row.dims,
+        row.scale,
+        row.norm,
         Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-        (item.described_at ?? null) as string | null,
-        (item.scope_kind ?? null) as string | null,
-        (item.scope_iface ?? null) as string | null,
-        (item.scope_dm ?? null) as string | null,
-        (item.audience_id ?? null) as string | null
+        item.described_at ?? null,
+        item.scope_kind ?? null,
+        item.scope_iface ?? null,
+        item.scope_dm ?? null,
+        item.audience_id ?? null
       );
       written += 1;
     }
@@ -1066,7 +1063,7 @@ function visibleUses(
 ): { uses: number; messages: Array<MediaUse> } {
   const where = `FROM media_links l CROSS JOIN sources s ON s.id = l.owner_id
     WHERE l.media_id = ? AND l.owner_kind = 'source' AND ${CURRENT_SOURCE} AND ${filter.sql}`;
-  const uses = Number(db.prepare(`SELECT COUNT(*) AS n ${where}`).get(mediaId as string, ...filter.params)?.n ?? 0);
+  const uses = Number(db.prepare(`SELECT COUNT(*) AS n ${where}`).get(mediaId, ...filter.params)?.n ?? 0);
   if (uses === 0) return { uses: 0, messages: [] };
   const messages = db
     .prepare(
@@ -1286,6 +1283,7 @@ function durableDescriptions(db: Db): Map<string, { text: string; iface: unknown
 }
 
 /** The old rows as items by interface and reference, with the rows that name a message apart. */
+// health: allow complexity until 2027-04-01 -- one reading of every old row shape, run once by the migration
 function oldItems(db: Db): {
   items: Map<string, Held>;
   all: Array<Held>;
@@ -1385,7 +1383,7 @@ function oldItems(db: Db): {
           kind: kinds?.[0] ?? 'image',
           native_ref: ref,
           description: null,
-          availability: (row.availability as MediaState | undefined) ?? 'unknown',
+          availability: row.availability ?? 'unknown',
         },
         extra: {},
         frame: null,
@@ -1393,7 +1391,7 @@ function oldItems(db: Db): {
       };
       place(held, ref);
     }
-    held.extra = { ...held.extra, cache: { ...((held.extra.cache as Row | undefined) ?? {}), [key]: extra } };
+    held.extra = { ...held.extra, cache: { ...(held.extra.cache ?? {}), [key]: extra } };
     if (text !== null) {
       if (watched) held.watched = text;
       else held.frame = text;
@@ -1481,6 +1479,7 @@ function fillEntryOwner(held: ReadonlyArray<Held>): void {
  * that names its message; anything else is a bare placeholder, linked with no reference. A database that holds the store and no
  * `sources.media` is already there, and a run changes nothing.
  */
+// health: allow complexity until 2027-04-01 -- one forward step, read in order, run once
 export function migrateMediaStore(db: Db): MediaMigration {
   const report: MediaMigration = { items: 0, links: 0, told: 0, bare: 0, merged: 0, lines: 0 };
   const holdsStore = hasColumn(db, 'media', 'stems');

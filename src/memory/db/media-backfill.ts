@@ -300,6 +300,7 @@ function waitingOn(db: Db, sourceId: unknown): { told: number; queued: number } 
 }
 
 /** The run: see the head of this file. `dryRun` lists and counts, with no read and no write. */
+// health: allow complexity until 2027-04-01 -- the one loop of a run: list, read, match, write and describe, each a short step
 export async function backfillMedia({
   db,
   read,

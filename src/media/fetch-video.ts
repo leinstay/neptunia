@@ -323,6 +323,7 @@ export function proxyReachable(
  * @param deps.probeProxy The liveness check after a failed
  *   proxied run; proxyReachable by default.
  */
+// health: allow function-length until 2027-04-01 -- one factory over shared tools and temp handling
 export function createVideoFetcher(deps: VideoFetcherDeps = {}): VideoFetcher {
   const {
     spawnImpl = spawn,
