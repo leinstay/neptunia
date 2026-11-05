@@ -547,9 +547,32 @@ function writeDiary(db: Db, update: Row, at: string): Row {
   return { upserted, retired, posts: value.posts.length, destinations };
 }
 
+/**
+ * A vector row belongs to its month. A chunk key spells the partner's native id and no interface, so two DM places of one
+ * native id can spell the same key: a row whose key another unit holds takes `#<n>`, which still links to its line, and
+ * lands here instead of being refused as shared while the month's manifest counts it.
+ */
+function ownChunkKeys(db: Db, unit: Unit, rows: ReadonlyArray<Row>): void {
+  const column = hasStorageUnits(db) ? 'owner_key' : 'owner_file';
+  const holder = db.prepare(`SELECT ${column} AS owner FROM vectors WHERE chunk_key = ? AND retired_at IS NULL`);
+  const taken = new Set<string>();
+  for (const row of rows) {
+    const base = asText(row.chunk_key);
+    let key = base;
+    for (let n = 2; ; n += 1) {
+      const owner = holder.get(key)?.owner;
+      if (!taken.has(key) && (owner === undefined || owner === unit.full)) break;
+      key = `${base}#${n}`;
+    }
+    taken.add(key);
+    row.chunk_key = key;
+  }
+}
+
 /** A whole month of vectors (its rows linked to their lines, the rows it no longer holds retired). */
 function writeMonth(db: Db, unit: Unit, value: Row, at: string, iface: string): Row {
   const mapping = unit.mapper.toRows(unit.rel, value, { iface });
+  ownChunkKeys(db, unit, mapping.vectors ?? []);
   for (const row of mapping.vectors ?? []) row[hasStorageUnits(db) ? 'owner_key' : 'owner_file'] = unit.full;
   linkVectors(db, mapping.vectors ?? []);
   qualify(mapping, unit);
@@ -564,6 +587,7 @@ type MonthDelta = { manifest?: Row; meta?: unknown; i8?: ArrayLike<number> };
 /** Append mappings retain ownership and source links on the same writer transaction. */
 function writeVectorDelta(db: Db, unit: Unit, rows: Rows, at: string): Row {
   const current = hasStorageUnits(db);
+  ownChunkKeys(db, unit, rows.vectors ?? []);
   for (const row of rows.vectors ?? []) {
     if (current) delete row.owner_file;
     row[current ? 'owner_key' : 'owner_file'] = unit.full;
@@ -600,7 +624,12 @@ function writeVectors(db: Db, update: Row, at: string): Row {
       .map((row) => row.chunk_key as string);
     // `appendRows` is the vectors mapper's: this write is for that kind alone (`unitOf` above checked it).
     const rows = previous
-      ? unit.mapper.appendRows!(unit.rel, delta as never, { previous: previous as never, keys, iface: ifaceOf(update) })
+      ? unit.mapper.appendRows!(unit.rel, delta as never, {
+          previous: previous as never,
+          keys,
+          // A keyed unit's mapper answers with the interface of its own subject.
+          ...(unit.key ? {} : { iface: ifaceOf(update) }),
+        })
       : null;
     if (rows) {
       done = writeVectorDelta(db, unit, rows, at);

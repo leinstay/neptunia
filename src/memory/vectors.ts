@@ -6,15 +6,14 @@
 // `occurredAt`, `places/<g>/vectors/<YYYY-MM>` (a private chat's rows under
 // `private/<accountId>/vectors/` instead, never in the place index), holding what the three files of a
 // month held: the manifest `{ v, gen, rows, bytes, metaBytes, model, dims, checksum }`, the int8 rows
-// (`dims` bytes each) and one jsonl line per row (its provenance, scale and norm). Readers trust the
+// (`dims` bytes each) and one jsonl line per row (its provenance, scale and norm). Search trusts the
 // manifest only. `rewrite` writes a new generation whole. Every row is quantised with its own scale
 // (max abs / 127) and keeps the norm of the original vector, so a cosine is the int8 dot product
 // times the scale over both norms. Writers (append, rewrite, replace) wait on the writer gate.
 //
 // `has` answers which messages and items a month already holds (the live queue's catch-up and
-// the index tool's append of what is missing): the `chunkKey` of every row, read from the jsonl
-// alone and kept per month while its manifest says the generation and the row count are the same
-// (a grown month reads only its new lines, a new generation is read whole).
+// the index tool's append of what is missing): the `chunkKey` of every row the database holds, kept per
+// month while its manifest says the generation and the row count are the same.
 //
 // `append` sends the month's new rows (the new manifest, the jsonl lines and their int8 bytes, the checksum
 // continued from the stored manifest) and `rewrite` / `replace` the month's next generation whole, through
@@ -709,8 +708,12 @@ export function createVectors({
     return { months: count, rows, bytes };
   }
 
-  /** The row keys of one month: the cached set, or read whole. */
-  function keysOf(base: Untyped, month: string, retried: Untyped, db: Untyped) {
+  /**
+   * The row keys of one month: the cached set, or read whole from the rows the database holds. The manifest only says
+   * when the set is current, so a manifest that disagrees with its rows, which search refuses, still answers here and
+   * nothing the month holds is embedded again.
+   */
+  function keysOf(base: Untyped, month: string, db: Untyped) {
     const key = `${base}|${month}`;
     const dir = monthDir(base, month);
     const manifest = readManifest(dir, db);
@@ -724,21 +727,8 @@ export function createVectors({
       keySets.set(key, held);
       return held.keys;
     }
-    let buf;
-    try {
-      buf = readBytes(genFile(dir, manifest.gen, 'jsonl'), 0, manifest.metaBytes, db);
-    } catch (error) {
-      // A rewrite switched the generation between the manifest and the rows: read it again.
-      if (propOf(error, 'code') === 'ENOENT' && !retried) return keysOf(base, month, true, db);
-      if (propOf(error, 'code') === 'ENOENT' || propOf(error, 'code') === 'vectors-short') {
-        log.warn('vectors: month unreadable', { month, code: propOf(error, 'code') });
-        keySets.delete(key);
-        return new Set();
-      }
-      throw error;
-    }
     const keys = new Set();
-    for (const meta of parseLines(buf)) if (meta) keys.add(chunkKey(meta));
+    for (const meta of parseLines(rebuiltMonth(db, dir)?.meta ?? '')) if (meta) keys.add(chunkKey(meta));
     keySets.delete(key);
     keySets.set(key, { gen: manifest.gen, rows: manifest.rows, metaBytes: manifest.metaBytes, keys });
     while (keySets.size > KEY_SETS_MAX) keySets.delete(keySets.keys().next().value);
@@ -747,7 +737,7 @@ export function createVectors({
 
   async function has(placeId: string, month: string) {
     if (!MONTH_RE.test(String(month))) throw new TypeError('vectors: month must be YYYY-MM');
-    return keysOf(baseDir(placeId), String(month), false, seam.db());
+    return keysOf(baseDir(placeId), String(month), seam.db());
   }
 
   return { append, rewrite, replace, search, stats, has };
