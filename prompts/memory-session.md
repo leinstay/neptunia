@@ -117,6 +117,8 @@ Flags that a description needs a rewrite. The rewrite happens in a separate step
 
 Propose that an author become a tracked person. An author handle (`a1`, `a2`, …) appears in batch lines before the name for authors who are not yet a person. An account that spoke with you on two separate days, wrote to you privately, or that you want to remember, may be worth tracking. Most batches add none.
 
+Your own accounts and the owner's command line already belong to known people, so they carry no handle and are never proposed.
+
 `subject`: the author handle from the batch. `reason`: why this account should be tracked; an add without a reason is not recorded. `sources`: the `#n` lines.
 
 Two accounts that share a name are still separate people until the batch itself shows they are one. A name match alone never merges them.

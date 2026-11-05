@@ -121,7 +121,7 @@ import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
 import { loadPrincipals, principalOfToken } from './interface/principals.ts';
 import { claimCore } from './memory/db/open.ts';
-import { useOwnerAccounts } from './tools/impl/grants.ts';
+import { ownerNativesOf, ownerPersonOf, useOwnerAccounts } from './tools/impl/grants.ts';
 import { readLocalConfig, setPath, writeLocalConfig } from './tools/impl/shared.ts';
 import { moveConfigKeys } from './config-moves.ts';
 import { createIngestRecord } from './memory/db/ingest.ts';
@@ -1225,6 +1225,13 @@ async function buildCore(
     missed,
     // Every observed message goes to the memory database as an observation: the record of the line.
     memoryDb,
+    // The owner's command line belongs to `bot.ownerPerson`, minted with its first line on a raw install.
+    ownerPerson: {
+      current: () => ownerPersonOf(settings.config),
+      listed: () =>
+        identity.iface ? ownerNativesOf(settings.config).map((native) => ({ iface: identity.iface, native })) : [],
+      adopt: (person: string) => writeLocalSetting(['bot', 'ownerPerson'], person),
+    },
     // The limit and pause notices go out through the interface like any other effect.
     port: iface,
   });
