@@ -2,7 +2,8 @@
 // their aliases, and the auto-triage entries of the settings. src/board/board.ts calls them; each refusal is a
 // BoardError 'invalid' that names the field.
 
-import { BoardError } from './machine.ts';
+import { BoardError, OPEN } from './machine.ts';
+import type { BoardDb } from './schema.ts';
 
 export type SqlValue = string | number | null;
 export type Args = Readonly<Record<string, unknown>>;
@@ -199,4 +200,21 @@ export function normalizeAutoTriage(entry: unknown, where: string): TriageFields
 export function text(value: unknown): string {
   if (typeof value === 'string') return value;
   return value === undefined ? 'undefined' : JSON.stringify(value);
+}
+
+/** A title as a person reads it: case and spacing make no other task. */
+const titleKey = (title: string): string => title.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/**
+ * Refuses a filing (`task.add` with `unique_open_title`) when `requester` has an open task of the same title: a
+ * BoardError 'duplicate' whose message is that task's id. Inside the operation's transaction, after its idempotency
+ * check, so a restarted filing still answers with its own task.
+ */
+export function refuseOpenTwin(db: BoardDb, requester: string, title: string): void {
+  const marks = OPEN.map(() => '?').join(', ');
+  const rows = db
+    .prepare(`SELECT id, title FROM board_tasks WHERE requester = ? AND status IN (${marks})`)
+    .all(requester, ...OPEN);
+  const twin = rows.find((row) => titleKey(String(row.title)) === titleKey(title));
+  if (twin !== undefined) throw new BoardError('duplicate', String(twin.id));
 }

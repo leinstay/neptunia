@@ -4,12 +4,14 @@
 // (closeAttempt), and what runTurn hears of the attempt (attemptReport). runTurnOnce (src/behavior/turn.ts) calls
 // them all.
 
-import { turnBoundary } from '../../tools/publication.ts';
+import { audienceChoice, turnBoundary } from '../../tools/publication.ts';
 import { recordEntry } from '../../behavior/diary-turn.ts';
+import { NO_PLACES, publicationPlaces, readMirrors } from '../../behavior/mirror.ts';
 import { limitOf } from '../../behavior/limits.ts';
 import { DailyCapError, TokenLimitError, errorCodeOf, railReason } from '../../llm/openrouter.ts';
 import { log } from '../../log.ts';
 import { skillUsesOfTurn } from '../../skills/uses.ts';
+import type { AudienceChoice } from '../../tools/publication.ts';
 import type { HeldSpeech } from '../act.ts';
 import type { Draft } from '../draft.ts';
 import { untoldDiagnostics } from '../journal.ts';
@@ -18,6 +20,13 @@ import { TOO_SLOW } from '../timers.ts';
 import type { AttemptResult, PhaseContext, PhaseParams } from './context.ts';
 import type { Opened } from './preflight.ts';
 import type { Rounded } from './tool-round.ts';
+
+/** What her `<audience>` tags came to, over the places memory knows now. A refused one is logged by its code. */
+function audienceOfTurn(store: unknown, draft: Draft): AudienceChoice {
+  const choice = audienceChoice(draft.diaryAudience ?? [], readMirrors(store, publicationPlaces, NO_PLACES));
+  if (!choice.ok) log.warn('diary: audience refused', { code: choice.code });
+  return choice;
+}
 
 export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, rounded: Rounded): AttemptResult {
   const { hot, store, noteSpokeSaw, stampShownCalls, recordSkillUses } = ctx;
@@ -49,6 +58,7 @@ export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draf
       ? {
           diary: recordEntry({
             publicationBoundary: turnBoundary(draft, ctx.conversationOf(channel)),
+            audience: audienceOfTurn(store, draft),
             store,
             config: hot.config,
             guildId,

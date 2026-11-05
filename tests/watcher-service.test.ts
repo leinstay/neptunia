@@ -260,7 +260,7 @@ test('the unit gives a run longer than its timeout, and neither unit calls a ret
   const service = fs.readFileSync(path.join(REPO, 'deploy', 'neptunia-watcher.service'), 'utf8');
   const timer = fs.readFileSync(path.join(REPO, 'deploy', 'neptunia-watcher.timer'), 'utf8');
   const limit = /^TimeoutStartSec=(\d+)(s|min|h)?$/m.exec(service);
-  assert.ok(limit !== null, 'TimeoutStartSec is a finite number');
+  if (limit === null) assert.fail('TimeoutStartSec is a finite number');
   const scale = { s: 1, min: 60, h: 3600 }[limit[2] ?? 's'] ?? 1;
   assert.ok(Number(limit[1]) * scale * 1000 > WATCHER_RUN_TIMEOUT_MS);
   const starts = service.split('\n').filter((line) => /^Exec/.test(line));

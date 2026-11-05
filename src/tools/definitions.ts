@@ -240,6 +240,10 @@ export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'errand.resolve': 'errand_resolve',
   'board.propose': 'board_propose',
   'board.status': 'board_status',
+  'board.cancel': 'board_cancel',
+  'board.comment': 'board_comment',
+  'board.answer': 'board_answer',
+  'board.unblock': 'board_unblock',
   'skill.read': 'skill_read',
   'skill.disable': 'skill_disable',
   'skill.run': 'skill_run',
@@ -691,6 +695,29 @@ const ENTRIES: Array<Definition> = [
     }),
   }),
   def('board.status', { params: EMPTY(), effects: 'read', toArgs: none }),
+  def('board.cancel', {
+    params: obj({ id: str(), reason: str(600) }, ['id', 'reason']),
+    effects: 'write',
+    toArgs: (a) => ({ id: val(a, 'id'), reason: val(a, 'reason') }),
+  }),
+  def('board.comment', {
+    params: obj({ id: str(), text: str(2000) }, ['id', 'text']),
+    body: 'text',
+    effects: 'write',
+    toArgs: (a) => ({ id: val(a, 'id'), text: val(a, 'text') }),
+  }),
+  def('board.answer', {
+    params: obj({ id: str(), text: str(2000) }, ['id', 'text']),
+    body: 'text',
+    effects: 'write',
+    toArgs: (a) => ({ id: val(a, 'id'), text: val(a, 'text') }),
+  }),
+  def('board.unblock', {
+    params: obj({ id: str(), note: str(2000) }, ['id', 'note']),
+    body: 'note',
+    effects: 'write',
+    toArgs: (a) => ({ id: val(a, 'id'), note: val(a, 'note') }),
+  }),
   def('skill.read', {
     params: obj({ name: str(60) }, ['name']),
     body: 'name',
@@ -709,9 +736,9 @@ const ENTRIES: Array<Definition> = [
     toArgs: (a) => ({ name: val(a, 'name') }),
   }),
   def('watcher.read', {
-    params: obj({ day: str(10) }),
+    params: obj({ day: str(10), run: str(80) }),
     effects: 'read',
-    toArgs: (a) => ({ day: opt(a, 'day') }),
+    toArgs: (a) => ({ day: opt(a, 'day'), run: opt(a, 'run') }),
   }),
   def('intention.set', {
     params: INTENT_PARAMS.set,

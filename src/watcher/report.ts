@@ -1,12 +1,11 @@
 // The watcher's report: the check a text must pass (the seven headings in order, a line under each, no key or token
-// anywhere), the write of `<day>.md` that happens only when the text passes, and the lines of the tasks the engine
-// filed under "Tasks filed". src/watcher/run.ts calls all three. A refusal's detail never holds the text that caused
-// it, so a planted key is copied nowhere.
+// anywhere), the commit that happens only when the text passes, and the lines of the tasks the engine filed under "Tasks
+// filed". src/watcher/inspection.ts calls all three. A refusal's detail never holds the text that caused it, so a planted
+// key is copied nowhere.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { isDay } from './read.ts';
-import type { Filed } from './tasks.ts';
+import { VERSIONS_DIR, isDay, versionFileOf } from './read.ts';
 
 export const REPORT_HEADINGS = [
   'Her day',
@@ -94,28 +93,45 @@ export function checkReport(text: string): ReportCheck {
 }
 
 /**
- * Writes `<reportsDir>/<day>.md` (the folder is made when missing) only when the text passes `checkReport`; a day that
- * is no date is refused. The file appears whole or not at all.
+ * Commits the report of one run: its immutable file in `runs/`, then `<day>.md` swapped atomically to link to it, so a day
+ * reader sees the old report or the new one and never a part. A plain `<day>.md` from before versions stays readable
+ * under the identity `legacy-<day>`. Only a text that passes `checkReport` is committed.
  */
-export function writeReport(reportsDir: string, day: string, text: string): ReportCheck & { path?: string } {
+export function commitReport(input: {
+  reportsDir: string;
+  day: string;
+  runId: string;
+  at: number;
+  text: string;
+}): ReportCheck & { path?: string } {
+  const { reportsDir, day, runId, at, text } = input;
   if (!isDay(day)) return { ok: false, code: 'invalid-day', detail: 'the day is not a date' };
   const checked = checkReport(text);
   if (!checked.ok) return checked;
-  fs.mkdirSync(reportsDir, { recursive: true });
-  const file = path.join(reportsDir, `${day}.md`);
+  const versions = path.join(reportsDir, VERSIONS_DIR);
+  fs.mkdirSync(versions, { recursive: true });
+  const name = versionFileOf(day, at, runId);
+  const file = path.join(versions, name);
   fs.writeFileSync(`${file}.tmp`, text);
   fs.renameSync(`${file}.tmp`, file);
+  const view = path.join(reportsDir, `${day}.md`);
+  if (fs.lstatSync(view, { throwIfNoEntry: false })?.isFile() === true) {
+    fs.linkSync(view, path.join(versions, versionFileOf(day, 0, `legacy-${day}`)));
+  }
+  fs.rmSync(`${view}.tmp`, { force: true });
+  fs.symlinkSync(path.join(VERSIONS_DIR, name), `${view}.tmp`);
+  fs.renameSync(`${view}.tmp`, view);
   return { ok: true, path: file };
 }
 
 const NOTHING = /^nothing found\.?$/i;
 
 /**
- * One line per filed task right under the "Tasks filed" heading, before the agent's own text. A section that says only
- * "nothing found" gives that line up, since tasks were filed. No tasks leave the text as it was.
+ * The engine's lines right under the "Tasks filed" heading, before the agent's own text. A section that says only "nothing
+ * found" gives that line up, since there is something to say. No lines leave the text as it was.
  */
-export function insertFiled(text: string, filed: ReadonlyArray<Filed>): string {
-  if (filed.length === 0) return text;
+export function insertFilingLines(text: string, added: ReadonlyArray<string>): string {
+  if (added.length === 0) return text;
   const lines = text.split('\n');
   const at = lines.findIndex((line) => /^##\s+Tasks filed\s*$/.test(line));
   if (at === -1) return text;
@@ -124,7 +140,6 @@ export function insertFiled(text: string, filed: ReadonlyArray<Filed>): string {
   const body = lines.slice(at + 1, end);
   const own = body.map((line) => line.trim()).filter((line) => line !== '');
   const kept = own.length === 1 && NOTHING.test(own[0] ?? '') ? [] : body;
-  const added = filed.map((one) => `- ${one.id} (${one.kind}): ${one.title.replace(/\s+/g, ' ').trim()}`);
   const tail = kept.length === 0 || (kept[0] ?? '').trim() !== '' ? ['', ...kept] : kept;
   return [...lines.slice(0, at + 1), '', ...added, ...tail, ...lines.slice(end)].join('\n');
 }

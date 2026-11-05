@@ -15,7 +15,7 @@
 //
 //   preparePublication(handle, { context, rowKind, rowId, rendered, destination, producedIn, idempotencyKey?, pending?, now? })
 //       refuses with a code and writes nothing when the context is not outward (`not-outward`), its destination is not
-//       the publication's (`destination-mismatch`), or the text was produced elsewhere (an internal context, or an
+//       the publication's (`destination-mismatch`), a diary row refuses the place (storedDiaryPublicationRefusal), or the text was produced elsewhere (an internal context, or an
 //       outward context of another destination) and no grant binds its hash to this destination (`no-grant`).
 //       Otherwise writes one `queued` row. The idempotency key (by default `<row kind>:<row id>:<destination>`) is
 //       unique: a second call with the same key returns the first row (`reused: true`) and writes nothing, so a crash
@@ -40,6 +40,7 @@ import { ownershipRow, hasStorageUnits, ownershipSql } from './storage-units.ts'
 
 import { diaryMetadataOf, diaryPublicationRefusal } from '../../tools/publication.ts';
 
+import { audienceRefusal } from './diary-audience.ts';
 import { legacyNativeKind, nativeAuthorityOf } from './ids.ts';
 import { contextRow } from './scope.ts';
 import { projectRow } from './graph.ts';
@@ -122,18 +123,24 @@ export function grantFor(
   );
 }
 
-/** The saved diary restriction applies independently of caller metadata or publication grants. */
+/**
+ * What the stored row says against sending a diary entry to a place, whatever a caller carries and whatever grant
+ * exists: its saved restriction (`not-allowed`), then the audience she chose or what an old row reads as
+ * (`audience-excluded`, `audience-invalid`, diary-audience.ts). Null when it may go.
+ */
 export function storedDiaryPublicationRefusal(handle: Connection, rowId: unknown, destination: unknown): string | null {
   const db = dbOf(handle);
-  const row = db.prepare('SELECT extra FROM diary WHERE id = ?').get(String(rowId));
+  const row = db.prepare('SELECT extra, scope_kind, scope_iface FROM diary WHERE id = ?').get(String(rowId));
   const boundary = diaryMetadataOf(row?.extra).publicationBoundary;
-  if (boundary === undefined) return null;
-  const place = db.prepare('SELECT iface, native_id FROM places WHERE id = ?').get(String(destination));
-  const refusal = diaryPublicationRefusal(boundary, {
-    iface: typeof place?.iface === 'string' ? place.iface : '',
-    conversationId: typeof place?.native_id === 'string' ? place.native_id : '',
-  });
-  return refusal?.code ?? null;
+  if (boundary !== undefined) {
+    const place = db.prepare('SELECT iface, native_id FROM places WHERE id = ?').get(String(destination));
+    const refusal = diaryPublicationRefusal(boundary, {
+      iface: typeof place?.iface === 'string' ? place.iface : '',
+      conversationId: typeof place?.native_id === 'string' ? place.native_id : '',
+    });
+    if (refusal) return refusal.code;
+  }
+  return audienceRefusal(db, row, String(destination));
 }
 
 /**

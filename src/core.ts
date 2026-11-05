@@ -120,7 +120,6 @@ import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions } from './tools/registry.ts';
 import { grantedSkillNames } from './tools/discovery.ts';
-import { ackLanded, landedFor } from './selfimprovement/landed.ts';
 import { wireSkills } from './skills/wiring.ts';
 import { createReportReader, reportsDirOf, watcherDir } from './watcher/read.ts';
 import { watcherNews } from './watcher/news.ts';
@@ -1026,13 +1025,14 @@ async function buildCore(
     // do-not-disturb state (owner, 2026-10-20: she must not read those markers).
     heartbeat: {
       tasks: (guildId) => taskStores.get(guildId)?.recent(100),
-      skills: () => grantedSkillNames({ config: hot.config, selfId: identity.selfId, registry: skillRegistry() }),
+      // Filing and answering tasks belongs to the selfimprovement wake, so the heartbeat's list leaves the board out.
+      skills: () =>
+        grantedSkillNames({ config: hot.config, selfId: identity.selfId, registry: skillRegistry() }).filter(
+          (name) => !name.startsWith('board.')
+        ),
       agents: () => Object.keys(loadProfiles(agentPaths)),
       selfId: () => identity.selfId,
       focusPeople: () => memoryDb.focusPeople({ iface: identity.iface }),
-      // The fixes of her own code that merged (src/selfimprovement/landed.ts), told once.
-      landed: async () => (await landedFor(board)).landed,
-      ackLanded: (seqs) => ackLanded(board, seqs),
     },
     // The selfimprovement wake's facts beyond the journal (src/behavior/selfimprovement-view.ts): her grants, her
     // skills with their use counts, her proposals and her outbox rows on the board, and the watcher's newest report.

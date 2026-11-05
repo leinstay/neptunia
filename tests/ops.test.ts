@@ -29,6 +29,11 @@ const DISCORD = createDiscordInterface().capabilities;
 const AGREED = new Set([
   'board.propose',
   'board.status',
+  // Her answers on a waiting task, from the selfimprovement wake.
+  'board.cancel',
+  'board.comment',
+  'board.answer',
+  'board.unblock',
   'skill.read',
   'skill.disable',
   'skill.run',

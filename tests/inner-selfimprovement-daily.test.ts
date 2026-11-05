@@ -217,7 +217,11 @@ test('the next day the wake comes again at the hour', async () => {
 
 test("the wake's facts carry the watcher report the source gives for the wake's time", async () => {
   // Catches: the report is read but never put into the facts, or read with the tick's clock instead of the wake's.
-  const news: WatcherNews = { day: '2026-11-02', forOwner: 'Look at the retries.', tasksFiled: '- T3 fix: retries' };
+  const news: WatcherNews = {
+    day: '2026-11-02',
+    runId: 'run-1',
+    findings: [{ title: 'Retries', state: 'filed', taskId: 'T3' }],
+  };
   const asked: Array<number> = [];
   const run = setup(SLOT - HOUR, (now) => (asked.push(now), news));
   await run.life.tick();

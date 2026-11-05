@@ -233,13 +233,14 @@ test('createHot: a data/prompts file replaces the base file of the same name', (
   }
 });
 
-test('createHot: a local selfdev.md, the brief under its older name, loads as selfimprovement', () => {
-  const dir = makeRoot({ prompts: { selfimprovement: 'base brief' } });
+// The executor's brief moved to executor-brief.md; selfimprovement.md is the wake addressed to her.
+test('createHot: a local selfdev.md, the brief under its older name, loads as executor-brief', () => {
+  const dir = makeRoot({ prompts: { 'executor-brief': 'base brief' } });
   writeLocalPrompt(dir, 'selfdev', 'local brief');
   const hot = createHot({ rootDir: dir });
   try {
-    assert.equal(hot.prompts.selfimprovement, 'local brief');
-    assert.equal(hot.promptSources.selfimprovement, 'local');
+    assert.equal(hot.prompts['executor-brief'], 'local brief');
+    assert.equal(hot.promptSources['executor-brief'], 'local');
     assert.equal(Object.hasOwn(hot.prompts, 'selfdev'), false);
   } finally {
     hot.close();
@@ -247,13 +248,13 @@ test('createHot: a local selfdev.md, the brief under its older name, loads as se
   }
 });
 
-test('createHot: a local selfimprovement.md wins over a local selfdev.md', () => {
-  const dir = makeRoot({ prompts: { selfimprovement: 'base brief' } });
+test('createHot: a local executor-brief.md wins over a local selfdev.md', () => {
+  const dir = makeRoot({ prompts: { 'executor-brief': 'base brief' } });
   writeLocalPrompt(dir, 'selfdev', 'older brief');
-  writeLocalPrompt(dir, 'selfimprovement', 'newer brief');
+  writeLocalPrompt(dir, 'executor-brief', 'newer brief');
   const hot = createHot({ rootDir: dir });
   try {
-    assert.equal(hot.prompts.selfimprovement, 'newer brief');
+    assert.equal(hot.prompts['executor-brief'], 'newer brief');
   } finally {
     hot.close();
     fs.rmSync(dir, { recursive: true, force: true });

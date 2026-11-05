@@ -11,7 +11,7 @@
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
 //   neptunia service <name> setup|enable|disable|status   one of the four scheduled mechanics (src/service/commands.ts)
-//   neptunia service watcher trigger|cancel|report [<day>]   the operations of one watcher run
+//   neptunia service watcher trigger|cancel|report [<day or run>]   the operations of one watcher run
 //   neptunia service start|stop|restart|status [<unit> ...]   the units, through the scope's systemctl
 //   neptunia setup [--system] [--node <path>] [<step>]  the install of one user: folders, keys file, her subharness
 //                                                backends, the repository of her self-development, her mechanics,
@@ -45,15 +45,12 @@
 // itself and exits 2 unless `NEPTUNIA_PLAIN_CHAT=1` asks for the chat over the pipes. Log lines go to stderr.
 //
 // `worker` names what a unit starts, and the usage leaves it out: `worker watcher` (deploy/neptunia-watcher.service) ends
-// at once while `watcher.enabled` is false, and otherwise reads the watcher's folder (`watcher.dir`, default `.agents/watcher`: `prompt.md` and `reports/`), asks
-// the watcher agent once (src/watcher/run.ts) and writes `reports/<UTC date>.md`. It files the tasks the agent asks for
-// on the board over the core's socket as the client `NEPTUNIA_TASK_CLIENT` (default `watcher`, whose token is
-// `NEPTUNIA_TASK_TOKEN` or `<private>/clients/watcher.token`). It exits 0 for a report written or already there, and 1
-// for a run that failed, with the code on stderr.
+// at once while `watcher.enabled` is false, and otherwise runs one inspection under one run identity
+// (bin/neptunia-watcher.ts, docs/watcher.md).
 //
-// `worker selfimprovement` (deploy/neptunia-selfimprovement.service) runs one beat of her self-development (bin/selfimprovement.ts, docs/selfimprovement.md) as the client `selfimprovement`: her fix
-// proposals are taken, each approved one is patched in a worktree and opened as a pull request, and the open ones are
-// looked at. It exits 0 for a beat that ran and 1 when the board is not reachable.
+// `worker development` (deploy/neptunia-development.service) is the long-lived development worker (bin/development.ts,
+// docs/selfimprovement.md) as the client `development`: a filed task starts a thinker, and a finished one a pull request.
+// `worker development held` lists the tasks older than its boundary. It exits 1 when the board is not reachable.
 //
 // `doctor` writes nothing and asks the core nothing without `--live`: it checks Node, the binaries the engine runs, config.json and
 // config.local.json, the local layer, the key store's keys of the enabled roles, the client tokens, the features (the
@@ -91,7 +88,7 @@ import { interfacePackageDir } from '../src/config/files.ts';
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
 import { createAgentEngine, createInstalledBackend } from '../src/agent-runner/backend.ts';
-import { BACKEND_NAMES, agentSettings, profileOf, listAgents, promptFilesOf } from '../src/agent-runner/profiles.ts';
+import { BACKEND_NAMES, agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
 import type { BackendName } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
@@ -106,7 +103,7 @@ import type { LoginCommand } from '../src/subharness/place.ts';
 import { SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { SetupReport } from '../src/setup/run.ts';
 import { featureRows } from '../src/subharness/summary.ts';
-import { defaultDenyDir, runAgent } from '../src/subharness/run.ts';
+import { defaultDenyDir } from '../src/subharness/run.ts';
 import { ROOT_DIR, deepMerge, readConfig, resolveEnvRefs } from '../src/config.ts';
 import { moveConfigKeys } from '../src/config-moves.ts';
 import { checkConfig as checkSettings } from '../src/config/check.ts';
@@ -141,8 +138,9 @@ import type {
 } from '../src/protocol/adapter.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
-import { runSelfimprovement } from './selfimprovement.ts';
-import { runTask, openBoardCaller } from './neptunia-task.ts';
+import { runDevelopment } from './development.ts';
+import { runTask } from './neptunia-task.ts';
+import { runWatcherWorker } from './neptunia-watcher.ts';
 import {
   askSetup,
   isServiceRequest,
@@ -164,10 +162,6 @@ import {
 import type { Request } from './neptunia-request.ts';
 import { createAnswers, mutableOutput } from './secret-prompt.ts';
 import type { Answers } from './secret-prompt.ts';
-import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
-import { watcherSettings } from '../src/watcher/settings.ts';
-import { runWatcher } from '../src/watcher/run.ts';
-import type { RunAgent } from '../src/watcher/run.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';
 import { MAX_FRAME_BYTES, connectSocket } from '../src/protocol/wire.ts';
 import type { Transport } from '../src/protocol/wire.ts';
@@ -181,7 +175,7 @@ const USAGE = [
   '       neptunia errand-runner --profile <name>',
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia service <name> setup|enable|disable|status   (heartbeat, selfreflection, selfimprovement, watcher)',
-  '       neptunia service watcher trigger|cancel|report [<day>]',
+  '       neptunia service watcher trigger|cancel|report [<day or run>]',
   '       neptunia service start|stop|restart|status [<unit> ...]',
   '       neptunia setup [--system] [--node <path>] [folders|keys-file|interfaces|services|subharness|units|linger|core]',
   '       neptunia setup subharness codex|claude|opencode [--from <path>] [--version <version>] [--rollback]',
@@ -586,17 +580,6 @@ const checkLines = (checks: ReadonlyArray<Check>): string =>
   checks
     .map((check) => `${check.status.padEnd(7)}  ${check.name.padEnd(11)}  ${check.detail.replaceAll('\n', '; ')}`)
     .join('\n');
-
-/** The watcher's reports folder: `watcher.dir` of the settings as this user can read them, else the default. */
-function reportsDirIn(where: { rootDir: string; privateDir: string }): string {
-  let config: unknown = {};
-  try {
-    config = readConfig(where.rootDir, { privateDir: where.privateDir });
-  } catch {
-    // Settings this user cannot read: the default folder under the checkout.
-  }
-  return reportsDirOf(where.privateDir, watcherDir(config));
-}
 
 /** A command the command line runs itself; `ask` reaches the core for the probes of `doctor.live`, null when down. */
 async function runLocal(command: Command, ask: ((command: Command) => Promise<Answer>) | null): Promise<Answer> {
@@ -1661,59 +1644,6 @@ async function runInterface(argv: ReadonlyArray<string>): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// watcher
-
-/** How long one watcher run may take before its process group is killed (ms). */
-const WATCHER_TIMEOUT_MS = 60 * 60 * 1000;
-
-/** The watcher's agent: the subharness's backend, in the mode of `watcher`, working in the checkout. */
-function watcherAgent(where: { rootDir: string; privateDir: string }): RunAgent {
-  return async (_profile, brief) => {
-    const done = await runAgent(
-      { agent: 'watcher', brief, cwd: where.rootDir, timeoutMs: WATCHER_TIMEOUT_MS },
-      { privateDir: where.privateDir, denyDir: defaultDenyDir() }
-    );
-    return { ok: done.ok, text: done.text, exitCode: done.exitCode ?? -1 };
-  };
-}
-
-/** The watcher's worker: a start while the flag is off runs nothing, so a timer a failed `disable` left on goes quiet. */
-async function runWatcherWorker(): Promise<void> {
-  const where = paths();
-  if (!watcherSettings(readConfig(where.rootDir, { privateDir: where.privateDir })).enabled) {
-    console.log('watcher: off (watcher.enabled is false)');
-    return;
-  }
-  const reportsDir = reportsDirIn(where);
-  const agentPaths = { rootDir: where.rootDir, dataDir: where.dataDir, env: process.env };
-  const definition = listAgents(agentPaths).find((agent) => agent.kind === 'watcher');
-  if (!definition) die('the watcher definition is unavailable');
-  const promptFiles = promptFilesOf(definition.id, { ...agentPaths, prompt: definition.prompt });
-  const opened = await openBoardCaller({
-    ...process.env,
-    NEPTUNIA_TASK_CLIENT: process.env.NEPTUNIA_TASK_CLIENT || 'watcher',
-  });
-  if (typeof opened === 'string') die(`the board is not reachable: ${opened}`);
-  try {
-    const result = await runWatcher({
-      now: Date.now,
-      runAgent: watcherAgent(where),
-      promptFiles,
-      board: opened.board,
-      reportsDir,
-    });
-    if (!result.ok) die(`the watcher run of ${result.day} failed: ${result.code}, ${result.detail}`);
-    console.log(
-      result.ran
-        ? `watcher: report of ${result.day} written, ${result.filed.length} tasks filed`
-        : `watcher: report of ${result.day} already there`
-    );
-  } finally {
-    opened.close();
-  }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
 
 const [group, ...rest] = process.argv.slice(2);
 const fault = (err: unknown): never => die(err instanceof Error ? err.message : String(err));
@@ -1757,11 +1687,10 @@ switch (group) {
     process.exit(await runTask(rest).catch(fault));
     break;
   case 'worker':
-    if (rest.length !== 1) usage();
-    if (rest[0] === 'selfimprovement') process.exit(await runSelfimprovement(['run']).catch(fault));
-    if (rest[0] !== 'watcher') usage();
-    await runWatcherWorker().catch(fault);
-    process.exit(0);
+    if (rest[0] === 'development' && (rest.length === 1 || (rest.length === 2 && rest[1] === 'held')))
+      process.exit(await runDevelopment(rest.slice(1)).catch(fault));
+    if (rest.length !== 1 || rest[0] !== 'watcher') usage();
+    process.exit(await runWatcherWorker(paths()).catch(fault));
     break;
   default:
     logToStderr();

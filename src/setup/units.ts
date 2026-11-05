@@ -8,7 +8,8 @@
 // paths), and `sudo` drops in addition what would stop `sudo` (`NoNewPrivileges` and the capability bounding set).
 //
 // A subharness backend lives in `<private>/subharness/<backend>/` (src/subharness/place.ts), binary and home. The core
-// writes it through the private folder of its `ReadWritePaths=`, and the watcher has no mount sandbox. An agent unit in
+// writes it through the private folder of its `ReadWritePaths=`, and the watcher's unit names the whole `subharness/`
+// folder in its own. An agent unit in
 // `read` or `write` hides the home (`ProtectHome=tmpfs`) and sees the private folder read-only, so the folder of every
 // backend connected in keys.json or installed there is bound writable into it, and nothing above it: keys.json stays out of the agent's
 // reach.
@@ -34,13 +35,10 @@ export const UNIT_FILES: ReadonlyArray<string> = [
 ];
 
 /**
- * The selfimprovement beat's units: rendered over the dev checkout `selfimprovement.checkout` names, never over the deployed one, so
- * they are a list of their own (src/setup/run.ts).
+ * The development worker's unit: rendered over the dev checkout `selfimprovement.checkout` names, never over the deployed
+ * one, so it is a list of its own (src/setup/run.ts). Setup writes it and never enables it; that is the owner's step.
  */
-export const SELFIMPROVEMENT_UNIT_FILES: ReadonlyArray<string> = [
-  'neptunia-selfimprovement.service',
-  'neptunia-selfimprovement.timer',
-];
+export const DEVELOPMENT_UNIT_FILES: ReadonlyArray<string> = ['neptunia-development.service'];
 
 /** The `Unit=` line of the watcher's timer. */
 const WATCHER_TIMER = /^Unit=neptunia-watcher\.service$/m;

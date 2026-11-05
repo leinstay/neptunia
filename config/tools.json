@@ -339,6 +339,42 @@
     "title": "Check your proposals",
     "whenToUse": "Your proposals with their state, the questions put to you and the reviews."
   },
+  "board.cancel": {
+    "title": "Cancel a task of yours",
+    "whenToUse": "You filed this task and no longer want it built.",
+    "whenNotToUse": "Not to reword it: comment on it instead.",
+    "args": {
+      "id": "The task's id as your wake or board.status names it.",
+      "reason": "Why you no longer want it, in a sentence."
+    }
+  },
+  "board.comment": {
+    "title": "Comment on a task of yours",
+    "whenToUse": "You have something to add to a task you filed: a correction, a narrower scope, a case you just saw. The task stays where it is.",
+    "whenNotToUse": "Not for a question put to you: board.answer lets the work go on.",
+    "args": {
+      "id": "The task's id as your wake or board.status names it.",
+      "text": "What you want the people working on it to read."
+    }
+  },
+  "board.answer": {
+    "title": "Answer a question put to you on a task",
+    "whenToUse": "A task waits on a question or a proposal addressed to you. Your answer lets its holder go on.",
+    "whenNotToUse": "Not for a question put to the owner, which stays his.",
+    "args": {
+      "id": "The task's id, not the question's.",
+      "text": "Your answer or your decision on the proposal."
+    }
+  },
+  "board.unblock": {
+    "title": "Let a blocked task of yours go on",
+    "whenToUse": "A task of yours is blocked, your wake shows why, and you know what it needs or what you decided.",
+    "whenNotToUse": "Not while the reason still holds, and not for a task you no longer want: board.cancel ends that one.",
+    "args": {
+      "id": "The task's id as your wake or board.status names it.",
+      "note": "What changed or what you decided, for whoever goes on."
+    }
+  },
   "skill.read": {
     "title": "Read a skill",
     "whenToUse": "The whole text of one skill from your skills list: when it applies, the steps, the way out. Read it before you follow it.",
@@ -349,10 +385,11 @@
   },
   "watcher.read": {
     "title": "Read the watcher's report",
-    "whenToUse": "The daily report of the watcher, an agent that looks over you, the project and the server once a day: the latest, or one day's. Read it when the owner asks what it found, or when you want to know.",
+    "whenToUse": "The daily report of the watcher, an agent that looks over you, the project and the server on its schedule: the latest, one day's or one run's. Read it when the owner asks what it found, or when you want to know.",
     "whenNotToUse": "Not for your own memory or your own skills.",
     "args": {
-      "day": "YYYY-MM-DD. Leave it out for the latest report."
+      "day": "YYYY-MM-DD. Leave it out for the latest report.",
+      "run": "The run identity of one report, when a day has several."
     }
   },
   "skill.run": {

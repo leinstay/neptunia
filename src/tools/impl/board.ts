@@ -1,11 +1,14 @@
-// Operations `board.propose` and `board.status`: her side of the task board (src/board/). `board.propose` files a
-// `dev` task in `proposed` with her evidence as its description, `persona:self` as its requester and subscriber, so
-// the owner or a reviewer decides whether it is done; `board.status` reads back every task filed for her with its
-// questions and its reviews. Both run against the board the core gives the operations' environment (`env.board`,
+// Operations `board.propose`, `board.status`, `board.cancel`, `board.comment`, `board.answer` and `board.unblock`: her side of the task
+// board (src/board/). `board.propose` files a `dev` task in `proposed` with her evidence as its description,
+// `persona:self` as its requester and subscriber, so the owner or a reviewer decides whether it is done, and refuses a
+// title she already has open (`duplicate-task`, naming that task); `board.status` reads back every task filed for her
+// with its questions and its reviews. The others act on a task of hers: cancel it, comment on it, answer the open
+// question addressed to her, lift its block. A question addressed to her is hers to answer whoever filed its task. All run against the board the core gives the operations' environment (`env.board`,
 // src/board/writer.ts#createBoardPort) as the builtin principal `persona`, whose only board role is `persona`: she
-// files and reads, and never approves, reviews or merges. Every member may use them while `features.memberCommands`
-// is on (rights.member); neither is granted to her in the tracked config. A board refusal is `invalid` for bad
-// arguments, `denied` for `forbidden` and `failed` otherwise. Answers are operator lines (ids, states, titles).
+// files, reads and answers, and never approves, reviews or merges. Every member may use the first two while
+// `features.memberCommands` is on (rights.member); none is granted to her in the tracked config. A board refusal is
+// `invalid` for bad arguments, `denied` for `forbidden` and `failed` otherwise. Answers are operator lines (ids, states,
+// titles).
 
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { clampWithEllipsis, oneLine } from '../../memory/clamp.ts';
@@ -37,6 +40,13 @@ export type BoardStatusEntry = { task: TaskRecord; questions: Array<Row>; review
 /** A board refusal as an operation's result: the status by its kind, the board's code where the catalogue has it. */
 function refused(error: BoardError) {
   if (error.code === 'invalid') throw invalid(error.message);
+  if (error.code === 'duplicate')
+    return {
+      status: 'denied',
+      code: CODE.DUPLICATE_TASK,
+      summary: `task board: already open as ${error.message}`,
+      data: { text: error.message },
+    };
   const code = error.code === 'not-found' ? CODE.NOT_FOUND : error.code === 'forbidden' ? CODE.FORBIDDEN : null;
   return {
     status: error.code === 'forbidden' ? 'denied' : 'failed',
@@ -122,6 +132,7 @@ const handlers = perEnv((env) => {
           ...(metadata === null ? {} : { metadata }),
           requester: SELF,
           subscriber: SELF,
+          unique_open_title: true,
         },
         key
       );
@@ -151,7 +162,83 @@ const handlers = perEnv((env) => {
     });
   }
 
-  return { cmdPropose, cmdStatus };
+  /** The view of `id` when the task is hers; any other is refused, whatever the shared board role would allow. */
+  async function herTask(board: BoardCaller, id: string) {
+    const view = await board.call(PERSONA, 'task.show', { id });
+    if (view.task.requester !== SELF) throw new BoardError('forbidden', `${id} is not filed for her`);
+    return view;
+  }
+
+  /** The named argument as text, refused when it is empty. */
+  function required(args: Obj, name: string): string {
+    const value = textOf(args[name]).trim();
+    if (!value) throw invalid(`${name} is required`);
+    return value;
+  }
+
+  /** `board.cancel { id, reason }`: her task cancelled with her reason, at its current revision. */
+  function cmdCancel(args: Obj) {
+    const id = required(args, 'id');
+    const reason = required(args, 'reason');
+    return guarded(async (board) => {
+      const { task } = await herTask(board, id);
+      const status = 'cancelled';
+      const moved = await board.call(PERSONA, 'task.transition', {
+        id,
+        status,
+        revision: task.revision,
+        close_reason: reason,
+      });
+      return { status: 'ok', code: CODE.OK, summary: `task ${moved.id}: ${moved.status}`, data: { task: moved } };
+    });
+  }
+
+  /** `board.comment { id, text }`: her comment on her task; the status stays. */
+  function cmdComment(args: Obj) {
+    const id = required(args, 'id');
+    const text = required(args, 'text');
+    return guarded(async (board) => {
+      await herTask(board, id);
+      const { task } = await board.call(PERSONA, 'task.comment', { id, text });
+      return { status: 'ok', code: CODE.OK, summary: `task ${task.id}: comment added`, data: { task } };
+    });
+  }
+
+  /** The open question on task `id` addressed to her. */
+  async function openQuestionOn(board: BoardCaller, id: string): Promise<string> {
+    const { questions } = await board.call(PERSONA, 'task.show', { id });
+    const open = questions.find((question) => !question.answered_at && question.to_whom === SELF);
+    if (open === undefined) throw new BoardError('not-found', `${id} has no question for her`);
+    return String(open.id);
+  }
+
+  /**
+   * `board.answer { id, text }` or `board.answer { question_id, text }`: her answer to the open question addressed to
+   * her on task `id`, or to that question, so its holder goes on. The board refuses a question addressed to anyone else.
+   */
+  function cmdAnswer(args: Obj) {
+    const questionId = textOf(args.question_id).trim();
+    const id = questionId ? '' : required(args, 'id');
+    const text = required(args, 'text');
+    return guarded(async (board) => {
+      const question_id = questionId || (await openQuestionOn(board, id));
+      const { task } = await board.call(PERSONA, 'task.answer', { question_id, text });
+      return { status: 'ok', code: CODE.OK, summary: `task ${task.id}: ${task.status}`, data: { task } };
+    });
+  }
+
+  /** `board.unblock { id, note }`: her task back to approved, with what she decided as a comment for whoever goes on. */
+  function cmdUnblock(args: Obj) {
+    const id = required(args, 'id');
+    const note = required(args, 'note');
+    return guarded(async (board) => {
+      await herTask(board, id);
+      const moved = await board.call(PERSONA, 'task.unblock', { id, note });
+      return { status: 'ok', code: CODE.OK, summary: `task ${moved.id}: ${moved.status}`, data: { task: moved } };
+    });
+  }
+
+  return { cmdPropose, cmdStatus, cmdCancel, cmdComment, cmdAnswer, cmdUnblock };
 });
 
 defineOp({
@@ -163,4 +250,24 @@ defineOp({
   name: 'board.status',
   rights: { kind: 'read', member: true },
   run: (_args, ctx) => handlers(ctx.env).cmdStatus(),
+});
+defineOp({
+  name: 'board.cancel',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdCancel(args),
+});
+defineOp({
+  name: 'board.comment',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdComment(args),
+});
+defineOp({
+  name: 'board.answer',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdAnswer(args),
+});
+defineOp({
+  name: 'board.unblock',
+  rights: { kind: 'write' },
+  run: (args, ctx) => handlers(ctx.env).cmdUnblock(args),
 });

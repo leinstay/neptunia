@@ -305,10 +305,6 @@ export type HeartbeatSources = {
   agents?(): unknown;
   selfId?(): unknown;
   focusPeople?(guildId: string): unknown;
-  /** The fixes that merged and were not told to her yet (src/selfimprovement/landed.ts). */
-  landed?(): Promise<ReadonlyArray<Landed>>;
-  /** Marks the rows of these landed fixes delivered. */
-  ackLanded?(seqs: ReadonlyArray<number>): Promise<void>;
 };
 
 /** The sources of the selfimprovement wake's facts (src/behavior/selfimprovement-view.ts) that are not the journal. */
@@ -323,7 +319,7 @@ export type SelfimprovementSources = {
   ackOutbox?(seqs: ReadonlyArray<number>): Promise<void>;
   /** The fixes that merged and were not told to her yet (src/selfimprovement/landed.ts). */
   landed?(): Promise<ReadonlyArray<Landed>>;
-  /** The newest watcher report of the past day at `now` (src/watcher/news.ts), null when there is none. */
+  /** What the newest watcher report of the past day filed at `now` (src/watcher/news.ts), null when nothing. */
   watcher?(now: number): WatcherNews | null;
 };
 
@@ -343,7 +339,8 @@ export type WakeInfo = {
   chainId: string;
   heartbeat?: HeartbeatFacts;
   selfimprovement?: SelfimprovementFacts;
-  here: { channel: string; why: string | null } | null;
+  /** Null: this turn has no current channel. Undefined on a selfimprovement wake, which speaks to nobody: no such line. */
+  here: { channel: string; why: string | null } | null | undefined;
 };
 
 /**

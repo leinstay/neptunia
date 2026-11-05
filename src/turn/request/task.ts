@@ -149,7 +149,7 @@ export type Task = {
 };
 
 /**
- * The task text of a turn: the mode's prompt file, or the overheard, errand, follow-up or heartbeat file in its place,
+ * The task text of a turn: the mode's prompt file, or the overheard, errand, follow-up, heartbeat or selfimprovement file in its place,
  * then the routed call's origin, the room's question, what else the author waits for, the private chat's and the
  * forced turn's additions.
  */
@@ -184,15 +184,15 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
   // it (missing or blank) the mode's text frames the line as said to the persona: degraded.
   const overheardTask =
     overheard && typeof prompts.overheard === 'string' && prompts.overheard.trim() ? prompts.overheard : null;
-  // A heartbeat's inner turn has its own task text (prompts.heartbeat) INSTEAD of inner.md; without
-  // it (missing or blank) inner.md applies (degraded).
-  const heartbeatTask =
-    mode === 'inner' &&
-    given.wakeKind === 'heartbeat' &&
-    typeof prompts.heartbeat === 'string' &&
-    prompts.heartbeat.trim()
+  // A heartbeat's and a selfimprovement wake's inner turn have their own task text (prompts.heartbeat,
+  // prompts.selfimprovement) INSTEAD of inner.md; without it (missing or blank) inner.md applies (degraded).
+  const ownWakeMd =
+    given.wakeKind === 'heartbeat'
       ? prompts.heartbeat
-      : null;
+      : given.wakeKind === 'selfimprovement'
+        ? prompts.selfimprovement
+        : null;
+  const ownWakeTask = mode === 'inner' && typeof ownWakeMd === 'string' && ownWakeMd.trim() ? ownWakeMd : null;
   // The turn a finished errand opens with no origin message (asked in an inner turn of hers, or
   // the message is gone) has its own task text (prompts['errand-result']) INSTEAD of the mode's:
   // interject.md would frame her own errand's end as a conversation to stay out of. Missing or
@@ -225,7 +225,7 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
       ...(sourceChannel ? { channel: sourceChannel.name, destination: here } : {}),
     };
     const baseTask = fillPromptTemplate(
-      overheardTask ?? errandTask ?? followUpTask ?? heartbeatTask ?? prompts[mode] ?? '',
+      overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? prompts[mode] ?? '',
       taskValues
     );
     // Owner-forced turn (`/nep interject`/`/nep initiate`): tell the model

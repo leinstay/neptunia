@@ -26,6 +26,7 @@ import {
   normalizeField,
   num,
   pickFields,
+  refuseOpenTwin,
   str,
   text,
 } from './fields.ts';
@@ -277,6 +278,8 @@ const READ_OPS: ReadonlySet<string> = new Set(['task.list', 'task.show', 'task.o
 const HANDOFF_LISTS = ['evidence', 'artifacts', 'open_issues'] as const;
 const HANDOFF_KEYS: ReadonlyArray<string> = ['result', ...HANDOFF_LISTS, 'tests'];
 const HANDOFF_MAX = 2000000;
+/** The name the persona files under. A development task's question to her and its block reach her outbox here. */
+const SELF = 'persona:self';
 
 // ---------- rights ----------
 
@@ -670,6 +673,10 @@ export class Board {
     if (task.project !== null && this.context.settings.projects[task.project]?.ci === false) out.add('no-ci');
     if (meta?.tests === 'pass') out.add('tests-pass');
     if (isObject(meta?.merged)) out.add('merged');
+    const parent = this.db
+      .prepare("SELECT 1 FROM board_dependencies WHERE task_id = ? AND type = 'parent-child' LIMIT 1")
+      .get(task.id);
+    if (parent !== undefined) out.add('child');
     return out;
   }
 
@@ -904,9 +911,8 @@ function filingOf(
   args: Args
 ): { lane: 'dev' | 'errand'; requester: string; subscriber: string } {
   if (args.auto !== undefined && typeof args.auto !== 'boolean') throw invalid('auto must be true or false');
-  if (args.no_brief !== undefined && typeof args.no_brief !== 'boolean') {
+  if (args.no_brief !== undefined && typeof args.no_brief !== 'boolean')
     throw invalid('no_brief must be true or false');
-  }
   const lane = args.lane ?? 'dev';
   if (lane !== 'dev' && lane !== 'errand') throw invalid('lane must be dev or errand');
   const requester = str(args.requester, 'requester') ?? principal;
@@ -950,6 +956,7 @@ function addTask(board: Board, principal: string, args: Args): TaskRecord {
   const { lane, requester, subscriber } = filingOf(board, principal, args);
   const project = str(args.project, 'project');
   const row = newTaskFields(board, args, project);
+  if (args.unique_open_title === true) refuseOpenTwin(board.db, requester, String(row.title));
   const parent = args.parent === undefined || args.parent === null ? null : board.getTask(args.parent).id;
   const id = board.newId('T', 'board_tasks');
   const now = board.now();
@@ -1177,6 +1184,10 @@ function askTask(board: Board, principal: string, args: Args): { question: Row; 
     .run(id, task.id, str(args.attempt_id, 'attempt_id'), principal, text, toWhom, board.now());
   board.event(task.id, principal, 'question.asked', null, { id, to_whom: toWhom, text });
   const updated = board.move(task, 'needs_answer', principal);
+  // A question to the persona reaches her whoever subscribed: her wake reads only the rows addressed to her.
+  if (toWhom === SELF && updated.subscriber !== SELF) {
+    board.notify(task.id, SELF, 'needs_answer', { task: task.id, title: task.title, status: 'needs_answer', text });
+  }
   return { question: board.row('SELECT * FROM board_questions WHERE id = ?', id), task: parseTask(updated) };
 }
 
@@ -1547,10 +1558,14 @@ function blockTask(board: Board, principal: string, args: Args): TaskRecord {
   const reason = str(args.reason, 'reason', { required: true, max: 2000 });
   const unblocks = str(args.unblocks, 'unblocks', { required: true, max: 2000 });
   board.event(task.id, principal, 'task.blocked', { owner: task.lease_owner }, { reason, unblocks });
-  return parseTask(board.move(task, 'blocked', principal, { blocked_reason: reason, unblocks }));
+  const updated = board.move(task, 'blocked', principal, { blocked_reason: reason, unblocks });
+  if (task.lane === 'dev') {
+    board.notify(task.id, SELF, 'blocked', { task: task.id, title: task.title, status: 'blocked', reason, unblocks });
+  }
+  return parseTask(updated);
 }
 
-// The owner or a reviewer returns a blocked task to approved; the note says what changed and becomes a comment.
+// The owner, a reviewer or its requester returns a blocked task to approved; the note says what changed and becomes a comment.
 function unblockTask(board: Board, principal: string, args: Args): TaskRecord {
   const task = board.getTask(args.id);
   board.checkRevision(task, args.revision, false);

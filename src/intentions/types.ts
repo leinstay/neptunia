@@ -59,6 +59,8 @@ export type Provenance = {
   originReason?: string;
   bornInner?: boolean;
   innerChainId?: string;
+  /** The key of the call that set it: a restarted turn's same call answers with this record. */
+  callKey?: string;
 };
 
 /** One move in a record's history. */
@@ -131,6 +133,7 @@ export type CreateInput = {
     originReason?: string;
     bornInner?: boolean;
     innerChainId?: string | null;
+    callKey?: string;
   };
   dueAt?: number | null;
   every?: Every | null;
@@ -204,6 +207,8 @@ export type IntentionStores = {
 
 /** What her `intention.set` (or an owner's command, or the engine) hands the service. */
 export type SetInput = {
+  /** The call's key: a second `set` under it answers with the record the first one made. */
+  callKey?: string | null;
   /** A recurring task that lasts until it is cancelled. */
   standing?: boolean;
   purpose: string;

@@ -64,8 +64,9 @@ function samplesOf(definition: Untyped) {
 
 test('the table holds every operation, in the operations registry order', () => {
   // Two more since the board tools board.propose and board.status (PR 6c).
-  // And skill.run of the executable skills.
-  assert.equal(SKILL_DEFINITIONS.length, 73);
+  // And skill.run of the executable skills, and board.cancel, board.comment and board.answer of her wake.
+  // Changed: board.unblock is the 77th tool.
+  assert.equal(SKILL_DEFINITIONS.length, 77);
   assert.deepEqual(
     SKILL_DEFINITIONS.map((definition) => definition.name),
     listOps().map((op) => op.name)
@@ -187,12 +188,13 @@ test('the result of a skill: job for the two background ones, data for a read, e
   }
 });
 
-test('the API names: 73, well-formed, unique, a round trip, no longer than 64', () => {
+test('the API names: 77, well-formed, unique, a round trip, no longer than 64', () => {
   // Two more since the board tools board.propose and board.status (PR 6c).
   const apis = SKILL_DEFINITIONS.map((definition) => definition.api);
-  assert.equal(apis.length, 73);
-  assert.equal(new Set(apis).size, 73);
-  assert.equal(Object.keys(API_NAMES).length, 73);
+  // Changed: board.unblock is the 77th tool.
+  assert.equal(apis.length, 77);
+  assert.equal(new Set(apis).size, 77);
+  assert.equal(Object.keys(API_NAMES).length, 77);
   for (const definition of SKILL_DEFINITIONS) {
     assert.match(definition.api, /^[a-zA-Z0-9_-]{1,64}$/);
     assert.equal(apiNameOf(definition.name), definition.api);

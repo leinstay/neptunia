@@ -335,6 +335,11 @@
     "maxTasks": null,
     "inputTokens": null
   },
+  "development": {
+    "thinkerTurns": 12,
+    "lookEveryMs": 120000,
+    "startedAt": null
+  },
   "selfreflection": {
     "enabled": true,
     "schedule": null,

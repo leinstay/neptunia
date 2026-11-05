@@ -9,12 +9,13 @@
 // transport's `<tool_call>` blocks are cut out before this parser sees the text
 // (src/llm/tool-text.ts). A leftover `<call>` or draw tag (her history still holds some; a picture is the `draw.create` tool now) is cut
 // out wherever it stands outside code, never run, and told as a `retiredTag` diagnostic.
+// `<audience>`, a diary post's alone, is taken out before this parser runs (`takeAudience`, src/turn/phases/response.ts).
 // The parser is forgiving: a missing tag wrapper falls back to a single plain
 // message (`untagged`), an unterminated <think> (output cut by max_tokens) means
 // silence (`thinkOpen`, its text so far kept in `think` for the journal). It also accounts for
 // what it did not use: `diagnostics`, one `{ kind, ... }` per thing it dropped, cut or joined
-// (`retiredTag` with its `tag`, `messagesMerged`, `thinkUnclosed`), so the caller can
-// tell the persona what happened to her output (src/behavior/turn.ts).
+// (`retiredTag` with its `tag`, `msgMalformed` with its counts, `messagesMerged`, `thinkUnclosed`), so the
+// caller can tell the persona what happened to her output (src/behavior/turn.ts).
 
 import type { LimitsSink } from './limits.ts';
 
@@ -68,6 +69,94 @@ function withoutRetiredTags(text: string, tags: ReadonlyArray<string>, diagnosti
     .join('');
 }
 
+// What the `<msg>` boundary reads, in order: the marks of code, the two message tags and the tags of other actions.
+const MSG_TOKEN_RE = /```|`|<msg(\s[^>]*)?>|<\/msg\s*>|<(?:react|gif|skip)(?:\s[^>]*)?\/?>/gi;
+const MSG_TAG_RE = /<msg(?:\s[^>]*)?>|<\/msg\s*>/gi;
+
+/**
+ * The index just past the code span that opens at `at` with `mark`, or -1 when the mark opens none: nothing closes it, an
+ * inline span would run past its line, or the span starts inside one message and ends inside the next, which makes
+ * the two marks stray backticks of two messages.
+ */
+function codeSpanEnd(text: string, at: number, mark: string): number {
+  const closing = text.indexOf(mark, at + mark.length);
+  if (closing === -1) return -1;
+  const span = text.slice(at, closing);
+  if (mark === '`' && span.includes('\n')) return -1;
+  const tags = span.match(MSG_TAG_RE) ?? [];
+  const crossesMessages = tags[0]?.startsWith('</') === true && tags.some((tag) => !tag.startsWith('</'));
+  return crossesMessages ? -1 : closing + mark.length;
+}
+
+/** A `<msg>` read and not closed yet: its attributes, where its words start, and the first tag of another action in it. */
+type OpenMessage = { attributes: string; start: number; actionAt: number | null };
+
+/**
+ * The messages of `text`, read tag by tag outside code, with what was wrong at their boundary. A message left open
+ * ends at the next opening or with the output, and at the first tag of another action before that, so no such tag
+ * lands in its words. `cutOff`: the last message left open is a fragment and is dropped, uncounted.
+ */
+function readMessages(text: string, cutOff: boolean) {
+  const bodies: Array<{ text: string; replyTo: number | null }> = [];
+  const count = { nested: 0, unclosed: 0, stray: 0 };
+  let open: OpenMessage | null = null;
+  const deliver = (message: OpenMessage, end: number): void => {
+    const body = text.slice(message.start, end).trim();
+    if (!body) return;
+    const reply = /reply\s*=\s*"([^"]*)"/i.exec(message.attributes);
+    bodies.push({ text: body, replyTo: reply ? parseIndex(reply[1]) : null });
+  };
+  const tokens = new RegExp(MSG_TOKEN_RE);
+  for (let match = tokens.exec(text); match; match = tokens.exec(text)) {
+    const token = match[0];
+    if (token.startsWith('`')) {
+      const end = codeSpanEnd(text, match.index, token);
+      if (end !== -1) tokens.lastIndex = end;
+    } else if (token.startsWith('</')) {
+      if (open) deliver(open, match.index);
+      else count.stray += 1;
+      open = null;
+    } else if (/^<msg/i.test(token)) {
+      if (open) {
+        count.nested += 1;
+        deliver(open, open.actionAt ?? match.index);
+      }
+      open = { attributes: match[1] ?? '', start: tokens.lastIndex, actionAt: null };
+    } else if (open) {
+      open.actionAt ??= match.index;
+    }
+  }
+  if (open && !cutOff) {
+    count.unclosed += 1;
+    deliver(open, open.actionAt ?? text.length);
+  }
+  return { bodies, ...count };
+}
+
+/** What `takeAudience` leaves alone: a think block and code, where a tag is only being talked about. */
+const AUDIENCE_EXEMPT_RE = /(<think>[\s\S]*?(?:<\/think>|$)|```[\s\S]*?(?:```|$)|`[^`\n]*`)/i;
+
+/**
+ * A diary answer without its `<audience>` tags, and their bodies in order. A stray opening or closing tag counts as an
+ * empty body: the caller reads that as malformed, so a tag she failed to close never reads as no restriction.
+ */
+export function takeAudience(raw: string): { text: string; audience: Array<string> } {
+  const audience: Array<string> = [];
+  const parts = raw.split(AUDIENCE_EXEMPT_RE).map((part, i) => {
+    if (i % 2 === 1) return part;
+    return part
+      .replace(/<audience\b[^>]*>([\s\S]*?)<\/audience\s*>/gi, (_all, body: string) => {
+        audience.push(body);
+        return '';
+      })
+      .replace(/<\/?audience\b[^>]*>/gi, () => {
+        audience.push('');
+        return '';
+      });
+  });
+  return { text: parts.join(''), audience };
+}
+
 function parseIndex(value: string | undefined): number | null {
   const match = /(\d+)/.exec(value ?? '');
   return match ? Number(match[1]) : null;
@@ -75,7 +164,10 @@ function parseIndex(value: string | undefined): number | null {
 
 /** What the parser did not use, in order. */
 export type Diagnostic =
-  { kind: 'retiredTag'; tag: string } | { kind: 'messagesMerged'; count: number } | { kind: 'thinkUnclosed' };
+  | { kind: 'retiredTag'; tag: string }
+  | { kind: 'msgMalformed'; nested: number; unclosed: number; stray: number }
+  | { kind: 'messagesMerged'; count: number }
+  | { kind: 'thinkUnclosed' };
 
 /** The actions the model's tagged output holds. */
 export type ParsedOutput = {
@@ -97,14 +189,19 @@ export type ParsedOutput = {
  *   third is joined into the third, each on its own line, its text unchanged (its own reply
  *   target is dropped). `limits` (src/llm/limits.ts#createLimits, optional) is told of such a
  *   join as a `message-merge` (`where: 'parse'`, `lost`: the messages joined). A message is never
- *   cut for its length: the adapter of the interface splits a long one.
+ *   cut for its length: the adapter of the interface splits a long one. `cutOff`: the answer was
+ *   cut at the output cap, so a last `<msg>` left open is dropped instead of delivered.
  * @returns `diagnostics`: what the parser did not use, in order -- `{ kind: 'retiredTag', tag: 'call'|'draw' }`
- *   (a retired tag written outside code, cut out),
+ *   (a retired tag written outside code, cut out), at most one
+ *   `{ kind: 'msgMalformed', nested, unclosed, stray }` (message tags out of place, counts only),
  *   `{ kind: 'messagesMerged', count }`, `{ kind: 'thinkUnclosed' }`. `thinkOpen`: a `<think>` was never
  *   closed -- silence, with what it held so far appended to `think`. `untagged`: the one message is the
  *   plain text of an answer with no tag (the fallback), not a `<msg>`.
  */
-export function parseOutput(raw: unknown, { limits = null }: { limits?: LimitsSink | null } = {}): ParsedOutput {
+export function parseOutput(
+  raw: unknown,
+  { limits = null, cutOff = false }: { limits?: LimitsSink | null; cutOff?: boolean } = {}
+): ParsedOutput {
   const result: ParsedOutput = {
     skip: false,
     messages: [],
@@ -135,13 +232,8 @@ export function parseOutput(raw: unknown, { limits = null }: { limits?: LimitsSi
   // The retired tags come out first: never a message, never run.
   text = withoutRetiredTags(text, RETIRED_TAGS, result.diagnostics);
 
-  const bodies: Array<{ text: string; replyTo: number | null }> = [];
-  for (const match of text.matchAll(/<msg(\s[^>]*)?>([\s\S]*?)<\/msg>/gi)) {
-    const body = match[2].trim();
-    if (!body) continue;
-    const reply = /reply\s*=\s*"([^"]*)"/i.exec(match[1] ?? '');
-    bodies.push({ text: body, replyTo: reply ? parseIndex(reply[1]) : null });
-  }
+  const { bodies, nested, unclosed, stray } = readMessages(text, cutOff);
+  if (nested + unclosed + stray > 0) result.diagnostics.push({ kind: 'msgMalformed', nested, unclosed, stray });
   // Every message past the cap is joined into the last kept one, a line each, so no tail is
   // lost unseen; the last kept one keeps its own reply target, theirs are dropped.
   if (bodies.length > MAX_MESSAGES) {

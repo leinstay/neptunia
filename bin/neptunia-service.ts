@@ -52,7 +52,13 @@ export function runServiceHere(request: ServiceRequest, where: Where, color: boo
     env: process.env,
     run: spawnRun,
     coreUp: false,
-    report: (day) => reportAnswer({ reportsDir: reportsDirOf(where.privateDir, watcherDir(config())), day, color }),
+    report: (day, runId) =>
+      reportAnswer({
+        reportsDir: reportsDirOf(where.privateDir, watcherDir(config())),
+        day,
+        ...(runId === undefined ? {} : { runId }),
+        color,
+      }),
   };
   return serviceFamily(deps, request.name, request.args);
 }

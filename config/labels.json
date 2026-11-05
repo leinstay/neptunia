@@ -313,7 +313,14 @@
       "plan": "Plan for this post:",
       "found": "What the search found. Retell it in your own words; no links, no quoting.",
       "seeds": "Random seeds (place; setting; detail; activity; subject; twist):",
-      "topic": "The owner asked for this subject:"
+      "topic": "The owner asked for this subject:",
+      "publicationPlaces": "Who may read this post. With no <audience> tag it goes to every mirror of your diary, mirrors added later included. To hold it back, add one <audience> tag beside your messages: the one tag a diary post adds to your output. Its body is the word unrestricted, or one token from this list without the name after it. An interface token covers everything on that interface. A place token covers that place and everything under it. A token that is not listed keeps the post in your diary and publishes it nowhere. Material from a private source stays restricted whatever you choose.",
+      "audienceRefused": "Your post of {date} ({gist}) stays in your diary and went to no mirror, because its audience tag could not be read: {reason}.",
+      "audienceReasons": {
+        "audience-unknown-place": "the place it named is not in your publication places",
+        "audience-unknown-interface": "the interface it named is not in your publication places",
+        "audience-malformed": "it held something other than one listed token, or two different ones"
+      }
     },
     "memory": {
       "privateChannel": "private chat",
@@ -444,7 +451,7 @@
         "attend": "#{place} has {lines} new lines since your last look there ({since}), by {people} (intention {id}: {purpose}). Joining is your choice.",
         "feedback": "Your previous turn: not everything went through.",
         "heartbeat": "Your heartbeat: nothing outside called you.",
-        "selfimprovement": "Your time to look back at your own work: nobody called you. What follows is how your work went. A change or a skill goes through board.propose; leaving it is fine too."
+        "selfimprovement": "Your time to look back at your own work: nobody called you. What follows is how your work went and what your tasks are waiting for."
       },
       "delayed": "Due {minutes} min ago; the provider call failed ({code}).",
       "feedbackInTurn": "Since you were last told:",
@@ -554,20 +561,28 @@
         "shape": "{count} times: {steps}. {failures} failed, {retries} retried, {cost} USD. The latest was {when}. Turns: {turns}.",
         "stepsJoin": " then ",
         "moreShapes": "{count} less frequent shapes are left out.",
+        "repeated": "Other chains you made more than once:",
+        "repeatedItem": "{count} times: {steps}. Turns: {turns}.",
+        "failures": "Calls that failed, by tool and code:",
+        "failure": "{tool}, {code}: {count} times. Turns: {turns}.",
+        "failureNoCode": "no code",
         "unused": "Tools you hold and did not call: {tools}.",
         "skills": "Your skills and how they were used:",
         "skill": "{name}{state}: shown {discovered} times, read {read}, tried {tried}, worked {succeeded}, corrected {corrected}, set aside {declined}.",
         "skillOff": " (off)",
         "proposals": "Your proposals:",
-        "proposal": "{id} · {kind} · {title} · {status}{reason}",
+        "proposal": "{id} · {kind} · {title} · {status}{reason}{blocked}",
         "proposalReason": " ({reason})",
+        "proposalBlocked": " (waiting: {reason}; it goes on with: {unblocks})",
         "news": "Since your last time here:",
         "question": "A question on {task}: {text}{answered}",
         "questionAnswered": " (answered)",
         "review": "A review of {task}: {decision} {scope}{note}",
         "reviewNote": ": {note}",
         "board": "The board's word on {task}: {kind} {status}{reason}",
-        "watcher": "The watcher's report of {day}. What it wrote for the owner:\n{forOwner}\nThe tasks it filed:\n{tasksFiled}"
+        "watcher": "What the watcher filed in its report of {day}:\n{findings}",
+        "watcherFinding": "{title} ({state}{task})",
+        "watcherTask": ", task {task}"
       }
     },
     "journal": {
@@ -640,6 +655,8 @@
           "heartbeat-only": "heartbeat accepts memory and conversation reads, then one intention change or a skip; other activities need an intention",
           "heartbeat-cap": "too many of your heartbeat intentions are open already; update or cancel one",
           "heartbeat-recurring-cap": "your recurring heartbeat intention is already open; update or cancel it",
+          "selfimprovement-only": "this belongs to your selfimprovement wake, which accepts memory and conversation reads, your answers on your tasks and one filed task, then ends",
+          "duplicate-task": "you already have this task open, its id follows; comment on it, cancel it or file a different one",
           "not-requester": "only the person who asked for it or an owner can do that",
           "forbidden": "the task board does not let you do that",
           "not-open": "that errand has already ended",
@@ -821,6 +838,7 @@
       "diagnostics": {
         "retiredTag": "A {tag} tag in your answer was cut out. That tag is no longer in use; call the tool directly.",
         "messageCut": "Your message was too long and lost its last {chars} characters",
+        "msgMalformed": "Message tags out of place in your answer: {count}. Your text was split or ended at those tags, and none of them was posted. Close each <msg> before you open the next.",
         "messagesMerged": "{count} of your messages were merged into the last one",
         "thinkUnclosed": "Your thinking was never closed, so nothing was posted"
       },

@@ -63,7 +63,7 @@ A secret question hides its answer and excludes it from input history. History l
 | Command | What it does |
 |---|---|
 | `/mirror list` | Every mirror and whether it is enabled. This is the bare `/mirror`. |
-| `/mirror status` | Each mirror with its interface, queue, failed, incomplete and uncertain entries, and its backfill. |
+| `/mirror status` | Each mirror with its interface, queue, failed, incomplete, uncertain and blocked entries, the copies delivered outside their audience, and its backfill. |
 | `/mirror add <destination> [--backfill true\|false] [--every <duration>]` | Registers a known place. Adding it again reuses the mirror. |
 | `/mirror configure <mirror> [--enabled true\|false] [--backfill true\|false] [--every <duration>]` | Changes a mirror. `--backfill true` needs an interval, given now or earlier. |
 | `/mirror disable <mirror>` | Stops sending and keeps the configuration. |
@@ -100,7 +100,7 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 
 ## Scheduled services
 
-`neptunia service <name> setup|enable|disable|status` controls `heartbeat`, `selfreflection`, `selfimprovement` and `watcher`. `/service <name> <action>` and `neptunia -p "/service ..."` reach the same handler, `src/service/commands.ts`. Selfreflection is the diary wake and selfimprovement is the persona's development wake, which stays apart from the development executor. The handler works with no core, so a mechanic can be switched and read while the core is down. `/wakes stop` and `/wakes start` stay separate: they pause the whole inner life.
+`neptunia service <name> setup|enable|disable|status` controls `heartbeat`, `selfreflection`, `selfimprovement` and `watcher`. `/service <name> <action>` and `neptunia -p "/service ..."` reach the same handler, `src/service/commands.ts`. Selfreflection is the diary wake and selfimprovement is the persona's development wake, which stays apart from the development worker. The handler works with no core, so a mechanic can be switched and read while the core is down. `/wakes stop` and `/wakes start` stay separate: they pause the whole inner life.
 
 `setup --at 00:00,12:00` saves daily UTC times and `setup --every 6h` an interval in hours or minutes (`90m`). The two exclude each other. Both write the one setting `<name>.schedule` that `/config` reads, leave the flag as it is, and answer `timezone: UTC` and `next:` with the next times. `heartbeat setup --jitter 30m` sets `heartbeat.jitterMinutes`, which moves an interval either way and leaves daily times exact. `setup` with no flag asks at a terminal and exits `2` without one. `watcher setup` also renders `neptunia-watcher.timer` and reloads the manager, and starts nothing.
 
@@ -112,20 +112,28 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 |---|---|
 | `service` | The mechanic |
 | `enabled` | The saved flag |
-| `running` | Whether a run is going. `unknown` for a wake with no core, and for the watcher with no `systemctl` |
+| `running` | Whether a run is going, as the manager says for the watcher. `unknown` for a wake with no core, and for the watcher with no `systemctl` |
 | `readiness` | `ready`, or `not ready` and what is missing: the core, a subharness backend or the repository |
 | `schedule` | The schedule, with the heartbeat's jitter. `windows` for a diary with no `selfreflection.schedule` |
 | `next due` | The next time, `none` when disabled, `unknown` for a diary drawing from windows with no core |
 | `last result` | The newest report of the watcher, the core's last wake of the others, `unknown` with no core |
+| `current run` | The watcher's run in progress with its state and source, `none` with no run |
+| `last success` | The watcher's newest succeeded run and when it ended |
+| `last failure` | The watcher's newest failed run, its code and when it ended |
+| `filing` | The receipts of the last success by state, such as `filed 2, deferred 1`, `none` with no drafts |
+| `source` | The watcher's backend, model and effort from `keys.json`, `default` where the backend picks, `unknown` with no backend. Reading it asks no model |
+| `run timeout` | How long the watcher's agent may run |
 | `timer` | The watcher's timer as the manager reads it |
 
-`neptunia service watcher report [day]` prints the newest report or the report of a date, with no core. `trigger` refuses a disabled watcher, names `service watcher enable` and exits `1`. On an enabled watcher `trigger` and `cancel` exit `1` and change nothing, because the watcher has no run identity to start or cancel.
+`neptunia service watcher report [day or run]` prints the newest report, the report of a date or the report of a run, with no core. A report names its run and the other runs of its day.
+
+`neptunia service watcher trigger` starts one inspection without waiting for it and answers `run:` and `state:`. During a run it answers that run and starts nothing. It refuses a disabled watcher, names `service watcher enable` and exits `1`, and a start the manager refuses fails that run and exits `1`. `neptunia service watcher cancel` asks the run in progress to stop and answers `run:` and `state:`, `none` with nothing to stop, and exits `0` however often it is repeated. It changes no flag and no timer. [The watcher](watcher.md#one-run) describes both.
 
 `/report`, `neptunia watcher`, `neptunia selfimprovement` and `neptunia setup` with `watcher`, `selfimprovement` or `mechanics` exit `2`, name the command of this family and run nothing. A word order such as `service status watcher` exits `2` the same way.
 
 ## Other entry points
 
-`neptunia setup` performs installation. `neptunia interface run <name>` starts a platform package, and every other `neptunia interface` form is the table's `/interface` family. `neptunia service start|stop|restart|status [unit]` runs `systemctl` for the named units or the core and the two errand runners, in the scope of the installation, with `sudo` in the system scope except for `status`. These verbs exist in the shell alone. `neptunia task` addresses the [task board](board.md).
+`neptunia setup` performs installation. `neptunia worker development` is what `neptunia-development.service` starts, and `neptunia worker development held` lists the tasks older than its boundary, as in [self-development](selfimprovement.md#enabling-the-worker). `neptunia interface run <name>` starts a platform package, and every other `neptunia interface` form is the table's `/interface` family. `neptunia service start|stop|restart|status [unit]` runs `systemctl` for the named units or the core and the two errand runners, in the scope of the installation, with `sudo` in the system scope except for `status`. These verbs exist in the shell alone. `neptunia task` addresses the [task board](board.md).
 
 `neptunia doctor` inspects local paths and configuration even when the core is unavailable. `/status` needs a core connection. For service logs, use the systemd scope selected during [setup](setup.md#services).
 
