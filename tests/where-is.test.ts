@@ -1,3 +1,4 @@
+// The native channel is `conversationId`: tests/guild-lexical-inventory.test.ts keeps `channelId` in the adapter.
 // `whereIs` answers where a turn happens from what the turn already holds: its interface and its conversation. Pure, and
 // the seed of her knowing where she is, so a wake answers nothing rather than a guess.
 import { test } from 'node:test';
@@ -10,7 +11,14 @@ test('a channel answers its interface, its server and itself', () => {
       iface: 'discord',
       conversation: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general', parentId: 'g1', parentKind: 'server' },
     }),
-    { kind: 'channel', interfaceId: 'discord', serverId: 'g1', channelId: 'c1', threadId: null, channelName: 'general' }
+    {
+      kind: 'channel',
+      interfaceId: 'discord',
+      serverId: 'g1',
+      conversationId: 'c1',
+      threadId: null,
+      channelName: 'general',
+    }
   );
 });
 
@@ -21,7 +29,7 @@ test('a channel inside a category stays the channel, the category is no thread',
       iface: 'discord',
       conversation: { id: 'c1', kind: 'channel', rootId: 'g1', name: null, parentId: 'cat1', parentKind: 'category' },
     }),
-    { kind: 'channel', interfaceId: 'discord', serverId: 'g1', channelId: 'c1', threadId: null, channelName: null }
+    { kind: 'channel', interfaceId: 'discord', serverId: 'g1', conversationId: 'c1', threadId: null, channelName: null }
   );
 });
 
@@ -35,7 +43,7 @@ test('a thread answers the channel it sits in and itself', () => {
       kind: 'channel',
       interfaceId: 'discord',
       serverId: 'g1',
-      channelId: 'c1',
+      conversationId: 'c1',
       threadId: 't1',
       channelName: 'a thread',
     }
@@ -45,7 +53,14 @@ test('a thread answers the channel it sits in and itself', () => {
 test('a group chat is a channel with no server', () => {
   assert.deepEqual(
     whereIs({ iface: 'telegram', conversation: { id: 'g9', kind: 'channel', chatType: 'group_dm', name: null } }),
-    { kind: 'channel', interfaceId: 'telegram', serverId: null, channelId: 'g9', threadId: null, channelName: null }
+    {
+      kind: 'channel',
+      interfaceId: 'telegram',
+      serverId: null,
+      conversationId: 'g9',
+      threadId: null,
+      channelName: null,
+    }
   );
 });
 

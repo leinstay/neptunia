@@ -156,6 +156,12 @@ test('an outward context reads of her only what its audience holds, as of anyone
       ['claim:self-group']
     );
     const elsewhere = personDetail(db, SELF, dmContext('person:stranger', 'discord'));
-    assert.deepEqual(elsewhere.found, false);
+    // The owner's word: she is read like any other person, and a group's fact is public knowledge in a DM; another
+    // DM's fact about her stays closed.
+    assert.ok(elsewhere.found);
+    assert.deepEqual(
+      elsewhere.records.map((record) => record.id),
+      ['claim:self-group']
+    );
   });
 });

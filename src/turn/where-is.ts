@@ -11,7 +11,7 @@ export type WhereIs =
       kind: 'channel';
       interfaceId: string;
       serverId: string | null;
-      channelId: string;
+      conversationId: string;
       threadId: string | null;
       channelName: string | null;
     }
@@ -40,7 +40,7 @@ export function whereIs({
     kind: 'channel',
     interfaceId: iface,
     serverId: chatType === 'group_dm' ? null : textOrNull(conversation.rootId),
-    channelId: isThread ? (textOrNull(conversation.parentId) ?? conversation.id) : conversation.id,
+    conversationId: isThread ? (textOrNull(conversation.parentId) ?? conversation.id) : conversation.id,
     threadId: isThread ? conversation.id : null,
     channelName: textOrNull(conversation.name),
   };
