@@ -4,10 +4,13 @@
 // The scheduler keeps the configured number of finished backups and retries failed writes.
 // A backup holds the persona's keys and memory: every folder it creates is 700 and every file 600, whatever the source's
 // mode. The manifest keeps each file's mode for the restore, with `keys.json` at 600 even from a looser source.
+// A backup copies and hashes the whole data folder, seconds on a large one: inside the core it runs on another thread
+// (the writer for the daily one, `backupInWorker` for the owner's), and the pruning deletes through the async `fs`.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { Worker } from 'node:worker_threads';
 import { openMemoryDb, schemaVersion } from './open.ts';
 import type { Config, Db, MemoryHandle, Row } from './types.ts';
 import { dbOf, asText, isWholeNumber } from './types.ts';
@@ -31,6 +34,7 @@ const NAME_RE = /^\d{4}-\d{2}-\d{2}-\d{6}-memory$/;
 const PARTIAL = '.partial';
 /** The persona's key file: never looser than 600, in a backup or after a restore. */
 const KEYS_FILE = 'keys.json';
+const BACKUP_WORKER = new URL('./backup-worker.ts', import.meta.url);
 
 const sha256File = (file: string): string => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
@@ -173,6 +177,29 @@ export function backupDatabase({
 }
 
 /**
+ * `backupDatabase` on its own thread (backup-worker.ts): the same manifest, and the caller's thread stays free. `at` is
+ * the backup's time. Rejects with the backup's own message.
+ */
+export function backupInWorker(
+  args: { db: string; to: string; data: string; at: number },
+  workerFile: string | URL = BACKUP_WORKER
+): Promise<BackupManifest> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(workerFile, { workerData: args });
+    let answered = false;
+    worker.once('message', (answer: { manifest: BackupManifest } | { error: string }) => {
+      answered = true;
+      if ('manifest' in answer) resolve(answer.manifest);
+      else reject(new Error(answer.error));
+    });
+    worker.once('error', reject);
+    worker.once('exit', (exit) => {
+      if (!answered) reject(new Error(`the backup thread ended without an answer (exit ${exit})`));
+    });
+  });
+}
+
+/**
  * Checks every file of the backup in `from` against its manifest; returns the manifest, throws on a mismatch.
  */
 export function checkBackup(from: string): BackupManifest {
@@ -275,29 +302,28 @@ export function backupOn(dir: string, day: unknown): string | null {
 export const partialOf = (name: string): string => `${name}${PARTIAL}`;
 
 /** Deletes all but the newest `keep` finished backups and every unfinished one but `except`; returns how many went. */
-export function pruneBackups(dir: string, keep: number, { except = null }: { except?: string | null } = {}): number {
-  let removed = 0;
+export async function pruneBackups(
+  dir: string,
+  keep: number,
+  { except = null }: { except?: string | null } = {}
+): Promise<number> {
   const finished = backupsIn(dir);
-  for (const name of finished.slice(0, Math.max(0, finished.length - keep))) {
-    fs.rmSync(path.join(dir, name), { recursive: true, force: true });
-    removed += 1;
-  }
+  const names = finished.slice(0, Math.max(0, finished.length - keep));
   let entries: Array<fs.Dirent> = [];
   try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
   } catch {
-    return removed;
+    entries = [];
   }
   for (const entry of entries) {
     if (
-      !entry.isDirectory() ||
-      entry.name === except ||
-      !entry.name.endsWith(PARTIAL) ||
-      !NAME_RE.test(entry.name.slice(0, -PARTIAL.length))
+      entry.isDirectory() &&
+      entry.name !== except &&
+      entry.name.endsWith(PARTIAL) &&
+      NAME_RE.test(entry.name.slice(0, -PARTIAL.length))
     )
-      continue;
-    fs.rmSync(path.join(dir, entry.name), { recursive: true, force: true });
-    removed += 1;
+      names.push(entry.name);
   }
-  return removed;
+  for (const name of names) await fs.promises.rm(path.join(dir, name), { recursive: true, force: true });
+  return names.length;
 }

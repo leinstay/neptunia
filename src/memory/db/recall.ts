@@ -35,6 +35,11 @@
 // message, in time order, inside the context; the read stops at the first line the context may not open and never
 // counts one.
 //
+// The reader worker (reader-worker.ts) runs `search` off the bot's main thread. The caller's callbacks cannot cross a
+// thread, so the three exports at the end of the search section carry them as data: `visiblePlaces` lists the places
+// the caller's `allowPlace` judges before the search (`allowedPlaces`), `searchMarked` marks the lines and places whose
+// names the caller may give, and `namedResult` fills those names in after the answer. The result equals `search`'s.
+//
 // Pure of the bot: it works on an opened database (any connection, read-only is enough) and takes everything else
 // as arguments. Rows are read here; wording and rendering are the caller's (`quotesOf` turns windows into the
 // stretches `recall.run` returns when it renders them with src/behavior/recall.js#renderRecallWindows).
@@ -116,6 +121,8 @@ export type StoredSourceRef = Readonly<{
 /** One source row as a chat message (the shape renderRecallWindows reads). */
 export type RecallMessage = {
   id: unknown;
+  /** Only in a `searchMarked` answer: the account `nameOf` is asked about. `namedResult` removes it. */
+  nameKey?: string;
   stored?: StoredSourceRef;
   placeId: string;
   authorId: string | null;
@@ -146,11 +153,13 @@ type RecallWindow = {
   sourceHitIds?: Iterable<unknown>;
   overlapsChat: boolean;
 };
+/** The place of a `searchMarked` answer by id, with the native id `channelNameOf` is asked about. */
+type NameMarks = { places: Record<string, string> };
 /** What the streams, the windows and the quotes need to name a message's author and its channel. */
 type Reader = {
   selfName: string;
   exclude: Set<unknown>;
-  authorOf: (accountId: unknown) => { id: string | null; name: string | null };
+  authorOf: (accountId: unknown) => { id: string | null; name: string | null; nameKey: string | null };
   channelNameOf: (placeId: unknown) => string | null;
 };
 /** The settings of a db recall: the recall settings with the keys of `recall.db` lifted out. */
@@ -259,6 +268,9 @@ function attachmentIdAt(extra: Row, at: number): { attachmentId?: string } {
   return typeof id === 'string' ? { attachmentId: id } : {};
 }
 
+/** A name as a line shows it: one line, `-` when nothing is left. */
+const shownName = (name: string | null): string => (name ?? '').replace(/\s+/g, ' ').trim() || '-';
+
 /** One source row as a normalized chat message (the shape renderRecallWindows reads). */
 function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | 'selfName'>): RecallMessage {
   const extra = (parseJson(row.extra) ?? {}) as Row;
@@ -272,13 +284,11 @@ function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | '
   const mentions = parseJson(row.mentions);
   return {
     id: row.native_id,
+    ...(!self && author.nameKey !== null ? { nameKey: author.nameKey } : {}),
     stored: storedRefOf(row, extra),
     placeId: channelOf(row, extra),
     authorId: author.id,
-    authorName:
-      String(name ?? '')
-        .replace(/\s+/g, ' ')
-        .trim() || '-',
+    authorName: shownName(name),
     self,
     bot: false,
     content: str(row.text),
@@ -393,13 +403,28 @@ function holds(terms: ReadonlyArray<Term>, row: Row): { terms: number; phrases: 
  * `allowPlace` says yes. Null without a caller rule (every place); a JSON list otherwise, handed to the streams as a
  * SQL predicate, so a refused place is out of the queries before any LIMIT, ranking or fusion.
  */
-function placesAllowed(db: Db, ctx: Context, allowPlace: unknown): string | null {
+function placesAllowed(
+  db: Db,
+  ctx: Context,
+  allowPlace: unknown,
+  allowedPlaces?: ReadonlyArray<string | null>
+): string | null {
+  if (allowedPlaces) return JSON.stringify(allowedPlaces);
   if (typeof allowPlace !== 'function') return null;
   const scope = scopeWhere(ctx, 's');
   const found = db
     .prepare(`SELECT DISTINCT s.place_id AS place_id FROM sources s WHERE s.place_id IS NOT NULL AND ${scope.sql}`)
     .all(...scope.params);
   return JSON.stringify(found.map((row) => row.place_id).filter((placeId) => allowPlace(placeId)));
+}
+
+/** Whether a place's line may show: by the list a reader was given, else by the caller's rule. */
+function placeRule(allowPlace: unknown, allowedPlaces?: ReadonlyArray<string | null>): (placeId: unknown) => boolean {
+  if (allowedPlaces) {
+    const allowed = new Set<unknown>(allowedPlaces);
+    return (placeId) => allowed.has(placeId);
+  }
+  return (placeId) => typeof allowPlace !== 'function' || Boolean(allowPlace(placeId));
 }
 
 /** The shared filters of a stream: scope, range, place, the caller's allowed places. Returns { sql, params } (without a leading AND). */
@@ -629,6 +654,28 @@ function peopleRows(
     .all(...accounts, ...filter.params, limit);
 }
 
+/** The places a sample may read, as a stream's `places`: the list a reader was given, or the sample's rule over the caller's. */
+function samplingPlaces(
+  db: Db,
+  ctx: Context,
+  {
+    samplePlace,
+    sampledPlaces,
+    placeShown,
+    places,
+  }: {
+    samplePlace: unknown;
+    sampledPlaces?: ReadonlyArray<string | null>;
+    placeShown: (placeId: unknown) => boolean;
+    places: string | null;
+  }
+): string | null {
+  if (sampledPlaces) return JSON.stringify(sampledPlaces);
+  if (typeof samplePlace !== 'function') return places;
+  const rule = samplePlace as (placeId: unknown) => boolean;
+  return placesAllowed(db, ctx, (placeId: unknown) => placeShown(placeId) && rule(placeId));
+}
+
 /**
  * The time stream: at most `limit` lines of the scope, spread over its span (see the head of this file). Nothing unless
  * the caller asked for it (`wanted`) and the plan names a place or a side of a range. A scope of no more lines than the
@@ -642,17 +689,14 @@ function timeRows(
   {
     wanted,
     found,
-    allowPlace,
+    places,
     skip,
     limit,
-  }: { wanted: unknown; found: number; allowPlace: unknown; skip: ReadonlySet<unknown>; limit: number }
+  }: { wanted: unknown; found: number; places: () => string | null; skip: ReadonlySet<unknown>; limit: number }
 ): Array<Row> {
   const { from, to, placeId } = scopeArgs;
-  if (!wanted || found > 0 || (from === null && to === null && placeId === null)) return [];
-  const sampleRule = typeof wanted === 'function' ? (wanted as (place: unknown) => boolean) : () => true;
-  const placeRule = typeof allowPlace === 'function' ? (allowPlace as (place: unknown) => boolean) : () => true;
-  const places = placesAllowed(db, ctx, (place: unknown) => placeRule(place) && sampleRule(place));
-  const filter = filters(ctx, { ...scopeArgs, places });
+  if (wanted !== true || found > 0 || (from === null && to === null && placeId === null)) return [];
+  const filter = filters(ctx, { ...scopeArgs, places: places() });
   const left = JSON.stringify([...skip]);
   const rows = (tail: string, ...more: Array<string | number>): Array<Row> =>
     db
@@ -936,7 +980,14 @@ function readerOf(
     selfName = '',
     channelNameOf = null,
     exclude = null,
-  }: { nameOf?: unknown; selfName?: string; channelNameOf?: unknown; exclude?: unknown } = {}
+    marks = null,
+  }: {
+    nameOf?: unknown;
+    selfName?: string;
+    channelNameOf?: unknown;
+    exclude?: unknown;
+    marks?: NameMarks | null;
+  } = {}
 ): Reader {
   let names: Map<unknown, AccountName> | null = null;
   let places: Map<unknown, PlaceName> | null = null;
@@ -946,21 +997,18 @@ function readerOf(
     authorOf: (accountId) => {
       names ??= accountNames(db);
       const account = names.get(accountId);
-      if (!account) return { id: null, name: null };
-      const given =
-        account.iface === ctx.iface && account.nativeId && typeof nameOf === 'function'
-          ? str(nameOf(account.nativeId))
-          : '';
-      return { id: account.nativeId, name: given || account.name };
+      if (!account) return { id: null, name: null, nameKey: null };
+      const own = account.iface === ctx.iface ? account.nativeId : null;
+      const given = own && typeof nameOf === 'function' ? str(nameOf(own)) : '';
+      return { id: account.nativeId, name: given || account.name, nameKey: marks ? own : null };
     },
     channelNameOf: (placeId: unknown): string | null => {
       places ??= placeNames(db);
       const place = places.get(placeId);
       if (!place || (place.private && ctx.internal !== true)) return null;
-      const given =
-        place.iface === ctx.iface && place.nativeId && typeof channelNameOf === 'function'
-          ? str(channelNameOf(place.nativeId))
-          : '';
+      const own = place.iface === ctx.iface ? place.nativeId : null;
+      if (own && marks) marks.places[placeId as string] = own;
+      const given = own && typeof channelNameOf === 'function' ? str(channelNameOf(own)) : '';
       return given || place.name;
     },
   };
@@ -976,8 +1024,81 @@ function targetOf({ from, to }: Pick<ScopeArgs, 'from' | 'to'>, now: number): nu
   return now;
 }
 
+/** What a search is given. `allowedPlaces` (a list a reader was given) stands in for `allowPlace`. */
+export type SearchInput = {
+  ctx?: unknown;
+  plan?: RecallPlan;
+  limit?: number;
+  now?: number;
+  vector?: ArrayLike<number> | null;
+  settings?: DbSettings | null;
+  exclude?: unknown;
+  exclusions?: ReadonlyArray<ResolvedRecallAnchor>;
+  nameOf?: unknown;
+  selfName?: string;
+  channelNameOf?: unknown;
+  allowPlace?: unknown;
+  allowedPlaces?: ReadonlyArray<string | null>;
+  model?: unknown;
+  /** Whether a plan the four streams found nothing for is answered by the time stream. */
+  sampleTime?: boolean;
+  /** Which places a sample may read, on top of `allowPlace`. `sampledPlaces` (a list a reader was given) stands in for it. */
+  samplePlace?: unknown;
+  sampledPlaces?: ReadonlyArray<string | null>;
+};
+
+/** What a search answers: the windows, the hits, whether a DM holds better, whether it is a sample, the counts per stream. */
+export type SearchResult = {
+  windows: Array<RecallWindow>;
+  hits: Array<RecallHit>;
+  hidden: boolean;
+  sampled: boolean;
+  stats: Record<string, number>;
+};
+
+/** A search in the reader: the callbacks stayed behind, the names to fill in are marked (see the head of this file). */
+export function searchMarked(dbGiven: unknown, input: SearchInput): SearchResult & NameMarks {
+  const marks: NameMarks = { places: {} };
+  return { ...search(dbGiven, input, marks), places: marks.places };
+}
+
+/** Every place holding a row the context may see, a row without a place as null: what `allowPlace` judges. */
+export function visiblePlaces(dbGiven: unknown, ctx: unknown): Array<string | null> {
+  const db = dbGiven as Db;
+  whereFor(ctx);
+  const scope = scopeWhere(ctx, 's');
+  return db
+    .prepare(`SELECT DISTINCT s.place_id AS place_id FROM sources s WHERE ${scope.sql}`)
+    .all(...scope.params)
+    .map((row) => row.place_id as string | null);
+}
+
+/** What the caller's name callback says about `key`, '' without a callback. */
+function askedName(callback: unknown, key: string): string {
+  // `SearchInput` types the callbacks `unknown`, as `search` reads them; a function of an id is their one use.
+  return typeof callback === 'function' ? str((callback as (id: string) => unknown)(key)) : '';
+}
+
+/** A `searchMarked` answer with the caller's names in it, as `search` with those callbacks answers. */
+export function namedResult(
+  marked: SearchResult & NameMarks,
+  { nameOf = null, channelNameOf = null }: { nameOf?: unknown; channelNameOf?: unknown }
+): SearchResult {
+  const { places, ...result } = marked;
+  const windows = result.windows.map((one) => {
+    const key = typeof one.place === 'string' ? places[one.place] : undefined;
+    const given = key ? askedName(channelNameOf, key) : '';
+    const messages = one.messages.map(({ nameKey, ...message }) => {
+      const name = nameKey ? askedName(nameOf, nameKey) : '';
+      return name ? { ...message, authorName: shownName(name) } : message;
+    });
+    return { ...one, channelName: given || one.channelName, messages };
+  });
+  return { ...result, windows };
+}
+
 /**
- * Searches the record in a scope context.
+ * Searches the record in a scope context. `marks` is for `searchMarked` alone.
  */
 export function search(
   dbGiven: unknown,
@@ -994,35 +1115,14 @@ export function search(
     selfName = '',
     channelNameOf = null,
     allowPlace = null,
+    allowedPlaces,
     model = null,
     sampleTime,
-  }: {
-    ctx?: unknown;
-    plan?: RecallPlan;
-    limit?: number;
-    now?: number;
-    vector?: ArrayLike<number> | null;
-    settings?: DbSettings | null;
-    exclude?: unknown;
-    exclusions?: ReadonlyArray<ResolvedRecallAnchor>;
-    nameOf?: unknown;
-    selfName?: string;
-    channelNameOf?: unknown;
-    allowPlace?: unknown;
-    model?: unknown;
-    /**
-     * Whether a plan the four streams found nothing for is answered by the time stream. A function also says which
-     * places a sample may read, on top of `allowPlace`.
-     */
-    sampleTime?: boolean | ((placeId: unknown) => boolean);
-  } = {}
-): {
-  windows: Array<RecallWindow>;
-  hits: Array<RecallHit>;
-  hidden: boolean;
-  sampled: boolean;
-  stats: Record<string, number>;
-} {
+    samplePlace,
+    sampledPlaces,
+  }: SearchInput = {},
+  marks: NameMarks | null = null
+): SearchResult {
   const db = dbGiven as Db;
   whereFor(ctx); // a read without a valid context throws
   const context = ctx as Context;
@@ -1035,8 +1135,9 @@ export function search(
     to: isFiniteNumber(plan?.to) ? plan.to : null,
     placeId: typeof plan?.placeId === 'string' && plan.placeId ? channelPlaceId(ifaceOf(context), plan.placeId) : null,
     // The caller's place rule runs inside every stream's query (see placesAllowed).
-    places: placesAllowed(db, context, allowPlace),
+    places: placesAllowed(db, context, allowPlace, allowedPlaces),
   };
+  const placeShown = placeRule(allowPlace, allowedPlaces);
   const people = accountsOf(db, context, plan?.who);
   const terms = termsOf(stem, [...(plan?.forms ?? []), ...people.unresolved]);
   const stats = { words: 0, trigram: 0, meaning: 0, people: 0 };
@@ -1095,7 +1196,7 @@ export function search(
   const timed = timeRows(db, context, scopeArgs, {
     wanted: sampleTime,
     found: rowsOf.size,
-    allowPlace,
+    places: () => samplingPlaces(db, context, { samplePlace, sampledPlaces, placeShown, places: scopeArgs.places }),
     skip,
     limit: keep,
   });
@@ -1137,7 +1238,7 @@ export function search(
             b.score - a.score
     );
 
-  const read = readerOf(db, context, { nameOf, selfName, channelNameOf, exclude: skip });
+  const read = readerOf(db, context, { nameOf, selfName, channelNameOf, exclude: skip, marks });
   const byScore = [...hits].sort((a, b) => b.score - a.score);
   const chosen = new Set(hits.slice(0, keep * HITS_PER_WINDOW).map((hit) => hit.rowid));
   for (const hit of byScore.slice(0, keep)) chosen.add(hit.rowid);
@@ -1192,14 +1293,7 @@ export function search(
 
   const hidden =
     context.kind === 'group' && terms.length > 0
-      ? hiddenBetter(
-          db,
-          context,
-          terms,
-          scopeArgs,
-          (row) => shown(row) && (typeof allowPlace !== 'function' || Boolean(allowPlace(row.place_id))),
-          askersOf(context)
-        )
+      ? hiddenBetter(db, context, terms, scopeArgs, (row) => shown(row) && placeShown(row.place_id), askersOf(context))
       : false;
   return { windows, hits, hidden, sampled, stats };
 }

@@ -59,7 +59,9 @@
 // reads the cue as an estimate (`<time_cue>`).
 // The persona's own search (`quotes`), its window reads (`window`) and the memory prefetch read the memory database
 // (src/memory/db/recall.js): the stretches scope-checked by the read context. While the database is not open they find
-// nothing (`not-configured`, or a prefetch of the stored memory alone). The server part of a turn's lookup (a run
+// nothing (`not-configured`, or a prefetch of the stored memory alone). Their searches run on the service's reader
+// thread (`memoryDb.searchRecord`) with a signal: `recall.timeoutMs` bounds the persona's own search,
+// `recall.prefetch.deadlineMs` the prefetch; a search past its bound is abandoned. The server part of a turn's lookup (a run
 // without `quotes`) searches the server's history and asks the summary, as above.
 // Logs carry counts, ids and codes only: never a form, a name or a message.
 // What a run found and chose is diagnosed from the trace file instead
@@ -178,6 +180,36 @@ const LATIN_LETTER_RE = /\p{Script=Latin}/u;
 /** The characters of a stored-memory item's text the trace keeps when the item has no itemId. */
 const TRACE_TEXT_CHARS = 120;
 
+/** What a failure line of the log says about an error. */
+function failureFields(err: unknown) {
+  return { name: objOf(err).name ?? null, code: objOf(err).code ?? null };
+}
+
+/** The input of one lane's search in the memory database. */
+function laneSearch({
+  reader,
+  forms,
+  who,
+  until,
+  bounded,
+  vector,
+  settings,
+  candidates,
+  ...rest
+}: Untyped): Record<string, unknown> {
+  return {
+    ...rest,
+    ctx: reader.ctx,
+    plan: { forms, who, from: null, to: bounded ? until : null },
+    limit: Math.ceil(candidates / 4),
+    now: until,
+    vector,
+    settings: { ...settings, candidates },
+    allowPlace: reader.allowPlace,
+    model: reader.model,
+  };
+}
+
 /** Whether the parsed server part asks anything. */
 function asksServer(server: Untyped, retrieval: Untyped = null) {
   if (typeof retrieval?.entity === 'string' && retrieval.entity !== '') return true;
@@ -187,22 +219,22 @@ function asksServer(server: Untyped, retrieval: Untyped = null) {
   return some(server.forms) || some(server.who) || Number.isFinite(server.from) || Number.isFinite(server.to) || named;
 }
 
+/** What a sample's place rule reads: the turn's live view and its conversation. */
+type SamplePlaceInput = {
+  snapshot: { get: (id: string) => ConversationInfo | undefined } | null;
+  channel: ConversationInfo;
+  partnerId: string | null;
+  config: object;
+};
+
 /**
  * Which places a sample of the persona's own search may read: a sample hands her a stretch of a channel with no word of
  * hers behind it, so it keeps to the conversations the turn's live view allows (readable, the audience rule of
  * `context.pull.sameAudience`). A stored place the view does not hold, her DM among them, stays with the read context.
  */
-function samplePlaceRule({
-  snapshot,
-  channel,
-  partnerId,
-  config,
-}: {
-  snapshot: { get: (id: string) => ConversationInfo | undefined } | null;
-  channel: ConversationInfo;
-  partnerId: string | null;
-  config: object;
-}) {
+function samplePlaceRule(given: Record<keyof SamplePlaceInput, unknown>) {
+  // The runner's inputs are untyped; these are the shapes `run` is given.
+  const { snapshot, channel, partnerId, config } = given as SamplePlaceInput;
   return (placeId: unknown): boolean => {
     const entry = snapshot?.get(nativeOf(placeId) ?? '') ?? null;
     return entry === null || (isReadable(entry) && audienceAllows(channel, entry, config, { partnerId }));
@@ -452,6 +484,12 @@ export function createRecall({
   timers = DEFAULT_TIMERS,
   track = untracked,
 }: CreateRecallInput): CreateRecallResult {
+  /** One search of the database: on the reader thread, or synchronously over a memory that offers only `database()`. */
+  function searchDb(db: Untyped, input: Untyped, signal: AbortSignal): Promise<Untyped> {
+    if (typeof memoryDb?.searchRecord === 'function') return memoryDb.searchRecord(input, { signal });
+    return Promise.resolve().then(() => dbSearch(db, input));
+  }
+
   /** Whether `llm.maxRequestsPerDay` is spent today: the summary would be refused. */
   function capSpent() {
     return typeof llm?.capLeft === 'function' && llm.capLeft() <= 0;
@@ -1065,21 +1103,39 @@ export function createRecall({
       }
     }
     const exclusions = historyExclusions({ history, historyRef, context: reader.ctx, channel });
-    const found = dbSearch(db, {
-      ctx: reader.ctx,
-      plan: server,
-      limit: settings.maxClusters,
-      now: now(),
-      vector,
-      settings: dbSettings(config),
-      exclusions,
-      nameOf: reader.nameOf,
-      selfName,
-      channelNameOf: reader.channelNameOf,
-      allowPlace: reader.allowPlace,
-      model: reader.model,
-      sampleTime: samplePlaceRule({ snapshot, channel, partnerId, config }),
+    const controller = new AbortController();
+    let timer: Untyped = null;
+    const deadline = new Promise((resolve) => {
+      timer = timers.set(() => resolve(TIMEOUT), Math.max(1, started + settings.timeoutMs - now()));
+      timer?.unref?.();
     });
+    const searching = searchDb(
+      db,
+      {
+        ctx: reader.ctx,
+        plan: server,
+        limit: settings.maxClusters,
+        now: now(),
+        vector,
+        settings: dbSettings(config),
+        exclusions,
+        nameOf: reader.nameOf,
+        selfName,
+        channelNameOf: reader.channelNameOf,
+        allowPlace: reader.allowPlace,
+        model: reader.model,
+        sampleTime: true,
+        samplePlace: samplePlaceRule({ snapshot, channel, partnerId, config }),
+      },
+      controller.signal
+    );
+    // A search left behind at the deadline rejects with nobody waiting.
+    searching.catch(() => {});
+    const found = await Promise.race([searching, deadline]).finally(() => timers.clear(timer));
+    if (found === TIMEOUT) {
+      controller.abort();
+      return null;
+    }
     stats.hits = found.hits.length;
     stats.meaning = found.stats.meaning;
     stats.windows = found.windows.length;
@@ -1111,7 +1167,7 @@ export function createRecall({
       windows: found.windows.length,
       quoted: quotes.length,
       hidden: found.hidden,
-      sampled: found.sampled,
+      sampled: found.sampled === true,
       totalMs: now() - started,
     });
     // `hitIds`: the messages the search matched (scripts/recall-eval.ts scores them); the persona's tool ignores it.
@@ -1213,7 +1269,7 @@ export function createRecall({
         channel: channel?.id ?? null,
         reason: 'error',
         status: null,
-        name: objOf(err).name ?? null,
+        ...failureFields(err),
       });
       return out({ outcome: { kind: 'error' } });
     }
@@ -1682,7 +1738,7 @@ export function createRecall({
         channel: conversationId,
         reason: railReason(err),
         status: objOf(err).statusCode ?? null,
-        name: objOf(err).name ?? null,
+        ...failureFields(err),
       });
       return fallback(summaryFailure(err));
     }
@@ -1705,6 +1761,13 @@ export function createRecall({
       stretch: stretch !== null,
     });
     return result({ text: answer.text, stretch, people: peopleOut() });
+  }
+
+  /** The persona's own search past `recall.timeoutMs`: a warning, the journal's failure and the outcome she reads. */
+  async function quotesTimedOut(conversationId: unknown, op: Untyped, empty: (extra: object) => Untyped) {
+    log.warn('recall: failed', { channel: conversationId, reason: 'timeout', status: null, name: null, code: null });
+    if (op) await op.failed(CODE.TIMEOUT);
+    return empty({ outcome: { kind: 'timeout' } });
   }
 
   async function run({
@@ -1798,6 +1861,7 @@ export function createRecall({
           memoryContext,
           retrieval,
         });
+        if (found === null) return finish(await quotesTimedOut(conversationId, op, empty));
         if (trace) trace.summary = { answer: 'quotes', stretch: null, text: null, note: null };
         if (op) await op.succeeded(opResult(found, 'ok'));
         return finish(found);
@@ -1844,7 +1908,13 @@ export function createRecall({
       const outcome = await Promise.race([work, deadline]);
       if (outcome === TIMEOUT) {
         controller.abort();
-        log.warn('recall: failed', { channel: conversationId, reason: 'timeout', status: null, name: null });
+        log.warn('recall: failed', {
+          channel: conversationId,
+          reason: 'timeout',
+          status: null,
+          name: null,
+          code: null,
+        });
         const fallen = progress.fallback ? progress.fallback('timeout') : null;
         if (op) await (fallen ? op.succeeded(opResult(fallen, 'timeout')) : op.failed(CODE.TIMEOUT));
         return finish(fallen ?? empty({ outcome: { kind: 'timeout' } }));
@@ -1858,7 +1928,7 @@ export function createRecall({
         channel: conversationId,
         reason: 'error',
         status: null,
-        name: objOf(err).name ?? null,
+        ...failureFields(err),
       });
       if (op) await op.failed(CODE.ERROR);
       return finish(empty({ outcome: { kind: 'error' } }));
@@ -2062,13 +2132,15 @@ export function createRecall({
         ...window,
         messages: window.messages.filter((m: Untyped) => !(m.ts > until)),
       });
-      const settled: Array<Untyped> = [];
+      // By task, not by arrival: the fusion breaks a tie by list order, and the reader's answers come when they come.
+      const settled = new Map<number, Untyped>();
       const stats = { searches: 0, failed: 0, meaning: 0 };
       const task = (name: string, work: Untyped) => {
+        const at = stats.searches;
         stats.searches += 1;
         return work().then(
           (result: Untyped) => {
-            if (result && !signal.aborted) settled.push(result);
+            if (result && !signal.aborted) settled.set(at, result);
           },
           (err: Untyped) => {
             stats.failed += 1;
@@ -2076,7 +2148,7 @@ export function createRecall({
               log.warn('recall: prefetch failed', {
                 channel: conversationId,
                 stage: name,
-                name: objOf(err).name ?? null,
+                ...failureFields(err),
               });
           }
         );
@@ -2153,21 +2225,23 @@ export function createRecall({
               const vector = dbMeaning ? ((await laneVectors.catch(() => null))?.[i] ?? null) : null;
               const found = await timed(
                 'record',
-                Promise.resolve().then(() =>
-                  dbSearch(db, {
-                    ctx: reader.ctx,
-                    plan: { forms, who: plan?.who, from: null, to: bounded ? until : null },
-                    limit: Math.ceil(p.candidates / 4),
-                    now: until,
+                searchDb(
+                  db,
+                  laneSearch({
+                    reader,
+                    forms,
+                    who: plan?.who,
+                    until,
+                    bounded,
                     vector,
-                    settings: { ...dbSettings(config), candidates: p.candidates },
+                    settings: dbSettings(config),
+                    candidates: p.candidates,
                     exclusions,
                     nameOf,
                     selfName,
                     channelNameOf,
-                    allowPlace: reader.allowPlace,
-                    model: reader.model,
-                  })
+                  }),
+                  signal
                 )
               );
               if (signal.aborted) return null;
@@ -2228,7 +2302,7 @@ export function createRecall({
       const outcome = await Promise.race([Promise.all([...tasks, factsRead]), deadline]);
       const timedOut = outcome === TIMEOUT;
       if (timedOut) controller.abort();
-      const found = [...settled];
+      const found = [...settled.keys()].sort((a, b) => a - b).map((at) => settled.get(at));
       const units = rankPrefetch(found);
       const render = {
         labels: hot.prompts?.labels ?? {},
@@ -2251,7 +2325,7 @@ export function createRecall({
       if (stats.failed >= stats.searches) return finish('unavailable', { ...extra, reason: 'failed' });
       return finish('none', extra);
     } catch (err) {
-      log.warn('recall: prefetch failed', { channel: conversationId, stage: 'run', name: objOf(err).name ?? null });
+      log.warn('recall: prefetch failed', { channel: conversationId, stage: 'run', ...failureFields(err) });
       return finish('unavailable', { reason: 'error' });
     } finally {
       if (timer !== null) timers.clear(timer);
