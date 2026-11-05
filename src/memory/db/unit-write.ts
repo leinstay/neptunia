@@ -24,7 +24,7 @@ import { unitRows, isMediaDescriptionEntry, mediaDescriptionId } from './export.
 import { unitValue } from './readers/common.ts';
 import { assignDiaryDestination } from './publish.ts';
 import { graphPending, projectPending } from './graph.ts';
-import { fillStems, markStemsPending, stemsPending } from './stems.ts';
+import { fillStems, markStemsPending, restampAttachment, stemsPending } from './stems.ts';
 import { applyErrandUnit, skippedErrandUnit } from '../../board/errands.ts';
 import { dbOf, asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -500,6 +500,7 @@ function writeMediaDescriptions(db: Db, unit: Unit, given: unknown, at: string) 
       unit.full,
       { at }
     );
+    if (filled(key.selector?.itemId)) restampAttachment(db, key.selector.itemId);
     written += 1;
   }
   noteUnit(db, unit.full, unit.kind, { at });

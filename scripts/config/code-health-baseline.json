@@ -265,7 +265,7 @@
         "complexity": 68
       },
       "memorySearchPlan": {
-        "complexity": 22
+        "complexity": 21
       },
       "parseRange": {
         "complexity": 33
@@ -659,7 +659,7 @@
     },
     "src/tools/tools.ts": {
       "memorySearchText": {
-        "complexity": 34
+        "complexity": 33
       },
       "runMediaLook": {
         "complexity": 36
