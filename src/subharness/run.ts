@@ -9,7 +9,7 @@
 // OpenCode gets one extra key as OPENROUTER_API_KEY and nothing else key-like: the one it logged in with, or with a
 // route the one the task brought (`routeKey`, a run without it fails `route-no-key`); codex and claude bring their own
 // login and get no key. A run with a `route` (src/agent-runner/protocol.ts#TaskRoute) is the runner's: the core decided
-// the backend, model, effort and mode when it dispatched the task, because a runner unit may hide keys.json. Such a
+// the backend, model, effort, mode and provider when it dispatched the task, because a runner unit may hide keys.json. Such a
 // run uses exactly the route and never opens keys.json. A run in `full` or `sudo` writes one log line before it starts, with
 // the agent and the mode and never the brief, so the log shows who worked without a sandbox. A claude whose `--help` lists
 // `--session-id` gets a fresh one on each run, and src/subharness/sessions.ts maps it to the agent and the run, so the
@@ -163,7 +163,11 @@ type Path = {
   model: string | null;
   effort: EffortLevel | null;
   keyValue: string | null;
+  provider?: string;
 };
+
+/** The option that pins a run to a provider, empty where there is no pin. */
+const pinOf = (provider: string | undefined): { provider?: string } => (provider === undefined ? {} : { provider });
 
 /** The path of a run from keys.json, or the refusal. */
 function pathFromStore(run: AgentRun, deps: RunDeps): Path | BackendResult {
@@ -177,7 +181,7 @@ function pathFromStore(run: AgentRun, deps: RunDeps): Path | BackendResult {
     });
     return off();
   }
-  const { key, models, efforts } = store.subharness;
+  const { key, models, efforts, providers } = store.subharness;
   const name = backendOfAgent(store.subharness, run.agent);
   if (name === null) return off();
   if (name === 'opencode' && (key === null || !hasExtraKey(store, key))) return off();
@@ -187,6 +191,7 @@ function pathFromStore(run: AgentRun, deps: RunDeps): Path | BackendResult {
     model: Object.hasOwn(models, run.agent) ? (models[run.agent] ?? null) : null,
     effort: Object.hasOwn(efforts, run.agent) ? (efforts[run.agent] ?? null) : null,
     keyValue: name === 'opencode' && key !== null ? (store.extra[key] ?? '') : null,
+    ...(Object.hasOwn(providers, run.agent) ? { provider: providers[run.agent] ?? '' } : {}),
   };
 }
 
@@ -236,7 +241,7 @@ function mapped(run: AgentRun, deps: RunDeps, name: BackendName, sessionId: stri
 export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendResult> {
   const settled = run.route === undefined ? pathFromStore(run, deps) : pathFromRoute(run, run.route);
   if ('ok' in settled) return settled;
-  const { name, mode, model, effort, keyValue } = settled;
+  const { name, mode, model, effort, keyValue, provider } = settled;
   const env = { ...run.env, ...envOf(deps, mode, keyValue) };
   if (mode === 'full' || mode === 'sudo') log.info('subharness: run without a sandbox', { agent: run.agent, mode });
   const options: BackendRunOptions = {
@@ -246,6 +251,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     env: name === 'opencode' && run.maxSteps !== undefined ? { ...env, ...opencodeSteps(run.maxSteps) } : env,
     ...(model === null ? {} : { model: modelOfBackend(name, model) }),
     ...(effort === null ? {} : { effort }),
+    ...pinOf(provider),
     ...(run.maxSteps === undefined ? {} : { maxSteps: run.maxSteps }),
     ...(run.maxOutputTokens === undefined ? {} : { maxOutputTokens: run.maxOutputTokens }),
     ...(run.search === undefined ? {} : { search: run.search }),

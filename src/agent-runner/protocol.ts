@@ -33,7 +33,14 @@ export type RunContext = { scope?: unknown; recent?: Array<{ author: string; tex
 export type RunSecrets = { openrouterKey: string; proxy?: string; searchKey?: string };
 
 /** The path the core decided for a task: the backend, model, effort and mode it runs in. Null model and effort mean the backend's own default. */
-export type TaskRoute = { backend: BackendName; model: string | null; effort: EffortLevel | null; mode: AgentMode };
+export type TaskRoute = {
+  backend: BackendName;
+  model: string | null;
+  effort: EffortLevel | null;
+  mode: AgentMode;
+  /** The OpenRouter provider an opencode run is pinned to; absent runs at any provider. */
+  provider?: string;
+};
 
 /** A validated `run`. */
 export type RunRequest = {
@@ -129,8 +136,15 @@ function isPositive(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 
-/** The keys of a route, and no others. */
+/** The keys every route has; a route may also carry `provider`, and no other key. */
 const ROUTE_KEYS = Object.freeze(['backend', 'effort', 'mode', 'model']);
+/** The longest provider slug a route may carry (characters). */
+const MAX_PROVIDER_CHARS = 64;
+
+/** Whether `value` is an OpenRouter provider slug: lower case letters, digits and hyphens, starting with a letter or a digit. */
+export function isProviderSlug(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= MAX_PROVIDER_CHARS && /^[a-z0-9][a-z0-9-]*$/.test(value);
+}
 /** The longest model name a route may carry (characters). */
 const MAX_ROUTE_MODEL_CHARS = 128;
 
@@ -146,18 +160,24 @@ function isRouteModel(value: unknown): value is string | null {
   );
 }
 
-/** The route as a validated value, or null when it is not exactly the four keys with valid values. */
+/** The route as a validated value, or null when it is not the four keys (and `provider` when pinned) with valid values. */
 export function parseRoute(value: unknown): TaskRoute | null {
   if (!isRec(value)) return null;
   const keys = Object.keys(value).sort();
-  if (keys.length !== ROUTE_KEYS.length || !keys.every((key, at) => key === ROUTE_KEYS[at])) return null;
-  const { backend, model, effort, mode } = value;
+  const pinned = Object.hasOwn(value, 'provider');
+  const expected = pinned ? [...ROUTE_KEYS, 'provider'].sort() : ROUTE_KEYS;
+  if (keys.length !== expected.length || !keys.every((key, at) => key === expected[at])) return null;
+  const { backend, model, effort, mode, provider } = value;
   const knownBackend = BACKEND_NAMES.find((name) => name === backend);
   const knownMode = AGENT_MODES.find((one) => one === mode);
   if (knownBackend === undefined || knownMode === undefined || !isRouteModel(model)) return null;
-  if (effort === null) return { backend: knownBackend, model, effort: null, mode: knownMode };
+  if (pinned && (!isProviderSlug(provider) || knownBackend !== 'opencode' || model === null)) return null;
+  const pin = pinned ? { provider: provider as string } : {};
+  if (effort === null) return { backend: knownBackend, model, effort: null, mode: knownMode, ...pin };
   const knownEffort = LISTED_EFFORT_LEVELS.find((level) => level === effort);
-  return knownEffort === undefined ? null : { backend: knownBackend, model, effort: knownEffort, mode: knownMode };
+  return knownEffort === undefined
+    ? null
+    : { backend: knownBackend, model, effort: knownEffort, mode: knownMode, ...pin };
 }
 
 /** Whether `value` is a non-negative finite number (a price in USD per million tokens). */
@@ -294,7 +314,7 @@ function validateRun(msg: Rec, id: string): Checked {
  * searchKey? }`, each a non-empty string without whitespace, no other key;
  * `proxy` in the http form, see httpProxyForm) and `preamble` (the deployment's
  * shared text that opens the agent's system instructions: a string of any
- * length, trimmed, else `bad-preamble`; a blank one is dropped) and `route` (`{ backend, model, effort, mode }`, exactly those keys, see parseRoute, else `bad-route`). A refusal carries its code
+ * length, trimmed, else `bad-preamble`; a blank one is dropped) and `route` (`{ backend, model, effort, mode }` and `provider` when pinned, see parseRoute, else `bad-route`). A refusal carries its code
  * only, never a value of the message. `cancel` needs an id. `ping` may carry `ids` (task ids
  * the core still waits for). Unknown top-level keys are ignored.
  */

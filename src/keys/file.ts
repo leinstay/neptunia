@@ -28,6 +28,8 @@ export type KeyStore = {
     efforts: Record<string, EffortLevel>;
     /** the source each agent runs through, by agent; an agent with none has no route */
     uses: Record<string, BackendName>;
+    /** the OpenRouter provider each opencode agent is pinned to, by agent; an agent with none runs at any provider */
+    providers: Record<string, string>;
     /** the memory writer's path through a subharness (src/subharness/memory-path.ts); null is the direct path */
     memory: MemoryPathRecord | null;
   };
@@ -117,7 +119,7 @@ export function emptyKeys(): KeyStore {
     core: [],
     extra: {},
     roles: {},
-    subharness: { key: null, modes: {}, models: {}, efforts: {}, uses: {}, memory: null },
+    subharness: { key: null, modes: {}, models: {}, efforts: {}, uses: {}, providers: {}, memory: null },
     simulation: { key: null },
   };
 }
@@ -152,6 +154,7 @@ export function readKeys(privateDir: string): KeyStore {
       models: textMap(sub.models),
       efforts: effortsOf(sub.efforts),
       uses: usesOf(sub),
+      providers: textMap(sub.providers),
       memory: memoryOf(sub.memory),
     },
     simulation: { key: typeof sim.key === 'string' ? sim.key : null },
@@ -163,7 +166,10 @@ export function writeKeys(privateDir: string, store: KeyStore): void {
   fs.mkdirSync(privateDir, { recursive: true, mode: 0o700 });
   const file = path.join(privateDir, KEYS_FILE);
   const temporary = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temporary, `${JSON.stringify(store, null, 2)}\n`, { mode: 0o600 });
+  // An empty `providers` is left out, so a file nobody pinned keeps the shape it had.
+  const { providers, ...others } = store.subharness;
+  const shaped = Object.keys(providers).length === 0 ? { ...store, subharness: others } : store;
+  fs.writeFileSync(temporary, `${JSON.stringify(shaped, null, 2)}\n`, { mode: 0o600 });
   fs.chmodSync(temporary, 0o600);
   fs.renameSync(temporary, file);
 }
