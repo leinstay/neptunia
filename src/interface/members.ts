@@ -8,30 +8,30 @@ import type { MembershipChanged } from '../protocol/events.ts';
 
 export function createMemberDirectory(): {
   apply(event: MembershipChanged): void;
-  nameOf(communityId: string, userId: string): string | null;
-  infoOf(communityId: string, userId: string): { name: string; bot: boolean } | null;
+  nameOf(placeId: string, accountId: string): string | null;
+  infoOf(placeId: string, accountId: string): { name: string; bot: boolean } | null;
   /** Every member of the community the directory holds, with the id. */
-  list(communityId: string): Array<{ id: string; name: string; bot: boolean }>;
+  list(placeId: string): Array<{ id: string; name: string; bot: boolean }>;
 } {
   const communities = new Map<string, Map<string, { name: string; bot: boolean }>>();
   return {
     apply(event) {
-      const { communityId, userId } = event;
+      const { placeId, accountId } = event;
       if (event.change === 'left') {
-        communities.get(communityId)?.delete(userId);
+        communities.get(placeId)?.delete(accountId);
         return;
       }
       const name = event.member?.name;
       if (typeof name !== 'string' || name === '') return;
-      let members = communities.get(communityId);
+      let members = communities.get(placeId);
       if (members === undefined) {
         members = new Map();
-        communities.set(communityId, members);
+        communities.set(placeId, members);
       }
-      members.set(userId, { name, bot: event.member?.bot === true });
+      members.set(accountId, { name, bot: event.member?.bot === true });
     },
-    nameOf: (communityId, userId) => communities.get(communityId)?.get(userId)?.name ?? null,
-    infoOf: (communityId, userId) => communities.get(communityId)?.get(userId) ?? null,
-    list: (communityId) => [...(communities.get(communityId) ?? [])].map(([id, member]) => ({ id, ...member })),
+    nameOf: (placeId, accountId) => communities.get(placeId)?.get(accountId)?.name ?? null,
+    infoOf: (placeId, accountId) => communities.get(placeId)?.get(accountId) ?? null,
+    list: (placeId) => [...(communities.get(placeId) ?? [])].map(([id, member]) => ({ id, ...member })),
   };
 }

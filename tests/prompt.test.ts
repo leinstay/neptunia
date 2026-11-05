@@ -171,7 +171,7 @@ test('buildRequest: a follow-up in a private chat keeps reply.md', () => {
       history: [trigger],
       trigger,
       triggerKind: 'followUp',
-      privateChat: { userId: 'author-1' },
+      privateChat: { accountId: 'author-1' },
     })
   );
   const user = contentText(request.messages[1].content);
@@ -985,9 +985,9 @@ test('buildRequest: the stable part is byte-identical across the turns of a day,
 });
 
 test('buildRequest: a private chat keeps its private line in the tail', () => {
-  const content = buildRequest(
-    cacheScene({ privateChat: { userId: 'author-1' }, triggerKind: 'private', prompts: fakePrompts({ private: 'P' }) })
-  ).messages[1].content;
+  const privateChat = { accountId: 'author-1' };
+  const scene = cacheScene({ privateChat, triggerKind: 'private', prompts: fakePrompts({ private: 'P' }) });
+  const content = buildRequest(scene).messages[1].content;
   const stable = content.find((part) => part.cacheSegment === 'stable');
   const tail = content.at(-1);
   assert.ok(!stable!.text.includes(labels.senses.privateChat));
@@ -2615,8 +2615,8 @@ test('buildRequest: a name of exactly 3 characters still matches a whole word', 
   assert.ok(user.includes('## Max'));
 });
 
-test('buildRequest: a real @mention (mentionedUserIds) pulls a silent member in even when their name is never written out', () => {
-  const history = [makeMessage(1, NOW - MIN, { content: 'hey what do you think of them', mentionedUserIds: ['p9'] })];
+test('buildRequest: a real @mention (mentionedAccountIds) pulls a silent member in even when their name is never written out', () => {
+  const history = [makeMessage(1, NOW - MIN, { content: 'hey what do you think', mentionedAccountIds: ['p9'] })];
   const candidateProfiles = [{ id: 'p9', names: ['Quinn'], character: 'quiet' }];
   const request = buildRequest(baseInput({ history, candidateProfiles }));
   const user = contentText(request.messages[1].content);
@@ -2627,7 +2627,7 @@ test('buildRequest: an active participant explicitly @mentioned in the trigger i
   const trigger = makeMessage(2, NOW - MIN, {
     authorName: 'Asker',
     content: 'what does Carl think',
-    mentionedUserIds: ['p2'],
+    mentionedAccountIds: ['p2'],
   });
   const history = [makeMessage(1, NOW - 2 * MIN, { authorName: 'Dana', content: 'nothing interesting' }), trigger];
   const otherProfiles = [
@@ -3621,7 +3621,7 @@ function privateScene(overrides: Record<string, unknown> = {}) {
     trigger,
     triggerKind: 'private',
     prompts: fakePrompts({ private: 'PRIVATE_TASK for {{name}} with {{author}}' }),
-    privateChat: { userId: 'u1' },
+    privateChat: { accountId: 'u1' },
     interlocutor: {
       id: 'u1',
       names: ['Alice'],
@@ -3863,7 +3863,7 @@ function routedInput(overrides: Record<string, unknown> = {}) {
     authorId: 'u7',
     authorName: 'Ana',
     content: 'tu as vu ça ?',
-    mentionedUserIds: ['self'],
+    mentionedAccountIds: ['self'],
   });
   const pulled = pulledChannel({
     readOnly: true,
@@ -6440,7 +6440,7 @@ test('buildRequest: people_now -- no live fields with no input, in a private cha
   for (const [name, request] of Object.entries({
     'no input': buildRequest(aroundScene({ around: undefined })),
     'null input': buildRequest(aroundScene({ around: null })),
-    'a private chat': buildRequest(aroundScene({ privateChat: { userId: 'author-1' } })),
+    'a private chat': buildRequest(aroundScene({ privateChat: { accountId: 'author-1' } })),
   })) {
     assert.ok(!live(request), name);
     assert.deepEqual(fieldsOf(rowOf(request, 'Alice')), ALICE_STATE, `${name}: the attitude, moves and count stay`);

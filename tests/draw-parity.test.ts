@@ -1,5 +1,5 @@
 // The "before" record of every picture the persona draws: the exact `{ prompt, reference,
-// userId }` each call site hands to the image client (src/llm/images.ts#createImageGen's
+// accountId }` each call site hands to the image client (src/llm/images.ts#createImageGen's
 // `generate`) -- a reply turn's draw.create call, a diary post's single picture, a diary set's pictures,
 // and `/nep draw` with `self`. Asserted at the image-client boundary only, with literal
 // expectations: wherever the prompt building, the avatar fetch or the caps move, these calls must
@@ -227,7 +227,7 @@ test("draw parity: a reply turn's draw.create call asked by a member", async () 
     {
       prompt: `A drawing by Bot.\n\n${WHEN}\n\nScene: a lighthouse at dusk, waves below`,
       reference: null,
-      userId: 'u1',
+      accountId: 'u1',
     },
   ]);
 });
@@ -250,7 +250,7 @@ test("draw parity: a diary post's single self picture", async () => {
     {
       prompt: `A drawing by Bot.\n\nBot has silver hair and a green scarf.\n\n${WHEN}\n\nScene: me on a pier at dawn, fog`,
       reference: AVATAR,
-      userId: null,
+      accountId: null,
     },
   ]);
 });
@@ -273,11 +273,11 @@ test("draw parity: a diary set's pictures, the persona in the first one only", a
     {
       prompt: `A drawing by Bot.\n\nBot has silver hair and a green scarf.\n\n${WHEN}\n\nScene: me at the harbour gate`,
       reference: AVATAR,
-      userId: null,
+      accountId: null,
     },
-    { prompt: `A drawing by Bot.\n\n${WHEN}\n\nScene: boats in the harbour`, reference: null, userId: null },
-    { prompt: `A drawing by Bot.\n\n${WHEN}\n\nScene: a café terrace`, reference: null, userId: null },
-    { prompt: `A drawing by Bot.\n\n${WHEN}\n\nScene: nets on the quay`, reference: null, userId: null },
+    { prompt: `A drawing by Bot.\n\n${WHEN}\n\nScene: boats in the harbour`, reference: null, accountId: null },
+    { prompt: `A drawing by Bot.\n\n${WHEN}\n\nScene: a café terrace`, reference: null, accountId: null },
+    { prompt: `A drawing by Bot.\n\n${WHEN}\n\nScene: nets on the quay`, reference: null, accountId: null },
   ]);
 });
 
@@ -300,7 +300,7 @@ test('draw parity: /nep draw with self', async () => {
     now: () => NOW,
   });
   const { result } = await withCapturedLogs(() =>
-    admin.run('draw.create', { text: 'me reading by the window', self: true }, { placeId: 'g1', userId: '42' })
+    admin.run('draw.create', { text: 'me reading by the window', self: true }, { placeId: 'g1', accountId: '42' })
   );
   assert.equal(result.files.length, 1);
   // The owner's command carries no local time: its `{{when}}` is blank.
@@ -308,7 +308,7 @@ test('draw parity: /nep draw with self', async () => {
     {
       prompt: 'A drawing by Bot.\n\nBot has silver hair and a green scarf.\n\nScene: me reading by the window',
       reference: AVATAR,
-      userId: null,
+      accountId: null,
     },
   ]);
 });

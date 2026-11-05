@@ -223,7 +223,7 @@ test('participation block: never in a private chat', () => {
         trigger,
         triggerKind: 'private',
         currentChannelId: 'dm1',
-        privateChat: { userId: 'a-d1' },
+        privateChat: { accountId: 'a-d1' },
       })
     )
   );
@@ -447,7 +447,7 @@ test('earlier block: off without the label and in a private chat', () => {
     run({ prompts: prompts({ ...labels, participation: { ...labels.participation, earlierHeader: '' } }) }),
     null
   );
-  assert.equal(run({ privateChat: { userId: 'a-m1' }, triggerKind: 'private' }), null);
+  assert.equal(run({ privateChat: { accountId: 'a-m1' }, triggerKind: 'private' }), null);
 });
 
 test('earlier block: the newest episodes win the cap, rendered oldest first with the gap label between them', () => {

@@ -3,7 +3,7 @@
 // One line per observation in the memory database (src/memory/db/service.ts), in the unit of its
 // day, `<place>/record/<YYYY-MM>/<YYYY-MM-DD>.jsonl` (`dayFile`, relative to the data
 // directory: the unit's name, no file), by the UTC day of the line's `occurredAt`; a private
-// chat's lines go under `private/<userId>/record/` instead and never into the place record. Kinds:
+// chat's lines go under `private/<accountId>/record/` instead and never into the place record. Kinds:
 //
 //   - `seen`: a message the app observed (an edit is a new line with revision 2, 3, ...);
 //   - `deleted`: the platform deleted a message (its stored text stays: not a forget request);
@@ -125,7 +125,7 @@ export function recordLinks(
 }
 
 /**
- * One record line from a slim message (src/memory/update.ts#slimMessage; `mentionedUserIds`
+ * One record line from a slim message (src/memory/update.ts#slimMessage; `mentionedAccountIds`
  * and `replyToAuthorId` are read when the slim has them). Only the whitelisted fields are
  * copied: `messageId`, `revision`, `occurredAt` (the slim's `ts`), the channel (as `scope`),
  * `by`, `replyTo`, `text`, `media` (kinds only), `links` (recordLinks of the slim's `linkCards`,
@@ -162,7 +162,7 @@ export function toRecordLine(
   const replyTo = typeof source.replyToId === 'string' && source.replyToId ? source.replyToId : null;
   const replyAuthor =
     replyTo && typeof source.replyToAuthorId === 'string' && source.replyToAuthorId ? source.replyToAuthorId : null;
-  const mentions = idList(source.mentionedUserIds ?? source.mentions);
+  const mentions = idList(source.mentionedAccountIds ?? source.mentions);
   const recordedAt = new Date(now()).toISOString();
   const head = {
     v: RECORD_VERSION,
@@ -213,17 +213,23 @@ export function revisionOf(text: string): string {
 }
 
 /**
- * A `felt` line: the feeling the persona attached to a stored moment of `userId`.
+ * A `felt` line: the feeling the persona attached to a stored moment of `accountId`.
  * @param feeling  `date`: the episode's date (a day or an ISO time).
  */
 export function feltLine(
   {
-    userId,
+    accountId,
     itemId = null,
     text,
     date = null,
     sourceMessageIds = [],
-  }: { userId: string; itemId?: string | null; text: string; date?: string | null; sourceMessageIds?: Array<string> },
+  }: {
+    accountId: string;
+    itemId?: string | null;
+    text: string;
+    date?: string | null;
+    sourceMessageIds?: Array<string>;
+  },
   {
     now = Date.now,
     uuid = randomUUID,
@@ -240,9 +246,9 @@ export function feltLine(
     revisionId: revisionOf(text),
     occurredAt: isoOf(date) ?? recordedAt,
     recordedAt,
-    scope: { user: String(userId) },
+    scope: { user: String(accountId) },
     text: String(text ?? ''),
-    participants: idList(String(userId)),
+    participants: idList(String(accountId)),
     sourceMessageIds: idList(sourceMessageIds),
     origin: origin === 'backfill' ? 'backfill' : 'live',
   };

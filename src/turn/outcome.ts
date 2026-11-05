@@ -26,7 +26,7 @@ import type { TriggerKind } from './triggers.ts';
 type WakeArgs = Parameters<typeof wakeInputs>[0];
 
 /** The conversation a turn ran in, as its end reads it. */
-type EndChannel = { id: string; communityId?: string | null };
+type EndChannel = { id: string; rootId?: string | null };
 
 /** The trigger of a turn, as its end reads it; the attempt reads the rest. */
 type EndTrigger = {
@@ -365,7 +365,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
       const { trigger = null, triggerKind = null, mode = null } = params ?? {};
       const channel = ends.info;
       if (!channel || mode !== 'reply' || !askedFor(trigger, triggerKind) || !trigger?.id) return;
-      const placeId = params.placeId ?? channel.communityId ?? null;
+      const placeId = params.placeId ?? channel.rootId ?? null;
       const scope = { placeId: String(channel.id), privateChat: !inCommunity(channel) };
       const at = clock();
       const outcome = result?.outcome ?? 'error';

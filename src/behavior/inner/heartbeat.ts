@@ -165,7 +165,7 @@ export async function heartbeatFacts(
       innerState: state,
       nameOf: (id: string) => (typeof nameOf === 'function' ? nameOf(id) : null),
       placeName: (id: string) => placeNameOf(life, id),
-      activePlaces: (memberId: string) => activePlacesOf(life, memberId),
+      activePlaces: (accountId: string) => activePlacesOf(life, accountId),
       focusPeople: focusOf(heartbeatSources),
       log,
     });

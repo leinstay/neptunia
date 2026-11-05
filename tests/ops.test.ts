@@ -174,32 +174,32 @@ test('ops: runOp denies a non-owner on an owner-only op with a code, even under 
   for (const name of OWNER_ONLY) {
     const result = await runOp(
       name,
-      { userId: '7', confirm: 'g1' },
-      { env, placeId: 'g1', userId: '999', roleIds: [] }
+      { accountId: '7', confirm: 'g1' },
+      { env, placeId: 'g1', accountId: '999', roleIds: [] }
     );
     assert.equal(result.status, 'denied', name);
     assert.equal(result.code, 'owner-only', name);
     assert.equal(typeof result.summary, 'string');
   }
   // a grant on the operation's own name does open a grantable read
-  const open = await runOp('rule.list', {}, { env, placeId: 'g1', userId: '999', roleIds: [] });
+  const open = await runOp('rule.list', {}, { env, placeId: 'g1', accountId: '999', roleIds: [] });
   assert.equal(open.status, 'ok');
   // no grant at all: denied, with its own code
   const bare = makeEnv();
-  const refused = await runOp('rule.list', {}, { env: bare, placeId: 'g1', userId: '999', roleIds: [] });
+  const refused = await runOp('rule.list', {}, { env: bare, placeId: 'g1', accountId: '999', roleIds: [] });
   assert.equal(refused.status, 'denied');
   assert.equal(refused.code, 'not-granted');
 });
 
 test('ops: runOp returns invalid with a human summary for missing args', async () => {
   const env = makeEnv();
-  const owner = { env, placeId: 'g1', userId: '42' };
+  const owner = { env, placeId: 'g1', accountId: '42' };
   const result = await runOp('rule.add', {}, owner);
   assert.equal(result.status, 'invalid');
   assert.equal(typeof result.code, 'string');
   assert.equal(result.summary, 'rule text is required');
 
-  const affinity = await runOp('memory.affinity.set', { userId: '7' }, owner);
+  const affinity = await runOp('memory.affinity.set', { accountId: '7' }, owner);
   assert.equal(affinity.status, 'invalid', 'a set without a score never falls back to a read');
 
   const unknown = await runOp('no.such.op', {}, owner);
@@ -214,7 +214,7 @@ test('ops: an exception becomes failed with its code', async () => {
     },
   };
   const env = makeEnv({ emojiBackfill });
-  const result = await runOp('media.rescan', { kind: 'emoji' }, { env, placeId: 'g1', userId: '42' });
+  const result = await runOp('media.rescan', { kind: 'emoji' }, { env, placeId: 'g1', accountId: '42' });
   assert.deepEqual(result, { status: 'failed', code: 'EIO', summary: 'disk unreadable', data: null });
 
   const plain = makeEnv({
@@ -224,7 +224,7 @@ test('ops: an exception becomes failed with its code', async () => {
       },
     },
   });
-  const other = await runOp('media.rescan', { kind: 'emoji' }, { env: plain, placeId: 'g1', userId: '42' });
+  const other = await runOp('media.rescan', { kind: 'emoji' }, { env: plain, placeId: 'g1', accountId: '42' });
   assert.equal(other.status, 'failed');
   assert.equal(other.code, 'error');
 });
@@ -249,7 +249,7 @@ test('ops: a stored grant on a command or group that runs no operation any more 
 test('status.show answers the card as its fields, with no embed', async () => {
   const env = makeEnv();
   // PR 7d: the `features` field went with the switches; `limits` is the one field asked here.
-  const result = await runOp('status.show', { field: 'limits' }, { env, placeId: 'g1', userId: '42', roleIds: [] });
+  const result = await runOp('status.show', { field: 'limits' }, { env, placeId: 'g1', accountId: '42', roleIds: [] });
   assert.equal(result.status, 'ok');
   const data = result.data as { fields?: Array<{ name: string }> };
   assert.deepEqual(
@@ -304,7 +304,11 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
   });
   assert.equal(env.simKey, 'sim-test-key');
   assert.equal(env.managementKey, 'mgmt-test');
-  const result = await runOp('status.show', { field: 'keys.base' }, { env, placeId: null, userId: '42', roleIds: [] });
+  const result = await runOp(
+    'status.show',
+    { field: 'keys.base' },
+    { env, placeId: null, accountId: '42', roleIds: [] }
+  );
   assert.deepEqual(
     fieldsOf(result).map((field) => field.name),
     ['keys.base']
@@ -367,7 +371,11 @@ test('status keys: a role on the simulator key (here the vision role) is shown o
     llm,
     simKey: 'sim-test-key',
   });
-  const result = await runOp('status.show', { field: 'keys.base' }, { env, placeId: null, userId: '42', roleIds: [] });
+  const result = await runOp(
+    'status.show',
+    { field: 'keys.base' },
+    { env, placeId: null, accountId: '42', roleIds: [] }
+  );
   const value = fieldsOf(result)[0].value;
   assert.deepEqual(
     value.split('\n'),
@@ -386,7 +394,7 @@ test('status keys: a role on the simulator key (here the vision role) is shown o
   const without = await runOp(
     'status.show',
     { field: 'keys.base' },
-    { env: noSim, placeId: null, userId: '42', roleIds: [] }
+    { env: noSim, placeId: null, accountId: '42', roleIds: [] }
   );
   assert.ok(
     fieldsOf(without)[0].value.split('\n').includes('vision key 0.00/200.00'),
@@ -443,7 +451,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
     const { errand: task } = tasks.add({
       agent,
       goal: 'look it up',
-      requester: { userId: 'u1', kind: 'member' },
+      requester: { accountId: 'u1', kind: 'member' },
       origin: {},
       scope: 'group',
     });
@@ -467,7 +475,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
     errands,
   });
   const card = async (field: string) =>
-    fieldsOf(await runOp('status.show', { field }, { env, placeId: 'g1', userId: '42', roleIds: [] }));
+    fieldsOf(await runOp('status.show', { field }, { env, placeId: 'g1', accountId: '42', roleIds: [] }));
 
   const [keys] = await card('keys.base');
   assert.deepEqual(
@@ -499,7 +507,11 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
     llm,
   });
   const [empty] = fieldsOf(
-    await runOp('status.show', { field: 'costs.errands' }, { env: noErrands, placeId: 'g1', userId: '42', roleIds: [] })
+    await runOp(
+      'status.show',
+      { field: 'costs.errands' },
+      { env: noErrands, placeId: 'g1', accountId: '42', roleIds: [] }
+    )
   );
   assert.deepEqual(
     empty.value.split('\n'),
@@ -565,7 +577,7 @@ async function developmentField(seed: (db: BoardDb) => void): Promise<Array<stri
     const answer = await runOp(
       'status.show',
       { field: 'costs.development' },
-      { env, placeId: 'g1', userId: '42', roleIds: [] }
+      { env, placeId: 'g1', accountId: '42', roleIds: [] }
     );
     const value = fieldsOf(answer)[0]?.value;
     return String(value).split('\n');
@@ -617,11 +629,11 @@ test('ops: /nep task inner stops, starts and reports the inner life for an owner
     }),
   };
   const env = { ...makeEnv(), inner };
-  const owner = { env, userId: '42', placeId: 'g1' };
+  const owner = { env, accountId: '42', placeId: 'g1' };
   const status = await runOp('inner.status', {}, owner);
   assert.match(status.summary, /mode shadow, running/);
   assert.match(status.summary, /queue: 1 \(review/);
-  const member = await runOp('inner.status', {}, { env, userId: '7', placeId: 'g1' });
+  const member = await runOp('inner.status', {}, { env, accountId: '7', placeId: 'g1' });
   assert.equal(member.status, 'denied');
   assert.equal(member.code, 'owner-only');
 });

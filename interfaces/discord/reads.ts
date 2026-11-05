@@ -116,11 +116,11 @@ async function directUser(client: Obj, memberId: string): Promise<Obj | undefine
 async function findMember(
   client: Obj,
   guild: Obj | null,
-  who: { communityId: string | null; memberId: string },
+  who: { placeId: string | null; accountId: string },
   failure: FailureOf
 ): Promise<{ member?: Obj } | Failure> {
-  if (guild !== null) return guildMember(guild, who.memberId, failure);
-  if (who.communityId === null) return { member: await directUser(client, who.memberId) };
+  if (guild !== null) return guildMember(guild, who.accountId, failure);
+  if (who.placeId === null) return { member: await directUser(client, who.accountId) };
   return {};
 }
 
@@ -143,19 +143,24 @@ function memberInfoOf(member: Obj, memberId: string, selfId: string, client: Obj
 }
 
 /** The searches, the emoji list and the link parse of a read: answers over the client and the guild of a community. */
-function createLookupReads(deps: { client: Obj; iface: string; guildOf: (communityId: string | null) => Obj | null }) {
-  const { client, iface, guildOf } = deps;
+function createLookupReads(deps: {
+  client: Obj;
+  iface: string;
+  guildOf: (placeId: string | null) => Obj | null;
+  servedGuilds: () => Array<Obj | null>;
+}) {
+  const { client, iface, guildOf, servedGuilds } = deps;
   const failed = (code: string): Failure => ({
     status: 'failed',
     error: { code, retryable: false, retryAfterMs: null },
   });
   return {
     async searchMessages(
-      scope: { communityId: string },
+      scope: { placeId: string },
       query: { text?: string; authorId?: string; after?: number; before?: number; offset?: number }
     ) {
       const page = (await searchMessages(
-        { id: scope.communityId, client },
+        { id: scope.placeId, client },
         {
           ...(query.text === undefined ? {} : { content: query.text }),
           ...(query.authorId === undefined ? {} : { authorId: query.authorId }),
@@ -185,9 +190,9 @@ function createLookupReads(deps: { client: Obj; iface: string; guildOf: (communi
       };
     },
 
-    async searchMembers(scope: { communityId: string }, query: { prefix: string; limit: number }) {
+    async searchMembers(scope: { placeId: string }, query: { prefix: string; limit: number }) {
       const found = (await searchMembers(
-        { id: scope.communityId, client },
+        { id: scope.placeId, client },
         query.prefix,
         query.limit
       )) as Array<Obj> | null;
@@ -204,10 +209,11 @@ function createLookupReads(deps: { client: Obj; iface: string; guildOf: (communi
       };
     },
 
-    emoji(scope: { communityId: string }) {
-      const guild = guildOf(scope.communityId);
-      const cache = obj(guild?.emojis).cache as Map<string, Obj> | undefined;
-      const listed = [...(cache?.values() ?? [])]
+    emoji(scope: { placeId: string | null }) {
+      // Outside any server the persona can use the emoji of every server the interface serves.
+      const guilds = scope.placeId === null ? servedGuilds() : [guildOf(scope.placeId)];
+      const listed = guilds
+        .flatMap((guild) => [...((obj(guild?.emojis).cache as Map<string, Obj> | undefined)?.values() ?? [])])
         .filter((e) => text(e.id) !== null && text(e.name) !== null && e.available !== false)
         .map((e) => ({
           id: String(e.id),
@@ -281,13 +287,20 @@ export function createDiscordReads(deps: {
     status: 'failed',
     error: { code, retryable: false, retryAfterMs: null },
   });
-  const guildOf = (communityId: string | null): Obj | null =>
-    communityId === null
+  const guildOf = (placeId: string | null): Obj | null =>
+    placeId === null
       ? null
       : ((obj(obj(client.guilds).cache).get as (id: string) => Obj | undefined)?.call(
           obj(client.guilds).cache,
-          communityId
+          placeId
         ) ?? null);
+
+  /** The guilds this interface serves: the ones its config lists, every one the bot is in when it lists none. */
+  function servedGuilds(): Array<Obj | null> {
+    const listed: unknown = obj(deps.config()).servers;
+    if (Array.isArray(listed) && listed.length > 0) return listed.map((id) => guildOf(String(id)));
+    return [...((obj(client.guilds).cache as Map<string, Obj> | undefined)?.values() ?? [])];
+  }
 
   /** The event of a discord.js message without its handles. */
   function eventOf(message: unknown, extra: Obj = {}): MessageEvent {
@@ -425,8 +438,8 @@ export function createDiscordReads(deps: {
       return { status: 'ok' as const, conversation: infoOf(channel, asked, viewers) };
     },
 
-    async conversations(scope: { communityId: string; audience?: boolean; viewers?: ReadonlyArray<string> }) {
-      const guild = guildOf(scope.communityId);
+    async conversations(scope: { placeId: string; audience?: boolean; viewers?: ReadonlyArray<string> }) {
+      const guild = guildOf(scope.placeId);
       if (guild === null) return failed('no-guild');
       const viewers = await viewersOf(guild, scope.viewers);
       const channels = [...((obj(guild.channels).cache as Map<string, Obj> | undefined)?.values() ?? [])].filter(
@@ -515,15 +528,15 @@ export function createDiscordReads(deps: {
       return { status: 'ok' as const, events: messages.map((message) => eventOf(message)), complete };
     },
 
-    async memberInfo(who: { communityId: string | null; memberId: string }) {
-      const found = await findMember(client, guildOf(who.communityId), who, failure);
+    async memberInfo(who: { placeId: string | null; accountId: string }) {
+      const found = await findMember(client, guildOf(who.placeId), who, failure);
       if ('status' in found) return found;
       if (found.member === undefined || Object.keys(found.member).length === 0)
         return { status: 'ok' as const, member: null };
-      return { status: 'ok' as const, member: memberInfoOf(found.member, who.memberId, selfId(), client) };
+      return { status: 'ok' as const, member: memberInfoOf(found.member, who.accountId, selfId(), client) };
     },
 
-    ...createLookupReads({ client, iface, guildOf }),
+    ...createLookupReads({ client, iface, guildOf, servedGuilds }),
 
     async reactors(ref: MessageRef, emoji: string, limit: number) {
       const refused = refusal(ref, true);
@@ -531,7 +544,7 @@ export function createDiscordReads(deps: {
       const { message, result } = await resolveMessage(ref);
       if (result || message === undefined) return result ?? failed('error');
       try {
-        return { status: 'ok' as const, memberIds: await fetchReactorIds(message, emoji, limit) };
+        return { status: 'ok' as const, accountIds: await fetchReactorIds(message, emoji, limit) };
       } catch (err) {
         return failure(err);
       }

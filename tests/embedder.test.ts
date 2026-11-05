@@ -337,8 +337,14 @@ test('embedder: catchUp skips what the index holds at that revision and embeds a
   await kit.recordOnly([line('m1', 0, 'kept'), line('m2', 1, 'first'), line('m3', 2, 'new')]);
   await kit.recordOnly([line('m2', 1, 'edited', { revision: 2 })]);
   kit.preIndexed.push(
-    { meta: { kind: 'record', id: 'm1', revision: 1, occurredAt: line('m1', 0, '').occurredAt }, privateUserId: null },
-    { meta: { kind: 'record', id: 'm2', revision: 1, occurredAt: line('m2', 1, '').occurredAt }, privateUserId: null }
+    {
+      meta: { kind: 'record', id: 'm1', revision: 1, occurredAt: line('m1', 0, '').occurredAt },
+      privateAccountId: null,
+    },
+    {
+      meta: { kind: 'record', id: 'm2', revision: 1, occurredAt: line('m2', 1, '').occurredAt },
+      privateAccountId: null,
+    }
   );
   kit.clock.at = T0 + 3_600_000;
   const pass = await kit.embedder.catchUp(GUILD);

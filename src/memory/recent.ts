@@ -398,7 +398,7 @@ export function liveRecent(lines: unknown, { now, hours }: { now?: number; hours
 
 /**
  * The store without the lines about one member, for a forget: a line goes when
- * its `who` holds `userId`, its text holds the token `<@userId>` (the one case
+ * its `who` holds `accountId`, its text holds the token `<@accountId>` (the one case
  * `who` misses: an id outside the snowflake range forms no token), or its
  * folded text holds one of `names` (the member's stored names and aliases,
  * folded, each with at least 3 letters or digits: a name of symbols alone
@@ -408,11 +408,11 @@ export function liveRecent(lines: unknown, { now, hours }: { now?: number; hours
  */
 export function purgeRecentFor(
   stored: unknown,
-  userId: string,
+  accountId: string,
   names: Array<unknown> = []
 ): { value: { nextId: number; lines: Array<RecentLine> }; removed: number } {
   const base = normalizeRecent(stored);
-  const id = String(userId);
+  const id = String(accountId);
   const token = `<@${id}>`;
   const folded = [
     ...new Set((Array.isArray(names) ? names : []).filter((name) => typeof name === 'string').map(foldText)),
@@ -469,7 +469,7 @@ function momentAt(ep: { date?: unknown; addedAt?: unknown }, cutoff: number, clo
  * else null. The one copy for the recent view, the request builder
  * (src/behavior/prompt.js) and src/behavior/elsewhere.ts.
  */
-export function memberIdOf(raw: unknown): string | null {
+export function accountIdOf(raw: unknown): string | null {
   if (typeof raw === 'number' && isFiniteNumber(raw)) return String(raw);
   return typeof raw === 'string' && raw !== '' ? raw : null;
 }
@@ -536,7 +536,7 @@ export function recentView({
 } {
   const clock = nowOf(now);
   const cutoff = windowStart(clock, hours);
-  const focus = new Set([...(focusIds ?? [])].map(memberIdOf).filter(Boolean));
+  const focus = new Set([...(focusIds ?? [])].map(accountIdOf).filter(Boolean));
   const excluded = excludeEpisodeKeys instanceof Set ? excludeEpisodeKeys : new Set();
   const shows = typeof isShown === 'function' ? isShown : () => false;
   const most = isIntegerNumber(perMember) && perMember >= 0 ? perMember : RECENT_EPISODES_PER_MEMBER;
@@ -564,7 +564,7 @@ export function recentView({
   const moments: Array<RecentMoment> = [];
   for (const profile of Array.isArray(profiles) ? profiles : []) {
     if (!isRecord(profile)) continue;
-    const profileId = memberIdOf(profile.id);
+    const profileId = accountIdOf(profile.id);
     if (profileId === null) continue;
     const inWindow: Array<Untyped> = [];
     const atOf = new Map<Untyped, number>();

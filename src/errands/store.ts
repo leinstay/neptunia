@@ -238,14 +238,14 @@ function pruned(errands: Array<ErrandRecord>): Array<ErrandRecord> {
 
 /** The fields of the errand's journal `action` line of `phase`. */
 function journalFields(errand: ErrandRecord, phase: string, extra: Record<string, unknown>): Record<string, unknown> {
-  const privateUserId = errand.scope === 'dm' ? (errand.requester?.userId ?? null) : null;
+  const privateAccountId = errand.scope === 'dm' ? (errand.requester?.accountId ?? null) : null;
   return {
     opId: errand.opId,
     name: 'errand',
     // Her errand, whoever asked for it: the requester is in `participants`.
     by: 'persona',
-    ...(privateUserId ? { privateUserId } : { placeId: errand.origin?.placeId ?? null }),
-    participants: errand.requester?.userId ? [errand.requester.userId] : [],
+    ...(privateAccountId ? { privateAccountId } : { placeId: errand.origin?.placeId ?? null }),
+    participants: errand.requester?.accountId ? [errand.requester.accountId] : [],
     sourceMessageIds: errand.origin?.messageId ? [errand.origin.messageId] : [],
     phase,
     ...extra,
@@ -488,7 +488,7 @@ export function createErrandStore({
       agent,
       goal: text,
       requester: {
-        userId: requester?.userId ? String(requester.userId) : null,
+        accountId: requester?.accountId ? String(requester.accountId) : null,
         kind: requesterKindOf(requester?.kind),
       },
       origin: originOf(origin),

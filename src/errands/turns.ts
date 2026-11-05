@@ -212,7 +212,7 @@ export function createErrandTurns({
       return null;
     }
     const trigger = await originMessage(conversation, errand);
-    const requester = errand.requester?.userId ? { id: errand.requester.userId } : null;
+    const requester = errand.requester?.accountId ? { id: errand.requester.accountId } : null;
     lastAt.set(conversationId, now());
     let result: TurnResult;
     try {

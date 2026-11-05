@@ -646,12 +646,12 @@ function runner(
   // The interface is asked for nothing here: every search answers empty and every history read nothing, and each ask is noted.
   const rest: Array<string> = [];
   const reads = {
-    searchMessages: (scope: { communityId: string }) => {
-      rest.push(`/guilds/${scope.communityId}/messages/search`);
+    searchMessages: (scope: { placeId: string }) => {
+      rest.push(`/guilds/${scope.placeId}/messages/search`);
       return Promise.resolve({ total: 0, hits: [] });
     },
-    searchMembers: (scope: { communityId: string }) => {
-      rest.push(`/guilds/${scope.communityId}/members/search`);
+    searchMembers: (scope: { placeId: string }) => {
+      rest.push(`/guilds/${scope.placeId}/members/search`);
       return Promise.resolve({ members: [] });
     },
     history: () => Promise.resolve({ events: [], complete: true }),
@@ -660,7 +660,7 @@ function runner(
   const channel = channelInfo('c1', { name: 'general' });
   const secret = { ...privateChannel('c4', []), name: 'secret' };
   const snapshot = snapshotOf('g1', { conversations: [channel, secret], groups: [] });
-  const dm = channelInfo('dm-bob', { kind: 'dm', communityId: null, chatType: 'dm', partnerId: BOB, audience: null });
+  const dm = channelInfo('dm-bob', { kind: 'dm', rootId: null, chatType: 'dm', partnerId: BOB, audience: null });
   const config = structuredClone(SHIPPED);
   config.bot = { ...config.bot, timezone: 'UTC' };
   config.features = { ...config.features, meaningSearch: meaning, recall: true };
@@ -1071,8 +1071,8 @@ test('memory.search: the hidden marker is one label line, with or without stretc
     config: { ...SHIPPED, bot: { ...SHIPPED.bot, timezone: 'UTC' } },
     labels: withHidden,
     placeId: 'g1',
-    // Changed with the contract: the channel is the conversation's info (a community conversation has `communityId`).
-    channel: { communityId: 'g1' },
+    // Changed with the contract: the channel is the conversation's info (a community conversation has `rootId`).
+    channel: { rootId: 'g1' },
     now: NOW,
   };
   // The fake recall carries the calls a memory search makes, so each call reads it as the input it stands for.

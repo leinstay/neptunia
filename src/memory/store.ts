@@ -1574,7 +1574,7 @@ function buildStore({
       .map((ep: Untyped) =>
         feltLine(
           {
-            userId: String(accountId),
+            accountId: String(accountId),
             itemId: ep.itemId ?? null,
             text: ep.feeling,
             date: ep.date ?? null,
@@ -2620,26 +2620,26 @@ function buildStore({
     },
 
     /**
-     * Whether `memberId` turned the persona's notifications off in this place (`/nep pings off`).
+     * Whether `accountId` turned the persona's notifications off in this place (`/nep pings off`).
      */
-    isPingsOff(placeId: string, memberId: string): boolean {
+    isPingsOff(placeId: string, accountId: string): boolean {
       const list = store.getPlace(placeId)?.pingsOff;
-      return Array.isArray(list) && list.includes(String(memberId));
+      return Array.isArray(list) && list.includes(String(accountId));
     },
 
     /**
-     * Turn the persona's notifications to `memberId` off (`off` true) or back on, in the place's
+     * Turn the persona's notifications to `accountId` off (`off` true) or back on, in the place's
      * `pingsOff` list. A change is written at once (a member's own switch, allowed while paused,
      * when the next flush could otherwise land on a hand-edited file or be dropped with the
      * caches); no change writes nothing. Nothing else is touched, never `updatedAt`. Persists like
      * every place field and is never reset implicitly.
      * @returns The state now: true when the member's pings are off.
      */
-    setPingsOff(placeId: string, memberId: string, off: boolean): boolean {
+    setPingsOff(placeId: string, accountId: string, off: boolean): boolean {
       const item = entry(placeFile(placeId), emptyPlace);
       normalizePlace(item.value);
       if (!isRecord(item.value)) return false;
-      const id = String(memberId);
+      const id = String(accountId);
       const has = item.value.pingsOff.includes(id);
       if (off === true && !has) {
         item.value.pingsOff = [...item.value.pingsOff, id];

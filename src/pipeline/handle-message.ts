@@ -48,7 +48,7 @@ export type HandleMessageContext = {
   activity: { note: (placeId: string, authorId: string, at: number) => void } | null;
   missed: PipelineMissed | null;
   /** A community some connected interface serves. */
-  isServedCommunity: (communityId: string | null | undefined) => boolean;
+  isServedCommunity: (placeId: string | null | undefined) => boolean;
   selfIdOf: () => string;
   observeLine: ObserveLine;
   maybePauseNotice: (event: MessageEvent) => Promise<void>;
@@ -167,7 +167,7 @@ export function createHandleMessage({
       // 2. DMs: private chat (features.privateMessages, off by default) --
       // see onPrivateMessage. Owner commands are slash commands
       // (the interface's command handler), never DMs.
-      if (event.conversation.communityId === null) {
+      if (event.conversation.rootId === null) {
         if (catchUp) return 'ignored';
         await onPrivateMessage(event, config, options);
         return;
@@ -175,7 +175,7 @@ export function createHandleMessage({
 
       // 3. This instance serves exactly one place; no threads. Which channels
       // it sees is the platform's permissions alone.
-      if (!isServed(event.conversation.communityId)) return 'ignored';
+      if (!isServed(event.conversation.rootId)) return 'ignored';
       if (event.conversation.kind === 'thread') return 'ignored';
 
       // 3c. When this author last wrote in this channel, for a turn that waits until the person

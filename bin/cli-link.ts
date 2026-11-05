@@ -71,7 +71,7 @@ const CLI_CAPABILITIES: Capabilities = {
 const TRANSCRIPT_LINES = 200;
 
 /** The one conversation of the command line: the direct chat between the owner and the persona. */
-const CHAT_CONVERSATION = { id: CHAT_ID, kind: 'dm', communityId: null, name: OWNER_ID, partnerId: OWNER_ID } as const;
+const CHAT_CONVERSATION = { id: CHAT_ID, kind: 'dm', rootId: null, name: OWNER_ID, partnerId: OWNER_ID } as const;
 
 const CHAT_INFO: ConversationInfo = {
   ...CHAT_CONVERSATION,
@@ -191,7 +191,7 @@ function lineEvent(
       system: false,
       at,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       // The fields the media collectors read (src/media/classify.ts), as an interface normalizes a platform's file.
       attachments: (options.images ?? []).map((image) => ({
@@ -211,7 +211,7 @@ function lineEvent(
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
   };
 }
 

@@ -9,7 +9,7 @@ const NOW = Date.parse('2026-10-24T12:00:00Z');
 
 for (const privileged of [true, false]) {
   test(`${privileged ? 'an authenticated' : 'an ordinary'} queued call ${privileged ? 'runs' : 'is skipped'} after an ordinary turn saw its line`, async () => {
-    const channel = channelInfo('cli:dm:owner', { iface: 'cli', kind: 'dm', communityId: null, partnerId: 'owner' });
+    const channel = channelInfo('cli:dm:owner', { iface: 'cli', kind: 'dm', rootId: null, partnerId: 'owner' });
     const memoryContext = issueContext({ kind: 'internal', newId: () => 'ctx:queued-owner', now: () => NOW });
     const pending: PendingQueue = {
       list: [
@@ -25,7 +25,7 @@ for (const privileged of [true, false]) {
             content: 'read the private evidence',
             ts: NOW,
             replyToId: null,
-            mentionedUserIds: [],
+            mentionedAccountIds: [],
           },
           ...(privileged ? { readOptions: { memoryContext } } : {}),
         },

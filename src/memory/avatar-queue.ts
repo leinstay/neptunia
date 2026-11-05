@@ -33,14 +33,14 @@ const INTERVAL_MS = 20_000;
 const DESCRIPTION_CHARS = 200;
 
 /** A member whose avatar waits to be described: the version (`hash`, null for the default avatar) and where to fetch it. */
-type AvatarItem = { placeId: string; userId: string; hash: string | null; url: string | null };
+type AvatarItem = { placeId: string; accountId: string; hash: string | null; url: string | null };
 
 function buildAvatarQueue({
   hot,
   store,
   llm,
   imageFetcher,
-  servedCommunity,
+  servedPlaces,
   isServedCommunity,
   selfId,
   reads,
@@ -52,19 +52,19 @@ function buildAvatarQueue({
   store: Pick<StoreView, 'getUser' | 'listUserProfiles' | 'setAvatar'>;
   llm: { complete: Untyped; capLeft?: Untyped };
   imageFetcher: { fetchAsDataUrl: Untyped };
-  /** A community to read members from: the current event's, or the first one served. */
-  servedCommunity: () => string | null;
+  /** The places to read members from: every community the connected interfaces serve. */
+  servedPlaces: () => ReadonlyArray<string>;
   /** A community some connected interface serves. */
-  isServedCommunity: (communityId: string | null | undefined) => boolean;
+  isServedCommunity: (placeId: string | null | undefined) => boolean;
   selfId: () => string | null;
   reads: Reads;
   paused?: () => boolean;
   now?: () => number;
   log?: Log;
 }) {
-  /** userId -> { placeId, userId, hash, url }, in offer order. */
+  /** accountId -> { placeId, accountId, hash, url }, in offer order. */
   const queue = new Map<string, AvatarItem>();
-  /** userId -> the hash whose description failed; offered again only by the next scan. */
+  /** accountId -> the hash whose description failed; offered again only by the next scan. */
   const failed = new Map<string, string | null>();
   let working = false;
   let scanning = false;
@@ -102,7 +102,7 @@ function buildAvatarQueue({
         return 'current';
       }
       if (failed.has(view.id) && failed.get(view.id) === hash) return 'failed';
-      queue.set(view.id, { placeId, userId: view.id, hash, url: hashOrNull(view.url) });
+      queue.set(view.id, { placeId, accountId: view.id, hash, url: hashOrNull(view.url) });
       return 'queued';
     } catch (err) {
       log.warn('avatars: offer failed', { code: propOf(err, 'code') ?? propOf(err, 'name') ?? null });
@@ -124,7 +124,7 @@ function buildAvatarQueue({
       counts.profiles += 1;
       const id = typeof profile?.id === 'string' ? String(profile.id) : null;
       if (!id || id === self) continue;
-      const found = await reads.memberInfo({ communityId: placeId, memberId: id });
+      const found = await reads.memberInfo({ placeId: placeId, accountId: id });
       const member = found?.member ?? null;
       if (!member) {
         counts.gone += 1;
@@ -152,17 +152,17 @@ function buildAvatarQueue({
    */
   function settleFree(): number {
     let stored = 0;
-    for (const [userId, item] of [...queue]) {
-      const profile = store.getUser(accountOf(store, userId));
+    for (const [accountId, item] of [...queue]) {
+      const profile = store.getUser(accountOf(store, accountId));
       if (!profile || !isAvatarDue(profile.avatar, item.hash)) {
-        queue.delete(userId);
+        queue.delete(accountId);
         continue;
       }
       if (item.hash !== null) continue;
-      queue.delete(userId);
-      if (store.setAvatar(accountOf(store, userId), { hash: null, default: true })) {
+      queue.delete(accountId);
+      if (store.setAvatar(accountOf(store, accountId), { hash: null, default: true })) {
         stored += 1;
-        log.info('avatars: described', { userId, default: true });
+        log.info('avatars: described', { accountId, default: true });
       }
     }
     return stored;
@@ -190,8 +190,8 @@ function buildAvatarQueue({
     const promptText = hot.prompts?.avatar;
     const descriptionChars = DESCRIPTION_CHARS;
     const fail = (reason: string, extra = {}): 'failed' => {
-      failed.set(item.userId, item.hash);
-      log.warn('avatars: skipped', { reason, userId: item.userId, ...extra });
+      failed.set(item.accountId, item.hash);
+      log.warn('avatars: skipped', { reason, accountId: item.accountId, ...extra });
       return 'failed';
     };
     if (!item.url) return fail('no-url');
@@ -226,13 +226,13 @@ function buildAvatarQueue({
       .split('\n')[0];
     const text = clampText(oneLine(firstLine), descriptionChars, { tolerance: 1 });
     if (!text) return fail('empty');
-    const written = store.setAvatar(accountOf(store, item.userId), {
+    const written = store.setAvatar(accountOf(store, item.accountId), {
       hash: item.hash,
       text,
       describedAt: new Date(now()).toISOString(),
     });
     if (!written) return fail('no-profile');
-    log.info('avatars: described', { userId: item.userId, chars: Array.from(text).length });
+    log.info('avatars: described', { accountId: item.accountId, chars: Array.from(text).length });
     return 'described';
   }
 
@@ -246,14 +246,14 @@ function buildAvatarQueue({
     try {
       if (!on()) return 'off';
       if (paused()) return 'paused';
-      const placeId = servedCommunity();
-      if (!placeId) return 'no-place';
+      const places = servedPlaces();
+      if (places.length === 0) return 'no-place';
       if (!scanning && (lastScanAt === null || now() - lastScanAt >= DAY_MS)) {
         scanning = true;
         lastScanAt = now();
         scans += 1;
         try {
-          await scan(placeId);
+          for (const placeId of places) await scan(placeId);
         } catch (err) {
           log.warn('avatars: scan failed', { code: propOf(err, 'code') ?? propOf(err, 'name') ?? null });
         } finally {
@@ -271,7 +271,7 @@ function buildAvatarQueue({
           if (blocked !== 'wait') refusal(blocked);
           return blocked;
         }
-        queue.delete(item.userId);
+        queue.delete(item.accountId);
         try {
           return await describe(item);
         } finally {

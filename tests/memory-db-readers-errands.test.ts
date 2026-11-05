@@ -53,7 +53,7 @@ test('tasks db reader: the list and the spend records come from the database', a
       result: null,
       state: 'done',
       createdAt: 1792000000000,
-      requester: { userId: '100000000000000001' },
+      requester: { accountId: '100000000000000001' },
       scope: 'group',
       seen: true,
       readAt: 1792000000000,

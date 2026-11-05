@@ -112,7 +112,7 @@ test("inner: wakes of one conversation and the day's review coalesce into one tu
     kind: 'inner.wake',
     at: NOW,
     id: reviewWake('2026-10-19', NOW - 30 * MINUTE_MS).id,
-    communityId: GUILD,
+    rootId: GUILD,
     wake: reviewWake('2026-10-19', NOW - 30 * MINUTE_MS),
   });
   assert.equal(run.inner.status().queue.length, 4);
@@ -2356,7 +2356,7 @@ test('inner: an unfinished mark with the journal off is interrupted without repl
         startedAt: NOW - MINUTE_MS,
         channelId: 'c1',
         privateChat: false,
-        privateUserId: null,
+        privateAccountId: null,
       },
     })
   );

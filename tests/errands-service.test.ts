@@ -114,7 +114,7 @@ function makeService(env: Untyped, { keyByRole }: { keyByRole?: Untyped } = {}) 
 const ask = (agent: string) => ({
   agent,
   goal: 'find the changelog',
-  requester: { userId: '7', kind: 'member' },
+  requester: { accountId: '7', kind: 'member' },
   origin: { placeId: 'c1', messageId: 'm1' },
   scope: 'group' as const,
 });

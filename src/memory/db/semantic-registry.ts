@@ -1,7 +1,7 @@
 // The registry of semantic entity kinds and predicates: the definitions a fresh database holds, how a definition is read
 // and registered, and how the arguments of an assertion are checked against its predicate. A model's string is no contract
 // until a validated registry change makes it one. A stored version is immutable; a change registers the next version.
-// `INITIAL_*` are what schema v30 seeded: a new definition reaches a shipped database through `registerPredicate`, so these
+// `INITIAL_*` are what schema v31 seeded: a new definition reaches a shipped database through `registerPredicate`, so these
 // two lists never change. Imports nothing but types, so the migration and the writer worker can load it.
 
 import { dbOf } from './types.ts';

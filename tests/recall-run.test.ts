@@ -88,7 +88,7 @@ function scene({
         ...(Number.isFinite(query.before) ? { max_id: snowflakeAt(query.before) } : {}),
         ...(query.offset ? { offset: String(query.offset) } : {}),
       };
-      const route = `/guilds/${scope.communityId}/messages/search`;
+      const route = `/guilds/${scope.placeId}/messages/search`;
       // A read cannot be cancelled: the signal the answer may wait on never fires.
       const signal = new AbortController().signal;
       calls.push({ route, query: rest, signal });
@@ -105,7 +105,7 @@ function scene({
       return neutralSearch(body);
     },
     searchMembers: async (scope: Untyped, query: Untyped) => {
-      const route = `/guilds/${scope.communityId}/members/search`;
+      const route = `/guilds/${scope.placeId}/members/search`;
       const rest = { query: query.prefix, limit: String(query.limit) };
       const signal = new AbortController().signal;
       calls.push({ route, query: rest, signal });
@@ -208,7 +208,7 @@ function scene({
     },
   ];
   // A private chat with the member u5, as the interface describes it (no community, no audience).
-  const dm = channelInfo('dm1', { kind: 'dm', communityId: null, chatType: 'dm', partnerId: 'u5', audience: null });
+  const dm = channelInfo('dm1', { kind: 'dm', rootId: null, chatType: 'dm', partnerId: 'u5', audience: null });
   const args = {
     placeId: GUILD,
     channel: infos.c1,
@@ -1107,10 +1107,18 @@ test('recall: one trace line holds every source -- stored memory, record windows
       { kind: 'author', content: null, authorId: ANA_ID, offset: 0, sent: true, total: 0 },
     ]);
     for (const item of line.memory)
-      assert.deepEqual(Object.keys(item), ['kind', 'date', 'itemId', 'text', 'memberId', 'self', 'score']);
+      assert.deepEqual(Object.keys(item), ['kind', 'date', 'itemId', 'text', 'accountId', 'self', 'score']);
     assert.deepEqual(
       line.memory.find((item: Untyped) => item.kind === 'archived recent'),
-      { kind: 'archived recent', date: '2026-10-04', itemId: 'rc-2', text: null, memberId: null, self: false, score: 1 }
+      {
+        kind: 'archived recent',
+        date: '2026-10-04',
+        itemId: 'rc-2',
+        text: null,
+        accountId: null,
+        self: false,
+        score: 1,
+      }
     );
     assert.deepEqual(
       line.memory.find((item: Untyped) => item.kind === 'lore'),
@@ -1119,13 +1127,13 @@ test('recall: one trace line holds every source -- stored memory, record windows
         date: null,
         itemId: null,
         text: 'Το κουνέλι: The rabbit of the main channel.',
-        memberId: null,
+        accountId: null,
         self: false,
         score: 1,
       }
     );
     assert.ok(
-      line.memory.some((item: Untyped) => item.kind === 'episode' && item.memberId === ANA_ID && item.score === 2)
+      line.memory.some((item: Untyped) => item.kind === 'episode' && item.accountId === ANA_ID && item.score === 2)
     );
     // PR 7d: recall.recordContext is the constant 3, so the record window and the search hit of #garden are one window.
     assert.deepEqual(line.record, [
@@ -1252,7 +1260,7 @@ function fakeSource(byBase: Untyped) {
     queries,
     async *iterate(placeId: string, query: Record<string, Untyped> = {}) {
       queries.push(query);
-      yield* byBase[query.privateUserId ?? 'guild'] ?? [];
+      yield* byBase[query.privateAccountId ?? 'guild'] ?? [];
     },
   };
 }
@@ -1585,7 +1593,7 @@ function rangedSource(byBase: Untyped) {
       queries.push(query);
       const from = query.from ? Date.parse(query.from) : -Infinity;
       const to = query.to ? Date.parse(query.to) : Infinity;
-      for (const line of byBase[query.privateUserId ?? 'guild'] ?? []) {
+      for (const line of byBase[query.privateAccountId ?? 'guild'] ?? []) {
         const at = Date.parse(line.occurredAt);
         if (at < from || at > to) continue;
         if (Array.isArray(query.placeIds) && !query.placeIds.includes(line.scope?.channel)) continue;
@@ -1625,7 +1633,7 @@ function fakeVectors(byBase: Untyped, { fail = null }: Record<string, Untyped> =
     async search(placeId: string, query: unknown, opts: Record<string, Untyped> = {}) {
       calls.push({ placeId, query, opts });
       if (fail) throw fail;
-      const rows = (byBase[opts.privateUserId ?? 'guild'] ?? []).filter(
+      const rows = (byBase[opts.privateAccountId ?? 'guild'] ?? []).filter(
         (row: Untyped) => typeof opts.filter !== 'function' || opts.filter(row.meta)
       );
       return [...rows].sort((a, b) => b.score - a.score).slice(0, opts.k);
@@ -1814,7 +1822,7 @@ test("recall-run: a private turn searches its partner's private layer and the gu
     })
   );
   assert.deepEqual(
-    vectors.calls.map((c) => c.opts.privateUserId ?? null),
+    vectors.calls.map((c) => c.opts.privateAccountId ?? null),
     [null, 'u5']
   );
   const user = s.llmCalls[0].messages[1].content;

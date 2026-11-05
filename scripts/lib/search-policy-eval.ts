@@ -116,7 +116,7 @@ function chatMessage({ id, authorName, content, ts, self }: Rec) {
     content,
     ts,
     replyToId: null,
-    mentionedUserIds: [],
+    mentionedAccountIds: [],
     attachments: [],
     links: [],
     stickers: [],

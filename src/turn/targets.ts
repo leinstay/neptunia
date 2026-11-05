@@ -58,7 +58,7 @@ export async function reactionChannel(
   const source = pulledIds.get(targetId) ?? null;
   if (!source) return { target: channel, source: null, reason: null };
   const live =
-    channel.communityId === null
+    channel.rootId === null
       ? null
       : await reads.conversationInfo({ iface: channel.iface, conversationId: String(source) });
   const target = live?.conversation ?? null;

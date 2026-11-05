@@ -203,10 +203,10 @@ test('concernsMember: the destination, a participant, the id or a name of theirs
     now: T0,
   };
   const record = createIntention(wrongly(base)).intention;
-  assert.equal(concernsMember(wrongly(record), { userId: 'u5' }), true, 'a participant of the conversation');
-  assert.equal(concernsMember(wrongly(record), { userId: 'u6' }), false);
+  assert.equal(concernsMember(wrongly(record), { accountId: 'u5' }), true, 'a participant of the conversation');
+  assert.equal(concernsMember(wrongly(record), { accountId: 'u6' }), false);
   assert.equal(
-    concernsMember(wrongly(createIntention(wrongly({ ...base, destination: 'u6' })).intention), { userId: 'u6' }),
+    concernsMember(wrongly(createIntention(wrongly({ ...base, destination: 'u6' })).intention), { accountId: 'u6' }),
     true,
     'the destination'
   );
@@ -214,7 +214,7 @@ test('concernsMember: the destination, a participant, the id or a name of theirs
     concernsMember(
       wrongly(createIntention(wrongly({ ...base, purpose: 'ρώτα τον <@123456789012345678>' })).intention),
       {
-        userId: '123456789012345678',
+        accountId: '123456789012345678',
       }
     ),
     true,
@@ -222,18 +222,18 @@ test('concernsMember: the destination, a participant, the id or a name of theirs
   );
   const named = createIntention(wrongly({ ...base, purpose: 'στείλε στη Ζωή το βίντεο' })).intention;
   assert.equal(
-    concernsMember(wrongly(named), { userId: 'u7', names: ['ζωη'] }),
+    concernsMember(wrongly(named), { accountId: 'u7', names: ['ζωη'] }),
     true,
     'a name, accents folded, a whole word'
   );
   assert.equal(
-    concernsMember(wrongly(named), { userId: 'u7', names: ['Ζω'] }),
+    concernsMember(wrongly(named), { accountId: 'u7', names: ['Ζω'] }),
     false,
     'a name under three letters is not matched'
   );
   assert.equal(
     concernsMember(wrongly(createIntention(wrongly({ ...base, purpose: 'Ζωήρα' })).intention), {
-      userId: 'u7',
+      accountId: 'u7',
       names: ['Ζωή'],
     }),
     false,
@@ -243,8 +243,8 @@ test('concernsMember: the destination, a participant, the id or a name of theirs
     ...base,
     provenance: wrongly({ ...base.provenance, span: 'θα το πω στη Ζωή' }),
   }).intention;
-  assert.equal(concernsMember(wrongly(spoken), { userId: 'u7', names: ['Ζωή'] }), true, 'the quoted span');
-  assert.equal(concernsMember(wrongly(record), { userId: '' }), false);
+  assert.equal(concernsMember(wrongly(spoken), { accountId: 'u7', names: ['Ζωή'] }), true, 'the quoted span');
+  assert.equal(concernsMember(wrongly(record), { accountId: '' }), false);
 });
 
 test('isIntentionId: one bare token of i + hex digits, as newIntentionId makes them; nothing else', () => {
@@ -637,8 +637,8 @@ test('attend: a forget of one of the attended people takes the attention out', (
     now: T0,
     id: 'ia4',
   }).intention;
-  assert.equal(concernsMember(wrongly(record), { userId: 'u9' }), true);
-  assert.equal(concernsMember(wrongly(record), { userId: 'u8' }), false);
+  assert.equal(concernsMember(wrongly(record), { accountId: 'u9' }), true);
+  assert.equal(concernsMember(wrongly(record), { accountId: 'u8' }), false);
 });
 
 test('dropped: any open record can be dropped with a reason; it is final, never due, never expires, and needs a reason', () => {

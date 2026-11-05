@@ -56,8 +56,8 @@
 //   episodes:     { subjectId, what, feeling, sources }
 //   affinity:     { personId, delta, reason, sources }
 //   descriptions: { subjectKind, subjectId, field, why }
-//   entities:     { handle, kind, name, language, sources }   (schema v30; semantic-write.ts#writeSessionEntity)
-//   assertions:   { predicate, assertionKind, text, arguments, polarity, how, state, sources, dependencies }   (schema v30)
+//   entities:     { handle, kind, name, language, sources }   (schema v31; semantic-write.ts#writeSessionEntity)
+//   assertions:   { predicate, assertionKind, text, arguments, polarity, how, state, sources, dependencies }   (schema v31)
 //                 An argument's `ref` is a typed reference or `{ handle }`, a new entity of this answer. An op the writer
 //                 refuses is a `decisions` row `rejected:<code>`, and an assertion naming a refused entity is `unknown_ref`.
 //   people:       { op: 'add', subjectKind: 'account' | 'participant', subjectId, sources, reason }   (schema v8)
@@ -85,7 +85,7 @@
 //   { kind: 'semantic', resolved, now, uuid?, runId? }
 //       One resolved entity or assertion from another thread (semantic-write.ts): checked again here, because a message
 //       carries anything, and a base that moved since it was resolved answers `{ ok: false, code: 'stale_base' }`.
-// Schema v30: every new claim version the session writes is sealed by its `semantic_assertion_versions` snapshot (`text`,
+// Schema v31: every new claim version the session writes is sealed by its `semantic_assertion_versions` snapshot (`text`,
 // polarity `unknown`), with the audience the meet of the run and its sources on audience ids.
 // Counts and codes only, never a text.
 

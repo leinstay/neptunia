@@ -13,7 +13,7 @@ const event = (id: string, room = 'room-a') => ({
   conversation: { id: room, kind: 'channel' },
   messageId: 'same-message',
   emoji: { name: 'x' },
-  userId: 'member',
+  accountId: 'member',
   added: true,
 });
 

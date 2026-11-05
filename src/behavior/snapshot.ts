@@ -11,7 +11,7 @@ import { pullSettings } from './pull.ts';
 
 /** The listing: the conversations with their audience and viewers, the groups of the community. */
 export type Snapshot = {
-  communityId: string;
+  placeId: string;
   conversations: ReadonlyArray<ConversationInfo>;
   groups: ReadonlyArray<GroupInfo>;
   get(conversationId: string): ConversationInfo | null;
@@ -19,12 +19,12 @@ export type Snapshot = {
 
 /** The snapshot of a listing as `conversations` answered it. */
 export function snapshotOf(
-  communityId: string,
+  placeId: string,
   listing: { conversations: ReadonlyArray<ConversationInfo>; groups: ReadonlyArray<GroupInfo> }
 ): Snapshot {
   const byId = new Map(listing.conversations.map((entry) => [entry.id, entry]));
   return {
-    communityId,
+    placeId,
     conversations: listing.conversations,
     groups: listing.groups,
     get: (conversationId) => byId.get(String(conversationId)) ?? null,
@@ -32,16 +32,16 @@ export function snapshotOf(
 }
 
 /**
- * One listing of `communityId` with the audience of every conversation and which of `viewers` can see each, or null when
+ * One listing of `placeId` with the audience of every conversation and which of `viewers` can see each, or null when
  * the interface does not answer it (a block that needs it is then left out).
  */
 export async function takeSnapshot(
   reads: Reads,
-  communityId: string,
+  placeId: string,
   viewers: ReadonlyArray<string> = []
 ): Promise<Snapshot | null> {
-  const listing = await reads.conversations({ communityId, audience: true, viewers });
-  return listing === null ? null : snapshotOf(communityId, listing);
+  const listing = await reads.conversations({ placeId, audience: true, viewers });
+  return listing === null ? null : snapshotOf(placeId, listing);
 }
 
 /** One snapshot over every place of `placeIds`: the one's own, or the conversations and groups of all; null when none answers. */
@@ -53,7 +53,7 @@ export async function takeSnapshotOf(
   const [only] = placeIds;
   if (placeIds.length === 1 && only !== undefined) return takeSnapshot(reads, only, viewers);
   const listings = await Promise.all(
-    placeIds.map((communityId) => reads.conversations({ communityId, audience: true, viewers }))
+    placeIds.map((placeId) => reads.conversations({ placeId, audience: true, viewers }))
   );
   const found = listings.filter((listing) => listing !== null);
   if (found.length === 0 || only === undefined) return null;
@@ -114,8 +114,8 @@ export function audienceAllows(
   config: unknown,
   { partnerId = null }: { partnerId?: string | null } = {}
 ): boolean {
-  if (destination && destination.communityId === null) {
-    return partnerId !== null && source?.communityId !== null && source?.viewers?.[partnerId] === true;
+  if (destination && destination.rootId === null) {
+    return partnerId !== null && source?.rootId !== null && source?.viewers?.[partnerId] === true;
   }
   if (!pullSettings(config as object).sameAudience) return true;
   return audienceCovers(railAudience(destination?.audience), railAudience(source?.audience));

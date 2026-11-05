@@ -157,7 +157,7 @@ export function createMessageHandler({
   tagHistory: ReturnType<typeof createTagHistory>;
   llm?: PipelineLlm;
   /** A community some connected interface serves. */
-  isServedCommunity: (communityId: string | null | undefined) => boolean;
+  isServedCommunity: (placeId: string | null | undefined) => boolean;
   /** Every community the interface `name` serves. */
   communitiesOf?: (name: string) => ReadonlyArray<string>;
   getSelfName?: (placeId: string) => string;

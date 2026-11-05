@@ -177,7 +177,7 @@ async function watcherRead(rig: InspectionRig, args: Record<string, unknown>) {
       env: opsEnv(rig),
       placeId: 'g1',
       conversationId: 'c1',
-      userId: null,
+      accountId: null,
       roleIds: [],
       actor: 'persona',
     })

@@ -85,7 +85,7 @@ function setup() {
   });
   const card = async (field: string) =>
     (
-      (await runOp('status.show', { field }, { env, placeId: 'g1', userId: '42', roleIds: [] })).data as {
+      (await runOp('status.show', { field }, { env, placeId: 'g1', accountId: '42', roleIds: [] })).data as {
         fields: Array<{ value: string }>;
       }
     ).fields[0]?.value.split('\n');

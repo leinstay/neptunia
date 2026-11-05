@@ -304,7 +304,7 @@ const mediaArgs =
     action,
     ...(val(a, 'days') == null ? {} : { days: val(a, 'days') }),
   });
-const accessArgs: ToArgs = (a) => ({ command: val(a, 'command'), roleId: idOf(a, 'role'), userId: idOf(a, 'user') });
+const accessArgs: ToArgs = (a) => ({ command: val(a, 'command'), roleId: idOf(a, 'role'), accountId: idOf(a, 'user') });
 const reactArgs =
   (action: string): ToArgs =>
   (a) => ({
@@ -318,10 +318,10 @@ const taskStatusArgs =
   (a) => ({ id: opt(a, 'id'), action, from: opt(a, 'from') });
 // A member the operation needs: no member, no call.
 const forMember =
-  (build: (userId: string, given: Given) => Obj): ToArgs =>
+  (build: (accountId: string, given: Given) => Obj): ToArgs =>
   (a) => {
-    const userId = idOf(a, 'user');
-    return userId === undefined ? null : build(userId, a);
+    const accountId = idOf(a, 'user');
+    return accountId === undefined ? null : build(accountId, a);
   };
 const none = () => ({});
 
@@ -477,13 +477,13 @@ const ENTRIES: Array<Definition> = [
     params: obj({ user: ref(), name: str() }, ['user', 'name']),
     refs: { user: 'user' },
     effects: 'write',
-    toArgs: forMember((userId, a) => ({ userId, name: val(a, 'name') })),
+    toArgs: forMember((accountId, a) => ({ accountId, name: val(a, 'name') })),
   }),
   def('alias.remove', {
     params: obj({ user: ref(), name: str() }, ['user', 'name']),
     refs: { user: 'user' },
     effects: 'destructive',
-    toArgs: forMember((userId, a) => ({ userId, name: val(a, 'name') })),
+    toArgs: forMember((accountId, a) => ({ accountId, name: val(a, 'name') })),
   }),
   def('learning.add', {
     params: obj({ text: str() }, ['text']),
@@ -545,8 +545,8 @@ const ENTRIES: Array<Definition> = [
     ),
     refs: { user: 'user' },
     effects: 'read',
-    toArgs: forMember((userId, a) => ({
-      userId,
+    toArgs: forMember((accountId, a) => ({
+      accountId,
       section: opt(a, 'section'),
       limit: opt(a, 'limit'),
       order: opt(a, 'order'),
@@ -564,7 +564,7 @@ const ENTRIES: Array<Definition> = [
     params: USER_ONLY(),
     refs: { user: 'user' },
     effects: 'read',
-    toArgs: forMember((userId) => ({ userId })),
+    toArgs: forMember((accountId) => ({ accountId })),
   }),
   def('memory.journal.read', {
     params: obj({
@@ -580,7 +580,7 @@ const ENTRIES: Array<Definition> = [
     params: obj({ user: ref(), kind: str(), n: int(1, 100) }),
     refs: { user: 'user' },
     effects: 'read',
-    toArgs: (a) => ({ userId: idOf(a, 'user'), kind: opt(a, 'kind'), n: opt(a, 'n') }),
+    toArgs: (a) => ({ accountId: idOf(a, 'user'), kind: opt(a, 'kind'), n: opt(a, 'n') }),
   }),
   def('memory.restore', {
     params: obj({ id: str() }, ['id']),
@@ -592,7 +592,7 @@ const ENTRIES: Array<Definition> = [
     params: USER_ONLY(),
     refs: { user: 'user' },
     effects: 'read',
-    toArgs: forMember((userId) => ({ userId })),
+    toArgs: forMember((accountId) => ({ accountId })),
   }),
   def('message.create', {
     params: obj(

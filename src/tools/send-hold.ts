@@ -19,7 +19,7 @@ export type SaidNote = {
   text: string;
   replyId: string | null;
   repliedAuthorId: string | null;
-  userIds: ReadonlyArray<string>;
+  accountIds: ReadonlyArray<string>;
 };
 
 /** What the turn notes on a call's held sends: the skill that made them, and her said line for the first of them. */

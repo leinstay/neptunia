@@ -14,7 +14,7 @@ test('a partner known only from the DM is shown under the name of the trigger, w
       trigger,
       triggerKind: 'private',
       prompts: fakePrompts({ private: 'PRIVATE_TASK' }),
-      privateChat: { userId: 'u1' },
+      privateChat: { accountId: 'u1' },
       interlocutor: null,
       privateProfile: { relationship: 'PRIVATE_REL', affinity: { score: 5, reason: 'kind', history: [] } },
     })
@@ -34,7 +34,7 @@ test('a partner with no private memory and no public profile gets no profile', (
       trigger,
       triggerKind: 'private',
       prompts: fakePrompts({ private: 'PRIVATE_TASK' }),
-      privateChat: { userId: 'u1' },
+      privateChat: { accountId: 'u1' },
       interlocutor: null,
       privateProfile: null,
     })

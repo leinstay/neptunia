@@ -28,7 +28,7 @@ const reaction = (id = 'fake:reaction:1') => ({
   conversation: { id: 'c1', kind: 'channel' },
   messageId: 'm1',
   emoji: { name: '\u{1F389}' },
-  userId: 'u1',
+  accountId: 'u1',
   added: true,
 });
 
@@ -64,14 +64,14 @@ test('door: a malformed event is invalid, logged by kind and reason only, and ne
     },
     log,
   });
-  const bad = { ...reaction(), userId: 7, secret: 'private words' };
-  assert.deepEqual(await door.submit(bad), { status: 'invalid', id: null, reason: 'userId:type' });
+  const bad = { ...reaction(), accountId: 7, secret: 'private words' };
+  assert.deepEqual(await door.submit(bad), { status: 'invalid', id: null, reason: 'accountId:type' });
   assert.deepEqual(await door.submit(wrongly(null)), { status: 'invalid', id: null, reason: 'event:type' });
   assert.equal(called, 0);
   assert.deepEqual(log.lines[0], [
     'warn',
     'interface: invalid event',
-    { kind: 'reaction.changed', reason: 'userId:type' },
+    { kind: 'reaction.changed', reason: 'accountId:type' },
   ]);
   assert.equal(JSON.stringify(log.lines).includes('private words'), false);
 });
@@ -127,7 +127,7 @@ test("door: the core's own events get derived ids: an errand end by task and sta
     handlers: { 'errand.done': (e: ErrandDone) => seen.push(e.errandId), 'scheduler.tick': () => seen.push('tick') },
     log: quiet(),
   });
-  const done = { kind: 'errand.done', at: 5, errandId: 't1', status: 'done', communityId: 'g1' };
+  const done = { kind: 'errand.done', at: 5, errandId: 't1', status: 'done', rootId: 'g1' };
   assert.equal(eventIdOf(done), 'errand.done:t1:done');
   assert.equal((await door.submit(done)).status, 'ok');
   assert.equal((await door.submit({ ...done, at: 9 })).status, 'duplicate', 'the same end delivered twice');
@@ -177,8 +177,8 @@ test('door: envelopes -- hello and ping are acked, an event envelope is acked by
     ack('x1', 'invalid', 'type:not-inbound')
   );
   assert.deepEqual(
-    await door.receive(envelope('event', { ...event, userId: '' }, { id: 'e2' })),
-    ack('e2', 'invalid', 'body.userId:type')
+    await door.receive(envelope('event', { ...event, accountId: '' }, { id: 'e2' })),
+    ack('e2', 'invalid', 'body.accountId:type')
   );
   assert.deepEqual(await door.receive(wrongly({ id: 'z', type: 'nope' })), ack('z', 'invalid', 'v:unsupported'));
   assert.deepEqual(await door.receive(wrongly(null)), ack('unknown', 'invalid', 'envelope:type'));

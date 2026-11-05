@@ -480,7 +480,7 @@ function ownerContextOf(
   requester: { id: string },
   args: Record<string, unknown>
 ): Record<string, unknown> {
-  return { placeId: placeOf(deps, args), userId: requester.id, roleIds: [], actor: 'owner', asOwner: true };
+  return { placeId: placeOf(deps, args), accountId: requester.id, roleIds: [], actor: 'owner', asOwner: true };
 }
 
 export function createConsole(deps: ConsoleDeps): {
@@ -652,10 +652,10 @@ export function createConsole(deps: ConsoleDeps): {
     if (target === 'everyone') return { command };
     const [kind, id] = target.split(' ');
     if (kind === 'role' && id !== undefined) return { command, roleId: id };
-    if (kind === 'user' && id !== undefined) return { command, userId: id };
+    if (kind === 'user' && id !== undefined) return { command, accountId: id };
     const self = deps.selfId();
     if (self === null) return refused(name, args, 'no interface has said who the persona is yet', 'failed');
-    return { command, userId: self };
+    return { command, accountId: self };
   }
 
   async function intentionShow(name: string, args: Record<string, unknown>, requester: { id: string }) {
@@ -691,21 +691,21 @@ export function createConsole(deps: ConsoleDeps): {
       },
     ],
     'routes.remove': (args) => ['route.remove', { model: args.model, role: anyRole(args.role) }],
-    'memory.profile': (args) => ['memory.profile.read', { userId: args.user, section: args.section }],
+    'memory.profile': (args) => ['memory.profile.read', { accountId: args.user, section: args.section }],
     'memory.recent': () => ['memory.recent.read', {}],
-    'memory.affinity': (args) => ['memory.affinity.read', { userId: args.user }],
+    'memory.affinity': (args) => ['memory.affinity.read', { accountId: args.user }],
     'memory.search': (args) => ['memory.search', { question: args.query }],
     'memory.restore': (args) => ['memory.restore', { itemId: args.id }],
     'memory.journal': (args) => ['memory.journal.read', args.day === undefined ? {} : { day: args.day }],
-    'memory.private': (args) => ['memory.private.read', { userId: args.user }],
+    'memory.private': (args) => ['memory.private.read', { accountId: args.user }],
     'memory.archive': (args) => ['memory.archive.read', args.kind === undefined ? {} : { kind: args.kind }],
     'memory.server': () => ['memory.server.read', {}],
     'memory.lore.add': (args) => ['lore.add', { title: args.title, keys: args.keys, text: args.text }],
     'memory.lore.list': (args) => ['lore.list', { query: args.query }],
     'memory.lore.show': (args) => ['lore.show', { id: args.id }],
     'memory.lore.remove': (args) => ['lore.remove', { id: args.id }],
-    'memory.aliases.add': (args) => ['alias.add', { userId: args.user, name: args.name }],
-    'memory.aliases.remove': (args) => ['alias.remove', { userId: args.user, name: args.name }],
+    'memory.aliases.add': (args) => ['alias.add', { accountId: args.user, name: args.name }],
+    'memory.aliases.remove': (args) => ['alias.remove', { accountId: args.user, name: args.name }],
     'memory.lessons.add': (args) => ['learning.add', { text: args.text }],
     'memory.lessons.remove': (args) => ['learning.remove', { id: Number(args.id) }],
     'rules.add': (args) => ['rule.add', { text: args.text }],
@@ -736,7 +736,7 @@ export function createConsole(deps: ConsoleDeps): {
         return ownerRead(name, args, () => deps.ownerReads.lessons(ownerContext(requester, args)));
       case 'memory.aliases.list':
         return ownerRead(name, args, () =>
-          deps.ownerReads.aliases({ userId: args.user }, ownerContext(requester, args))
+          deps.ownerReads.aliases({ accountId: args.user }, ownerContext(requester, args))
         );
       case 'tools.list':
         return toolsList();

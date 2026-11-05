@@ -191,7 +191,7 @@ test('the memory starts from memory.db and the operational files alone, writes o
     const task = present(first.taskStores.get()).add({
       agent: 'scout',
       goal: 'find the café hours',
-      requester: { userId: MEMBER, kind: 'member' },
+      requester: { accountId: MEMBER, kind: 'member' },
       origin: { placeId: CHANNEL, messageId: null },
       scope: 'group',
     });

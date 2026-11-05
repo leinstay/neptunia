@@ -11,24 +11,24 @@ import { labels } from './fixtures/labels.ts';
 
 type Flags = { muted?: boolean; deafened?: boolean; streaming?: boolean; camera?: boolean };
 
-const voice = (userId: string, conversationId: string | null, at: number, flags: Flags = {}) => ({
+const voice = (accountId: string, conversationId: string | null, at: number, flags: Flags = {}) => ({
   kind: 'voice.changed' as const,
   iface: 'discord',
   at,
-  id: `voice:${userId}:${at}`,
-  communityId: 'g1',
-  userId,
+  id: `voice:${accountId}:${at}`,
+  placeId: 'g1',
+  accountId,
   name: null,
   conversationId,
   previousId: null,
   ...flags,
 });
-const presence = (userId: string, status: 'online' | 'idle' | 'dnd' | 'offline' | 'unknown', at = 1) => ({
+const presence = (accountId: string, status: 'online' | 'idle' | 'dnd' | 'offline' | 'unknown', at = 1) => ({
   kind: 'presence.changed' as const,
   iface: 'discord',
   at,
-  id: `presence:${userId}:${at}`,
-  userId,
+  id: `presence:${accountId}:${at}`,
+  accountId,
   name: null,
   status,
   activities: [],
@@ -45,7 +45,7 @@ test('a join stamps joinedAt with the time of the event', () => {
   const store = createAroundStore({ presences: false });
   store.voiceChanged(voice('u1', 'v1', 1000));
   assert.deepEqual(store.view().voice.get('u1'), {
-    memberId: 'u1',
+    accountId: 'u1',
     placeId: 'v1',
     name: null,
     muted: false,
@@ -107,10 +107,10 @@ test('a snapshot replaces both maps and its voice records carry no joinedAt', ()
     at: 5000,
     id: 'presence.snapshot:5000',
     voice: [
-      { communityId: 'g1', userId: 'u2', conversationId: 'v2', previousId: null },
-      { communityId: 'g1', userId: 'u3', conversationId: 'v2', previousId: null, muted: true },
+      { placeId: 'g1', accountId: 'u2', conversationId: 'v2', previousId: null },
+      { placeId: 'g1', accountId: 'u3', conversationId: 'v2', previousId: null, muted: true },
     ],
-    presence: [{ userId: 'u3', name: null, status: 'dnd', activities: [] }],
+    presence: [{ accountId: 'u3', name: null, status: 'dnd', activities: [] }],
   });
   const view = store.view();
   assert.deepEqual([...view.voice.keys()], ['u2', 'u3']);
@@ -127,7 +127,7 @@ test('a snapshot leaves the presences empty while presences is false', () => {
     at: 5000,
     id: 'presence.snapshot:5000',
     voice: [],
-    presence: [{ userId: 'u3', name: null, status: 'dnd', activities: [] }],
+    presence: [{ accountId: 'u3', name: null, status: 'dnd', activities: [] }],
   });
   assert.equal(store.view().presence.size, 0);
 });
@@ -139,7 +139,7 @@ test('a flag change after a snapshot does not invent a joinedAt, a move does', (
     iface: 'discord',
     at: 5000,
     id: 'presence.snapshot:5000',
-    voice: [{ communityId: 'g1', userId: 'u2', conversationId: 'v2', previousId: null }],
+    voice: [{ placeId: 'g1', accountId: 'u2', conversationId: 'v2', previousId: null }],
     presence: [],
   });
   store.voiceChanged(voice('u2', 'v2', 6000, { deafened: true }));
@@ -179,14 +179,14 @@ test('the view is a copy a renderer cannot use to change the store', () => {
 
 const GUILD = { id: 'g1' };
 
-test('a voice state with selfMute builds an event with muted true and the member as userId', () => {
+test('a voice state with selfMute builds an event with muted true and the member as accountId', () => {
   const event = voiceEvent(
     { id: 'u1', guild: GUILD, channelId: 'v1', selfMute: true, selfDeaf: false, member: { displayName: 'Ana' } },
     1000
   );
   assert.equal(validateEvent(event).ok, true);
   assert.deepEqual(
-    [event.kind, event.userId, event.conversationId, event.muted, event.deafened, event.name, event.at],
+    [event.kind, event.accountId, event.conversationId, event.muted, event.deafened, event.name, event.at],
     ['voice.changed', 'u1', 'v1', true, false, 'Ana', 1000]
   );
 });
@@ -253,11 +253,11 @@ test('a guild builds one snapshot event with its voice states and presences and 
   const event = presenceSnapshotEvent(guild, 9000);
   assert.equal(validateEvent(event).ok, true);
   assert.deepEqual(
-    event.voice.map((entry: { userId: string; camera?: boolean }) => [entry.userId, entry.camera]),
+    event.voice.map((entry: { accountId: string; camera?: boolean }) => [entry.accountId, entry.camera]),
     [['u1', true]]
   );
   assert.deepEqual(
-    event.presence.map((entry: { userId: string; status: string }) => [entry.userId, entry.status]),
+    event.presence.map((entry: { accountId: string; status: string }) => [entry.accountId, entry.status]),
     [['u1', 'dnd']]
   );
 });

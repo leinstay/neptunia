@@ -126,7 +126,7 @@ export function callViewOf({
   deletedIds = null,
   searchRefs = null,
 }: {
-  channel: { id: string | number; name?: unknown; communityId?: string | null };
+  channel: { id: string | number; name?: unknown; rootId?: string | null };
   currentIface?: string;
   snapshot?: Snapshot | null;
   placeId?: string | null;
@@ -146,7 +146,7 @@ export function callViewOf({
 }): CallView & { currentConversationId: string } {
   const conversations: Array<{ id: string; name: string }> = [];
   // A private chat shows no channel of the community: only the turn's own.
-  const listing = channel?.communityId === null ? null : snapshot;
+  const listing = channel?.rootId === null ? null : snapshot;
   for (const entry of listing?.conversations ?? []) {
     if (entry.id && typeof entry.name === 'string') conversations.push({ id: String(entry.id), name: entry.name });
   }

@@ -8,7 +8,7 @@ import { channelInfo } from './fixtures/core-over-fake.ts';
 import { labels } from './fixtures/labels.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00Z');
-const channel = channelInfo('cli:dm:owner', { iface: 'cli', kind: 'dm', communityId: null, partnerId: 'owner' });
+const channel = channelInfo('cli:dm:owner', { iface: 'cli', kind: 'dm', rootId: null, partnerId: 'owner' });
 const line = (id: string): Line => ({
   id,
   placeId: channel.id,
@@ -17,7 +17,7 @@ const line = (id: string): Line => ({
   content: `question ${id}`,
   ts: NOW,
   replyToId: null,
-  mentionedUserIds: [],
+  mentionedAccountIds: [],
 });
 
 function setup(parts: Array<{ index: number; text: string }> = []) {

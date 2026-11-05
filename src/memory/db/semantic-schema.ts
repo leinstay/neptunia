@@ -1,4 +1,4 @@
-// Schema version 30: the tables of semantic memory, created on the running database by an ordinary forward migration. It
+// Schema version 31: the tables of semantic memory, created on the running database by an ordinary forward migration. It
 // creates tables and seeds the registry's first versions; no existing row changes. An assertion version is sealed by
 // inserting its immutable `semantic_assertion_versions` row after its arguments and premises in one transaction: deferred
 // foreign keys refuse an unsealed payload at commit, and the triggers refuse every later change to a sealed version, also
@@ -247,7 +247,7 @@ const SEMANTIC_GUARDS = [
   ),
 ].join('\n');
 
-/** Version 30: the tables, their guards and the registry's first versions. No row of an older table changes. */
+/** Version 31: the tables, their guards and the registry's first versions. No row of an older table changes. */
 export function migrateSemanticMemory(db: Db): void {
   db.exec(`${SEMANTIC_TABLES}\n${SEMANTIC_GUARDS}`);
   const kind = db.prepare(

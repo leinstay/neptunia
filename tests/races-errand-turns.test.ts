@@ -17,7 +17,7 @@ const ERRAND = {
   agent: 'scout',
   goal: 'find the opening hours',
   state: 'done',
-  requester: { userId: 'u1', kind: 'member' },
+  requester: { accountId: 'u1', kind: 'member' },
   origin: { placeId: 'c1' },
 } as unknown as ErrandRecord;
 

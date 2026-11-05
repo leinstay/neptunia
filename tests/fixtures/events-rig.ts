@@ -194,14 +194,14 @@ export function fakeChannelWithMessage(id: string, guild: unknown, messageId: st
 }
 
 export function fakeStore(profiles: Record<string, unknown> = {}): {
-  getUser(userId: string): unknown;
+  getUser(accountId: string): unknown;
   getUserCalls: Array<Array<string>>;
 } {
   const calls: Array<Array<string>> = [];
   return {
-    getUser: (userId) => {
-      calls.push([userId]);
-      return profiles[userId] ?? null;
+    getUser: (accountId) => {
+      calls.push([accountId]);
+      return profiles[accountId] ?? null;
     },
     getUserCalls: calls,
   };
@@ -299,7 +299,7 @@ export function makeHandler({
   if (discord.knows) {
     world().knowMembers('g1', discord.knows);
     world().tap('memberInfo', ([member]) => {
-      discord.fetchCalls.push(wrongly<{ memberId: unknown }>(member).memberId);
+      discord.fetchCalls.push(wrongly<{ accountId: unknown }>(member).accountId);
     });
   }
   const handler = createMessageHandler(

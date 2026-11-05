@@ -22,7 +22,7 @@ const looseOf = (value: unknown): Loose => (value !== null && typeof value === '
 export const CLI_IFACE = 'cli';
 
 /** The partner of the owner's own chat: nobody a community's interface knows. */
-export const isCliOwner = (iface: unknown, userId: unknown): boolean => iface === CLI_IFACE && userId === 'owner';
+export const isCliOwner = (iface: unknown, accountId: unknown): boolean => iface === CLI_IFACE && accountId === 'owner';
 
 /**
  * The private-chat gate's answer for the owner's command line (src/pipeline/private-gate.ts#checkPrivateGate): it lets
@@ -60,7 +60,7 @@ export function holdIfPaused(event: unknown, context: unknown, store: unknown): 
 /** Where the pipeline is when a line arrives while paused. */
 type PausedPlace = {
   selfId: string;
-  isServed: (communityId: string | null | undefined) => boolean;
+  isServed: (placeId: string | null | undefined) => boolean;
   sharedPlaceOf?: (conversation: never, iface: string) => string;
 };
 
@@ -68,7 +68,7 @@ type PausedPlace = {
 function placeOf(place: PausedPlace, conversation: Record<string, unknown>, iface: unknown): string {
   return place.sharedPlaceOf
     ? place.sharedPlaceOf(conversation as never, String(iface))
-    : String(conversation.communityId ?? conversation.id);
+    : String(conversation.rootId ?? conversation.id);
 }
 
 /**
@@ -86,13 +86,12 @@ function pausedObservation(
   const author = looseOf(message.author);
   const conversation = looseOf(fields.conversation);
   if (fields.edit === true || fields.deleted === true || message.system === true) return null;
-  if (conversation.communityId === null || conversation.communityId === undefined) {
+  if (conversation.rootId === null || conversation.rootId === undefined) {
     if (fields.iface !== CLI_IFACE || author.self === true || typeof author.id !== 'string') return null;
     if (conversation.partnerId === undefined || conversation.partnerId === null) return null;
     return { direct: true, where: { placeId: placeOf(place, conversation, fields.iface) } };
   }
-  if (!place.isServed(conversation.communityId as string | null | undefined) || conversation.kind === 'thread')
-    return null;
+  if (!place.isServed(conversation.rootId as string | null | undefined) || conversation.kind === 'thread') return null;
   if (author.bot === true && author.id !== place.selfId) return null;
   return {
     direct: looseOf(fields.addressing).mentioned === true,
@@ -103,7 +102,7 @@ function pausedObservation(
 /** What the pipeline observes a paused line with: the hot config, the served place, her id and its observe path. */
 export type PausedDeps = {
   hot: unknown;
-  isServed: (communityId: string | null | undefined) => boolean;
+  isServed: (placeId: string | null | undefined) => boolean;
   sharedPlaceOf?: (conversation: never, iface: string) => string;
   selfIdOf: () => unknown;
   observeLine: (
@@ -157,7 +156,7 @@ export async function resumeHeld(deps: ResumeDeps): Promise<number> {
   let replayed = 0;
   for (const held of deps.ingest.held()) {
     if (isPaused()) break;
-    if (looseOf(held.event.conversation).communityId !== null)
+    if (looseOf(held.event.conversation).rootId !== null)
       await callOn(deps.handler, 'catchUp', [held.event, { trigger: false }]);
     await deps.ingest.release(held.principal, held.eventId);
     replayed += 1;

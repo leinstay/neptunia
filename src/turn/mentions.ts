@@ -33,7 +33,7 @@ type MentionLine = { self?: boolean; bot?: boolean; authorName?: string | null; 
  * digit or underscore right after it); a name one of the request's own sources gives in any
  * case keeps that member, any other resolves only when exactly one member carries it, and a
  * name two or more members share stays text.
- * `history` holds normalized lines (`authorName`, `authorId`, `self`, `bot`); `userIds` are the members pinged
+ * `history` holds normalized lines (`authorName`, `authorId`, `self`, `bot`); `accountIds` are the members pinged
  * (allowedMentions).
  */
 export function resolveMentions(
@@ -41,7 +41,7 @@ export function resolveMentions(
   history: Iterable<MentionLine>,
   knownNames: Iterable<{ name: unknown; id: Id | null | undefined }> = [],
   directory: Iterable<{ name: unknown; id: Id | null | undefined } | null | undefined> = []
-): { text: string; userIds: Array<string | undefined> } {
+): { text: string; accountIds: Array<string | undefined> } {
   const people = new Map<string, string | undefined>();
   for (const { name, id } of knownNames) {
     if (typeof name !== 'string' || !name.trim() || id === undefined || id === null || people.has(name)) continue;
@@ -52,18 +52,18 @@ export function resolveMentions(
   }
   const names = [...people.keys()].sort((a, b) => b.length - a.length);
   const fallback = fallbackNames(people, directory);
-  const userIds = new Set<string | undefined>();
+  const accountIds = new Set<string | undefined>();
   // An `@name` inside a URL (a channel handle on a video site) is part of the address.
   const resolved = outsideUrls(text, (part) => {
     let out = part;
     for (const name of names) {
       if (!out.includes(`@${name}`)) continue;
       out = out.replaceAll(`@${name}`, `<@${people.get(name)}>`);
-      userIds.add(people.get(name));
+      accountIds.add(people.get(name));
     }
-    return fallback.size > 0 ? resolveFallback(out, fallback, userIds) : out;
+    return fallback.size > 0 ? resolveFallback(out, fallback, accountIds) : out;
   });
-  return { text: resolved, userIds: [...userIds] };
+  return { text: resolved, accountIds: [...accountIds] };
 }
 
 /**
@@ -99,10 +99,14 @@ function fallbackNames(
 
 /**
  * `part` (outside URLs, after the exact pass) with every whole `@name` of `fallback` that
- * resolves turned into a mention, longest first; the members mentioned are added to `userIds`.
+ * resolves turned into a mention, longest first; the members mentioned are added to `accountIds`.
  * A mention already made (`<@id>`) is never matched again.
  */
-function resolveFallback(part: string, fallback: Map<string, string | null>, userIds: Set<string | undefined>): string {
+function resolveFallback(
+  part: string,
+  fallback: Map<string, string | null>,
+  accountIds: Set<string | undefined>
+): string {
   const lower = part.toLowerCase();
   const candidates = [...fallback.keys()].filter((key) => fallback.get(key) !== null && lower.includes(`@${key}`));
   if (candidates.length === 0) return part;
@@ -112,7 +116,7 @@ function resolveFallback(part: string, fallback: Map<string, string | null>, use
   return part.replace(pattern, (match) => {
     const id = fallback.get(match.slice(1).toLowerCase());
     if (!id) return match;
-    userIds.add(id);
+    accountIds.add(id);
     return `<@${id}>`;
   });
 }
@@ -204,7 +208,7 @@ const isNameList = (names: ReadonlyArray<string> | null | undefined): names is R
 export function storedNames(
   peopleShown: ReadonlyArray<{ id: string; names: ReadonlyArray<string> }> | null | undefined,
   shownLines: Iterable<{ self?: boolean; bot?: boolean; authorId?: string | null }>,
-  profileOf: (userId: string) => { names?: ReadonlyArray<string> | null } | null | undefined
+  profileOf: (accountId: string) => { names?: ReadonlyArray<string> | null } | null | undefined
 ): Array<NamedMember> {
   const known: Array<NamedMember> = [];
   for (const person of peopleShown ?? []) {

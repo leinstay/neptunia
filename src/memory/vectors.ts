@@ -4,7 +4,7 @@
 //
 // The index lives in the memory database (src/memory/db/service.ts), one unit per month of a row's
 // `occurredAt`, `places/<g>/vectors/<YYYY-MM>` (a private chat's rows under
-// `private/<userId>/vectors/` instead, never in the place index), holding what the three files of a
+// `private/<accountId>/vectors/` instead, never in the place index), holding what the three files of a
 // month held: the manifest `{ v, gen, rows, bytes, metaBytes, model, dims, checksum }`, the int8 rows
 // (`dims` bytes each) and one jsonl line per row (its provenance, scale and norm). Readers trust the
 // manifest only. `rewrite` writes a new generation whole. Every row is quantised with its own scale

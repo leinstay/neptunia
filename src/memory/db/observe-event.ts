@@ -62,7 +62,7 @@ type EventConversation = {
   partnerId?: unknown;
   parentId?: unknown;
   parentKind?: unknown;
-  communityId?: unknown;
+  rootId?: unknown;
   authorityId?: unknown;
 };
 
@@ -101,7 +101,7 @@ export function conversationPlaceKey(conversation: {
 
 /** The place key of what contains a conversation: `<parentKind>:<parentId>`; with no declared kind it sits in a channel. */
 function parentField(conversation: EventConversation): { parent?: string; top?: string } {
-  const top = filled(conversation.communityId) ? `server:${conversation.communityId}` : null;
+  const top = filled(conversation.rootId) ? `server:${conversation.rootId}` : null;
   if (!filled(conversation.parentId)) return top === null ? {} : { parent: top };
   const kind = filled(conversation.parentKind) ? conversation.parentKind : 'channel';
   return { parent: `${kind}:${conversation.parentId}`, ...(top === null ? {} : { top }) };
@@ -244,8 +244,8 @@ export function observationOf(
   const author = authorOf({ author: message.author, id: message.author.id, self });
   const mentioned = [
     ...new Set(
-      (Array.isArray((event.addressing as { mentionedUserIds?: unknown } | undefined)?.mentionedUserIds)
-        ? (event.addressing as { mentionedUserIds: Array<unknown> }).mentionedUserIds
+      (Array.isArray((event.addressing as { mentionedAccountIds?: unknown } | undefined)?.mentionedAccountIds)
+        ? (event.addressing as { mentionedAccountIds: Array<unknown> }).mentionedAccountIds
         : []
       ).filter(filled)
     ),

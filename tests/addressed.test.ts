@@ -105,7 +105,7 @@ test('addressCandidates: display names and open aliases; a shared name and a sho
     },
     { id: NIKOS, names: ['Nikos'], aliases: [{ name: 'kiki' }] },
   ]);
-  const byId = Object.fromEntries(candidates.map((c) => [c.userId, c.names]));
+  const byId = Object.fromEntries(candidates.map((c) => [c.accountId, c.names]));
   assert.deepEqual(byId[ANA], ['Anaïs', 'Nana']);
   assert.deepEqual(byId[NIKOS], ['Nikos']);
 });

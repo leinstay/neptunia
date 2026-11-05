@@ -237,7 +237,11 @@ test('anchors: an open request to the persona is marked; a line of hers that ans
   const answered = [window[0], chatLine('m2', NOW - 5 * MIN, { self: true, triggerId: 'e2' }), window[1]];
   assert.ok(!run(answered)!.includes(labels.participation.earlierOpen), run(answered)!);
   // A reply parent that mentions her, nobody of hers answering it: open too.
-  const parent = parentLine('p1', NOW - 2 * HOUR, { authorName: 'Bob', content: 'μπορείς;', mentionedUserIds: [SELF] });
+  const parent = parentLine('p1', NOW - 2 * HOUR, {
+    authorName: 'Bob',
+    content: 'μπορείς;',
+    mentionedAccountIds: [SELF],
+  });
   const history = [parent, window[0], chatLine('m1', NOW - MIN, { replyToId: 'p1' })];
   assert.ok(run(history)!.includes(`Bob: μπορείς; ${labels.participation.earlierOpen}`), run(history)!);
   // Without the label the request is ranked the same and carries no mark.
@@ -294,7 +298,7 @@ test("anchors: when the cap bites the trigger's parent and an open request win o
 test('anchors: never in a private chat, nothing without the header label', () => {
   const { history, trigger } = parentCase();
   const priv = textOf(
-    buildRequest(input({ history, trigger, privateChat: { userId: 'a-m1' }, triggerKind: 'private' }))
+    buildRequest(input({ history, trigger, privateChat: { accountId: 'a-m1' }, triggerKind: 'private' }))
   );
   assert.equal(blockOf(priv, 'earlier'), null);
   assert.ok(blockOf(priv, 'chat')!.includes('#1 ['), 'the parent stays in the chat');

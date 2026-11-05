@@ -51,8 +51,8 @@ const LISTS: Array<ListDef & { subject: string }> = [
 
 /** What the notes of a place are shown to: its partner in a DM, the groups elsewhere. */
 function notesScope(iface: string, ctx: MapContext): Row {
-  if (!ctx.dmPlace || !ctx.privateUserId) return groupScope(iface);
-  return dmPlaceScope(personId(iface, ctx.privateUserId), iface, ctx.dmPlace);
+  if (!ctx.dmPlace || !ctx.privateAccountId) return groupScope(iface);
+  return dmPlaceScope(personId(iface, ctx.privateAccountId), iface, ctx.dmPlace);
 }
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {

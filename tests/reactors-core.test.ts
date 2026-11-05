@@ -1,6 +1,6 @@
 // Who reacted to her messages, kept by the core (src/behavior/reactor-store.ts) from `reaction.changed` events and
 // from the `message.reactors` read, and named on her lines in the history. The store is the one of the Discord package
-// (interfaces/discord/reactors.js) over protocol events: `applyReactionChanged(store, event, { communityId, selfId })`.
+// (interfaces/discord/reactors.js) over protocol events: `applyReactionChanged(store, event, { rootId, selfId })`.
 // The last tests run the core over the fake interface and read the request.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,7 +15,7 @@ import {
 import { SELF, channelInfo, deliver, until, withFakeCore } from './fixtures/core-over-fake.ts';
 import type { Fake } from './fixtures/core-over-fake.ts';
 
-const served = { communityId: 'g1', selfId: 'self-id' };
+const served = { isServed: (placeId: string) => placeId === 'g1', selfId: 'self-id' };
 const NOW = Date.now();
 
 function reaction(extra: Partial<ReactionChanged> = {}): ReactionChanged {
@@ -24,10 +24,10 @@ function reaction(extra: Partial<ReactionChanged> = {}): ReactionChanged {
     iface: 'fake',
     at: 1,
     id: 'fake:reaction:1',
-    conversation: { id: 'c1', kind: 'channel', communityId: 'g1' },
+    conversation: { id: 'c1', kind: 'channel', rootId: 'g1' },
     messageId: 'her1',
     emoji: { name: '😂' },
-    userId: 'u1',
+    accountId: 'u1',
     added: true,
     authorId: 'self-id',
     ...extra,
@@ -36,29 +36,29 @@ function reaction(extra: Partial<ReactionChanged> = {}): ReactionChanged {
 
 test('keeps each reactor of her message once, in the order they reacted', () => {
   const store = createReactorStore();
-  assert.equal(applyReactionChanged(store, reaction({ userId: 'u2' }), served), 'applied');
-  applyReactionChanged(store, reaction({ userId: 'u1' }), served);
-  assert.equal(applyReactionChanged(store, reaction({ userId: 'u2' }), served), 'ignored');
+  assert.equal(applyReactionChanged(store, reaction({ accountId: 'u2' }), served), 'applied');
+  applyReactionChanged(store, reaction({ accountId: 'u1' }), served);
+  assert.equal(applyReactionChanged(store, reaction({ accountId: 'u2' }), served), 'ignored');
   assert.deepEqual(store.reactors('her1', '😂'), ['u2', 'u1']);
 });
 
 test('takes one reactor back on a removal and every reactor of one emoji on a clear', () => {
   const store = createReactorStore();
-  applyReactionChanged(store, reaction({ userId: 'u1' }), served);
-  applyReactionChanged(store, reaction({ userId: 'u2' }), served);
-  applyReactionChanged(store, reaction({ userId: 'u3', emoji: { name: '👍' } }), served);
-  applyReactionChanged(store, reaction({ userId: 'u1', added: false }), served);
+  applyReactionChanged(store, reaction({ accountId: 'u1' }), served);
+  applyReactionChanged(store, reaction({ accountId: 'u2' }), served);
+  applyReactionChanged(store, reaction({ accountId: 'u3', emoji: { name: '👍' } }), served);
+  applyReactionChanged(store, reaction({ accountId: 'u1', added: false }), served);
   assert.deepEqual(store.reactors('her1', '😂'), ['u2']);
-  applyReactionChanged(store, reaction({ added: false, cleared: 'emoji', userId: null }), served);
+  applyReactionChanged(store, reaction({ added: false, cleared: 'emoji', accountId: null }), served);
   assert.equal(store.reactors('her1', '😂'), null);
   assert.deepEqual(store.reactors('her1', '👍'), ['u3']);
 });
 
 test('empties every emoji of the message on a clear of all', () => {
   const store = createReactorStore();
-  applyReactionChanged(store, reaction({ userId: 'u1' }), served);
-  applyReactionChanged(store, reaction({ userId: 'u3', emoji: { name: '👍' } }), served);
-  applyReactionChanged(store, reaction({ added: false, cleared: 'all', userId: null, emoji: null }), served);
+  applyReactionChanged(store, reaction({ accountId: 'u1' }), served);
+  applyReactionChanged(store, reaction({ accountId: 'u3', emoji: { name: '👍' } }), served);
+  applyReactionChanged(store, reaction({ added: false, cleared: 'all', accountId: null, emoji: null }), served);
   assert.equal(store.reactors('her1', '😂'), null);
   assert.equal(store.reactors('her1', '👍'), null);
   assert.equal(store.isOwn('her1'), true);
@@ -72,9 +72,9 @@ test('names a custom emoji by its name between colons', () => {
 
 test('ignores her own reaction, a message of someone else and an event of another community', () => {
   const store = createReactorStore();
-  assert.equal(applyReactionChanged(store, reaction({ userId: 'self-id' }), served), 'ignored');
+  assert.equal(applyReactionChanged(store, reaction({ accountId: 'self-id' }), served), 'ignored');
   assert.equal(applyReactionChanged(store, reaction({ authorId: 'u5', messageId: 'theirs' }), served), 'ignored');
-  const elsewhere = reaction({ conversation: { id: 'c9', kind: 'channel', communityId: 'g2' } });
+  const elsewhere = reaction({ conversation: { id: 'c9', kind: 'channel', rootId: 'g2' } });
   assert.equal(applyReactionChanged(store, elsewhere, served), 'ignored');
   assert.deepEqual(store.counts(), { messages: 0, reactors: 0 });
 });
@@ -142,7 +142,7 @@ function seedHerLine(fake: Fake): void {
 
 test('names a reactor she heard of through reaction.changed without reading the reactors again', async () => {
   await withFakeCore({ config: CONFIG, seed: seedHerLine }, async (rig) => {
-    const heard = reaction({ messageId: 'her1', userId: 'u9', emoji: { name: '🔥' }, at: NOW - 30_000 });
+    const heard = reaction({ messageId: 'her1', accountId: 'u9', emoji: { name: '🔥' }, at: NOW - 30_000 });
     assert.equal(await rig.emit(heard), 'ok');
     await rig.emit(deliver(rig.fake, { id: 'm1', text: 'hello', at: NOW - 500, mention: true }));
     await until(() => rig.requests.length > 0);
@@ -176,4 +176,13 @@ test('still answers, leaving the names out, when the reactors read fails', async
     await until(() => rig.posted('c1').length === 1);
     assert.equal(rig.requestText(0).includes('Dora'), false);
   });
+});
+
+test('keeps the reactions of every place an interface serves, not only of the first', () => {
+  // Bug: a reaction in the second server is dropped because the first one is the only one read.
+  const store = createReactorStore();
+  store.markOwn('her1');
+  const both = { isServed: (placeId: string) => placeId === 'g1' || placeId === 'g2', selfId: 'self-id' };
+  const there = reaction({ conversation: { id: 'c9', kind: 'channel', rootId: 'g2' }, accountId: 'u7' });
+  assert.equal(applyReactionChanged(store, there, both), 'applied');
 });

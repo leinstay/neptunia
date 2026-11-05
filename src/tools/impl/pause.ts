@@ -27,7 +27,7 @@ const handlers = perEnv((env) => {
       const held = objOf(state);
       if (held.pausedReason !== undefined) {
         delete held.pausedReason;
-        if (context?.userId) held.pausedBy = String(context.userId);
+        if (context?.accountId) held.pausedBy = String(context.accountId);
         const store = objOf(env.store);
         callMethod(store.state, 'markDirty');
         callMethod(store, 'flush');
@@ -41,7 +41,7 @@ const handlers = perEnv((env) => {
     state.paused = true;
     state.pausedAt = new Date().toISOString();
     // Who paused, for the status card; absent when the caller is unknown.
-    if (context?.userId) state.pausedBy = String(context.userId);
+    if (context?.accountId) state.pausedBy = String(context.accountId);
     env.store.state.markDirty();
     env.store.flush();
 

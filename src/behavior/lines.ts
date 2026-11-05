@@ -19,8 +19,8 @@ export type Line = Record<string, unknown> & {
   authorName?: string;
   content?: string;
   replyToId?: string | null;
-  mentionedUserIds?: Array<string>;
-  replyPingUserId?: string | null;
+  mentionedAccountIds?: Array<string>;
+  replyPingAccountId?: string | null;
   self: boolean;
   ts: number;
   reactions: Array<{ emoji: string; count: number; mine: boolean; users?: Array<ReactorName> }>;
@@ -32,11 +32,11 @@ export type ReactorNames = {
   budgetMs: number;
   fetchUsers: number;
   /** The name and the kind of a member the core already knows. */
-  known(memberId: string): { name: string; bot: boolean } | null;
+  known(accountId: string): { name: string; bot: boolean } | null;
   /** Names read through `memberInfo`, kept by the caller for the attempt. */
   cache: Map<string, { name: string; bot: boolean } | null>;
   selfId: string;
-  communityId: string | null;
+  placeId: string | null;
   log: Logger;
 };
 
@@ -66,7 +66,7 @@ async function withReactorNames(
       plan,
       store,
       async (item) =>
-        (await reads.reactors({ ...ref, messageId: item.messageId }, item.emoji, names.fetchUsers))?.memberIds ?? null,
+        (await reads.reactors({ ...ref, messageId: item.messageId }, item.emoji, names.fetchUsers))?.accountIds ?? null,
       { budgetMs: names.budgetMs, selfId: names.selfId }
     );
     names.log.info('reactors: backfill', { channel: ref.conversationId, ...stats });
@@ -85,11 +85,11 @@ async function resolveMissing(reads: Reads, lines: Array<Line>, names: ReactorNa
         if (names.known(id) === null && !names.cache.has(id)) wanted.add(id);
   }
   await Promise.all(
-    [...wanted].map(async (memberId) => {
-      const found = await reads.memberInfo({ communityId: names.communityId, memberId });
+    [...wanted].map(async (accountId) => {
+      const found = await reads.memberInfo({ placeId: names.placeId, accountId });
       const member = found?.member ?? null;
       names.cache.set(
-        memberId,
+        accountId,
         member !== null && member.name !== null && member.name !== '' ? { name: member.name, bot: member.bot } : null
       );
     })

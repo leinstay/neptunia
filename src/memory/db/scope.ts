@@ -90,16 +90,16 @@ export const dmContext = <P extends string, T extends string>(
   place: place ?? dmPlaceOfPerson(person, iface),
 });
 export const internalContext = (): Context => ({ internal: true });
-/** What a read's context is issued for: the DM of `privateUserId`, else the group of `placeId`, on the channel's interface. */
+/** What a read's context is issued for: the DM of `privateAccountId`, else the group of `placeId`, on the channel's interface. */
 export function readContextSpec(
   channelIface: unknown,
   home: unknown,
   placeId: unknown,
-  privateUserId: unknown
+  privateAccountId: unknown
 ): { iface: string; kind: 'dm'; person: string } | { iface: string; kind: 'group'; destination: string | null } {
   const iface = String(typeof channelIface === 'string' && channelIface !== '' ? channelIface : home);
-  return privateUserId
-    ? { iface, kind: 'dm' as const, person: personId(iface, privateUserId) }
+  return privateAccountId
+    ? { iface, kind: 'dm' as const, person: personId(iface, privateAccountId) }
     : { iface, kind: 'group' as const, destination: placeId ? channelPlaceId(iface, placeId) : null };
 }
 /** The context of the diary's entry: `none` and the groups of every interface; no direct chat, nothing internal. */

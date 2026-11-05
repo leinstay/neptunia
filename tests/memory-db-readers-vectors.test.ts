@@ -19,7 +19,7 @@ const OPTIONS = [
   { k: 10, months: ['2026-09'] },
   { k: 10, from: '2026-09-11T00:00:00.000Z', to: '2026-09-30T00:00:00.000Z' },
   { k: 10, filter: (meta: object) => (meta as { id: string }).id !== '400000000000000022' },
-  { k: 10, privateUserId: MEMBER },
+  { k: 10, privateAccountId: MEMBER },
 ];
 const R = (n: string | number) => `4000000000000000${n}`;
 /** The hits of the first guild, `[id, score]` best first, per query and option (the scores to four places). */
@@ -129,11 +129,11 @@ test('vectors db reader: search answers every layer, month, range and filter fro
     const vectors = createVectors({ dataDir: env.data, log: env.log, memoryDb: env.memoryDb });
     for (const [q, query] of QUERIES.entries()) {
       for (const [o, option] of OPTIONS.entries()) {
-        const { placeId, rest } = readAt(GUILD, option as { privateUserId?: string });
+        const { placeId, rest } = readAt(GUILD, option as { privateAccountId?: string });
         sameHits(await vectors.search(placeId, query, rest), EXPECTED[q][o], `query ${q} option ${o}`);
         // The second guild's only month is the fixture's hand-made one, whose files fail their checksum.
         // A DM place has no guild: the private option ran above.
-        if ('privateUserId' in option) continue;
+        if ('privateAccountId' in option) continue;
         assert.deepEqual(
           await vectors.search(placeOfGuild(GUILD_2), query, option),
           [],
@@ -173,11 +173,15 @@ test('vectors db reader: has and stats for every layer and month', async () => {
         { '2026-09': [], '2026-10': keys('410000000000000001', '410000000000000002'), '2026-11': [] },
       ],
     ];
-    for (const [placeId, privateUserId, stats, months] of expected) {
-      const holder = readAt(placeId, { privateUserId }).placeId;
-      assert.deepEqual(await vectors.stats(holder), stats, `${placeId} ${privateUserId}`);
+    for (const [placeId, privateAccountId, stats, months] of expected) {
+      const holder = readAt(placeId, { privateAccountId }).placeId;
+      assert.deepEqual(await vectors.stats(holder), stats, `${placeId} ${privateAccountId}`);
       for (const [month, held] of Object.entries(months)) {
-        assert.deepEqual([...(await vectors.has(holder, month))].sort(), held, `${placeId} ${privateUserId} ${month}`);
+        assert.deepEqual(
+          [...(await vectors.has(holder, month))].sort(),
+          held,
+          `${placeId} ${privateAccountId} ${month}`
+        );
       }
     }
   } finally {

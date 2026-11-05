@@ -1129,7 +1129,7 @@ export function createMissed({
     const trigger = byId.get(shown[0].messageId);
     const ids = shown.map((candidate) => candidate.messageId);
     // A private chat is recovered only where the private-chat gate lets the person through (their daily cap counts the turn).
-    const isPrivate = channel.communityId === null;
+    const isPrivate = channel.rootId === null;
     if (
       isPrivate &&
       !(

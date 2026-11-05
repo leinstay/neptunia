@@ -114,7 +114,7 @@ function makeChat() {
   const infoOf = (id: string, { send = true }: { send?: boolean } = {}) => ({
     id,
     kind: id === 'd1' ? 'dm' : 'channel',
-    communityId: id === 'd1' ? null : GUILD,
+    rootId: id === 'd1' ? null : GUILD,
     name: id === 'd1' ? null : `chan-${id}`,
     topic: null,
     category: null,
@@ -195,7 +195,7 @@ function makeChat() {
           conversation: {
             id: conversationId,
             kind: conversationId === 'd1' ? 'dm' : 'channel',
-            communityId: conversationId === 'd1' ? null : GUILD,
+            rootId: conversationId === 'd1' ? null : GUILD,
             name: conversationId === 'd1' ? null : `chan-${conversationId}`,
           },
           message: {
@@ -206,7 +206,7 @@ function makeChat() {
             system: false,
             at,
             replyToId: null,
-            replyPingUserId: null,
+            replyPingAccountId: null,
             forwardedFrom: null,
             attachments: [],
             links: [],
@@ -215,7 +215,7 @@ function makeChat() {
             emojis: [],
             reactions: [],
           },
-          addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+          addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
         });
       }
       return { id, placeId: conversationId, cleanContent: text, createdTimestamp: at };
@@ -507,8 +507,8 @@ function boot(
     reads,
     selfId: () => SELF,
     getSelfName: () => 'Bot',
-    memberOf: (communityId: string, memberId: string) =>
-      memberId in names ? { name: names[memberId], bot: false } : null,
+    memberOf: (placeId: string, accountId: string) =>
+      accountId in names ? { name: names[accountId], bot: false } : null,
     membersOf: () => Object.entries(names).map(([id, name]) => ({ id, name, bot: false })),
     conversationName: (id: string) => (id === 'd1' ? null : `chan-${id}`),
     skills: skillRegistry(),
@@ -593,7 +593,7 @@ function boot(
     /** A wake handed to the door, as the scheduler would; remembered as accepted work. */
     accept: (wake: Record<string, Untyped>) => {
       accepted.add(wake.id);
-      return door.submit({ kind: 'inner.wake', at: clock.t, id: wake.id, communityId: GUILD, wake });
+      return door.submit({ kind: 'inner.wake', at: clock.t, id: wake.id, rootId: GUILD, wake });
     },
     tick: () => quiet(() => inner.tick()),
     /** Alice's line in `conversationId`, answered by an addressed turn (the model's next answers are `chat.script`). */
@@ -955,7 +955,7 @@ test("row 3: the process dies after an errand's result was stored and before its
   const submitted = before.errands.submit({
     agent: 'scout',
     goal: 'find the changelog',
-    requester: { userId: 'u1', kind: 'member' },
+    requester: { accountId: 'u1', kind: 'member' },
     origin: { placeId: 'c1', messageId: origin.id },
     scope: 'group',
   });
@@ -997,7 +997,7 @@ test("row 3: the process dies after an errand's result was stored and before its
       env,
       placeId: GUILD,
       conversationId: 'c1',
-      userId: 'u1',
+      accountId: 'u1',
       roleIds: [],
     });
     assert.equal(read.status, 'ok');
@@ -1349,7 +1349,7 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
   const submitted = run.errands.submit({
     agent: 'scout',
     goal: 'find the changelog',
-    requester: { userId: 'u1', kind: 'member' },
+    requester: { accountId: 'u1', kind: 'member' },
     origin: { placeId: 'c1', messageId: origin.id },
     scope: 'group',
   });
@@ -1393,7 +1393,7 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
   const read = await runOp(
     'errand.read',
     { id },
-    { env, placeId: GUILD, conversationId: 'c1', userId: 'u1', roleIds: [] }
+    { env, placeId: GUILD, conversationId: 'c1', accountId: 'u1', roleIds: [] }
   );
   assert.equal(read.status, 'ok');
   assert.ok(read.summary.includes(text), 'errand.read returns the result');

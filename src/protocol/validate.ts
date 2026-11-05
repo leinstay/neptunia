@@ -121,7 +121,7 @@ function checkConversation(given: unknown): void {
   const conversation = asRecord(given);
   need(conversation.id, 'conversation.id', isId);
   need(conversation.kind, 'conversation.kind', isOneOf(CONVERSATION_KINDS), { problem: 'unknown' });
-  for (const key of ['communityId', 'name', 'topic', 'category', 'parentId'])
+  for (const key of ['rootId', 'name', 'topic', 'category', 'parentId'])
     need(conversation[key], `conversation.${key}`, isNullableString, { required: false });
   need(conversation.chatType, 'conversation.chatType', isOneOf(CONVERSATION_CHAT_TYPES), {
     required: false,
@@ -146,7 +146,7 @@ function checkMessage(message: Rec): void {
   checkAvatar(message.author, 'message.author.avatar');
   need(message.content, 'message.content', isString);
   need(message.at, 'message.at', isFiniteNumber);
-  for (const key of ['replyToId', 'replyPingUserId']) need(message[key], `message.${key}`, isNullableId);
+  for (const key of ['replyToId', 'replyPingAccountId']) need(message[key], `message.${key}`, isNullableId);
   need(message.forwardedFrom, 'message.forwardedFrom', isNullableString);
   for (const key of MESSAGE_LISTS) need(message[key], `message.${key}`, Array.isArray);
 }
@@ -156,7 +156,7 @@ function checkAddressing(given: unknown): void {
   const addressing = asRecord(given);
   need(addressing.mentioned, 'addressing.mentioned', isBoolean);
   need(addressing.replyToSelf, 'addressing.replyToSelf', isBoolean);
-  needIds(addressing.mentionedUserIds, 'addressing.mentionedUserIds');
+  needIds(addressing.mentionedAccountIds, 'addressing.mentionedAccountIds');
   needIds(addressing.mentionedConversationIds, 'addressing.mentionedConversationIds');
 }
 
@@ -213,10 +213,10 @@ function checkReactionChanged(event: Rec): void {
   if (event.cleared !== undefined) {
     // A clear is never a put-on; who cleared is not part of it, and clearing all names no emoji.
     if (event.added !== false) throw new Refusal('added', 'cleared');
-    need(event.userId, 'userId', isNullableId, { required: false });
+    need(event.accountId, 'accountId', isNullableId, { required: false });
     if (event.cleared === 'all' && (event.emoji === undefined || event.emoji === null)) return;
   } else {
-    need(event.userId, 'userId', isId);
+    need(event.accountId, 'accountId', isId);
   }
   need(event.emoji, 'emoji', isObject);
   const emoji = asRecord(event.emoji);
@@ -245,19 +245,17 @@ function checkCommandRequested(event: Rec): void {
 function checkErrandDone(event: Rec): void {
   need(event.errandId, 'errandId', isId);
   need(event.status, 'status', isId);
-  need(event.communityId, 'communityId', isNullableString, { required: false });
 }
 
 function checkInnerWake(event: Rec): void {
   need(event.id, 'id', isId);
-  need(event.communityId, 'communityId', isNullableString, { required: false });
   need(event.wake, 'wake', isObject);
   need(asRecord(event.wake).kind, 'wake.kind', isId);
 }
 
 function checkMembershipChanged(event: Rec): void {
-  need(event.communityId, 'communityId', isId);
-  need(event.userId, 'userId', isId);
+  need(event.placeId, 'placeId', isId);
+  need(event.accountId, 'accountId', isId);
   need(event.change, 'change', isOneOf(MEMBERSHIP_CHANGES), { problem: 'unknown' });
   need(event.member, 'member', isObject, { required: false });
   if (event.member !== undefined) {
@@ -275,8 +273,8 @@ function checkMembershipChanged(event: Rec): void {
  */
 function checkVoiceState(event: unknown, prefix: string) {
   const state = asRecord(event);
-  need(state.communityId, `${prefix}communityId`, isId);
-  need(state.userId, `${prefix}userId`, isId);
+  need(state.placeId, `${prefix}placeId`, isId);
+  need(state.accountId, `${prefix}accountId`, isId);
   need(state.name, `${prefix}name`, isNullableString, { required: false });
   for (const key of ['conversationId', 'previousId']) need(state[key], `${prefix}${key}`, isIdOrNull);
   for (const flag of ['muted', 'deafened', 'streaming', 'camera'])
@@ -296,7 +294,7 @@ function checkActivity(activity: unknown, path: string) {
  */
 function checkPresenceState(event: unknown, prefix: string) {
   const state = asRecord(event);
-  need(state.userId, `${prefix}userId`, isId);
+  need(state.accountId, `${prefix}accountId`, isId);
   need(state.name, `${prefix}name`, isNullableString);
   need(state.status, `${prefix}status`, isOneOf(PRESENCE_STATUSES), { problem: 'unknown' });
   eachEntry(state.activities, `${prefix}activities`, checkActivity);

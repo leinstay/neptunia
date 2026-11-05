@@ -139,10 +139,10 @@ const memory = () =>
     note: 'a batch',
     batch: { messageIds: ['400000000000000001'], consumed: 1 },
     changed: { users: ['100000000000000001'], guild: false, channels: [], lore: 0 },
-    episodes: [{ userId: '100000000000000001', itemId: null, key: 'k', what: 'w', weight: 1 }],
+    episodes: [{ accountId: '100000000000000001', itemId: null, key: 'k', what: 'w', weight: 1 }],
     attitude: [
-      { userId: '100000000000000001', delta: 3, applied: 2, reason: 'was kind' },
-      { userId: '100000000000000002', delta: -1, applied: -1, reason: 'was rude', extraField: 'kept' },
+      { accountId: '100000000000000001', delta: 3, applied: 2, reason: 'was kind' },
+      { accountId: '100000000000000002', delta: -1, applied: -1, reason: 'was rude', extraField: 'kept' },
     ],
     self: [],
     learned: [{ id: 1, text: 'taught' }],
@@ -177,7 +177,7 @@ test('attitude: empty, absent and not-a-list each come back as they were', () =>
   const absent = memory();
   delete absent.attitude;
   const odd = { ...memory(), attitude: 'none' };
-  const mixed = { ...memory(), attitude: [{ userId: '1', delta: 1 }, 'text'] };
+  const mixed = { ...memory(), attitude: [{ accountId: '1', delta: 1 }, 'text'] };
   for (const line of [empty, absent, odd, mixed]) assert.deepEqual(backOf(REL, line), line);
   assert.equal(roundTrip(mapper, REL, empty).rows.affinity_events, undefined);
   assert.ok(!Object.hasOwn(backOf(REL, absent), 'attitude'));
@@ -186,12 +186,17 @@ test('attitude: empty, absent and not-a-list each come back as they were', () =>
 test('the order of attitude entries comes back by position', () => {
   const line = {
     ...memory(),
-    attitude: ['a', 'b', 'c', 'd'].map((name, index) => ({ userId: name, delta: index, applied: index, reason: name })),
+    attitude: ['a', 'b', 'c', 'd'].map((name, index) => ({
+      accountId: name,
+      delta: index,
+      applied: index,
+      reason: name,
+    })),
   };
   const { stored, back } = roundTrip(mapper, REL, line);
   stored.affinity_events.reverse();
   assert.deepEqual(
-    restoredFrom(stored).attitude.map((entry: Record<string, Untyped>) => entry.userId),
+    restoredFrom(stored).attitude.map((entry: Record<string, Untyped>) => entry.accountId),
     ['a', 'b', 'c', 'd']
   );
   assert.deepEqual(back, line);

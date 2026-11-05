@@ -29,8 +29,8 @@ function privateScope(person: string, iface: string, place: MapContext['dmPlace'
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
-  const userId = ctx.subjectNativeId ?? privateIdOf(rel);
-  const person = ctx.subjectPersonId ?? personId(iface, userId);
+  const accountId = ctx.subjectNativeId ?? privateIdOf(rel);
+  const person = ctx.subjectPersonId ?? personId(iface, accountId);
   const rows: Rows = {};
   const { rest, affinity } = profileRows(rows, value, {
     rel,

@@ -1517,7 +1517,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
     content,
     ts: NOW - minutes * 60000,
     replyToId: null,
-    mentionedUserIds: [],
+    mentionedAccountIds: [],
     mentionedChannelIds: [],
     attachments: [],
     links: [],
@@ -1534,7 +1534,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
       iface: 'fake',
       at: entry.ts,
       id: `fake:message:${entry.id}`,
-      conversation: { id: HERE, kind: 'channel', communityId: GUILD, name: 'γενικά' },
+      conversation: { id: HERE, kind: 'channel', rootId: GUILD, name: 'γενικά' },
       message: {
         id: entry.id,
         author: { id: entry.authorId, name: entry.authorName, self: false, bot: false },
@@ -1543,7 +1543,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
         system: false,
         at: entry.ts,
         replyToId: null,
-        replyPingUserId: null,
+        replyPingAccountId: null,
         forwardedFrom: null,
         attachments: [],
         links: [],
@@ -1552,7 +1552,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
         emojis: [],
         reactions: [],
       },
-      addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
     });
   const discord = { checkPull: () => ({ skip: null }) };
   const store = { state: { data: {} }, listUserProfiles: () => [], getLore: () => [], getPlace: () => ({}) };

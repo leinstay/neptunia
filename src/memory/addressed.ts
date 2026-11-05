@@ -143,12 +143,12 @@ function letterCount(name: string) {
  */
 export function addressCandidates(
   profiles: Array<{ id?: string | number | null; names?: unknown; aliases?: unknown }>
-): Array<{ userId: string; names: Array<string> }> {
-  const members: Array<{ userId: string; names: Array<string> }> = [];
+): Array<{ accountId: string; names: Array<string> }> {
+  const members: Array<{ accountId: string; names: Array<string> }> = [];
   const owners = new Map<string, Set<string>>();
   for (const profile of Array.isArray(profiles) ? profiles : []) {
     if (profile?.id === undefined || profile?.id === null) continue;
-    const userId = String(profile.id);
+    const accountId = String(profile.id);
     const raw = [
       ...(Array.isArray(profile.names) ? profile.names : []),
       ...(Array.isArray(profile.aliases)
@@ -165,12 +165,15 @@ export function addressCandidates(
       names.push(name.trim());
       const owned = owners.get(folded) ?? new Set<string>();
       owners.set(folded, owned);
-      owned.add(userId);
+      owned.add(accountId);
     }
-    members.push({ userId, names });
+    members.push({ accountId, names });
   }
   return members
-    .map(({ userId, names }) => ({ userId, names: names.filter((name) => owners.get(foldText(name))?.size === 1) }))
+    .map(({ accountId, names }) => ({
+      accountId,
+      names: names.filter((name) => owners.get(foldText(name))?.size === 1),
+    }))
     .filter((member) => member.names.length > 0);
 }
 
@@ -208,11 +211,11 @@ function countableText(content: string, foldedNames: Array<string>) {
  */
 export function countAddressUses(
   messages: Array<{ content?: unknown; ts?: unknown; self?: boolean; authorId?: string | number }>,
-  candidates: Array<{ userId: string; names: Array<string> }>
+  candidates: Array<{ accountId: string; names: Array<string> }>
 ): Map<string, Array<{ name: string; at: number }>> {
   const uses = new Map<string, Array<{ name: string; at: number }>>();
-  const members = (Array.isArray(candidates) ? candidates : []).map(({ userId, names }) => ({
-    userId,
+  const members = (Array.isArray(candidates) ? candidates : []).map(({ accountId, names }) => ({
+    accountId,
     names: names.map((name) => {
       const form = foldText(name);
       const firstWord = form.split(/[^\p{L}\p{N}_]+/u).find(Boolean) ?? '';
@@ -226,7 +229,7 @@ export function countAddressUses(
     if (!text) continue;
     const authorId = message.self ? null : String(message.authorId);
     for (const member of members) {
-      if (member.userId === authorId) continue;
+      if (member.accountId === authorId) continue;
       // A stem match always starts with the form word's first 4 letters: a cheap pre-check.
       const matched = member.names.filter(
         ({ form, probe }) => (!probe || text.includes(probe)) && occursAsWordStem(text, form)
@@ -234,8 +237,8 @@ export function countAddressUses(
       if (matched.length === 0) continue;
       // `niko` is a whole word of its own and the stem of `nikos`: the exact name wins.
       const exact = matched.filter(({ form }) => occursAsWholeWord(text, form));
-      const list = uses.get(member.userId) ?? [];
-      uses.set(member.userId, list);
+      const list = uses.get(member.accountId) ?? [];
+      uses.set(member.accountId, list);
       for (const { name } of exact.length > 0 ? exact : matched) list.push({ name, at: message.ts });
     }
   }

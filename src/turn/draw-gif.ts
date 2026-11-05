@@ -182,7 +182,7 @@ export type DrawGif = {
     },
     model?: string | null
   ) => Promise<DrawResult>;
-  resolveGif: (placeId: string, gif: GifCall | null | undefined, conversationId: string) => ResolvedGif | null;
+  resolveGif: (placeId: string, gif: GifCall | null | undefined) => ResolvedGif | null;
   postGif: (
     channel: PostChannel,
     placeId: string,
@@ -232,7 +232,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
 
   /**
    * One picture (src/media/draw.ts#drawPicture): her scene verbatim into the drawing prompt, the avatar reference for a
-   * picture she is in, one generation. `userId` is the member whose rail counts it (null: nobody's); `avatar` the
+   * picture she is in, one generation. `accountId` is the member whose rail counts it (null: nobody's); `avatar` the
    * holder a diary set reuses the avatar through; `model` the core model's id when the call is routed there (null: the
    * drawing role's own, whose outcome the role health is told). Throws what the image client throws (ImageCapError,
    * ImageGenError).
@@ -242,7 +242,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     self,
     selfName,
     placeId = null,
-    userId = null,
+    accountId = null,
     avatar = null,
     model = null,
   }: {
@@ -250,7 +250,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     self: boolean;
     selfName: string;
     placeId?: string | null;
-    userId?: string | null;
+    accountId?: string | null;
     avatar?: { reference?: string | null } | null;
     model?: string | null;
   }): Promise<{ picture: object; referenceMissing: boolean }> {
@@ -260,12 +260,12 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       hot,
       // The persona's large avatar, asked of the interface only when the picture needs the reference.
       avatarUrl: async () => {
-        const found = await ifaceReads.memberInfo({ communityId: placeId, memberId: selfIdOf() });
+        const found = await ifaceReads.memberInfo({ placeId, accountId: selfIdOf() });
         return found?.member?.avatar.largeUrl ?? null;
       },
       imageFetcher,
       now: clock,
-      input: { scene, selfName, self, withTime: true, userId, avatar, model },
+      input: { scene, selfName, self, withTime: true, accountId, avatar, model },
     });
     return routes.report('drawing', model, made);
   }
@@ -360,7 +360,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
           selfName,
           placeId,
           // askedFor is true only for a turn with a trigger.
-          userId: asked ? (trigger!.authorId ?? null) : null,
+          accountId: asked ? (trigger!.authorId ?? null) : null,
           model,
           ...(staging && draft ? { avatar: (draft.avatar ??= {}) } : {}),
         });
@@ -431,11 +431,11 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * The persona's `<gif>` resolved against the place's library: `{ id,
    * replyTo, entry }`, or null (logged with its reason, never a URL) when the handle is unknown.
    */
-  function resolveGif(placeId: string, gif: GifCall | null | undefined, conversationId: string): ResolvedGif | null {
+  function resolveGif(placeId: string, gif: GifCall | null | undefined): ResolvedGif | null {
     if (!gif) return null;
     const entry: GifEntry | null | undefined = store.findGif(placeId, gif.id);
     if (!entry) {
-      log.info('turn: gif dropped', { channel: conversationId, reason: 'unknown' });
+      log.info('turn: gif dropped', { placeId, reason: 'unknown' });
       return null;
     }
     return { ...gif, entry };
@@ -650,7 +650,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     const handle = parseGifPick(textOf(completion), handles);
     log.info('gifs: picked', { channel: conversationId, handle: handle !== null, library: library.length });
     if (handle === null) return null;
-    return resolveGif(placeId, { id: handle, replyTo: first.replyTo ?? null }, conversationId);
+    return resolveGif(placeId, { id: handle, replyTo: first.replyTo ?? null });
   }
 
   /**

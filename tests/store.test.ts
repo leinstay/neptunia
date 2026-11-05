@@ -1798,7 +1798,7 @@ test('validate: names every unparsable operational *.json file, path relative to
   );
 });
 
-// --- private memory layer (data/guilds/<id>/private/<userId>.json) -----------
+// --- private memory layer (data/guilds/<id>/private/<accountId>.json) -----------
 
 const EMPTY_PRIVATE = {
   relationship: '',
@@ -1812,8 +1812,8 @@ const EMPTY_PRIVATE = {
   buffer: [],
 };
 
-function privateFile(dir: string, placeId: string, userId: string) {
-  return path.join(dir, 'guilds', placeId, 'private', `${userId}.json`);
+function privateFile(dir: string, placeId: string, accountId: string) {
+  return path.join(dir, 'guilds', placeId, 'private', `${accountId}.json`);
 }
 
 test('getPrivate: null when no private file exists, and nothing is created', () => {
@@ -1991,8 +1991,8 @@ const DECAY_DAY_MS = 24 * 60 * 60 * 1000;
 const DECAY_NOW = Date.UTC(2026, 9, 3, 12, 0, 0);
 const DECAY_CFG = { decayPerDay: 0.04, decayPower: 1 };
 
-function userFileOf(dir: string, placeId: string, userId: string) {
-  return path.join(dir, 'guilds', placeId, 'users', `${userId}.json`);
+function userFileOf(dir: string, placeId: string, accountId: string) {
+  return path.join(dir, 'guilds', placeId, 'users', `${accountId}.json`);
 }
 
 test('decayAffinities: decays public and private profiles, marks only the changed ones dirty', async () => {

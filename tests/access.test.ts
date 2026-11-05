@@ -72,13 +72,13 @@ const entryAt = (access: Access, key: string): Pick<GrantEntry, 'roles' | 'via'>
 
 const everyone = () => ({ everyone: true, roles: [], users: [] });
 
-/** isAllowed for user `userId` (roles `roleIds`) on the fixture op `name`, owner `1`. */
+/** isAllowed for user `accountId` (roles `roleIds`) on the fixture op `name`, owner `1`. */
 function allowed(
   name: string,
   access: unknown,
-  { userId = '2', roleIds = [] }: { userId?: string; roleIds?: Array<string> } = {}
+  { accountId = '2', roleIds = [] }: { accountId?: string; roleIds?: Array<string> } = {}
 ): boolean {
-  return isAllowed({ op: byName(name) ?? op(name), member: { userId, roleIds }, access, owners: ['1'] });
+  return isAllowed({ op: byName(name) ?? op(name), member: { accountId, roleIds }, access, owners: ['1'] });
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ test('hasGrant: true exactly when revoke with the same arguments would change so
   const access = { status: { everyone: true, roles: ['5'], users: [7] } };
   assert.equal(hasGrant(access, 'status', { everyone: true }), true);
   assert.equal(hasGrant(access, 'status', { roleId: 5 }), true);
-  assert.equal(hasGrant(access, 'status', { userId: '7' }), true);
+  assert.equal(hasGrant(access, 'status', { accountId: '7' }), true);
   assert.equal(hasGrant(access, 'status', { roleId: '6' }), false);
   assert.equal(hasGrant(access, 'memory', { everyone: true }), false);
   assert.equal(hasGrant({ status: { roles: ['5'] } }, 'status', { everyone: true }), false);
@@ -115,7 +115,7 @@ const IS_ALLOWED_CASES = [
   {
     label: 'an owner always passes, even with no access at all',
     name: 'memory.wipe',
-    userId: '1',
+    accountId: '1',
     access: undefined,
     expected: true,
   },
@@ -178,8 +178,8 @@ const IS_ALLOWED_CASES = [
 ];
 
 test('isAllowed: an owner always passes; a non-owner needs a user, role or everyone grant on the exact op name', () => {
-  for (const { label, expected, name, access, userId, roleIds } of IS_ALLOWED_CASES) {
-    assert.equal(allowed(name, access, { userId, roleIds }), expected, label);
+  for (const { label, expected, name, access, accountId, roleIds } of IS_ALLOWED_CASES) {
+    assert.equal(allowed(name, access, { accountId, roleIds }), expected, label);
   }
 });
 
@@ -195,8 +195,8 @@ test('isAllowed: a malformed entry (not an object) on the op is skipped, not thr
 });
 
 test('isAllowed: no operation descriptor denies every non-owner; an owner still passes', () => {
-  assert.equal(isAllowed({ op: null, member: { userId: '2' }, access: { '*': everyone() }, owners: ['1'] }), false);
-  assert.equal(isAllowed({ op: null, member: { userId: '1' }, access: {}, owners: ['1'] }), true);
+  assert.equal(isAllowed({ op: null, member: { accountId: '2' }, access: { '*': everyone() }, owners: ['1'] }), false);
+  assert.equal(isAllowed({ op: null, member: { accountId: '1' }, access: {}, owners: ['1'] }), true);
 });
 
 test('isAllowed: owner-only and non-grantable ops refuse a * grant', () => {
@@ -205,7 +205,7 @@ test('isAllowed: owner-only and non-grantable ops refuse a * grant', () => {
     const group = name.split('.')[0];
     const access = { '*': open, [group]: open, [name]: open };
     assert.equal(allowed(name, access, { roleIds: ['staff'] }), false, name);
-    assert.equal(allowed(name, {}, { userId: '1' }), true, `${name}: owner`);
+    assert.equal(allowed(name, {}, { accountId: '1' }), true, `${name}: owner`);
   }
   // an exact grant on a grantable op still opens it
   assert.equal(allowed('rule.list', { 'rule.list': open }), true);
@@ -218,9 +218,9 @@ test('isAllowed: a member granted memory.affinity.read is denied memory.affinity
 });
 
 test('isAllowed: a member op passes for anyone, with no owners and no access at all', () => {
-  assert.equal(isAllowed({ op: byName('pings.set'), member: { userId: '2' } }), true);
+  assert.equal(isAllowed({ op: byName('pings.set'), member: { accountId: '2' } }), true);
   assert.equal(
-    isAllowed({ op: byName('pings.get'), member: { userId: '2', roleIds: [] }, owners: [], access: undefined }),
+    isAllowed({ op: byName('pings.get'), member: { accountId: '2', roleIds: [] }, owners: [], access: undefined }),
     true
   );
   // it opens nothing else
@@ -276,7 +276,7 @@ test('isAllowed: an old memory.* grant after migration covers only the read ops 
     }
     // an operation added after the migration is never covered by it
     assert.equal(
-      isAllowed({ op: op('memory.mood.read'), member: { userId: '2', roleIds: ['staff'] }, access, owners: ['1'] }),
+      isAllowed({ op: op('memory.mood.read'), member: { accountId: '2', roleIds: ['staff'] }, access, owners: ['1'] }),
       false,
       key
     );
@@ -336,7 +336,7 @@ test('migrateGrants: expands group and * grants into op entries once and drops o
 test('access list: names the source of each right', () => {
   let access = grant({}, 'memory.profile.read', { everyone: true }, { from: 'memory' });
   access = grant(access, 'memory.profile.read', { roleId: 'r1' });
-  access = grant(access, 'memory.profile.read', { userId: 'u1' }, { from: '*' });
+  access = grant(access, 'memory.profile.read', { accountId: 'u1' }, { from: '*' });
   access = grant(access, 'memory.journal.read', { everyone: true });
   access = grant(access, 'gone.op', { everyone: true });
   assert.deepEqual(describeGrants(access, OPS), [
@@ -349,7 +349,7 @@ test('access list: names the source of each right', () => {
     /^memory\.profile\.read: everyone, role id:r1, user id:u1 \(expanded from \*/
   );
   // revoke drops the source with the target
-  access = revoke(access, 'memory.profile.read', { userId: 'u1' });
+  access = revoke(access, 'memory.profile.read', { accountId: 'u1' });
   assert.equal(entryAt(access, 'memory.profile.read').via, undefined);
 });
 
@@ -370,7 +370,7 @@ const GRANT_FRESH_CASES = [
   },
   {
     label: 'a user on a fresh key creates the entry with that user',
-    what: { userId: 'u1' },
+    what: { accountId: 'u1' },
     expected: { status: { everyone: false, roles: [], users: ['u1'] } },
   },
 ];
@@ -426,7 +426,7 @@ const REVOKE_ONE_CASES = [
   {
     label: 'a user removes just that user',
     entry: { everyone: false, roles: [], users: ['u1', 'u2'] },
-    what: { userId: 'u1' },
+    what: { accountId: 'u1' },
     expected: { everyone: false, roles: [], users: ['u2'] },
   },
   {
@@ -444,7 +444,7 @@ const REVOKE_ONE_CASES = [
   {
     label: 'a user removes just that user, keeping the flag and the roles',
     entry: { everyone: true, roles: ['r9'], users: ['u1', 'u2'] },
-    what: { userId: 'u1' },
+    what: { accountId: 'u1' },
     expected: { everyone: true, roles: ['r9'], users: ['u2'] },
   },
   {

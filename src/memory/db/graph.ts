@@ -17,7 +17,7 @@
 //       kept there), in slices; the key goes once everything is projected. Run by a full sync pass and by the last
 //       slice of the first import.
 //   rebuildGraph(handle)   drops the three tables' rows and projects everything again (the rebuildability contract).
-// Schema v30: an entity is a node seen only through the assertions that name it, and a claim's unit also projects each
+// Schema v31: an entity is a node seen only through the assertions that name it, and a claim's unit also projects each
 // sealed version's `has_role` edges and the `asserts` or `denies` shortcut of a binary relation.
 // Schema v10: a publication (publish.ts) is its own unit: its node, `published_as` from the entry it publishes and
 // `publication_source` to each stored line its receipts name; the diary unit no longer reads `diary_mirrors`.
@@ -533,7 +533,7 @@ const PRODUCERS: Record<string, (db: Db, id: string) => Produced> = {
   },
 };
 
-/** Whether this database holds semantic memory (schema v30): a migration of an older one projects without it. */
+/** Whether this database holds semantic memory (schema v31): a migration of an older one projects without it. */
 const hasSemanticTables = (db: Db): boolean =>
   one(db, "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'semantic_assertion_versions'") !==
   undefined;

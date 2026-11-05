@@ -33,7 +33,7 @@ const WHOLE_TABLES = new Set([
   'diary_mirrors',
 ]);
 /** The columns that hold a JSON value of the engine's own. */
-const JSON_COLUMNS = new Set(['extra', 'value', 'record', 'payload', 'metadata', 'context', 'turn', 'data']);
+const JSON_COLUMNS = new Set(['extra', 'value', 'record', 'payload', 'metadata', 'context', 'turn', 'data', 'held']);
 /** Line tables whose `position` counts inside one unit, so two partitions of one unit must not collide. */
 const POSITIONED = [
   'sources',
