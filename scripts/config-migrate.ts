@@ -195,7 +195,7 @@ function cutReport(
   const cutLines = [
     ...cut.map((key) =>
       key === 'errands.backend'
-        ? `${key} dropped (the agent backend is the subharness's now: run "subharness enable <codex|claude|opencode>" in the chat)`
+        ? `${key} dropped (the agent backend is the subharness's now: run "neptunia subharness <codex|claude|opencode> login")`
         : `${key} dropped (${FATE_OF.get(key) ?? 'constant'})`
     ),
     ...differs.map(

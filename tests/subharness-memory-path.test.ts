@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { clearMemoryPath, memoryPath, setMemoryPath } from '../src/subharness/memory-path.ts';
-import { enableSubharness, setAgentMode } from '../src/subharness/control.ts';
+import { setAgentMode } from '../src/subharness/control.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
@@ -24,6 +24,7 @@ import { BASE_URL, SECRET, fakeFetch, fakePause, healthy } from './fixtures/keys
 import type { Call, Reply } from './fixtures/keys-rig.ts';
 import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 import type { KeysFile } from './fixtures/keys-file.ts';
+import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const HELP_WITH_EFFORT = 'Usage: claude [options]\n  --model <model>\n  --effort <level>  reasoning effort\n';
@@ -52,6 +53,9 @@ function rig(
       ...options.subharness,
     },
   });
+  // Changed: a selection reads the real source, so each backend a rig calls connected is installed and logged in.
+  for (const backend of options.backends ?? (['codex', 'claude'] as const))
+    if (backend !== 'opencode') fakeVendor(dir, backend, { loggedIn: true });
   const ran: Array<Ran> = [];
   const help = options.help === undefined ? HELP_WITH_EFFORT : options.help;
   const deps: EnableDeps = {
@@ -101,19 +105,20 @@ test('the path reads the stored record as the subharness path', () => {
   });
 });
 
-test('a backend that is not connected is refused before anything runs, and nothing is written', async () => {
+test('a backend that is not installed is refused before anything runs, and nothing is written', async () => {
   // Catches: a path stored on a backend with no login, so every writer run is refused and she sleeps.
+  // Changed: the refusal comes from the source itself, not from a stored list.
   const { dir, deps, ran } = rig({ backends: ['codex'] });
   const result = await setMemoryPath(deps, 'claude', 'claude-opus-4-6');
   assert.equal(result.ok, false);
-  assert.equal(result.code, 'backend-not-connected');
+  assert.equal(result.code, 'not-installed');
   assert.deepEqual(ran, []);
   assert.equal(readKeysFile(dir).subharness.memory ?? null, null);
 });
 
-test('opencode is refused as a memory backend even when it is connected', async () => {
+test('opencode is refused as a memory backend even with its key', async () => {
   // Catches: the writer sent to `opencode run`, which has no flag to replace its own system prompt.
-  const { dir, deps, ran } = rig({ backends: ['opencode'], extra: { agents: 'sk-x' }, subharness: { key: 'agents' } });
+  const { dir, deps, ran } = rig({ extra: { agents: 'sk-x' }, subharness: { key: 'agents' } });
   const result = await setMemoryPath(deps, 'opencode', 'anthropic/claude-opus-4.6');
   assert.equal(result.code, 'backend-unsupported');
   assert.deepEqual(ran, []);
@@ -159,14 +164,6 @@ test('a path set without an effort stores no effort, whatever was stored before'
   assert.deepEqual(readKeysFile(dir).subharness.memory, CLAUDE_PATH);
 });
 
-test('connecting another backend keeps the memory path', async () => {
-  // Catches: readKeys drops the record, so the next write of any subharness change silently puts the writer back direct.
-  const { dir, deps } = rig({ backends: ['claude'], subharness: { memory: CLAUDE_PATH } });
-  const result = await enableSubharness(deps, 'codex');
-  assert.equal(result.ok, true);
-  assert.deepEqual(memoryPath(dir), { kind: 'subharness', ...CLAUDE_PATH });
-});
-
 test('changing an agent mode keeps the memory path', async () => {
   // Catches: a write of the modes that rebuilds the subharness section without the record.
   const { dir } = rig({ subharness: { memory: CLAUDE_PATH } });
@@ -188,13 +185,14 @@ test('a record whose backend was disconnected stays the subharness path', () => 
 
 // back to the direct path
 
-test('clearing the path removes the record and leaves the backends connected', () => {
+test('clearing the path removes the record and leaves the agents on their sources', () => {
   // Catches: the return to direct disconnecting the backend, so the agents that run through it are refused.
+  // Changed: the agents' sources are their `uses` entries, into which the stored list migrated.
   const { dir } = rig({ subharness: { memory: CLAUDE_PATH } });
   const result = clearMemoryPath(dir);
   assert.equal(result.ok, true);
   assert.deepEqual(memoryPath(dir), { kind: 'direct' });
-  assert.deepEqual(readKeysFile(dir).subharness.backends, ['codex', 'claude']);
+  assert.equal(readKeysFile(dir).subharness.uses?.dev, 'codex');
 });
 
 test('clearing a path that is direct already changes nothing', () => {

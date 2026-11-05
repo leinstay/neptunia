@@ -10,6 +10,25 @@ Use `/keys` to inspect the available commands, `/keys bind` to select an extra k
 
 The base conversation roles, the memory writer and the delegated agents are distinct routes. A subscription login for an agent backend does not replace the OpenRouter keys used by the core. See [setup](setup.md#subharness-backends) for those logins.
 
+## Model sources
+
+A source is OpenRouter or a subharness backend that is installed and logged in. `/model set <role> <model> --via <backend> [--effort <effort>]` serves every agent role (`scout`, `server`, `dev`, `watcher`, `thinker`) and `memory`, and it writes the source, the model and the effort in one change. `/model set <agent> <model>` with no `--via` keeps the source in force. An effort that is not given stays while the source stays and goes with a source that changes, because no reply checked it there.
+
+`checkedSelection` in `src/subharness/selection.ts` checks the source first, then asks one reply from that model, and saves only when the source can still run and nobody changed the selection during the reply. A refusal saves nothing and answers one of these codes.
+
+| Code | Meaning |
+|---|---|
+| `not-installed` | The backend is not installed; no request was sent |
+| `not-logged-in` | The backend is installed with no login; no request was sent |
+| `model-rejected` | The reply did not come; the answer carries the backend's last line |
+| `role-unsupported` | The role has no subharness path, as `speech` and `drawing`; no request was sent |
+| `selection-changed` | Another selection of that role was made during the reply |
+| `source-changed` | The source logged out during the reply |
+
+`modelChoices` in `src/subharness/model-sources.ts` lists the choices of a role by source, so one model name from two sources stays two choices. It labels the fixed names of `codex` and `claude` as suggestions, reports a missing install, a missing login and a provider's refusal as separate notices, and sends no model request. `memory` is never offered `opencode`, which takes no system prompt of its own.
+
+`keys.json` holds a role's source in `subharness.uses` and the memory writer's in `subharness.memory`. A store with the older list `subharness.backends`, or the single `subharness.backend`, reads each agent that names no source as using the list's first name, and the next write leaves the list out.
+
 ## Quick search
 
 Quick search has its own `web.search.model` and `search` key binding, independent of the analyzer. The engines are OpenRouter, Brave and Exa. OpenRouter uses the core key pool unless `search` is bound to a named extra key. It still sends a model request with the search plugin, so the model and its cost matter.

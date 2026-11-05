@@ -114,7 +114,7 @@ type Dispatch = { route: TaskRoute | null; key: string | null; error?: string };
 
 /**
  * The route and the key of `agent`'s errand, read from keys.json now, since the runner's unit may hide that file.
- * `route: null` while the agent has no backend (the runner then refuses with `subharness-off`), and an `error`
+ * `route: null` while the agent has no source (the runner then refuses with `subharness-off`), and an `error`
  * code when keys.json cannot be read or an opencode route has no key to spend.
  */
 function dispatchOf(privateDir: string | undefined, agent: string, log: Logger): Dispatch {
