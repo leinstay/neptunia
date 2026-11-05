@@ -29,7 +29,7 @@
   "scripts": {
     "start": "node src/index.ts",
     "dev": "node --watch src/index.ts",
-    "test": "node --test \"tests/**/*.test.{js,ts}\"",
+    "test": "node --test --test-global-setup=tests/fixtures/refuse-manager.ts \"tests/**/*.test.{js,ts}\"",
     "check:codes": "node scripts/labels-catalogue.ts --check",
     "lint": "ESLINT_FLAGS=unstable_native_nodejs_ts_config eslint . --pass-on-unpruned-suppressions",
     "lint:prune": "ESLINT_FLAGS=unstable_native_nodejs_ts_config eslint . --prune-suppressions",

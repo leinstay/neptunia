@@ -558,6 +558,7 @@ function everyLine(): Array<string> {
 // read the machine, so they are left out.
 test('every operation no grant opens to her runs from a command of the chat', async () => {
   const ran = new Set<string>();
+  const managerCalls: Array<string> = [];
   const dir = tempDir('nep-console-ops-');
   const deps: ConsoleDeps = {
     runOp: (op) => {
@@ -575,6 +576,11 @@ test('every operation no grant opens to her runs from a command of the chat', as
     metrics: null,
     conversationLines: () => [],
     now: () => T0,
+    // `/service watcher enable` and `disable` are lines of the table: without this they move the server's real timer.
+    serviceManager: (command, args) => {
+      managerCalls.push([command, ...args].join(' '));
+      return Promise.resolve({ code: 0, stdout: '', stderr: '' });
+    },
   };
   const desk = createConsole(deps);
   for (const line of everyLine()) {
@@ -585,5 +591,9 @@ test('every operation no grant opens to her runs from a command of the chat', as
   assert.deepEqual(
     NOT_GRANTABLE_TO_PERSONA.filter((op) => !ran.has(op)),
     []
+  );
+  assert.ok(
+    managerCalls.some((call) => call.endsWith('enable --now neptunia-watcher.timer')),
+    managerCalls.join('\n')
   );
 });
