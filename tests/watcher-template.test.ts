@@ -32,7 +32,7 @@ const codeOf = (text: string): string => {
 };
 const swapped = <T>(list: ReadonlyArray<T>, a: number, b: number): Array<T> => {
   const next = [...list];
-  [next[a], next[b]] = [list[b] as T, list[a] as T];
+  [next[a], next[b]] = [list[b], list[a]];
   return next;
 };
 
@@ -41,6 +41,7 @@ test('a report in the template passes, and the check gives back its day and meta
   const checked = reports.checkTemplate(templateOf());
   assert.ok(checked.ok);
   assert.equal(checked.day, DAY);
+  // The whole shape is the point: these are the fixed names every caller reads the metadata by, none of them optional.
   assert.deepEqual(checked.metadata, {
     observationInterval: '2026-11-03T06:00:00.000Z to 2026-11-04T06:00:00.000Z',
     runId: 'run-template',

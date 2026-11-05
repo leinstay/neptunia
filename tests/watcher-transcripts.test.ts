@@ -15,6 +15,7 @@ import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { serviceFamily } from '../src/service/commands.ts';
+import type { ServiceAnswer } from '../src/service/commands.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
 import { runAgent } from '../src/subharness/run.ts';
 import type { RecordedRunPage } from '../src/watcher/requests.ts';
@@ -473,11 +474,11 @@ test('evidence walks the two sources by its cursor under the bound, and reports 
   let cursor: string | undefined;
   let pages = 0;
   for (; pages < 10; pages += 1) {
-    const { page }: { page: Evidence | null } = await evidence(where, {
+    const done: { answer: ServiceAnswer; page: Evidence | null } = await evidence(where, {
       from,
       ...(cursor === undefined ? {} : { cursor }),
     });
-    assert.ok(page !== null);
+    const page = done.page ?? assert.fail(done.answer.text.slice(0, 200));
     assert.ok(page.runs.length === 1 || JSON.stringify(page.runs).length <= WATCHER_EVIDENCE_MAX_CHARS);
     seen.push(...page.runs.map((run) => run.runKey));
     assert.equal(page.totalRuns, 4);

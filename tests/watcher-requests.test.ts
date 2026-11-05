@@ -79,6 +79,13 @@ const ask = (system: string, user = 'hello'): Array<Record<string, unknown>> => 
   { role: 'user', content: user },
 ];
 
+/** A chat client that gives every request `answer`. */
+const clientSaying = (
+  answer: Record<string, unknown>
+): { complete: (messages: unknown, options?: unknown) => Promise<Record<string, unknown>> } => ({
+  complete: () => Promise.resolve(answer),
+});
+
 const archiveOf = (handle: MemoryHandle, times: ReadonlyArray<number>) => {
   let n = 0;
   return {
@@ -307,10 +314,7 @@ test('transport headers and keys never reach the archive or the read', async () 
   // Bug: the whole options object is kept for completeness, with the Authorization header in it.
   const { readRecordedRuns } = await requests();
   const { handle } = freshDb();
-  const llm = archivedLlm(
-    { complete: (_messages: unknown, _options?: unknown) => Promise.resolve({ text: 'ok' }) },
-    archiveOf(handle, [MIDNIGHT + MINUTE])
-  );
+  const llm = archivedLlm(clientSaying({ text: 'ok' }), archiveOf(handle, [MIDNIGHT + MINUTE]));
   await llm.complete(ask('s'), {
     model: 'm',
     apiKey: PLANTED_KEY,
@@ -346,10 +350,7 @@ test('a picture kept as a marker is named as missing media', async () => {
   // Bug: the record reads as complete although the model saw an image the archive does not hold.
   const { readRecordedRuns } = await requests();
   const { handle } = freshDb();
-  const llm = archivedLlm(
-    { complete: (_messages: unknown, _options?: unknown) => Promise.resolve({ text: 'ok' }) },
-    archiveOf(handle, [MIDNIGHT + MINUTE])
-  );
+  const llm = archivedLlm(clientSaying({ text: 'ok' }), archiveOf(handle, [MIDNIGHT + MINUTE]));
   await llm.complete(
     [{ role: 'user', content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,QUJDRA==' } }] }],
     {}
@@ -365,16 +366,13 @@ test('an archive write that failed is named in the page, with no content', async
   const { readRecordedRuns } = await requests();
   const { handle } = freshDb();
   const noted: Array<ArchiveWriteGap> = [];
-  const llm = archivedLlm(
-    { complete: (_messages: unknown, _options?: unknown) => Promise.resolve({ text: 'SECRET-ANSWER' }) },
-    {
-      write: () => Promise.reject(new Error('disk full')),
-      now: () => MIDNIGHT + MINUTE,
-      newId: () => 'lost',
-      log: SILENT,
-      noteGap: (gap) => noted.push(gap),
-    }
-  );
+  const llm = archivedLlm(clientSaying({ text: 'SECRET-ANSWER' }), {
+    write: () => Promise.reject(new Error('disk full')),
+    now: () => MIDNIGHT + MINUTE,
+    newId: () => 'lost',
+    log: SILENT,
+    noteGap: (gap) => noted.push(gap),
+  });
   await llm.complete(ask('SECRET-PROMPT'), { model: 'm', role: 'core' });
   const page = readRecordedRuns(dbOf(handle), {
     from: MIDNIGHT,
@@ -434,10 +432,7 @@ test('an effective local prompt reads as it was sent, whatever a template says',
   // Bug: the review reads prompts/ and calls it what the run received, while prompts.local/ had replaced it.
   const { readRecordedRuns } = await requests();
   const { handle } = freshDb();
-  const llm = archivedLlm(
-    { complete: (_messages: unknown, _options?: unknown) => Promise.resolve({ text: 'ok' }) },
-    archiveOf(handle, [MIDNIGHT + MINUTE])
-  );
+  const llm = archivedLlm(clientSaying({ text: 'ok' }), archiveOf(handle, [MIDNIGHT + MINUTE]));
   const tracked = fs.readFileSync(new URL('../prompts/system-prompt.md', import.meta.url), 'utf8');
   await llm.complete(ask('LOCAL-OVERRIDE of the system prompt'), { model: 'm' });
   const request = only(readRecordedRuns(dbOf(handle), { from: MIDNIGHT, to: MIDNIGHT + 9 * MINUTE, ...WHOLE }));
@@ -521,10 +516,7 @@ test('the turn names its service, run and backend on each row, and the effective
   const { readRecordedRuns } = await requests();
   const { handle } = freshDb();
   const llm = archivedLlm(
-    {
-      complete: (_messages: unknown, _options?: unknown) =>
-        Promise.resolve({ text: 'ok', model: 'vendor/effective-model' }),
-    },
+    clientSaying({ text: 'ok', model: 'vendor/effective-model' }),
     archiveOf(handle, [MIDNIGHT + MINUTE])
   );
   await withRequestMeta(async () => {

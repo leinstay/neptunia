@@ -1,5 +1,5 @@
 // What the watcher tests share: a temp watcher folder (prompt.md and reports/), a task row, and builders for a report
-// that holds the seven headings and a tasks block. Synthetic data only; no provider, no database, no socket.
+// that holds the eleven headings and a tasks block. Synthetic data only; no provider, no database, no socket.
 import fs from 'node:fs';
 import path from 'node:path';
 import type { TaskRecord } from '../../src/board/board.ts';

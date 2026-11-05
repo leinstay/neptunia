@@ -93,8 +93,7 @@ test('the helpers entry names each model path that bypasses the wrapped client',
   // Bug: "helpers: recorded" hides that an embedding or speech request has no row at all.
   const entry = await entryOf('helpers');
   for (const file of ['src/llm/embed.ts', 'src/speech/synth.ts']) {
-    const named = entry.paths.find((one) => one.path === file);
-    assert.ok(named !== undefined, `${file} is on the list`);
+    const named = entry.paths.find((one) => one.path === file) ?? assert.fail(`${file} is not on the list`);
     if (named.state === 'gap') assert.notEqual(named.reason.trim(), '');
     else assert.match(fs.readFileSync(path.join(REPO, file), 'utf8'), /archive/i, `${file} claims a record`);
   }
@@ -196,7 +195,7 @@ test('a refusal never quotes the block', () => {
   assert.equal(checked.detail.includes(PLANTED_KEY), false);
 });
 
-test('prompt.md keeps its seven sections and asks for the coverage block', () => {
+test('prompt.md keeps its eleven sections and asks for the coverage block', () => {
   // Bug: the validator requires a block the prompt never asks for, so every live inspection fails its check.
   const prompt = fs.readFileSync(path.join(REPO, 'agents', 'watcher', 'prompt.md'), 'utf8');
   const headings = prompt.split('\n').filter((line) => line.startsWith('## '));
