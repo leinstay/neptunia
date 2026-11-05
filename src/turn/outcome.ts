@@ -368,7 +368,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
       const scope = { channelId: String(channel.id), privateChat: !inCommunity(channel) };
       const at = clock();
       const outcome = result?.outcome ?? 'error';
-      if (outcome !== 'error' && outcome !== 'busy' && outcome !== 'paused') {
+      if (outcome !== 'error' && outcome !== 'busy' && outcome !== 'paused' && outcome !== 'cancelled') {
         const own = factsOfKind(guildId, scope, 'failedTurn', at)
           .filter((fact) => fact.messageId === String(trigger.id))
           .map((fact) => fact.id);

@@ -25,7 +25,7 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 | Left, Right, Home and End | Move the caret, by whole characters and across a chip in one step |
 | Backspace and Delete | Delete a whole character or a whole chip |
 | Tab | Complete the selected command |
-| Esc | Close a panel, cancel a panel still loading, cancel a question, leave a search or clear the input |
+| Esc | Close a panel, cancel a panel still loading, cancel a question, leave a search or clear the input. On an empty input it asks the core to cancel her running turn |
 | Ctrl+R | Search the history, and again for the next older match |
 | Ctrl+F | Search the transcript, and again for the next older match |
 | Alt+Up and Alt+Down | Jump to your line above or below |
@@ -101,6 +101,38 @@ A question replaces the input and keeps the unfinished line it interrupted. The 
 
 Each slash command replaces the panel request before it. An answer of a request that was replaced or cancelled with Esc opens nothing and runs nothing. The same rule holds inside a selector, whose reducer compares the overlay id and the generation of every answer. Moving and filtering change no setting.
 
+## Turns, the queue and cancelling
+
+`createTurnControl` in `src/turn/control.ts` owns the state of every line the chat or `neptunia -p` sends: accepted, queued, running, and committed, cancelled or failed. Each event names its turn and carries a rising `seq`. The core sends them to a client that asked with `turn.replay`, as a `command.result` of status `turn` (`src/protocol/turn-control.ts`), and `cli/turn-state.ts` builds the chat's picture from them and from nothing else. Her replies still arrive as messages, so the events carry the turn's state and the reply its words.
+
+A line goes through the event door when it arrives, like a message of any other interface (`src/interface/chat-turns.ts`). Memory observes it at once, and the pipeline's own queue decides when its turn runs, under `mention.pendingSameChannel`, `mention.oneAtATime` and the pipeline's own bound. The control adds no helper model and holds no line back: it tracks the order and states the client shows, one turn running at a time. The row above the input shows the running turn, its newest tool step and how many lines wait. The same request id sent twice is one line. A failed turn leaves a line in the transcript, and the next line goes on.
+
+A line that waits is already said, so its text cannot be edited, and `/queue` offers no edit. Enter on a row of `/queue` cancels the turn over that line, and the line stays in memory, where she can read it. A cancel of a waiting line acknowledges at once, and when the pipeline reaches it the runner ends its turn before any request.
+
+Esc on an empty input asks the core to cancel the running turn, once. The chat keeps showing the turn as running until the core acknowledges, and Esc with text in the input clears only the input. Leaving the chat cancels nothing, and an errand, a task or the watcher is never reached by a chat cancel. The signal of a running turn stops the wait in progress, aborts the provider request and takes effect between tool steps. A turn with a message already out ends committed, whatever the cancel asked. Lines of other interfaces do not pass through the control, so a turn over one has no signal.
+
+The pipeline can answer a line inside another line's turn or drop one it saw answered, so a line can have no turn of its own. When a later line's turn begins, or after 30 seconds with no turn running anywhere, the line's wait ends with `no-own-turn`, and `neptunia -p` hears the same. A line taken during a pause ends with `paused`, while the core still holds it for `/resume`.
+
+These states live in the core's process and do not survive a restart. A lost link leaves the state as the core last said it. The chat tries again every 2 seconds, and `turn.replay` returns what it missed, or names another core instance, in which case the chat drops the turns it held and says how many it lost. The core's routes return completed output, so `running` carries `streaming: false` and the transcript shows no text until her reply. The reducer takes `text` events, and no route produces them.
+
+## Sessions and checkpoints
+
+A conversation session is a named view over the lines memory already stores for the owner's chat, in the `sources` table under the place `cli:dm:owner`. Those records are the durable conversation, so `src/conversation/sessions.ts` copies none of them and keeps only ids and times, in `<private>/cli/sessions.json` (`src/conversation/store.ts`). The file is not memory: nothing she recalls reads it. A session's name is the start of the owner's first line, with no model. The input history in `data/cli/history` and the transcript on the screen are separate from both.
+
+`/sessions` lists them, and Enter on a row resumes one. `/resume <id>` does the same by id. Bare `/resume` stays the command that ends a pause. `/branch` lists the lines of the current session with their exact stored text, and Enter on a line continues from there. `/branch <id>` cuts another session. Opening any of these panels only reads, and the same boundary of the same session is always the same branch.
+
+Resuming or branching replaces the transcript on the screen and the lines the core's history reads answer from, so the next turn's context is the selected view. A line written while a branch is selected belongs to that branch, and the root shows every line no branch owns. Stored lines, facts she learned and their sources stay untouched, and memory stays continuous: a branch does not make her forget what she saw after its boundary, because her memory reads across every session. A new chat process starts on the root. These commands exist only in the interactive chat, because their effect is on its screen.
+
+`/checkpoints` previews and restores the files of a development task's worktree (`src/development/checkpoints.ts`). The board decides what counts: an open task whose `metadata.development.worktree` lies under `selfimprovement.checkout`'s `.worktrees` folder (`src/development/checkpoint-desk.ts`). With no such task the panel says why and offers no row. `/checkpoints take <task>` copies the worktree to `<private>/development/checkpoints/<task>/`. A row shows the affected paths, and Enter on it restores them. Every restore first takes a checkpoint of what it replaces, reported as its undo. A symlink leading out of the worktree refuses the restore, and a partial failure reports `failed` with the undo. `.git`, `.env`, `.secrets`, `data`, `config.local`, `prompts.local`, `node_modules`, `.agents`, `.claude` and `.worktrees` are neither captured nor restored. Nothing takes a checkpoint by itself. Rewinding a conversation is `/branch`, and it changes no file.
+
+## Approvals and capability menus
+
+`/approvals` opens what waits on the task board: a triaged task is a plan gate, and a task in `needs_validation` a merge gate that shows the worker's handoff (`src/board/approval-view.ts`). Several gates list as rows, and `/approvals <task>` opens one. Approve and reject are two rows, and a reject takes the reason the board asks for. An answer is the board's `task.approve` under the `owner` client's name, naming the revision on the screen, so the board's rights and revision check decide and a stale answer changes nothing. `createApprovalRelay` in `src/tools/approvals.ts` forwards one answer per shown revision, so a double Enter is one approval, and a refused answer leaves the gate open. Esc answers nothing. The panel starts no executor and adds no merge policy, which remain `selfimprovement.mode` and the development worker's (`docs/development-agents.md`).
+
+Tool calls have no such panel, because nothing asks. An agent's mode (`read`, `write`, `full` or `sudo`, `/agent mode`) is set in advance and becomes the sandbox of its run (`src/subharness/control.ts`), and a headless backend cannot stop to ask. Her own tools are decided by grants before the turn (`/tools grant`). So no command panel, scope or expiry exists to show, and no proposed command or file diff reaches a gate: a merge gate shows the artifacts the worker named, and the diff lives in its pull request.
+
+`/tools`, `/skills`, `/interfaces` and `/agents` open a menu: the family's list operation as text, where it has one, and a row per subcommand of the command table that prefills the typed command. Opening a menu runs only that read, and every change goes through its typed command. `/plugins` says that no operation installs a plugin. `/context` shows the request limit (`llm.maxRequestTokens`), the core's route and its model through `cli/context-line.ts`. The size of the last request is held by no read, so it shows as unknown. The chat offers no context compression, because the core has no such operation.
+
 ## Settings and setup panels
 
 `/config` opens settings with readable names and descriptions, grouped into tabs. Search accepts both these names and the underlying configuration keys. Use Left and Right or Tab to change tabs, Up and Down to select a row, and Enter to toggle a boolean or edit a value. Typing filters settings across all tabs. In an editor, Enter saves through the normal command handler, Ctrl+U clears the input and Esc cancels.
@@ -129,6 +161,11 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Set what an agent may do | `/agent mode <agent> [<mode>]` |
 | Schedule, switch and inspect the four scheduled mechanics | `/services` |
 | Read a watcher report | `/logs watcher` |
+| Cancel the turn over a waiting line, in the chat only | `/queue` |
+| Resume or branch a conversation, in the chat only | `/sessions`, `/resume <id>`, `/branch` |
+| Restore a development task's files, in the chat only | `/checkpoints` |
+| Answer what waits on the task board, in the chat only | `/approvals` |
+| See the request limit, route and model, in the chat only | `/context` |
 
 ## Backend usage
 

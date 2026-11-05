@@ -14,7 +14,7 @@ import { countDashes, stripDashes } from '../../memory/clamp.ts';
 import { answerOf, defaultSkills } from '../calls.ts';
 import type { Draft } from '../draft.ts';
 import { SKIP_NOTHING_TO_DO, SKIP_SILENCE, cutOffOf, journalUsage, noteDiagnostics } from '../journal.ts';
-import { TOO_SLOW } from '../timers.ts';
+import { TOO_SLOW, TURN_CANCELLED } from '../timers.ts';
 import type { PlannedCall } from '../skill-calls.ts';
 import type { StepAnswer, StepCompletion } from '../tool-round.ts';
 import type { Ended, PhaseContext, PhaseLlm, PhaseParams } from './context.ts';
@@ -59,7 +59,7 @@ export async function responsePhase(
   const { trigger = null, triggerKind = null, source = null } = params;
   const { opened, setup, pulled: pulledStep, waited, gathered, request } = prepared;
   const { channel, guildId, isPrivate, settledMs, life } = opened;
-  const { transport, startedAt, now, bar, beforeBar, replyOptions } = setup;
+  const { transport, startedAt, now, bar, beforeBar, replyOptions, cancel } = setup;
   const { finalMode } = pulledStep;
   const { prepareMs, late, timings } = waited;
   const { diaryPrep, neighborsHidden, pulled } = gathered;
@@ -77,6 +77,9 @@ export async function responsePhase(
   try {
     completion = await beforeBar(llm.complete(messages, { ...replyOptions(), ...(toolsSent ?? {}) }));
   } catch (err) {
+    // The owner's cancel aborted the request, or is the turn's own signal already.
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- TURN_CANCELLED is the turn's own signal, caught by its end
+    if (err === TURN_CANCELLED || cancel?.aborted === true) throw TURN_CANCELLED;
     // The bar passed, or no time is left under it by the time the error lands: the turn is
     // dropped as too slow (an answer could not be asked for again), not reported as an error.
     // eslint-disable-next-line @typescript-eslint/only-throw-error -- TOO_SLOW is the turn's own signal, caught by its end
@@ -97,6 +100,9 @@ export async function responsePhase(
       totalMs: end - startedAt,
     });
   }
+  // An answer that came in as the cancel did: nothing of it is acted on.
+  // eslint-disable-next-line @typescript-eslint/only-throw-error -- TURN_CANCELLED is the turn's own signal, caught by its end
+  if (cancel?.aborted === true) throw TURN_CANCELLED;
   // The answer is in hand: the bar is met, and the typing imitation below (never shortened) takes over.
   bar.close();
   life.stopTyping();

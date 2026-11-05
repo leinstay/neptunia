@@ -415,6 +415,7 @@
         "src/config/files.ts",
         "src/behavior/**",
         "src/board/**",
+        "src/conversation/**",
         "src/service/commands.ts",
         "src/errands/**",
         "src/intentions/**",
@@ -437,6 +438,7 @@
         "src/interface/link.ts",
         "src/interface/members.ts",
         "src/interface/neptunia-cli.ts",
+        "src/interface/commands/chat-state.ts",
         "src/interface/commands/console.ts",
         "src/interface/mode.ts",
         "src/interface/principals.ts",
@@ -455,6 +457,13 @@
     {
       "path": "src/skills/",
       "purpose": "Her skills: the SKILL.md format and loader, the index of the active ones, the use rows of a turn, the port over the registry in the memory database, its client over the memory writer and the agents' commands.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "required"
+    },
+    {
+      "path": "src/conversation/",
+      "purpose": "The owner's conversation sessions: named views with a lineage over the stored lines of a place, kept in a file of their own and apart from memory.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -577,6 +586,13 @@
       "layer": "public",
       "imports": ["node:*", "src/board/**"],
       "test": "required"
+    },
+    {
+      "path": "src/board/approval-view.ts",
+      "purpose": "The owner's gates read and answered through the board's own operations. Tested through `tests/tools-approvals.test.ts` on a real board.",
+      "layer": "public",
+      "imports": ["node:*", "src/board/**"],
+      "test": "none"
     },
     {
       "path": "src/board/archive.ts",

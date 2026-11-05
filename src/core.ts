@@ -11,7 +11,7 @@
 // extraction converts it to TypeScript.
 
 import { createMessageProducers } from './behavior/core-message-producers.ts';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -100,6 +100,16 @@ import {
   openAdapterLink,
 } from './interface/link.ts';
 import { createCommandDesk, createCommandIntake, coreStatusFacts } from './interface/neptunia-cli.ts';
+import { createChatState } from './interface/commands/chat-state.ts';
+import type { ChatState } from './interface/commands/chat-state.ts';
+import { createConversationSessions } from './conversation/sessions.ts';
+import { createConversationStore } from './conversation/store.ts';
+import type { ApprovalGate, ApprovalResult } from './board/approval-view.ts';
+import { createCheckpointDesk } from './development/checkpoint-desk.ts';
+import { WORKTREE_FOLDER } from './development/edges.ts';
+import { selfimprovementSettings } from './selfimprovement/settings.ts';
+import { conversationLines } from './memory/db/conversation-lines.ts';
+import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
 import { wakeClockOf } from './service/commands.ts';
 import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
@@ -685,11 +695,16 @@ async function buildCore(
   // memory or a turn. The desk exists once the admin does, below; a command that arrives sooner waits for the door.
   // The link of the owner's chat that sent the last line is where her replies in `cli:dm:owner` go.
   let commandDesk: ReturnType<typeof createCommandDesk> | null = null;
+  let chatState: ChatState | null = null;
+  const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
+  const stringOrNull = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
   const intake = createCommandIntake({
     door: linkDoor,
     ready: () => doorReady.promise,
     desk: () => commandDesk,
     linesHeld: () => isPausedIn(store),
+    isAnyTurnRunning: () => turns.isAnyBusy(),
+    chatCommands: (name: string, args: Record<string, unknown>) => chatState?.command(name, args) ?? null,
     log,
   });
   const linkServer = await listenSocket({
@@ -933,6 +948,10 @@ async function buildCore(
   const connection: { lastReconnectAt: number | null } = { lastReconnectAt: null };
   const turns = createTurnRunner({
     track: loopWatch.track,
+    // A cancel and the steps of a turn over a line of the owner's chat (src/interface/chat-turns.ts).
+    cancelOf: (triggerId: string | null) => intake.cancelOf(triggerId),
+    noteProgress: (triggerId: string | null, step: { name: string; detail: string }) =>
+      intake.noteProgress(triggerId, step),
     hot,
     store,
     roleHealth,
@@ -1353,6 +1372,47 @@ async function buildCore(
     pause: pauseControl,
     now: clock,
     config: (): unknown => hot.config,
+  });
+  // The chat's conversation sessions and development checkpoints (docs/cli.md). Sessions live in a file of their own, and their
+  // lines are a read of memory's stored sources.
+  chatState = createChatState({
+    sessions: createConversationSessions({
+      store: createConversationStore({
+        file: path.join(paths.privateDir, 'cli', 'sessions.json'),
+        readLines: (placeId) => {
+          const db = memoryDb.database();
+          return db === null ? [] : conversationLines(db, placeId);
+        },
+      }),
+      now: clock,
+      newId: randomUUID,
+    }),
+    checkpoints: createCheckpointDesk({
+      tasks: async () => (await board.command(OWNER_CLIENT.name, 'task.list', { lane: 'dev' })).data,
+      worktreeRoot: () => {
+        const { checkout } = selfimprovementSettings(hot.config);
+        return checkout === null ? null : path.join(checkout, WORKTREE_FOLDER);
+      },
+      storeDir: path.join(paths.privateDir, 'development', 'checkpoints'),
+      now: clock,
+      newId: randomUUID,
+    }),
+    // The owner's gates, under the owner's own board name: the board's rights decide.
+    approvals: {
+      gates: async () =>
+        ((await board.command(OWNER_CLIENT.name, 'task.approvals', {})).data ?? []) as ReadonlyArray<ApprovalGate>,
+      answer: async (answer) => {
+        const reply = await board.command(OWNER_CLIENT.name, 'task.approval.answer', answer);
+        return (reply.data ?? { status: 'refused', code: reply.status, message: reply.text }) as ApprovalResult;
+      },
+    },
+    // No read holds the last request's size, so that number stays unknown.
+    context: () => ({
+      usedTokens: null,
+      limitTokens: numberOrNull(objOf(objOf(hot.config).llm).maxRequestTokens),
+      route: keyRing.route('core')?.name ?? null,
+      model: stringOrNull(roleModel(objOf(hot.config), 'core')),
+    }),
   });
   // The owner's commands over the link: the `neptunia` chat and `-p`, and the board commands of the agents.
   commandDesk = createCommandDesk({

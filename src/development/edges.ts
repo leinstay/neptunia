@@ -33,7 +33,7 @@ export type DevelopmentEdges = {
 
 /** How long one git, gh or test command may take (ms). */
 const COMMAND_TIMEOUT_MS = 30 * 60 * 1000;
-const WORKTREE_FOLDER = '.worktrees';
+export const WORKTREE_FOLDER = '.worktrees';
 const EXCLUDE_LINE = `/${WORKTREE_FOLDER}/`;
 /** The environment the test runner gets. */
 const TEST_ENV_NAMES = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'] as const;

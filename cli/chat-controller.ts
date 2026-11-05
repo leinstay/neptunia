@@ -54,6 +54,8 @@ import { FOLD_LINES, backspace, browse, emptyInput, insert, menuOf, moveCursor, 
 import type { InputState, MenuCommand, StatusBrief } from './state.ts';
 import { TAIL, displaySafe, scrollView, transcriptWindow } from './transcript.ts';
 import type { TranscriptDims, TranscriptView, TranscriptWindow } from './transcript.ts';
+import { activeTurn, emptyTurns, queuedTurns, reduceTurns, requestCancel, turnOf } from './turn-state.ts';
+import type { ClientTurnEvent, TurnsState } from './turn-state.ts';
 
 export type ChatEntry = {
   who: 'owner' | 'her' | 'system';
@@ -83,6 +85,8 @@ export type ChatEnv = {
   still: boolean;
   /** One line typed: a command or a chat line, with its staged images. The answer, when it is text for the chat, comes through `onEntry`. */
   send: (line: string, attachments?: ReadonlyArray<ChatAttachment>) => void;
+  /** Asks the core to cancel a turn. Clearing a draft or leaving the chat never reaches this. */
+  cancelTurn?: (turnId: string) => void;
   /** The text of a panel a command opens, or null when this line opens none. */
   panelOf: (line: string) => Promise<Panel | null>;
   /** Registers the listeners of what arrives from the core. */
@@ -90,6 +94,12 @@ export type ChatEnv = {
     entry: (entry: ChatEntry) => void;
     question: (question: Question) => void;
     connected: (connected: boolean) => void;
+    /** What the core says of the turns (cli/turn-state.ts). */
+    turn: (event: ClientTurnEvent) => void;
+    /** Another core answers now: the turns the last one held are gone. */
+    coreRestarted: () => void;
+    /** The transcript as a resumed or branched conversation shows it, in place of what is on the screen. */
+    view: (entries: ReadonlyArray<ChatEntry>) => void;
   }) => void;
   status: () => Promise<StatusBrief | null>;
   /** The history after a submit, newest first, and the draft that was added to it. */
@@ -168,6 +178,8 @@ export type Model = EditorState & {
   notice: string | null;
   /** until when Enter is swallowed, after a question closed */
   enterHeldUntil: number;
+  /** what the core said of the turns */
+  turns: TurnsState;
 };
 
 /** Who takes the keys and a paste now. A question goes first, because the core is waiting on it. */
@@ -260,6 +272,8 @@ export type ChatFrame = {
   isOffTail: boolean;
   transcript: TranscriptWindow;
   status: string;
+  /** the running turn and the queue on one row, or null with neither */
+  turnRow: string | null;
   footer: string;
 };
 
@@ -282,6 +296,8 @@ export class ChatController {
   drawnInput = { safe: '', width: 1, first: 0, firstRow: 0, rowCount: 0 };
   // Set while a child closes itself on a key: the same key must not reach the composer that just got the focus back.
   keyTaken = false;
+  // A panel request is on its way: Esc takes that back before it asks anything of the core.
+  panelLoading = false;
 
   constructor(
     env: ChatEnv,
@@ -320,6 +336,7 @@ export class ChatController {
           ? null
           : conflicts.map((one) => `Key ${one.key} (${one.context}) not bound: ${one.reason}.`).join(' '),
       enterHeldUntil: 0,
+      turns: emptyTurns(),
     };
   }
 
@@ -358,7 +375,75 @@ export class ChatController {
         this.update({ question: asked, answer: emptyInput() });
       },
       connected: (now) => this.update({ connected: now }),
+      turn: (event) => this.onTurnEvent(event),
+      coreRestarted: () => {
+        const lost = queuedTurns(this.model.turns).length + (activeTurn(this.model.turns) === null ? 0 : 1);
+        this.update({ turns: emptyTurns() });
+        if (lost > 0) this.say(`The core restarted, and ${lost} lines it held are gone: send them again.`);
+      },
+      view: (entries) => this.showView(entries),
     });
+  }
+
+  /** The core's word about a turn. A failure or a cancel leaves a line, and a streamed text shows until the end of its turn. */
+  onTurnEvent(event: ClientTurnEvent): void {
+    const before = turnOf(this.model.turns, event.turnId);
+    const turns = reduceTurns(this.model.turns, event);
+    const turn = turnOf(turns, event.turnId);
+    this.update({ turns });
+    if (turn === null || turn === before) return;
+    const liveId = `live-${event.turnId}`;
+    if (turn.state === 'running' && turn.text !== '') {
+      const live: ShownEntry = {
+        id: liveId,
+        who: 'her',
+        text: displaySafe(turn.text),
+        original: turn.text,
+        attachments: [],
+      };
+      const isShown = this.model.entries.some((one) => one.id === liveId);
+      this.update({
+        entries: isShown
+          ? this.model.entries.map((one) => (one.id === liveId ? live : one))
+          : [...this.model.entries, live],
+      });
+    } else if (turn.state !== 'queued' && turn.state !== 'accepted') {
+      this.update({ entries: this.model.entries.filter((one) => one.id !== liveId) });
+    }
+    if (event.type === 'failed')
+      this.say(
+        turn.code === 'no-own-turn'
+          ? 'No turn of its own followed this line: she read it with the others, or the core left it.'
+          : `Her turn over this line failed (${turn.code ?? 'unknown'}).`
+      );
+    if (event.type === 'cancelled') this.say('Her turn over this line was cancelled. The line stays said.');
+  }
+
+  /** The transcript of a resumed or branched conversation. The draft stays as it is. */
+  showView(entries: ReadonlyArray<ChatEntry>): void {
+    this.update({ entries: [], view: TAIL, expanded: new Set() });
+    for (const entry of entries) this.addEntry(entry);
+  }
+
+  /** The row above the input: what runs, whether a cancel is on its way and how many lines wait. */
+  turnRow(): string | null {
+    const active = activeTurn(this.model.turns);
+    const queued = queuedTurns(this.model.turns).length;
+    const step = active?.progress.at(-1);
+    const parts = [
+      ...(active === null ? [] : [active.cancelRequested ? 'Cancelling her turn…' : 'Her turn is running']),
+      ...(step === undefined ? [] : [`${step.name} ${step.detail}`]),
+      ...(queued === 0 ? [] : [`${queued} queued`]),
+    ];
+    return parts.length === 0 ? null : parts.join(' · ');
+  }
+
+  /** Esc on an empty input: one request for the running turn, which runs on until the core says it stopped. */
+  cancelRunningTurn(): void {
+    const active = activeTurn(this.model.turns);
+    if (active === null || active.cancelRequested) return;
+    this.update({ turns: requestCancel(this.model.turns, active.turnId) });
+    this.env.cancelTurn?.(active.turnId);
   }
 
   /** A read of what the core already knows: no probe and no provider call for the display. */
@@ -457,7 +542,9 @@ export class ChatController {
     // A panel takes the transcript's rows and the header's: it is what the owner opened it to read.
     const mode = panel === null ? headerMode(rows, columns, isLinear) : 'none';
     const questionRows = question === null ? 0 : wrapWords(question.question, columns).length;
-    const fixed = headerRows(mode) + FOOTER_ROWS + (notice === null ? 0 : 1) + questionRows;
+    const turnRow = this.turnRow();
+    const fixed =
+      headerRows(mode) + FOOTER_ROWS + (notice === null ? 0 : 1) + (turnRow === null ? 0 : 1) + questionRows;
     const { shown, caretAt } = this.inputText();
     const layout = composerLayout(shown, caretAt, {
       columns,
@@ -496,6 +583,7 @@ export class ChatController {
       isOffTail,
       transcript: transcriptWindow(now.entries, view, this.drawn),
       status: statusLine(now.brief, { connected: now.connected, polledAt: now.polledAt, now: this.env.now() }),
+      turnRow,
       footer: this.footer(hasChoices),
     };
   }
@@ -568,13 +656,18 @@ export class ChatController {
     // A chat line replaces no overlay; a command does, and the older request's answer is dropped whatever it is.
     if (isCommand) this.panelRequest += 1;
     const request = this.panelRequest;
+    this.panelLoading = isCommand;
     void (line.trim() === '' ? Promise.resolve(null) : this.env.panelOf(line.trim()))
       .then((opened) => {
         if (request !== this.panelRequest) return;
+        this.panelLoading = false;
         if (opened === null) this.env.send(line, sent);
         else this.update({ panel: opened });
       })
-      .catch((error: unknown) => this.say(error instanceof Error ? error.message : 'The command failed.'));
+      .catch((error: unknown) => {
+        this.panelLoading = false;
+        this.say(error instanceof Error ? error.message : 'The command failed.');
+      });
   }
 
   say = (text: string): void => this.addEntry({ who: 'system', text });
@@ -854,7 +947,9 @@ export class ChatController {
         this.typed('\n');
         return;
       case 'composer.clear':
+        if (displayDraft(now.draft) === '' && !this.panelLoading) this.cancelRunningTurn();
         // The panel still on its way opens nothing now.
+        this.panelLoading = false;
         this.panelRequest += 1;
         for (const part of now.draft.parts) this.afterRemoval(part);
         this.editDraft(draftFromText(this.nextId('d'), '', 0));

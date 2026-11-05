@@ -38,12 +38,13 @@ function OpenPanel({ chat, frame, request }: { chat: ChatController; frame: Chat
 /** The question, the notice, the input or a closed question's selector, and the footer. */
 function Bottom({ chat, frame }: { chat: ChatController; frame: ChatFrame }) {
   const { question, notice, selected } = chat.model;
-  const { items, menuHeight, hasChoices, choiceRows, layout, isLinear, owner, footer } = frame;
+  const { items, menuHeight, hasChoices, choiceRows, layout, isLinear, owner, footer, turnRow } = frame;
   return h(
     Box,
     { flexDirection: 'column', flexShrink: 0 },
     menuHeight > 0 ? h(Menu, { items, selected, height: menuHeight }) : null,
     question === null ? null : h(Text, { bold: true }, question.question),
+    turnRow === null ? null : h(Text, { ...THEME.muted, wrap: 'truncate' }, turnRow),
     notice === null ? null : h(Text, { ...THEME.warning, wrap: 'truncate' }, notice),
     hasChoices && question !== null
       ? h(ChoiceSelector, {
