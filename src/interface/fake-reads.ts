@@ -44,6 +44,7 @@ type ReadMethods = Pick<
   | 'conversations'
   | 'history'
   | 'memberInfo'
+  | 'dmConversationOf'
   | 'searchMessages'
   | 'searchMembers'
   | 'emoji'
@@ -135,6 +136,7 @@ export function createFakeReads(deps: Deps): {
   seeders: {
     seedConversation(info: ConversationInfo): void;
     removeConversation(conversationId: string): void;
+    seedDmConversation(accountId: string, conversationId: string): void;
     seedGroups(placeId: string, list: Array<GroupInfo>): void;
     seedMember(placeId: string, member: MemberInfo): void;
     seedEmoji(placeId: string, list: Array<EmojiInfo>): void;
@@ -146,6 +148,7 @@ export function createFakeReads(deps: Deps): {
   const conversations = new Map<string, ConversationInfo>();
   const groups = new Map<string, Array<GroupInfo>>();
   const members = new Map<string, Map<string, MemberInfo>>();
+  const dmConversations = new Map<string, string>();
   const emojis = new Map<string, Array<EmojiInfo>>();
   const reactorLists = new Map<string, Array<string>>();
 
@@ -274,6 +277,14 @@ export function createFakeReads(deps: Deps): {
       return { status: 'ok', member: held ? clone(held) : null };
     },
 
+    dmConversationOf(partner) {
+      const early = front('dmConversationOf', 'dm.conversation', [partner]);
+      if (early) return refusalOf(early);
+      const conversationId = dmConversations.get(partner.accountId);
+      if (conversationId === undefined) return refusalOf(notOk('failed', CODE.UNKNOWN_CONVERSATION));
+      return { status: 'ok', conversationId };
+    },
+
     searchMessages(scope, query) {
       const early = front('searchMessages', 'messages.search', [scope, query]);
       if (early) return refusalOf(early);
@@ -356,6 +367,7 @@ export function createFakeReads(deps: Deps): {
     conversations: (...args) => Promise.resolve(ask.conversations(...args)),
     history: (...args) => Promise.resolve(ask.history(...args)),
     memberInfo: (...args) => Promise.resolve(ask.memberInfo(...args)),
+    dmConversationOf: (...args) => Promise.resolve(ask.dmConversationOf(...args)),
     searchMessages: (...args) => Promise.resolve(ask.searchMessages(...args)),
     searchMembers: (...args) => Promise.resolve(ask.searchMembers(...args)),
     emoji: (...args) => Promise.resolve(ask.emoji(...args)),
@@ -369,6 +381,9 @@ export function createFakeReads(deps: Deps): {
     seeders: {
       seedConversation(info) {
         conversations.set(info.id, clone(info));
+      },
+      seedDmConversation(accountId, conversationId) {
+        dmConversations.set(accountId, conversationId);
       },
       removeConversation(conversationId) {
         conversations.delete(conversationId);

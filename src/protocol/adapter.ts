@@ -226,6 +226,8 @@ export type Adapter = {
     query: HistoryQuery
   ): Promise<ReadResult<{ events: Array<MessageEvent>; complete: boolean }>>;
   memberInfo(member: { placeId: string | null; accountId: string }): Promise<ReadResult<{ member: MemberInfo | null }>>;
+  /** The private conversation with an account, opened on the platform if need be, with no message sent. Asking twice answers the same id. */
+  dmConversationOf(partner: { iface: string; accountId: string }): Promise<ReadResult<{ conversationId: string }>>;
   searchMessages(
     scope: { placeId: string },
     query: { text?: string; authorId?: string; after?: number; before?: number; offset?: number }

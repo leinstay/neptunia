@@ -285,7 +285,9 @@ const FIT_VIDEO_FLOOR_KBPS = 100;
  */
 /**
  * The ffmpeg run that carries an audio file as the short clip the `video` role reads: a still black picture with the sound in
- * AAC, cut to `maxSeconds`. The one place the packaging of audio is decided.
+ * AAC, cut to `maxSeconds`. The one place the packaging of audio is decided. The clip ends with the sound in this one run:
+ * `zerolatency` holds back no frames, which would outlive `-shortest`, and ten frames a second leave at most a tenth of a
+ * second of picture past the sound.
  */
 export function ffmpegAudioArgs(
   inPath: string,
@@ -302,7 +304,7 @@ export function ffmpegAudioArgs(
       '-f',
       'lavfi',
       '-i',
-      'color=c=black:s=64x64:r=1',
+      'color=c=black:s=64x64:r=10',
       '-i',
       String(inPath),
       '-map',
@@ -317,7 +319,7 @@ export function ffmpegAudioArgs(
       '-preset',
       'veryfast',
       '-tune',
-      'stillimage',
+      'stillimage,zerolatency',
       '-pix_fmt',
       'yuv420p',
       '-c:a',

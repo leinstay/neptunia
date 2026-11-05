@@ -252,6 +252,11 @@ function isVideoType(type: string): boolean {
   return type.startsWith('video/');
 }
 
+/** Whether a bare content type is a sound file, or a video that may carry one. A CDN answers a voice message as `audio/ogg`. */
+function isAudioType(type: string): boolean {
+  return type.startsWith('audio/') || isVideoType(type);
+}
+
 /** Whether a bare content type is a GIF's animation: the .gif itself, or the mp4/webm a GIF site serves. */
 function isGifType(type: string): boolean {
   return type === 'image/gif' || isVideoType(type);
@@ -792,6 +797,7 @@ export function createVideoFetcher(deps: VideoFetcherDeps = {}): VideoFetcher {
       const got = await download(url, inPath, {
         ceiling: maxBytes * DOWNLOAD_CEILING_FACTOR,
         timeoutMs: finiteOr(fetchTimeoutMs, toolTimeoutMs),
+        accept: isAudioType,
       });
       if (!got.ok) return fail('audio', url, got.reason, got.extra);
       const run = await runTool(ffmpegAudioArgs(inPath, outPath, { ffmpegPath, maxSeconds }), toolTimeoutMs);
