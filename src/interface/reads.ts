@@ -2,8 +2,9 @@
 // an `ok` answer or null. A read the adapter does not declare in `capabilities().reads` is null without a round trip.
 // An `unsupported`, `forbidden` or `failed` answer is null as well, logged once per read and code (names and codes, never
 // content). A caller leaves out whatever block the read feeds when it gets null: no other channels, no channel view,
-// no recall hits, no reactor names, no custom emoji. A read that names no community (the persona's own turn, a direct chat with
-// none to belong to) is null without a round trip. Nothing here throws.
+// no recall hits, no reactor names, no custom emoji. A read that names the persona's own place or a direct chat with none
+// to belong to is null without a round trip; a place of any depth reaches the adapter as the native id of its tree's top,
+// and `placeId` null goes through as it is. Nothing here throws.
 
 import { PERSONA_ID } from '../memory/db/storage-keys.ts';
 import type { Adapter } from '../protocol/adapter.ts';
