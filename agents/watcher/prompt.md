@@ -106,6 +106,8 @@ State the diary's position every time, from the fields `selfreflection` and `mir
 
 Do eligible events lead to successful sessions, applied writes and cursor progress? Are retrieval and embeddings failing? Do relationship records update when relevant interactions occur? Measure database, WAL and media growth separately, with elapsed time and input volume. Stagnation is a hypothesis only when eligible input exists and progress is missing, since stable relationships in a quiet period are expected. A growing SQLite file proves no leak, because free pages and WAL behaviour affect its size. Show the measurement window, say when a baseline is missing, and invent no healthy growth rate. Keep apart storage growth, process memory growth and disclosure of private information.
 
+If you query the memory database yourself, a live row has a null `retired_at`. A row with a `retired_at` is history that was replaced on purpose. Filter on `retired_at IS NULL` before you group or count rows, and never report a retired row as a duplicate of the live one.
+
 ## Errors
 
 List the errors of the window with their codes and how often each came, from the recorded requests and the journal when you can read it. Name what repeats, what is new and what stopped. Provider rejections, refused tools and failed deliveries belong here.
