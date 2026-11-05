@@ -108,6 +108,14 @@ import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
 import { contextRow, issueContext as issuePureContext } from './scope.ts';
 import { linkedDmScopes } from './person-links.ts';
 import { privateByPerson, privateByPlace } from './private-read.ts';
+import { recallSettings } from '../../behavior/recall.ts';
+import { retrieveMemory } from './retrieve.ts';
+import type { RetrieveDeps } from './retrieve.ts';
+import { dbSettings } from './recall.ts';
+import { embedSemanticDocuments } from './semantic-search.ts';
+import type { MemoryPage, MemoryQuery, RetrievalBounds } from './semantic-types.ts';
+import { memoryQueryFor, retrievalBounds } from '../retrieval-input.ts';
+import type { RetrievalInput } from '../retrieval-input.ts';
 import type { PrivatePersonView, PrivatePlaceView } from './private-read.ts';
 import { recoverRequestArchive } from './request-archive.ts';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.ts';
@@ -559,6 +567,20 @@ export type MemoryDbService = {
   keepPending(update: unknown): string;
   recordWake(update: unknown): Promise<unknown> | null;
   issueContext(spec?: Parameters<typeof issuePureContext>[0]): Context;
+  /** The budget of one retrieval from the settings read now; null while they are absent. */
+  retrievalBoundsFor(purpose: MemoryQuery['purpose']): RetrievalBounds | null;
+  /** One read of the retrieval service (retrieve.ts) on the read connection; null while memory is closed. */
+  retrieveQuery(
+    ctx: Context,
+    query: MemoryQuery,
+    options?: Pick<RetrieveDeps, 'sources' | 'plainClaims'>
+  ): Promise<MemoryPage | null>;
+  /** A consumer's input (retrieval-input.ts) read through `retrieveQuery`; null without settings or an open memory. */
+  retrieve(
+    ctx: Context,
+    input: RetrievalInput,
+    options?: Pick<RetrieveDeps, 'sources' | 'plainClaims'>
+  ): Promise<MemoryPage | null>;
   /** The owner's binding of an account to a person (person-links.ts). */
   personLink(update: Row): Promise<Row>;
   /** The private view of a person or a DM place (private-read.ts). Throws `DB_CLOSED` while memory is closed. */
@@ -1112,6 +1134,30 @@ export function createMemoryDb({
       });
   }
 
+  // The embeddings of new semantic documents (semantic-search.ts#embedSemanticDocuments), at most once a minute. A search
+  // stays lexical for a document until its vector is written.
+  let semanticRun: Promise<void> | null = null;
+  let semanticAt = -Infinity;
+  function startSemanticEmbed() {
+    if (closing || !handle || semanticRun || engine?.dead || typeof embed !== 'function') return;
+    const config = hot.config;
+    if ((config?.memoryDb?.retrieval as Row | undefined)?.embedDocuments !== true) return;
+    const at = now();
+    if (at - semanticAt < REEMBED_EVERY_MS) return;
+    semanticAt = at;
+    const db = dbOf(handle);
+    semanticRun = (async () => {
+      const { roleModel } = await import('../../llm/roles.ts');
+      const model = roleModel(config, 'embedding');
+      if (typeof model !== 'string' || model === '') return;
+      await embedSemanticDocuments({ db, write, embed, config, model, now: at });
+    })()
+      .catch((error: unknown) => log.warn('memory db: semantic embedding failed', { code: codeOf(error) }))
+      .finally(() => {
+        semanticRun = null;
+      });
+  }
+
   // The re-embed job (index-policy.ts#reembedTouched): `recall.db.reembed` with an embedding client, at most once a minute.
   let reembedRun: Promise<void> | null = null;
   let reembedAt = -Infinity;
@@ -1464,6 +1510,7 @@ export function createMemoryDb({
     startFocus();
     startIndexPolicy();
     startReembed();
+    startSemanticEmbed();
     startSession();
     startBackup();
   }
@@ -1612,6 +1659,47 @@ export function createMemoryDb({
     }
   }
 
+  function retrievalBoundsFor(purpose: MemoryQuery['purpose']): RetrievalBounds | null {
+    const config = hot.config;
+    if (!config?.memoryDb?.retrieval) return null;
+    const prefetch = recallSettings(config)?.prefetch;
+    return retrievalBounds({ recall: { prefetch }, memoryDb: config.memoryDb }, purpose);
+  }
+
+  async function retrieveQuery(
+    ctx: Context,
+    query: MemoryQuery,
+    options: Pick<RetrieveDeps, 'sources' | 'plainClaims'> = {}
+  ): Promise<MemoryPage | null> {
+    if (!handle) return null;
+    const config = hot.config;
+    const { roleModel } = await import('../../llm/roles.ts');
+    const model = roleModel(config, 'embedding', 'recall-query');
+    const recall = dbSettings(config);
+    const embedOne = embed;
+    return retrieveMemory(database() as Db, ctx, query, {
+      ...options,
+      now,
+      model: typeof model === 'string' ? model : null,
+      embedQuery:
+        typeof embedOne === 'function' && typeof model === 'string'
+          ? async (text) =>
+              ((await embedOne([text], { config, purpose: 'recall-query' })) as Array<ArrayLike<number>>)?.[0] ?? null
+          : null,
+      recall,
+      minSimilarity: recall?.minMeaning,
+    });
+  }
+
+  async function retrieve(
+    ctx: Context,
+    input: RetrievalInput,
+    options: Pick<RetrieveDeps, 'sources' | 'plainClaims'> = {}
+  ): Promise<MemoryPage | null> {
+    const bounds = retrievalBoundsFor(input.purpose);
+    return bounds === null ? null : retrieveQuery(ctx, memoryQueryFor(input, bounds), options);
+  }
+
   /**
    * Issues an execution context for one turn, session or wake (scope.ts#issueContext); its row is written deferred.
    */
@@ -1709,6 +1797,9 @@ export function createMemoryDb({
     keepPending,
     recordWake,
     issueContext,
+    retrievalBoundsFor,
+    retrieveQuery,
+    retrieve,
     personLink: (update: Row) => write({ ...update, kind: 'person-link' }),
     ...privateReads(() => dbOf(opened())),
     observe,

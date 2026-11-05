@@ -33,8 +33,11 @@
 // Every list is capped, the rest counted. A source that is missing or throws leaves its list empty
 // (never the whole view); the log carries codes, never text. Pure apart from the reads it is given.
 
+import type { MemoryPage, MemoryQuery, RetrievalBounds } from '../memory/db/semantic-types.ts';
+import { memoryQueryFor } from '../memory/retrieval-input.ts';
 import { DAY_MS, HOUR_MS, utcDay } from '../time.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
+import { isOpen as isOpenIntention } from '../intentions/model.ts';
 import { isOpen } from '../memory/interests.ts';
 import { currentToolName } from '../tools/definitions.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
@@ -165,6 +168,8 @@ export type Since = {
 };
 /** The heartbeat's facts for `<wake>`. */
 export type HeartbeatFacts = {
+  /** What the one retrieval service brought for this wake; null without it or when the read failed. */
+  memory?: MemoryPage | null;
   people: Array<Person>;
   places: PlacesPage | null;
   activity: Activity | null;
@@ -930,7 +935,40 @@ export type HeartbeatInput = {
   focusPeople?: (() => unknown) | null;
   /** The fixes that merged and were not told to her yet. */
   log?: { warn?(message: string, fields: Obj): void } | null;
+  /** The one retrieval service under this wake's issued context, and its budget; absent, the facts hold no page. */
+  retrieve?: ((query: MemoryQuery) => Promise<MemoryPage | null>) | null;
+  bounds?: RetrievalBounds | null;
+  /** The person of a member id of her focus set; absent, the id is taken as it is. */
+  personOf?: ((id: string) => string | null) | null;
 };
+
+/** What this wake reads memory for: what changed, her open intentions and who she has in focus. Never throws. */
+async function wakeMemory(
+  input: Pick<HeartbeatInput, 'retrieve' | 'bounds' | 'personOf' | 'intentions' | 'log'>,
+  activity: Activity | null,
+  focus: Focus | null
+): Promise<MemoryPage | null> {
+  const { retrieve, bounds, personOf } = input;
+  if (typeof retrieve !== 'function' || !bounds) return null;
+  try {
+    const recent = (activity?.items ?? []).flatMap((item) =>
+      item.previews.map((one) => text(objOf(one).text)).filter(Boolean)
+    );
+    const intentions = listOf(input.intentions)
+      .map(objOf)
+      .filter((record) => isOpenIntention(record.status))
+      .map((record) => text(record.purpose))
+      .filter(Boolean);
+    const members = [...listOf(focus?.close), ...listOf(focus?.exploring)].map((one) => asText(objOf(one).id ?? one));
+    const people = members.flatMap((id) => (typeof personOf === 'function' ? (personOf(id) ?? []) : id));
+    return await retrieve(
+      memoryQueryFor({ purpose: 'heartbeat', recent, intentions, focus: people, entities: [] }, bounds)
+    );
+  } catch (error) {
+    input.log?.warn?.('heartbeat: retrieval failed', { code: objOf(error).code ?? null });
+    return null;
+  }
+}
 
 /** The heartbeat's facts for `<wake>` (src/behavior/wake.ts words them). */
 export async function buildHeartbeatFacts({
@@ -954,6 +992,9 @@ export async function buildHeartbeatFacts({
   activePlaces = null,
   focusPeople = null,
   log = null,
+  retrieve = null,
+  bounds = null,
+  personOf = null,
 }: HeartbeatInput): Promise<HeartbeatFacts> {
   const s: ViewSettings = {
     ...VIEW_DEFAULTS,
@@ -1051,6 +1092,7 @@ export async function buildHeartbeatFacts({
     scan,
   };
   return {
+    memory: await wakeMemory({ retrieve, bounds, personOf, intentions, log }, activity, focus),
     people,
     places: places ?? null,
     activity,

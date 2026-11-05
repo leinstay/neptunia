@@ -3,6 +3,8 @@
 // its `<wake>` carries (src/behavior/heartbeat-view.ts over the stores this life was given) and the log line of its
 // outcome. The tick (src/behavior/inner.ts) and the drain (src/behavior/inner/drain.ts) call it.
 
+import { personOfMember } from '../../memory/addresses.ts';
+import { wakeRetrieval } from './facts.ts';
 import { evaluateSchedule } from '../../service/schedule.ts';
 import type { ServiceSchedule } from '../../service/schedule.ts';
 import { DAY_MS, MINUTE_MS } from '../../time.ts';
@@ -168,6 +170,8 @@ export async function heartbeatFacts(
       activePlaces: (accountId: string) => activePlacesOf(life, accountId),
       focusPeople: focusOf(heartbeatSources),
       log,
+      ...wakeRetrieval(life, 'heartbeat'),
+      personOf: (id: string) => guarded(() => personOfMember(store, id), null) as string | null,
     });
   } catch (err) {
     log.warn('inner: heartbeat view failed', { code: errorCode(err) });

@@ -898,32 +898,43 @@ function targetOf({ from, to }: Pick<ScopeArgs, 'from' | 'to'>, now: number): nu
 }
 
 /**
- * The ranked hits of a plan in a scope context, with what `search` builds its windows from. `retrieve.ts` stops here: it names
- * sources and renders no stretch.
+ * Searches the record in a scope context.
  */
-export function sourceHits(
-  db: Db,
-  context: Context,
+export function search(
+  dbGiven: unknown,
   {
+    ctx,
     plan,
-    now,
+    limit = RECALL_DEFAULTS.maxClusters,
+    now = Date.now(),
     vector = null,
     settings = null,
     exclude = null,
     exclusions,
+    nameOf = null,
+    selfName = '',
+    channelNameOf = null,
     allowPlace = null,
     model = null,
   }: {
+    ctx?: unknown;
     plan?: RecallPlan;
-    now: number;
+    limit?: number;
+    now?: number;
     vector?: ArrayLike<number> | null;
     settings?: DbSettings | null;
     exclude?: unknown;
     exclusions?: ReadonlyArray<ResolvedRecallAnchor>;
+    nameOf?: unknown;
+    selfName?: string;
+    channelNameOf?: unknown;
     allowPlace?: unknown;
     model?: unknown;
-  }
-) {
+  } = {}
+): { windows: Array<RecallWindow>; hits: Array<RecallHit>; hidden: boolean; stats: Record<string, number> } {
+  const db = dbGiven as Db;
+  whereFor(ctx); // a read without a valid context throws
+  const context = ctx as Context;
   const opts = (settings ?? dbSettings({})) as DbSettings;
   const { gateShare, candidates, minMeaning } = opts;
   const pool = Math.max(candidates, isWholeNumber(opts.wordPool) ? opts.wordPool : candidates);
@@ -1023,58 +1034,6 @@ export function sourceHits(
             Math.abs(a.ts - target) - Math.abs(b.ts - target) ||
             b.score - a.score
     );
-
-  return { hits, rowsOf, terms, scopeArgs, stats, skip, opts, shown };
-}
-
-/**
- * Searches the record in a scope context.
- */
-export function search(
-  dbGiven: unknown,
-  {
-    ctx,
-    plan,
-    limit = RECALL_DEFAULTS.maxClusters,
-    now = Date.now(),
-    vector = null,
-    settings = null,
-    exclude = null,
-    exclusions,
-    nameOf = null,
-    selfName = '',
-    channelNameOf = null,
-    allowPlace = null,
-    model = null,
-  }: {
-    ctx?: unknown;
-    plan?: RecallPlan;
-    limit?: number;
-    now?: number;
-    vector?: ArrayLike<number> | null;
-    settings?: DbSettings | null;
-    exclude?: unknown;
-    exclusions?: ReadonlyArray<ResolvedRecallAnchor>;
-    nameOf?: unknown;
-    selfName?: string;
-    channelNameOf?: unknown;
-    allowPlace?: unknown;
-    model?: unknown;
-  } = {}
-): { windows: Array<RecallWindow>; hits: Array<RecallHit>; hidden: boolean; stats: Record<string, number> } {
-  const db = dbGiven as Db;
-  whereFor(ctx); // a read without a valid context throws
-  const context = ctx as Context;
-  const { hits, rowsOf, terms, scopeArgs, stats, skip, opts, shown } = sourceHits(db, context, {
-    plan,
-    now,
-    vector,
-    settings,
-    exclude,
-    exclusions,
-    allowPlace,
-    model,
-  });
 
   const read = readerOf(db, context, { nameOf, selfName, channelNameOf, exclude: skip });
   const keep = Math.max(1, Number.isInteger(limit) ? limit : RECALL_DEFAULTS.maxClusters);

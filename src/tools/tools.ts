@@ -23,6 +23,7 @@
 // would be a new background job) and returns the library's handles, which post exactly as the
 // `<gifs>` block's do.
 
+import { factStateWords } from '../memory/retrieval-input.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import type { ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
 import type { SearchRef } from '../turn/calls.ts';
@@ -580,9 +581,7 @@ function factLines(found: Obj, labels: unknown): Array<string> {
   const states = objOf(objOf(objOf(labels).prefetch).factStates) as ToolLabels;
   const lines = l.facts ? [l.facts] : [];
   for (const fact of facts) {
-    const state = states[plain(fact.state)] ?? plain(fact.state);
-    const negative = fact.polarity === 'negative' && states.negative ? `, ${states.negative}` : '';
-    if (l.fact) lines.push(fill(l.fact, { state: `${state}${negative}`, text: plain(fact.text) }));
+    if (l.fact) lines.push(fill(l.fact, { state: factStateWords(fact, states), text: plain(fact.text) }));
   }
   if (found.factsCut === true && l.factsCut) lines.push(l.factsCut);
   return lines;

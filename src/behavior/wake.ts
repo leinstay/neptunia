@@ -16,6 +16,8 @@
 // (prompts/labels.json); without its header the block is left out (''). Ids, counts and times are
 // data, not wording.
 
+import type { MemoryPage } from '../memory/db/semantic-types.ts';
+import { factStateWords } from '../memory/retrieval-input.ts';
 import { fill, formatClock, formatDate, formatNow } from '../format.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { estimateTokens } from '../llm/tokens.ts';
@@ -626,6 +628,18 @@ export function placesBlockText(page: unknown, labels: unknown): string {
   return placesLines(page, objOf(labels).wake).join('\n');
 }
 
+/**
+ * What retrieval brought for this wake as lines: `labels.wake.memory.header`, then one `.fact` per fact with its standing.
+ * Nothing without a fact, so a wake on a memory with no such fact reads as it always did.
+ */
+function memoryLines(page: MemoryPage | null, words: Obj, all: Obj): Array<string> {
+  const facts = page?.assertions ?? [];
+  if (facts.length === 0 || typeof words.header !== 'string' || typeof words.fact !== 'string') return [];
+  const states = objOf(objOf(all.prefetch).factStates);
+  const line = words.fact;
+  return [words.header, ...facts.map((fact) => fill(line, { state: factStateWords(fact, states), text: fact.text }))];
+}
+
 /** What wakeBlockText reads of an inner turn's wake (src/behavior/inner/types.ts#WakeInfo, or a test's record). */
 export type WakeBlockInput = {
   items?: ReadonlyArray<unknown>;
@@ -789,6 +803,7 @@ export function wakeBlockText(
     lines.push(...heartbeatLines(wake.heartbeat, l.heartbeat, when, placesBlock, { handleBase, onRefs }));
   else lines.push(...placesBlock);
   lines.push(...selfimprovementLines(wake.selfimprovement, l.selfimprovement, when, selfimprovementReason(wake.items)));
+  lines.push(...memoryLines(wake.heartbeat?.memory ?? wake.selfimprovement?.memory ?? null, objOf(l.memory), all));
   lines.push(...landedLines([wake.selfimprovement?.news.landed], l.landed));
   lines.push(...budgetLines(wake.budgets ?? {}, l, when));
   return lines.join('\n');

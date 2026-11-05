@@ -46,7 +46,7 @@ export function rig(options: { reads?: ReadonlyArray<string>; selfId?: string } 
 }
 
 /** A channel of the community the persona can read, write in, attach to and react in; everyone can view it. */
-export function channel(id: string, extra: Partial<ConversationInfo> = {}): ConversationInfo {
+export function channel(id: string, extra: Partial<ConversationInfo> & { communityId?: string } = {}): ConversationInfo {
   return {
     id,
     kind: 'channel',

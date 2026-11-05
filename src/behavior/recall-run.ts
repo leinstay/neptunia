@@ -1887,6 +1887,7 @@ export function createRecall({
     decorate = null,
     asker = null,
     memoryContext = null,
+    retrieval = null,
   }: PrefetchInput): Promise<PrefetchOutcome | null> {
     const started = now();
     const list = Array.isArray(lanes) ? lanes.filter((lane) => lane && typeof lane.kind === 'string') : [];
@@ -2106,7 +2107,7 @@ export function createRecall({
             return memoryPage(
               db,
               reader.ctx,
-              {
+              retrieval ?? {
                 purpose: 'prefetch',
                 text: String(trigger || list[0].words || ''),
                 people: people.filter((one) => typeof one === 'string'),

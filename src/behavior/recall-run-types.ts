@@ -1,5 +1,6 @@
 // The types of the signatures in ./recall-run.ts: the inputs and results that are too long to read inline.
 
+import type { RetrievalInput } from '../memory/retrieval-input.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 import type { ResolvedRecallAnchor } from '../memory/db/recall.ts';
 import type { Untyped } from '../tools/types.ts';
@@ -452,6 +453,8 @@ export type PrefetchInput = {
   partner?: Untyped;
   partnerId?: string | null;
   asker?: string | null;
+  /** What a wake reads memory for instead of the turn's own query (an attention's purpose, people and place). */
+  retrieval?: RetrievalInput | null;
   memoryContext?: Untyped;
   selfId: string;
   selfName: string;

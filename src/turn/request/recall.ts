@@ -2,6 +2,7 @@
 // of the server's own history, with its smaller fallbacks, and the `<retrieved>` block of the automatic memory
 // prefetch. buildRequest (src/behavior/prompt.ts) calls them.
 
+import { factStateWords } from '../../memory/retrieval-input.ts';
 import { isPlainObject } from '../../config.ts';
 import { fill } from '../../format.ts';
 import { zonedDay } from '../../time.ts';
@@ -122,15 +123,6 @@ function renderServerLookup(server: ServerLookup | null | undefined, labels: Lab
   return lines.length > 0 ? [l.serverHeader, ...lines].join('\n') : '';
 }
 
-/** A stored fact's standing as words: its state, and that it says something is not so. */
-function factStateText(excerpt: Excerpt, l: PrefetchLabels): string {
-  const words = [
-    l.factStates?.[excerpt.state ?? 'unknown'],
-    excerpt.polarity === 'negative' ? l.factStates?.negative : '',
-  ];
-  return words.filter((word): word is string => typeof word === 'string' && word !== '').join(', ');
-}
-
 /**
  * The `<retrieved>` block body (the automatic memory prefetch): `labels.prefetch.header`,
  * `labels.prefetch.basis` with `{basis}` (the lanes searched, `labels.prefetch.lanes.<kind>`
@@ -170,7 +162,7 @@ export function prefetchText(prefetch: Prefetch | null | undefined, labels: Labe
     const fact = excerpt.source === 'semantic';
     const head = fact ? l.factExcerpt : memory ? (l.memoryExcerpt ?? l.excerpt) : l.excerpt;
     const fields = fact
-      ? { n: i + 1, source: l.sources?.fact ?? '', state: factStateText(excerpt, l) }
+      ? { n: i + 1, source: l.sources?.fact ?? '', state: factStateWords(excerpt, l.factStates) }
       : memory
         ? {
             n: i + 1,

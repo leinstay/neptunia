@@ -11,7 +11,7 @@ import { readConfig } from '../src/config.ts';
 import { readKeys } from '../src/keys/file.ts';
 import { backendOfAgent } from '../src/subharness/control.ts';
 import { defaultDenyDir, runAgent } from '../src/subharness/run.ts';
-import { installFacts } from '../src/watcher/install.ts';
+import { installFacts, watcherMemory } from '../src/watcher/install.ts';
 import { runInspection } from '../src/watcher/inspection.ts';
 import type { InspectionDeps } from '../src/watcher/inspection.ts';
 import {
@@ -72,6 +72,7 @@ export async function runWatcherWorker(where: Where): Promise<number> {
       retryPromptFiles: [path.join(where.rootDir, 'agents', 'watcher', 'retry.md')],
       selected: selectedOf(where.privateDir),
       install: () => installFacts({ rootDir: where.rootDir, dataDir: where.dataDir }),
+      memory: () => watcherMemory({ dataDir: where.dataDir, config }),
       runAgent: (brief, { signal, timeoutMs, runId }) =>
         runAgent(
           {

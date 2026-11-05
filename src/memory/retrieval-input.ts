@@ -1,6 +1,6 @@
 // What each consumer of memory already holds, turned into the one retrieval service's query (src/memory/db/retrieve.ts) with
 // no model in between, and the budget of that read from the settings at the moment of use. Same input, same query: no clock,
-// no random pick, no helper model decides what she is reminded of. A query names no destination, so what is retrieved can
+// no random pick and no other model decides what she is reminded of. A query names no destination, so what is retrieved can
 // never choose where an answer goes.
 
 import { estimateTokens } from '../llm/tokens.ts';
@@ -124,10 +124,7 @@ export function memoryQueryFor(input: RetrievalInput, bounds: RetrievalBounds): 
 }
 
 /** The settings a budget reads; everything else in the config is none of this module's business. */
-type BoundSettings = {
-  recall?: { prefetch?: { deadlineMs?: unknown; maxTokens?: unknown } };
-  memoryDb?: { retrieval?: Record<string, unknown> };
-};
+type BoundSettings = { recall?: { prefetch?: unknown }; memoryDb?: { retrieval?: unknown } | Record<string, unknown> };
 
 /** A bound that is no positive number would read as no bound, so a hub loads whole: it is refused by name. */
 function bound(value: unknown, key: string): number {
@@ -142,8 +139,8 @@ function bound(value: unknown, key: string): number {
  * falling back on the prefetch's when the setting is absent.
  */
 export function retrievalBounds(settings: BoundSettings, purpose: MemoryQuery['purpose']): RetrievalBounds {
-  const retrieval = settings.memoryDb?.retrieval ?? {};
-  const prefetch = settings.recall?.prefetch ?? {};
+  const retrieval = (settings.memoryDb?.retrieval ?? {}) as Record<string, unknown>;
+  const prefetch = (settings.recall?.prefetch ?? {}) as { deadlineMs?: unknown; maxTokens?: unknown };
   const shared = purpose === 'prefetch' || purpose === 'turn';
   const count = (name: string): number => bound(retrieval[name], `memoryDb.retrieval.${name}`);
   return {
@@ -160,4 +157,13 @@ export function retrievalBounds(settings: BoundSettings, purpose: MemoryQuery['p
       ? bound(prefetch.deadlineMs, 'recall.prefetch.deadlineMs')
       : bound(retrieval.deadlineMs ?? prefetch.deadlineMs, 'memoryDb.retrieval.deadlineMs'),
   };
+}
+
+/** A stored fact's standing as words: its state from `labels.prefetch.factStates`, and that it says something is not so. */
+export function factStateWords(
+  fact: { state?: unknown; polarity?: unknown },
+  states: Readonly<Record<string, unknown>> | null | undefined
+): string {
+  const words = [states?.[String(fact.state ?? 'unknown')], fact.polarity === 'negative' ? states?.negative : ''];
+  return words.filter((word) => typeof word === 'string' && word !== '').join(', ');
 }

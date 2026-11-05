@@ -219,6 +219,10 @@
       "stretchCurrent": " [current conversation]",
       "timeEstimate": "The asker placed this around {range}. That date is a rough guide to finding the event, not the event's known date. If the match sits on a different date, say so and give the real one."
     },
+    "diaryFacts": {
+      "header": "What you have stored from group conversations since your last entry:",
+      "fact": "- ({state}) {text}"
+    },
     "prefetch": {
       "header": "Automatically retrieved historical context",
       "basis": "Query basis: {basis}",
@@ -560,6 +564,10 @@
         "ownerMerged": "merged by the owner",
         "autoMerged": "merged by the engine after CI passed",
         "filesMore": " and {count} more"
+      },
+      "memory": {
+        "header": "What you have stored that may bear on this. It is context and names nowhere to post:",
+        "fact": "- ({state}) {text}"
       },
       "selfimprovement": {
         "header": "How your work went in the last {days} days:",

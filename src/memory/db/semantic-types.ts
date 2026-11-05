@@ -86,7 +86,7 @@ export type SemanticWriteResult =
 export type RetrievedAssertion = {
   claimId: string;
   versionId: string;
-  assertionKind: SemanticCandidate['assertionKind'] | 'text';
+  assertionKind?: SemanticCandidate['assertionKind'] | 'text';
   text: string;
   polarity: SemanticPolarity | 'unknown';
   state: SemanticState | 'unknown';

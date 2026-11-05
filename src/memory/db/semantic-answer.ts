@@ -35,15 +35,18 @@ export type SemanticAnswerTools = {
   person: (subject: unknown) => { id: string } | null;
   places: ReadonlyMap<string, string> | undefined;
   priorVersions: ReadonlyMap<string, string> | undefined;
+  priorEntities: ReadonlyMap<string, string> | undefined;
   keep: (group: 'entities' | 'assertions', entry: Row) => void;
   drop: (reason: string) => void;
 };
 
-/** A `ref` of the answer: a handle of this answer, a place handle, herself or a person of this page. */
+/** A `ref` of the answer: a handle of this answer, a stored entity the request showed, a place handle, herself or a person. */
 function refOf(given: unknown, handles: ReadonlySet<string>, tools: SemanticAnswerTools): Row | null {
   if (typeof given !== 'string') return null;
   const word = given.trim();
   if (handles.has(word)) return { handle: word };
+  const prior = tools.priorEntities?.get(word);
+  if (prior !== undefined) return { kind: 'entity', id: prior };
   const place = tools.places?.get(word);
   if (place !== undefined) return { kind: 'place', id: place };
   if (word.toLowerCase() === 'self') return { kind: 'person', id: SELF_PERSON };

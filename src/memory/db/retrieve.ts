@@ -14,7 +14,7 @@
 
 import { createHash } from 'node:crypto';
 import { estimateTokens } from '../../llm/tokens.ts';
-import { dbSettings, sourceHits } from './recall.ts';
+import { dbSettings, search } from './recall.ts';
 import type { DbSettings } from './recall.ts';
 import { audienceWhere } from './scope.ts';
 import type { Context } from './scope.ts';
@@ -37,6 +37,7 @@ import type {
   SemanticArgument,
   SemanticDependency,
   SemanticEvidence,
+  SemanticLiteral,
   SemanticRef,
 } from './semantic-types.ts';
 import type { Db, Row } from './types.ts';
@@ -80,7 +81,7 @@ const COMMON_WORD_MIN_CLAIMS = 20;
 const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
 const keyOf = (ref: SemanticRef): string => `${ref.kind}\u0000${ref.id}`;
 
-const parseLiteral = (text: unknown): SemanticArgument => JSON.parse(String(text)) as SemanticArgument;
+const parseLiteral = (text: unknown): SemanticLiteral => JSON.parse(String(text)) as SemanticLiteral;
 
 /** The arguments of a version in their role order. */
 function argumentsOf(db: Db, versionId: string): Array<SemanticArgument> {
@@ -576,7 +577,10 @@ function sourceStream(
   const forms = [...new Set(wordsOf(query.text))].slice(0, MAX_SOURCE_FORMS);
   if (forms.length === 0) return [];
   const until = query.recordedBefore === null ? null : Date.parse(query.recordedBefore);
-  const { hits } = sourceHits(db, ctx, {
+  // One window is enough: `search` is the source fallback, and only the ids of its hits go on the page.
+  const { hits } = search(db, {
+    ctx,
+    limit: 1,
     plan: { forms, who: [], from: null, to: until },
     now: deps.now(),
     vector,
