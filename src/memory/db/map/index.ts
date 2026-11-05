@@ -18,6 +18,7 @@ import * as guild from './guild.ts';
 import type { MapContext } from './common.ts';
 import type { Db, Row, Rows } from '../types.ts';
 import { nativeOfAny, personId } from '../ids.ts';
+import { linkedProfileUnit } from '../person-links.ts';
 import type { StorageKey } from '../storage-keys.ts';
 import * as intentions from './intentions.ts';
 import * as journal from './journal.ts';
@@ -211,6 +212,27 @@ export function storageContext(db: Db, key: StorageKey): MapContext {
   };
 }
 
+/**
+ * What a member's unit `id` writes under: the person whose `people` row it owns (a linked account's dormant row keeps its
+ * own id), or only the account's own facts when another unit holds the person's profile. The account row keeps the link
+ * the database holds.
+ */
+function memberWriteContext(db: Db, id: string, subjectId: string): MapContext {
+  const account = db.prepare('SELECT person_id, link, linked_by, linked_at FROM accounts WHERE id = ?').get(subjectId);
+  const accountLink =
+    typeof account?.person_id === 'string' && account.person_id
+      ? {
+          person_id: account.person_id,
+          link: account.link,
+          linked_by: account.linked_by,
+          linked_at: account.linked_at,
+        }
+      : undefined;
+  const owned = db.prepare('SELECT id FROM people WHERE owner_key = ? AND retired_at IS NULL LIMIT 1').get(id);
+  if (typeof owned?.id === 'string') return { subjectPersonId: owned.id, accountLink };
+  return linkedProfileUnit(db, subjectId) ? { accountOnly: true, accountLink } : { accountLink };
+}
+
 /** Owner conversion preserves legacy provenance only for the explicit importer. */
 function ownedRows(db: Db, rows: Rows, id: string, position: number | undefined, legacyOwner?: string): Rows {
   for (const list of Object.values(rows))
@@ -245,6 +267,7 @@ export function storageMapper(
     const context = {
       ...ctx,
       ...base,
+      ...(key.kind === 'user' && key.subject.type === 'account' ? memberWriteContext(db, id, key.subject.id) : {}),
       position: ctx.position,
       messageIdentity: ctx.messageIdentity,
       hotClaimIds: ctx.hotClaimIds,

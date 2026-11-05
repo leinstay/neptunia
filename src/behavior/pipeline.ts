@@ -279,7 +279,7 @@ export function createMessageHandler({
   // The private chat (src/pipeline/private-gate.ts): its gate, its drop and its count, and a direct message's path.
   // Each stage declares `memory.observe` for the lines it hands over; the updater types it as the protocol message
   // (src/memory/update.ts#NormalizedMessage), which is what those lines are.
-  const { afterPrivateTurn, checkPrivateGate, dropPrivate, onPrivateMessage } = createPrivateGate({
+  const { afterPrivateTurn, checkPrivateGate, dmCommunityOf, dropPrivate, onPrivateMessage } = createPrivateGate({
     ...(communitiesOf === undefined ? {} : { communitiesOf }),
     hot,
     store,
@@ -308,7 +308,7 @@ export function createMessageHandler({
     rng,
     sleep,
     turns,
-    getGuildId,
+    dmCommunityOf,
     pending,
     logPending,
     noteUnanswered,
