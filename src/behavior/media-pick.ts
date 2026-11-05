@@ -285,8 +285,8 @@ type PickLlm = {
 
 /** What one pick reads of the turn. */
 export type MediaPickArgs = {
+  /** The conversation the reply goes to, by the id the interface gives it. */
   placeId: string;
-  conversationId: string;
   /** What the interface declares (src/interface/capabilities.ts#portMediaPick); a form it does not know is never offered. */
   capability: {
     gifForms: ReadonlyArray<string>;
@@ -398,7 +398,7 @@ export function createMediaPick({
     if (forms.length === 0 || !library) return { library, candidates: [] };
     const found = searchGifs(library, {
       words: query,
-      vector: await queryVector(query, args.conversationId),
+      vector: await queryVector(query, args.placeId),
       cap: settings.candidates,
       vectors: store.getGifVectors?.(gifVectorModel(hot.config)) ?? null,
       accept: (entry) => gifPostForm(entry, forms) !== null,
@@ -453,7 +453,7 @@ export function createMediaPick({
   }
 
   async function pickNow(args: MediaPickArgs): Promise<MediaPickResult> {
-    const { placeId, conversationId, capability, messages, selfName } = args;
+    const { placeId, capability, messages, selfName } = args;
     const prompt = hot.prompts?.['media-pick'];
     const labels = hot.prompts?.labels as PickLabels | undefined;
     const first = messages[0];
@@ -477,14 +477,14 @@ export function createMediaPick({
       .filter(Boolean)
       .join('\n\n');
     const system = fillPromptTemplate(prompt, { name: selfName ?? '' });
-    const words = await askClassifier(system, user, settings, conversationId);
+    const words = await askClassifier(system, user, settings, placeId);
     const answer = parseMediaPick(words, {
       gifs: handles,
       emoji: emoji.map((one) => one.name),
       actions: capability.emoji?.actions ?? [],
     });
     log.info('media-pick: answered', {
-      channel: conversationId,
+      channel: placeId,
       kind: answer.kind,
       gifs: handles.length,
       emoji: emoji.length,
@@ -495,7 +495,7 @@ export function createMediaPick({
   /** The pick that never rejects: an unexpected failure posts the messages as written. */
   function pick(args: MediaPickArgs): Promise<MediaPickResult> {
     return pickNow(args).catch((err: unknown) => {
-      log.warn('media-pick: failed', { channel: args.conversationId, error: err });
+      log.warn('media-pick: failed', { channel: args.placeId, error: err });
       return NONE;
     });
   }

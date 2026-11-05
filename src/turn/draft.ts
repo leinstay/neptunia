@@ -37,8 +37,8 @@ export type InnerTurn = {
   [key: string]: unknown;
 };
 
-/** The ids the journal gave the attempt when it started (src/memory/journal.ts#start). */
-type Started = { turnId: string; attemptId: string; startedAt: number };
+/** The ids the journal gave the attempt when it started (src/memory/journal.ts#start), and the place it is written to. */
+type Started = { turnId: string; attemptId: string; startedAt: number; placeId: string };
 
 /** The drafts of the topic modules, all of which this one object is. */
 type ModuleDrafts = ToolRoundDraft &
@@ -62,8 +62,6 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfref
   ownInitiative?: boolean;
   // The conversation as the interface described it when the attempt began.
   info?: ConversationInfo;
-  placeId?: string;
-  conversationId?: string;
   privateAccountId?: string | null;
   /** A restriction this turn inherited from deferred work, read by `turnBoundary` (src/tools/publication.ts). */
   publicationBoundary?: unknown;

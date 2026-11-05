@@ -323,7 +323,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
         }
       },
       readRecord: ({ placeId: conversationId, from }) =>
-        recordMessages(record, channelOf(conversationId)?.rootId ?? placeId, {
+        // Every conversation the pull rail lets her read sits in the turn's tree, whose record is under its top.
+        recordMessages(record, placeId, {
           placeId: conversationId,
           from,
           nameOf,

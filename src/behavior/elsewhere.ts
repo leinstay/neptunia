@@ -390,19 +390,20 @@ export function audienceCovers(dest: unknown, source: unknown): boolean {
 export type MessageReference = { iface: string; conversationId: string; messageId: string; url?: string | null };
 
 /**
- * The reference of a message with the address the interface's template gives it (`url` null when the interface
- * declared no template, or an id is missing). A message of no community (`rootId` null) is a private chat.
+ * The reference of a message with the address the interface's template gives it, from the values of its three slots
+ * (`url` null when the interface declared no template, or an id is missing). A message with no `community` (null) is
+ * in a private chat.
  */
 export function messageReference(
   iface: string,
   template: MessageUrlTemplate | null | undefined,
-  { rootId, conversationId, messageId }: { rootId: unknown; conversationId: unknown; messageId: unknown }
+  slots: { community: unknown; conversation: unknown; message: unknown }
 ): MessageReference {
-  const ids = [idOf(conversationId), idOf(messageId)];
-  const community = rootId === null ? null : idOf(rootId);
+  const ids = [idOf(slots.conversation), idOf(slots.message)];
+  const community = slots.community === null ? null : idOf(slots.community);
   let url: string | null = null;
-  if (template && ids[0] && ids[1] && (rootId === null || community !== null)) {
-    url = (rootId === null ? template.direct : template.community)
+  if (template && ids[0] && ids[1] && (slots.community === null || community !== null)) {
+    url = (slots.community === null ? template.direct : template.community)
       .replaceAll('{community}', community ?? '')
       .replaceAll('{conversation}', ids[0])
       .replaceAll('{message}', ids[1]);
@@ -421,16 +422,16 @@ export function messageLink(ref: MessageReference | null | undefined): string | 
 }
 
 /**
- * The link to a message of a conversation in the address form of `port` (its `capabilities().messageUrl`), null when
- * the port gives none. A message of no community (`rootId` null) is in a private chat.
+ * The link to a message in the address form of `port` (its `capabilities().messageUrl`) from the values of the
+ * template's slots, null when the port gives none. A message with no `community` (null) is in a private chat.
  */
 export function messageLinkOf(
   port: unknown,
-  rootId: unknown,
-  conversationId: unknown,
-  messageId: unknown
+  community: unknown,
+  conversation: unknown,
+  message: unknown
 ): string | null {
-  return messageLink(messageReference(portIface(port), portMessageUrl(port), { rootId, conversationId, messageId }));
+  return messageLink(messageReference(portIface(port), portMessageUrl(port), { community, conversation, message }));
 }
 
 /** A message a post may link to: the channel it is in and its id. */

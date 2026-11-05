@@ -8488,7 +8488,6 @@ function endHookScene(answer = '<msg reply="#1">ναι</msg>') {
     client: fakeClient(),
   });
   const ends: Array<{
-    placeId: string | null;
     conversationId: string | null;
     privateChat: boolean;
     routed: boolean;
@@ -8522,9 +8521,10 @@ test("createTurnRunner: the end hook hears every turn's outcome, its trigger and
   assert.equal(result.outcome, 'spoke');
   assert.equal(ends.length, 1);
   const [end] = ends;
+  // The end names the conversation alone; the hook reads no top (plan 2026-11-05 T.4).
   assert.deepEqual(
-    [end.placeId, end.conversationId, end.privateChat, end.routed, end.mode, end.triggerKind, end.outcome, end.reason],
-    ['g1', 'c1', false, false, 'reply', 'mention', 'spoke', null]
+    [end.conversationId, end.privateChat, end.routed, end.mode, end.triggerKind, end.outcome, end.reason],
+    ['c1', false, false, 'reply', 'mention', 'spoke', null]
   );
   assert.deepEqual([end.trigger?.id, end.trigger?.authorId, end.trigger?.ts], ['m99', 'u2', NOW - 30_000]);
   assert.deepEqual(end.replyTargets, ['m98']);
@@ -8578,7 +8578,6 @@ test('createTurnRunner: a turn dropped at its bar reaches the end hook as an err
     schedule: timers.schedule,
   });
   const ends: Array<{
-    placeId: string | null;
     conversationId: string | null;
     privateChat: boolean;
     routed: boolean;
@@ -8686,7 +8685,6 @@ function cutScene(answers: Untyped) {
     journal,
   });
   const ends: Array<{
-    placeId: string | null;
     conversationId: string | null;
     privateChat: boolean;
     routed: boolean;

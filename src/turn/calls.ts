@@ -4,6 +4,7 @@
 // src/behavior/turn.ts calls them for every answer; the replay's skill scenarios (scripts/replay.ts) and the tests read
 // the exported ones through its re-exports.
 
+import type { Conversation } from '../protocol/events.ts';
 import { randomUUID } from 'node:crypto';
 import type { StoredSourceRef } from '../memory/db/recall.ts';
 
@@ -134,7 +135,8 @@ export function callViewOf({
   config = null,
   stem = null,
 }: {
-  channel: { id: string | number; name?: unknown; rootId?: string | null };
+  // The interface's description of the conversation: a private chat (`rootId` null) lists no channels.
+  channel: Pick<Conversation, 'rootId'> & { id: string | number; name?: unknown };
   currentIface?: string;
   snapshot?: Snapshot | null;
   placeId?: string | null;

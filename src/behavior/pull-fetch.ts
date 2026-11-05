@@ -622,7 +622,7 @@ async function gatherShown({
 export async function fetchPull({
   reads,
   snapshot,
-  placeId = null,
+  mediaPlaceId = null,
   conversationId,
   destination = null,
   partnerId = null,
@@ -640,7 +640,8 @@ export async function fetchPull({
 }: {
   reads: Reads;
   snapshot: Snapshot | null;
-  placeId?: string | null;
+  /** The place whose media cache holds the captions of the pulled lines. */
+  mediaPlaceId?: string | null;
   conversationId: string;
   destination?: ConversationInfo | null;
   partnerId?: string | null;
@@ -687,7 +688,7 @@ export async function fetchPull({
   // Captions: the cache's for every picture and emoji, fresh ones only for a turn certain to run.
   const captions = await pullCaptions(shown.lines, {
     describer,
-    placeId,
+    placeId: mediaPlaceId,
     config,
     requestFresh: turnCertain === true,
     timers,

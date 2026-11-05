@@ -4,7 +4,7 @@
 // `treeSize` (a directory walk for the memory snapshot) and `postingConversation` (a channel
 // looked up through the client it is handed).
 
-import { sharedPlaceOf } from '../../memory/addresses.ts';
+import { conversationOfPlace, sharedPlaceOf, topPlaceOf } from '../../memory/addresses.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { listRules, locateBullets } from '../../rules-list.ts';
@@ -700,10 +700,10 @@ export const CHANNEL_NEEDS: Readonly<
   react: (permissions) => permissions.react,
 });
 
-/** What posting in another conversation reads of the call's context: where it runs, and the wake it is made in. */
+/** What posting in another conversation reads of the call's context: the place it runs in, and the wake it is made in. */
 export type PostingContext = {
   publicationBoundary?: PublicationBoundary;
-  conversationId?: string | null;
+  placeId?: string | null;
   ownInitiative?: boolean;
   wakeKind?: string;
   env?: Env;
@@ -726,8 +726,9 @@ function checkWakePosting(context: PostingContext, capability: string | null): v
 
 /**
  * The conversation an operation acting as the persona aims at (`/nep message`, `/nep draw
- * channel:`): `placeId`, else the one the command runs in. The one it runs in passes as it is;
- * any other must be a conversation of the served community (`placeId`; never a private chat) where
+ * channel:`): `conversationId`, else the native conversation of the place the call runs in (`context.placeId`). That
+ * one passes as it is; any other must be a conversation of the same tree as that place (treeOf; never a private chat)
+ * where
  * the persona holds the permissions `need` names (CHANNEL_NEEDS), as the interface reports them
  * (`reads.conversationInfo`, `iface` its name) -- the platform's permissions are the only limit on where.
  * Otherwise a `denied` error (`channel-no-permission`), a conversation the interface does not know
@@ -736,11 +737,27 @@ function checkWakePosting(context: PostingContext, capability: string | null): v
  * asked of the wake's envelope (src/tools/access.ts#nestedRefusal, the live config through `context.env.hot`): a
  * `denied` error (`not-allowed`) before anything is done.
  */
+/**
+ * The top of the tree of the place a call runs in, for the check that a post stays in it: as the interface describes
+ * the place's conversation (the same reading as the target's), else the store's `rootPlaceOf`; null with no place.
+ */
+async function treeOf(
+  reads: Reads | null,
+  store: unknown,
+  iface: string,
+  place: string | null,
+  here: string | null
+): Promise<string | null> {
+  if (!place) return null;
+  const described =
+    reads && here ? (await reads.conversationInfo({ iface, conversationId: here }))?.conversation : null;
+  return described ? sharedPlaceOf(store, described, iface) : topPlaceOf(store, place);
+}
+
 export async function postingConversation({
   reads,
   store,
   iface,
-  placeId,
   conversationId,
   context,
   need,
@@ -748,23 +765,26 @@ export async function postingConversation({
   reads: Reads | null;
   store: unknown;
   iface: string;
-  placeId: string | null;
   conversationId: string | null | undefined;
   context: PostingContext;
   need: keyof typeof CHANNEL_NEEDS;
 }): Promise<string> {
   const capability = NEED_CAPABILITY[need] ?? null;
   checkWakePosting(context, capability);
-  const id = conversationId ? conversationId : context.conversationId ? context.conversationId : null;
+  const place = context.placeId ?? null;
+  const dmConversationOf = context.env?.directory?.dmConversationOf ?? null;
+  const here = place ? conversationOfPlace(store, place, dmConversationOf) : null;
+  const id = conversationId ? conversationId : here;
   if (!id) throw invalid('a channel is required');
   if (capability && publicationRefusal(context.publicationBoundary, { iface, conversationId: id }))
     throw denied('publication-boundary', 'not-allowed');
-  if (id === (context.conversationId ?? '')) return id;
+  if (id === (here ?? '')) return id;
   const allowedThere = CHANNEL_NEEDS[need] as ((permissions: Permissions) => boolean) | undefined;
   if (typeof allowedThere !== 'function') throw new Error(`unknown channel need: ${need}`);
   const found = reads ? await reads.conversationInfo({ iface, conversationId: id }) : null;
   const info = found?.conversation ?? null;
-  const served = info !== null && Boolean(placeId) && sharedPlaceOf(store, info, iface) === placeId;
+  const served =
+    info !== null && sharedPlaceOf(store, info, iface) === (await treeOf(reads, store, iface, place, here));
   if (!served || info.kind === 'dm' || !allowedThere(info.permissions)) {
     throw denied(`the bot may not ${need} in channel ${id}`, CODE.CHANNEL_NO_PERMISSION);
   }

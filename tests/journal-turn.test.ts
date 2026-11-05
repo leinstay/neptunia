@@ -330,46 +330,30 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
   const admin = makeAdmin(journal);
 
   const byId = String(
-    await admin.run(
-      'memory.journal.read',
-      { messageId: postedId },
-      { placeId: 'g1', conversationId: 'c1', accountId: OWNER }
-    )
+    await admin.run('memory.journal.read', { messageId: postedId }, { placeId: 'g1', accountId: OWNER })
   );
   assert.ok(byId.includes(THINK), 'the think whole, not its first 80 characters');
   assert.ok(byId.includes(started.turnId));
   const byLink = await admin.run(
     'memory.journal.read',
     { messageId: `https://discord.com/channels/111/222/${postedId}` },
-    { placeId: 'g1', conversationId: 'c1', accountId: OWNER }
+    { placeId: 'g1', accountId: OWNER }
   );
   assert.equal(byLink, byId);
 
   // Someone else's message (it started the turn), an unknown one, and junk.
   await assert.rejects(
-    admin.run(
-      'memory.journal.read',
-      { messageId: triggerId },
-      { placeId: 'g1', conversationId: 'c1', accountId: OWNER }
-    ),
+    admin.run('memory.journal.read', { messageId: triggerId }, { placeId: 'g1', accountId: OWNER }),
     {
       code: 'not-found',
     }
   );
   await assert.rejects(
-    admin.run(
-      'memory.journal.read',
-      { messageId: idAt(D + 4000, 9) },
-      { placeId: 'g1', conversationId: 'c1', accountId: OWNER }
-    ),
+    admin.run('memory.journal.read', { messageId: idAt(D + 4000, 9) }, { placeId: 'g1', accountId: OWNER }),
     { code: 'not-found' }
   );
   await assert.rejects(
-    admin.run(
-      'memory.journal.read',
-      { messageId: 'not an id' },
-      { placeId: 'g1', conversationId: 'c1', accountId: OWNER }
-    ),
+    admin.run('memory.journal.read', { messageId: 'not an id' }, { placeId: 'g1', accountId: OWNER }),
     {
       code: 'unknown-message',
     }
@@ -403,7 +387,7 @@ test('memory.journal.read: the persona names her line #N; it resolves to the mes
       }),
       runOp: admin.runSkillOp,
       runOwnOp: admin.runOwnSkillOp,
-      opContext: { placeId: 'g1', conversationId: 'c1' },
+      opContext: { placeId: 'g1' },
     })
   );
   assert.equal(result.status, 'ok');

@@ -109,10 +109,12 @@ export function idText(value: unknown): string {
 export type OpContext = {
   publicationBoundary?: PublicationBoundary;
   env: Env;
-  /** The place the operation addresses: a server, a channel, a group or a DM. */
+  /**
+   * The place the operation runs in: a channel, a thread, a group or a DM, or a server for an operation of a whole
+   * server. A shared collection is read under its top (`env.resolvedPlaceId`), a post goes to its native conversation
+   * (`env.conversationOf`).
+   */
   placeId?: string | null;
-  /** The conversation it runs in, by its native id. */
-  conversationId?: string | null;
   accountId?: string | null;
   roleIds?: ReadonlyArray<string>;
   /** `persona` for her own call, else the kind of caller (`owner`, `member`). */

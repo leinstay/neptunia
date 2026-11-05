@@ -333,7 +333,7 @@ test("draw.create operation quotes the message it replies to, in that message's 
     now: () => NOW,
     port,
   });
-  const ctx = { placeId: 'g1', conversationId: 'c1', accountId: '42', roleIds: [], actor: 'owner' };
+  const ctx = { placeId: 'c1', accountId: '42', roleIds: [], actor: 'owner' };
   const quoted = (
     await withCapturedLogs(() => admin.runSkillOp('draw.create', { text: 'a lighthouse', replyTo: 'm9' }, ctx))
   ).result;

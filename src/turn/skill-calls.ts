@@ -3,8 +3,10 @@
 // planned calls made in segments. createTurnRunner (src/behavior/turn.ts) builds it once per runner with
 // createSkillCalls; the tool round and the attempt call its functions.
 
+import type { Conversation } from '../protocol/events.ts';
 import { turnBoundary } from '../tools/publication.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
+import { placeOfConversation } from '../memory/addresses.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { DESTINATION_REQUIRED } from '../behavior/inner-output.ts';
 import { POSTING_SKILLS } from '../behavior/inner.ts';
@@ -49,7 +51,7 @@ type CallsErrands = {
     handle: string;
     privateChannelId: string | null;
   }) => ReturnType<NonNullable<CallView['fileOf']>>;
-  budget: (args: { placeId: string | null; agent: unknown }) => unknown;
+  budget: (args: { agent: unknown }) => unknown;
 } | null;
 
 /** What createSkillCalls reads: the dependencies, the runner's state and the functions of the other topic modules. */
@@ -148,8 +150,8 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     readerId?: string | null;
   };
 
-/** The channel a call is made from. */
-type CallChannel = { id: string; rootId?: string | null; name?: unknown };
+/** The channel a call is made from, as the interface described it. */
+type CallChannel = Pick<Conversation, 'id' | 'rootId'> & { name?: unknown };
 
 type ViewArgs = Parameters<typeof callViewOf>[0];
 
@@ -339,10 +341,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         now: clock(),
         ...(images ? { images } : {}),
         ...(speech ? { speech } : {}),
-        // An errand's caps are its budget (src/errands/service.ts#budget), in the turn's place.
-        ...(errands
-          ? { tasks: { budget: (agent: unknown) => errands.budget({ placeId: channel.rootId ?? null, agent }) } }
-          : {}),
+        // An errand's caps are its budget (src/errands/service.ts#budget).
+        ...(errands ? { tasks: { budget: (agent: unknown) => errands.budget({ agent }) } } : {}),
       },
     });
     if (!verdict.ok)
@@ -644,6 +644,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         result = await executeCall(resolvedCall, {
           publicationBoundary,
           port: iface,
+          here: conversationOf(channel),
           refOf: (conversationId) => conversationOf({ id: String(conversationId) }),
           renderText,
           envelope,
@@ -652,8 +653,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
           ...(runInitiativeOp ? { runInitiativeOp } : {}),
           opContext: {
             publicationBoundary,
-            placeId,
-            conversationId: String(channel.id),
+            // The place the call runs in; an operation on what the tree shares asks for its top.
+            placeId: placeOfConversation(store, channel),
             ...(privateChat ? { privateChat: true } : {}),
             // A live wake turn's posts wait in its hold (src/tools/send-hold.ts).
             ...(inner?.hold ? { hold: inner.hold } : {}),

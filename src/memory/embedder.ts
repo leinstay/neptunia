@@ -246,7 +246,7 @@ export function createEmbedder({
     };
   }
 
-  const ringKey = (placeId: string, conversationId: string | null) => `${placeId}|${conversationId ?? ''}`;
+  const ringKey = (placeId: string, channel: string | null) => `${placeId}|${channel ?? ''}`;
   const channelOf = (line: RecordLine) =>
     typeof line?.scope?.channel === 'string' && line.scope.channel ? line.scope.channel : null;
 

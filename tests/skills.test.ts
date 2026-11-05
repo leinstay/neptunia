@@ -863,7 +863,8 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
       ran += 1;
       return { status: 'ok', code: 'ok', summary: 'drawn', data: {} };
     },
-    opContext: { placeId: 'g1', conversationId: HERE },
+    // The call's place alone (plan T.4).
+    opContext: { placeId: HERE },
     config: { heartbeat: { tools } },
   });
   const refused = await executeCall(
@@ -895,7 +896,7 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
   assert.equal(ran, 2);
   // The posting point of the operations asks again: a send is refused, a read is not a post.
   const context = {
-    conversationId: HERE,
+    placeId: HERE,
     ownInitiative: true,
     wakeKind: 'heartbeat',
     env: { hot: { config: { heartbeat: { tools: ['voice.say'] } } } },
@@ -904,7 +905,6 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
     postingConversation({
       client: null,
       discord: DISCORD,
-      placeId: 'g1',
       conversationId: null,
       context,
       need: 'attach',
@@ -915,7 +915,6 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
     await postingConversation({
       client: null,
       discord: DISCORD,
-      placeId: 'g1',
       conversationId: null,
       context,
       need: 'read',
@@ -926,7 +925,6 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
     await postingConversation({
       client: null,
       discord: DISCORD,
-      placeId: 'g1',
       conversationId: null,
       context: { ...context, ownInitiative: false },
       need: 'send',

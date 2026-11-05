@@ -268,7 +268,7 @@ export function createPulls(ctx: PullsContext): Pulls {
     const pullOne = (target: PullTarget): ReturnType<typeof pullSafely> =>
       pullSafely({
         snapshot,
-        placeId,
+        mediaPlaceId: placeId,
         conversationId: target.placeId,
         destination: channel,
         partnerId: partner?.id ?? null,

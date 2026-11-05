@@ -166,7 +166,7 @@ export function herCalls(caller: BoardCaller) {
   });
   return async (name: string, args: Record<string, unknown>): Promise<Result> => {
     const { result } = await withCapturedLogs(() =>
-      runOpPrechecked(name, args, { env, placeId: 'g1', conversationId: 'c1', accountId: null, roleIds: [], actor: 'persona' })
+      runOpPrechecked(name, args, { env, placeId: 'g1', accountId: null, roleIds: [], actor: 'persona' })
     );
     return result;
   };

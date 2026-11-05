@@ -412,7 +412,7 @@ const handlers = perEnv((env) => {
   async function turnOfMessage(placeId: string, reference: unknown, context: OpContext): Promise<string> {
     const ref = await messageRefOf(reference, reads);
     const { messageId } = ref;
-    const conversationId = ref.placeId ?? (context.conversationId ? idText(context.conversationId) : null);
+    const conversationId = ref.placeId ?? env.conversationOf(context);
     const fetched =
       conversationId !== null && reads && port
         ? await reads.fetchMessages({ iface: port.iface, conversationId }, [messageId])

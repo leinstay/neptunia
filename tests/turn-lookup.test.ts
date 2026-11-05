@@ -40,7 +40,8 @@ for (const direction of ['ordinary-first', 'internal-first'] as const) {
     const start = (memoryContext: Context) => {
       const input: Parameters<Lookup['startPrefetch']>[0] = {
         config: config(),
-        channel: { id: 'same-room', rootId: 'g1' },
+        // The channel by its id; its tree is `placeId` (plan 2026-11-05 T.4).
+        channel: { id: 'same-room' },
         placeId: 'g1',
         place: { id: 'g1' },
         trigger: { id: 'same-trigger', authorId: 'asker' },
@@ -101,7 +102,7 @@ test('prefetch memoization retains qualified history identity as well as the iss
   const start = (historyRef: { iface: string; conversationId: string }) => {
     const pending = lookup.startPrefetch({
       config: config(),
-      channel: { id: 'same-room', rootId: 'g1' },
+      channel: { id: 'same-room' },
       placeId: 'g1',
       place: { id: 'g1' },
       trigger: { id: 'same-trigger', authorId: 'asker' },

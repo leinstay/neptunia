@@ -5,7 +5,7 @@
 // file (under `hot.privateDir`, the deployment's private directory). Built once per admin; an operation reads it as `ctx.env`. Hot
 // values are read at the moment of use, through `hot`, never copied.
 
-import { accountOf } from '../../memory/addresses.ts';
+import { accountOf, conversationOfPlace, topPlaceOf } from '../../memory/addresses.ts';
 import path from 'node:path';
 import { moveConfigKeys } from '../../config-moves.ts';
 import { localConfigPath } from '../../config/files.ts';
@@ -37,8 +37,11 @@ export type OpsDeps = {
   getSelfName?: (placeId: string | null) => string;
   /** A member's name in the member directory. */
   memberNameOf?: (placeId: string, accountId: string) => string | null;
-  /** The conversations the interface reported. */
-  directory?: { isPrivate: (conversationId: string) => boolean };
+  /** The conversations the interface reported, and the direct chat it saw with a member. */
+  directory?: {
+    isPrivate: (conversationId: string) => boolean;
+    dmConversationOf?: (partnerId: string) => string | null;
+  };
   /** When the interface's link to its platform last came back (the core fills it from `connection.changed`). */
   connection?: { lastReconnectAt: number | null };
   now?: () => number;
@@ -154,9 +157,23 @@ function buildEnv({
     if (store.state.data.paused && typeof store.dropCaches === 'function') store.dropCaches();
   }
 
-  /** The place the operation addresses, from its context; null with none. */
+  /**
+   * The place whose shared collections the operation reads and writes: the top of the place it runs in
+   * (`store.rootPlaceOf`), so a channel and a thread of a server share its lore, and a DM is its own top. The place as
+   * given when the store holds no tree for it; null with none.
+   */
   function resolvedPlaceId(context: { placeId?: string | null } | null | undefined): string | null {
-    return context?.placeId ?? null;
+    const placeId = context?.placeId ?? null;
+    return placeId ? topPlaceOf(store, placeId) : null;
+  }
+
+  /**
+   * The native conversation of the place an operation runs in, for a call that speaks to the interface
+   * (src/memory/addresses.ts#conversationOfPlace, a DM's chat from the directory); null with no place.
+   */
+  function conversationOf(context: { placeId?: string | null } | null | undefined): string | null {
+    const placeId = context?.placeId ?? null;
+    return placeId ? conversationOfPlace(store, placeId, directory.dmConversationOf ?? null) : null;
   }
 
   /** The place the operation addresses, or an Error with none. */
@@ -314,6 +331,7 @@ function buildEnv({
     assertNotPaused,
     freshenIfPaused,
     resolvedPlaceId,
+    conversationOf,
     requirePlaceId,
     tokenResolver,
     journalSystem,

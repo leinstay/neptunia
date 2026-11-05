@@ -2,7 +2,8 @@
 // comes from the interface's conversation info (`reads.conversationInfo`), and what she may do there from its
 // `permissions` (read, send, attach, react). The current conversation passes as it is; any other must belong to the
 // served community, must not be a private chat, and must grant the permissions the need names: `send` needs send,
-// `reply` needs send and read, `attach` needs send and attach, `read` needs read, `react` needs react.
+// `reply` needs send and read, `attach` needs send and attach, `read` needs read, `react` needs react. The call's place
+// is `context.placeId` alone (plan 2026-11-05 T.4): a call made at the community passes the community.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Permissions } from '../src/protocol/adapter.ts';
@@ -43,9 +44,8 @@ for (const need of Object.keys(REQUIRES) as Array<Need>) {
         reads,
         store: null,
         iface: IFACE,
-        placeId: COMMUNITY,
         conversationId: 'c2',
-        context: {},
+        context: { placeId: COMMUNITY },
         need,
       })
         .then(() => true)
@@ -68,9 +68,8 @@ test('returns the id of the conversation it runs in without asking the interface
     reads,
     store: null,
     iface: IFACE,
-    placeId: COMMUNITY,
     conversationId: null,
-    context: { conversationId: 'c1' },
+    context: { placeId: 'c1' },
     need: 'attach',
   });
   assert.equal(id, 'c1');
@@ -85,9 +84,8 @@ test('refuses a conversation of another community even with every permission', a
       reads,
       store: null,
       iface: IFACE,
-      placeId: COMMUNITY,
       conversationId: 'c2',
-      context: {},
+      context: { placeId: COMMUNITY },
       need: 'send',
     }),
     { status: 'denied', code: 'channel-no-permission' }
@@ -102,9 +100,8 @@ test('refuses a private chat even with every permission', async () => {
       reads,
       store: null,
       iface: IFACE,
-      placeId: COMMUNITY,
       conversationId: 'dm2',
-      context: {},
+      context: { placeId: COMMUNITY },
       need: 'send',
     }),
     { status: 'denied', code: 'channel-no-permission' }
@@ -118,9 +115,8 @@ test('refuses a conversation the interface does not know', async () => {
       reads,
       store: null,
       iface: IFACE,
-      placeId: COMMUNITY,
       conversationId: 'gone',
-      context: {},
+      context: { placeId: COMMUNITY },
       need: 'send',
     }),
     { status: 'denied', code: 'channel-no-permission' }
@@ -134,9 +130,8 @@ test('refuses another conversation when the interface cannot describe conversati
       reads,
       store: null,
       iface: IFACE,
-      placeId: COMMUNITY,
       conversationId: 'c2',
-      context: {},
+      context: { placeId: COMMUNITY },
       need: 'send',
     }),
     { status: 'denied', code: 'channel-no-permission' }
@@ -150,7 +145,6 @@ test('refuses a call with neither a target nor a current conversation', async ()
       reads,
       store: null,
       iface: IFACE,
-      placeId: COMMUNITY,
       conversationId: undefined,
       context: {},
       need: 'send',

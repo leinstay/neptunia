@@ -15,8 +15,9 @@ const whyOf = (picked: object) => (picked as { why?: string }).why;
 
 const MIN = 60_000;
 const T0 = Date.UTC(2026, 9, 20, 12, 0, 0);
-const GROUP = placeKey({ placeId: 'g1', conversationId: 'c1' });
-const OTHER = placeKey({ placeId: 'g1', conversationId: 'c2' });
+// Keyed by the conversation alone (plan 2026-11-05 T.4).
+const GROUP = placeKey({ conversationId: 'c1' });
+const OTHER = placeKey({ conversationId: 'c2' });
 const DM = placeKey({ conversationId: 'd1' });
 
 test('select: the latest finished turn of the place within the window, with its age; older or none carries nothing', () => {
@@ -66,13 +67,10 @@ test('store: keeps the latest entry per place and drops the oldest places past i
       turnId: `t${i}`,
       at: T0 + i,
       think: placeId,
-      ran: placeKey({ placeId: 'g', conversationId: placeId }),
+      ran: placeKey({ conversationId: placeId }),
     });
   assert.equal(store.size(), 2);
-  assert.equal(
-    whyOf(store.select(placeKey({ placeId: 'g', conversationId: 'a' }), { now: T0 + 5, minutes: 30 })),
-    'none-in-window'
-  );
+  assert.equal(whyOf(store.select(placeKey({ conversationId: 'a' }), { now: T0 + 5, minutes: 30 })), 'none-in-window');
 });
 
 test('inertThink: nothing in it can close the block or read as a tag or a call', () => {

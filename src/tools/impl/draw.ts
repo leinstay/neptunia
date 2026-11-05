@@ -49,7 +49,6 @@ const handlers = perEnv((env) => {
             reads,
             store: env.store,
             iface: port?.iface ?? '',
-            placeId: resolvedPlaceId(context),
             conversationId: target,
             context,
             need: 'attach',

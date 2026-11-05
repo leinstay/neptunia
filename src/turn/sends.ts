@@ -3,6 +3,7 @@
 // createTurnRunner (src/behavior/turn.ts) builds it once per runner with createSends; the act, her calls and the
 // attempt call its functions.
 
+import type { Conversation } from '../protocol/events.ts';
 import { settleWait } from '../behavior/activity.ts';
 import { messageLinkOf } from '../behavior/elsewhere.ts';
 import type { IndexedEmoji } from '../behavior/emoji-index.ts';
@@ -38,8 +39,8 @@ export type SendsContext = {
   iface: MirrorPort;
 };
 
-/** What a channel a post is rendered for holds. */
-type PostChannel = { id: string; rootId?: string | null };
+/** The channel a post is rendered for, as the interface described it: its id, and its community for a link. */
+type PostChannel = Pick<Conversation, 'id' | 'rootId'>;
 
 /** How a post's `#n` numbers and mentions are resolved. */
 type RenderArgs = {
@@ -83,30 +84,26 @@ export function createSends(ctx: SendsContext): Sends {
    * `text` with every transcript number `#n` of this turn's numbering (`idByIndex`, chat and
    * pulled lines) turned into the jump link of that message (src/memory/mentions.ts#linkMessageNumbers):
    * features.messageLinks on (read now; a missing key counts as on). A pulled line links in its own
-   * channel (`pulledIds`), any other in `placeId`; a private chat uses `@me` for the place.
+   * channel (`pulledIds`), any other in `conversation`; `community` and `conversation` are the values of the address
+   * template's slots (src/behavior/elsewhere.ts#messageLinkOf), and a private chat has no community.
    */
   function withMessageLinks(
     text: string,
-    {
-      placeId,
-      conversationId,
-      privateChat,
-      idByIndex,
-      pulledIds,
-    }: {
-      placeId: string | null;
-      conversationId: string;
+    slots: {
+      community: string | null;
+      conversation: string;
       privateChat: boolean;
       idByIndex: ReadonlyMap<number, string> | null | undefined;
       pulledIds?: ReadonlyMap<string, string> | null;
     }
   ): string {
+    const { conversation, privateChat, idByIndex, pulledIds } = slots;
     if (!idByIndex) return text;
-    const community = privateChat || !placeId ? null : placeId;
+    const community = privateChat || !slots.community ? null : slots.community;
     return linkMessageNumbers(text, (n) => {
       const messageId = idByIndex.get(n);
       if (!messageId) return null;
-      return messageLinkOf(iface, community, pulledIds?.get(messageId) ?? conversationId, messageId);
+      return messageLinkOf(iface, community, pulledIds?.get(messageId) ?? conversation, messageId);
     });
   }
 
@@ -180,8 +177,8 @@ export function createSends(ctx: SendsContext): Sends {
       withChannelLinks(
         channel,
         withMessageLinks(spoken, {
-          placeId: channel.rootId ?? null,
-          conversationId: channel.id,
+          community: channel.rootId ?? null,
+          conversation: channel.id,
           privateChat,
           idByIndex,
           pulledIds,

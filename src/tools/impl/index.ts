@@ -77,7 +77,7 @@ export function asResult(value: unknown): OpResult {
 /**
  * Runs `name` WITHOUT the rights check: for src/admin.ts#run, which the tests drive directly, and for
  * her own calls, whose grant the skill gateway checks. Same result shape as `runOp`; never throws.
- * `ctx` is `{ env, placeId, conversationId, accountId, roleIds }`.
+ * `ctx` is `{ env, placeId, accountId, roleIds }`.
  */
 export async function runOpPrechecked(name: string, args: Obj = {}, ctx: Partial<OpContext> = {}): Promise<OpResult> {
   const op = getOp(name);
@@ -96,7 +96,7 @@ export async function runOpPrechecked(name: string, args: Obj = {}, ctx: Partial
 /**
  * Runs one operation for a caller: rights first (see `checkRights`), then the operation.
  * Never throws: `{ status: 'ok'|'denied'|'approval_required'|'invalid'|'failed', code, summary, data }`.
- * `ctx` is `{ env, placeId, conversationId, accountId, roleIds }`; `env` from src/tools/impl/env.ts#createOpsEnv.
+ * `ctx` is `{ env, placeId, accountId, roleIds }`; `env` from src/tools/impl/env.ts#createOpsEnv.
  */
 export async function runOp(name: string, args: Obj = {}, ctx: Partial<OpContext> = {}): Promise<OpResult> {
   const op = getOp(name);

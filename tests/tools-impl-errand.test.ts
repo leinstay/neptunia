@@ -97,8 +97,8 @@ function makeEnv({ errandSettings = {}, agents = {}, configured = true } = {}) {
 
 const ctx = (env: unknown, accountId: string | null, extra = {}) => ({
   env,
-  placeId: 'g1',
-  conversationId: 'c1',
+  // The place of the call alone (plan T.4).
+  placeId: 'c1',
   accountId,
   roleIds: [],
   ...extra,

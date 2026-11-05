@@ -3,7 +3,8 @@
 // latest finished turn tied to the same place within a window. This module holds the choice and the
 // escaping; the wording lives in labels.json, the request layout in prompt.js, the wiring in turn.js.
 //
-// A place is interface + server (or a private chat) + channel. A turn is tied to the place it ran in
+// A place is interface + conversation: a native conversation id is unique on its interface, so the key needs no top of
+// its tree. A turn is tied to the place it ran in
 // and to each place where a message of hers was delivered; an inner turn (heartbeat, intention,
 // review) is tied only to the places it posted into and never imports a think. The store keeps the
 // latest entry per place, in process (a restart forgets it). A failed turn leaves a failed entry, so
@@ -16,19 +17,15 @@ import type { Untyped } from '../tools/types.ts';
 /** The most places the store keeps an entry for (the least recently written go first). */
 export const PLACES_MAX = 200;
 
-/**
- * The key of a place: the interface it is on (empty when one interface is served), the community or `@me`, the conversation.
- */
+/** The key of a place: the interface it is on (empty when one interface is served) and the conversation. */
 export function placeKey({
   interfaceId = '',
-  placeId = null,
   conversationId,
 }: {
   interfaceId?: string;
-  placeId?: string | null;
   conversationId: string | number;
 }): string {
-  return `${interfaceId}:${placeId ? String(placeId) : '@me'}:${String(conversationId)}`;
+  return `${interfaceId}:${String(conversationId)}`;
 }
 
 /**

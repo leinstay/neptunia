@@ -2,6 +2,7 @@
 // (src/behavior/media-pick.ts) and the grace its answer gets. createTurnRunner (src/behavior/turn.ts) builds it once per
 // runner with createDrawGif; the act and her calls call its functions.
 
+import { placeOfConversation } from '../memory/addresses.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { PublicationBoundary } from '../tools/publication.ts';
@@ -281,9 +282,8 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
           reads: ifaceReads,
           store,
           iface: channel.iface,
-          placeId,
           conversationId: given ?? reply?.placeId ?? null,
-          context: { conversationId: String(channel.id), publicationBoundary },
+          context: { placeId: placeOfConversation(store, channel), publicationBoundary },
           need: 'attach',
         });
         replyId = reply?.messageId ?? null;

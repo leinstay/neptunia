@@ -42,23 +42,24 @@ const handlers = perEnv((env) => {
   const { hot, store, resolvedPlaceId, now = Date.now } = env;
   const { reads } = env;
 
-  /** The interface's name for the conversation the command or call came from. */
-  const refOf = (context: { conversationId?: string | null }): { iface: string; conversationId: string } => ({
+  /** The interface's name for a native conversation. */
+  const refOf = (conversationId: string): { iface: string; conversationId: string } => ({
     iface: (env.port?.iface as string | undefined) ?? '',
-    conversationId: idText(context.conversationId),
+    conversationId,
   });
 
-  /** The whole `message.received` event of message `messageId` in the command's conversation, or null. */
-  async function eventOf(messageId: unknown, context: { conversationId?: string | null }): Promise<Untyped> {
-    if (!context.conversationId || !reads) return null;
-    const found = await reads.fetchMessages(refOf(context), [idText(messageId)]);
+  /** The whole `message.received` event of message `messageId` in a native conversation, or null. */
+  async function eventOf(messageId: unknown, conversationId: string | null): Promise<Untyped> {
+    if (!conversationId || !reads) return null;
+    const found = await reads.fetchMessages(refOf(conversationId), [idText(messageId)]);
     return found?.messages[0]?.event ?? null;
   }
 
   /** The conversation the command came from as the interface describes it, or null. */
   async function infoOf(context: OpContext) {
-    if (!context?.conversationId || !reads) return null;
-    return (await reads.conversationInfo(refOf(context)))?.conversation ?? null;
+    const here = env.conversationOf(context);
+    if (!here || !reads) return null;
+    return (await reads.conversationInfo(refOf(here)))?.conversation ?? null;
   }
 
   /** `/nep task search query [goal]`. */
@@ -78,7 +79,7 @@ const handlers = perEnv((env) => {
    * from (its text, then its embeds), or null: what web.read reads when given a message.
    */
   async function linkOfMessage(messageId: string, context: OpContext): Promise<string | null> {
-    const message = (await eventOf(messageId, context))?.message;
+    const message = (await eventOf(messageId, env.conversationOf(context)))?.message;
     if (!message) return null;
     const links: Array<Untyped> = Array.isArray(message.links) ? message.links : [];
     return (
@@ -112,7 +113,7 @@ const handlers = perEnv((env) => {
     } catch {
       return null;
     }
-    const event = await eventOf(ref.messageId, ref.placeId ? { conversationId: ref.placeId } : context);
+    const event = await eventOf(ref.messageId, ref.placeId ?? env.conversationOf(context));
     return event ? lineOf(event) : null;
   }
 

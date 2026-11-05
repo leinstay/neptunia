@@ -189,8 +189,8 @@ function rig({ answer = 'none', pickConfig = {}, gifs = {} }: RigOptions = {}) {
 }
 
 const args = (fields: object = {}) => ({
+  // The conversation by its place alone (plan 2026-11-05 T.4).
   placeId: PLACE,
-  conversationId: 'c1',
   capability: EMOJI_CAPABILITY,
   messages: [{ text: 'ναι, φυσικά, έλα', replyTo: 2 }],
   history: [],
