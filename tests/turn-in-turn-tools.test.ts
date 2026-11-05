@@ -129,7 +129,9 @@ async function cachedCall(scene: ReturnType<typeof cacheScene>, skill: 'web.read
     inTurn: scene.handlers,
     port: { send: () => Promise.reject(new Error('cached reads never send')) },
     refOf: () => ({ iface: 'fake', conversationId: 'room' }),
-    opContext: { placeId: 'g1', conversationId: 'room' },
+    // The turn's own conversation reaches an in-turn tool as `here` (plan T.4).
+    here: { iface: 'fake', conversationId: 'room' },
+    opContext: { placeId: 'g1' },
   });
 }
 
