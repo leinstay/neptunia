@@ -49,7 +49,9 @@ import type { MemoryPath } from '../../subharness/memory-path.ts';
 import { storageValue } from './export.ts';
 import { accountCollection } from './storage-keys.ts';
 import { SELF_PERSON, shortHash } from './ids.ts';
-import { contextRow, issueContext, scopeWhere } from './scope.ts';
+import { storedMediaTags } from '../../format.ts';
+import { lineMedia, mediaMessageParts } from './media-store.ts';
+import { contextRow, internalContext, issueContext, scopeWhere } from './scope.ts';
 import { scopesOf } from './session-scopes.ts';
 import type { SweepScope } from './session-scopes.ts';
 import { columnsOf } from './rows.ts';
@@ -418,7 +420,9 @@ function lineText(
     timezone,
     handle,
     authorHandle = null,
+    tags = [],
   }: {
+    tags?: ReadonlyArray<string>;
     accounts: Map<string, BatchAccount>;
     participants: Map<string, { name: string }>;
     selfName: unknown;
@@ -439,7 +443,9 @@ function lineText(
   const place = handle ? `[${handle}] ` : '';
   // An author who is not a person yet carries the handle `people:add` names (prompts/memory-session.md, "People").
   const who = !own && authorHandle ? `[${authorHandle}] ` : '';
-  return `${lead}#${n} [${stamp(line.at, timezone)}] ${place}${who}${asText(author)}: ${String(line.text).replace(/\s*\n\s*/g, ' ⏎ ')}`;
+  const words = String(line.text ?? '').replace(/\s*\n\s*/g, ' ⏎ ');
+  const body = [words, ...tags].filter(Boolean).join(' ');
+  return `${lead}#${n} [${stamp(line.at, timezone)}] ${place}${who}${asText(author)}: ${body}`;
 }
 
 function claimLine(label: unknown, row: Row): string {
@@ -614,8 +620,15 @@ export function buildSessionRequest({
       .filter(([, entry]) => !entry.hasPerson)
       .map(([handle, entry]): [string, string] => [entry.id, handle])
   );
+  // A line's media are part of what was said: its kinds and text forms, as the turn's chat renders them.
+  const mediaOf = lineMedia(
+    db,
+    batch.map((line) => asText(line.id)),
+    internalContext()
+  );
   for (const line of batch) {
-    if (typeof line.text !== 'string' || line.text.trim() === '') continue;
+    const media = mediaOf.get(asText(line.id)) ?? [];
+    if ((typeof line.text !== 'string' || line.text.trim() === '') && media.length === 0) continue;
     n += 1;
     maps.sources.set(`#${n}`, line.id as string);
     read('source_id', line.id, 'batch');
@@ -628,6 +641,7 @@ export function buildSessionRequest({
         timezone,
         handle: handleOf.get(line.place_id) ?? null,
         authorHandle: authorHandleOf.get((line.author_participant ?? line.author_account) as string) ?? null,
+        tags: media.length > 0 ? storedMediaTags(mediaMessageParts(media, line.native_id), labels) : [],
       })
     );
   }

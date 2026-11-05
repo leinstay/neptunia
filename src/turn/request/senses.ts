@@ -201,7 +201,8 @@ export function renderSenses(
   // and she can read it all, in place of "cannot open the page".
   const readerOn = granted('web.read');
   const linksLine = (readerOn && senses.linksWatchTool) || senses.linksWatch || senses.links;
-  lines.push(senses.voice, linksLine);
+  // With the `video` role on, a helper hears what is sent (src/memory/describe.ts); a labels.json from before the line keeps `voice`.
+  lines.push(roleOn(config, 'video') && senses.voiceHeard ? senses.voiceHeard : senses.voice, linksLine);
   if (senses.linksRead) lines.push(senses.linksRead);
   // Her own page reader (granted to her by name): she can open a page herself.
   if (readerOn && senses.readTool) lines.push(senses.readTool);

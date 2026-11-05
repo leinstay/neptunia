@@ -44,7 +44,9 @@
 // as arguments. Rows are read here; wording and rendering are the caller's (`quotesOf` turns windows into the
 // stretches `recall.run` returns when it renders them with src/behavior/recall.js#renderRecallWindows).
 
-import { sourceAttachmentIds } from './line-media.ts';
+import { lineMedia, mediaHits, mediaMessageParts } from './media-store.ts';
+import type { MediaHit, MediaRow } from './media-store.ts';
+import { CURRENT_SOURCE } from './source-current.ts';
 import { nativeLocatorOf } from './source-locator.ts';
 import { locatorText } from './message-locator.ts';
 import { MINUTE_MS } from '../../time.ts';
@@ -82,19 +84,7 @@ const WINDOW_FALLBACK = 16;
 
 const STREAMS = ['words', 'trigram', 'meaning', 'people', 'time'];
 
-/** `current`: the newest revision of a chat line, once, and not a deleted message. Needs the alias `s`. */
-const SOURCE_FAMILY = `t.native_id IS s.native_id AND t.iface IS s.iface AND t.place_id IS s.place_id
-  AND COALESCE(t.authority_id, t.iface || '/global') IS COALESCE(s.authority_id, s.iface || '/global')
-  AND COALESCE(t.native_kind, 'message') IS COALESCE(s.native_kind, 'message')
-  AND COALESCE(t.generation, 1) IS COALESCE(s.generation, 1)`;
-export const CURRENT_SOURCE = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL
-  AND s.revision IS (SELECT MAX(t.revision) FROM sources t WHERE ${SOURCE_FAMILY} AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL)
-  AND s.rowid = (SELECT MIN(t.rowid) FROM sources t WHERE ${SOURCE_FAMILY} AND t.kind IN ('seen', 'said') AND t.retired_at IS NULL AND t.revision IS s.revision)
-  AND NOT EXISTS (SELECT 1 FROM sources d WHERE d.native_id IS s.native_id AND d.iface IS s.iface
-    AND d.place_id IS s.place_id AND d.kind = 'deleted' AND d.retired_at IS NULL
-    AND (d.authority_id IS NULL OR d.authority_id IS COALESCE(s.authority_id, s.iface || '/global'))
-    AND (d.native_kind IS NULL OR d.native_kind IS COALESCE(s.native_kind, 'message'))
-    AND (d.generation IS NULL OR d.generation IS COALESCE(s.generation, 1)))`;
+export { CURRENT_SOURCE };
 
 /** A term of the plan as stems: the form, its stem keys, their joined id, the folded form and whether it is a phrase. */
 type Term = { form: string; keys: Array<string>; id: string; folded: string; phrase: boolean };
@@ -161,6 +151,7 @@ type Reader = {
   exclude: Set<unknown>;
   authorOf: (accountId: unknown) => { id: string | null; name: string | null; nameKey: string | null };
   channelNameOf: (placeId: unknown) => string | null;
+  mediaOf: (sourceId: string) => ReadonlyArray<MediaRow>;
 };
 /** The settings of a db recall: the recall settings with the keys of `recall.db` lifted out. */
 type DbKeys = { gateShare: number; candidates: number; minMeaning: number; wordPool?: number };
@@ -262,23 +253,19 @@ function storedRefOf(row: Row, extra: Row): StoredSourceRef {
   };
 }
 
-/** The native id of the `at`-th attachment, kept on the row by the observation, as a field of the attachment. */
-function attachmentIdAt(extra: Row, at: number): { attachmentId?: string } {
-  const id = sourceAttachmentIds(extra)[at];
-  return typeof id === 'string' ? { attachmentId: id } : {};
-}
-
 /** A name as a line shows it: one line, `-` when nothing is left. */
 const shownName = (name: string | null): string => (name ?? '').replace(/\s+/g, ' ').trim() || '-';
 
 /** One source row as a normalized chat message (the shape renderRecallWindows reads). */
-function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | 'selfName'>): RecallMessage {
+function messageOf(
+  row: Row,
+  { authorOf, selfName, mediaOf }: Pick<Reader, 'authorOf' | 'selfName' | 'mediaOf'>
+): RecallMessage {
   const extra = (parseJson(row.extra) ?? {}) as Row;
   const self = row.kind === 'said';
   const author = authorOf(row.author_account);
   const name = self ? selfName : author.name;
-  const media = parseJson(row.media);
-  const links = Array.isArray(extra.links) ? (extra.links as Array<Row>) : [];
+  const media = mediaMessageParts(mediaOf(String(row.id)), row.native_id);
   const ts = Date.parse(row.occurred_at as string);
   const recordedAt = Date.parse(row.recorded_at as string);
   const mentions = parseJson(row.mentions);
@@ -296,27 +283,10 @@ function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | '
     replyToId: str(row.reply_to) || null,
     mentionedAccountIds: Array.isArray(mentions) ? (mentions as Array<unknown>) : [],
     mentionedChannelIds: [],
-    attachments: (Array.isArray(media) ? (media as Array<unknown>) : [])
-      .filter((kind) => typeof kind === 'string' && kind)
-      .map((kind, i) => ({
-        id: `${asText(row.native_id)}#m${i}`,
-        kind,
-        name: kind,
-        ...attachmentIdAt(extra, i),
-      })),
-    links: links
-      .filter((link) => link && typeof link === 'object' && (str(link.title) || str(link.description)))
-      .map((link, i) => ({
-        id: str(link.id) || `${asText(row.native_id)}#l${i}`,
-        kind: 'link',
-        site: str(link.site),
-        title: str(link.title),
-        text: str(link.description),
-        url: str(link.url) || null,
-        thumbnailUrl: null,
-      })),
-    stickers: [],
-    emojis: [],
+    attachments: media.attachments,
+    links: media.links,
+    stickers: media.stickers,
+    emojis: media.emojis,
     forwarded: [],
     reactions: [],
     editedAt: isWholeNumber(row.revision) && row.revision > 1 ? (Number.isFinite(recordedAt) ? recordedAt : ts) : null,
@@ -993,6 +963,7 @@ function readerOf(
   let places: Map<unknown, PlaceName> | null = null;
   return {
     selfName,
+    mediaOf: (sourceId) => lineMedia(db, [sourceId], ctx).get(sourceId) ?? [],
     exclude: exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []),
     authorOf: (accountId) => {
       names ??= accountNames(db);
@@ -1051,6 +1022,8 @@ export type SearchInput = {
 export type SearchResult = {
   windows: Array<RecallWindow>;
   hits: Array<RecallHit>;
+  /** The media items found: one hit per item, each with its visible uses. */
+  mediaHits: Array<MediaHit>;
   hidden: boolean;
   sampled: boolean;
   stats: Record<string, number>;
@@ -1191,11 +1164,23 @@ export function search(
   talk.forEach(remember);
   stats.people = talk.length;
 
+  // A text form is searched on its own row; its item answers only through a message this reader may see (M.19, M.20).
+  const mediaFound = mediaHits(db, {
+    match: terms.length > 0 ? matchOf(terms) : null,
+    fragments: (held) => terms.map((term) => term.form.trim()).filter((form) => [...form].length >= 3 && !held(form)),
+    wordOf: (row) => holds(terms, { stems: row.stems, text: row.description }).terms,
+    vector,
+    model,
+    minMeaning,
+    filter: filters(context, scopeArgs),
+    limit: candidates,
+  });
+
   const skip = excludedSources(db, context, exclusions, exclude);
   const keep = Math.max(1, Number.isInteger(limit) ? limit : RECALL_DEFAULTS.maxClusters);
   const timed = timeRows(db, context, scopeArgs, {
     wanted: sampleTime,
-    found: rowsOf.size,
+    found: rowsOf.size + mediaFound.length,
     places: () => samplingPlaces(db, context, { samplePlace, sampledPlaces, placeShown, places: scopeArgs.places }),
     skip,
     limit: keep,
@@ -1253,17 +1238,31 @@ export function search(
       });
       return windowOf(rows, new Set(rows.map((row) => row.id).filter((id) => hitIds.has(id))), read);
     });
+  // An item found shows at its latest visible use, without counting among the message hits.
+  const mediaLines = mediaFound.slice(0, keep).flatMap((hit, at) => {
+    if (skip.has(hit.latest.sourceId)) return [];
+    const row = db.prepare('SELECT s.*, s.rowid AS rowid FROM sources s WHERE s.id = ?').get(hit.latest.sourceId);
+    if (!row) return [];
+    const rows = stretchAround(db, context, row, {
+      around: opts.recordContext,
+      followMessages: opts.followMessages,
+      followGapMinutes: opts.followGapMinutes,
+    });
+    built.push(windowOf(rows, new Set<unknown>([hit.latest.sourceId]), read));
+    return [{ id: hit.latest.sourceId, at }];
+  });
   // A window's place is its best hit's place.
   // Its place is the better of two ranks: in the ranked hits (coverage) and by the fused score (where the meaning
   // stream lifts a line the words miss), so neither kind of match crowds the other out of the windows kept.
   const byRank = new Map(hits.map((hit, i): [unknown, number] => [hit.id, i]));
   const byFused = new Map(byScore.map((hit, i): [unknown, number] => [hit.id, i]));
-  const order = new Map(
-    hits.map((hit): [unknown, number] => [
+  const order = new Map<unknown, number>([
+    ...mediaLines.map(({ id, at }): [unknown, number] => [id, at]),
+    ...hits.map((hit): [unknown, number] => [
       hit.id,
       Math.min(byRank.get(hit.id) as number, byFused.get(hit.id) as number),
-    ])
-  );
+    ]),
+  ]);
   // recall.js declares the windows with a string channel id and string hit ids; these carry a null channel when a
   // window has no message and ids of any kind, so the call goes through its own parameter type.
   const merged = (
@@ -1295,7 +1294,29 @@ export function search(
     context.kind === 'group' && terms.length > 0
       ? hiddenBetter(db, context, terms, scopeArgs, (row) => shown(row) && placeShown(row.place_id), askersOf(context))
       : false;
-  return { windows, hits, hidden, sampled, stats };
+  showItemsOnce(windows);
+  return { windows, hits, mediaHits: mediaFound, hidden, sampled, stats };
+}
+
+/** One answer tells an item once: a much-reused item must not fill it. Its later lines keep their markers. */
+function showItemsOnce(windows: ReadonlyArray<{ messages: ReadonlyArray<RecallMessage> }>): void {
+  const seen = new Set<unknown>();
+  for (const window of windows) {
+    for (const message of window.messages) {
+      for (const item of [
+        ...message.attachments,
+        ...(message.stickers as Array<Row>),
+        ...(message.emojis as Array<Row>),
+      ]) {
+        if (!item.mediaId || !('told' in item)) continue;
+        if (seen.has(item.mediaId)) {
+          delete item.told;
+          delete item.previewText;
+        }
+        seen.add(item.mediaId);
+      }
+    }
+  }
 }
 
 /** The person ids of whoever asked, from the context's optional `asker` (one id or a list). */

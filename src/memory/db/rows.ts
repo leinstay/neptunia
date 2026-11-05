@@ -44,7 +44,7 @@ import {
   sourceTargetKey,
 } from './ids.ts';
 import { AUD_INTERNAL, SCOPE_INTERNAL, audienceOf, audienceParts } from './scope.ts';
-import { SELF_SOURCE_KINDS } from './schema.ts';
+import { SELF_SOURCE_KINDS } from './source-kinds.ts';
 import { projectRow } from './graph.ts';
 import { deriveMirrorPublication, projectPublicationsNaming } from './publish.ts';
 import { asText, isWholeNumber } from './types.ts';
@@ -518,11 +518,15 @@ export function ensureLinks(
 /** A restricted diary entry also restricts each of its retained media associations. */
 export function restrictDiaryMedia(db: Db, row: Row, at?: string): void {
   if (row.audience_id !== AUD_INTERNAL) return;
-  const media = db.prepare("SELECT id FROM media WHERE kind = 'diary' AND owner = ?").all(row.id);
-  db.prepare(
-    `UPDATE media SET scope_kind = ?, scope_iface = ?, scope_dm = ?, audience_id = ?
-    WHERE kind = 'diary' AND owner = ?`
-  ).run('internal', null, null, AUD_INTERNAL, row.id);
+  // An old database has no links yet: its entries are carried over by the migration that makes them.
+  if (columnsOf(db, 'media_links').size === 0) return;
+  const media = db
+    .prepare("SELECT media_id AS id FROM media_links WHERE owner_kind = 'diary' AND owner_id = ?")
+    .all(row.id);
+  const restrict = db.prepare(
+    `UPDATE media SET scope_kind = 'internal', scope_iface = NULL, scope_dm = NULL, audience_id = ? WHERE id = ?`
+  );
+  for (const item of media) restrict.run(AUD_INTERNAL, item.id);
   for (const item of media) projectRow(db, 'media', { id: item.id }, { at });
 }
 

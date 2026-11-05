@@ -208,9 +208,17 @@ export function formatDuration(
  */
 // The part-watched forms: their reason code reads labels.transcript.videoPartReason.
 const PART_KEYS = new Set(['videoWatchedPart', 'linkWatchedPart']);
+// A form with a blank label (a deployment's labels.json from before it, or one switching it off) renders its plain form.
+const PLAIN_FORM: Record<string, string> = {
+  voiceDescribed: 'voice',
+  audioDescribed: 'audio',
+  fileUnreadable: 'file',
+  stickerUnreadable: 'sticker',
+};
 
 /** A part-watched tag whose label is blank, as its whole-video form; any other tag as it is. */
 function partFallback(tag: Untyped, labels: Untyped) {
+  if (PLAIN_FORM[tag.key] && !labels.transcript[tag.key]) return { ...tag, key: PLAIN_FORM[tag.key] };
   if (PART_KEYS.has(tag.key) && !labels.transcript[tag.key]) {
     return tag.key === 'videoWatchedPart'
       ? { key: 'videoWatched', values: { name: tag.values.name, duration: tag.values.duration, text: tag.values.text } }
@@ -283,8 +291,14 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
     return label;
   };
   for (const attachment of message.attachments ?? []) {
-    const description = context.descriptions?.get(attachment.id) ?? null;
-    const video = videoOf(attachment.id);
+    // A stored line carries its text form on the item (src/memory/db/source-media.ts#mediaMessageParts).
+    const told = attachment.told;
+    const description = context.descriptions?.get(attachment.id) ?? told?.text ?? null;
+    const video =
+      videoOf(attachment.id) ??
+      (videosOn && attachment.kind === 'video' && told?.origin === 'retelling'
+        ? { state: 'watched', text: told.text }
+        : null);
     const gifHandle = handleOf(attachment, 'attachment');
     const answer = answerOf(attachment);
     pushLabel(
@@ -327,7 +341,7 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
   }
   for (const sticker of message.stickers ?? []) {
     const description = labels.transcript.stickerDescribed
-      ? (context.descriptions?.get(`sticker:${sticker.id}`) ?? null)
+      ? (context.descriptions?.get(`sticker:${sticker.id}`) ?? sticker.told?.text ?? null)
       : null;
     // `url` is null for a sticker with no picture. A slim message keeps `url` too (src/memory/update.js#slimMessage), so a
     // memory transcript tells a picture sticker from one without exactly like a live chat transcript does.
@@ -337,14 +351,20 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
   // bare `:name:`.
   if (labels.transcript.emojiDescribed && context.emojiInline !== false) {
     for (const emoji of message.emojis ?? []) {
-      const description = context.descriptions?.get(`emoji:${emoji.id}`) ?? null;
-      if (!description) continue;
+      const description = context.descriptions?.get(`emoji:${emoji.id}`) ?? emoji.told?.text ?? null;
+      // A stored line shows that it holds the emoji even before its text form: a read has no message to look at.
+      if (!description && emoji.stored !== true) continue;
       tags.push(fill(labels.transcript.emojiDescribed, { name: emoji.name, text: description }));
     }
   }
   // A key blanked in prompts.local/labels.json (fill() returns '' for it)
   // must not leave a stray double space where that tag would have sat.
   return tags.filter(Boolean);
+}
+
+/** The tags of a stored line's media, for a reader that is not a transcript (the memory session's batch). */
+export function storedMediaTags(parts: Record<string, unknown>, labels: Untyped): Array<string> {
+  return labels?.transcript ? mediaTags(parts, labels) : [];
 }
 
 /**

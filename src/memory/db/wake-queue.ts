@@ -15,6 +15,7 @@
 // connection (`{ db }`). The inner life (src/behavior/inner/wake-store.ts) is the one caller of the writes. The wakes
 // belong to the one persona: nothing here names a place, and a wake's own payload says where it goes.
 
+import { kindOfFile } from './media-store.ts';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -421,11 +422,12 @@ function keepFiles(db: Db, dataDir: string | null, delivery: DeliveryInput): Arr
     db.prepare("INSERT OR IGNORE INTO audiences (id, kind) VALUES (?, 'internal')").run(AUD_INTERNAL);
     db.prepare(
       `INSERT INTO media (id, kind, owner, path, sha1, bytes, mime, extra, scope_kind, audience_id)
-       VALUES (?, 'delivery', ?, ?, ?, ?, ?, ?, 'internal', ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'internal', ?)
        ON CONFLICT(id) DO UPDATE SET path = excluded.path, sha1 = excluded.sha1, bytes = excluded.bytes,
          mime = excluded.mime, extra = excluded.extra`
     ).run(
       media,
+      kindOfFile(contentType, file.voice ? { voice: true } : {}),
       delivery.key,
       rel.split(path.sep).join('/'),
       createHash('sha1').update(file.data).digest('hex'),
@@ -616,9 +618,11 @@ function pruneIn(db: Db, before: number, dataDir: string | null): number {
   const done = `SELECT key FROM deliveries WHERE state IN ('sent', 'unknown', 'failed') AND wake_id IN
      (SELECT id FROM wakes WHERE state IN ('handled', 'slept') AND handled_at < ?)`;
   // The files of the deliveries that go, and their media rows.
-  for (const row of db.prepare(`SELECT path FROM media WHERE kind = 'delivery' AND owner IN (${done})`).all(before))
+  for (const row of db
+    .prepare(`SELECT path FROM media WHERE id LIKE 'media:delivery:%' AND owner IN (${done})`)
+    .all(before))
     if (dataDir && typeof row.path === 'string') fs.rmSync(path.join(dataDir, row.path), { force: true });
-  db.prepare(`DELETE FROM media WHERE kind = 'delivery' AND owner IN (${done})`).run(before);
+  db.prepare(`DELETE FROM media WHERE id LIKE 'media:delivery:%' AND owner IN (${done})`).run(before);
   db.prepare(`DELETE FROM deliveries WHERE key IN (${done})`).run(before);
   const changed = db
     .prepare(

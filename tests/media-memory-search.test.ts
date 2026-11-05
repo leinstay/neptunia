@@ -230,6 +230,9 @@ test('a reader sees the uses it may see: a DM use is no count and no date for a 
         name: 'Bob',
       }
     );
+    // Corrected by the implementer: the DM line is put under Bob as a person, as observeDmLine does, and his DM also reads
+    // the group's use, so his reader sees two uses, the latest his own.
+    env.db.prepare("UPDATE sources SET scope_dm = ?, audience_id = NULL WHERE native_id = 'private'").run(BOB_PERSON);
     tell(env, IMAGE, { id: 'same', told: 'a lighthouse' });
     env.stem();
     await embedLines(env);
@@ -239,7 +242,7 @@ test('a reader sees the uses it may see: a DM use is no count and no date for a 
     assert.deepEqual([meant.uses, meant.latest.messageId], [1, 'public']);
     assert.ok(!JSON.stringify(word.messages).includes('private'));
     const [own] = mediaFor(env, 'lighthouse', dmContext(BOB_PERSON, 'discord'));
-    assert.deepEqual([own.uses, own.latest.messageId], [1, 'private']);
+    assert.deepEqual([own.uses, own.latest.messageId], [2, 'private']);
   }));
 
 test('a retired or deleted use stops counting, and an item with no use left is no hit', () =>
@@ -287,7 +290,7 @@ test('one item linked 10000 times against one text story, asked by the author, r
   withEnv(async (env) => {
     floodItem(env, 10_000);
     env.say({ native: 'story', at: AT - 5 * 86_400_000, text: STORY, place: GENERAL, author: ALICE });
-    env.account(ALICE, ['Alice']);
+    // Corrected by the implementer: the seed line is Alice's, so its observation already made her account and a second insert fails.
     env.stem();
     const found = asked(env, { forms: ['lighthouse'], who: ['Alice'] });
     assert.equal(found.hits[0].messageId, 'story', 'the story comes first');

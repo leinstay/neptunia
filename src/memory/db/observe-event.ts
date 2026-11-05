@@ -14,14 +14,14 @@
 //   author    the account of the author's id, of kind `bot` when the event says bot; her own line is author `self`
 //             with her account (kind `self`);
 //   relations `replies_to` the replied message, `mentions` each mentioned member (by user id);
-//   media     the kinds of the attachments, links and stickers (the record's `media`);
-//   extra     `attachmentIds`: each attachment's id, in the order of `media`, the `extra` the observation stores;
+//   media     one neutral item per attachment, link, sticker and custom emoji (media-store.ts#mediaItemsOf);
 //   times     `occurredAt` the message's time, `observedAt` the event's.
 // Returns null for an event that is no observable line: a deletion, a partial edit, a malformed event.
 
 import { nativeAuthorityOf } from '../../protocol/identity.ts';
 import type { MessageDeletion } from './message-families.ts';
 import { messageLocator } from './message-locator.ts';
+import { mediaItemsOf } from './media-store.ts';
 import { OBSERVATION_VERSION } from './observe.ts';
 import type { Envelope, MessageConversation } from './observe.ts';
 import { isFiniteNumber } from './types.ts';
@@ -68,28 +68,6 @@ type EventConversation = {
   rootId?: unknown;
   authorityId?: unknown;
 };
-
-/** The media kinds of a message: attachments, links, then one `sticker` per sticker (src/memory/record.ts's order). */
-function mediaKindsOf(message: EventMessage): Array<string> {
-  const kinds: Array<string> = [];
-  for (const item of [
-    ...(Array.isArray(message.attachments) ? (message.attachments as Array<Row | null>) : []),
-    ...(Array.isArray(message.links) ? (message.links as Array<Row | null>) : []),
-  ]) {
-    if (item && filled(item.kind)) kinds.push(item.kind);
-  }
-  for (const sticker of Array.isArray(message.stickers) ? message.stickers : []) if (sticker) kinds.push('sticker');
-  return kinds;
-}
-
-/** The ids of the attachments `media` names, position for position; `{}` when no attachment has one. */
-function attachmentIdsOf(message: EventMessage): Pick<Envelope, 'extra'> {
-  const attachments = Array.isArray(message.attachments) ? (message.attachments as Array<Row | null>) : [];
-  const ids = attachments
-    .filter((item) => item && filled(item.kind))
-    .map((item) => (filled(item?.id) ? item.id : null));
-  return ids.some((id) => id !== null) ? { extra: { attachmentIds: ids } } : {};
-}
 
 /** The authority an event's place is observed under: the one its conversation declares, or the interface's native one. */
 const authorityOf = (iface: string, conversation: EventConversation | undefined): string =>
@@ -268,7 +246,7 @@ export function observationOf(
       : []),
     ...mentioned.map((id) => ({ predicate: 'mentions', target: { kind: 'user', key: id } })),
   ];
-  const media = mediaKindsOf(message);
+  const media = mediaItemsOf(message as Row);
   return {
     v: OBSERVATION_VERSION,
     iface,
@@ -290,7 +268,6 @@ export function observationOf(
     observedAt,
     text: message.content,
     ...(media.length > 0 ? { media } : {}),
-    ...attachmentIdsOf(message),
     mentions: mentioned,
     direct: direct === true,
     relations,

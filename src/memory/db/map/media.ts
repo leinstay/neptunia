@@ -1,35 +1,31 @@
-// Mapper: `media.json` (`{ <key>: { text, ts }, ... }`, what she saw in an attachment or a link, by the attachment's
-// or link's key) <-> `media` rows of kind attachment. The key is the row's `native_ref` (the id is
-// `media:attachment:<key>`), `text` the description; `ts` (ms) and anything else stay in `extra`. A key whose value
-// is not an object is kept whole as `{ $raw: value }`. The scope is group.
+// Mapper: `media.json` (`{ <key>: { text, ts }, ... }`, the describer's cache of what she saw in an attachment or a link) <->
+// `media` rows. A live write goes through media-store.ts#writeMediaCache, onto the items; this mapper reads the rows back and
+// gives a file's rows to an import. A key names a reference and, by its prefix, a kind (media-store.ts#cacheKeyParts); the text is
+// `description`, a video's still frame beside its watched summary `extra.frame`; each key's other fields stay in `extra.cache`.
 //
 // toRows(rel, value, ctx) -> { media }     fromRows(rows, ctx) -> the file's value
 
+import { cacheKeyParts } from '../media-store.ts';
 import { groupScope } from '../scope.ts';
-import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.ts';
+import { ifaceOf, isPlainObject, parseExtra, put, rowsOf } from './common.ts';
 import type { Row, Rows } from '../types.ts';
-import type { MapContext, Spec } from './common.ts';
-
-const SPEC: Array<Spec> = [{ col: 'description', key: 'text', type: 'text' }];
+import type { MapContext } from './common.ts';
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
   const rows: Rows = {};
   for (const [key, entry] of Object.entries(value)) {
-    const part = isPlainObject(entry) ? split(entry, SPEC) : { cols: { description: null }, rest: { $raw: entry } };
+    const given = isPlainObject(entry) ? { ...entry } : { $raw: entry };
+    const text = typeof given.text === 'string' ? given.text : null;
+    delete given.text;
+    const { ref, kinds } = cacheKeyParts(key);
     put(rows, 'media', {
-      id: `media:attachment:${key}`,
-      kind: 'attachment',
-      owner: null,
-      path: null,
-      native_ref: key,
-      ...part.cols,
-      described_at: null,
-      sha1: null,
-      bytes: null,
-      mime: null,
+      id: `media:${iface}:${key}`,
+      kind: kinds?.[0] ?? 'image',
+      native_ref: ref,
+      description: text,
       ...groupScope(iface),
-      extra: extraText(part.rest),
+      extra: JSON.stringify({ cache: { [key]: given } }),
       owner_file: rel,
     });
   }
@@ -39,8 +35,18 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
 export function fromRows(rows: Rows): Row {
   const obj: Row = {};
   for (const row of rowsOf(rows, 'media')) {
-    const rest = parseExtra(row.extra);
-    obj[String(row.native_ref)] = Object.hasOwn(rest, '$raw') ? rest.$raw : join(row, rest, SPEC);
+    const extra = parseExtra(row.extra);
+    const entries = isPlainObject(extra.cache) ? extra.cache : {};
+    for (const [key, entry] of Object.entries(entries)) {
+      if (isPlainObject(entry) && Object.hasOwn(entry, '$raw')) {
+        obj[key] = entry.$raw;
+        continue;
+      }
+      const prefixed = cacheKeyParts(key).kinds !== null && key !== row.native_ref;
+      const isFrame = row.kind === 'video' && !prefixed && extra.watched === true;
+      const text = isFrame ? extra.frame : row.description;
+      obj[key] = { ...(typeof text === 'string' && text !== '' ? { text } : {}), ...(entry as Row) };
+    }
   }
   return obj;
 }

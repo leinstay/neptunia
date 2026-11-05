@@ -253,7 +253,8 @@ for (const [kind, attachment, expected] of [
   ['gif', { id: 'a1', kind: 'gif', name: 'g.gif' }, '<gif: told>'],
 ] as const) {
   test(`chat: a ${kind} shows its marker and the text form the describer holds`, () => {
-    const text = chatOf({ attachments: [attachment] }, { descriptions: new Map([['a1', 'present']]) });
+    // Corrected by the implementer: the map held 'present' while every expected tag reads `told`, so nothing could pass.
+    const text = chatOf({ attachments: [attachment] }, { descriptions: new Map([['a1', 'told']]) });
     assert.ok(text.includes(expected), text);
   });
 }

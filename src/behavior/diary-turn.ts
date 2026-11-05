@@ -6,6 +6,7 @@
 // (src/behavior/line-of.ts). `pictureGate` says whether the post may carry a picture, and
 // `diaryVoiceTool` keeps her voice message for the entry instead of posting it. Logs: none.
 
+import { entryMedia } from '../memory/db/media-store.ts';
 import { PERSONA_ID } from '../memory/db/storage-keys.ts';
 import { UNRESTRICTED, diaryMetadataOf, diaryRestricted, refusedAudience } from '../tools/publication.ts';
 import type { AudienceChoice, PublicationBoundary } from '../tools/publication.ts';
@@ -316,23 +317,17 @@ function messageIdsOf(db: Db, entryId: string): Array<string> {
 /** An entry's files as memory keeps them, by the message that carries each: the attachment as the platform names it. */
 function filesOf(db: Db, entryId: string): Map<string, Array<Row>> {
   const byMessage = new Map<string, Array<Row>>();
-  const rows = db
-    .prepare(
-      "SELECT id, native_ref, mime, bytes, extra FROM media WHERE kind = 'diary' AND owner = ? AND retired_at IS NULL"
-    )
-    .all(entryId)
-    .sort((a, b) => Number(/-(\d+)$/.exec(String(a.id))?.[1] ?? 0) - Number(/-(\d+)$/.exec(String(b.id))?.[1] ?? 0));
-  for (const row of rows) {
-    const ref = (jsonOf(row.native_ref) ?? {}) as Row;
-    const messageId = textOf(ref.messageId);
+  for (const row of entryMedia(db, entryId)) {
+    const held = (jsonOf(row.extra) ?? {}) as Row;
+    const messageId = textOf(held.messageId);
     if (!messageId) continue;
     const mime = textOf(row.mime);
     const voice = mime.startsWith('audio/') && (jsonOf(row.extra) as Row | null)?.voice === true;
     const extra = (jsonOf(row.extra) ?? {}) as Row;
     const file: Row = {
-      id: textOf(ref.attachmentId) || String(row.id),
+      id: textOf(row.native_ref) || String(row.id),
       kind: voice ? 'voice' : mime.startsWith('image/') ? 'image' : 'file',
-      url: textOf(ref.url) || null,
+      url: textOf(held.url) || null,
       contentType: mime || null,
       size: numberOr(row.bytes, 0),
       ...(voice && typeof extra.durationSec === 'number' ? { durationSec: extra.durationSec } : {}),

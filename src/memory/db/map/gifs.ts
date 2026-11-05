@@ -3,9 +3,9 @@
 // gif and `operational` (kind gifs) for the rest of the value (`nextId`).
 //
 // The entry's key is the row's id after `media:gif:`; `file` is `path`, which is null or a file under `media/` as on every
-// media row, `messageId` the `native_ref`, `name` the description. The link, counts, stamps, the site, the entry's own
-// `kind` and `id` stay in `extra`. An entry that is not an
-// object is kept whole as `{ $raw: value }`. The scope is group.
+// media row, `itemId` the `native_ref`. The row is the GIF's item, so its `description` is the item's text form and this
+// mapper leaves it alone; the name, the message, the link, counts, stamps, the site, the entry's own `kind` and `id` stay in
+// `extra`. An entry that is not an object is kept whole as `{ $raw: value }`. The scope is group.
 //
 // toRows(rel, value, ctx) -> { media, operational }     fromRows(rows, ctx) -> the file's value
 
@@ -18,8 +18,7 @@ const PREFIX = 'media:gif:';
 
 const SPEC: Array<Spec> = [
   { col: 'path', key: 'file', type: 'text', ok: (value) => String(value).startsWith('media/') },
-  { col: 'native_ref', key: 'messageId', type: 'text' },
-  { col: 'description', key: 'name', type: 'text' },
+  { col: 'native_ref', key: 'itemId', type: 'text' },
 ];
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
@@ -31,16 +30,11 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
     for (const [key, entry] of Object.entries(value.entries)) {
       const part = isPlainObject(entry)
         ? split(entry, SPEC)
-        : { cols: { path: null, native_ref: null, description: null }, rest: { $raw: entry } };
+        : { cols: { path: null, native_ref: null }, rest: { $raw: entry } };
       put(rows, 'media', {
         id: `${PREFIX}${key}`,
         kind: 'gif',
-        owner: null,
         ...part.cols,
-        described_at: null,
-        sha1: null,
-        bytes: null,
-        mime: null,
         ...groupScope(iface),
         extra: extraText(part.rest),
         owner_file: rel,
@@ -64,6 +58,7 @@ export function fromRows(rows: Rows): Row {
     obj.entries = entries;
     for (const row of rowsOf(rows, 'media')) {
       const extra = parseExtra(row.extra);
+      for (const field of ['textOrigin', 'frame', 'watched', 'cache']) delete extra[field];
       entries[String(row.id).slice(PREFIX.length)] = Object.hasOwn(extra, '$raw') ? extra.$raw : join(row, extra, SPEC);
     }
   }

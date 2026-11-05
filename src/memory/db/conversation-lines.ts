@@ -2,7 +2,10 @@
 // revision of each message, with deleted ones left out, as recall reads them. Read only, and through the owner's own command,
 // so this reader applies no audience: only the `cli` principal reaches it.
 
+import { LINE_HOLDS_MEDIA, lineMedia } from './media-store.ts';
+import type { MediaRow } from './media-store.ts';
 import { CURRENT_SOURCE } from './recall.ts';
+import { internalContext } from './scope.ts';
 import { asText } from './types.ts';
 import type { Db } from './types.ts';
 
@@ -16,16 +19,24 @@ export type ConversationLine = {
   who: 'owner' | 'her';
   text: string;
   nativeId?: string;
+  media?: Array<MediaRow>;
 };
+
+const HOLDS_SOMETHING = `(length(COALESCE(s.text, '')) > 0 OR ${LINE_HOLDS_MEDIA})`;
 
 export function conversationLines(db: Db, placeId: string): Array<ConversationLine> {
   const rows = db
     .prepare(
       `SELECT s.id, s.kind, s.text, s.occurred_at, s.native_id FROM sources s
-       WHERE s.place_id = ? AND ${CURRENT_SOURCE} AND length(COALESCE(s.text, '')) > 0
+       WHERE s.place_id = ? AND ${CURRENT_SOURCE} AND ${HOLDS_SOMETHING}
        ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
     )
     .all(placeId, LINES_MAX);
+  const media = lineMedia(
+    db,
+    rows.map((row) => asText(row.id)),
+    internalContext()
+  );
   return rows.toReversed().map((row) => ({
     id: asText(row.id),
     placeId,
@@ -33,6 +44,7 @@ export function conversationLines(db: Db, placeId: string): Array<ConversationLi
     who: row.kind === 'said' ? 'her' : 'owner',
     text: asText(row.text),
     ...(typeof row.native_id === 'string' ? { nativeId: row.native_id } : {}),
+    ...(media.has(asText(row.id)) ? { media: media.get(asText(row.id)) } : {}),
   }));
 }
 
@@ -44,13 +56,24 @@ export function recentGroupLines(
   db: Db,
   placeId: string,
   count: number
-): Array<{ kind: string; text: string | null; names: string | null }> {
-  return db
+): Array<{ kind: string; text: string | null; names: string | null; media?: Array<MediaRow> }> {
+  const rows = db
     .prepare(
-      `SELECT s.kind, s.text, a.names FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
-       WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND length(COALESCE(s.text, '')) > 0
+      `SELECT s.id, s.kind, s.text, a.names FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
+       WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND ${HOLDS_SOMETHING}
          AND s.audience_id LIKE 'aud:group:%'
        ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
     )
-    .all(placeId, count) as Array<{ kind: string; text: string | null; names: string | null }>;
+    .all(placeId, count);
+  const media = lineMedia(
+    db,
+    rows.map((row) => asText(row.id)),
+    internalContext()
+  );
+  return rows.map((row) => ({
+    kind: asText(row.kind),
+    text: typeof row.text === 'string' ? row.text : null,
+    names: typeof row.names === 'string' ? row.names : null,
+    ...(media.has(asText(row.id)) ? { media: media.get(asText(row.id)) } : {}),
+  }));
 }

@@ -344,9 +344,9 @@ function insertAnswer(
     ownershipSql(
       db,
       `INSERT OR REPLACE INTO sources (id, kind, iface, native_id, revision, place_id, author_account, reply_to, occurred_at, recorded_at, seen_at, text, stems,
-       media, mentions, direct, turn_id, op_id, think, extra, scope_kind, scope_iface, scope_dm, origin, owner_key, position,
+       mentions, direct, turn_id, op_id, think, extra, scope_kind, scope_iface, scope_dm, origin, owner_key, position,
        audience_id, authority_id, author_kind, observed_at)
-     VALUES (?, ?, NULL, ?, 1, NULL, NULL, NULL, ?, ?, NULL, ?, NULL, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?, ?, 'memory', NULL, NULL, ?, ?, 'self', ?)`
+     VALUES (?, ?, NULL, ?, 1, NULL, NULL, NULL, ?, ?, NULL, ?, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?, ?, 'memory', NULL, NULL, ?, ?, 'self', ?)`
     )
   ).run(
     id,
