@@ -12,6 +12,13 @@ import { tempDir } from './fixtures/tmp.ts';
 
 type Handle = ReturnType<typeof openMemoryDb>;
 
+// A DM reads through its stored place, so the fixture holds one instead of relying on a fabricated id.
+const addDm = (db: ReturnType<typeof dbOf>, iface: string, native: string): void => {
+  db.prepare(
+    `INSERT INTO places (id, iface, kind, conversation, scope_kind, partner_account, partner_person) VALUES (?, ?, 'dm', 'dm', 'dm', ?, ?)`
+  ).run(`${iface}:dm:${native}`, iface, `${iface}:${native}`, `person:${iface}:${native}`);
+};
+
 function withDb(body: (handle: Handle) => void): void {
   const handle = openMemoryDb(path.join(tempDir('nep-links-'), 'memory.db'));
   const insert = dbOf(handle).prepare(
@@ -24,6 +31,7 @@ function withDb(body: (handle: Handle) => void): void {
     ['discord', '333'],
   ] as const) {
     insert.run(`${iface}:${native}`, iface, native, native);
+    addDm(dbOf(handle), iface, native);
   }
   try {
     body(handle);
@@ -131,6 +139,8 @@ test('a DM context the service issues carries the DMs of the person, and a bind 
   );
   insert.run('discord:111', 'discord', '111', '111');
   insert.run('telegram:222', 'telegram', '222', '222');
+  addDm(dbOf(seed), 'discord', '111');
+  addDm(dbOf(seed), 'telegram', '222');
   seed.close();
   const service = createMemoryDb({
     dataDir,

@@ -3643,8 +3643,6 @@ function buildStore({
       if (!Array.isArray(moves)) return 0;
       let taken = 0;
       for (const move of moves) {
-        const userId = /^person:[^:]+:(.+)$/.exec(String(move?.personId ?? ''))?.[1];
-        if (!userId) continue;
         for (const [file, item] of [...entries]) {
           const key = unitKeys.get(file);
           if (!key || key.kind !== 'user' || storageContext(seam.db(), key).subjectPersonId !== move.personId) continue;

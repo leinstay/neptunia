@@ -107,6 +107,8 @@ import { NO_COMMUNITY, channelPlaceId, guildPlaceId, nativeAuthorityOf } from '.
 import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
 import { contextRow, issueContext as issuePureContext } from './scope.ts';
 import { linkedDmScopes } from './person-links.ts';
+import { privateByPerson, privateByPlace } from './private-read.ts';
+import type { PrivatePersonView, PrivatePlaceView } from './private-read.ts';
 import { recoverRequestArchive } from './request-archive.ts';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.ts';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.ts';
@@ -583,6 +585,9 @@ export type MemoryDbService = {
   issueContext(spec?: Parameters<typeof issuePureContext>[0]): Context;
   /** The owner's binding of an account to a person (person-links.ts). */
   personLink(update: Row): Promise<Row>;
+  /** The private view of a person or a DM place (private-read.ts). Throws `DB_CLOSED` while memory is closed. */
+  privateByPerson(personId: string, context: Context): PrivatePersonView;
+  privateByPlace(placeId: string, context: Context): PrivatePlaceView;
   observe(envelope: unknown, where?: Row | null): Promise<object> | null;
   observeMessage(envelope: unknown, where?: Row | null): Promise<object> | null;
   deleteMessage(input: unknown, where?: Row | null): Promise<object> | null;
@@ -631,7 +636,15 @@ export type MemoryDbOptions = {
 /** A DM reads the history of the person: the context carries the DMs of every account bound to this one. */
 function linkedContext(ctx: Context, read: Db | null): Context {
   if (read === null || ctx.kind !== 'dm' || !ctx.iface || !ctx.person) return ctx;
-  return { ...ctx, linked: linkedDmScopes(read, ctx.iface, ctx.person) };
+  return { ...ctx, linked: linkedDmScopes(read, ctx.iface, ctx.person).filter((one) => one.place !== ctx.place) };
+}
+
+/** The private view of a person or a DM place, read over whichever connection is open when it is asked for. */
+function privateReads(db: () => Db): Pick<MemoryDbService, 'privateByPerson' | 'privateByPlace'> {
+  return {
+    privateByPerson: (personId, context) => privateByPerson(db(), personId, context),
+    privateByPlace: (placeId, context) => privateByPlace(db(), placeId, context),
+  };
 }
 
 /** What an open writer brings in once: the core's old JSON state, and the request archive's recovery. */
@@ -712,7 +725,6 @@ export function createMemoryDb({
   }
 
   const settings = () => databaseSettings(hot.config);
-
   // While the pending unit writes of the last shutdown are replayed at an open, nothing reads the database.
   let replaying = false;
   const pendingDir = path.join(dataDir, PENDING_DIR);
@@ -1718,6 +1730,7 @@ export function createMemoryDb({
     recordWake,
     issueContext,
     personLink: (update: Row) => write({ ...update, kind: 'person-link' }),
+    ...privateReads(() => dbOf(opened())),
     observe,
     ...messageWriters(observe),
     waitObservations,
