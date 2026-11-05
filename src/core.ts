@@ -36,6 +36,7 @@ import {
   createMemoryUpdater,
   createEmojiBackfill,
   createGifBackfill,
+  createGifKeeper,
   createGifRecache,
   createDescriber,
   createAvatarQueue,
@@ -57,6 +58,7 @@ import type { KeyOf } from './keys/ring.ts';
 import { createKeyStore, keysFileExists } from './keys/store.ts';
 import { createRoleHealth, reportingCoreKeys, reportingLlm, roleKeyCheck } from './llm/role-health.ts';
 import { createEmbedder } from './llm/embed.ts';
+import { createGifFetcher } from './media/gif-files.ts';
 import { createImageGen } from './llm/images.ts';
 import { createSpeech } from './speech/index.ts';
 import { ffmpegAvailable } from './speech/convert.ts';
@@ -943,8 +945,23 @@ async function buildCore(
   const directory = createConversationDirectory();
   // When the interface's link to its platform last came back, for /nep status.
   const connection: { lastReconnectAt: number | null } = { lastReconnectAt: null };
+  const embedOne =
+    (purpose: string) =>
+    async (text: string): Promise<ArrayLike<number> | null> =>
+      (await embedder.embed([text], { config: hot.config, purpose }))[0] ?? null;
+  // The GIF library's captions, vectors and cached files (src/memory/gif-keeper.ts).
+  const gifKeeper = createGifKeeper({
+    store,
+    dataDir,
+    fetchBytes: createGifFetcher({ fetchImpl: imageStaging.fetch }),
+    embed: embedOne('gif-caption'),
+    describer,
+    log,
+  });
   const turns = createTurnRunner({
     track: loopWatch.track,
+    dataDir,
+    embedQuery: embedOne('media-pick'),
     // A cancel and the steps of a turn over a line of the owner's chat (src/interface/chat-turns.ts).
     cancelOf: (triggerId: string | null) => intake.cancelOf(triggerId),
     noteProgress: (triggerId: string | null, step: { name: string; detail: string }) =>
@@ -1004,7 +1021,7 @@ async function buildCore(
   // diary's mirrors. The diary's posts are rows of the memory database already: no backfill from the channel.
   const diary = createDiary({ hot, store, reads, turns, mirrors });
   // The code-only memory of the live message path (src/memory/update.js): counters, GIF library, emoji, names.
-  const memory = createMemoryUpdater({ hot, store });
+  const memory = createMemoryUpdater({ hot, store, gifKeeper });
   // The turn an errand's end opens, through the lease and a cooldown per conversation.
   const taskTurns = createErrandTurns({
     hot,
@@ -1158,7 +1175,14 @@ async function buildCore(
   const emojiBackfill = createEmojiBackfill({ store, reads, iface: () => identity.iface, log });
   // The GIF library read from history (the interface's reads; the describer captions the top ones): once at
   // startup, again on /nep gifs rescan.
-  const gifBackfill = createGifBackfill({ store, reads, iface: () => identity.iface, describer, log });
+  const gifBackfill = createGifBackfill({
+    store,
+    reads,
+    iface: () => identity.iface,
+    describer,
+    keeper: gifKeeper,
+    log,
+  });
   // The GIF library re-described by watching (src/memory/gif-recache.js): only on /nep gifs recache;
   // and the pictures an older model described, found through the record: only on /nep media
   // kind:pictures action:recache.
@@ -1174,6 +1198,7 @@ async function buildCore(
   });
 
   const onMessage = createMessageHandler({
+    gifKeeper,
     isServedCommunity,
     communitiesOf: (name: string) => communityRoutes.communitiesOf(name),
     hot,
@@ -1923,6 +1948,8 @@ async function buildCore(
 
   // The GIF library from history, once (no backfill stamp in gifs.json). Fire-and-forget: never blocks the persona, logs its errors.
   await startupStep('gifBackfill.startIfNeeded', () => eachServed(gifBackfill.startIfNeeded));
+  // What the library's entries lack that needs no message: their captions, vectors and files, in the background.
+  await startupStep('gifKeeper.settle', () => eachServed(gifKeeper.settle));
 
   // Affinity decay: once now (catches up the days the process was down), then hourly (above).
   await startupStep('affinity decay', sweepAffinityDecay, { wait: true });

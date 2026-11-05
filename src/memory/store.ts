@@ -79,10 +79,14 @@ import {
   findGif,
   markOwnGif,
   mergeGifs,
+  stampGifBackfill,
+  withGifCaption,
+  withGifFile,
   normalizeBackfillStamp,
   normalizeGifs,
   resetGifCounts,
 } from './gifs.ts';
+import type { GifLibrary } from './gifs.ts';
 import { emptyRecent, mergeRecent, normalizeRecent } from './recent.ts';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, expireEpisodes, normalizeParticipation } from './participation.ts';
 import { ITEM_ID_PREFIX, archiveEntry, archiveRevision } from './archive.ts';
@@ -1763,7 +1767,8 @@ function buildStore({
   const placeUnitFile = (kind: StorageKind, placeId: string) => address(placeCollection(kind, placeId));
   const mediaCacheFile = (placeId: string) => placeUnitFile('media', placeId);
   const loreFile = (placeId: string) => placeUnitFile('lore', placeId);
-  const gifsFile = (placeId: string) => placeUnitFile('gifs', placeId);
+  const gifsFile = () => address(personaKey('gifs'));
+  const emojiRailsFile = (placeId: string) => placeUnitFile('emoji_rails', placeId);
   const privateDir = () => collection('private');
   const privateFile = (accountId: string) => address(accountCollection('private', accountId));
   const recentFile = (placeId: string) => placeUnitFile('recent', placeId);
@@ -1976,10 +1981,10 @@ function buildStore({
     return known(file);
   }
 
-  /** The cache entry of a place's GIF library, created empty when missing, normalised in place of
+  /** The cache entry of the shared GIF library, created empty when missing, normalised in place of
    * the cached value (src/memory/gifs.ts#normalizeGifs); never marked dirty by reading. */
-  function gifsEntry(placeId: string) {
-    const item = entry(gifsFile(placeId), emptyGifs);
+  function gifsEntry() {
+    const item = entry(gifsFile(), emptyGifs);
     item.value = normalizeGifs(item.value);
     return item;
   }
@@ -2965,29 +2970,28 @@ function buildStore({
     },
 
     /**
-     * The place's GIF library (the place's gifs.json, see
-     * src/memory/gifs.ts): `{ nextId, entries, backfill }`, the empty library
-     * when nothing is stored. Normalised on read, persisted the next time
-     * anything writes it, never reset implicitly.
+     * The GIF library, one for every place and interface (src/memory/gifs.ts): `{ nextId, entries, backfill, backfills }`,
+     * the empty library when nothing is stored. Normalised on read, persisted the next time anything writes it, never
+     * reset implicitly.
      */
-    getGifs(placeId: string): { nextId: number; entries: Record<string, object>; backfill: object | null } {
-      return gifsEntry(placeId).value;
+    getGifs(): GifLibrary {
+      return gifsEntry().value;
     },
 
     /**
      * The library entry whose handle is `handle` (`g12`), as `{ key, ...entry }`,
      * or null (src/memory/gifs.ts#findGif). Creates nothing on disk.
      */
-    findGif(placeId: string, handle: string): object | null {
-      return findGif(gifsEntry(placeId).value, handle);
+    findGif(handle: string): ReturnType<typeof findGif> {
+      return findGif(gifsEntry().value, handle);
     },
 
     /**
-     * Add the members' GIFs of `messages` to the place's library
-     * (src/memory/gifs.ts#mergeGifs: counts accumulate, new GIFs get the next
-     * handle, the lowest-ranked entries past `opts.storeMax` are evicted).
-     * Marks the file dirty only when something was counted.
-     * @param messages  Normalized messages (URLs present); `self`/`bot`/`ts` read.
+     * Add the members' GIFs of `messages` to the library (src/memory/gifs.ts#mergeGifs: counts accumulate on the place
+     * the message was in, new GIFs get the next handle, the lowest-ranked entries past `opts.storeMax` are evicted).
+     * Marks the unit dirty only when something was counted.
+     * @param placeId  The place of a message that names none.
+     * @param messages  Normalized messages (URLs present); `self`/`bot`/`ts`/`placeId` read.
      * @returns How many uses were counted.
      */
     recordGifs(
@@ -2995,8 +2999,9 @@ function buildStore({
       messages: Array<StoredRecord>,
       opts: { storeMax?: number; halfLifeDays?: number } = {}
     ): number {
-      const item = gifsEntry(placeId);
-      const { gifs, counted } = mergeGifs(item.value, messages, opts);
+      const item = gifsEntry();
+      const placed = messages.map((message) => (message?.placeId ? message : { ...message, placeId }));
+      const { gifs, counted } = mergeGifs(item.value, placed, opts);
       if (counted > 0) {
         item.value = gifs;
         item.dirty = true;
@@ -3005,16 +3010,15 @@ function buildStore({
     },
 
     /**
-     * Record the persona's own post of the library entry under `key`
-     * (src/memory/gifs.ts#markOwnGif: `ownLast` = `ts`, `ownUses` + 1), after a
-     * turn sent it. Marks the file dirty only when the entry exists.
+     * Record the persona's own post of the library entry under `key` on the place it went to
+     * (src/memory/gifs.ts#markOwnGif), after a turn sent it. Marks the unit dirty only when the entry exists.
      * @param key  The entry's library key (findGif's `key`).
      * @param ts   When it was posted (epoch ms).
      * @returns Whether an entry was stamped.
      */
     recordOwnGif(placeId: string, key: string, ts: number): boolean {
-      const item = gifsEntry(placeId);
-      const { gifs, marked } = markOwnGif(item.value, key, ts);
+      const item = gifsEntry();
+      const { gifs, marked } = markOwnGif(item.value, key, ts, placeId);
       if (marked) {
         item.value = gifs;
         item.dirty = true;
@@ -3023,31 +3027,54 @@ function buildStore({
     },
 
     /**
-     * Set every GIF library entry's count to 0 (src/memory/gifs.ts#resetGifCounts)
-     * -- only for the GIF history backfill (src/memory/gif-backfill.ts: its one
-     * first run, or the owner's `/nep gifs rescan`), which recounts from
-     * history right after. Entries, handles, `nextId` and the backfill stamp
-     * are kept, so a recounted GIF keeps its handle.
+     * Set this place's counter of every GIF to 0 (src/memory/gifs.ts#resetGifCounts) -- only for the GIF history backfill
+     * (src/memory/gif-backfill.ts: its one first run, or the owner's `/nep gifs rescan`), which recounts from history
+     * right after. Entries, handles, `nextId`, the stamps and the other places' counters are kept.
      */
     resetGifCounts(placeId: string) {
-      const item = gifsEntry(placeId);
-      item.value = resetGifCounts(item.value);
+      const item = gifsEntry();
+      item.value = resetGifCounts(item.value, placeId);
       item.dirty = true;
     },
 
     /**
-     * Stamp the place's GIF library `backfill` (`{ at, channels, messages }`,
-     * normalised like on read) after a history backfill.
+     * Stamp the history backfill of this place on the library (`{ at, channels, messages }`, normalised like on read).
      * @returns The stored stamp.
      */
     setGifBackfill(
       placeId: string,
       stamp: { at: string; channels: number; messages: number }
     ): { at: string; channels: number; messages: number } | null {
-      const item = gifsEntry(placeId);
-      item.value = { ...item.value, backfill: normalizeGifs({ ...item.value, backfill: stamp }).backfill };
+      const item = gifsEntry();
+      item.value = stampGifBackfill(item.value, placeId, stamp);
       item.dirty = true;
-      return item.value.backfill;
+      return item.value.backfills[placeId] ?? null;
+    },
+
+    /** The cached file of the entry under `key` (a library key or a native id), which moves it under the content hash. */
+    setGifFile(key: string, file: { hash: string; file: string }) {
+      const item = gifsEntry();
+      item.value = withGifFile(item.value, key, file);
+      item.dirty = true;
+    },
+
+    /** The describer's caption of the entry under `key` (a library key or a native id), with its vector when it has one. */
+    setGifCaption(key: string, described: { caption: string; vector: ArrayLike<number> | null }) {
+      const item = gifsEntry();
+      item.value = withGifCaption(item.value, key, described);
+      item.dirty = true;
+    },
+
+    /** The emoji rails of a place (src/behavior/media-pick.ts), null before its first counted reply. */
+    getEmojiRails(placeId: string): unknown {
+      return entry(emojiRailsFile(placeId), () => null).value;
+    },
+
+    /** The emoji rails of a place, kept as given. */
+    setEmojiRails(placeId: string, rails: unknown) {
+      const item = entry(emojiRailsFile(placeId), () => null);
+      item.value = rails;
+      item.dirty = true;
     },
 
     /**

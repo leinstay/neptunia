@@ -32,6 +32,7 @@ import { continuationHistory } from '../turn/history.ts';
 import { createAct } from '../turn/act.ts';
 import { createDiary } from '../turn/diary.ts';
 import { createDrawGif } from '../turn/draw-gif.ts';
+import { createMediaPick } from './media-pick.ts';
 import { createFacts } from '../turn/facts.ts';
 import { createInTurnTools } from '../turn/in-turn-tools.ts';
 import { createInputs } from '../turn/inputs.ts';
@@ -116,11 +117,6 @@ export {
 export { fallbackLookupPlan };
 
 // The re-watch classifier's answer parser lives with the re-watch (src/turn/rewatch.ts).
-
-/** src/turn/inputs.ts hands the freeze map out untyped, src/turn/draw-gif.ts keeps a typed value under each key. */
-function typedFreeze<TValue>(freeze: Map<string, unknown>) {
-  return freeze as Map<string, { bucket: number; signature: string; value: TValue }>;
-}
 
 /**
  * `images` (src/llm/images.js#createImageGen) is optional: absent,
@@ -306,6 +302,10 @@ export function createTurnRunner({
   images = undefined,
   speech = null,
   emoji = undefined,
+  // The embedder of the media pick's candidate search (src/behavior/media-pick.ts); null: it reads the captions' words.
+  embedQuery = null,
+  // The data folder a library GIF's cached file is read from; null: no file to post.
+  dataDir = null,
   getSelfName = () => 'bot',
   selfId: selfIdOf = () => '',
   reads: readsDep,
@@ -358,7 +358,7 @@ export function createTurnRunner({
 
   const iface = port;
   const inputs = createInputs({ store, iface, memoryContext, errands, intentions, places });
-  const { turnContextOf, stableFreezeOf, conversationOf, messageOf, checkEffect } = inputs;
+  const { turnContextOf, conversationOf, messageOf, checkEffect } = inputs;
 
   const { facts, setFactsSource } = createFacts({ clock });
   // The channels known to be private chats (a deferred call names only its channel).
@@ -454,10 +454,18 @@ export function createTurnRunner({
     recentOfPlaces,
     diaryFacts,
   });
-  const { drawTool, resolveGif, postGif, pickedInTime, pickGifSafely } = createDrawGif({
+  const mediaPick = createMediaPick({
+    hot,
+    // The runner's store is the memory store (src/memory/store.ts), which holds the library and the rails the pick reads.
+    store: store as Parameters<typeof createMediaPick>[0]['store'],
+    llm,
+    clock,
+    ...(embedQuery ? { embedQuery } : {}),
+  });
+  const { drawTool, postGif, pickedInTime } = createDrawGif({
     hot,
     store,
-    llm,
+    dataDir,
     images,
     imageFetcher,
     ifaceReads,
@@ -467,7 +475,6 @@ export function createTurnRunner({
     clock,
     schedule,
     ...inputs,
-    stableFreezeOf: <TValue>(placeId: string) => typedFreeze<TValue>(stableFreezeOf(placeId)),
     lastPostAt,
     diaryPictureGate: (config, channel, now) =>
       diaryPictureGate(config as Parameters<typeof diaryPictureGate>[0], channel, now),
@@ -501,7 +508,7 @@ export function createTurnRunner({
     renderPost,
     postGif,
     pickedInTime,
-    pickGifSafely,
+    mediaPick,
     recordOwnParticipation,
   });
   const { pullChannels, captionAll, withSeenBefore, markPulledSeen, noteSpokeSaw, stampShownCalls } = createPulls({
@@ -631,7 +638,6 @@ export function createTurnRunner({
     journalOp,
     prepareDiary,
     diaryPictureGate,
-    resolveGif,
     emojiLookup,
     settleAuthor,
     diaryChannelName,

@@ -70,7 +70,7 @@ export async function toolRoundPhase(
     selfName,
     ...routing,
     sourceId: isPrivate ? null : (source?.placeId ?? null),
-    gifPick: !diaryPrep,
+    mediaPicks: !diaryPrep,
     participation: isPrivate ? null : { descriptions: descriptions ?? null },
     draft,
   };

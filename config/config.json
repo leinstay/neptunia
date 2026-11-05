@@ -139,7 +139,6 @@
       "server": 4000,
       "lore": 1500,
       "emoji": 800,
-      "gifs": 900,
       "pulled": 4000,
       "recent": 1200,
       "participation": 6000,
@@ -195,6 +194,10 @@
     "probeMinutes": 30
   },
   "media": {
+    "pick": {
+      "maxOutputTokens": 60,
+      "candidates": 20
+    },
     "maxOutputTokens": 2000,
     "recacheBefore": null,
     "video": {
@@ -392,11 +395,6 @@
   "mirrors": {
     "claimLeaseMs": 600000,
     "sendTimeoutMs": 120000
-  },
-  "gifs": {
-    "pick": {
-      "maxOutputTokens": 60
-    }
   },
   "private": {
     "enabled": false,

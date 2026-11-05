@@ -40,6 +40,7 @@ import type { ChannelSpec } from './fixtures/turn-world.ts';
 import type { TriggerKind } from '../src/turn/triggers.ts';
 import type { TurnParams } from '../src/turn/outcome.ts';
 import { createTurnRunner } from './fixtures/turn-runner.ts';
+import { declarePick, gifStore, pickLlm, withPick } from './fixtures/turn-pick.ts';
 import { openTestMemorySync, journalLabel } from './fixtures/memory-db/service.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -2030,14 +2031,6 @@ test('createTurnRunner: the persona turn is requested as role core, purpose repl
 });
 
 /** A store with one link GIF `g1` in the library (no other GIF state). */
-function gifStore() {
-  return {
-    ...fakeStore(),
-    findGif: (placeId: string, id: string) =>
-      id === 'g1' ? { id: 'g1', kind: 'link', url: 'https://tenor.com/view/chat-qui-danse-1' } : null,
-  };
-}
-
 // ---- format.stripDashes ------------------------------------------------------------------
 
 /** One reply turn answered with `reply` under `format`; what was posted and the logs. */
@@ -2125,9 +2118,10 @@ test('runTurn: an overheard turn posts its GIF plain', async () => {
     const turns = createTurnRunner({
       discord: DISCORD,
       createPort: createDiscordAdapter,
-      hot: fakeHot(),
+      // B7: a GIF of hers is the media pick's now, in place of the message it would have replaced.
+      hot: withPick(fakeHot()),
       store: gifStore(),
-      llm: fakeLlm('<gif reply="#1">g1</gif>'),
+      llm: pickLlm({ reply: '<msg reply="#1">χα</msg>', pick: 'gif g1' }),
       calibrator: identityCalibrator(),
       client: fakeClient(),
     });
@@ -3582,11 +3576,12 @@ test('runTurn: the author of a pulled line is mentioned by the handle on their l
 });
 
 test('runTurn: a GIF answering a pulled line posts plain with its jump link', async () => {
+  // B7: a picked GIF stands in for the message that answers the pulled line.
   const scene = routedScene({
-    hot: drawHot(),
+    hot: withPick(drawHot()),
     images: fakeImages(),
     store: gifStore(),
-    llm: fakeLlm('<gif reply="#4">g1</gif>'),
+    llm: pickLlm({ reply: '<msg reply="#4">χα</msg>', pick: 'gif g1' }),
   });
 
   const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn(scene.params));
@@ -3601,11 +3596,12 @@ test('runTurn: a GIF answering a pulled line posts plain with its jump link', as
   assert.equal(logs.find((l) => l.msg === 'turn: gif sent')?.link, true);
 });
 
-test('runTurn: a GIF alone answering a routed call links the call; after a message it carries none', async () => {
+// B7: the picked GIF comes first now, in place of the first message, so it carries the one link of the turn.
+test('runTurn: a picked GIF answering a routed call links the call; the message after it carries none', async () => {
   const alone = routedScene({
-    features: {},
+    hot: withPick(fakeHot()),
     store: gifStore(),
-    llm: fakeLlm('<gif>g1</gif>'),
+    llm: pickLlm({ reply: '<msg>χα</msg>', pick: 'gif g1' }),
   });
   await withCapturedLogs(() => alone.turns.runTurn(alone.params));
   assert.deepEqual(
@@ -3614,17 +3610,16 @@ test('runTurn: a GIF alone answering a routed call links the call; after a messa
   );
 
   const after = routedScene({
-    features: {},
+    hot: withPick(fakeHot()),
     store: gifStore(),
-    llm: fakeLlm('<msg>κοίτα</msg><gif>g1</gif>'),
+    llm: pickLlm({ reply: '<msg>χα</msg><msg>κοίτα</msg>', pick: 'gif g1' }),
   });
-  const { logs } = await withCapturedLogs(() => after.turns.runTurn(after.params));
+  await withCapturedLogs(() => after.turns.runTurn(after.params));
   assert.deepEqual(
     after.channel.sent.map((post) => post.content),
-    [linked('κοίτα', 'd3'), 'https://tenor.com/view/chat-qui-danse-1'],
+    [linked('https://tenor.com/view/chat-qui-danse-1', 'd3'), 'κοίτα'],
     'one link per turn, on its first post'
   );
-  assert.equal('link' in (logs.find((l) => l.msg === 'turn: gif sent') ?? {}), false);
 });
 
 test('runTurn: a follow-up reply to a pulled line posts plain with its jump link', async () => {
@@ -3940,13 +3935,13 @@ test('runTurn: a turn that showed calls of a read-only channel stamps them: answ
   const answerCases: Array<[string, string, Record<string, string>]> = [
     ['a reply to e1', '<msg reply="#3">ναι, εδώ είμαι</msg>', { e1: 'answered', e2: 'skipped' }],
     ['a reaction on e2', '<react to="#4">👍</react>', { e1: 'skipped', e2: 'answered' }],
-    ['a GIF answering e2', '<msg>χα</msg><gif reply="#4">g1</gif>', { e1: 'skipped', e2: 'answered' }],
+    // B7: `<gif>` left her output; a message answering e2 stands for what a picked GIF in its place answers.
+    ['a message answering e2', '<msg reply="#4">χα</msg>', { e1: 'skipped', e2: 'answered' }],
     ['a reply to a diary line that is no call', '<msg reply="#5">ωραίο</msg>', { e1: 'skipped', e2: 'skipped' }],
     ['a message answering no pulled line', '<msg>καλημέρα</msg>', { e1: 'skipped', e2: 'skipped' }],
   ];
   for (const [label, answer, states] of answerCases) {
     const scene = pullScene(ringedDiary({ features: quiet, llm: fakeLlm(answer) }));
-    scene.store.findGif = gifStore().findGif;
 
     const { result, logs } = await withCapturedLogs(() =>
       scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
@@ -5873,7 +5868,8 @@ test("runTurn: another member's waiting call is named under labels.task.queuedOt
 const GIF_PICK_PROMPT = 'Pick a GIF for what {{name}} wrote.';
 const PICK_LIBRARY_SIZE = 50;
 // PR 7d: gifs.pick.maxChars (160), contextMessages (4) and graceMs (1000) are constants of the picker.
-const PICK_SETTINGS = { maxOutputTokens: 17 };
+// B7: a cap above the library, so a pick may name any of it.
+const PICK_SETTINGS = { maxOutputTokens: 17, candidates: PICK_LIBRARY_SIZE };
 
 /**
  * A library of PICK_LIBRARY_SIZE link GIFs, every one captioned: g1 the most used, g50 used
@@ -5886,6 +5882,8 @@ function pickLibrary() {
     entries[`k${i}`] = {
       id: `g${i}`,
       kind: 'link',
+      // B7: the search reads the caption on the entry, and these words are the replies' below.
+      caption: `ναι χα λεζάντα ${i}`,
       url: `https://tenor.com/view/gif-${i}`,
       itemId: `item-${i}`,
       messageId: `m-${i}`,
@@ -5903,23 +5901,10 @@ function pickStore({ library = pickLibrary(), data = {} } = {}) {
   const store = fakeStore({ mediaCache: library.mediaCache });
   store.state = { data, markDirty() {} };
   store.getGifs = () => library.gifs;
-  store.findGif = (placeId: string, handle: string) => findGif(library.gifs, handle);
+  store.findGif = (handle: string) => findGif(library.gifs, handle);
   store.ownGifs = [];
   store.recordOwnGif = (placeId: string, key: string, ts: number) => store.ownGifs.push({ placeId, key, ts });
   return store;
-}
-
-/** A fake LLM answering the turn with `reply` and the picker with `pick` (a function may wait or throw). */
-function pickLlm({ reply, pick = 'none' }: Untyped) {
-  const calls: Array<{ messages: Untyped; options: Untyped }> = [];
-  return {
-    calls,
-    complete: async (messages: Untyped, options: Untyped) => {
-      calls.push({ messages, options });
-      const answer = options?.purpose === 'gif-pick' ? pick : reply;
-      return { text: typeof answer === 'function' ? await answer() : answer, usage: {}, estimated: 10 };
-    },
-  };
 }
 
 /** The two chat lines of a picker turn: an older one, then the trigger. */
@@ -5946,12 +5931,13 @@ function pickHot({
     { ...features },
     {},
     {
-      gifs: { pick: pickSettings },
+      media: { maxPerTurn: 6, filePreviewChars: 500, pick: pickSettings },
       models: { base: { analyzer: 'cheap/classifier' } },
       ...(typing ? { typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], ...typing } } : {}),
     }
   );
-  Object.assign(hot.prompts, { 'gif-pick': GIF_PICK_PROMPT }, prompts);
+  declarePick();
+  Object.assign(hot.prompts, { 'media-pick': GIF_PICK_PROMPT }, prompts);
   for (const [name, text] of Object.entries(prompts)) if (text === null) delete hot.prompts[name];
   return hot;
 }
@@ -5992,27 +5978,20 @@ async function runPickTurn({
   const { result, logs } = await withCapturedLogs(() =>
     turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(triggerRaw), triggerKind: 'mention' })
   );
-  const picks = llm.calls.filter((call) => call.options?.purpose === 'gif-pick');
+  const picks = llm.calls.filter((call) => call.options?.purpose === 'media-pick');
   const sent = () => channel.sent.map((payload) => payload.content);
   const limits = recorded?.lines.find(({ record }) => record.kind === 'turn')?.record.limits ?? null;
   return { result, logs, channel, picks, store, sent, sendTimes, startedAt, limits };
 }
 
-test('runTurn: a short reply is shown with the whole captioned library; a picked handle posts that GIF and no text', async () => {
-  const { result, logs, channel, picks, store, sent } = await runPickTurn({ pick: ' G50 ' });
+// B7: the classifier reads the search's candidates, one text with no cached part, and answers `gif <handle>`.
+test('runTurn: a short reply is shown with its candidates; a picked handle posts that GIF and no text', async () => {
+  const { result, logs, channel, picks, store, sent } = await runPickTurn({ pick: ' GIF  G50 ' });
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(picks.length, 1, 'one pick request');
   const [system, user] = picks[0].messages;
   assert.deepEqual(system, { role: 'system', content: 'Pick a GIF for what Bot wrote.' });
-  assert.equal(user.content.length, 2, 'two text parts');
-  assert.equal(user.content[0].cacheSegment, 'stable', 'the library part is the cache segment');
-  assert.equal(user.content[1].cacheSegment, undefined, 'the per-turn part is untagged');
-  assert.ok(
-    user.content[0].text.startsWith('<gifs>\n') && user.content[0].text.endsWith('</gifs>\n\n'),
-    'part 1 is the library block and its separator'
-  );
-  assert.ok(user.content[1].text.startsWith('<context>\n'), 'part 2 starts at the context');
   const blocks = textOf(user.content).split('\n\n');
   assert.equal(blocks.length, 3);
   assert.match(
@@ -6024,79 +6003,82 @@ test('runTurn: a short reply is shown with the whole captioned library; a picked
   assert.equal(blocks[2], `<reply>\n${marker} ναι, φυσικά, έλα\n</reply>`, 'the reply names the line it answers');
   assert.ok(
     blocks[0].startsWith('<gifs>\n') && blocks[2].endsWith('</reply>'),
-    'the library leads the request, the reply ends it'
+    'the candidates lead the request, the reply ends it'
   );
   const gifLines = blocks[0]
     .replace(/^<gifs>\n/, '')
     .replace(/\n<\/gifs>$/, '')
     .split('\n');
-  assert.equal(gifLines.length, PICK_LIBRARY_SIZE, 'the whole library, not a top slice');
-  assert.deepEqual([gifLines[0], gifLines.at(-1)], ['g1 -- λεζάντα 1', 'g50 -- λεζάντα 50'], 'in rank order');
+  assert.equal(gifLines.length, PICK_LIBRARY_SIZE, 'up to the cap');
+  assert.deepEqual(
+    [gifLines[0], gifLines.at(-1)],
+    ['g1 -- ναι χα λεζάντα 1', 'g50 -- ναι χα λεζάντα 50'],
+    'equal scores in use order'
+  );
   const { options } = picks[0];
   assert.deepEqual(
     [options.role, options.purpose, options.maxOutputTokens, options.model, options.countAgainstDailyCap],
-    ['analyzer', 'gif-pick', 17, 'cheap/classifier', true]
+    ['analyzer', 'media-pick', 17, 'cheap/classifier', true]
   );
 
   assert.deepEqual(sent(), ['https://tenor.com/view/gif-50'], 'the GIF, no text');
   assert.equal(channel.sent[0].reply?.messageReference, 'm1', 'replying where the first message would have');
-  assert.deepEqual(store.ownGifs, [{ placeId: 'g1', key: 'k50', ts: NOW }]);
-  const picked = logs.find((entry) => entry.msg === 'gifs: picked');
-  assert.deepEqual([picked?.channel, picked?.handle, picked?.library], ['c1', true, PICK_LIBRARY_SIZE]);
+  // B7: her own post counts on the place it went to, the channel.
+  assert.deepEqual(store.ownGifs, [{ placeId: 'c1', key: 'k50', ts: NOW }]);
+  const picked = logs.find((entry) => entry.msg === 'media-pick: answered');
+  assert.deepEqual([picked?.channel, picked?.kind, picked?.gifs], ['c1', 'gif', PICK_LIBRARY_SIZE]);
   assert.equal(
-    JSON.stringify(logs.filter((entry) => entry.msg.startsWith('gifs:'))).includes('λεζάντα'),
+    JSON.stringify(logs.filter((entry) => entry.msg.startsWith('media-pick:'))).includes('λεζάντα'),
     false,
     'counts only'
   );
 });
 
-test('runTurn: the picker leaves out uncaptioned GIFs and acts only on a listed handle', async () => {
+test('runTurn: the pick leaves out uncaptioned GIFs and acts only on a listed handle', async () => {
   const library = pickLibrary();
-  delete library.mediaCache['item-7'];
-  const { picks, sent, logs } = await runPickTurn({ store: pickStore({ library }), pick: 'g7' });
+  delete library.gifs.entries.k7.caption;
+  const { picks, sent, logs } = await runPickTurn({ store: pickStore({ library }), pick: 'gif g7' });
   assert.equal(textOf(picks[0].messages[1].content).includes('g7 --'), false, 'g7 has no caption');
   assert.deepEqual(sent(), ['ναι, φυσικά, έλα'], 'an unlisted handle posts the text');
-  const picked = logs.find((entry) => entry.msg === 'gifs: picked');
-  assert.deepEqual([picked?.handle, picked?.library], [false, PICK_LIBRARY_SIZE - 1]);
+  const picked = logs.find((entry) => entry.msg === 'media-pick: answered');
+  assert.deepEqual([picked?.kind, picked?.gifs], ['none', PICK_LIBRARY_SIZE - 1]);
 });
 
-test('runTurn: the picker answering none or something unreadable posts the text', async () => {
-  for (const pick of ['none', 'g3 maybe']) {
+test('runTurn: the pick answering none or something unreadable posts the text', async () => {
+  for (const pick of ['none', 'gif g3 maybe']) {
     const { picks, sent, logs } = await runPickTurn({ pick });
     assert.equal(picks.length, 1, pick);
     assert.deepEqual(sent(), ['ναι, φυσικά, έλα'], pick);
-    assert.equal(logs.find((entry) => entry.msg === 'gifs: picked')?.handle, false, pick);
+    assert.equal(logs.find((entry) => entry.msg === 'media-pick: answered')?.kind, 'none', pick);
   }
 });
 
-test('runTurn: a failed pick request logs gifs: pick failed and posts the text', async () => {
+test('runTurn: a failed pick request logs media-pick: failed and posts the text', async () => {
   const { sent, logs } = await runPickTurn({
     pick: () => {
       throw Object.assign(new Error('upstream'), { statusCode: 503 });
     },
   });
   assert.deepEqual(sent(), ['ναι, φυσικά, έλα']);
-  assert.equal(logs.find((entry) => entry.msg === 'gifs: pick failed')?.status, 503);
+  assert.equal(logs.find((entry) => entry.msg === 'media-pick: failed')?.status, 503);
 });
 
-test('runTurn: no pick for a reply over maxChars or a turn posting its own GIF', async () => {
+// B7: the case of a turn posting its own GIF went with `<gif>`, which tests/parse-gif-retired.test.ts holds retired.
+test('runTurn: no pick for a reply over maxChars', async () => {
   const text = 'α'.repeat(161);
-  const long = await runPickTurn({ reply: `<msg>${text}</msg>`, pick: 'g1' });
+  const long = await runPickTurn({ reply: `<msg>${text}</msg>`, pick: 'gif g1' });
   assert.equal(long.picks.length, 0, 'over maxChars');
   assert.deepEqual(long.sent(), [text]);
-  const fits = await runPickTurn({ reply: `<msg>${'α'.repeat(160)}</msg>`, pick: 'g1' });
+  // B7: a word of the reply finds the candidates.
+  const fits = await runPickTurn({ reply: `<msg>ναι ${'α'.repeat(156)}</msg>`, pick: 'gif g1' });
   assert.equal(fits.picks.length, 1, 'exactly maxChars is still picked for');
-
-  const own = await runPickTurn({ reply: '<msg>χα</msg><gif>g2</gif>', pick: 'g1' });
-  assert.equal(own.picks.length, 0, 'the turn posts a GIF already');
-  assert.deepEqual(own.sent(), ['χα', 'https://tenor.com/view/gif-2']);
 });
 
 test('runTurn: no pick without the prompt or without a captioned GIF', async () => {
-  const noPrompt = await runPickTurn({ pick: 'g1', prompts: { 'gif-pick': null } });
-  assert.equal(noPrompt.picks.length, 0, 'no prompts/gif-pick.md');
+  const noPrompt = await runPickTurn({ pick: 'gif g1', prompts: { 'media-pick': null } });
+  assert.equal(noPrompt.picks.length, 0, 'no prompts/media-pick.md');
   const empty = await runPickTurn({
-    pick: 'g1',
+    pick: 'gif g1',
     store: pickStore({ library: { gifs: { nextId: 1, entries: {} }, mediaCache: {} } }),
   });
   assert.equal(empty.picks.length, 0, 'no captioned GIF');
@@ -6143,8 +6125,8 @@ test('runTurn: the picker names the line the first message replies to, when it i
 test('runTurn: with several messages a picked GIF replaces the first one only; the rest follow in order', async () => {
   const longer = 'και κάτι ακόμα πιο μακρύ ' + 'α'.repeat(160);
   const reply = `<msg reply="#2">χα</msg><msg>${longer}</msg><msg>τέλος</msg>`;
-  const { picks, sent, channel, store } = await runPickTurn({ reply, pick: 'g50' });
-  assert.equal(picks.length, 1, 'only the first message counts toward gifs.pick.maxChars');
+  const { picks, sent, channel, store } = await runPickTurn({ reply, pick: 'gif g50' });
+  assert.equal(picks.length, 1, 'only the first message counts toward the longest it may replace');
   assert.equal(
     textOf(picks[0].messages[1].content).split('\n\n')[2].endsWith(' χα\n</reply>'),
     true,
@@ -6160,7 +6142,7 @@ test('runTurn: with several messages a picked GIF replaces the first one only; t
 
 test('runTurn: a picked GIF that fails to send leaves the first message to be posted as written, then the rest', async () => {
   const reply = '<msg reply="#2">χα</msg><msg>τέλος</msg>';
-  const { sent, channel, logs, store } = await runPickTurn({ reply, pick: 'g50', failGif: true });
+  const { sent, channel, logs, store } = await runPickTurn({ reply, pick: 'gif g50', failGif: true });
   assert.ok(
     logs.some((entry) => entry.msg === 'turn: gif failed'),
     'the failed GIF is logged'
@@ -6170,9 +6152,9 @@ test('runTurn: a picked GIF that fails to send leaves the first message to be po
   assert.deepEqual(store.ownGifs, [], 'no own post recorded');
 });
 
-test('runTurn: gifs.pick.maxChars gates the first message only', async () => {
+test('runTurn: the longest message the pick replaces gates the first message only', async () => {
   const first = 'και κάτι ακόμα πιο μακρύ ' + 'α'.repeat(160);
-  const long = await runPickTurn({ reply: `<msg>${first}</msg><msg>χα</msg>`, pick: 'g1' });
+  const long = await runPickTurn({ reply: `<msg>${first}</msg><msg>χα</msg>`, pick: 'gif g1' });
   assert.equal(long.picks.length, 0, 'a long first message is never replaced');
   assert.deepEqual(long.sent(), [first, 'χα']);
 });
@@ -6197,7 +6179,7 @@ test("runTurn: the picker runs alongside the first message's typing time", async
 test("runTurn: a picker still out when the first message's typing ends is left behind: the text goes, logged and journaled", async () => {
   // PR 7d: gifs.pick.graceMs is the constant 1000, so the picker has that long beyond the typing before it is left behind.
   const typing = { msPerChar: [0, 0], minMs: 60, maxMs: 60 };
-  const slow = () => new Promise((resolve) => setTimeout(() => resolve('g50'), 1400));
+  const slow = () => new Promise((resolve) => setTimeout(() => resolve('gif g50'), 1400));
   const late = await runPickTurn({
     reply: '<msg>ναι</msg>',
     pick: slow,
@@ -6209,17 +6191,17 @@ test("runTurn: a picker still out when the first message's typing ends is left b
     late.sendTimes[0] - late.startedAt < 1300,
     `not held for the picker (${late.sendTimes[0] - late.startedAt} ms)`
   );
-  const entry = late.logs.find((log) => log.msg === 'gifs: pick late');
+  const entry = late.logs.find((log) => log.msg === 'media-pick: late');
   assert.deepEqual([entry?.channel, entry?.graceMs], ['c1', 1000]);
   assert.deepEqual(late.store.ownGifs, [], 'nothing posted or stamped');
   assert.ok(
-    late.limits.some((limit: Untyped) => limit.kind === 'helper-timeout' && limit.where === 'gif-pick'),
+    late.limits.some((limit: Untyped) => limit.kind === 'helper-timeout' && limit.where === 'media-pick'),
     'the turn record names the picker'
   );
 
   const graced = await runPickTurn({
     reply: '<msg>ναι</msg>',
-    pick: () => new Promise((resolve) => setTimeout(() => resolve('g50'), 400)),
+    pick: () => new Promise((resolve) => setTimeout(() => resolve('gif g50'), 400)),
     typing,
   });
   assert.deepEqual(
@@ -6228,7 +6210,7 @@ test("runTurn: a picker still out when the first message's typing ends is left b
     'an answer inside the grace still replaces the text'
   );
   assert.equal(
-    graced.logs.some((log) => log.msg === 'gifs: pick late'),
+    graced.logs.some((log) => log.msg === 'media-pick: late'),
     false
   );
 });
@@ -6236,12 +6218,12 @@ test("runTurn: a picker still out when the first message's typing ends is left b
 test('runTurn: a picker that answered during the typing is used', async () => {
   const quick = await runPickTurn({
     reply: '<msg>ναι</msg>',
-    pick: 'g50',
+    pick: 'gif g50',
     typing: { msPerChar: [0, 0], minMs: 60, maxMs: 60 },
   });
   assert.deepEqual(quick.sent(), ['https://tenor.com/view/gif-50']);
   assert.equal(
-    quick.logs.some((log) => log.msg === 'gifs: pick late'),
+    quick.logs.some((log) => log.msg === 'media-pick: late'),
     false
   );
 });
@@ -6278,37 +6260,35 @@ async function twoPickTurns({ times, between }: Untyped) {
   between(library.gifs);
   t = times[1];
   await turn();
-  return llm.calls.filter((call) => call.options?.purpose === 'gif-pick').map((call) => call.messages[1].content);
+  return llm.calls.filter((call) => call.options?.purpose === 'media-pick').map((call) => call.messages[1].content);
 }
 
 /** The persona posted g40 at `at`, and it was used enough to lead the ranking. */
 const postG40 = (at: number) => (gifs: Untyped) =>
-  Object.assign(gifs.entries.k40, { ownLast: at, ownUses: 1, count: 500, last: at });
+  Object.assign(gifs.entries.k40, {
+    ownLast: at,
+    ownUses: 1,
+    count: 500,
+    last: at,
+    // B7: her own posts are read per place.
+    places: { c1: { count: 500, last: at, ownLast: at, ownUses: 1 } },
+  });
 
-test("runTurn: the picker's cached library is byte-identical within one cache bucket; her post and its age go to the tail", async () => {
+// B7: the candidates change with each reply, so nothing of the request is held per cache bucket any more.
+test('runTurn: her post and its age go to <gifs_recent>, the tail of the next pick', async () => {
   const first = NOW + 60_000;
   const second = NOW + 7 * 60_000;
   const [a, b] = await twoPickTurns({ times: [first, second], between: postG40(first + 1000) });
-  assert.equal(a[0].cacheSegment, 'stable');
-  assert.equal(b[0].text, a[0].text, "the stable part of the second pick is byte for byte the first one's");
-  assert.equal(b[0].text.includes('(you'), false, 'no own-post mark in the cached library');
-  const gifLines = b[0].text
-    .replace(/^<gifs>\n/, '')
-    .replace(/\n<\/gifs>\n\n$/, '')
-    .split('\n');
-  assert.equal(gifLines[0], 'g1 -- λεζάντα 1', 'the order the bucket started with');
-  assert.equal(a[1].text.includes('<gifs_recent>'), false, 'no recent post before it');
+  assert.equal(a.includes('<gifs_recent>'), false, 'no recent post before it');
   const recent = fill(labels.gifs.ownMark, { ago: formatDuration(second - (first + 1000), labels.units) });
-  assert.ok(
-    b[1].text.startsWith(`<gifs_recent>\ng40 ${recent}\n</gifs_recent>\n\n<context>\n`),
-    'the post and its age open the per-call tail'
-  );
+  assert.ok(b.includes(`<gifs_recent>\ng40 ${recent}\n</gifs_recent>\n\n<context>\n`), 'the post and its age');
+  assert.equal(b.split('</gifs>')[0].includes('(you'), false, 'no own-post mark in the candidates');
 });
 
-test("runTurn: the picker's library follows the library at the next cache bucket", async () => {
+test('runTurn: the next pick reads the library as it stands', async () => {
   const first = NOW + 60_000;
-  const [, nextBucket] = await twoPickTurns({ times: [first, NOW + 61 * 60_000], between: postG40(first + 1000) });
-  assert.ok(nextBucket[0].text.startsWith('<gifs>\ng40 -- λεζάντα 40\n'), 'reranked at the bucket edge');
+  const [, next] = await twoPickTurns({ times: [first, first + 60_000], between: postG40(first + 1000) });
+  assert.ok(next.startsWith('<gifs>\ng40 -- ναι χα λεζάντα 40\n'), 'reranked at once');
 });
 
 // ---------------------------------------------------------------------------
@@ -7618,14 +7598,25 @@ test('skills gateway: a send the port answers unknown is journaled unknown, neve
 
 test('skills gateway: the GIF and the drawing are published through the port', async () => {
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id' });
+  const declared = port.capabilities.bind(port);
+  Object.assign(port, { capabilities: () => ({ ...declared(), mediaPick: { gifForms: ['link'] } }) });
   const raw = rawMessage({ id: 'm1', authorId: 'u1', authorName: 'Alice', content: 'draw me a cat' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const images = fakeImages();
+  const gatewayLlm = sequenceLlm([
+    toolAnswer('<msg>χα</msg>', [call('draw.create', { reply: '#1', text: 'a cat on a roof' })]),
+  ]);
   const turns = createTurnRunner({
     discord: DISCORD,
-    hot: drawHot(),
+    // B7: the GIF is the media pick's, on a port that declares it.
+    hot: withPick(drawHot()),
     store: gifStore(),
-    llm: sequenceLlm([toolAnswer('<gif>g1</gif>', [call('draw.create', { reply: '#1', text: 'a cat on a roof' })])]),
+    llm: {
+      complete: (messages: Untyped, options: Untyped) =>
+        options?.purpose === 'media-pick'
+          ? Promise.resolve({ text: 'gif g1', usage: {}, estimated: 1 })
+          : gatewayLlm.complete(messages, options),
+    },
     calibrator: identityCalibrator(),
     client: fakeClient(),
     images,
@@ -8828,14 +8819,14 @@ test('createTurnRunner: a message the record holds as deleted appears in the win
 
 // PR 7d: the daily caps of plan section 4.5 are gone. A state written before the cut may hold the day's count and a
 // local layer not yet cut may set `gifs.maxPerDay`; neither stops her GIF.
-test('runTurn: her GIF is posted after a hundred GIFs today, a stale gifs.maxPerDay in the config included', async () => {
+test('runTurn: a picked GIF is posted after a hundred GIFs today, a stale gifs.maxPerDay in the config included', async () => {
   const run = await runPickTurn({
-    reply: '<msg>χα</msg><gif>g2</gif>',
-    pick: 'none',
+    reply: '<msg>χα</msg>',
+    pick: 'gif g2',
     store: pickStore({ data: { gifDay: '2026-09-20', gifCount: 100 } }),
     maxPerDay: 3,
   });
-  assert.deepEqual(run.sent(), ['χα', 'https://tenor.com/view/gif-2']);
+  assert.deepEqual(run.sent(), ['https://tenor.com/view/gif-2']);
 });
 
 test('a cancelled internal turn cannot leave its read context on a subsequent ordinary DM', async () => {

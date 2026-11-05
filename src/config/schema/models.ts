@@ -24,7 +24,7 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/behavior/mention.ts',
     'default': 'openai/gpt-6.1-sol',
     'text':
-      'Picks options (address, room, route, split, gif-pick, missed, etc.), plans searches and turns sources into notes. Pin one purpose to another model with `byPurpose`',
+      'Picks options (address, room, route, split, media-pick, missed, etc.), plans searches and turns sources into notes. Pin one purpose to another model with `byPurpose`',
   },
   {
     'key': 'models.base.vision',

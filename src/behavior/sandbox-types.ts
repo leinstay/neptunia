@@ -99,8 +99,7 @@ export type SandboxToolsetResult = {
  * `view.calibrator`, so the caps trim what a real turn trims), `samples`
  * completions, each parsed with parseOutput and trimmed by
  * `features.reactions` / `features.multiMessage` like a real turn. The
- * server's custom emoji (`<emoji>`) and GIF library (`<gifs>`, the
- * transcript's GIF handles) render as in a real turn when the caller hands in
+ * server's custom emoji (`<emoji>`) and the transcript's GIF handles render as in a real turn when the caller hands in
  * the same sources the turn uses (`customEmoji`, `gifs`, `mediaCache`;
  * buildRequest applies `features.customEmoji` / `features.gifs`); so do
  * `<senses>`' line on where a call from a read-only channel is answered
@@ -123,8 +122,7 @@ export type SandboxToolsetResult = {
  * llm client caches (src/llm/openrouter.js#cacheTtlFor: `features.promptCache`,
  * role `core`, the model), the user message is one text part carrying a
  * cache marker, so samples 2..N read the cache instead of paying for it again.
- * An answer's `gif` (a handle of the library, `features.gifs` on) counts as an
- * action, as in a real turn; an unknown handle or a switched-off GIF is dropped (null). `skip` is true
+ * `skip` is true
  * when the model skipped or left nothing to do (as a real turn treats it).
  * @param input.view        From `liveView` (or a view of the same shape, e.g. `momentView`).
  *   The moment (see `situationHistory`).
@@ -134,7 +132,7 @@ export type SandboxToolsetResult = {
  * @param [input.videos]  Item id -> video state (`{ state: 'watched', text }`), likewise.
  * @param [input.customEmoji]  The served place's
  *   custom emoji (src/behavior/emoji-index.ts#createEmojiIndex `list()`); omitted, no `<emoji>`.
- * @param [input.gifs]  The place's GIF library (store.getGifs); omitted, no `<gifs>` and no `<gif>` kept.
+ * @param [input.gifs]  The GIF library (store.getGifs); omitted, the transcript's GIFs carry no handle.
  * @param [input.mediaCache]  The describer cache (store.getMediaCache), read only, for both lists' captions.
  * @param [input.elsewhereDestination]  The channel `<senses>` names for a call from a read-only channel; omitted, no
  *   such line.
@@ -170,7 +168,6 @@ export type AnswerReplyResult = {
   answers: Array<{
     messages: Array<{ text: string; replyTo: number | null; mentions?: Array<string>; unknownHandles?: number }>;
     reactions: Array<{ to: number; emoji: string }>;
-    gif: { id: string; replyTo: number | null } | null;
     skip: boolean;
     think: string;
   }>;

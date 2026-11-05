@@ -69,7 +69,6 @@ import { roleModel } from '../llm/roles.ts';
 import { parseOutput } from '../llm/parse.ts';
 import { log } from '../log.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
-import { findGif } from '../memory/index.ts';
 import { tokenIds } from '../memory/mentions.ts';
 import { liveRecent, recentSettings } from '../memory/recent.ts';
 import { checkSkill, listSkills } from '../tools/gateway.ts';
@@ -204,8 +203,7 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   places: "no inner life runs here, so no places view: no <places> block (context.places is a live turn's)",
   previousThink:
     'no earlier turn or step in a replay: no <previous_think> block (a live turn carries its previous think, src/behavior/previous-think.ts)',
-  stableFreeze:
-    'one request per moment, no cache bucket to hold: <self_facts> and <gifs> render from memory as it stands',
+  stableFreeze: 'one request per moment, no cache bucket to hold: <self_facts> renders from memory as it stands',
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
@@ -930,7 +928,7 @@ export async function answerReply({
     onUsage,
     read: (text: string, completion: Untyped) => {
       const split = answerOf(completion, { transport, step: 1, registry: toolset?.registry ?? skillRegistry() });
-      const shaped = shapeAnswer(parseOutput(split.speechText), view.config, gifs, request.handles);
+      const shaped = shapeAnswer(parseOutput(split.speechText), view.config, request.handles);
       if (transport === 'text') return split.calls.length > 0 ? { ...shaped, toolCalls: split.calls } : shaped;
       return Array.isArray(completion?.toolCalls) ? { ...shaped, toolCalls: completion.toolCalls } : shaped;
     },
@@ -997,20 +995,17 @@ function sandboxMessages(input: Untyped, samples: Untyped, { segments = false } 
 
 /**
  * One parsed answer (parseOutput's) shaped like a real turn's under `config`: reactions with
- * `features.reactions` on, one message with `features.multiMessage` off, a GIF only from the
- * library with `features.gifs` on; `skip`
+ * `features.reactions` on, one message with `features.multiMessage` off; `skip`
  * when the model skipped or left nothing to do. With the request's `handles`
  * (features.mentionHandles on) a message whose text holds a handle-shaped token also carries
  * what a live turn would mention (handleMentions); its `text` stays as she wrote it.
  */
-function shapeAnswer(parsed: Untyped, config: Untyped, gifs: Untyped, handles: Map<string, string> | null = null) {
+function shapeAnswer(parsed: Untyped, config: Untyped, handles: Map<string, string> | null = null) {
   const reactions = parsed.reactions;
   const kept = parsed.messages;
   const replies = kept.map((message: Untyped) => ({ ...message, ...handleMentions(message.text, handles) }));
-  // As src/behavior/turn.ts: a GIF off the library or with the switch off is dropped.
-  const gif = parsed.gif && findGif(gifs, parsed.gif.id) ? parsed.gif : null;
-  const nothingToDo = replies.length === 0 && reactions.length === 0 && gif === null;
-  return { messages: replies, reactions, gif, skip: parsed.skip || nothingToDo, think: parsed.think };
+  const nothingToDo = replies.length === 0 && reactions.length === 0;
+  return { messages: replies, reactions, skip: parsed.skip || nothingToDo, think: parsed.think };
 }
 
 /**
@@ -1358,7 +1353,6 @@ export async function answerSkillScenario({
       toolset,
       step: 1,
       config: view.config,
-      gifs,
       handles: request.handles,
       registry,
     });
@@ -1444,17 +1438,16 @@ function readStep(
     toolset,
     step,
     config,
-    gifs,
     handles,
     registry,
-  }: { toolset: Untyped; step: Untyped; config: Untyped; gifs: Untyped; handles: Untyped; registry: Untyped }
+  }: { toolset: Untyped; step: Untyped; config: Untyped; handles: Untyped; registry: Untyped }
 ) {
   const split = answerOf(completion, { transport: toolset.transport, step, registry });
   const parsed = parseOutput(split.speechText);
   return {
     ...split,
     parsed,
-    answer: shapeAnswer(parsed, config, gifs, handles),
+    answer: shapeAnswer(parsed, config, handles),
     thinkMissing: thinkMissing(split.rawText),
     completion,
   };
@@ -1521,7 +1514,6 @@ async function runSkillLoop({
   requestArgs,
   history,
   view,
-  gifs,
   llm,
   signal,
   onCall,
@@ -1574,7 +1566,7 @@ async function runSkillLoop({
     calibrator.apply(estimateMessages(list)) + (transport === 'native' ? estimateTools(toolset.tools) : 0);
   for (;;) {
     const records = read.calls;
-    const speechItems = read.answer.messages.length + read.answer.reactions.length + (read.answer.gif ? 1 : 0);
+    const speechItems = read.answer.messages.length + read.answer.reactions.length;
     if (records.length === 0) break;
     if (typeof onCall !== 'function') break;
     const isFinal = finalReason !== null;
@@ -1744,7 +1736,7 @@ async function runSkillLoop({
     step += 1;
     messages = sent;
     if (last) finalReason = reason;
-    read = readStep(completion, { toolset, step: step + 1, config, gifs, handles: request.handles, registry });
+    read = readStep(completion, { toolset, step: step + 1, config, handles: request.handles, registry });
     next.answer = read.answer;
     next.thinkMissing = read.thinkMissing;
     next.usage = completion.usage ?? null;

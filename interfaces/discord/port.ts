@@ -89,6 +89,9 @@ export const DISCORD_LIMITS = Object.freeze({
   maxFileBytes: 10 * 1024 * 1024,
 });
 
+/** What Discord declares for the media pick (docs/interfaces.md): a GIF as its file or as a link Discord embeds. */
+const DISCORD_MEDIA_PICK = Object.freeze({ gifForms: ['file', 'link'] as const });
+
 /**
  * How a message is addressed on Discord (`capabilities().messageUrl`): a message of a guild and one of a private chat
  * (`@me`), the links the persona sends and the chat shows as a jump to a message.
@@ -526,6 +529,7 @@ export function createDiscordAdapter({
         messageUrl: DISCORD_MESSAGE_URL,
         reads: [...READ_ACTIONS],
         reconcile: true,
+        mediaPick: DISCORD_MEDIA_PICK,
       };
     },
 

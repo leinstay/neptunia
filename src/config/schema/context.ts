@@ -82,13 +82,6 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'text': 'Token cap: custom emoji',
   },
   {
-    'key': 'context.caps.gifs',
-    'types': ['number'],
-    'reader': 'src/turn/request/sections.ts',
-    'default': 900,
-    'text': 'Token cap: GIF library',
-  },
-  {
     'key': 'context.caps.pulled',
     'types': ['number'],
     'reader': 'src/behavior/prompt.ts',

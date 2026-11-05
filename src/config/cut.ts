@@ -520,6 +520,8 @@ const DISCORD_KEYS: ReadonlyArray<string> = [
 const RENAMES: ReadonlyArray<[string, string]> = [
   ['features.privateMessages', 'private.enabled'],
   ['features.privateLikeServer', 'private.likeServer'],
+  // The media pick took over the GIF pick's one setting (plan 2026-11-04-cli-and-memory B7).
+  ['gifs.pick.maxOutputTokens', 'media.pick.maxOutputTokens'],
 ];
 
 /** The per-wake budgets: each kind's field is now one `wakes.kinds.*.<field>` entry; the heartbeat's are `heartbeat.*`. */

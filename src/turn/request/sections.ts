@@ -227,11 +227,11 @@ export function fitAll(
     PulledView &
     DiaryParts &
     Placed &
-    PeopleOffered & { neighborItems: Array<string>; attitudesText: string; gifList: { items: Array<string> } }
+    PeopleOffered & { neighborItems: Array<string>; attitudesText: string }
 ): Fit {
   const { config, history, descriptions, labels, customEmoji, emojiOnce, caps, cost, limit } = given;
   const { pulledChannels, offeredNeighbors, worldItem, diaryLines, aheadOfPeople, peopleSection, voiceRows } = given;
-  const { neighborItems, attitudesText, gifList } = given;
+  const { neighborItems, attitudesText } = given;
   const aroundMax = config.context.around?.maxTokens;
   const budgetFit = fitSections(
     [
@@ -263,13 +263,6 @@ export function fitAll(
               ...pulledChannels.map((channel) => channel.entry.descriptions),
             ]),
         }),
-      },
-      // Below even the emoji: the GIF library, trimmed the same way (least used last).
-      {
-        name: 'gifs',
-        cap: caps.gifs ?? 900,
-        keep: 'first',
-        items: [...gifList.items],
       },
       // Last of all: the people in voice the request has no profile for, by name.
       { name: 'around', cap: Number.isFinite(aroundMax) ? aroundMax : 400, keep: 'first', items: voiceRows },

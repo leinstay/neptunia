@@ -4,6 +4,20 @@ import type { SchemaEntry } from '../schema.ts';
 
 export const MEDIA: ReadonlyArray<SchemaEntry> = [
   {
+    'key': 'media.pick.maxOutputTokens',
+    'types': ['number'],
+    'reader': 'src/behavior/media-pick.ts',
+    'default': 60,
+    'text': 'Max output tokens for the media pick',
+  },
+  {
+    'key': 'media.pick.candidates',
+    'types': ['number'],
+    'reader': 'src/behavior/media-pick.ts',
+    'default': 20,
+    'text': 'Most GIFs the search hands the media pick',
+  },
+  {
     'key': 'media.maxOutputTokens',
     'types': ['number'],
     'reader': 'src/memory/avatar-queue.ts',

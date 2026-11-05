@@ -30,6 +30,14 @@ Delivery reports distinguish success, failure and unknown outcome. Preserve the 
 
 The diary's publisher passes `idempotencyKey` on each send and keeps it stable on a retry. When a platform can find a send by its key, declare `capabilities().reconcile` and have `fetchMessages(conversation, ids, { idempotencyKey })` answer the messages posted under it. An `ok` answer with no message is a claim that the send did not happen, and the publisher then sends again. An adapter that cannot know, such as one asked about a key from before its restart, answers a failed read, which leaves the send uncertain. On a platform with no lookup, only the owner's `/mirror reconcile` settles it.
 
+## Media pick
+
+The media pick is a short classifier call after the persona's reply. It may post one GIF of the shared library in place of a short first message. The core owns the call, because an interface never calls a model and the request and daily caps stay in one place. Declare `mediaPick` in `capabilities()` to take part. An interface without it gets nothing: no block in the turn and no call.
+
+`gifForms` lists how the interface posts a library GIF, `file` for the cached file and `link` for the native link. Discord declares both, because it embeds a tenor or giphy link. `gifPostForm` in `src/media/gif-post.ts` takes the link of a link GIF where it is declared and the file of an attached GIF, whose link expires, and an interface that declares `file` alone is offered only GIFs with a cached file.
+
+The core searches the library's captions by words and by vector for the reply and the line it answers, and hands at most `media.pick.candidates` GIFs to the classifier. The prompt is `prompts/media-pick.md`, the answer `none` or `gif <handle>`, and `none` is the normal result. A chosen GIF goes through the interface's `send` as a file attachment or as text holding the link. Refuse what the platform cannot post, such as a file past its size limit, with an explicit result: the first message then goes out as written, so the reply is never lost.
+
 ## Setup contract
 
 The package's `setup.json` declares a `settings` array. Each setting has `key`, `question`, `kind` and optional `required`. Kinds are `text`, `list` and `secret`.

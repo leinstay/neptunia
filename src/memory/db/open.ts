@@ -14,6 +14,7 @@ import { MIGRATIONS, finishDiaryDestination, finishDiaryMirror } from './schema.
 import type { Migration, MigrationContext } from './schema.ts';
 import { ALIVE_LEASE, leaseOf } from './wake-queue.ts';
 import { importWakeQueues } from '../migration/wake-import.ts';
+import { mergeGifLibraries } from './gif-library-merge.ts';
 import { BOARD_MIGRATIONS, boardVersion, migrateBoard } from '../../board/schema.ts';
 import type { BoardDb, BoardStatus } from '../../board/schema.ts';
 import type { Db, MemoryHandle } from './types.ts';
@@ -130,7 +131,8 @@ export function schemaVersion(dbGiven: unknown): number {
  * Applies every migration above the current version, in one transaction. An entry is SQL text or a function of the
  * connection and `context` (what only the opener knows: `diaryPlaceId`, the deployment's diary channel, for v12 and
  * v15, and `dataDir`, the data directory, for v18). A data step v12, v15 or v18 could not finish without the context
- * is finished by the first open that has it.
+ * is finished by the first open that has it. The per-place GIF libraries of v32 are merged here too, because a converted
+ * database arrives with the current schema and its old rows.
  */
 export function migrate(
   dbGiven: unknown,
@@ -152,6 +154,7 @@ export function migrate(
       finishDiaryDestination(db, context);
       finishDiaryMirror(db, context);
       importWakeQueues(db, context);
+      mergeGifLibraries(db);
     }
   });
 }

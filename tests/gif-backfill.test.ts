@@ -5,11 +5,13 @@
 // are Discord-shaped and read into events as the Discord package does.
 
 import { placeOfCommunity } from '../src/memory/addresses.ts';
-import { MEMORY_OF, memDataDir, readRaw } from './fixtures/store-kit.ts';
+import { personaKey } from '../src/memory/db/storage-keys.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { unitValue } from '../src/memory/db/readers/common.ts';
+import { MEMORY_OF, memDataDir } from './fixtures/store-kit.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
 
 import { createGifBackfill } from '../src/memory/gif-backfill.ts';
 import { gifOpts } from '../src/memory/gifs.ts';
@@ -29,10 +31,11 @@ const TENOR_B = 'https://tenor.com/view/wave-2';
 /** The store with the library typed as it is kept: `getGifs` answers entries of the library, not bare objects. */
 type GifStore = Omit<Store, 'getGifs' | 'getMediaCache'> & {
   getMediaCache(placeId: string): Record<string, Untyped>;
-  getGifs(placeId: string): {
+  getGifs(): {
     nextId: number;
     entries: Record<string, GifEntry>;
     backfill: { at: string; channels: number; messages: number } | null;
+    backfills: Record<string, { at: string; channels: number; messages: number }>;
   };
 };
 
@@ -173,7 +176,7 @@ function standardChannels() {
 
 function countsByUrl(store: GifStore) {
   return Object.fromEntries(
-    Object.values(store.getGifs(placeOfCommunity(store, 'g1')).entries).map((entry) => [
+    Object.values(store.getGifs().entries).map((entry) => [
       entry.kind === 'link' ? entry.url : entry.itemId,
       entry.count,
     ])
@@ -190,18 +193,14 @@ test("gif backfill run: counts members' gifs over every readable channel, bots a
     const result = await backfill.run(placeOfCommunity(backfill, 'g1'));
     assert.deepEqual(result, { ok: true, channels: 2, messages: 7, gifs: 7, described: 0 });
     assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2 });
-    assert.equal(
-      store.getGifs(placeOfCommunity(store, 'g1')).entries['1001#e0'].count,
-      3,
-      'the first embed id keeps counting'
-    );
+    assert.equal(store.getGifs().entries['1001#e0'].count, 3, 'the first embed id keeps counting');
     assert.equal(
       world.asked('history').some((ref: Untyped) => ref.conversationId === 'c3'),
       false,
       'a conversation the persona may not read is never read'
     );
 
-    const stamp = present(store.getGifs(placeOfCommunity(store, 'g1')).backfill);
+    const stamp = present(store.getGifs().backfill);
     assert.equal(stamp.channels, 2);
     assert.equal(stamp.messages, 7);
     assert.ok(Number.isFinite(Date.parse(stamp.at)));
@@ -249,12 +248,8 @@ test('gif backfill run: the first run resets what was recorded on arrival, never
 
     await backfill.startIfNeeded(placeOfCommunity(backfill, 'g1'));
     assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2, 'https://tenor.com/view/gone-9': 0 });
-    assert.equal(
-      store.getGifs(placeOfCommunity(store, 'g1')).entries['1001#e0'].id,
-      'g1',
-      'the arrival handle is kept'
-    );
-    assert.equal(store.getGifs(placeOfCommunity(store, 'g1')).entries['old#e0'].id, 'g2');
+    assert.equal(store.getGifs().entries['1001#e0'].id, 'g1', 'the arrival handle is kept');
+    assert.equal(store.getGifs().entries['old#e0'].id, 'g2');
   });
 });
 
@@ -267,10 +262,7 @@ test('gif backfill run: keep handles across a rescan', async () => {
 
     await backfill.run(placeOfCommunity(backfill, 'g1'));
     const firstHandles = Object.fromEntries(
-      Object.entries(store.getGifs(placeOfCommunity(store, 'g1')).entries).map(([key, entry]: [string, Untyped]) => [
-        key,
-        entry.id,
-      ])
+      Object.entries(store.getGifs().entries).map(([key, entry]: [string, Untyped]) => [key, entry.id])
     );
     store.recordGifs(placeOfCommunity(store, 'g1'), [
       {
@@ -280,8 +272,8 @@ test('gif backfill run: keep handles across a rescan', async () => {
         attachments: [{ id: '999', kind: 'gif', url: 'https://cdn.discordapp.com/x.gif' }],
       },
     ]);
-    const staleHandle = store.getGifs(placeOfCommunity(store, 'g1')).entries['999'].id;
-    const nextId = store.getGifs(placeOfCommunity(store, 'g1')).nextId;
+    const staleHandle = store.getGifs().entries['999'].id;
+    const nextId = store.getGifs().nextId;
 
     const result = await backfill.run(placeOfCommunity(backfill, 'g1'), { force: true });
     assert.equal(result.ok, true);
@@ -291,10 +283,10 @@ test('gif backfill run: keep handles across a rescan', async () => {
       { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2, 999: 0 },
       'fresh counts, never added on top'
     );
-    const entries = store.getGifs(placeOfCommunity(store, 'g1')).entries;
+    const entries = store.getGifs().entries;
     for (const [key, id] of Object.entries(firstHandles)) assert.equal(entries[key].id, id, `${key} keeps ${id}`);
     assert.equal(entries['999'].id, staleHandle, 'an entry gone from history keeps its handle with count 0');
-    assert.equal(store.getGifs(placeOfCommunity(store, 'g1')).nextId, nextId, 'no handle was spent');
+    assert.equal(store.getGifs().nextId, nextId, 'no handle was spent');
 
     // PR 7d: `gifs.storeMax` is the constant 300, so 297 more GIFs, recorded as the live observer records them, fill the
     // library past it.
@@ -311,8 +303,7 @@ test('gif backfill run: keep handles across a rescan', async () => {
     const kept = countsByUrl(store);
     assert.equal(Object.keys(kept).length, 300);
     assert.equal('999' in kept, false, 'the zero-count entry is the first evicted at storeMax');
-    for (const [key, id] of Object.entries(firstHandles))
-      assert.equal(store.getGifs(placeOfCommunity(store, 'g1')).entries[key].id, id);
+    for (const [key, id] of Object.entries(firstHandles)) assert.equal(store.getGifs().entries[key].id, id);
   });
 });
 
@@ -467,7 +458,7 @@ test('gif backfill startIfNeeded: runs once when the feature is on and nothing i
     const backfill = createGifBackfill(wrongly({ ...depsOf(world), hot: fakeHot(), store, log: fakeLog() }));
 
     await backfill.startIfNeeded(placeOfCommunity(backfill, 'g1'));
-    assert.equal(Object.keys(store.getGifs(placeOfCommunity(store, 'g1')).entries).length, 3);
+    assert.equal(Object.keys(store.getGifs().entries).length, 3);
     const fetches = world.asked('history').length;
     await backfill.startIfNeeded(placeOfCommunity(backfill, 'g1'));
     assert.equal(world.asked('history').length, fetches, 'stamped: never again at startup');
@@ -508,21 +499,20 @@ test('store setGifBackfill / resetGifCounts: the stamp is normalised and persist
     );
     assert.equal(store.setGifBackfill(placeOfCommunity(store, 'g2'), wrongly({ at: 5 })), null);
 
-    store.resetGifCounts(placeOfCommunity(store, 'g1'));
+    // B7: a counter's place is the channel the message was in, and a reset is of one place.
+    store.resetGifCounts('c1');
     store.flush();
     await wrongly<{ flushSettled(options: object): Promise<void> }>(store).flushSettled({});
-    const onDisk = JSON.parse(readRaw(path.join(dir, 'guilds', 'g1', 'gifs.json')));
+    // B7: the library is one unit of the persona.
+    const found = unitValue(dbOf(wrongly(MEMORY_OF.get(memoryDir)?.readHandle())), personaKey('gifs'));
+    const onDisk = (found as { value: { nextId: number; entries: Record<string, GifEntry>; backfill: unknown } }).value;
     assert.deepEqual(Object.keys(onDisk.entries), ['m#e0']);
     assert.equal(onDisk.entries['m#e0'].id, 'g1');
     assert.equal(onDisk.entries['m#e0'].count, 0);
     assert.equal(onDisk.entries['m#e0'].last, T0);
     assert.equal(onDisk.nextId, 2);
     assert.equal(
-      wrongly<Untyped>(
-        createStore({ dataDir: dir, memoryDb: MEMORY_OF.get(dir) }).getGifs(placeOfCommunity(store, 'g1')).entries[
-          'm#e0'
-        ]
-      ).id,
+      wrongly<Untyped>(createStore({ dataDir: dir, memoryDb: MEMORY_OF.get(dir) }).getGifs().entries['m#e0']).id,
       'g1',
       'a reset entry survives a restart'
     );

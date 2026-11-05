@@ -585,7 +585,6 @@ export const KEPT: ReadonlyArray<string> = [
   'context.caps.server',
   'context.caps.lore',
   'context.caps.emoji',
-  'context.caps.gifs',
   'context.caps.pulled',
   'context.caps.recent',
   'context.caps.participation',
@@ -690,7 +689,9 @@ export const KEPT: ReadonlyArray<string> = [
   'selfreflection.loop.timeBudgetMs',
   'selfreflection.planMaxOutputTokens',
   'selfreflection.planTimeoutMs',
-  'gifs.pick.maxOutputTokens',
+  // B7: the media pick's settings.
+  'media.pick.maxOutputTokens',
+  'media.pick.candidates',
   'private.minAffinity',
   'errands.opencodePath',
   'errands.toolResultChars',

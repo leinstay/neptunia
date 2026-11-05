@@ -4,7 +4,7 @@
     "tests/openrouter.test.ts": 3557,
     "tests/prompt.test.ts": 6595,
     "tests/recall.test.ts": 2419,
-    "tests/turn.test.ts": 8955
+    "tests/turn.test.ts": 8946
   },
   "functions": {
     "interfaces/discord/collect.ts": {
@@ -281,7 +281,7 @@
     },
     "src/behavior/sandbox.ts": {
       "runSkillLoop": {
-        "complexity": 42
+        "complexity": 41
       },
       "sandboxRequestInput": {
         "complexity": 38
@@ -367,11 +367,6 @@
       },
       "createLlm>complete": {
         "complexity": 44
-      }
-    },
-    "src/llm/parse.ts": {
-      "parseOutput": {
-        "complexity": 24
       }
     },
     "src/media/classify.ts": {
@@ -492,14 +487,6 @@
     "src/memory/gif-recache.ts": {
       "buildGifRecache>workMedia>run": {
         "complexity": 22
-      }
-    },
-    "src/memory/gifs.ts": {
-      "mergeGifs": {
-        "complexity": 23
-      },
-      "normalizeGifs": {
-        "complexity": 30
       }
     },
     "src/memory/interests.ts": {

@@ -6,7 +6,7 @@ The persona uses descriptions of media as durable conversational evidence. It do
 
 A saved description can be reused after a restart or cache eviction. Explicit rewatching creates another description version. A failed refresh does not erase the successful version already stored.
 
-The engine does not promise to download every attachment it encounters. Diary originals are preserved under `data/media/`, with database references and checksums. GIF library entries can remain external links. A cached description, an external URL and a preserved original are different things when preparing a backup.
+The engine does not promise to download every attachment it encounters. Diary originals are preserved under `data/media/`, with database references and checksums. A GIF of the library keeps every link it was seen under, and `src/memory/gif-keeper.ts` caches its file under `data/media/gifs/` when a download gives one. A cached description, an external URL and a preserved original are different things when preparing a backup.
 
 ## Available abilities
 

@@ -1,4 +1,4 @@
-// The act of a turn: her reactions, messages and GIF posted for real, each checked by the gateway right before it, typed
+// The act of a turn: her reactions, her messages and the GIF the media pick chose posted for real, each checked by the gateway right before it, typed
 // out like a person would, journaled and recorded; and a diary post's speech held where the act would send it.
 // createTurnRunner (src/behavior/turn.ts) builds it once per runner with createAct; the attempt and her calls call act
 // and holdSpeech.
@@ -16,6 +16,8 @@ import { log } from '../log.ts';
 import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import type { DrawGif, ResolvedGif } from './draw-gif.ts';
+import type { MediaPick, MediaPickArgs, MediaPickResult } from '../behavior/media-pick.ts';
+import { portMediaPick } from '../interface/capabilities.ts';
 import { closeResult, portError, postedOf, sendHash } from './journal.ts';
 import type { JournalOp, PortResult } from './journal.ts';
 import type { JournalNotes, NotesDraft } from './journal-notes.ts';
@@ -69,7 +71,7 @@ export type ActContext = {
   renderPost: Sends['renderPost'];
   postGif: DrawGif['postGif'];
   pickedInTime: DrawGif['pickedInTime'];
-  pickGifSafely: DrawGif['pickGifSafely'];
+  mediaPick: MediaPick;
   recordOwnParticipation: Participation['recordOwnParticipation'];
 };
 
@@ -79,8 +81,6 @@ type RenderArgs = Parameters<Sends['renderPost']>[1];
 type ActParsed = {
   reactions: ReadonlyArray<{ to: number; emoji: string }>;
   messages: ReadonlyArray<{ text: string; replyTo?: number | null }>;
-  /** The turn's own `<gif>`, which the attempt resolved against the library (resolveGif) before the act. */
-  gif: ResolvedGif | null | undefined;
 };
 
 /** A line of the history or of a pulled channel, as the act reads it. */
@@ -97,7 +97,6 @@ type ActDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     ownPosts?: Array<string>;
     deliveredIn?: Set<string>;
     sendFailure?: { code: unknown; n: number; total: number; unknown?: true; hash?: string };
-    gifFailure?: boolean;
     limits?: { add: (limit: { kind: string; where: string }) => void } | null;
     unseenFailed?: Array<{ kind: string; skill: string; status: string; code: string }>;
   };
@@ -119,8 +118,7 @@ export type ActArgs = {
   privateChat: boolean;
   parsed: ActParsed;
   idByIndex: ReadonlyMap<number, string>;
-  history: Parameters<Participation['recordOwnParticipation']>[0]['history'] &
-    Parameters<DrawGif['pickGifSafely']>[0]['history'];
+  history: Parameters<Participation['recordOwnParticipation']>[0]['history'] & MediaPickArgs['history'];
   startedAt: number;
   mode: string;
   triggerKind: TriggerKind | null;
@@ -135,7 +133,7 @@ export type ActArgs = {
   channelHandles?: RenderArgs['channelHandles'];
   linkFor: (pulledId: string | null) => string | null;
   sourceId: string | null;
-  gifPick?: boolean;
+  mediaPicks?: boolean;
   participation?: { descriptions: unknown } | null;
   draft?: ActDraft | null;
 };
@@ -206,7 +204,7 @@ export function createAct(ctx: ActContext): Act {
     renderPost,
     postGif,
     pickedInTime,
-    pickGifSafely,
+    mediaPick,
     recordOwnParticipation,
   } = ctx;
 
@@ -237,7 +235,7 @@ export function createAct(ctx: ActContext): Act {
 
   /**
    * Post the turn for real. Resolves `{ delivered, answered }` -- whether
-   * anything reached the chat (a reaction put, a message, the GIF or the
+   * anything reached the chat (a reaction put, a message, the picked GIF or the
    * picture posted; a limit notice is not the persona's answer), and the ids
    * of the pulled lines what reached it answered (a reaction put on one, a
    * message, the GIF or a diary set's pictures posted answering one: stampShownCalls).
@@ -262,19 +260,14 @@ export function createAct(ctx: ActContext): Act {
    * The messages are posted as the model wrote them: nothing rewrites them.
    * A member with pings off (store.isPingsOff) is mentioned and replied to
    * without a notification: only allowedMentions changes, never the text.
-   * After the reactions, the GIF picker (pickGif) runs alongside the first
-   * message's typing imitation: both start together, the first message waits
-   * for both, the picker at most `gifs.pick.graceMs` (read now; 0 by default,
-   * `null` = as long as it takes) past the end of that typing: a picker still
-   * out then is left behind for this turn (its answer is ignored; `gifs: pick
-   * late` with `graceMs`, a `helper-timeout` limit on `gif-pick` in the turn's
-   * journal) and the first message goes as written. Without that typing (the
-   * imitation off, or the first message refused) it waits for the answer as
-   * before. A GIF it picks is posted in place of the first message (that
-   * text is not sent), replying where it would have,
-   * and the other messages follow in order, each waited for and typed; a
-   * picked GIF that fails to send (`turn: gif failed`) leaves every message to
-   * be posted as written, so nothing is lost.
+   * After the reactions, the media pick (src/behavior/media-pick.ts) runs alongside the first message's typing imitation
+   * on an interface that declares it (portMediaPick): both start together, the first message waits for both, the pick at
+   * most its grace past the end of that typing: a pick still out then is left behind for this turn (its answer is ignored;
+   * `media-pick: late` with `graceMs`, a `helper-timeout` limit on `media-pick` in the turn's journal) and the first
+   * message goes as written. Without that typing (the imitation off, or the first message refused) it waits for the answer
+   * as before. A GIF it picks is posted in place of the first message (that text is not sent), replying where it would
+   * have, and the other messages follow in order, each waited for and typed; a picked GIF that fails to send or that the
+   * interface refuses (`turn: gif failed`) leaves every message to be posted as written, so nothing is lost.
    *
    * `plain`: the turn quotes no chat line (postsPlain); `lines`: the lines shown of the
    * pulled channels, then `history` (a chat author wins a display name both share);
@@ -283,8 +276,7 @@ export function createAct(ctx: ActContext): Act {
    * id map, in place of all three (renderPost);
    * `sourceId`: the channel the turn is about (its `source`), logged on every message sent;
    * with it a refused drawing's limit notice quotes nothing (the trigger of a routed turn
-   * lives in that channel); `gifPick`: false keeps the GIF picker from replacing the first
-   * message (a diary post); `participation` (`{ descriptions }`: the captions the turn had, or
+   * lives in that channel); `mediaPicks`: false keeps the media pick from running (a diary post); `participation` (`{ descriptions }`: the captions the turn had, or
    * null): each message sent in a server channel is recorded in the participation store
    * (recordOwnParticipation) with the lines of `history` before it.
    * Resolves `delivered`, `answered`, `messageIds` (the ids of the messages posted, in order), `texts` (the messages
@@ -313,7 +305,7 @@ export function createAct(ctx: ActContext): Act {
     channelHandles = null,
     linkFor,
     sourceId,
-    gifPick = true,
+    mediaPicks = true,
     participation = null,
     draft = null,
   }: ActArgs): Promise<ActOutcome> {
@@ -394,23 +386,24 @@ export function createAct(ctx: ActContext): Act {
     // The texts posted, as the persona wrote them, and the handles of the GIFs posted.
     const postedTexts: Array<string> = [];
     const postedGifs: Array<string> = [];
-    let sendFailed = false;
-    // The GIF picker starts first (its request is sent at once), then the first message's typing.
-    // `pickDone` once it answered (null included): an answer already there needs no grace timer.
+    // The media pick starts first (its request is sent at once), then the first message's typing.
+    // `pickDone` once it answered (none included): an answer already there needs no grace timer.
     let pickDone = false;
-    const picking = (
-      gifPick
-        ? pickGifSafely({
-            placeId,
+    const capability = mediaPicks ? portMediaPick(iface) : null;
+    const pickOn = capability !== null;
+    const picking: Promise<MediaPickResult> = (
+      pickOn
+        ? mediaPick.pick({
+            placeId: channel.id,
             conversationId: channel.id,
+            capability,
             messages: parsed.messages,
-            gif: parsed.gif,
             history,
             selfName,
             idByIndex,
             trigger,
           })
-        : Promise.resolve(null)
+        : Promise.resolve<MediaPickResult>({ kind: 'none' })
     ).then((value) => {
       pickDone = true;
       return value;
@@ -443,18 +436,22 @@ export function createAct(ctx: ActContext): Act {
         firstTyped = true;
       }
     }
-    // Once that typing is over, a picker still out gets `gifs.pick.graceMs` more at most (pickedInTime).
+    // Once that typing is over, a pick still out gets its grace at most (pickedInTime).
     const picked =
-      gifPick && firstTyped && !pickDone ? await pickedInTime(picking, { placeId: channel.id, draft }) : await picking;
-    // One GIF post (the turn's own or the picked one), recorded like a message.
-    const sendGif = async (gif: ResolvedGif): Promise<ReturnType<typeof postedOf> | null> => {
+      pickOn && firstTyped && !pickDone ? await pickedInTime(picking, { placeId: channel.id, draft }) : await picking;
+    // The GIF post, recorded like a message.
+    const sendGif = async (
+      gif: ResolvedGif,
+      forms: NonNullable<typeof capability>['gifForms']
+    ): Promise<ReturnType<typeof postedOf> | null> => {
       const { replyId, pulledId } = replyTarget(gif.replyTo, { plain, idByIndex, pulledIds });
       const openOp = (): JournalOp | Readonly<JournalOp> =>
         journalOp(draft, 'gif', 'persona', {
           input: { gif: gif.entry?.id ?? null },
           sourceMessageIds: replyId ? [replyId] : [],
         });
-      const sent = await postGif(channel, placeId, gif, replyId, linkFor(pulledId), {
+      const sent = await postGif(channel, gif, replyId, linkFor(pulledId), {
+        forms,
         openOp,
         trigger,
         publicationBoundary,
@@ -469,9 +466,8 @@ export function createAct(ctx: ActContext): Act {
     };
     // A picked GIF is posted in place of the first message (typed above); the rest follow as written.
     // When it fails to send (`turn: gif failed`), the first message goes as written after all.
-    const replaced = picked ? Boolean(await sendGif(picked)) : false;
+    const replaced = picked.kind === 'gif' && capability ? Boolean(await sendGif(picked, capability.gifForms)) : false;
     const messages = replaced ? parsed.messages.slice(1) : parsed.messages;
-    const gif = picked ? null : parsed.gif;
     // Every message but the first one as written waits and is typed here; that one was typed alongside the picker.
     const typedAbove = (index: number): boolean => index === 0 && !replaced;
     // Members who turned the persona's notifications off (`/nep pings off`), read from the store at
@@ -485,7 +481,6 @@ export function createAct(ctx: ActContext): Act {
     // A message that did not go out ends the posting; the turn then ends `partial` with a `sendFailed` fact (its code, how many of how many went out).
     // A send whose answer never came (`unknown`: a timeout, a network error) may have gone out: it keeps the hash of its text, and her next turn here looks for it before telling.
     const failSend = (code: unknown, { unknown = false, text: sentText = '' } = {}): void => {
-      sendFailed = true;
       if (draft)
         draft.sendFailure = {
           code,
@@ -523,7 +518,7 @@ export function createAct(ctx: ActContext): Act {
         failSend(CODE.REFUSED);
         break;
       }
-      // The first message was typed alongside the GIF picker, above; any other is checked before its typing.
+      // The first message was typed alongside the media pick, above; any other is checked before its typing.
       if (typingOn && !typedAbove(index)) {
         if (!checkEffect('message.create', args, effect).ok) {
           failSend(CODE.REFUSED);
@@ -628,24 +623,6 @@ export function createAct(ctx: ActContext): Act {
       posts,
       reacted,
     };
-    if (sendFailed) return { delivered, answered, ...posted };
-
-    // The turn's own GIF right after the messages. One that did not go out is a call that failed with nobody
-    // to read it: a fact for her next request here, and the turn ends partial (the text, if any, was said).
-    if (gif) {
-      if (messages.length > 0 && typingOn) await sleep(between(cfg.betweenMessagesMs, rng));
-      const sentGif = await sendGif(gif);
-      if (!sentGif && draft) {
-        draft.gifFailure = true;
-        (draft.unseenFailed ??= []).push({
-          kind: 'callFailed',
-          skill: 'message.create',
-          status: messages.length > 0 ? 'partial' : 'failed',
-          code: CODE.GIF_FAILED,
-        });
-      }
-    }
-
     return { delivered, answered, ...posted };
   }
 

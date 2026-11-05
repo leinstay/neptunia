@@ -469,14 +469,6 @@
       "count": 3
     }
   },
-  "src/behavior/gif-pick.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
-    }
-  },
   "src/behavior/handles.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
@@ -2716,14 +2708,6 @@
     },
     "@typescript-eslint/no-unused-vars": {
       "count": 2
-    }
-  },
-  "tests/gif-pick.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 3
     }
   },
   "tests/gif-recache.test.ts": {
