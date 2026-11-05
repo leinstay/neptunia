@@ -218,7 +218,7 @@ test('oneFrameGifKeys: one-frame GIF captions outside the library; never picture
 function rawGifMessage(n: number) {
   return {
     id: `m${n}`,
-    placeId: 'c1',
+    channelId: 'c1',
     author: { id: 'u1', bot: false, username: 'u1' },
     cleanContent: '',
     createdTimestamp: T0,
@@ -244,7 +244,7 @@ function fakeClient(messages: Array<Record<string, Untyped>>) {
   world.fake.seedConversation(channel('c1'));
   for (const raw of messages) {
     const event = toEvent(
-      { ...raw, channel: stub, placeId: 'c1', guild: stub.guild },
+      { ...raw, channel: stub, channelId: 'c1', guild: stub.guild },
       'self',
       normalizeOptions({ media: { embedTextChars: 200 } })
     );

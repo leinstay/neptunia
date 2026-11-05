@@ -181,7 +181,7 @@ const GUILD = { id: 'g1' };
 
 test('a voice state with selfMute builds an event with muted true and the member as userId', () => {
   const event = voiceEvent(
-    { id: 'u1', guild: GUILD, placeId: 'v1', selfMute: true, selfDeaf: false, member: { displayName: 'Ana' } },
+    { id: 'u1', guild: GUILD, channelId: 'v1', selfMute: true, selfDeaf: false, member: { displayName: 'Ana' } },
     1000
   );
   assert.equal(validateEvent(event).ok, true);
@@ -198,7 +198,7 @@ test('a voice state in no channel builds an event with conversationId null', () 
 });
 
 test('the id of a voice event comes from the member and the time, so a repeat is a duplicate', () => {
-  const state = { id: 'u1', guild: GUILD, placeId: 'v1' };
+  const state = { id: 'u1', guild: GUILD, channelId: 'v1' };
   assert.equal(voiceEvent(state, 1000).id, voiceEvent(state, 1000).id);
   assert.notEqual(voiceEvent(state, 1000).id, voiceEvent(state, 2000).id);
   assert.notEqual(voiceEvent(state, 1000).id, voiceEvent({ ...state, id: 'u2' }, 1000).id);
@@ -242,7 +242,7 @@ test('a guild builds one snapshot event with its voice states and presences and 
     id: 'g1',
     voiceStates: {
       cache: new Map<string, object>([
-        ['u1', { id: 'u1', guild: GUILD, placeId: 'v1', selfVideo: true }],
+        ['u1', { id: 'u1', guild: GUILD, channelId: 'v1', selfVideo: true }],
         ['u2', { id: 'u2', guild: GUILD, placeId: null }],
       ]),
     },
@@ -264,7 +264,7 @@ test('a guild builds one snapshot event with its voice states and presences and 
 
 test('every built event survives structuredClone unchanged', () => {
   const events = [
-    voiceEvent({ id: 'u1', guild: GUILD, placeId: 'v1', selfMute: true }, 1),
+    voiceEvent({ id: 'u1', guild: GUILD, channelId: 'v1', selfMute: true }, 1),
     presenceEvent({ userId: 'u1', guild: GUILD, status: 'online', activities: [{ type: 2, name: 'Spotify' }] }, 2),
     presenceSnapshotEvent({ id: 'g1', voiceStates: { cache: new Map() }, presences: { cache: new Map() } }, 3),
   ];

@@ -52,7 +52,7 @@ test('liveView: memory reads go to the store for the one guild', () => {
   const store = {
     getPlace: (g: string) => (seen.push(['getPlace', g]), { patterns: 'p' }),
     getUser: (id: string) => (seen.push(['getUser', id]), { id }),
-    listUserProfiles: (g: string) => (seen.push(['listUserProfiles', g]), []),
+    listUserProfiles: () => (seen.push(['listUserProfiles']), []),
     listChannels: (g: string) => (seen.push(['listChannels', g]), []),
     getLore: (g: string) => (seen.push(['getLore', g]), []),
   };
@@ -64,8 +64,9 @@ test('liveView: memory reads go to the store for the one guild', () => {
   view.memory.getLore();
   assert.deepEqual(seen, [
     ['getPlace', 'g1'],
-    ['getUser', 'g1', 'u9'],
-    ['listUserProfiles', 'g1'],
+    // A person's memory belongs to the account and not to a place, so these two name no place.
+    ['getUser', 'u9'],
+    ['listUserProfiles'],
     ['listChannels', 'g1'],
     ['getLore', 'g1'],
   ]);
@@ -1741,9 +1742,9 @@ test('scripts/replay.ts: replays through src/behavior/sandbox.ts, every name it 
   for (const name of names) assert.notEqual((sandbox as Record<string, unknown>)[name], undefined, name);
   assert.deepEqual([...sandbox.SANDBOX_STORE_READS].sort(), [
     'getGifs',
-    'getPlace',
     'getLore',
     'getMediaCache',
+    'getPlace',
     'getRecent',
     'getUser',
     'listChannels',

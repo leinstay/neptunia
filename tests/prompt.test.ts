@@ -6335,7 +6335,7 @@ test('buildRequest: people_now -- available: every live field explicit; offline 
   });
   store.voiceUpdate({
     id: 'author-1',
-    placeId: 'vc1',
+    channelId: 'vc1',
     selfDeaf: true,
     selfVideo: true,
     member: { displayName: 'Alice' },
@@ -6467,7 +6467,7 @@ test('buildRequest: people_now -- context.around.maxTokens caps the people in vo
   for (let i = 0; i < 20; i += 1)
     store.voiceUpdate({
       id: `vv${i}`,
-      placeId: 'vc1',
+      channelId: 'vc1',
       member: { displayName: `Ζήνων ${String(i).padStart(2, '0')}` },
     });
   const crowd = buildRequest(
