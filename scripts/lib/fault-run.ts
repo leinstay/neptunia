@@ -260,7 +260,7 @@ async function withLiveCore<T>(options: LiveOptions, body: (live: Live) => Promi
   const llm = {
     complete: async (
       messages: unknown,
-      given?: { purpose?: unknown }
+      given?: unknown
     ): Promise<{
       text: string;
       toolCalls?: Array<unknown>;
@@ -269,7 +269,8 @@ async function withLiveCore<T>(options: LiveOptions, body: (live: Live) => Promi
       finishReason?: string;
     }> => {
       // The door asks the address classifier about every flagged line first: a call to her, so `yes`, never scripted.
-      if (given?.purpose === 'address') return { text: 'yes', usage: {}, estimated: 1 };
+      if ((given as { purpose?: unknown } | undefined)?.purpose === 'address')
+        return { text: 'yes', usage: {}, estimated: 1 };
       const text = JSON.stringify(messages);
       const afterTools = Array.isArray(messages) && messages.some((one) => isRecord(one) && one.role === 'tool');
       requests.push(text);

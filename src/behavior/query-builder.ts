@@ -94,7 +94,7 @@ export function createQueryBuilder({
           model: roleModel(config, 'analyzer', 'query-builder'),
           ...roleRequestOptions(config, {
             role: 'analyzer',
-            maxOutputTokens: objOf(objOf(config.web).search).classifierMaxOutputTokens ?? 2000,
+            maxOutputTokens: Number(objOf(objOf(config.web).search).classifierMaxOutputTokens ?? 2000),
             purpose: 'query-builder',
           }),
         }

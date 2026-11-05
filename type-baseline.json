@@ -1,1 +1,14 @@
-{}
+{
+  "tests/door-address.test.ts": {
+    "TS2783": 1
+  },
+  "tests/elsewhere-pick-core.test.ts": {
+    "TS2322": 1
+  },
+  "tests/missed-every-place.test.ts": {
+    "TS2783": 1
+  },
+  "tests/summary-builder.test.ts": {
+    "TS2345": 1
+  }
+}
