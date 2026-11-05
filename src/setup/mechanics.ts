@@ -51,7 +51,7 @@ export async function askSwitch(ask: Ask, question: string, current: boolean): P
 const scheduleOfAnswer = (answer: string): ServiceSchedule | null =>
   parseSchedule(answer) ?? parseSchedule(`at ${answer}`);
 
-/** A schedule with the validation of `neptunia service <name> setup`; `current` after three answers that are none. */
+/** A schedule with the validation of `neptunia services <name> setup`; `current` after three answers that are none. */
 export async function askSchedule(ask: Ask, question: string, current: ServiceSchedule): Promise<ServiceSchedule> {
   const offered = formatSchedule(current);
   const answer = await askValid(ask, question, offered, (one) => scheduleOfAnswer(one) !== null);

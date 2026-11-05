@@ -12,8 +12,8 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `interfaces.mode` | string | `"inprocess"` | Where the interfaces run. `inprocess` starts the Discord interface inside the core's process. `units` starts the core with no interface, and each interface runs in its own unit (`neptunia interface run <name>`). Read once at the start of `src/index.ts`, and any other value stops the start | `src/core.ts` |
-| `interfaces.drainMs` | number | `10000` | How long a disable (`/interface disable`) gives the actions in flight to an interface (milliseconds) before the core ends them `unknown` | `src/core.ts` |
-| `interfaces.*.enabled` | boolean | `true` | Whether the interface named in place of `*` may connect. The tracked settings name no interface, so each one is enabled until this key says `false`. A `hello` of a disabled interface is refused with `interface-disabled`, read at each `hello`. `/interface disable` writes `false` here in the private settings file | `src/core.ts` |
+| `interfaces.drainMs` | number | `10000` | How long a disable (`/interfaces disable`) gives the actions in flight to an interface (milliseconds) before the core ends them `unknown` | `src/core.ts` |
+| `interfaces.*.enabled` | boolean | `true` | Whether the interface named in place of `*` may connect. The tracked settings name no interface, so each one is enabled until this key says `false`. A `hello` of a disabled interface is refused with `interface-disabled`, read at each `hello`. `/interfaces disable` writes `false` here in the private settings file | `src/core.ts` |
 
 ## bot
 
@@ -349,8 +349,8 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `watcher.enabled` | boolean | `false` | Whether the deployment runs the watcher, which only `true` turns on. `neptunia service watcher enable` and `disable` move it with the timer. While it is off the selfimprovement wake carries no watcher report | `src/watcher/settings.ts` |
-| `watcher.schedule` | string | `"at 00:00"` | When the watcher runs: daily UTC times such as `at 00:00,12:00`, or `every 6h`. `neptunia service watcher setup` writes it and renders `neptunia-watcher.timer`, and a value that means nothing reads as the default | `src/watcher/settings.ts` |
+| `watcher.enabled` | boolean | `false` | Whether the deployment runs the watcher, which only `true` turns on. `neptunia services watcher enable` and `disable` move it with the timer. While it is off the selfimprovement wake carries no watcher report | `src/watcher/settings.ts` |
+| `watcher.schedule` | string | `"at 00:00"` | When the watcher runs: daily UTC times such as `at 00:00,12:00`, or `every 6h`. `neptunia services watcher setup` writes it and renders `neptunia-watcher.timer`, and a value that means nothing reads as the default | `src/watcher/settings.ts` |
 
 ## selfimprovement
 
@@ -361,7 +361,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `selfimprovement.base` | string | `"main"` | The branch her worktrees start from and her pull requests target | `src/selfimprovement/settings.ts` |
 | `selfimprovement.checkout` | string, null | `null` | The absolute path of the dev checkout the development worker works on: its working repository, with one worktree per task under `.worktrees/`. The worker's own code runs from the install. Setup renders no development unit while it is unset, relative or the deployed checkout itself | `src/setup/run.ts` |
 | `selfimprovement.repository` | string, null | `null` | The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when the system's gh login can push there, so someone else's installation names a fork. While it is unset a filed task blocks with that reason | `src/selfimprovement/settings.ts` |
-| `selfimprovement.schedule` | string | `"at 03:00"` | When the selfimprovement wake falls due: daily UTC times such as `at 03:00` or `every 6h`, after the watcher's run so the wake carries its report. `neptunia service selfimprovement setup` writes it, and a value that means nothing reads as the default | `src/behavior/inner/settings.ts` |
+| `selfimprovement.schedule` | string | `"at 03:00"` | When the selfimprovement wake falls due: daily UTC times such as `at 03:00` or `every 6h`, after the watcher's run so the wake carries its report. `neptunia services selfimprovement setup` writes it, and a value that means nothing reads as the default | `src/behavior/inner/settings.ts` |
 | `selfimprovement.failuresPerShape` | number | `3` | How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause | `src/behavior/inner/settings.ts` |
 | `selfimprovement.tools` | string, array | `"*"` | The tools a selfimprovement wake may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
 | `selfimprovement.maxActs` | number, null | `null` | The most actions a selfimprovement wake may take; null: no cap | `src/tools/access.ts` |
@@ -374,7 +374,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 |---|---|---|---|---|
 | `development.thinkerTurns` | number | `12` | The most thinker turns on one task. Past it the task blocks with that reason, and her unblock or the owner's gives it new turns | `src/development/settings.ts` |
 | `development.lookEveryMs` | number | `120000` | How often the development worker looks at GitHub while a pull request is watched, in milliseconds, at least 10000. With none watched it waits for board events and sets no clock | `src/development/settings.ts` |
-| `development.startedAt` | string, null | `null` | The moment the development worker first started, an ISO time it writes itself. A task approved before it waits for the owner: `neptunia worker development held` lists them, and `neptunia task update <id> --meta admitted=yes` lets one run | `src/development/settings.ts` |
+| `development.startedAt` | string, null | `null` | The moment the development worker first started, an ISO time it writes itself. A task approved before it waits for the owner: `neptunia worker development held` lists them, and `neptunia tasks update <id> --meta admitted=yes` lets one run | `src/development/settings.ts` |
 
 ## selfreflection
 
@@ -479,7 +479,7 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `heartbeat.enabled` | boolean | `true` | Whether she has a periodic heartbeat wake | `src/behavior/inner/heartbeat.ts` |
-| `heartbeat.schedule` | string | `"every 3h"` | When the heartbeat falls due: `every 3h`, `every 90m` or daily UTC times such as `at 06:00,18:00`. `neptunia service heartbeat setup` writes it, and a value that means nothing reads as the default | `src/behavior/inner/settings.ts` |
+| `heartbeat.schedule` | string | `"every 3h"` | When the heartbeat falls due: `every 3h`, `every 90m` or daily UTC times such as `at 06:00,18:00`. `neptunia services heartbeat setup` writes it, and a value that means nothing reads as the default | `src/behavior/inner/settings.ts` |
 | `heartbeat.jitterMinutes` | number | `60` | Minutes an interval of the heartbeat moves either way; daily times stay exact | `src/behavior/inner/heartbeat.ts` |
 | `heartbeat.historyDays` | number | `14` | Days of the record read for each person's last contact | `src/behavior/inner/settings.ts` |
 | `heartbeat.maxTokens` | number | `2500` | Token cap of the whole heartbeat block. `0` turns the cap off | `src/behavior/inner/settings.ts` |

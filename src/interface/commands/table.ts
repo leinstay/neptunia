@@ -15,7 +15,8 @@
 // the word `true` as its value. A command's `check` refuses
 // what the table's shape cannot say. A leaf whose `secret` is `only` takes a secret through its question alone, so a
 // word past its arguments is refused and not echoed. A leaf with any `secret` takes `--secret-stdin` in the command
-// line. The parse is pure and never throws.
+// line. A word the table no longer has is refused with the command that replaced it, and nothing runs. A command with
+// both `args` and subcommands reads a line that names none of them as its own arguments. The parse is pure and never throws.
 
 import { BASE_ROLES, MEMORY_ROLE, SEARCH_ROLE } from '../../llm/roles.ts';
 import { BACKEND_NAMES } from '../../agent-runner/profiles.ts';
@@ -52,7 +53,7 @@ export type Command = {
   defaultSubcommand?: string;
   /** The bare line is refused. */
   needsSubcommand?: boolean;
-  /** The subcommand a line runs whose next word names none of `subcommands` (`/interface <name> <sub>`). */
+  /** The subcommand a line runs whose next word names none of `subcommands` (`/interfaces <name> <sub>`). */
   otherwise?: Subcommand;
   /** Why the parsed arguments are refused, or null when they stand. */
   check?: (name: string, args: Readonly<Record<string, string>>) => string | null;
@@ -115,8 +116,16 @@ const accountSubcommands = (backend: string): ReadonlyArray<Subcommand> => [
   sub(`${backend}.logout`, `Log ${backend} out; a role that chose it stays on it, unavailable`),
 ];
 
-/** The words `/logs` takes after the command: `errors`, `follow` and `since <value>`. */
-function checkLogs(_name: string, args: Readonly<Record<string, string>>): string | null {
+/** The words of the journal, which a report selector never shares with it. */
+const JOURNAL_WORDS: ReadonlyArray<string> = ['errors', 'follow', 'since'];
+
+/** The words `/logs` takes after the command: `errors`, `follow` and `since <value>`, or the selector of `/logs watcher`. */
+function checkLogs(name: string, args: Readonly<Record<string, string>>): string | null {
+  if (name === 'logs.watcher') {
+    const [first] = (args.target ?? '').split(' ');
+    if (first === undefined || !JOURNAL_WORDS.includes(first)) return null;
+    return `/logs watcher takes a date or a run; "${first}" belongs to /logs, which reads the journal`;
+  }
   const words = (args.options ?? '').split(' ').filter((word) => word !== '');
   for (let i = 0; i < words.length; i += 1) {
     const word = words[i];
@@ -130,16 +139,17 @@ function checkLogs(_name: string, args: Readonly<Record<string, string>>): strin
   return null;
 }
 
-/** The flags of `service <name> setup`: one mode, a real schedule, and the jitter only where it means something. */
+/** The flags of `services <name> setup`: one mode, a real schedule, and the jitter only where it means something. */
 function checkService(name: string, args: Readonly<Record<string, string>>): string | null {
   const [, mechanic, action] = name.split('.');
   if (action !== 'setup') return null;
   const refused = setupRefusal(mechanic ?? '', args);
-  return refused === null ? null : `/service ${mechanic ?? ''} setup: ${refused}`;
+  return refused === null ? null : `/services ${mechanic ?? ''} setup: ${refused}`;
 }
 
-/** The one service command's leaves: the four actions of each mechanic, and the operations of one watcher run. */
+/** The leaves of `services`: the list, the four actions of each mechanic, and the operations of one watcher run. */
 const SERVICE_SUBCOMMANDS: ReadonlyArray<Subcommand> = [
+  sub('list', 'Show the four mechanics, each as its status shows it'),
   ...SERVICE_NAMES.flatMap((name) => [
     sub(`${name}.setup`, `Set when ${name} runs, leaving it on or off as it is`, [
       flagArg('at', false),
@@ -152,20 +162,32 @@ const SERVICE_SUBCOMMANDS: ReadonlyArray<Subcommand> = [
   ]),
   sub('watcher.trigger', 'Run one watcher inspection now'),
   sub('watcher.cancel', 'Cancel the active watcher inspection, leaving the schedule as it is'),
-  sub('watcher.report', 'Read the latest watcher report, or the report of a date', [arg('target', false)]),
   sub('watcher.evidence', 'Read the recorded requests and transcripts of the observation window as JSON', [
     flagArg('from', false),
     flagArg('cursor', false),
   ]),
 ];
 
-/** The commands the family replaced: the line each is refused with names the command to type instead. */
-const RETIRED_COMMANDS: Readonly<Record<string, string>> = {
-  report: 'service watcher report',
-  watcher: 'service watcher',
-  heartbeat: 'service heartbeat',
-  selfreflection: 'service selfreflection',
-  selfimprovement: 'service selfimprovement',
+/** The commands the plural families, `/logs watcher` and `/doctor` replaced: what each is refused with, by the words after it. */
+const RETIRED_COMMANDS: Readonly<Record<string, (rest: ReadonlyArray<string>) => string>> = {
+  service: ([first, second]) =>
+    first === 'watcher' && second === 'report'
+      ? 'logs watcher'
+      : ['services', ...(first === undefined ? [] : [first]), ...(second === undefined ? [] : [second])].join(' '),
+  health: ([part]) => (part === 'server' || part === 'core' || part === 'memory' ? `doctor ${part}` : 'doctor'),
+  wakes: ([word]) => {
+    if (word === 'stop') return 'pause for all of it, or neptunia services <name> disable for one';
+    if (word === 'start') return 'resume for all of it, or neptunia services <name> enable for one';
+    return 'services list';
+  },
+  report: () => 'logs watcher',
+  route: () => 'routes',
+  interface: () => 'interfaces',
+  task: () => 'tasks',
+  watcher: () => 'services watcher',
+  heartbeat: () => 'services heartbeat',
+  selfreflection: () => 'services selfreflection',
+  selfimprovement: () => 'services selfimprovement',
 };
 
 /** What replaced each retired word of the `subharness` family; `next` is the word after it on the line. */
@@ -177,7 +199,7 @@ const RETIRED_SUBHARNESS: Readonly<Record<string, (next: string | undefined) => 
   disable: (next) => `/subharness ${next ?? '<backend>'} logout`,
 };
 
-/** Whether `word` is a command the `service` family replaced. */
+/** Whether `word` is a command a later name replaced. */
 export const isRetiredCommand = (word: string): boolean => Object.hasOwn(RETIRED_COMMANDS, word);
 
 /** The target of `/tools grant` and `/tools revoke`: none (her), `everyone`, `role <id>` or `user <id>`. */
@@ -201,25 +223,26 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'doctor',
-    help: 'Check installation health and configuration',
+    help: 'Check installation health and configuration, and the running server, core and memory',
     args: [],
-    subcommands: [sub('live', 'Check installation health and send a test request for every model role')],
-  },
-  {
-    name: 'health',
-    help: 'Check the server, core or memory service',
-    args: [arg('part', false, ['server', 'core', 'memory'])],
-    subcommands: [],
+    subcommands: [
+      sub('server', 'Check the server the core runs on, with no model request'),
+      sub('core', 'Check the core’s recent turns and failures, with no model request'),
+      sub('memory', 'Check the memory database and its backups, with no model request'),
+      sub('live', 'Check installation health and send a test request for every model role'),
+    ],
   },
   {
     name: 'logs',
-    help: 'Read service logs, filter errors or follow new entries',
+    help: 'Read service logs, filter errors or follow new entries, or read the watcher’s reports',
     args: [arg('options', false)],
-    subcommands: [],
+    subcommands: [
+      sub('watcher', 'Read the latest watcher report, or the report of a date or a run', [arg('target', false)]),
+    ],
     check: checkLogs,
   },
   {
-    name: 'service',
+    name: 'services',
     help: 'Schedule, switch and inspect heartbeat, selfreflection, selfimprovement and the watcher',
     args: [],
     needsSubcommand: true,
@@ -252,17 +275,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('list', 'Show open intentions'),
       sub('show', 'Show one open intention', [arg('id')]),
       sub('cancel', 'Cancel an intention', [arg('id')]),
-    ],
-  },
-  {
-    name: 'wakes',
-    help: 'Inspect scheduled autonomous turns or stop and restart them',
-    args: [],
-    defaultSubcommand: 'list',
-    subcommands: [
-      sub('list', 'Show next wakes and the last ones'),
-      sub('stop', 'Stop the inner life: no wake runs, the queued ones are dropped'),
-      sub('start', 'Let the inner life run again'),
     ],
   },
   {
@@ -307,7 +319,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
     ],
   },
   {
-    name: 'route',
+    name: 'routes',
     help: 'Choose which providers serve each model',
     args: [],
     defaultSubcommand: 'list',
@@ -412,7 +424,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
     ],
   },
   {
-    name: 'interface',
+    name: 'interfaces',
     help: 'Set up connections, manage credentials and enable or disable them',
     args: [],
     defaultSubcommand: 'list',
@@ -656,10 +668,21 @@ function leafOf(name: string): Subcommand | null {
 export const takesSecretStdin = (name: string): boolean => leafOf(name)?.secret !== undefined;
 
 /** What a word no command has is refused with: the command that replaced it, when one did. */
-const unknownWord = (word: string): string =>
+const unknownWord = (word: string, rest: ReadonlyArray<string>): string =>
   isRetiredCommand(word)
-    ? `/${word} is retired: use neptunia ${RETIRED_COMMANDS[word] ?? 'service'}`
+    ? `/${word} is retired: use neptunia ${RETIRED_COMMANDS[word]?.(rest) ?? 'help'}`
     : `unknown command /${word}; type /help`;
+
+/** Why the words after a command that stands are refused when they start with a retired word, naming its replacement; else null. */
+function retiredWords(first: string, rest: ReadonlyArray<string>): string | null {
+  if (first === 'services' && rest[0] === 'watcher' && rest[1] === 'report')
+    return '/services watcher report is retired: use neptunia logs watcher';
+  return retiredSubharness(first, rest);
+}
+
+/** Whether words that name no subcommand are refused: a command with arguments of its own reads them instead. */
+const refusesLooseWords = (command: Command, rest: ReadonlyArray<string>): boolean =>
+  rest.length > 0 && command.args.length === 0;
 
 /** Why the words after `subharness` are refused when they start with a retired word, naming its replacement; else null. */
 function retiredSubharness(first: string, [word, next]: ReadonlyArray<string>): string | null {
@@ -672,8 +695,8 @@ export function parseCommandWords(words: ReadonlyArray<string>): Parsed {
   const [first, ...rest] = words;
   if (first === undefined) return refuse('an empty line is no command; type /help');
   const command = COMMANDS.find((one) => one.name === first);
-  if (command === undefined) return refuse(unknownWord(first));
-  const retired = retiredSubharness(first, rest);
+  if (command === undefined) return refuse(unknownWord(first, rest));
+  const retired = retiredWords(first, rest);
   if (retired !== null) return refuse(retired);
   let name = command.name;
   let args = command.args;
@@ -699,7 +722,7 @@ export function parseCommandWords(words: ReadonlyArray<string>): Parsed {
     } else if (rest.length > 0 && command.otherwise !== undefined) {
       name = `${command.name}.${command.otherwise.name}`;
       args = command.otherwise.args;
-    } else if (rest.length > 0) {
+    } else if (refusesLooseWords(command, rest)) {
       return refuse(`/${command.name} has no subcommand "${rest[0] ?? ''}": ${names}`);
     }
   }

@@ -6,7 +6,7 @@
 
 import { DAY_MS, MINUTE_MS } from '../time.ts';
 
-/** The four scheduled mechanics of the `service` family. */
+/** The four scheduled mechanics of the `services` family. */
 export const SERVICE_NAMES = ['heartbeat', 'selfreflection', 'selfimprovement', 'watcher'] as const;
 export type ServiceName = (typeof SERVICE_NAMES)[number];
 

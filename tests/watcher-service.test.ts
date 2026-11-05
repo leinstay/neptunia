@@ -1,4 +1,4 @@
-// `neptunia service watcher trigger|cancel|status` (src/service/commands.ts) with no core: one run identity from one
+// `neptunia services watcher trigger|cancel|status` (src/service/commands.ts) with no core: one run identity from one
 // claim, cancel and disable apart, status read with no model request, the units on the same lifecycle, and the worker
 // (bin/neptunia.ts) reporting with the board unreachable. The manager is a recorder. One test runs the real worker over
 // a stand-in backend binary and connects to nothing.
@@ -255,7 +255,7 @@ test('status, cancel and report issue no model request and spawn no worker, and 
 
 test('the unit gives a run longer than its timeout, and neither unit calls a retired word or starts itself', async () => {
   // Bug: `TimeoutStartSec=infinity` hides a hung worker from systemd; a shorter value kills an honest run at its limit;
-  // an ExecStart on `service watcher trigger` starts the unit from inside itself.
+  // an ExecStart on `services watcher trigger` starts the unit from inside itself.
   const { WATCHER_RUN_TIMEOUT_MS } = await lifecycle();
   const service = fs.readFileSync(path.join(REPO, 'deploy', 'neptunia-watcher.service'), 'utf8');
   const timer = fs.readFileSync(path.join(REPO, 'deploy', 'neptunia-watcher.timer'), 'utf8');

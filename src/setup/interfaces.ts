@@ -1,7 +1,7 @@
 // The interfaces step of `neptunia setup` (src/setup/run.ts): every interface package that declares a `setup.json`,
 // shipped or authored under `data/interfaces/`, is offered in turn. A yes asks the package's own questions through its
 // contract (src/setup/modules.ts) and, with every required value stored, enables it (`interfaces.<name>.enabled`). The
-// core knows no question of any platform. A no changes nothing, and an interface can come later through `/interface`.
+// core knows no question of any platform. A no changes nothing, and an interface can come later through `/interfaces`.
 
 import fs from 'node:fs';
 import path from 'node:path';

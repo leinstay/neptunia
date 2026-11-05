@@ -30,7 +30,7 @@ import type { Dirs } from './fixtures/core-units.ts';
 
 const T0 = Date.parse('2026-10-31T12:00:00Z');
 
-/** An interface the local layer names, so `/interface list` prints a name no label holds. */
+/** An interface the local layer names, so `/interfaces list` prints a name no label holds. */
 const MARKED = { interfaces: { zeta71: { enabled: true } } };
 
 const count = (text: string, part: string): number => text.split(part).length - 1;
@@ -83,7 +83,7 @@ test("a command's answer is printed but never reaches her memory or her next req
     cores.push(await startUnitsCore(dirs, llm, () => T0));
     const chat = spawnCli(dirs, []);
     clis.push(chat);
-    chat.type('/interface list');
+    chat.type('/interfaces list');
     await until(
       () => chat.stdout().includes('zeta71'),
       () => `the command's answer; stderr:\n${chat.stderr().slice(-2000)}`
@@ -95,9 +95,9 @@ test("a command's answer is printed but never reaches her memory or her next req
     const request = JSON.stringify(llm.requests[0]);
     assert.ok(request.includes('what is new'));
     assert.equal(request.includes('zeta71'), false, "the command's answer is not in her request");
-    assert.equal(request.includes('/interface'), false, 'the command is not in her request');
+    assert.equal(request.includes('/interfaces'), false, 'the command is not in her request');
     assert.deepEqual(
-      query(dirs, "SELECT kind FROM sources WHERE text LIKE '%zeta71%' OR text LIKE '%/interface%'"),
+      query(dirs, "SELECT kind FROM sources WHERE text LIKE '%zeta71%' OR text LIKE '%/interfaces%'"),
       [],
       'neither the command nor its answer is a line of her memory'
     );
@@ -108,7 +108,7 @@ test("a command's answer is printed but never reaches her memory or her next req
 test('-p prints the answer of one command alone and exits 0', async () => {
   await withRig({ config: MARKED }, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const run = await runCli(dirs, ['-p', '/interface list']);
+    const run = await runCli(dirs, ['-p', '/interfaces list']);
     assert.equal(run.code, 0, run.stderr.slice(-2000));
     assert.ok(run.stdout.includes('zeta71'), 'the answer names the interface of the local layer');
     assert.deepEqual(logLines(run.stdout), [], 'no log line on stdout');

@@ -17,7 +17,7 @@ export const INTERFACES: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/core.ts',
     'default': 10000,
     'text':
-      'How long a disable (`/interface disable`) gives the actions in flight to an interface (milliseconds) before the core ends them `unknown`',
+      'How long a disable (`/interfaces disable`) gives the actions in flight to an interface (milliseconds) before the core ends them `unknown`',
   },
   {
     'key': 'interfaces.*.enabled',
@@ -25,6 +25,6 @@ export const INTERFACES: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/core.ts',
     'default': true,
     'text':
-      'Whether the interface named in place of `*` may connect. The tracked settings name no interface, so each one is enabled until this key says `false`. A `hello` of a disabled interface is refused with `interface-disabled`, read at each `hello`. `/interface disable` writes `false` here in the private settings file',
+      'Whether the interface named in place of `*` may connect. The tracked settings name no interface, so each one is enabled until this key says `false`. A `hello` of a disabled interface is refused with `interface-disabled`, read at each `hello`. `/interfaces disable` writes `false` here in the private settings file',
   },
 ];

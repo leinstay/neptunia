@@ -128,7 +128,7 @@ const SECRET_LEAVES: ReadonlyArray<{ name: string; words: ReadonlyArray<string>;
   { name: 'keys.core.add', words: ['keys', 'core', 'add', 'k1'], args: { name: 'k1' } },
   { name: 'keys.extra.add', words: ['keys', 'extra', 'add', 'k1'], args: { name: 'k1' } },
   { name: 'keys.service.set', words: ['keys', 'service', 'set', 'youtube'], args: { name: 'youtube' } },
-  { name: 'interface.token.set', words: ['interface', 'token', 'set', 'zeta'], args: { name: 'zeta' } },
+  { name: 'interfaces.token.set', words: ['interfaces', 'token', 'set', 'zeta'], args: { name: 'zeta' } },
 ];
 
 for (const { name, words, args } of SECRET_LEAVES) {
@@ -307,7 +307,7 @@ test('the real handler stores a token given through --secret-stdin, and prints n
   // Catches: the channel parses but the real dialog broker never gets the answer, or the value is echoed.
   await withRig({}, async ({ dirs: rig, llm, cores }) => {
     cores.push(await startUnitsCore(rig, llm, () => T0));
-    const run = await runChild(rig, ['interface', 'token', 'set', 'zeta', '--secret-stdin'], { input: `${SECRET}\n` });
+    const run = await runChild(rig, ['interfaces', 'token', 'set', 'zeta', '--secret-stdin'], { input: `${SECRET}\n` });
     assert.equal(run.code, 0, run.stderr.slice(0, 200));
     const file = join(rig.privateDir, 'interfaces', 'zeta', 'credentials.json');
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { token: SECRET });

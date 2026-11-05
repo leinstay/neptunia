@@ -1,5 +1,6 @@
-// The `service` family: `service <name> setup|enable|disable|status` for the four scheduled mechanics, and `trigger`,
-// `cancel` and `report` of the watcher (src/service/watcher.ts). bin/neptunia.ts calls `serviceFamily` for the shell and `-p`, and the owner's
+// The `services` family: `services list`, `services <name> setup|enable|disable|status` for the four scheduled mechanics,
+// and `trigger` and `cancel` of the watcher (src/service/watcher.ts). `/logs watcher` reads the watcher's reports through
+// the internal operation `service.watcher.report` of this handler. bin/neptunia.ts calls `serviceFamily` for the shell and `-p`, and the owner's
 // console (src/interface/commands/console.ts) for a chat that reaches the core, so one handler answers every form. It
 // writes `<name>.schedule` and `<name>.enabled` of the local settings, which every mechanic's own scheduler reads, and
 // moves the watcher's timer through the manager (src/service/manager.ts). The persona's wakes run in the core and call no
@@ -34,6 +35,7 @@ import {
   parseSchedule,
   scheduleOfFlag,
   setupRefusal,
+  SERVICE_NAMES,
 } from './schedule.ts';
 import type { ServiceName, ServiceSchedule } from './schedule.ts';
 
@@ -109,13 +111,13 @@ async function setup(
   args: Readonly<Record<string, unknown>>
 ): Promise<ServiceAnswer> {
   const refused = setupRefusal(name, args);
-  if (refused !== null) return invalid(`service ${name} setup: ${refused}`);
+  if (refused !== null) return invalid(`services ${name} setup: ${refused}`);
   const given = setupSchedule(args);
   const jitter = args.jitter === undefined ? null : parseJitter(args.jitter);
   if (given === null && jitter === null)
-    return invalid(`service ${name} setup needs --at <HH:MM,HH:MM> or --every <N>h, with no terminal to ask at`);
+    return invalid(`services ${name} setup needs --at <HH:MM,HH:MM> or --every <N>h, with no terminal to ask at`);
   if (given === null && scheduleOf(name, deps.config())?.kind === 'at')
-    return invalid(`service ${name} setup: --jitter moves an interval, and this schedule is daily times`);
+    return invalid(`services ${name} setup: --jitter moves an interval, and this schedule is daily times`);
   updateLocalSettings(deps.privateDir, (local) => {
     let next = local;
     if (given !== null) next = setPath(next, [name, 'schedule'], formatSchedule(given));
@@ -127,7 +129,7 @@ async function setup(
     const held = await renderTimer(deps, deps.run, deps.env);
     if (held !== null)
       return failed(
-        `service watcher setup: the manager did not take it: ${held.reason}\n${lines([
+        `services watcher setup: the manager did not take it: ${held.reason}\n${lines([
           ['desired', saved],
           ['applied', held.applied],
         ])}`
@@ -160,7 +162,7 @@ async function moveFlag(deps: ServiceDeps, name: ServiceName, enabled: boolean):
   const refused = await moveTimer(deps.run, deps.env, verb);
   if (refused === null) return { text: lines(fields), status: 'ok' };
   return failed(
-    `service watcher ${verb}: the manager refused: ${refused}\n${lines([
+    `services watcher ${verb}: the manager refused: ${refused}\n${lines([
       ['desired', enabled ? 'enabled' : 'disabled'],
       ['applied', 'unchanged'],
     ])}`
@@ -243,13 +245,20 @@ async function status(deps: ServiceDeps, name: ServiceName): Promise<ServiceAnsw
   return { text: lines(fields), status: 'ok' };
 }
 
-/** One command of the family by its parsed name, `service.<name>.<action>`. */
+/** The four mechanics, each as its own status answers: `services list` keeps no copy of what a status reads. */
+async function list(deps: ServiceDeps): Promise<ServiceAnswer> {
+  const answers = await Promise.all(SERVICE_NAMES.map((name) => status(deps, name)));
+  return { text: answers.map((answer) => answer.text).join('\n\n'), status: 'ok' };
+}
+
+/** One command of the family by its parsed name, `services.<name>.<action>` or `services.list`. */
 export function serviceFamily(
   deps: ServiceDeps,
   parsedName: string,
   args: Readonly<Record<string, unknown>>
 ): Promise<ServiceAnswer> {
   const [, word, action] = parsedName.split('.');
+  if (word === 'list') return list(deps);
   // The table only hands over its own names, so `word` is one of the four.
   const name = word as ServiceName;
   switch (action) {
@@ -270,7 +279,7 @@ export function serviceFamily(
     case 'evidence':
       return watcherEvidence(deps, args);
     default:
-      return Promise.resolve(invalid(`no such command: service ${String(word)} ${String(action)}`));
+      return Promise.resolve(invalid(`no such command: services ${String(word)} ${String(action)}`));
   }
 }
 

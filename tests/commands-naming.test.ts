@@ -46,6 +46,8 @@ test('the table holds the plural collections and none of the retired singular or
   assert.deepEqual(
     names,
     [
+      // `/agent mode` came from main after this list was written (b6a91eac), and the naming policy leaves it alone.
+      'agent',
       'clear',
       'config',
       'doctor',

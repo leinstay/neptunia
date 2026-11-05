@@ -90,7 +90,7 @@ function withDiffs(world: DevelopmentWorld): Diffs {
   return diffs;
 }
 
-/** What the thinker does with `neptunia task risk`. */
+/** What the thinker does with `neptunia tasks risk`. */
 const assess = (world: DevelopmentWorld, id: string, risk: string, reason: string): void => {
   world.board.call(WORKER, 'task.risk', { id, risk, reason });
 };

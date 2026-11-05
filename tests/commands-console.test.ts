@@ -35,24 +35,22 @@ const T0 = Date.parse('2026-10-31T12:00:00Z');
 const TABLE = [
   'status',
   'doctor',
-  'health',
   'logs',
-  // Changed: `/report` is retired, the report reads as `/service watcher report`, so the one new command is `service`.
-  'service',
+  // Changed: `/report` is retired, the report reads as `/logs watcher`, so the one new command is `services`.
+  'services',
   'usage',
   'errands',
   'intentions',
-  'wakes',
   'pause',
   'resume',
   'config',
   'model',
-  'route',
+  'routes',
   'memory',
   'rules',
   'tools',
   'skills',
-  'interface',
+  'interfaces',
   'keys',
   'subharness',
   // Changed: `/agent` holds the execution mode that left `/subharness`.
@@ -158,8 +156,8 @@ test('every read command of the table answers with exit 0 and asks no model', as
     const lines = [
       '/status',
       '/status full',
-      '/health core',
-      '/health memory',
+      '/doctor core',
+      '/doctor memory',
       '/usage',
       '/usage 7d',
       '/usage 30d',
@@ -167,17 +165,17 @@ test('every read command of the table answers with exit 0 and asks no model', as
       '/errands list',
       '/intentions',
       '/intentions list',
-      '/wakes',
+      '/services list',
       '/config show',
       '/config get pace.settleMs',
       '/model',
-      '/route',
+      '/routes',
       '/memory recent',
       '/memory lore list',
       '/rules list',
       '/tools list',
       '/tools describe web.search',
-      '/interface list',
+      '/interfaces list',
     ];
     const asked = await withoutFetch(async () => {
       for (const line of lines)
@@ -208,7 +206,7 @@ test('-p exits 2 for a line the table refuses', async () => {
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
     // Changed: the last example was `/mirror list`, and `/mirror` is a table command.
-    for (const line of ['/memory', '/usage 90d', '/health disks', '/nosuchcommand list']) {
+    for (const line of ['/memory', '/usage 90d', '/doctor disks', '/nosuchcommand list']) {
       const run = await p(dirs, line);
       assert.equal(run.code, 2, line);
       assert.notEqual(run.stderr.trim(), '', `${line}: the reason is on stderr`);
@@ -556,7 +554,7 @@ function everyLine(): Array<string> {
 }
 
 // The operations no grant opens to her (src/tools/access.ts#NOT_GRANTABLE_TO_PERSONA) have no way to run once `/nep`
-// is gone but a command of the chat: she cannot run them for the owner. `/health` and `/logs` run no operation and
+// is gone but a command of the chat: she cannot run them for the owner. `/doctor` with its scopes and `/logs` run no operation and
 // read the machine, so they are left out.
 test('every operation no grant opens to her runs from a command of the chat', async () => {
   const ran = new Set<string>();
@@ -578,7 +576,7 @@ test('every operation no grant opens to her runs from a command of the chat', as
     metrics: null,
     conversationLines: () => [],
     now: () => T0,
-    // `/service watcher enable` and `disable` are lines of the table: without this they move the server's real timer.
+    // `/services watcher enable` and `disable` are lines of the table: without this they move the server's real timer.
     serviceManager: (command, args) => {
       managerCalls.push([command, ...args].join(' '));
       return Promise.resolve({ code: 0, stdout: '', stderr: '' });
@@ -587,11 +585,13 @@ test('every operation no grant opens to her runs from a command of the chat', as
   const desk = createConsole(deps);
   for (const line of everyLine()) {
     const parsed = parseCommandLine(line);
-    if (!parsed.ok || parsed.name === 'health' || parsed.name === 'logs') continue;
+    if (!parsed.ok || ['doctor', 'doctor.server', 'doctor.core', 'doctor.memory', 'logs'].includes(parsed.name))
+      continue;
     await desk.run(parsed.name, parsed.args, { id: 'owner-1' });
   }
+  // Changed: `/wakes stop` and `/wakes start` are retired, so these two operations have no command of the chat.
   assert.deepEqual(
-    NOT_GRANTABLE_TO_PERSONA.filter((op) => !ran.has(op)),
+    NOT_GRANTABLE_TO_PERSONA.filter((op) => !ran.has(op) && op !== 'inner.stop' && op !== 'inner.start'),
     []
   );
   assert.ok(

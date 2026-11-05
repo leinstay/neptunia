@@ -80,7 +80,7 @@ export async function runWatcherWorker(where: Where): Promise<number> {
             timeoutMs,
             signal,
             runId,
-            // `service watcher evidence` under the agent reads the same layers as this worker.
+            // `services watcher evidence` under the agent reads the same layers as this worker.
             env: { NEPTUNIA_PRIVATE_DIR: where.privateDir, NEPTUNIA_DATA_DIR: where.dataDir },
           },
           { privateDir: where.privateDir, denyDir: defaultDenyDir() }

@@ -8,7 +8,7 @@ The package `@neptunia/interface-discord` connects the persona's core to one Dis
 |---|---|
 | `index.ts` | The entry. It exports `start(host)`, which the core or the interface runner calls, and `createDiscordInterface`. |
 | `config.json` | The package's own settings, laid over the core's settings with `data/interfaces/discord/config.json` over both (`src/config/files.ts#readInterfaceConfig`): the privileged intents `discord.intents.presences` and `discord.intents.members` (default `false`), the longest URL a message text keeps, `context.maxUrlChars` (default `200`), and the characters of an embed's title and text, `media.embedTextChars` (default `200`). `bot.guildId` stays in the core's settings. |
-| `setup.ts` | The setup of the interface. It refuses until the `neptunia` CLI brings `neptunia interface setup discord`. |
+| `setup.ts` | The setup of the interface. It refuses until the `neptunia` CLI brings `neptunia interfaces setup discord`. |
 | `package.json` | The package and its one dependency. |
 
 ## Running it

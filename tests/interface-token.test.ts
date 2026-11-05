@@ -1,4 +1,4 @@
-// src/interface/commands/interface-token.ts: `interface token set <iface>` asks the owner for the platform token through
+// src/interface/commands/interfaces-token.ts: `interfaces token set <iface>` asks the owner for the platform token through
 // the chat's secret prompt and writes `interfaces/<iface>/credentials.json`, the private JSON the interface reads, at mode 600.
 // The token never reaches an answer or a log line. The private folder is a temp dir, the chat a scripted dialog.
 import { test } from 'node:test';
@@ -95,10 +95,10 @@ test('the token appears in no answer and no log line', async () => {
 });
 
 test('the table parses interface token set to its own command, not to an interface subcommand', () => {
-  // Catches: the line reaches the Discord package as `/interface token set ...` and nothing writes the file.
-  const parsed = parseCommandLine('/interface token set discord');
+  // Catches: the line reaches the Discord package as `/interfaces token set ...` and nothing writes the file.
+  const parsed = parseCommandLine('/interfaces token set discord');
   assert.deepEqual(parsed.ok ? { name: parsed.name, args: parsed.args } : parsed.reason, {
-    name: 'interface.token.set',
+    name: 'interfaces.token.set',
     args: { name: 'discord' },
   });
 });
@@ -121,7 +121,7 @@ test('the console writes the token file for interface.token.set over its private
     now: () => 0,
   };
   const answer = await createConsole(deps).run(
-    'interface.token.set',
+    'interfaces.token.set',
     { name: 'discord' },
     { id: 'owner' },
     scriptedDialog([TOKEN]).dialog

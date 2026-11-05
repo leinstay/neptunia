@@ -6,7 +6,7 @@ Its shared definition lives in `agents/watcher/`. Customize the prompt and suppo
 
 ## Configure and run
 
-`neptunia service watcher setup --at 00:00,12:00` or `--every 6h` sets `watcher.schedule` and renders `neptunia-watcher.timer`. `neptunia service watcher enable` and `disable` move `watcher.enabled` and the timer. The full `neptunia setup` asks for the same schedule, and for the backend and the model. See [the service commands](cli.md#scheduled-services).
+`neptunia services watcher setup --at 00:00,12:00` or `--every 6h` sets `watcher.schedule` and renders `neptunia-watcher.timer`. `neptunia services watcher enable` and `disable` move `watcher.enabled` and the timer. The full `neptunia setup` asks for the same schedule, and for the backend and the model. See [the service commands](cli.md#scheduled-services).
 
 The timer starts `neptunia worker watcher` from `bin/neptunia-watcher.ts`, which invokes the agent and can spend model allowance, and exits at once while `watcher.enabled` is false. Enabling starts no worker. The timer keeps `Persistent=true`, so a machine that was off gets one catch-up inspection at its next start, however many slots passed.
 
@@ -14,13 +14,13 @@ The timer starts `neptunia worker watcher` from `bin/neptunia-watcher.ts`, which
 
 `src/watcher/lifecycle.ts` keeps every inspection as one record under `data/agents/watcher/runs/`, with an identity and one of the states `running`, `stopping`, `succeeded`, `failed` and `cancelled`. Manual and timer starts take the same claim under one lock, so a start during a run answers that run and spawns nothing. A claim records the pid and the start identity of its process. A claim whose process is gone, or whose pid now belongs to another process, reads as finished. Recovery signals nothing, and it ends as `succeeded` when the run had already committed its report and otherwise as `failed` with the code `holder-gone`.
 
-`neptunia service watcher trigger` refuses a disabled watcher. On an enabled one it claims a run with no owner, starts the worker with `systemctl start --no-block` and answers `run:` and `state:`. The worker adopts that claim and keeps its identity. A start the manager refuses fails the run at once, and a worker that never comes leaves the claim stale after `WATCHER_RUN_TIMEOUT_MS`.
+`neptunia services watcher trigger` refuses a disabled watcher. On an enabled one it claims a run with no owner, starts the worker with `systemctl start --no-block` and answers `run:` and `state:`. The worker adopts that claim and keeps its identity. A start the manager refuses fails the run at once, and a worker that never comes leaves the claim stale after `WATCHER_RUN_TIMEOUT_MS`.
 
-`neptunia service watcher cancel` writes `stopping` into the record, and `src/watcher/inspection.ts` reads it once a second. The abort signal reaches the backend, which kills the agent's process group. The run checks again between its phases, so a cancel stops the validation, stops filing at once, even inside a board call that has not answered, and stops the commit. Once the report is committed the run ends as `succeeded`, whatever a late cancel said. Output of an interrupted agent is kept nowhere. A trigger cancelled before its worker starts leaves the claim in `stopping`: the worker that comes ends it as `cancelled` without asking the agent, and if none comes the claim goes stale after the same timeout. A worker that finds the watcher disabled ends a waiting claim as `cancelled` with the code `disabled`. `disable` stops future runs and leaves a run in progress alone, and `cancel` leaves the flag and the timer alone.
+`neptunia services watcher cancel` writes `stopping` into the record, and `src/watcher/inspection.ts` reads it once a second. The abort signal reaches the backend, which kills the agent's process group. The run checks again between its phases, so a cancel stops the validation, stops filing at once, even inside a board call that has not answered, and stops the commit. Once the report is committed the run ends as `succeeded`, whatever a late cancel said. Output of an interrupted agent is kept nowhere. A trigger cancelled before its worker starts leaves the claim in `stopping`: the worker that comes ends it as `cancelled` without asking the agent, and if none comes the claim goes stale after the same timeout. A worker that finds the watcher disabled ends a waiting claim as `cancelled` with the code `disabled`. `disable` stops future runs and leaves a run in progress alone, and `cancel` leaves the flag and the timer alone.
 
 `WATCHER_RUN_TIMEOUT_MS` is 60 minutes and bounds the agent. A run past it fails with the code `timeout`. `TimeoutStartSec=70min` in `deploy/neptunia-watcher.service` leaves ten minutes for filing and the commit, and the manager ends a worker that hangs past them.
 
-The worker exits `0` for a committed report, with its filing deferred too, and for a cancelled run. It exits `1` for a failed run and when the board refused a task. `neptunia service watcher status` shows the deferred filing in its `filing` line.
+The worker exits `0` for a committed report, with its filing deferred too, and for a cancelled run. It exits `1` for a failed run and when the board refused a task. `neptunia services watcher status` shows the deferred filing in its `filing` line.
 
 ## Reports and versions
 
@@ -30,7 +30,7 @@ The runner checks the answer before it saves or files anything. A failed check f
 
 Each successful run commits an immutable file `reports/runs/<day>_<commit ms>_<run id>.md`, and `reports/<day>.md` is a link swapped atomically to the newest of its day, so a failed or interrupted attempt replaces nothing. A plain `<day>.md` from an older installation reads as before, with no run identity, and stays readable as the run `legacy-<day>` once a run commits over it. The day of a report is the UTC day of its claim.
 
-`neptunia service watcher report` reads the newest report, a day or a run identity, and a day's report names the other runs of that day. The persona's `watcher.read` tool takes `day` or `run` and uses stored reports rather than launching another inspection. The brief in `src/watcher/brief.ts` carries the observation interval, the facts of the install and the last seven reports: the newest of each earlier day as `<report day="...">`, then every kept report of the run's own day as `<report day="..." run="...">`.
+`neptunia logs watcher` reads the newest report, a day or a run identity, and a day's report names the other runs of that day. The persona's `watcher.read` tool takes `day` or `run` and uses stored reports rather than launching another inspection. The brief in `src/watcher/brief.ts` carries the observation interval, the facts of the install and the last seven reports: the newest of each earlier day as `<report day="...">`, then every kept report of the run's own day as `<report day="..." run="...">`.
 
 ## Finding risk
 
@@ -40,7 +40,7 @@ A finding is resolved when its filing receipt's task is `done` with `metadata.me
 
 ## Service runs
 
-`neptunia service watcher evidence` is the agent's read of what the services asked and answered. It reads `model_requests` over a read-only connection (`readRecordedRuns` in `src/watcher/requests.ts`) and the session files of `<data>/subharness/claude/home/projects/` (`readTranscriptRuns` in `src/watcher/transcripts.ts`), writes nothing and spawns nothing. Each record holds the effective system text, the messages, the tool definitions and calls, the answer, the usage, the `outcome` and its `gaps`. Strings shaped like a key are masked, with the gap `credential-masked`.
+`neptunia services watcher evidence` is the agent's read of what the services asked and answered. It reads `model_requests` over a read-only connection (`readRecordedRuns` in `src/watcher/requests.ts`) and the session files of `<data>/subharness/claude/home/projects/` (`readTranscriptRuns` in `src/watcher/transcripts.ts`), writes nothing and spawns nothing. Each record holds the effective system text, the messages, the tool definitions and calls, the answer, the usage, the `outcome` and its `gaps`. Strings shaped like a key are masked, with the gap `credential-masked`.
 
 The window opens at the last successful inspection, or at the start of the UTC day, and closes now (`observationInterval`). A run belongs to the window its last step finished in, so a run crossing midnight or an inspection is read once, and a run still in flight is counted apart in `inFlightRuns`. Sessions go by the window their last request falls in. One page holds at most `WATCHER_EVIDENCE_MAX_CHARS` (50,000) characters of runs, a larger run comes alone and whole, and `nextCursor` walks the records and then the sessions with the end of the window pinned. The inspection in progress and its session are left out. A memory database that cannot be read gives the gap `memory-unavailable`, and the transcripts still come.
 
@@ -54,7 +54,7 @@ The window opens at the last successful inspection, or at the start of the UTC d
 
 ## Leftovers
 
-`collectTrash` in `src/watcher/trash.ts` gives the `Trash` section its evidence, through `trash` on the first page of `service watcher evidence`. Each item has a `name`, a `category`, a `reason` and a `where` of `install`, `checkout` or `system`. Every command is a read through the injected `run`, nothing is deleted, and no leftover is opened. A name shaped like a key is masked. This is the one place the watcher looks at the checkout `selfimprovement.checkout` names, and with none set only the install and the system are read.
+`collectTrash` in `src/watcher/trash.ts` gives the `Trash` section its evidence, through `trash` on the first page of `services watcher evidence`. Each item has a `name`, a `category`, a `reason` and a `where` of `install`, `checkout` or `system`. Every command is a read through the injected `run`, nothing is deleted, and no leftover is opened. A name shaped like a key is masked. This is the one place the watcher looks at the checkout `selfimprovement.checkout` names, and with none set only the install and the system are read.
 
 | Category | What it lists |
 |---|---|
@@ -90,7 +90,7 @@ Duplicates are found by the draft's `finding` key, so a reworded repeat files no
 | Setting | What it does |
 |---|---|
 | `ProtectSystem=strict` | The whole file system is read-only, the checkout and `data/memory.db` included |
-| `ReadWritePaths=` | `data/agents/watcher` and `data/subharness` stay writable, each only if it exists. `service watcher enable` makes the first |
+| `ReadWritePaths=` | `data/agents/watcher` and `data/subharness` stay writable, each only if it exists. `services watcher enable` makes the first |
 | `NoNewPrivileges=yes` | No child gains privileges through a setuid binary |
 | `PrivateTmp=yes` | The unit has its own `/tmp` |
 

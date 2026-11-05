@@ -1,4 +1,4 @@
-// `neptunia task <command>` (bin/neptunia.ts): the board's command line as a client of the core. It takes the
+// `neptunia tasks <command>` (bin/neptunia.ts): the board's command line as a client of the core. It takes the
 // commands and flags of the ledger's `task` CLI, reads its token from `NEPTUNIA_TASK_TOKEN`, connects to the core's
 // socket as an agent and prints the answer: plain lines, or the answer's JSON with `--json`. It exits 0 when the core
 // answers ok, 1 when the board refuses (the code first on stderr) or no core listens, and 2 for a usage error, which
@@ -25,18 +25,18 @@ type Run = Exit & { stdout: string; stderr: string };
 const tokenOf = (dirs: Dirs, name: string): string =>
   readFileSync(join(dirs.privateDir, 'clients', `${name}.token`), 'utf8').trim();
 
-/** Runs `neptunia task ...args` as the agent `name` to its end, with its input closed. */
+/** Runs `neptunia tasks ...args` as the agent `name` to its end, with its input closed. */
 async function task(dirs: Dirs, name: string, args: ReadonlyArray<string>, ms = 15000): Promise<Run> {
-  const cli = spawnCli(dirs, ['task', ...args], { NEPTUNIA_TASK_TOKEN: tokenOf(dirs, name) });
+  const cli = spawnCli(dirs, ['tasks', ...args], { NEPTUNIA_TASK_TOKEN: tokenOf(dirs, name) });
   cli.end();
   const timer = setTimeout(() => void cli.kill(), ms);
   const exit = await cli.exited;
   clearTimeout(timer);
-  assert.equal(exit.signal, null, `neptunia task ${args.join(' ')} did not end:\n${cli.stderr().slice(-2000)}`);
+  assert.equal(exit.signal, null, `neptunia tasks ${args.join(' ')} did not end:\n${cli.stderr().slice(-2000)}`);
   return { ...exit, stdout: cli.stdout(), stderr: cli.stderr() };
 }
 
-/** `neptunia task add` as the owner agent: the id it prints. */
+/** `neptunia tasks add` as the owner agent: the id it prints. */
 async function added(dirs: Dirs, title: string, extra: ReadonlyArray<string> = []): Promise<string> {
   const run = await task(dirs, 'boss', ['add', '--lane', 'dev', '--project', 'core', '--title', title, ...extra]);
   assert.equal(run.code, 0, run.stderr);

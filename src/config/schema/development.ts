@@ -25,6 +25,6 @@ export const DEVELOPMENT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/development/settings.ts',
     'default': null,
     'text':
-      'The moment the development worker first started, an ISO time it writes itself. A task approved before it waits for the owner: `neptunia worker development held` lists them, and `neptunia task update <id> --meta admitted=yes` lets one run',
+      'The moment the development worker first started, an ISO time it writes itself. A task approved before it waits for the owner: `neptunia worker development held` lists them, and `neptunia tasks update <id> --meta admitted=yes` lets one run',
   },
 ];

@@ -43,17 +43,18 @@ Start with `/help`. It is generated from the command table, so it includes the a
 
 | Task | Command family |
 |---|---|
-| Inspect health or pause responses | `/status`, `/pause`, `/resume` |
+| Inspect health or pause responses | `/status`, `/doctor`, `/pause`, `/resume` |
 | Inspect and change settings | `/config get`, `/config set`, `/config unset` |
 | Choose credentials and models | `/keys`, `/model`, `/search` |
-| Configure a chat platform | `/interface` |
+| Configure a chat platform | `/interfaces` |
+| Choose which providers serve a model | `/routes` |
 | Link a person's accounts | `/memory bind`, `/memory accounts`, `/memory unbind` |
 | Choose where the diary is published | `/mirror` |
 | Review and activate a skill | `/skills` |
 | Show the sources of the agents and log them in or out | `/subharness status`, `/subharness <backend> login`, `/subharness <backend> status`, `/subharness <backend> logout` |
 | Set what an agent may do | `/agent mode <agent> [<mode>]` |
-| Schedule, switch and inspect the four scheduled mechanics | `/service` |
-| Read a watcher report | `/service watcher report` |
+| Schedule, switch and inspect the four scheduled mechanics | `/services` |
+| Read a watcher report | `/logs watcher` |
 
 A secret question hides its answer and excludes it from input history. History lives in `data/cli/`.
 
@@ -77,7 +78,7 @@ A duration is a whole number with `s`, `m`, `h` or `d`, such as `30m` or `4h`.
 
 ## One command from a shell
 
-`neptunia <command> [args]` runs one command of the chat's table through the same parser and handlers as the chat. Each shell word stays one word: only the last positional argument takes loose words, joined with one space, and a value holding quotes, backticks or dollar syntax arrives unchanged. A word the table does not know exits `2` with a usage naming every command, and connects to no core. `doctor`, `logs`, `service` and `clear` run in the command line itself, and `doctor live` equals `doctor --live`.
+`neptunia <command> [args]` runs one command of the chat's table through the same parser and handlers as the chat. Each shell word stays one word: only the last positional argument takes loose words, joined with one space, and a value holding quotes, backticks or dollar syntax arrives unchanged. A word the table does not know exits `2` with a usage naming every command, and connects to no core. `doctor`, `logs`, `services` and `clear` run in the command line itself, and `doctor live` equals `doctor --live`.
 
 `neptunia -p "/<command> [args]"` runs the same command as a typed line. `neptunia -p "<text>"` is one turn with the persona: it prints her reply when the turn ends, prints nothing when she stays silent, and ends with its input left open. Text with no leading `/` never runs a command, and blank text exits `2`. A paused core keeps the line for `/resume` and the call exits `1`. The call gives up with exit `1` after 15 minutes without the end of a turn.
 
@@ -91,19 +92,27 @@ A duration is a whole number with `s`, `m`, `h` or `d`, such as `30m` or `4h`.
 
 The chat with no arguments, `-p /setup`, `-p /clear` and `clear` need a terminal. Without one they exit `2` at once, naming the commands that run without it, and send nothing. `NEPTUNIA_PLAIN_CHAT=1` runs the plain chat over pipes instead of that explanation.
 
-A command that asks a question with no terminal exits `1` with the question on stderr and sends no answer. A secret question also names `--secret-stdin`. That flag is accepted by `keys core add`, `keys extra add`, `keys service set`, `interface token set`, and the `setup` and `set` commands of `/interface` and `/skills`: it answers the first question, when that question is secret, from stdin less one trailing newline. Empty stdin exits `1`, and so does any other question the command asks.
+A command that asks a question with no terminal exits `1` with the question on stderr and sends no answer. A secret question also names `--secret-stdin`. That flag is accepted by `keys core add`, `keys extra add`, `keys service set`, `interfaces token set`, and the `setup` and `set` commands of `/interfaces` and `/skills`: it answers the first question, when that question is secret, from stdin less one trailing newline. Empty stdin exits `1`, and so does any other question the command asks.
 
 ```bash
-printf '%s\n' "$TOKEN" | neptunia interface token set discord --secret-stdin
+printf '%s\n' "$TOKEN" | neptunia interfaces token set discord --secret-stdin
 ```
 
-On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys extra add`, `keys service set` and `interface token set` exit `2` for a word past their name, in the chat and in both shell forms, so a secret never reaches the process list, the core or the logs.
+On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys extra add`, `keys service set` and `interfaces token set` exit `2` for a word past their name, in the chat and in both shell forms, so a secret never reaches the process list, the core or the logs.
 
 `neptunia subharness <backend> login`, `status` and `logout` run with no core. [Setup](setup.md#subharness-backends) describes them and their exit codes. `/subharness use`, `model`, `mode`, `enable` and `disable` are refused with exit `2`, and the refusal names the command that replaced each: `/model set` for the first two, `/agent mode` for `mode`, and `/subharness <backend> login` and `logout` for the last two.
 
+## Diagnostics
+
+`/doctor` and `neptunia doctor` run the checks of the installation with the core up or down. The last check, `runtime`, is the core's own reading of the server, itself and the memory. It is `skipped` when no core answers within 5 seconds. `/doctor server`, `/doctor core` and `/doctor memory` read one of the three from the core (`src/health/`), ask no model, write nothing and exit `1` with no core. `/doctor live` holds `providers` in place of `runtime`: the core sends one test request for each model role.
+
+## Logs
+
+`/logs` reads the journal of `neptunia-core.service`. Its filters are `errors`, `follow` and `since <value>`, and `follow` works in the chat alone. `/logs watcher [date or run]` reads the watcher's saved report, the newest with no selector, with no core and without opening the journal. A report names its run and the other runs of its day. A selector that matches no report exits `1`, and `/logs watcher errors`, `follow` or `since` exit `2`, since those words belong to the journal.
+
 ## Scheduled services
 
-`neptunia service <name> setup|enable|disable|status` controls `heartbeat`, `selfreflection`, `selfimprovement` and `watcher`. `/service <name> <action>` and `neptunia -p "/service ..."` reach the same handler, `src/service/commands.ts`. Selfreflection is the diary wake and selfimprovement is the persona's development wake, which stays apart from the development worker. The handler works with no core, so a mechanic can be switched and read while the core is down. `/wakes stop` and `/wakes start` stay separate: they pause the whole inner life.
+`neptunia services list` prints the status of `heartbeat`, `selfreflection`, `selfimprovement` and `watcher`, with no process unit among them. `neptunia services <name> setup|enable|disable|status` controls one of the four. `/services <name> <action>` and `neptunia -p "/services ..."` reach the same handler, `src/service/commands.ts`. Selfreflection is the diary wake and selfimprovement is the persona's development wake, which stays apart from the development worker. The handler works with no core, so a mechanic can be switched and read while the core is down. `/pause` and `/resume` hold and release every turn, and `/services <name> disable` stops one mechanic.
 
 `setup --at 00:00,12:00` saves daily UTC times and `setup --every 6h` an interval in hours or minutes (`90m`). The two exclude each other. Both write the one setting `<name>.schedule` that `/config` reads, leave the flag as it is, and answer `timezone: UTC` and `next:` with the next times. `heartbeat setup --jitter 30m` sets `heartbeat.jitterMinutes`, which moves an interval either way and leaves daily times exact. `setup` with no flag asks at a terminal and exits `2` without one. `watcher setup` also renders `neptunia-watcher.timer` and reloads the manager, and starts nothing.
 
@@ -128,18 +137,31 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 | `run timeout` | How long the watcher's agent may run |
 | `timer` | The watcher's timer as the manager reads it |
 
-`neptunia service watcher report [day or run]` prints the newest report, the report of a date or the report of a run, with no core. A report names its run and the other runs of its day.
+`neptunia services watcher trigger` starts one inspection without waiting for it and answers `run:` and `state:`. During a run it answers that run and starts nothing. It refuses a disabled watcher, names `services watcher enable` and exits `1`, and a start the manager refuses fails that run and exits `1`. `neptunia services watcher cancel` asks the run in progress to stop and answers `run:` and `state:`, `none` with nothing to stop, and exits `0` however often it is repeated. It changes no flag and no timer. [The watcher](watcher.md#one-run) describes both.
 
-`neptunia service watcher trigger` starts one inspection without waiting for it and answers `run:` and `state:`. During a run it answers that run and starts nothing. It refuses a disabled watcher, names `service watcher enable` and exits `1`, and a start the manager refuses fails that run and exits `1`. `neptunia service watcher cancel` asks the run in progress to stop and answers `run:` and `state:`, `none` with nothing to stop, and exits `0` however often it is repeated. It changes no flag and no timer. [The watcher](watcher.md#one-run) describes both.
+`neptunia services watcher evidence [--from <iso>] [--cursor <c>]` prints one page of the recorded requests and Claude transcripts of the observation window as JSON, with no core and no board. Its keys are `interval`, `runs`, `totalRuns`, `examinedRuns`, `unreviewedRuns`, `inFlightRuns`, `nextCursor` and `gaps`, and the first page, with no `--cursor`, adds `trash`. A `--from` that is no date or a `--cursor` that is no `nextCursor` exits `2`. [The watcher](watcher.md#service-runs) describes the read.
 
-`neptunia service watcher evidence [--from <iso>] [--cursor <c>]` prints one page of the recorded requests and Claude transcripts of the observation window as JSON, with no core and no board. Its keys are `interval`, `runs`, `totalRuns`, `examinedRuns`, `unreviewedRuns`, `inFlightRuns`, `nextCursor` and `gaps`, and the first page, with no `--cursor`, adds `trash`. A `--from` that is no date or a `--cursor` that is no `nextCursor` exits `2`. [The watcher](watcher.md#service-runs) describes the read.
+`neptunia setup` with `watcher`, `selfimprovement` or `mechanics` exits `2` and names the command of this family. A word order such as `services status watcher` exits `2` the same way.
 
-`/report`, `neptunia watcher`, `neptunia selfimprovement` and `neptunia setup` with `watcher`, `selfimprovement` or `mechanics` exit `2`, name the command of this family and run nothing. A word order such as `service status watcher` exits `2` the same way.
+## Retired names
+
+Each of these exits `2`, names its replacement and runs nothing, in the chat and in both shell forms.
+
+| Retired | Replacement |
+|---|---|
+| `service` | `services` |
+| `service watcher report`, `report` | `logs watcher` |
+| `health` | `doctor` |
+| `wakes` | `services list`, and `pause`, `resume` or `services <name> disable` for a stop |
+| `route` | `routes` |
+| `interface` | `interfaces` |
+| `task` | `tasks` |
+| `watcher`, `heartbeat`, `selfreflection`, `selfimprovement` | `services <name>` |
 
 ## Other entry points
 
-`neptunia setup` performs installation. `neptunia worker development` is what `neptunia-development.service` starts, and `neptunia worker development held` lists the tasks older than its boundary, as in [self-development](selfimprovement.md#enabling-the-worker). `neptunia interface run <name>` starts a platform package, and every other `neptunia interface` form is the table's `/interface` family. `neptunia service start|stop|restart|status [unit]` runs `systemctl` for the named units or the core and the two errand runners, in the scope of the installation, with `sudo` in the system scope except for `status`. These verbs exist in the shell alone. `neptunia task` addresses the [task board](board.md).
+`neptunia setup` performs installation. `neptunia worker development` is what `neptunia-development.service` starts, and `neptunia worker development held` lists the tasks older than its boundary, as in [self-development](selfimprovement.md#enabling-the-worker). `neptunia interface run <name>` starts a platform package and stays singular, because a unit starts it. `neptunia services start|stop|restart|status [unit]` runs `systemctl` for the named units or the core and the two errand runners, in the scope of the installation, with `sudo` in the system scope except for `status`. These verbs exist in the shell alone and never name a mechanic. `neptunia tasks` addresses the [task board](board.md).
 
-`neptunia doctor` inspects local paths and configuration even when the core is unavailable. `/status` needs a core connection. For service logs, use the systemd scope selected during [setup](setup.md#services).
+`/status` needs a core connection. For service logs, use the systemd scope selected during [setup](setup.md#services).
 
 Read the implementation in [command table](../src/interface/commands/table.ts), [CLI entry point](../bin/neptunia.ts), [request parsing](../bin/neptunia-request.ts) and [interactive renderer](../cli/app.ts).

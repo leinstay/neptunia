@@ -1,4 +1,4 @@
-// The report of the watcher as `/service watcher report [<date>]` (src/interface/commands/table.ts and
+// The report of the watcher as `/logs watcher [<date>]` (src/interface/commands/table.ts and
 // src/service/commands.ts): what the parse accepts, and that a target which is no date reads no file. `/report` itself is
 // retired, and tests/commands-service.test.ts holds that it is refused and names this command.
 import { test } from 'node:test';
@@ -10,14 +10,14 @@ import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
-test('/service watcher report with no date parses with no arguments: the latest report', () => {
-  assert.deepEqual(parseCommandLine('/service watcher report'), { ok: true, name: 'service.watcher.report', args: {} });
+test('/logs watcher with no date parses with no arguments: the latest report', () => {
+  assert.deepEqual(parseCommandLine('/logs watcher'), { ok: true, name: 'logs.watcher', args: {} });
 });
 
-test('/service watcher report <date> parses with the target', () => {
-  assert.deepEqual(parseCommandLine('/service watcher report 2026-11-02'), {
+test('/logs watcher <date> parses with the target', () => {
+  assert.deepEqual(parseCommandLine('/logs watcher 2026-11-02'), {
     ok: true,
-    name: 'service.watcher.report',
+    name: 'logs.watcher',
     args: { target: '2026-11-02' },
   });
 });
@@ -44,7 +44,7 @@ test('a word, a path or two words where a date goes read no file', async () => {
     now: () => 0,
   });
   for (const target of ['yesterday', '../x', '2026-11-02 extra', '2026-1-2']) {
-    const parsed = parseCommandLine(`/service watcher report ${target}`);
+    const parsed = parseCommandLine(`/logs watcher ${target}`);
     assert.ok(parsed.ok, target);
     const answer = await desk.run(parsed.name, parsed.args, { id: 'owner-1' });
     assert.equal(answer.status, 'failed', target);

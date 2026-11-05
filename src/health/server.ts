@@ -1,8 +1,8 @@
-// The server part of `/health`: the disk under the data folder, the load, the systemd units of the engine, the last
+// The server part of `/doctor`: the disk under the data folder, the load, the systemd units of the engine, the last
 // memory backup and the firewall when `ufw` exists. `serverHealth` judges what a probe reports and is pure;
 // `systemProbe` is the real probe over `statfs`, `node:os`, `systemctl` and `ufw`, a `ufw` that refuses to answer
 // counting as none. The owner's console
-// (src/interface/commands/console.ts) calls both for `/health server`, and the daily watcher reads it through
+// (src/interface/commands/console.ts) calls both for `/doctor server`, and the daily watcher reads it through
 // `neptunia -p`.
 
 import { execFile } from 'node:child_process';

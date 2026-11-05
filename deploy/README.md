@@ -7,7 +7,7 @@ The systemd unit templates of the engine. `neptunia setup` renders them for the 
 | `neptunia-core.service` | The core with no interface of its own (`interfaces.mode: units`). The one unit setup starts. | yes |
 | `neptunia-interface@.service` | One interface, `neptunia interface run %i`. | yes |
 | `neptunia-agent-scout.service`, `neptunia-agent-server.service` | The errand agents, `neptunia errand-runner --profile <name>`. See [Errands](../docs/errands.md#the-subharness). | yes |
-| `neptunia-watcher.service`, `neptunia-watcher.timer` | The watcher, `neptunia worker watcher`, started by the timer on `watcher.schedule` (default `at 00:00`, UTC), which setup and `neptunia service watcher setup` render into it. See [The watcher](../docs/watcher.md). | yes |
+| `neptunia-watcher.service`, `neptunia-watcher.timer` | The watcher, `neptunia worker watcher`, started by the timer on `watcher.schedule` (default `at 00:00`, UTC), which setup and `neptunia services watcher setup` render into it. See [The watcher](../docs/watcher.md). | yes |
 | `neptunia-development.service` | The long-lived development worker, `neptunia worker development`, run from the install and working on the dev checkout `selfimprovement.checkout` names. Setup writes it and never enables it; the owner's step is in [Self-development](../docs/selfimprovement.md#enabling-the-worker). | when `selfimprovement.checkout` names another checkout |
 | `neptunia-bot.service` | The core with the Discord interface in its process (`interfaces.mode: inprocess`). It conflicts with the core unit. | no |
 

@@ -1,8 +1,8 @@
-// The memory part of `/health`, read from the memory database: the people who spoke within the window and about whom
+// The memory part of `/doctor`, read from the memory database: the people who spoke within the window and about whom
 // nothing was written in it, the claims whose versions change too often, the members' lines her memory session has
 // not read, and the newest finished backup. A person counts as written about when a claim about them was created or
 // seen, a version of such a claim was recorded, or a description of them got a version in the window. The owner's
-// console (src/interface/commands/console.ts) calls `memoryHealth` for `/health memory` with `days: 7` over the
+// console (src/interface/commands/console.ts) calls `memoryHealth` for `/doctor memory` with `days: 7` over the
 // core's read connection. Pure over the database and the backups folder.
 
 import type { DatabaseSync } from 'node:sqlite';

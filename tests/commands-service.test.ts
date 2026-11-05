@@ -1,4 +1,4 @@
-// The `/service` family in the command table (src/interface/commands/table.ts), in the panels (bin/chat-panels.ts) and in
+// The `/services` family in the command table (src/interface/commands/table.ts), in the panels (bin/chat-panels.ts) and in
 // the core's console (src/interface/commands/console.ts): the one public control of the four scheduled mechanics, what
 // the parse refuses before anything runs, the controls it replaces, and that a /config read sees what `setup` saved.
 // The tests assert on parsed names, arguments, files and the commands a refusal names, never on wording.
@@ -23,11 +23,11 @@ const ACTIONS = ['setup', 'enable', 'disable', 'status'] as const;
 
 for (const name of NAMES) {
   for (const action of ACTIONS) {
-    test(`/service ${name} ${action} parses as service.${name}.${action}`, () => {
+    test(`/services ${name} ${action} parses as service.${name}.${action}`, () => {
       // Catches: a name or an action of the family is missing from the table, so the chat answers "unknown command".
-      assert.deepEqual(parseCommandLine(`/service ${name} ${action}`), {
+      assert.deepEqual(parseCommandLine(`/services ${name} ${action}`), {
         ok: true,
-        name: `service.${name}.${action}`,
+        name: `services.${name}.${action}`,
         args: {},
       });
     });
@@ -36,72 +36,72 @@ for (const name of NAMES) {
 
 test('setup takes --at and --every as flags', () => {
   // Catches: the value is read as a positional word, or the flag name differs from the one the docs and setup offer.
-  assert.deepEqual(parseCommandLine('/service watcher setup --at 00:00,12:00'), {
+  assert.deepEqual(parseCommandLine('/services watcher setup --at 00:00,12:00'), {
     ok: true,
-    name: 'service.watcher.setup',
+    name: 'services.watcher.setup',
     args: { at: '00:00,12:00' },
   });
-  assert.deepEqual(parseCommandLine('/service selfreflection setup --every 90m'), {
+  assert.deepEqual(parseCommandLine('/services selfreflection setup --every 90m'), {
     ok: true,
-    name: 'service.selfreflection.setup',
+    name: 'services.selfreflection.setup',
     args: { every: '90m' },
   });
 });
 
 test('heartbeat setup takes --jitter beside an interval, and alone', () => {
   // Catches: the jitter of the heartbeat has no way to be set once `/config` stops being the only door to it.
-  assert.deepEqual(parseCommandLine('/service heartbeat setup --every 3h --jitter 30m'), {
+  assert.deepEqual(parseCommandLine('/services heartbeat setup --every 3h --jitter 30m'), {
     ok: true,
-    name: 'service.heartbeat.setup',
+    name: 'services.heartbeat.setup',
     args: { every: '3h', jitter: '30m' },
   });
-  assert.deepEqual(parseCommandLine('/service heartbeat setup --jitter 0m'), {
+  assert.deepEqual(parseCommandLine('/services heartbeat setup --jitter 0m'), {
     ok: true,
-    name: 'service.heartbeat.setup',
+    name: 'services.heartbeat.setup',
     args: { jitter: '0m' },
   });
 });
 
 for (const line of [
   // The modes exclude each other.
-  '/service watcher setup --at 00:00 --every 6h',
+  '/services watcher setup --at 00:00 --every 6h',
   // Malformed and duplicate slots.
-  '/service watcher setup --at 25:00',
-  '/service watcher setup --at 7:00',
-  '/service watcher setup --at 00:60',
-  '/service watcher setup --at noon',
-  '/service watcher setup --at 00:00,00:00',
-  '/service watcher setup --at 00:00,',
-  '/service watcher setup --at ,00:00',
+  '/services watcher setup --at 25:00',
+  '/services watcher setup --at 7:00',
+  '/services watcher setup --at 00:60',
+  '/services watcher setup --at noon',
+  '/services watcher setup --at 00:00,00:00',
+  '/services watcher setup --at 00:00,',
+  '/services watcher setup --at ,00:00',
   // Zero, negative and malformed intervals.
-  '/service heartbeat setup --every 0h',
-  '/service heartbeat setup --every 0m',
-  '/service heartbeat setup --every -1h',
-  '/service heartbeat setup --every 6',
-  '/service heartbeat setup --every 1.5h',
-  '/service heartbeat setup --every 1h30m',
-  '/service heartbeat setup --every 6d',
+  '/services heartbeat setup --every 0h',
+  '/services heartbeat setup --every 0m',
+  '/services heartbeat setup --every -1h',
+  '/services heartbeat setup --every 6',
+  '/services heartbeat setup --every 1.5h',
+  '/services heartbeat setup --every 1h30m',
+  '/services heartbeat setup --every 6d',
   // Only the heartbeat has a jitter, only on an interval, and it is a duration of zero or more.
-  '/service watcher setup --every 6h --jitter 5m',
-  '/service selfreflection setup --every 6h --jitter 5m',
-  '/service selfimprovement setup --every 6h --jitter 5m',
-  '/service heartbeat setup --at 06:00 --jitter 5m',
-  '/service heartbeat setup --every 3h --jitter -5m',
-  '/service heartbeat setup --every 3h --jitter soon',
+  '/services watcher setup --every 6h --jitter 5m',
+  '/services selfreflection setup --every 6h --jitter 5m',
+  '/services selfimprovement setup --every 6h --jitter 5m',
+  '/services heartbeat setup --at 06:00 --jitter 5m',
+  '/services heartbeat setup --every 3h --jitter -5m',
+  '/services heartbeat setup --every 3h --jitter soon',
   // Only setup takes a schedule.
-  '/service heartbeat enable --every 3h',
-  '/service watcher status --at 00:00',
+  '/services heartbeat enable --every 3h',
+  '/services watcher status --at 00:00',
   // Only the watcher has the operations of one run.
-  '/service heartbeat trigger',
-  '/service selfreflection cancel',
-  '/service selfimprovement report',
+  '/services heartbeat trigger',
+  '/services selfreflection cancel',
+  '/services selfimprovement report',
   // A name or an action outside the family, and the verbs of the system units, which belong to the shell.
-  '/service bogus status',
-  '/service watcher start',
-  '/service watcher bogus',
-  '/service status',
-  '/service restart',
-  '/service',
+  '/services bogus status',
+  '/services watcher start',
+  '/services watcher bogus',
+  '/services status',
+  '/services restart',
+  '/services',
 ]) {
   test(`the parse refuses "${line}"`, () => {
     // Catches: a line the handler would have to reject reaches it, so the chat and the shell can disagree on it.
@@ -112,11 +112,11 @@ for (const line of [
 }
 
 for (const [line, name, args] of [
-  ['/service watcher trigger', 'service.watcher.trigger', {}],
-  ['/service watcher cancel', 'service.watcher.cancel', {}],
-  ['/service watcher report', 'service.watcher.report', {}],
-  ['/service watcher report 2026-11-03', 'service.watcher.report', { target: '2026-11-03' }],
-  ['/service watcher report run-71', 'service.watcher.report', { target: 'run-71' }],
+  ['/services watcher trigger', 'services.watcher.trigger', {}],
+  ['/services watcher cancel', 'services.watcher.cancel', {}],
+  ['/logs watcher', 'logs.watcher', {}],
+  ['/logs watcher 2026-11-03', 'logs.watcher', { target: '2026-11-03' }],
+  ['/logs watcher run-71', 'logs.watcher', { target: 'run-71' }],
 ] as const) {
   test(`${line} is in the table`, () => {
     // Catches: the operations of one run stay outside the family, and a second public family grows around them.
@@ -127,18 +127,18 @@ for (const [line, name, args] of [
 test('the table holds one service command and no standalone report, watcher or mechanic command', () => {
   // Catches: a retired control stays in the table, so `/help` and completion still offer it.
   const names = COMMANDS.map((command) => command.name);
-  assert.equal(names.filter((name) => name === 'service').length, 1);
+  assert.equal(names.filter((name) => name === 'services').length, 1);
   for (const gone of ['report', 'watcher', 'heartbeat', 'selfreflection', 'selfimprovement', 'mechanics'])
     assert.equal(names.includes(gone), false, gone);
 });
 
 for (const [line, names] of [
-  ['/report', 'service watcher report'],
-  ['/report 2026-11-02', 'service watcher report'],
-  ['/watcher run', 'service watcher'],
-  ['/heartbeat stop', 'service heartbeat'],
-  ['/selfreflection enable', 'service selfreflection'],
-  ['/selfimprovement run', 'service selfimprovement'],
+  ['/report', 'logs watcher'],
+  ['/report 2026-11-02', 'logs watcher'],
+  ['/watcher run', 'services watcher'],
+  ['/heartbeat stop', 'services heartbeat'],
+  ['/selfreflection enable', 'services selfreflection'],
+  ['/selfimprovement run', 'services selfimprovement'],
 ] as const) {
   test(`${line} is refused and names ${names}`, () => {
     // Catches: the owner's old habit ends at "unknown command" with no way forward, or still runs something.
@@ -148,11 +148,11 @@ for (const [line, names] of [
   });
 }
 
-test('the help panel lists /service and no /report', async () => {
+test('the help panel lists /services and no /report', async () => {
   // Catches: the panel keeps a list of its own that drifts from the table.
   const panel = await chatPanel('/help', () => Promise.resolve({ status: 'ok', text: '' }));
   const labels = (panel?.rows ?? []).map((row) => row.label);
-  assert.ok(labels.includes('/service'), labels.join(' '));
+  assert.ok(labels.includes('/services'), labels.join(' '));
   assert.equal(labels.includes('/report'), false);
 });
 
@@ -192,9 +192,9 @@ async function runIn(desk: ReturnType<typeof createConsole>, line: string) {
 }
 
 test('what setup saves in the chat is what a /config read answers', async () => {
-  // Catches: the family keeps a store of its own, so `/config` and `/service` show two different schedules.
+  // Catches: the family keeps a store of its own, so `/config` and `/services` show two different schedules.
   const { run } = consoleOver();
-  const saved = await run('/service heartbeat setup --every 2h');
+  const saved = await run('/services heartbeat setup --every 2h');
   assert.equal(saved.status, 'ok', saved.text);
   const read = await run('/config get heartbeat.schedule');
   assert.equal(read.status, 'ok', read.text);
@@ -205,7 +205,7 @@ test('a schedule in the settings file, where /config set writes it, is what the 
   // Catches: the family reads a copy of its own, so a change through the settings panel does not reach it.
   const { dir, run } = consoleOver();
   writeFileSync(localConfigPath(dir), JSON.stringify({ selfimprovement: { schedule: 'at 05:00' } }));
-  const status = await run('/service selfimprovement status');
+  const status = await run('/services selfimprovement status');
   assert.equal(status.status, 'ok', status.text);
   assert.match(status.text, /^schedule: at 05:00$/m);
 });
@@ -213,9 +213,9 @@ test('a schedule in the settings file, where /config set writes it, is what the 
 test('enable and disable in the chat move the same flag a /config read answers', async () => {
   // Catches: the chat path writes through another handler than the shell, and the flag lands under another key.
   const { run } = consoleOver();
-  assert.equal((await run('/service selfreflection disable')).status, 'ok');
+  assert.equal((await run('/services selfreflection disable')).status, 'ok');
   assert.equal(JSON.parse((await run('/config get selfreflection.enabled')).text), false);
-  assert.equal((await run('/service selfreflection enable')).status, 'ok');
+  assert.equal((await run('/services selfreflection enable')).status, 'ok');
   assert.equal(JSON.parse((await run('/config get selfreflection.enabled')).text), true);
 });
 
@@ -223,7 +223,7 @@ test('setup in the chat writes the local settings file and leaves the flag as it
   // Catches: `setup` also switches the mechanic on, so configuring a time starts wakes the owner did not ask for.
   const { dir, run } = consoleOver();
   writeFileSync(localConfigPath(dir), JSON.stringify({ heartbeat: { enabled: false } }));
-  assert.equal((await run('/service heartbeat setup --at 06:00,18:00')).status, 'ok');
+  assert.equal((await run('/services heartbeat setup --at 06:00,18:00')).status, 'ok');
   const local: unknown = JSON.parse(readFileSync(localConfigPath(dir), 'utf8'));
   assert.deepEqual(local, { heartbeat: { enabled: false, schedule: 'at 06:00,18:00' } });
 });
@@ -232,7 +232,7 @@ test('status in the chat runs no operation that reaches a model', async () => {
   // Catches: readiness is measured with a live probe, so reading the status spends a paid request.
   const ran: Array<string> = [];
   const { run } = consoleOver(ran);
-  const status = await run('/service heartbeat status');
+  const status = await run('/services heartbeat status');
   assert.equal(status.status, 'ok', status.text);
   assert.match(status.text, /^enabled: (true|false)$/m);
   assert.deepEqual(
@@ -258,7 +258,7 @@ test('a failed setup in the chat writes nothing', async () => {
     conversationLines: () => [],
     now: () => 0,
   });
-  const answer = await desk.run('service.watcher.setup', { at: '25:00' }, { id: 'owner-1' });
+  const answer = await desk.run('services.watcher.setup', { at: '25:00' }, { id: 'owner-1' });
   assert.equal(answer.status, 'invalid', answer.text);
   assert.equal(answer.text.includes('no such command'), false, answer.text);
   assert.equal(existsSync(localConfigPath(dir)), false);

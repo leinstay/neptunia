@@ -7,12 +7,12 @@ import { MODULE_ACTIONS } from '../src/interface/commands/module-setup.ts';
 test('every action of the contract has its command, and the chat parses the targeted commands of both module kinds', () => {
   // Bug: the table lacks a command the setup promises, so the owner cannot change one value without the whole walk.
   for (const [line, name] of [
-    ['/interface setup discord', 'interface.setup'],
-    ['/interface settings discord', 'interface.settings'],
-    ['/interface set discord token', 'interface.set'],
-    ['/interface clear discord token', 'interface.clear'],
-    ['/interface add discord servers 111', 'interface.add'],
-    ['/interface remove discord servers 111', 'interface.remove'],
+    ['/interfaces setup discord', 'interfaces.setup'],
+    ['/interfaces settings discord', 'interfaces.settings'],
+    ['/interfaces set discord token', 'interfaces.set'],
+    ['/interfaces clear discord token', 'interfaces.clear'],
+    ['/interfaces add discord servers 111', 'interfaces.add'],
+    ['/interfaces remove discord servers 111', 'interfaces.remove'],
     ['/skills setup gifs', 'skills.setup'],
     ['/skills settings gifs', 'skills.settings'],
     ['/skills set gifs key', 'skills.set'],

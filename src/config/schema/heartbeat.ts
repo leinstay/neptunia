@@ -16,7 +16,7 @@ export const HEARTBEAT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/behavior/inner/settings.ts',
     'default': 'every 3h',
     'text':
-      'When the heartbeat falls due: `every 3h`, `every 90m` or daily UTC times such as `at 06:00,18:00`. `neptunia service heartbeat setup` writes it, and a value that means nothing reads as the default',
+      'When the heartbeat falls due: `every 3h`, `every 90m` or daily UTC times such as `at 06:00,18:00`. `neptunia services heartbeat setup` writes it, and a value that means nothing reads as the default',
   },
   {
     'key': 'heartbeat.jitterMinutes',

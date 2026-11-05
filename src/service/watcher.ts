@@ -1,4 +1,4 @@
-// The watcher's own commands of the `service` family (src/service/commands.ts): `trigger`, `cancel`, `report`, `evidence`
+// The watcher's own commands of the `services` family (src/service/commands.ts): `trigger`, `cancel`, `evidence`, the report `/logs watcher` reads
 // and the lines status adds. All of them work with no core, and none asks a model. `trigger` claims the run first and only then asks the
 // manager for the worker, which adopts the claim, so the answer names the run that will work. `cancel` writes `stopping`
 // into the run's record, and the worker that holds the run, or the worker that comes for a claim nobody holds yet, ends it.
@@ -63,14 +63,14 @@ export function readyWatcherFolder(deps: ServiceDeps): void {
 /** One immediate inspection: refused while disabled, and answering the run in progress when there is one. */
 export async function triggerWatcher(deps: ServiceDeps): Promise<ServiceAnswer> {
   if (!watcherSettings(deps.config()).enabled)
-    return failed('service watcher trigger: the watcher is disabled; run neptunia service watcher enable first');
+    return failed('services watcher trigger: the watcher is disabled; run neptunia services watcher enable first');
   const store = storeOf(deps);
   const { claimed, run } = claimRun(store, { source: 'manual', owner: null, timeoutMs: WATCHER_RUN_TIMEOUT_MS });
   if (!claimed) return { text: runAnswer(run), status: 'ok' };
   const refused = await startWorker(deps.run, deps.env);
   if (refused === null) return { text: runAnswer(run), status: 'ok' };
   const ended = finishRun(store, run.runId, { state: 'failed', code: 'manager-refused', detail: refused });
-  return failed(`service watcher trigger: the manager refused: ${refused}\n${runAnswer(ended)}`);
+  return failed(`services watcher trigger: the manager refused: ${refused}\n${runAnswer(ended)}`);
 }
 
 /** Asks the run in progress to stop. Nothing to stop is an answer too, so a repeated cancel stays a success. */
@@ -175,10 +175,10 @@ function evidenceFlags(
   args: Readonly<Record<string, unknown>>
 ): { from: number | null; to: number | null; records: number; sessions: number } | string {
   const from = args.from === undefined ? null : typeof args.from === 'string' ? Date.parse(args.from) : NaN;
-  if (from !== null && Number.isNaN(from)) return 'service watcher evidence: --from takes a date';
+  if (from !== null && Number.isNaN(from)) return 'services watcher evidence: --from takes a date';
   if (args.cursor === undefined) return { from, to: null, records: 0, sessions: 0 };
   const cursor = typeof args.cursor === 'string' ? EVIDENCE_CURSOR.exec(args.cursor) : null;
-  if (cursor === null) return 'service watcher evidence: --cursor takes the nextCursor of an earlier page';
+  if (cursor === null) return 'services watcher evidence: --cursor takes the nextCursor of an earlier page';
   return { from, to: Number(cursor[1]), records: Number(cursor[2]), sessions: Number(cursor[3]) };
 }
 

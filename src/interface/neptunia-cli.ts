@@ -1,7 +1,7 @@
 // The core's side of the commands over the link: what answers a `command.requested` event. src/core.ts hands each one
 // here before the event door sees it, so a command never reaches her memory, her turns or her requests. The link
 // (link.ts) lets a command through only from the `cli` principal (the `neptunia` chat and `neptunia -p`, the owner) or
-// from an `agent` principal (a development agent of the task board, `neptunia task`).
+// from an `agent` principal (a development agent of the task board, `neptunia tasks`).
 //
 // A command of an `agent` principal, and a `task.*` command of the `cli` principal, is a board command: it runs as
 // the principal's name through `tasks` (src/board/commands.ts, run in the memory writer by src/board/writer.ts), so
@@ -9,7 +9,7 @@
 //
 // A command of the `cli` principal is a command of the chat's table (src/interface/commands/table.ts), parsed by the chat, and runs with the owner's rights:
 // `status` (the short summary), `header` (the chat's opening line, no row of the table), `help`, and
-// `interface.list`, `interface.enable` and `interface.disable` (`args.name`) are answered here, every other one by the
+// `interfaces.list`, `interfaces.enable` and `interfaces.disable` (`args.name`) are answered here, every other one by the
 // owner's console (src/interface/commands/console.ts). Every answer is plain text with a status: `ok` when the command
 // ran, else the operation's own status (`denied`, `invalid`, `failed`). `status` and `header` read what the core holds
 // already (today's usage, the inner life, the errands, the interfaces, the model roles that are down by
@@ -59,7 +59,7 @@ export type CommandEvent = {
   answer?: string;
 };
 
-/** One interface as `interface.list` shows it. */
+/** One interface as `interfaces.list` shows it. */
 export type InterfaceRow = { name: string; enabled: boolean; connected: boolean };
 
 /** What the summary and the header are made of, read by the core at the moment of the command. */
@@ -175,7 +175,7 @@ export function createCommandDesk(deps: CommandDeps): {
   const dialogs = deps.dialogs ?? createDialogBroker({ now: deps.now ?? Date.now });
 
   async function interfaceCommand(name: string, args: Record<string, unknown>): Promise<Answer> {
-    if (name === 'interface.list') {
+    if (name === 'interfaces.list') {
       const rows = deps.interfaces.list();
       const lines = rows.map(
         (row) =>
@@ -185,7 +185,7 @@ export function createCommandDesk(deps: CommandDeps): {
     }
     const target = typeof args.name === 'string' ? args.name : '';
     if (target === '') return { text: `usage: /${name.replace('.', ' ')} <name>`, status: 'invalid' };
-    if (name === 'interface.enable') {
+    if (name === 'interfaces.enable') {
       deps.interfaces.enable(target);
       return { text: `${target} is enabled.`, status: 'ok' };
     }
@@ -210,7 +210,7 @@ export function createCommandDesk(deps: CommandDeps): {
     if (name === 'help') return { text: helpText(), status: 'ok' };
     if (name === 'status') return { text: statusText(deps.facts()), status: 'ok' };
     if (name === 'header') return { text: headerText(deps.facts()), status: 'ok' };
-    if (name === 'interface.list' || name === 'interface.enable' || name === 'interface.disable')
+    if (name === 'interfaces.list' || name === 'interfaces.enable' || name === 'interfaces.disable')
       return interfaceCommand(name, args);
     return dialogs.start(name, (dialog) => deps.console.run(name, args, event.requester, dialog));
   }

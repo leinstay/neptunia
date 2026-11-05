@@ -24,11 +24,11 @@ const count = (text: string, part: string): number => text.split(part).length - 
 const SAMPLES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   logs: { options: 'errors' },
   // Changed: `report` is retired. A setup leaf takes one mode, so its sample names the flags it uses.
-  'service.heartbeat.setup': { every: '6h', jitter: '30m' },
-  'service.selfreflection.setup': { every: '6h' },
-  'service.selfimprovement.setup': { at: '03:00' },
-  'service.watcher.setup': { at: '00:00,12:00' },
-  'service.watcher.report': { target: '2026-11-03' },
+  'services.heartbeat.setup': { every: '6h', jitter: '30m' },
+  'services.selfreflection.setup': { every: '6h' },
+  'services.selfimprovement.setup': { at: '03:00' },
+  'services.watcher.setup': { at: '00:00,12:00' },
+  'logs.watcher': { target: '2026-11-03' },
   'tools.grant': { target: 'everyone' },
   'tools.revoke': { target: 'everyone' },
 };
@@ -37,7 +37,7 @@ const SAMPLES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
 type Leaf = { name: string; argv: Array<string>; args: Record<string, string> };
 
 function leafOf(name: string, every: ReadonlyArray<CommandArg>): Leaf {
-  // A flag the leaf's sample leaves out is not typed: the modes of `service <name> setup` exclude each other.
+  // A flag the leaf's sample leaves out is not typed: the modes of `services <name> setup` exclude each other.
   const named = SAMPLES[name];
   const args = every.filter((one) => one.flag === undefined || named === undefined || Object.hasOwn(named, one.name));
   const sample = (one: CommandArg): string => SAMPLES[name]?.[one.name] ?? one.choices?.[0] ?? `sample-${one.name}`;
@@ -84,9 +84,9 @@ for (const command of COMMANDS) {
 
 test('an interface subcommand the table does not name goes to the interface', () => {
   // Catches: the `otherwise` branch of the parser is lost, so an interface's own subcommand is refused.
-  assert.deepEqual(parseRequest(['interface', 'zeta71', 'sync', 'all', 'now']).parsed, {
+  assert.deepEqual(parseRequest(['interfaces', 'zeta71', 'sync', 'all', 'now']).parsed, {
     ok: true,
-    name: 'interface.command',
+    name: 'interfaces.command',
     args: { name: 'zeta71', sub: 'sync', rest: 'all now' },
   });
 });
@@ -95,7 +95,7 @@ test('an interface subcommand the table does not name goes to the interface', ()
 const BAD_SYNTAX: ReadonlyArray<{ argv: ReadonlyArray<string>; names: string }> = [
   { argv: ['rules', 'add'], names: 'text' },
   { argv: ['usage', '90d'], names: '90d' },
-  { argv: ['health', 'disks'], names: 'disks' },
+  { argv: ['doctor', 'disks'], names: 'disks' },
   { argv: ['memory', 'no-such-sub'], names: 'no-such-sub' },
   { argv: ['model', 'set', 'no-such-role'], names: 'no-such-role' },
   { argv: ['simulation', 'enable'], names: '--key' },
@@ -152,11 +152,11 @@ function fresh(reply: () => Reply | null = () => null): void {
 test('interface list reaches the management family: the answer alone on stdout, exit 0', async () => {
   // Catches: the first word `interface` stays the runner's, a result goes to stderr, or a log line joins what a script reads.
   fresh();
-  const run = await runChild(dirs, ['interface', 'list']);
+  const run = await runChild(dirs, ['interfaces', 'list']);
   assert.equal(run.code, 0, run.stderr.slice(0, 200));
-  assert.equal(run.stdout, 'handled interface.list\n');
+  assert.equal(run.stdout, 'handled interfaces.list\n');
   assert.equal(run.stderr, '');
-  assert.deepEqual(core.commands, [{ name: 'interface.list', args: {} }]);
+  assert.deepEqual(core.commands, [{ name: 'interfaces.list', args: {} }]);
   assert.deepEqual(core.lines, [], 'a management command is no line of the chat');
 });
 
@@ -207,13 +207,13 @@ test('neptunia doctor live runs the doctor with the core asked for its probes', 
   assert.deepEqual(core.commands, [{ name: 'doctor.live', args: {} }]);
 });
 
-test('neptunia service status <unit> keeps its form and runs systemctl with that unit', async () => {
+test('neptunia services status <unit> keeps its form and runs systemctl with that unit', async () => {
   // Catches: the slice reroutes `service` before its own unified form exists, so the units cannot be read.
   fresh();
   const bin = join(dirs.root, 'bin');
   mkdirSync(bin, { recursive: true });
   writeFileSync(join(bin, 'systemctl'), '#!/bin/sh\necho "zeta-systemctl $*"\nexit 3\n', { mode: 0o755 });
-  const run = await runChild(dirs, ['service', 'status', 'zeta.service'], { env: { PATH: bin } });
+  const run = await runChild(dirs, ['services', 'status', 'zeta.service'], { env: { PATH: bin } });
   assert.ok(run.stdout.includes('zeta-systemctl status zeta.service'), run.stdout);
   assert.equal(run.code, 3, "systemctl's exit code is the command's");
   assert.deepEqual(core.commands, []);

@@ -224,8 +224,8 @@ test('the report lists every step done and the commands that come next, in the o
   );
   assert.deepEqual(report.next, [
     'keys core add',
-    'interface token set discord',
-    'interface enable discord',
+    'interfaces token set discord',
+    'interfaces enable discord',
     'model set',
     // Changed: the account command replaced the enable step.
     'subharness claude login',

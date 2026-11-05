@@ -4,7 +4,7 @@ A task filed on the [board](board.md) starts development by itself. The thinker 
 
 ## The wake and the worker
 
-The selfimprovement wake is a persona turn that decides: she files one task or skips, and the wake ends. [Inner life](inner-life.md#heartbeat-and-selfimprovement) describes what it accepts. Neither the wake nor the persona starts an agent. `neptunia worker development` does, in `src/development/worker.ts`, whenever the board has a task for it. It runs apart from the wake, so `neptunia service selfimprovement disable` leaves filed tasks going.
+The selfimprovement wake is a persona turn that decides: she files one task or skips, and the wake ends. [Inner life](inner-life.md#heartbeat-and-selfimprovement) describes what it accepts. Neither the wake nor the persona starts an agent. `neptunia worker development` does, in `src/development/worker.ts`, whenever the board has a task for it. It runs apart from the wake, so `neptunia services selfimprovement disable` leaves filed tasks going.
 
 The worker stays up and waits for the board's events through the `task.wait` command, so a filed task starts at once and an idle worker sets no clock. While a pull request is watched it also looks at GitHub every `development.lookEveryMs` milliseconds (default `120000`), because a merge there raises no board event.
 
@@ -22,13 +22,13 @@ A turn that ends with nothing open means finished. Code then commits what is lef
 
 Only this code merges, and only through the system's `gh`. The thinker has the worker's board client and no gh login. With every check green at the persisted head, the worker marks the draft ready. `selfimprovement.mode` `approve` (the default) stops there and the pull request waits for the owner. `auto` goes on to `gh pr merge --match-head-commit <sha>` when the task's risk allows it, so a commit CI never saw cannot land. The mode is read at each look. A merge by anyone closes the task and reaches her next selfimprovement wake once, and a merge by the owner has the worker delete the branch with `git push <url> --delete <branch>`, because the worker's own merge passes `--delete-branch`. A pull request closed unmerged cancels the task and leaves its branch, and a merge GitHub refuses leaves it waiting.
 
-The owner's `neptunia task review <id> --changes --comment "..."` gives the thinker a new turn on the same branch with the comment in its brief. The next push moves the same pull request, so no second one opens, and the merge names the new head. A turn that leaves the refused head in place blocks the task with `changes-not-made`.
+The owner's `neptunia tasks review <id> --changes --comment "..."` gives the thinker a new turn on the same branch with the comment in its brief. The next push moves the same pull request, so no second one opens, and the merge names the new head. A turn that leaves the refused head in place blocks the task with `changes-not-made`.
 
 ## Risk
 
 Each look at a pull request reads `git diff --name-status --no-renames -z <base>...<sha>` at the literal head a merge would name, so a rename counts on both sides and a new push is read again. A path on `DANGER_PATHS` in `src/development/risk.ts` raises the task to `high`, with the category as the reason. The categories are `deploy`, `keys`, `subharness`, `board`, `memory-db`, `permissions`, `ci` and `dependencies`. `memory-db` is all of `src/memory/db/` except `recall.ts` and `readers/`. `permissions` holds the rights code, `agents/*/profile.json` and the gate's own files. `config/config.json` is not on the list.
 
-The thinker's first turn records its own level with `neptunia task risk <id> <level> --reason "..."`. `auto` merges a task only at `low`, with a diff it could read and no listed path. Anything above `low` stays open and ready for the owner, and `approve` behaves the same at every level. The `low` the worker gives her proposal at intake is no assessment, so a task she requested with no `task.risk` record waits in `auto`. A diff that cannot be read merges nothing and journals `diff-unreadable`. The owner can lower a task through the same command, down to its highest dev task, and a dangerous diff raises it again at the next look.
+The thinker's first turn records its own level with `neptunia tasks risk <id> <level> --reason "..."`. `auto` merges a task only at `low`, with a diff it could read and no listed path. Anything above `low` stays open and ready for the owner, and `approve` behaves the same at every level. The `low` the worker gives her proposal at intake is no assessment, so a task she requested with no `task.risk` record waits in `auto`. A diff that cannot be read merges nothing and journals `diff-unreadable`. The owner can lower a task through the same command, down to its highest dev task, and a dangerous diff raises it again at the next look.
 
 When green checks in `auto` leave her task waiting, the worker sends her an outbox row of kind `risk` once, whatever the looks, restarts and deliveries that follow. Its `reason` is the category, or `assessed` when only the level or a missing assessment holds the task. Paths and the thinker's words stay out of it. An unreadable diff sends nothing, because the next look may read it.
 
@@ -70,8 +70,8 @@ The first start writes `development.startedAt` into the local settings, and a re
 
 ```bash
 neptunia worker development held
-neptunia task update <id> --meta admitted=yes
-neptunia task cancel <id> --reason "..."
+neptunia tasks update <id> --meta admitted=yes
+neptunia tasks cancel <id> --reason "..."
 ```
 
 ## Recovery

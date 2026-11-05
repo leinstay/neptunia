@@ -6,7 +6,7 @@ Interactive setup uses a keyboard selector for `on` or `off` and `yes` or `no` q
 
 ## Individual steps
 
-Run `neptunia setup <step>` to repeat one part without starting the rest. The `selfimprovement`, `mechanics` and `watcher` steps run in a full setup alone, and `neptunia setup` with one of those words exits `2`. To repeat them, use `neptunia service <name> setup`, `enable` and `disable` from [the CLI](cli.md#scheduled-services), which write the same settings with the same validation. The repository check runs again in a full setup.
+Run `neptunia setup <step>` to repeat one part without starting the rest. The `selfimprovement`, `mechanics` and `watcher` steps run in a full setup alone, and `neptunia setup` with one of those words exits `2`. To repeat them, use `neptunia services <name> setup`, `enable` and `disable` from [the CLI](cli.md#scheduled-services), which write the same settings with the same validation. The repository check runs again in a full setup.
 
 | Step | Purpose |
 |---|---|
@@ -28,15 +28,15 @@ A failure stops later steps. Without a terminal, interactive questions are skipp
 
 The default is user units under `~/.config/systemd/user` or the directory selected by `XDG_CONFIG_HOME`. Manage these with `systemctl --user`. `neptunia setup --system` installs system units through sudo, running them as the installing user. Manage those with `sudo systemctl`.
 
-Use `--node /absolute/path/to/node` to select the executable written into units. See [the unit templates](../deploy/README.md) for the processes and timers. Changing a stored setting does not rewrite an installed unit: rerun `neptunia setup units` when changing a backend mode. `neptunia service watcher setup` renders the watcher's timer itself, and a `watcher.schedule` changed through `/config` reaches the timer at the next render.
+Use `--node /absolute/path/to/node` to select the executable written into units. See [the unit templates](../deploy/README.md) for the processes and timers. Changing a stored setting does not rewrite an installed unit: rerun `neptunia setup units` when changing a backend mode. `neptunia services watcher setup` renders the watcher's timer itself, and a `watcher.schedule` changed through `/config` reaches the timer at the next render.
 
-Setup starts the core only. Enable the interface and chosen timers explicitly, the watcher's with `neptunia service watcher enable`. `neptunia service` follows the scope: `NEPTUNIA_UNIT_SCOPE` when it says `user` or `system`, else the user manager when the watcher's timer lies under `$XDG_CONFIG_HOME/systemd/user/`, otherwise the system manager. `/logs` addresses the system journal, so use `journalctl --user` for a user installation.
+Setup starts the core only. Enable the interface and chosen timers explicitly, the watcher's with `neptunia services watcher enable`. `neptunia services` follows the scope: `NEPTUNIA_UNIT_SCOPE` when it says `user` or `system`, else the user manager when the watcher's timer lies under `$XDG_CONFIG_HOME/systemd/user/`, otherwise the system manager. `/logs` addresses the system journal, so use `journalctl --user` for a user installation.
 
 ## Optional modules
 
 An interface or skill declares questions in its `setup.json`. The common setup implementation stores ordinary values in its `config.json` and secrets in `credentials.json`, under `data/interfaces/<name>/` or `data/skills/<name>/`. Secret files use mode `0600`.
 
-Use `/interface setup <name>` or `/skills setup <name>` to repeat these questions. The corresponding `set`, `clear`, `add` and `remove` commands change individual values. Disabling a module keeps its data. The declaration format is covered by [interfaces](interfaces.md) and [skills](skills.md).
+Use `/interfaces setup <name>` or `/skills setup <name>` to repeat these questions. The corresponding `set`, `clear`, `add` and `remove` commands change individual values. Disabling a module keeps its data. The declaration format is covered by [interfaces](interfaces.md) and [skills](skills.md).
 
 The optional Google YouTube Data API key improves metadata retrieval. Obtain one through [Google's setup guide](https://developers.google.com/youtube/v3/getting-started), then use `/keys service set youtube`. It does not replace the model that watches video.
 

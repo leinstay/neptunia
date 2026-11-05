@@ -1,4 +1,4 @@
-// `wakeClockOf` (src/service/commands.ts), the core's reading of a persona wake for `/service <name> status`: the running
+// `wakeClockOf` (src/service/commands.ts), the core's reading of a persona wake for `/services <name> status`: the running
 // inner life and the running diary as src/core.ts hands them over, answered through the console as the owner reads it.
 // The inner life and the diary are the real ones over a fake turn runner and an injected clock, so the state the clock
 // reads is the state they write. The tests assert on the `key: value` lines of the answer, never on wording.
@@ -32,7 +32,7 @@ after(async () => {
   for (const memory of OPENED.splice(0)) await memory.close();
 });
 
-/** What `/service <name> status` answers in a core whose wakes `wakeClock` reads. */
+/** What `/services <name> status` answers in a core whose wakes `wakeClock` reads. */
 async function statusOf(
   name: ServiceName,
   config: unknown,
@@ -55,7 +55,7 @@ async function statusOf(
     now: () => now,
     wakeClock,
   });
-  const parsed = parseCommandLine(`/service ${name} status`);
+  const parsed = parseCommandLine(`/services ${name} status`);
   assert.ok(parsed.ok, parsed.ok ? '' : parsed.reason);
   const answer = await desk.run(parsed.name, parsed.args, { id: 'owner-1' });
   assert.equal(answer.status, 'ok', answer.text);

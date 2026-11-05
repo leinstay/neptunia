@@ -87,7 +87,7 @@ export function reasonedPause(deps: ReasonedPauseDeps): PauseControl {
  */
 export type Answer = { text: string; status: string; code?: string };
 
-/** A provider slug of OpenRouter, as `/route set` takes it (src/tools/impl/route.ts). */
+/** A provider slug of OpenRouter, as `/routes set` takes it (src/tools/impl/route.ts). */
 const PROVIDER_SLUG = /^[a-z0-9-]+$/;
 
 export type KeysDeps = {

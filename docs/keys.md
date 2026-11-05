@@ -41,7 +41,7 @@ Use `/search` to inspect and change the engine, model and enabled state. Use `/k
 
 `/keys service set <name>` prompts for a service value. Supported service names include `youtube`, `brave`, `exa` and `videoProxy`. The [setup guide](setup.md#optional-modules) links to the YouTube API instructions.
 
-`/interface token set discord` writes Discord's token to `data/interfaces/discord/credentials.json`. A skill's setup contract declares its own secrets. Removing a platform's credentials does not remove stored memories from it.
+`/interfaces token set discord` writes Discord's token to `data/interfaces/discord/credentials.json`. A skill's setup contract declares its own secrets. Removing a platform's credentials does not remove stored memories from it.
 
 Back up credentials with the complete persona, keep the backup private and do not commit credentials to Git. Key files are not encrypted by the engine. [Persona migration](persona-migration.md) covers moving them without printing their values.
 

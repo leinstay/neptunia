@@ -99,9 +99,9 @@ export type ConsoleDeps = {
   subharness?: ConsoleSubharness;
   /** The diary's mirrors (src/behavior/mirror-desk.ts); `/mirror` fails while there is none. */
   mirrors?: MirrorDesk | null;
-  /** How `/service watcher` reaches the service manager, `spawnRun` when absent. A test always gives its own. */
+  /** How `/services watcher` reaches the service manager, `spawnRun` when absent. A test always gives its own. */
   serviceManager?: RunManager;
-  /** What the core knows of one of its wakes, for `/service <name> status`. */
+  /** What the core knows of one of its wakes, for `/services <name> status`. */
   wakeClock?: (name: ServiceName) => WakeClock | null;
 };
 
@@ -177,7 +177,7 @@ async function personLinkCommand(
   }
 }
 
-/** Runs a command over a module's setup contract: `/skills` for a skill, `/interface` for an interface. */
+/** Runs a command over a module's setup contract: `/skills` for a skill, `/interfaces` for an interface. */
 function moduleRun(
   dataDir: string,
   name: string,
@@ -192,15 +192,15 @@ function moduleRun(
 /** The action of a command over a module's setup contract, or null for any other command. */
 function moduleActionOf(name: string): ModuleAction | null {
   const [group, action] = name.split('.');
-  if (group !== 'interface' && group !== 'skills') return null;
+  if (group !== 'interfaces' && group !== 'skills') return null;
   return MODULE_ACTIONS.find((one) => one === action) ?? null;
 }
 
 /** The prefix of the `/skills` commands, which `skillsCommand` answers. */
 const SKILLS_PREFIX = 'skills.';
 
-/** The prefix of the `/service` commands, which `serviceFamily` answers. */
-const SERVICE_PREFIX = 'service.';
+/** The prefix of the `/services` commands, which `serviceFamily` answers. */
+const SERVICE_PREFIX = 'services.';
 
 /** The prefix of the `/keys` commands, which the key commands answer. */
 const KEYS_PREFIX = 'keys.';
@@ -212,8 +212,16 @@ const SIMULATION_PREFIX = 'simulation.';
 /** How many stored lines `/memory conversation` prints. */
 const CONVERSATION_LINES = 30;
 
-/** The window of `/health memory`: people who spoke within it and about whom nothing was written in it. */
+/** The window of `/doctor memory`: people who spoke within it and about whom nothing was written in it. */
 const HEALTH_DAYS = 7;
+
+/** The part of the core's reading each `/doctor` command answers: the whole of it, or one part. */
+const DOCTOR_PARTS: Readonly<Record<string, string>> = {
+  doctor: '',
+  'doctor.server': 'server',
+  'doctor.core': 'core',
+  'doctor.memory': 'memory',
+};
 
 /** The days of a `/usage` window. */
 const WINDOW_DAYS: Readonly<Record<string, number>> = { '7d': 7, '30d': 30 };
@@ -352,7 +360,7 @@ function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Pr
   return null;
 }
 
-/** `/service`: the family's one handler, over the core's hot settings and its clocks. */
+/** `/services`: the family's one handler, over the core's hot settings and its clocks. */
 function serviceRun(
   deps: ConsoleDeps,
   config: () => unknown,
@@ -566,17 +574,14 @@ export function createConsole(deps: ConsoleDeps): {
     'errands.cancel': (args) => ['errand.cancel', { id: args.id }],
     'intentions.list': () => ['intention.list', {}],
     'intentions.cancel': (args) => ['intention.cancel', { id: args.id }],
-    'wakes.list': () => ['inner.status', {}],
-    'wakes.stop': () => ['inner.stop', {}],
-    'wakes.start': () => ['inner.start', {}],
     pause: () => ['bot.pause', {}],
     resume: () => ['bot.resume', {}],
     'config.set': (args) => ['config.set', { path: args.path, value: args.value }],
     'config.unset': (args) => ['config.unset', { path: args.path }],
     'model.show': () => ['model.show', {}],
     'model.set': (args) => ['model.set', { role: args.role, id: args.model }],
-    'route.list': () => ['route.list', {}],
-    'route.set': (args) => [
+    'routes.list': () => ['route.list', {}],
+    'routes.set': (args) => [
       'route.set',
       {
         model: args.model,
@@ -586,7 +591,7 @@ export function createConsole(deps: ConsoleDeps): {
         byok: args.byok,
       },
     ],
-    'route.remove': (args) => ['route.remove', { model: args.model, role: anyRole(args.role) }],
+    'routes.remove': (args) => ['route.remove', { model: args.model, role: anyRole(args.role) }],
     'memory.profile': (args) => ['memory.profile.read', { userId: args.user, section: args.section }],
     'memory.recent': () => ['memory.recent.read', {}],
     'memory.affinity': (args) => ['memory.affinity.read', { userId: args.user }],
@@ -611,13 +616,13 @@ export function createConsole(deps: ConsoleDeps): {
   };
 
   async function run(name: string, args: Record<string, unknown>, requester: { id: string }): Promise<Answer> {
+    const part = DOCTOR_PARTS[name];
+    if (part !== undefined) return health(part);
     switch (name) {
       case 'status.full':
         return statusFull(requester);
       case 'doctor.live':
         return doctorLive(requester);
-      case 'health':
-        return health(text(args.part));
       case 'usage':
         return usage(text(args.window), await keyLimits(requester));
       case 'intentions.show':
@@ -640,7 +645,7 @@ export function createConsole(deps: ConsoleDeps): {
         if ('status' in given && typeof given.status === 'string') return given as Answer;
         return op(name, name === 'tools.grant' ? 'access.grant' : 'access.revoke', given, args, requester);
       }
-      case 'interface.command':
+      case 'interfaces.command':
         return refused(name, args, `the interface ${text(args.name)} has no commands of its own`);
       default: {
         const read = LOCAL_CONFIG_READS[name];
@@ -653,7 +658,7 @@ export function createConsole(deps: ConsoleDeps): {
     }
   }
 
-  // `/skills`, `/subharness`, `/agent mode`, `/simulation` and `/interface token set` have a module of their own; every other
+  // `/skills`, `/subharness`, `/agent mode`, `/simulation` and `/interfaces token set` have a module of their own; every other
   // command is answered above.
   return {
     run: (name, args, requester, dialog = null) => {
@@ -665,10 +670,11 @@ export function createConsole(deps: ConsoleDeps): {
       const owned = ownCommand(deps, name, args, dialog);
       if (owned !== null) return owned;
       if (name.startsWith(SERVICE_PREFIX)) return serviceRun(deps, config, name, args);
+      if (name === 'logs.watcher') return serviceRun(deps, config, 'service.watcher.report', args);
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
       if (isSubharnessCommand(name)) return subharnessCommand(subharnessDeps(deps), name, args);
       if (name.startsWith(SIMULATION_PREFIX)) return simulationCommand(deps.privateDir, name, args);
-      if (name === 'interface.token.set')
+      if (name === 'interfaces.token.set')
         return setInterfaceToken({ privateDir: deps.privateDir, iface: text(args.name), dialog });
       return run(name, args, requester);
     },

@@ -1,6 +1,6 @@
 // What the agents' subprocess runs recorded: Claude's session transcripts (`readTranscriptRuns` of
 // src/watcher/transcripts.ts), the source the inventory names for thinker, dev, scout, server and watcher, and
-// `neptunia service watcher evidence [--from <iso>] [--cursor <c>]`, the bounded read-only path the watcher agent calls.
+// `neptunia services watcher evidence [--from <iso>] [--cursor <c>]`, the bounded read-only path the watcher agent calls.
 // Transcripts are synthetic (tests/fixtures/claude-transcript.ts). The one real process runs the command line, with no core.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -420,7 +420,7 @@ async function evidence(where: Rig, flags: Record<string, unknown> = {}, now = T
         return Promise.resolve({ code: 0, stdout: '', stderr: '' });
       },
     },
-    'service.watcher.evidence',
+    'services.watcher.evidence',
     flags
   );
   return { answer, page: answer.status === 'ok' ? (JSON.parse(answer.text) as Evidence) : null };
@@ -595,16 +595,16 @@ test('evidence writes nothing, starts nothing, asks no model and shows no creden
 
 for (const [form, parsed] of [
   [
-    'neptunia service',
-    () => parseRequest(['service', 'watcher', 'evidence', '--from', '2026-11-04T00:00:00Z', '--cursor', 'c1']).parsed,
+    'neptunia services',
+    () => parseRequest(['services', 'watcher', 'evidence', '--from', '2026-11-04T00:00:00Z', '--cursor', 'c1']).parsed,
   ],
-  ['neptunia -p', () => parseCommandLine('/service watcher evidence --from 2026-11-04T00:00:00Z --cursor c1')],
+  ['neptunia -p', () => parseCommandLine('/services watcher evidence --from 2026-11-04T00:00:00Z --cursor c1')],
 ] as const) {
   test(`${form} parses evidence with its two flags`, () => {
     // Bug: the handler exists and the table does not hold it, so the agent's call answers usage.
     const done = parsed();
     assert.ok(done.ok, done.ok ? '' : done.reason);
-    assert.equal(done.name, 'service.watcher.evidence');
+    assert.equal(done.name, 'services.watcher.evidence');
     assert.deepEqual(done.args, { from: '2026-11-04T00:00:00Z', cursor: 'c1' });
   });
 }
@@ -616,7 +616,7 @@ test('the real command line answers evidence as JSON, with no core and no board'
   const home = tempDir('nep-evidence-home-');
   const done = spawnSync(
     process.execPath,
-    [BIN, 'service', 'watcher', 'evidence', '--from', new Date(Date.now() - 3_600_000).toISOString()],
+    [BIN, 'services', 'watcher', 'evidence', '--from', new Date(Date.now() - 3_600_000).toISOString()],
     {
       cwd: REPO,
       encoding: 'utf8',

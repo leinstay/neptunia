@@ -118,7 +118,7 @@ test('a lowering by one step is a lowering', (t) => {
 });
 
 test('a lowering through task.update is refused the same way', (t) => {
-  // Catches: the old field path stays open beside the new command, and `neptunia task update --risk low` undoes the rule.
+  // Catches: the old field path stays open beside the new command, and `neptunia tasks update --risk low` undoes the rule.
   const world = developmentWorld(t);
   const id = ownerTask(world, { risk: 'high' });
   const { revision } = world.show(id).task;
