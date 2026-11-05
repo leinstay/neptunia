@@ -210,6 +210,42 @@ const NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 type Settings = Record<string, unknown>;
 type InterfacePackage = { start(host: InterfaceHost): Promise<RunningInterface> };
 
+/** How long an exit waits for a reader that holds a pipe open and does not read. */
+const FLUSH_LIMIT_MS = 30_000;
+
+/** The exit code of a process whose reader went away, as a shell reports a broken pipe. */
+const BROKEN_PIPE_EXIT = 141;
+
+/**
+ * A reader that closes the pipe (`| head -1`) is an ordinary end, not a fault: the write error is swallowed and the
+ * process ends with the shell's broken-pipe code instead of a stack trace.
+ */
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EPIPE') process.exit(BROKEN_PIPE_EXIT);
+    throw err;
+  });
+}
+
+/**
+ * Ends the process once stdout and stderr have handed every byte to the pipe. `process.exit` drops what a pipe has not
+ * taken yet, so a large answer piped to `jq` would arrive cut at the pipe size with exit 0. A reader that went away
+ * ends the wait at once, and a reader that never reads ends it after `FLUSH_LIMIT_MS`.
+ */
+async function exitAfterFlush(code: number): Promise<never> {
+  const drained = [process.stdout, process.stderr].map(
+    (stream) =>
+      new Promise<void>((resolve) => {
+        if (stream.destroyed || stream.writableLength === 0) return resolve();
+        stream.write('', () => resolve());
+        stream.once('error', () => resolve());
+      })
+  );
+  const limit = new Promise<void>((resolve) => setTimeout(resolve, FLUSH_LIMIT_MS));
+  await Promise.race([Promise.all(drained), limit]);
+  return process.exit(code);
+}
+
 function die(message: string): never {
   console.error(`neptunia: ${message}`);
   process.exit(message.startsWith('usage:') ? 2 : 1);
@@ -341,13 +377,13 @@ function refuseSyntax(reason: string): never {
 }
 
 /** Ends the process with one answer: `ok` on stdout and exit 0, anything else on stderr and exit 1. */
-function finish(answer: Answer): never {
+async function finish(answer: Answer): Promise<never> {
   if (answer.status === 'ok') {
     if (answer.text !== '') printBlock(answer.text);
-    process.exit(0);
+    return exitAfterFlush(0);
   }
   console.error(`neptunia: ${answer.text === '' ? answer.status : answer.text}`);
-  process.exit(1);
+  return exitAfterFlush(1);
 }
 
 /** The `cli` client's link for one request; no core listening ends the process with exit 1. */
@@ -378,7 +414,7 @@ async function runCommand({ parsed, secretStdin }: Request): Promise<never> {
     // The doctor's lines are its result even when a check failed, as `neptunia doctor` prints them; the exit code says so.
     if (command.name.startsWith('doctor') && answer.status !== 'ok') {
       printBlock(answer.text);
-      process.exit(1);
+      return exitAfterFlush(1);
     }
     return finish(answer);
   }
@@ -1159,7 +1195,7 @@ async function runDoctor(argv: ReadonlyArray<string>): Promise<void> {
       process.stdout.write(
         `${check.status.padEnd(7)}  ${check.name.padEnd(11)}  ${check.detail.replaceAll('\n', '; ')}\n`
       );
-  process.exit(checks.some((check) => check.status === 'fail') ? 1 : 0);
+  return exitAfterFlush(checks.some((check) => check.status === 'fail') ? 1 : 0);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1622,13 +1658,13 @@ switch (group) {
     }
     break;
   case 'tasks':
-    process.exit(await runTask(rest).catch(fault));
+    await exitAfterFlush(await runTask(rest).catch(fault));
     break;
   case 'worker':
     if (rest[0] === 'development' && (rest.length === 1 || (rest.length === 2 && rest[1] === 'held')))
-      process.exit(await runDevelopment(rest.slice(1)).catch(fault));
+      await exitAfterFlush(await runDevelopment(rest.slice(1)).catch(fault));
     if (rest.length !== 1 || rest[0] !== 'watcher') usage();
-    process.exit(await runWatcherWorker(paths()).catch(fault));
+    await exitAfterFlush(await runWatcherWorker(paths()).catch(fault));
     break;
   default:
     logToStderr();
