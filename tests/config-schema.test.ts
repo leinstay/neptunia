@@ -29,8 +29,7 @@ import { backupSettings } from '../src/memory/db/backup.ts';
 import { captureSettings } from '../src/memory/db/observe.ts';
 import { sessionSettings } from '../src/memory/db/session.ts';
 import { boardSettings } from '../src/board/board.ts';
-import { participationPickSettings } from '../src/behavior/participation-pick.ts';
-import { routeSettings } from '../src/behavior/route.ts';
+import { elsewherePickSettings } from '../src/behavior/elsewhere-pick.ts';
 import { pullSettings } from '../src/behavior/pull.ts';
 import { setSettings } from '../src/behavior/diary.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
@@ -147,8 +146,9 @@ const READERS: ReadonlyArray<{ name: string; group: CutGroup; read: (config: Tre
   { name: 'dbSettings', group: 'recall', read: (config): unknown => dbSettings(config) },
   { name: 'indexSettings', group: 'recall', read: (config) => indexSettings(config) },
   { name: 'recentSettings', group: 'memory', read: (config) => recentSettings(config) },
-  { name: 'participationSettings', group: 'memory', read: (config) => participationSettings(config) },
-  { name: 'participationPickSettings', group: 'memory', read: (config) => participationPickSettings(config) },
+  { name: 'participationSettings', group: 'memory', read: () => participationSettings() },
+  // Plan 2026-11-04-cli-and-memory B3: one elsewhere pick replaces the participation pick and the route classifier.
+  { name: 'elsewherePickSettings', group: 'memory', read: (config) => elsewherePickSettings(config) },
   { name: 'graphSettings', group: 'memory', read: (config) => graphSettings(config) },
   { name: 'focusSettings', group: 'memory', read: (config) => focusSettings(config) },
   { name: 'captureSettings', group: 'memory', read: (config) => captureSettings(config) },
@@ -169,7 +169,6 @@ const READERS: ReadonlyArray<{ name: string; group: CutGroup; read: (config: Tre
   { name: 'loopSettings diary', group: 'media and diary', read: (config) => loopSettings(config, { diary: true }) },
   { name: 'hedgeSettings', group: 'llm and models', read: (config) => hedgeSettings(config) },
   { name: 'boardSettings', group: 'the rest', read: (config) => boardSettings(config) },
-  { name: 'routeSettings', group: 'the rest', read: (config) => routeSettings(config) },
   { name: 'splitSettings', group: 'the rest', read: (config) => splitSettings(config) },
   { name: 'elsewhereSettings', group: 'the rest', read: (config) => elsewhereSettings(config) },
   { name: 'missedSettings', group: 'the rest', read: (config) => missedSettings(config) },

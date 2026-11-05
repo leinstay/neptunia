@@ -202,7 +202,7 @@ export function createHandleMessage({
       if (event.message.author.bot) return 'ignored';
 
       // 6b. A line soon after the persona's own one here joins her participation episode.
-      noteFollowingLine(placeId, normalized, config);
+      noteFollowingLine(placeId, normalized);
 
       // 8. The flags the interface reports. Done BEFORE memory observes the message, so the buffer can mark it. A
       // forward of the persona's own message has no replyToId: not a reply.

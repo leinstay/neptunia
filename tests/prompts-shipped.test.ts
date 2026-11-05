@@ -23,8 +23,7 @@ import { DIARY_KINDS, SEED_SETS, parseSeedFamilies, pickSeeds, renderSeedsBlock 
 import { fill, formatDate } from '../src/format.ts';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { createRecall as createRecallOf } from '../src/behavior/recall-run.ts';
-import { createChannelRouter as createChannelRouterOf } from '../src/behavior/route-channel.ts';
-import { createParticipationPicker as createParticipationPickerOf } from '../src/behavior/participation-pick.ts';
+import { createElsewhereHooks as createElsewhereHooksOf } from '../src/behavior/elsewhere-pick.ts';
 import { createTagHistory } from '../src/behavior/mention.ts';
 import { createMissed as createMissedOf } from '../src/behavior/missed.ts';
 import { createMessageHandler as createMessageHandlerOf } from '../src/behavior/pipeline.ts';
@@ -58,8 +57,7 @@ const createTurnRunner = onWorld(createRealTurnRunner as unknown as Parameters<t
 
 // The fakes of these tests carry the members a factory reads, so each factory takes its options as they are.
 const createRecall = loose(createRecallOf);
-const createChannelRouter = loose(createChannelRouterOf);
-const createParticipationPicker = loose(createParticipationPickerOf);
+const createElsewhereHooks = loose(createElsewhereHooksOf);
 const createMissed = loose(createMissedOf);
 const createMessageHandler = loose(createMessageHandlerOf);
 const createDescriber = loose(createDescriberOf);
@@ -173,8 +171,7 @@ const LOADS = {
   lookup: ['lookup'],
   searchSummary: ['search-summary'],
   recallSummary: ['recall-summary'],
-  routeChannel: ['route-channel'],
-  participationPick: ['participation-pick'],
+  elsewherePick: ['elsewhere-pick'],
   split: ['split'],
   merge: ['merge'],
   missed: ['missed'],
@@ -1576,41 +1573,6 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
   );
 });
 
-test('createChannelRouter: the route classifier fills route-channel.md', async () => {
-  const hot = shippedHot();
-  const channels = worldChannelsOf([
-    [GENERAL_INFO, generalRaws()],
-    [GARDEN_INFO, []],
-    [DIARY_INFO, []],
-  ]);
-  const store = { listChannels: () => CHANNELS, getUser: (id: string) => PROFILES[id] ?? null };
-  const llm = recordingLlm(() => 'none');
-  const router = createChannelRouter({ hot, store, llm, now: () => NOW });
-  const history = await generalHistory();
-  const snapshot = await takeSnapshot(world().reads, GUILD);
-  const { result } = await withCapturedLogs(() =>
-    router({
-      placeId: GUILD,
-      channel: channels[GENERAL].info,
-      snapshot,
-      // @ts-expect-error the normalized lines stand for the lines the router reads
-      history,
-      // @ts-expect-error a normalized message stands for the line the router reads
-      trigger: history.at(-1),
-      triggerKind: 'mention',
-      selfName: SELF_NAME,
-      config: hot.config,
-    })
-  );
-  assert.deepEqual(result, []);
-  assert.equal(llm.calls.length, 1, 'one route request');
-  assertFilled(
-    llm.calls[0].messages,
-    { files: LOADS.routeChannel, blocks: ['transcript', 'channels', 'candidate'] },
-    'route-channel'
-  );
-});
-
 /** The persona's stored exchanges: one in #jardin and one in #journal, both inside the window. */
 function participationState() {
   const own = (id: string, ts: number, text: string) => ({
@@ -1655,20 +1617,25 @@ function participationState() {
   };
 }
 
-test('createParticipationPicker: the pick classifier fills participation-pick.md', async () => {
+// Plan 2026-11-04-cli-and-memory B3: one pick fills one prompt with both lists.
+test('createElsewhereHooks: the elsewhere pick fills elsewhere-pick.md', async () => {
   const hot = shippedHot();
   const channels = worldChannelsOf([
     [GENERAL_INFO, generalRaws()],
     [GARDEN_INFO, []],
     [DIARY_INFO, []],
   ]);
-  const store = { getParticipation: () => participationState(), listChannels: () => CHANNELS };
-  const llm = recordingLlm(() => 'none');
-  const picker = createParticipationPicker({ hot, store, llm, now: () => NOW });
+  const store = {
+    getParticipation: () => participationState(),
+    listChannels: () => CHANNELS,
+    getUser: (id: string) => PROFILES[id] ?? null,
+  };
+  const llm = recordingLlm(() => 'place: none\nepisodes: none');
+  const hooks = createElsewhereHooks({ hot, store, llm, now: () => NOW });
   const history = await generalHistory();
   const snapshot = await takeSnapshot(world().reads, GUILD);
   const { result } = await withCapturedLogs(() =>
-    picker({
+    hooks.routeChannels({
       placeId: GUILD,
       channel: channels[GENERAL].info,
       snapshot,
@@ -1677,15 +1644,14 @@ test('createParticipationPicker: the pick classifier fills participation-pick.md
       triggerKind: 'mention',
       mode: 'reply',
       selfName: SELF_NAME,
-      audience: () => true,
     })
   );
   assert.deepEqual(result, []);
   assert.equal(llm.calls.length, 1, 'one pick request');
   assertFilled(
     llm.calls[0].messages,
-    { files: LOADS.participationPick, blocks: ['transcript', 'candidate', 'episodes'] },
-    'participation-pick'
+    { files: LOADS.elsewherePick, blocks: ['transcript', 'places', 'episodes', 'candidate'] },
+    'elsewhere-pick'
   );
 });
 

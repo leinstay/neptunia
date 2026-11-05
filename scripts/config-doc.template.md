@@ -86,9 +86,9 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 <!-- settings: split -->
 
-## route
+## elsewhere
 
-<!-- settings: route -->
+<!-- settings: elsewhere -->
 
 ## memory
 
@@ -101,10 +101,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 ## web
 
 <!-- settings: web -->
-
-## participation
-
-<!-- settings: participation -->
 
 ## recall
 

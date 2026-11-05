@@ -773,9 +773,8 @@ export function createMissed({
   let candidates: Array<Candidate> = [];
   let privateRecovery: Untyped = null;
   let lastRecoveryAt: Record<string, number> = {};
-  // The places whose stored registry is in `candidates`, and what was last written under each.
-  const started = new Set<string>();
-  const written = new Map<string, string>();
+  const started = new Set<string>(); // the places whose stored registry is in `candidates`
+  const written = new Map<string, string>(); // what was last written under each
   let dirty = false;
   let chain = Promise.resolve();
   let promptMissingLogged = false;

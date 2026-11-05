@@ -66,7 +66,6 @@ import { createMissed } from './behavior/missed.ts';
 import { createEmojiIndex } from './behavior/emoji-index.ts';
 import { ownMessagesOf } from './behavior/own-messages.ts';
 import { hasRequiredLabels } from './behavior/prompt.ts';
-import { createChannelRouter } from './behavior/route-channel.ts';
 import { createRecall } from './behavior/recall-run.ts';
 import { createSpontaneous } from './behavior/spontaneous.ts';
 import { createInnerLife, innerSettings } from './behavior/inner.ts';
@@ -856,8 +855,6 @@ async function buildCore(
   });
   // Who reacted to her messages, fed by `reaction.changed` (the door below) and by the `reactors` read.
   const reactors = createReactorStore();
-  // The route classifier: picks a channel the conversation is about for <channel_view>.
-  const routeChannels = createChannelRouter({ hot, store, llm });
   // The search of the server's own history beside the web search: the lookup's server part.
   // It reads the archive and the record too (read only), and with features.meaningSearch the meaning
   // index (one embedding of the question per run).
@@ -977,7 +974,6 @@ async function buildCore(
     memberOf: (placeId: string, accountId: string) => members.infoOf(nativeOfPlace(placeId), accountId),
     membersOf: (placeId: string) => members.list(nativeOfPlace(placeId)),
     conversationName: (conversationId: string) => directory.nameOf(conversationId),
-    routeChannels,
     activity,
     journal,
     record,

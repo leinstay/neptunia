@@ -230,11 +230,14 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 |---|---|---|---|---|
 | `split.maxOutputTokens` | number | `300` | Max output tokens | `src/turn/lookup.ts` |
 
-## route
+## elsewhere
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `route.maxOutputTokens` | number | `120` | Max output tokens | `src/behavior/route-channel.ts` |
+| `elsewhere.maxPlaces` | number | `40` | Other places offered to the elsewhere pick, the most recently active or attended | `src/behavior/elsewhere-pick.ts` |
+| `elsewhere.maxEpisodes` | number | `30` | Stored exchanges offered to the elsewhere pick, the newest | `src/behavior/elsewhere-pick.ts` |
+| `elsewhere.maxOutputTokens` | number | `120` | Max output tokens for the elsewhere pick | `src/behavior/elsewhere-pick.ts` |
+| `elsewhere.pickTimeoutMs` | number, null | `3000` | How long the turn waits for the pick (ms). `null` waits as long as the turn does | `src/behavior/elsewhere-pick.ts` |
 
 ## memory
 
@@ -279,13 +282,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `web.search.classifierMaxOutputTokens` | number | `2000` | Max output tokens for the search classifier the measuring tools ask (no live turn asks it) | `scripts/search-policy-eval.ts` |
 | `web.search.cacheHours` | number | `24` | Hours a cached search result is served | `src/web/lookup.ts` |
 | `web.search.timeoutMs` | number | `10000` | Search request timeout (ms) | `src/behavior/recall-run.ts` |
-
-## participation
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `participation.maxOutputTokens` | number | `60` | Max output tokens for the pick classifier | `src/behavior/participation-pick.ts` |
-| `participation.pickTimeoutMs` | number, null | `1500` | How long the turn waits for the pick (ms). `null` waits indefinitely | `src/behavior/participation-pick.ts` |
 
 ## recall
 

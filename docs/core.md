@@ -41,6 +41,12 @@ A failed classifier call on a flagged line opens: the turn starts and the line l
 
 The missed-answer registry in `src/behavior/missed.ts` covers every group place and every DM. `noteFact` takes the line's `iface` and the candidate keeps it, so its sweep reads its conversation on that interface and its recovery turn runs there. Each candidate is stored in the unit `missed` of its own place, and `src/core.ts` starts the registry of every place that holds one (`start(placeId)` adds to those already started).
 
+## The elsewhere pick
+
+`createElsewherePicker` in `src/behavior/elsewhere-pick.ts` is one classifier call per started turn, with the purpose `elsewhere-pick` and the prompt `prompts/elsewhere-pick.md`. Its answer has two fields, `place:` and `episodes:`, parsed apart by `parseElsewhereAnswer`, so a bad line voids only its own field. A diary post and a `missed` turn never ask. The pull phase takes the place through `routeChannels` and shows it in `<channel_view>`, and the request phase takes the episodes through `pickEpisodes` for `<participation>`. `createElsewhereHooks` gives both call sites the one answer.
+
+`elsewhereCandidates` cuts the lists before the prompt: the newest `elsewhere.maxPlaces` places by the later of activity and attention, 40 by default and listed by id, and the newest `elsewhere.maxEpisodes` episodes, 30 by default and listed oldest first. The audience is checked per place, and `audienceAllows` over the turn's listing refuses a place the listing does not hold, so a place on another interface is no candidate until a read can prove its audience. A place must also pass the pull phase's own `checkPull`. A DM offers places through its partner's view and no episodes, because it shows no `<participation>`. Past `elsewhere.pickTimeoutMs`, 3000 by default, the pick is aborted and the turn goes on without it.
+
 ## Boundaries
 
 The core writes memory through one writer. Interfaces neither open the database nor decide what the persona remembers. Stored recall and fetching live platform history are separate operations with separate access checks.

@@ -190,9 +190,6 @@
   "split": {
     "maxOutputTokens": 300
   },
-  "route": {
-    "maxOutputTokens": 120
-  },
   "memory": {
     "vaultDir": "vault",
     "probeMinutes": 30
@@ -249,9 +246,11 @@
       "timeoutMs": 10000
     }
   },
-  "participation": {
-    "maxOutputTokens": 60,
-    "pickTimeoutMs": 1500
+  "elsewhere": {
+    "maxPlaces": 40,
+    "maxEpisodes": 30,
+    "maxOutputTokens": 120,
+    "pickTimeoutMs": 3000
   },
   "recall": {
     "timeoutMs": 15000,

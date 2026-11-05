@@ -4087,7 +4087,7 @@ test('buildRequest: tempo on a routed turn is measured to now and never says nob
 
 test('buildRequest: mode elsewhere uses prompts.elsewhere with channel and destination', () => {
   const prompts = fakePrompts({
-    elsewhere: 'ELSEWHERE_TASK {{name}} read {{channel}} and may speak in {{destination}}',
+    elsewhere: 'ELSEWHERE_TASK {{name}} read {{place}} and may speak in {{destination}}', // plan B3: `place`, not `channel`
   });
   const request = buildRequest(
     baseInput({
