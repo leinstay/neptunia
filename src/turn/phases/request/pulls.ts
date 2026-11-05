@@ -27,7 +27,7 @@ export async function pullRequest(
 ): Promise<Ended | Pulled> {
   const { hot, clock, pullChannels, captionAll } = ctx;
   const { mode, trigger = null, triggerKind = null, chooseMode = null, source = null } = params;
-  const { channel, guildId, isPrivate, life } = opened;
+  const { channel, placeId, isPrivate, life } = opened;
   const { config, likeServer, servedSnapshot, partner, rawHistory, candidate, selfName, now, beforeBar } = setup;
   // The other channels this turn shows (`<channel_view>`, pullChannels), found and fetched
   // before the mode is chosen so a chooser sees them. Fresh captions only for a turn certain
@@ -47,7 +47,7 @@ export async function pullRequest(
       ? Promise.resolve({ pulled: [], sourceSkip: null })
       : pullChannels({
           channel,
-          guildId,
+          placeId,
           snapshot: servedSnapshot,
           partner,
           history: rawHistory,
@@ -72,7 +72,7 @@ export async function pullRequest(
     if (source?.reason !== 'routed') return { ended: { outcome: 'not-now' } };
     log.warn('turn: source unavailable', {
       channel: channel.id,
-      source: source.channelId,
+      source: source.placeId,
       reason: early.sourceSkip,
     });
     return { ended: { outcome: 'error' } };
@@ -90,10 +90,10 @@ export async function pullRequest(
     ? pullsPending.then((pulls) => pulls.pulled)
     : certain || !pullLabelled
       ? Promise.resolve(early.pulled)
-      : captionAll(early.pulled, { guildId, config, destination: channel });
+      : captionAll(early.pulled, { placeId, config, destination: channel });
   // A routed call lives in its source: the search classifier reads the source's lines around
   // it, with their captions, instead of this chat; the re-watch is not offered (below).
   const routedPull =
-    source?.reason === 'routed' ? (early?.pulled.find((entry) => entry.channelId === source.channelId) ?? null) : null;
+    source?.reason === 'routed' ? (early?.pulled.find((entry) => entry.placeId === source.placeId) ?? null) : null;
   return { ended: null, finalMode, pullStartedAt, early, pulledPending, routedPull };
 }

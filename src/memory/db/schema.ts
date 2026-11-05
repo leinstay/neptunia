@@ -9,12 +9,12 @@
 // There is no `now` table and no `states` table: the owner dropped both.
 
 import { ensureUnit } from './storage-units.ts';
-import { legacyStorageKey } from './paths.ts';
+import { legacyStorageKey } from '../migration/paths.ts';
 import { migrateMessageFamilies } from './message-family-catalog.ts';
 import { assignDiaryDestination, deriveAllMirrorPublications } from './publish.ts';
 import { pastEntries } from './diary-past.ts';
 import { repairSessionRows } from './session-repair.ts';
-import { importWakeQueues } from './wake-queue.ts';
+import { importWakeQueues } from '../migration/wake-import.ts';
 import type { Db, Row } from './types.ts';
 
 const SCOPE = 'scope_kind TEXT, scope_iface TEXT, scope_dm TEXT';
@@ -937,7 +937,7 @@ const V11 = [
 ].join('\n');
 
 // Version 12 (spec 2026-10-24-memory-authority, stage W2a): a data step, no table. The diary's legacy mirrors name no
-// place, so their `publications` rows have no destination; the deployment's diary channel (`selfreflection.channelId` of the
+// place, so their `publications` rows have no destination; the deployment's diary channel (`selfreflection.placeId` of the
 // live config, which only the opener knows: open.ts passes it as `context.diaryPlaceId`) becomes it, where that place is
 // stored (publish.ts#assignDiaryDestination). Opened without the channel (a tool), the step leaves the meta key
 // `diary_destination_pending` (when there is a publication to give it to), and the next open that knows the channel
@@ -1361,6 +1361,17 @@ function V27(db: Db): void {
     ${APPEND_ONLY('publications', 'publications are never deleted').slice(1).join('\n    ')}`);
 }
 
+/**
+ * Version 29: a community partition of the storage units is refused, because the engine reads none. The one offline
+ * conversion (scripts/memory-convert-places.ts) carries a shipped database over; the wake queue's index loses the community.
+ */
+function refuseUnconverted(db: Db): void {
+  const held = db.prepare('SELECT 1 AS held FROM storage_units WHERE scope_place_id IS NOT NULL LIMIT 1').get();
+  if (held) throw Object.assign(new Error('MEMORY_NEEDS_CONVERSION'), { code: 'MEMORY_NEEDS_CONVERSION' });
+  db.exec(`DROP INDEX IF EXISTS wakes_state;
+    CREATE INDEX wakes_state ON wakes (state, queued_at);`);
+}
+
 export const MIGRATIONS: Array<Migration> = [
   V1,
   V2,
@@ -1391,6 +1402,7 @@ export const MIGRATIONS: Array<Migration> = [
   V_REQUESTS,
   V27,
   V_REQUEST_LINKS,
+  refuseUnconverted,
 ];
 
 /** Every table schema v8 adds. */

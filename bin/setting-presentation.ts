@@ -89,7 +89,7 @@ const WORDS: Record<string, string> = {
   nameTriggers: 'Names that trigger a reply',
   ownerPerson: 'Owner identity',
   owners: 'Legacy owner accounts',
-  guildId: 'Home community',
+  placeId: 'Home community',
   likeServer: 'Group conversation features',
   minAffinity: 'Minimum relationship score',
   drainMs: 'Shutdown grace period (milliseconds)',
@@ -120,7 +120,7 @@ const EXPLANATIONS: Record<string, string> = {
   'interfaces.*.enabled': 'Allow this connection to connect to the core.',
   'bot.owners': 'Owner accounts on the home connection, used until an owner identity is linked with /memory bind.',
   'bot.ownerPerson': 'The person whose explicitly linked accounts have owner rights. Set this with /memory bind.',
-  'bot.guildId': 'Limit the home connection to this community. Detected automatically when there is only one.',
+  'bot.placeId': 'Limit the home connection to this community. Detected automatically when there is only one.',
   'bot.access': 'Permissions granted to other people. Manage them with /tools grant and /tools revoke.',
   'models.base.core': 'The model that speaks as the persona.',
   'models.base.memory':
@@ -152,7 +152,7 @@ const EXPLANATIONS: Record<string, string> = {
   'recall.db.vectorEviction':
     'Remove older vectors from the search index daily. Stored messages remain in the archive.',
   'tools.transport': 'Use native for structured tool calls, or text for tool calls written inside the model response.',
-  'selfreflection.channelId':
+  'selfreflection.placeId':
     'Legacy diary destination used during migration. Manage current destinations through mirrors.',
   'selfimprovement.checkout': 'Absolute path of the development checkout where self-development tasks run.',
   'selfimprovement.repository':

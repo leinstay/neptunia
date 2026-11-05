@@ -42,7 +42,7 @@ export type LookupRecall = {
 } | null;
 
 /** The memory store, as the lookup reads its profiles. */
-type LookupStore = { listUserProfiles?: (guildId: string) => Array<object> | null };
+type LookupStore = { listUserProfiles: () => Array<object> | null };
 
 /** What a preparation step writes: its start, its result and its failure (createPrepLedger's). */
 type PrepOp = NonNullable<Parameters<typeof journalled>[0]>;
@@ -107,8 +107,8 @@ export type Lookup = {
     config: LookupConfig;
     channel: Channel;
     snapshot?: Snapshot | null;
-    guildId: string;
-    guild: unknown;
+    placeId: string;
+    place: unknown;
     partner?: { id?: string | null } | null;
     trigger: { id?: string; authorId?: string | null } | null;
     candidate?: { content?: string | null; authorId?: string | null } | null;
@@ -122,16 +122,16 @@ export type Lookup = {
     wake?: { intentions?: ReadonlyArray<{ purpose?: unknown } | null> } | null;
   }) => Prefetching | null;
   recallAvailable: () => boolean;
-  turnDirectory: (args: { guildId: string; memoryOn: boolean }) => () => ReturnType<typeof mentionDirectory>;
+  turnDirectory: (args: { placeId: string; memoryOn: boolean }) => () => ReturnType<typeof mentionDirectory>;
   privatePartner: (args: {
     iface: string | undefined;
-    guildId: string;
+    placeId: string;
     userId: string | null | undefined;
     config: LookupConfig;
   }) => Promise<MemberInfo | null>;
   maybeSplit: (args: {
     config: LookupConfig;
-    channelId: string;
+    placeId: string;
     selfName: string;
     history: ClassifierContextInput['history'];
     trigger: ClassifierContextInput['trigger'];
@@ -156,7 +156,7 @@ export function createLookup(ctx: LookupContext): Lookup {
    * and the recall runner's `prefetch`, the lanes of this turn's trigger (prefetchLanes: none for
    * a turn no person's new message opened, nor for a trivial one -- logged `recall: prefetch
    * skipped` with its `reason`), searched once per trigger and text (`prefetchMemo`) over the
-   * served guild (a private chat on its `partner`'s behalf), the persona's lines marked with her
+   * served place (a private chat on its `partner`'s behalf), the persona's lines marked with her
    * calls (linkCalls). A journal step `memory-prefetch` of the stage `prefetch` (`input.lanes`;
    * `status`, `excerpts`, `ms`) when it starts. Resolves never rejecting. Null when nothing runs,
    * else `{ lanes, pending }`.
@@ -165,8 +165,8 @@ export function createLookup(ctx: LookupContext): Lookup {
     config,
     channel,
     snapshot = null,
-    guildId,
-    guild,
+    placeId,
+    place,
     partner,
     trigger,
     candidate,
@@ -184,7 +184,7 @@ export function createLookup(ctx: LookupContext): Lookup {
     if (
       !prefetchOn(config) ||
       typeof recall?.prefetch !== 'function' ||
-      (!guild && !isIssuedInternalContext(memoryContext))
+      (!place && !isIssuedInternalContext(memoryContext))
     )
       return null;
     const settings = recallSettings(config)?.prefetch;
@@ -225,7 +225,7 @@ export function createLookup(ctx: LookupContext): Lookup {
       try {
         // Checked above: the recall runner has `prefetch`.
         const found = await recall.prefetch!({
-          guildId,
+          placeId,
           memoryContext,
           historyRef,
           snapshot,
@@ -236,7 +236,7 @@ export function createLookup(ctx: LookupContext): Lookup {
           history,
           lanes,
           asker: candidate?.authorId ?? null,
-          decorate: (lines: Array<object>) => linkCalls(lines, { channel, snapshot, guildId }),
+          decorate: (lines: Array<object>) => linkCalls(lines, { channel, snapshot, placeId }),
         });
         op?.succeeded({ status: found?.status ?? null, excerpts: found?.excerpts?.length ?? 0, ms: found?.ms ?? null });
         return found;
@@ -273,22 +273,22 @@ export function createLookup(ctx: LookupContext): Lookup {
    * profiles. A failure to build it logs `turn: directory failed` and gives an empty one.
    */
   function turnDirectory({
-    guildId,
+    placeId,
     memoryOn,
   }: {
-    guildId: string;
+    placeId: string;
     memoryOn: boolean;
   }): () => ReturnType<typeof mentionDirectory> {
     let built: ReturnType<typeof mentionDirectory> | null = null;
     return () => {
       if (built) return built;
       try {
-        const members = typeof membersOf === 'function' ? membersOf(guildId) : [];
+        const members = typeof membersOf === 'function' ? membersOf(placeId) : [];
         const profiles =
-          memoryOn && typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+          memoryOn && typeof store.listUserProfiles === 'function' ? (store.listUserProfiles() ?? []) : [];
         built = mentionDirectory({ members, profiles, selfId: selfIdOf() || null });
       } catch (err) {
-        log.warn('turn: directory failed', { guildId, error: err });
+        log.warn('turn: directory failed', { placeId, error: err });
         built = [];
       }
       return built;
@@ -305,14 +305,14 @@ export function createLookup(ctx: LookupContext): Lookup {
    */
   async function privatePartner({
     iface,
-    guildId,
+    placeId,
     userId,
     config,
   }: Parameters<Lookup['privatePartner']>[0]): Promise<MemberInfo | null> {
     if (config.private?.likeServer === false || !userId || isCliOwner(iface, userId)) return null;
-    const found = await ifaceReads.memberInfo({ communityId: guildId, memberId: String(userId) });
+    const found = await ifaceReads.memberInfo({ communityId: placeId, memberId: String(userId) });
     if (found?.member) return found.member;
-    log.warn('turn: partner failed', { guildId, userId });
+    log.warn('turn: partner failed', { placeId, userId });
     return null;
   }
 
@@ -334,7 +334,7 @@ export function createLookup(ctx: LookupContext): Lookup {
    */
   async function maybeSplit({
     config,
-    channelId,
+    placeId,
     selfName,
     history,
     trigger,
@@ -377,16 +377,16 @@ export function createLookup(ctx: LookupContext): Lookup {
     } catch (err) {
       // A thrown value carries its HTTP status when the provider answered one.
       const status = (err as { statusCode?: unknown } | null | undefined)?.statusCode ?? null;
-      log.warn('split: failed', { channel: channelId, reason: railReason(err), status });
+      log.warn('split: failed', { channel: placeId, reason: railReason(err), status });
       return null;
     }
     const { parts, reason } = parseSplitAnswer(completion?.text, settings);
     const late = isLate() ? { late: true } : {};
     if (reason === 'empty' || reason === 'unparsed') {
-      log.warn('split: failed', { channel: channelId, reason, status: null, ...late });
+      log.warn('split: failed', { channel: placeId, reason, status: null, ...late });
       return null;
     }
-    log.info('split: verdict', { channel: channelId, parts: parts?.length ?? 1, ms: clock() - startedAt, ...late });
+    log.info('split: verdict', { channel: placeId, parts: parts?.length ?? 1, ms: clock() - startedAt, ...late });
     return parts;
   }
 

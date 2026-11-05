@@ -1,7 +1,7 @@
 // Pure server lorebook logic: which entries the analyzer's batch touches (so
 // they can be updated), which entries a live turn's recent chat surfaces (so
 // only the relevant few of possibly hundreds are shown). Storage itself
-// (data/guilds/<id>/lore.json) lives behind src/memory/store.ts, same
+// (data/places/<id>/lore.json) lives behind src/memory/store.ts, same
 // cache/dirty/atomic pattern as everything else; this module never touches
 // disk. See docs/prompt-contract.md ("<lore>" and "lore" in "The
 // analyzer").
@@ -27,7 +27,7 @@ function normalizeTitle(title: string | number | null | undefined) {
 
 /**
  * The file name (without `.json`) of a lorebook entry's version history
- * (data/guilds/<id>/versions/lore/<key>.json, see src/memory/store.ts). Keyed by
+ * (data/places/<id>/versions/lore/<key>.json, see src/memory/store.ts). Keyed by
  * the entry's identity, the trimmed lowercase title, so a change of letter case
  * keeps one history. Scheme: the ASCII letters and digits of that title as a
  * dash-joined slug (at most 40 characters, for a human browsing the folder),
@@ -70,7 +70,7 @@ export type LoreEntry = {
   title: string;
   keys: Array<string>;
   text: string;
-  source: 'analyzer' | 'owner';
+  source: string;
   always?: boolean;
   weight?: number;
   createdAt?: string;
@@ -167,7 +167,7 @@ export function upsertLore(
     textChars,
     clampTolerance,
   }: {
-    source: 'analyzer' | 'owner';
+    source: string;
     now?: number;
     maxEntries?: number;
     textChars?: number;

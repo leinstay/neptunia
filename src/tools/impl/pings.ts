@@ -9,23 +9,23 @@ import { objOf } from '../types.ts';
 import type { Obj, OpContext } from '../types.ts';
 
 const handlers = perEnv((env) => {
-  const { store, freshenIfPaused, requireGuildId } = env;
+  const { store, freshenIfPaused, requirePlaceId } = env;
 
-  /** `/nep pings [on|off]`: the caller's own notifications from the persona in this guild
+  /** `/nep pings [on|off]`: the caller's own notifications from the persona in this place
    * (store.setPingsOff; src/behavior/turn.ts reads them when it posts). No mode shows the state.
    * A member's own switch, not memory: it works while paused too (read fresh off disk then, and
    * written at once by the store). */
   function cmdPings(args: Obj, context: OpContext): string {
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
     const userId = context.userId;
     if (!userId) throw invalid('no user');
     const mode = objOf(args).mode;
     freshenIfPaused();
-    if (mode === undefined || mode === null || mode === '') return pingsText(!store.isPingsOff(guildId, userId));
+    if (mode === undefined || mode === null || mode === '') return pingsText(!store.isPingsOff(placeId, userId));
     if (typeof mode !== 'string' || !PINGS_MODES.includes(mode))
       throw invalid(`mode must be one of: ${PINGS_MODES.join(', ')}`);
-    const off = store.setPingsOff(guildId, userId, mode === 'off');
-    log.info('admin: pings set', { guildId, userId, off });
+    const off = store.setPingsOff(placeId, userId, mode === 'off');
+    log.info('admin: pings set', { placeId, userId, off });
     return pingsText(!off);
   }
 

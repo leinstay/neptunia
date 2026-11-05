@@ -24,9 +24,9 @@ type ParticipationState = ReturnType<typeof recordOwnLine>;
 
 /** The parts of the memory store participation reads and writes; a test's fake may lack the optional ones. */
 export type ParticipationStore = {
-  getParticipation?: (guildId: string) => ParticipationState;
-  setParticipation: (guildId: string, state: ParticipationState, options: { settings: object; now: number }) => void;
-  getRecent?: (guildId: string) => { lines?: unknown } | null | undefined;
+  getParticipation?: (placeId: string) => ParticipationState;
+  setParticipation: (placeId: string, state: ParticipationState, options: { settings: object; now: number }) => void;
+  getRecent?: (placeId: string) => { lines?: unknown } | null | undefined;
 };
 
 /** What createParticipation reads: the live config, the store, the around store and the clock. */
@@ -63,11 +63,11 @@ type ParticipationMessage = {
 /** The input of `<recent>`: the lines and which source channels the turn may show them from. */
 type RecentInput = {
   lines: Array<object> | undefined;
-  audience: ((channelId: string | null) => boolean) | undefined;
+  audience: ((placeId: string | null) => boolean) | undefined;
 };
 
 /** The live part of `<people_now>`. */
-type AroundInput = { snapshot: AroundSnapshot; channelNameOf: (channelId: string) => string | null };
+type AroundInput = { snapshot: AroundSnapshot; channelNameOf: (placeId: string) => string | null };
 
 export type Participation = {
   participationOn: (channel: ConversationInfo) => boolean;
@@ -75,7 +75,7 @@ export type Participation = {
     channel: ConversationInfo,
     config: unknown,
     snapshot?: Snapshot | null
-  ) => (channelId: string) => boolean;
+  ) => (placeId: string) => boolean;
   aroundInputFor: (args: {
     config: ParticipationConfig;
     mode: string | null | undefined;
@@ -85,10 +85,10 @@ export type Participation = {
   liveChannelName: (
     channel: { communityId?: string | null } | null | undefined,
     snapshot?: Snapshot | null
-  ) => (channelId: string) => string | null;
+  ) => (placeId: string) => string | null;
   recordOwnParticipation: (args: {
     channel: ConversationInfo;
-    guildId: string;
+    placeId: string;
     history: ReadonlyArray<HistoryMessage>;
     earlier: ReadonlyArray<HistoryMessage>;
     own: HistoryMessage;
@@ -99,11 +99,21 @@ export type Participation = {
   recentInput: (args: {
     channel: ConversationInfo;
     snapshot?: Snapshot | null;
-    guildId: string;
+    placeId: string;
     isPrivate: boolean;
     config: object;
     now: number;
   }) => RecentInput;
+  recentOfPlaces: (
+    holders: ReadonlyArray<string>,
+    args: {
+      channel: ConversationInfo;
+      snapshot?: Snapshot | null;
+      isPrivate: boolean;
+      config: object;
+      now: number;
+    }
+  ) => RecentInput;
 };
 
 export function createParticipation({ hot, store, around, clock }: ParticipationContext): Participation {
@@ -129,10 +139,10 @@ export function createParticipation({ hot, store, around, clock }: Participation
     channel: ConversationInfo,
     config: unknown,
     snapshot: Snapshot | null = null
-  ): (channelId: string) => boolean {
-    return (channelId) => {
+  ): (placeId: string) => boolean {
+    return (placeId) => {
       try {
-        const other = snapshot?.get(String(channelId)) ?? null;
+        const other = snapshot?.get(String(placeId)) ?? null;
         return Boolean(other) && audienceAllows(channel, other, config);
       } catch {
         return false;
@@ -160,8 +170,8 @@ export function createParticipation({ hot, store, around, clock }: Participation
     if (!around || isPrivate || mode === 'diary') return null;
     return {
       snapshot: around.view(),
-      channelNameOf: (channelId) => {
-        const voice = snapshot?.get(String(channelId));
+      channelNameOf: (placeId) => {
+        const voice = snapshot?.get(String(placeId));
         const visible = voice?.voice === true && voice.public === true;
         return visible && typeof voice.name === 'string' && voice.name ? voice.name : null;
       },
@@ -169,14 +179,14 @@ export function createParticipation({ hot, store, around, clock }: Participation
   }
 
   /**
-   * A channel's live name in `channel`'s guild, for a participation episode whose channel has no stored note.
+   * A channel's live name in `channel`'s place, for a participation episode whose channel has no stored note.
    */
   function liveChannelName(
     channel: { communityId?: string | null } | null | undefined,
     snapshot: Snapshot | null = null
-  ): (channelId: string) => string | null {
-    return (channelId) => {
-      const name = inCommunity(channel) ? snapshot?.get(String(channelId))?.name : undefined;
+  ): (placeId: string) => string | null {
+    return (placeId) => {
+      const name = inCommunity(channel) ? snapshot?.get(String(placeId))?.name : undefined;
       return typeof name === 'string' && name ? name : null;
     };
   }
@@ -213,7 +223,7 @@ export function createParticipation({ hot, store, around, clock }: Participation
   }
 
   /**
-   * Record one message the persona just sent in `channel` in the guild's participation store
+   * Record one message the persona just sent in `channel` in the place's participation store
    * (src/memory/participation.ts#recordOwnLine, settings read now): `own` her message, `before`
    * the last `participation.linesBefore` lines of the turn's `history` followed by what she
    * already sent this turn (`earlier`), `parent` the line it replies to when the history holds
@@ -224,7 +234,7 @@ export function createParticipation({ hot, store, around, clock }: Participation
    */
   function recordOwnParticipation({
     channel,
-    guildId,
+    placeId,
     history,
     earlier,
     own,
@@ -233,7 +243,7 @@ export function createParticipation({ hot, store, around, clock }: Participation
     descriptions,
   }: {
     channel: ConversationInfo;
-    guildId: string;
+    placeId: string;
     history: ReadonlyArray<HistoryMessage>;
     earlier: ReadonlyArray<HistoryMessage>;
     own: HistoryMessage;
@@ -252,15 +262,15 @@ export function createParticipation({ hot, store, around, clock }: Participation
       const before = take > 0 ? [...history, ...earlier].slice(-take).map(shape) : [];
       const parentLine = replyId ? (history.find((message) => message.id === replyId) ?? null) : null;
       // participationOn above checked that the store has getParticipation.
-      const state = store.getParticipation!(guildId);
+      const state = store.getParticipation!(placeId);
       const next = recordOwnLine(
         state,
-        { channelId: channel.id, own: shape(own), before, parent: parentLine ? shape(parentLine) : null },
+        { placeId: channel.id, own: shape(own), before, parent: parentLine ? shape(parentLine) : null },
         settings,
         at
       );
       if (next === state) return;
-      store.setParticipation(guildId, next, { settings, now: at });
+      store.setParticipation(placeId, next, { settings, now: at });
       log.info('participation: recorded', { channel: channel.id, episodes: next.episodes.length });
     } catch (err) {
       // A thrown value is anything; its name is read when it has one, as an Error does.
@@ -274,31 +284,48 @@ export function createParticipation({ hot, store, around, clock }: Participation
 
   /**
    * The input of a turn's `<recent>` block (src/behavior/prompt.ts#buildRequest
-   * `recentLines` / `recentAudience`): the guild's recent lines inside the last
+   * `recentLines` / `recentAudience`): the place's recent lines inside the last
    * `memory.recentHours` (src/memory/store.ts#getRecent, read now) and which
    * source channels this turn may show them from. On a server turn: the
    * channel the turn posts in, and every channel whose audience covers it
    * (the snapshot's audiences, src/behavior/elsewhere.ts#audienceCovers:
    * everyone who can read this channel can read that one). In a private chat:
-   * the channels every member of the served guild can read. A channel the
-   * guild does not hold is never covered. No live line: an empty list (the
+   * the channels every member of the served place can read. A channel the
+   * place does not hold is never covered. No live line: an empty list (the
    * block may still show the members' moments of those hours). Nothing
    * (`lines` undefined: no block at all) with features.recent off (a missing
    * key counts as on) or for a store without the recent store (tests' fakes);
    * a read that throws is logged (`recent: failed`) and is nothing either: the
    * block is never worth a turn.
    */
+  /**
+   * `<recent>` of a turn that belongs to no server (her diary with no place to be posted in): the recent lines of every
+   * place in `holders`, each under the audience rule of `recentInput`.
+   */
+  function recentOfPlaces(
+    holders: ReadonlyArray<string>,
+    args: Omit<Parameters<Participation['recentInput']>[0], 'placeId'>
+  ): RecentInput {
+    const parts = holders.map((placeId) => recentInput({ ...args, placeId }));
+    const [only] = parts;
+    if (parts.length === 1 && only) return only;
+    return {
+      lines: parts.flatMap((part) => part.lines ?? []),
+      audience: (conversationId) => parts.some((part) => part.audience?.(conversationId) === true),
+    };
+  }
+
   function recentInput({
     channel,
     snapshot = null,
-    guildId,
+    placeId,
     isPrivate,
     config,
     now,
   }: {
     channel: ConversationInfo;
     snapshot?: Snapshot | null;
-    guildId: string;
+    placeId: string;
     isPrivate: boolean;
     config: object;
     now: number;
@@ -306,17 +333,17 @@ export function createParticipation({ hot, store, around, clock }: Participation
     const settings = recentSettings(config);
     if (!settings || typeof store.getRecent !== 'function') return NO_RECENT;
     try {
-      const lines = liveRecent(store.getRecent(guildId)?.lines, { now, hours: settings.hours });
+      const lines = liveRecent(store.getRecent(placeId)?.lines, { now, hours: settings.hours });
       if (lines.length === 0) return { lines, audience: undefined };
       const here = isPrivate ? everyMemberAudience() : railAudience(channel.audience);
       const allowed = new Set<unknown>();
-      // liveRecent keeps the recent store's lines, each a record with its source `channelId`.
-      for (const id of new Set(lines.map((line) => (line as { channelId?: unknown }).channelId))) {
+      // liveRecent keeps the recent store's lines, each a record with its source `placeId`.
+      for (const id of new Set(lines.map((line) => (line as { placeId?: unknown }).placeId))) {
         if (typeof id !== 'string' || !id) continue;
         if (!isPrivate && id === channel.id) allowed.add(id);
         else if (audienceCovers(here, railAudience(snapshot?.get(String(id))?.audience))) allowed.add(id);
       }
-      return { lines, audience: (channelId) => allowed.has(channelId) };
+      return { lines, audience: (conversationId) => allowed.has(conversationId) };
     } catch (err) {
       log.warn('recent: failed', { channel: channel.id, error: err });
       return NO_RECENT;
@@ -330,5 +357,6 @@ export function createParticipation({ hot, store, around, clock }: Participation
     liveChannelName,
     recordOwnParticipation,
     recentInput,
+    recentOfPlaces,
   };
 }

@@ -5,6 +5,7 @@
 // The table has no index into recall, so ordinary search never reads it. Written through the memory writer. `importRequestDumps` reads the
 // expiring dump files once and keeps what they say, a missing counterpart named in the row.
 
+import { oldJournalDirs } from '../migration/old-journals.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Db, MemoryHandle } from './types.ts';
@@ -122,16 +123,6 @@ function filesIn(dir: string): Array<string> {
   }
 }
 
-function journalsUnder(dataDir: string): Array<string> {
-  const guilds = path.join(dataDir, 'guilds');
-  return filesIn(guilds).flatMap((guild) => {
-    const root = path.join(guilds, guild);
-    const own = path.join(root, 'journal');
-    const privates = filesIn(path.join(root, 'private')).map((person) => path.join(root, 'private', person, 'journal'));
-    return [own, ...privates];
-  });
-}
-
 const attemptOf = (value: unknown): string | null =>
   typeof value === 'number' ? String(value) : typeof value === 'string' ? value : null;
 
@@ -168,7 +159,7 @@ export function importRequestDumps(
   { dataDir }: { dataDir: string }
 ): { imported: number; broken: number } {
   const counts = { imported: 0, broken: 0 };
-  for (const journal of journalsUnder(dataDir)) {
+  for (const journal of oldJournalDirs(dataDir)) {
     const requests = path.join(journal, 'requests');
     for (const day of filesIn(requests)) {
       if (day === 'tools') continue;

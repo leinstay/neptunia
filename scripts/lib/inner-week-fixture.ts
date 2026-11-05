@@ -151,7 +151,7 @@ export type Fixture = {
   timezone: string;
   startMs: number;
   endMs: number;
-  guildId: string;
+  placeId: string;
   mode: 'shadow' | 'live';
   turnSeconds: number;
   wakes: Rec;
@@ -172,7 +172,7 @@ export type Fixture = {
 export type WeekRun = {
   fixture: string;
   mode: string;
-  guildId: string;
+  placeId: string;
   startMs: number;
   endMs: number;
   settings: Rec;
@@ -238,9 +238,9 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
       writable: channel.writable !== false,
     };
   });
-  const channelIds = new Set(channels.map((channel: Rec) => channel.id));
+  const placeIds = new Set(channels.map((channel: Rec) => channel.id));
   const channel = (value: Untyped, where: string) => {
-    need(channelIds.has(value), id, `${where}: unknown channel ${JSON.stringify(value)}`);
+    need(placeIds.has(value), id, `${where}: unknown channel ${JSON.stringify(value)}`);
     return value;
   };
 
@@ -446,7 +446,7 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
     timezone,
     startMs,
     endMs,
-    guildId: typeof data.guildId === 'string' && data.guildId ? data.guildId : 'g-week',
+    placeId: typeof data.placeId === 'string' && data.placeId ? data.placeId : 'g-week',
     mode: data.mode === 'shadow' ? 'shadow' : 'live',
     turnSeconds: Number.isFinite(data.turnSeconds) && data.turnSeconds >= 0 ? data.turnSeconds : 20,
     wakes: isObject(data.wakes) ? data.wakes : {},
@@ -549,7 +549,7 @@ export function attention(run: WeekRun): {
     .map((turn: Rec) => ({
       at: turn.at,
       day: dayNumber(turn.at),
-      channel: turn.channelId,
+      channel: turn.placeId,
       lines: (turn.items ?? [])
         .filter((item: Rec) => item.kind === 'attend')
         .reduce((sum: number, item: Rec) => sum + (item.attend?.lines ?? 0), 0),

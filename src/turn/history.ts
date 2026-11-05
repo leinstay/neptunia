@@ -24,9 +24,9 @@ export async function withReplyParents(
   reads: Reads,
   channel: ConversationInfo,
   history: Array<Line>,
-  { trigger }: { trigger: { id?: string; channelId?: string | null; replyToId?: string | null } | null }
+  { trigger }: { trigger: { id?: string; placeId?: string | null; replyToId?: string | null } | null }
 ): Promise<Array<Line>> {
-  const own = trigger && (!trigger.channelId || trigger.channelId === channel.id) ? trigger : null;
+  const own = trigger && (!trigger.placeId || trigger.placeId === channel.id) ? trigger : null;
   const parents = await fetchReplyParents(reads, { iface: channel.iface, conversationId: channel.id }, history, {
     trigger: own,
     recent: history.length,

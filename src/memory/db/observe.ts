@@ -50,7 +50,7 @@
 //     linked (a verified link), else none (the DM stays its own audience, fail-closed); a stored DM place without a
 //     partner gets it filled in.
 // The observation is the record of a seen line (spec 2026-10-24-memory-authority section 6 item 3), so the service
-// passes the line's record unit (`owner`: `guilds/<g>/record/<YYYY-MM>/<day>.jsonl`, or the private record's day
+// passes the line's record unit (`owner`: its place's record of the day
 // file) and the row is written in it: `owner_key` that unit, `position` the next one of the unit (the unit's `files`
 // row is kept, unit-write.ts#noteUnit), and a stored line of the tuple with no owner yet is stamped the same way.
 // Without `owner` the row has none. With `owner` the result also carries the line's `revision` (an edit's is the one
@@ -97,7 +97,7 @@ import type { Scope } from './scope.ts';
 export const OBSERVATION_VERSION = 1;
 /** The capture policy bundles are opened under (a change of the rules bumps it). */
 export const CAPTURE_POLICY_VERSION = 1;
-/** Place kinds an envelope may name (spec 1.4; `guild` is the legacy community). */
+/** Place kinds an envelope may name (spec 1.4). */
 export const PLACE_KINDS: ReadonlyArray<string> = Object.freeze([
   'server',
   'workspace',
@@ -113,7 +113,6 @@ export const PLACE_KINDS: ReadonlyArray<string> = Object.freeze([
   'discussion',
   'mailbox',
   'local_console',
-  'guild',
 ]);
 const AUTHOR_KINDS: ReadonlyArray<string> = ['account', 'participant', 'self'];
 /** The kinds of an account (schema v7 `accounts.kind`). */
@@ -206,6 +205,8 @@ type PlaceRef = {
   conversation?: string | null;
   title?: string | null;
   parent?: string | null;
+  /** The top of the tree, when a parent of its own may not know it yet. */
+  top?: string | null;
   partner?: { key: string; authority?: string; display?: string | null } | null;
 };
 /** The author of an envelope: an account, a thread-local participant or herself. */
@@ -565,11 +566,54 @@ function partnerOf(db: Db, envelope: ObservationPlaceInput, at: string): { accou
 function parentPlaceOf(db: Db, envelope: ObservationPlaceInput, at: string): string | null {
   const { authority, parent } = envelope.place;
   if (!filled(parent)) return null;
-  const found = nodeOf(db, authority, 'place', parent, null, envelope.occurredAt, at);
-  const kind = /^([a-z_]+):./.exec(parent)?.[1];
-  if (found || kind === undefined) return found;
-  const place = { authority, key: parent, kind } as ObservationPlaceInput['place'];
+  const match = /^([a-z_]+):(.+)$/.exec(parent);
+  const kind = match?.[1];
+  const found =
+    nodeOf(db, authority, 'place', parent, null, envelope.occurredAt, at) ??
+    (kind === undefined ? null : placeByNative(db, authority, kind, match?.[2] ?? ''));
+  if (kind === undefined) return found;
+  const id = found ?? placeOf(db, { ...envelope, place: { authority, key: parent, kind } }, at).id;
+  const top = envelope.place.top;
+  if (filled(top) && top !== parent) fillParent(db, id, topPlaceOf(db, envelope, top, at), at);
+  return id;
+}
+
+/** A place stored under another spelling of its native key: the same authority, kind and native id. */
+function placeByNative(db: Db, authority: unknown, kind: string, native: string): string | null {
+  const row = db
+    .prepare('SELECT id FROM places WHERE authority_id = ? AND kind = ? AND native_id = ?')
+    .get(authority, kind, native);
+  return typeof row?.id === 'string' ? row.id : null;
+}
+
+/** The id of an envelope's stored place: by its key, a server also by its native id. */
+function storedPlaceOf(db: Db, envelope: ObservationPlaceInput, at: string): string | null {
+  const p = envelope.place;
+  const native = /^server:(.+)$/.exec(p.key);
+  return (
+    nodeOf(db, p.authority, 'place', p.key, null, envelope.occurredAt, at) ??
+    (native ? placeByNative(db, p.authority, 'server', native[1] ?? '') : null)
+  );
+}
+
+/** The place at the top of an envelope's tree, created when no line named it yet. */
+function topPlaceOf(db: Db, envelope: ObservationPlaceInput, top: string, at: string): string {
+  const match = /^([a-z_]+):(.+)$/.exec(top);
+  const kind = match?.[1] ?? 'server';
+  const found =
+    nodeOf(db, envelope.place.authority, 'place', top, null, envelope.occurredAt, at) ??
+    placeByNative(db, envelope.place.authority, kind, match?.[2] ?? top);
+  if (found) return found;
+  const place = { authority: envelope.place.authority, key: top, kind } as ObservationPlaceInput['place'];
   return placeOf(db, { ...envelope, place }, at).id;
+}
+
+/** A place that has no parent yet takes `parent`; a stored parent stays. */
+function fillParent(db: Db, id: string, parent: string, at: string): void {
+  const row = db.prepare('SELECT parent_id FROM places WHERE id = ?').get(id);
+  if (!row || row.parent_id || id === parent) return;
+  db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(parent, id);
+  projectRow(db, 'places', { id }, { at });
 }
 
 /** A place first made as someone's parent has no title until a line of its own names it. */
@@ -587,7 +631,7 @@ function placeOf(
 ): { id: string; conversation: string | null; partner_person: unknown } {
   const p = envelope.place;
   const declared = p.conversation === 'dm' || p.conversation === 'group' ? p.conversation : null;
-  const id = nodeOf(db, p.authority, 'place', p.key, null, envelope.occurredAt, at);
+  const id = storedPlaceOf(db, envelope, at);
   const existing = id
     ? db
         .prepare(

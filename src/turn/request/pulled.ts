@@ -20,7 +20,7 @@ import type { Cost, Fit, FormatOptions, Labels, Message, RequestInput, Section, 
  * or `pingState` reads as empty.
  */
 export type PulledEntry = {
-  readonly channelId?: unknown;
+  readonly placeId?: unknown;
   readonly channelName?: string | null;
   readonly readOnly?: boolean;
   readonly messages?: Array<Message | null | undefined>;
@@ -33,7 +33,7 @@ export type PulledEntry = {
 };
 
 /** A pulled channel a request can show: its record, its id, its name and its messages, each once, oldest first. */
-export type UsablePulled = { entry: PulledEntry; channelId: string; name: string; messages: Array<Message> };
+export type UsablePulled = { entry: PulledEntry; placeId: string; name: string; messages: Array<Message> };
 
 /** A usable pulled channel with its transcript items and the ids of its earlier calls. */
 export type PulledSet = UsablePulled & { items: Array<TranscriptItem>; earlierIds: Set<string> };
@@ -98,17 +98,17 @@ export function usablePulled(pulled: unknown, currentChannelId: string | null): 
   const seen = new Set<string>();
   // The `pulled` input as given, read loosely: entries without a usable channel or message are skipped.
   for (const entry of Array.isArray(pulled) ? (pulled as Array<PulledEntry | null | undefined>) : []) {
-    const channelId = typeof entry?.channelId === 'string' ? entry.channelId : '';
-    if (!channelId || seen.has(channelId) || channelId === currentChannelId) continue;
+    const placeId = typeof entry?.placeId === 'string' ? entry.placeId : '';
+    if (!placeId || seen.has(placeId) || placeId === currentChannelId) continue;
     const byId = new Map<string, Message>();
     for (const message of Array.isArray(entry?.messages) ? entry.messages : []) {
       if (!message || message.id === undefined || message.id === null || !Number.isFinite(message.ts)) continue;
       if (!byId.has(message.id)) byId.set(message.id, message);
     }
     if (byId.size === 0) continue;
-    seen.add(channelId);
+    seen.add(placeId);
     const messages = [...byId.values()].sort((a, b) => a.ts - b.ts);
-    out.push({ entry: entry!, channelId, name: entry?.channelName || channelId, messages });
+    out.push({ entry: entry!, placeId, name: entry?.channelName || placeId, messages });
   }
   return out;
 }
@@ -425,12 +425,12 @@ export function pulledView(given: RequestInput & Base): PulledView {
   for (const channel of pulledSets) {
     for (const item of channel.items) {
       idByIndex.set(item.index, item.id);
-      pulledIds.set(item.id, channel.channelId);
+      pulledIds.set(item.id, channel.placeId);
     }
   }
   // A private chat has no neighbouring channels (and no server map, below).
   const offeredNeighbors = privateChat ? [] : neighbors;
-  const pulledChannelIds = new Set(pulledChannels.map((channel) => channel.channelId));
+  const pulledChannelIds = new Set(pulledChannels.map((channel) => channel.placeId));
   // Channels the bot can read but not write in, marked in `<server>` and on a pulled header.
   // The channel ids the turn hands over, a Set or an array.
   const givenReadOnly = (
@@ -438,7 +438,7 @@ export function pulledView(given: RequestInput & Base): PulledView {
   ) as Iterable<string>;
   const readOnlyIds = new Set([
     ...(privateChat ? [] : givenReadOnly),
-    ...pulledChannels.filter((channel) => channel.entry.readOnly === true).map((channel) => channel.channelId),
+    ...pulledChannels.filter((channel) => channel.entry.readOnly === true).map((channel) => channel.placeId),
   ]);
   return {
     source,
@@ -457,7 +457,7 @@ export function pulledView(given: RequestInput & Base): PulledView {
 
 /** The pulled channels as fitted, each with its messages, what they took and their section. */
 export type PulledFits = {
-  pulledFits: Array<PulledFit & { channelId: string; messages: Array<Message> }>;
+  pulledFits: Array<PulledFit & { placeId: string; messages: Array<Message> }>;
   pulledTaken: number;
   pulledSection: Section;
 };
@@ -491,14 +491,14 @@ export function fitPulled(given: RequestInput & Base & PulledView & Room & HeadS
         labels,
         timezone,
         now,
-        readOnly: readOnlyIds.has(channel.channelId),
+        readOnly: readOnlyIds.has(channel.placeId),
         triggerId: pulledTriggerId,
         // features.pullSeenMarker (a missing key counts as on), read now.
         seenOn: true,
       });
       if (!fitted) continue;
       pulledTaken += cost(fitted.text);
-      pulledFits.push({ ...fitted, channelId: channel.channelId, messages: channel.messages });
+      pulledFits.push({ ...fitted, placeId: channel.placeId, messages: channel.messages });
     }
   }
   const pulledSection: Section = {
@@ -525,9 +525,9 @@ export function neighborItemsOf(given: RequestInput & Base & PulledView & Pulled
   // The describer's cached captions of the neighbours' pictures, item id to caption.
   const cached = given.neighborDescriptions instanceof Map ? (given.neighborDescriptions as Map<string, string>) : null;
   const neighborDescriptions = cached && cached.size > 0 ? new Map([...cached, ...(descriptions ?? [])]) : descriptions;
-  const shownPulledIds = new Set<string | undefined>(pulledFits.map((fit) => fit.channelId));
+  const shownPulledIds = new Set<string | undefined>(pulledFits.map((fit) => fit.placeId));
   const neighborItems = offeredNeighbors
-    .filter((neighbor) => !shownPulledIds.has(neighbor.channelId))
+    .filter((neighbor) => !shownPulledIds.has(neighbor.placeId))
     .map(
       ({ channelName, messages }) =>
         `# ${channelName}\n${formatTranscript(messages, {
@@ -544,9 +544,9 @@ export function neighborItemsOf(given: RequestInput & Base & PulledView & Pulled
 
 /** The pulled channels whose block survived: what of them was shown, and each one's view for the next look. */
 export type PulledKept = {
-  pulledKept: Array<{ channelId: string; ids: Array<string>; newestId: string; newestTs: number }>;
+  pulledKept: Array<{ placeId: string; ids: Array<string>; newestId: string; newestTs: number }>;
   pulledViews: Array<{
-    channelId: string;
+    placeId: string;
     hashes: Map<string, string | undefined>;
     oldestTs: number;
     oldestId: string;
@@ -563,7 +563,7 @@ export function pulledKeptOf(fit: Fit, given: PulledView & PulledFits): PulledKe
   const keptPulled = new Set(kept.pulled);
   const pulledKept = pulledFits
     .filter((fit) => keptPulled.has(fit.text))
-    .map(({ channelId, ids, newestId, newestTs }) => ({ channelId, ids, newestId, newestTs }));
+    .map(({ placeId, ids, newestId, newestTs }) => ({ placeId, ids, newestId, newestTs }));
   // The block's budget line counts what was offered and not shown too: a channel cut whole,
   // or lines cut inside a channel shown.
   const pulledShownLines = pulledKept.reduce((sum, shown) => sum + shown.ids.length, 0);
@@ -577,8 +577,8 @@ export function pulledKeptOf(fit: Fit, given: PulledView & PulledFits): PulledKe
   // What each kept channel showed, for the next view of it in this channel to compare against;
   // the seen lines' counts join the budget line only when one was shown.
   const keptFits = pulledFits.filter((fit) => keptPulled.has(fit.text));
-  const pulledViews = keptFits.map(({ channelId, hashes, oldestTs, oldestId }) => ({
-    channelId,
+  const pulledViews = keptFits.map(({ placeId, hashes, oldestTs, oldestId }) => ({
+    placeId,
     hashes,
     oldestTs,
     oldestId,

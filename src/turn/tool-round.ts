@@ -184,7 +184,7 @@ type StepActArgs = Omit<ActArgs, Routed> & Omit<HoldArgs, Routed>;
 
 export type RunStepsArgs = {
   channel: CallContext['channel'];
-  guildId: string;
+  placeId: string;
   trigger: (CallContext['trigger'] & { content?: unknown }) | null | undefined;
   draft: ToolRoundDraft;
   transport: 'native' | 'text';
@@ -222,7 +222,7 @@ export type ToolRound = {
   readHistory: (
     channel: { id: string; communityId?: string | null },
     config: ToolRoundConfig,
-    options?: { inner?: boolean; draft?: ToolRoundDraft | null; guildId?: string | null }
+    options?: { inner?: boolean; draft?: ToolRoundDraft | null; placeId?: string | null }
   ) => Promise<Array<Line>>;
   noteThink: (draft: ToolRoundDraft | null | undefined, parsed: { think?: unknown } | null | undefined) => void;
   stepTranscript: (
@@ -263,10 +263,10 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
   function readHistory(
     channel: { id: string; communityId?: string | null },
     config: ToolRoundConfig,
-    { inner = false, draft = null, guildId = null }: NonNullable<Parameters<ToolRound['readHistory']>[2]> = {}
+    { inner = false, draft = null, placeId = null }: NonNullable<Parameters<ToolRound['readHistory']>[2]> = {}
   ): Promise<Array<Line>> {
     const namesOn = reactors;
-    const communityId = channel.communityId ?? guildId;
+    const communityId = channel.communityId ?? placeId;
     const names: ReactorNames | null = namesOn
       ? {
           store: reactors,
@@ -391,7 +391,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.js in stage 5b, a pure move
   async function runStepsIn({
     channel,
-    guildId,
+    placeId,
     trigger,
     draft,
     transport,
@@ -451,7 +451,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       callView({
         channel,
         snapshot: snapshotOfDraft(draft),
-        guildId,
+        placeId,
         idByIndex: r.idByIndex,
         lines: r.lines,
         pulledIds: r.pulledIds,
@@ -478,7 +478,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       const none = { text: '', lines: [], idByIndex: new Map<number, string>() };
       let fetched: unknown;
       try {
-        fetched = await readHistory(channel, hot.config, { inner, draft, guildId });
+        fetched = await readHistory(channel, hot.config, { inner, draft, placeId });
       } catch (err) {
         log.warn('skills: continuation fetch failed', { channel: channel.id, error: err });
         return none;
@@ -799,7 +799,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       });
       const quiet = answer.parsed.skip || speechItemsOf(answer.parsed) === 0;
       const cut = cutOffOf(completion, answer.parsed, {
-        channelId: channel.id,
+        placeId: channel.id,
         empty: Boolean(quiet) && answer.calls.length === 0,
         followUp: true,
       });

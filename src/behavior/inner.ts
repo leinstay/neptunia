@@ -59,7 +59,7 @@
 // id and newest line, nothing observed lost (the turn's history is the place's lines). With
 // `people` on the attention only their lines count and the wake names them. Past the attention's
 // own `perDay` the wake waits in the queue (`capped: 'attend-per-day'`), as a chain past
-// `wakes.caps.perChain` waits (`capped: 'per-chain'`). The record is read incrementally (a per-guild place index over the last
+// `wakes.caps.perChain` waits (`capped: 'per-chain'`). The record is read incrementally (a per-place place index over the last
 // `wakes.attention.lookbackHours`), the same store the review's hours come from; the same
 // index feeds `places` (her `places.list` skill and the page in `<wake>`): per place the
 // interface publishes (`places`, an injected directory of opaque addresses; nothing of the
@@ -72,8 +72,8 @@
 // each tick (status.ts#releaseStoredStop). Off (`features.wakes` not exactly true, read at every tick) nothing is listed and
 // nothing is written. The queue, the handled ids and the turn in flight are rows of the memory
 // database's `wakes` (src/behavior/inner/wake-store.ts: a turn claims its wakes with fenced leases
-// before it asks the model and completes them after); the rest of the state per guild (the day's
-// review, the counters, the facts, the stop) is `data/guilds/<id>/inner.json`, written after every
+// before it asks the model and completes them after); the rest of the state per place (the day's
+// review, the counters, the facts, the stop) is `data/places/<id>/inner.json`, written after every
 // change. A restart resumes: the start's recovery (src/behavior/inner/recovery.ts) runs a cut-off
 // turn's wakes again, and a wake that fell due while the core was down or paused sleeps and never
 // runs. Logs carry ids, codes and counts, never text.
@@ -157,12 +157,12 @@ export type InnerLifeOptions = {
   /** The record: her own lines for the review's hours, every place's lines for her attention. */
   record?: RecordSource | null;
   /**
-   * The places the interface publishes for the guild (opaque addresses, names, whether she can write there), for
+   * The places the interface publishes for the place (opaque addresses, names, whether she can write there), for
    * `places`; without it the places are the ones the record shows.
    */
-  places?: ((guildId: string) => unknown) | null;
+  places?: (() => unknown) | null;
   /** A member's name for the `<wake>` lines (null: the id is shown). */
-  nameOf?: ((guildId: string, memberId: string) => unknown) | null;
+  nameOf?: ((memberId: string) => unknown) | null;
   journal?: InnerJournal | null;
   /** The core's reads of the interface: the conversation a turn runs in. */
   reads?: InnerContext['reads'];
@@ -177,7 +177,7 @@ export type InnerLifeOptions = {
   submit?: ((event: InnerWakeEvent) => Promise<unknown>) | null;
   /** The memory store (its pause). */
   store?: InnerStore | null;
-  getGuildId?: () => string | null;
+
   /** Calls queued for the attention (people first). */
   peopleWaiting?: () => boolean;
   /**
@@ -224,17 +224,17 @@ export type TickAnswer = {
 /** The persona's inner life (createInnerLife). */
 export type InnerLife = {
   tick: () => Promise<TickAnswer>;
-  drain: (guildId: string) => Promise<DrainAnswer>;
+  drain: () => Promise<DrainAnswer>;
   onWake: (event: unknown) => WakeAnswer;
-  onTaskFinished: (task: unknown, guildId?: string | null) => boolean;
-  mayAct: (guildId: unknown) => boolean;
-  stop: (guildId?: string | null, options?: SwitchOptions) => SwitchAnswer;
-  start: (guildId?: string | null, options?: SwitchOptions) => SwitchAnswer;
+  onTaskFinished: (task: unknown) => boolean;
+  mayAct: () => boolean;
+  stop: (options?: SwitchOptions) => SwitchAnswer;
+  start: (options?: SwitchOptions) => SwitchAnswer;
   /** Clears a stop kept in the stored state (status.ts#releaseStoredStop). */
   releaseStoredStop: () => boolean;
-  status: (guildId?: string | null) => InnerStatus;
-  places: (guildId?: string | null, options?: PlacesQuery) => PlacesPage;
-  state: (guildId?: unknown) => InnerState;
+  status: () => InnerStatus;
+  places: (options?: PlacesQuery) => PlacesPage;
+  state: () => InnerState;
   facts: FactsApi;
   /** The clean stop's end of `core:alive` (recovery.ts#releaseAlive). */
   release: () => Promise<void>;
@@ -255,7 +255,6 @@ export function createInnerLife({
   conversationName = () => null,
   submit = null,
   store = null,
-  getGuildId = () => null,
   peopleWaiting = () => false,
   ready = () => Promise.resolve(),
   uuid = randomUUID,
@@ -283,7 +282,6 @@ export function createInnerLife({
     conversationName,
     submit,
     store,
-    getGuildId,
     peopleWaiting,
     ready,
     uuid,
@@ -321,11 +319,9 @@ export function createInnerLife({
    */
   async function tick(): Promise<TickAnswer> {
     const config = hot.config;
-    const guildId = getGuildId();
-    if (!guildId) return { ran: false, reason: 'no-guild' };
     if (life.ticking) return { ran: false, reason: 'ticking' };
-    if (await beforeTick(life, guildId)) return { ran: false, reason: 'paused' };
-    if (stateOf(life, guildId).stopped) return { ran: false, reason: 'stopped' };
+    if (await beforeTick(life)) return { ran: false, reason: 'paused' };
+    if (stateOf(life).stopped) return { ran: false, reason: 'stopped' };
     life.ticking = true;
     try {
       const settings = innerSettings(config);
@@ -334,28 +330,28 @@ export function createInnerLife({
       if (intentions) {
         let due: ReadonlyArray<Parameters<typeof wakeOfDue>[0]> = [];
         try {
-          due = intentions.due?.(guildId) ?? [];
+          due = intentions.due?.() ?? [];
         } catch (err) {
-          log.warn('inner: due list failed', { guildId, code: errorCode(err) });
+          log.warn('inner: due list failed', { code: errorCode(err) });
         }
         listed.push(...due.map(wakeOfDue));
         try {
-          intentions.reconcile?.(guildId);
-          listed.push(...deadlineWakes(intentions.list?.(guildId, { all: true })));
+          intentions.reconcile?.();
+          listed.push(...deadlineWakes(intentions.list?.({ all: true })));
         } catch (err) {
-          log.warn('inner: reconcile failed', { guildId, code: errorCode(err) });
+          log.warn('inner: reconcile failed', { code: errorCode(err) });
         }
       }
-      const review = await reviewDue(life, guildId, settings, at);
+      const review = await reviewDue(life, settings, at);
       if (review) listed.push(review);
-      const beat = heartbeatDue(life, guildId, settings, at);
+      const beat = heartbeatDue(life, settings, at);
       if (beat) listed.push(beat);
-      listed.push(...(await selfimprovementDue(life, guildId, settings, at)));
+      listed.push(...(await selfimprovementDue(life, settings, at)));
       if (intentions) {
-        await refreshPlaces(life, guildId, at, settings);
-        listed.push(...attendWakes(life, guildId, at));
+        await refreshPlaces(life, at, settings);
+        listed.push(...attendWakes(life, at));
       }
-      const state = stateOf(life, guildId);
+      const state = stateOf(life);
       let submitted = 0;
       for (const wake of listed) {
         if (state.handled[wake.id] || state.queue.some((queued) => queued.id === wake.id)) continue;
@@ -363,21 +359,20 @@ export function createInnerLife({
         if (wake.kind === 'attend') {
           const older = state.queue.filter(
             (queued) =>
-              inScope(life, guildId, queued) &&
+              inScope(life, queued) &&
               queued.kind === 'attend' &&
               queued.intentionIds?.[0] === wake.intentionIds[0] &&
               !life.running.has(queued.id)
           );
           if (older.length > 0) {
             state.queue = state.queue.filter((queued) => !older.includes(queued));
-            save(life, guildId);
-            for (const previous of older)
-              note(life, guildId, { event: 'replaced', wake: wakeFields(previous), by: wake.id });
+            save(life);
+            for (const previous of older) note(life, { event: 'replaced', wake: wakeFields(previous), by: wake.id });
           }
         }
-        submitted += await admitListed(life, guildId, wake);
+        submitted += await admitListed(life, wake);
       }
-      const drained = await drain(life, guildId);
+      const drained = await drain(life);
       return { ran: true, listed: listed.length, submitted, drained };
     } catch (err) {
       log.warn('inner: tick failed', { error: err });
@@ -391,43 +386,38 @@ export function createInnerLife({
 
   /**
    * The facts for the turns that are not inner turns (src/behavior/turn.ts's addressed turns): `add` a
-   * fact (`kind`, `channelId`, `privateChat`, its payload), `pending` ones a conversation may be shown
-   * (`scope`: `{ channelId, privateChat }`; a private chat's only in it), `markTold` the ones a completed
+   * fact (`kind`, `placeId`, `privateChat`, its payload), `pending` ones a conversation may be shown
+   * (`scope`: `{ placeId, privateChat }`; a private chat's only in it), `markTold` the ones a completed
    * answer carried. `enabled` follows the switch; without it the turn runner keeps its own in process.
    */
   const factsApi: FactsApi = {
     enabled: () => true,
-    add(guildId, fact) {
-      const key = guildId ?? getGuildId();
-      if (!key) return null;
-      const stored = addFact(life, stateOf(life, key), { ...contextOf(life, key, fact.channelId), ...fact });
-      save(life, key);
+    add(fact) {
+      const stored = addFact(life, stateOf(life), { ...contextOf(life, fact.placeId), ...fact });
+      save(life);
       return stored;
     },
-    pending(guildId, scope) {
-      const key = guildId ?? getGuildId();
-      return key ? pendingFactsOf(stateOf(life, key), { ...contextOf(life, key, scope?.channelId), ...scope }) : [];
+    pending(scope) {
+      return pendingFactsOf(stateOf(life), { ...contextOf(life, scope?.placeId), ...scope });
     },
-    markTold(guildId, ids) {
-      const key = guildId ?? getGuildId();
-      if (!key) return;
-      markFactsTold(stateOf(life, key), ids, now(), contextOf(life, key));
-      save(life, key);
+    markTold(ids) {
+      markFactsTold(stateOf(life), ids, now(), contextOf(life));
+      save(life);
     },
   };
 
   return {
     tick,
-    drain: (guildId) => drain(life, guildId),
+    drain: () => drain(life),
     onWake: (event) => onWake(life, event),
-    onTaskFinished: (task, guildId) => onTaskFinished(life, task, guildId),
-    mayAct: (guildId) => mayAct(life, guildId),
-    stop: (guildId, options) => stop(life, guildId, options),
-    start: (guildId, options) => start(life, guildId, options),
+    onTaskFinished: (task) => onTaskFinished(life, task),
+    mayAct: () => mayAct(life),
+    stop: (options) => stop(life, options),
+    start: (options) => start(life, options),
     releaseStoredStop: () => releaseStoredStop(life),
-    status: (guildId) => status(life, guildId),
-    places: (guildId, options) => places(life, guildId, options),
-    state: (guildId) => stateOf(life, guildId),
+    status: () => status(life),
+    places: (options) => places(life, options),
+    state: () => stateOf(life),
     facts: factsApi,
     release: () => releaseAlive(life),
   };

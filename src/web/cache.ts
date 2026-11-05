@@ -1,4 +1,4 @@
-// Functions over the shared media cache (data/guilds/<id>/media.json, a plain
+// Functions over the shared media cache (data/places/<id>/media.json, a plain
 // object whose key order is its recency): the web lookup's link reads and
 // searches live in it next to the media describer's entries, and the
 // describer (src/memory/describe.ts) keeps its entries and question keys
@@ -12,7 +12,7 @@ export function touchKey(cache: Record<string, unknown>, key: string, value: unk
   cache[key] = value;
 }
 
-/** The entries a guild's media cache keeps. Production value, config cut of 2026-10-31. */
+/** The entries a place's media cache keeps. Production value, config cut of 2026-10-31. */
 export const MEDIA_CACHE_ENTRIES = 5000;
 
 /** Drop the oldest entries once `cache` holds more than `maxEntries`. */

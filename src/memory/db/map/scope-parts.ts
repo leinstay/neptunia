@@ -1,4 +1,4 @@
-// How an old line or file scope (`{ channel }`, `{ guild: true }`, `{ user }`) becomes a place and the three scope
+// How a line or file scope (`{ channel }`, `{ place }`, `{ user }`) becomes a place and the three scope
 // columns, and back. A private layer's rows belong to the member's DM place; the channel id such a line carried is
 // kept in the remainder (`dmChannel`). When the columns cannot rebuild the old scope exactly, the old scope is kept
 // verbatim in the remainder (`scope`), or `$noScope` marks that the line had none, so the round trip is exact either way.
@@ -10,17 +10,17 @@ import { jsonEqual } from './common.ts';
 import { asText } from '../types.ts';
 import type { Row } from '../types.ts';
 
-/** The member id of a private layer file or directory path (`private/<id>.json`, `private/<id>/...`, with or without the `guilds/<g>/` prefix of a full unit path), else null. */
+/** The member id of a private layer path (`private/<id>.json`, `private/<id>/...`, under any prefix), else null. */
 export function privateUserOf(rel: string): string | null {
-  const match = /^(?:guilds\/[^/]+\/)?private\/([^/]+?)(?:\.json$|\/)/.exec(String(rel));
+  const match = /^(?:[^/]+\/[^/]+\/)?private\/([^/]+?)(?:\.json$|\/)/.exec(String(rel));
   return match ? match[1] : null;
 }
 
 /**
  * The place and scope columns for an old scope. Notes in `rest` whatever the columns cannot rebuild.
  */
-/** The old `scope` object of a file: the channel it names, the guild flag or the user. */
-export type OldScope = { user?: unknown; channel?: unknown; guild?: unknown };
+/** The `scope` object of a line: the conversation it names, the place it belongs to, or the user. */
+export type OldScope = { user?: unknown; channel?: unknown; place?: unknown };
 
 export function scopeInto(
   rest: Row,
@@ -65,8 +65,6 @@ export function scopeFrom(
     if (typeof dmChannel === 'string') scope.channel = dmChannel;
   } else if (place.startsWith(`${iface}:channel:`)) {
     scope.channel = place.slice(`${iface}:channel:`.length);
-  } else if (cols.scope_kind === 'group') {
-    scope.guild = true;
   }
   if (!privateUser && cols.scope_kind === 'dm') scope.user = dmUserOf(cols);
   return scope;

@@ -4,7 +4,7 @@
 // in server order until enough lines pass. This reads the last
 // `BACKFILL_MESSAGES` messages of every readable channel
 // through the interface's history reads -- no LLM, no token budget -- and counts them into
-// guild.json's `emojiUsage` at once (src/memory/emoji-usage.ts), starting from
+// place.json's `emojiUsage` at once (src/memory/emoji-usage.ts), starting from
 // a cleared ranking, then stamps `emojiBackfill: { at, channels, messages }`
 // so it never counts the same history twice. Runs once at startup
 // (`startIfNeeded`) and again only on the owner's `/nep emoji rescan` (`run`
@@ -46,7 +46,7 @@ export async function readMemberHistory(
   for (const channel of channels) {
     const found = await reads.history({ iface, conversationId: channel.id }, { limit });
     if (found === null) {
-      log.warn(`${prefix}: channel read failed`, { channelId: channel.id });
+      log.warn(`${prefix}: channel read failed`, { placeId: channel.id });
       continue;
     }
     for (const event of found.events) {
@@ -92,21 +92,21 @@ function buildEmojiBackfill({
    * unexpected error is thrown.
    */
   async function run(
-    guildId: string,
+    placeId: string,
     { force = false }: { force?: boolean } = {}
   ): Promise<{ ok: true; channels: number; messages: number; emoji: number } | { ok: false; reason: string }> {
     if (running) return skipped('running');
     if (store.state?.data?.paused) return skipped('paused');
-    if (!force && store.getGuild(guildId).emojiBackfill?.at) return skipped('done');
+    if (!force && store.getPlace(placeId).emojiBackfill?.at) return skipped('done');
 
     running = true;
     try {
-      const history = await readMemberHistory(reads, guildId, BACKFILL_MESSAGES, {
+      const history = await readMemberHistory(reads, placeId, BACKFILL_MESSAGES, {
         iface: iface(),
         log,
         prefix: 'emoji-backfill',
       });
-      if (history === null) return skipped('no-guild');
+      if (history === null) return skipped('no-place');
       const channels = history.channels;
       const collected = history.messages.map((message) => ({
         id: message.id,
@@ -119,12 +119,12 @@ function buildEmojiBackfill({
       const opts = emojiUsageOpts();
 
       // Always from a cleared ranking: the window already holds what the live counting counted so far.
-      store.clearEmojiUsage(guildId);
+      store.clearEmojiUsage(placeId);
       let emoji = 0;
       for (let i = 0; i < members.length; i += CHUNK) {
-        emoji += store.recordEmojiUsage(guildId, members.slice(i, i + CHUNK), opts);
+        emoji += store.recordEmojiUsage(placeId, members.slice(i, i + CHUNK), opts);
       }
-      store.setEmojiBackfill(guildId, { at: new Date().toISOString(), channels, messages: members.length });
+      store.setEmojiBackfill(placeId, { at: new Date().toISOString(), channels, messages: members.length });
       store.flush();
 
       const counts = { channels, messages: members.length, emoji };
@@ -137,12 +137,12 @@ function buildEmojiBackfill({
 
   /**
    * The startup run: once, when `features.customEmoji` is on (a missing key
-   * counts as on) and the guild has no `emojiBackfill` stamp yet. Meant to be
+   * counts as on) and the place has no `emojiBackfill` stamp yet. Meant to be
    * called without awaiting; resolves either way, errors are logged, never thrown.
    */
-  async function startIfNeeded(guildId: string): Promise<void> {
+  async function startIfNeeded(placeId: string): Promise<void> {
     try {
-      await run(guildId);
+      await run(placeId);
     } catch (err) {
       log.error('emoji-backfill: failed', { error: err });
     }
@@ -159,7 +159,7 @@ function buildEmojiBackfill({
 export type EmojiBackfill = ReturnType<typeof buildEmojiBackfill>;
 
 /**
- * The emoji history backfill for the served guild.
+ * The emoji history backfill for the served place.
  * @param deps.store   src/memory/store.ts.
  * @param deps.reads  The core's reads of the interface (readMemberHistory's).
  * @param deps.iface  The interface's name, read when a run starts.

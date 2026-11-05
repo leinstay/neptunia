@@ -90,35 +90,42 @@ export const dmContext = <P extends string, T extends string>(
   place: place ?? dmPlaceOfPerson(person, iface),
 });
 export const internalContext = (): Context => ({ internal: true });
-/** What a read's context is issued for: the DM of `privateUserId`, else the group of `channelId`, on the channel's interface. */
+/** What a read's context is issued for: the DM of `privateUserId`, else the group of `placeId`, on the channel's interface. */
 export function readContextSpec(
   channelIface: unknown,
   home: unknown,
-  channelId: unknown,
+  placeId: unknown,
   privateUserId: unknown
 ): { iface: string; kind: 'dm'; person: string } | { iface: string; kind: 'group'; destination: string | null } {
   const iface = String(typeof channelIface === 'string' && channelIface !== '' ? channelIface : home);
   return privateUserId
     ? { iface, kind: 'dm' as const, person: personId(iface, privateUserId) }
-    : { iface, kind: 'group' as const, destination: channelId ? channelPlaceId(iface, channelId) : null };
+    : { iface, kind: 'group' as const, destination: placeId ? channelPlaceId(iface, placeId) : null };
 }
 /** The context of the diary's entry: `none` and the groups of every interface; no direct chat, nothing internal. */
 export const groupsContext = (): Context => ({ groups: true });
 
 /**
- * The scope columns of an old scope object (`{ channel }`, `{ guild: true }`, `{ user }`, `{}`).
- * A private layer of user U (`opts.privateUser`) or a scope naming a user is `dm` with that member; a channel or
- * `guild: true` is `group`; anything else (no scope, an empty or unknown one) is `internal`: an unknown legacy scope
+ * The scope columns of a scope object (`{ channel }`, `{ place }`, `{ place, private }`, `{ user }`, `{}`).
+ * A private layer of user U (`opts.privateUser`) or a scope naming a user is `dm` with that member; a channel or a
+ * place is `group`; anything else (no scope, an empty or unknown one) is `internal`: an unknown legacy scope
  * is never shown outward. `none` is only for a unit that is source-free on purpose (a self fact, her own unprompted
  * line), which its mapper sets itself with SCOPE_NONE. The columns name `opts.iface`, the legacy namespace when none
  * is given.
  */
 export function scopeColumns(scope: unknown, opts: { privateUser?: string | null; iface?: string } = {}): Scope {
-  const oldScope = scope as { user?: unknown; channel?: unknown; guild?: unknown } | null | undefined;
+  const oldScope = scope as
+    { user?: unknown; channel?: unknown; place?: unknown; private?: unknown } | null | undefined;
   const user = opts.privateUser ?? (typeof oldScope?.user === 'string' && oldScope.user ? oldScope.user : null);
   const iface = opts.iface ?? LEGACY_IFACE;
   if (user) return dmScope(personId(iface, user), iface);
-  if (oldScope && (typeof oldScope.channel === 'string' || oldScope.guild === true)) return groupScope(iface);
+  if (oldScope?.private === true && typeof oldScope.place === 'string') {
+    const partner = dmPartnerOfPlace(oldScope.place);
+    if (partner) return dmScope(partner.person, partner.iface);
+    return { ...SCOPE_INTERNAL };
+  }
+  if (oldScope && (typeof oldScope.channel === 'string' || typeof oldScope.place === 'string'))
+    return groupScope(iface);
   return { ...SCOPE_INTERNAL };
 }
 

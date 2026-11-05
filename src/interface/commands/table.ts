@@ -653,6 +653,9 @@ function argsOf(
   return values;
 }
 
+/** Ends any line: the place the owner's command addresses, for a core that serves more than one. */
+const PLACE_FLAG = '--place';
+
 /** The words of a typed line: the leading slash dropped, split on spaces. */
 export function commandLineWords(line: string): Array<string> {
   return line
@@ -698,6 +701,12 @@ function retiredSubharness(first: string, [word, next]: ReadonlyArray<string>): 
 
 /** One command as words, none of them joined or split: its dotted name and arguments, or why it is refused. */
 export function parseCommandWords(words: ReadonlyArray<string>): Parsed {
+  const place = words.at(-2) === PLACE_FLAG ? words.at(-1) : undefined;
+  const parsed = parseWithoutPlace(place === undefined ? words : words.slice(0, -2));
+  return parsed.ok && place !== undefined ? { ...parsed, args: { ...parsed.args, place } } : parsed;
+}
+
+function parseWithoutPlace(words: ReadonlyArray<string>): Parsed {
   const [first, ...rest] = words;
   if (first === undefined) return refuse('an empty line is no command; type /help');
   const command = COMMANDS.find((one) => one.name === first);

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Operations tool: the persona's journal per day as markdown, so a change can be measured on
 // what the bot actually did. Reads the guild's journal day files and nothing else
-// (data/guilds/<guildId>/journal/<YYYY-MM-DD>.jsonl); writes nothing, sends nothing, spends
+// (data/guilds/<placeId>/journal/<YYYY-MM-DD>.jsonl); writes nothing, sends nothing, spends
 // nothing. The numbers and their layout come from scripts/lib/report.ts.
 //
 //   cd /opt/neptunia/app && node scripts/journal-report.ts --since 2026-10-13 [--until 2026-10-14] [--guild <id>] [--data <dir>]
@@ -27,11 +27,11 @@ export async function main(
   if (!flags['--since']) throw new CliError(USAGE);
   const data = flagText(flags, '--data');
   const dataDir = data !== undefined ? path.resolve(cwd, data) : defaultDataDir(cwd);
-  const guildId = resolveGuildId(dataDir, flagText(flags, '--guild'));
+  const placeId = resolveGuildId(dataDir, flagText(flags, '--guild'));
   const until = flagText(flags, '--until') ?? new Date(now()).toISOString().slice(0, 10);
   const days = daysBetween(String(flags['--since']), until, USAGE);
-  const dir = path.join(dataDir, 'guilds', guildId, 'journal');
-  const out = [`# Journal report, guild ${guildId}, ${days[0]} to ${days.at(-1)}`, ''];
+  const dir = path.join(dataDir, 'guilds', placeId, 'journal');
+  const out = [`# Journal report, guild ${placeId}, ${days[0]} to ${days.at(-1)}`, ''];
   for (const day of days) {
     const file = path.join(dir, `${day}.jsonl`);
     if (!fs.existsSync(file)) {

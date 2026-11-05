@@ -1,5 +1,5 @@
 // Which of the server's custom emoji the members actually use, counted
-// deterministically (no LLM) from every analyzer batch and kept in guild.json
+// deterministically (no LLM) from every analyzer batch and kept in place.json
 // as `emojiUsage: { [id]: { name, count, last } }`. The `<emoji>` block
 // (src/behavior/prompt.js) shows the top-ranked ones, so the persona picks up
 // the server's habits instead of a random slice of a long emoji list. Rank is

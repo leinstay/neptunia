@@ -5,7 +5,7 @@
 // column contract and frozen path provenance through the explicit compatibility adapter.
 
 import { hasStorageUnits, ensureUnit, unitById } from './storage-units.ts';
-import { legacyStorageKey } from './paths.ts';
+import { legacyStorageKey } from '../migration/paths.ts';
 import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations, restrictDiaryMedia } from './rows.ts';
 import { projectRow } from './graph.ts';
 import { deriveMirrorPublication } from './publish.ts';
@@ -93,12 +93,6 @@ function prepared(db: Db, sql: string): ReturnType<Db['prepare']> {
 
 const bind = (value: unknown): unknown => (value === undefined ? null : value);
 
-/** The guild directory prefix of a full unit path (`guilds/<g>/`), or null. */
-const guildOf = (db: Db, owner: unknown): string | null =>
-  hasStorageUnits(db)
-    ? (unitById(db, asText(owner))?.key.scopePlaceId ?? null)
-    : (/^guilds\/[^/]+\//.exec(asText(owner ?? ''))?.[0] ?? null);
-
 /** Inserts a row, or updates the columns it names when the primary key exists (rowid and unnamed columns stay). */
 function upsert(db: Db, table: string, row: Row, { ignore = false }: { ignore?: boolean } = {}): void {
   const have = columnsOf(db, table);
@@ -146,9 +140,15 @@ const observedRow = (table: string, found: Row, row: Row) =>
       (table === 'places' && row.kind !== 'dm') ||
       (table === 'people' && (found.kind === null || found.kind === undefined));
 
+/** The place an owning unit belongs to, or null for an owner of any other subject. */
+const placeOfOwner = (db: Db, owner: unknown): string | null => {
+  const subject = unitById(db, asText(owner))?.key.subject;
+  return subject?.type === 'place' ? subject.id : null;
+};
+
 /**
  * Writes one mapped row of a unit, keeping the ownership rules: a row the database wrote (no owner) is left alone;
- * a live row of another guild is shared (listed in `co_owners`, not rewritten); anything else is upserted.
+ * a live row of another place's unit is shared (listed in `co_owners`, not rewritten); anything else is upserted.
  * Returns true when the row is now this unit's to write (false: skipped).
  */
 function writeRow(db: Db, table: string, row: Row, opts: { ignore?: boolean; at?: string }): boolean {
@@ -157,8 +157,8 @@ function writeRow(db: Db, table: string, row: Row, opts: { ignore?: boolean; at?
     if ((found.owner_key === null || found.owner_key === undefined) && !observedRow(table, found, row)) return false;
     const mine = row.owner_key;
     if (found.owner_key !== mine && found.retired_at === null) {
-      const theirs = guildOf(db, found.owner_key);
-      if (theirs !== null && guildOf(db, mine) !== null && theirs !== guildOf(db, mine)) {
+      const theirs = placeOfOwner(db, found.owner_key);
+      if (theirs !== null && placeOfOwner(db, mine) !== null && theirs !== placeOfOwner(db, mine)) {
         prepared(db, 'INSERT OR IGNORE INTO co_owners (tbl, key, owner_key) VALUES (?, ?, ?)').run(
           table,
           keyOf(table, row),
@@ -244,7 +244,7 @@ export function retireAbsent(db: Db, owner: string, mapping: Rows, at: string): 
       projectRow(db, table, row, { at });
       count += 1;
     }
-    // This unit no longer maps the rows it shared with another guild.
+    // This unit no longer maps the rows it shared with another place's unit.
     for (const shared of prepared(db, 'SELECT key FROM co_owners WHERE tbl = ? AND owner_key = ?').all(table, owner)) {
       if (!keep.has(shared.key as string))
         prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_key = ?').run(table, shared.key, owner);
@@ -412,7 +412,7 @@ function familiesOf(db: Db, messageIds: ReadonlyArray<string>): Map<string, Arra
 /** The one family a vector row's message belongs to: narrowed by its channel and interface, none when still ambiguous. */
 function familyOfVector(row: Row, families: ReadonlyArray<Row>): Row | undefined {
   if (families.length <= 1) return families[0];
-  const channel = parseExtra(row.context).channelId;
+  const channel = parseExtra(row.context).placeId;
   const narrowed = families.filter(
     (family) =>
       (channel === undefined || channel === null || family.conversation_id === channel) &&

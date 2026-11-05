@@ -5,10 +5,12 @@
 import { hasStorageUnits, unitById } from './storage-units.ts';
 import { storageId } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { legacyStorageKey } from './paths.ts';
-import { storageMapper, classify } from './map/index.ts';
+import { legacyStorageKey } from '../migration/paths.ts';
+import { classify } from '../migration/classify.ts';
+import { storageMapper } from './map/index.ts';
 
-import type { Mapper, MappedPath } from './map/index.ts';
+import type { Mapper } from './map/index.ts';
+import type { MappedPath } from '../migration/classify.ts';
 import { filesOf } from './map/vectors.ts';
 import { OWNED } from './upsert.ts';
 import { addSessionRows } from './session-rows.ts';
@@ -191,7 +193,7 @@ export function storageLines(db: Db, key: StorageKey): Array<string> {
   return linesOf(mapped.kind, mapped.mapper, unitRows(db, key)).map((line) => JSON.stringify(line));
 }
 
-/** The files of one unit: [{ rel, data }] relative to the unit's guild directory. `unitFull` is the unit's full path. */
+/** The files of one unit: [{ rel, data }] relative to the unit's directory. `unitFull` is the unit's full path. */
 export function filesOfUnit(
   db: Db,
   unitRelGiven: unknown,
@@ -216,32 +218,6 @@ export function filesOfUnit(
   const value = mapper.fromRows(rows);
   const text = format === 'text' ? String(value) : JSON.stringify(value, null, 2);
   return [{ rel: unitRel, data: Buffer.from(text, 'utf8') }];
-}
-
-/**
- * The value of one JSON memory unit, built from the database alone. `relPath` is relative to the data root
- * (`guilds/<id>/users/<id>.json`). Not found, with the reason: `unmapped` (not a memory unit, or not a JSON one),
- * `missing` (the database holds no unit for it), `empty` (the unit has no rows).
- */
-export function exportOne(
-  database: unknown,
-  relPath: string
-): { found: true; value: unknown } | { found: false; reason: string } {
-  const db = ((database as { db?: Db }).db ?? database) as Db; // an `openMemoryDb` handle or its connection
-  const info = classify(relPath);
-  if (!info || 'skipped' in info || info.format !== 'json') return { found: false, reason: 'unmapped' };
-  const full = info.guildId === undefined ? info.unit : `guilds/${info.guildId}/${info.unit}`;
-  const file = hasStorageUnits(db)
-    ? db
-        .prepare(
-          'SELECT 1 FROM legacy_unit_aliases a JOIN storage_units u ON u.id=a.unit_id WHERE a.path=? AND u.retired_at IS NULL'
-        )
-        .get(full)
-    : db.prepare('SELECT 1 AS ok FROM files WHERE path = ? AND gone_at IS NULL').get(full);
-  if (!file) return { found: false, reason: 'missing' };
-  const [out] = filesOfUnit(db, info.unit, info, full);
-  if (!out) return { found: false, reason: 'empty' };
-  return { found: true, value: JSON.parse(out.data.toString('utf8')) };
 }
 
 /** The ids (unit names without `.json`) of the JSON memory units directly under `relDir`, or null when the database holds none. */

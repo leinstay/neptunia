@@ -34,7 +34,7 @@ export type SendsContext = {
   conversationName: (id: string) => string | null | undefined;
   clock: () => number;
   schedule: (run: () => void, ms: number) => unknown;
-  activity: { lastAt: (channelId: string, authorId: string) => number | null } | null;
+  activity: { lastAt: (placeId: string, authorId: string) => number | null } | null;
   iface: MirrorPort;
 };
 
@@ -45,7 +45,7 @@ type PostChannel = { id: string; communityId?: string | null };
 type RenderArgs = {
   channel: PostChannel;
   snapshot?: Snapshot | null;
-  guildId: string | null;
+  placeId: string | null;
   privateChat: boolean;
   idByIndex: ReadonlyMap<number, string> | null | undefined;
   pulledIds?: ReadonlyMap<string, string> | null;
@@ -65,11 +65,11 @@ export type Sends = {
   emojiLookup: () => ((name: string) => IndexedEmoji | null) | null;
   renderPost: (written: string, args: RenderArgs) => RenderedPost;
   settleAuthor: (
-    channelId: string,
+    placeId: string,
     trigger: { authorId?: string | null; ts?: unknown } | null | undefined
   ) => Promise<number>;
   diaryChannelName: (
-    guildId: string,
+    placeId: string,
     config: SendsConfig,
     snapshot?: Snapshot | null,
     own?: { id: string; name?: string | null } | null
@@ -83,30 +83,30 @@ export function createSends(ctx: SendsContext): Sends {
    * `text` with every transcript number `#n` of this turn's numbering (`idByIndex`, chat and
    * pulled lines) turned into the jump link of that message (src/memory/mentions.ts#linkMessageNumbers):
    * features.messageLinks on (read now; a missing key counts as on). A pulled line links in its own
-   * channel (`pulledIds`), any other in `channelId`; a private chat uses `@me` for the guild.
+   * channel (`pulledIds`), any other in `placeId`; a private chat uses `@me` for the place.
    */
   function withMessageLinks(
     text: string,
     {
-      guildId,
-      channelId,
+      placeId,
+      conversationId,
       privateChat,
       idByIndex,
       pulledIds,
     }: {
-      guildId: string | null;
-      channelId: string;
+      placeId: string | null;
+      conversationId: string;
       privateChat: boolean;
       idByIndex: ReadonlyMap<number, string> | null | undefined;
       pulledIds?: ReadonlyMap<string, string> | null;
     }
   ): string {
     if (!idByIndex) return text;
-    const community = privateChat || !guildId ? null : guildId;
+    const community = privateChat || !placeId ? null : placeId;
     return linkMessageNumbers(text, (n) => {
       const messageId = idByIndex.get(n);
       if (!messageId) return null;
-      return messageLinkOf(iface, community, pulledIds?.get(messageId) ?? channelId, messageId);
+      return messageLinkOf(iface, community, pulledIds?.get(messageId) ?? conversationId, messageId);
     });
   }
 
@@ -114,7 +114,7 @@ export function createSends(ctx: SendsContext): Sends {
    * `text` with every `#handle` of `channelHandles` (the request's handle -> channel id) and, with
    * features.channelLinks on (read now; a missing key counts as on), every `#name` of one of the
    * community's text channels (the turn's snapshot) turned into its `<#id>` link (src/memory/mentions.ts#linkChannels; a
-   * handle first, exactly). A private chat has no guild: only its handles, if any, are linked.
+   * handle first, exactly). A private chat has no place: only its handles, if any, are linked.
    */
   function withChannelLinks(
     channel: PostChannel,
@@ -153,7 +153,6 @@ export function createSends(ctx: SendsContext): Sends {
     {
       channel,
       snapshot = null,
-      guildId,
       privateChat,
       idByIndex,
       pulledIds,
@@ -180,7 +179,13 @@ export function createSends(ctx: SendsContext): Sends {
     const text = withLink(
       withChannelLinks(
         channel,
-        withMessageLinks(spoken, { guildId, channelId: channel.id, privateChat, idByIndex, pulledIds }),
+        withMessageLinks(spoken, {
+          placeId: channel.communityId ?? null,
+          conversationId: channel.id,
+          privateChat,
+          idByIndex,
+          pulledIds,
+        }),
         channelHandles,
         snapshot
       ),
@@ -191,7 +196,7 @@ export function createSends(ctx: SendsContext): Sends {
   }
 
   /**
-   * Wait until `trigger`'s author has been quiet in `channelId` for pace.settleMs (read at every
+   * Wait until `trigger`'s author has been quiet in `placeId` for pace.settleMs (read at every
    * check), never past pace.settleMaxMs from the trigger message's time (the start of the wait
    * when that is unknown), checking the activity again at least every SETTLE_STEP_MS so a new
    * message of theirs restarts the count; the pauses run on the injected `schedule`. Resolves
@@ -199,7 +204,7 @@ export function createSends(ctx: SendsContext): Sends {
    * off. Never rejects: a failing check ends the wait.
    */
   async function settleAuthor(
-    channelId: string,
+    placeId: string,
     trigger: { authorId?: string | null; ts?: unknown } | null | undefined
   ): Promise<number> {
     const authorId = trigger?.authorId;
@@ -213,7 +218,7 @@ export function createSends(ctx: SendsContext): Sends {
         const wait = settleWait({
           now: clock(),
           triggerAt,
-          lastAt: activity.lastAt(channelId, authorId),
+          lastAt: activity.lastAt(placeId, authorId),
           settleMs,
           settleMaxMs,
         });
@@ -223,7 +228,7 @@ export function createSends(ctx: SendsContext): Sends {
         });
       }
     } catch (err) {
-      log.warn('turn: settle failed', { channel: channelId, error: err });
+      log.warn('turn: settle failed', { channel: placeId, error: err });
     }
     return clock() - settleStartedAt;
   }
@@ -233,7 +238,7 @@ export function createSends(ctx: SendsContext): Sends {
    * mirror.ts#diaryPlaces, as the snapshot, the directory or memory names it; null with none or `features.diary` off.
    */
   function diaryChannelName(
-    guildId: string,
+    placeId: string,
     config: SendsConfig,
     snapshot: Snapshot | null = null,
     own: { id: string; name?: string | null } | null = null

@@ -1,3 +1,4 @@
+// health: allow file-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 // The recall runner: the server part of a lookup. When the lookup classifier
 // names word forms, name forms or a date range (src/behavior/recall.ts
 // parseLookupAnswer), this module searches the server's own history through
@@ -38,8 +39,8 @@
 // With `features.meaningSearch` exactly true (and `deps.vectors` / `deps.embed`
 // given) a run also searches by meaning: one embedding request of the asker's
 // message (recall.js meaningQuery; purpose `recall-query`), then the vector
-// index (src/memory/vectors.js search: the guild's, on a private turn the
-// partner's private layer and the guild's) within the asked range, else every
+// index (src/memory/vectors.js search: the place's, on a private turn the
+// partner's private layer and the place's) within the asked range, else every
 // month, `recall.meaningCandidates` rows, the same audience rule applied to
 // each row and the visible chat's ids left out. Record rows join the record
 // windows and archive rows the stored-memory items, each fused with the word
@@ -62,10 +63,11 @@
 // without `quotes`) searches the server's history and asks the summary, as above.
 // Logs carry counts, ids and codes only: never a form, a name or a message.
 // What a run found and chose is diagnosed from the trace file instead
-// (`features.recallTrace`, data/guilds/<id>/recall-trace.jsonl, see traceLine):
+// (`features.recallTrace`, data/places/<id>/recall-trace.jsonl, see traceLine):
 // it is memory about real people, kept under data/ only.
 
 // health: allow file-length until 2027-04-01 -- one runner over the recall sources, grown by the one dependency that names the loop watch
+import { personOfMember } from '../memory/addresses.ts';
 import { log } from '../log.ts';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
@@ -266,12 +268,12 @@ function isoOf(ms: unknown) {
  * A fresh trace record of one run, filled as the
  * run goes (clusters, summary) and completed by traceLine.
  */
-function newTrace({ started, channelId, candidate, server }: NewTraceInput): RecallTrace {
+function newTrace({ started, placeId, candidate, server }: NewTraceInput): RecallTrace {
   const from = Number.isFinite(server?.from) ? server.from : null;
   const to = Number.isFinite(server?.to) ? server.to : null;
   return {
     at: isoOf(started),
-    channelId,
+    placeId,
     triggerId: typeof candidate?.id === 'string' ? candidate.id : null,
     forms: Array.isArray(server?.forms) ? [...server.forms] : [],
     who: Array.isArray(server?.who) ? [...server.who] : [],
@@ -308,14 +310,14 @@ function traceItem(item: Untyped) {
 
 /** A record window as the trace keeps it; `kept` false until it joins the windows the summary reads. */
 function traceRecordWindow(window: {
-  channelId?: string | null;
+  placeId?: string | null;
   messages?: Array<Record<string, Untyped>>;
   hitIds?: Iterable<string>;
   share?: string | null;
 }) {
   const messages = window?.messages ?? [];
   return {
-    channelId: window?.channelId ?? null,
+    placeId: window?.placeId ?? null,
     from: isoOf(messages[0]?.ts),
     to: isoOf(messages[messages.length - 1]?.ts),
     hitIds: [...(window?.hitIds ?? [])],
@@ -325,11 +327,11 @@ function traceRecordWindow(window: {
 }
 
 /**
- * The trace line of a finished run: `{ at, channelId, triggerId, forms, who,
+ * The trace line of a finished run: `{ at, placeId, triggerId, forms, who,
  * when, hits, inChatDropped, clusters, summary, lookupChars, skipped, people,
  * plan, memory, record }`. `summary` `{ answer, stretch, text, note }`:
  * `answer` `text` | `nothing` | `fallback` (null when no summary was asked
- * or reached), `stretch` null or `{ n, channelId, channelName, lines }` (the
+ * or reached), `stretch` null or `{ n, placeId, channelName, lines }` (the
  * `<found>` section number and the very lines the persona gets), `text` the
  * summary's text, `note` the analyzer's whole answer as written (null without
  * one). `lookupChars`: the characters the run hands to the turn (the text and
@@ -340,7 +342,7 @@ function traceRecordWindow(window: {
  * or `member-search`. `plan`: `{ kind, content, authorId, offset, sent,
  * total }` per message search planned (`total` null while unsent or when it
  * failed). `memory`: the stored-memory items matched, the archive's included
- * (traceItem). `record`: `{ channelId, from, to, hitIds, kept }` per record
+ * (traceItem). `record`: `{ placeId, from, to, hitIds, kept }` per record
  * window, `kept` whether it joined the windows the summary reads. `when`:
  * null without a range, else `{ from, to, role }`, `role` `scope` (a hard
  * bound) or `locator`. In a locator run each kept cluster, record window and
@@ -360,7 +362,7 @@ function traceLine(trace: RecallTrace, out: Untyped) {
   const stretch = out?.stretch ?? null;
   return {
     at: trace.at,
-    channelId: trace.channelId,
+    placeId: trace.placeId,
     triggerId: trace.triggerId,
     forms: trace.forms,
     who: trace.who,
@@ -373,7 +375,7 @@ function traceLine(trace: RecallTrace, out: Untyped) {
       stretch: stretch
         ? {
             n: trace.summary.stretch,
-            channelId: stretch.channelId,
+            placeId: stretch.placeId,
             channelName: stretch.channelName ?? null,
             lines: stretch.lines,
           }
@@ -433,13 +435,13 @@ export function createRecall({
     }
   }
 
-  async function findPeople({ guildId, who, maxPeople, selfId, signal, searchUntil, via = null }: FindPeopleInput) {
+  async function findPeople({ placeId, who, maxPeople, selfId, signal, searchUntil, via = null }: FindPeopleInput) {
     const found = new Map();
     if (maxPeople <= 0 || !Array.isArray(who) || who.length === 0) return [];
     let profiles = null;
     for (const form of who) {
       if (found.size >= maxPeople || signal.aborted) break;
-      profiles ??= store.listUserProfiles?.(guildId) ?? [];
+      profiles ??= store.listUserProfiles?.(placeId) ?? [];
       let matched = false;
       const folded = foldText(form);
       for (const profile of profiles) {
@@ -466,7 +468,7 @@ export function createRecall({
         continue;
       const searched = await untilAborted(
         signal,
-        reads.searchMembers({ communityId: guildId }, { prefix: form, limit: maxPeople })
+        reads.searchMembers({ communityId: placeId }, { prefix: form, limit: maxPeople })
       );
       for (const member of searched?.members ?? []) {
         if (member.bot && member.id !== selfId) continue;
@@ -495,10 +497,10 @@ export function createRecall({
    * a channel its `partnerId` can view (the pull rail's private-chat rule,
    * src/behavior/snapshot.ts#audienceAllows), as its hits are.
    */
-  function shownRecentLines(config: Untyped, snapshot: Untyped, guildId: string, channel: Untyped, partnerId: Untyped) {
+  function shownRecentLines(config: Untyped, snapshot: Untyped, placeId: string, channel: Untyped, partnerId: Untyped) {
     const settings = recentSettings(config);
     if (!settings || typeof store.getRecent !== 'function') return [];
-    const lines: Array<Untyped> = liveRecent(store.getRecent(guildId)?.lines, { now: now(), hours: settings.hours });
+    const lines: Array<Untyped> = liveRecent(store.getRecent(placeId)?.lines, { now: now(), hours: settings.hours });
     if (lines.length === 0) return [];
     const here = inCommunity(channel) ? railAudience(channel.audience) : null;
     const covers = (source: Untyped) =>
@@ -514,14 +516,14 @@ export function createRecall({
       if (!allowed.has(id)) allowed.set(id, covers(snapshot?.get(id) ?? null));
       return allowed.get(id);
     };
-    return lines.filter((line) => shown(line.channelId));
+    return lines.filter((line) => shown(line.placeId));
   }
 
   async function storedMemory({
     config,
     settings,
     snapshot,
-    guildId,
+    placeId,
     channel,
     partnerId,
     server,
@@ -538,7 +540,7 @@ export function createRecall({
     const who = Array.isArray(server.who) ? server.who : [];
     if (settings.memoryItems <= 0 || (forms.length === 0 && who.length === 0 && meaning.length === 0)) return none;
     try {
-      const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+      const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles() ?? []) : [];
       const names = new Map<string, string | null>(
         profiles
           .filter((p: Untyped) => p?.id)
@@ -552,11 +554,11 @@ export function createRecall({
       const bounds = locator ? { from: null, to: null } : { from: server.from ?? null, to: server.to ?? null };
       const switchedOff = new Set<string>();
       const allow = (entry: ArchiveEntry) => !switchedOff.has(entry?.itemKind) && allowEntry(entry);
-      // Entries are recorded after what they observed: the months from `from` on, the private archive after the guild's.
+      // Entries are recorded after what they observed: the months from `from` on, the private archive after the place's.
       const stream = (query: Untyped) =>
         (async function* (): AsyncGenerator<ArchiveEntry> {
-          yield* source.iterate(guildId, query);
-          if (privateUserId) yield* source.iterate(guildId, { ...query, privateUserId });
+          yield* source.iterate(placeId, query);
+          if (privateUserId) yield* source.iterate(placeId, { ...query, privateUserId });
         })();
       let archived: Array<Untyped> = [];
       if (typeof source?.iterate === 'function' && (ranged || settings.archiveMonths > 0)) {
@@ -607,9 +609,9 @@ export function createRecall({
         forms,
         who,
         profiles,
-        lore: typeof store.getLore === 'function' ? (store.getLore(guildId) ?? []) : [],
-        learned: typeof store.getGuild === 'function' ? (store.getGuild(guildId)?.learned ?? []) : [],
-        recentLines: shownRecentLines(config, snapshot, guildId, channel, partnerId),
+        lore: typeof store.getLore === 'function' ? (store.getLore(placeId) ?? []) : [],
+        learned: typeof store.getPlace === 'function' ? (store.getPlace(placeId)?.learned ?? []) : [],
+        recentLines: shownRecentLines(config, snapshot, placeId, channel, partnerId),
         archived,
         meaning: meant,
         from: bounds.from,
@@ -629,7 +631,7 @@ export function createRecall({
   async function recordWindowsFor({
     settings,
     snapshot,
-    guildId,
+    placeId,
     server,
     people,
     recent,
@@ -638,13 +640,13 @@ export function createRecall({
     ownIds,
     selfName,
     signal,
-    channelId,
+    placeId: conversationId,
     meaning = [],
     locator = null,
   }: RecordWindowsForInput) {
     if (typeof record?.iterate !== 'function' || (settings.recordDays <= 0 && meaning.length === 0)) return [];
     try {
-      const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+      const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles() ?? []) : [];
       const ids = new Set<string>(people.map((p: Untyped) => String(p.id)));
       const stored = new Map<string, Untyped>(
         profiles.filter((p: Untyped) => p?.id).map((p: Untyped): [string, Untyped] => [String(p.id), p])
@@ -663,7 +665,7 @@ export function createRecall({
           if (privateUserId) yield* record.iterate(id, { ...query, privateUserId });
         },
       };
-      const found = await matchRecord(guildId, {
+      const found = await matchRecord(placeId, {
         record: source,
         range: locator ? { from: null, to: null } : { from: server.from ?? null, to: server.to ?? null },
         locator,
@@ -683,7 +685,7 @@ export function createRecall({
           const profile = stored.get(String(id));
           return (
             (typeof profile?.names?.[0] === 'string' ? profile.names[0] : null) ??
-            memberName(guildId, String(id)) ??
+            memberName(placeId, String(id)) ??
             null
           );
         },
@@ -694,7 +696,7 @@ export function createRecall({
       });
       return found.windows;
     } catch (err) {
-      log.warn('recall: record failed', { channel: channelId, name: objOf(err).name ?? null });
+      log.warn('recall: record failed', { channel: conversationId, name: objOf(err).name ?? null });
       return [];
     }
   }
@@ -702,7 +704,7 @@ export function createRecall({
   async function meaningSearch({
     config,
     settings,
-    guildId,
+    placeId,
     channel,
     candidate,
     lines,
@@ -715,7 +717,7 @@ export function createRecall({
   }: MeaningSearchInput) {
     if (typeof embed !== 'function' || typeof vectors?.search !== 'function' || settings.meaningCandidates <= 0)
       return null;
-    const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+    const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles() ?? []) : [];
     const stored = new Map<string, string | null>(
       profiles
         .filter((p: Untyped) => p?.id)
@@ -724,7 +726,7 @@ export function createRecall({
           typeof p.names?.[0] === 'string' ? p.names[0] : null,
         ])
     );
-    const nameOf = (id: Untyped) => stored.get(String(id)) ?? memberName(guildId, String(id)) ?? null;
+    const nameOf = (id: Untyped) => stored.get(String(id)) ?? memberName(placeId, String(id)) ?? null;
     const query = meaningQuery({ candidate, lines, nameOf });
     if (!query) return null;
     const started = now();
@@ -766,12 +768,12 @@ export function createRecall({
     const unseen = (meta: Untyped) => meta?.kind === 'archive' || !ownIds.has(meta?.id);
     const shared = (meta: Untyped) =>
       unseen(meta) &&
-      (meta?.kind === 'archive' || (typeof meta?.channelId === 'string' && sourceOf(meta.channelId) !== null));
+      (meta?.kind === 'archive' || (typeof meta?.placeId === 'string' && sourceOf(meta.placeId) !== null));
     let rows;
     try {
-      rows = await vectors.search(guildId, vector, { ...range, k, filter: shared });
+      rows = await vectors.search(placeId, vector, { ...range, k, filter: shared });
       if (privateUserId)
-        rows = [...rows, ...(await vectors.search(guildId, vector, { ...range, k, filter: unseen, privateUserId }))];
+        rows = [...rows, ...(await vectors.search(placeId, vector, { ...range, k, filter: unseen, privateUserId }))];
     } catch (err) {
       return failed('search', err);
     }
@@ -784,7 +786,7 @@ export function createRecall({
       else
         out.record.push({
           id: meta.id,
-          channelId: meta.channelId,
+          placeId: meta.placeId,
           occurredAt: meta.occurredAt,
           sourceIds: Array.isArray(meta.sourceIds) ? meta.sourceIds : [],
         });
@@ -793,17 +795,17 @@ export function createRecall({
   }
 
   /**
-   * The run's trace line appended to data/guilds/<guildId>/recall-trace.jsonl
+   * The run's trace line appended to data/places/<placeId>/recall-trace.jsonl
    * (store.appendRecallTrace, capped at `maxLines`); nothing without that
    * store call. A write that throws logs `recall: trace failed` and costs the
    * run nothing.
    */
-  function writeTrace({ guildId, channelId, trace, out, maxLines }: WriteTraceInput) {
-    if (typeof store.appendRecallTrace !== 'function' || !guildId) return;
+  function writeTrace({ placeId, conversationId, trace, out, maxLines }: WriteTraceInput) {
+    if (typeof store.appendRecallTrace !== 'function' || !placeId) return;
     try {
-      store.appendRecallTrace(guildId, traceLine(trace, out), { maxLines });
+      store.appendRecallTrace(placeId, traceLine(trace, out), { maxLines });
     } catch (err) {
-      log.warn('recall: trace failed', { channel: channelId, name: objOf(err).name ?? null });
+      log.warn('recall: trace failed', { channel: conversationId, name: objOf(err).name ?? null });
     }
   }
 
@@ -827,8 +829,8 @@ export function createRecall({
   }
 
   /** The cached captions of the windows' pictures and custom emoji, or undefined (cache only, never a request). */
-  function cachedCaptions(config: Untyped, guildId: string | null, windows: Untyped) {
-    if (!guildId || typeof describer?.cachedDescriptions !== 'function') return undefined;
+  function cachedCaptions(config: Untyped, placeId: string | null, windows: Untyped) {
+    if (!placeId || typeof describer?.cachedDescriptions !== 'function') return undefined;
     const { items, rest, emoji } = pullPictures(
       windows.flatMap((w: Untyped) => w.messages),
       0
@@ -836,7 +838,7 @@ export function createRecall({
     const wanted = [...items, ...rest, ...emoji];
     if (wanted.length === 0) return undefined;
     try {
-      return describer.cachedDescriptions(guildId, wanted) ?? undefined;
+      return describer.cachedDescriptions(placeId, wanted) ?? undefined;
     } catch {
       return undefined;
     }
@@ -844,7 +846,7 @@ export function createRecall({
 
   /**
    * What a run may read toward `channel` (the turn's; a private chat on behalf of `partnerId`):
-   * `sourceOf(channelId)`, the pull rail's verdict judged once per channel (`judged`): the
+   * `sourceOf(placeId)`, the pull rail's verdict judged once per channel (`judged`): the
    * channel when its lines may reach this turn, else null -- search hits, record lines, archived
    * items and meaning rows of a refused channel never reach the turn; `privateUserId`, the partner
    * of a private chat (else null): a private entry or line is its member's alone, read only on a
@@ -857,7 +859,7 @@ export function createRecall({
       if (!judged.has(id)) {
         let source = null;
         try {
-          const verdict = checkPull({ snapshot, channelId: id, destination: channel, partnerId, config, now: now() });
+          const verdict = checkPull({ snapshot, placeId: id, destination: channel, partnerId, config, now: now() });
           source = verdict.skip === null ? verdict.channel : null;
         } catch {
           source = null;
@@ -879,18 +881,18 @@ export function createRecall({
     return { judged, sourceOf, privateUserId, allowEntry, allowLine };
   }
 
-  function profilesFor(guildId: string | null): Array<Untyped> {
-    if (!guildId || typeof store.listUserProfiles !== 'function') return [];
-    return store.listUserProfiles(guildId) ?? [];
+  function profilesFor(placeId: string | null): Array<Untyped> {
+    if (!placeId || typeof store.listUserProfiles !== 'function') return [];
+    return store.listUserProfiles() ?? [];
   }
 
-  function namesFor(guildId: string | null, profiles: Array<Untyped>) {
+  function namesFor(placeId: string | null, profiles: Array<Untyped>) {
     const stored = new Map<string, Untyped>(
       profiles.filter((profile) => profile?.id).map((profile) => [String(profile.id), profile])
     );
     return (id: Untyped) => {
       const name = stored.get(String(id))?.names?.[0];
-      return (typeof name === 'string' && name ? name : null) ?? (guildId ? memberName(guildId, String(id)) : null);
+      return (typeof name === 'string' && name ? name : null) ?? (placeId ? memberName(placeId, String(id)) : null);
     };
   }
 
@@ -898,14 +900,14 @@ export function createRecall({
     db = null,
     config,
     snapshot,
-    guildId,
+    placeId,
     channel,
     partnerId,
     asker = null,
     memoryContext = null,
   }: DbReaderInput) {
     const { privateUserId } = scopeOf({ config, snapshot, channel, partnerId });
-    const nameOf = namesFor(guildId, profilesFor(guildId));
+    const nameOf = namesFor(placeId, profilesFor(placeId));
     const ctx = readContext({ config, channel, privateUserId, asker, memoryContext });
     const placeExists = db?.prepare('SELECT id FROM places WHERE id = ?');
     const knownPlaces = new Map<string, boolean>();
@@ -925,7 +927,11 @@ export function createRecall({
    * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read; an issued internal context spans every audience.
    */
   function readContext({ channel, privateUserId, asker, memoryContext = null }: ReadContextInput) {
-    const spec = readContextSpec(currentIface(), iface, channel?.id, privateUserId);
+    const named = readContextSpec(currentIface(), iface, channel?.id, privateUserId);
+    const spec =
+      named.kind === 'dm' && privateUserId
+        ? { ...named, person: personOfMember(store, String(privateUserId), named.iface) }
+        : named;
     const fits =
       memoryContext &&
       typeof memoryContext === 'object' &&
@@ -945,11 +951,11 @@ export function createRecall({
   }
 
   /** The stretches of db windows as `recall.run` returns them (decorated, captioned from the cache only, cut to `recall.stretchChars`). */
-  function dbQuotes({ config, settings, guildId, selfName, windows, decorate }: DbQuotesInput) {
+  function dbQuotes({ config, settings, placeId, selfName, windows, decorate }: DbQuotesInput) {
     const shown = windows.map((window: Untyped) =>
       typeof decorate === 'function' ? { ...window, messages: decorate(window.messages) } : window
     );
-    const descriptions = cachedCaptions(config, guildId, shown);
+    const descriptions = cachedCaptions(config, placeId, shown);
     for (const window of shown) window.descriptions = descriptions;
     const render = {
       labels: hot.prompts.labels,
@@ -970,7 +976,7 @@ export function createRecall({
     config,
     settings,
     snapshot,
-    guildId,
+    placeId,
     channel,
     partnerId,
     selfName,
@@ -987,7 +993,7 @@ export function createRecall({
       db,
       config,
       snapshot,
-      guildId,
+      placeId,
       channel,
       partnerId,
       asker: candidate?.authorId ?? null,
@@ -1032,7 +1038,7 @@ export function createRecall({
     stats.hits = found.hits.length;
     stats.meaning = found.stats.meaning;
     stats.windows = found.windows.length;
-    const quotes = dbQuotes({ config, settings, guildId, selfName, windows: found.windows, decorate });
+    const quotes = dbQuotes({ config, settings, placeId, selfName, windows: found.windows, decorate });
     stats.kept = quotes.length;
     stats.summary = 'quotes';
     log.info('recall: quoted', {
@@ -1064,7 +1070,7 @@ export function createRecall({
    * whoever asked and `memoryContext` the turn's execution context, as for `run`.
    */
   async function window({
-    guildId = null,
+    placeId = null,
     snapshot = null,
     channel,
     partnerId = null,
@@ -1094,9 +1100,8 @@ export function createRecall({
       const settings = recallSettings(config);
       const db = recallDatabase(memoryDb);
       if (!settings || !db) return out({ outcome: { kind: 'not-configured' } });
-      if (!hasRecallContext({ guildId, channel, partnerId, memoryContext }))
-        return out({ outcome: { kind: 'not-configured' } });
-      const reader = dbReader({ db, config, snapshot, guildId, channel, partnerId, asker, memoryContext });
+      if (!hasRecallContext({ channel, partnerId, memoryContext })) return out({ outcome: { kind: 'not-configured' } });
+      const reader = dbReader({ db, config, snapshot, placeId, channel, partnerId, asker, memoryContext });
       const exclusions = historyExclusions({ history, historyRef, context: reader.ctx, channel });
       const found = dbWindow(db, {
         ctx: reader.ctx,
@@ -1113,7 +1118,7 @@ export function createRecall({
         allowPlace: reader.allowPlace,
       });
       if (found.unknown) return out({ outcome: { kind: 'unknown-anchor' } });
-      const quotes = dbQuotes({ config, settings, guildId, selfName, windows: found.windows, decorate });
+      const quotes = dbQuotes({ config, settings, placeId, selfName, windows: found.windows, decorate });
       log.info('recall: window', {
         channel: channel.id,
         move: move === 'down' ? 'down' : 'up',
@@ -1150,7 +1155,7 @@ export function createRecall({
     settings,
     prompt,
     snapshot,
-    guildId,
+    placeId,
     channel,
     partnerId,
     selfId,
@@ -1169,7 +1174,7 @@ export function createRecall({
     decorate = null,
     memoryContext = null,
   }: RecallWithInput) {
-    const channelId = channel.id;
+    const conversationId = channel.id;
     const searchUntil = started + settings.timeoutMs * SEARCH_SHARE;
     const result = (extra = {}) => ({
       text: null,
@@ -1195,7 +1200,7 @@ export function createRecall({
     const meaning = await meaningSearch({
       config,
       settings,
-      guildId,
+      placeId,
       channel,
       candidate,
       lines: chatLines,
@@ -1221,7 +1226,7 @@ export function createRecall({
       config,
       settings,
       snapshot,
-      guildId,
+      placeId,
       channel,
       partnerId,
       server,
@@ -1242,7 +1247,7 @@ export function createRecall({
     const via = new Map();
     stepAt = now();
     const people = await findPeople({
-      guildId,
+      placeId,
       who: server.who ?? [],
       maxPeople: settings.maxPeople,
       selfId,
@@ -1276,7 +1281,7 @@ export function createRecall({
     const recordWindows = await recordWindowsFor({
       settings,
       snapshot,
-      guildId,
+      placeId,
       server,
       people,
       recent,
@@ -1285,7 +1290,7 @@ export function createRecall({
       ownIds,
       selfName,
       signal,
-      channelId,
+      conversationId,
       meaning: meaning?.record ?? [],
       locator,
     });
@@ -1294,7 +1299,7 @@ export function createRecall({
     const recordTrace = new Map(recordWindows.map((window) => [window, traceRecordWindow(window)]));
     if (trace) trace.record = [...recordTrace.values()];
     if (plan.length === 0 && memory.items.length === 0 && recordWindows.length === 0) {
-      log.info('recall: skipped', { channel: channelId, reason: 'no-query' });
+      log.info('recall: skipped', { channel: conversationId, reason: 'no-query' });
       if (trace) trace.skipped = 'no-query';
       return result({ people: peopleOut() });
     }
@@ -1331,7 +1336,7 @@ export function createRecall({
       const query = queue.shift();
       const page = await untilAborted(
         searchSignal,
-        reads.searchMessages({ communityId: guildId }, searchQueryOf(query))
+        reads.searchMessages({ communityId: placeId }, searchQueryOf(query))
       );
       stats.queries += 1;
       const traced = planned.get(query);
@@ -1371,7 +1376,7 @@ export function createRecall({
     const unseen = dropChatHits([...hits.values()], ownIds);
     stats.inChatDropped = unseen.dropped;
     const kept = unseen.hits.filter(
-      (hit) => Number.isFinite(hit.ts) && !(hit.bot && hit.authorId !== selfId) && sourceOf(hit.channelId) !== null
+      (hit) => Number.isFinite(hit.ts) && !(hit.bot && hit.authorId !== selfId) && sourceOf(hit.placeId) !== null
     );
     stats.kept = kept.length;
     for (const person of people) {
@@ -1404,7 +1409,7 @@ export function createRecall({
     };
     const fetched = await Promise.all(
       candidates.map(async (cluster) => {
-        const source = judged.get(cluster.channelId);
+        const source = judged.get(cluster.placeId);
         const around = await linesOf(reads, source, { around: cluster.middleId, limit: settings.windowMessages });
         if (!around) return null;
         const messages = [...around, ...(await followOf(source, around))];
@@ -1417,7 +1422,7 @@ export function createRecall({
         return {
           cluster: marked,
           window: {
-            channelId: cluster.channelId,
+            placeId: cluster.placeId,
             channelName: source.name ?? null,
             messages: shown,
             hitIds: cluster.ids,
@@ -1441,7 +1446,7 @@ export function createRecall({
       trace.clusters = candidates.map((cluster) => {
         const marked = markedOf.get(cluster.middleId) ?? null;
         return {
-          channelId: cluster.channelId,
+          placeId: cluster.placeId,
           from: isoOf(cluster.startTs),
           to: isoOf(cluster.endTs),
           score: clusterScore(marked ?? cluster, settings.selfBonus),
@@ -1472,10 +1477,10 @@ export function createRecall({
         windows[i] = { ...window, messages: decorate(window.messages) };
       });
     }
-    const descriptions = cachedCaptions(config, guildId, windows);
+    const descriptions = cachedCaptions(config, placeId, windows);
     for (const window of windows) window.descriptions = descriptions;
     log.info('recall: searched', {
-      channel: channelId,
+      channel: conversationId,
       memory: stats.memory,
       archived: stats.archived,
       record: stats.record,
@@ -1523,7 +1528,7 @@ export function createRecall({
         };
       });
       return {
-        channelId: window.channelId,
+        placeId: window.placeId,
         channelName: window.channelName,
         startTs: lines[0].ts,
         lines: lines.map((line) => line.text).join('\n'),
@@ -1552,7 +1557,7 @@ export function createRecall({
           })
         : null;
     if (!messages) {
-      log.info('recall: skipped', { channel: channelId, reason: 'no-hits' });
+      log.info('recall: skipped', { channel: conversationId, reason: 'no-hits' });
       if (trace) trace.skipped = 'no-hits';
       return result({ people: peopleOut() });
     }
@@ -1571,7 +1576,7 @@ export function createRecall({
           note: null,
         };
       log.info('recall: summary', {
-        channel: channelId,
+        channel: conversationId,
         ms: asked === null ? 0 : now() - asked,
         totalMs: now() - started,
         answer: 'fallback',
@@ -1599,7 +1604,7 @@ export function createRecall({
     } catch (err) {
       if (signal.aborted) return null;
       log.warn('recall: failed', {
-        channel: channelId,
+        channel: conversationId,
         reason: railReason(err),
         status: objOf(err).statusCode ?? null,
         name: objOf(err).name ?? null,
@@ -1618,7 +1623,7 @@ export function createRecall({
         note: typeof completion?.text === 'string' ? completion.text : null,
       };
     log.info('recall: summary', {
-      channel: channelId,
+      channel: conversationId,
       ms: now() - asked,
       totalMs: now() - started,
       answer: answer.text ? 'text' : 'nothing',
@@ -1628,7 +1633,7 @@ export function createRecall({
   }
 
   async function run({
-    guildId = null,
+    placeId = null,
     snapshot = null,
     channel,
     partnerId = null,
@@ -1646,7 +1651,7 @@ export function createRecall({
     memoryContext = null,
   }: RunInput) {
     const started = now();
-    const channelId = channel?.id ?? null;
+    const conversationId = channel?.id ?? null;
     const stats = emptyStats();
     const empty = (extra = {}) => ({
       text: null,
@@ -1658,7 +1663,7 @@ export function createRecall({
     let trace: Untyped = null;
     let traceMaxLines: Untyped = null;
     const skip = (reason: string) => {
-      log.info('recall: skipped', { channel: channelId, reason });
+      log.info('recall: skipped', { channel: conversationId, reason });
       if (trace) trace.skipped = reason;
       // The daily limits are named to the persona's own search (`outcome`); other gates are no news to her.
       return finish(empty(reason === 'daily-cap' || reason === 'daily' ? { outcome: { kind: 'daily-cap' } } : {}));
@@ -1667,7 +1672,7 @@ export function createRecall({
     let timer = null;
     let cut = null;
     const finish = (out: Untyped) => {
-      if (trace) writeTrace({ guildId, channelId, trace, out, maxLines: traceMaxLines });
+      if (trace) writeTrace({ placeId, conversationId, trace, out, maxLines: traceMaxLines });
       return out;
     };
     // The journal's closing line of a run that started (`op`): what it found, never the text.
@@ -1683,9 +1688,9 @@ export function createRecall({
       const settings = recallSettings(config);
       if (!settings) return empty();
       // Every run past the switch is traced, one skipped by a gate below included (its reason in `skipped`).
-      trace = newTrace({ started, channelId, candidate, server });
+      trace = newTrace({ started, placeId: conversationId, candidate, server });
       traceMaxLines = settings.traceMaxLines;
-      if (!hasRecallContext({ guildId, channel, partnerId, memoryContext })) return skip('private-chat');
+      if (!hasRecallContext({ channel, partnerId, memoryContext })) return skip('private-chat');
       if (!asksServer(server)) return skip('no-query');
       const prompt = summaryPrompt(hot.prompts);
       if (!prompt && !quotes) return skip('no-prompt');
@@ -1704,7 +1709,7 @@ export function createRecall({
           config,
           settings,
           snapshot,
-          guildId,
+          placeId,
           channel,
           partnerId,
           selfName,
@@ -1721,7 +1726,7 @@ export function createRecall({
         return finish(found);
       }
 
-      if (!guildId) return skip('private-chat');
+      if (!placeId) return skip('private-chat');
 
       controller = new AbortController();
       const searching = new AbortController();
@@ -1739,7 +1744,7 @@ export function createRecall({
         // The guard above returns when there is neither a prompt nor a persona's own search (`quotes`).
         prompt: prompt as string,
         snapshot,
-        guildId,
+        placeId,
         channel,
         partnerId,
         selfId,
@@ -1762,7 +1767,7 @@ export function createRecall({
       const outcome = await Promise.race([work, deadline]);
       if (outcome === TIMEOUT) {
         controller.abort();
-        log.warn('recall: failed', { channel: channelId, reason: 'timeout', status: null, name: null });
+        log.warn('recall: failed', { channel: conversationId, reason: 'timeout', status: null, name: null });
         const fallen = progress.fallback ? progress.fallback('timeout') : null;
         if (op) await (fallen ? op.succeeded(opResult(fallen, 'timeout')) : op.failed(CODE.TIMEOUT));
         return finish(fallen ?? empty({ outcome: { kind: 'timeout' } }));
@@ -1772,7 +1777,12 @@ export function createRecall({
       return finish(out);
     } catch (err) {
       controller?.abort();
-      log.warn('recall: failed', { channel: channelId, reason: 'error', status: null, name: objOf(err).name ?? null });
+      log.warn('recall: failed', {
+        channel: conversationId,
+        reason: 'error',
+        status: null,
+        name: objOf(err).name ?? null,
+      });
       if (op) await op.failed(CODE.ERROR);
       return finish(empty({ outcome: { kind: 'error' } }));
     } finally {
@@ -1808,7 +1818,7 @@ export function createRecall({
   }
 
   async function prefetch({
-    guildId = null,
+    placeId = null,
     snapshot = null,
     channel,
     partnerId = null,
@@ -1825,12 +1835,12 @@ export function createRecall({
     const started = now();
     const list = Array.isArray(lanes) ? lanes.filter((lane) => lane && typeof lane.kind === 'string') : [];
     const basis = list.map((lane) => lane.kind);
-    const channelId = channel?.id ?? null;
+    const conversationId = channel?.id ?? null;
     let timer = null;
     const finish = (status: Untyped, extra: Record<string, unknown> = {}) => {
       const out: PrefetchOutcome = { status, basis, excerpts: [], ms: now() - started, ...extra };
       log.info('recall: prefetched', {
-        channel: channelId,
+        channel: conversationId,
         status,
         lanes: basis.length,
         excerpts: out.excerpts.length,
@@ -1847,7 +1857,7 @@ export function createRecall({
       const config = hot.config;
       const settings = recallSettings(config);
       if (!settings || list.length === 0) return null;
-      if (!hasRecallContext({ guildId, channel, partnerId, memoryContext }))
+      if (!hasRecallContext({ channel, partnerId, memoryContext }))
         return finish('unavailable', { reason: 'private-chat' });
       const p = settings.prefetch;
       const until = isFiniteNumber(at) ? at : now();
@@ -1856,8 +1866,8 @@ export function createRecall({
       const signal = controller.signal;
       const scope = scopeOf({ config, snapshot, channel, partnerId });
       const { sourceOf, privateUserId, allowEntry, allowLine } = scope;
-      const profiles = profilesFor(guildId);
-      const nameOf = namesFor(guildId, profiles);
+      const profiles = profilesFor(placeId);
+      const nameOf = namesFor(placeId, profiles);
       const channelNameOf = (id: Untyped) => snapshot?.get(id)?.name ?? null;
       // A replay's moment bounds the archive too: an entry recorded after it did not exist yet.
       const archiveShared = sharedSource(
@@ -1898,7 +1908,11 @@ export function createRecall({
           (err: Untyped) => {
             stats.failed += 1;
             if (!signal.aborted)
-              log.warn('recall: prefetch failed', { channel: channelId, stage: name, name: objOf(err).name ?? null });
+              log.warn('recall: prefetch failed', {
+                channel: conversationId,
+                stage: name,
+                name: objOf(err).name ?? null,
+              });
           }
         );
       };
@@ -1930,7 +1944,7 @@ export function createRecall({
         tasks.push(
           task('memory', async () => {
             const used = plan;
-            if (!used || !guildId) return null;
+            if (!used || !placeId) return null;
             const forms = [...used.phrases, ...used.forms];
             if (forms.length === 0 && used.who.length === 0) return null;
             const memory = await timed(
@@ -1939,7 +1953,7 @@ export function createRecall({
                 config,
                 settings,
                 snapshot,
-                guildId,
+                placeId,
                 channel,
                 partnerId,
                 server: { forms, who: used.who, from: null, to: bounded ? until : null },
@@ -1961,7 +1975,7 @@ export function createRecall({
         // One search of the database per lane: words, letters, meaning and people fused, the stretches built around the
         // hits. A word hit is relevant by lexicalKeep (its terms and phrases, its cosine when the meaning search found
         // it); a meaning hit by the same floors the vector files use, with a term of the lane or a strong cosine.
-        const reader = dbReader({ db, config, snapshot, guildId, channel, partnerId, asker, memoryContext });
+        const reader = dbReader({ db, config, snapshot, placeId, channel, partnerId, asker, memoryContext });
         const exclusions = historyExclusions({ history, historyRef, context: reader.ctx, channel });
         list.forEach((lane, i) => {
           const plan = plans[i];
@@ -2063,7 +2077,7 @@ export function createRecall({
         );
         const focused = { ...unit.window, hitIds: new Set(focus) };
         const window = typeof decorate === 'function' ? { ...focused, messages: decorate(focused.messages) } : focused;
-        window.descriptions = cachedCaptions(config, guildId, [window]);
+        window.descriptions = cachedCaptions(config, placeId, [window]);
         const [shown] = renderRecallWindows([window], render);
         const lines = cutStretch(shown?.lines ?? [], p.excerptChars);
         if (lines.length === 0) continue;
@@ -2071,7 +2085,7 @@ export function createRecall({
         const ids = lines.map((line) => line.id);
         rendered.push({
           source: 'history',
-          channelId: window.channelId,
+          placeId: window.placeId,
           channelName: window.channelName ?? null,
           startTs: lines[0].ts,
           endTs: lines[lines.length - 1].ts,
@@ -2093,7 +2107,7 @@ export function createRecall({
       if (stats.failed >= stats.searches) return finish('unavailable', { ...extra, reason: 'failed' });
       return finish('none', extra);
     } catch (err) {
-      log.warn('recall: prefetch failed', { channel: channelId, stage: 'run', name: objOf(err).name ?? null });
+      log.warn('recall: prefetch failed', { channel: conversationId, stage: 'run', name: objOf(err).name ?? null });
       return finish('unavailable', { reason: 'error' });
     } finally {
       if (timer !== null) timers.clear(timer);

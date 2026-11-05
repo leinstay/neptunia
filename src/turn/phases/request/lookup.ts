@@ -28,7 +28,7 @@ function readsOf(value: unknown): Map<string, unknown> {
 
 export function startLookup(ctx: PhaseContext, opened: Opened, setup: Setup, planned: Planned, staged: Staged): Looked {
   const { lookup } = ctx;
-  const { channel, guildId, prepStep } = opened;
+  const { channel, placeId, prepStep } = opened;
   const { config, asked, answersTask, rawHistory } = setup;
   const { webLookupOn, webSearchOn, serverOn } = planned;
   const { track } = staged;
@@ -38,7 +38,7 @@ export function startLookup(ctx: PhaseContext, opened: Opened, setup: Setup, pla
   const cachedLinkReads = () => {
     if (!linksStage || typeof lookup?.cachedReads !== 'function') return undefined;
     try {
-      return lookup.cachedReads(guildId, readableLinkCandidates(rawHistory, config.media?.video?.sites));
+      return lookup.cachedReads(placeId, readableLinkCandidates(rawHistory, config.media?.video?.sites));
     } catch (err) {
       log.warn('lookup: links failed', { channel: channel.id, error: err });
       return undefined;
@@ -54,7 +54,7 @@ export function startLookup(ctx: PhaseContext, opened: Opened, setup: Setup, pla
           candidates.length > 0 ? prepStep('links', 'read-link', { input: { hosts: linkHosts(candidates) } }) : null;
         const read = await journalled(
           readOp,
-          () => readLinks(guildId, candidates, { maxNew: LINKS_PER_TURN }),
+          () => readLinks(placeId, candidates, { maxNew: LINKS_PER_TURN }),
           (value) => {
             const reads = readsOf(value);
             const chars = [...reads.values()].reduce<number>(

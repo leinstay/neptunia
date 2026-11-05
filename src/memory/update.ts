@@ -1,10 +1,11 @@
-// The code-only memory of the live message path: every guild message the persona sees moves the counters of its
+// The code-only memory of the live message path: every place message the persona sees moves the counters of its
 // author's profile and of its channel's map entry (`touchMemory`), feeds the GIF library, the custom emoji ranking
 // and the names members are called by (`recordAddressing`). No model is asked here: what she remembers of a
 // conversation is written by her memory session over the memory database (src/memory/db/session.ts), which reads
 // the observed lines from the database. `slimMessage` is the one shape a normalized message is kept in by the
 // record (src/memory/record.ts#toRecordLine) and by the late-embed fold of src/behavior/pipeline.js.
 
+import { accountOf, placeOfConversation } from './addresses.ts';
 import { log } from '../log.ts';
 import { DEFAULT_ADDRESS_HALF_LIFE_DAYS, addressCandidates, countAddressUses } from './addressed.ts';
 import { emojiUsageOpts } from './emoji-usage.ts';
@@ -25,17 +26,9 @@ export function errorNameOf(err: unknown): string {
 }
 
 /**
- * Normalized set of `config.memory.mainChannelIds`, compared as strings. Garbage config (not an array, non-string
- * entries) never throws: a non-array collapses to an empty set, every entry is coerced with String().
- */
-export function mainChannelSet(mainChannelIds: unknown): Set<string> {
-  return new Set((Array.isArray(mainChannelIds) ? mainChannelIds : []).map((id) => String(id)));
-}
-
-/**
- * Count which names observed guild lines call members by (src/memory/addressed.ts) and fold
+ * Count which names observed place lines call members by (src/memory/addressed.ts) and fold
  * the uses into each member's `addressedAs` (`store.recordAddressUses`, `cfg.addressHalfLifeDays`,
- * 30 when missing). The candidates are every stored profile of the guild; other bots' lines are
+ * 30 when missing). The candidates are every stored profile of the place; other bots' lines are
  * skipped, the persona's own count. A store without `listUserProfiles` / `recordAddressUses` (a
  * test fake) counts nothing.
  * @param messages  The observed slim messages.
@@ -44,18 +37,18 @@ export function mainChannelSet(mainChannelIds: unknown): Set<string> {
  */
 export function recordAddressing(
   store: StoreView,
-  guildId: string,
+  placeId: string,
   messages: Array<StoredRecord>,
   cfg: StoredRecord = {}
 ): number {
   if (typeof store?.listUserProfiles !== 'function' || typeof store?.recordAddressUses !== 'function') return 0;
   const lines = (Array.isArray(messages) ? messages : []).filter((m) => m && !m.bot);
   if (lines.length === 0) return 0;
-  const uses = countAddressUses(lines, addressCandidates(store.listUserProfiles(guildId)));
+  const uses = countAddressUses(lines, addressCandidates(store.listUserProfiles()));
   let recorded = 0;
   for (const [userId, list] of uses) {
     if (
-      store.recordAddressUses(guildId, userId, list, {
+      store.recordAddressUses(accountOf(store, userId), list, {
         halfLifeDays: cfg?.addressHalfLifeDays ?? DEFAULT_ADDRESS_HALF_LIFE_DAYS,
       })
     )
@@ -79,23 +72,22 @@ export function recordAddressing(
  */
 export function touchMemory(
   store: StoreView,
-  guildId: string,
+  placeId: string,
   normalized: NormalizedMessage,
   memoryCfg?: StoredRecord
 ): void {
   if (!normalized.self) {
-    store.touchUser(guildId, normalized.authorId, normalized.authorName, normalized.ts);
+    store.touchUser(accountOf(store, normalized.authorId), normalized.authorName, normalized.ts);
   }
   // The persona's own messages and other bots never count toward a channel's
   // top writers -- see src/memory/store.ts#touchChannel.
   // The one exception is a place of her diary (`memoryCfg.diaryChannelIds`): the persona is its writer, so the map
   // does not show it as dead.
   const diaryIds: Set<string> | undefined = memoryCfg?.diaryChannelIds;
-  const inDiary = diaryIds?.has(String(normalized.channelId)) === true;
+  const inDiary = diaryIds?.has(String(normalized.placeId)) === true;
   const writerId = !normalized.bot && (!normalized.self || inDiary) ? normalized.authorId : null;
   store.touchChannel(
-    guildId,
-    normalized.channelId,
+    placeOfConversation(store, { id: normalized.placeId }),
     { name: normalized.channelName, category: normalized.channelCategory, topic: normalized.channelTopic },
     normalized.ts,
     writerId,
@@ -120,7 +112,7 @@ type MediaPart = {
 /** A normalized message (src/protocol/events.ts#Message) as the observer reads it. */
 export type NormalizedMessage = MediaPart & {
   id: string;
-  channelId: string;
+  placeId: string;
   channelName?: string;
   channelCategory?: string | null;
   channelTopic?: string | null;
@@ -179,7 +171,7 @@ export function slimMessage(normalized: Partial<NormalizedMessage>, direct: bool
   }));
   return {
     id: normalized.id,
-    channelId: normalized.channelId,
+    placeId: normalized.placeId,
     channelName: normalized.channelName,
     authorId: normalized.authorId,
     authorName: normalized.authorName,
@@ -210,7 +202,7 @@ function buildMemoryUpdater({ hot, store }: { hot: Pick<Hot, 'config'>; store: S
    * left out with a warning.
    */
   function observe(
-    guildId: string,
+    placeId: string,
     normalized: NormalizedMessage,
     { direct = false, private: privateUserId = null } = {}
   ) {
@@ -218,24 +210,24 @@ function buildMemoryUpdater({ hot, store }: { hot: Pick<Hot, 'config'>; store: S
     if (store.state.data.paused) return;
     if (normalized.bot) return;
     if (privateUserId) return;
-    touchMemory(store, guildId, normalized, {
+    touchMemory(store, placeId, normalized, {
       ...hot.config.memory,
       ...MEMORY_LIMITS,
       diaryChannelIds: diaryConversationIds(store),
     });
     // The GIF library (src/memory/gifs.ts) is fed here: it needs the GIF's URL, which no slim message keeps.
-    const gifs = store.recordGifs(guildId, [normalized], gifOpts());
-    if (gifs > 0) log.info('memory: gifs recorded', { guildId, gifs });
+    const gifs = store.recordGifs(placeId, [normalized], gifOpts());
+    if (gifs > 0) log.info('memory: gifs recorded', { placeId, gifs });
     const slim = slimMessage(normalized, direct);
     try {
-      store.recordEmojiUsage(guildId, [slim], emojiUsageOpts());
+      store.recordEmojiUsage(placeId, [slim], emojiUsageOpts());
     } catch (err) {
-      log.warn('memory: emoji count left out', { guildId, reason: 'store-error', error: errorNameOf(err) });
+      log.warn('memory: emoji count left out', { placeId, reason: 'store-error', error: errorNameOf(err) });
     }
     try {
-      recordAddressing(store, guildId, [slim], MEMORY_LIMITS);
+      recordAddressing(store, placeId, [slim], MEMORY_LIMITS);
     } catch (err) {
-      log.warn('memory: address count left out', { guildId, reason: 'store-error', error: errorNameOf(err) });
+      log.warn('memory: address count left out', { placeId, reason: 'store-error', error: errorNameOf(err) });
     }
   }
 
@@ -245,7 +237,7 @@ function buildMemoryUpdater({ hot, store }: { hot: Pick<Hot, 'config'>; store: S
 export type MemoryUpdater = ReturnType<typeof buildMemoryUpdater>;
 
 /**
- * The live observer (src/behavior/pipeline.js calls `observe` for every guild message the persona sees, her own
+ * The live observer (src/behavior/pipeline.js calls `observe` for every place message the persona sees, her own
  * included). A private chat's line (`private`: the partner's id) moves no public counter, feeds no GIF library and
  * counts no names. Nothing while `/nep pause` holds.
  */

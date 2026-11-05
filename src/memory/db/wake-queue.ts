@@ -12,9 +12,8 @@
 //
 // Times are epoch milliseconds. The functions run synchronously over an open handle: the service's writer applies the
 // writes (`applyWakeQueueWrite`, reached through session-write.ts#applyMemoryWrite), and the reads take the read
-// connection (`{ db }`). The inner life (src/behavior/inner/wake-store.ts) is the one caller of the writes;
-// `importWakeQueues` is the v18 data step that moves each guild's `inner.json` queue into the table (open.ts runs it
-// again at every open that knows the data directory, for a file an earlier opener could not reach).
+// connection (`{ db }`). The inner life (src/behavior/inner/wake-store.ts) is the one caller of the writes. The wakes
+// belong to the one persona: nothing here names a place, and a wake's own payload says where it goes.
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -31,7 +30,7 @@ export const ALIVE_LEASE = 'core:alive';
 /** What the turn that holds a running wake was about, for the journal check of a turn a restart cut off. */
 export type TurnMark = {
   kind: string;
-  channelId: string | null;
+  placeId: string | null;
   privateChat: boolean;
   privateUserId: string | null;
 };
@@ -40,7 +39,6 @@ export type TurnMark = {
 export type StoredWake = {
   id: string;
   kind: string;
-  community: string | null;
   state: WakeState;
   dueAt: number | null;
   queuedAt: number;
@@ -159,7 +157,7 @@ function turnMarkOf(value: unknown): TurnMark | null {
   const mark = objectOf(raw);
   return {
     kind: textOrNull(mark.kind) ?? '',
-    channelId: textOrNull(mark.channelId),
+    placeId: textOrNull(mark.placeId),
     privateChat: mark.privateChat === true,
     privateUserId: textOrNull(mark.privateUserId),
   };
@@ -173,7 +171,6 @@ function wakeOfRow(row: Row): StoredWake {
   return {
     id: String(row.id),
     kind: String(row.kind),
-    community: textOrNull(row.community),
     state: stateOf(row.state),
     dueAt: numberOrNull(row.due_at),
     queuedAt: Number(row.queued_at),
@@ -197,23 +194,19 @@ export function wakeOf(handle: Handle, id: string): StoredWake | null {
 }
 
 /**
- * The stored wakes of `community` in `states`, the oldest queued first; `handledSince` keeps only the handled and slept
+ * The stored wakes in `states`, the oldest queued first; `handledSince` keeps only the handled and slept
  * ones disposed of at or after it.
  */
 export function listWakes(
   handle: Handle,
-  {
-    community,
-    states,
-    handledSince = null,
-  }: { community?: string; states: ReadonlyArray<WakeState>; handledSince?: number | null }
+  { states, handledSince = null }: { states: ReadonlyArray<WakeState>; handledSince?: number | null }
 ): Array<StoredWake> {
   const marks = states.map(() => '?').join(', ');
   return dbOf(handle)
     .prepare(
-      `SELECT * FROM wakes WHERE (? IS NULL OR community = ?) AND state IN (${marks}) AND (? IS NULL OR handled_at IS NULL OR handled_at >= ?) ORDER BY queued_at, id`
+      `SELECT * FROM wakes WHERE state IN (${marks}) AND (? IS NULL OR handled_at IS NULL OR handled_at >= ?) ORDER BY queued_at, id`
     )
-    .all(community ?? null, community ?? null, ...states, handledSince, handledSince)
+    .all(...states, handledSince, handledSince)
     .map(wakeOfRow);
 }
 
@@ -299,16 +292,15 @@ function markAlive(db: Db, holder: string, now: number, ttlMs: number): void {
 /** What queueing answers. */
 export type Queued = { status: 'queued' | 'duplicate' };
 
-function insertWake(db: Db, wake: WakeInput, state: WakeState, now: number, community: string | null): boolean {
+function insertWake(db: Db, wake: WakeInput, state: WakeState, now: number): boolean {
   const changed = db
     .prepare(
-      `INSERT OR IGNORE INTO wakes (id, kind, community, due_at, queued_at, payload, state, handled_at, outcome)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR IGNORE INTO wakes (id, kind, due_at, queued_at, payload, state, handled_at, outcome)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       wake.id,
       wake.kind,
-      community,
       numberOrNull(wake.dueAt),
       numberOrNull(wake.queuedAt) ?? now,
       JSON.stringify(wake),
@@ -320,12 +312,9 @@ function insertWake(db: Db, wake: WakeInput, state: WakeState, now: number, comm
 }
 
 /** `wake` queued at `now` (its own `queuedAt` when it has one); a wake id the table holds already is a duplicate. */
-export function queueWake(
-  handle: Handle,
-  { wake, now, community = null }: { wake: WakeInput; now: number; community?: string | null }
-): Queued {
+export function queueWake(handle: Handle, { wake, now }: { wake: WakeInput; now: number }): Queued {
   return inWrite(handle, (db): Queued => ({
-    status: insertWake(db, wake, 'queued', now, community) ? 'queued' : 'duplicate',
+    status: insertWake(db, wake, 'queued', now) ? 'queued' : 'duplicate',
   }));
 }
 
@@ -649,11 +638,11 @@ function requeueIn(db: Db, id: string): void {
 
 /** One write of the inner life (src/behavior/inner/wake-store.ts) through the service's writer. */
 export type WakeQueueUpdate =
-  | { kind: 'wake-queue'; op: 'queue'; wake: WakeInput; now: number; community: string }
+  | { kind: 'wake-queue'; op: 'queue'; wake: WakeInput; now: number }
   | { kind: 'wake-queue'; op: 'payload'; id: string; wake: WakeInput }
   | { kind: 'wake-queue'; op: 'handle'; id: string; outcome: string; now: number }
   | { kind: 'wake-queue'; op: 'remove'; id: string }
-  | { kind: 'wake-queue'; op: 'sleep'; wake: WakeInput; now: number; community: string }
+  | { kind: 'wake-queue'; op: 'sleep'; wake: WakeInput; now: number }
   | { kind: 'wake-queue'; op: 'requeue'; ids: ReadonlyArray<string>; now: number }
   | {
       kind: 'wake-queue';
@@ -818,8 +807,7 @@ function applyTyped(handle: Handle, update: WakeQueueUpdate): unknown {
     case 'sleep':
       return inWrite(
         handle,
-        (db) =>
-          insertWake(db, update.wake, 'slept', update.now, update.community) || sleepIn(db, update.wake.id, update.now)
+        (db) => insertWake(db, update.wake, 'slept', update.now) || sleepIn(db, update.wake.id, update.now)
       );
     case 'requeue':
       // The start takes over the wakes a dead process left running: their leases end now.
@@ -852,112 +840,4 @@ function applyTyped(handle: Handle, update: WakeQueueUpdate): unknown {
     case 'delivery':
       return moveDelivery(handle, update);
   }
-}
-
-// ---- the v18 data step ----------------------------------------------------------------------------------------
-
-/** The queue fields of a guild's `inner.json` that the database takes over. */
-const QUEUE_FIELDS = ['queue', 'handled', 'inflight'] as const;
-
-/** The kind a handled wake id names (`inner.wake:<kind>:...`). */
-const kindOfId = (id: string): string => id.split(':')[1] || 'unknown';
-
-/** The guild's state file read as an object, or null when it is missing or unreadable (the inner life sets it aside). */
-function stateFileOf(file: string): Record<string, unknown> | null {
-  try {
-    const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? objectOf(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-/** One guild's queue, handled set and in-flight mark written as wake rows; how many. */
-function importGuild(db: Db, community: string, state: Record<string, unknown>): number {
-  const inflight = objectOf(state.inflight);
-  const running = new Set(
-    Array.isArray(inflight.wakeIds) ? inflight.wakeIds.filter((id) => typeof id === 'string') : []
-  );
-  const startedAt = numberOrNull(inflight.startedAt) ?? 0;
-  const mark: TurnMark = {
-    kind: textOrNull(inflight.kind) ?? '',
-    channelId: textOrNull(inflight.channelId),
-    privateChat: inflight.privateChat === true,
-    privateUserId: textOrNull(inflight.privateUserId),
-  };
-  let count = 0;
-  for (const entry of Array.isArray(state.queue) ? state.queue : []) {
-    const wake = objectOf(entry);
-    if (typeof wake.id !== 'string' || typeof wake.kind !== 'string') continue;
-    const input: WakeInput = { ...wake, id: wake.id, kind: wake.kind };
-    if (!insertWake(db, input, 'queued', numberOrNull(wake.dueAt) ?? 0, community)) continue;
-    count += 1;
-    if (!running.has(wake.id)) continue;
-    // The turn a restart cut off: its lease expired when it started, so the recovery of the next start resolves it.
-    db.prepare(
-      `UPDATE wakes SET state = 'running', lease_holder = 'import', lease_token = 0, lease_expires_at = ?, turn_id = ?,
-       attempt = 1, claimed_at = ?, turn = ? WHERE id = ?`
-    ).run(startedAt, textOrNull(inflight.turnId), startedAt, JSON.stringify(mark), wake.id);
-  }
-  for (const [id, value] of Object.entries(objectOf(state.handled))) {
-    const entry = objectOf(value);
-    const at = numberOrNull(entry.at) ?? 0;
-    const changed = db
-      .prepare(
-        `INSERT OR IGNORE INTO wakes (id, kind, community, due_at, queued_at, payload, state, handled_at, outcome)
-         VALUES (?, ?, ?, NULL, ?, ?, 'handled', ?, ?)`
-      )
-      .run(
-        id,
-        kindOfId(id),
-        community,
-        at,
-        JSON.stringify({ place: entry.place ?? null }),
-        at,
-        textOrNull(entry.outcome)
-      ).changes;
-    count += Number(changed);
-  }
-  return count;
-}
-
-/**
- * The state file written back without its queue fields. A file that cannot be written (a read-only directory) keeps
- * them, and the next open imports them again, which changes no row it already holds: the open never fails for it.
- */
-function dropQueueFields(file: string, state: Record<string, unknown>): void {
-  const kept = Object.fromEntries(
-    Object.entries(state).filter(([key]) => !(QUEUE_FIELDS as ReadonlyArray<string>).includes(key))
-  );
-  const temporary = `${file}.tmp-${process.pid}`;
-  try {
-    fs.writeFileSync(temporary, JSON.stringify(kept));
-    fs.renameSync(temporary, file);
-  } catch {
-    fs.rmSync(temporary, { force: true });
-  }
-}
-
-/**
- * The v18 data step, and every open after it that knows the data directory: each `guilds/<id>/inner.json` under
- * `context.dataDir` that still holds queue fields gives its queue, handled set and in-flight mark to `wakes` (ids kept),
- * and the file loses those fields. A file with nothing to move is left as it is, so an open after the import changes
- * nothing; an opener without a data directory (a tool's open) moves nothing, and the next open that has one does it.
- */
-export function importWakeQueues(connection: unknown, context: unknown = {}): number {
-  const given: unknown = context !== null && typeof context === 'object' ? Reflect.get(context, 'dataDir') : null;
-  const dataDir = typeof given === 'string' && given ? given : null;
-  if (!dataDir || connection === null || typeof connection !== 'object') return 0;
-  // The migration's connection is node:sqlite's DatabaseSync, which `MemoryHandle.db` keeps opaque.
-  const db = connection as Db;
-  const guilds = path.join(dataDir, 'guilds');
-  let count = 0;
-  for (const community of fs.existsSync(guilds) ? fs.readdirSync(guilds) : []) {
-    const file = path.join(guilds, community, 'inner.json');
-    const state = stateFileOf(file);
-    if (!state || !QUEUE_FIELDS.some((key) => Object.hasOwn(state, key))) continue;
-    count += importGuild(db, community, state);
-    dropQueueFields(file, state);
-  }
-  return count;
 }

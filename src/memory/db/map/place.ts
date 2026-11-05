@@ -1,15 +1,15 @@
-// Mapper: `guild.json` <-> rows.
+// Mapper: the notes of a place <-> rows.
 //
-//   places        the guild
-//   descriptions  patterns, starters (subject: the guild's place), one legacy version each
-//   claims        injokes (kind injoke, subject the guild), self (kind self_fact, subject her, scope none),
+//   places        the place, only when no row holds it yet: what the interface reported stays as stored
+//   descriptions  patterns, starters (subject: the place), one legacy version each
+//   claims        injokes (kind injoke, subject the place), self (kind self_fact, subject her, scope none),
 //                 learned (kind lesson, how taught, `from_person` the teacher)
-//   operational   kind guild: everything else (`learnedNextId`, emoji usage, notes stamps, the pings-off list, ...)
+//   operational   kind place: everything else (`learnedNextId`, emoji usage, notes stamps, the pings-off list, ...)
 //
-// toRows(rel, value, ctx) -> { places, descriptions, description_versions, claims, operational }     ctx: { guildId }
+// toRows(rel, value, ctx) -> { places, descriptions, description_versions, claims, operational }     ctx: { subjectId }
 // fromRows(rows, ctx) -> the file's value
 
-import { SELF_PERSON, guildPlaceId, nativeOfAny, personId } from '../ids.ts';
+import { SELF_PERSON, nativeOfAny, personId } from '../ids.ts';
 import { SCOPE_NONE, groupScope } from '../scope.ts';
 import { claimItems, claimRows } from './lists.ts';
 import type { ListDef } from './lists.ts';
@@ -50,24 +50,25 @@ const LISTS: Array<ListDef & { subject: string; scope: string }> = [
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
-  const guildId = ctx.guildId ?? 'unknown';
-  const placeId = ctx.scopePlaceId ?? guildPlaceId(iface, guildId);
+  const placeId = ctx.subjectId ?? rel;
   const rows: Rows = {};
   const rest = { ...value };
-  put(rows, 'places', {
-    id: placeId,
-    iface,
-    kind: 'guild',
-    native_id: guildId,
-    parent_id: null,
-    scope_kind: 'group',
-    name: null,
-    category: null,
-    topic: null,
-    extra: null,
-    retired_at: null,
-    owner_file: rel,
-  });
+  if (!ctx.subjectPlace) {
+    put(rows, 'places', {
+      id: placeId,
+      iface,
+      kind: 'server',
+      native_id: ctx.subjectNativeId ?? placeId,
+      parent_id: null,
+      scope_kind: 'group',
+      name: null,
+      category: null,
+      topic: null,
+      extra: null,
+      retired_at: null,
+      owner_file: rel,
+    });
+  }
   for (const field of FIELDS) {
     if (typeof value[field] !== 'string') continue;
     const id = `desc:${placeId}:${field}`;
@@ -116,7 +117,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
     }
   }
   rest.$has = has;
-  put(rows, 'operational', { kind: 'guild', owner: placeId, value: JSON.stringify(rest), owner_file: rel });
+  put(rows, 'operational', { kind: 'place', owner: placeId, value: JSON.stringify(rest), owner_file: rel });
   return rows;
 }
 

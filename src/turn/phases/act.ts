@@ -2,6 +2,7 @@
 // which post carries a jump link) and the recovery turn's last check that its messages still wait. runTurnOnce (src/behavior/turn.ts) calls it after the response phase;
 // the tool round posts through the routing it made.
 
+import { accountOf } from '../../memory/addresses.ts';
 import { setSettings } from '../../behavior/diary.ts';
 import { createLinker, messageLinkOf } from '../../behavior/elsewhere.ts';
 import { log } from '../../log.ts';
@@ -41,7 +42,7 @@ export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, a
   const { trigger = null, triggerKind = null, source = null, plainPosts = false } = params;
   const { stillDue = null } = params;
   const { opened, setup, pulled: pulledStep, gathered, request, shownPulled } = answered;
-  const { channel, guildId, isPrivate } = opened;
+  const { channel, placeId, isPrivate } = opened;
   const { memoryOn } = setup;
   const { finalMode } = pulledStep;
   const { history, pulled } = gathered;
@@ -54,13 +55,13 @@ export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, a
   // too, behind every display name: a pulled line fetched without its member carries the
   // global name while `<people>` reads the server nickname. Only then the fallback directory:
   // a member the model was not shown (another channel, a block the budget dropped) is
-  // mentioned by a name nobody else in the served guild carries.
+  // mentioned by a name nobody else in the served place carries.
   const pulledIds = request.pulledIds ?? new Map();
   // The highest line number of the request: a memory.search of the turn numbers its quotes on past it.
   draft.handleFloor = Math.max(0, ...idByIndex.keys());
-  const shownLines = shownPulled.flatMap(({ channelId, ids }) => {
+  const shownLines = shownPulled.flatMap(({ placeId: conversationId, ids }) => {
     const shownIds = new Set(ids);
-    return (pulled.find((entry) => entry.channelId === channelId)?.messages ?? []).filter((message) =>
+    return (pulled.find((entry) => entry.placeId === conversationId)?.messages ?? []).filter((message) =>
       shownIds.has(message.id)
     );
   });
@@ -72,12 +73,12 @@ export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, a
   const channelHandles = request.channelHandles ?? null;
   const knownNames =
     memoryOn && !handles
-      ? storedNames(request.peopleShown, shownLines, (userId) => store.getUser(guildId, userId))
+      ? storedNames(request.peopleShown, shownLines, (userId) => store.getUser(accountOf(store, userId)))
       : [];
-  // Behind those, every member of the served guild the bot knows (built once, on the first `@`).
-  const directory = handles ? null : turnDirectory({ guildId, memoryOn });
+  // Behind those, every member of the served place the bot knows (built once, on the first `@`).
+  const directory = handles ? null : turnDirectory({ placeId, memoryOn });
   const linkFor = createLinker({
-    linkOf: (channelId, messageId) => messageLinkOf(iface, guildId, channelId, messageId),
+    linkOf: (conversationId, messageId) => messageLinkOf(iface, placeId, conversationId, messageId),
     pulledIds,
     sourceTarget: isPrivate ? null : sourceLinkTarget({ source, trigger, pulledKept: shownPulled }),
   });

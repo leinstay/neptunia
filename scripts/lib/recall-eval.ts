@@ -50,7 +50,7 @@ export function isSnowflake(value: Untyped): boolean {
 /** One question of the file: whom it was asked of, where, and the messages that answer it. */
 export type Question = {
   id: string;
-  channelId: string;
+  placeId: string;
   askerId: string;
   question: string;
   expected: Array<string>;
@@ -59,7 +59,7 @@ export type Question = {
 };
 
 /**
- * The questions of a parsed questions file: `[{ id, channelId, askerId, question, expected:
+ * The questions of a parsed questions file: `[{ id, placeId, askerId, question, expected:
  * [messageId...], kind: 'exact'|'fuzzy'|'none', note? }]`. `errors` names every problem by the
  * question's position and id (never its text); a file with any error should not be run. A
  * `none` question expects no message (the answer is not in memory); the others expect at
@@ -81,7 +81,7 @@ export function parseQuestions(value: unknown): { questions: Array<Question>; er
     const problems = [];
     if (!id) problems.push('no id');
     else if (ids.has(id)) problems.push('a duplicate id');
-    if (!isSnowflake(raw.channelId)) problems.push('channelId is not a Discord id');
+    if (!isSnowflake(raw.placeId)) problems.push('placeId is not a Discord id');
     if (!isSnowflake(raw.askerId)) problems.push('askerId is not a Discord id');
     if (typeof raw.question !== 'string' || !raw.question.trim()) problems.push('no question text');
     if (!QUESTION_KINDS.includes(raw.kind)) problems.push(`kind is not one of ${QUESTION_KINDS.join(', ')}`);
@@ -99,7 +99,7 @@ export function parseQuestions(value: unknown): { questions: Array<Question>; er
     ids.add(id);
     questions.push({
       id,
-      channelId: raw.channelId,
+      placeId: raw.placeId,
       askerId: raw.askerId,
       question: raw.question,
       expected: [...new Set<string>(expected)],
@@ -393,7 +393,7 @@ export type SampleLine = {
 
 /** A message sampled for question writing, with the lines around it. */
 export type Candidate = SampleLine & {
-  channelId: Untyped;
+  placeId: Untyped;
   replyTo: Untyped;
   before: Array<SampleLine>;
   after: Array<SampleLine>;
@@ -449,32 +449,32 @@ export function sampleCandidates(
   const until = now - recentDays * DAY_MS;
   const byChannel = new Map();
   for (const line of lines) {
-    const channelId = line.scope?.channel;
-    if (!byChannel.has(channelId)) byChannel.set(channelId, []);
-    byChannel.get(channelId).push(line);
+    const placeId = line.scope?.channel;
+    if (!byChannel.has(placeId)) byChannel.set(placeId, []);
+    byChannel.get(placeId).push(line);
   }
   for (const list of byChannel.values())
     list.sort((a: Rec, b: Rec) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
 
   // Channel -> its day buckets of eligible messages.
   const buckets = new Map();
-  for (const [channelId, list] of byChannel) {
+  for (const [placeId, list] of byChannel) {
     list.forEach((line: Untyped, index: number) => {
       const at = Date.parse(line.occurredAt);
       if (!(at >= from && at < until)) return;
       if (line.kind !== 'seen' || (selfId && line.by === selfId)) return;
       if ([...String(line.text ?? '').trim()].length < minChars) return;
       const day = line.occurredAt.slice(0, 10);
-      if (!buckets.has(channelId)) buckets.set(channelId, new Map());
-      const days_ = buckets.get(channelId);
+      if (!buckets.has(placeId)) buckets.set(placeId, new Map());
+      const days_ = buckets.get(placeId);
       if (!days_.has(day)) days_.set(day, []);
       days_.get(day).push(index);
     });
   }
-  const queues = shuffle([...buckets.keys()].sort(), rng).map((channelId: string) => ({
-    channelId,
+  const queues = shuffle([...buckets.keys()].sort(), rng).map((placeId: string) => ({
+    placeId,
     days: shuffle(
-      [...buckets.get(channelId).entries()].sort(([a], [b]) => (a < b ? -1 : 1)),
+      [...buckets.get(placeId).entries()].sort(([a], [b]) => (a < b ? -1 : 1)),
       rng
     ),
   }));
@@ -486,17 +486,17 @@ export function sampleCandidates(
       if (!bucket) continue;
       const [day, indexes] = bucket;
       const index = indexes.splice(Math.floor(rng() * indexes.length), 1)[0];
-      picked.push({ channelId: queue.channelId, index });
+      picked.push({ placeId: queue.placeId, index });
       if (indexes.length > 0) queue.days.push([day, indexes]);
     }
   }
   return picked
-    .map(({ channelId, index }) => {
-      const list = byChannel.get(channelId);
+    .map(({ placeId, index }) => {
+      const list = byChannel.get(placeId);
       const line = list[index];
       return {
         ...sampleLine(line, nameOf),
-        channelId,
+        placeId,
         replyTo: typeof line.replyTo === 'string' ? line.replyTo : null,
         before: list.slice(Math.max(0, index - neighbours), index).map((l: Untyped) => sampleLine(l, nameOf)),
         after: list.slice(index + 1, index + 1 + neighbours).map((l: Untyped) => sampleLine(l, nameOf)),
@@ -514,20 +514,20 @@ export function sampleCandidates(
  * cannot view.
  */
 export function localGuild({
-  guildId,
+  placeId,
   selfId = null,
   channelNameOf = () => null,
 }: {
-  guildId: string;
+  placeId: string;
   selfId?: string | null;
   channelNameOf?: (id: string) => string | null;
 }): Rec {
   const channels = new Map();
   const guild: Rec = {
-    id: guildId,
+    id: placeId,
     local: true,
     members: { me: { id: selfId ?? '0' }, cache: new Map() },
-    roles: { everyone: { id: guildId }, cache: new Map() },
+    roles: { everyone: { id: placeId }, cache: new Map() },
     client: {
       rest: {
         async get(route: string) {
@@ -572,11 +572,11 @@ export function localGuild({
 }
 
 /** A conversation of the local guild as the interface describes it: readable, writable and viewable by everyone. */
-function localInfo(guildId: string, id: string, name: string) {
+function localInfo(placeId: string, id: string, name: string) {
   return {
     id,
     kind: 'channel' as const,
-    communityId: guildId,
+    communityId: placeId,
     name,
     topic: null,
     category: null,
@@ -605,13 +605,13 @@ function localInfo(guildId: string, id: string, name: string) {
  * of a run finds no hit and reads no window.
  */
 export function localReads({
-  guildId,
+  placeId,
   channelNameOf = () => null,
 }: {
-  guildId: string;
+  placeId: string;
   channelNameOf?: (id: string) => string | null;
 }): Reads {
-  const info = (id: string) => localInfo(guildId, id, channelNameOf(id) ?? id);
+  const info = (id: string) => localInfo(placeId, id, channelNameOf(id) ?? id);
   return {
     offers: () => true,
     conversationInfo: (ref: { conversationId: string }) => Promise.resolve({ conversation: info(ref.conversationId) }),
@@ -632,19 +632,19 @@ export function localReads({
  * everyone views, so the audience rail passes every conversation.
  */
 export function localScope({
-  guildId,
-  channelId,
+  placeId,
+  conversationId,
   channelNameOf = () => null,
 }: {
-  guildId: string;
-  channelId: string;
+  placeId: string;
+  conversationId: string;
   channelNameOf?: (id: string) => string | null;
 }): { channel: Untyped; snapshot: Untyped } {
-  const info = (id: string) => localInfo(guildId, id, channelNameOf(id) ?? id);
+  const info = (id: string) => localInfo(placeId, id, channelNameOf(id) ?? id);
   return {
-    channel: info(channelId),
+    channel: info(conversationId),
     snapshot: {
-      communityId: guildId,
+      communityId: placeId,
       conversations: [],
       groups: [],
       get: (id: string) => (typeof id === 'string' && id !== '' ? info(id) : null),
@@ -822,15 +822,15 @@ export function renderPrefetchCompare(compare: PrefetchComparison, results: Unty
  */
 export function traceAgreement(
   trace: Rec,
-  excerpts: Array<{ source: string; channelId?: string; ids?: Array<string>; startTs?: number; endTs?: number }>,
+  excerpts: Array<{ source: string; placeId?: string; ids?: Array<string>; startTs?: number; endTs?: number }>,
   { nearMs = DAY_MS }: { nearMs?: number } = {}
 ): 'same' | 'partial' | 'none' | 'n/a' {
   const spans = [
     ...(trace?.clusters ?? []).filter((c: Rec) => c?.kept),
     ...(trace?.record ?? []).filter((w: Rec) => w?.kept),
   ]
-    .map((w) => ({ channelId: w.channelId, from: Date.parse(w.from), to: Date.parse(w.to) }))
-    .filter((w) => w.channelId && Number.isFinite(w.from) && Number.isFinite(w.to));
+    .map((w) => ({ placeId: w.placeId, from: Date.parse(w.from), to: Date.parse(w.to) }))
+    .filter((w) => w.placeId && Number.isFinite(w.from) && Number.isFinite(w.to));
   const hitIds = new Set([
     ...(trace?.record ?? []).filter((w: Rec) => w?.kept).flatMap((w: Rec) => w.hitIds ?? []),
     ...(trace?.meaning?.kept ?? []).filter((row: Untyped) => row?.kind === 'record').map((row: Untyped) => row.id),
@@ -840,7 +840,7 @@ export function traceAgreement(
   const overlaps = (e: Untyped, margin: Untyped) =>
     spans.some(
       (w) =>
-        w.channelId === e.channelId &&
+        w.placeId === e.placeId &&
         Number.isFinite(e.startTs) &&
         e.startTs <= w.to + margin &&
         (Number.isFinite(e.endTs) ? e.endTs : e.startTs) >= w.from - margin

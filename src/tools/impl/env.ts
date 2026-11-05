@@ -1,10 +1,11 @@
 // The environment every operation runs against: the dependencies src/admin.ts#createAdmin is
 // given (see its JSDoc for each one) and the functions several operations share -- the slash
-// wording of a pointer to another command, the paused / no-guild refusals, the token
+// wording of a pointer to another command, the paused / no-place refusals, the token
 // resolver of analyzer text, the journal's system records and the writers of the private settings
 // file (under `hot.privateDir`, the deployment's private directory). Built once per admin; an operation reads it as `ctx.env`. Hot
 // values are read at the moment of use, through `hot`, never copied.
 
+import { accountOf } from '../../memory/addresses.ts';
 import path from 'node:path';
 import { moveConfigKeys } from '../../config-moves.ts';
 import { localConfigPath } from '../../config/files.ts';
@@ -13,7 +14,7 @@ import { familyOf as imageFamilyOf } from '../../llm/images.ts';
 import { roleModel } from '../../llm/roles.ts';
 import { log } from '../../log.ts';
 import { invalid } from './registry.ts';
-import { NO_GUILD, splitPath, setPath, ownValueAt, readLocalConfig, writeLocalConfig } from './shared.ts';
+import { PLACE_REQUIRED, splitPath, setPath, ownValueAt, readLocalConfig, writeLocalConfig } from './shared.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf } from '../types.ts';
 import type { Untyped } from '../types.ts';
@@ -73,7 +74,6 @@ function buildEnv({
   connection = { lastReconnectAt: null },
   spontaneous,
   calibrator,
-  getGuildId,
   turns,
   pending,
   images,
@@ -121,12 +121,12 @@ function buildEnv({
   }
 
   /** A background job's skip reason as the owner reads it: the job's own `skips` first, then the
-   * reasons every job shares (paused, no guild), else `fallback`. */
+   * reasons every job shares (paused, no place), else `fallback`. */
   function skipText(skips: Record<string, string>, reason: unknown, fallback: string): string {
     const known = skips[idText(reason)];
     if (Object.hasOwn(skips, idText(reason)) && known !== undefined) return known;
     if (reason === 'paused') return pausedText();
-    if (reason === 'no-guild') return NO_GUILD;
+    if (reason === 'no-place') return PLACE_REQUIRED;
     return fallback;
   }
 
@@ -146,7 +146,7 @@ function buildEnv({
   /**
    * A read-only command must see a hand-edit made while paused, even a
    * second one made between two calls of the same command -- `dropCaches`
-   * only drops what a WRITE would otherwise dirty (users/guild/channels/lore
+   * only drops what a WRITE would otherwise dirty (users/place/channels/lore
    * /media/buffer), so this is safe to call before every read while paused.
    * A no-op when not paused, so callers can call it unconditionally.
    */
@@ -154,38 +154,38 @@ function buildEnv({
     if (store.state.data.paused && typeof store.dropCaches === 'function') store.dropCaches();
   }
 
-  /** The served guild: the interaction's, else the one this instance resolved; null before then. */
-  function resolvedGuildId(context: { guildId?: string | null } | null | undefined): string | null {
-    return context?.guildId ?? (getGuildId?.() as string | null | undefined) ?? null;
+  /** The place the operation addresses, from its context; null with none. */
+  function resolvedPlaceId(context: { placeId?: string | null } | null | undefined): string | null {
+    return context?.placeId ?? null;
   }
 
-  /** The served guild, or an Error before it resolves. */
-  function requireGuildId(context: { guildId?: string | null } | null | undefined): string {
-    const guildId = resolvedGuildId(context);
-    if (!guildId) throw Object.assign(new Error(NO_GUILD), { code: CODE.NO_GUILD });
-    return guildId;
+  /** The place the operation addresses, or an Error with none. */
+  function requirePlaceId(context: { placeId?: string | null } | null | undefined): string {
+    const placeId = resolvedPlaceId(context);
+    if (!placeId) throw Object.assign(new Error(PLACE_REQUIRED), { code: CODE.PLACE_REQUIRED });
+    return placeId;
   }
 
   /** `nameOf` (a member's current stored name, or null) and `resolve` (`<@id>` -> `name (id:…)`,
-   * an id with no stored name keeping its token) for this guild: the resolution every view of
+   * an id with no stored name keeping its token) for this place: the resolution every view of
    * analyzer-written text uses (src/memory/mentions.ts#fromTokens, mode `'analyzer'`). */
-  function tokenResolver(guildId: string): {
+  function tokenResolver(): {
     nameOf: (id: string) => string | null;
     resolve: (text: unknown) => string;
   } {
     const nameOf = (id: string): string | null =>
-      (store.getUser(guildId, id)?.names?.[0] as string | undefined) ?? null;
+      (store.getUser(accountOf(store, id))?.names?.[0] as string | undefined) ?? null;
     const resolve = (text: unknown): string => fromTokens(typeof text === 'string' ? text : '', nameOf, 'analyzer');
     return { nameOf, resolve };
   }
 
-  /** A `system` journal record of `guildId` (features.journal exactly true, read now); never throws. */
-  async function journalSystem(guildId: string | null, record: unknown): Promise<void> {
-    if (!journal || !guildId) return;
+  /** A `system` journal record of the persona; never throws. */
+  async function journalSystem(record: unknown): Promise<void> {
+    if (!journal) return;
     try {
-      await journal.system(guildId, record);
+      await journal.system(record);
     } catch (err) {
-      log.warn('admin: journal record failed', { code: objOf(err).code ?? null, guildId });
+      log.warn('admin: journal record failed', { code: objOf(err).code ?? null });
     }
   }
 
@@ -227,8 +227,8 @@ function buildEnv({
 
   /** The stored profile of `userId`, or an Error `no profile for <id>`: a write command never
    * creates a profile for a member the persona has not met. */
-  function requireProfile(guildId: string, userId: string): Untyped {
-    const profile = store.getUser(guildId, userId);
+  function requireProfile(placeId: string, userId: string): Untyped {
+    const profile = store.getUser(accountOf(store, userId));
     if (!profile) throw invalid(`no profile for ${userId}`, CODE.NOT_FOUND);
     return profile;
   }
@@ -255,7 +255,6 @@ function buildEnv({
     reads,
     spontaneous,
     calibrator,
-    getGuildId,
     turns,
     pending,
     images,
@@ -314,8 +313,8 @@ function buildEnv({
     skipText,
     assertNotPaused,
     freshenIfPaused,
-    resolvedGuildId,
-    requireGuildId,
+    resolvedPlaceId,
+    requirePlaceId,
     tokenResolver,
     journalSystem,
     localConfigFile,

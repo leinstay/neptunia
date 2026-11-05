@@ -98,7 +98,6 @@ export type CommandDeps = {
     disable(name: string): Promise<{ drained: number; unknown: number }>;
   };
   facts(): StatusFacts;
-  guildId(): string | null;
   /** The board's `task.*` commands, run under a principal's name. */
   tasks: { command(principal: string, name: string, args: Record<string, unknown>): Promise<TaskAnswer> };
   /** Her skills: an agent lists the pending versions and files a package (`skill.pending`); absent, the command fails. */
@@ -256,9 +255,8 @@ export type FactSources = {
   state(): unknown;
   usageRows(): ReadonlyArray<{ role: string; requests: number; cost: number }>;
   interfaces(): ReadonlyArray<InterfaceRow>;
-  inner(guildId: string | null): unknown;
-  errands(guildId: string | null): ReadonlyArray<unknown>;
-  guildId(): string | null;
+  inner(): unknown;
+  errands(): ReadonlyArray<unknown>;
   /** The model roles that are down (src/llm/role-health.ts#createRoleHealth's `failing`). */
   failingRoles(): ReadonlyArray<RoleDown>;
 };
@@ -271,11 +269,10 @@ export function statusFactsOf(sources: FactSources): StatusFacts {
   const config = looseOf(sources.config());
   const state = looseOf(sources.state());
   const rows = sources.usageRows();
-  const guildId = sources.guildId();
-  const inner = looseOf(sources.inner(guildId));
+  const inner = looseOf(sources.inner());
   const next = looseOf(inner.next);
   const intentions = inner.intentions === null || inner.intentions === undefined ? null : looseOf(inner.intentions);
-  const errands = sources.errands(guildId).map(looseOf);
+  const errands = sources.errands().map(looseOf);
   const open = errands.filter((errand) => errand.state === 'queued' || errand.state === 'running');
   const name = looseOf(config.bot).name;
   return {
@@ -344,14 +341,9 @@ export function coreStatusFacts(core: {
   interfaces: unknown;
   inner: unknown;
   errands: unknown;
-  guildId: () => unknown;
   roleHealth: { failing(config: unknown): Array<RoleDown> } | null;
 }): StatusFacts {
   const list = (value: unknown): Array<unknown> => (Array.isArray(value) ? (value as Array<unknown>) : []);
-  const guildId = (): string | null => {
-    const id = core.guildId();
-    return typeof id === 'string' && id !== '' ? id : null;
-  };
   return statusFactsOf({
     version: VERSION,
     config: () => looseOf(core.hot).config,
@@ -366,9 +358,8 @@ export function coreStatusFacts(core: {
         const fields = looseOf(row);
         return { name: String(fields.name), enabled: fields.enabled === true, connected: fields.connected === true };
       }),
-    inner: (id) => (id === null ? null : callOf(core.inner, 'status')?.(id)),
-    errands: (id) => list(callOf(callOf(core.errands, 'get')?.(id), 'recent')?.(100)),
-    guildId,
+    inner: () => callOf(core.inner, 'status')?.(),
+    errands: () => list(callOf(callOf(core.errands, 'get')?.(), 'recent')?.(100)),
     failingRoles: () => core.roleHealth?.failing(looseOf(core.hot).config) ?? [],
   });
 }

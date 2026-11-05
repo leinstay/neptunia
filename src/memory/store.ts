@@ -1,39 +1,13 @@
 // Persistent memory: the memory database (src/memory/db/service.ts) holds it, this module caches it -- it survives
 // restarts, hot reloads and prompt edits; nothing in the codebase ever wipes it. Each cached value is one unit of the
-// database, named by the path it had under data/ (`guilds/<g>/users/<u>.json`; the mappers of src/memory/db/map/
+// database, named by the path it had under data/ (`places/<g>/users/<u>.json`; the mappers of src/memory/db/map/
 // turn a unit into rows and back); the operational files beside it stay JSON files under data/:
 //
-//   state.json                               the pause flag, the spontaneous schedule, token calibration,
-//                                            the daily counters (LLM requests, videos and re-watches, pictures
-//                                            drawn, web lookups, GIFs posted and watched), the open follow-up
-//                                            windows, the ring of calls from other channels and the seen marks
-//                                            of the channels a turn pulled in
-//   guilds/<guildId>/guild.json              how this server talks, in-jokes, what the persona said about itself,
-//                                            what people taught it (`learned`), and when the server notes last
-//                                            changed and were last re-checked
-//   guilds/<guildId>/users/<userId>.json     one profile per active member
-//   guilds/<guildId>/private/<userId>.json   what the persona learned from one member in direct
-//                                            messages: never shown anywhere but that member's DM
-//   guilds/<guildId>/channels/<channelId>.json  one entry per channel the persona has seen (the server map),
-//                                            with the tally of who writes there
-//   guilds/<guildId>/lore.json               the guild's lorebook
-//   guilds/<guildId>/media.json              the media description cache
-//   guilds/<guildId>/gifs.json               the GIF library the persona posts from (src/memory/gifs.ts)
-//   guilds/<guildId>/recent.json             the recent store: short dated lines about the last
-//                                            `memory.recentHours` hours, each with its source channel
-//                                            (src/memory/recent.ts)
-//   guilds/<guildId>/participation.json      the persona's participation
-//                                            episodes: slices of channels around her own lines over the last
-//                                            `participation.hours` (src/memory/participation.ts)
-//   guilds/<guildId>/diary.json              the persona's diary posts, newest last, one-line gists
-//                                            (src/behavior/diary.ts); never deleted by code
-//   data/guilds/<guildId>/recall-trace.jsonl  (a file) one JSON line per recall run when `features.recallTrace` is on
-//                                            (appendRecallTrace): the newest `recall.traceMaxLines`, written
-//                                            at once, not cached
-//   guilds/<guildId>/versions/<kind>/<id>.json  the previous texts of the prose fields (see
-//                                            `recordVersion`): users/<userId>, channels/<channelId>,
-//                                            guild/guild, lore/<key> (src/memory/lore.ts#loreVersionKey);
-//                                            capped per field
+//   state.json        the pause flag, the daily counters and the marks of the running process
+//   an account's      its profile (`user`) and what it said in private (`private`)
+//   a place's         its notes (`place`), its map entry (`channel`), lore, media, GIFs, recent lines, participation
+//                     and the previous texts of its prose (`versions`)
+//   the persona's     the diary
 //
 // The errand tasks (src/errands/store.ts) and the intentions (src/intentions/store.ts) are units of their own
 // stores, not cached here. Everything is cached in memory, marked dirty on change and flushed on a timer and on
@@ -67,16 +41,15 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { keyText, personaKey, storageId, communityKey, namespaceOf } from './db/storage-keys.ts';
+import { accountCollection, keyText, personaKey, placeCollection, storageId } from './db/storage-keys.ts';
 import type { StorageKey, StorageKind, StorageSelector } from './db/storage-keys.ts';
 import { isMediaDescriptionEntry, mediaDescriptionOf } from './db/export.ts';
 import type { MediaDescriptionEntry } from './db/export.ts';
 
 import { listUnits } from './db/storage-units.ts';
 import type { UnitQuery } from './db/storage-units.ts';
-import { storageContext, classify } from './db/map/index.ts';
+import { storageContext } from './db/map/index.ts';
 import { linkedProfileUnit } from './db/person-links.ts';
-import { accountId, channelPlaceId } from './db/ids.ts';
 
 import { isRecord, propOf, isFiniteNumber, isIntegerNumber, canWriteUnits, readSeamOf } from './types.ts';
 import { log } from '../log.ts';
@@ -115,8 +88,9 @@ import { PARTICIPATION_DEFAULTS, emptyParticipation, expireEpisodes, normalizePa
 import { ITEM_ID_PREFIX, archiveEntry, archiveRevision } from './archive.ts';
 import { normalizeAvatar } from './avatars.ts';
 import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from './root.ts';
-import { isCoreStatePath } from './db/paths.ts';
+import { isCoreStatePath } from './migration/paths.ts';
 import { unitValue } from './db/readers/common.ts';
+import { createAddressing } from './store-addresses.ts';
 
 import { createUnitOutbox } from './db/unit-outbox.ts';
 import type { StoredRecord, MemoryDb, Untyped } from './types.ts';
@@ -127,16 +101,16 @@ const DIARY_HISTORY_POSTS = 150; // selfreflection.historyPosts
 
 /** Version history when a writer's caller passes none: `features.versions`, `memory.versionsKept`. */
 const DEFAULT_VERSIONS = { enabled: true, kept: 20 };
-/** The kinds of version files, one folder each under data/guilds/<id>/versions/. */
-const VERSION_KINDS = ['users', 'channels', 'guild', 'lore'];
+/** The kinds of version files, one folder each under the place's versions/. */
+const VERSION_KINDS = ['users', 'channels', 'place', 'lore'];
 /** The prose fields of a public profile whose previous text is kept (kind `users`). */
 const USER_PROSE = ['character', 'style', 'relationship'];
 /** The prose fields of a channel entry (kind `channels`). */
 const CHANNEL_PROSE = ['purpose', 'topics', 'tone'];
-/** The prose fields of the guild memory (kind `guild`, id `guild`). */
-const GUILD_PROSE = ['patterns', 'starters'];
-/** Every text field of the guild memory `updateGuild` writes, the lists included: none keeps a link. */
-const GUILD_TEXT = [...GUILD_PROSE, 'injokes', 'self'];
+/** The prose fields of the place memory (kind `place`, id `place`). */
+const PLACE_PROSE = ['patterns', 'starters'];
+/** Every text field of the place memory `updatePlace` writes, the lists included: none keeps a link. */
+const PLACE_TEXT = [...PLACE_PROSE, 'injokes', 'self'];
 
 /** `memory.maxClosedStored` when it is missing (config.json carries the same). */
 const DEFAULT_MAX_CLOSED_STORED = 40;
@@ -147,7 +121,7 @@ const CLOSED_KINDS = ['interest', 'detail', 'alias', 'realName'];
 /** How long a stored real name may be. */
 const REAL_NAME_CHARS = 60;
 
-/** The diary of a guild with no post yet (data/guilds/<id>/diary.json). */
+/** The diary of a place with no post yet (the place's diary.json). */
 const emptyDiary = () => ({ posts: [], updatedAt: 0 });
 
 /** The prefix of an item's `itemId` by kind (src/memory/archive.ts#ITEM_ID_PREFIX, the one copy). */
@@ -382,13 +356,13 @@ export function operationalJsonPath(rel: string): boolean {
   if (/^(?:vault|snapshots)\//.test(name)) return true;
   // The unit writes a shutdown could not make (src/memory/db/service.ts#keepPending).
   if (/^memory-pending\//.test(name)) return true;
-  const inGuild = /^guilds\/[^/]+\/(?:private\/[^/]+\/)?(.+)$/.exec(name)?.[1];
-  if (!inGuild) return false;
+  const inPlace = /^places\/[^/]+\/(?:private\/[^/]+\/)?(.+)$/.exec(name)?.[1];
+  if (!inPlace) return false;
   return (
-    /^(?:state|usage|metrics|inner|missed|participation|gifs|media)\.json$/.test(inGuild) ||
-    /^journal\/requests\//.test(inGuild) ||
-    /^backfill\//.test(inGuild) ||
-    inGuild === 'record/backfill.json'
+    /^(?:state|usage|metrics|inner|missed|participation|gifs|media)\.json$/.test(inPlace) ||
+    /^journal\/requests\//.test(inPlace) ||
+    /^backfill\//.test(inPlace) ||
+    inPlace === 'record/backfill.json'
   );
 }
 
@@ -448,7 +422,7 @@ export function emptyProfile(id: string): object {
   };
 }
 
-function emptyGuild() {
+function emptyPlace() {
   return {
     patterns: '',
     starters: '',
@@ -460,7 +434,7 @@ function emptyGuild() {
     emojiBackfill: null, // { at, channels, messages } once src/memory/emoji-backfill.ts has read the history
     pingsOff: [], // ids of the members who turned the persona's notifications off (`/nep pings`) -- see setPingsOff
     updatedAt: null,
-    notesUpdatedAt: null, // when patterns, starters or injokes last changed -- see updateGuild
+    notesUpdatedAt: null, // when patterns, starters or injokes last changed -- see updatePlace
     notesCheckedAt: null, // an ISO time kept as stored; nothing in the engine writes it
     notesFlaggedAt: null, // when the analyzer last flagged them stale -- see markNotesFlagged
     notesSampleReviewedAt: null, // when a sample refresh last reviewed them -- see markNotesSampled
@@ -468,7 +442,7 @@ function emptyGuild() {
   };
 }
 
-/** The server notes among the guild's fields: a change of one of them moves `notesUpdatedAt`. */
+/** The server notes among the place's fields: a change of one of them moves `notesUpdatedAt`. */
 const NOTES_FIELDS = ['patterns', 'starters', 'injokes'];
 
 /** Whether merging `patch` over `target` would change anything stored, compared as it lands on
@@ -694,40 +668,40 @@ function normalizePrivate(priv: Untyped) {
   if (!Array.isArray(priv.buffer)) priv.buffer = [];
 }
 
-/** Fields a guild.json may still hold from features the engine no longer has; dropped on read. */
-const STALE_GUILD_FIELDS = ['ownLines', 'worn', 'wornLong', 'wornHistory', 'fillers', 'ownMessageCount'];
+/** Fields a the place's notes may still hold from features the engine no longer has; dropped on read. */
+const STALE_PLACE_FIELDS = ['ownLines', 'worn', 'wornLong', 'wornHistory', 'fillers', 'ownMessageCount'];
 
-/** Normalize a guild's `learned`/`learnedNextId`/`emojiUsage`/`emojiBackfill` fields in place: a
- * guild.json written before this list existed loads it as empty, a
+/** Normalize a place's `learned`/`learnedNextId`/`emojiUsage`/`emojiBackfill` fields in place: a
+ * the place's notes written before this list existed loads it as empty, a
  * hand-edited one is validated via src/memory/details.ts#normalizeDetails
  * (fresh ids off `learnedNextId` when needed). The two notes stamps
  * (`notesUpdatedAt`, `notesCheckedAt`) are kept when they read as a time and
- * are null otherwise: a guild.json written before them has never been
+ * are null otherwise: a the place's notes written before them has never been
  * stamped, which readers take as stale notes. The keys in
- * STALE_GUILD_FIELDS are deleted (they reach disk at the next write). Every
+ * STALE_PLACE_FIELDS are deleted (they reach disk at the next write). Every
  * other field is left exactly as stored; a non-object value is left alone entirely. Never marks
  * anything dirty -- same contract as `normalizeProfile`. */
-function normalizeGuild(guild: Untyped) {
-  if (!guild || typeof guild !== 'object' || Array.isArray(guild)) return;
-  if (!isIntegerNumber(guild.learnedNextId) || guild.learnedNextId < 1) guild.learnedNextId = 1;
-  const { items, nextId } = normalizeDetails(guild.learned, guild.learnedNextId);
-  guild.learned = items;
-  guild.learnedNextId = nextId;
+function normalizePlace(place: Untyped) {
+  if (!place || typeof place !== 'object' || Array.isArray(place)) return;
+  if (!isIntegerNumber(place.learnedNextId) || place.learnedNextId < 1) place.learnedNextId = 1;
+  const { items, nextId } = normalizeDetails(place.learned, place.learnedNextId);
+  place.learned = items;
+  place.learnedNextId = nextId;
   // Missing or hand-broken -> {} (src/memory/emoji-usage.ts#normalizeEmojiUsage).
-  guild.emojiUsage = normalizeEmojiUsage(guild.emojiUsage);
+  place.emojiUsage = normalizeEmojiUsage(place.emojiUsage);
   // Missing or hand-broken -> null: the history backfill has not run.
-  guild.emojiBackfill = normalizeBackfillStamp(guild.emojiBackfill);
-  for (const key of STALE_GUILD_FIELDS) delete guild[key];
+  place.emojiBackfill = normalizeBackfillStamp(place.emojiBackfill);
+  for (const key of STALE_PLACE_FIELDS) delete place[key];
   // Missing or hand-broken -> []: nobody turned pings off. Non-empty string ids only, each once.
-  guild.pingsOff = Array.isArray(guild.pingsOff)
-    ? [...new Set(guild.pingsOff.filter((id: string) => typeof id === 'string' && id))]
+  place.pingsOff = Array.isArray(place.pingsOff)
+    ? [...new Set(place.pingsOff.filter((id: string) => typeof id === 'string' && id))]
     : [];
   // Missing or hand-broken -> null: never stamped.
-  guild.notesUpdatedAt = isoStampOrNull(guild.notesUpdatedAt);
-  guild.notesCheckedAt = isoStampOrNull(guild.notesCheckedAt);
-  guild.notesFlaggedAt = isoStampOrNull(guild.notesFlaggedAt);
-  guild.notesSampleReviewedAt = isoStampOrNull(guild.notesSampleReviewedAt);
-  guild.notesAttemptAt = isoStampOrNull(guild.notesAttemptAt);
+  place.notesUpdatedAt = isoStampOrNull(place.notesUpdatedAt);
+  place.notesCheckedAt = isoStampOrNull(place.notesCheckedAt);
+  place.notesFlaggedAt = isoStampOrNull(place.notesFlaggedAt);
+  place.notesSampleReviewedAt = isoStampOrNull(place.notesSampleReviewedAt);
+  place.notesAttemptAt = isoStampOrNull(place.notesAttemptAt);
 }
 
 /** The `relationshipScore` stamped next to a freshly written `relationship` text: the affinity
@@ -1067,7 +1041,7 @@ type StoreClosedInput = {
   target: Untyped;
   closed: Untyped;
   opts: Untyped;
-  privateUserId?: string | null;
+  home?: string | null;
 };
 
 type ArchiveProfileItemsInput = {
@@ -1076,7 +1050,7 @@ type ArchiveProfileItemsInput = {
   previous: Untyped;
   dropped: Untyped;
   ops: Untyped;
-  privateUserId?: string | null;
+  home?: string | null;
 };
 
 type ArchiveReplacedInput = {
@@ -1084,7 +1058,7 @@ type ArchiveReplacedInput = {
   current: Untyped;
   itemKind: string;
   scope: Untyped;
-  privateUserId?: string | null;
+  home?: string | null;
   item?: Untyped;
 };
 
@@ -1116,7 +1090,7 @@ type PrivateOpsOptions = {
   details?: { add?: Array<unknown>; seen?: Array<unknown>; remove?: Array<unknown> };
 };
 
-type UpdateGuildOptions = {
+type UpdatePlaceOptions = {
   by?: string;
   versions?: { enabled?: boolean; kept?: number };
   onDropped?: (dropped: { injokes: Array<Untyped>; self: Array<Untyped> }) => void;
@@ -1133,7 +1107,7 @@ type LearnedOpsOptions = {
 };
 
 type SetLoreOptions = {
-  source: 'analyzer' | 'owner';
+  source: string;
   now?: number;
   maxEntries?: number;
   textChars?: number;
@@ -1172,8 +1146,8 @@ type HoldVictimsInput = {
   itemKind: string;
   eventOf: (victim: Untyped, index: number) => string;
   scope: Record<string, Untyped> | ((victim: Untyped) => Record<string, Untyped>);
-  privateUserId?: string | null;
-  userId?: string | null;
+  home?: string | null;
+  accountId?: string | null;
 };
 
 // health: allow function-length until 2027-04-01 -- one closure over the cache, grown only by the typed signatures of its methods
@@ -1195,16 +1169,13 @@ function buildStore({
   const seededMedia = new Set<string>();
   const pendingMedia = new Map<string, { key: StorageKey; entry: MediaDescriptionEntry }>();
 
-  function mediaDescriptionKey(guildId: string, cacheKey: string): StorageKey {
-    return communityKey('versions', guildId, {
-      iface: namespaceOf(memoryDb),
-      selector: { versionKind: 'media', itemId: cacheKey },
-    });
+  function mediaDescriptionKey(placeId: string, cacheKey: string): StorageKey {
+    return placeCollection('versions', placeId, { selector: { versionKind: 'media', itemId: cacheKey } });
   }
 
-  function rememberMedia(guildId: string, cacheKey: string, value: MediaDescriptionEntry, seed = false): void {
+  function rememberMedia(placeId: string, cacheKey: string, value: MediaDescriptionEntry, seed = false): void {
     if (!outbox) return;
-    const key = mediaDescriptionKey(guildId, cacheKey);
+    const key = mediaDescriptionKey(placeId, cacheKey);
     const text = keyText(key);
     if (seed && (pendingMedia.has(text) || mediaDescriptionOf(seam.db(), key))) return;
     const snapshot = structuredClone(value);
@@ -1212,9 +1183,9 @@ function buildStore({
     outbox.lines(key, [{ op: seed ? 'seed' : 'described', id: newId(), entry: snapshot }]);
   }
 
-  function currentMedia(guildId: string, cacheKey: string): MediaDescriptionEntry | null {
+  function currentMedia(placeId: string, cacheKey: string): MediaDescriptionEntry | null {
     if (!outbox) return null;
-    const key = mediaDescriptionKey(guildId, cacheKey);
+    const key = mediaDescriptionKey(placeId, cacheKey);
     const text = keyText(key);
     const pending = pendingMedia.get(text);
     if (pending && outbox.holds(key)) return structuredClone(pending.entry);
@@ -1222,14 +1193,14 @@ function buildStore({
     return seam.run(() => mediaDescriptionOf(seam.db(), key));
   }
 
-  function seedMedia(guildId: string, file: string, cache: StoredRecord): void {
+  function seedMedia(placeId: string, file: string, cache: StoredRecord): void {
     if (!outbox || seededMedia.has(file)) return;
     seededMedia.add(file);
     for (const [key, value] of Object.entries(cache)) {
       if (!isMediaDescriptionEntry(value) || /^(?:preview|search|results|page):/.test(key)) continue;
       const provenance = isFiniteNumber(value.describedAt) && typeof value.model === 'string' && value.model !== '';
       const answer = /^(?:video|image|gif):.+:q:[a-f0-9]+$/.test(key) && typeof value.answer === 'string';
-      if (provenance || answer) rememberMedia(guildId, key, value, true);
+      if (provenance || answer) rememberMedia(placeId, key, value, true);
     }
   }
 
@@ -1237,7 +1208,7 @@ function buildStore({
   //
   // With an archive injected and `archiveOn()` true, every item a write drops (a cap, an expiry,
   // an analyzer's remove, a list replaced whole, an interest folded into another) stays in its
-  // list in the cache -- over the cap -- and its archive entry is queued for the guild. The writers
+  // list in the cache -- over the cap -- and its archive entry is queued for the place. The writers
   // stay synchronous: the queue is appended in the background (`archive.append`), and once the
   // archive confirms an entry `trimArchived` takes the item out of its list. So a flush can only
   // write a file without the item after its copy is in the archive. A refused append sends the
@@ -1248,61 +1219,43 @@ function buildStore({
   // merge's verdict stands; an item removed or replaced stays held until it is archived. `archiveMark` / `settleArchive` tell a caller what became of the entries its
   // writes queued.
 
-  /** Outcomes kept for `settleArchive` per guild, oldest dropped first. */
+  /** Outcomes kept for `settleArchive`, oldest dropped first. */
   const ARCHIVE_OUTCOMES_KEPT = 5000;
-  // guildId -> { seq, queue: [{ seq, entry, privateUserId }], held: [...], outcomes: Map(seq -> outcome),
+  // The one queue: { seq, queue: [{ seq, entry, home, holdItem }], held: [...], outcomes: Map(seq -> outcome),
   //   retry: [...] (entries neither archived nor queued as pending), chain: Promise, scheduled: boolean }
-  const archiveGuilds = new Map();
+  const archiveState: Untyped = {
+    seq: 0,
+    queue: [],
+    held: [],
+    outcomes: new Map(),
+    retry: [],
+    chain: Promise.resolve(),
+    scheduled: false,
+  };
 
   /** Whether writes archive their victims now: an archive injected and `archiveOn()` true (read now). */
   function archiving() {
     return Boolean(archive) && archiveOn() === true;
   }
 
-  function archiveGuild(guildId: string) {
-    const key = String(guildId);
-    let state = archiveGuilds.get(key);
-    if (!state) {
-      state = {
-        seq: 0,
-        queue: [],
-        held: [],
-        outcomes: new Map(),
-        retry: [],
-        chain: Promise.resolve(),
-        scheduled: false,
-      };
-      archiveGuilds.set(key, state);
-    }
-    return state;
-  }
-
   /**
-   * Queue one entry for the background append of `guildId`'s archive (the member's private one
-   * with `privateUserId`). With `holdItem` (the cache entry whose file already holds the item's
+   * Queue one entry for the background append to the archive of `home` (a place, or the persona's with null). With `holdItem` (the cache entry whose file already holds the item's
    * NEW version) that file is held back from every flush (`holdFlush`) until the archive or its
    * pending queue took the entry (`releaseHold`).
    */
-  function queueArchiveEntry(
-    guildId: string,
-    entry: Untyped,
-    privateUserId: string | null = null,
-    holdItem: Untyped = null
-  ) {
-    const state = archiveGuild(guildId);
+  function queueArchiveEntry(entry: Untyped, home: string | null = null, holdItem: Untyped = null) {
+    const state = archiveState;
     state.seq += 1;
     if (holdItem) holdItem.holdFlush = (holdItem.holdFlush ?? 0) + 1;
-    state.queue.push({ seq: state.seq, entry, privateUserId, holdItem });
+    state.queue.push({ seq: state.seq, entry, home, holdItem });
     if (state.scheduled) return;
     state.scheduled = true;
     state.chain = state.chain
       .then(() => {
         state.scheduled = false;
-        return sendArchiveQueue(guildId);
+        return sendArchiveQueue();
       })
-      .catch((error: Untyped) =>
-        log.warn('store: archive failed', { guildId: String(guildId), code: error?.code ?? null })
-      );
+      .catch((error: Untyped) => log.warn('store: archive failed', { code: error?.code ?? null }));
   }
 
   /** Let the file a queued entry held back be flushed again (once per entry). */
@@ -1327,13 +1280,12 @@ function buildStore({
     while (state.outcomes.size > ARCHIVE_OUTCOMES_KEPT) state.outcomes.delete(state.outcomes.keys().next().value);
   }
 
-  /** `queued` grouped by the archive they go to: the guild's (`''`) or a member's private one. */
-  function byArchive(queued: Untyped) {
-    const groups = new Map();
+  /** `queued` grouped by the archive they go to: a place's, or the persona's under null. */
+  function byArchive(queued: Untyped): Map<string | null, Array<Untyped>> {
+    const groups = new Map<string | null, Array<Untyped>>();
     for (const item of queued) {
-      const key = item.privateUserId ?? '';
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(item);
+      const key: string | null = item.home ?? null;
+      groups.set(key, [...(groups.get(key) ?? []), item]);
     }
     return groups;
   }
@@ -1342,29 +1294,22 @@ function buildStore({
    * Append `queued` to the archive; a refused group goes to the archive's pending queue (kept in
    * memory for the drain when even that fails). Returns the outcome of each group.
    */
-  async function appendQueued(guildId: string, queued: Untyped) {
-    const state = archiveGuild(guildId);
+  async function appendQueued(queued: Untyped) {
+    const state = archiveState;
     const results = [];
-    for (const [key, group] of byArchive(queued)) {
-      const opts = key ? { privateUserId: key } : {};
+    for (const [home, group] of byArchive(queued)) {
       const entries = group.map((item: Untyped) => item.entry);
       try {
-        await archive.append(guildId, entries, opts);
+        await archive.append(home, entries);
         group.forEach(releaseHold);
         results.push({ group, status: 'archived' });
       } catch (error) {
-        log.warn('store: archive failed', {
-          guildId: String(guildId),
-          entries: entries.length,
-          ...(key ? { private: true } : {}),
-          code: propOf(error, 'code') ?? null,
-        });
+        log.warn('store: archive failed', { entries: entries.length, code: propOf(error, 'code') ?? null });
         try {
-          await archive.queuePending(guildId, entries, opts);
+          await archive.queuePending(home, entries);
           group.forEach(releaseHold);
         } catch (queueError) {
           log.warn('store: archive queue failed', {
-            guildId: String(guildId),
             entries: entries.length,
             code: propOf(queueError, 'code') ?? null,
           });
@@ -1376,14 +1321,14 @@ function buildStore({
     return results;
   }
 
-  async function sendArchiveQueue(guildId: string) {
-    const state = archiveGuild(guildId);
+  async function sendArchiveQueue() {
+    const state = archiveState;
     const queued = state.queue.splice(0);
     if (queued.length === 0) return;
-    for (const { group, status } of await appendQueued(guildId, queued)) {
+    for (const { group, status } of await appendQueued(queued)) {
       for (const item of group) noteOutcome(state, item, status);
     }
-    trimArchived(guildId);
+    trimArchived();
   }
 
   /**
@@ -1391,9 +1336,9 @@ function buildStore({
    * stood) and its archive entry is queued, unless the same version is held already. Held items
    * of this list the write kept are released. Call it only for a list the write really merged.
    */
-  function holdVictims(guildId: string, site: HoldVictimsInput) {
+  function holdVictims(site: HoldVictimsInput) {
     if (!archiving()) return;
-    const state = archiveGuild(guildId);
+    const state = archiveState;
     const strings = site.strings === true;
     const siteKey = `${site.file}#${site.path.join('.')}`;
     const where = listAt(site.item.value, site.path);
@@ -1438,10 +1383,10 @@ function buildStore({
         revisionId,
         itemKind: site.itemKind,
         event: entry.event,
-        userId: site.userId ?? null,
+        accountId: site.accountId ?? null,
         confirmed: false,
       });
-      queueArchiveEntry(guildId, entry, site.privateUserId ?? null);
+      queueArchiveEntry(entry, site.home ?? null);
     });
     where.holder[where.key] = reinsert(site.previous, current, victims, strings);
     site.item.dirty = true;
@@ -1452,21 +1397,13 @@ function buildStore({
    * (same `itemId`, another revision) with event `replaced`. The item stays; `item` (the cache
    * entry of the file) is held back from the flush until the old version is archived.
    */
-  function archiveReplaced(
-    guildId: string,
-    { previous, current, itemKind, scope, privateUserId = null, item = null }: ArchiveReplacedInput
-  ) {
+  function archiveReplaced({ previous, current, itemKind, scope, home = null, item = null }: ArchiveReplacedInput) {
     if (!archiving() || !Array.isArray(previous) || !Array.isArray(current)) return;
     const now = new Map(current.filter((item) => identOf(false, item) !== null).map((item) => [item.itemId, item]));
     for (const before of previous) {
       const after = identOf(false, before) !== null ? now.get(before.itemId) : undefined;
       if (!after || archiveRevision(itemKind, after) === archiveRevision(itemKind, before)) continue;
-      queueArchiveEntry(
-        guildId,
-        archiveEntry(before, { itemKind, event: 'replaced', scope, uuid: newId }),
-        privateUserId,
-        item
-      );
+      queueArchiveEntry(archiveEntry(before, { itemKind, event: 'replaced', scope, uuid: newId }), home, item);
     }
   }
 
@@ -1475,12 +1412,11 @@ function buildStore({
    * victims held, the texts changed in place archived.
    */
   function archiveProfileItems(
-    guildId: string,
-    userId: string,
-    { item, file, previous, dropped, ops, privateUserId = null }: ArchiveProfileItemsInput
+    accountId: string,
+    { item, file, previous, dropped, ops, home = null }: ArchiveProfileItemsInput
   ) {
     if (!archiving()) return;
-    const id = String(userId);
+    const id = String(accountId);
     const scope = { user: id };
     for (const [field, itemKind, identity] of [
       ['interests', 'interest', 'topic'],
@@ -1490,8 +1426,8 @@ function buildStore({
       if (!isRecord(ops?.[field])) continue;
       const kept = Array.isArray(item.value[field]) ? item.value[field] : [];
       const removing = removeKeysOf(ops[field].remove);
-      archiveReplaced(guildId, { previous: previous[field], current: kept, itemKind, scope, privateUserId, item });
-      holdVictims(guildId, {
+      archiveReplaced({ previous: previous[field], current: kept, itemKind, scope, home, item });
+      holdVictims({
         item,
         file,
         path: [field],
@@ -1499,8 +1435,8 @@ function buildStore({
         victims: dropped[field],
         itemKind,
         scope,
-        privateUserId,
-        userId: id,
+        home,
+        accountId: id,
         eventOf: (victim) => rankedEvent(victim, identity, removing, kept, itemKind === 'interest'),
       });
     }
@@ -1513,11 +1449,7 @@ function buildStore({
    * leaves through the archive with event `replaced` (held like any victim, see `holdVictims`);
    * with the archive off it simply goes.
    */
-  function storeClosed(
-    guildId: string,
-    userId: string,
-    { item, file, target, closed, opts, privateUserId = null }: StoreClosedInput
-  ) {
+  function storeClosed(accountId: string, { item, file, target, closed, opts, home = null }: StoreClosedInput) {
     const incoming = CLOSED_KINDS.flatMap((kind) =>
       (Array.isArray(closed?.[kind]) ? closed[kind] : []).map((value) => ({ kind, ...value }))
     );
@@ -1530,11 +1462,11 @@ function buildStore({
     target.closed = all.slice(Math.max(0, all.length - cap));
     const evicted = all.slice(0, all.length - target.closed.length);
     item.dirty = true;
-    const id = String(userId);
+    const id = String(accountId);
     for (const kind of CLOSED_KINDS) {
       const victims = evicted.filter((value) => value.kind === kind);
       if (victims.length === 0) continue;
-      holdVictims(guildId, {
+      holdVictims({
         item,
         file,
         path: ['closed'],
@@ -1542,18 +1474,18 @@ function buildStore({
         victims,
         itemKind: kind,
         scope: { user: id },
-        privateUserId,
-        userId: id,
+        home,
+        accountId: id,
         eventOf: () => 'replaced',
       });
     }
   }
 
   /** Take the confirmed victims out of their lists (see "The archive" above); returns how many went. */
-  function trimArchived(guildId: string) {
-    const state = archiveGuilds.get(String(guildId));
+  function trimArchived() {
+    const state = archiveState;
     // /nep pause: nothing may make the store dirty while paused; the holds wait for the resume.
-    if (!state || stateEntry.value.paused) return 0;
+    if (stateEntry.value.paused) return 0;
     let trimmed = 0;
     const keep = [];
     for (const held of state.held) {
@@ -1577,29 +1509,30 @@ function buildStore({
       trimmed += 1;
     }
     state.held = keep;
-    if (trimmed > 0) log.info('store: archive trimmed', { guildId: String(guildId), trimmed });
+    if (trimmed > 0) log.info('store: archive trimmed', { trimmed });
     return trimmed;
   }
 
   /** The cache entry of what belongs to the account itself (names, avatar, address), created empty and normalised. */
-  function accountEntry(guildId: string, userId: string): CacheItem & { value: StoredRecord } {
-    const item = entry(accountFile(guildId, userId), () => emptyProfile(String(userId)));
+  function accountEntry(accountId: string): CacheItem & { value: StoredRecord } {
+    const item = entry(accountFile(accountId), () => emptyProfile(addressing.nativeOfRow('accounts', accountId)));
     normalizeProfile(item.value);
     return item;
   }
 
   /** Where an archived item goes back to (`restoreArchived`): its cache entry (null without the file) and list; null for a kind that cannot. */
-  function restoreTarget(guildId: string, archived: Untyped) {
-    const userId = typeof archived?.scope?.user === 'string' ? archived.scope.user : null;
+  function restoreTarget(placeId: string, archived: Untyped) {
     const isPrivate = archived?.scope?.private === true;
+    const accountId =
+      typeof archived?.scope?.user === 'string' ? archived.scope.user : partnerOfPlace(archived?.scope?.place);
     const member = (keys: Untyped) => {
-      if (!userId) return null;
-      if (isPrivate) return { item: hasPrivate(guildId, userId) ? privateEntry(guildId, userId) : null, path: keys };
-      return { item: store.getUser(guildId, userId) ? entries.get(userFile(guildId, userId)) : null, path: keys };
+      if (!accountId) return null;
+      if (isPrivate) return { item: hasPrivate(accountId) ? privateEntry(accountId) : null, path: keys };
+      return { item: store.getUser(accountId) ? entries.get(userFile(accountId)) : null, path: keys };
     };
-    const guild = (keys: Untyped, strings = false) => {
-      const item = entry(guildFile(guildId), emptyGuild);
-      normalizeGuild(item.value);
+    const place = (keys: Untyped, strings = false) => {
+      const item = entry(placeFile(placeId), emptyPlace);
+      normalizePlace(item.value);
       return { item, path: keys, strings };
     };
     switch (archived?.itemKind) {
@@ -1612,13 +1545,13 @@ function buildStore({
       case 'alias':
         return isPrivate ? null : member(['aliases']);
       case 'lesson':
-        return guild(['learned']);
+        return place(['learned']);
       case 'selfFact':
-        return guild(['self'], true);
+        return place(['self'], true);
       case 'injoke':
-        return guild(['injokes'], true);
+        return place(['injokes'], true);
       case 'diary':
-        return { item: diaryEntry(guildId), path: ['posts'] };
+        return { item: diaryEntry(), path: ['posts'] };
       default:
         return null;
     }
@@ -1626,17 +1559,17 @@ function buildStore({
 
   /**
    * A `felt` line (src/memory/record.ts#feltLine) for each of `episodes` that holds a feeling,
-   * appended to the record of `guildId` (the member's private record for the private layer).
+   * appended to the record of `placeId` (the member's private record for the private layer).
    * Not awaited: the store's writers stay synchronous; a refused append is logged.
    */
-  function recordFelt(guildId: string, userId: string, layer: Untyped, episodes: Untyped) {
+  function recordFelt(accountId: string, layer: Untyped, episodes: Untyped) {
     if (!record || !recordOn()) return;
     const lines = episodes
       .filter((ep: Untyped) => isRecord(ep) && typeof ep.feeling === 'string' && ep.feeling)
       .map((ep: Untyped) =>
         feltLine(
           {
-            userId: String(userId),
+            userId: String(accountId),
             itemId: ep.itemId ?? null,
             text: ep.feeling,
             date: ep.date ?? null,
@@ -1649,14 +1582,11 @@ function buildStore({
     const failed = (error: Untyped) =>
       log.warn('store: record failed', {
         kind: 'felt',
-        guildId: String(guildId),
         lines: lines.length,
         code: error?.code ?? null,
       });
     try {
-      Promise.resolve(
-        record.append(guildId, lines, layer === 'private' ? { privateUserId: String(userId) } : {})
-      ).catch(failed);
+      Promise.resolve(record.append(layer === 'private' ? dmHomeOf(String(accountId)) : null, lines)).catch(failed);
     } catch (error) {
       failed(error);
     }
@@ -1665,7 +1595,7 @@ function buildStore({
   function entry(file: string, fallback: () => Untyped): CacheItem {
     let item = entries.get(file);
     // A profile an attitude move made stale (`noteAffinityMoves`) is read again once its own write has landed.
-    if (item?.stale && !item.dirty && !outbox?.holds(unitKeys.get(file) ?? root.relative(file))) {
+    if (item?.stale && !item.dirty && !outbox?.holds(unitKeys.get(file) ?? file)) {
       entries.delete(file);
       item = undefined;
     }
@@ -1695,19 +1625,7 @@ function buildStore({
   function dbPlace(file: string) {
     const key = unitKeys.get(file);
     if (key) return { rel: file, key, file: false, send: true };
-    const rel = root.relative(file);
-    if (isCoreStatePath(rel))
-      return {
-        rel,
-        file: !memoryDb,
-        send: Boolean(memoryDb) || /^guilds\/[^/]+\/(?:participation|media)\.json$/.test(rel),
-      };
-    if (operationalJsonPath(rel))
-      return { rel, file: true, send: /^guilds\/[^/]+\/(?:participation|media)\.json$/.test(rel) };
-    const info: Untyped = classify(rel);
-    if (!info || info.skipped || info.format !== 'json' || info.guildId === undefined)
-      return { rel, file: true, send: false };
-    return { rel, file: false, send: true };
+    return { rel: root.relative(file), file: true, send: false };
   }
 
   /** Whether a file has a value, cached or stored (a memory unit's `files` row in the database, an operational file on disk). */
@@ -1735,17 +1653,11 @@ function buildStore({
       const query = directoryQueries.get(dir);
       if (!query) return [];
       const keys = [...seam.run(() => listUnits(db, query)).map((unit) => unit.key), ...unitKeys.values()];
-      for (const key of keys)
-        if (key.kind === query.kind && key.scopePlaceId === query.scopePlaceId) {
-          const native = storageContext(db, key).subjectNativeId;
-          if (native) ids.add(native);
-        }
+      for (const key of keys) if (key.kind === query.kind && !key.selector && !key.partition) ids.add(key.subject.id);
       return [...ids];
     }
-    const prefix = dir + path.sep;
-    for (const file of entries.keys()) {
-      if (file.startsWith(prefix)) ids.add(path.basename(file, '.json'));
-    }
+    const kind = directoryQueries.get(dir)?.kind;
+    for (const key of unitKeys.values()) if (key.kind === kind && entries.has(keyText(key))) ids.add(key.subject.id);
     return [...ids];
   }
 
@@ -1808,81 +1720,64 @@ function buildStore({
     return counts;
   }
 
-  const guildDir = root.guildDir;
   const unitKeys = new Map<string, StorageKey>();
   const directoryQueries = new Map<string, UnitQuery>();
-  const namespace = () => namespaceOf(memoryDb);
-  function address(key: StorageKey, legacy: () => string): string {
-    if (!memoryDb) return legacy();
+  function address(key: StorageKey): string {
     const address = keyText(key);
     unitKeys.set(address, key);
     return address;
   }
-  function collection(kind: StorageKind, guildId: string, legacy: () => string): string {
-    if (!memoryDb) return legacy();
-    const key = communityKey(kind, guildId, { iface: namespace() });
-    const address = JSON.stringify({ kind, scopePlaceId: key.scopePlaceId });
-    directoryQueries.set(address, { kind, scopePlaceId: key.scopePlaceId });
+  function collection(kind: StorageKind): string {
+    const address = JSON.stringify({ kind });
+    directoryQueries.set(address, { kind });
     return address;
   }
-  function memberKey(kind: 'user' | 'private' | 'channel', guildId: string, id: string): StorageKey {
-    const key = communityKey(kind, guildId, { iface: namespace() });
-    return {
-      ...key,
-      subject:
-        kind === 'channel'
-          ? { type: 'place', id: channelPlaceId(namespace(), id) }
-          : { type: 'account', id: accountId(namespace(), id) },
-    };
+  const addressing = createAddressing({ memoryDb, seam });
+  const { partnerOfPlace, dmHomeOf } = addressing;
+  /** What an archived item of an account says about where it belongs. */
+  function memberScope(accountId: string, isPrivate: boolean): Record<string, Untyped> {
+    const place = isPrivate ? dmHomeOf(accountId) : null;
+    return place ? { place, private: true } : { user: accountId, ...(isPrivate ? { private: true } : {}) };
   }
-  const usersDir = (guildId: string) => collection('user', guildId, () => path.join(guildDir(guildId), 'users'));
+  const usersDir = () => collection('user');
   /** The unit of the account itself: its names, its avatar, how it is addressed. */
-  const accountFile = (guildId: string, userId: string) =>
-    address(memberKey('user', guildId, userId), () => path.join(usersDir(guildId), `${userId}.json`));
+  const accountFile = (accountId: string) => address(accountCollection('user', accountId));
   /**
    * The unit that holds what describes the member: the account's own, or the profile unit of the person it is linked to.
    * Read at every use, so an unlink takes effect at once. A closed database answers with the account's own unit.
    */
-  function userFile(guildId: string, userId: string): string {
-    const own = accountFile(guildId, userId);
+  function userFile(accountId: string): string {
+    const own = accountFile(accountId);
     if (!memoryDb?.readHandle?.()) return own;
-    const unit = seam.run(() => linkedProfileUnit(seam.db(), accountId(namespace(), userId)));
-    return unit ? address(unit.key, () => own) : own;
+    const unit = seam.run(() => linkedProfileUnit(seam.db(), accountId));
+    return unit ? address(unit.key) : own;
   }
-  const guildFile = (guildId: string) =>
-    address(communityKey('guild', guildId, { iface: namespace() }), () => path.join(guildDir(guildId), 'guild.json'));
-  const channelsDir = (guildId: string) =>
-    collection('channel', guildId, () => path.join(guildDir(guildId), 'channels'));
-  const channelFile = (guildId: string, channelId: string) =>
-    address(memberKey('channel', guildId, channelId), () => path.join(channelsDir(guildId), `${channelId}.json`));
-  const communityFile = (kind: StorageKind, guildId: string) =>
-    address(communityKey(kind, guildId, { iface: namespace() }), () => path.join(guildDir(guildId), `${kind}.json`));
-  const mediaCacheFile = (guildId: string) => communityFile('media', guildId);
-  const loreFile = (guildId: string) => communityFile('lore', guildId);
-  const gifsFile = (guildId: string) => communityFile('gifs', guildId);
-  const privateDir = (guildId: string) => collection('private', guildId, () => root.privateDir(guildId));
-  const privateFile = (guildId: string, userId: string) =>
-    address(memberKey('private', guildId, userId), () => path.join(privateDir(guildId), `${userId}.json`));
-  const recentFile = (guildId: string) => communityFile('recent', guildId);
-  const participationFile = (guildId: string) => communityFile('participation', guildId);
-  const diaryFile = (guildId: string) => communityFile('diary', guildId);
-  const recallTraceFile = (guildId: string) => path.join(guildDir(guildId), 'recall-trace.jsonl');
-  const versionsFile = (guildId: string, kind: string, id: string) => {
+  const placeFile = (placeId: string) => address(placeCollection('place', placeId));
+  const channelsDir = () => collection('channel');
+  const channelFile = (placeId: string) => address(placeCollection('channel', placeId));
+  const placeUnitFile = (kind: StorageKind, placeId: string) => address(placeCollection(kind, placeId));
+  const mediaCacheFile = (placeId: string) => placeUnitFile('media', placeId);
+  const loreFile = (placeId: string) => placeUnitFile('lore', placeId);
+  const gifsFile = (placeId: string) => placeUnitFile('gifs', placeId);
+  const privateDir = () => collection('private');
+  const privateFile = (accountId: string) => address(accountCollection('private', accountId));
+  const recentFile = (placeId: string) => placeUnitFile('recent', placeId);
+  const participationFile = (placeId: string) => placeUnitFile('participation', placeId);
+  const diaryFile = () => address(personaKey('diary'));
+  const versionsFile = (placeId: string | null, kind: string, id: string) => {
     const selector: StorageSelector = {
       versionKind: kind as NonNullable<StorageSelector['versionKind']>,
       itemId: kind === 'lore' ? loreVersionKey(id) : id,
     };
     const base =
       kind === 'users'
-        ? memberKey('user', guildId, id)
+        ? accountCollection('user', id)
         : kind === 'channels'
-          ? memberKey('channel', guildId, id)
-          : communityKey('guild', guildId, { iface: namespace() });
-    return address({ ...base, kind: 'versions', selector }, () =>
-      path.join(guildDir(guildId), 'versions', kind, `${selector.itemId}.json`)
-    );
+          ? placeCollection('channel', id)
+          : placeCollection('place', placeId ?? id);
+    return address({ ...base, kind: 'versions', selector });
   };
-  const stateFile = address(personaKey('state'), () => root.stateFile);
+  const stateFile = memoryDb ? address(personaKey('state')) : root.stateFile;
 
   const stateEntry = entry(stateFile, () => ({}));
 
@@ -1890,10 +1785,10 @@ function buildStore({
    * that parses to something other than an object (null, an array, a string -- a hand edit gone
    * wrong) is replaced by the empty shape in the cache, so the private pass never stalls on it;
    * the disk copy is only rewritten by the next change, like any other entry. */
-  function privateEntry(guildId: string, userId: string) {
-    const item = entry(privateFile(guildId, userId), emptyPrivate);
+  function privateEntry(accountId: string) {
+    const item = entry(privateFile(accountId), emptyPrivate);
     if (!item.value || typeof item.value !== 'object' || Array.isArray(item.value)) {
-      log.warn('store: private file replaced', { guildId, reason: 'malformed' });
+      log.warn('store: private file replaced', { reason: 'malformed' });
       item.value = emptyPrivate();
     }
     normalizePrivate(item.value);
@@ -1903,23 +1798,23 @@ function buildStore({
   /** The cache entry of one channel of the server map, created empty when missing, normalised in
    * place (`normalizeChannel`); never marked dirty by reading, so a tally seeded for an old file
    * is written only by the next change. */
-  function channelEntry(guildId: string, channelId: string) {
-    const item = entry(channelFile(guildId, channelId), () => emptyChannel(String(channelId)));
+  function channelEntry(placeId: string) {
+    const item = entry(channelFile(placeId), () => emptyChannel(addressing.nativeOfRow('places', placeId)));
     normalizeChannel(item.value);
     return item;
   }
 
   /** The cache entry of one version file, `{}` when missing; a file that is not an object (a
    * hand edit gone wrong) reads as `{}` in the cache. Never marked dirty by reading. */
-  function versionsEntry(guildId: string, kind: string, id: string) {
-    const item = entry(versionsFile(guildId, kind, id), () => ({}));
+  function versionsEntry(placeId: string | null, kind: string, id: string) {
+    const item = entry(versionsFile(placeId, kind, id), () => ({}));
     if (!isRecord(item.value)) item.value = {};
     return item;
   }
 
   /**
    * Keep the previous text of one prose field before a writer replaces it:
-   * appended to data/guilds/<guildId>/versions/<kind>/<id>.json under `field` as
+   * appended to data/places/<id>/versions/<kind>/<id>.json under `field` as
    * `{ at, by, chars, before, after, kept, removed, added, text }` -- `text` the
    * replaced text, `chars` its length in code points, the counts from
    * src/memory/prose.ts#sentenceDiff(previous, next), `at` the ISO time of
@@ -1931,8 +1826,8 @@ function buildStore({
    *   none (`vs-`); `dropped`: the entries that fell past `kept`, oldest first, with theirs.
    */
   function recordVersion(
-    guildId: string,
-    kind: 'users' | 'channels' | 'guild' | 'lore',
+    placeId: string | null,
+    kind: 'users' | 'channels' | 'place' | 'lore',
     id: string,
     field: string,
     previous: unknown,
@@ -1945,7 +1840,7 @@ function buildStore({
       return { dropped: [] };
     const kept = isFiniteNumber(settings.kept) ? Math.max(0, Math.floor(settings.kept)) : DEFAULT_VERSIONS.kept;
     if (kept === 0) return { dropped: [] };
-    const item = versionsEntry(guildId, kind, id);
+    const item = versionsEntry(placeId, kind, id);
     const diff = sentenceDiff(previous, next);
     const by = typeof opts.by === 'string' && opts.by.trim() ? opts.by.trim() : 'unknown';
     const at = new Date(isFiniteNumber(opts.now) ? opts.now : Date.now()).toISOString();
@@ -1955,21 +1850,26 @@ function buildStore({
     item.value[field] = all.slice(-kept);
     const dropped = all.slice(0, all.length - item.value[field].length);
     item.dirty = true;
-    holdVictims(guildId, {
+    holdVictims({
       item,
-      file: versionsFile(guildId, kind, id),
+      file: versionsFile(placeId, kind, id),
       path: [field],
       previous: list,
       victims: dropped,
       itemKind: 'version',
       eventOf: () => 'evicted',
-      scope: kind === 'users' ? { user: String(id) } : kind === 'channels' ? { channel: String(id) } : { guild: true },
-      userId: kind === 'users' ? String(id) : null,
+      scope:
+        kind === 'users'
+          ? { user: String(id) }
+          : kind === 'channels'
+            ? { place: String(id) }
+            : { place: String(placeId) },
+      accountId: kind === 'users' ? String(id) : null,
     });
     log.info('store: version recorded', {
-      guildId,
+      placeId,
       kind,
-      ...(kind === 'channels' ? { channelId: String(id) } : {}),
+      ...(kind === 'channels' ? { placeId: String(id) } : {}),
       field,
       by,
       chars,
@@ -1992,7 +1892,7 @@ function buildStore({
     item: CacheItem,
     incoming: unknown,
     opts: Untyped,
-    owner: { guildId: string; userId: string; layer?: 'private' } | null = null
+    owner: { accountId: string; layer?: 'private' } | null = null
   ): { added: number; dropped: Array<Untyped> } {
     const previous = Array.isArray(item.value.episodes) ? item.value.episodes : [];
     const before = new Set(previous);
@@ -2004,25 +1904,25 @@ function buildStore({
       item.dirty = true;
       if (owner)
         recordFelt(
-          owner.guildId,
-          owner.userId,
+          owner.accountId,
           owner.layer,
           stamped.filter((_, i) => !before.has(episodes[i]))
         );
       if (owner) {
-        const id = String(owner.userId);
+        const id = String(owner.accountId);
         const isPrivate = owner.layer === 'private';
-        holdVictims(owner.guildId, {
+        const scope = memberScope(id, isPrivate);
+        holdVictims({
           item,
-          file: isPrivate ? privateFile(owner.guildId, id) : userFile(owner.guildId, id),
+          file: isPrivate ? privateFile(id) : userFile(id),
           path: ['episodes'],
           previous,
           victims,
           itemKind: 'episode',
           eventOf: () => 'evicted',
-          scope: { user: id },
-          privateUserId: isPrivate ? id : null,
-          userId: id,
+          scope,
+          home: isPrivate ? dmHomeOf(id) : null,
+          accountId: id,
         });
       }
     }
@@ -2042,8 +1942,7 @@ function buildStore({
 
   /** The attitude moves an affinity write let go past the history size, held for the archive (`holdVictims`). */
   function holdMoves(
-    guildId: string,
-    userId: string,
+    accountId: string,
     item: Untyped,
     file: string,
     current: Untyped,
@@ -2051,8 +1950,8 @@ function buildStore({
     isPrivate = false
   ) {
     if (next === current || !Array.isArray(next.droppedMoves)) return;
-    const id = String(userId);
-    holdVictims(guildId, {
+    const id = String(accountId);
+    holdVictims({
       item,
       file,
       path: ['affinity', 'history'],
@@ -2060,90 +1959,90 @@ function buildStore({
       victims: next.droppedMoves,
       itemKind: 'move',
       eventOf: () => 'evicted',
-      scope: { user: id },
-      privateUserId: isPrivate ? id : null,
-      userId: id,
+      scope: memberScope(id, isPrivate),
+      home: isPrivate ? dmHomeOf(id) : null,
+      accountId: id,
     });
   }
 
   /** Whether a channel has an entry, cached or on disk (no side effects on the cache). */
-  function hasChannel(guildId: string, channelId: string) {
-    const file = channelFile(guildId, channelId);
+  function hasChannel(placeId: string) {
+    const file = channelFile(placeId);
     return known(file);
   }
 
-  /** The cache entry of a guild's GIF library, created empty when missing, normalised in place of
+  /** The cache entry of a place's GIF library, created empty when missing, normalised in place of
    * the cached value (src/memory/gifs.ts#normalizeGifs); never marked dirty by reading. */
-  function gifsEntry(guildId: string) {
-    const item = entry(gifsFile(guildId), emptyGifs);
+  function gifsEntry(placeId: string) {
+    const item = entry(gifsFile(placeId), emptyGifs);
     item.value = normalizeGifs(item.value);
     return item;
   }
 
   /** Whether a member has a private file, cached or on disk (no side effects on the cache). */
-  function hasPrivate(guildId: string, userId: string) {
-    const file = privateFile(guildId, userId);
+  function hasPrivate(accountId: string) {
+    const file = privateFile(accountId);
     return known(file);
   }
 
-  /** The cache entry of a guild's recent store, the empty store when there is no file, normalised
+  /** The cache entry of a place's recent store, the empty store when there is no file, normalised
    * in place of the cached value (src/memory/recent.ts#normalizeRecent); never marked dirty by
    * reading, so a healed hand edit is written only by the next change. On the read that loads the
    * file, lines normalising leaves out (a hand edit, a file from another version) are logged as a
    * count, `store: recent lines dropped`, and a value that is not a store (not an object, or
    * `lines` not a list) as `store: recent store replaced`: the next write makes the loss
    * permanent. An unparsable file reads as empty with `readJson`'s warning. */
-  function recentEntry(guildId: string) {
-    const file = recentFile(guildId);
+  function recentEntry(placeId: string) {
+    const file = recentFile(placeId);
     const loading = !entries.has(file);
     const item = entry(file, emptyRecent);
     const raw = item.value;
     item.value = normalizeRecent(raw);
     if (loading && (!isRecord(raw) || !Array.isArray(raw.lines))) {
-      log.warn('store: recent store replaced', { guildId, reason: 'malformed' });
+      log.warn('store: recent store replaced', { placeId, reason: 'malformed' });
     } else if (loading && raw.lines.length > item.value.lines.length) {
-      log.warn('store: recent lines dropped', { guildId, dropped: raw.lines.length - item.value.lines.length });
+      log.warn('store: recent lines dropped', { placeId, dropped: raw.lines.length - item.value.lines.length });
     }
     return item;
   }
 
-  /** The cache entry of a guild's participation store, the empty store when there is no file,
+  /** The cache entry of a place's participation store, the empty store when there is no file,
    * normalised in place of the cached value (src/memory/participation.ts#normalizeParticipation);
    * never marked dirty by reading. On the read that loads the file, episodes normalising leaves out
    * are logged as a count, `store: participation episodes dropped`, and a value that is not a store
    * (not an object, or `episodes` not a list) as `store: participation store replaced`. An
    * unparsable file reads as empty with `readJson`'s warning. */
-  function participationEntry(guildId: string) {
-    const file = participationFile(guildId);
+  function participationEntry(placeId: string) {
+    const file = participationFile(placeId);
     const loading = !entries.has(file);
     const item = entry(file, emptyParticipation);
     const raw = item.value;
     item.value = normalizeParticipation(raw);
     if (loading && (!isRecord(raw) || !Array.isArray(raw.episodes))) {
-      log.warn('store: participation store replaced', { guildId, reason: 'malformed' });
+      log.warn('store: participation store replaced', { placeId, reason: 'malformed' });
     } else if (loading && raw.episodes.length > item.value.episodes.length) {
       log.warn('store: participation episodes dropped', {
-        guildId,
+        placeId,
         dropped: raw.episodes.length - item.value.episodes.length,
       });
     }
     return item;
   }
 
-  /** The cache entry of a guild's diary, the empty diary when there is no file; a value that is not
+  /** The cache entry of a place's diary, the empty diary when there is no file; a value that is not
    * a diary (not an object, or `posts` not a list) is replaced by the empty one in the cache, and
    * the disk copy is only rewritten by the next change. */
-  function diaryEntry(guildId: string) {
-    const item = entry(diaryFile(guildId), emptyDiary);
+  function diaryEntry() {
+    const item = entry(diaryFile(), emptyDiary);
     if (!isRecord(item.value) || !Array.isArray(item.value.posts)) item.value = emptyDiary();
     return item;
   }
 
-  /** Store `posts` (the newest `max`) as the guild's diary, stamped `now`, and mark it dirty. Every
+  /** Store `posts` (the newest `max`) as the place's diary, stamped `now`, and mark it dirty. Every
    * post gets an `itemId` when it has none (`dy-`); returns `{ dropped }`, the posts that fell past
    * `max`, oldest first, with theirs. */
-  function writeDiary(guildId: string, posts: Untyped, { max, now }: { max?: number; now?: number } = {}) {
-    const item = diaryEntry(guildId);
+  function writeDiary(posts: Untyped, { max, now }: { max?: number; now?: number } = {}) {
+    const item = diaryEntry();
     const previous = item.value.posts;
     const limit = isFiniteNumber(max) && max > 0 ? Math.floor(max) : DIARY_HISTORY_POSTS;
     const all = withItemIds(posts, ITEM_ID_PREFIX.diary, newId);
@@ -2151,15 +2050,15 @@ function buildStore({
     item.value = { posts: kept, updatedAt: isFiniteNumber(now) ? now : Date.now() };
     item.dirty = true;
     const dropped = all.slice(0, all.length - kept.length);
-    holdVictims(guildId, {
+    holdVictims({
       item,
-      file: diaryFile(guildId),
+      file: diaryFile(),
       path: ['posts'],
       previous,
       victims: dropped,
       itemKind: 'diary',
       eventOf: () => 'evicted',
-      scope: { guild: true },
+      scope: {},
     });
     return { dropped };
   }
@@ -2180,14 +2079,14 @@ function buildStore({
      * which tolerates a hand-edited file) -- persisted the next time
      * anything writes this profile, never wiped implicitly.
      */
-    getUser(guildId: string, userId: string): StoredRecord | null {
-      const file = userFile(guildId, userId);
+    getUser(accountId: string): StoredRecord | null {
+      const file = userFile(accountId);
       if (!known(file)) return null;
-      const item = entry(file, () => emptyProfile(String(userId)));
+      const item = entry(file, () => emptyProfile(addressing.nativeOfRow('accounts', accountId)));
       normalizeProfile(item.value);
-      const own = accountFile(guildId, userId);
+      const own = accountFile(accountId);
       if (file === own) return item.value;
-      return linkedProfile(item, known(own) ? accountEntry(guildId, userId) : null, String(userId));
+      return linkedProfile(item, known(own) ? accountEntry(accountId) : null, String(accountId));
     },
 
     /**
@@ -2203,10 +2102,10 @@ function buildStore({
      * older/backdated touch never displaces the current name from index 0; an
      * unseen name from such a touch is appended at the end instead.
      */
-    touchUser(guildId: string, userId: string, name: string, at = Date.now()): StoredRecord {
-      const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
+    touchUser(accountId: string, name: string, at = Date.now()): StoredRecord {
+      const item = entry(userFile(accountId), () => emptyProfile(addressing.nativeOfRow('accounts', accountId)));
       const profile = item.value;
-      const account = accountEntry(guildId, userId);
+      const account = accountEntry(accountId);
 
       const priorFirstSeenMs = profile.firstSeen ? Date.parse(profile.firstSeen) : NaN;
       const priorLastSeenMs = profile.lastSeen ? Date.parse(profile.lastSeen) : NaN;
@@ -2223,7 +2122,7 @@ function buildStore({
       profile.messageCount += 1;
       item.dirty = true;
       account.dirty = true;
-      return account === item ? profile : (store.getUser(guildId, userId) as StoredRecord);
+      return account === item ? profile : (store.getUser(accountId) as StoredRecord);
     },
 
     /**
@@ -2238,16 +2137,15 @@ function buildStore({
      * loses its links first (`withoutLinks`: one that was only links is not written).
      */
     updateUser(
-      guildId: string,
-      userId: string,
+      accountId: string,
       fields: Untyped,
       opts: { by?: string; versions?: { enabled?: boolean; kept?: number } } = {}
     ): StoredRecord {
-      const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
+      const item = entry(userFile(accountId), () => emptyProfile(addressing.nativeOfRow('accounts', accountId)));
       const { affinity, episodes, interests, details, detailsSeq, ...given } = fields ?? {};
       const safeFields = withoutLinks(given, USER_PROSE);
       for (const key of USER_PROSE) {
-        if (key in safeFields) recordVersion(guildId, 'users', userId, key, item.value[key], safeFields[key], opts);
+        if (key in safeFields) recordVersion(null, 'users', accountId, key, item.value[key], safeFields[key], opts);
       }
       Object.assign(item.value, safeFields, { updatedAt: new Date().toISOString() });
       item.dirty = true;
@@ -2290,8 +2188,7 @@ function buildStore({
      * @returns The updated profile.
      */
     applyProfileOps(
-      guildId: string,
-      userId: string,
+      accountId: string,
       ops: ProfileOpsOptions,
       opts: {
         fieldChars?: number;
@@ -2316,7 +2213,7 @@ function buildStore({
         versions?: { enabled?: boolean; kept?: number };
       } = {}
     ): object {
-      const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
+      const item = entry(userFile(accountId), () => emptyProfile(addressing.nativeOfRow('accounts', accountId)));
       const profile = item.value;
       normalizeProfile(profile);
 
@@ -2326,12 +2223,12 @@ function buildStore({
         const value = typeof ops?.[key] === 'string' ? stripUrls(ops[key]) : undefined;
         if (typeof value === 'string' && value.trim()) {
           const next = firstWriteText(profile[key], value, opts.fieldChars, opts.clampTolerance);
-          recordVersion(guildId, 'users', userId, key, profile[key], next, opts);
+          recordVersion(null, 'users', accountId, key, profile[key], next, opts);
           profile[key] = next;
         }
       }
       writeRelationship(profile, ops?.relationship, opts, (previous, next) =>
-        recordVersion(guildId, 'users', userId, 'relationship', previous, next, opts)
+        recordVersion(null, 'users', accountId, 'relationship', previous, next, opts)
       );
 
       // What left the profile (removed, folded, evicted), each with its itemId: the archive's input.
@@ -2370,10 +2267,10 @@ function buildStore({
           dropped.closed.realName = real.closed;
         }
       }
-      archiveProfileItems(guildId, userId, { item, file: userFile(guildId, userId), previous, dropped, ops });
-      storeClosed(guildId, userId, {
+      archiveProfileItems(accountId, { item, file: userFile(accountId), previous, dropped, ops });
+      storeClosed(accountId, {
         item,
-        file: userFile(guildId, userId),
+        file: userFile(accountId),
         target: profile,
         closed: dropped.closed,
         opts,
@@ -2393,18 +2290,17 @@ function buildStore({
      * @returns The profile, or null when there is none.
      */
     recordAddressUses(
-      guildId: string,
-      userId: string,
+      accountId: string,
       uses: Array<{ name: string; at: number }>,
       opts: { halfLifeDays?: number; max?: number; now?: number } = {}
     ): object | null {
-      const profile = store.getUser(guildId, userId);
+      const profile = store.getUser(accountId);
       if (!profile) return null;
       if (!Array.isArray(uses) || uses.length === 0) return profile;
-      const account = accountEntry(guildId, userId);
+      const account = accountEntry(accountId);
       account.value.addressedAs = applyAddressUses(account.value.addressedAs, uses, opts);
       account.dirty = true;
-      return store.getUser(guildId, userId);
+      return store.getUser(accountId);
     },
 
     /**
@@ -2414,14 +2310,14 @@ function buildStore({
      * version stamp). Lives and goes with the profile.
      * @returns The profile, or null when nothing was written.
      */
-    setAvatar(guildId: string, userId: string, avatar: Untyped): object | null {
-      if (!known(userFile(guildId, userId))) return null;
+    setAvatar(accountId: string, avatar: Untyped): object | null {
+      if (!known(userFile(accountId))) return null;
       const value = normalizeAvatar(avatar);
       if (!value) return null;
-      const item = accountEntry(guildId, userId);
+      const item = accountEntry(accountId);
       item.value.avatar = value;
       item.dirty = true;
-      return store.getUser(guildId, userId);
+      return store.getUser(accountId);
     },
 
     /**
@@ -2433,10 +2329,10 @@ function buildStore({
      * @param [on=true]  false removes the flag.
      * @returns false when there is no profile or it has no relationship text.
      */
-    markRelationshipRewrite(guildId: string, userId: string, on: boolean = true): boolean {
-      const profile = store.getUser(guildId, userId);
+    markRelationshipRewrite(accountId: string, on: boolean = true): boolean {
+      const profile = store.getUser(accountId);
       if (!profile || typeof profile.relationship !== 'string' || !profile.relationship.trim()) return false;
-      const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
+      const item = entry(userFile(accountId), () => emptyProfile(addressing.nativeOfRow('accounts', accountId)));
       if (on) entryRecord(item).relationshipRewrite = true;
       else delete entryRecord(item).relationshipRewrite;
       item.dirty = true;
@@ -2449,32 +2345,31 @@ function buildStore({
      * what is already stored, then evicted back down to `opts.maxEpisodes`
      * (lowest weight, oldest first) if needed. Returns how many were added.
      */
-    addEpisodes(guildId: string, userId: string, incoming: Untyped, opts: Untyped) {
-      const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
-      return mergeEpisodesInto(item, incoming, opts, { guildId, userId }).added;
+    addEpisodes(accountId: string, incoming: Untyped, opts: Untyped) {
+      const item = entry(userFile(accountId), () => emptyProfile(addressing.nativeOfRow('accounts', accountId)));
+      return mergeEpisodesInto(item, incoming, opts, { accountId }).added;
     },
 
     /** Fold one delta into a member's stored affinity (see src/memory/affinity.ts); `decayedAt` is
      * kept. Returns the stored affinity, with `applyDelta`'s non-enumerable `droppedMoves`. */
     adjustAffinity(
-      guildId: string,
-      userId: string,
+      accountId: string,
       delta: Untyped,
       reason: string,
       opts: Untyped
     ): { score: number; reason: string; history: Array<object> } | null {
-      const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
+      const item = entry(userFile(accountId), () => emptyProfile(addressing.nativeOfRow('accounts', accountId)));
       const current = item.value.affinity ?? emptyAffinity();
       const next = applyDeltaWithIds(current, delta, reason, opts);
       item.value.affinity = next;
       item.dirty = true;
-      holdMoves(guildId, userId, item, userFile(guildId, userId), current, next);
+      holdMoves(accountId, item, userFile(accountId), current, next);
       return next;
     },
 
     /**
      * `relationships.decayPerDay`: run src/memory/affinity.ts#decayAffinity over every member
-     * profile of a guild AND every private layer under its `private/` directory. Only a file
+     * profile of a place AND every private layer under its `private/` directory. Only a file
      * whose affinity actually changed (score moved, or the `decayedAt` stamp was set or
      * advanced) is marked dirty; a profile without any stored affinity is left alone. Never
      * creates a file.
@@ -2484,7 +2379,6 @@ function buildStore({
      *   private); `decayed`: files whose score moved.
      */
     decayAffinities(
-      guildId: string,
       nowMs: number,
       cfg: { decayPerDay?: number; decayPower?: number }
     ): { profiles: number; decayed: number } {
@@ -2502,27 +2396,27 @@ function buildStore({
       };
       // A person with two accounts holds one score, so it cools once.
       const swept = new Set<string>();
-      for (const userId of idsUnder(usersDir(guildId))) {
-        if (!store.getUser(guildId, userId)) continue;
-        const file = userFile(guildId, userId);
+      for (const accountId of idsUnder(usersDir())) {
+        if (!store.getUser(accountId)) continue;
+        const file = userFile(accountId);
         if (swept.has(file)) continue;
         swept.add(file);
-        sweep(entry(file, () => emptyProfile(String(userId))));
+        sweep(entry(file, () => emptyProfile(addressing.nativeOfRow('accounts', accountId))));
       }
-      for (const userId of idsUnder(privateDir(guildId))) sweep(privateEntry(guildId, userId));
+      for (const accountId of idsUnder(privateDir())) sweep(privateEntry(accountId));
       return counts;
     },
 
     // ---- the private layer: what one member said to the persona in direct messages ----
 
     /**
-     * A member's private layer (data/guilds/<id>/private/<userId>.json), or
+     * A member's private layer (the place's private/<accountId>.json), or
      * null when there is none. Normalised on read (see `normalizePrivate`),
      * persisted the next time anything writes the file.
      */
-    getPrivate(guildId: string, userId: string): object | null {
-      if (!hasPrivate(guildId, userId)) return null;
-      return privateEntry(guildId, userId).value;
+    getPrivate(accountId: string): object | null {
+      if (!hasPrivate(accountId)) return null;
+      return privateEntry(accountId).value;
     },
 
     /**
@@ -2537,8 +2431,8 @@ function buildStore({
      *   effective one it showed the model).
      * @returns The updated private layer.
      */
-    applyPrivateOps(guildId: string, userId: string, ops: PrivateOpsOptions, opts: StoredRecord = {}): object {
-      const item = privateEntry(guildId, userId);
+    applyPrivateOps(accountId: string, ops: PrivateOpsOptions, opts: StoredRecord = {}): object {
+      const item = privateEntry(accountId);
       const priv = item.value;
 
       const seenAt = seenAtOf(opts);
@@ -2548,21 +2442,21 @@ function buildStore({
       // What left the private layer, each with its itemId: the archive's input.
       const previous = { interests: priv.interests, details: priv.details };
       const dropped = applyItemOps(priv, ops, opts, seenAt, newId);
-      archiveProfileItems(guildId, userId, {
+      archiveProfileItems(accountId, {
         item,
-        file: privateFile(guildId, userId),
+        file: privateFile(accountId),
         previous,
         dropped,
         ops: { interests: ops?.interests, details: ops?.details },
-        privateUserId: String(userId),
+        home: dmHomeOf(String(accountId)),
       });
-      storeClosed(guildId, userId, {
+      storeClosed(accountId, {
         item,
-        file: privateFile(guildId, userId),
+        file: privateFile(accountId),
         target: priv,
         closed: dropped.closed,
         opts,
-        privateUserId: String(userId),
+        home: dmHomeOf(String(accountId)),
       });
 
       item.dirty = true;
@@ -2575,18 +2469,17 @@ function buildStore({
      * The public affinity is never touched. Creates the file.
      */
     adjustPrivateAffinity(
-      guildId: string,
-      userId: string,
+      accountId: string,
       delta: number,
       reason: string,
       opts?: StoredRecord
     ): { score: number; reason: string; history: Array<object> } {
-      const item = privateEntry(guildId, userId);
+      const item = privateEntry(accountId);
       const current = item.value.affinity;
       const next = applyDeltaWithIds(current, delta, reason, opts);
       item.value.affinity = next;
       item.dirty = true;
-      holdMoves(guildId, userId, item, privateFile(guildId, userId), current, next, true);
+      holdMoves(accountId, item, privateFile(accountId), current, next, true);
       return next;
     },
 
@@ -2595,9 +2488,9 @@ function buildStore({
      * src/memory/episodes.ts#mergeEpisodes (same `opts` as `addEpisodes`).
      * Creates the file. Returns how many were added.
      */
-    addPrivateEpisodes(guildId: string, userId: string, incoming: unknown, opts?: Untyped): number {
-      const item = privateEntry(guildId, userId);
-      return mergeEpisodesInto(item, incoming, opts, { guildId, userId, layer: 'private' }).added;
+    addPrivateEpisodes(accountId: string, incoming: unknown, opts?: Untyped): number {
+      const item = privateEntry(accountId);
+      return mergeEpisodesInto(item, incoming, opts, { accountId, layer: 'private' }).added;
     },
 
     /**
@@ -2607,8 +2500,8 @@ function buildStore({
      * Creates the file.
      * @param nowMs  Epoch milliseconds.
      */
-    touchPrivateSeen(guildId: string, userId: string, nowMs: number) {
-      const item = privateEntry(guildId, userId);
+    touchPrivateSeen(accountId: string, nowMs: number) {
+      const item = privateEntry(accountId);
       const iso = new Date(nowMs).toISOString();
       if (!item.value.firstSeen) item.value.firstSeen = iso;
       item.value.lastSeen = iso;
@@ -2616,43 +2509,43 @@ function buildStore({
     },
 
     /**
-     * Ids of every member with a private layer in a guild, cached or on disk.
+     * Ids of every member with a private layer in a place, cached or on disk.
      */
-    listPrivate(guildId: string): Array<string> {
-      return idsUnder(privateDir(guildId));
+    listPrivate(): Array<string> {
+      return idsUnder(privateDir());
     },
 
-    /** How many member profiles a guild has, cached or on disk (a profile not flushed yet included). */
-    countUsers(guildId: string) {
-      return idsUnder(usersDir(guildId)).length;
+    /** How many member profiles a place has, cached or on disk (a profile not flushed yet included). */
+    countUsers() {
+      return idsUnder(usersDir()).length;
     },
 
     /**
-     * Every member profile stored for a guild, cached or on disk -- the pool
+     * Every member profile stored for a place, cached or on disk -- the pool
      * a turn scans to pull a silent member into `<people>` by name/alias (see
      * src/behavior/prompt.js and docs/prompt-contract.md, "Aliases").
      * Same normalize-on-read guarantee as `getUser`.
      */
-    listUserProfiles(guildId: string): Array<StoredRecord> {
-      return idsUnder(usersDir(guildId))
-        .map((id) => store.getUser(guildId, id))
+    listUserProfiles(): Array<StoredRecord> {
+      return idsUnder(usersDir())
+        .map((id) => store.getUser(id))
         .filter((profile): profile is StoredRecord => profile !== null);
     },
 
     /**
-     * The guild's memory (data/guilds/<id>/guild.json), the empty default
+     * The place's memory (the place's the place's notes), the empty default
      * when nothing is stored. `learned` is normalised on read (see
-     * `normalizeGuild` above) -- persisted the next time anything writes the
-     * guild, never wiped implicitly.
+     * `normalizePlace` above) -- persisted the next time anything writes the
+     * place, never wiped implicitly.
      */
-    getGuild(guildId: string): StoredRecord {
-      const item = entry(guildFile(guildId), emptyGuild);
-      normalizeGuild(item.value);
+    getPlace(placeId: string): StoredRecord {
+      const item = entry(placeFile(placeId), emptyPlace);
+      normalizePlace(item.value);
       return item.value;
     },
 
     /**
-     * Merge fields into the guild's memory and stamp `updatedAt` -- only when
+     * Merge fields into the place's memory and stamp `updatedAt` -- only when
      * something stored actually changes: an identical re-send is left alone. `learned`/
      * `learnedNextId` are never taken from here -- they only ever change
      * through `applyLearnedOps`, which merges incrementally instead of
@@ -2662,30 +2555,30 @@ function buildStore({
      * same stamp when one of the server notes (`patterns`, `starters`,
      * `injokes`) really changes; `self` alone never moves it, and neither does
      * `applyLearnedOps`, so it tells how old the notes are. A changed `patterns`/`starters` keeps its previous
-     * text (`recordVersion`; `opts.by`, `opts.versions`). The return stays the stored guild, so what
+     * text (`recordVersion`; `opts.by`, `opts.versions`). The return stays the stored place, so what
      * a write of `injokes` or `self` takes out of the stored list (by
      * src/memory/interests.ts#normalizeTopic) is handed to `opts.onDropped` instead, as
      * `{ injokes, self }` lists of `{ itemId, text }` (`ij-`/`sf-`, minted here, see
      * `ITEM_ID_PREFIX`), called once per write. `patterns`, `starters` and every in-joke and self
      * fact lose their links first (`withoutLinks`): a text that was only links is not written.
      */
-    updateGuild(guildId: string, fields: Untyped, opts: UpdateGuildOptions = {}): StoredRecord {
-      const item = entry(guildFile(guildId), emptyGuild);
-      normalizeGuild(item.value);
+    updatePlace(placeId: string, fields: Untyped, opts: UpdatePlaceOptions = {}): StoredRecord {
+      const item = entry(placeFile(placeId), emptyPlace);
+      normalizePlace(item.value);
       const { learned, learnedNextId, emojiUsage, emojiBackfill, pingsOff, notesUpdatedAt, notesCheckedAt, ...given } =
         fields ?? {};
-      const safeFields = withoutLinks(given, GUILD_TEXT);
+      const safeFields = withoutLinks(given, PLACE_TEXT);
       if (!changesStored(item.value, safeFields)) return item.value;
       const notes = Object.fromEntries(Object.entries(safeFields).filter(([key]) => NOTES_FIELDS.includes(key)));
       const stamp = new Date().toISOString();
       const stamps = changesStored(item.value, notes)
         ? { updatedAt: stamp, notesUpdatedAt: stamp }
         : { updatedAt: stamp };
-      for (const key of GUILD_PROSE) {
-        if (key in safeFields) recordVersion(guildId, 'guild', 'guild', key, item.value[key], safeFields[key], opts);
+      for (const key of PLACE_PROSE) {
+        if (key in safeFields) recordVersion(placeId, 'place', 'place', key, item.value[key], safeFields[key], opts);
       }
       // The in-jokes (and a single-stage self list) are replaced whole: what the new list no longer
-      // holds leaves the guild here.
+      // holds leaves the place here.
       const dropped: { injokes: Array<Untyped>; self: Array<Untyped> } = {
         injokes:
           'injokes' in safeFields
@@ -2704,15 +2597,15 @@ function buildStore({
         ['self', 'selfFact'],
       ] as const) {
         if (!(field in safeFields)) continue;
-        holdVictims(guildId, {
+        holdVictims({
           item,
-          file: guildFile(guildId),
+          file: placeFile(placeId),
           path: [field],
           strings: true,
           previous: previous[field],
           victims: dropped[field],
           itemKind,
-          scope: { guild: true },
+          scope: { place: placeId },
           eventOf: () => 'replaced',
         });
       }
@@ -2720,26 +2613,26 @@ function buildStore({
     },
 
     /**
-     * Whether `userId` turned the persona's notifications off in this guild (`/nep pings off`).
+     * Whether `memberId` turned the persona's notifications off in this place (`/nep pings off`).
      */
-    isPingsOff(guildId: string, userId: string): boolean {
-      const list = store.getGuild(guildId)?.pingsOff;
-      return Array.isArray(list) && list.includes(String(userId));
+    isPingsOff(placeId: string, memberId: string): boolean {
+      const list = store.getPlace(placeId)?.pingsOff;
+      return Array.isArray(list) && list.includes(String(memberId));
     },
 
     /**
-     * Turn the persona's notifications to `userId` off (`off` true) or back on, in the guild's
+     * Turn the persona's notifications to `memberId` off (`off` true) or back on, in the place's
      * `pingsOff` list. A change is written at once (a member's own switch, allowed while paused,
      * when the next flush could otherwise land on a hand-edited file or be dropped with the
      * caches); no change writes nothing. Nothing else is touched, never `updatedAt`. Persists like
-     * every guild field and is never reset implicitly.
+     * every place field and is never reset implicitly.
      * @returns The state now: true when the member's pings are off.
      */
-    setPingsOff(guildId: string, userId: string, off: boolean): boolean {
-      const item = entry(guildFile(guildId), emptyGuild);
-      normalizeGuild(item.value);
+    setPingsOff(placeId: string, memberId: string, off: boolean): boolean {
+      const item = entry(placeFile(placeId), emptyPlace);
+      normalizePlace(item.value);
       if (!isRecord(item.value)) return false;
-      const id = String(userId);
+      const id = String(memberId);
       const has = item.value.pingsOff.includes(id);
       if (off === true && !has) {
         item.value.pingsOff = [...item.value.pingsOff, id];
@@ -2748,24 +2641,24 @@ function buildStore({
         item.value.pingsOff = item.value.pingsOff.filter((other: Untyped) => other !== id);
         item.dirty = true;
       }
-      // Written at once: the guild unit goes to the database now, not at the next flush.
-      flushEntry(guildFile(guildId), item);
+      // Written at once: the place unit goes to the database now, not at the next flush.
+      flushEntry(placeFile(placeId), item);
       if (outbox) outbox.push();
       return item.value.pingsOff.includes(id);
     },
 
     /**
      * Stamp `notesFlaggedAt` (when the analyzer flagged the notes stale) on the listed channels
-     * that exist and on the guild; dirty only when the value changes, nothing is created.
+     * that exist and on the place; dirty only when the value changes, nothing is created.
      * @param nowMs  Epoch milliseconds; not a finite number -> the wall clock.
      */
     markNotesFlagged(
-      guildId: string,
-      targets: { channels?: Array<string>; guild?: boolean },
+      placeId: string,
+      targets: { channels?: Array<string>; place?: boolean },
       nowMs: number
-    ): { channels: number; guild: boolean } {
+    ): { channels: number; place: boolean } {
       const at = new Date(isFiniteNumber(nowMs) ? nowMs : Date.now()).toISOString();
-      const marked = { channels: 0, guild: false };
+      const marked = { channels: 0, place: false };
       const stamp = (item: Untyped) => {
         if (item.value.notesFlaggedAt === at) return;
         item.value.notesFlaggedAt = at;
@@ -2773,21 +2666,21 @@ function buildStore({
       };
 
       const listed = Array.isArray(targets?.channels) ? targets.channels : [];
-      const channelIds = new Set(listed.filter((id) => typeof id === 'string' || typeof id === 'number').map(String));
-      for (const channelId of channelIds) {
-        if (!channelId || !hasChannel(guildId, channelId)) continue;
-        const item = channelEntry(guildId, channelId);
+      const channels = new Set(listed.filter((id) => typeof id === 'string' || typeof id === 'number').map(String));
+      for (const channel of channels) {
+        if (!channel || !hasChannel(channel)) continue;
+        const item = channelEntry(channel);
         if (!isRecord(item.value)) continue;
         stamp(item);
         marked.channels += 1;
       }
 
-      if (targets?.guild === true) {
-        const item = entry(guildFile(guildId), emptyGuild);
-        normalizeGuild(item.value);
+      if (targets?.place === true) {
+        const item = entry(placeFile(placeId), emptyPlace);
+        normalizePlace(item.value);
         if (isRecord(item.value)) {
           stamp(item);
-          marked.guild = true;
+          marked.place = true;
         }
       }
       return marked;
@@ -2797,12 +2690,12 @@ function buildStore({
      * Record the outcome of one sample refresh of the notes. `reviewed` sets
      * `notesSampleReviewedAt` and clears `notesAttemptAt`; `attempt` sets `notesAttemptAt` only.
      * A channel that does not exist writes nothing.
-     * @param target  `'guild'` or a channel id.
+     * @param target  `'place'` or a channel id.
      * @param nowMs  Epoch milliseconds; not a finite number -> the wall clock.
      * @returns Whether something was written.
      */
     markNotesSampled(
-      guildId: string,
+      placeId: string,
       target: string,
       nowMs: number,
       { outcome }: { outcome: 'reviewed' | 'attempt' }
@@ -2810,13 +2703,13 @@ function buildStore({
       if (outcome !== 'reviewed' && outcome !== 'attempt') return false;
       const at = new Date(isFiniteNumber(nowMs) ? nowMs : Date.now()).toISOString();
       let item;
-      if (target === 'guild') {
-        item = entry(guildFile(guildId), emptyGuild);
-        normalizeGuild(item.value);
+      if (target === 'place') {
+        item = entry(placeFile(placeId), emptyPlace);
+        normalizePlace(item.value);
       } else {
-        const channelId = typeof target === 'string' || typeof target === 'number' ? String(target) : '';
-        if (!channelId || !hasChannel(guildId, channelId)) return false;
-        item = channelEntry(guildId, channelId);
+        const channel = typeof target === 'string' || typeof target === 'number' ? String(target) : '';
+        if (!channel || !hasChannel(channel)) return false;
+        item = channelEntry(channel);
       }
       if (!isRecord(item.value)) return false;
       const patch =
@@ -2829,20 +2722,20 @@ function buildStore({
 
     /**
      * Add the members' custom emoji uses of one consumed analyzer batch to
-     * the guild's `emojiUsage` (src/memory/emoji-usage.ts#mergeEmojiUsage:
+     * the place's `emojiUsage` (src/memory/emoji-usage.ts#mergeEmojiUsage:
      * counts accumulate, the lowest-ranked entries past `opts.storeMax` are
-     * evicted). Marks the guild dirty only when something was counted; never
+     * evicted). Marks the place dirty only when something was counted; never
      * stamps `updatedAt` (a counter, like `touchUser`).
      * @param messages  Slim buffered messages; `self`/`bot`/`ts`/`emojis` read.
      * @returns How many uses were counted.
      */
     recordEmojiUsage(
-      guildId: string,
+      placeId: string,
       messages: Array<StoredRecord>,
       opts: { storeMax?: number; halfLifeDays?: number } = {}
     ): number {
-      const item = entry(guildFile(guildId), emptyGuild);
-      normalizeGuild(item.value);
+      const item = entry(placeFile(placeId), emptyPlace);
+      normalizePlace(item.value);
       const { usage, counted } = mergeEmojiUsage(item.value.emojiUsage, messages, opts);
       if (counted > 0) {
         item.value.emojiUsage = usage;
@@ -2852,29 +2745,29 @@ function buildStore({
     },
 
     /**
-     * Empty the guild's `emojiUsage` -- only for the emoji history backfill
+     * Empty the place's `emojiUsage` -- only for the emoji history backfill
      * (src/memory/emoji-backfill.ts: its one first run, or the owner's
      * `/nep emoji rescan`), which recounts it from history right after.
      * Nothing else is touched; never stamps `updatedAt`.
      */
-    clearEmojiUsage(guildId: string) {
-      const item = entry(guildFile(guildId), emptyGuild);
-      normalizeGuild(item.value);
+    clearEmojiUsage(placeId: string) {
+      const item = entry(placeFile(placeId), emptyPlace);
+      normalizePlace(item.value);
       item.value.emojiUsage = {};
       item.dirty = true;
     },
 
     /**
-     * Stamp the guild's `emojiBackfill` (`{ at, channels, messages }`,
+     * Stamp the place's `emojiBackfill` (`{ at, channels, messages }`,
      * normalised like on read) after a history backfill. Never stamps `updatedAt`.
      * @returns The stored stamp.
      */
     setEmojiBackfill(
-      guildId: string,
+      placeId: string,
       stamp: { at: string; channels: number; messages: number }
     ): { at: string; channels: number; messages: number } | null {
-      const item = entry(guildFile(guildId), emptyGuild);
-      normalizeGuild(item.value);
+      const item = entry(placeFile(placeId), emptyPlace);
+      normalizePlace(item.value);
       item.value.emojiBackfill = normalizeBackfillStamp(stamp);
       item.dirty = true;
       return item.value.emojiBackfill;
@@ -2882,32 +2775,32 @@ function buildStore({
 
     /**
      * Apply one batch of `learned` ops (`{ add, seen, remove }`, add items a
-     * bare string or `{ text, from?, sure? }`) to the guild's list of things
+     * bare string or `{ text, from?, sure? }`) to the place's list of things
      * people taught the persona, via src/memory/details.ts#applyDetailOps --
      * the same confirmation/ranking/eviction mechanics as a member's
-     * details, with the guild's own `learnedNextId` id counter. Used by the
+     * details, with the place's own `learnedNextId` id counter. Used by the
      * owner commands (src/tools/impl/learning.ts). The limits are the `config.memory` keys of the same name, so
      * a caller can pass `{ ...config.memory, seenAt }` as-is; `seenAt` falls
      * back to the wall clock. Garbage `ops` change nothing and never throw.
-     * The guild is marked dirty (and `updatedAt` stamped) only when the list
+     * The place is marked dirty (and `updatedAt` stamped) only when the list
      * or the counter actually changed.
-     * @returns The guild's `learned` list after the ops (a written list gives every item
+     * @returns The place's `learned` list after the ops (a written list gives every item
      *   an `itemId` when it has none, `ln-`), with the non-enumerable `dropped`: the lessons that
      *   left (removed, evicted), each with one; `[]` when the list did not change.
      */
     applyLearnedOps(
-      guildId: string,
+      placeId: string,
       ops: { add?: Array<unknown>; seen?: Array<unknown>; remove?: Array<unknown> },
       opts: LearnedOpsOptions = {}
     ): Array<object> {
-      const item = entry(guildFile(guildId), emptyGuild);
-      const guild = item.value;
-      normalizeGuild(guild);
-      if (!ops || typeof ops !== 'object' || Array.isArray(ops)) return guild.learned;
+      const item = entry(placeFile(placeId), emptyPlace);
+      const place = item.value;
+      normalizePlace(place);
+      if (!ops || typeof ops !== 'object' || Array.isArray(ops)) return place.learned;
 
-      const before = JSON.stringify([guild.learned, guild.learnedNextId]);
-      const previous = guild.learned;
-      const { items, nextId, dropped } = applyDetailOps(guild.learned, ops, {
+      const before = JSON.stringify([place.learned, place.learnedNextId]);
+      const previous = place.learned;
+      const { items, nextId, dropped } = applyDetailOps(place.learned, ops, {
         maxDetails: opts.maxLearned,
         maxDetailsStored: opts.maxLearnedStored,
         fieldChars: opts.learnedChars,
@@ -2915,32 +2808,32 @@ function buildStore({
         confirmGapHours: opts.confirmGapHours,
         clampTolerance: opts.clampTolerance,
         seenAt: isFiniteNumber(opts.seenAt) ? opts.seenAt : Date.now(),
-        nextId: guild.learnedNextId,
+        nextId: place.learnedNextId,
         // A lesson carries no validity fields.
         validity: false,
       });
       // Compared before the ids are stamped: a call that changes nothing still writes nothing.
       if (JSON.stringify([items, nextId]) !== before) {
-        guild.learned = withItemIds(items, ITEM_ID_PREFIX.lesson, newId);
-        guild.learnedNextId = nextId;
-        guild.updatedAt = new Date().toISOString();
+        place.learned = withItemIds(items, ITEM_ID_PREFIX.lesson, newId);
+        place.learnedNextId = nextId;
+        place.updatedAt = new Date().toISOString();
         item.dirty = true;
       }
       const victims = withItemIds(dropped, ITEM_ID_PREFIX.lesson, newId);
       const removing = removeKeysOf(ops.remove);
-      const kept = guild.learned;
-      archiveReplaced(guildId, { previous, current: kept, itemKind: 'lesson', scope: { guild: true }, item });
-      holdVictims(guildId, {
+      const kept = place.learned;
+      archiveReplaced({ previous, current: kept, itemKind: 'lesson', scope: { place: placeId }, item });
+      holdVictims({
         item,
-        file: guildFile(guildId),
+        file: placeFile(placeId),
         path: ['learned'],
         previous,
         victims,
         itemKind: 'lesson',
-        scope: { guild: true },
+        scope: { place: placeId },
         eventOf: (victim) => rankedEvent(victim, 'text', removing, kept, false),
       });
-      return attachDropped(guild.learned, 'dropped', victims);
+      return attachDropped(place.learned, 'dropped', victims);
     },
 
     /**
@@ -2949,14 +2842,16 @@ function buildStore({
      * the notes check stamp) -- persisted the next time anything writes the
      * entry, never wiped implicitly.
      */
-    getChannel(guildId: string, channelId: string): ChannelEntry | null {
-      if (!hasChannel(guildId, channelId)) return null;
-      return channelEntry(guildId, channelId).value;
+    getChannel(placeId: string): ChannelEntry | null {
+      if (!hasChannel(placeId)) return null;
+      return channelEntry(placeId).value;
     },
 
-    /** Every channel entry stored for a guild, cached or on disk; normalised on read like `getChannel`. */
-    listChannels(guildId: string): Array<StoredRecord> {
-      return idsUnder(channelsDir(guildId)).map((id) => channelEntry(guildId, id).value);
+    /** Every channel entry stored for a place, cached or on disk; normalised on read like `getChannel`. */
+    listChannels(placeId: string): Array<StoredRecord> {
+      return idsUnder(channelsDir())
+        .filter((id) => addressing.inViewOf(id, placeId))
+        .map((id) => channelEntry(id).value);
     },
 
     /**
@@ -2976,14 +2871,13 @@ function buildStore({
      * @returns The channel entry.
      */
     touchChannel(
-      guildId: string,
-      channelId: string,
+      placeId: string,
       facts: { name?: string; category?: string | null; topic?: string | null },
       ts: number = Date.now(),
       authorId: string | null = null,
       opts: { channelWritersStored?: number; channelWritersHalfLifeDays?: number } = {}
     ): object {
-      const item = channelEntry(guildId, channelId);
+      const item = channelEntry(placeId);
       const channel = item.value;
       const { name, category = null, topic = null } = facts ?? {};
       if (name) channel.name = name;
@@ -3015,12 +2909,11 @@ function buildStore({
      * (`recordVersion`; `opts.by`, `opts.versions`).
      */
     updateChannel(
-      guildId: string,
-      channelId: string,
+      placeId: string,
       fields: Untyped,
       opts: { by?: string; versions?: { enabled?: boolean; kept?: number } } = {}
     ): StoredRecord {
-      const item = channelEntry(guildId, channelId);
+      const item = channelEntry(placeId);
       const given: Record<string, Untyped> = {};
       for (const key of CHANNEL_PROSE) {
         if (typeof fields?.[key] === 'string') given[key] = fields[key];
@@ -3028,62 +2921,62 @@ function buildStore({
       const patch = withoutLinks(given, CHANNEL_PROSE);
       if (!changesStored(item.value, patch)) return item.value;
       for (const [key, value] of Object.entries(patch))
-        recordVersion(guildId, 'channels', channelId, key, item.value[key], value, opts);
+        recordVersion(null, 'channels', placeId, key, item.value[key], value, opts);
       Object.assign(item.value, patch, { updatedAt: new Date().toISOString() });
       item.dirty = true;
       return item.value;
     },
 
     /**
-     * The describer's cache for one guild (src/memory/describe.ts): a plain
+     * The describer's cache for one place (src/memory/describe.ts): a plain
      * object map keyed by attachment/embed id, insertion order doubling as
      * LRU recency order. Callers mutate the returned object directly (same
      * pattern as `state.data`) and call `markMediaCacheDirty` afterwards.
      */
-    getMediaCache(guildId: string): StoredRecord {
-      const file = mediaCacheFile(guildId);
+    getMediaCache(placeId: string): StoredRecord {
+      const file = mediaCacheFile(placeId);
       const value = entry(file, () => ({})).value as StoredRecord;
-      seedMedia(guildId, file, value);
+      seedMedia(placeId, file, value);
       return value;
     },
 
     getMediaDescription: currentMedia,
-    rememberMediaDescription(guildId: string, cacheKey: string, value: MediaDescriptionEntry): void {
-      rememberMedia(guildId, cacheKey, value);
+    rememberMediaDescription(placeId: string, cacheKey: string, value: MediaDescriptionEntry): void {
+      rememberMedia(placeId, cacheKey, value);
     },
-    markMediaDescriptionRefreshFailed(guildId: string, cacheKey: string, at: number): void {
-      const previous = currentMedia(guildId, cacheKey);
+    markMediaDescriptionRefreshFailed(placeId: string, cacheKey: string, at: number): void {
+      const previous = currentMedia(placeId, cacheKey);
       if (!previous || !outbox) return;
-      const key = mediaDescriptionKey(guildId, cacheKey);
+      const key = mediaDescriptionKey(placeId, cacheKey);
       pendingMedia.set(keyText(key), { key, entry: { ...previous, refreshFailedAt: at } });
       outbox.lines(key, [{ op: 'refresh-failed', at }]);
     },
 
-    markMediaCacheDirty(guildId: string) {
-      const item = entries.get(mediaCacheFile(guildId));
+    markMediaCacheDirty(placeId: string) {
+      const item = entries.get(mediaCacheFile(placeId));
       if (item) item.dirty = true;
     },
 
     /**
-     * The guild's GIF library (data/guilds/<id>/gifs.json, see
+     * The place's GIF library (the place's gifs.json, see
      * src/memory/gifs.ts): `{ nextId, entries, backfill }`, the empty library
      * when nothing is stored. Normalised on read, persisted the next time
      * anything writes it, never reset implicitly.
      */
-    getGifs(guildId: string): { nextId: number; entries: Record<string, object>; backfill: object | null } {
-      return gifsEntry(guildId).value;
+    getGifs(placeId: string): { nextId: number; entries: Record<string, object>; backfill: object | null } {
+      return gifsEntry(placeId).value;
     },
 
     /**
      * The library entry whose handle is `handle` (`g12`), as `{ key, ...entry }`,
      * or null (src/memory/gifs.ts#findGif). Creates nothing on disk.
      */
-    findGif(guildId: string, handle: string): object | null {
-      return findGif(gifsEntry(guildId).value, handle);
+    findGif(placeId: string, handle: string): object | null {
+      return findGif(gifsEntry(placeId).value, handle);
     },
 
     /**
-     * Add the members' GIFs of `messages` to the guild's library
+     * Add the members' GIFs of `messages` to the place's library
      * (src/memory/gifs.ts#mergeGifs: counts accumulate, new GIFs get the next
      * handle, the lowest-ranked entries past `opts.storeMax` are evicted).
      * Marks the file dirty only when something was counted.
@@ -3091,11 +2984,11 @@ function buildStore({
      * @returns How many uses were counted.
      */
     recordGifs(
-      guildId: string,
+      placeId: string,
       messages: Array<StoredRecord>,
       opts: { storeMax?: number; halfLifeDays?: number } = {}
     ): number {
-      const item = gifsEntry(guildId);
+      const item = gifsEntry(placeId);
       const { gifs, counted } = mergeGifs(item.value, messages, opts);
       if (counted > 0) {
         item.value = gifs;
@@ -3112,8 +3005,8 @@ function buildStore({
      * @param ts   When it was posted (epoch ms).
      * @returns Whether an entry was stamped.
      */
-    recordOwnGif(guildId: string, key: string, ts: number): boolean {
-      const item = gifsEntry(guildId);
+    recordOwnGif(placeId: string, key: string, ts: number): boolean {
+      const item = gifsEntry(placeId);
       const { gifs, marked } = markOwnGif(item.value, key, ts);
       if (marked) {
         item.value = gifs;
@@ -3129,59 +3022,59 @@ function buildStore({
      * history right after. Entries, handles, `nextId` and the backfill stamp
      * are kept, so a recounted GIF keeps its handle.
      */
-    resetGifCounts(guildId: string) {
-      const item = gifsEntry(guildId);
+    resetGifCounts(placeId: string) {
+      const item = gifsEntry(placeId);
       item.value = resetGifCounts(item.value);
       item.dirty = true;
     },
 
     /**
-     * Stamp the guild's GIF library `backfill` (`{ at, channels, messages }`,
+     * Stamp the place's GIF library `backfill` (`{ at, channels, messages }`,
      * normalised like on read) after a history backfill.
      * @returns The stored stamp.
      */
     setGifBackfill(
-      guildId: string,
+      placeId: string,
       stamp: { at: string; channels: number; messages: number }
     ): { at: string; channels: number; messages: number } | null {
-      const item = gifsEntry(guildId);
+      const item = gifsEntry(placeId);
       item.value = { ...item.value, backfill: normalizeGifs({ ...item.value, backfill: stamp }).backfill };
       item.dirty = true;
       return item.value.backfill;
     },
 
     /**
-     * The version history of one prose owner (data/guilds/<guildId>/versions/<kind>/<id>.json, see
+     * The version history of one prose owner (data/places/<id>/versions/<kind>/<id>.json, see
      * `recordVersion`): `{ [field]: [{ at, by, chars, before, after, kept, removed, added, text }] }`,
      * newest last; `{}` when none or for an unknown kind. A lore `id` is the entry's title (matched
      * trimmed and case-insensitively, as the lorebook matches titles). A copy: changing it changes
      * nothing stored.
-     * @param id  A member id, a channel id, `'guild'`, or a lore title.
+     * @param id  A member id, a channel id, `'place'`, or a lore title.
      */
-    listVersions(guildId: string, kind: 'users' | 'channels' | 'guild' | 'lore', id: string): object {
+    listVersions(placeId: string, kind: 'users' | 'channels' | 'place' | 'lore', id: string): object {
       if (!VERSION_KINDS.includes(kind)) return {};
-      return structuredClone(versionsEntry(guildId, kind, id).value);
+      return structuredClone(versionsEntry(placeId, kind, id).value);
     },
 
-    /** Every stored lorebook entry of a guild (data/guilds/<id>/lore.json). Never auto-created empty on disk. */
-    getLore(guildId: string): Array<StoredRecord> {
-      return entry(loreFile(guildId), () => []).value;
+    /** Every stored lorebook entry of a place (the place's lore.json). Never auto-created empty on disk. */
+    getLore(placeId: string): Array<StoredRecord> {
+      return entry(loreFile(placeId), () => []).value;
     },
 
     /**
-     * Merge `incoming` entries into the guild's lorebook via
+     * Merge `incoming` entries into the place's lorebook via
      * src/memory/lore.ts#upsertLore: an analyzer update never touches an
      * owner entry, an owner write always wins. Returns how many were
      * inserted or actually changed (an identical analyzer re-send is neither).
      * An entry whose text changed keeps its previous text (`recordVersion`, kind `lore`, id
      * the title; `opts.by`, `opts.versions`).
      */
-    setLore(guildId: string, incoming: Untyped, opts: SetLoreOptions) {
-      const item = entry(loreFile(guildId), () => []);
+    setLore(placeId: string, incoming: Untyped, opts: SetLoreOptions) {
+      const item = entry(loreFile(placeId), () => []);
       const { entries: nextEntries, upserted, changes } = upsertLore(item.value, incoming, opts);
       if (upserted > 0) {
         for (const change of changes)
-          recordVersion(guildId, 'lore', change.title, 'text', change.previousText, change.nextText, opts);
+          recordVersion(placeId, 'lore', change.title, 'text', change.previousText, change.nextText, opts);
         item.value = nextEntries;
         item.dirty = true;
       }
@@ -3189,8 +3082,8 @@ function buildStore({
     },
 
     /** Delete one lorebook entry by id. Returns whether anything was removed. */
-    removeLore(guildId: string, id: string) {
-      const item = entry(loreFile(guildId), () => []);
+    removeLore(placeId: string, id: string) {
+      const item = entry(loreFile(placeId), () => []);
       const before = item.value.length;
       item.value = item.value.filter((lore: Untyped) => lore.id !== id);
       const removed = item.value.length !== before;
@@ -3201,41 +3094,37 @@ function buildStore({
     // ---- the diary: the persona's own posts in its diary channel (src/behavior/diary.ts) ----
 
     /**
-     * A copy of the guild's diary (data/guilds/<id>/diary.json): `{ posts, updatedAt }`, posts newest last; the empty
+     * A copy of the place's diary (the place's diary.json): `{ posts, updatedAt }`, posts newest last; the empty
      * diary (`{ posts: [], updatedAt: 0 }`) when there is no file, never null. Reading never creates the file.
      */
-    getDiary(guildId: string): {
+    getDiary(): {
       posts: Array<DiaryPostOptions & { messageIds: Array<string> }>;
       updatedAt: number;
     } {
-      return structuredClone(diaryEntry(guildId).value);
+      return structuredClone(diaryEntry().value);
     },
 
     /**
-     * Append one post to the guild's diary, keep the newest `max` (selfreflection.historyPosts), stamp `updatedAt` with `now`.
+     * Append one post to the place's diary, keep the newest `max` (selfreflection.historyPosts), stamp `updatedAt` with `now`.
      * @param post  `pictures`: a set's count
      *   (`picture` its first scene); `text`: the entry in full; `itemId`: the entry's id.
      * @returns The posts that fell past `max` (see `writeDiary`).
      */
-    appendDiaryPost(
-      guildId: string,
-      post: DiaryPostOptions,
-      opts: { max?: number; now?: number } = {}
-    ): { dropped: Array<object> } {
-      const done = writeDiary(guildId, [...diaryEntry(guildId).value.posts, structuredClone(post)], opts);
+    appendDiaryPost(post: DiaryPostOptions, opts: { max?: number; now?: number } = {}): { dropped: Array<object> } {
+      const done = writeDiary([...diaryEntry().value.posts, structuredClone(post)], opts);
       // The post goes to the database at once; a failed write waits in the outbox, past a shutdown in `memory-pending/`.
-      flushEntry(diaryFile(guildId), diaryEntry(guildId));
+      flushEntry(diaryFile(), diaryEntry());
       if (outbox) outbox.push();
       return done;
     },
 
     /**
-     * Replace the guild's post list (the backfill, run only on an empty diary, posts oldest first), keeping the newest
+     * Replace the place's post list (the backfill, run only on an empty diary, posts oldest first), keeping the newest
      * `max` (selfreflection.historyPosts), stamping `updatedAt` with `now`; returns the posts that fell past `max` (`writeDiary`).
-     * @param guildId @param posts @param [opts]
+     * @param posts @param [opts]
      */
-    setDiaryPosts(guildId: string, posts: Array<StoredRecord>, opts: { max?: number; now?: number } = {}) {
-      return writeDiary(guildId, Array.isArray(posts) ? structuredClone(posts) : [], opts);
+    setDiaryPosts(posts: Array<StoredRecord>, opts: { max?: number; now?: number } = {}) {
+      return writeDiary(Array.isArray(posts) ? structuredClone(posts) : [], opts);
     },
 
     /** `read(db)` on the memory database's read connection, null without one (src/behavior/mirror.ts reads its mirrors).
@@ -3247,41 +3136,41 @@ function buildStore({
     // ---- the recent store: short dated lines about the last days (src/memory/recent.ts) ----
 
     /**
-     * A copy of the guild's recent store (data/guilds/<id>/recent.json): `{ nextId, lines }`, the
+     * A copy of the place's recent store (the place's recent.json): `{ nextId, lines }`, the
      * empty store when there is no file. Normalised on read (src/memory/recent.ts#normalizeRecent),
      * persisted only by the next change; reading never creates the file and never expires a line
      * (src/memory/recent.ts#liveRecent is the view by time). Changing the copy changes nothing
      * stored: a change goes through `applyRecentOps`.
      */
-    getRecent(guildId: string): {
+    getRecent(placeId: string): {
       nextId: number;
       lines: Array<{
         id: number;
         at: number;
         addedAt: string | null;
-        channelId: string;
+        placeId: string;
         text: string;
         who: Array<string>;
         weight: number;
       }>;
     } {
-      return structuredClone(recentEntry(guildId).value);
+      return structuredClone(recentEntry(placeId).value);
     },
 
     /**
-     * One write of the guild's recent store, synchronous: expiry, the removes by id, then the new
+     * One write of the place's recent store, synchronous: expiry, the removes by id, then the new
      * lines with dedupe and both caps (src/memory/recent.ts#mergeRecent, which documents every
      * option and count). Marked dirty only when a stored line was added, removed, expired or
      * evicted, so a call that changes nothing creates or rewrites no file. The settings are the
      * caller's, read at the moment of use (src/memory/recent.ts#recentSettings); a lowered `hours`
      * expires the older lines here, at the first write after the change.
-     * @param incoming  `{ text, at, channelId, weight }` items, untrusted.
+     * @param incoming  `{ text, at, placeId, weight }` items, untrusted.
      *   `dropped` is the sum of the five reasons after it. A written store gives every line an
      *   `itemId` when it has none (`rc-`); the non-enumerable `droppedLines` holds the stored lines
      *   that left (expired, removed, evicted), each with one.
      */
     applyRecentOps(
-      guildId: string,
+      placeId: string,
       incoming: unknown,
       opts: RecentOpsOptions = {}
     ): {
@@ -3296,7 +3185,7 @@ function buildStore({
       duplicate: number;
       overCap: number;
     } {
-      const item = recentEntry(guildId);
+      const item = recentEntry(placeId);
       const previous = item.value.lines;
       const { value, droppedLines, ...counts } = mergeRecent(item.value, incoming, opts);
       const victims = withItemIds(droppedLines, ITEM_ID_PREFIX.recent, newId);
@@ -3304,15 +3193,15 @@ function buildStore({
         item.value = { ...value, lines: withItemIds(value.lines, ITEM_ID_PREFIX.recent, newId) };
         item.dirty = true;
         // droppedLines: the expired, then the removed, then the evicted.
-        holdVictims(guildId, {
+        holdVictims({
           item,
-          file: recentFile(guildId),
+          file: recentFile(placeId),
           path: ['lines'],
           previous,
           victims,
           itemKind: 'recent',
           scope: (line: Untyped) =>
-            typeof line.channelId === 'string' && line.channelId ? { channel: line.channelId } : { guild: true },
+            typeof line.placeId === 'string' && line.placeId ? { channel: line.placeId } : { place: placeId },
           eventOf: (_, index) =>
             index < counts.expired ? 'expired' : index < counts.expired + counts.removed ? 'replaced' : 'evicted',
         });
@@ -3323,19 +3212,19 @@ function buildStore({
     // ---- the participation store: the persona's exchanges on the channels (src/memory/participation.ts) ----
 
     /**
-     * A copy of the guild's participation store (data/guilds/<id>/participation.json):
+     * A copy of the place's participation store (the place's participation.json):
      * `{ episodes, nextId }`, the empty store when there is no file. Normalised on read
      * (src/memory/participation.ts#normalizeParticipation), persisted only by the next change;
      * reading never creates the file and never expires an episode. Changing the copy changes
      * nothing stored: a change goes through `setParticipation`.
      */
-    getParticipation(guildId: string): { episodes: Array<object>; nextId: number } {
-      return structuredClone(participationEntry(guildId).value);
+    getParticipation(placeId: string): { episodes: Array<object>; nextId: number } {
+      return structuredClone(participationEntry(placeId).value);
     },
 
     /**
      * Store `state` (the result of src/memory/participation.ts#recordOwnLine / #recordFollowing
-     * on a `getParticipation` copy) as the guild's participation store, after expiry
+     * on a `getParticipation` copy) as the place's participation store, after expiry
      * (src/memory/participation.ts#expireEpisodes: past `hours`, then over `maxStored`), and mark
      * it dirty. The settings are the caller's, read at the moment of use
      * (src/memory/participation.ts#participationSettings); missing ones read as the defaults, a
@@ -3344,11 +3233,11 @@ function buildStore({
      *   (`pt-`); `dropped`: the episodes the expiry removed, each with one.
      */
     setParticipation(
-      guildId: string,
+      placeId: string,
       state: unknown,
       { settings, now }: { settings?: Untyped; now?: number } = {}
     ): { dropped: Array<object> } {
-      const item = participationEntry(guildId);
+      const item = participationEntry(placeId);
       const previous = item.value.episodes;
       const at = isFiniteNumber(now) ? now : Date.now();
       const { state: next, dropped } = expireEpisodes(state, settings, at);
@@ -3361,15 +3250,15 @@ function buildStore({
       // As src/memory/participation.ts#expireEpisodes reads `hours`: past it an episode expired, else the cap took it.
       const hours =
         isFiniteNumber(settings?.hours) && settings.hours >= 0 ? settings.hours : PARTICIPATION_DEFAULTS.hours;
-      holdVictims(guildId, {
+      holdVictims({
         item,
-        file: participationFile(guildId),
+        file: participationFile(placeId),
         path: ['episodes'],
         previous,
         victims,
         itemKind: 'participation',
         scope: (episode: Untyped) =>
-          typeof episode.channelId === 'string' && episode.channelId ? { channel: episode.channelId } : { guild: true },
+          typeof episode.placeId === 'string' && episode.placeId ? { channel: episode.placeId } : { place: placeId },
         eventOf: (episode) => (episode.lastOwnAt < at - hours * HOUR_MS ? 'expired' : 'evicted'),
       });
       return { dropped: victims };
@@ -3379,23 +3268,23 @@ function buildStore({
      * With a database, queue the trace through its writer under a semantic key. The file path below is only
      * the standalone backend.
      * Append one recall run's record (src/behavior/recall-run.js, `features.recallTrace`)
-     * as one JSON line to data/guilds/<guildId>/recall-trace.jsonl, written at once (not
+     * as one JSON line to data/places/<id>/recall-trace.jsonl, written at once (not
      * through the cache). The file keeps the newest `maxLines` lines (a missing or unusable
      * value: 500): while there is room the line is appended, past the cap the file is
      * rewritten atomically without the oldest. Lines a hand edit left blank are dropped on
      * that rewrite. Throws on an I/O failure (the caller logs it).
      */
-    appendRecallTrace(guildId: string, record: StoredRecord, { maxLines }: { maxLines?: number } = {}) {
+    appendRecallTrace(placeId: string, record: StoredRecord, { maxLines }: { maxLines?: number } = {}) {
       const cap = isFiniteNumber(maxLines) && maxLines >= 1 ? Math.floor(maxLines) : RECALL_TRACE_MAX_LINES;
       if (memoryDb) {
         if (!outbox) throw Object.assign(new Error('Memory writer unavailable'), { code: 'DB_CLOSED' });
-        outbox.lines(communityKey('recall_trace', guildId, { iface: namespace() }), [
+        outbox.lines(placeCollection('recall_trace', placeId), [
           { record: JSON.parse(JSON.stringify(record)) as StoredRecord, maxLines: cap },
         ]);
         void outbox.push();
         return;
       }
-      const file = recallTraceFile(guildId);
+      const file = path.join(root.placeDir(placeId), 'recall-trace.jsonl');
       const line = JSON.stringify(record);
       let text = '';
       try {
@@ -3442,7 +3331,7 @@ function buildStore({
           timer = setTimeout(resolve, waitMs);
         });
         const settled = (async () => {
-          for (const state of [...archiveGuilds.values()]) {
+          for (const state of [archiveState]) {
             for (;;) {
               const chain = state.chain;
               await chain;
@@ -3469,11 +3358,11 @@ function buildStore({
     // ---- the archive (see "The archive" at the top of createStore) ----
 
     /**
-     * The guild's archive sequence now: take one before and one after a group of synchronous
+     * The place's archive sequence now: take one before and one after a group of synchronous
      * writes and `settleArchive` reports on the entries those writes queued.
      */
-    archiveMark(guildId: string): number {
-      return archiveGuilds.get(String(guildId))?.seq ?? 0;
+    archiveMark(): number {
+      return archiveState.seq;
     },
 
     /**
@@ -3483,13 +3372,13 @@ function buildStore({
      * the drain archives them). An entry reported here is not reported again.
      */
     async settleArchive(
-      guildId: string,
+      placeId: string,
       { from = 0, to = Infinity }: { from?: number; to?: number } = {}
     ): Promise<{
       archived: Array<{ itemId: string; revisionId: string; itemKind: string; event: string }>;
       deferred: number;
     }> {
-      const state = archiveGuilds.get(String(guildId));
+      const state = archiveState;
       if (!state) return { archived: [], deferred: 0 };
       for (;;) {
         const chain = state.chain;
@@ -3519,18 +3408,18 @@ function buildStore({
      * is trimmed from its list. Runs whether or not features.archive is on (what waits was
      * queued while it was). No archive -> nothing.
      */
-    async drainArchive(guildId: string): Promise<{ archived: number; left: number }> {
+    async drainArchive(): Promise<{ archived: number; left: number }> {
       if (!archive) return { archived: 0, left: 0 };
-      const state = archiveGuild(guildId);
+      const state = archiveState;
       if (state.retry.length > 0) {
         const retry = state.retry.splice(0);
-        for (const { group, status } of await appendQueued(guildId, retry)) {
+        for (const { group, status } of await appendQueued(retry)) {
           if (status === 'archived') for (const item of group) confirmHeld(state, item.entry);
         }
       }
-      const result = (await archive.drainPending(guildId)) ?? {};
+      const result = (await archive.drainPending()) ?? {};
       for (const entry of Array.isArray(result.confirmed) ? result.confirmed : []) confirmHeld(state, entry);
-      trimArchived(guildId);
+      trimArchived();
       return { archived: Number(result.archived) || 0, left: Number(result.left) || 0 };
     },
 
@@ -3539,28 +3428,28 @@ function buildStore({
      * append and drain). Not while paused, and not for a file the cache does not hold.
      * @returns How many items went.
      */
-    trimArchived(guildId: string): number {
-      return trimArchived(guildId);
+    trimArchived(): number {
+      return trimArchived();
     },
 
     /**
      * Put an archived item back into its hot list (`/nep memory restore`): the entry's text and
-     * stored fields rebuild it under its own `itemId`, appended to the member's or the guild's
+     * stored fields rebuild it under its own `itemId`, appended to the member's or the place's
      * list without any cap (it is not pinned: the next write evicts it again by the usual rules).
      * Its text fields come back without links (`withoutLinks`; a plain-string item that was only
      * links is not restored, `kind`).
      * Kinds: episode, interest, detail, alias (a member's profile, or their private layer for a
-     * private entry; no private aliases), lesson, selfFact, injoke, diary (the guild). Nothing
+     * private entry; no private aliases), lesson, selfFact, injoke, diary (the place). Nothing
      * changes when the item is hot already (`hot`), the member has no profile or private layer
      * (`no-profile`), or the kind cannot go back (`kind`: moves, recent lines, participation
      * episodes and versions belong to their moment).
      * @param entry  An archive entry (src/memory/archive.ts#archiveEntry).
      */
     restoreArchived(
-      guildId: string,
+      placeId: string,
       entry: StoredRecord
     ): { restored: boolean; reason?: 'hot' | 'no-profile' | 'kind'; item?: Untyped } {
-      const target: Untyped = restoreTarget(guildId, entry);
+      const target: Untyped = restoreTarget(placeId, entry);
       if (!target) return { restored: false, reason: 'kind' };
       if (!target.item) return { restored: false, reason: 'no-profile' };
       const where = listAt(target.item.value, target.path);
@@ -3588,11 +3477,13 @@ function buildStore({
       return { restored: true, item: value };
     },
 
+    ...addressing.methods(),
+
     /**
      * Drop every cached file EXCEPT `state.json` (`/nep pause`): called
      * right after a flush, so nothing stale can be written from memory while
      * the owner hand-edits files under `data/` -- the next read of any
-     * profile/guild/channel/lore/media/buffer lazily re-populates from disk,
+     * profile/place/channel/lore/media/buffer lazily re-populates from disk,
      * exactly like a fresh process. `state.json` itself is left cached (it
      * carries the `paused` flag this feature relies on); see `reloadState`
      * below for forcing a fresh read of it too, used by `/nep resume`.
@@ -3680,8 +3571,8 @@ export type Store = Omit<
   | 'getUser'
   | 'touchUser'
   | 'updateUser'
-  | 'getGuild'
-  | 'updateGuild'
+  | 'getPlace'
+  | 'updatePlace'
   | 'listUserProfiles'
   | 'listChannels'
   | 'updateChannel'
@@ -3691,13 +3582,13 @@ export type Store = Omit<
   getUser: (...args: Parameters<StoreView['getUser']>) => object | null;
   touchUser: (...args: Parameters<StoreView['touchUser']>) => object;
   updateUser: (...args: Parameters<StoreView['updateUser']>) => object;
-  getGuild: (guildId: Untyped) => object;
-  updateGuild: (...args: Parameters<StoreView['updateGuild']>) => object;
-  listUserProfiles: (guildId: Untyped) => Array<object>;
-  listChannels: (guildId: Untyped) => Array<object>;
+  getPlace: (placeId: Untyped) => object;
+  updatePlace: (...args: Parameters<StoreView['updatePlace']>) => object;
+  listUserProfiles: () => Array<object>;
+  listChannels: (placeId: Untyped) => Array<object>;
   updateChannel: (...args: Parameters<StoreView['updateChannel']>) => object;
   getMediaCache: StoreView['getMediaCache'];
-  getLore: (guildId: Untyped) => Array<object>;
+  getLore: (placeId: Untyped) => Array<object>;
 };
 
 /**
@@ -3713,7 +3604,7 @@ export type Store = Omit<
  *   before its copy is in the archive -- see "The archive" inside, `settleArchive`,
  *   `drainArchive` and `trimArchived`.
  *   `memoryDb` (the memory database service): every memory unit of the cache (users, private layers, channels, the
- *   guild, lore, recent, versions, the diary) is loaded from it (`unitValue`; a unit it does not hold is new; a closed
+ *   place, lore, recent, versions, the diary) is loaded from it (`unitValue`; a unit it does not hold is new; a closed
  *   database throws, with a code), whether it exists is the database's `files` row (`known`), a directory's ids
  *   are the database's (`idsUnder`), and a flush hands its whole value to the outbox (src/memory/db/unit-outbox.ts,
  *   op `value`): the entry stays the truth and counts as written only when the outbox no longer holds it (the write

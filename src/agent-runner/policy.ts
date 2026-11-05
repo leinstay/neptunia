@@ -127,8 +127,8 @@ const FIXED_GLOBS = Object.freeze([
 ]);
 /** The glob patterns after the deployment's directories. */
 const TRAILING_GLOBS = Object.freeze([
-  '**/data/guilds',
-  '**/data/guilds/**',
+  '**/data/places',
+  '**/data/places/**',
   '**/.agents/scratch',
   '**/.agents/scratch/**',
 ]);

@@ -5,8 +5,9 @@
 // pending compatibility boundary, which preserves their provenance without using it for live ownership.
 
 import { ensureUnit, hasStorageUnits, unitById, listUnits } from './storage-units.ts';
-import { storageMapper, classify } from './map/index.ts';
-import { legacyStorageKey, currentUnitPath } from './paths.ts';
+import { storageMapper } from './map/index.ts';
+import { classify } from '../migration/classify.ts';
+import { legacyStorageKey, currentUnitPath } from '../migration/paths.ts';
 import { personaKey } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { messageLocator } from './message-locator.ts';
@@ -27,7 +28,7 @@ import { fillStems, markStemsPending, stemsPending } from './stems.ts';
 import { applyErrandUnit, skippedErrandUnit } from '../../board/errands.ts';
 import { dbOf, asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
-import type { MappedPath } from './map/index.ts';
+import type { MappedPath } from '../migration/classify.ts';
 import { groupScope } from './scope.ts';
 import { storageContext } from './map/index.ts';
 
@@ -53,23 +54,22 @@ const coded = (code: string): Error & { code: string } => Object.assign(new Erro
 const isoOf = (ms: unknown): string => new Date(isFiniteNumber(ms) ? ms : Date.now()).toISOString();
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 
-/** What an owner is: its full path and the path inside its guild, the mapper and the kind and format of its file. */
+/** What an owner is: its full id and its id inside the mapper, the mapper and the kind and format of its lines. */
 export type Unit = {
   full: string;
   rel: string;
   kind: MappedPath['kind'];
   mapper: MappedPath['mapper'];
   format: MappedPath['format'];
-  guildId: string;
   key?: StorageKey;
 };
 
-/** What an owner (a unit's full path) is: `{ full, rel, kind, mapper, format, guildId }`; throws `UNIT_UNMAPPED`. */
+/** What an owner (a unit's full path) is: `{ full, rel, kind, mapper, format }`; throws `UNIT_UNMAPPED`. */
 export function unitOf(owner: unknown, { vectors = false }: { vectors?: boolean } = {}): Unit {
   const full = currentUnitPath(asText(owner ?? ''));
   const info = classify(vectors ? `${full}/manifest.json` : full);
-  if (!filled(full) || !info || 'skipped' in info || info.guildId === undefined) throw coded('UNIT_UNMAPPED');
-  return { full, rel: info.unit, kind: info.kind, mapper: info.mapper, format: info.format, guildId: info.guildId };
+  if (!filled(full) || !info || 'skipped' in info) throw coded('UNIT_UNMAPPED');
+  return { full, rel: info.unit, kind: info.kind, mapper: info.mapper, format: info.format };
 }
 
 /** Resolve a live semantic update; legacy owners are accepted only by import and pending adapters. */
@@ -83,8 +83,7 @@ function updateUnit(db: Db, update: Row, vectors = false): Unit {
     db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, key.kind);
   }
   const mapped = storageMapper(db, key, id, legacyOwner);
-  const context = key.scopePlaceId?.split(':guild:')[1] ?? '';
-  return { full: id, rel: id, ...mapped, guildId: context, key };
+  return { full: id, rel: id, ...mapped, key };
 }
 
 const hasTable = (db: Db, name: string): boolean =>
@@ -138,7 +137,7 @@ export function noteUnit(
   ).run(owner, kind, offset, at, lines);
 }
 
-/** The month prefix of a record unit (`guilds/<g>/record/<YYYY-MM>/`, a private layer's alike). */
+/** The month prefix of a record unit (`<prefix>/record/<YYYY-MM>/`). */
 const monthPrefixOf = (owner: string) => owner.replace(/[^/]+$/, '');
 
 /** Whether a record line is one the unit's month already holds (the id index's rule; observations are adopted, not duplicates). */
@@ -392,9 +391,7 @@ function writeLines(db: Db, update: Row, at: string): { written: number; duplica
   let position = nextPosition(db, unit.full);
   // An archive line of an item hot memory does not hold brings its retired claim (map/archive.ts).
   const archive = unit.kind === 'archive';
-  const ctx = archive
-    ? { guildId: unit.guildId, iface: ifaceOf(update), hotClaimIds: hotClaimIds(db) }
-    : { guildId: unit.guildId, iface: ifaceOf(update) };
+  const ctx = archive ? { iface: ifaceOf(update), hotClaimIds: hotClaimIds(db) } : { iface: ifaceOf(update) };
   for (const line of lines) {
     const done = writeLine(db, { update, unit, line, ctx, position, at, archive });
     result.written += done.written;
@@ -515,10 +512,7 @@ const NOT_VALUE_KINDS = new Set(['requests']);
 function writeValue(db: Db, update: Row, at: string): Row {
   const unit = updateUnit(db, update);
   if (unit.format !== 'json' || NOT_VALUE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
-  const mapping = qualify(
-    unit.mapper.toRows(unit.rel, update.value ?? {}, { guildId: unit.guildId, iface: ifaceOf(update) }),
-    unit
-  );
+  const mapping = qualify(unit.mapper.toRows(unit.rel, update.value ?? {}, { iface: ifaceOf(update) }), unit);
   const upserted = writeMapping(db, mapping, unit.full, { at });
   const retired = retireAbsent(db, unit.full, mapping, at);
   noteUnit(db, unit.full, unit.kind, { at });
@@ -543,7 +537,7 @@ function writeDiary(db: Db, update: Row, at: string): Row {
     posts: posts.slice(-max),
     updatedAt: isFiniteNumber(update.updatedAt) ? update.updatedAt : Date.parse(at),
   };
-  const mapping = qualify(unit.mapper.toRows(unit.rel, value, { guildId: unit.guildId, iface: ifaceOf(update) }), unit);
+  const mapping = qualify(unit.mapper.toRows(unit.rel, value, { iface: ifaceOf(update) }), unit);
   const upserted = writeMapping(db, mapping, unit.full, { at });
   const retired = retireAbsent(db, unit.full, mapping, at);
   noteUnit(db, unit.full, unit.kind, { at });
@@ -555,7 +549,7 @@ function writeDiary(db: Db, update: Row, at: string): Row {
 
 /** A whole month of vectors (its rows linked to their lines, the rows it no longer holds retired). */
 function writeMonth(db: Db, unit: Unit, value: Row, at: string, iface: string): Row {
-  const mapping = unit.mapper.toRows(unit.rel, value, { guildId: unit.guildId, iface });
+  const mapping = unit.mapper.toRows(unit.rel, value, { iface });
   for (const row of mapping.vectors ?? []) row[hasStorageUnits(db) ? 'owner_key' : 'owner_file'] = unit.full;
   linkVectors(db, mapping.vectors ?? []);
   qualify(mapping, unit);

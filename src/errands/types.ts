@@ -28,7 +28,7 @@ export type RequesterKind = 'owner' | 'member' | 'persona';
 export type ErrandRequester = { userId: string | null; kind: RequesterKind };
 export type ErrandOrigin = {
   publicationBoundary?: PublicationBoundary;
-  channelId: string | null;
+  placeId: string | null;
   messageId: string | null;
   turnId?: string;
 };
@@ -114,7 +114,7 @@ export type AddInput = {
   requester: { userId?: string | null; kind?: string };
   origin: {
     publicationBoundary?: PublicationBoundary;
-    channelId?: string | null;
+    placeId?: string | null;
     messageId?: string | null;
     turnId?: string | null;
   };
@@ -155,7 +155,7 @@ export type ErrandEnd = { eventId: string; errandId: string; state: ErrandState 
 /** The writes still waiting for the memory database, and the ones kept in `memory-pending/`. */
 export type FlushCounts = { waiting: number; pending: number };
 
-/** The errands of one guild, on the memory database's task board (src/errands/store.ts#createErrandStore). */
+/** The errands of one place, on the memory database's task board (src/errands/store.ts#createErrandStore). */
 export type ErrandStore = {
   add: (input: AddInput) => AddResult;
   start: (id: unknown) => ErrandRecord | null;
@@ -182,12 +182,11 @@ export type ErrandStore = {
   /** Marks the pending end of errand `id` delivered; false when no end of that errand is pending. */
   markDelivered: (id: unknown) => boolean;
   flush: (options?: { final?: boolean }) => Promise<FlushCounts>;
-  guildId: string;
 };
 
-/** One store per guild. */
+/** One store per place. */
 export type ErrandStores = {
-  get: (guildId: unknown) => ErrandStore | null;
+  get: () => ErrandStore | null;
   flush: (options?: { final?: boolean }) => Promise<FlushCounts>;
 };
 
@@ -236,30 +235,26 @@ export type ErrandClient = {
 };
 
 /** What a caller of the service asks for. */
-export type SubmitInput = AddInput & { guildId?: string | null };
+export type SubmitInput = AddInput & {};
 export type CancelResult =
   { ok: true; errand: ErrandRecord | null; code?: undefined } | { ok: false; code: string; errand?: ErrandRecord };
-export type IdsInput = { guildId?: string | null; ids?: ReadonlyArray<string> };
+export type IdsInput = { ids?: ReadonlyArray<string> };
 
 /** The errands in the background (src/errands/service.ts#createErrandService). */
 export type ErrandService = {
   submit: (input: SubmitInput) => AddResult;
-  cancel: (input: { guildId?: string | null; id: string; by?: string }) => CancelResult;
-  budget: (input?: { guildId?: string | null; agent?: string }) => Budget | null;
-  view: (input?: { guildId?: string | null; privateChannelId?: string | null }) => Array<ErrandRecord>;
-  fileOf: (input?: {
-    guildId?: string | null;
-    handle?: unknown;
-    privateChannelId?: string | null;
-  }) => ErrandFileRef | ExpiredFileRef | null;
+  cancel: (input: { id: string; by?: string }) => CancelResult;
+  budget: (input?: { agent?: string }) => Budget | null;
+  view: (input?: { privateChannelId?: string | null }) => Array<ErrandRecord>;
+  fileOf: (input?: { handle?: unknown; privateChannelId?: string | null }) => ErrandFileRef | ExpiredFileRef | null;
   markSeen: (input?: IdsInput) => number;
   markRead: (input?: IdsInput) => number;
   markResultFailed: (input?: IdsInput) => number;
-  start: (guildId: unknown) => number;
+  start: () => number;
   idle: () => Promise<void>;
   check: (agent: string) => Promise<boolean | null>;
   runnerUp: (agent: string) => boolean | null;
-  store: (guildId?: unknown) => ErrandStore | null;
+  store: () => ErrandStore | null;
   limitsOf: (agent: string) => Limits;
 };
 
@@ -286,10 +281,10 @@ export type ErrandServiceOptions = {
   hot: Untyped;
   env?: Record<string, string | undefined>;
   memory?: {
-    recentLines: (guildId: string, channelId: string, count: number) => Array<{ author?: unknown; text?: unknown }>;
+    recentLines: (conversationId: string, count: number) => Array<{ author?: unknown; text?: unknown }>;
   } | null;
-  getGuildId?: () => string | null;
-  onFinished?: ((errand: ErrandRecord, guildId: string) => unknown) | null;
+
+  onFinished?: ((errand: ErrandRecord) => unknown) | null;
   log?: Logger;
   defer?: (fn: () => unknown) => unknown;
   now?: () => number;

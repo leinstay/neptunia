@@ -145,7 +145,7 @@ export function liveFields(
     labels,
     channelNameOf,
     now,
-  }: { labels?: AroundLabels; channelNameOf?: (channelId: string) => string | null; now?: number } = {}
+  }: { labels?: AroundLabels; channelNameOf?: (placeId: string) => string | null; now?: number } = {}
 ): Array<string> {
   const l = peopleNowOf(labels);
   if (!l || !snapshot || typeof memberId !== 'string' || memberId === '') return [];
@@ -159,7 +159,7 @@ export function liveFields(
 
   const here = snapshot.voice.get(memberId);
   const seat = here as VoiceRecord;
-  const channel = here && typeof channelNameOf === 'function' ? cleanText(channelNameOf(here.channelId) ?? '') : '';
+  const channel = here && typeof channelNameOf === 'function' ? cleanText(channelNameOf(here.placeId) ?? '') : '';
   const voice = stale
     ? values.stale
     : channel && l.voiceYes
@@ -216,14 +216,14 @@ export function voiceOccupants(
   }: {
     excludeIds?: Set<string>;
     nameOf?: (memberId: string) => string | null;
-    channelNameOf?: (channelId: string) => string | null;
+    channelNameOf?: (placeId: string) => string | null;
   } = {}
 ): Array<{ memberId: string; name: string }> {
   if (!snapshot?.voice || typeof channelNameOf !== 'function') return [];
   const out: Array<{ memberId: string; name: string }> = [];
   for (const entry of snapshot.voice.values()) {
     if (excludeIds.has(entry.memberId)) continue;
-    if (!cleanText(channelNameOf(entry.channelId) ?? '')) continue;
+    if (!cleanText(channelNameOf(entry.placeId) ?? '')) continue;
     const name = cleanText((typeof nameOf === 'function' ? nameOf(entry.memberId) : null) ?? entry.name ?? '');
     if (name) out.push({ memberId: entry.memberId, name });
   }

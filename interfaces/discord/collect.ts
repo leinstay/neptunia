@@ -1128,9 +1128,7 @@ export function isReadableChannel(given: object): boolean {
 /**
  * Whether the persona may speak in `channel`: one it may read
  * (isReadableChannel: a text channel, not a thread, its history readable) where the bot can send
- * (canSend). The one rule for a channel words go to unasked or on someone's
- * behalf: a routed call's or a noticed comment's destination
- * (src/behavior/turn.ts#usableDestination), a spontaneous turn's channel.
+ * (canSend). The one rule for a channel words go to unasked: a spontaneous turn's channel.
  * @param channel A discord.js guild channel.
  */
 export function isWritableChannel(channel: object): boolean {

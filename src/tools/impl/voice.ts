@@ -87,7 +87,7 @@ async function sayOnRoute({
 }
 
 const handlers = perEnv((env) => {
-  const { hot, speech, assertNotPaused, resolvedGuildId } = env;
+  const { hot, speech, assertNotPaused, resolvedPlaceId } = env;
   const { reads } = env;
   const port = env.port as Adapter | null | undefined;
 
@@ -111,16 +111,16 @@ const handlers = perEnv((env) => {
     if (Array.from(text).length > maxChars)
       throw invalid(`text is too long for a voice message (${maxChars} characters at most)`);
     const reply = given.replyTo ? await messageRefOf(given.replyTo, reads) : null;
-    const inChannel = given.channelId ? idText(given.channelId) : null;
-    if (inChannel && reply?.channelId && inChannel !== reply.channelId)
+    const inChannel = given.placeId ? idText(given.placeId) : null;
+    if (inChannel && reply?.placeId && inChannel !== reply.placeId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const target = inChannel ?? reply?.channelId ?? null;
+    const target = inChannel ?? reply?.placeId ?? null;
     // Checked before anything is made or paid for.
     const postTo = await postingConversation({
       reads,
       iface: port.iface,
-      guildId: resolvedGuildId(context),
-      channelId: target,
+      placeId: resolvedPlaceId(context),
+      conversationId: target,
       context,
       need: 'attach',
     });

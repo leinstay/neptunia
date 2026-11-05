@@ -3,7 +3,7 @@
 // the vision model (prompts/avatar.md, purpose `avatar`) and stored as the member's current
 // `avatar` field (src/memory/avatars.ts; a platform's default avatar is stored without any request).
 //
-// Who is offered: the served guild's members that already have a profile, never a bot, never the
+// Who is offered: the served place's members that already have a profile, never a bot, never the
 // persona. When: a scan on the first tick and then once a day (every profiled member whose stored
 // hash differs from the current one), plus the gateway's member and user updates and the
 // members' own messages, each offering one member on a hash change. The work is a throttled
@@ -12,6 +12,7 @@
 // scan (no tight loop). Nothing here ever throws into a gateway handler or blocks a turn.
 // Logs carry counts and codes, never the description or a URL.
 
+import { accountOf } from './addresses.ts';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
 import { fillPromptTemplate } from '../behavior/prompt.ts';
@@ -32,14 +33,14 @@ const INTERVAL_MS = 20_000;
 const DESCRIPTION_CHARS = 200;
 
 /** A member whose avatar waits to be described: the version (`hash`, null for the default avatar) and where to fetch it. */
-type AvatarItem = { guildId: string; userId: string; hash: string | null; url: string | null };
+type AvatarItem = { placeId: string; userId: string; hash: string | null; url: string | null };
 
 function buildAvatarQueue({
   hot,
   store,
   llm,
   imageFetcher,
-  getGuildId,
+  servedCommunity,
   isServedCommunity,
   selfId,
   reads,
@@ -51,16 +52,17 @@ function buildAvatarQueue({
   store: Pick<StoreView, 'getUser' | 'listUserProfiles' | 'setAvatar'>;
   llm: { complete: Untyped; capLeft?: Untyped };
   imageFetcher: { fetchAsDataUrl: Untyped };
-  getGuildId: () => string | null;
-  /** A community some connected interface serves; the one community of `getGuildId` when absent. */
-  isServedCommunity?: (communityId: string | null | undefined) => boolean;
+  /** A community to read members from: the current event's, or the first one served. */
+  servedCommunity: () => string | null;
+  /** A community some connected interface serves. */
+  isServedCommunity: (communityId: string | null | undefined) => boolean;
   selfId: () => string | null;
   reads: Reads;
   paused?: () => boolean;
   now?: () => number;
   log?: Log;
 }) {
-  /** userId -> { guildId, userId, hash, url }, in offer order. */
+  /** userId -> { placeId, userId, hash, url }, in offer order. */
   const queue = new Map<string, AvatarItem>();
   /** userId -> the hash whose description failed; offered again only by the next scan. */
   const failed = new Map<string, string | null>();
@@ -78,22 +80,21 @@ function buildAvatarQueue({
   }
 
   /**
-   * Offer one member: queued when the guild is the served one, the member has a profile, is not
+   * Offer one member: queued when the place is the served one, the member has a profile, is not
    * a bot or the persona, and the stored avatar is not this version. Synchronous, never throws.
    * @param view  The member and their avatar.
    */
   function offer(
-    guildId: string,
+    placeId: string,
     view: { id: string; bot: boolean; hash: string | null; url: string | null } | null
-  ): 'off' | 'other-guild' | 'invalid' | 'self' | 'bot' | 'no-profile' | 'current' | 'failed' | 'queued' | 'error' {
+  ): 'off' | 'other-place' | 'invalid' | 'self' | 'bot' | 'no-profile' | 'current' | 'failed' | 'queued' | 'error' {
     try {
       if (!on()) return 'off';
-      if (!guildId || !(isServedCommunity ? isServedCommunity(guildId) : guildId === getGuildId()))
-        return 'other-guild';
+      if (!placeId || !isServedCommunity(placeId)) return 'other-place';
       if (!view || typeof view.id !== 'string' || !view.id) return 'invalid';
       if (view.id === selfId()) return 'self';
       if (view.bot) return 'bot';
-      const profile = store.getUser(guildId, view.id);
+      const profile = store.getUser(accountOf(store, view.id));
       if (!profile) return 'no-profile';
       const hash = hashOrNull(view.hash);
       if (!isAvatarDue(profile.avatar, hash)) {
@@ -101,7 +102,7 @@ function buildAvatarQueue({
         return 'current';
       }
       if (failed.has(view.id) && failed.get(view.id) === hash) return 'failed';
-      queue.set(view.id, { guildId, userId: view.id, hash, url: hashOrNull(view.url) });
+      queue.set(view.id, { placeId, userId: view.id, hash, url: hashOrNull(view.url) });
       return 'queued';
     } catch (err) {
       log.warn('avatars: offer failed', { code: propOf(err, 'code') ?? propOf(err, 'name') ?? null });
@@ -110,29 +111,29 @@ function buildAvatarQueue({
   }
 
   /**
-   * Every profiled member of `guildId` offered with their current avatar (`reads.memberInfo`, one at
+   * Every profiled member of `placeId` offered with their current avatar (`reads.memberInfo`, one at
    * a time). Clears the failed versions first: this is their retry. A member the interface cannot
    * find (left the community, a failed read, no such read) is counted as gone.
    */
-  async function scan(guildId: string): Promise<{ profiles: number; queued: number; gone: number }> {
+  async function scan(placeId: string): Promise<{ profiles: number; queued: number; gone: number }> {
     failed.clear();
     const started = now();
     const counts = { profiles: 0, queued: 0, gone: 0 };
     const self = selfId();
-    for (const profile of store.listUserProfiles(guildId)) {
+    for (const profile of store.listUserProfiles()) {
       counts.profiles += 1;
       const id = typeof profile?.id === 'string' ? String(profile.id) : null;
       if (!id || id === self) continue;
-      const found = await reads.memberInfo({ communityId: guildId, memberId: id });
+      const found = await reads.memberInfo({ communityId: placeId, memberId: id });
       const member = found?.member ?? null;
       if (!member) {
         counts.gone += 1;
         continue;
       }
       const view = { id: member.id, bot: member.bot, hash: member.avatar.hash, url: member.avatar.url };
-      if (offer(guildId, view) === 'queued') counts.queued += 1;
+      if (offer(placeId, view) === 'queued') counts.queued += 1;
     }
-    log.info('avatars: scanned', { guildId, ...counts, waiting: queue.size, ms: now() - started });
+    log.info('avatars: scanned', { placeId, ...counts, waiting: queue.size, ms: now() - started });
     return counts;
   }
 
@@ -152,14 +153,14 @@ function buildAvatarQueue({
   function settleFree(): number {
     let stored = 0;
     for (const [userId, item] of [...queue]) {
-      const profile = store.getUser(item.guildId, userId);
+      const profile = store.getUser(accountOf(store, userId));
       if (!profile || !isAvatarDue(profile.avatar, item.hash)) {
         queue.delete(userId);
         continue;
       }
       if (item.hash !== null) continue;
       queue.delete(userId);
-      if (store.setAvatar(item.guildId, userId, { hash: null, default: true })) {
+      if (store.setAvatar(accountOf(store, userId), { hash: null, default: true })) {
         stored += 1;
         log.info('avatars: described', { userId, default: true });
       }
@@ -225,7 +226,7 @@ function buildAvatarQueue({
       .split('\n')[0];
     const text = clampText(oneLine(firstLine), descriptionChars, { tolerance: 1 });
     if (!text) return fail('empty');
-    const written = store.setAvatar(item.guildId, item.userId, {
+    const written = store.setAvatar(accountOf(store, item.userId), {
       hash: item.hash,
       text,
       describedAt: new Date(now()).toISOString(),
@@ -240,19 +241,19 @@ function buildAvatarQueue({
    * day), the free items, then at most one request. Never throws.
    */
   async function tick(): Promise<
-    'off' | 'paused' | 'no-guild' | 'busy' | 'idle' | 'wait' | 'daily-cap' | 'described' | 'failed' | 'error'
+    'off' | 'paused' | 'no-place' | 'busy' | 'idle' | 'wait' | 'daily-cap' | 'described' | 'failed' | 'error'
   > {
     try {
       if (!on()) return 'off';
       if (paused()) return 'paused';
-      const guildId = getGuildId();
-      if (!guildId) return 'no-guild';
+      const placeId = servedCommunity();
+      if (!placeId) return 'no-place';
       if (!scanning && (lastScanAt === null || now() - lastScanAt >= DAY_MS)) {
         scanning = true;
         lastScanAt = now();
         scans += 1;
         try {
-          await scan(guildId);
+          await scan(placeId);
         } catch (err) {
           log.warn('avatars: scan failed', { code: propOf(err, 'code') ?? propOf(err, 'name') ?? null });
         } finally {
@@ -299,7 +300,7 @@ function buildAvatarQueue({
 export type AvatarQueue = ReturnType<typeof buildAvatarQueue>;
 
 /**
- * The avatar queue of the served guild.
+ * The avatar queue of the served place.
  * @param deps.hot  Read at the moment of use.
  * @param deps.imageFetcher  src/media/fetch-image.ts.
  * @param deps.selfId  The persona's user id.

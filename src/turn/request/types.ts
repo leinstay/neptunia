@@ -5,7 +5,7 @@
 import type { formatTranscript } from '../../format.ts';
 import type { ParticipationInput } from './memory.ts';
 import type { Lookup, Prefetch } from './recall.ts';
-import type { GuildMemory, StoredChannel } from './server.ts';
+import type { PlaceMemory, StoredChannel } from './server.ts';
 import type { SkillRow } from './senses.ts';
 import type { Tasks } from './task.ts';
 import type { PreviousThink } from './wake.ts';
@@ -148,7 +148,7 @@ export type Message = {
   readonly replyToId?: string | null;
   readonly triggerId?: string | null;
   readonly mentionedUserIds?: Array<string>;
-  readonly channelId?: string;
+  readonly placeId?: string;
   readonly channelName?: string;
   readonly channelCategory?: string | null;
   readonly channelTopic?: string | null;
@@ -252,7 +252,7 @@ export type Fit = {
 export type Cost = (text: string) => number;
 
 /** A neighbouring channel's recent lines (src/behavior/neighbors.ts#fetchNeighbors). */
-export type Neighbor = { readonly channelId?: string; readonly channelName: string; readonly messages: Array<Message> };
+export type Neighbor = { readonly placeId?: string; readonly channelName: string; readonly messages: Array<Message> };
 
 /**
  * Every input buildRequest reads (src/behavior/prompt.ts, where each is described). An input the block builders read
@@ -272,7 +272,7 @@ export type RequestInput = {
   readonly trigger: Message | null;
   readonly triggerKind: string | null;
   readonly taggedCall?: boolean | null;
-  readonly guildMemory?: GuildMemory | null;
+  readonly placeMemory?: PlaceMemory | null;
   readonly interlocutor?: Profile | null;
   readonly privateChat?: unknown;
   readonly privateProfile?: unknown;
@@ -297,7 +297,7 @@ export type RequestInput = {
   readonly mediaCache?: MediaCache | null;
   readonly gifs?: unknown;
   readonly pulled?: unknown;
-  readonly source?: { readonly channelId: string; readonly reason: string } | null;
+  readonly source?: { readonly placeId: string; readonly reason: string } | null;
   readonly tasks?: Tasks | null;
   readonly elsewhereDestination?: { readonly name?: string } | null;
   readonly readOnlyIds?: unknown;

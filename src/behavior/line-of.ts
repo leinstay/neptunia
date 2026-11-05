@@ -12,7 +12,7 @@ export function lineOf(event: MessageEvent): Record<string, unknown> {
   const author = message.author;
   return {
     id: message.id,
-    channelId: conversation.id,
+    placeId: conversation.id,
     channelName: conversation.name,
     channelCategory: conversation.category,
     channelTopic: conversation.topic,

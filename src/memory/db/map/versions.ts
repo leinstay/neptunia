@@ -3,16 +3,16 @@
 // `operational` row (kind versions) that lists the fields and anything else the file holds.
 //
 // The description a field belongs to is named like the profile mappers name it: a member's file (`users/<id>`)
-// `desc:person:discord:<id>:<field>`, a channel's `desc:discord:channel:<id>:<field>`, the guild's
-// `desc:discord:guild:<guildId>:<field>` (ctx.guildId), a lorebook entry's `desc:lore:<file key>:<field>`.
+// `desc:person:discord:<id>:<field>`, a channel's `desc:discord:channel:<id>:<field>`, a place's
+// `desc:<place id>:<field>` (ctx.subjectId), a lorebook entry's `desc:lore:<file key>:<field>`.
 // A version's id is `<description id>:v<position>`; `at` is written_at, `by` the author, origin legacy; `before`,
 // `after`, `itemId` and unnamed keys are in `extra`. The operational row keeps `{ $has: { <field>: <description id> } }`
 // (so a field with no versions stays an empty list) and every field that is not a list of objects.
 //
-// toRows(rel, value, ctx) -> { description_versions, operational }     ctx: { guildId? }
+// toRows(rel, value, ctx) -> { description_versions, operational }     ctx: { subjectId? }
 // fromRows(rows, ctx) -> the file's value
 
-import { channelPlaceId, guildPlaceId, personId } from '../ids.ts';
+import { channelPlaceId, personId } from '../ids.ts';
 import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.ts';
 import type { Row, Rows } from '../types.ts';
 import type { MapContext, Spec } from './common.ts';
@@ -42,7 +42,7 @@ export function descriptionPrefix(rel: string, ctx: MapContext = {}): string {
   const iface = ifaceOf(ctx);
   if (kind === 'users') return `desc:${personId(iface, key)}`;
   if (kind === 'channels') return `desc:${channelPlaceId(iface, key)}`;
-  if (kind === 'guild') return `desc:${guildPlaceId(iface, ctx.guildId ?? 'unknown')}`;
+  if (kind === 'place') return `desc:${ctx.subjectId ?? key}`;
   return `desc:${kind}:${key}`;
 }
 

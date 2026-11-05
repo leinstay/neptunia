@@ -1,4 +1,4 @@
-// Her attention and the places view (docs/inner-life.md "Her attention"): an index per guild of the record's lines
+// Her attention and the places view (docs/inner-life.md "Her attention"): an index per place of the record's lines
 // per place over `wakes.attention.lookbackHours`, the `attend` wake an open attention gives once its place has
 // settled, and the page of places that her `places.list` tool and the `<wake>` block show. The tick
 // (src/behavior/inner.ts) refreshes the index; the heartbeat and the drain read it.
@@ -80,7 +80,7 @@ export function attendWake(
     intentionIds: [id],
     chainId: `attend:${id}:${info.newestId}`,
     dueAt: newest.at + settleMs,
-    channelId: info.place,
+    placeId: info.place,
     privateChat: false,
     attend: info,
   };
@@ -128,10 +128,10 @@ export function placesPage<TEntry extends PageEntry>(
   };
 }
 
-/** The place index of `guildId`, empty until the first refresh. */
-export function placeIndexOf(life: InnerContext, guildId: unknown): PlaceIndex {
+/** The place index, empty until the first refresh. */
+export function placeIndexOf(life: InnerContext): PlaceIndex {
   const { placeIndexes } = life;
-  const key = String(guildId);
+  const key = 'persona';
   const known = placeIndexes.get(key);
   if (known) return known;
   const index: PlaceIndex = { scannedTo: null, places: new Map() };
@@ -144,19 +144,14 @@ export function placeIndexOf(life: InnerContext, guildId: unknown): PlaceIndex {
  * (a little behind it; a line already indexed is skipped by its message id), each as
  * `{ id, at, by, said }` under its place; lines older than the lookback window dropped. Never throws.
  */
-export async function refreshPlaces(
-  life: InnerContext,
-  guildId: string,
-  at: number,
-  settings: InnerSettings
-): Promise<PlaceIndex> {
+export async function refreshPlaces(life: InnerContext, at: number, settings: InnerSettings): Promise<PlaceIndex> {
   const { record, log } = life;
-  const index = placeIndexOf(life, guildId);
+  const index = placeIndexOf(life);
   const floor = at - settings.attention.lookbackHours * HOUR_MS;
   const from = index.scannedTo === null ? floor : Math.max(floor, index.scannedTo - SCAN_LAG_MS);
   if (typeof record?.iterate === 'function') {
     try {
-      for await (const raw of record.iterate(guildId, { from: new Date(from).toISOString() })) {
+      for await (const raw of record.iterate({ from: new Date(from).toISOString() })) {
         const line = objOf(raw);
         if (line.kind !== 'seen' && line.kind !== 'said') continue;
         const place = objOf(line.scope).channel;
@@ -180,7 +175,7 @@ export async function refreshPlaces(
         });
       }
     } catch (err) {
-      log.warn('inner: record read failed', { guildId, code: errorCode(err) });
+      log.warn('inner: record read failed', { code: errorCode(err) });
     }
   }
   index.scannedTo = at;
@@ -198,11 +193,11 @@ export async function refreshPlaces(
  * When she last looked at `place`: her last own line there (the index), or the last attend wake
  * handled for that place, whichever is later; -Infinity when neither is known.
  */
-export function lastLookAt(life: InnerContext, guildId: string, place: string): number {
+export function lastLookAt(life: InnerContext, place: string): number {
   let last = -Infinity;
-  for (const line of placeIndexOf(life, guildId).places.get(String(place))?.lines ?? [])
+  for (const line of placeIndexOf(life).places.get(String(place))?.lines ?? [])
     if (line.said && line.at > last) last = line.at;
-  for (const [id, entry] of Object.entries(stateOf(life, guildId).handled)) {
+  for (const [id, entry] of Object.entries(stateOf(life).handled)) {
     if (id.startsWith(ATTEND_PREFIX) && entry?.place === String(place) && isFiniteNumber(entry.at) && entry.at > last)
       last = entry.at;
   }
@@ -210,20 +205,20 @@ export function lastLookAt(life: InnerContext, guildId: string, place: string): 
 }
 
 /** The indexed lines of `place` strictly after `since`. */
-export function linesSince(life: InnerContext, guildId: string, place: string, since: number): Array<PlaceLine> {
-  return (placeIndexOf(life, guildId).places.get(String(place))?.lines ?? []).filter((line) => line.at > since);
+export function linesSince(life: InnerContext, place: string, since: number): Array<PlaceLine> {
+  return (placeIndexOf(life).places.get(String(place))?.lines ?? []).filter((line) => line.at > since);
 }
 
-/** The guild's open attentions (the service's `attending`, else its list filtered). Never throws. */
-export function openAttentions(life: InnerContext, guildId: string): ReadonlyArray<unknown> {
+/** The place's open attentions (the service's `attending`, else its list filtered). Never throws. */
+export function openAttentions(life: InnerContext): ReadonlyArray<unknown> {
   const { intentions, log } = life;
   try {
-    if (typeof intentions?.attending === 'function') return intentions.attending(guildId) ?? [];
-    return (intentions?.list?.(guildId, { all: true }) ?? []).filter(
+    if (typeof intentions?.attending === 'function') return intentions.attending() ?? [];
+    return (intentions?.list?.({ all: true }) ?? []).filter(
       (record) => objOf(record).status === 'pending' && isAttend(record)
     );
   } catch (err) {
-    log.warn('inner: attentions unreadable', { guildId, code: errorCode(err) });
+    log.warn('inner: attentions unreadable', { code: errorCode(err) });
     return [];
   }
 }
@@ -232,13 +227,13 @@ export function openAttentions(life: InnerContext, guildId: string): ReadonlyArr
 const attendedPlace = (record: unknown): string => asText(objOf(objOf(record).attend).place);
 
 /** The attend wakes due now: one per open attention whose place has settled lines since her last look. */
-export function attendWakes(life: InnerContext, guildId: string, at: number): Array<Wake> {
+export function attendWakes(life: InnerContext, at: number): Array<Wake> {
   const out: Array<Wake> = [];
-  for (const record of openAttentions(life, guildId)) {
+  for (const record of openAttentions(life)) {
     const place = attendedPlace(record);
     const createdAt = objOf(record).createdAt;
-    const since = Math.max(lastLookAt(life, guildId, place), isFiniteNumber(createdAt) ? createdAt : -Infinity);
-    const wake = attendWake(record, linesSince(life, guildId, place, since), {
+    const since = Math.max(lastLookAt(life, place), isFiniteNumber(createdAt) ? createdAt : -Infinity);
+    const wake = attendWake(record, linesSince(life, place, since), {
       now: at,
       since: Number.isFinite(since) ? since : null,
     });
@@ -248,26 +243,26 @@ export function attendWakes(life: InnerContext, guildId: string, at: number): Ar
 }
 
 /** The name of place `id`: the directory's, else the interface's cache, else the id. */
-export function placeNameOf(life: InnerContext, guildId: string, id: unknown): string {
+export function placeNameOf(life: InnerContext, id: unknown): string {
   const { conversationName } = life;
-  const named = directoryOf(life, guildId).find((entry) => entry.id === asText(id));
+  const named = directoryOf(life).find((entry) => entry.id === asText(id));
   return named?.name ?? conversationName(asText(id)) ?? asText(id);
 }
 
-/** The places the interface publishes for the guild (`places`), else the places the record shows. */
-export function directoryOf(life: InnerContext, guildId: string): Array<PlaceEntry> {
+/** The places the interface publishes for the place (`places`), else the places the record shows. */
+export function directoryOf(life: InnerContext): Array<PlaceEntry> {
   const { placesOf, conversationName, log } = life;
   if (typeof placesOf === 'function') {
     let listed: Array<{ id: string | number; name?: unknown; writable?: unknown }> = [];
     try {
-      listed = listOf(placesOf(String(guildId))).flatMap((entry) => {
+      listed = listOf(placesOf()).flatMap((entry) => {
         const place = objOf(entry);
         return entry && (typeof place.id === 'string' || typeof place.id === 'number')
           ? [{ ...place, id: place.id }]
           : [];
       });
     } catch (err) {
-      log.warn('inner: places unreadable', { guildId, code: errorCode(err) });
+      log.warn('inner: places unreadable', { code: errorCode(err) });
       listed = [];
     }
     return listed.map((entry) => ({
@@ -276,7 +271,7 @@ export function directoryOf(life: InnerContext, guildId: string): Array<PlaceEnt
       writable: typeof entry.writable === 'boolean' ? entry.writable : null,
     }));
   }
-  return [...placeIndexOf(life, guildId).places.keys()].map((id) => ({
+  return [...placeIndexOf(life).places.keys()].map((id) => ({
     id,
     name: conversationName(id) ?? id,
     writable: null,
@@ -295,24 +290,20 @@ export type PlacesQuery = { filter?: string | null; sort?: string; page?: number
  */
 export function places(
   life: InnerContext,
-  guildId: string | null = life.getGuildId(),
   { filter = null, sort = 'recent', page = 1, pageSize = null }: PlacesQuery = {}
 ): PlacesPage {
   const { hot } = life;
   const settings = innerSettings(hot.config);
   const size = isPositive(pageSize) ? pageSize : settings.attention.pageSize;
-  if (!guildId) return placesPage<PlaceRow>([], { filter, sort, page, pageSize: size });
-  const attended = new Set(openAttentions(life, guildId).map(attendedPlace));
-  const directory = directoryOf(life, guildId);
+  const attended = new Set(openAttentions(life).map(attendedPlace));
+  const directory = directoryOf(life);
   const known = new Set(directory.map((entry) => entry.id));
   const entries = [
     ...directory,
-    ...[...attended]
-      .filter((id) => !known.has(id))
-      .map((id) => ({ id, name: placeNameOf(life, guildId, id), writable: null })),
+    ...[...attended].filter((id) => !known.has(id)).map((id) => ({ id, name: placeNameOf(life, id), writable: null })),
   ];
   const rows = entries.map((entry): PlaceRow => {
-    const lines = linesSince(life, guildId, entry.id, lastLookAt(life, guildId, entry.id)).filter((line) => !line.said);
+    const lines = linesSince(life, entry.id, lastLookAt(life, entry.id)).filter((line) => !line.said);
     return {
       id: entry.id,
       name: entry.name,
@@ -327,34 +318,31 @@ export function places(
 }
 
 /** The places page of `<wake>` (null when `wakes.attention.placesInWake` is 0). */
-export function placesInWakeOf(life: InnerContext, guildId: string, settings: InnerSettings): PlacesPage | null {
+export function placesInWakeOf(life: InnerContext, settings: InnerSettings): PlacesPage | null {
   const size = settings.attention.placesInWake;
-  return size > 0 ? places(life, guildId, { sort: 'recent', page: 1, pageSize: size }) : null;
+  return size > 0 ? places(life, { sort: 'recent', page: 1, pageSize: size }) : null;
 }
 
 /** The names of the places where `memberId` wrote within the lookback window, the busiest first. */
-export function activePlacesOf(life: InnerContext, guildId: string, memberId: unknown): Array<string> {
+export function activePlacesOf(life: InnerContext, memberId: unknown): Array<string> {
   const counts: Array<{ id: string; n: number }> = [];
-  for (const [id, bucket] of placeIndexOf(life, guildId).places) {
+  for (const [id, bucket] of placeIndexOf(life).places) {
     const n = bucket.lines.filter((line) => line.by === String(memberId)).length;
     if (n > 0) counts.push({ id, n });
   }
-  return counts
-    .sort((a, b) => b.n - a.n || (a.id < b.id ? -1 : 1))
-    .map((entry) => placeNameOf(life, guildId, entry.id));
+  return counts.sort((a, b) => b.n - a.n || (a.id < b.id ? -1 : 1)).map((entry) => placeNameOf(life, entry.id));
 }
 
 /** An attend wake's facts for `<wake>`: the place's name and the people's names (ids when unknown). */
 export function attendFactsOf(
   life: InnerContext,
-  guildId: string,
   wake: Wake
 ): { attend?: AttendInfo & { placeName: string; peopleNames: Array<unknown> } } {
   const { nameOf } = life;
   if (!wake.attend) return {};
   const name = (id: string): unknown => {
     try {
-      return (typeof nameOf === 'function' ? nameOf(String(guildId), id) : null) ?? id;
+      return (typeof nameOf === 'function' ? nameOf(id) : null) ?? id;
     } catch {
       return id;
     }
@@ -362,7 +350,7 @@ export function attendFactsOf(
   return {
     attend: {
       ...wake.attend,
-      placeName: placeNameOf(life, guildId, wake.attend.place),
+      placeName: placeNameOf(life, wake.attend.place),
       peopleNames: wake.attend.people.map(name),
     },
   };

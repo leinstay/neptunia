@@ -35,7 +35,7 @@ import { diaryPlaces, readMirrors } from './mirror.ts';
 /** A day counter of the store's state (src/time.ts#countToday): the key of its day and the key of its count. */
 export type Daily = { dayKey: string; countKey: string };
 
-/** The diary's plan of one local day, as state.json keeps it (`diary[guildId]`). */
+/** The diary's plan of one local day, as state.json keeps it (`diary[placeId]`). */
 export type DayPlan = {
   day: string;
   slots: Array<number>;
@@ -69,7 +69,6 @@ export type DiaryPlan = { kind: string | null; brief: string; search: string; pi
 export type DiaryTurnParams = {
   mode: 'diary';
   diary: { kind: string | null; topic?: string; forced: boolean };
-  guildId: string;
 };
 
 /** The store as the diary reads it: the state file (its pause and the day plans), her diary and its writes. */
@@ -85,7 +84,7 @@ function stateData(store: DiaryStore): Obj {
 function plansOf(store: DiaryStore, create: boolean): Record<string, DayPlan | undefined> {
   const data = stateData(store);
   if (create) data.diary ??= {};
-  // state.json's `diary` is what currentPlan wrote: one day plan per guild.
+  // state.json's `diary` is what currentPlan wrote: one day plan per place.
   return objOf(data.diary) as Record<string, DayPlan | undefined>;
 }
 
@@ -104,14 +103,14 @@ export type BackfillArgs = {
   store: DiaryStore;
   reads: Reads;
   conversation: ConversationRef;
-  guildId: string;
+
   config: unknown;
   labels: unknown;
 };
 
 /** The diary's day as the owner's status shows it (createDiary's `status`). */
 export type DiaryStatus = {
-  channelId: string;
+  placeId: string;
   day: string | null;
   slots: Array<number>;
   done: Array<number>;
@@ -712,7 +711,7 @@ export type DiaryDeps = {
     isAnyBusy?(): boolean;
     waitIdle?(): Promise<unknown>;
   };
-  getGuildId: () => string | null;
+
   backfill?: ((args: BackfillArgs) => Promise<number>) | null;
   mirrors?: { publishEntry(entry: unknown): Promise<unknown>; beginEntry?(): () => void } | null;
   rng?: () => number;
@@ -724,7 +723,7 @@ export type DiaryDeps = {
  * The diary's scheduler and its owner-facing edge. `tick()` (every 30 s,
  * src/index.ts) does nothing while `selfreflection.enabled` is false (`diary: skip` with `reason` `disabled`) or the
  * bot is paused (`reason` `paused`), each logged once per local day. Otherwise it keeps the day plan of the
- * served guild in state.json (`diary[guildId] = { day, slots, done, quiet,
+ * served place in state.json (`diary[placeId] = { day, slots, done, quiet,
  * posted, hunger, quietStreak }`, `day` the local date in `bot.timezone`):
  * nextHunger from the stored plan, then planDay once per local day (`diary:
  * plan` with `hunger` and `quietStreak`), the not-done slots of the previous plan still ahead or
@@ -733,7 +732,7 @@ export type DiaryDeps = {
  * are marked done unfired (`diary: skip`, `grace`). Then, with an empty history,
  * `backfill` once per place and process from the place her diary is posted to
  * (`diary: backfill` with `count`), and the selfreflection wake
- * `turns.runTurn({ mode: 'diary', diary: { kind, forced }, guildId })`, which
+ * `turns.runTurn({ mode: 'diary', diary: { kind, forced }, placeId })`, which
  * needs no conversation (`diary: due`, then `diary: post` with the outcome,
  * its `reason` when it has one, and the pictures); the entry the turn recorded
  * goes to `mirrors.publishEntry` (src/behavior/mirror.ts; a failure is logged
@@ -757,7 +756,6 @@ export function createDiary({
   store,
   reads,
   turns,
-  getGuildId,
   backfill = null,
   mirrors = null,
   rng = Math.random,
@@ -768,7 +766,7 @@ export function createDiary({
   let inFlight = false;
   // reason -> the local day it was last logged on: one `diary: skip` per reason and day.
   const skipped = new Map<string, string>();
-  // `${guildId}:${channelId}` the backfill was tried for in this process.
+  // `${placeId}:${placeId}` the backfill was tried for in this process.
   const backfillTried = new Set<string>();
 
   function skip(reason: string, day: string, extra: Obj = {}) {
@@ -786,30 +784,29 @@ export function createDiary({
   /** `bot.timezone` of `config`, UTC when it is missing or empty. */
   const zoneOf = (config: unknown): string => labelOf(sectionOf(config, 'bot').timezone) || 'UTC';
 
-  /** The plan of the local day of `t` for `guildId`, planned (and stored) when the stored one is older. */
-  function currentPlan(guildId: string, config: unknown, t: number): DayPlan {
+  /** The plan of the local day of `t` for `placeId`, planned (and stored) when the stored one is older. */
+  function currentPlan(config: unknown, t: number): DayPlan {
     const timezone = zoneOf(config);
     const diaryCfg = sectionOf(config, 'selfreflection');
     const named = namedSchedule(diaryCfg);
     const day = named === null ? localDayKey(t, timezone) : utcDay(t);
     const plans = plansOf(store, true);
-    const stored: DayPlan | undefined = plans[guildId];
+    const stored: DayPlan | undefined = plans.persona;
     if (stored && stored.day === day && Array.isArray(stored.slots)) {
       const moved = named === null ? null : rescheduled(stored, named, t);
       if (moved === null) return stored;
-      plans[guildId] = moved;
+      plans.persona = moved;
       store.state.markDirty();
-      log.info('diary: plan', { guildId, day, slots: moved.slots.length, quiet: false, rescheduled: true });
+      log.info('diary: plan', { day, slots: moved.slots.length, quiet: false, rescheduled: true });
       return moved;
     }
     const hunger = nextHunger(stored, diaryCfg.windows, timezone, t, DEFAULT_GRACE_MINUTES);
     const fresh = planDay(diaryCfg, t, timezone, rng, hunger);
     const { plan, carried } = withCarriedSlots(fresh, stored, t, DEFAULT_GRACE_MINUTES);
     if (typeof stored?.lastPosted === 'number') plan.lastPosted = stored.lastPosted;
-    plans[guildId] = plan;
+    plans.persona = plan;
     store.state.markDirty();
     log.info('diary: plan', {
-      guildId,
       day,
       slots: plan.slots.length,
       quiet: plan.quiet,
@@ -824,55 +821,57 @@ export function createDiary({
    * The history backfilled from the place her diary is posted to (mirror.ts#diaryPlaces, the first), once per place
    * and process, while diary.json is empty; nothing without the interface's reads or such a place.
    */
-  async function backfillOnce(guildId: string, config: unknown) {
+  async function backfillOnce(config: unknown) {
     const place = readMirrors(store, diaryPlaces, [])[0];
     if (typeof backfill !== 'function' || !reads || !place) return;
     const channel = { iface: place.iface, id: place.conversationId };
-    const key = `${guildId}:${channel.id}`;
+    const key = String(channel.id);
     if (backfillTried.has(key)) return;
     backfillTried.add(key);
     try {
-      if (listOf(store.getDiary(guildId)?.posts).length > 0) return;
+      if (listOf(store.getDiary()?.posts).length > 0) return;
       const count = await backfill({
         store,
         reads,
         conversation: { iface: channel.iface, conversationId: channel.id },
-        guildId,
         config,
         labels: objOf(hot.prompts).labels,
       });
-      log.info('diary: backfill', { guildId, channelId: channel.id, count: Number.isFinite(count) ? count : 0 });
+      log.info('diary: backfill', { placeId: channel.id, count: Number.isFinite(count) ? count : 0 });
     } catch (err) {
-      log.warn('diary: backfill failed', { guildId, channelId: channel.id, error: err });
+      log.warn('diary: backfill failed', { placeId: channel.id, error: err });
     }
   }
 
   /** One post through the turn runner (the selfreflection wake), logged with its outcome; its entry published. */
-  async function post(
-    guildId: string,
-    { kind, topic = null, forced }: { kind: string | null; topic?: string | null; forced: boolean }
-  ): Promise<unknown> {
+  async function post({
+    kind,
+    topic = null,
+    forced,
+  }: {
+    kind: string | null;
+    topic?: string | null;
+    forced: boolean;
+  }): Promise<unknown> {
     const diary = { kind: kind ?? null, ...(topic ? { topic } : {}), forced };
     // While the turn writes its entry and until its publish, a drain leaves that entry to this path: its media is not kept yet.
     const release = mirrors?.beginEntry?.();
     try {
-      return await postEntry(guildId, diary, kind, forced);
+      return await postEntry(diary, kind, forced);
     } finally {
       release?.();
     }
   }
 
   async function postEntry(
-    guildId: string,
     diary: { kind: string | null; topic?: string; forced: boolean },
     kind: string | null,
     forced: boolean
   ): Promise<unknown> {
-    const result = await turns.runTurn({ mode: 'diary', diary, guildId });
+    const result = await turns.runTurn({ mode: 'diary', diary });
     const answer = objOf(result);
     const made = objOf(answer.diary);
     log.info('diary: post', {
-      guildId,
       kind: made.kind ?? kind ?? null,
       messages: made.messages ?? 0,
       picture: made.picture ?? false,
@@ -889,7 +888,7 @@ export function createDiary({
         await settled(store);
         await mirrors.publishEntry(entry);
       } catch (err) {
-        log.warn('diary: publication failed', { guildId, error: err });
+        log.warn('diary: publication failed', { error: err });
       }
     }
     return result;
@@ -905,9 +904,7 @@ export function createDiary({
       skip(blocked, day);
       return;
     }
-    const guildId = getGuildId();
-    if (!guildId) return;
-    const plan = currentPlan(guildId, config, t);
+    const plan = currentPlan(config, t);
     const due = dueSlot(plan, t, DEFAULT_GRACE_MINUTES);
     if (!due) return;
     if (due.dropped.length > 0) {
@@ -920,13 +917,13 @@ export function createDiary({
 
     inFlight = true;
     try {
-      await backfillOnce(guildId, config);
+      await backfillOnce(config);
       if (stopped) return;
       // Marked before the turn runs, like the spontaneous scheduler reschedules first.
       plan.done = [...(plan.done ?? []), slot];
       store.state.markDirty();
-      log.info('diary: due', { guildId, slot });
-      const outcome = objOf(await post(guildId, { kind: null, forced: false })).outcome;
+      log.info('diary: due', { slot });
+      const outcome = objOf(await post({ kind: null, forced: false })).outcome;
       if (outcome === 'busy') {
         plan.done = plan.done.filter((done) => done !== slot);
         store.state.markDirty();
@@ -950,9 +947,7 @@ export function createDiary({
     const blocked = gate();
     if (blocked === 'paused') return { outcome: 'paused' };
     if (blocked) return { outcome: 'not-now', reason: blocked };
-    const guildId = getGuildId();
-    if (!guildId) return { outcome: 'not-now', reason: 'no-guild' };
-    await backfillOnce(guildId, config);
+    await backfillOnce(config);
     const params = { kind: typeof kind === 'string' && kind ? kind : null, topic: diaryTopic(topic), forced: true };
     // One turn at a time: a running turn is waited for (selfreflection.forceWaitMs at most), once.
     let waited = false;
@@ -960,10 +955,10 @@ export function createDiary({
       waited = true;
       if (!(await waitIdle(config))) return { outcome: 'busy' };
     }
-    const result = await post(guildId, params);
+    const result = await post(params);
     if (objOf(result).outcome !== 'busy' || waited) return result;
     if (!(await waitIdle(config))) return { outcome: 'busy' };
-    return post(guildId, params);
+    return post(params);
   }
 
   /** Whether the turn runner went idle within `selfreflection.forceWaitMs` (read from `config`, the live one). */
@@ -975,11 +970,10 @@ export function createDiary({
   }
 
   function status(): DiaryStatus {
-    const guildId = getGuildId();
-    const plan = guildId ? (plansOf(store, false)[guildId] ?? null) : null;
-    const history = guildId && typeof store.getDiary === 'function' ? listOf(store.getDiary(guildId)?.posts).length : 0;
+    const plan = plansOf(store, false).persona ?? null;
+    const history = typeof store.getDiary === 'function' ? listOf(store.getDiary()?.posts).length : 0;
     return {
-      channelId: readMirrors(store, diaryPlaces, [])[0]?.conversationId ?? '',
+      placeId: readMirrors(store, diaryPlaces, [])[0]?.conversationId ?? '',
       day: plan?.day ?? null,
       slots: Array.isArray(plan?.slots) ? [...plan.slots] : [],
       done: Array.isArray(plan?.done) ? [...plan.done] : [],
@@ -999,7 +993,7 @@ export function createDiary({
 }
 
 /**
- * The diary's memory start: when the guild's `diary.json` has no posts, read up to `selfreflection.historyPosts`
+ * The diary's memory start: when the place's `diary.json` has no posts, read up to `selfreflection.historyPosts`
  * of the persona's own messages from the diary channel (REST, oldest first) and store them with
  * `kind: null`, a one-line gist, and `labels.diary.pictureUnknown` as the scene of a message that
  * carried a picture. A history that already has posts is left alone (the posts are never rewritten by
@@ -1007,8 +1001,8 @@ export function createDiary({
  * `config` is the live merged config (`selfreflection` read now); `labels` the live labels; `reads` the core's reads of the
  * interface. Answers the number of posts written (0 when the history was not empty).
  */
-export async function backfillDiary({ store, reads, conversation, guildId, labels }: BackfillArgs): Promise<number> {
-  if (listOf(store.getDiary(guildId)?.posts).length > 0) return 0;
+export async function backfillDiary({ store, reads, conversation, labels }: BackfillArgs): Promise<number> {
+  if (listOf(store.getDiary()?.posts).length > 0) return 0;
   const max = DEFAULT_HISTORY_POSTS;
   const gistChars = DEFAULT_GIST_CHARS;
   const history = await historyLines(reads, conversation, { limit: Number(max) });
@@ -1025,7 +1019,7 @@ export async function backfillDiary({ store, reads, conversation, guildId, label
       search: null,
     }));
   if (posts.length === 0) return 0;
-  store.setDiaryPosts(guildId, posts, { max: Number(max) });
+  store.setDiaryPosts(posts, { max: Number(max) });
   log.info('diary: backfill', { count: posts.length });
   return posts.length;
 }

@@ -1,8 +1,9 @@
 // What happens to one new message: ignored, observed into memory, put to the
-// address classifier, or answered as a call, here or in the main channel once its channel settles. A message
+// address classifier, or answered as a call. A message
 // the gateway delivered and one the start's catch-up delivered are handled once, whichever path reaches it first.
 // createMessageHandler (src/behavior/pipeline.ts) builds it once with createHandleMessage and returns its onMessage.
 
+import { sharedPlaceOf } from '../memory/addresses.ts';
 import { observeWhilePaused } from '../behavior/core-pause.ts';
 import type { PausedDeps } from '../behavior/core-pause.ts';
 import { isLimitNotice } from '../behavior/limits.ts';
@@ -19,7 +20,6 @@ import type { NoteFollowingLine } from './following.ts';
 import type { MediaPrefill } from './media-prefill.ts';
 import type { ObserveLine } from './observe.ts';
 import type { PrivateGate } from './private-gate.ts';
-import type { Settles } from './settle.ts';
 import type {
   Line,
   MessageReadOptions,
@@ -44,26 +44,21 @@ export type HandleMessageContext = {
   hot: PipelineHot;
   store: { state?: PipelineState } | null | undefined;
   turns: PipelineTurns;
-  memory: { observe: (guildId: string, line: Line, options?: { direct: boolean }) => void };
-  activity: { note: (channelId: string, authorId: string, at: number) => void } | null;
+  memory: { observe: (placeId: string, line: Line, options?: { direct: boolean }) => void };
+  activity: { note: (placeId: string, authorId: string, at: number) => void } | null;
   missed: PipelineMissed | null;
-  getGuildId: () => string | null;
-  /** A community some connected interface serves; the one community of `getGuildId` when absent. */
-  isServedCommunity?: (communityId: string | null | undefined) => boolean;
+  /** A community some connected interface serves. */
+  isServedCommunity: (communityId: string | null | undefined) => boolean;
   selfIdOf: () => string;
   observeLine: ObserveLine;
   maybePauseNotice: (event: MessageEvent) => Promise<void>;
   onPrivateMessage: PrivateGate['onPrivateMessage'];
   resolveReference: Conversations['resolveReference'];
   turnPlaceOf: Conversations['turnPlaceOf'];
-  routeOf: Conversations['routeOf'];
   warmMediaCache: MediaPrefill['warmMediaCache'];
   noteFollowUpSend: FollowUpWindows['noteFollowUpSend'];
   noteFollowingLine: NoteFollowingLine;
-  touchSettle: Settles['touchSettle'];
   maybeFollowUp: MaybeFollowUp;
-  rememberCall: Settles['rememberCall'];
-  armSettle: Settles['armSettle'];
   answerCall: Answer['answerCall'];
 };
 
@@ -82,7 +77,6 @@ export function createHandleMessage({
   memory,
   activity,
   missed,
-  getGuildId,
   isServedCommunity,
   selfIdOf,
   observeLine,
@@ -90,14 +84,10 @@ export function createHandleMessage({
   onPrivateMessage,
   resolveReference,
   turnPlaceOf,
-  routeOf,
   warmMediaCache,
   noteFollowUpSend,
   noteFollowingLine,
-  touchSettle,
   maybeFollowUp,
-  rememberCall,
-  armSettle,
   answerCall,
 }: HandleMessageContext): HandleMessage {
   // The ids of the messages the gateway delivered and of those the start's catch-up delivered
@@ -106,8 +96,14 @@ export function createHandleMessage({
   // catch-up has not taken.
   const liveIds = new Set<string>();
   // observeWhilePaused always names the record of the line it observes (src/behavior/core-pause.ts).
-  const isServed = isServedCommunity ?? ((id: string | null | undefined) => id === getGuildId());
-  const pausedDeps = { hot, getGuildId, isServed, selfIdOf, observeLine: observeLine as PausedDeps['observeLine'] };
+  const isServed = isServedCommunity;
+  const pausedDeps = {
+    hot,
+    isServed,
+    sharedPlaceOf: (conversation: never, iface: string) => sharedPlaceOf(store, conversation, iface),
+    selfIdOf,
+    observeLine: observeLine as PausedDeps['observeLine'],
+  };
   const caughtUpIds = new Set<string>();
   /** Add `id` to `ids`, the oldest past the cap going first. */
   function keepId(ids: Set<string>, id: string): void {
@@ -125,8 +121,7 @@ export function createHandleMessage({
    * like a live one with three differences: it is dropped when the gateway (or an earlier
    * catch-up) already delivered it; nothing at all happens while paused (no pause notice), in a
    * private chat or for a line that is no call (no follow-up for stale chatter); and a call (a mention, a reply to the persona, her name -- the live
-   * detectTrigger) reaches the ordinary call path (answerCall, or the settle wait of a channel
-   * she cannot write in) only with `trigger` true, otherwise it is only observed. Never throws.
+   * detectTrigger) reaches the ordinary call path (answerCall) only with `trigger` true, otherwise it is only observed. Never throws.
    */
   async function catchUpMessage(
     event: MessageReceived & { raw: object },
@@ -178,7 +173,7 @@ export function createHandleMessage({
         return;
       }
 
-      // 3. This instance serves exactly one guild; no threads. Which channels
+      // 3. This instance serves exactly one place; no threads. Which channels
       // it sees is the platform's permissions alone.
       if (!isServed(event.conversation.communityId)) return 'ignored';
       if (event.conversation.kind === 'thread') return 'ignored';
@@ -194,20 +189,20 @@ export function createHandleMessage({
       // lineOf gives the normalized line of a message event.
       const normalized = lineOf(event) as Line;
       // A served community is a string: the door refuses any other shape, and the gate above admits only those.
-      const guildId = event.conversation.communityId as string;
+      const placeId = sharedPlaceOf(store, event.conversation, event.iface);
 
       // 5. Its own message: only bookkeeping. Also (re)opens/extends the
       // follow-up window for this channel -- see noteFollowUpSend above. A
       // limit notice is not the persona's speech: the post is noted, but it
       // never opens a window or reaches memory.
       if (normalized.self) {
-        turns.notePost(normalized.channelId, normalized.ts);
+        turns.notePost(normalized.placeId, normalized.ts);
         // isLimitNotice reads the labels it is given, a missing labels file as none.
         if (isLimitNotice(hot.prompts?.labels as object, normalized.content)) return 'ignored';
-        noteFollowUpSend(normalized.channelId, normalized.ts);
+        noteFollowUpSend(normalized.placeId, normalized.ts);
         if (memoryOn) {
-          memory.observe(guildId, normalized);
-          const observing = observeLine(event, false, { guildId }, options?.acceptedEvent);
+          memory.observe(placeId, normalized);
+          const observing = observeLine(event, false, { placeId }, options?.acceptedEvent);
           if (observing) await observing;
         }
         return 'observed';
@@ -217,7 +212,7 @@ export function createHandleMessage({
       if (event.message.author.bot) return 'ignored';
 
       // 6b. A line soon after the persona's own one here joins her participation episode.
-      noteFollowingLine(guildId, normalized, config);
+      noteFollowingLine(placeId, normalized, config);
 
       // 8. Detect how (if at all) the persona was called, masking each input
       // by its own feature switch so detectTrigger itself stays pure. Done
@@ -240,15 +235,12 @@ export function createHandleMessage({
 
       // 9. Everyone else feeds memory; a message addressed to the persona is
       // marked `direct` so the analyzer can weigh it separately.
-      const ownPrefill = warmMediaCache(guildId, normalized);
+      const ownPrefill = warmMediaCache(placeId, normalized);
       if (memoryOn) {
-        memory.observe(guildId, normalized, { direct: Boolean(kind) });
-        const observing = observeLine(event, Boolean(kind), { guildId }, options?.acceptedEvent);
+        memory.observe(placeId, normalized, { direct: Boolean(kind) });
+        const observing = observeLine(event, Boolean(kind), { placeId }, options?.acceptedEvent);
         if (observing) await observing;
       }
-
-      // 9b. A channel whose call waits to be answered elsewhere is still talking: its settle wait moves (touchSettle).
-      touchSettle(event.conversation.id);
 
       // 10. No trigger: maybe a follow-up inside a window the persona itself opened by answering -- fully handled by
       // maybeFollowUp either way (a computed verdict or a deliberate no-op, see its own header comment), nothing more.
@@ -263,25 +255,11 @@ export function createHandleMessage({
         return;
       }
 
-      // 11. The persona was called where it cannot write: the call is
-      // answered in the main channel when the route holds (routeFor) --
-      // recorded in the ring, then answered once this channel settles
-      // (armSettle). Otherwise it is never queued, but it leaves a trace with
-      // the route's code.
+      // 11. The persona was called where she cannot write: no conversation stands in for it, so the call is never
+      // queued and leaves a trace.
       if (!channel.permissions.send) {
-        const route = await routeOf(channel, config);
-        if (!route.destination) {
-          log.info('mention: dropped', {
-            channel: channel.id,
-            kind,
-            reason: 'cannot-send',
-            route: route.reason,
-          });
-          return 'observed';
-        }
-        rememberCall(channel, normalized, config);
-        armSettle(channel, normalized, kind, route.destination);
-        return 'triggered';
+        log.info('mention: dropped', { channel: channel.id, kind, reason: 'cannot-send' });
+        return 'observed';
       }
 
       // 11b. Decide whether to actually answer, or keep a direct call

@@ -16,12 +16,12 @@
 // same config. Where the old and the new key are both set, the new one wins and the old one is dropped and reported as
 // shadowed. Keys nothing reads any more (three grants of `bot.access`, `agents.maxDownloadBytes`, the two context
 // keys of `agents.thinker`, `agents.ledger.socket`, and `bot.commandName` and `features.adminCommands` of the slash
-// command that is gone) are removed, with a section they leave empty, and reported as dropped. `selfreflection.channelId` is the seed of the diary's mirror
+// command that is gone) are removed, with a section they leave empty, and reported as dropped. `selfreflection.placeId` is the seed of the diary's mirror
 // (schema v15): once the memory database has that mirror (`diaryMirror`, told by the caller) the key is removed and
 // reported as moved to the database (`toDatabase`). Nothing here reads a file.
 //
 // The grants of `bot.access` stored under the keys of the old slash command (`memory.show`, `emoji.rescan`, ...) are
-// read by `legacyGrantOps`, which src/tools/impl/access.ts#migrateStoredGrants calls once per guild at start.
+// read by `legacyGrantOps`, which src/tools/impl/access.ts#migrateStoredGrants calls once per place at start.
 
 import { formatSchedule, parseSchedule } from './service/schedule.ts';
 
@@ -38,7 +38,7 @@ export type MovedConfig = {
   shadowed: Array<Move>;
   /** The dotted paths of the keys removed because nothing reads them. */
   dropped: Array<string>;
-  /** The dotted paths of the keys removed because the memory database holds them (`selfreflection.channelId`). */
+  /** The dotted paths of the keys removed because the memory database holds them (`selfreflection.placeId`). */
   toDatabase: Array<string>;
 };
 
@@ -137,12 +137,13 @@ export const ERRAND_KEYS: ReadonlyArray<string> = [
 ];
 
 /** The keys nothing reads any more, as dotted paths below the config. */
-const DROPPED_KEYS: ReadonlyArray<ReadonlyArray<string>> = [
+export const DROPPED_KEYS: ReadonlyArray<ReadonlyArray<string>> = [
   ['agents', 'maxDownloadBytes'],
   ['agents', 'thinker', 'contextLimit'],
   ['agents', 'thinker', 'contextHard'],
   ['agents', 'ledger', 'socket'],
   ['bot', 'commandName'],
+  ['memory', 'mainChannelIds'],
   ['features', 'adminCommands'],
 ];
 
@@ -325,18 +326,18 @@ function moveSchedules(config: Config, report: MovedConfig): void {
   }
 }
 
-/** `selfreflection.channelId` removed once the memory database has the diary's mirror; a section it empties goes too. */
+/** `selfreflection.placeId` removed once the memory database has the diary's mirror; a section it empties goes too. */
 function moveDiarySeed(config: Config, diaryMirror: boolean, report: MovedConfig): void {
   const section = sectionOf(config, 'selfreflection', false);
-  if (!diaryMirror || section === null || !Object.hasOwn(section, 'channelId')) return;
-  delete section.channelId;
+  if (!diaryMirror || section === null || !Object.hasOwn(section, 'placeId')) return;
+  delete section.placeId;
   if (Object.keys(section).length === 0) delete config.selfreflection;
-  report.toDatabase.push('selfreflection.channelId');
+  report.toDatabase.push('selfreflection.placeId');
 }
 
 /**
  * `config` with the old keys written under their new names. `diaryMirror`: the memory database has the diary's mirror,
- * so `selfreflection.channelId` (or the old `diary.channelId`) goes and `toDatabase` names it (empty otherwise). The argument is not changed.
+ * so `selfreflection.placeId` (or the old `diary.placeId`) goes and `toDatabase` names it (empty otherwise). The argument is not changed.
  */
 export function moveConfigKeys(config: Config, { diaryMirror = false }: { diaryMirror?: boolean } = {}): MovedConfig {
   const report: MovedConfig = { config: structuredClone(config), moved: [], shadowed: [], dropped: [], toDatabase: [] };

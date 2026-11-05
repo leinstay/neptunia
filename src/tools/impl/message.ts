@@ -10,7 +10,7 @@
 // only the members it mentions (`context.mentionUserIds`) are notified, none with pings off. Edit,
 // delete and react go through the interface too. The rules live here, for every caller: a post,
 // an edit, a deletion or a reaction in the conversation the command runs in, or in any text
-// channel of the served guild where the bot holds the platform permissions it needs
+// channel of the served place where the bot holds the platform permissions it needs
 // (src/tools/impl/shared.ts#postingConversation; a person may ask for her turn in any channel); edit and
 // delete reach only her own messages (the port refuses anyone else's). A message is named by its
 // id or its link; for an edit or a deletion also by `last`, her own most recent message in that
@@ -44,22 +44,22 @@ import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';
 
 /**
- * The conversation `channelId` names, checked for what a post (a reply when `reply`) needs there
+ * The conversation `placeId` names, checked for what a post (a reply when `reply`) needs there
  * (src/tools/impl/shared.ts#postingConversation).
  */
 async function postTarget(
   env: Env,
   p: Adapter,
   context: OpContext,
-  channelId: string | null,
+  placeId: string | null,
   reply: boolean
 ): Promise<string> {
   const need = reply ? 'reply' : 'send';
   return postingConversation({
     reads: env.reads,
     iface: p.iface,
-    guildId: env.resolvedGuildId(context),
-    channelId,
+    placeId: env.resolvedPlaceId(context),
+    conversationId: placeId,
     context,
     need,
   });
@@ -104,7 +104,7 @@ type Need = Parameters<typeof postingConversation>[0]['need'];
 
 /** The message an operation acts on and the conversation it is in. */
 type Target = {
-  channelId: string;
+  placeId: string;
   messageId: string;
   ref: { iface: string; conversationId: string; messageId: string };
 };
@@ -116,7 +116,7 @@ function needReads(reads: Reads | null): Reads {
 }
 
 /**
- * The attachment of a post's `file` handle bound for `channelId`, or null without one: the
+ * The attachment of a post's `file` handle bound for `placeId`, or null without one: the
  * errand's file (src/errands/service.ts#fileOf), its size checked against the interface's
  * `maxFileBytes` before it is read.
  */
@@ -124,7 +124,7 @@ async function errandFile(
   env: Env,
   args: Obj,
   context: OpContext,
-  channelId: string,
+  placeId: string,
   p: Adapter
 ): Promise<Upload | null> {
   const handle = textOf(args.file).trim();
@@ -133,7 +133,7 @@ async function errandFile(
   const file = skillFile
     ? skillFile
     : typeof env.errands?.fileOf === 'function'
-      ? env.errands.fileOf({ guildId: env.resolvedGuildId(context), handle, privateChannelId: channelId })
+      ? env.errands.fileOf({ placeId: env.resolvedPlaceId(context), handle, privateChannelId: placeId })
       : null;
   if (file?.expired) throw invalid(`files of ${handle} have expired`, CODE.FILE_EXPIRED);
   if (!file) throw invalid(`no file ${handle}`, CODE.UNKNOWN_FILE);
@@ -150,13 +150,13 @@ async function errandFile(
 }
 
 /**
- * The library entry of a post's `gif` handle in `guildId`, or null without a handle: unknown
+ * The library entry of a post's `gif` handle in `placeId`, or null without a handle: unknown
  * here (or `features.gifs` off) is `invalid` with `unknown-gif`, checked before anything is posted.
  */
-function gifEntry(env: Env, args: Obj, guildId: string | null): Untyped {
+function gifEntry(env: Env, args: Obj, placeId: string | null): Untyped {
   const handle = textOf(args.gif).trim();
   if (!handle) return null;
-  const entry = typeof env.store?.findGif !== 'function' ? null : env.store.findGif(guildId, handle);
+  const entry = typeof env.store?.findGif !== 'function' ? null : env.store.findGif(placeId, handle);
   if (!entry) throw invalid(`no GIF ${handle} in the library`, CODE.UNKNOWN_GIF);
   return entry;
 }
@@ -164,11 +164,11 @@ function gifEntry(env: Env, args: Obj, guildId: string | null): Untyped {
 /** True when member `userId` turned pings off here. */
 function pingsOff(env: Env, { context, userId }: { context: OpContext; userId: unknown }): boolean {
   if (!userId || typeof env.store?.isPingsOff !== 'function') return false;
-  return env.store.isPingsOff(env.resolvedGuildId(context), idText(userId)) === true;
+  return env.store.isPingsOff(env.resolvedPlaceId(context), idText(userId)) === true;
 }
 
 const handlers = perEnv((env) => {
-  const { store, spontaneous, turns, assertNotPaused, resolvedGuildId } = env;
+  const { store, spontaneous, turns, assertNotPaused, resolvedPlaceId } = env;
   const { reads } = env;
   const port = env.port as Adapter | null | undefined;
   const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
@@ -197,8 +197,8 @@ const handlers = perEnv((env) => {
     const sourceId = await postingConversation({
       reads,
       iface: p.iface,
-      guildId: resolvedGuildId(context),
-      channelId: ref.channelId,
+      placeId: resolvedPlaceId(context),
+      conversationId: ref.placeId,
       context,
       need: 'read',
     });
@@ -252,28 +252,32 @@ const handlers = perEnv((env) => {
     if (!text && !textOf(args.file).trim() && !textOf(args.gif).trim() && !textOf(args.media).trim())
       throw invalid('text is required');
     const reply = args.replyTo ? await messageRefOf(args.replyTo, reads) : null;
-    const given = args.channelId ? idText(args.channelId) : null;
-    if (given && reply?.channelId && given !== reply.channelId)
+    const given = args.placeId ? idText(args.placeId) : null;
+    if (given && reply?.placeId && given !== reply.placeId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const channelId = await postTarget(env, p, context, given ?? reply?.channelId ?? null, reply !== null);
+    const conversationId = await postTarget(env, p, context, given ?? reply?.placeId ?? null, reply !== null);
     const repliedUser = Boolean(reply) && !pingsOff(env, { context, userId: context?.repliedAuthorId });
-    const guildId = resolvedGuildId(context);
-    const entry = gifEntry(env, args, guildId);
-    const attachment = (await errandFile(env, args, context, channelId, p)) ?? (await mediaFile(args, context, p));
-    const to = { iface: p.iface, conversationId: channelId };
+    const placeId = resolvedPlaceId(context);
+    const entry = gifEntry(env, args, placeId);
+    const attachment = (await errandFile(env, args, context, conversationId, p)) ?? (await mediaFile(args, context, p));
+    const to = { iface: p.iface, conversationId };
     const content: Content = {
       text,
       ...(attachment ? { attachments: [attachment] } : {}),
-      ...(reply ? { replyTo: { iface: p.iface, conversationId: channelId, messageId: reply.messageId } } : {}),
+      ...(reply ? { replyTo: { iface: p.iface, conversationId, messageId: reply.messageId } } : {}),
       mentions: { users: mentionedUsers(context), repliedUser },
     };
     let result: Untyped = null;
     if (text || attachment) {
       result = await p.send(to, content);
       if (result?.status !== 'ok' || !entry)
-        return portAnswer('message.create', result, `sent in ${channelId} (message ${result?.ref?.messageId ?? '?'})`);
+        return portAnswer(
+          'message.create',
+          result,
+          `sent in ${conversationId} (message ${result?.ref?.messageId ?? '?'})`
+        );
     }
-    const sent = await postGif(p, to, entry, guildId, channelId, text || attachment ? null : content);
+    const sent = await postGif(p, to, entry, placeId, conversationId, text || attachment ? null : content);
     if (sent?.status !== 'ok')
       return text || attachment
         ? {
@@ -289,7 +293,7 @@ const handlers = perEnv((env) => {
         : portAnswer('message.create', sent, '');
     const ref = result?.ref ?? sent.ref;
     return {
-      text: `sent in ${channelId} (message ${ref?.messageId ?? '?'})${text || attachment ? ' and a GIF' : ''}`,
+      text: `sent in ${conversationId} (message ${ref?.messageId ?? '?'})${text || attachment ? ' and a GIF' : ''}`,
       ref: ref ?? null,
       at: (result ?? sent).at,
     };
@@ -304,15 +308,15 @@ const handlers = perEnv((env) => {
     p: Adapter,
     to: ConversationRef,
     entry: Untyped,
-    guildId: string | null,
-    channelId: string,
+    placeId: string | null,
+    conversationId: string,
     lead: Content | null
   ): Promise<Untyped> {
     const fresh =
       entry.kind === 'attachment'
         ? await freshAttachmentUrl({
             reads: needReads(reads),
-            channel: { iface: p.iface, conversationId: channelId },
+            channel: { iface: p.iface, conversationId },
             entry,
           })
         : null;
@@ -321,19 +325,18 @@ const handlers = perEnv((env) => {
       : { text: gifPostUrl(entry as { url: string }, fresh), mentions: { users: [], repliedUser: false } };
     const sent = await p.send(to, content);
     if (sent?.status === 'ok') {
-      if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(guildId, entry.key, clock());
+      if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(placeId, entry.key, clock());
     }
     return sent;
   }
 
   /** One turn of hers in the channel, now, for a person: an answer to the named message, else her own pick. */
   async function turn(args: Obj, context: OpContext) {
-    const channelId = idText(args.channelId) || context.channelId;
-    if (!channelId) throw invalid('a channel is required');
+    const placeId = idText(args.placeId) || context.conversationId;
+    if (!placeId) throw invalid('a channel is required');
     const p = requirePort();
-    const ref = { iface: p.iface, conversationId: channelId };
-    if ((await needReads(reads).conversationInfo(ref)) === null)
-      throw invalid(`no channel ${channelId}`, CODE.NOT_FOUND);
+    const ref = { iface: p.iface, conversationId: placeId };
+    if ((await needReads(reads).conversationInfo(ref)) === null) throw invalid(`no channel ${placeId}`, CODE.NOT_FOUND);
     // The person who ran the command is the requester of what she does in that turn.
     const requester = context.userId
       ? { id: context.userId, roleIds: Array.isArray(context.roleIds) ? context.roleIds.map(idText) : [] }
@@ -343,7 +346,7 @@ const handlers = perEnv((env) => {
       return `message create on ${ref.conversationId}: ${JSON.stringify(result) ?? 'ok'}`;
     }
     const reply = await messageRefOf(args.replyTo, reads);
-    if (reply.channelId && reply.channelId !== ref.conversationId)
+    if (reply.placeId && reply.placeId !== ref.conversationId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const fetched = await needReads(reads).fetchMessages(ref, [reply.messageId]);
     const event = fetched?.messages[0]?.event;
@@ -375,7 +378,7 @@ const handlers = perEnv((env) => {
 
   /**
    * The message `args.messageId` names, in the conversation it may be acted on in -- the bot
-   * holding there the permissions `need` names (src/tools/impl/shared.ts#CHANNEL_NEEDS): `{ channelId, ref }`.
+   * holding there the permissions `need` names (src/tools/impl/shared.ts#CHANNEL_NEEDS): `{ placeId, ref }`.
    */
   async function target(
     args: Obj,
@@ -386,52 +389,49 @@ const handlers = perEnv((env) => {
     const p = requirePort();
     if (last && isLast(args.messageId)) return lastTarget(args, context, need);
     const message = await messageRefOf(args.messageId, reads);
-    const given = args.channelId ? idText(args.channelId) : null;
-    if (given && message.channelId && given !== message.channelId)
+    const given = args.placeId ? idText(args.placeId) : null;
+    if (given && message.placeId && given !== message.placeId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const channelId = await postingConversation({
+    const placeId = await postingConversation({
       reads,
       iface: p.iface,
-      guildId: resolvedGuildId(context),
-      channelId: given ?? message.channelId,
+      placeId: resolvedPlaceId(context),
+      conversationId: given ?? message.placeId,
       context,
       need,
     });
     return {
-      channelId,
+      placeId,
       messageId: message.messageId,
-      ref: { iface: p.iface, conversationId: channelId, messageId: message.messageId },
+      ref: { iface: p.iface, conversationId: placeId, messageId: message.messageId },
     };
   }
 
   /**
    * `last`'s target: the persona's own most recent message among the last LAST_LOOKBACK of the
-   * conversation (`args.channelId`, else the one the command runs in), read through the interface;
+   * conversation (`args.placeId`, else the one the command runs in), read through the interface;
    * none of hers there is `invalid` with `no-own-message`.
    */
   async function lastTarget(args: Obj, context: OpContext, need: Need): Promise<Target> {
     const p = requirePort();
-    const channelId = await postingConversation({
+    const placeId = await postingConversation({
       reads,
       iface: p.iface,
-      guildId: resolvedGuildId(context),
-      channelId: args.channelId ? idText(args.channelId) : null,
+      placeId: resolvedPlaceId(context),
+      conversationId: args.placeId ? idText(args.placeId) : null,
       context,
       need,
     });
-    const page = await needReads(reads).history(
-      { iface: p.iface, conversationId: channelId },
-      { limit: LAST_LOOKBACK }
-    );
+    const page = await needReads(reads).history({ iface: p.iface, conversationId: placeId }, { limit: LAST_LOOKBACK });
     let newest: NonNullable<typeof page>['events'][number] | null = null;
     for (const event of page?.events ?? []) {
       if (event.message?.author?.self !== true) continue;
       if (!newest || (event.message.at ?? 0) >= (newest.message?.at ?? 0)) newest = event;
     }
     if (!newest)
-      throw invalid(`no message of the persona among the last ${LAST_LOOKBACK} in ${channelId}`, CODE.NO_OWN_MESSAGE);
+      throw invalid(`no message of the persona among the last ${LAST_LOOKBACK} in ${placeId}`, CODE.NO_OWN_MESSAGE);
     const messageId = idText(newest.message?.id);
-    return { channelId, messageId, ref: { iface: p.iface, conversationId: channelId, messageId } };
+    return { placeId, messageId, ref: { iface: p.iface, conversationId: placeId, messageId } };
   }
 
   /** `/nep message edit`: one of the persona's own messages gets `text`. */
@@ -440,19 +440,19 @@ const handlers = perEnv((env) => {
     const p = requirePort();
     const text = textOf(args.text).trim();
     if (!text) throw invalid('text is required');
-    const { channelId, messageId, ref } = await target(args, context, 'read', { last: true });
+    const { placeId, messageId, ref } = await target(args, context, 'read', { last: true });
     if (publicationRefusal(context.publicationBoundary, ref)) throw denied('publication-boundary', 'not-allowed');
     const users = mentionedUsers(context);
     const content = { text, ...(users.length > 0 ? { mentions: { users, repliedUser: false } } : {}) };
-    return portAnswer('message.edit', await p.edit(ref, content), `edited message ${messageId} in ${channelId}`);
+    return portAnswer('message.edit', await p.edit(ref, content), `edited message ${messageId} in ${placeId}`);
   }
 
   /** `/nep message delete`: one of the persona's own messages, deleted. */
   async function cmdDelete(args: Obj, context: OpContext) {
     assertNotPaused();
     const p = requirePort();
-    const { channelId, messageId, ref } = await target(args, context, 'read', { last: true });
-    return portAnswer('message.delete', await p.delete(ref), `deleted message ${messageId} in ${channelId}`);
+    const { placeId, messageId, ref } = await target(args, context, 'read', { last: true });
+    return portAnswer('message.delete', await p.delete(ref), `deleted message ${messageId} in ${placeId}`);
   }
 
   /** `/nep message react action:add|remove`: the persona's reaction `emoji` on a message, put or taken back. */
@@ -461,12 +461,12 @@ const handlers = perEnv((env) => {
     const p = requirePort();
     const emoji = textOf(args.emoji).trim();
     if (!emoji) throw invalid('an emoji is required');
-    const { channelId, messageId, ref } = await target(args, context, add ? 'react' : 'read');
+    const { placeId, messageId, ref } = await target(args, context, add ? 'react' : 'read');
     const result = add ? await p.react(ref, emoji) : await p.unreact(ref, emoji);
     return portAnswer(
       add ? 'message.react.add' : 'message.react.remove',
       result,
-      `${add ? 'reacted to' : 'took back the reaction on'} message ${messageId} in ${channelId}`
+      `${add ? 'reacted to' : 'took back the reaction on'} message ${messageId} in ${placeId}`
     );
   }
 

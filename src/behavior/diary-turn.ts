@@ -6,6 +6,7 @@
 // (src/behavior/line-of.ts). `pictureGate` says whether the post may carry a picture, and
 // `diaryVoiceTool` keeps her voice message for the entry instead of posting it. Logs: none.
 
+import { PERSONA_ID } from '../memory/db/storage-keys.ts';
 import { UNRESTRICTED, diaryMetadataOf, diaryRestricted, refusedAudience } from '../tools/publication.ts';
 import type { AudienceChoice, PublicationBoundary } from '../tools/publication.ts';
 import { randomUUID } from 'node:crypto';
@@ -116,14 +117,14 @@ export type StagedPicture = EntryPicture & { text: string };
 
 /** The part of the store `recordEntry` uses. */
 export type DiaryStore = {
-  appendDiaryPost?: (guildId: string, post: Record<string, unknown>, opts: { max: number }) => unknown;
-  getDiary?: (guildId: string) => { posts: Array<Record<string, unknown>> };
-  setDiaryPosts?: (guildId: string, posts: Array<Record<string, unknown>>, opts: { max: number }) => unknown;
+  appendDiaryPost?: (post: Record<string, unknown>, opts: { max: number }) => unknown;
+  getDiary?: () => { posts: Array<Record<string, unknown>> };
+  setDiaryPosts?: (posts: Array<Record<string, unknown>>, opts: { max: number }) => unknown;
   state: { data: Record<string, unknown>; markDirty(): void };
 };
 
 /**
- * The post of the guild's diary an entry is (recordEntry): its gist and its first picture's scene cut to
+ * The post of the place's diary an entry is (recordEntry): its gist and its first picture's scene cut to
  * `selfreflection.gistChars` (200), her full text, the entry's id as its `itemId`, its search query, how it is sent (`send`) and,
  * with a voice message, the text as voiced and its length.
  */
@@ -175,7 +176,7 @@ function diaryPostOf({
 }
 
 /**
- * A diary post recorded before anything is sent: one post in the guild's diary (`store.appendDiaryPost`, the newest
+ * A diary post recorded before anything is sent: one post in the place's diary (`store.appendDiaryPost`, the newest
  * `selfreflection.historyPosts` (150) kept) with its gist and its first picture's scene cut to `selfreflection.gistChars` (200), her
  * full text, the entry's id as its `itemId`, its search query, how it is sent (`send`: her messages as sent, their
  * mentions, the set's byte limit) and, with a voice message, the text as voiced and its length; the day's diary post
@@ -187,7 +188,6 @@ function diaryPostOf({
 export function recordEntry({
   store,
   config,
-  guildId,
   now,
   plan,
   held,
@@ -200,7 +200,7 @@ export function recordEntry({
 }: {
   store: DiaryStore;
   config: Config;
-  guildId: string;
+
   now: number;
   plan: { kind: string | null; search?: string | null };
   held: HeldSpeech;
@@ -232,7 +232,7 @@ export function recordEntry({
   });
   if (publicationBoundary !== undefined) post.publicationBoundary = publicationBoundary;
   post.publicationAudience = audience.ok ? audience.audience : { kind: 'invalid', code: audience.code };
-  if (typeof store.appendDiaryPost === 'function') store.appendDiaryPost(guildId, post, { max: DEFAULT_HISTORY_POSTS });
+  if (typeof store.appendDiaryPost === 'function') store.appendDiaryPost(post, { max: DEFAULT_HISTORY_POSTS });
   const entry: DiaryEntry = {
     id,
     ...(publicationBoundary !== undefined ? { publicationBoundary } : {}),
@@ -256,7 +256,7 @@ export function recordEntry({
  * The refusals `posts` showed in a diary request (`<audience_refused>`), marked on their posts once she answered it, so
  * she hears of each one once. A request that never got an answer marks nothing.
  */
-export function markRefusalsTold(store: DiaryStore, guildId: string, posts: ReadonlyArray<object>): void {
+export function markRefusalsTold(store: DiaryStore, posts: ReadonlyArray<object>): void {
   const shown = new Set(
     posts.flatMap((post) => {
       const { itemId, publicationAudience } = post as { itemId?: unknown; publicationAudience?: unknown };
@@ -265,13 +265,13 @@ export function markRefusalsTold(store: DiaryStore, guildId: string, posts: Read
   );
   if (shown.size === 0 || !store.getDiary || !store.setDiaryPosts) return;
   const marked = store
-    .getDiary(guildId)
+    .getDiary()
     .posts.map((post) =>
       shown.has(post.itemId)
         ? { ...post, publicationAudience: { ...(post.publicationAudience as object), told: true } }
         : post
     );
-  store.setDiaryPosts(guildId, marked, { max: DEFAULT_HISTORY_POSTS });
+  store.setDiaryPosts(marked, { max: DEFAULT_HISTORY_POSTS });
 }
 
 /** One message of her diary as memory holds it: a message of the platform's shape, and its addressing. */
@@ -349,15 +349,18 @@ function filesOf(db: Db, entryId: string): Map<string, Array<Row>> {
  * rows; an entry with no such line is its text as one message under its first message id (or its own id), at the
  * entry's time. Nothing of anyone else: the mirror place's other lines are no part of her diary.
  */
+/** What a stored line of a message holds as its native id: the protocol id, or the key of the message's family once it has one. */
+const FAMILY_OF_MESSAGE = '?, (SELECT native_key FROM message_families WHERE message_id = ? AND generation = 1)';
+
 function diaryMessages(db: Db, placeId: string | null, limit: number): Array<DiaryMessage> {
   const out: Array<DiaryMessage> = [];
   const said = db.prepare(
     `SELECT native_id, revision, occurred_at, recorded_at, text, reply_to FROM sources
-      WHERE place_id = ? AND native_id = ? AND kind IN ('said', 'seen') AND retired_at IS NULL
+      WHERE place_id = ? AND native_id IN (${FAMILY_OF_MESSAGE}) AND kind IN ('said', 'seen') AND retired_at IS NULL
       ORDER BY revision DESC, kind = 'said' DESC LIMIT 1`
   );
   const deleted = db.prepare(
-    "SELECT 1 AS gone FROM sources WHERE place_id = ? AND native_id = ? AND kind = 'deleted' AND retired_at IS NULL LIMIT 1"
+    `SELECT 1 AS gone FROM sources WHERE place_id = ? AND native_id IN (${FAMILY_OF_MESSAGE}) AND kind = 'deleted' AND retired_at IS NULL LIMIT 1`
   );
   const entries = db
     .prepare('SELECT id, at_ms, text, extra FROM diary WHERE retired_at IS NULL ORDER BY at_ms DESC, position DESC')
@@ -368,11 +371,11 @@ function diaryMessages(db: Db, placeId: string | null, limit: number): Array<Dia
     const entryId = String(entry.id);
     const ids = messageIdsOf(db, entryId);
     const files = filesOf(db, entryId);
-    const lines = placeId ? ids.map((id) => ({ id, line: said.all(placeId, id)[0] })) : [];
+    const lines = placeId ? ids.map((id) => ({ id, line: said.all(placeId, id, id)[0] })) : [];
     const posted: Array<DiaryMessage> = [];
     for (const { id, line } of lines) {
       // A message she deleted, or one with neither text nor a file, is no line of her diary.
-      if ((!textOf(line?.text) && !files.has(id)) || deleted.all(placeId, id).length > 0) continue;
+      if ((!textOf(line?.text) && !files.has(id)) || deleted.all(placeId, id, id).length > 0) continue;
       const at = Date.parse(textOf(line?.occurred_at));
       const recordedAt = Date.parse(textOf(line?.recorded_at));
       const edited = numberOr(line?.revision, 1) > 1;
@@ -412,11 +415,17 @@ export type WakeInputs = {
  * newest `context.channelMessages` messages of her entries (diaryMessages), each through the line builder with her as
  * the author. With no place at all the conversation is her diary itself (`selfreflection`), with every permission.
  */
+/** The native id of the server a place sits under, for a turn whose interface says nothing now; else null. */
+function communityOfPlace(store: unknown, placeId: string): string | null {
+  const known = store as { rootPlaceOf?(id: string): string | null; nativeCommunityOf?(id: string): string | null };
+  const top = known.rootPlaceOf?.(placeId) ?? null;
+  return top === null ? null : (known.nativeCommunityOf?.(top) ?? null);
+}
+
 export async function wakeInputs({
   store,
   conversationInfo,
   iface,
-  guildId,
   selfId,
   selfName,
   config,
@@ -424,7 +433,7 @@ export async function wakeInputs({
   store: unknown;
   conversationInfo: (ref: ConversationRef) => Promise<{ conversation: ConversationInfo } | null>;
   iface: string;
-  guildId: string;
+
   selfId: string;
   selfName: string;
   config: Config;
@@ -439,7 +448,7 @@ export async function wakeInputs({
     id: conversation.conversationId,
     kind: 'channel',
     name: place?.name ?? conversation.conversationId,
-    communityId: guildId,
+    communityId: place ? (communityOfPlace(store, place.placeId) ?? PERSONA_ID) : PERSONA_ID,
     category: null,
     topic: null,
     permissions: { read: true, send: true, attach: true, react: false },

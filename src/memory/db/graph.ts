@@ -49,7 +49,7 @@ import type { Context } from './scope.ts';
 
 export const EPOCH = '1970-01-01T00:00:00.000Z';
 const SELF = 'person:self';
-const CONTAINERS = new Set(['guild', 'server', 'workspace', 'category']);
+const CONTAINERS = new Set(['server', 'workspace', 'category']);
 /** The graph walk's limits. Production values, config cut of 2026-10-31. */
 const DEFAULTS = Object.freeze({ maxDepth: 6, maxRows: 2000 });
 const PENDING_KEY = 'graph_pending';

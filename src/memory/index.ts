@@ -28,7 +28,6 @@ export { rankAddressed } from './addressed.ts';
 export { episodeDate, sortEpisodesForDisplay, topEpisodes } from './episodes.ts';
 export { matchLore } from './lore.ts';
 export { channelActivity, renderChannel } from './channels.ts';
-export { mainChannelSet } from './update.ts';
 export {
   PARTICIPATION_DEFAULTS,
   cutEpisode,

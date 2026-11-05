@@ -186,7 +186,7 @@ function messageEvent(
 }
 
 const BASE_CONFIG: Settings = {
-  bot: { timezone: 'UTC', owners: [], guildId: COMMUNITY.id },
+  bot: { timezone: 'UTC', owners: [], placeId: COMMUNITY.id },
   // No video role, so the start sends no canary probe to YouTube.
   models: { base: { video: false } },
   pace: { settleMs: 0, settleMaxMs: 0 },

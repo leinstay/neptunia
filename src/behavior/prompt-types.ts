@@ -32,11 +32,11 @@ export type BuildRequestInput = {
   selfName: string;
   selfId?: string | null;
   history: RequestInput['history'];
-  neighbors: Array<{ channelId?: string; channelName: string; messages: Array<Untyped> }>;
+  neighbors: Array<{ placeId?: string; channelName: string; messages: Array<Untyped> }>;
   trigger: RequestInput['trigger'];
   triggerKind: string | null;
   taggedCall?: boolean | null;
-  guildMemory: RequestInput['guildMemory'];
+  placeMemory: RequestInput['placeMemory'];
   interlocutor: RequestInput['interlocutor'];
   privateChat?: { userId: string } | null;
   privateProfile?: RequestInput['privateProfile'];
@@ -59,7 +59,7 @@ export type BuildRequestInput = {
     cached?: boolean;
     server?: {
       text: string | null;
-      stretch: { channelId: string; channelName: string | null; startTs: number; lines: string } | null;
+      stretch: { placeId: string; channelName: string | null; startTs: number; lines: string } | null;
       people: Array<Untyped>;
     };
   } | null;
@@ -75,7 +75,7 @@ export type BuildRequestInput = {
   mediaCache?: RequestInput['mediaCache'];
   gifs?: RequestInput['gifs'];
   pulled?: Array<PulledChannel> | null;
-  source?: { channelId: string; reason: 'routed' | 'noticed' } | null;
+  source?: { placeId: string; reason: 'routed' | 'noticed' } | null;
   tasks?: {
     part: { index: number; total: number; parts: Array<string> } | null;
     queued: Array<string>;
@@ -86,12 +86,12 @@ export type BuildRequestInput = {
   elsewhereDestination?: { name: string } | null;
   readOnlyIds?: Set<string> | Array<string>;
   recentLines?: Array<Untyped>;
-  recentAudience?: (channelId: string | null) => boolean;
+  recentAudience?: (placeId: string | null) => boolean;
   participation?: {
     state: Untyped;
     pickedIds?: Array<string>;
-    audience?: (channelId: string) => boolean;
-    channelName?: (channelId: string) => string | null;
+    audience?: (placeId: string) => boolean;
+    channelName?: (placeId: string) => string | null;
   } | null;
   diaryChannel?: string | null;
   diaryChannelIds?: Iterable<string>;
@@ -107,7 +107,7 @@ export type BuildRequestInput = {
   toolsGranted?: Array<string> | null;
   toolsBlock?: string | null;
   toolsTokens?: number | null;
-  around?: { snapshot: Untyped; channelNameOf?: (channelId: string) => string | null } | null;
+  around?: { snapshot: Untyped; channelNameOf?: (placeId: string) => string | null } | null;
   errands?: { list?: string; result?: string } | null;
   intentions?: string | null;
   wake?: string | null;
@@ -132,8 +132,8 @@ export type BuildRequestResult = {
   handles: Map<string, string> | null;
   channelHandles: Map<string, string> | null;
   pulledIds: Map<string, string>;
-  pulledKept: Array<{ channelId: string; ids: Array<string>; newestId: string; newestTs: number }>;
-  pulledViews: Array<{ channelId: string; hashes: Map<string, string>; oldestTs: number; oldestId: string | number }>;
+  pulledKept: Array<{ placeId: string; ids: Array<string>; newestId: string; newestTs: number }>;
+  pulledViews: Array<{ placeId: string; hashes: Map<string, string>; oldestTs: number; oldestId: string | number }>;
   peopleShown: Array<{ id: string; names: Array<string> }>;
   recent: { lines: number; episodes: number; cut: number; hidden: number; repeated: number; unnamed: number } | null;
   seen: { messageIds: Array<string>; parents: Array<string>; parts: { filePreviews: Array<string> } };
@@ -148,13 +148,13 @@ export type BuildDiaryPlanRequestInput = {
   now: number;
   selfName: string;
   history?: Array<Untyped>;
-  guildMemory?: Untyped;
+  placeMemory?: Untyped;
   channels?: Array<Untyped>;
   loreEntries?: Array<Untyped>;
   currentChannelId?: string | null;
   diaryChannelIds?: Iterable<string>;
   recentLines?: Array<Untyped> | null;
-  recentAudience?: ((channelId: string | null) => boolean) | null;
+  recentAudience?: ((placeId: string | null) => boolean) | null;
   candidateProfiles?: Array<Untyped>;
   nameOf?: ((id: string) => string | null) | null;
   posts?: Array<Untyped>;

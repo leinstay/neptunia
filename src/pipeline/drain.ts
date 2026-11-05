@@ -8,12 +8,11 @@ import { log } from '../log.ts';
 import { CODE } from '../tools/codes.ts';
 import type { Answer } from './answer.ts';
 import type { CallOutcome } from './call-outcome.ts';
-import { missingReason, routedFields } from './call-outcome.ts';
-import type { ConversationRef, Conversations } from './conversations.ts';
+import { missingReason } from './call-outcome.ts';
+import type { ConversationRef } from './conversations.ts';
 import type { FollowUpWindows } from './follow-up-window.ts';
 import type { PendingQueueOps } from './pending-queue.ts';
 import { isDeferredFollowUp } from './pending-queue.ts';
-import { communityField } from './private-gate.ts';
 import type { PrivateGate } from './private-gate.ts';
 import type { Conv, PendingQueue, Ping, PipelineHot, PipelineState, PipelineTurns } from './types.ts';
 
@@ -29,7 +28,6 @@ export type DrainContext = {
   rng: () => number;
   sleep: (ms: number) => Promise<void>;
   turns: PipelineTurns;
-  dmCommunityOf: PrivateGate['dmCommunityOf'];
   pending: PendingQueue;
   logPending: PendingQueueOps['logPending'];
   noteUnanswered: PendingQueueOps['noteUnanswered'];
@@ -38,11 +36,8 @@ export type DrainContext = {
   requeueBusy: PendingQueueOps['requeueBusy'];
   currentOf: (channel: Conv) => Promise<Conv>;
   refOf: (channel: Conv) => ConversationRef;
-  routeOf: Conversations['routeOf'];
   heldCallState: CallOutcome['heldCallState'];
-  skipSeenCalls: CallOutcome['skipSeenCalls'];
   afterCallTurn: CallOutcome['afterCallTurn'];
-  passRoutedCall: CallOutcome['passRoutedCall'];
   checkPrivateGate: PrivateGate['checkPrivateGate'];
   dropPrivate: PrivateGate['dropPrivate'];
   afterPrivateTurn: PrivateGate['afterPrivateTurn'];
@@ -57,7 +52,6 @@ export function createDrain({
   rng,
   sleep,
   turns,
-  dmCommunityOf,
   pending,
   logPending,
   noteUnanswered,
@@ -66,11 +60,8 @@ export function createDrain({
   requeueBusy,
   currentOf,
   refOf,
-  routeOf,
   heldCallState,
-  skipSeenCalls,
   afterCallTurn,
-  passRoutedCall,
   checkPrivateGate,
   dropPrivate,
   afterPrivateTurn,
@@ -105,23 +96,6 @@ export function createDrain({
    * switch (features.mentions / features.replies / features.nameTriggers) was turned
    * off while it waited (callSwitchOff).
    *
-   * A routed call (one with a `destination`) goes through the same checks in
-   * the channel it was written in, except the send permission: the
-   * destination it waited with is not checked, its route is read again now
-   * instead (routeFor: features.elsewhere, memory.mainChannelIds, the audience
-   * rail, a main channel the bot can send in) -- a route that no longer holds
-   * drops it like onMessage step 11 does (`cannot-send` with `route`) -- and
-   * its turn posts in the destination resolved now, with its source
-   * (afterCallTurn: the notice there, plain; the ring). A routed call the
-   * ring already holds as answered is dropped (`mention: already answered`,
-   * reason `ring`: read from state.json, so it holds across a restart,
-   * whatever the turns remember in memory) -- read before its message is
-   * looked up, so an answered call is never logged as `gone` or
-   * `fetch-failed` (heldCallState). Otherwise, a routed call a turn
-   * that spoke already had in view is stamped skipped in the ring with every
-   * other call of its source that turn showed (skipSeenCalls); one the ignore
-   * roll lets pass, with every call it took the place of (passRoutedCall).
-   *
    * A turn that started during the switch pause makes runTurn answer 'busy':
    * the ping is re-queued (requeueBusy; a server ping keeps its `respond`
    * decision, so the retry neither counts it again toward spamThreshold nor
@@ -143,14 +117,13 @@ export function createDrain({
         if (!ping) break;
 
         const mentionCfg = hot.config.mention;
-        const routed = routedFields(ping);
         if (isExpired(ping, now(), mentionCfg.pendingMinutes ?? 10)) {
           logPending(ping, 'expired');
           noteUnanswered(ping, CODE.PENDING_EXPIRED);
           continue;
         }
 
-        logPending(ping, 'picked up', { queued: queuedCount(ping.channelId, ping.trigger.authorId) });
+        logPending(ping, 'picked up', { queued: queuedCount(ping.placeId, ping.trigger.authorId) });
         await sleep(between(SWITCH_DELAY_MS, rng));
 
         // Paused meanwhile: the ping goes back to the queue, which the resume drains.
@@ -159,40 +132,21 @@ export function createDrain({
           logPending(ping, 'kept', { reason: 'paused' });
           break;
         }
-        // An ordinary ping is answered where it was written. A routed call's
-        // turn posts in a main channel, resolved again below (routeFor): the
-        // one it waited with may have changed or lost Send meanwhile.
-        if (!ping.destination) {
-          const here = await currentOf(ping.channel);
-          if (!here.permissions.send) {
-            logPending(ping, 'dropped', { reason: 'cannot-send' });
-            continue;
-          }
-        }
-        const held = await heldCallState(ping.channel, ping.trigger.id, Boolean(ping.destination));
-        // A routed call the ring holds as answered (a turn that showed it
-        // spoke): not answered a second time, whatever the turns remember.
-        if (held === 'answered') {
-          log.info('mention: already answered', {
-            channel: ping.channelId,
-            kind: ping.kind,
-            reason: 'ring',
-            ...routed,
-          });
+        const here = await currentOf(ping.channel);
+        if (!here.permissions.send) {
+          logPending(ping, 'dropped', { reason: 'cannot-send' });
           continue;
         }
+        const held = await heldCallState(ping.channel, ping.trigger.id);
         if (held !== true) {
           logPending(ping, 'dropped', { reason: missingReason(held) });
           continue;
         }
         // The turn that ran meanwhile fetched its history after this ping
-        // landed and spoke with it in view: not answered a second time (a
-        // routed call, and the calls of its source that turn showed, are no
-        // longer presented as waiting either).
-        if (!ping.readOptions?.memoryContext && turns.spokeAfterSeeing?.(ping.channelId, ping.trigger.id)) {
+        // landed and spoke with it in view: not answered a second time.
+        if (!ping.readOptions?.memoryContext && turns.spokeAfterSeeing?.(ping.placeId, ping.trigger.id)) {
           if (isDeferredFollowUp(ping)) logPending(ping, 'dropped', { reason: 'answered' });
-          else log.info('mention: already answered', { channel: ping.channelId, kind: ping.kind, ...routed });
-          if (ping.destination) skipSeenCalls(ping.channelId, ping.trigger.id);
+          else log.info('mention: already answered', { channel: ping.placeId, kind: ping.kind });
           continue;
         }
 
@@ -206,47 +160,27 @@ export function createDrain({
         if (ping.kind === 'private') {
           try {
             const authorId = ping.trigger.authorId;
-            const privateGuildId = dmCommunityOf(ping.channel.iface, authorId);
-            const check = await checkPrivateGate(config, privateGuildId, authorId, ping.channel.iface);
+            const check = await checkPrivateGate(config, authorId, ping.channel.iface);
             if (!check.gate.ok) {
               dropPrivate(check);
               continue;
             }
             const result = await turns.runTurn({
               conversation: refOf(ping.channel),
-              ...communityField(privateGuildId),
               mode: 'reply',
               trigger: ping.trigger,
               triggerKind: 'private',
               memoryContext: ping.readOptions?.memoryContext,
-              queued: queuedFor(ping.channelId, ping.trigger),
+              queued: queuedFor(ping.placeId, ping.trigger),
               added: ping.added ?? null,
             });
             if (result?.outcome === 'busy') stop = requeueBusy(ping);
-            else await afterPrivateTurn(ping.channel, privateGuildId, ping.trigger, result);
+            else await afterPrivateTurn(ping.channel, ping.trigger, result);
           } catch (err) {
-            log.error('private: deferred turn failed', { channel: ping.channelId, error: err });
+            log.error('private: deferred turn failed', { channel: ping.placeId, error: err });
           }
           if (stop) break;
           continue;
-        }
-
-        // A routed call: where it is answered is read again now (the switch,
-        // the main channels and the audience rail are hot).
-        let destination: Conv | null = null;
-        if (ping.destination) {
-          const route = await routeOf(ping.channel, config);
-          if (!route.destination) {
-            log.info('mention: dropped', {
-              channel: ping.channelId,
-              kind: ping.kind,
-              reason: 'cannot-send',
-              route: route.reason,
-              ...routed,
-            });
-            continue;
-          }
-          destination = route.destination;
         }
 
         // A deferred follow-up or overheard line: its window must still be
@@ -267,29 +201,22 @@ export function createDrain({
         // A re-queued ping was already counted and decided `respond` on the
         // pass whose turn found another one running: not counted or rolled again.
         else if (!ping.decided) {
-          const decision = decideAndLog(ping.channel, ping.trigger, ping.kind, config, { deferred: true, destination });
-          if (!decision.respond) {
-            // The ignore roll let a routed call pass, and the calls it replaced with it.
-            if (destination) passRoutedCall(ping.trigger.id, ping.superseded);
-            continue;
-          }
+          if (!decideAndLog(ping.channel, ping.trigger, ping.kind, config, { deferred: true }).respond) continue;
         }
 
         try {
           const result = await turns.runTurn({
-            conversation: refOf(destination ?? ping.channel),
+            conversation: refOf(ping.channel),
             mode: 'reply',
             trigger: ping.trigger,
             triggerKind: ping.kind,
-            queued: queuedFor(ping.channelId, ping.trigger, Boolean(destination)),
+            queued: queuedFor(ping.placeId, ping.trigger),
             added: ping.added ?? null,
-            ...(destination ? { source: { channelId: ping.channelId, reason: 'routed' as const } } : {}),
           });
-          if (result?.outcome === 'busy')
-            stop = requeueBusy({ ...ping, decided: true, ...(destination ? { destination } : {}) });
-          else await afterCallTurn(ping.channel, ping.trigger, result, ping.kind, destination);
+          if (result?.outcome === 'busy') stop = requeueBusy({ ...ping, decided: true });
+          else await afterCallTurn(ping.channel, ping.trigger, result, ping.kind);
         } catch (err) {
-          log.error('mention: deferred turn failed', { channel: ping.channelId, ...routed, error: err });
+          log.error('mention: deferred turn failed', { channel: ping.placeId, error: err });
         }
         if (stop) break;
       }

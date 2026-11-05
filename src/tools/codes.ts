@@ -134,7 +134,10 @@ export const CATALOGUE = Object.freeze({
   // What it needs is not set up.
   'not-configured': skill('not_configured', ['feature']),
   unsupported: skill('not_configured'),
-  'no-guild': skill('not_configured'),
+  'no-place': skill('not_configured'),
+  PLACE_REQUIRED: skill('not_configured'),
+  PERSON_NOT_FOUND: skill('invalid'),
+  PLACE_NOT_FOUND: skill('invalid'),
 
   // It ran and did not work, or may have.
   error: skill('failed'),

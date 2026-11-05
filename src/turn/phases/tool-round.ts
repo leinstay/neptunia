@@ -25,7 +25,7 @@ export async function toolRoundPhase(
   const requesterParam = params.requester ?? null;
   const { opened, setup, pulled: pulledStep, staged, gathered, request, sentMessages, first, readAnswer } = acting;
   const { idByIndex, pulledIds, lines, routing, setShort } = acting;
-  const { channel, guildId, isPrivate, prep } = opened;
+  const { channel, placeId, isPrivate, prep } = opened;
   const { transport, memoryOn, selfId, selfName, startedAt, servedSnapshot, partner } = setup;
   const { finalMode } = pulledStep;
   const { videoStage, videoCandidates, captions, captionCandidates } = staged;
@@ -39,7 +39,7 @@ export async function toolRoundPhase(
   const envelopeOf = (call: { skill?: string; args?: Record<string, unknown> }) => {
     const index = draft.callCount ?? 0;
     draft.callCount = index + 1;
-    const target = typeof call?.args?.channelId === 'string' ? call.args.channelId || channel.id : channel.id;
+    const target = typeof call?.args?.placeId === 'string' ? call.args.placeId || channel.id : channel.id;
     return callEnvelope({
       trigger,
       channel,
@@ -58,7 +58,7 @@ export async function toolRoundPhase(
   };
   const actArgs = {
     channel,
-    guildId,
+    placeId,
     privateChat: isPrivate,
     parsed,
     idByIndex,
@@ -69,7 +69,7 @@ export async function toolRoundPhase(
     trigger,
     selfName,
     ...routing,
-    sourceId: isPrivate ? null : (source?.channelId ?? null),
+    sourceId: isPrivate ? null : (source?.placeId ?? null),
     gifPick: !diaryPrep,
     participation: isPrivate ? null : { descriptions: descriptions ?? null },
     draft,
@@ -78,7 +78,7 @@ export async function toolRoundPhase(
   const callContext = {
     channel,
     trigger,
-    guildId,
+    placeId,
     draft,
     privateChat: isPrivate,
     idByIndex,
@@ -91,7 +91,7 @@ export async function toolRoundPhase(
     inTurn: inTurnTools({
       channel,
       snapshot: servedSnapshot,
-      guildId,
+      placeId,
       partner: isPrivate ? partner : null,
       selfId,
       selfName,
@@ -124,7 +124,7 @@ export async function toolRoundPhase(
   // Her calls, then her speech, then (when something is left to read) another request, and so on (runSteps).
   const stepped = await runSteps({
     channel,
-    guildId,
+    placeId,
     trigger,
     draft,
     transport,

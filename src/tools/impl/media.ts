@@ -27,23 +27,23 @@ function byKind<TRun>(args: Obj, byKindHandlers: Record<string, TRun>): TRun {
 }
 
 const handlers = perEnv((env) => {
-  const { store, emojiBackfill, gifBackfill, gifRecache, skipText, assertNotPaused, freshenIfPaused, requireGuildId } =
+  const { store, emojiBackfill, gifBackfill, gifRecache, skipText, assertNotPaused, freshenIfPaused, requirePlaceId } =
     env;
 
   /** `/nep emoji status`: how many emoji the ranking holds, the top 10 (rank order,
    * `EMOJI_HALF_LIFE_DAYS`) with their counts, and the history backfill stamp. */
   function cmdEmojiStatus(_args: Obj, context: OpContext): string {
     freshenIfPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
-    const guild = store.getGuild(guildId);
-    const ranked = rankEmojiUsage(guild.emojiUsage, EMOJI_HALF_LIFE_DAYS);
+    const place = store.getPlace(placeId);
+    const ranked = rankEmojiUsage(place.emojiUsage, EMOJI_HALF_LIFE_DAYS);
     const running = emojiBackfill?.isRunning?.() ? ' (running now)' : '';
     return [
       `ranking: ${ranked.length} emoji`,
       ranked.length > 0 ? 'top 10:' : `top 10: ${NONE}`,
       ...ranked.slice(0, 10).map((entry) => `  :${entry.name}: x${entry.count}`),
-      `backfill: ${backfillText(guild.emojiBackfill)}${running}`,
+      `backfill: ${backfillText(place.emojiBackfill)}${running}`,
     ].join('\n');
   }
 
@@ -52,9 +52,9 @@ const handlers = perEnv((env) => {
   async function cmdEmojiRescan(_args: Obj, context: OpContext): Promise<string> {
     if (!emojiBackfill) return 'the emoji backfill is not available';
     assertNotPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
-    const result = await emojiBackfill.run(guildId, { force: true });
+    const result = await emojiBackfill.run(placeId, { force: true });
     if (!result.ok) return skipText(EMOJI_RESCAN_SKIPS, result.reason, `not done (${result.reason})`);
     return `Emoji rescan done: ${result.channels} channels, ${result.messages} messages read, ${result.emoji} emoji uses counted.`;
   }
@@ -67,11 +67,11 @@ const handlers = perEnv((env) => {
    * watched in the old format, still to re-describe / unwatched, gifFormatCounts). Counts only. */
   function cmdGifsStatus(_args: Obj, context: OpContext): string {
     freshenIfPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
-    const library = store.getGifs(guildId);
+    const library = store.getGifs(placeId);
     const ranked = rankGifs(library, GIF_HALF_LIFE_DAYS) as Array<Untyped>;
-    const cache = store.getMediaCache(guildId);
+    const cache = store.getMediaCache(placeId);
     const captionOf = (entry: Untyped): string => {
       const cached = (cache as Record<string, { miss?: boolean; text?: unknown } | undefined> | null)?.[entry.itemId];
       return cached && !cached.miss && typeof cached.text === 'string' ? cached.text.trim() : '';
@@ -103,9 +103,9 @@ const handlers = perEnv((env) => {
   async function cmdGifsRescan(_args: Obj, context: OpContext): Promise<string> {
     if (!gifBackfill) return 'the GIF backfill is not available';
     assertNotPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
-    const result = await gifBackfill.run(guildId, { force: true });
+    const result = await gifBackfill.run(placeId, { force: true });
     if (!result.ok) return skipText(GIFS_RESCAN_SKIPS, result.reason, `not done (${result.reason})`);
     return `GIF rescan done: ${result.channels} channels, ${result.messages} messages read, ${result.gifs} GIF uses counted, ${result.described} described.`;
   }
@@ -116,9 +116,9 @@ const handlers = perEnv((env) => {
   function cmdGifsRecache(_args: Obj, context: OpContext): string {
     if (!gifRecache) return 'the GIF recache is not available';
     assertNotPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
-    const result = gifRecache.start(guildId);
+    const result = gifRecache.start(placeId);
     if (!result.ok) {
       if (result.reason === 'running')
         return 'A GIF recache is already running: media.status with kind gifs shows how far it is.';
@@ -141,9 +141,9 @@ const handlers = perEnv((env) => {
       throw invalid(`days must be a whole number from ${RECACHE_DAYS.min} to ${RECACHE_DAYS.max}`);
     }
     assertNotPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
-    const result = gifRecache.startMedia(guildId, { days });
+    const result = gifRecache.startMedia(placeId, { days });
     if (!result.ok) {
       if (result.reason === 'running') return 'A recache is already running: wait for it to finish.';
       return skipText(PICTURES_RECACHE_SKIPS, result.reason, `not started (${result.reason})`);

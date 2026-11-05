@@ -44,11 +44,11 @@ type CallsPort = ExecuteDeps['port'] & { iface: string };
 /** The errands service (src/errands/service.ts), as far as a call reads its files and budgets. */
 type CallsErrands = {
   fileOf?: (args: {
-    guildId: string | null;
+    placeId: string | null;
     handle: string;
     privateChannelId: string | null;
   }) => ReturnType<NonNullable<CallView['fileOf']>>;
-  budget: (args: { guildId: string | null; agent: unknown }) => unknown;
+  budget: (args: { placeId: string | null; agent: unknown }) => unknown;
 } | null;
 
 /** What createSkillCalls reads: the dependencies, the runner's state and the functions of the other topic modules. */
@@ -176,7 +176,7 @@ type RenderArgs = Parameters<Sends['renderPost']>[1];
 export type CallContext = {
   channel: CallChannel;
   trigger: { id?: string; authorId?: string | null } | null | undefined;
-  guildId: string;
+  placeId: string;
   draft: CallsDraft | null;
   privateChat?: boolean;
   idByIndex?: ReadonlyMap<number, string> | null;
@@ -195,7 +195,7 @@ export type SkillCalls = {
   callView: (args: {
     channel: CallChannel;
     snapshot?: Snapshot | null;
-    guildId: string;
+    placeId: string;
     idByIndex: ViewArgs['idByIndex'];
     lines: ViewArgs['lines'];
     pulledIds: ViewArgs['pulledIds'];
@@ -257,7 +257,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
   function callView({
     channel,
     snapshot = null,
-    guildId,
+    placeId,
     idByIndex,
     lines,
     pulledIds,
@@ -272,13 +272,13 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       typeof errands?.fileOf === 'function'
         ? (handle: string) =>
             // Checked just above; the closure cannot see the check.
-            errands.fileOf!({ guildId, handle, privateChannelId: inCommunity(channel) ? null : String(channel.id) })
+            errands.fileOf!({ placeId, handle, privateChannelId: inCommunity(channel) ? null : String(channel.id) })
         : null;
     return callViewOf({
       currentIface: iface.iface,
       channel,
       snapshot,
-      guildId,
+      placeId,
       idByIndex,
       lines,
       pulledIds,
@@ -327,9 +327,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         now: clock(),
         ...(images ? { images } : {}),
         ...(speech ? { speech } : {}),
-        // An errand's caps are its budget (src/errands/service.ts#budget), in the turn's guild.
+        // An errand's caps are its budget (src/errands/service.ts#budget), in the turn's place.
         ...(errands
-          ? { tasks: { budget: (agent: unknown) => errands.budget({ guildId: channel.communityId ?? null, agent }) } }
+          ? { tasks: { budget: (agent: unknown) => errands.budget({ placeId: channel.communityId ?? null, agent }) } }
           : {}),
       },
     });
@@ -551,7 +551,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     {
       channel,
       trigger,
-      guildId,
+      placeId,
       draft,
       privateChat = false,
       idByIndex = null,
@@ -574,7 +574,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       (rendered = renderPost(text, {
         channel,
         snapshot: snapshotOfDraft(draft),
-        guildId,
+        placeId,
         privateChat,
         idByIndex,
         pulledIds,
@@ -626,8 +626,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
           ...(runInitiativeOp ? { runInitiativeOp } : {}),
           opContext: {
             publicationBoundary,
-            guildId,
-            channelId: String(channel.id),
+            placeId,
+            conversationId: String(channel.id),
             ...(privateChat ? { privateChat: true } : {}),
             // A live wake turn's posts wait in its hold (src/tools/send-hold.ts).
             ...(inner?.hold ? { hold: inner.hold } : {}),
@@ -709,7 +709,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         draft.diaryVoice = { text: result.voice.text, durationSecs: result.voice.durationSecs };
       if (skill === 'message.create') {
         recordSaid({
-          guildId,
+          placeId,
           channel: { id: where },
           privateChat: false,
           trigger,
@@ -731,7 +731,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     // and may correct the call within the loop.
     const markCall = inner?.shadow && draft ? (mark: CallMark) => (draft.turnMarks ??= []).push(mark) : noteCall;
     markCall({
-      channelId: String(channel.id),
+      placeId: String(channel.id),
       at: clock(),
       skill,
       status: result.status,
@@ -743,7 +743,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         textChars: MARK_TEXT_CHARS,
         argNames: (skills ?? defaultSkills()).get(skill)?.dispatch?.options?.map((option) => option.name) ?? null,
       }),
-      target: { messageId: idText(args.message) ?? idText(args.reply), channelId: where ?? idText(args.channel) },
+      target: { messageId: idText(args.message) ?? idText(args.reply), placeId: where ?? idText(args.channel) },
       postedId: posted?.id ?? null,
       posted: turnPosts,
       // The main arguments the call ran with, for the mark's line (src/tools/call-args.ts).

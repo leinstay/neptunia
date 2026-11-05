@@ -1,7 +1,6 @@
 // "Elsewhere": the persona may read a channel it cannot write in (a diary, an
 // announcements channel), and a call there has nowhere to go. This module is the pure core of answering in
-// the main channel instead (the destination, the first usable id of
-// `memory.mainChannelIds`): when a settle wait in the source is due, the ring
+// an explicit destination instead: when a settle wait in the source is due, the ring
 // of calls received there (answered, skipped by choice, or still unanswered),
 // the per-channel seen mark of the pulled blocks, the audience comparison that keeps a narrower channel's content out of a wider
 // one, the destination pick and the link of a message (the address the interface gave it).
@@ -14,7 +13,6 @@
 // the state dirty.
 
 import { memberIdOf as idOf } from '../memory/recent.ts';
-import { mainChannelSet } from '../memory/index.ts';
 import { DAY_MS } from '../time.ts';
 import type { MessageUrlTemplate } from '../protocol/adapter.ts';
 import { portIface, portMessageUrl } from '../interface/capabilities.ts';
@@ -22,12 +20,7 @@ import { portIface, portMessageUrl } from '../interface/capabilities.ts';
 const SECOND_MS = 1000;
 
 /** The parts of the live config this module reads. */
-type Config =
-  | ({
-      memory?: { mainChannelIds?: unknown };
-    } & Record<string, unknown>)
-  | null
-  | undefined;
+type Config = ({} & Record<string, unknown>) | null | undefined;
 
 /**
  * The elsewhere measures, production values of the config cut of 2026-10-31: the quiet time in the source before acting, the longest settle
@@ -96,7 +89,7 @@ export function settleDueAt({
  */
 export type RingPing = {
   messageId: string;
-  channelId: string;
+  placeId: string;
   ts: number;
   answeredAt: number | null;
   skippedAt: number | null;
@@ -114,11 +107,11 @@ function ringEntries(ring: unknown): Array<RingPing> {
   for (const entry of ring as Array<Record<string, unknown>>) {
     if (!entry || typeof entry !== 'object') continue;
     const messageId = idOf(entry.messageId);
-    const channelId = idOf(entry.channelId);
-    if (!messageId || !channelId || typeof entry.ts !== 'number' || !Number.isFinite(entry.ts)) continue;
+    const placeId = idOf(entry.placeId);
+    if (!messageId || !placeId || typeof entry.ts !== 'number' || !Number.isFinite(entry.ts)) continue;
     entries.push({
       messageId,
-      channelId,
+      placeId,
       ts: entry.ts,
       answeredAt: finiteOrNull(entry.answeredAt),
       skippedAt: finiteOrNull(entry.skippedAt),
@@ -142,12 +135,12 @@ function oldestFirst(entries: ReadonlyArray<RingPing>): Array<RingPing> {
  */
 export function recordPing(
   ring: unknown,
-  { messageId, channelId, ts }: { messageId: string; channelId: string; ts: number },
+  { messageId, placeId, ts }: { messageId: string; placeId: string; ts: number },
   { cap, maxAgeMs, now }: { cap: number; maxAgeMs: number; now: number }
 ): Array<RingPing> {
   const entries = ringEntries(ring).filter((entry) => !isExpired(entry.ts, now, maxAgeMs));
   const id = idOf(messageId);
-  const channel = idOf(channelId);
+  const channel = idOf(placeId);
   if (
     id &&
     channel &&
@@ -155,7 +148,7 @@ export function recordPing(
     !isExpired(ts, now, maxAgeMs) &&
     !entries.some((entry) => entry.messageId === id)
   ) {
-    entries.push({ messageId: id, channelId: channel, ts, answeredAt: null, skippedAt: null });
+    entries.push({ messageId: id, placeId: channel, ts, answeredAt: null, skippedAt: null });
   }
   const keep = Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : 0;
   return keep === 0 ? [] : oldestFirst(entries).slice(-keep);
@@ -219,10 +212,10 @@ export function stampPings(
   now: number
 ): {
   ring: Array<RingPing>;
-  marked: Array<{ messageId: string; channelId: string; status: 'answered' | 'skipped' | 'unanswered' }>;
+  marked: Array<{ messageId: string; placeId: string; status: 'answered' | 'skipped' | 'unanswered' }>;
 } {
   let entries = ringEntries(ring);
-  const marked: Array<{ messageId: string; channelId: string; status: 'answered' | 'skipped' | 'unanswered' }> = [];
+  const marked: Array<{ messageId: string; placeId: string; status: 'answered' | 'skipped' | 'unanswered' }> = [];
   for (const stamp of (Array.isArray(stamps) ? stamps : []) as Array<{
     messageId?: unknown;
     status?: unknown;
@@ -235,7 +228,7 @@ export function stampPings(
     const before = pingStatus(found);
     entries = mark(entries, id, now);
     const after = pingStatus(entries[index]);
-    if (after !== before) marked.push({ messageId: id, channelId: found.channelId, status: after });
+    if (after !== before) marked.push({ messageId: id, placeId: found.placeId, status: after });
   }
   return { ring: entries, marked };
 }
@@ -246,12 +239,12 @@ export function stampPings(
  */
 export function pingsIn(
   ring: unknown,
-  channelId: string,
+  placeId: string,
   { now, maxAgeMs }: { now: number; maxAgeMs: number }
 ): Array<RingPing> {
-  const channel = idOf(channelId);
+  const channel = idOf(placeId);
   return oldestFirst(
-    ringEntries(ring).filter((entry) => entry.channelId === channel && !isExpired(entry.ts, now, maxAgeMs))
+    ringEntries(ring).filter((entry) => entry.placeId === channel && !isExpired(entry.ts, now, maxAgeMs))
   );
 }
 
@@ -265,10 +258,10 @@ export function pingsIn(
  * only keeps the persona from commenting twice on the same content.
  * The stored map is not mutated.
  */
-export function markSeen(seen: unknown, channelId: string, ts: number): Record<string, number> {
+export function markSeen(seen: unknown, placeId: string, ts: number): Record<string, number> {
   const next: Record<string, number> =
     seen && typeof seen === 'object' && !Array.isArray(seen) ? { ...(seen as Record<string, number>) } : {};
-  const channel = idOf(channelId);
+  const channel = idOf(placeId);
   if (!channel || !Number.isFinite(ts)) return next;
   const current = finiteOrNull(next[channel]);
   if (current === null || ts > current) next[channel] = ts;
@@ -391,36 +384,6 @@ export function audienceCovers(dest: unknown, source: unknown): boolean {
 
 // ---- the destination ----------------------------------------------------------------------
 
-/**
- * The first id of `memory.mainChannelIds` (normalised by `mainChannelSet`,
- * in list order) for which `isUsable(id)` holds, else null. Usable is the
- * caller's check (a known text channel of the guild, not a thread, the bot
- * can send there, not the source).
- */
-export function pickDestinationId(mainChannelIds: unknown, isUsable: (id: string) => boolean): string | null {
-  if (typeof isUsable !== 'function') return null;
-  for (const id of mainChannelSet(mainChannelIds)) {
-    if (isUsable(id)) return id;
-  }
-  return null;
-}
-
-/**
- * Where a routed call or a noticed comment would be spoken, read from the
- * live config at the moment of use: `'off'` when `features.elsewhere` is
- * false, `'no-destination'` when no id of `memory.mainChannelIds` is usable
- * (the public default is an empty list, so the feature is inert until a main
- * channel is set). The reason is the kebab-case code logged as `route`.
- * `isUsable` is `pickDestinationId`'s.
- */
-export function resolveDestination(
-  config: Config,
-  isUsable: (id: string) => boolean
-): { destinationId: string; reason: null } | { destinationId: null; reason: 'off' | 'no-destination' } {
-  const destinationId = pickDestinationId(config?.memory?.mainChannelIds, isUsable);
-  return destinationId ? { destinationId, reason: null } : { destinationId: null, reason: 'no-destination' };
-}
-
 // ---- the link of a message ----------------------------------------------------------------
 
 /** A message as the interface named it: where it is, and `url`, its address on the platform when it has one. */
@@ -473,7 +436,7 @@ export function messageLinkOf(
 }
 
 /** A message a post may link to: the channel it is in and its id. */
-export type LinkTarget = { channelId: string; messageId: string };
+export type LinkTarget = { placeId: string; messageId: string };
 
 /**
  * The jump links (`messageLink`) of one turn's posts -- its messages, then the GIF, then the picture -- asked in
@@ -488,17 +451,17 @@ export function createLinker({
   pulledIds,
   sourceTarget,
 }: {
-  linkOf: (channelId: string | undefined, messageId: string) => string | null;
+  linkOf: (placeId: string | undefined, messageId: string) => string | null;
   pulledIds: ReadonlyMap<string, string>;
   sourceTarget: LinkTarget | null;
 }): (pulledId: string | null) => string | null {
   const linked = new Set<string>();
   let first = true;
   return (pulledId) => {
-    const target = pulledId ? { channelId: pulledIds.get(pulledId), messageId: pulledId } : first ? sourceTarget : null;
+    const target = pulledId ? { placeId: pulledIds.get(pulledId), messageId: pulledId } : first ? sourceTarget : null;
     first = false;
     if (!target || linked.has(target.messageId)) return null;
     linked.add(target.messageId);
-    return linkOf(target.channelId, target.messageId);
+    return linkOf(target.placeId, target.messageId);
   };
 }

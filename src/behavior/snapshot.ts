@@ -44,6 +44,25 @@ export async function takeSnapshot(
   return listing === null ? null : snapshotOf(communityId, listing);
 }
 
+/** One snapshot over every place of `placeIds`: the one's own, or the conversations and groups of all; null when none answers. */
+export async function takeSnapshotOf(
+  reads: Reads,
+  placeIds: ReadonlyArray<string>,
+  viewers: ReadonlyArray<string> = []
+): Promise<Snapshot | null> {
+  const [only] = placeIds;
+  if (placeIds.length === 1 && only !== undefined) return takeSnapshot(reads, only, viewers);
+  const listings = await Promise.all(
+    placeIds.map((communityId) => reads.conversations({ communityId, audience: true, viewers }))
+  );
+  const found = listings.filter((listing) => listing !== null);
+  if (found.length === 0 || only === undefined) return null;
+  return snapshotOf(only, {
+    conversations: found.flatMap((listing) => [...listing.conversations]),
+    groups: found.flatMap((listing) => [...listing.groups]),
+  });
+}
+
 /** The audience in the shape `audienceCovers` compares: the arrays of the wire as sets, the groups as its roles. */
 export type RailAudience = {
   everyone: boolean;

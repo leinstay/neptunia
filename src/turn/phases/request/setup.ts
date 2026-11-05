@@ -2,10 +2,11 @@
 // indicator while it prepares, the community's listing, the history with its reply parents, the memory prefetch and a
 // diary post's plan. The request phase (src/turn/phases/request.ts) runs it first; the later steps read what it made.
 
+import { accountOf } from '../../../memory/addresses.ts';
 import { isCliOwner } from '../../../behavior/core-pause.ts';
 import { forcedPictureRefusal } from '../../../behavior/diary-turn.ts';
 import { refreshEmojiIfOn } from '../../../behavior/emoji-index.ts';
-import { takeSnapshot } from '../../../behavior/snapshot.ts';
+import { takeSnapshotOf } from '../../../behavior/snapshot.ts';
 import type { Snapshot } from '../../../behavior/snapshot.ts';
 import { createDeadline } from '../../../behavior/turn-parts.ts';
 import type { Deadline } from '../../../behavior/turn-parts.ts';
@@ -61,7 +62,7 @@ export type Setup = {
   historyMs: number;
   partner: MemberInfo | null;
   likeServer: boolean;
-  servedGuild: { id: string } | null;
+  servedPlace: { id: string } | null;
   servedSnapshot: Snapshot | null;
   candidate: TurnTrigger | null;
   prefetching: ReturnType<Lookup['startPrefetch']>;
@@ -95,14 +96,14 @@ export async function setupRequest(
   } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, reuseHistory = null } = params;
   const diaryParams = params.diary ?? null;
-  const { channel, guildId, isPrivate, prepStep, life } = opened;
+  const { channel, placeId, reading, libraryPlace, isPrivate, prepStep, life } = opened;
   const config = hot.config;
   // How her tools travel this turn (tools.transport, read once): native tool calls, or text blocks.
   const transport = transportOf(config);
   draft.transport = transport;
   const memoryOn = true;
   const selfId = selfIdOf();
-  const selfName = getSelfName(guildId);
+  const selfName = getSelfName(placeId);
   const now = life.turnStartedAt;
   const startedAt = now;
   // A forced diary picture kind (/nep diary post <kind>) the post may not carry is refused before any request.
@@ -132,21 +133,30 @@ export async function setupRequest(
   const answersTask = triggerKind === 'errand';
   // She calls her own tools in the turn, so no search classifier runs before her reply.
 
-  // A private chat's partner as a guild member (private.likeServer), fetched beside
+  // A private chat's partner as a place member (private.likeServer), fetched beside
   // the history; null on a server turn, with the switch off or when the fetch fails.
   const partnerPending = isPrivate
-    ? privatePartner({ iface: channel.iface, guildId, userId: trigger?.authorId ?? channel.partnerId ?? null, config })
+    ? privatePartner({
+        iface: channel.iface,
+        placeId: libraryPlace,
+        userId: trigger?.authorId ?? channel.partnerId ?? null,
+        config,
+      })
     : Promise.resolve(null);
   // The groups the requester holds in the community, read once: the rights of her calls are checked against them.
   const requesterPending =
     !isPrivate && trigger?.authorId
-      ? ifaceReads.memberInfo({ communityId: guildId, memberId: String(trigger.authorId) })
+      ? ifaceReads.memberInfo({ communityId: placeId, memberId: String(trigger.authorId) })
       : Promise.resolve(null);
   // The community's listing, once for the attempt (neighbours, pulls, routing, places, audience rails); a private
   // chat is listed for its partner's sake.
   const partnerId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
   const partnerHint = isCliOwner(channel.iface, partnerId) ? null : partnerId;
-  const snapshotPending = takeSnapshot(ifaceReads, guildId, partnerHint ? [String(partnerHint)] : []);
+  const snapshotPending = takeSnapshotOf(
+    ifaceReads,
+    reading.length > 0 ? reading : [placeId],
+    partnerHint ? [String(partnerHint)] : []
+  );
   const emojiPending = refreshEmojiIfOn(emoji);
   const historyStartedAt = clock();
   const snapshot = await beforeBar(snapshotPending);
@@ -161,12 +171,12 @@ export async function setupRequest(
     linkTriggers(
       reuseHistory ??
         (await beforeBar(
-          readHistory(channel, config, { inner: Boolean(draft.inner), draft, guildId }).then((lines) =>
+          readHistory(channel, config, { inner: Boolean(draft.inner), draft, placeId }).then((lines) =>
             withReplyParents(ifaceReads, channel, lines, { trigger })
           )
         ))
     ),
-    { channel, snapshot, guildId }
+    { channel, snapshot, placeId }
     // The marks keep every line as it was, with the message's own fields.
   ) as Array<HistoryLine>;
   const historyMs = clock() - historyStartedAt;
@@ -175,8 +185,8 @@ export async function setupRequest(
   draft.requesterGroups = (await beforeBar(requesterPending))?.member?.groupIds ?? [];
   // A private chat on its partner's behalf: pulls and the server search from the served community (none otherwise).
   const likeServer = isPrivate && partner !== null;
-  const servedGuild = isPrivate && !likeServer ? null : { id: guildId };
-  const servedSnapshot = servedGuild ? snapshot : null;
+  const servedPlace = isPrivate && !likeServer ? null : { id: placeId };
+  const servedSnapshot = servedPlace ? snapshot : null;
   // What the analyzer requests judge: the trigger, or on a part of a split message the trigger with
   // that part's text (same id, author and time).
   const candidate = part && trigger ? { ...trigger, content: part.parts[part.index - 1] ?? trigger.content } : trigger;
@@ -190,8 +200,8 @@ export async function setupRequest(
     config,
     channel,
     snapshot: servedSnapshot,
-    guildId,
-    guild: servedGuild,
+    placeId,
+    place: servedPlace,
     partner: isPrivate ? partner : null,
     trigger,
     candidate,
@@ -200,7 +210,7 @@ export async function setupRequest(
     history: rawHistory,
     selfId,
     selfName,
-    nameOf: memoryOn ? (id) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
+    nameOf: memoryOn ? (id) => store.getUser(accountOf(store, id))?.names?.[0] ?? null : null,
     journalStep: prepStep,
     wake: draft.inner?.wake ?? null,
   });
@@ -210,7 +220,6 @@ export async function setupRequest(
     mode === 'diary'
       ? prepareDiary({
           config,
-          guildId,
           channel,
           selfName,
           history: rawHistory,
@@ -245,7 +254,7 @@ export async function setupRequest(
     historyMs,
     partner,
     likeServer,
-    servedGuild,
+    servedPlace,
     servedSnapshot,
     candidate,
     prefetching,

@@ -8,7 +8,6 @@
     "owners": [],
     "ownerPerson": "",
     "nameTriggers": [],
-    "guildId": "",
     "access": {}
   },
   "models": {
@@ -177,7 +176,6 @@
   },
   "memory": {
     "vaultDir": "vault",
-    "mainChannelIds": [],
     "probeMinutes": 30
   },
   "media": {
@@ -342,7 +340,7 @@
   "selfreflection": {
     "enabled": true,
     "schedule": null,
-    "channelId": "",
+    "placeId": "",
     "world": false,
     "windows": [
       {

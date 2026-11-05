@@ -1,4 +1,4 @@
-// The persona's intentions, one store per guild: the unit `guilds/<id>/intentions.json` of the memory database
+// The persona's intentions, one store per place: the unit `places/<id>/intentions.json` of the memory database
 // holds `{ intentions: [...] }` (the records of src/intentions/model.ts), written whole on every change, so a restart
 // reads back exactly what was there. The list keeps every open intention and the latest KEEP_CLOSED closed ones (done,
 // cancelled, expired, dropped). An older closed record is never deleted: it moves to the unit
@@ -6,7 +6,7 @@
 // breaks the model's invariants is left out on load (counted in the log). The store moves nothing by itself: every
 // change is a pure transition of the model applied through `update`. Logs carry ids and counts, never text.
 
-import { communityKey, namespaceOf } from '../memory/db/storage-keys.ts';
+import { personaKey } from '../memory/db/storage-keys.ts';
 import { log as defaultLog } from '../log.ts';
 import { checkInvariants, isOpen } from './model.ts';
 import { CODE } from '../tools/codes.ts';
@@ -32,11 +32,9 @@ export const KEEP_CLOSED = 50;
  * the list lives in memory only.
  */
 export function createIntentionStore({
-  guildId,
   log = defaultLog,
   memoryDb = null,
 }: {
-  guildId: string;
   now?: () => number;
   log?: Logger;
   memoryDb?: Untyped;
@@ -47,17 +45,14 @@ export function createIntentionStore({
     memoryDb && typeof memoryDb.writeUnit === 'function'
       ? createUnitOutbox({ memoryDb, log, name: 'intentions' })
       : null;
-  const owner = communityKey('intentions', guildId, {
-    iface: namespaceOf(memoryDb),
-    selector: { collection: 'active' },
-  });
+  const owner = { ...personaKey('intentions'), selector: { collection: 'active' as const } };
   const archiveOwner = { ...owner, selector: { collection: 'archive' as const } };
 
   /** The list read once from the database (none without a `memoryDb`). */
   function load(): Array<Intention> {
     if (!memoryDb) return [];
     const db = seam.db();
-    const found = seam.run(() => intentionsValue(db, guildId, namespaceOf(memoryDb)));
+    const found = seam.run(() => intentionsValue(db));
     return valid(found.found ? found.value : null);
   }
 
@@ -68,7 +63,7 @@ export function createIntentionStore({
       (record) => record && typeof record.id === 'string' && checkInvariants(record) === null
     );
     if (kept.length < list.length)
-      log.warn('intentions: records left out on load', { guildId: String(guildId), count: list.length - kept.length });
+      log.warn('intentions: records left out on load', { count: list.length - kept.length });
     return kept;
   }
 
@@ -104,7 +99,7 @@ export function createIntentionStore({
   function archived(): Array<Intention> {
     if (!memoryDb) return state.archived.map(copy);
     const db = seam.db();
-    const raw = seam.run(() => intentionsArchiveLines(db, guildId, namespaceOf(memoryDb))).join('\n');
+    const raw = seam.run(() => intentionsArchiveLines(db)).join('\n');
     const out: Array<Intention> = [];
     for (const line of raw.split('\n')) {
       if (!line.trim()) continue;
@@ -145,7 +140,7 @@ export function createIntentionStore({
     try {
       persist(next, moved);
     } catch (err) {
-      log.warn('intentions: write failed', { guildId: String(guildId), code: errorCode(err) });
+      log.warn('intentions: write failed', { code: errorCode(err) });
       return { ok: false, code: CODE.WRITE_FAILED };
     }
     state.list = next;
@@ -167,7 +162,7 @@ export function createIntentionStore({
     try {
       persist(next, moved);
     } catch (err) {
-      log.warn('intentions: write failed', { guildId: String(guildId), id: idText(id), code: errorCode(err) });
+      log.warn('intentions: write failed', { id: idText(id), code: errorCode(err) });
       return { ok: false, code: CODE.WRITE_FAILED };
     }
     state.list = next;
@@ -184,11 +179,11 @@ export function createIntentionStore({
     return { waiting, pending: final ? outbox.keep() : 0 };
   }
 
-  return { list, get, add, update, archived, flush, guildId: String(guildId) };
+  return { list, get, add, update, archived, flush };
 }
 
 /**
- * One intention store per guild, created on first use. `memoryDb` goes to every store (createIntentionStore); a
+ * One intention store per place, created on first use. `memoryDb` goes to every store (createIntentionStore); a
  * store whose load failed is not kept, so the next `get` tries again.
  * `dataDir` is read by no one: the units live in the memory database.
  */
@@ -204,13 +199,11 @@ export function createIntentionStores({
 }): IntentionStores {
   const stores = new Map<string, IntentionStore>();
   const api: IntentionStores = {
-    get(guildId: unknown): IntentionStore | null {
-      const key = typeof guildId === 'string' || typeof guildId === 'number' ? String(guildId) : '';
-      if (!key) return null;
-      let store = stores.get(key);
+    get(): IntentionStore {
+      let store = stores.get('persona');
       if (!store) {
-        store = createIntentionStore({ guildId: key, now, log, memoryDb });
-        stores.set(key, store);
+        store = createIntentionStore({ now, log, memoryDb });
+        stores.set('persona', store);
       }
       return store;
     },

@@ -20,7 +20,7 @@ type WebLookup = {
 type ServerLookup = {
   readonly text?: string | null;
   readonly stretch?: {
-    readonly channelId?: string;
+    readonly placeId?: string;
     readonly channelName?: string | null;
     readonly startTs: number;
     readonly lines: unknown;

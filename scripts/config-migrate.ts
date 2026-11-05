@@ -7,8 +7,8 @@
 //   node scripts/config-migrate.ts --dry-run [--file <private settings file>] [--db <memory.db>] [--compare-with <config.json> [--self <id>]]
 //   node scripts/config-migrate.ts --apply [--file <private settings file>] [--db <memory.db>]
 //
-// `selfreflection.channelId` is the seed of the diary's mirror (schema v15): it moves to the database only when the memory
-// database given with `--db` (opened read-only) has an enabled `diary` mirror, printed as `selfreflection.channelId -> memory
+// `selfreflection.placeId` is the seed of the diary's mirror (schema v15): it moves to the database only when the memory
+// database given with `--db` (opened read-only) has an enabled `diary` mirror, printed as `selfreflection.placeId -> memory
 // database`. Without that mirror, or without `--db`, the key stays and one line says so.
 //
 // The file is `--file`, else the private settings file of `NEPTUNIA_PRIVATE_DIR`, else of the checkout (src/paths.ts):
@@ -305,8 +305,8 @@ function migrate(argv: Array<string>): string {
     ...keyLines,
   ];
   if (flags['--apply'] && lines.length > 0) writeMigrated(file, config, discord);
-  const kept = Object.hasOwn(objectOf(config.selfreflection), 'channelId')
-    ? `selfreflection.channelId kept: the memory database ${typeof flags['--db'] === 'string' ? 'has no diary mirror yet' : 'was not given (--db)'}\n`
+  const kept = Object.hasOwn(objectOf(config.selfreflection), 'placeId')
+    ? `selfreflection.placeId kept: the memory database ${typeof flags['--db'] === 'string' ? 'has no diary mirror yet' : 'was not given (--db)'}\n`
     : '';
   const moves = `${lines.length === 0 ? 'nothing to move\n' : `${lines.join('\n')}\n`}${kept}${note}`;
   if (typeof flags['--compare-with'] !== 'string') return moves;

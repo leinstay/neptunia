@@ -28,44 +28,34 @@ export type SwitchAnswer =
 export type SwitchOptions = { by?: unknown };
 
 /** The kill switch: stopped (persisted), the queue dropped (journalled). */
-export function stop(
-  life: InnerContext,
-  guildId: string | null = life.getGuildId(),
-  { by = null }: SwitchOptions = {}
-): SwitchAnswer {
+export function stop(life: InnerContext, { by = null }: SwitchOptions = {}): SwitchAnswer {
   const { now, log, running } = life;
-  if (!guildId) return { ok: false, code: CODE.NO_GUILD };
-  const state = stateOf(life, guildId);
+  const state = stateOf(life);
   const at = now();
   const queued = state.queue.filter((wake) => !running.has(wake.id));
   const dropped = queued.length;
-  markHandled(life, state, queued, 'stopped', at, { guildId });
+  markHandled(life, state, queued, 'stopped', at, {});
   const already = state.stopped;
   state.stopped = true;
   state.stoppedAt = already ? state.stoppedAt : at;
   state.stoppedBy = by ? asText(by) : state.stoppedBy;
-  save(life, guildId);
-  log.info('inner: stopped', { guildId, dropped, already });
-  note(life, guildId, { event: 'stopped', dropped, by: by ? asText(by) : null });
+  save(life);
+  log.info('inner: stopped', { dropped, already });
+  note(life, { event: 'stopped', dropped, by: by ? asText(by) : null });
   return { ok: true, already, dropped };
 }
 
 /** The kill switch released (persisted). */
-export function start(
-  life: InnerContext,
-  guildId: string | null = life.getGuildId(),
-  { by = null }: SwitchOptions = {}
-): SwitchAnswer {
+export function start(life: InnerContext, { by = null }: SwitchOptions = {}): SwitchAnswer {
   const { log } = life;
-  if (!guildId) return { ok: false, code: CODE.NO_GUILD };
-  const state = stateOf(life, guildId);
+  const state = stateOf(life);
   const already = !state.stopped;
   state.stopped = false;
   state.stoppedAt = null;
   state.stoppedBy = null;
-  save(life, guildId);
-  log.info('inner: started', { guildId, already });
-  note(life, guildId, { event: 'started', by: by ? asText(by) : null });
+  save(life);
+  log.info('inner: started', { already });
+  note(life, { event: 'started', by: by ? asText(by) : null });
   return { ok: true, already };
 }
 
@@ -74,9 +64,8 @@ export function start(
  * True when there was one. The core calls this before each tick.
  */
 export function releaseStoredStop(life: InnerContext): boolean {
-  const guildId = life.getGuildId();
-  if (!guildId || !stateOf(life, guildId).stopped) return false;
-  start(life, guildId, { by: 'core' });
+  if (!stateOf(life).stopped) return false;
+  start(life, { by: 'core' });
   return true;
 }
 
@@ -140,37 +129,21 @@ export type InnerStatus = {
  * and for the status card the chains of the day, the open intentions by
  * status, the next wake and the last inner turn.
  */
-export function status(life: InnerContext, guildId: string | null = life.getGuildId()): InnerStatus {
+export function status(life: InnerContext): InnerStatus {
   const { hot, intentions, now, log } = life;
   const settings = innerSettings(hot.config);
-  if (!guildId)
-    return {
-      mode: settings.mode,
-      stopped: false,
-      queue: [],
-      review: null,
-      turnsToday: null,
-      chains: 0,
-      spentUsd: 0,
-      intentions: null,
-      attention: null,
-      next: null,
-      lastTurn: null,
-      lastError: null,
-      slept: 0,
-    };
-  const state = stateOf(life, guildId);
+  const state = stateOf(life);
   const at = now();
   const timezone = timezoneOf(life);
   const { start } = dayBounds(at, timezone);
   let open: Array<Intention> = [];
   if (intentions) {
     try {
-      const listed = listOf(intentions.list?.(guildId, { all: true }) ?? []);
+      const listed = listOf(intentions.list?.({ all: true }) ?? []);
       // The service's records; a test's narrower fake answers the fields read here.
       open = listed.filter((record) => OPEN_STATES.includes(objOf(record).status)) as Array<Intention>;
     } catch (err) {
-      log.warn('inner: status intentions failed', { guildId, code: errorCode(err) });
+      log.warn('inner: status intentions failed', { code: errorCode(err) });
     }
   }
   const countOf = (name: string) => open.filter((record) => record.status === name).length;
@@ -231,6 +204,6 @@ export function status(life: InnerContext, guildId: string | null = life.getGuil
     lastError: lastFailed
       ? { at: lastFailed.at, code: typeof lastFailed.code === 'string' ? lastFailed.code : CODE.ERROR }
       : null,
-    slept: sleptCount(life, guildId),
+    slept: sleptCount(life),
   };
 }

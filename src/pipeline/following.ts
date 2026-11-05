@@ -1,6 +1,6 @@
 // A member's line right after the persona spoke in a server channel: it joins the channel's newest participation
 // episode (src/memory/participation.ts#recordFollowing). createMessageHandler (src/behavior/pipeline.js) builds it once
-// with createFollowing; handleMessage calls it for every member's line of the served guild.
+// with createFollowing; handleMessage calls it for every member's line of the served place.
 
 import { diaryConversationIds } from '../behavior/mirror.ts';
 import { log } from '../log.ts';
@@ -10,8 +10,8 @@ import type { Line, PipelineConfig, PipelineTurns, Thrown } from './types.ts';
 
 /** The participation store of src/memory/store.ts, as the following line writes it. */
 type ParticipationStore = {
-  getParticipation?: (guildId: string) => unknown;
-  setParticipation?: (guildId: string, next: unknown, options: object) => void;
+  getParticipation?: (placeId: string) => unknown;
+  setParticipation?: (placeId: string, next: unknown, options: object) => void;
 };
 
 /** What createFollowing reads: the dependencies of createMessageHandler. */
@@ -23,7 +23,7 @@ export type FollowingContext = {
   now: () => number;
 };
 
-export type NoteFollowingLine = (guildId: string, normalized: Line, config: PipelineConfig) => void;
+export type NoteFollowingLine = (placeId: string, normalized: Line, config: PipelineConfig) => void;
 
 export function createFollowing({ store, turns, memoryDb, now }: FollowingContext): {
   noteFollowingLine: NoteFollowingLine;
@@ -37,11 +37,11 @@ export function createFollowing({ store, turns, memoryDb, now }: FollowingContex
    * missing key counts as on), in a place of her diary (src/behavior/mirror.ts#diaryConversationIds), or for a store
    * without the participation store. Never throws: `participation: failed` (`reason: 'following-error'`).
    */
-  function noteFollowingLine(guildId: string, normalized: Line, config: PipelineConfig): void {
+  function noteFollowingLine(placeId: string, normalized: Line, config: PipelineConfig): void {
     try {
-      if (diaryConversationIds(memoryDb).has(String(normalized.channelId))) return;
+      if (diaryConversationIds(memoryDb).has(String(normalized.placeId))) return;
       const settings = participationSettings(config);
-      const lastOwn = typeof turns.lastPostAt === 'function' ? turns.lastPostAt(normalized.channelId) : 0;
+      const lastOwn = typeof turns.lastPostAt === 'function' ? turns.lastPostAt(normalized.placeId) : 0;
       if (!(lastOwn > 0) || normalized.ts - lastOwn > settings.followMinutes * MINUTE_MS) return;
       if (typeof store?.getParticipation !== 'function' || typeof store.setParticipation !== 'function') return;
       const message = {
@@ -55,18 +55,18 @@ export function createFollowing({ store, turns, memoryDb, now }: FollowingContex
         caption: null,
       };
       const at = now();
-      const state = store.getParticipation(guildId);
-      const next = recordFollowing(state, { channelId: normalized.channelId, message }, settings, at);
+      const state = store.getParticipation(placeId);
+      const next = recordFollowing(state, { placeId: normalized.placeId, message }, settings, at);
       if (next === state) return;
-      store.setParticipation(guildId, next, { settings, now: at });
+      store.setParticipation(placeId, next, { settings, now: at });
       log.info('participation: recorded', {
-        channel: normalized.channelId,
+        channel: normalized.placeId,
         episodes: next.episodes.length,
         following: true,
       });
     } catch (err) {
       log.warn('participation: failed', {
-        channel: normalized?.channelId ?? null,
+        channel: normalized?.placeId ?? null,
         reason: 'following-error',
         name: (err as Thrown)?.name ?? null,
       });

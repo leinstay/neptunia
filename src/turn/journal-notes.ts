@@ -28,13 +28,13 @@ const PREVIOUS_THINK_MINUTES = 30;
 
 /** The journal (src/memory/journal.ts#createJournal) as far as the notes use it. */
 export type NotesJournal = {
-  turn: (guildId: string, record: Record<string, unknown>) => unknown;
-  op?: (guildId: string | undefined, fields: Record<string, unknown>) => JournalOp;
+  turn: (placeId: string, record: Record<string, unknown>) => unknown;
+  op?: (placeId: string | undefined, fields: Record<string, unknown>) => JournalOp;
 };
 
 /** The persona's record (src/memory/record.ts#createRecord) as far as `said` lines use it. */
 export type NotesRecord = {
-  append: (guildId: string, lines: Array<object>, options: { privateUserId?: string }) => unknown;
+  append: (placeId: string, lines: Array<object>) => unknown;
 };
 
 /** What her previous think store (src/behavior/previous-think.js#createThinkStore) answers. */
@@ -73,8 +73,8 @@ type TurnIds = {
 
 /** What an attempt's draft holds that the notes read and write. */
 export type NotesDraft = TurnIds & {
-  guildId?: string;
-  channelId?: string;
+  placeId?: string;
+  conversationId?: string;
   privateUserId?: string | null;
   inner?: { wake?: { chainId?: string | null } | null } | null;
   info?: { id: string; communityId?: string | null } | null;
@@ -88,7 +88,7 @@ type NotesChannel = { id: string; communityId?: string | null };
 
 /** One of her posted messages as a `said` line takes it. */
 type SaidArgs = {
-  guildId: string;
+  placeId: string;
   channel: NotesChannel & { partnerId?: string | null };
   privateChat: boolean;
   trigger?: { authorId?: string | null } | null;
@@ -114,19 +114,19 @@ export type JournalNotesContext = {
   callMarks: Array<CallMark>;
   postedFromLinks: Map<string, string>;
   thinks: ThinkStore;
-  readOffPeriods: (guildId: string, options?: { windowHours?: number }) => Promise<unknown>;
+  readOffPeriods: (placeId: string, options?: { windowHours?: number }) => Promise<unknown>;
   liveChannelName: (
     channel: NotesChannel | null | undefined,
     snapshot?: Snapshot | null
-  ) => (channelId: string) => string | null;
+  ) => (placeId: string) => string | null;
 };
 
-type FactScopeOf = { channelId: string | null; privateChat?: boolean };
+type FactScopeOf = { placeId: string | null; privateChat?: boolean };
 
 export type JournalNotes = {
-  factsOfKind: (guildId: string | null, scope: FactScopeOf, kind: string, at: number) => Array<Fact>;
+  factsOfKind: (placeId: string | null, scope: FactScopeOf, kind: string, at: number) => Array<Fact>;
   keepFact: (
-    guildId: string | null,
+    placeId: string | null,
     scope: FactScopeOf,
     kind: string,
     payload: Record<string, unknown>,
@@ -136,13 +136,13 @@ export type JournalNotes = {
   linkTriggers: (lines: Array<object>) => Array<object>;
   earlierThinkFor: (args: {
     channel: NotesChannel;
-    guildId: string | null;
+    placeId: string | null;
     isPrivate: boolean;
     draft: NotesDraft;
     mode: string | null | undefined;
   }) => { text: string; relation: 'earlier'; ageMs: number } | null;
   recordTurnThink: (
-    args: { guildId?: string | null; inner?: unknown },
+    args: { placeId?: string | null; inner?: unknown },
     draft: NotesDraft,
     result: { outcome?: string } | null | undefined
   ) => void;
@@ -152,12 +152,12 @@ export type JournalNotes = {
   seedCallMarks: (marks: { calls?: unknown; postedFrom?: unknown } | null | undefined) => void;
   linkCalls: (
     lines: Array<object>,
-    options: { channel: NotesChannel; snapshot?: Snapshot | null; guildId: string | null; extra?: unknown }
+    options: { channel: NotesChannel; snapshot?: Snapshot | null; placeId: string | null; extra?: unknown }
   ) => Array<object>;
   journalOn: () => boolean;
-  offPeriodsFor: (guildId: string) => Promise<unknown>;
+  offPeriodsFor: (placeId: string) => Promise<unknown>;
   writeTurnRecords: (
-    attempts: Iterable<{ draft: JournalDraft & { guildId: string }; result: Parameters<typeof journalTurnRecord>[1] }>
+    attempts: Iterable<{ draft: JournalDraft & { placeId: string }; result: Parameters<typeof journalTurnRecord>[1] }>
   ) => Promise<void>;
   recordSaid: (args: SaidArgs) => void;
   journalOp: (
@@ -191,14 +191,14 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   } = ctx;
 
   /** The facts of `kind` of the conversation `scope` still in their window, oldest first. */
-  function factsOfKind(guildId: string | null, scope: FactScopeOf, kind: string, at: number): Array<Fact> {
+  function factsOfKind(placeId: string | null, scope: FactScopeOf, kind: string, at: number): Array<Fact> {
     return facts()
-      .pending(guildId, scope)
-      .filter((fact) => fact.kind === kind && fact.channelId === scope.channelId && at - fact.at < FAILED_TURN_KEEP_MS);
+      .pending(scope)
+      .filter((fact) => fact.kind === kind && fact.placeId === scope.placeId && at - fact.at < FAILED_TURN_KEEP_MS);
   }
   /** A fact of `kind` kept (at most `FAILED_TURNS_KEPT` of the kind per conversation, the newest; one per message). */
   function keepFact(
-    guildId: string | null,
+    placeId: string | null,
     scope: FactScopeOf,
     kind: string,
     payload: Record<string, unknown>,
@@ -209,16 +209,15 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     const store = facts();
     if (payload.messageId)
       store.markTold(
-        guildId,
-        factsOfKind(guildId, scope, kind, at)
+        factsOfKind(placeId, scope, kind, at)
           .filter((fact) => fact.messageId === payload.messageId)
           .map((fact) => fact.id)
       );
     const fact: FactInput = { kind, ...scope, at, ...payload };
-    store.add(guildId, fact);
-    const live = factsOfKind(guildId, scope, kind, at);
+    store.add(fact);
+    const live = factsOfKind(placeId, scope, kind, at);
     const over = live.slice(0, Math.max(0, live.length - kept)).map((fact) => fact.id);
-    if (over.length > 0) store.markTold(guildId, over);
+    if (over.length > 0) store.markTold(over);
   }
 
   /** Remember that `postedId` was posted by the turn `triggerId` started (a newer link wins). */
@@ -249,10 +248,10 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   /**
    * The key of the place a channel is (interface + server or private chat + channel).
    */
-  function placeOf(channel: NotesChannel, guildId: string | null = null): string {
+  function placeOf(channel: NotesChannel, placeId: string | null = null): string {
     return placeKey({
-      guildId: inCommunity(channel) ? (guildId ?? channel.communityId ?? null) : null,
-      channelId: channel.id,
+      placeId: inCommunity(channel) ? (placeId ?? channel.communityId ?? null) : null,
+      conversationId: channel.id,
     });
   }
 
@@ -263,19 +262,19 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
    */
   function earlierThinkFor({
     channel,
-    guildId,
+    placeId,
     isPrivate,
     draft,
     mode,
   }: {
     channel: NotesChannel;
-    guildId: string | null;
+    placeId: string | null;
     isPrivate: boolean;
     draft: NotesDraft;
     mode: string | null | undefined;
   }): { text: string; relation: 'earlier'; ageMs: number } | null {
     if (draft.inner || mode === 'diary') return null;
-    const picked = thinks.select(placeOf(channel, guildId), {
+    const picked = thinks.select(placeOf(channel, placeId), {
       now: clock(),
       minutes: PREVIOUS_THINK_MINUTES,
       isPrivate,
@@ -299,7 +298,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
 
   /** The turn ended: its final think goes to the places it ran in and delivered to (previous-think.js#record). Never throws. */
   function recordTurnThink(
-    args: { guildId?: string | null; inner?: unknown },
+    args: { placeId?: string | null; inner?: unknown },
     draft: NotesDraft,
     result: { outcome?: string } | null | undefined
   ): void {
@@ -309,9 +308,9 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
       if (!channel) return;
       const failed = outcome === 'error' || outcome === 'refused';
       if (!failed && outcome !== 'spoke' && outcome !== 'skip') return;
-      const guildId = args.guildId ?? channel.communityId ?? null;
+      const placeId = args.placeId ?? channel.communityId ?? null;
       const delivered = [...(draft.deliveredIn ?? [])].map((id) =>
-        placeKey({ guildId: inCommunity(channel) ? guildId : null, channelId: id })
+        placeKey({ placeId: inCommunity(channel) ? placeId : null, conversationId: id })
       );
       thinks.record({
         turnId: draft.started?.turnId ?? draft.turnKey?.turnId ?? null,
@@ -320,7 +319,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
         failed,
         isPrivate: !inCommunity(channel),
         inner: Boolean(args.inner),
-        ran: placeOf(channel, guildId),
+        ran: placeOf(channel, placeId),
         delivered,
       });
     } catch (err) {
@@ -345,8 +344,8 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
 
   /**
    * `lines` with the persona's skill calls on her own lines (src/format.js#withCalls): the
-   * channel names read live from the guild of `channel` (the turn's), the message links built in
-   * `guildId` (`@me` for a message of the private chat itself). `lines` as they are with
+   * channel names read live from the place of `channel` (the turn's), the message links built in
+   * `placeId` (`@me` for a message of the private chat itself). `lines` as they are with
    * features.callMarkers off (a missing key counts as on, read now).
    */
   function linkCalls(
@@ -354,9 +353,9 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     {
       channel,
       snapshot = null,
-      guildId,
+      placeId,
       extra = null,
-    }: { channel: NotesChannel; snapshot?: Snapshot | null; guildId: string | null; extra?: unknown }
+    }: { channel: NotesChannel; snapshot?: Snapshot | null; placeId: string | null; extra?: unknown }
   ): Array<object> {
     const turnMarks: Array<CallMark> = Array.isArray(extra) ? (extra as Array<CallMark>) : [];
     if (callMarks.length === 0 && turnMarks.length === 0 && postedFromLinks.size === 0) return lines;
@@ -366,7 +365,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
       { calls: turnMarks.length > 0 ? [...callMarks, ...turnMarks] : callMarks, postedFrom: postedFromLinks },
       {
         nameOf: liveChannelName(channel, snapshot),
-        linkOf: (channel, message) => messageLinkOf(iface, channel === privateId ? null : guildId, channel, message),
+        linkOf: (channel, message) => messageLinkOf(iface, channel === privateId ? null : placeId, channel, message),
       }
     );
   }
@@ -381,18 +380,18 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
    * on and features.offPeriods on (a missing key counts as on), over the last
    * `DEFAULT_OFF_WINDOW_HOURS` hours of src/memory/journal.ts, all read now; null otherwise. Never throws.
    */
-  async function offPeriodsFor(guildId: string): Promise<unknown> {
+  async function offPeriodsFor(placeId: string): Promise<unknown> {
     if (!journalOn()) return null;
-    return readOffPeriods(guildId);
+    return readOffPeriods(placeId);
   }
 
   /** The turn records of runTurn's attempts, in order; a failed append is the journal's to log. */
   async function writeTurnRecords(
-    attempts: Iterable<{ draft: JournalDraft & { guildId: string }; result: Parameters<typeof journalTurnRecord>[1] }>
+    attempts: Iterable<{ draft: JournalDraft & { placeId: string }; result: Parameters<typeof journalTurnRecord>[1] }>
   ): Promise<void> {
     for (const { draft, result } of attempts) {
       // writeTurnRecords runs only for a runner whose journal is on (runTurn checks journalOn first).
-      await journal!.turn(draft.guildId, journalTurnRecord(draft, result));
+      await journal!.turn(draft.placeId, journalTurnRecord(draft, result));
     }
   }
 
@@ -405,7 +404,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
    * Not awaited; a refused append is logged as `turn: record failed` (counts only).
    */
   function recordSaid({
-    guildId,
+    placeId,
     channel,
     privateChat,
     trigger,
@@ -424,7 +423,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     const line = toRecordLine(
       {
         id: posted.id,
-        channelId: channel.id,
+        placeId: channel.id,
         content: text,
         ts: Number.isFinite(posted.createdTimestamp) ? posted.createdTimestamp : clock(),
         replyToId: replyId ?? null,
@@ -436,7 +435,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     const failed = (err: unknown): void =>
       log.warn('turn: record failed', { channel: channel.id, lines: 1, code: codeOf(err) });
     try {
-      Promise.resolve(record.append(guildId, [line], privateUserId ? { privateUserId } : {})).catch(failed);
+      Promise.resolve(record.append(placeId, [line])).catch(failed);
     } catch (err) {
       failed(err);
     }
@@ -456,11 +455,11 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     fields: Record<string, unknown> = {}
   ): JournalOp | Readonly<JournalOp> {
     if (!draft?.started || typeof journal?.op !== 'function') return NO_OP;
-    const handle = journal.op(draft.guildId, {
+    const handle = journal.op(draft.placeId, {
       turnId: draft.started.turnId,
       name,
       by,
-      channelId: draft.channelId,
+      placeId: draft.conversationId,
       privateUserId: draft.privateUserId,
       ...fields,
     });

@@ -246,7 +246,7 @@ export function eventOfLine(line: unknown, iface: string): MessageEvent {
     at,
     id: `${iface}:message:${String(found.id)}`,
     conversation: {
-      id: found.channelId,
+      id: found.placeId,
       kind: 'channel',
       communityId: null,
       name: found.channelName,

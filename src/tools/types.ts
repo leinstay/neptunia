@@ -109,8 +109,10 @@ export function idText(value: unknown): string {
 export type OpContext = {
   publicationBoundary?: PublicationBoundary;
   env: Env;
-  guildId?: string | null;
-  channelId?: string | null;
+  /** The place the operation addresses: a server, a channel, a group or a DM. */
+  placeId?: string | null;
+  /** The conversation it runs in, by its native id. */
+  conversationId?: string | null;
   userId?: string | null;
   roleIds?: ReadonlyArray<string>;
   /** `persona` for her own call, else the kind of caller (`owner`, `member`). */

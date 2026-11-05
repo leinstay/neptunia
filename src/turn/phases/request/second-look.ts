@@ -30,7 +30,7 @@ export function startSecondLook(
 ): SecondLook {
   const { describer } = ctx;
   const { trigger = null, triggerKind = null } = params;
-  const { channel, guildId } = opened;
+  const { channel, placeId } = opened;
   const { asked, pace, candidate } = setup;
   const { deadline, captionCandidates, videoStage, videoCandidates } = staged;
   // A second look at a watched video, a watched GIF or a posted picture is hers to ask for: she calls media.look in
@@ -63,7 +63,7 @@ export function startSecondLook(
     if (videoStage.done) return videoStage.value?.videos;
     try {
       return typeof describer?.cachedVideos === 'function'
-        ? await describer.cachedVideos(guildId, videoCandidates)
+        ? await describer.cachedVideos(placeId, videoCandidates)
         : undefined;
     } catch {
       return undefined;

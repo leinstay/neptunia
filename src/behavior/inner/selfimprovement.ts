@@ -26,7 +26,7 @@ export function selfimprovementWake(at: number, reason: string): Wake {
     intentionIds: [],
     chainId: `selfimprovement:${at}`,
     dueAt: at,
-    channelId: null,
+    placeId: null,
     privateChat: false,
   };
 }
@@ -63,11 +63,9 @@ export function failureCause(input: {
 }
 
 /** The journal as the view reads it: its `read`, or none when this life has no journal that reads. */
-function journalOf(
-  life: InnerContext
-): { read(guildId: string, query: { day: string; kind: string; n: number }): unknown } | null {
+function journalOf(life: InnerContext): { read(query: { day: string; kind: string; n: number }): unknown } | null {
   const { journal } = life;
-  return typeof journal?.read === 'function' ? { read: (guildId, query) => journal.read?.(guildId, query) } : null;
+  return typeof journal?.read === 'function' ? { read: (query) => journal.read?.(query) } : null;
 }
 
 /**
@@ -78,34 +76,31 @@ function journalOf(
  */
 export async function selfimprovementDue(
   life: InnerContext,
-  guildId: string,
   settings: InnerSettings,
   at: number
 ): Promise<Array<Wake>> {
   if (!settings.selfimprovement.enabled) return [];
   const { schedule, failuresPerShape } = settings.wakes.selfimprovement;
   const counted = formatSchedule(schedule);
-  const state = stateOf(life, guildId);
+  const state = stateOf(life);
   if (state.selfimprovement === null) {
     state.selfimprovement = { lastAt: at, raisedAt: null, schedule: counted };
-    save(life, guildId);
+    save(life);
     return [];
   }
   if (state.selfimprovement.schedule !== counted) {
     const isChanged = state.selfimprovement.schedule !== undefined;
     const lastAt = isChanged ? at : state.selfimprovement.lastAt;
     state.selfimprovement = { ...state.selfimprovement, lastAt, schedule: counted };
-    save(life, guildId);
+    save(life);
   }
   const scheduled = scheduledWake({ now: at, schedule, lastAt: state.selfimprovement.lastAt });
   if (scheduled !== null) return [scheduled];
   try {
-    const lines = await readJournalLines(
-      journalOf(life),
-      guildId,
-      { from: Date.parse(`${utcDay(at)}T00:00:00Z`), to: at },
-      ['action', 'inner']
-    );
+    const lines = await readJournalLines(journalOf(life), { from: Date.parse(`${utcDay(at)}T00:00:00Z`), to: at }, [
+      'action',
+      'inner',
+    ]);
     const cause = failureCause({
       chains: chainsOfJournal(lines),
       now: at,
@@ -114,45 +109,40 @@ export async function selfimprovementDue(
     });
     if (cause === null) return [];
     state.selfimprovement = { ...state.selfimprovement, raisedAt: at };
-    save(life, guildId);
-    life.log.info('inner: selfimprovement cause', { guildId, failures: cause.failures });
+    save(life);
+    life.log.info('inner: selfimprovement cause', { failures: cause.failures });
     return [selfimprovementWake(at, `failures:${cause.key}`)];
   } catch (error) {
-    life.log.warn('inner: selfimprovement check failed', { guildId, code: errorCode(error) });
+    life.log.warn('inner: selfimprovement check failed', { code: errorCode(error) });
     return [];
   }
 }
 
 /** The facts of the wake's turn and the outbox rows they show, from the sources this life was given. Never throws. */
-export async function selfimprovementFacts(
-  life: InnerContext,
-  guildId: string,
-  at: number
-): Promise<SelfimprovementFacts | null> {
+export async function selfimprovementFacts(life: InnerContext, at: number): Promise<SelfimprovementFacts | null> {
   const { selfimprovementSources: sources, log } = life;
-  const state = stateOf(life, guildId);
+  const state = stateOf(life);
   const guarded = <TValue>(fn: () => TValue | undefined, fallback: TValue): TValue => {
     try {
       return fn() ?? fallback;
     } catch (error) {
-      log.warn('inner: selfimprovement source failed', { guildId, code: errorCode(error) });
+      log.warn('inner: selfimprovement source failed', { code: errorCode(error) });
       return fallback;
     }
   };
   try {
     const board = sources.proposals
       ? await sources.proposals().catch((error: unknown) => {
-          log.warn('inner: selfimprovement board failed', { guildId, code: errorCode(error) });
+          log.warn('inner: selfimprovement board failed', { code: errorCode(error) });
           return { entries: [], outbox: [] };
         })
       : { entries: [], outbox: [] };
     const days = 14;
     const landed = await Promise.resolve(sources.landed?.()).catch((error: unknown) => {
-      log.warn('inner: selfimprovement landed failed', { guildId, code: errorCode(error) });
+      log.warn('inner: selfimprovement landed failed', { code: errorCode(error) });
       return [];
     });
     return await buildSelfimprovementFacts({
-      guildId,
       now: at,
       since: state.selfimprovement?.lastAt ?? null,
       days,
@@ -165,7 +155,7 @@ export async function selfimprovementFacts(
       watcher: guarded(() => sources.watcher?.(at), null),
     });
   } catch (error) {
-    log.warn('inner: selfimprovement view failed', { guildId, code: errorCode(error) });
+    log.warn('inner: selfimprovement view failed', { code: errorCode(error) });
     return null;
   }
 }
@@ -178,7 +168,6 @@ export async function selfimprovementFacts(
  */
 export async function committedSelfimprovement(
   life: InnerContext,
-  guildId: string,
   turn: {
     improvementWake: Wake | null;
     selfimprovement: SelfimprovementFacts | null;
@@ -188,16 +177,16 @@ export async function committedSelfimprovement(
 ): Promise<void> {
   const { improvementWake: wake, selfimprovement: facts, improvementReadAt: readAt, outcome } = turn;
   if (wake === null || outcome === 'error') return;
-  const state = stateOf(life, guildId);
+  const state = stateOf(life);
   const due = isFiniteNumber(wake.dueAt) ? wake.dueAt : readAt;
   const lastAt = Math.max(facts === null ? due : readAt, state.selfimprovement?.lastAt ?? 0);
   state.selfimprovement = { ...state.selfimprovement, lastAt, raisedAt: state.selfimprovement?.raisedAt ?? null };
-  save(life, guildId);
+  save(life);
   const seqs = facts?.outboxSeqs ?? [];
   if (seqs.length === 0 || !life.selfimprovementSources.ackOutbox) return;
   try {
     await life.selfimprovementSources.ackOutbox(seqs);
   } catch (error) {
-    life.log.warn('inner: selfimprovement outbox not marked', { guildId, count: seqs.length, code: errorCode(error) });
+    life.log.warn('inner: selfimprovement outbox not marked', { count: seqs.length, code: errorCode(error) });
   }
 }

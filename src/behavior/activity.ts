@@ -9,20 +9,20 @@ import type { Untyped } from '../tools/types.ts';
 const KEEP_MS = 10 * 60 * 1000;
 
 /**
- * A tracker of the last message time per `channelId:authorId`. `note` records a message (an
+ * A tracker of the last message time per `placeId:authorId`. `note` records a message (an
  * older time never moves an entry back) and evicts entries older than ten minutes against that
  * time; `lastAt` reads the latest time or null; `prune(now, maxAgeMs)` drops entries older than
  * `maxAgeMs` at `now`; `size()` is the number of entries kept. Which messages count (the
  * persona's own do not) is the caller's decision.
  */
 export function createActivity(): {
-  note: (channelId: string, authorId: string, at: number) => void;
-  lastAt: (channelId: string, authorId: string) => number | null;
+  note: (placeId: string, authorId: string, at: number) => void;
+  lastAt: (placeId: string, authorId: string) => number | null;
   prune: (now: number, maxAgeMs: number) => void;
   size: () => number;
 } {
   const last = new Map();
-  const keyOf = (channelId: string, authorId: string) => `${channelId}:${authorId}`;
+  const keyOf = (placeId: string, authorId: string) => `${placeId}:${authorId}`;
   function prune(now: number, maxAgeMs: Untyped) {
     if (!Number.isFinite(now) || !Number.isFinite(maxAgeMs)) return;
     for (const [key, at] of last) {
@@ -30,15 +30,15 @@ export function createActivity(): {
     }
   }
   return {
-    note(channelId, authorId, at) {
-      if (!channelId || !authorId || !Number.isFinite(at)) return;
-      const key = keyOf(channelId, authorId);
+    note(placeId, authorId, at) {
+      if (!placeId || !authorId || !Number.isFinite(at)) return;
+      const key = keyOf(placeId, authorId);
       const known = last.get(key);
       if (known === undefined || at > known) last.set(key, at);
       prune(at, KEEP_MS);
     },
-    lastAt(channelId, authorId) {
-      return last.get(keyOf(channelId, authorId)) ?? null;
+    lastAt(placeId, authorId) {
+      return last.get(keyOf(placeId, authorId)) ?? null;
     },
     prune,
     size: () => last.size,

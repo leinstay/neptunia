@@ -3,7 +3,7 @@
 // proportional to the text, several short messages in a row, reactions).
 // Used for answering a call ('reply') and for spontaneous turns
 // ('interject' / 'initiate'), in a server channel or in a private chat (a
-// channel without a guild, served on behalf of the one pinned guild). A
+// channel without a place, served on behalf of the one pinned place). A
 // server turn -- and a private chat, on its partner's behalf -- may also show
 // other channels it is about (`<channel_view>`):
 // the read-only channel a call came from, a channel named with an explicit
@@ -45,7 +45,6 @@ import { createSends } from '../turn/sends.ts';
 import { createSkillCalls } from '../turn/skill-calls.ts';
 import { createToolRound } from '../turn/tool-round.ts';
 import { createTyping } from '../turn/typing.ts';
-import { routeFor, usableDestination } from '../turn/routing.ts';
 import {
   FAILED_TURN_KEEP_MS,
   SKIP_NOTHING_TO_DO,
@@ -106,13 +105,11 @@ export {
   postsPlain,
   requesterOf,
   resolveMentions,
-  routeFor,
   searchHandles,
   sendHash,
   settleUnknownSends,
   taskInput,
   untaggedNote,
-  usableDestination,
 };
 
 // The server search on a question's own words lives with the recall planning (src/behavior/recall.ts).
@@ -163,8 +160,8 @@ function typedFreeze<TValue>(freeze: Map<string, unknown>) {
  * `features.videoDescriptions` (a missing key counts as on) are on and the describer has
  * `describeVideos`; otherwise they render without a watch.
  *
- * `getSelfName` (src/index.ts) is the persona's display name in a guild;
- * default: the client's cached guild member, else the bot user's name.
+ * `getSelfName` (src/index.ts) is the persona's display name in a place;
+ * default: the client's cached place member, else the bot user's name.
  *
  * A call whose text passes the splitter's pre-filter (src/behavior/split.ts)
  * asks the splitter (prompts/split.md) beside the turn's preparation, under
@@ -175,11 +172,11 @@ function typedFreeze<TValue>(freeze: Map<string, unknown>) {
  *
  * `routeChannels` (the route classifier's hook; src/index.ts passes
  * src/behavior/route-channel.ts#createChannelRouter's) is optional:
- * `({ guildId, channel, guild, partner, history, trigger, triggerKind, selfName, config }) => Promise<string[]>`,
+ * `({ placeId, channel, place, partner, history, trigger, triggerKind, selfName, config }) => Promise<string[]>`,
  * the ids of channels the conversation is about; `triggerKind` is the turn's
  * TriggerKind (null on a turn without a trigger), so the hook can decline
- * kinds it does not serve (src/behavior/route.ts#routeAllowed); `guild` is the
- * guild the ids are judged in, `partner` a private chat's partner (null on a
+ * kinds it does not serve (src/behavior/route.ts#routeAllowed); `place` is the
+ * place the ids are judged in, `partner` a private chat's partner (null on a
  * server turn). It is asked on a server turn, or a private chat with its
  * partner (features.privateLikeServer, see runTurn),
  * with features.channelPull on and the labels able
@@ -192,7 +189,7 @@ function typedFreeze<TValue>(freeze: Map<string, unknown>) {
  *
  * Participation (src/memory/participation.js; features.participation and features.memory,
  * a missing key counts as on; never in a private chat or a place of her diary): every message a
- * turn sends for real in a server channel is recorded in the guild's participation store with
+ * turn sends for real in a server channel is recorded in the place's participation store with
  * the history lines before it and the line it replies to (recordOwnParticipation). A server turn that builds a reply request (not a diary post) hands the
  * store to buildRequest as `<participation>`; beside its preparation the pick classifier
  * (src/behavior/participation-pick.ts) chooses which stored episodes
@@ -353,6 +350,7 @@ export function createTurnRunner({
     liveChannelName,
     recordOwnParticipation,
     recentInput,
+    recentOfPlaces,
   } = createParticipation({ hot, store, around, clock });
 
   const iface = port;
@@ -362,8 +360,8 @@ export function createTurnRunner({
   const { facts, setFactsSource } = createFacts({ clock });
   // The channels known to be private chats (a deferred call names only its channel).
   const privateChannels = new Set<string>();
-  const lastPostAt = new Map<string, number>(); // channelId -> ts of the persona's last message
-  // channelId -> ids of the messages in the history of the last turn that spoke there; for a channel the bot cannot
+  const lastPostAt = new Map<string, number>(); // placeId -> ts of the persona's last message
+  // placeId -> ids of the messages in the history of the last turn that spoke there; for a channel the bot cannot
   // write in, the lines its `<channel_view>` showed in the last turn that spoke anywhere while showing it (noteSpokeSaw).
   // The pending-ping drain (src/behavior/pipeline.ts) skips a ping such a turn already had in view.
   const spokeSaw = new Map<string, Set<string>>();
@@ -374,7 +372,7 @@ export function createTurnRunner({
   // The last view of each pulled channel shown in each channel, in process only: a channel
   // shown again says what of it is new since (createPullViews; `seenBefore` on the entry).
   const pullViews = createPullViews();
-  // The channels an exchange keeps pulled, by destination (process memory, like pullViews): `{ channelIds, at, turns, authorId }`.
+  // The channels an exchange keeps pulled, by destination (process memory, like pullViews): `{ placeIds, at, turns, authorId }`.
   const keptPulls = new Map();
   // Posted message id -> the id of the message that started the turn which posted it, in
   // process (noteTrigger at each post, seedTriggerLinks at start from the journal); the oldest
@@ -450,7 +448,7 @@ export function createTurnRunner({
     lookup,
     images,
     journalOp,
-    recentInput,
+    recentOfPlaces,
   });
   const { drawTool, resolveGif, postGif, pickedInTime, pickGifSafely } = createDrawGif({
     hot,
@@ -465,7 +463,7 @@ export function createTurnRunner({
     clock,
     schedule,
     ...inputs,
-    stableFreezeOf: <TValue>(guildId: string) => typedFreeze<TValue>(stableFreezeOf(guildId)),
+    stableFreezeOf: <TValue>(placeId: string) => typedFreeze<TValue>(stableFreezeOf(placeId)),
     lastPostAt,
     diaryPictureGate: (config, channel, now) =>
       diaryPictureGate(config as Parameters<typeof diaryPictureGate>[0], channel, now),
@@ -619,6 +617,7 @@ export function createTurnRunner({
     aroundInputFor,
     liveChannelName,
     recentInput,
+    recentOfPlaces,
     ...inputs,
     linkTriggers,
     linkCalls,
@@ -709,20 +708,20 @@ export function createTurnRunner({
     seedCallMarks,
     waitingParts,
     addToPart,
-    isBusy: (channelId: string) => busy.has(channelId),
+    isBusy: (placeId: string) => busy.has(placeId),
     isAnyBusy: () => busy.size > 0,
     /** The ids of the channels a turn is running in now (for log lines: where the attention is). */
     busyChannels: () => [...busy],
-    lastPostAt: (channelId: string) => lastPostAt.get(channelId) ?? 0,
-    notePost: (channelId: string, ts: Untyped) => lastPostAt.set(channelId, ts),
+    lastPostAt: (placeId: string) => lastPostAt.get(placeId) ?? 0,
+    notePost: (placeId: string, ts: Untyped) => lastPostAt.set(placeId, ts),
     /**
-     * Whether the last turn that spoke in `channelId` (this process) had
+     * Whether the last turn that spoke in `placeId` (this process) had
      * `messageId` in its channel history -- so a direct ping queued while that turn ran was
      * already in front of the model and is not answered a second time. For a channel the bot
      * cannot write in: whether the last turn that spoke while showing that channel's lines
      * (`<channel_view>`) showed `messageId`.
      */
-    spokeAfterSeeing: (channelId: string, messageId: string) => spokeSaw.get(channelId)?.has(messageId) ?? false,
+    spokeAfterSeeing: (placeId: string, messageId: string) => spokeSaw.get(placeId)?.has(messageId) ?? false,
     waitIdle,
     setOnIdle,
     /**

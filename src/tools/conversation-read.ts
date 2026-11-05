@@ -192,16 +192,16 @@ const str = (value: unknown): string => (typeof value === 'string' ? value : '')
  * kind per entry. A line `allowLine` refuses is skipped. Never throws: a failed read gives [].
  */
 export async function recordMessages(
-  record: { iterate?: (guildId: string, query: Obj) => AsyncIterable<unknown> } | null | undefined,
-  guildId: string,
+  record: { iterate?: (placeId: string, query: Obj) => AsyncIterable<unknown> } | null | undefined,
+  placeId: string,
   {
-    channelId,
+    placeId: conversationId,
     from,
     nameOf = null,
     selfName = '',
     allowLine = null,
   }: {
-    channelId: string;
+    placeId: string;
     from: number;
     nameOf?: ((id: string) => string | null) | null;
     selfName?: string;
@@ -212,9 +212,9 @@ export async function recordMessages(
   const latest = new Map<string, { line: Obj; revision: number }>();
   const gone = new Map<string, Obj>();
   try {
-    for await (const entry of record.iterate(guildId, {
+    for await (const entry of record.iterate(placeId, {
       from: new Date(from).toISOString(),
-      channelIds: [idText(channelId)],
+      placeIds: [idText(conversationId)],
     })) {
       const line = objOf(entry);
       const id = str(line.messageId);
@@ -242,7 +242,7 @@ export async function recordMessages(
     const recordedAt = Date.parse(str(line.recordedAt));
     return {
       id: line.messageId,
-      channelId: idText(channelId),
+      placeId: idText(conversationId),
       authorId: by,
       authorName: name || '-',
       self,
@@ -287,7 +287,7 @@ export async function recordMessages(
     const name = by && typeof nameOf === 'function' ? oneLine(nameOf(by) ?? '') : '';
     out.push({
       id,
-      channelId: idText(channelId),
+      placeId: idText(conversationId),
       authorId: by,
       authorName: name || '-',
       self: false,
@@ -316,14 +316,14 @@ export async function recordMessages(
  * then `.earlier` / `.later` (`{n}`: the handle of the first / last line shown) as the ways to
  * read on; `.none` when the span is empty. With `refs` (`{ next(), take(shown) }`, the turn's
  * handle registry) each line starts with its `#N` handle numbered on from `refs.next()` and the
- * lines that stayed in the text are registered (`{ n, id, channelId, authorId, self, deleted,
+ * lines that stayed in the text are registered (`{ n, id, placeId, authorId, self, deleted,
  * message }`); a line cut away never is. Otherwise pure.
  */
 export function conversationText(
   slice: ReadonlyArray<ReadMessage>,
   {
     labels,
-    channelId,
+    placeId,
     channelName = '',
     render,
     maxChars = MAX_CHARS_FALLBACK,
@@ -333,7 +333,7 @@ export function conversationText(
     keep = 'oldest',
   }: {
     labels: unknown;
-    channelId: string;
+    placeId: string;
     channelName?: string;
     render: Obj | ((slice: ReadonlyArray<ReadMessage>) => Obj);
     maxChars?: number;
@@ -390,7 +390,7 @@ export function conversationText(
         return {
           n: item.index,
           id: idText(item.id),
-          channelId: idText(channelId),
+          placeId: idText(placeId),
           authorId: message?.authorId ?? null,
           self: message?.self === true,
           ...(message?.deleted === true ? { deleted: true } : {}),
@@ -438,10 +438,10 @@ function askedLines(selection: ReadSelection): number {
 }
 
 /**
- * One conversation.read. `args`: `channelId` (default the caller's `channelId`), `around`, `before`,
+ * One conversation.read. `args`: `placeId` (default the caller's `placeId`), `around`, `before`,
  * `after` (message ids or counts), `since`, `last`. The caller supplies what only it knows:
- * `allowed(id)` (the audience rule and her rights: false hides the channel), `readRecord({ channelId,
- * from })` (recordMessages over the turn's record), `fetchLive({ channelId, mode, anchor, limit,
+ * `allowed(id)` (the audience rule and her rights: false hides the channel), `readRecord({ placeId,
+ * from })` (recordMessages over the turn's record), `fetchLive({ placeId, mode, anchor, limit,
  * minTs })` (the interface's history: `around`, `before`, `after`, `since` or the newest, normalized,
  * oldest first; null when it failed) `channelNameOf(id)` (the channel's name for the source line) and `render` (formatTranscript's options, or a function of the span giving them). The record is read
  * first, back through READ_LADDER_DAYS (a `since` from that moment); when it does not hold the span
@@ -454,7 +454,7 @@ export async function runConversationRead({
   args,
   labels,
   config,
-  channelId,
+  placeId,
   channelNameOf = null,
   allowed,
   readRecord,
@@ -468,13 +468,13 @@ export async function runConversationRead({
   args: unknown;
   labels: unknown;
   config?: unknown;
-  channelId?: unknown;
+  placeId?: unknown;
   channelNameOf?: ((id: string) => string | null | undefined) | null;
   allowed?: ((id: string) => boolean) | null;
-  readRecord?: ((request: { channelId: string; from: number }) => Promise<Array<ReadMessage>>) | null;
+  readRecord?: ((request: { placeId: string; from: number }) => Promise<Array<ReadMessage>>) | null;
   fetchLive?:
     | ((request: {
-        channelId: string;
+        placeId: string;
         mode: string;
         anchor: string | null;
         limit: number;
@@ -488,7 +488,7 @@ export async function runConversationRead({
   maxChars?: number;
 }): Promise<{ status: string; code?: string; reason?: string; data?: { text: string } }> {
   try {
-    const target = text(objOf(args).channelId) || idText(channelId);
+    const target = text(objOf(args).placeId) || idText(placeId);
     if (!target) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.channel:required' };
     const zone = objOf(objOf(config).bot).timezone;
     const selection = readSelection(args, { now, timezone: typeof zone === 'string' ? zone : timezone });
@@ -499,7 +499,7 @@ export async function runConversationRead({
     const rungs =
       selection.mode === 'since' ? [selection.since ?? 0] : READ_LADDER_DAYS.map((days) => now - days * DAY_MS);
     for (const from of rungs) {
-      all = typeof readRecord === 'function' ? await readRecord({ channelId: target, from }) : [];
+      all = typeof readRecord === 'function' ? await readRecord({ placeId: target, from }) : [];
       picked = pickSpan(all, selection);
       if (picked.enough) break;
     }
@@ -509,7 +509,7 @@ export async function runConversationRead({
       asked = true;
       const limit = askedLines(selection);
       live = await fetchLive({
-        channelId: target,
+        placeId: target,
         mode: selection.mode,
         anchor: selection.anchor ?? null,
         limit,
@@ -535,7 +535,7 @@ export async function runConversationRead({
       ((selection.mode === 'since' || selection.mode === 'after') && truncated);
     const textOut = conversationText(picked.slice, {
       labels,
-      channelId: target,
+      placeId: target,
       channelName: typeof channelNameOf === 'function' ? (channelNameOf(target) ?? '') : '',
       render,
       maxChars,

@@ -11,7 +11,7 @@ import { rowsOf } from './common.ts';
 import type { Row, Rows } from '../types.ts';
 import type { MapContext } from './common.ts';
 
-/** The `kind` of an operational file, from its path (a private layer's path counts like the guild's). */
+/** The `kind` of an operational file, from its path (a private layer's path counts like the place's). */
 export function operationalKindOf(rel: string): string {
   const path = String(rel).replace(/^private\/[^/]+\//, '');
   if (path === 'voice.json') return 'voice';

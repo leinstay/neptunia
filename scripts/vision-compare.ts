@@ -110,14 +110,14 @@ async function connectDiscord(token: Untyped) {
 async function resolveFromCache({
   picked,
   dataDir,
-  guildId,
+  placeId,
   hot,
   nowMs,
   token,
 }: {
   picked: Array<Picked>;
   dataDir: string;
-  guildId: string;
+  placeId: string;
   hot: Hot;
   nowMs: number;
   token: string | null | undefined;
@@ -150,10 +150,10 @@ async function resolveFromCache({
     const client = await connectDiscord(token);
     const videoSites = hot.config.media?.video?.sites ?? [];
     let reads = 0;
-    const readMessage = async (channelId: string, messageId: string) => {
+    const readMessage = async (conversationId: string, messageId: string) => {
       reads += 1;
       try {
-        const channel: Untyped = await client.channels.fetch(channelId);
+        const channel: Untyped = await client.channels.fetch(conversationId);
         const message = await channel?.messages?.fetch(messageId);
         if (!message) return null;
         // @ts-expect-error: `selfId` is typed as a string, and this tool has none: it passes null, as it always has
@@ -164,7 +164,7 @@ async function resolveFromCache({
         });
       } catch (err: Untyped) {
         process.stderr.write(
-          `vision-compare: message read failed (${err?.name ?? 'Error'}) channel ${channelId} message ${messageId}\n`
+          `vision-compare: message read failed (${err?.name ?? 'Error'}) channel ${conversationId} message ${messageId}\n`
         );
         return null;
       }
@@ -181,10 +181,10 @@ async function resolveFromCache({
     };
     try {
       // A library GIF from its library entry's message.
-      const gifs = normalizeGifs(readJson(path.join(dataDir, 'guilds', guildId, 'gifs.json'), {}));
+      const gifs = normalizeGifs(readJson(path.join(dataDir, 'guilds', placeId, 'gifs.json'), {}));
       for (const entry of Object.values(gifs.entries)) {
-        if (!wantsItem(entry.itemId) || !entry.channelId || !entry.messageId || reads >= MAX_MESSAGE_READS) continue;
-        const normalized = await readMessage(entry.channelId, entry.messageId);
+        if (!wantsItem(entry.itemId) || !entry.placeId || !entry.messageId || reads >= MAX_MESSAGE_READS) continue;
+        const normalized = await readMessage(entry.placeId, entry.messageId);
         if (normalized) take(normalized);
       }
       // The rest from the messages the record says may hold them, newest first.
@@ -199,19 +199,19 @@ async function resolveFromCache({
           lookupSince(picked, nowMs)
         );
         const refs = new Map<string, Untyped>();
-        for await (const entry of record.iterate(guildId, { from: new Date(finder.fromMs).toISOString() })) {
+        for await (const entry of record.iterate(placeId, { from: new Date(finder.fromMs).toISOString() })) {
           const line: Untyped = entry;
           if (!finder.matches(line)) continue;
           const at = snowflakeMs(line.messageId) ?? Date.parse(line.occurredAt);
           refs.set(line.messageId, {
             messageId: line.messageId,
-            channelId: line.scope.channel,
+            placeId: line.scope.channel,
             at: Number.isFinite(at) ? at : 0,
           });
         }
         for (const ref of [...refs.values()].sort((a, b) => b.at - a.at)) {
           if (wanted.size === 0 || reads >= MAX_MESSAGE_READS) break;
-          const normalized = await readMessage(ref.channelId, ref.messageId);
+          const normalized = await readMessage(ref.placeId, ref.messageId);
           if (normalized) take(normalized);
         }
       }
@@ -240,17 +240,17 @@ export async function main(
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   try {
     // The keys (the simulation key from the store, DISCORD_TOKEN, YOUTUBE_API_KEY) from .env; never printed.
-    const configuredGuild = hot.config.bot?.guildId || undefined;
-    let guildId;
+    const configuredGuild = hot.config.bot?.placeId || undefined;
+    let placeId;
     let items;
     let source;
     const notes = [];
     if (args.fromCache !== null) {
-      guildId = resolveGuildId(dataDir, args.guild ?? configuredGuild);
-      const cache = readJson(path.join(dataDir, 'guilds', guildId, 'media.json'), {});
+      placeId = resolveGuildId(dataDir, args.guild ?? configuredGuild);
+      const cache = readJson(path.join(dataDir, 'guilds', placeId, 'media.json'), {});
       const picked = pickFromCache(cache, { n: args.fromCache, kinds: args.kinds });
       const token = interfaceCredential(hot.privateDir, 'discord');
-      const resolved = await resolveFromCache({ picked, dataDir, guildId, hot, nowMs: now(), token });
+      const resolved = await resolveFromCache({ picked, dataDir, placeId, hot, nowMs: now(), token });
       items = resolved.items;
       source = `media cache, ${picked.length} picked`;
       if (resolved.unlocated > 0) notes.push(`${resolved.unlocated} picked cache entr(ies) not found again`);
@@ -267,7 +267,7 @@ export async function main(
         );
       items = parsed.items;
       source = 'media file';
-      guildId = args.guild ?? configuredGuild ?? ORIGIN;
+      placeId = args.guild ?? configuredGuild ?? ORIGIN;
     }
     if (items.length === 0) throw new CliError('vision-compare: no media to describe');
     process.stderr.write(
@@ -302,7 +302,7 @@ export async function main(
           base: hot,
           model,
           entry,
-          guildId,
+          placeId,
           llm,
           reasoning: args.reasoning,
           imageFetcher,

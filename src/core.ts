@@ -119,6 +119,9 @@ import { createBoardPort } from './board/writer.ts';
 import { createReactorStore, applyReactionChanged } from './behavior/reactor-store.ts';
 import { currentIface, withIface } from './memory/db/current-iface.ts';
 import { createCommunityRoutes } from './core-routing.ts';
+import { accountOf } from './memory/addresses.ts';
+import { personaJournal, personaRecord } from './behavior/inner/persona-sources.ts';
+import { PERSONA_ID } from './memory/db/storage-keys.ts';
 import { createOwnerAccounts } from './memory/db/person-links.ts';
 import { createReads } from './interface/reads.ts';
 import { createIntentionStores } from './intentions/store.ts';
@@ -191,7 +194,7 @@ type ChatClient = Omit<ReturnType<typeof createLlm>, 'complete'> & {
  * Build the core and start it. `paths` are the checkout, the private layer and the data directory (src/paths.ts),
  * `env` the environment the core reads its own keys from (never logged), `interfaces` the interfaces to start in
  * this process: one (`interfaces.mode: inprocess`), or none, when the interfaces run as units and connect to the
- * socket themselves; the core then serves `bot.guildId`. `llm`, `embedder` and `now` replace the provider client,
+ * socket themselves; the core then serves `bot.placeId`. `llm`, `embedder` and `now` replace the provider client,
  * the embedding client and the clock (the scheduler, the inner life and the one-core check): only a test passes them.
  * One core runs over a data directory: a live holder of the database lock refuses the start (`locked`), and so does
  * another holder's `core:alive` lease within its ttl (`core-running`), unless the lock it left names a process that is
@@ -311,7 +314,6 @@ async function buildCore(
     clearInterval,
   });
   cleanups.push(() => loopWatch.stop());
-  const configuredGuild: string | null = settings.config.bot?.guildId ?? null;
   // One core over this data directory, claimed before anything below touches it or the socket.
   fs.mkdirSync(dataDir, { recursive: true });
   let releaseCore: () => void = () => {};
@@ -346,7 +348,7 @@ async function buildCore(
     // The interface the unit writes name their rows with: the one of `hello`, known once the link is up.
     iface: () => currentIface() ?? (identity.iface || null),
     embed: (texts: Untyped, options: Untyped) => embedder.embed(texts, options),
-    selfName: () => getSelfName(getGuildId()),
+    selfName: () => identity.selfName,
     sessionLlm: () => sessionClient,
     track: loopWatch.track,
     sessionEnv: () => env,
@@ -406,13 +408,13 @@ async function buildCore(
   // and is off unless features.meaningSearch and features.embedIndex are both exactly true).
   const record = {
     ...recordWriter,
-    async append(guildId: string, lines: Untyped, opts: Untyped) {
-      const result = await recordWriter.append(guildId, lines, opts);
+    async append(placeId: string, lines: Untyped, opts?: Untyped) {
+      const result = await recordWriter.append(placeId, lines, opts);
       if (embedQueue && result?.written > 0) {
         try {
-          embedQueue.enqueue(guildId, lines, opts ?? {});
+          embedQueue.enqueue(placeId, lines, opts ?? {});
         } catch (err) {
-          log.warn('index: embed enqueue failed', { guildId: String(guildId), code: objOf(err).code ?? null });
+          log.warn('index: embed enqueue failed', { placeId: String(placeId), code: objOf(err).code ?? null });
         }
       }
       return result;
@@ -502,8 +504,9 @@ async function buildCore(
     embed: (texts, opts) => embedder.embed(texts, opts),
     record: recordWriter,
     log,
-    nameOf: (guildId, userId) => firstName(store.getUser(guildId, userId)) ?? members.nameOf(guildId, userId),
-    selfName: (guildId) => getSelfName(guildId),
+    nameOf: (placeId, userId) =>
+      firstName(store.getUser(accountOf(store, userId))) ?? members.nameOf(nativeOfPlace(placeId), userId),
+    selfName: (placeId) => getSelfName(placeId),
     // No catch-up pass while paused (the owner may be editing data/); /nep resume runs one.
     paused: () => store.state.data.paused === true,
     memoryDb,
@@ -533,16 +536,6 @@ async function buildCore(
     state: store.state,
   };
   const speech = speechReady ? createSpeech(speechOptions) : null;
-
-  // This instance serves exactly one community. `instance.guildId` is set
-  // once, right after ClientReady resolves it (see below), and every component
-  // that needs it reads it through `getGuildId` instead of caching it, so a
-  // switch to a different guild always requires a restart, never a silent swap.
-  const instance: { guildId: string | null } = { guildId: null };
-  const getGuildId = () => instance.guildId;
-  // The community id the startup steps and the modules below take as a `string`. It is null only before the
-  // community resolves (below; in units mode it is `bot.guildId`), and those modules are called after that.
-  const servedGuildId = (): string => instance.guildId as string;
 
   // Shared so a picture attached on consecutive turns, or described more than
   // once, is only ever downloaded once within the fetcher's LRU window.
@@ -582,7 +575,8 @@ async function buildCore(
   const lookup = createLookup(lookupOptions);
   // The persona's display name in a community: the one name every request uses. Her nickname there when the member
   // directory holds one (a nickname change reaches it through `membership.changed`), else the name `hello` gave.
-  const getSelfName = (guildId: string | null) => members.nameOf(guildId ?? '', identity.selfId) ?? identity.selfName;
+  const getSelfName = (placeId: string | null) =>
+    members.nameOf(nativeOfPlace(placeId ?? ''), identity.selfId) ?? identity.selfName;
 
   // The link between the core and its interfaces (docs/interfaces.md): the core listens on a Unix socket under the
   // data directory, an interface connects with its token, says hello and serves its adapter. Every inbound event
@@ -673,8 +667,13 @@ async function buildCore(
     log.info('index: interface connected', { principal: name, iface: greeting.iface, communities: communities.length });
   }
   /** True for a community some connected interface serves, and the configured one before any said hello. */
+  /** The native id of a community, from the place the core holds it by. */
+  const nativeOfPlace = (id: string): string => store.nativeCommunityOf(id) ?? id;
   const isServedCommunity = (id: string | null | undefined): boolean =>
-    typeof id === 'string' && (communityRoutes.isServed(id) || id === instance.guildId);
+    typeof id === 'string' && communityRoutes.isServed(id);
+  /** The canonical place of every community the connected interfaces serve. */
+  const servedPlaces = (): Array<string> =>
+    communityRoutes.servedList().map(({ iface: name, communityId }) => store.placeOfCommunity(communityId, name));
   /** The served interface's hello: who the persona is on it. */
   function greet(greeting: Hello) {
     identity.iface = greeting.iface;
@@ -730,8 +729,8 @@ async function buildCore(
   }
   // An interface run in this process is started by the caller (src/index.ts loads the interface package by name at run
   // time, a test passes the fake one) with the core's end of the link, its settings and its logger. It builds its
-  // client, logs in, waits for the guild, says hello and serves its adapter; the events it sees wait until
-  // `running.open()` below, when the door has its handlers. A refusal (no token, no guild, no login) stops the start
+  // client, logs in, waits for the place, says hello and serves its adapter; the events it sees wait until
+  // `running.open()` below, when the door has its handlers. A refusal (no token, no place, no login) stops the start
   // here. A unit does all of it in its own process (bin/neptunia.ts).
   // The interface's settings are the core's with its package's own and its private file over them
   // (src/config/files.ts#readInterfaceConfig), read again when the core's settings reload.
@@ -809,15 +808,13 @@ async function buildCore(
   };
   const mirrors = createMirrors({ memoryDb, port: mirrorPort, now: Date.now, dataDir, config: () => hot.config });
 
-  // The community the interface serves, or the configured one when the interfaces run as units.
-  instance.guildId = asUnits ? configuredGuild : (hello?.community?.id ?? null);
   // The core's reads of the interface: each answers its body or null, and a block that needs one is left out when it is null.
-  const reads = createReads(iface, log);
+  const reads = createReads(iface, log, (id) => (id === PERSONA_ID ? null : store.nativeCommunityOf(id)));
   // The custom emoji of the served community, read from the interface and kept 60 seconds: the turn lists them to her
   // and turns her `:name:` into the platform's markup through it.
   const emoji = createEmojiIndex({
     reads,
-    communityId: () => communityRoutes.homeInScope(instance.guildId),
+    communityId: () => communityRoutes.inScope(),
     now: Date.now,
   });
   // What each profiled member's avatar looks like (features.avatars, off by default): a throttled
@@ -830,12 +827,15 @@ async function buildCore(
     llm,
     imageFetcher,
     state: store.state,
-    getGuildId,
     selfId: () => identity.selfId,
     reads,
     paused: () => store.state.data.paused === true,
   };
-  const avatars = createAvatarQueue({ ...avatarOptions, isServedCommunity });
+  const avatars = createAvatarQueue({
+    ...avatarOptions,
+    isServedCommunity,
+    servedCommunity: () => communityRoutes.inScope(),
+  });
   // Who reacted to her messages, fed by `reaction.changed` (the door below) and by the `reactors` read.
   const reactors = createReactorStore();
   // The route classifier: picks a channel the conversation is about for <channel_view>.
@@ -848,7 +848,7 @@ async function buildCore(
     store,
     llm,
     reads,
-    memberName: (communityId, memberId) => members.nameOf(communityId, memberId),
+    memberName: (placeId, memberId) => members.nameOf(nativeOfPlace(placeId), memberId),
     describer,
     archive,
     record,
@@ -872,22 +872,22 @@ async function buildCore(
   // moves the intentions waiting on it back to pending, then opens her turn, which shows them with the outcome. Once
   // the door took the event its end is marked delivered on the board, so a core started after a crash finds only the
   // ends it never delivered (ErrandStore#pendingEnds).
-  async function submitErrandEnd(task: ErrandRecord, guildId: string) {
-    const answer = await door.submit({ ...errandDoneEvent(task, guildId), id: `errand-done:${task.id}` });
-    if (answer.status === 'ok' || answer.status === 'duplicate') taskStores.get(guildId)?.markDelivered(task.id);
+  async function submitErrandEnd(task: ErrandRecord) {
+    const answer = await door.submit({ ...errandDoneEvent(task), id: `errand-done:${task.id}` });
+    if (answer.status === 'ok' || answer.status === 'duplicate') taskStores.get()?.markDelivered(task.id);
     return answer;
   }
   // A task's `context.recent`: the channel's newest lines from the memory database (her own under her name), oldest first.
-  function recentChannelLines(guildId: string, channelId: string, count: number) {
+  function recentChannelLines(conversationId: string, count: number) {
     const db = memoryDb.database();
-    if (!db || !channelId || !(count > 0)) return [];
+    if (!db || !conversationId || !(count > 0)) return [];
     // The columns the statement selects.
     const rows = db
       .prepare(
         `SELECT s.kind, s.text, a.names FROM sources s LEFT JOIN accounts a ON a.id = s.author_account
       WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND length(COALESCE(s.text, '')) > 0 ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
       )
-      .all(channelPlaceId(identity.iface, String(channelId)), count) as Array<{
+      .all(channelPlaceId(identity.iface, String(conversationId)), count) as Array<{
       kind: string;
       text: string | null;
       names: string | null;
@@ -917,15 +917,14 @@ async function buildCore(
     hot,
     env,
     memory: { recentLines: recentChannelLines },
-    getGuildId,
     log,
-    onFinished: (task, guildId) => submitErrandEnd(task, guildId),
+    onFinished: (task) => submitErrandEnd(task),
   });
-  // The persona's intentions: data/guilds/<id>/intentions.json, her own
+  // The persona's intentions: data/places/<id>/intentions.json, her own
   // `intent.*` calls and the waits on her errands.
   // Both stores send their writes to the database; `flush` is their retry and shutdown step.
   const intentionStores = createIntentionStores({ log, memoryDb });
-  const intentions = createIntentionService({ stores: intentionStores, hot, errands, getGuildId, log });
+  const intentions = createIntentionService({ stores: intentionStores, hot, errands, log });
   // The conversations the interface reported (`conversation.changed`) and the direct chats it showed in messages:
   // their names for the inner life and the turn, the direct chat of a member for a memory session failure.
   const directory = createConversationDirectory();
@@ -956,8 +955,8 @@ async function buildCore(
     getSelfName,
     selfId: () => identity.selfId,
     reads,
-    memberOf: (communityId: string, memberId: string) => members.infoOf(communityId, memberId),
-    membersOf: (communityId: string) => members.list(communityId),
+    memberOf: (placeId: string, memberId: string) => members.infoOf(nativeOfPlace(placeId), memberId),
+    membersOf: (placeId: string) => members.list(nativeOfPlace(placeId)),
     conversationName: (conversationId: string) => directory.nameOf(conversationId),
     routeChannels,
     activity,
@@ -979,12 +978,12 @@ async function buildCore(
     // `<intentions>`: her open intentions.
     intentions,
     // `<places>` on an addressed turn (context.places): the inner life's places view, read at call time.
-    places: (guildId: string, options: Untyped) => inner.places(guildId, options),
+    places: (options: Untyped) => inner.places(options),
   });
   const spontaneous = createSpontaneous({ turns });
   // The persona's diary: its own entries on a day plan as the selfreflection wake, ticked below, each published to the
   // diary's mirrors. The diary's posts are rows of the memory database already: no backfill from the channel.
-  const diary = createDiary({ hot, store, reads, turns, getGuildId, mirrors });
+  const diary = createDiary({ hot, store, reads, turns, mirrors });
   // The code-only memory of the live message path (src/memory/update.js): counters, GIF library, emoji, names.
   const memory = createMemoryUpdater({ hot, store });
   // The turn an errand's end opens, through the lease and a cooldown per conversation.
@@ -995,7 +994,6 @@ async function buildCore(
     turns,
     errands,
     intentions,
-    getGuildId,
     log,
   });
   // The places the interface lists for a community, as the inner life shows them to her: the channels she may read, with
@@ -1013,7 +1011,10 @@ async function buildCore(
         .map((entry) => ({ id: entry.id, name: entry.name ?? entry.id, writable: entry.permissions.send }))
     );
   }
-  const placesOf = (guildId: string) => placeListings.get(String(guildId)) ?? [];
+  const placesOf = () => [...placeListings.values()].flat();
+  async function refreshAllPlaces() {
+    for (const { communityId } of communityRoutes.servedList()) await refreshPlaces(communityId);
+  }
   // The persona's inner life (features.wakes, off by default; docs/inner-life.md): a scheduler
   // that lists what is due for her (her intentions, waits past their deadline, one daily review, the lines of the places she attends),
   // hands each as an `inner.wake` event through the door, and runs an inner turn when the one
@@ -1030,17 +1031,16 @@ async function buildCore(
     ready: () => journalReconciledPromise,
     turns,
     intentions,
-    record,
+    record: personaRecord(record, store, servedPlaces),
     // Her attention: the places the interface publishes, and the names of the people a wake names.
     places: placesOf,
     // The names of the conversations the interface reported (`conversation.changed`), for the places she is shown.
     conversationName: (conversationId) => directory.nameOf(conversationId),
-    nameOf: (guildId, memberId) => firstName(store.getUser(guildId, memberId)) ?? null,
-    journal,
+    nameOf: (memberId: string) => firstName(store.getUser(accountOf(store, memberId))) ?? null,
+    journal: personaJournal(journal, servedPlaces),
     reads,
     iface: () => identity.iface,
     store,
-    getGuildId,
     // People's turns first: an inner turn waits while a direct ping is queued.
     peopleWaiting: () => onMessage.pendingCount() > 0,
     submit: (event) => door.submit(event),
@@ -1059,7 +1059,7 @@ async function buildCore(
     // The heartbeat's facts (src/behavior/heartbeat-view.ts): her errands, what she can do. No presence or
     // do-not-disturb state (owner, 2026-10-20: she must not read those markers).
     heartbeat: {
-      tasks: (guildId) => taskStores.get(guildId)?.recent(100),
+      tasks: () => taskStores.get()?.recent(100),
       // Filing and answering tasks belongs to the selfimprovement wake, so the heartbeat's list leaves the board out.
       skills: () =>
         grantedSkillNames({ config: hot.config, selfId: identity.selfId, registry: skillRegistry() }).filter(
@@ -1099,12 +1099,17 @@ async function buildCore(
   }) {
     try {
       if (inner.facts?.enabled?.() !== true) return;
-      const guildId = getGuildId();
-      if (!guildId) return;
       const privateChat = scopeKind === 'dm';
       const userId = privateChat ? String(partner ?? '').replace(/^person:[^:]+:/, '') : null;
-      const channelId = userId !== null ? directory.dmConversationOf(userId) : null;
-      inner.facts.add(guildId, { kind: 'memoryFailed', code, waiting: lines, channelId, privateChat, at });
+      const conversationId = userId !== null ? directory.dmConversationOf(userId) : null;
+      inner.facts.add({
+        kind: 'memoryFailed',
+        code,
+        waiting: lines,
+        placeId: conversationId,
+        privateChat,
+        at,
+      });
     } catch (err) {
       log.warn('index: memory session failure not told', { code: objOf(err).code ?? null });
     }
@@ -1122,7 +1127,6 @@ async function buildCore(
     reads,
     iface: () => identity.iface,
     partnerOf: (conversationId) => directory.partnerOf(conversationId),
-    getGuildId,
     getSelfName,
     dataDir,
     memoryDb,
@@ -1162,7 +1166,6 @@ async function buildCore(
     turns,
     memory,
     tagHistory,
-    getGuildId,
     getSelfName,
     describer,
     // features.followUp: the address classifier's own, separate LLM call.
@@ -1200,7 +1203,7 @@ async function buildCore(
     // Who the persona is, and the names of members and conversations the interface reported.
     selfId: () => identity.selfId,
     getSelfName,
-    memberNameOf: (communityId, memberId) => members.nameOf(communityId, memberId),
+    memberNameOf: (placeId, memberId) => members.nameOf(nativeOfPlace(placeId), memberId),
     directory,
     // /nep status: when the interface's link to its platform last came back.
     connection,
@@ -1214,7 +1217,6 @@ async function buildCore(
     inner,
     spontaneous,
     calibrator,
-    getGuildId,
     turns,
     // /nep resume: what the pause kept, the held messages and the queued pings, handed back once.
     pending: {
@@ -1263,9 +1265,9 @@ async function buildCore(
   });
   // The key commands: the checks go to the provider with the global `fetch` of the moment, a model is saved through the
   // `model.set` operation, and the last core key's removal pauses her with the reason `no-core-key`.
-  const asOwner = { guildId: getGuildId(), userId: '', roleIds: [], actor: 'owner', asOwner: true };
+  const asOwner = { userId: '', roleIds: [], actor: 'owner', asOwner: true };
   const ownerOp = async (op: string, args: Record<string, unknown>): Promise<string> => {
-    const result = await admin.runSkillOp(op, args, { ...asOwner, guildId: getGuildId() });
+    const result = await admin.runSkillOp(op, args, asOwner);
     if (result.status !== 'ok') throw new Error(result.summary || result.code);
     return result.summary;
   };
@@ -1374,7 +1376,7 @@ async function buildCore(
       memoryWriter: () => (lastMemoryProbe === null ? 'unknown' : lastMemoryProbe.ok ? 'ok' : 'down'),
       runOp: (op, args, context) => admin.runSkillOp(op, args, context),
       ownerReads: admin.ownerReads,
-      guildId: getGuildId,
+      places: () => [...new Set([...servedPlaces(), ...store.topPlaces()])],
       selfId: () => identity.selfId || null,
       hot,
       privateDir: paths.privateDir,
@@ -1382,11 +1384,8 @@ async function buildCore(
       memoryDb,
       usage,
       metrics,
-      wakeClock: (name) => wakeClockOf(name, { guildId: getGuildId(), now: clock(), inner, diary }),
-      conversationLines: (conversationId, count) => {
-        const guildId = getGuildId();
-        return guildId ? recentChannelLines(guildId, conversationId, count) : [];
-      },
+      wakeClock: (name) => wakeClockOf(name, { now: clock(), inner, diary }),
+      conversationLines: (conversationId, count) => recentChannelLines(conversationId, count),
       now: Date.now,
       // `/mirror` (src/interface/commands/mirror.ts).
       mirrors,
@@ -1422,7 +1421,6 @@ async function buildCore(
       },
     }),
     interfaces: interfaceLinks,
-    guildId: getGuildId,
     // The agents' board commands (src/board/commands.ts), each run in the memory writer.
     tasks: board,
     // The agents' `skill.pending` (src/skills/agent-commands.ts), which binds a package on the board.
@@ -1436,7 +1434,6 @@ async function buildCore(
         interfaces: interfaceLinks,
         inner,
         errands: taskStores,
-        guildId: getGuildId,
         roleHealth,
       }),
   });
@@ -1469,8 +1466,6 @@ async function buildCore(
   const AFFINITY_SWEEP_MS = 3_600_000;
 
   function sweepAffinityDecay() {
-    const guildId = instance.guildId;
-    if (!guildId) return;
     if (store.state.data.paused) return;
     // Decay counts only time she was running: the sweep runs hourly, so a gap of more than two sweeps since the last one
     // (kept in the state file) is downtime, and all of it but one sweep's hour is skipped.
@@ -1479,7 +1474,7 @@ async function buildCore(
     const gap = Number.isFinite(last) ? now - last : 0;
     const skipMs = gap > 2 * AFFINITY_SWEEP_MS ? gap - AFFINITY_SWEEP_MS : 0;
     const decay = { ...RELATIONSHIP_LIMITS, skipMs };
-    const counts = store.decayAffinities(guildId, now, decay);
+    const counts = store.decayAffinities(now, decay);
     store.state.data.affinityDecaySweptAt = new Date(now).toISOString();
     store.state.markDirty();
     if (counts.decayed > 0 || skipMs > 0)
@@ -1498,7 +1493,7 @@ async function buildCore(
     archiveDrainTimer = setTimeout(
       () => {
         Promise.resolve()
-          .then(() => (instance.guildId && !store.state.data.paused ? store.drainArchive(instance.guildId) : null))
+          .then(() => (store.state.data.paused ? null : store.drainArchive()))
           .catch((err) => log.error('index: archive drain failed', { error: err }))
           .finally(() => {
             if (!shuttingDown) scheduleArchiveDrain();
@@ -1510,7 +1505,7 @@ async function buildCore(
   }
 
   /**
-   * One startup step after the guild resolved, by name: a synchronous throw or
+   * One startup step after the place resolved, by name: a synchronous throw or
    * a rejected promise is logged as `index: startup step failed` and never
    * stops the steps after it. With `wait` the step finishes before the next
    * one starts; otherwise it runs on in the background (fire-and-forget).
@@ -1530,15 +1525,15 @@ async function buildCore(
    * and today's: a post is looked for among the persona's own messages, everything else is marked
    * unknown; nothing is sent again. Only operations started before this start are touched.
    */
-  async function reconcileJournal(guildId: string) {
+  async function reconcileJournal(placeId: string) {
     const startedAt = Date.now();
     const days = [utcDay(startedAt - DAY_MS), utcDay(startedAt)];
-    const counts = await journal.reconcile(guildId, {
+    const counts = await journal.reconcile(placeId, {
       days,
       before: startedAt,
       fetchOwnMessages: ownMessagesOf(reads, identity.iface),
     });
-    log.info('journal: reconciled', { guildId, succeeded: counts.succeeded, unknown: counts.unknown });
+    log.info('journal: reconciled', { placeId, succeeded: counts.succeeded, unknown: counts.unknown });
   }
 
   /**
@@ -1547,11 +1542,11 @@ async function buildCore(
    * start keep naming their trigger in the transcripts. Read whatever the switches: the runner
    * renders the links only with features.triggerMarkers on, and a journal never written gives none.
    */
-  async function seedTriggerLinks(guildId: string) {
+  async function seedTriggerLinks(placeId: string) {
     const at = Date.now();
-    const pairs = await journal.triggerLinks(guildId, { days: [utcDay(at - DAY_MS), utcDay(at)] });
+    const pairs = await journal.triggerLinks(placeId, { days: [utcDay(at - DAY_MS), utcDay(at)] });
     turns.seedTriggerLinks(pairs);
-    log.info('journal: trigger links read', { guildId, links: pairs.length });
+    log.info('journal: trigger links read', { placeId, links: pairs.length });
   }
 
   /**
@@ -1559,11 +1554,17 @@ async function buildCore(
    * turn runner so her lines keep showing what she called and how it went across this start. Read
    * whatever the switches: the runner renders them only with features.callMarkers on.
    */
-  async function seedCallMarks(guildId: string) {
+  async function seedCallMarks(placeId: string) {
     const at = Date.now();
-    const marks = await journal.callMarks(guildId, { days: [utcDay(at - DAY_MS), utcDay(at)] });
+    const marks = await journal.callMarks(placeId, { days: [utcDay(at - DAY_MS), utcDay(at)] });
     turns.seedCallMarks(marks);
-    log.info('journal: call marks read', { guildId, calls: marks.calls.length });
+    log.info('journal: call marks read', { placeId, calls: marks.calls.length });
+  }
+
+  /** One start-up step over every served place, in turn. */
+  async function eachServed(step: (placeId: string) => unknown): Promise<void> {
+    const places = new Set([...servedPlaces(), ...store.topPlaces()]);
+    for (const placeId of places) await step(placeId);
   }
 
   /** Whether the journal is written now (features.journal exactly true, read now). */
@@ -1573,32 +1574,17 @@ async function buildCore(
    * The journal at start, with the journal on: a `.running` marker left by a run that never stopped
    * cleanly becomes an `unclean-stop` record, this run's marker is written and the `start` record follows.
    */
-  async function startJournal(guildId: string) {
+  async function startJournal() {
     if (!journalOn()) return;
-    const { unclean } = await journal.markRunning(guildId);
-    if (unclean) log.warn('journal: unclean stop noted', { guildId });
-    await journal.system(guildId, { event: 'start', by: 'service' });
+    const { unclean } = await journal.markRunning();
+    if (unclean) log.warn('journal: unclean stop noted');
+    await journal.system({ event: 'start', by: 'service' });
   }
 
-  // A reload that took (config or prompts) is a system record of the served guild.
+  // A reload that took (config or prompts) is a system record of the served place.
   hot.onReload((what: Untyped) => {
-    if (!instance.guildId || !journalOn()) return;
-    void journal.system(instance.guildId, { event: 'reload', note: what });
-  });
-
-  // A running instance never switches servers live: bot.guildId is only read at
-  // startup. If the owner later points it at a different, non-empty guild while
-  // the process is up, keep serving the original one and just say so. (The command tree is the
-  // interface's: it registers it again when the name or the switch changed.)
-  hot.on('change', ({ what }: { what: Untyped }) => {
-    if (what !== 'config') return;
-    const configured = hot.config.bot.guildId;
-    if (configured && configured !== instance.guildId) {
-      log.warn('index: bot.guildId changed while running, restart required to switch servers', {
-        serving: instance.guildId,
-        configured,
-      });
-    }
+    if (!journalOn()) return;
+    void journal.system({ event: 'reload', note: what });
   });
 
   // The behaviours' clock (src/behavior/scheduler.ts): one timer waits for the earliest beat and each wait is a
@@ -1650,7 +1636,7 @@ async function buildCore(
     name: 'inner.tick',
     everyMs: () => innerSettings(hot.config).tickSeconds * 1000,
     run: async () => {
-      await refreshPlaces(instance.guildId);
+      await refreshAllPlaces();
       inner.releaseStoredStop();
       return inner.tick();
     },
@@ -1658,14 +1644,14 @@ async function buildCore(
 
   /**
    * A changed or posting member's avatar offered to the avatar queue (features.avatars, off by default), when the
-   * member is of the served guild. The offer is synchronous and never throws.
+   * member is of the served place. The offer is synchronous and never throws.
    */
   function offerAvatar(
-    guildId: string | null | undefined,
+    communityId: string | null | undefined,
     member: { id: string; bot?: boolean; avatar?: { hash: string | null; url: string | null } } | undefined
   ) {
-    if (guildId !== instance.guildId || !member?.avatar) return;
-    avatars.offer(servedGuildId(), {
+    if (!isServedCommunity(communityId) || !member?.avatar) return;
+    avatars.offer(String(communityId), {
       id: member.id,
       bot: member.bot === true,
       hash: member.avatar.hash,
@@ -1689,21 +1675,18 @@ async function buildCore(
         offerAvatar: (event) => offerAvatar(event.conversation?.communityId, event.message?.author),
         issueInternalContext: () => memoryDb.issueContext({ kind: 'internal' }),
       }),
-      // The reactor store follows the reactions on the persona's messages in the served guild, whatever
+      // The reactor store follows the reactions on the persona's messages in the served place, whatever
       // features.reactionNames says (a cheap map update; a switch turned on later finds it current).
       'reaction.changed': (event: ReactionChanged) => {
         try {
-          applyReactionChanged(reactors, event, { communityId: instance.guildId, selfId: identity.selfId });
+          applyReactionChanged(reactors, event, { communityId: communityRoutes.inScope(), selfId: identity.selfId });
         } catch (err) {
           log.warn('reactors: event failed', { kind: event?.kind ?? null, code: objOf(err).code ?? null });
         }
       },
       'errand.done': (event: ErrandDoneEvent) => {
         // An errand an inner turn handed off counts its cost against the inner life's dollars.
-        inner.onTaskFinished(
-          event?.raw?.errand ?? errands.store?.(event?.communityId ?? null)?.get?.(event?.errandId) ?? null,
-          event?.communityId ?? instance.guildId
-        );
+        inner.onTaskFinished(event?.raw?.errand ?? errands.store?.()?.get?.(event?.errandId) ?? null);
         return taskTurns.onEvent(event);
       },
       'inner.wake': (event: InnerWake) => inner.onWake(event),
@@ -1714,7 +1697,7 @@ async function buildCore(
       'presence.changed': (event: PresenceChanged) => around.presenceChanged(event),
       'presence.snapshot': (event: PresenceSnapshot) => {
         around.snapshot(event);
-        log.info('around: seeded', { guildId: instance.guildId, ...around.counts() });
+        log.info('around: seeded', around.counts());
       },
       'connection.changed': (event: ConnectionChanged) => {
         if (event.state === 'resumed') connection.lastReconnectAt = event.at;
@@ -1723,7 +1706,7 @@ async function buildCore(
       // The names of the conversations (the inner life shows them), and a changed avatar of a member.
       'conversation.changed': (event: ConversationChanged) => {
         directory.apply(event);
-        void refreshPlaces(instance.guildId);
+        void refreshAllPlaces();
       },
       'membership.changed': (event: MembershipChanged) => {
         members.apply(event);
@@ -1745,7 +1728,6 @@ async function buildCore(
     loopWatch.stop();
     if (archiveDrainTimer) clearTimeout(archiveDrainTimer);
     diary.stop();
-    onMessage.stop();
     missed.stop();
     errandClient.close();
     taskTurns.stop();
@@ -1767,12 +1749,8 @@ async function buildCore(
     await metrics.save({ force: true });
     await usage.save({ force: true });
     // The journal's `stop` record (journal on), then the run marker goes: this stop was clean.
-    if (instance.guildId) {
-      if (journalOn()) await journal.system(instance.guildId, { event: 'stop', by: 'service', note: signal });
-      await journal
-        .clearRunning(instance.guildId)
-        .catch((err) => log.warn('index: journal marker not removed', { error: err }));
-    }
+    if (journalOn()) await journal.system({ event: 'stop', by: 'service', note: signal });
+    await journal.clearRunning().catch((err) => log.warn('index: journal marker not removed', { error: err }));
     await archiveAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
     // The intention and task writes still waiting, then those still failing kept pending.
     await intentionStores
@@ -1818,7 +1796,7 @@ async function buildCore(
   every(AFFINITY_SWEEP_MS, sweepAffinityDecay, 'affinity decay');
   // The embedding queue flushes on its own clock (src/memory/embedder.js; a full batch sooner);
   // the same tick runs its catch-up pass at the start and then on its own clock.
-  every(30_000, () => embedQueue.tick(instance.guildId), 'embed.tick');
+  every(30_000, () => embedQueue.tick(), 'embed.tick');
   // The avatar queue: its first tick scans the profiled members, then once a day; between
   // requests it waits its interval (src/memory/avatar-queue.js).
   every(5_000, () => avatars.tick(), 'avatars.tick');
@@ -1830,13 +1808,7 @@ async function buildCore(
   every(60_000, () => memoryWatch?.tick(), 'memory probe');
   scheduleArchiveDrain();
 
-  if (!hot.config.bot.guildId) {
-    log.info('index: bot.guildId is not set, using the only guild the bot is in — pin it in config.local/config.json', {
-      guildId: instance.guildId,
-    });
-  }
-
-  log.info('index: ready', { guildId: instance.guildId, tag: identity.selfName });
+  log.info('index: ready', { tag: identity.selfName });
 
   // A pause persisted before this restart comes back paused: every spontaneous tick does nothing until /resume.
   if (store.state.data.paused) {
@@ -1853,51 +1825,51 @@ async function buildCore(
   await startupStep('memory.probe', () => memoryWatch?.start());
 
   // The journal's start: an unclean stop, the start record. Awaited, before the reconciliation below.
-  await startupStep('journal.start', () => startJournal(servedGuildId()), { wait: true });
+  await startupStep('journal.start', () => startJournal(), { wait: true });
 
   // The links of the persona's recent lines to the messages that started their turns, rebuilt
   // from the journal. Fire-and-forget: a turn before it is done
   // only lacks the older links.
-  await startupStep('journal.triggerLinks', () => seedTriggerLinks(servedGuildId()));
+  await startupStep('journal.triggerLinks', () => eachServed(seedTriggerLinks));
   // The persona's recent skill calls, the same way.
-  await startupStep('journal.callMarks', () => seedCallMarks(servedGuildId()));
+  await startupStep('journal.callMarks', () => eachServed(seedCallMarks));
 
-  // The missed-answer registry: data/guilds/<id>/missed.json, reconciled with the journal of the
+  // The missed-answer registry: data/places/<id>/missed.json, reconciled with the journal of the
   // last hour; a sweep armed where a candidate waits.
-  await startupStep('missed.start', () => missed.start(servedGuildId()));
+  await startupStep('missed.start', () => missed.start(store.placeHolding('missed') ?? PERSONA_ID));
 
   // The errands a restart left open: their runner can no longer answer this process, so they fail
   // (`restarted`) and show in her `<errands>` block as failed.
-  await startupStep('errands.start', () => errands.start(instance.guildId), { wait: true });
+  await startupStep('errands.start', () => errands.start(), { wait: true });
 
   // Her intentions reconciled with the errands as they stand now (those just failed included):
   // a wait whose errand ended, is gone or ran out moves back to pending; the expired ones expire.
-  await startupStep('intentions.reconcile', () => intentions.reconcile(instance.guildId), { wait: true });
+  await startupStep('intentions.reconcile', () => intentions.reconcile(), { wait: true });
 
   // The meaning index caught up with what the record took while the queue was down (the last
   // CATCH_UP_HOURS of src/memory/embedder.js). Fire-and-forget; nothing while paused.
-  await startupStep('embed.catchUp', () => embedQueue.catchUp(instance.guildId));
+  await startupStep('embed.catchUp', () => embedQueue.catchUp());
 
-  // Once per guild after the deploy that keyed access by operation: the stored grants re-expanded
+  // Once per place after the deploy that keyed access by operation: the stored grants re-expanded
   // under the operation names, a journal record of what each covers now (src/tools/impl/access.ts).
-  await startupStep('access.migrate', () => admin.migrateAccess(servedGuildId()), { wait: true });
+  await startupStep('access.migrate', () => eachServed(admin.migrateAccess), { wait: true });
 
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
   // starting meanwhile is never touched (only earlier operations are), and it never sends.
-  await startupStep('journal.reconcile', () => reconcileJournal(servedGuildId()).finally(journalReconciled));
+  await startupStep('journal.reconcile', () => eachServed(reconcileJournal).finally(journalReconciled));
 
   // The custom emoji ranking from history, once (no emojiBackfill stamp). Fire-and-forget: never blocks the persona, logs its errors.
-  await startupStep('emojiBackfill.startIfNeeded', () => emojiBackfill.startIfNeeded(servedGuildId()));
+  await startupStep('emojiBackfill.startIfNeeded', () => eachServed(emojiBackfill.startIfNeeded));
 
   // The GIF library from history, once (no backfill stamp in gifs.json). Fire-and-forget: never blocks the persona, logs its errors.
-  await startupStep('gifBackfill.startIfNeeded', () => gifBackfill.startIfNeeded(servedGuildId()));
+  await startupStep('gifBackfill.startIfNeeded', () => eachServed(gifBackfill.startIfNeeded));
 
   // Affinity decay: once now (catches up the days the process was down), then hourly (above).
   await startupStep('affinity decay', sweepAffinityDecay, { wait: true });
 
   // What the archive refused before this start: drained once now (it also counts the queue for
   // the stall check), then on the timer (above). Fire-and-forget.
-  await startupStep('archive.drain', () => (store.state.data.paused ? null : store.drainArchive(servedGuildId())));
+  await startupStep('archive.drain', () => (store.state.data.paused ? null : store.drainArchive()));
 
   return {
     door,

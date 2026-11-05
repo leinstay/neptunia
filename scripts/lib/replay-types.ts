@@ -29,7 +29,7 @@ export type WakeInfo = {
 /** One scenario of a skills file, parsed. */
 export type Scenario = {
   id: string;
-  channelId: string;
+  placeId: string;
   before: string | null;
   author?: string;
   text?: string;
@@ -56,7 +56,7 @@ export type Scenario = {
 /** The chat line a scenario's trigger message is, in the shape the history lines have. */
 export type TriggerLine = {
   id: string;
-  channelId: string;
+  placeId: string;
   channelName: string | null;
   channelCategory: string | null;
   channelTopic: string | null;

@@ -62,6 +62,7 @@ type EventConversation = {
   partnerId?: unknown;
   parentId?: unknown;
   parentKind?: unknown;
+  communityId?: unknown;
   authorityId?: unknown;
 };
 
@@ -82,11 +83,28 @@ function mediaKindsOf(message: EventMessage): Array<string> {
 const authorityOf = (iface: string, conversation: EventConversation | undefined): string =>
   filled(conversation?.authorityId) ? conversation.authorityId : `${iface}/global`;
 
+/** The native place key of a conversation, the one the observation stores it under. */
+export function conversationPlaceKey(conversation: {
+  id?: unknown;
+  kind?: unknown;
+  chatType?: unknown;
+  partnerId?: unknown;
+}): string {
+  const chatType =
+    conversation.chatType ??
+    (conversation.kind === 'thread' ? 'thread' : conversation.kind === 'dm' ? 'dm' : 'channel');
+  if (chatType === 'dm') return `dm:${String(conversation.partnerId ?? conversation.id)}`;
+  if (chatType === 'group_dm') return `group_dm:${String(conversation.id)}`;
+  if (chatType === 'thread') return `thread:${String(conversation.id)}`;
+  return `channel:${String(conversation.id)}`;
+}
+
 /** The place key of what contains a conversation: `<parentKind>:<parentId>`; with no declared kind it sits in a channel. */
-function parentField(conversation: EventConversation): { parent?: string } {
-  if (!filled(conversation.parentId)) return {};
+function parentField(conversation: EventConversation): { parent?: string; top?: string } {
+  const top = filled(conversation.communityId) ? `server:${conversation.communityId}` : null;
+  if (!filled(conversation.parentId)) return top === null ? {} : { parent: top };
   const kind = filled(conversation.parentKind) ? conversation.parentKind : 'channel';
-  return { parent: `${kind}:${conversation.parentId}` };
+  return { parent: `${kind}:${conversation.parentId}`, ...(top === null ? {} : { top }) };
 }
 
 /** The place part of an envelope from the event's conversation, or null when it cannot be keyed. */

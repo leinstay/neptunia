@@ -10,8 +10,10 @@ export type CommunityRoutes = {
   communitiesOf(iface: string): Array<string>;
   /** The interface that answers a read of `communityId`, null when none serves it or every link serving it is down. */
   ifaceOf(communityId: string, isUp: (iface: string) => boolean): string | null;
-  /** The home community as the current event or turn may use it: none for an interface that does not serve it. */
-  homeInScope(home: string | null): string | null;
+  /** Every community some interface says it serves, with that interface. */
+  servedList(): Array<{ iface: string; communityId: string }>;
+  /** The community of the current event's interface; outside an event, the first any interface serves. */
+  inScope(): string | null;
 };
 
 export function createCommunityRoutes({ current }: { current: () => string | null }): CommunityRoutes {
@@ -30,9 +32,13 @@ export function createCommunityRoutes({ current }: { current: () => string | nul
       if (own !== null && serving.includes(own)) return own;
       return serving.find(isUp) ?? null;
     },
-    homeInScope(home) {
+    servedList: () =>
+      [...served].flatMap(([iface, communities]) => [...communities].map((communityId) => ({ iface, communityId }))),
+    inScope() {
       const own = current();
-      return own === null || home === null || served.get(own)?.has(home) === true ? home : null;
+      const ofOwn = own === null ? undefined : served.get(own);
+      if (ofOwn) return [...ofOwn][0] ?? null;
+      return [...served.values()].flatMap((communities) => [...communities])[0] ?? null;
     },
   };
 }

@@ -1,16 +1,18 @@
 // What a turn reads around its request: the port references of a conversation and a message, the gateway's check of
 // one effect of her reply, the memory context of an attempt's reads, the stable
-// freezes per guild, and the request's `errands`, `<intentions>` and `<places>` inputs. createTurnRunner
+// freezes per place, and the request's `errands`, `<intentions>` and `<places>` inputs. createTurnRunner
 // (src/behavior/turn.ts) builds it once per runner with createInputs; the attempt and the other topic modules call its
 // functions.
 
+import { accountOf } from '../memory/addresses.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { placesBlockText } from '../behavior/wake.ts';
 import { innerSettings } from '../behavior/inner.ts';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText, errandsBlockText } from '../errands/blocks.ts';
 import type { ErrandRecord } from '../errands/types.ts';
 import { portIface } from '../interface/capabilities.ts';
-import { channelPlaceId, personId } from '../memory/db/ids.ts';
+import { channelPlaceId } from '../memory/db/ids.ts';
+import { personOfMember, placeOfConversation } from '../memory/addresses.ts';
 import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.ts';
 import { intentionSettings } from '../intentions/model.ts';
 import { log } from '../log.ts';
@@ -36,11 +38,11 @@ type InputsLabels = { locale?: string; [key: string]: unknown } | null | undefin
 type InputsPort = { iface: string };
 
 /** What a memory read's execution context is issued for: a private chat's partner, or a group's destination. */
-type MemorySpec = { kind: 'dm'; person: string } | { kind: 'group'; destination: string | null };
+type MemorySpec = { kind: 'dm'; person: string; place?: string } | { kind: 'group'; destination: string | null };
 
 /** The errands service (src/errands/service.ts), as far as `<errands>` lists from it. */
 type InputsErrands = {
-  view?: (args: { guildId: string; privateChannelId: string | null }) => unknown;
+  view?: (args: { privateChannelId: string | null }) => unknown;
 } | null;
 
 /** One errand as `<errands>` tells it from the one a result turn brings. */
@@ -51,15 +53,15 @@ const isTaskList = (value: unknown): value is ReadonlyArray<ListedTask> => Array
 
 /** The intentions service (src/intentions/service.ts), as far as `<intentions>` lists from it. */
 type InputsIntentions = {
-  view: (guildId: string, options: { privateChannelId: string | null }) => unknown;
+  view: (options: { privateChannelId: string | null }) => unknown;
 } | null;
 
 /** The inner life's places view (src/behavior/inner.ts#places). */
-type PlacesView = ((guildId: string, options: { sort: string; page: number; pageSize: number }) => unknown) | null;
+type PlacesView = ((placeId: string, options: { sort: string; page: number; pageSize: number }) => unknown) | null;
 
 /** What createInputs reads: the dependencies of the runner. */
 export type InputsContext = {
-  store: { getUser?: (guildId: string, userId: string) => { names?: Array<string | null> } | null | undefined } | null;
+  store: { getUser: (accountId: string) => { names?: Array<string | null> } | null | undefined } | null;
   iface: InputsPort;
   memoryContext: ((spec: MemorySpec) => unknown) | null;
   errands: InputsErrands;
@@ -78,7 +80,7 @@ type InputsDraft = {
 type EffectVerdict = ReturnType<typeof checkReplyEffect>;
 
 type InputArgs = {
-  guildId: string;
+  placeId: string;
   channel: { id: string; communityId?: string | null };
   isPrivate: boolean;
   config: InputsConfig;
@@ -91,7 +93,7 @@ export type Inputs = {
     draft: InputsDraft | null | undefined,
     channel: { id?: string; communityId?: string | null } | null | undefined
   ) => unknown;
-  stableFreezeOf: (guildId: string | null | undefined) => Map<string, unknown>;
+  stableFreezeOf: (placeId: string | null | undefined) => Map<string, unknown>;
   conversationOf: (channel: { id: string }) => ConversationRef;
   messageOf: (channel: { id: string }, messageId: string) => MessageRef;
   checkEffect: (skill: string, args: unknown, at: { channel: { id: string } }) => EffectVerdict;
@@ -99,7 +101,7 @@ export type Inputs = {
     args: InputArgs & { taskResult: ErrandRecord | null | undefined }
   ) => { list: string; result: string } | null;
   intentionsInputFor: (args: InputArgs & { snapshot?: Snapshot | null }) => string;
-  placesInputFor: (args: { guildId: string; config: InputsConfig; labels: InputsLabels }) => string;
+  placesInputFor: (args: { placeId: string; config: InputsConfig; labels: InputsLabels }) => string;
 };
 
 export function createInputs(ctx: InputsContext): Inputs {
@@ -127,7 +129,11 @@ export function createInputs(ctx: InputsContext): Inputs {
         ctx =
           memoryContext(
             isPrivate
-              ? { kind: 'dm', person: personId(channelIface, String(partner)) }
+              ? {
+                  kind: 'dm',
+                  person: personOfMember(store, String(partner), channelIface),
+                  place: placeOfConversation(store, { kind: 'dm', partnerId: String(partner) }, channelIface),
+                }
               : { kind: 'group', destination: channel?.id ? channelPlaceId(channelIface, channel.id) : null }
           ) ?? null;
       }
@@ -137,11 +143,11 @@ export function createInputs(ctx: InputsContext): Inputs {
     draft.memoryContext = ctx;
     return ctx;
   }
-  // Per guild: what the stable part of the reply showed from memory in the current cache bucket
+  // Per place: what the stable part of the reply showed from memory in the current cache bucket
   // (src/behavior/prompt.ts#freezePerBucket), in process only; a restart starts afresh.
   const stableFreezes = new Map<string, Map<string, unknown>>();
-  const stableFreezeOf = (guildId: string | null | undefined): Map<string, unknown> => {
-    const key = String(guildId ?? '');
+  const stableFreezeOf = (placeId: string | null | undefined): Map<string, unknown> => {
+    const key = String(placeId ?? '');
     let freeze = stableFreezes.get(key);
     if (!freeze) {
       freeze = new Map();
@@ -181,12 +187,11 @@ export function createInputs(ctx: InputsContext): Inputs {
    * The errands `<errands>` lists: her open errands and unread results (`errands.view`), the one `taskResult` brings left out.
    */
   function listedTasks({
-    guildId,
     channel,
     isPrivate,
     taskResult,
   }: {
-    guildId: string;
+    placeId: string;
     channel: { id: string };
     isPrivate: boolean;
     taskResult: ErrandRecord | null | undefined;
@@ -195,7 +200,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     try {
       shown =
         typeof errands?.view === 'function'
-          ? errands.view({ guildId, privateChannelId: isPrivate ? String(channel.id) : null })
+          ? errands.view({ privateChannelId: isPrivate ? String(channel.id) : null })
           : [];
     } catch (err) {
       log.warn('turn: tasks view failed', { channel: channel.id, error: err });
@@ -212,7 +217,7 @@ export function createInputs(ctx: InputsContext): Inputs {
    * turn that completed (src/errands/turns.ts) or by `errand.read`. Null when there is nothing to show.
    */
   function errandsInputFor({
-    guildId,
+    placeId,
     channel,
     isPrivate,
     taskResult,
@@ -220,7 +225,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     labels,
     now,
   }: Parameters<Inputs['errandsInputFor']>[0]): { list: string; result: string } | null {
-    const listed = listedTasks({ guildId, channel, isPrivate, taskResult });
+    const listed = listedTasks({ placeId, channel, isPrivate, taskResult });
     const list = errandsBlockText(listed, labels, { now });
     const result = taskResult
       ? errandResultText(taskResult, labels, { maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
@@ -234,7 +239,6 @@ export function createInputs(ctx: InputsContext): Inputs {
    * '' with the switch off, without the service, or with nothing to show.
    */
   function intentionsInputFor({
-    guildId,
     channel,
     snapshot = null,
     isPrivate,
@@ -245,7 +249,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     if (!intentions) return '';
     let shown: unknown = [];
     try {
-      shown = intentions.view(guildId, { privateChannelId: isPrivate ? String(channel.id) : null });
+      shown = intentions.view({ privateChannelId: isPrivate ? String(channel.id) : null });
     } catch (err) {
       log.warn('turn: intentions view failed', { channel: channel.id, error: err });
       return '';
@@ -253,7 +257,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     const channelNameOf = (id: string): string | null =>
       inCommunity(channel) ? (snapshot?.get(String(id))?.name ?? null) : null;
     const nameOf = (id: string): string | null =>
-      typeof store?.getUser === 'function' ? (store.getUser(guildId, String(id))?.names?.[0] ?? null) : null;
+      typeof store?.getUser === 'function' ? (store.getUser(accountOf(store, String(id)))?.names?.[0] ?? null) : null;
     return intentionsBlockText(shown, labels, {
       timezone: config.bot?.timezone ?? 'UTC',
       locale: labels?.locale,
@@ -270,14 +274,14 @@ export function createInputs(ctx: InputsContext): Inputs {
    * the first `wakes.attention.placesInWake` places by recent activity (0: none), from the inner
    * life's places view. '' with the switch off, without the view, or when it fails.
    */
-  function placesInputFor({ guildId, config, labels }: Parameters<Inputs['placesInputFor']>[0]): string {
+  function placesInputFor({ placeId, config, labels }: Parameters<Inputs['placesInputFor']>[0]): string {
     if (!ADDRESSED_PLACES || typeof places !== 'function') return '';
     const size = innerSettings(config).attention.placesInWake;
     if (!(size > 0)) return '';
     try {
-      return placesBlockText(places(guildId, { sort: 'recent', page: 1, pageSize: size }), labels);
+      return placesBlockText(places(placeId, { sort: 'recent', page: 1, pageSize: size }), labels);
     } catch (err) {
-      log.warn('turn: places view failed', { guildId, error: err });
+      log.warn('turn: places view failed', { placeId, error: err });
       return '';
     }
   }

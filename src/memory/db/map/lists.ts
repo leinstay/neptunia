@@ -1,5 +1,5 @@
 // The shared half of the mappers that turn an old list of items into `claims` rows (a member's details, interests,
-// aliases and closed items; the guild's in-jokes, self facts and learned lessons) and back, plus the profile pieces
+// aliases and closed items; the place's in-jokes, self facts and learned lessons) and back, plus the profile pieces
 // a public member file and a private layer file have in common: the text fields (character, style, relationship) as
 // descriptions with one legacy version, the episodes, and the affinity history.
 //

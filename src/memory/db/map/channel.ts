@@ -1,14 +1,14 @@
 // Mapper: a channel's map entry `channels/<id>.json` <-> rows.
 //
-//   places           the channel (name, category, topic), under the guild's place
+//   places           the channel (name, category, topic), under the parent the row holds
 //   descriptions     purpose, topics, tone (subject: the channel's place), one legacy version each
 //   operational      kind channel: everything else (day counts, message counts, first/last message, top writers,
 //                    writers, notes stamps, ...), kept as it was
 //
-// toRows(rel, value, ctx) -> { places, descriptions, description_versions, operational }     ctx: { guildId? }
+// toRows(rel, value, ctx) -> { places, descriptions, description_versions, operational }     ctx: { subjectId? }
 // fromRows(rows, ctx) -> the file's value
 
-import { channelPlaceId, guildPlaceId } from '../ids.ts';
+import { channelPlaceId } from '../ids.ts';
 import { groupScope } from '../scope.ts';
 import { ifaceOf, join, parseExtra, put, rowsOf, split } from './common.ts';
 import type { Row, Rows } from '../types.ts';
@@ -33,9 +33,9 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   put(rows, 'places', {
     id: placeId,
     iface,
-    kind: 'channel',
+    kind: typeof ctx.subjectPlace?.kind === 'string' ? ctx.subjectPlace.kind : 'channel',
     ...cols,
-    parent_id: ctx.guildId ? guildPlaceId(iface, ctx.guildId) : null,
+    parent_id: typeof ctx.subjectPlace?.parent_id === 'string' ? ctx.subjectPlace.parent_id : null,
     scope_kind: 'group',
     extra: null,
     retired_at: null,

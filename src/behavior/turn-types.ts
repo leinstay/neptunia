@@ -31,7 +31,7 @@ export type CreateTurnRunnerInput = {
   images?: Untyped;
   speech?: Untyped;
   emoji?: ReturnType<typeof createEmojiIndex>;
-  getSelfName?: (guildId: string | null) => string;
+  getSelfName?: (placeId: string | null) => string;
   selfId?: () => string;
   reads: Reads;
   memberOf?: Untyped;
@@ -67,19 +67,19 @@ export type TurnRunner = {
   runTurn: (params: TurnParams) => Promise<ReportedTurn>;
   seedTriggerLinks: (pairs: unknown) => void;
   seedCallMarks: (marks: { calls?: unknown; postedFrom?: unknown } | null | undefined) => void;
-  waitingParts: (channelId: unknown, authorId: unknown) => Array<{ index: number; text: string }>;
+  waitingParts: (placeId: unknown, authorId: unknown) => Array<{ index: number; text: string }>;
   addToPart: (
-    channelId: unknown,
+    placeId: unknown,
     authorId: unknown,
     index: unknown,
     message: { id: string; text: string; ts: number }
   ) => boolean;
-  isBusy: (channelId: string) => boolean;
+  isBusy: (placeId: string) => boolean;
   isAnyBusy: () => boolean;
   busyChannels: () => Array<string>;
-  lastPostAt: (channelId: string) => number;
-  notePost: (channelId: string, ts: number) => void;
-  spokeAfterSeeing: (channelId: string, messageId: string) => boolean;
+  lastPostAt: (placeId: string) => number;
+  notePost: (placeId: string, ts: number) => void;
+  spokeAfterSeeing: (placeId: string, messageId: string) => boolean;
   waitIdle: () => Promise<void>;
   setOnIdle: (fn: (() => unknown) | null) => void;
   setFactsSource: (source: FactsApi | null | undefined) => void;

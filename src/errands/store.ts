@@ -1,6 +1,6 @@
-// The persona's errands, one store per guild, on the task board of the memory database (src/board/errands.ts): each
+// The persona's errands, one store per place, on the task board of the memory database (src/board/errands.ts): each
 // errand is a task of the board's errand lane with the errand's id, written as the principal `core`, and the store
-// loads every errand of its guild from the board at its creation. An errand moves `queued` -> `running` -> `done` |
+// loads every errand of its place from the board at its creation. An errand moves `queued` -> `running` -> `done` |
 // `failed` | `cancelled` (a queued one may also be cancelled or failed directly); a finished errand is never reopened,
 // and an end that arrives after a cancel is ignored. The list in memory keeps the open errands, then the finished ones
 // she has not read and the latest others, at most KEEP_FINISHED of them; the board keeps them all. The caps are
@@ -33,6 +33,7 @@
 // existed counts as read when it was `seen`.
 // Logs carry ids and codes, never text.
 
+import { PERSONA_ID } from '../memory/db/storage-keys.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -142,7 +143,7 @@ function loadedErrands(records: Array<unknown>): Array<ErrandRecord> {
 /** The values a store is built over; `memoryDb` is the memory database service (src/memory/db/). */
 type StoreOptions = {
   agentPaths?: AgentPaths;
-  guildId: string;
+
   now?: () => number;
   /** The live config (`errands.*`, `agents.<profile>` overrides, `features.journal`). */
   config?: () => Untyped;
@@ -160,8 +161,8 @@ type MemoryWrites = {
 };
 /** The journal's two writers of an `action` line the store uses (src/memory/journal.ts). */
 type JournalWrites = {
-  action: ((guildId: string, record: Record<string, unknown>) => unknown) | null;
-  actionLine: ((guildId: string, record: Record<string, unknown>) => unknown) | null;
+  action: ((placeId: string, record: Record<string, unknown>) => unknown) | null;
+  actionLine: ((placeId: string, record: Record<string, unknown>) => unknown) | null;
 };
 
 /** A function property `name` of `value`, bound to it, or null. */
@@ -243,7 +244,7 @@ function journalFields(errand: ErrandRecord, phase: string, extra: Record<string
     name: 'errand',
     // Her errand, whoever asked for it: the requester is in `participants`.
     by: 'persona',
-    ...(privateUserId ? { privateUserId } : { channelId: errand.origin?.channelId ?? null }),
+    ...(privateUserId ? { privateUserId } : { placeId: errand.origin?.placeId ?? null }),
     participants: errand.requester?.userId ? [errand.requester.userId] : [],
     sourceMessageIds: errand.origin?.messageId ? [errand.origin.messageId] : [],
     phase,
@@ -286,7 +287,7 @@ function dailyCaps(agent: string, config: Untyped, agentPaths?: AgentPaths): { t
 /** The stored origin of an errand. What an internal turn asked for stays restricted to where it was asked. */
 function originOf(origin: AddInput['origin'] | undefined): ErrandOrigin {
   return {
-    channelId: origin?.channelId ? String(origin.channelId) : null,
+    placeId: origin?.placeId ? String(origin.placeId) : null,
     messageId: origin?.messageId ? String(origin.messageId) : null,
     // The persona's turn whose accepted call this is (none for a command).
     ...(origin?.turnId ? { turnId: String(origin.turnId) } : {}),
@@ -295,7 +296,6 @@ function originOf(origin: AddInput['origin'] | undefined): ErrandOrigin {
 }
 
 export function createErrandStore({
-  guildId,
   now = Date.now,
   config = () => ({}),
   journal = null,
@@ -306,7 +306,7 @@ export function createErrandStore({
 }: StoreOptions): ErrandStore {
   const seam = createReadSeam({ memoryDb, log, reader: 'tasks' });
   const db = memoryDb ? seam.db() : null;
-  // Every errand of the guild the board holds; the list keeps the pruned part of them.
+  // Every errand of the place the board holds; the list keeps the pruned part of them.
   const loaded = load();
   const state: { errands: Array<ErrandRecord> } = { errands: loaded };
   const writes = memoryWritesOf(memoryDb);
@@ -321,10 +321,10 @@ export function createErrandStore({
   const spend = spendOf(loaded, now());
   state.errands = pruned(state.errands);
 
-  /** Every errand of the guild, read once from the board (none without a `memoryDb`). */
+  /** Every errand of the place, read once from the board (none without a `memoryDb`). */
   function load(): Array<ErrandRecord> {
     // The board rebuilds each errand exactly as this store wrote it (src/board/archive.ts#errandOf).
-    const errands = loadedErrands(db ? seam.run(() => errandsOf(db, String(guildId))) : []);
+    const errands = loadedErrands(db ? seam.run(() => errandsOf(db)) : []);
     return errands;
   }
 
@@ -347,12 +347,11 @@ export function createErrandStore({
   function send(id: string, errand: ErrandRecord | null): void {
     if (!memoryDb) return;
     if (!outbox) {
-      log.warn('errands: tasks write failed', { guildId: String(guildId), code: 'DB_CLOSED' });
+      log.warn('errands: tasks write failed', { code: 'DB_CLOSED' });
       return;
     }
-    outbox.value(errandKey(memoryDb, String(guildId), id), {
+    outbox.value(errandKey(id), {
       id,
-      guildId: String(guildId),
       at: now(),
       errand: errand ? copy(errand) : null,
       delivered: delivered.has(id),
@@ -373,7 +372,7 @@ export function createErrandStore({
     if (!journalOn()) return;
     const { actionLine } = journalWrites;
     if (outbox && actionLine) {
-      closings.set(errand.id, actionLine(String(guildId), journalFields(errand, phase, extra)));
+      closings.set(errand.id, actionLine(PERSONA_ID, journalFields(errand, phase, extra)));
       return;
     }
     journalLine(errand, phase, extra);
@@ -383,7 +382,7 @@ export function createErrandStore({
   function journalLine(errand: ErrandRecord, phase: string, extra: Record<string, unknown> = {}): void {
     const { action } = journalWrites;
     if (!journalOn() || !action) return;
-    Promise.resolve(action(String(guildId), journalFields(errand, phase, extra))).catch((err: unknown) =>
+    Promise.resolve(action(PERSONA_ID, journalFields(errand, phase, extra))).catch((err: unknown) =>
       log.warn('errands: journal failed', { id: errand.id, code: errorCode(err) })
     );
   }
@@ -420,7 +419,7 @@ export function createErrandStore({
       changed += 1;
     }
     if (changed > 0) {
-      log.info('errands: task files expired', { guildId: String(guildId), count: changed });
+      log.info('errands: task files expired', { count: changed });
     }
     return changed;
   }
@@ -478,7 +477,7 @@ export function createErrandStore({
     const key = typeof idempotencyKey === 'string' && idempotencyKey ? idempotencyKey : null;
     const same = key ? state.errands.find((errand) => errand.idempotencyKey === key) : null;
     if (same) {
-      log.info('errands: duplicate', { guildId: String(guildId), id: same.id, agent: same.agent });
+      log.info('errands: duplicate', { id: same.id, agent: same.agent });
       return { ok: true, errand: copy(same), duplicate: true };
     }
     const cap = capHit(agent);
@@ -512,7 +511,7 @@ export function createErrandStore({
     journalLine(errand, 'proposed', {
       input: { errandId: errand.id, agent, goalChars: text.length, requester: errand.requester.kind },
     });
-    log.info('errands: task queued', { guildId: String(guildId), id: errand.id, agent });
+    log.info('errands: task queued', { id: errand.id, agent });
     return { ok: true, errand: copy(errand) };
   }
 
@@ -559,7 +558,6 @@ export function createErrandStore({
     else closingLine(errand, 'failed', { result: { ...journalResult(errand), code: errand.error } });
     persist(errand);
     log.info('errands: task ended', {
-      guildId: String(guildId),
       id: errand.id,
       agent: errand.agent,
       state: errand.state,
@@ -722,14 +720,14 @@ export function createErrandStore({
   }
 
   /**
-   * The ends the board committed for this guild whose `errand.done` is not marked delivered, oldest first, each with
+   * The ends the board committed for this place whose `errand.done` is not marked delivered, oldest first, each with
    * its event id `errand-done:<errand id>`; none without a `memoryDb` or while the database cannot be read.
    */
   function pendingEnds(): Array<ErrandEnd> {
     if (!memoryDb) return [];
     let ends: Array<{ errandId: string; state: string }> = [];
     try {
-      ends = seam.run(() => boardEnds(seam.db(), String(guildId)));
+      ends = seam.run(() => boardEnds(seam.db()));
     } catch {
       // The seam logged the failed read with its code; nothing is pending that cannot be read.
       return [];
@@ -750,13 +748,11 @@ export function createErrandStore({
   function markDelivered(id: unknown): boolean {
     const key = idText(id);
     const errand = key ? find(key) : null;
-    const landing = Boolean(
-      errand && !isOpenState(errand.state) && outbox?.holds(errandKey(memoryDb, String(guildId), key))
-    );
+    const landing = Boolean(errand && !isOpenState(errand.state) && outbox?.holds(errandKey(key)));
     if (!key || (!landing && !pendingEnds().some((end) => end.errandId === key))) return false;
     delivered.add(key);
     send(key, find(key));
-    log.info('errands: end delivered', { guildId: String(guildId), id: key });
+    log.info('errands: end delivered', { id: key });
     return true;
   }
 
@@ -794,12 +790,11 @@ export function createErrandStore({
     pendingEnds,
     markDelivered,
     flush,
-    guildId: String(guildId),
   };
 }
 
 /**
- * One errand store per guild, created on first use over the same live config and journal (createErrandStore).
+ * One errand store per place, created on first use over the same live config and journal (createErrandStore).
  * `memoryDb` goes to every store; a store whose load failed is not kept, so the next `get` tries again.
  */
 export function createErrandStores({
@@ -809,16 +804,14 @@ export function createErrandStores({
   log = defaultLog,
   memoryDb = null,
   agentPaths,
-}: Omit<StoreOptions, 'guildId' | 'uuid'>): ErrandStores {
+}: Omit<StoreOptions, 'placeId' | 'uuid'>): ErrandStores {
   const stores = new Map<string, ErrandStore>();
   const errands: ErrandStores = {
-    get(guildId: unknown): ErrandStore | null {
-      const key = typeof guildId === 'string' || typeof guildId === 'number' ? String(guildId) : '';
-      if (!key) return null;
-      let store = stores.get(key);
+    get(): ErrandStore {
+      let store = stores.get('persona');
       if (!store) {
-        store = createErrandStore({ guildId: key, config, journal, now, log, memoryDb, agentPaths });
-        stores.set(key, store);
+        store = createErrandStore({ config, journal, now, log, memoryDb, agentPaths });
+        stores.set('persona', store);
       }
       return store;
     },

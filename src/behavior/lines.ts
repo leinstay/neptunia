@@ -14,7 +14,7 @@ import type { ReactorStore } from './reactor-store.ts';
 /** A line as the transcript reads it: the fields this module needs, the rest passes through. */
 export type Line = Record<string, unknown> & {
   id: string;
-  channelId: string;
+  placeId: string;
   authorId?: string;
   authorName?: string;
   content?: string;

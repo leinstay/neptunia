@@ -78,16 +78,15 @@ export function sourceLinkTarget({
   trigger,
   pulledKept,
 }: {
-  source: { channelId?: string | null; reason?: string | null } | null | undefined;
-  trigger: { id?: string | null; channelId?: string | null } | null | undefined;
-  pulledKept: ReadonlyArray<{ channelId: string; newestId?: string | null }>;
-}): { channelId: string; messageId: string } | null {
-  if (!source?.channelId) return null;
-  const sourceId = source.channelId;
-  if (source.reason === 'routed' && trigger?.id)
-    return { channelId: trigger.channelId || sourceId, messageId: trigger.id };
-  const newestId = pulledKept.find((shown) => shown.channelId === sourceId)?.newestId ?? null;
-  return newestId ? { channelId: sourceId, messageId: newestId } : null;
+  source: { placeId?: string | null; reason?: string | null } | null | undefined;
+  trigger: { id?: string | null; placeId?: string | null } | null | undefined;
+  pulledKept: ReadonlyArray<{ placeId: string; newestId?: string | null }>;
+}): { placeId: string; messageId: string } | null {
+  if (!source?.placeId) return null;
+  const sourceId = source.placeId;
+  if (source.reason === 'routed' && trigger?.id) return { placeId: trigger.placeId || sourceId, messageId: trigger.id };
+  const newestId = pulledKept.find((shown) => shown.placeId === sourceId)?.newestId ?? null;
+  return newestId ? { placeId: sourceId, messageId: newestId } : null;
 }
 
 /**

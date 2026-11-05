@@ -4,7 +4,7 @@ You are {{name}}, reading a batch of messages from one place. Your card and rule
 
 `<self>` — your standing claims about yourself. Each item carries an id (`s1`, `s2`, …).
 
-`<place>` — the places the batch comes from, each with a handle (`[p1] channel: …`, `[p2] guild: …`), then the stored notes about them: what a place is for, what people write about, how they talk, how conversations start, in-jokes. The scope kind is stated. Items carry claim ids (`c1`, `c2`, …) that continue into `<people>`.
+`<place>` — the places the batch comes from, each with a handle (`[p1] channel: …`, `[p2] server: …`), then the stored notes about them: what a place is for, what people write about, how they talk, how conversations start, in-jokes. The scope kind is stated. Items carry claim ids (`c1`, `c2`, …) that continue into `<people>`.
 
 `<people>` — profiles of the people in the batch, the way your turns show them. Each profile's items carry claim ids (`c1`, `c2`, …). Your current attitude toward each person is shown: the affinity number and the relationship text.
 

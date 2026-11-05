@@ -341,8 +341,7 @@ export type ConnectionChanged = {
 export type SchedulerTick = { kind: 'scheduler.tick'; at: number };
 
 /**
- * `errand.done`: an errand ended with `status` and its `result` (as src/errands defines them);
- * `communityId` is the community whose errand store holds the errand. The core derives `id` (`errandId` and
+ * `errand.done`: an errand ended with `status` and its `result` (as src/errands defines them). The core derives `id` (`errandId` and
  * `status`) when it has none, so a second delivery of the same end is the same event.
  */
 export type ErrandDone = {

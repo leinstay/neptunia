@@ -9,7 +9,7 @@
 export const DELETED_LINES_MAX = 10;
 
 /**
- * The deletions of `channelId` over the span of `history` (from its oldest line that is not a
+ * The deletions of `placeId` over the span of `history` (from its oldest line that is not a
  * reply parent) that the history does not hold: `{ placeholders, deletedIds, ms }`. A placeholder
  * is a message shaped like a normalized one with `deleted: true`, empty `content` and no media,
  * its author named by the history, else `nameOf(id)`, else the id; its time is the original
@@ -35,7 +35,7 @@ type RecordLine = {
 /** A deleted message in the window: a normalized message with `deleted: true`, no text, no media. */
 export type Placeholder = {
   id: string;
-  channelId: string;
+  placeId: string;
   authorId: string;
   authorName: string;
   self: boolean;
@@ -59,8 +59,8 @@ export type DeletedLines = { placeholders: Array<Placeholder>; deletedIds: Set<s
 
 export async function deletedLinesOf({
   record,
-  guildId,
-  channelId,
+  placeId,
+  conversationId,
   history,
   selfId = null,
   selfName = '',
@@ -69,10 +69,10 @@ export async function deletedLinesOf({
   clock = Date.now,
 }: {
   record: {
-    iterate: (guildId: string, range: { from: string; channelIds: Array<string> }) => AsyncIterable<RecordLine>;
+    iterate: (placeId: string, range: { from: string; placeIds: Array<string> }) => AsyncIterable<RecordLine>;
   };
-  guildId: string;
-  channelId: string;
+  placeId: string;
+  conversationId: string;
   history: Array<WindowLine>;
   selfId?: string | null;
   selfName?: string;
@@ -95,9 +95,9 @@ export async function deletedLinesOf({
   const seen = new Map<string, RecordLine>();
   const gone = new Map<string, RecordLine>();
   try {
-    for await (const line of record.iterate(guildId, {
+    for await (const line of record.iterate(placeId, {
       from: new Date(oldest).toISOString(),
-      channelIds: [String(channelId)],
+      placeIds: [String(conversationId)],
     })) {
       const id = typeof line?.messageId === 'string' ? line.messageId : '';
       if (!id || present.has(id)) continue;
@@ -121,7 +121,7 @@ export async function deletedLinesOf({
         (authorId ? String(authorId) : ''));
     all.push({
       id,
-      channelId: String(channelId),
+      placeId: String(conversationId),
       authorId: authorId ? String(authorId) : '',
       authorName: name,
       self,

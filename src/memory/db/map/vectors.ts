@@ -7,7 +7,7 @@
 //                `norm`, `item_id` (the line's id), `occurred_at` are columns, `model` and `dims` come from the
 //                manifest, `chunk_key` is the engine's `<kind>:<id>:<revision>` (prefixed `private:<user>:` in a
 //                private layer, suffixed `#2`... if a month repeats one), and `context` holds the other fields of
-//                the line (row, kind, revision, channelId, by, participants, sourceIds, unknown ones), plus `$keys`
+//                the line (row, kind, revision, placeId, by, participants, sourceIds, unknown ones), plus `$keys`
 //                when the line's key order is not the engine's own. `source_rowid` is left NULL: sync links it.
 //   operational  kind vectors: `{ manifest, gen, tailI8?, raw? }`. `tailI8` is the bytes (base64) after the last
 //                row's, which the manifest does not count; `raw` is set (and no vectors rows are made) when the jsonl is
@@ -41,7 +41,7 @@ const CANONICAL = [
   'id',
   'revision',
   'occurredAt',
-  'channelId',
+  'placeId',
   'by',
   'participants',
   'sourceIds',

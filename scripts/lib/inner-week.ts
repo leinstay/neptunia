@@ -258,14 +258,14 @@ export function createStubVoice(fixture: Fixture): Rec {
     plan({
       items,
       records,
-      channelId,
+      placeId,
       day,
       keyOf,
       idOf = () => null,
     }: {
       items: Array<Rec>;
       records: Array<Rec>;
-      channelId: string;
+      placeId: string;
       day: string;
       keyOf: (id: string) => string | null;
       idOf?: (key: string) => string | null;
@@ -286,7 +286,7 @@ export function createStubVoice(fixture: Fixture): Rec {
           $intention: intentionId,
           $task: item.errandId ?? null,
           $chain: record?.chainId ?? null,
-          $channel: channelId,
+          $channel: placeId,
         };
         for (const action of answer) {
           const args = action.args ?? {};
@@ -335,7 +335,7 @@ type RunWeekOptions = {
   voice?: Untyped;
   liveDays?: Array<number>;
   mode?: string;
-  guildId?: string;
+  placeId?: string;
   log?: Untyped;
   subscribeLog?: ((entry: Untyped) => void) | null;
   onReady?: ((week: { clock: Rec; intentions: Rec }) => void) | null;
@@ -363,7 +363,7 @@ export async function runWeek({
   voice = null,
   liveDays = [],
   mode = fixture.mode,
-  guildId = fixture.guildId,
+  placeId = fixture.placeId,
   log = SILENT,
   subscribeLog = null,
   onReady = null,
@@ -422,7 +422,7 @@ export async function runWeek({
     for (const fn of listeners) fn(entry);
   };
 
-  const { reads, iface } = weekReads(fixture.channels, guildId, log);
+  const { reads, iface } = weekReads(fixture.channels, placeId, log);
   // The record: her lines of the history (the review's hours) and every line of the week's chat
   // (`seen` by its author, `said` for hers), the store the scheduler counts a place's lines from.
   const record = {
@@ -437,7 +437,7 @@ export async function runWeek({
             messageId: line.id,
             occurredAt: new Date(line.ts).toISOString(),
             ...(line.self ? {} : { by: String(line.authorId) }),
-            scope: { channel: line.channelId },
+            scope: { channel: line.placeId },
           };
         }
       }
@@ -453,17 +453,17 @@ export async function runWeek({
   let inner: Untyped;
   let turnSeq = 0;
 
-  function addLine(channelId: Untyped, line: Untyped) {
+  function addLine(conversationId: Untyped, line: Untyped) {
     world.lineSeq += 1;
-    const full = { id: `m${world.lineSeq}`, channelId, ...line };
-    world.chat.get(channelId)?.push(full);
+    const full = { id: `m${world.lineSeq}`, placeId: conversationId, ...line };
+    world.chat.get(conversationId)?.push(full);
     return full;
   }
 
   /** A planted marker entering the week (once per marker). */
-  function plant(marker: Untyped, at: Untyped, channelId: Untyped) {
+  function plant(marker: Untyped, at: Untyped, conversationId: Untyped) {
     if (marker && !world.planted.some((p: Rec) => p.marker === marker))
-      world.planted.push({ marker, at, channel: channelId });
+      world.planted.push({ marker, at, channel: conversationId });
   }
 
   /** A turn of the voice for the scheduler (its `turns.runTurn`). */
@@ -480,7 +480,7 @@ export async function runWeek({
       voice: live ? 'live' : 'stub',
       kind: wake.kind,
       chainId: wake.chainId ?? null,
-      channelId: String(params.conversation?.conversationId ?? ''),
+      placeId: String(params.conversation?.conversationId ?? ''),
       items,
       notes: wake.notes ?? null,
       places: wake.places ?? null,
@@ -502,7 +502,7 @@ export async function runWeek({
     const planned = stubVoice.plan({
       items,
       records: wake.intentions ?? [],
-      channelId: entry.channelId,
+      placeId: entry.placeId,
       day: entry.day,
       keyOf: (id: string) => world.ids.get(id) ?? null,
       idOf: (key: string) => world.keys.get(key) ?? null,
@@ -531,11 +531,11 @@ export async function runWeek({
           : {}),
       };
       if (verdict.status === 'executed') {
-        const done = act(call, { turnId, channelId: entry.channelId, at, key });
+        const done = act(call, { turnId, placeId: entry.placeId, at, key });
         if (done.code) action.code = done.code;
         action.result = done.ok ? 'ok' : 'failed';
         if (effects === 'read' && call.returns) {
-          plant(call.marker, at, entry.channelId);
+          plant(call.marker, at, entry.placeId);
         }
       }
       actions.push(action);
@@ -561,7 +561,7 @@ export async function runWeek({
   }
 
   /** One executed stub call acting on the week's world. */
-  function act(call: Untyped, { turnId, channelId, at, key = null }: Rec) {
+  function act(call: Untyped, { turnId, placeId: conversationId, at, key = null }: Rec) {
     const args = call.args ?? {};
     const when = (text: Untyped) => parseWhen(text, at, { timezone: fixture.timezone });
     const everyOf = (text: Untyped) =>
@@ -581,14 +581,14 @@ export async function runWeek({
       ...(perDay !== undefined ? { perDay: Number(perDay) } : {}),
     });
     if (call.skill === 'intention.set') {
-      const created = intentions.set(guildId, {
+      const created = intentions.set(placeId, {
         purpose: String(args.purpose ?? args.attend ?? ''),
         dueAt: args.due ? when(args.due) : null,
         every: everyOf(args.every) ?? null,
         attend: typeof args.attend === 'string' && args.attend ? { place: args.attend, ...attendOf() } : null,
         chainId: typeof args.chain === 'string' ? args.chain : null,
         destination: typeof args.channel === 'string' ? args.channel : null,
-        channelId,
+        placeId: conversationId,
         scope: 'group',
         turnId,
         by: 'persona',
@@ -607,11 +607,11 @@ export async function runWeek({
       if (args.errand) patch.errandId = args.errand;
       if (args.deadline) patch.deadline = when(args.deadline);
       if (Object.keys(attendOf()).length > 0) patch.attend = attendOf();
-      const moved = intentions.update(guildId, String(args.id ?? ''), patch);
+      const moved = intentions.update(placeId, String(args.id ?? ''), patch);
       return moved.ok ? { ok: true } : { ok: false, code: moved.code };
     }
     if (call.skill === 'intention.cancel') {
-      const cancelled = intentions.cancel(guildId, String(args.id ?? ''), { by: 'persona' });
+      const cancelled = intentions.cancel(placeId, String(args.id ?? ''), { by: 'persona' });
       return cancelled.ok ? { ok: true } : { ok: false, code: cancelled.code };
     }
     if (call.skill === 'errand.run') {
@@ -626,7 +626,7 @@ export async function runWeek({
         createdAt: at,
       });
       if (typeof args.wait === 'string' && typeof args.id === 'string' && args.id) {
-        const waited = intentions.update(guildId, args.id, {
+        const waited = intentions.update(placeId, args.id, {
           errandId: id,
           deadline: at + (parseDuration(args.wait) ?? 2 * HOUR_MS),
           by: 'persona',
@@ -637,7 +637,7 @@ export async function runWeek({
       return { ok: true, taskId: id };
     }
     if (POSTING_SKILLS.includes(call.skill)) {
-      const target = typeof args.channel === 'string' && world.chat.has(args.channel) ? args.channel : channelId;
+      const target = typeof args.channel === 'string' && world.chat.has(args.channel) ? args.channel : conversationId;
       const content = String(args.text ?? '');
       addLine(target, {
         authorId: 'persona',
@@ -659,7 +659,6 @@ export async function runWeek({
       stores,
       hot,
       errands: { store: () => taskStore },
-      getGuildId: () => guildId,
       now: clock.now,
       uuid: world.uuid ?? (world.uuid = counterUuid()),
       log,
@@ -679,17 +678,16 @@ export async function runWeek({
           name: channel.name,
           writable: channel.writable !== false,
         })),
-      nameOf: (_guild, id) => Object.entries(fixture.people).find(([, memberId]) => memberId === id)?.[0] ?? null,
+      nameOf: (id) => Object.entries(fixture.people).find(([, memberId]) => memberId === id)?.[0] ?? null,
       // `at` is the clock's; a record's own `at` (the review's drawn moment) is kept as `fieldAt`.
       journal: {
-        inner: async (_guild, fields) =>
+        inner: async (fields) =>
           journal.push({ ...fields, ...(fields.at !== undefined ? { fieldAt: fields.at } : {}), at: clock.now() }),
       },
       reads,
       iface: () => iface,
       submit: (event) => door.submit(event),
       store: { state: { data: {} } },
-      getGuildId: () => guildId,
       meter,
       rng: world.rng ?? (world.rng = seededRng(fixture.seed)),
       now: clock.now,
@@ -697,7 +695,7 @@ export async function runWeek({
     });
     inner = life;
     // At start, as src/index.ts does: the waits reconciled with the errands as they stand.
-    intentions.reconcile(guildId);
+    intentions.reconcile(placeId);
     onReady?.({ clock, intentions });
   }
 
@@ -723,14 +721,14 @@ export async function runWeek({
       taskId = item.wait.task;
       deadline = item.wait.deadline;
     }
-    const created = intentions.set(guildId, {
+    const created = intentions.set(placeId, {
       purpose: item.purpose,
       dueAt: item.dueAt,
       every: item.every,
       attend: item.attend,
       expiresAt: item.expiresAt,
       destination: item.channel,
-      channelId: item.channel,
+      placeId: item.channel,
       chainId: item.chain,
       completionCondition: item.condition,
       errandId: taskId,
@@ -742,7 +740,7 @@ export async function runWeek({
     });
     // The week writes the self line's text in as the record's quote, so her <intentions> block and her memory of the week agree.
     if (created.ok && line && item.span)
-      intentions.store(guildId)?.update(created.intention.id, (record: Rec) => ({
+      intentions.store(placeId)?.update(created.intention.id, (record: Rec) => ({
         ok: true,
         changed: true,
         intention: { ...record, provenance: { ...record.provenance, span: item.span } },
@@ -786,19 +784,19 @@ export async function runWeek({
       const task = world.tasks.get(event.task) ?? { id: event.task, agent: 'scout', origin: {}, createdAt: at };
       const ended = { ...task, state: event.state, endedAt: at, usage: { usd: event.usd } };
       world.tasks.set(event.task, ended);
-      intentions.onErrandFinished(ended, guildId);
-      if (inner.onTaskFinished(ended, guildId)) errandCosts.push({ at, taskId: event.task, usd: event.usd });
+      intentions.onErrandFinished(ended, placeId);
+      if (inner.onTaskFinished(ended, placeId)) errandCosts.push({ at, taskId: event.task, usd: event.usd });
       // The turn its end opens holds the attention like a people's turn.
       world.busyUntil = Math.max(world.busyUntil, at) + fixture.turnSeconds * 1000;
     } else if (event.kind === 'restart') {
       journal.push({ at, event: 'harness-restart' });
       build();
     } else if (event.kind === 'stop') {
-      inner.stop(guildId, { by: event.by });
+      inner.stop(placeId, { by: event.by });
       world.stopped = true;
       world.stopSpans.push({ from: at, to: null });
     } else if (event.kind === 'start') {
-      inner.start(guildId, { by: event.by });
+      inner.start(placeId, { by: event.by });
       world.stopped = false;
       const open = world.stopSpans.find((span: Rec) => span.to === null);
       if (open) open.to = at;
@@ -807,7 +805,7 @@ export async function runWeek({
 
   /** The due items at `now`, as the scheduler would name them (for the dispositions gate). */
   function observeDue(now: number) {
-    const store = intentions.store(guildId);
+    const store = intentions.store(placeId);
     const records = store ? store.list() : [];
     for (const entry of dueList(records, now)) {
       const wake = wakeOfDue(entry);
@@ -829,7 +827,7 @@ export async function runWeek({
           intentionId: wake.intentionIds[0],
           seenAt: now,
         });
-    const review = inner.state(guildId).review;
+    const review = inner.state(placeId).review;
     if (review && Number.isFinite(review.at) && review.at <= now) {
       const wake = reviewWake(review.day, review.at);
       if (!dueSeen.has(wake.id))
@@ -840,7 +838,7 @@ export async function runWeek({
   /** The moments the next tick may be needed at. */
   function tickCandidates(now: number, lastDrain: Untyped) {
     const out = [];
-    const store = intentions.store(guildId);
+    const store = intentions.store(placeId);
     for (const record of store ? store.list() : []) {
       if (!isOpen(record.status)) continue;
       // A time already past was listed at its tick (and stays listed, handled): no tick for it.
@@ -853,7 +851,7 @@ export async function runWeek({
       const newest = (world.chat.get(record.attend.place) ?? []).filter((line: Untyped) => !line.self).at(-1);
       if (newest && newest.ts + record.attend.settle * 1000 > now) out.push(newest.ts + record.attend.settle * 1000);
     }
-    const state = inner.state(guildId);
+    const state = inner.state(placeId);
     if (state.review && !state.review.done && Number.isFinite(state.review.at) && state.review.at > now)
       out.push(state.review.at);
     out.push(zonedEpoch(addDays(dayOf(now), 1), 0, 0, fixture.timezone));
@@ -911,12 +909,12 @@ export async function runWeek({
       });
   }
 
-  const finalState = inner.state(guildId);
-  const store = intentions.store(guildId);
+  const finalState = inner.state(placeId);
+  const store = intentions.store(placeId);
   return {
     fixture: fixture.name,
     mode,
-    guildId,
+    placeId,
     startMs: fixture.startMs,
     endMs: fixture.endMs,
     settings,
@@ -1450,7 +1448,7 @@ export function reportOf(run: WeekRun, fixture: Fixture, gates: Rec, effectsOf: 
         voice: turn.voice,
         kind: turn.kind,
         chain: turn.chainId,
-        channel: turn.channelId,
+        channel: turn.placeId,
         coalesced: turn.items.length,
         items: turn.items.map(
           (item: Untyped) => `${item.kind}${item.intentionIds?.length ? `:${item.intentionIds.join('+')}` : ''}`

@@ -18,7 +18,7 @@ const MAX_ACTIVITIES = 3;
 
 export type VoiceRecord = {
   memberId: string;
-  channelId: string;
+  placeId: string;
   name: string | null;
   muted: boolean;
   deafened: boolean;
@@ -47,10 +47,10 @@ type PresenceFields = Pick<PresenceChanged, 'userId' | 'name' | 'status' | 'acti
 
 const nameOf = (name: string | null | undefined): string | null => cleanText(name) || null;
 
-function voiceRecord(state: VoiceFields, channelId: string): VoiceRecord {
+function voiceRecord(state: VoiceFields, placeId: string): VoiceRecord {
   return {
     memberId: state.userId,
-    channelId,
+    placeId,
     name: nameOf(state.name),
     muted: state.muted === true,
     deafened: state.deafened === true,
@@ -103,7 +103,7 @@ export function createAroundStore(options: { presences: boolean | (() => boolean
       }
       const record = voiceRecord(event, event.conversationId);
       const held = voice.get(event.userId);
-      if (held?.channelId === record.channelId) {
+      if (held?.placeId === record.placeId) {
         if (held.joinedAt !== undefined) record.joinedAt = held.joinedAt;
       } else if (Number.isFinite(event.at)) {
         record.joinedAt = event.at;

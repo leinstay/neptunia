@@ -48,7 +48,7 @@ export type Provenance = {
   kind: 'self' | 'candidate';
   turnId: string | null;
   messageId?: string;
-  channelId?: string;
+  placeId?: string;
   span?: string;
   scope: ErrandScope;
   participants?: Array<string>;
@@ -118,7 +118,7 @@ export type CreateInput = {
     kind: 'self';
     turnId?: string | null;
     messageId?: string | null;
-    channelId?: string | null;
+    placeId?: string | null;
     span?: string | null;
     scope?: ErrandScope;
     participants?: Array<string>;
@@ -146,7 +146,7 @@ export type CreateInput = {
 /** Why an intention is due. */
 export type Due = { intention: Intention; reason: 'due' | 'wait-deadline'; at: number };
 
-/** The intentions of one guild, in the memory database (src/intentions/store.ts#createIntentionStore). */
+/** The intentions of one place, in the memory database (src/intentions/store.ts#createIntentionStore). */
 export type IntentionStore = {
   list: () => Array<Intention>;
   get: (id: unknown) => Intention | null;
@@ -154,12 +154,11 @@ export type IntentionStore = {
   update: (id: unknown, move: (record: Intention) => Moved) => Moved;
   archived: () => Array<Intention>;
   flush: (options?: { final?: boolean }) => Promise<FlushCounts>;
-  guildId: string;
 };
 
-/** One store per guild. */
+/** One store per place. */
 export type IntentionStores = {
-  get: (guildId: unknown) => IntentionStore | null;
+  get: () => IntentionStore | null;
   flush: (options?: { final?: boolean }) => Promise<FlushCounts>;
 };
 
@@ -183,7 +182,7 @@ export type SetInput = {
   deadline?: number | null;
   turnId?: string | null;
   messageId?: string | null;
-  channelId?: string | null;
+  placeId?: string | null;
   scope?: ErrandScope;
   participants?: Array<string>;
   publicationBoundary?: PublicationBoundary;
@@ -221,22 +220,22 @@ export type ReconcileCounts = { arrived: number; missing: number; deadline: numb
 
 /** The intentions at work (src/intentions/service.ts#createIntentionService). */
 export type IntentionService = {
-  set: (guildId: unknown, input: SetInput) => Created | { ok: false; code: string; open?: Array<Intention> };
-  update: (guildId: unknown, id: unknown, patch?: UpdatePatch) => Moved;
-  cancel: (guildId: unknown, id: unknown, options?: { by?: string } & Where) => Moved;
-  list: (guildId: unknown, options?: { closed?: boolean } & Where) => Array<Intention>;
-  view: (guildId: unknown, options?: { privateChannelId?: string | null }) => Array<Intention>;
-  linkTurnErrand: (guildId: unknown, link: { turnId: unknown; errandId: unknown }) => number;
-  onErrandFinished: (errand: ErrandRecord, guildId: unknown) => number;
-  reconcile: (guildId: unknown) => ReconcileCounts;
-  advance: (guildId: unknown, id: unknown, options?: { named?: boolean; by?: string }) => Advanced;
-  sleep: (guildId: unknown, id: unknown) => Moved;
-  due: (guildId: unknown) => Array<Due>;
-  attending: (guildId: unknown) => Array<Intention>;
-  attendToday: (guildId: unknown, id: unknown) => { day: string; wakes: number } | null;
-  countAttendWake: (guildId: unknown, id: unknown) => Moved;
-  markExpiredShown: (guildId: unknown, id: unknown) => Moved;
-  store: (guildId?: unknown) => IntentionStore | null;
+  set: (input: SetInput) => Created | { ok: false; code: string; open?: Array<Intention> };
+  update: (id: unknown, patch?: UpdatePatch) => Moved;
+  cancel: (id: unknown, options?: { by?: string } & Where) => Moved;
+  list: (options?: { closed?: boolean } & Where) => Array<Intention>;
+  view: (options?: { privateChannelId?: string | null }) => Array<Intention>;
+  linkTurnErrand: (link: { turnId: unknown; errandId: unknown }) => number;
+  onErrandFinished: (errand: ErrandRecord) => number;
+  reconcile: () => ReconcileCounts;
+  advance: (id: unknown, options?: { named?: boolean; by?: string }) => Advanced;
+  sleep: (id: unknown) => Moved;
+  due: () => Array<Due>;
+  attending: () => Array<Intention>;
+  attendToday: (id: unknown) => { day: string; wakes: number } | null;
+  countAttendWake: (id: unknown) => Moved;
+  markExpiredShown: (id: unknown) => Moved;
+  store: () => IntentionStore | null;
 };
 
 /** What `createIntentionService` is given. `errands` is the errand service a wait is checked against. */
@@ -249,18 +248,16 @@ export type ErrandLike = {
   origin?: { turnId?: string | null };
 };
 
-/** The errand service as the intentions use it: the store of a guild, to get an errand and to list the latest. */
+/** The errand service as the intentions use it: the store of a place, to get an errand and to list the latest. */
 export type ErrandsPort = {
-  store?: (
-    guildId?: unknown
-  ) => { get: (id: string) => ErrandLike | null; recent?: (n: number) => Array<ErrandLike> } | null;
+  store?: () => { get: (id: string) => ErrandLike | null; recent?: (n: number) => Array<ErrandLike> } | null;
 };
 
 export type IntentionServiceOptions = {
   stores: IntentionStores;
   hot: Untyped;
   errands?: ErrandsPort | null;
-  getGuildId?: () => string | null;
+
   now?: () => number;
   uuid?: () => string;
   log?: Logger;

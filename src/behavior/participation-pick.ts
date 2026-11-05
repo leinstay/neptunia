@@ -83,17 +83,17 @@ function scheduleTimer(fn: () => void, ms: number) {
 
 /** A pick past `participation.pickTimeoutMs`: logged, told to the turn's limits, nothing picked. */
 function pickLate({
-  channelId,
+  placeId,
   offered,
   timeoutMs,
   limits,
 }: {
-  channelId: string | null;
+  placeId: string | null;
   offered: Untyped;
   timeoutMs: number | null;
   limits: Untyped;
 }) {
-  log.info('participation: late', { channel: channelId, offered, timeoutMs });
+  log.info('participation: late', { channel: placeId, offered, timeoutMs });
   limits?.add?.({ kind: 'helper-timeout', where: 'participation-pick' });
   return [];
 }
@@ -101,7 +101,7 @@ function pickLate({
 /** One headline of an episode (src/memory/participation.js#episodeHeadlines): its channel, its lines and its age. */
 export type Headline = {
   id: string;
-  channelId: string;
+  placeId: string;
   ageMs: number;
   memberLines?: string;
   selfLines: string;
@@ -129,7 +129,7 @@ export function participationEpisodeList(
     selfName,
   }: {
     state: { episodes?: Array<Untyped> };
-    channelNameOf: (channelId: string) => string | null;
+    channelNameOf: (placeId: string) => string | null;
     units: Untyped;
     selfName: string;
   }
@@ -139,7 +139,7 @@ export function participationEpisodeList(
   const ages = [];
   const ids = [];
   for (const headline of (Array.isArray(headlines) ? headlines : []).toReversed()) {
-    const name = oneLine(channelNameOf(headline.channelId) ?? '');
+    const name = oneLine(channelNameOf(headline.placeId) ?? '');
     if (!name) continue;
     const member = episodes.get(headline.id)?.messages?.find((m: Untyped) => !m.self) ?? null;
     const memberPart =
@@ -232,7 +232,7 @@ export function parseParticipationPick(
 
 /**
  * The numbered `<episodes>` list of one pick for the pick hook below: the live headlines of the
- * guild's stored episodes outside `channel` that pass `audience`
+ * place's stored episodes outside `channel` that pass `audience`
  * (src/memory/participation.ts#episodeHeadlines with the live
  * `participation` settings), rendered by participationEpisodeList with each
  * channel's stored note name, else the live channel's. `headlines` counts
@@ -241,7 +241,7 @@ export function parseParticipationPick(
  */
 export function participationEpisodeOffer({
   store,
-  guildId,
+  placeId,
   channel,
   snapshot = null,
   audience,
@@ -250,24 +250,24 @@ export function participationEpisodeOffer({
   selfName,
   now,
 }: {
-  store: { getParticipation: (guildId: string) => Untyped; listChannels?: (guildId: string) => Array<Untyped> };
-  guildId: string;
+  store: { getParticipation: (placeId: string) => Untyped; listChannels?: (placeId: string) => Array<Untyped> };
+  placeId: string;
   channel: { id?: string; communityId?: string | null } | null | undefined;
-  audience: (channelId: string) => boolean;
+  audience: (conversationId: string) => boolean;
   snapshot?: Snapshot | null;
   config: Record<string, Untyped>;
   units?: Untyped;
   selfName: string;
   now: number;
 }): { headlines: number; lines: Array<string>; ages: Array<string>; ids: Array<string> } {
-  const state = store.getParticipation(guildId);
+  const state = store.getParticipation(placeId);
   const headlines = episodeHeadlines(
     state,
     { excludeChannelId: channel?.id ?? null, audience, now },
     participationSettings(config)
   );
   if (headlines.length === 0) return { headlines: 0, lines: [], ages: [], ids: [] };
-  const stored = typeof store.listChannels === 'function' ? store.listChannels(guildId) : [];
+  const stored = typeof store.listChannels === 'function' ? store.listChannels(placeId) : [];
   const channelNameOf = (id: Untyped) =>
     oneLine((Array.isArray(stored) ? stored.find((entry) => entry?.id === id)?.name : '') ?? '') ||
     oneLine(snapshot?.get(String(id))?.name ?? '') ||
@@ -316,7 +316,7 @@ export function createParticipationPicker({
   now?: () => number;
   schedule?: (fn: () => void, ms: number) => () => void;
 }): (args: {
-  guildId: string;
+  placeId: string;
   channel: { id?: string; communityId?: string | null } | null | undefined;
   history: Array<Untyped>;
   trigger: Untyped;
@@ -324,11 +324,11 @@ export function createParticipationPicker({
   mode?: string;
   selfName: string;
   snapshot?: Snapshot | null;
-  audience: (channelId: string) => boolean;
+  audience: (placeId: string) => boolean;
   limits?: { add: (...args: Array<Untyped>) => Untyped } | null;
 }) => Promise<Array<string>> {
   return async function pickParticipation({
-    guildId,
+    placeId,
     channel,
     history,
     trigger = null,
@@ -339,7 +339,7 @@ export function createParticipationPicker({
     snapshot = null,
     limits = null,
   }) {
-    const channelId = channel?.id ?? null;
+    const conversationId = channel?.id ?? null;
     try {
       const config = hot.config;
       const settings = participationPickSettings(config);
@@ -350,7 +350,7 @@ export function createParticipationPicker({
       const labels = hot.prompts?.labels;
       const { headlines, lines, ages, ids } = participationEpisodeOffer({
         store,
-        guildId,
+        placeId,
         channel,
         snapshot,
         audience,
@@ -362,12 +362,12 @@ export function createParticipationPicker({
       if (headlines === 0) return [];
       const prompt = hot.prompts?.['participation-pick'];
       if (typeof prompt !== 'string' || !prompt.trim()) {
-        log.info('participation: skipped', { channel: channelId, reason: 'no-prompt' });
+        log.info('participation: skipped', { channel: conversationId, reason: 'no-prompt' });
         return [];
       }
       const candidate = routeCandidate(history, trigger);
       if (!candidate) {
-        log.info('participation: skipped', { channel: channelId, reason: 'no-candidate' });
+        log.info('participation: skipped', { channel: conversationId, reason: 'no-candidate' });
         return [];
       }
       if (lines.length === 0) return [];
@@ -411,9 +411,9 @@ export function createParticipationPicker({
           }),
         });
       } catch (err) {
-        if (late) return pickLate({ channelId, offered: ids.length, timeoutMs, limits });
+        if (late) return pickLate({ placeId: conversationId, offered: ids.length, timeoutMs, limits });
         log.warn('participation: failed', {
-          channel: channelId,
+          channel: conversationId,
           reason: railReason(err),
           status: objOf(err).statusCode ?? null,
           name: objOf(err).name ?? null,
@@ -423,11 +423,11 @@ export function createParticipationPicker({
         cancel?.();
       }
       // An answer that came with the abort is not taken either: the turn was told there is none.
-      if (late) return pickLate({ channelId, offered: ids.length, timeoutMs, limits });
+      if (late) return pickLate({ placeId: conversationId, offered: ids.length, timeoutMs, limits });
       const { indices, reason } = parseParticipationPick(completion?.text, ids.length);
       const picked = indices.map((n) => ids[n - 1]);
       log.info('participation: classified', {
-        channel: channelId,
+        channel: conversationId,
         kind: triggerKind ?? null,
         offered: ids.length,
         picked: picked.length,
@@ -437,7 +437,7 @@ export function createParticipationPicker({
       return picked;
     } catch (err) {
       log.warn('participation: failed', {
-        channel: channelId,
+        channel: conversationId,
         reason: 'error',
         status: null,
         name: objOf(err).name ?? null,

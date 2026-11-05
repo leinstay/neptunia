@@ -8,7 +8,7 @@
 // `nextId` out -- the caller, src/memory/store.ts#applyProfileOps, persists
 // it on the profile) that is never reused, even for a removed item.
 // `normalizeDetails` validates whatever a profile's `details` field currently
-// holds on disk. The same mechanics serve the guild's `learned` list (things
+// holds on disk. The same mechanics serve the place's `learned` list (things
 // people taught the persona, see src/memory/store.ts#applyLearnedOps), whose
 // items may also carry `from` -- the teacher's `<@id>` token.
 
@@ -33,7 +33,7 @@ function normalizedNextId(startId: Untyped) {
   return isIntegerNumber(startId) && startId >= 1 ? startId : 1;
 }
 
-/** An item's optional `from` (who taught it -- guild `learned` items, see
+/** An item's optional `from` (who taught it -- place `learned` items, see
  * src/memory/store.ts#applyLearnedOps): kept only as a non-empty string,
  * trimmed; anything else -> `undefined`, so the key is never stored. */
 function teacherOf(from: Untyped) {
@@ -57,7 +57,7 @@ function teacherOf(from: Untyped) {
  * - `text` is clamped to `fieldChars`; an item whose text is empty after
  *   trimming is rejected outright.
  * - An add item's optional `from` (`{ text, from, sure }`, who taught it --
- *   guild `learned` items) is stored on a NEW item when it is a non-empty
+ *   place `learned` items) is stored on a NEW item when it is a non-empty
  *   string, trimmed; anything else is dropped. A sighting of an existing
  *   item never rewrites its stored `from`. Items without one keep the exact
  *   shape they always had (no `from` key at all).
@@ -76,7 +76,7 @@ function teacherOf(from: Untyped) {
  *
  * @param existing  Stored details.
  * @param ops  Untrusted, model-extracted.
- *   `validity: false` (the guild's lessons) stamps no `recordedAt` and ignores the validity fields.
+ *   `validity: false` (the place's lessons) stamps no `recordedAt` and ignores the validity fields.
  *   `text` is free prose: its links go (src/memory/clamp.ts#stripUrls), then it is clamped
  *   tolerantly (see src/memory/clamp.ts) with `clampTolerance`; a text left empty adds nothing.
  */

@@ -4,7 +4,6 @@
 // one in-memory database per data directory with the existing legacy queue import.
 
 import path from 'node:path';
-import { guildPlaceId } from '../../memory/db/ids.ts';
 import { openMemoryDb } from '../../memory/db/open.ts';
 import { applyWakeQueueWrite, listWakes } from '../../memory/db/wake-queue.ts';
 import type { DeliveryInput, Handle, StoredWake, TurnMark, WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
@@ -16,7 +15,7 @@ import type { Handled, InnerContext, InnerState, Wake } from './types.ts';
 /** How long the lease of a claimed wake lasts when `context.turnLeaseMs` is not set (config.json's default). */
 const TURN_LEASE_MS = 300_000;
 
-/** The database a guild's queue is kept in: its read connection (null while it is not open) and its writer. */
+/** The database a place's queue is kept in: its read connection (null while it is not open) and its writer. */
 export type WakeBackend = { read(): Handle | null; write(update: WakeQueueUpdate): Promise<unknown> };
 
 // The in-memory databases of the inner lives built without a memory database, by data directory, for the process.
@@ -85,7 +84,7 @@ const wakesOfRows = (rows: ReadonlyArray<StoredWake>): Array<Wake> =>
 
 /** The handled entry of a stored row: when, the outcome, and an attend wake's place. */
 function handledOfRow(row: StoredWake): Handled {
-  const place = Object.hasOwn(row.payload, 'place') ? row.payload.place : row.payload.channelId;
+  const place = Object.hasOwn(row.payload, 'place') ? row.payload.place : row.payload.placeId;
   return {
     at: row.handledAt ?? row.queuedAt,
     outcome: row.outcome ?? row.state,
@@ -97,7 +96,7 @@ function handledOfRow(row: StoredWake): Handled {
  * The persona's view read back from `wakes` once: the queued and running wakes, and the handled and slept ones since
  * `keepSince`. A wake the state already held that the table lacks stays, and the next save writes it.
  */
-export function loadView(life: InnerContext, guildId: string, state: InnerState, keepSince: number): void {
+export function loadView(life: InnerContext, state: InnerState, keepSince: number): void {
   if (life.viewLoaded.has('persona')) return;
   const read = backendOf(life).read();
   if (!read) return;
@@ -106,12 +105,10 @@ export function loadView(life: InnerContext, guildId: string, state: InnerState,
   const ids = new Set(rows.map((row) => row.id));
   const queue = rows.flatMap((row) =>
     wakesOfRows([row]).map((wake) => {
-      const community = row.community ?? guildId;
-      const scoped = { scopePlaceId: guildPlaceId(life.iface(), community), ...wake };
-      const synced = life.synced.get(community) ?? new Map<string, string>();
-      life.synced.set(community, synced);
-      synced.set(wake.id, JSON.stringify(scoped));
-      return scoped;
+      const synced = life.synced.get('persona') ?? new Map<string, string>();
+      life.synced.set('persona', synced);
+      synced.set(wake.id, JSON.stringify(wake));
+      return wake;
     })
   );
   state.queue = [...queue, ...state.queue.filter((wake) => !ids.has(wake.id))];
@@ -120,15 +117,14 @@ export function loadView(life: InnerContext, guildId: string, state: InnerState,
   state.handled = { ...state.handled, ...Object.fromEntries(handled.map((row) => [row.id, handledOfRow(row)])) };
 }
 
-/** The table brought in step with the guild's queue view (see the head of this file). Never throws. */
-export function syncQueue(life: InnerContext, guildId: string, state: InnerState): void {
+/** The table brought in step with the place's queue view (see the head of this file). Never throws. */
+export function syncQueue(life: InnerContext, state: InnerState): void {
   if (!life.viewLoaded.has('persona')) return;
-  const synced = life.synced.get(guildId) ?? new Map<string, string>();
-  life.synced.set(guildId, synced);
+  const synced = life.synced.get('persona') ?? new Map<string, string>();
+  life.synced.set('persona', synced);
   const now = life.now();
   const seen = new Set<string>();
   for (const wake of state.queue) {
-    if (wake.scopePlaceId && wake.scopePlaceId !== guildPlaceId(life.iface(), guildId)) continue;
     seen.add(wake.id);
     const json = JSON.stringify(wake);
     const was = synced.get(wake.id);
@@ -137,7 +133,7 @@ export function syncQueue(life: InnerContext, guildId: string, state: InnerState
     dbSend(
       life,
       was === undefined
-        ? { kind: 'wake-queue', op: 'queue', wake, now, community: guildId }
+        ? { kind: 'wake-queue', op: 'queue', wake, now }
         : { kind: 'wake-queue', op: 'payload', id: wake.id, wake }
     );
   }
@@ -164,7 +160,6 @@ export type TurnClaim = { turnId: string; attempt: number };
  */
 export async function claimTurn(
   life: InnerContext,
-  guildId: string,
   group: ReadonlyArray<Wake>,
   { at, turn }: { at: number; turn: TurnMark }
 ): Promise<TurnClaim | null> {
@@ -186,7 +181,7 @@ export async function claimTurn(
   const claim = objOf(answer);
   if (claim.ok !== true || typeof claim.turnId !== 'string') {
     const code = typeof claim.code === 'string' ? claim.code : 'error';
-    life.log.warn('inner: wake claim refused', { guildId, code, wakes: group.length });
+    life.log.warn('inner: wake claim refused', { code, wakes: group.length });
     return null;
   }
   for (const [id, token] of Object.entries(objOf(claim.tokens))) life.claims.set(id, Number(token));
@@ -202,14 +197,13 @@ export async function claimTurn(
  */
 export async function finishTurn(
   life: InnerContext,
-  guildId: string,
   group: ReadonlyArray<Wake>,
   state: InnerState,
   deliveries: ReadonlyArray<DeliveryInput> = []
 ): Promise<Array<string>> {
   const done: Array<{ id: string; token: number; outcome: string; deliveries: ReadonlyArray<DeliveryInput> }> = [];
   const back: Array<{ id: string; token: number; wake: Wake }> = [];
-  const synced = life.synced.get(guildId);
+  const synced = life.synced.get('persona');
   for (const { id } of group) {
     const token = life.claims.get(id);
     if (token === undefined) continue;
@@ -227,7 +221,7 @@ export async function finishTurn(
       });
   }
   if (done.length === 0 && deliveries.length > 0)
-    life.log.info('inner: held sends dropped with a retried turn', { guildId, sends: deliveries.length });
+    life.log.info('inner: held sends dropped with a retried turn', { sends: deliveries.length });
   if (done.length + back.length === 0) return [];
   try {
     const answer = objOf(
@@ -242,7 +236,7 @@ export async function finishTurn(
     );
     const code = typeof answer.code === 'string' ? answer.code : 'error';
     if (answer.ok === true) return done.flatMap((item) => item.deliveries.map((delivery) => delivery.key));
-    life.log.warn('inner: wake completion refused', { guildId, code });
+    life.log.warn('inner: wake completion refused', { code });
   } catch {
     // Logged by the chain (dbWrite).
   }

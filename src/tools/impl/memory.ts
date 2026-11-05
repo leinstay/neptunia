@@ -2,6 +2,9 @@
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
+import { internalContext } from '../../memory/db/scope.ts';
+import type { MemoryDbService } from '../../memory/db/service.ts';
+import { accountOf, placeOfConversation } from '../../memory/addresses.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -31,7 +34,6 @@ import {
   treeSize,
   NONE,
   isoDay,
-  onOff,
   MEMORY_SHOW_DEFAULT_LIMIT,
   MEMORY_SHOW_MAX_LIMIT,
   dateMs,
@@ -100,6 +102,30 @@ function listSectionText(
   return lines.length ? lines.join('\n') : NONE;
 }
 
+/** The owner's view of one person across their DMs, or of one DM place, as the stored records say it. */
+function privateView(env: { memoryDb?: unknown }, args: Obj): string {
+  const database = env.memoryDb as MemoryDbService | undefined;
+  if (!database) throw invalid('the memory database is not open');
+  const context = internalContext();
+  const view =
+    args.person !== undefined
+      ? database.privateByPerson(idText(args.person), context)
+      : database.privateByPlace(idText(args.place), context);
+  if (!view.found) {
+    throw invalid(
+      'nothing stored under that id',
+      args.person !== undefined ? CODE.PERSON_NOT_FOUND : CODE.PLACE_NOT_FOUND
+    );
+  }
+  return JSON.stringify(view, null, 2);
+}
+
+/** Where a restored line goes: the DM place of a private item, the place of a place item, else the persona. */
+function archiveHolderOf(store: Untyped, scope: Untyped): string | null {
+  if (scope?.private === true) return store.dmHomeOf?.(scope.user) ?? null;
+  return scope?.place ?? null;
+}
+
 const handlers = perEnv((env) => {
   const {
     hot,
@@ -111,7 +137,7 @@ const handlers = perEnv((env) => {
     dataDir,
     assertNotPaused,
     freshenIfPaused,
-    requireGuildId,
+    requirePlaceId,
     tokenResolver,
     requireProfile,
   } = env;
@@ -132,8 +158,8 @@ const handlers = perEnv((env) => {
     const userId = idText(args.userId);
     if (!userId) throw invalid('a user is required');
 
-    const guildId = requireGuildId(context);
-    const profile = requireProfile(guildId, userId);
+    const placeId = requirePlaceId(context);
+    const profile = requireProfile(placeId, userId);
 
     const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     const requested = typeof args.section === 'string' ? args.section : '';
@@ -144,7 +170,7 @@ const handlers = perEnv((env) => {
       typeof asked === 'number' && Number.isInteger(asked) && asked >= 1 && asked <= MEMORY_SHOW_MAX_LIMIT
         ? asked
         : MEMORY_SHOW_DEFAULT_LIMIT;
-    const { nameOf, resolve } = tokenResolver(guildId);
+    const { nameOf, resolve } = tokenResolver();
 
     if (section === 'raw') return rawMemoryShowView(profile, memoryCfg);
 
@@ -181,12 +207,6 @@ const handlers = perEnv((env) => {
     return buildProfileSummary(profile, memoryCfg, nameOf);
   }
 
-  /** `hot.config.memory.mainChannelIds`, normalized to a string Set -- mirrors
-   * src/memory/update.ts#mainChannelSet. */
-  function mainChannelIdSet() {
-    return new Set((hot.config?.memory?.mainChannelIds ?? []).map(String));
-  }
-
   /**
    * `/nep memory channel [channel]`: with a channel, that channel's full stored note (the platform's
    * facts, the stored purpose/topics/tone, counters, activity verdict and top
@@ -196,25 +216,23 @@ const handlers = perEnv((env) => {
    */
   function cmdMemoryChannel(args: Obj, context: OpContext) {
     freshenIfPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
     const now = Date.now();
-    const { nameOf, resolve } = tokenResolver(guildId);
+    const { nameOf, resolve } = tokenResolver();
 
-    const channelId = idText(args.channelId);
-    if (channelId) {
-      const channel = store.getChannel(guildId, channelId);
-      if (!channel) throw invalid(`no channel entry for ${channelId}`, CODE.NOT_FOUND);
+    const conversationId = idText(args.placeId);
+    if (conversationId) {
+      const channel = store.getChannel(placeOfConversation(store, { id: conversationId }));
+      if (!channel) throw invalid(`no channel entry for ${conversationId}`, CODE.NOT_FOUND);
 
       const activity = channelActivity(channel, now);
-      const isMain = mainChannelIdSet().has(channelId);
       const writers = channelTopWritersText(channel.topWriters, nameOf);
 
       return [
         `name: ${channel.name || '-'}`,
         `category: ${channel.category || '-'}`,
         `topic: ${channel.topic || '-'}`,
-        `main: ${onOff(isMain)}`,
         `purpose: ${resolve(channel.purpose) || '(empty)'}`,
         `topics: ${resolve(channel.topics) || '(empty)'}`,
         `tone: ${resolve(channel.tone) || '(empty)'}`,
@@ -227,7 +245,7 @@ const handlers = perEnv((env) => {
       ].join('\n');
     }
 
-    const channels = store.listChannels(guildId);
+    const channels = store.listChannels(placeId);
     if (channels.length === 0) return NONE;
 
     return [...channels]
@@ -237,32 +255,32 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory server`: the stored guild-wide notes (`patterns`, `starters`, numbered
-   * in-jokes and self facts -- src/memory/store.ts#getGuild) plus counts of what else this guild has
-   * stored (profiles, channel notes, lore entries) and when the guild notes were last updated.
+   * `/nep memory server`: the stored place-wide notes (`patterns`, `starters`, numbered
+   * in-jokes and self facts -- src/memory/store.ts#getPlace) plus counts of what else this place has
+   * stored (profiles, channel notes, lore entries) and when the place notes were last updated.
    * `<@id>` tokens are resolved the same way `memory.show`/`memory.channel` resolve free text.
    */
   function cmdMemoryServer(_args: Obj, context: OpContext): string {
     freshenIfPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
-    const guild = store.getGuild(guildId);
-    const { resolve } = tokenResolver(guildId);
+    const place = store.getPlace(placeId);
+    const { resolve } = tokenResolver();
 
     return [
-      `patterns: ${resolve(guild.patterns) || '(empty)'}`,
-      `starters: ${resolve(guild.starters) || '(empty)'}`,
-      `in-jokes:\n${numberedNotes(guild.injokes, resolve)}`,
-      `self facts:\n${numberedNotes(guild.self, resolve)}`,
-      `profiles stored: ${store.countUsers(guildId)}`,
-      `channel notes stored: ${store.listChannels(guildId).length}`,
-      `lore entries: ${store.getLore(guildId).length}`,
-      `updatedAt: ${guild.updatedAt ?? '-'}`,
+      `patterns: ${resolve(place.patterns) || '(empty)'}`,
+      `starters: ${resolve(place.starters) || '(empty)'}`,
+      `in-jokes:\n${numberedNotes(place.injokes, resolve)}`,
+      `self facts:\n${numberedNotes(place.self, resolve)}`,
+      `profiles stored: ${store.countUsers()}`,
+      `channel notes stored: ${store.listChannels(placeId).length}`,
+      `lore entries: ${store.getLore(placeId).length}`,
+      `updatedAt: ${place.updatedAt ?? '-'}`,
     ].join('\n');
   }
 
   /**
-   * `/nep memory recent`: the guild's live recent lines (src/memory/recent.ts#liveRecent over
+   * `/nep memory recent`: the place's live recent lines (src/memory/recent.ts#liveRecent over
    * `memory.recentHours`), newest moment first, one per line: date and time in `bot.timezone`, the
    * source channel (`#name` when a channel note stores one, else its id), the weight and the text
    * with `<@id>` tokens resolved like the other memory views. Expired lines are not shown. Read
@@ -271,42 +289,42 @@ const handlers = perEnv((env) => {
    */
   function cmdMemoryRecent(_args: Obj, context: OpContext): string {
     freshenIfPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
     const settings = recentSettings(hot.config);
     if (!settings) return 'recent memory is off';
 
-    const live = liveRecent(store.getRecent(guildId).lines, {
+    const live = liveRecent(store.getRecent(placeId).lines, {
       now: Date.now(),
       hours: settings.hours,
     }) as Array<Untyped>;
     if (live.length === 0) return 'no live recent lines';
 
     const timezone = hot.config?.bot?.timezone || 'UTC';
-    const { resolve } = tokenResolver(guildId);
-    const channelText = (channelId: string): string => {
-      const name = store.getChannel(guildId, channelId)?.name;
-      return name ? `#${name}` : String(channelId);
+    const { resolve } = tokenResolver();
+    const channelText = (conversationId: string): string => {
+      const name = store.getChannel(placeOfConversation(store, { id: conversationId }))?.name;
+      return name ? `#${name}` : String(conversationId);
     };
     const lines = [...live]
       .sort((a, b) => b.at - a.at || (Number(b.id) || 0) - (Number(a.id) || 0))
       .map(
         (line) =>
-          `${zonedDay(line.at, timezone)} ${formatClock(line.at, timezone)}  ${channelText(line.channelId)}  w${line.weight}  ${resolve(line.text)}`
+          `${zonedDay(line.at, timezone)} ${formatClock(line.at, timezone)}  ${channelText(line.placeId)}  w${line.weight}  ${resolve(line.text)}`
       );
     return [`recent lines: ${live.length} live, window ${settings.hours} h`, ...lines].join('\n');
   }
 
   /**
    * `/nep memory archive [user] [kind] [n]`: the newest `n` (1..100, default 20) entries of the
-   * guild's archive (src/memory/archive.ts), newest first: with a member, those scoped to them;
+   * place's archive (src/memory/archive.ts), newest first: with a member, those scoped to them;
    * without one, the server-level ones (no member scope). `kind` narrows to one item kind. The
    * private archives are never read here. One line each: the UTC day the item left, the event,
    * the kind, the item id and its text (tokens resolved, cut to 160 characters). Read only; the
    * archive is streamed and only the newest `n` are kept in memory.
    */
   async function cmdMemoryArchive(args: Obj, context: OpContext) {
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
     if (!archive) return 'the archive is not available';
     const given = args.kind ?? null;
     const kind = typeof given === 'string' ? given : null;
@@ -314,18 +332,19 @@ const handlers = perEnv((env) => {
       throw invalid(`unknown kind; one of: ${ARCHIVE_KINDS.join(', ')}`);
     const asked = args.n;
     const n = typeof asked === 'number' && Number.isInteger(asked) ? Math.min(100, Math.max(1, asked)) : 20;
-    const userId = args.userId ? idText(args.userId) : null;
+    const userId = args.userId ? accountOf(store, idText(args.userId)) : null;
     const newest: Array<Untyped> = [];
-    for await (const entry of archive.iterate(guildId, {
-      scope: userId ? { user: userId } : null,
-      kinds: kind ? [kind] : null,
-    })) {
-      if (!userId && typeof entry?.scope?.user === 'string') continue;
-      newest.push(entry);
-      if (newest.length > n) newest.shift();
-    }
+    for (const holder of [placeId, null])
+      for await (const entry of archive.iterate(holder, {
+        scope: userId ? { user: userId } : null,
+        kinds: kind ? [kind] : null,
+      })) {
+        if (!userId && typeof entry?.scope?.user === 'string') continue;
+        newest.push(entry);
+        if (newest.length > n) newest.shift();
+      }
     if (newest.length === 0) return NONE;
-    const { resolve } = tokenResolver(guildId);
+    const { resolve } = tokenResolver();
     return newest
       .reverse()
       .map(
@@ -343,16 +362,16 @@ const handlers = perEnv((env) => {
    */
   async function cmdMemoryRestore(args: Obj, context: OpContext) {
     assertNotPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
     const itemId = textOf(args.itemId).trim();
     if (!itemId) throw invalid('an item id is required');
     if (!archive || typeof store.restoreArchived !== 'function') throw new Error('the archive is not available');
-    const versions = ((await archive.find(guildId, itemId)) as Array<Untyped>).filter(
+    const versions = ((await archive.find(itemId)) as Array<Untyped>).filter(
       (entry: Untyped) => entry.event !== 'restored'
     );
     if (versions.length === 0) throw invalid(`no archived item ${itemId}`, CODE.NOT_FOUND);
     const latest = versions.at(-1);
-    const result = store.restoreArchived(guildId, latest);
+    const result = store.restoreArchived(placeId, latest);
     if (!result.restored) {
       if (result.reason === 'hot') return `${latest.itemKind} ${itemId} is already in memory; nothing changed`;
       if (result.reason === 'no-profile') throw new Error(`no stored memory to restore ${itemId} into`);
@@ -366,9 +385,8 @@ const handlers = perEnv((env) => {
       by: 'owner',
       participants: latest.participants,
     });
-    const privateUserId = latest.scope?.private === true ? latest.scope.user : null;
     try {
-      await archive.append(guildId, [line], privateUserId ? { privateUserId } : {});
+      await archive.append(archiveHolderOf(store, latest.scope), [line]);
     } catch (error) {
       return `restored ${latest.itemKind} ${itemId}; the archive line failed (${idText(objOf(error).code) || 'error'})`;
     }
@@ -379,17 +397,17 @@ const handlers = perEnv((env) => {
    * The turn that posted the message `reference` names (an id or a link), whole: the turn is searched in the day the
    * message was posted, which the interface says (`fetchMessages`).
    */
-  async function turnOfMessage(guildId: string, reference: unknown, context: OpContext): Promise<string> {
+  async function turnOfMessage(placeId: string, reference: unknown, context: OpContext): Promise<string> {
     const ref = await messageRefOf(reference, reads);
     const { messageId } = ref;
-    const conversationId = ref.channelId ?? (context.channelId ? idText(context.channelId) : null);
+    const conversationId = ref.placeId ?? (context.conversationId ? idText(context.conversationId) : null);
     const fetched =
       conversationId !== null && reads && port
         ? await reads.fetchMessages({ iface: port.iface, conversationId }, [messageId])
         : null;
     const at = fetched?.messages[0]?.event?.message.at ?? null;
     if (at === null) throw invalid(`no message ${messageId} to date its turn by`, CODE.UNKNOWN_MESSAGE);
-    const found = typeof journal.findTurn === 'function' ? await journal.findTurn(guildId, { messageId, at }) : null;
+    const found = typeof journal.findTurn === 'function' ? await journal.findTurn(placeId, { messageId, at }) : null;
     if (!found)
       throw invalid(
         `no turn of the persona posted message ${messageId} (searched ${utcDay(at)} and ${utcDay(at + DAY_MS)})`,
@@ -404,14 +422,14 @@ const handlers = perEnv((env) => {
    * With `message` (`messageId`: an id or a message link; the persona's call gives `#N`, resolved
    * to the id by src/tools/executors.ts#resolveCall) the turn that posted that message instead,
    * whole (journal.findTurn over the message's snowflake time, shown by turnView), the other
-   * options ignored; a message no turn of the guild journal posted is `not-found`.
+   * options ignored; a message no turn of the place journal posted is `not-found`.
    * Owner-only (src/tools/impl/grants.ts); read only, so it works while paused.
    */
   async function cmdMemoryJournal(args: Obj, context: OpContext) {
     if (!journal) return 'the journal is not available';
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
     if (args.messageId !== undefined && args.messageId !== null && args.messageId !== '')
-      return turnOfMessage(guildId, args.messageId, context);
+      return turnOfMessage(placeId, args.messageId, context);
     const day = args.day ?? utcDay(Date.now());
     if (typeof day !== 'string' || !JOURNAL_DAY_RE.test(day)) throw invalid('day must be YYYY-MM-DD');
     const wantedKind = args.kind ?? 'all';
@@ -421,7 +439,7 @@ const handlers = perEnv((env) => {
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > JOURNAL_N_MAX)
       throw invalid(`n must be 1..${JOURNAL_N_MAX}`);
 
-    const records = await journal.read(guildId, { day, kind: kind === 'all' ? null : kind, n });
+    const records = await journal.read(placeId, { day, kind: kind === 'all' ? null : kind, n });
     if (records.length === 0) return `no journal records on ${day}${kind === 'all' ? '' : ` (${kind})`}`;
     return [
       `journal ${day}${kind === 'all' ? '' : ` (${kind})`}: last ${records.length}`,
@@ -473,19 +491,19 @@ const handlers = perEnv((env) => {
    */
   function cmdPrivateShow(args: Obj, context: OpContext) {
     freshenIfPaused();
+    if (args.person !== undefined || args.place !== undefined) return privateView(env, args);
     const userId = idText(args.userId);
     if (!userId) throw invalid('a user is required');
-    const guildId = requireGuildId(context);
 
-    const publicProfile = store.getUser(guildId, userId);
+    const publicProfile = store.getUser(accountOf(store, userId));
     const name = publicProfile?.names?.[0];
     const label = name ? `${name} (id:${userId})` : String(userId);
 
-    const priv = store.getPrivate(guildId, userId);
+    const priv = store.getPrivate(accountOf(store, userId));
     if (!priv) return `No private memory for this member: ${label}.`;
 
     const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
-    const { resolve } = tokenResolver(guildId);
+    const { resolve } = tokenResolver();
 
     const privateAffinity = priv.affinity ?? emptyAffinity();
     const effective = effectiveAffinity(publicProfile?.affinity, privateAffinity);
@@ -542,15 +560,14 @@ const handlers = perEnv((env) => {
   function cmdMemoryAffinity(args: Obj, context: OpContext) {
     const userId = idText(args.userId);
     if (!userId) throw invalid('a user is required');
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
     freshenIfPaused();
-    const profile = requireProfile(guildId, userId);
-    return affinityView(profile.affinity, tokenResolver(guildId).resolve);
+    const profile = requireProfile(placeId, userId);
+    return affinityView(profile.affinity, tokenResolver().resolve);
   }
 
   return {
     cmdMemoryShow,
-    mainChannelIdSet,
     cmdMemoryChannel,
     cmdMemoryServer,
     cmdMemoryRecent,

@@ -178,9 +178,9 @@ export function intentArgs(action: string): ToArgs {
       const value = val(a, name);
       if (value !== null) out[name] = value;
     }
-    const channelId = idOf(a, 'channel');
+    const placeId = idOf(a, 'channel');
     const attend = idOf(a, 'attend');
-    return { ...out, ...(channelId ? { channelId } : {}), ...(attend ? { attend } : {}) };
+    return { ...out, ...(placeId ? { placeId } : {}), ...(attend ? { attend } : {}) };
   };
 }
 
@@ -311,7 +311,7 @@ const reactArgs =
     action,
     messageId: val(a, 'message'),
     emoji: val(a, 'emoji'),
-    channelId: idOf(a, 'channel'),
+    placeId: idOf(a, 'channel'),
   });
 const taskStatusArgs =
   (action: string | undefined): ToArgs =>
@@ -366,12 +366,12 @@ const ENTRIES: Array<Definition> = [
     body: 'text',
     effects: 'paid',
     toArgs: (a) => {
-      const channelId = idOf(a, 'channel');
+      const placeId = idOf(a, 'channel');
       const replyTo = opt(a, 'reply');
       return {
         text: val(a, 'text'),
         self: flag(val(a, 'self')) ?? false,
-        ...(channelId ? { channelId } : {}),
+        ...(placeId ? { placeId } : {}),
         ...(replyTo === undefined ? {} : { replyTo }),
       };
     },
@@ -382,11 +382,11 @@ const ENTRIES: Array<Definition> = [
     body: 'text',
     effects: 'paid',
     toArgs: (a) => {
-      const channelId = idOf(a, 'channel');
+      const placeId = idOf(a, 'channel');
       const replyTo = opt(a, 'reply');
       return {
         text: val(a, 'text'),
-        ...(channelId ? { channelId } : {}),
+        ...(placeId ? { placeId } : {}),
         ...(replyTo === undefined ? {} : { replyTo }),
       };
     },
@@ -556,7 +556,7 @@ const ENTRIES: Array<Definition> = [
     params: obj({ channel: ref() }),
     refs: { channel: 'channel' },
     effects: 'read',
-    toArgs: (a) => ({ channelId: idOf(a, 'channel') }),
+    toArgs: (a) => ({ placeId: idOf(a, 'channel') }),
   }),
   def('memory.server.read', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('memory.recent.read', { params: EMPTY(), effects: 'read', toArgs: none }),
@@ -611,7 +611,7 @@ const ENTRIES: Array<Definition> = [
     body: 'text',
     effects: 'write',
     toArgs: (a) => ({
-      channelId: idOf(a, 'channel'),
+      placeId: idOf(a, 'channel'),
       replyTo: opt(a, 'reply'),
       text: opt(a, 'text'),
       file: opt(a, 'file'),
@@ -625,13 +625,13 @@ const ENTRIES: Array<Definition> = [
     refs: { channel: 'channel' },
     body: 'text',
     effects: 'write',
-    toArgs: (a) => ({ messageId: val(a, 'message'), text: val(a, 'text'), channelId: idOf(a, 'channel') }),
+    toArgs: (a) => ({ messageId: val(a, 'message'), text: val(a, 'text'), placeId: idOf(a, 'channel') }),
   }),
   def('message.delete', {
     params: obj({ message: str(), channel: ref() }, ['message']),
     refs: { channel: 'channel' },
     effects: 'destructive',
-    toArgs: (a) => ({ messageId: val(a, 'message'), channelId: idOf(a, 'channel') }),
+    toArgs: (a) => ({ messageId: val(a, 'message'), placeId: idOf(a, 'channel') }),
   }),
   def('message.react.add', {
     params: REACT_PARAMS(),
@@ -827,7 +827,7 @@ const ENTRIES: Array<Definition> = [
     toArgs: (a) => ({
       question: opt(a, 'question'),
       people: opt(a, 'people'),
-      channelId: idOf(a, 'channel'),
+      placeId: idOf(a, 'channel'),
       when: opt(a, 'when'),
       terms: opt(a, 'terms'),
       // The window read's arguments ride along only when she gave them.
@@ -855,10 +855,10 @@ const ENTRIES: Array<Definition> = [
         const value = val(a, name);
         if (value !== null) out[name] = value;
       }
-      const channelId = idOf(a, 'channel');
+      const placeId = idOf(a, 'channel');
       return {
         ...out,
-        ...(channelId ? { channelId } : {}),
+        ...(placeId ? { placeId } : {}),
         ...(val(a, 'last') == null ? {} : { last: val(a, 'last') }),
       };
     },

@@ -2,8 +2,8 @@
 // design (caps, expiry, the analyzer's removes and replaces); before an item leaves, its last
 // version is written here, so nothing the persona once held is lost to a cap. One line per event
 // in the memory database (src/memory/db/service.ts), in the unit of its month,
-// `guilds/<guildId>/archive/<YYYY-MM>.jsonl` by the entry's `recordedAt`; a private layer's
-// items go under `private/<userId>/archive/` instead and never into the guild archive.
+// the place's archive of that month by the entry's `recordedAt`; a DM's items go under its DM place, and what belongs to
+// no place under the persona.
 //
 // An entry carries three ids: `itemId` (the item's stable identity, src/memory/store.ts stamps it
 // on write), `revisionId` (a hash of the item's text, so two versions of one item tell apart) and
@@ -19,12 +19,12 @@
 // `archive/pending-done.jsonl`, then compacts both files. The writers wait while a writer lock is
 // held (`writerGate`).
 //
-// Logs carry counts and guild ids, never an entry's text.
+// Logs carry counts, never an entry's text.
 
 import * as nodeFs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { communityKey, namespaceOf, keyText } from './db/storage-keys.ts';
+import { keyText, placeOrPersona } from './db/storage-keys.ts';
 
 import type { StorageKey } from './db/storage-keys.ts';
 
@@ -35,7 +35,7 @@ import { TEACHER_TOKEN_RE, tokenIds } from './mentions.ts';
 import { isoOf, revisionOf } from './record.ts';
 import { memoryRootOf } from './root.ts';
 
-import { archiveLayers, archiveLines, archiveMonths } from './db/readers/archive.ts';
+import { archiveHolders, archiveLines, archiveMonths } from './db/readers/archive.ts';
 import type { AppendStore } from './append-store.ts';
 import type { Log, MemoryDb, Untyped, StoredRecord } from './types.ts';
 
@@ -165,25 +165,25 @@ function observedAtOf(value: Untyped, recordedAt: Untyped) {
   return { date: recordedAt.slice(0, 10), precision: 'approx' };
 }
 
-/** The messages an item names itself, as `{ channelId?, messageId, revision? }`; [] when none. */
+/** The messages an item names itself, as `{ placeId?, messageId, revision? }`; [] when none. */
 function sourceRefsOf(value: Untyped, given: Untyped) {
   const clean = (ref: Untyped) => {
     if (!isRecord(ref) || typeof ref.messageId !== 'string' || !ref.messageId) return null;
     return {
-      ...(typeof ref.channelId === 'string' && ref.channelId ? { channelId: ref.channelId } : {}),
+      ...(typeof ref.placeId === 'string' && ref.placeId ? { placeId: ref.placeId } : {}),
       messageId: ref.messageId,
       ...(isIntegerNumber(ref.revision) && ref.revision > 0 ? { revision: ref.revision } : {}),
     };
   };
   const explicit = Array.isArray(given) ? given : Array.isArray(value.sourceRefs) ? value.sourceRefs : null;
   if (explicit) return explicit.map(clean).filter(Boolean);
-  const channelId = typeof value.channelId === 'string' && value.channelId ? value.channelId : null;
+  const placeId = typeof value.placeId === 'string' && value.placeId ? value.placeId : null;
   const ids = Array.isArray(value.messages)
     ? value.messages.map((message: Untyped) => (isRecord(message) ? message.id : null))
     : Array.isArray(value.sourceMessageIds)
       ? value.sourceMessageIds
       : [];
-  return idList(ids).map((messageId) => (channelId ? { channelId, messageId } : { messageId }));
+  return idList(ids).map((messageId) => (placeId ? { placeId, messageId } : { messageId }));
 }
 
 /** The members an item concerns: the scope's member, `given`, ids named in its text, its teacher, the authors of its messages. */
@@ -209,7 +209,7 @@ function participantsOf(value: Untyped, text: Untyped, scope: Untyped, given: Un
  * `sourceRefs` the messages it names itself (`sourceRefs` given, else its own `sourceRefs`, its
  * messages' ids, its `sourceMessageIds`), else []: never guessed. `participants`: the scope's
  * member, `participants` given, the `<@id>` tokens of its text, its teacher and the other authors
- * of its messages. `guildId` is stamped on append.
+ * of its messages.
  *
  * @throws {TypeError} An unknown `itemKind` or `event`.
  */
@@ -218,7 +218,7 @@ export function archiveEntry(
   {
     itemKind,
     event,
-    scope = { guild: true },
+    scope = {},
     origin = 'live',
     by = 'store',
     now = Date.now,
@@ -251,7 +251,7 @@ export function archiveEntry(
     stored[key] = structuredClone(field);
   }
   const lastSeen = LAST_SEEN_FIELDS.map((field) => isoOf(value[field])).find(Boolean) ?? null;
-  const entryScope = isRecord(scope) ? { ...scope } : { guild: true };
+  const entryScope = isRecord(scope) ? { ...scope } : {};
   const id = uuid();
   return {
     v: ARCHIVE_VERSION,
@@ -274,7 +274,6 @@ export function archiveEntry(
     by: typeof by === 'string' && by ? by : 'store',
     occurredAt: recordedAt,
     recordedAt,
-    guildId: null,
   };
 }
 
@@ -296,19 +295,15 @@ function parse(line: Untyped) {
 }
 
 export type Archive = {
-  append(
-    guildId: string,
-    entries: Array<object>,
-    opts?: { privateUserId?: string | null }
-  ): Promise<{ written: number; duplicates: number }>;
+  append(placeId: string | null, entries: Array<object>): Promise<{ written: number; duplicates: number }>;
   iterate(
-    guildId: string,
-    query?: { from?: string; to?: string; scope?: object; kinds?: Array<string>; privateUserId?: string | null }
+    placeId: string | null,
+    query?: { from?: string; to?: string; scope?: object; kinds?: Array<string> }
   ): AsyncIterable<object>;
-  find(guildId: string, itemId: string): Promise<Array<object>>;
-  queuePending(guildId: string, entries: Array<object>, opts?: { privateUserId?: string | null }): Promise<number>;
-  drainPending(guildId: string): Promise<{ archived: number; left: number; confirmed: Array<object> }>;
-  stats(guildId: string): { pending: number };
+  find(itemId: string): Promise<Array<object>>;
+  queuePending(placeId: string | null, entries: Array<object>): Promise<number>;
+  drainPending(): Promise<{ archived: number; left: number; confirmed: Array<object> }>;
+  stats(): { pending: number };
 };
 
 /**
@@ -325,13 +320,13 @@ export type Archive = {
  *   writes the entries it does not refuse as lines of the month's unit (`memoryDb.writeUnit`, op `lines`), and a
  *   failed write rejects as a failed append does (the store then queues the entries in the pending file and the
  *   drain writes them through `append` again)
- *   `append` stamps `guildId` (and, with `privateUserId`, the private scope `{ user, private: true }`)
+ *   `append` writes under the place it is given (the persona's with null)
  *   on each entry and refuses an entry whose key the month already holds (`duplicates`). `iterate` streams
  *   the entries whose `recordedAt` lies in `[from, to]`, of `kinds` and matching every key of `scope` when
  *   given, month by month (an entry repeated by a retried write is yielded once). `find` returns every entry
  *   of one item, the private archives included, oldest first. `queuePending` keeps entries in `pending.jsonl`
- *   (the member's private one with `privateUserId`) and resolves to their count; `drainPending` appends
- *   every pending entry of the guild and its private layers (a duplicate counts as archived), notes each in
+ *   and resolves to their count; `drainPending` appends
+ *   every pending entry of every place (a duplicate counts as archived), notes each in
  *   `pending-done.jsonl`, compacts both files and returns the counts and the `confirmed` entries; it stops a
  *   file at the first refusal. `stats` reads the pending count kept in memory (set by `queuePending` and
  *   `drainPending`; 0 before the first). Every method but `iterate`, `find` and `stats` runs one at a time.
@@ -356,7 +351,7 @@ export function createArchive({
   const root = memoryRootOf(dataDir);
   const seam = readSeamOf(memoryDb, log, 'archive');
   const indexes = new Map(); // unit -> Set of keys
-  const pendingCounts = new Map(); // guildId -> entries waiting in the pending files
+  let pendingCount = 0; // the entries waiting in the pending files
   let chain: Promise<unknown> = Promise.resolve();
 
   /** Run `task` after every write already queued. */
@@ -366,15 +361,7 @@ export function createArchive({
     return run;
   }
 
-  function guildBase(guildId: string) {
-    return root.guildDir(guildId);
-  }
-
-  function baseDir(guildId: string, privateUserId: string | null = null) {
-    return typeof privateUserId === 'string' && privateUserId
-      ? path.join(guildBase(guildId), 'private', privateUserId, 'archive')
-      : path.join(guildBase(guildId), 'archive');
-  }
+  const baseDir = (placeId: string | null): string => path.join(root.placeDir(placeId), 'archive');
 
   const pendingFile = (base: Untyped) => path.join(base, 'pending.jsonl');
   const doneFile = (base: Untyped) => path.join(base, 'pending-done.jsonl');
@@ -392,18 +379,16 @@ export function createArchive({
     }
   }
 
-  /** Every base of a guild that may hold a pending queue: its own archive, then each private layer's
-   * directory that exists (only directories are layers). */
-  async function bases(guildId: string) {
-    const out = [{ base: baseDir(guildId), privateUserId: null }];
-    for (const userId of await listDir(path.join(guildBase(guildId), 'private'), { dirsOnly: true })) {
-      const base = baseDir(guildId, userId);
-      if ((await listDir(base)).length > 0) out.push({ base, privateUserId: userId });
+  /** Every holder that may have a pending queue: the persona, then each place folder that exists. */
+  async function bases(): Promise<Array<{ base: string; placeId: string | null }>> {
+    const out: Array<{ base: string; placeId: string | null }> = [{ base: baseDir(null), placeId: null }];
+    for (const name of await listDir(path.join(root.dataDir, 'places'), { dirsOnly: true })) {
+      const placeId = decodeURIComponent(name);
+      out.push({ base: baseDir(placeId), placeId });
     }
     return out;
   }
 
-  /** Append one line of a pending file durably: rejects when the append store failed it or holds it for a retry. */
   async function appendLine(file: string, line: Untyped) {
     const before = typeof appendStore.stats === 'function' ? appendStore.stats() : null;
     await appendStore.append(file, line, { sync: true });
@@ -421,11 +406,11 @@ export function createArchive({
   }
 
   /** A month's keys, from the database's lines of the month's unit, read once and then kept. */
-  function dbIndex(db: Untyped, guildId: string, privateUserId: string | null, month: string, owner: Untyped) {
+  function dbIndex(db: Untyped, placeId: string | null, month: string, owner: Untyped) {
     const cached = indexes.get(owner);
     if (cached) return cached;
     const keys = new Set();
-    for (const line of seam.run(() => archiveLines(db, guildId, privateUserId, month, namespaceOf(memoryDb)))) {
+    for (const line of seam.run(() => archiveLines(db, placeId, month))) {
       const key = keyOf(parse(line));
       if (key) keys.add(key);
     }
@@ -434,11 +419,10 @@ export function createArchive({
   }
 
   /** The month units' lines written through the database's writer. */
-  async function appendNow(guildId: string, entries: Untyped, privateUserId: string | null = null) {
+  async function appendNow(placeId: string | null, entries: Untyped) {
     const db = seam.db();
     if (typeof memoryDb?.writeUnit !== 'function')
       throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
-    const isPrivate = typeof privateUserId === 'string' && privateUserId;
     const months = new Map<
       string,
       { keys: Set<unknown>; lines: Array<Record<string, Untyped>>; added: Set<unknown> }
@@ -446,18 +430,11 @@ export function createArchive({
     let duplicates = 0;
     for (const raw of Array.isArray(entries) ? entries : []) {
       if (!isRecord(raw)) continue;
-      const entry: Record<string, Untyped> = { ...raw, guildId: String(guildId) };
-      if (isPrivate) entry.scope = { user: privateUserId, private: true };
+      const entry: Record<string, Untyped> = { ...raw };
       const month = monthOf(entry);
-      const owner = keyText(
-        communityKey('archive', guildId, { iface: namespaceOf(memoryDb), privateUserId, partition: month })
-      );
+      const owner = keyText(placeOrPersona('archive', placeId, { partition: month }));
       let unit = months.get(owner);
-      if (!unit)
-        months.set(
-          owner,
-          (unit = { keys: dbIndex(db, guildId, privateUserId, month, owner), lines: [], added: new Set() })
-        );
+      if (!unit) months.set(owner, (unit = { keys: dbIndex(db, placeId, month, owner), lines: [], added: new Set() }));
       const key = keyOf(entry);
       if (key && (unit.keys.has(key) || unit.added.has(key))) {
         duplicates += 1;
@@ -481,29 +458,23 @@ export function createArchive({
     if (typeof writerGate === 'function') await writerGate();
   }
 
-  async function append(
-    guildId: string,
-    entries: Untyped,
-    { privateUserId = null }: { privateUserId?: string | null } = {}
-  ) {
+  async function append(placeId: string | null, entries: Untyped) {
     await gate();
-    return serial(() => appendNow(guildId, entries, privateUserId));
+    return serial(() => appendNow(placeId, entries));
   }
 
   async function* iterate(
-    guildId: string,
+    placeId: string | null,
     {
       from = null,
       to = null,
       scope = null,
       kinds = null,
-      privateUserId = null,
     }: {
       from?: string | null;
       to?: string | null;
       scope?: Untyped;
       kinds?: Array<string> | null;
-      privateUserId?: string | null;
     } = {}
   ) {
     const db = seam.db();
@@ -513,10 +484,10 @@ export function createArchive({
     const toMonth = to ? String(isoOf(to) ?? '').slice(0, 7) : '9999-99';
     const wanted = Array.isArray(kinds) && kinds.length > 0 ? new Set(kinds) : null;
     const scopeKeys = isRecord(scope) ? Object.entries(scope) : [];
-    for (const month of seam.run(() => archiveMonths(db, guildId, privateUserId, namespaceOf(memoryDb)))) {
+    for (const month of seam.run(() => archiveMonths(db, placeId))) {
       if (!MONTH_RE.test(month) || month < fromMonth || month > toMonth) continue;
       const seen = new Set();
-      for (const line of seam.run(() => archiveLines(db, guildId, privateUserId, month, namespaceOf(memoryDb)))) {
+      for (const line of seam.run(() => archiveLines(db, placeId, month))) {
         const entry = parse(line);
         if (!entry || seen.has(entry.id)) continue;
         seen.add(entry.id);
@@ -529,12 +500,11 @@ export function createArchive({
     }
   }
 
-  async function find(guildId: string, itemId: string) {
+  async function find(itemId: string) {
     const out = [];
     const db = seam.db();
-    const layers = [null, ...seam.run(() => archiveLayers(db, guildId, namespaceOf(memoryDb)))];
-    for (const privateUserId of layers) {
-      for await (const entry of iterate(guildId, { privateUserId })) if (entry.itemId === itemId) out.push(entry);
+    for (const holder of seam.run(() => archiveHolders(db))) {
+      for await (const entry of iterate(holder)) if (entry.itemId === itemId) out.push(entry);
     }
     return out.sort((a, b) => String(a.recordedAt).localeCompare(String(b.recordedAt)));
   }
@@ -558,38 +528,34 @@ export function createArchive({
     return { waiting, done };
   }
 
-  async function countPending(guildId: string) {
+  async function countPending() {
     let pending = 0;
-    for (const { base } of await bases(guildId)) pending += (await readPending(base)).waiting.length;
-    pendingCounts.set(String(guildId), pending);
+    for (const { base } of await bases()) pending += (await readPending(base)).waiting.length;
+    pendingCount = pending;
     return pending;
   }
 
-  async function queuePending(
-    guildId: string,
-    entries: Untyped,
-    { privateUserId = null }: { privateUserId?: string | null } = {}
-  ) {
+  async function queuePending(placeId: string | null, entries: Untyped) {
     await gate();
     return serial(async () => {
-      const base = baseDir(guildId, privateUserId);
+      const base = baseDir(placeId);
       let queued = 0;
       for (const entry of Array.isArray(entries) ? entries : []) {
         if (!isRecord(entry) || typeof entry.id !== 'string') continue;
         await appendLine(pendingFile(base), JSON.stringify({ id: entry.id, entry }));
         queued += 1;
-        pendingCounts.set(String(guildId), (pendingCounts.get(String(guildId)) ?? 0) + 1);
+        pendingCount += 1;
       }
       return queued;
     });
   }
 
-  async function drainPending(guildId: string) {
+  async function drainPending() {
     await gate();
     return serial(async () => {
       let archived = 0;
       const confirmed: Array<Untyped> = [];
-      for (const { base, privateUserId } of await bases(guildId)) {
+      for (const { base, placeId } of await bases()) {
         const { waiting, done } = await readPending(base);
         if (waiting.length === 0) {
           if (done.size > 0) await appendStore.rewrite(doneFile(base), () => false);
@@ -598,11 +564,10 @@ export function createArchive({
         let taken = 0;
         for (const entry of waiting) {
           try {
-            await appendNow(guildId, [entry], privateUserId);
+            await appendNow(placeId, [entry]);
             await appendLine(doneFile(base), JSON.stringify({ id: entry.id }));
           } catch (error) {
             log.warn('archive: drain stopped', {
-              guildId: String(guildId),
               left: waiting.length - taken,
               code: propOf(error, 'code') ?? null,
             });
@@ -619,14 +584,14 @@ export function createArchive({
           if (taken === waiting.length) await appendStore.rewrite(doneFile(base), () => false);
         }
       }
-      const left = await countPending(guildId);
-      if (archived > 0) log.info('archive: drained', { guildId: String(guildId), archived, left });
+      const left = await countPending();
+      if (archived > 0) log.info('archive: drained', { archived, left });
       return { archived, left, confirmed };
     });
   }
 
-  function stats(guildId: string) {
-    return { pending: pendingCounts.get(String(guildId)) ?? 0 };
+  function stats() {
+    return { pending: pendingCount };
   }
 
   return { append, iterate, find, queuePending, drainPending, stats };

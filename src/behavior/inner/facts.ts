@@ -129,12 +129,12 @@ export const idOrNull = (value: unknown): string | null =>
 const factsOf = (state: { facts?: Array<Fact> } | null | undefined): Array<Fact> =>
   Array.isArray(state?.facts) ? state.facts : [];
 
-/** The state's facts that `scope` may see and that are not told yet, oldest first (the callers cut them to FACTS_SHOWN_MAX). `scope`: `{ channelId, privateChat, anywhere }`. */
+/** The state's facts that `scope` may see and that are not told yet, oldest first (the callers cut them to FACTS_SHOWN_MAX). `scope`: `{ placeId, privateChat, anywhere }`. */
 export function pendingFactsOf(
   state: { facts?: Array<Fact> } | null | undefined,
-  { channelId = null, privateChat = false, anywhere = false, scopePlaceId, conversation }: FactScope = {}
+  { placeId = null, privateChat = false, anywhere = false, scopePlaceId, conversation }: FactScope = {}
 ): Array<Fact> {
-  const here = idOrNull(channelId);
+  const here = idOrNull(placeId);
   return factsOf(state).filter((fact) => {
     if (fact.told) return false;
     if (scopePlaceId && fact.scopePlaceId !== scopePlaceId) return false;
@@ -145,19 +145,19 @@ export function pendingFactsOf(
         (privateChat && fact.conversation.conversationId !== conversation.conversationId))
     )
       return false;
-    if (privateChat === true) return fact.privateChat === true && here !== null && fact.channelId === here;
+    if (privateChat === true) return fact.privateChat === true && here !== null && fact.placeId === here;
     if (fact.privateChat === true) return false;
-    return anywhere || fact.channelId === null || fact.channelId === here;
+    return anywhere || fact.placeId === null || fact.placeId === here;
   });
 }
 
-/** `fact` (`{ kind, channelId, privateChat, at, ...payload }`) appended to `state.facts` (an id given). Returns the stored fact. */
+/** `fact` (`{ kind, placeId, privateChat, at, ...payload }`) appended to `state.facts` (an id given). Returns the stored fact. */
 export function addFactTo(state: { facts?: Array<Fact> }, fact: FactInput, id: string): Fact {
-  const { channelId = null, privateChat = false, at, ...payload } = fact;
+  const { placeId = null, privateChat = false, at, ...payload } = fact;
   const stored: Fact = {
     ...payload,
     id,
-    channelId: idOrNull(channelId),
+    placeId: idOrNull(placeId),
     privateChat: privateChat === true,
     at: isFiniteNumber(at) ? at : 0,
     told: false,
@@ -181,7 +181,7 @@ export function markFactsTold(
 }
 
 /** The fields of a kept fact that are its bookkeeping, not its payload. */
-const BOOKKEEPING = ['scopePlaceId', 'conversation', 'id', 'channelId', 'privateChat', 'at', 'told'] as const;
+const BOOKKEEPING = ['scopePlaceId', 'conversation', 'id', 'placeId', 'privateChat', 'at', 'told'] as const;
 
 /** A fact as the prompt shows it: its payload without the bookkeeping. */
 export function factPayload(fact: Fact): FactPayload {
@@ -192,16 +192,16 @@ export function factPayload(fact: Fact): FactPayload {
 
 /**
  * The facts of an addressed turn when no inner life keeps them (and of tests): the same three
- * calls as the inner life's `facts`, in process only, one list for every guild.
+ * calls as the inner life's `facts`, in process only, one list for every place.
  */
 export function createLocalFacts({ now = Date.now }: { now?: () => number } = {}): FactsApi {
   const state: { facts: Array<Fact> } = { facts: [] };
   let n = 0;
   return {
     enabled: () => true,
-    add: (_guildId, fact) => addFactTo(state, { at: now(), ...fact }, `local-${++n}`),
-    pending: (_guildId, scope) => pendingFactsOf(state, scope),
-    markTold: (_guildId, ids) => {
+    add: (fact) => addFactTo(state, { at: now(), ...fact }, `local-${++n}`),
+    pending: (scope) => pendingFactsOf(state, scope),
+    markTold: (ids) => {
       markFactsTold(state, ids, now());
       state.facts = state.facts.filter((fact) => !fact.told);
     },

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// health: allow file-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 // Operations tool. One purpose: replay a real or a scheduled turn of the
 // engine without side effects, with the working tree's code, prompts and
 // memory, and print what the persona would do now and what her request looked
@@ -28,15 +29,15 @@
 // Not for: measuring what her memory session writes (scripts/memory-session.ts);
 // reading the journal's day numbers (scripts/journal-report.ts).
 //
-//   cd /opt/neptunia/app && node scripts/replay.ts <channelId> <triggerMessageId>
+//   cd /opt/neptunia/app && node scripts/replay.ts <placeId> <triggerMessageId>
 //        [--before 40] [--samples 1] [--show-request] [--as-of-moment]
 //        [--hide-self <substring>]... [--hide-self-all] [--snapshot <dir>] [--spend <usd>]
-//   cd /opt/neptunia/app && node scripts/replay.ts <channelId> <triggerMessageId> --split
+//   cd /opt/neptunia/app && node scripts/replay.ts <placeId> <triggerMessageId> --split
 //        [--text "<candidate text>"] [--before <split.contextMessages>] [--samples 3] [--spend <usd>]
-//   cd /opt/neptunia/app && node scripts/replay.ts <channelId> <triggerMessageId> --recall
+//   cd /opt/neptunia/app && node scripts/replay.ts <placeId> <triggerMessageId> --recall
 //        [--text "<candidate text>"] [--before <context.channelMessages - 1>] [--budget <ms>] [--show-request] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --pair <promptsDirA> <promptsDirB>
-//        (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment]
+//        (--triggers <file> | <placeId> <triggerMessageId>) [--before 40] [--as-of-moment]
 //        [--snapshot <dir>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]
 //   cd /opt/neptunia/app && node scripts/replay.ts --diary <selfPicture|picture> [--count 1] [--topic "<text>"]
@@ -45,10 +46,10 @@
 //        [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40]
 //        [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --pair-transport
-//        (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment]
+//        (--triggers <file> | <placeId> <triggerMessageId>) [--before 40] [--as-of-moment]
 //        [--snapshot <dir>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --loop-triggers
-//        (--triggers <file> | <channelId> <triggerMessageId>) [--transport native|text] [--before 40]
+//        (--triggers <file> | <placeId> <triggerMessageId>) [--transport native|text] [--before 40]
 //        [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --diary-day [--seed <text>] [--date YYYY-MM-DD]
 //        [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]
@@ -104,7 +105,7 @@
 // else the estimate per request) reaches `--spend`.
 //
 // `--skills <file>`: a JSON array of scenarios (scripts/fixtures/skill-scenarios.example.json
-// shows the shape; parseScenarios checks it), each `{ id, channelId, before?,
+// shows the shape; parseScenarios checks it), each `{ id, placeId, before?,
 // author, text, grants, runs?, result?, discovery? }` (or `steps` or
 // `taskResult` for `author` and `text`, see below). For each one: the last
 // `--before` messages of the channel up to and including the message `before`
@@ -175,7 +176,7 @@
 // `steps`: `{ agent, goal, state, text?, files?, asker }` (parseScenarios),
 // one of her errands ended `done` or `failed` -- what was asked, what it
 // brought back, the files it saved (`{ name, contentType?, bytes? }`), the
-// member who asked; its origin channel is the scenario's `channelId`. Instead
+// member who asked; its origin channel is the scenario's `placeId`. Instead
 // of a mention it runs the turn an errand's end opens (src/errands/turns.ts):
 // one minute after the anchor (now, without `before`), in that channel, an
 // interjection of trigger kind `errand` (no message of the chat to reply to) whose request carries the
@@ -295,7 +296,7 @@
 // directory given) that is a link -- a separate checkout linking to the live
 // layer -- is read through it and copied as files, never linked to or written.
 //
-// `--diary <kind>`: `--count` briefs (1..50) of one diary kind, each one `runTurn({ guildId, mode: 'diary', diary: {
+// `--diary <kind>`: `--count` briefs (1..50) of one diary kind, each one `runTurn({ placeId, mode: 'diary', diary: {
 // kind, [topic], forced: false } })` of the real turn runner (src/behavior/turn.js, wired as src/index.js wires it)
 // with no conversation, as the live diary runs it: the plan request on the classifier model with the given kind the
 // only one offered (as `/nep diary post <kind>` does; `forced: false` keeps the compose request a scheduled post's),
@@ -320,7 +321,7 @@
 // and kept in the report): the same config, date and seed give the same slots (scripts/lib/diary-day.ts#planDiaryDay).
 // The turns draw from a second stream of the same seed. Then, slot by slot in order, the clock of the turn runner and
 // the image client set to the slot (and running on from there), the diary's own checks as the tick makes them (the
-// day's posts under `selfreflection.maxPerDay`, else `skip` with reason `cap`), and `runTurn({ guildId, mode: 'diary', diary: {
+// day's posts under `selfreflection.maxPerDay`, else `skip` with reason `cap`), and `runTurn({ placeId, mode: 'diary', diary: {
 // kind: null, forced: false } })` of the real turn runner with no conversation: the plan request, its search, the
 // compose request, the pictures generated, and the entry recorded, which the slot reports as what its publication would
 // send. A post a slot made is kept in the in-memory diary and counters, so the next slot sees it as the live diary
@@ -359,7 +360,7 @@
 // with each prompt layer: each directory is laid over the tracked prompts/
 // exactly as prompts.local/ is at runtime (so `--pair prompts prompts` gives
 // two identical sides: the harness check, which must score even). The
-// triggers: a file of lines `<channelId> <triggerMessageId> [<turnId>]`
+// triggers: a file of lines `<placeId> <triggerMessageId> [<turnId>]`
 // (`--triggers`, scripts/lib/pair.ts#parseTriggers), or one trigger as
 // positionals. Both sides share everything else: the fetched chat, the memory
 // (`--snapshot`), the clock (the trigger's moment), `--as-of-moment`, the
@@ -372,7 +373,7 @@
 // empty): `sheet.html` (the blind sheet: each pair's chat, then the two
 // answers as "1" and "2", nothing saying which side is which, a choice per
 // pair and a button that writes the scores as JSON) and `key.json` (`{ a, b,
-// pairs: { <pairId>: { first, channelId, triggerId, turnId, journalActions } } }`).
+// pairs: { <pairId>: { first, placeId, triggerId, turnId, journalActions } } }`).
 // scripts/replay-score.ts tallies the scores. stdout: one JSON object with the
 // paths, the pair count, the failed pairs and the usage.
 //
@@ -414,7 +415,7 @@
 //   the trigger instead (src/behavior/sandbox.js#momentView) and reports what
 //   was hidden.
 // - `--hide-self <substring>` (repeatable) leaves out of the request every
-//   self fact of the guild memory (`getGuild().self`) that contains any given
+//   self fact of the guild memory (`getPlace().self`) that contains any given
 //   substring (case-insensitive); `--hide-self-all` leaves out every self
 //   fact. Either way it works on a copy of the guild memory (the store's own
 //   arrays are never touched) and the output reports `hiddenSelf: <count>`.
@@ -512,6 +513,7 @@
 // issue or a chat. It never prints a token. Exit code 0 on success, 1 on any
 // error (the message on stderr). Ctrl-C once stops the sampling; twice exits.
 
+import { accountOf, placeOfCommunity } from '../src/memory/addresses.ts';
 import fs from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
 import os from 'node:os';
@@ -642,7 +644,7 @@ function readOnlyStore(store: Untyped, reads: ReadonlyArray<string>) {
 /**
  * A view of the same shape as `view` whose guild memory lacks the self facts
  * that match: every one when `all`, else those containing any of `needles`
- * (lower-cased; compared case-insensitively). `getGuild` returns a shallow
+ * (lower-cased; compared case-insensitively). `getPlace` returns a shallow
  * copy with a new `self` array; the store's own guild object and array are
  * never mutated. Returns `{ view, hidden }` with the number of facts left out
  * (counted on the guild memory as it stands now).
@@ -658,7 +660,7 @@ function withoutSelfFacts(view: Untyped, { all, needles }: Rec) {
     const self = Array.isArray(guild?.self) ? guild.self : null;
     return self ? { ...guild, self: self.filter(keeps) } : guild;
   };
-  const before = view.memory.getGuild();
+  const before = view.memory.getPlace();
   const hidden = Array.isArray(before?.self) ? before.self.filter((fact: Rec) => !keeps(fact)).length : 0;
   return {
     hidden,
@@ -672,7 +674,7 @@ function withoutSelfFacts(view: Untyped, { all, needles }: Rec) {
       get calibrator() {
         return view.calibrator;
       },
-      memory: { ...view.memory, getGuild: () => filtered(view.memory.getGuild()) },
+      memory: { ...view.memory, getPlace: () => filtered(view.memory.getPlace()) },
     },
   };
 }
@@ -698,7 +700,7 @@ function turnStartForTrigger(records: Array<Rec>, triggerId: string) {
 
 /**
  * A REST-only Discord connection: no login, no gateway, no event handler.
- * Fetches the served guild (`bot.guildId`, else the only guild the bot is
+ * Fetches the served guild (`bot.placeId`, else the only guild the bot is
  * in), its channels (so `#channel` mentions and categories resolve as in the
  * live cache), its custom emoji, the bot's own user and member.
  */
@@ -708,7 +710,7 @@ export async function connectDiscord({
   configuredGuildId,
   resolveGuild,
   log,
-}: Rec): Promise<{ client: Untyped; guild: Untyped; guildId: Untyped; self: { id: string; name: Untyped } }> {
+}: Rec): Promise<{ client: Untyped; guild: Untyped; placeId: Untyped; self: { id: string; name: Untyped } }> {
   const { Client, Routes } = discord;
   const client = new Client({ intents: [] });
   client.rest.setToken(token);
@@ -719,8 +721,8 @@ export async function connectDiscord({
       (Array.isArray(guilds) ? guilds : []).map((g) => ({ id: g.id, name: g.name }))
     );
     if (resolved.error) throw new CliError(`replay-cli: ${resolved.error}`);
-    const guildId = resolved.guildId;
-    const guild = await client.guilds.fetch(guildId);
+    const placeId = resolved.placeId;
+    const guild = await client.guilds.fetch(placeId);
     const channels = await guild.channels.fetch();
     try {
       await guild.emojis.fetch();
@@ -750,12 +752,12 @@ export async function connectDiscord({
     }
     const self = { id: String(me.id), name: member?.displayName ?? me.username ?? 'bot' };
     log.info('replay-cli: discord over REST', {
-      guildId,
+      placeId,
       channels: channels.size,
       emoji: guild.emojis.cache.size,
       self: self.id,
     });
-    return { client, guild, guildId, self };
+    return { client, guild, placeId, self };
   } catch (err) {
     await client.destroy().catch(() => {});
     throw err;
@@ -1038,13 +1040,14 @@ function isoOf(ms: number) {
  * Returns `{ code, result }`: code 1 when the classifier failed or the run
  * was stopped.
  */
+// health: allow function-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 async function runRecall({
   hot,
   mods,
   llm,
   store,
   guild,
-  guildId,
+  placeId,
   channel,
   self,
   history,
@@ -1136,7 +1139,7 @@ async function runRecall({
     const links = [];
     for (let i = history.length - 1; i >= 0; i -= 1)
       links.push(...collectReadableLinks(history[i], { videoSites: sites }));
-    reads = createLookup({ hot, store: cacheStore, llm: refusing }).cachedReads(guildId, links);
+    reads = createLookup({ hot, store: cacheStore, llm: refusing }).cachedReads(placeId, links);
   }
   const searchCfg = config.web?.search ?? {};
   const contextMessages = Math.max(0, Math.floor(searchCfg.contextMessages ?? 50));
@@ -1209,9 +1212,9 @@ async function runRecall({
     const data = { recallDay: store.state.data.recallDay, recallCount: store.state.data.recallCount };
     const recallStore = {
       state: { data, markDirty() {} },
-      listUserProfiles: (id: string) => store.listUserProfiles(id),
+      listUserProfiles: () => store.listUserProfiles(),
       getLore: (id: string) => store.getLore(id),
-      getGuild: (id: string) => store.getGuild(id),
+      getPlace: (id: string) => store.getPlace(id),
       getRecent: () => recentAsOf(),
     };
     const describer = createDescriber({ hot, store: cacheStore, llm: refusing });
@@ -1262,7 +1265,7 @@ async function runRecall({
               count += 1;
               if (!rawHits.has(m.id))
                 rawHits.set(m.id, {
-                  channelId: m.channel_id ?? null,
+                  placeId: m.channel_id ?? null,
                   bot: m.author?.bot === true,
                   authorId: m.author?.id ?? null,
                 });
@@ -1295,8 +1298,8 @@ async function runRecall({
         timers,
       });
       found = await recall.run({
-        guildId,
-        ...(await recallScope(reads, channel, String(guildId))),
+        placeId,
+        ...(await recallScope(reads, channel, String(placeId))),
         selfId: self.id,
         selfName,
         history,
@@ -1325,7 +1328,7 @@ async function runRecall({
     ? {
         n: named,
         from: answered ? 'summary' : 'fallback',
-        channelId: found.stretch.channelId ?? null,
+        placeId: found.stretch.placeId ?? null,
         channel: found.stretch.channelName ?? null,
         date: Number.isFinite(found.stretch.startTs) ? zonedDay(found.stretch.startTs, timezone) : null,
         at: isoOf(found.stretch.startTs),
@@ -1336,23 +1339,29 @@ async function runRecall({
   const ownIds = new Set(history.map((m: Rec) => m.id));
   const perChannel = new Map<Untyped, Untyped>();
   for (const [id, hit] of rawHits) {
-    const key = hit.channelId ?? '';
+    const key = hit.placeId ?? '';
     if (!perChannel.has(key)) perChannel.set(key, { hits: 0, bots: 0, ownChat: 0 });
     const row = perChannel.get(key);
     row.hits += 1;
     if (hit.bot && hit.authorId !== self.id) row.bots += 1;
     if (ownIds.has(id)) row.ownChat += 1;
   }
-  const hitChannels = [...perChannel].map(([channelId, row]) => {
+  const hitChannels = [...perChannel].map(([conversationId, row]) => {
     let pull = null;
     try {
       pull =
-        checkPull({ guild, channelId, destination: channel, partner: null, config: recallHot.config, now: at }).skip ??
-        'ok';
+        checkPull({
+          guild,
+          placeId: conversationId,
+          destination: channel,
+          partner: null,
+          config: recallHot.config,
+          now: at,
+        }).skip ?? 'ok';
     } catch (err: Untyped) {
       pull = `error:${err?.name ?? 'Error'}`;
     }
-    return { channelId, channel: guild.channels.cache.get(channelId)?.name ?? null, ...row, pull };
+    return { placeId: conversationId, channel: guild.channels.cache.get(conversationId)?.name ?? null, ...row, pull };
   });
   const pace = paceSettings(config);
   const elapsedMs = classifierMs + recallMs;
@@ -1438,9 +1447,9 @@ async function runRecall({
 async function readMoment({
   client,
   guild,
-  guildId,
+  placeId,
   self,
-  channelId,
+  placeId: conversationId,
   triggerId,
   before,
   config,
@@ -1448,7 +1457,7 @@ async function readMoment({
   fetchMessage,
   log,
 }: Rec) {
-  const channel = await readableChannel({ client, guild, guildId, channelId });
+  const channel = await readableChannel({ client, guild, placeId, conversationId: conversationId });
 
   const trigger = await fetchMessage(channel, triggerId);
   if (!trigger) throw new CliError('replay-cli: the trigger message was not found');
@@ -1473,18 +1482,18 @@ async function readMoment({
 }
 
 /** A channel of the served guild that can be read: from the guild's fetched channels, else one REST fetch (a thread is not in that list); else a CliError. */
-async function readableChannel({ client, guild, guildId, channelId }: Rec) {
-  let channel = guild.channels.cache.get(channelId) ?? null;
+async function readableChannel({ client, guild, placeId, placeId: conversationId }: Rec) {
+  let channel = guild.channels.cache.get(conversationId) ?? null;
   if (!channel) {
     try {
-      channel = await client.channels.fetch(channelId);
+      channel = await client.channels.fetch(conversationId);
     } catch {
       channel = null;
     }
   }
   if (!channel || typeof channel.messages?.fetch !== 'function')
     throw new CliError('replay-cli: that channel cannot be read');
-  if (String(channel.guildId ?? channel.guild?.id ?? '') !== String(guildId))
+  if (String(channel.placeId ?? channel.guild?.id ?? '') !== String(placeId))
     throw new CliError('replay-cli: that channel is not in the served guild');
   return channel;
 }
@@ -1537,7 +1546,7 @@ async function fetchWindow({
   }
   const history = limit > 0 ? await fetchHistoryWindow(channel, windowOptions) : [];
   log.info('replay-cli: chat fetched', {
-    channelId: channel.id,
+    placeId: channel.id,
     lines: history.length,
     members: members.fetched,
     membersMissing: members.missing,
@@ -1552,9 +1561,9 @@ async function fetchWindow({
  * the prompts and the config (a pair's side has its own prompts). Returns
  * `{ view, hiddenSelf, hidden }`.
  */
-function memoryViewFor({ hotLike, store, guildId, calibrator, situation, at, args, mods }: Rec) {
+function memoryViewFor({ hotLike, store, placeId, calibrator, situation, at, args, mods }: Rec) {
   const { liveView, momentView, momentCutoff, hiddenLater } = mods;
-  const base = liveView({ hot: hotLike, store, guildId, calibrator });
+  const base = liveView({ hot: hotLike, store, placeId, calibrator });
   const cutoff = momentCutoff(situation) ?? at;
   const asOf = momentView(base, cutoff);
   const memoryView = args.asOfMoment
@@ -1906,7 +1915,7 @@ export function diaryTurnRunner(
     llm,
     calibrator,
     client,
-    guildId,
+    placeId,
     self,
     images,
     state,
@@ -1951,7 +1960,7 @@ export function diaryTurnRunner(
     lookup,
     images,
     recall: mods.createRecall({ hot, store, llm, reads, describer }),
-    emoji: mods.createEmojiIndex({ reads, communityId: () => guildId, now: Date.now }),
+    emoji: mods.createEmojiIndex({ reads, communityId: () => placeId, now: Date.now }),
     getSelfName: /** @returns {unknown} */ (): unknown => self.name,
     selfId: () => self.id,
     reads,
@@ -2025,19 +2034,19 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, log, signal
     const connection = await connectDiscord({
       discord,
       token: discordToken,
-      configuredGuildId: config.bot?.guildId || '',
+      configuredGuildId: config.bot?.placeId || '',
       resolveGuild,
       log,
     });
     client = connection.client;
     refuseDiscordWrites(client);
-    const { guildId, self } = connection;
+    const { placeId, self } = connection;
 
     // The engine, wired as src/index.js wires it.
     const wrapReads = ownReadsOf(args, liveData);
-    const runner = { hot, store, llm, calibrator, client, guildId, self, images, state, wrapReads };
+    const runner = { hot, store, llm, calibrator, client, placeId, self, images, state, wrapReads };
     const turns = diaryTurnRunner(mods, runner);
-    log.info('replay-cli: diary ready', { guildId, kind, count: args.count, topicChars: topic ? topic.length : 0 });
+    log.info('replay-cli: diary ready', { placeId, kind, count: args.count, topicChars: topic ? topic.length : 0 });
 
     const briefs = [];
     let usage = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0 };
@@ -2046,7 +2055,7 @@ async function runDiary({ args, root, load, hot: liveHot, createHot, log, signal
       const from = calls.length;
       let result;
       try {
-        result = await turns.runTurn({ guildId, ...params });
+        result = await turns.runTurn({ placeId, ...params });
       } catch (err: Untyped) {
         result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
       }
@@ -2211,8 +2220,8 @@ export function innerReplayWake({
 /** The guild's intention stores with every write refused (`read-only`): an expiry sweep writes nothing. */
 function readOnlyIntentionStores(stores: Untyped) {
   return {
-    get(guildId: string) {
-      const store = stores.get(guildId);
+    get(placeId: string) {
+      const store = stores.get(placeId);
       if (!store) return null;
       return new Proxy(store, {
         get(target, prop) {
@@ -2311,7 +2320,7 @@ export async function heartbeatReplayWake({
   inner,
   hot,
   dataDir,
-  guildId,
+  placeId,
   now,
   deps = {},
   tmpRoot = os.tmpdir(),
@@ -2320,7 +2329,7 @@ export async function heartbeatReplayWake({
   inner: Rec;
   hot: Rec;
   dataDir: string;
-  guildId: string;
+  placeId: string;
   now: number;
   deps?: Rec;
   tmpRoot?: string;
@@ -2332,13 +2341,13 @@ export async function heartbeatReplayWake({
 }> {
   const scratch = fs.mkdtempSync(path.join(tmpRoot, 'replay-heartbeat-'));
   try {
-    const stateFile = path.join(dataDir, 'guilds', String(guildId), 'inner.json');
+    const stateFile = path.join(dataDir, 'guilds', String(placeId), 'inner.json');
     if (fs.existsSync(stateFile)) {
       // A copy with the kill switch lifted (a stopped life would queue nothing; a preview is wanted anyway).
       const kept = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-      fs.mkdirSync(path.join(scratch, 'guilds', String(guildId)), { recursive: true });
+      fs.mkdirSync(path.join(scratch, 'guilds', String(placeId)), { recursive: true });
       fs.writeFileSync(
-        path.join(scratch, 'guilds', String(guildId), 'inner.json'),
+        path.join(scratch, 'guilds', String(placeId), 'inner.json'),
         JSON.stringify({ ...kept, stopped: false })
       );
     }
@@ -2357,7 +2366,6 @@ export async function heartbeatReplayWake({
           return { outcome: 'skip', reason: 'replay-capture' };
         },
       },
-      getGuildId: () => guildId,
       journal: deps.journal ?? null,
       now: () => now,
       rng: () => 0.5,
@@ -2367,12 +2375,12 @@ export async function heartbeatReplayWake({
       kind: 'inner.wake',
       at: now,
       id: `inner.wake:heartbeat:${now}`,
-      guildId,
+      placeId,
       wake: inner.heartbeatWake(now),
     });
     if (queued?.status !== 'queued')
       throw new CliError(`replay-cli: the heartbeat wake was not queued (${queued?.status ?? 'unknown'})`);
-    const drained = await life.drain(guildId);
+    const drained = await life.drain(placeId);
     if (!seen) {
       const why =
         drained?.deferred ??
@@ -2471,7 +2479,7 @@ export function innerReportMarkdown(result: Untyped): string {
   const lines = [
     `# Inner turn: ${result.kind}${result.intention ? ` (${result.intention})` : ''}`,
     '',
-    `Channel: ${result.channelId ?? '-'}`,
+    `Channel: ${result.placeId ?? '-'}`,
     '',
   ];
   if (result.hidden && (result.hidden.channels?.length > 0 || result.hidden.messages?.length > 0))
@@ -2613,12 +2621,12 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     const connection = await connectDiscord({
       discord,
       token: discordToken,
-      configuredGuildId: config.bot?.guildId || '',
+      configuredGuildId: config.bot?.placeId || '',
       resolveGuild,
       log,
     });
     client = connection.client;
-    const { guildId, self } = connection;
+    const { placeId, self } = connection;
     const queueRequest = client.rest.queueRequest.bind(client.rest);
     client.rest.queueRequest = (request: Rec) => {
       const method = String(request?.method ?? 'GET').toUpperCase();
@@ -2632,7 +2640,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
 
     // Her intentions and errands, read only; her inner state as it stands.
     const taskStore = createErrandStore({
-      guildId,
+      placeId,
       config: () => hot.config,
       journal: null,
       memoryDb: memoryFor(dataDir),
@@ -2641,7 +2649,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       view: ({ privateChannelId = null }: Rec = {}) =>
         [...taskStore.open(), ...taskStore.unseen()].filter(
           (task) =>
-            task.scope !== 'dm' || (privateChannelId !== null && task.origin?.channelId === String(privateChannelId))
+            task.scope !== 'dm' || (privateChannelId !== null && task.origin?.placeId === String(privateChannelId))
         ),
       markSeen: () => {},
       budget: ({ agent }: Rec) => taskStore.budget(agent),
@@ -2651,12 +2659,11 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       stores: readOnlyIntentionStores(createIntentionStores({ memoryDb: memoryFor(dataDir) })),
       hot,
       tasks: { store: () => taskStore },
-      getGuildId: () => guildId,
     });
     let innerState = mods.emptyState();
     try {
       innerState = mods.normalizeState(
-        JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', guildId, 'inner.json'), 'utf8'))
+        JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', placeId, 'inner.json'), 'utf8'))
       );
     } catch (err: Untyped) {
       if (err?.code !== 'ENOENT')
@@ -2688,7 +2695,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
         inner: mods,
         hot,
         dataDir,
-        guildId,
+        placeId,
         now,
         log,
         deps: {
@@ -2709,7 +2716,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
               return { id: entry.id, name: entry.name, writable };
             });
           }, hide),
-          nameOf: (id: string, memberId: Untyped) => store.getUser(id, memberId)?.names?.[0] ?? null,
+          nameOf: (id: string, memberId: string) => store.getUser(accountOf(store, memberId))?.names?.[0] ?? null,
           reads,
           iface: () => discordPort.iface,
           store: schedulerStore,
@@ -2723,9 +2730,9 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       });
       ({ info, conversation, currentChannel } = caught);
     } else {
-      let channelIds = [];
+      let conversationIds = [];
       if (args.inner !== 'review') {
-        intention = intentions.store(guildId)?.get(args.intention) ?? null;
+        intention = intentions.store(placeId)?.get(args.intention) ?? null;
         if (!intention) throw new CliError(`replay-cli: no intention ${args.intention}`);
         if (!['pending', 'waiting'].includes(intention.status))
           log.warn('replay-cli: the intention is not open; the scheduler would not wake her for it', {
@@ -2733,22 +2740,22 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
           });
         const privateChat = intention.provenance?.scope === 'dm';
         const target = privateChat
-          ? intention.provenance?.channelId
-          : (intention.destination ?? intention.provenance?.channelId);
-        if (target) channelIds = [String(target)];
+          ? intention.provenance?.placeId
+          : (intention.destination ?? intention.provenance?.placeId);
+        if (target) conversationIds = [String(target)];
       } else {
-        channelIds = innerState.review?.channels ?? [];
-        if (channelIds.length === 0) {
+        conversationIds = innerState.review?.channels ?? [];
+        if (conversationIds.length === 0) {
           const record = hiddenRecord(createRecord({ dataDir, log, memoryDb: memoryFor(dataDir) }), hide);
           const from = new Date(now - settings.review.historyDays * 86_400_000).toISOString();
           const own = [];
-          for await (const line of record.iterate(guildId, { from }))
+          for await (const line of record.iterate(placeId, { from }))
             if (line?.kind === 'said' && typeof line.scope?.channel === 'string') own.push(line);
           own.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
-          channelIds = [...new Set(own.map((line) => line.scope.channel))].slice(0, 3);
+          conversationIds = [...new Set(own.map((line) => line.scope.channel))].slice(0, 3);
         }
       }
-      for (const id of channelIds) {
+      for (const id of conversationIds) {
         const found = await client.channels.fetch(id).catch(() => null);
         if (found) {
           conversation = conversationRef(found);
@@ -2759,7 +2766,9 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
         throw new CliError(
           'replay-cli: no conversation for this wake (its channel is gone, or she has no recent line)'
         );
-      const channelNames = channelIds.map((id: string) => client.channels.cache.get(id)?.name ?? null).filter(Boolean);
+      const channelNames = conversationIds
+        .map((id: string) => client.channels.cache.get(id)?.name ?? null)
+        .filter(Boolean);
       info = innerReplayWake({
         inner: mods,
         kind: args.inner,
@@ -2789,7 +2798,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       intentions,
       errands,
       journal: readOnlyJournal(createJournal({ dataDir, config: () => ({}), log, memoryDb: memoryFor(dataDir) })),
-      getGuildId: () => guildId,
       dataDir: null,
     });
     const turns = diaryTurnRunner(mods, {
@@ -2798,7 +2806,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       llm,
       calibrator,
       client,
-      guildId,
+      placeId,
       self,
       images: null,
       state,
@@ -2814,8 +2822,8 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       },
     });
     log.info('replay-cli: inner ready', {
-      guildId,
-      channelId: conversation.conversationId,
+      placeId,
+      conversationId: conversation.conversationId,
       kind: args.inner,
       intention: intention?.id ?? null,
       samples: args.samples,
@@ -2840,7 +2848,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       try {
         result = await turns.runTurn({
           conversation,
-          guildId,
+          placeId,
           mode: 'inner',
           triggerKind: 'inner',
           inner: {
@@ -2899,7 +2907,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     const report = {
       kind: args.inner,
       intention: intention?.id ?? null,
-      channelId: conversation.conversationId,
+      placeId: conversation.conversationId,
       hidden: hide.any ? { channels: [...hide.channels], messages: [...hide.messages] } : null,
       wake: blocks.wake ?? null,
       request: {
@@ -3114,13 +3122,13 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
     const connection = await connectDiscord({
       discord,
       token: discordToken,
-      configuredGuildId: config.bot?.guildId || '',
+      configuredGuildId: config.bot?.placeId || '',
       resolveGuild,
       log,
     });
     client = connection.client;
     refuseDiscordWrites(client);
-    const { guildId, self } = connection;
+    const { placeId, self } = connection;
     const port = createFakeAdapter({
       iface: 'discord',
       selfId: self.id,
@@ -3133,7 +3141,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
       llm,
       calibrator,
       client,
-      guildId,
+      placeId,
       self,
       images,
       state,
@@ -3141,7 +3149,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
       rng: seededRng(seed, 'turns'),
       now,
     });
-    log.info('replay-cli: diary day ready', { guildId, date, slots: day.slots.length, draw: args.draw });
+    log.info('replay-cli: diary day ready', { placeId, date, slots: day.slots.length, draw: args.draw });
 
     const budget = gate.budget;
     for (const [index, at] of day.slots.entries()) {
@@ -3171,7 +3179,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
       let result;
       try {
         // As the live diary runs it: the selfreflection wake, no conversation.
-        result = await turns.runTurn({ guildId, mode: 'diary', diary: { kind: null, forced: false } });
+        result = await turns.runTurn({ placeId, mode: 'diary', diary: { kind: null, forced: false } });
       } catch (err: Untyped) {
         result = { outcome: 'error', reason: `${err?.name ?? 'Error'}: ${err?.message ?? err}` };
       }
@@ -3227,7 +3235,7 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
 /** The fields a scenario may have. */
 const SCENARIO_KEYS = Object.freeze([
   'id',
-  'channelId',
+  'placeId',
   'before',
   'author',
   'text',
@@ -3277,8 +3285,8 @@ const SKILL_REQUESTS_PER_RUN = 2;
 
 /**
  * The scenarios of a `--skills` file (`text`, its content): a non-empty JSON array of
- * `{ id, channelId, before?, author, text, grants, runs?, result?, discovery? }` -- `id` 1..64
- * of `A-Z a-z 0-9 . _ -`, unique; `channelId`, `author` and `before` (optional) message, channel
+ * `{ id, placeId, before?, author, text, grants, runs?, result?, discovery? }` -- `id` 1..64
+ * of `A-Z a-z 0-9 . _ -`, unique; `placeId`, `author` and `before` (optional) message, channel
  * and member ids; `text` the invented message (1..4000 characters); `grants` a list of skill
  * names, groups or `*` (may be empty); `runs` 1..10 (default 1); `result` the text the
  * operation answers when a call passes (default ''); `discovery` `"inventory"` (default),
@@ -3300,7 +3308,7 @@ const SKILL_REQUESTS_PER_RUN = 2;
  * `"failed"`, `text` what it brought back (at most 20000 characters, default ''), `files` up to
  * 10 `{ name, contentType?, bytes? }` (a name of 1..200 characters without a slash or a line
  * break, unique; `contentType` text, default ''; `bytes` a whole number >= 0, default 0), `asker`
- * the member id who asked; its origin channel is the scenario's `channelId`. Parsed, it is
+ * the member id who asked; its origin channel is the scenario's `placeId`. Parsed, it is
  * `{ agent, goal, state, text, files: [{ name, contentType, bytes }], asker }`. Any other field,
  * type or value is a CliError naming the scenario (and the step). Names are checked against the
  * registry later (scenarioGrants, scenarioDiscovery).
@@ -3324,8 +3332,7 @@ export function parseScenarios(text: string): Array<Scenario> {
       throw bad('id must be 1..64 characters of A-Z a-z 0-9 . _ -');
     if (ids.has(raw.id)) throw bad('the id is used twice');
     ids.add(raw.id);
-    if (typeof raw.channelId !== 'string' || !SNOWFLAKE.test(raw.channelId))
-      throw bad('channelId must be a channel id');
+    if (typeof raw.placeId !== 'string' || !SNOWFLAKE.test(raw.placeId)) throw bad('placeId must be a channel id');
     if (
       raw.before !== undefined &&
       raw.before !== null &&
@@ -3361,7 +3368,7 @@ export function parseScenarios(text: string): Array<Scenario> {
       throw bad(`discovery must be "inventory", "none" or a list of 1..${MAX_DISCOVERY_NAMES} skill names`);
     return {
       id: raw.id,
-      channelId: raw.channelId,
+      placeId: raw.placeId,
       before: raw.before ?? null,
       ...(multi ? { steps } : errand ? { taskResult } : { author: raw.author, text: raw.text }),
       grants: raw.grants.map((g: Rec) => g.trim()),
@@ -3573,7 +3580,7 @@ export function scenarioTrigger({
   const tags = tagged || text.includes(`<@${selfId}>`) || text.includes(`<@!${selfId}>`);
   return {
     id: String((BigInt(Math.floor(at)) - DISCORD_EPOCH) << 22n),
-    channelId: String(channel.id),
+    placeId: String(channel.id),
     channelName: channel.name ?? null,
     channelCategory: channel.category ?? null,
     channelTopic: channel.topic ?? null,
@@ -3616,7 +3623,7 @@ export function scenarioTaskId(scenarioId: string): string {
 export function scenarioTask(
   scenario: {
     id: string;
-    channelId: string;
+    placeId: string;
     taskResult: {
       agent: string;
       goal: string;
@@ -3634,7 +3641,7 @@ export function scenarioTask(
     agent: errand.agent,
     goal: errand.goal,
     requester: { userId: errand.asker, kind: 'member' },
-    origin: { channelId: String(scenario.channelId), messageId: null },
+    origin: { placeId: String(scenario.placeId), messageId: null },
     scope: 'group',
     state: errand.state,
     createdAt: at,
@@ -3679,7 +3686,7 @@ export function scenarioFileOf(
 
 /**
  * The errands' budget the sandbox gateway reads (src/tools/gateway.ts, `context.tasks`), read
- * only: a task store of `guildId` over `dataDir` (src/errands/store.ts#createErrandStore: its
+ * only: a task store of `placeId` over `dataDir` (src/errands/store.ts#createErrandStore: its
  * errands.json and errands.jsonl read once, the live data/ or a snapshot) whose `budget(agent)` -- the open tasks
  * against `errands.maxOpen`, today's tasks and dollars against `agents.<agent>.daily` (the
  * profile's defaults under them), read from `config()` at the moment of use -- answers a
@@ -3689,21 +3696,21 @@ export function scenarioFileOf(
  */
 export function sandboxErrandBudget({
   createErrandStore,
-  guildId,
+  placeId,
   config,
   now = Date.now,
   log,
   memoryDb = null,
 }: {
   createErrandStore: (...args: Array<Untyped>) => Untyped;
-  guildId: string;
+  placeId: string;
   config: () => Rec;
   now?: () => number;
   log?: Rec;
   memoryDb?: Rec | null;
 }): { budget(agent: string): { spent: boolean; key: string | null; code: string | null } } {
   const store = createErrandStore({
-    guildId: String(guildId),
+    placeId: String(placeId),
     config,
     now,
     journal: null,
@@ -3816,7 +3823,7 @@ export function createReplayTools({
   hot,
   store,
   guild,
-  guildId,
+  placeId,
   channel,
   selfId,
   selfName,
@@ -3848,16 +3855,16 @@ export function createReplayTools({
   const data = store.state?.data ?? {};
   const media = structuredClone(mediaCache ?? {});
   // The conversation and the community's listing a recall run is handed, asked of the interface at the first call.
-  const scopeOf = lazyRecallScope(reads, channel, String(guildId));
+  const scopeOf = lazyRecallScope(reads, channel, String(placeId));
   // The second looks media.look took (the per-turn count of the live turn).
   let looks = 0;
   const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
   const webState = { data: { webDay: data.webDay, webCount: data.webCount }, markDirty() {} };
   const recallStore = {
     state: { data: { recallDay: data.recallDay, recallCount: data.recallCount }, markDirty() {} },
-    listUserProfiles: (id: string) => store.listUserProfiles(id),
+    listUserProfiles: () => store.listUserProfiles(),
     getLore: (id: string) => store.getLore(id),
-    getGuild: (id: string) => store.getGuild(id),
+    getPlace: (id: string) => store.getPlace(id),
     ...(typeof store.getRecent === 'function' ? { getRecent: (id: string) => store.getRecent(id) } : {}),
     appendRecallTrace() {},
   };
@@ -3901,7 +3908,7 @@ export function createReplayTools({
     draft.handleFloor = Math.max(draft.handleFloor ?? 0, floor);
     const channelOf = (id: string) =>
       String(id) === String(channel.id) ? channel : (guild.channels?.cache?.get?.(String(id)) ?? null);
-    const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+    const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles() ?? []) : [];
     const stored = new Map<Untyped, Untyped>(profiles.filter((p: Rec) => p?.id).map((p: Rec) => [String(p.id), p]));
     const nameOf = (id: string) =>
       (typeof stored.get(String(id))?.names?.[0] === 'string' ? stored.get(String(id)).names[0] : null) ??
@@ -3913,27 +3920,28 @@ export function createReplayTools({
       args,
       labels,
       config,
-      channelId: String(channel.id),
+      placeId: String(channel.id),
       channelNameOf: (id: string) => channelOf(id)?.name ?? null,
       allowed: (id: string) => {
         if (String(id) === String(channel.id) && channel.guild) return true;
         try {
           return (
-            discord.checkPull({ guild, channelId: String(id), destination: channel, partner: null, config, now: at })
+            discord.checkPull({ guild, placeId: String(id), destination: channel, partner: null, config, now: at })
               .skip === null
           );
         } catch {
           return false;
         }
       },
-      readRecord: ({ channelId, from }: Rec) => recordMessages(record, guildId, { channelId, from, nameOf, selfName }),
-      fetchLive: (request: Rec) => fetchSpan(reads, { iface, conversationId: String(request.channelId) }, request),
+      readRecord: ({ placeId: conversationId, from }: Rec) =>
+        recordMessages(record, placeId, { placeId: conversationId, from, nameOf, selfName }),
+      fetchLive: (request: Rec) => fetchSpan(reads, { iface, conversationId: String(request.placeId) }, request),
       render: (slice: Rec) => {
         let descriptions;
         if (typeof describer?.cachedDescriptions === 'function') {
           const { items, rest, emoji } = pullPictures(slice, 0);
           try {
-            descriptions = describer.cachedDescriptions(guildId, [...items, ...rest, ...emoji]) ?? undefined;
+            descriptions = describer.cachedDescriptions(placeId, [...items, ...rest, ...emoji]) ?? undefined;
           } catch {
             descriptions = undefined;
           }
@@ -3976,7 +3984,7 @@ export function createReplayTools({
       const settings = recallSettings(hot.config)?.prefetch;
       if (!settings) return null;
       const names = new Map<Untyped, Untyped>(
-        (store.listUserProfiles?.(guildId) ?? [])
+        (store.listUserProfiles?.(placeId) ?? [])
           .filter((p: Rec) => p?.id)
           .map((p: Rec) => [String(p.id), typeof p.names?.[0] === 'string' ? p.names[0] : null])
       );
@@ -3995,7 +4003,7 @@ export function createReplayTools({
       if (skip) return null;
       const recall = recallOf(llm);
       if (typeof recall.prefetch !== 'function') return null;
-      return recall.prefetch({ guildId, ...(await scopeOf()), partnerId: null, selfId, selfName, history, lanes, at });
+      return recall.prefetch({ placeId, ...(await scopeOf()), partnerId: null, selfId, selfName, history, lanes, at });
     },
     async run(
       skill: string,
@@ -4006,7 +4014,7 @@ export function createReplayTools({
       const labels = hot.prompts?.labels ?? {};
       if (skill === 'web.search') {
         const lookup = createLookup({ hot, store: webStore, llm: client, state: webState, searches, keys });
-        return { result: await runWebSearch({ lookup, config: hot.config, labels, guildId, args }), usage };
+        return { result: await runWebSearch({ lookup, config: hot.config, labels, placeId, args }), usage };
       }
       // web.read: the page fetched for real (no model request, free), into the private cache copy.
       if (skill === 'web.read' && typeof runWebRead === 'function' && pageFetcher) {
@@ -4023,7 +4031,7 @@ export function createReplayTools({
           const message = history.find((item: Rec) => String(item?.id) === String(id));
           return message && typeof linkOfMessage === 'function' ? linkOfMessage(message) : null;
         };
-        return { result: await runWebRead({ lookup, config: hot.config, labels, guildId, args, linkOf }), usage };
+        return { result: await runWebRead({ lookup, config: hot.config, labels, placeId, args, linkOf }), usage };
       }
       if (skill === 'memory.search') {
         const result = await runMemorySearch({
@@ -4031,7 +4039,7 @@ export function createReplayTools({
           store,
           config: hot.config,
           labels,
-          guildId,
+          placeId,
           ...(await scopeOf()),
           partnerId: null,
           selfId,
@@ -4056,7 +4064,7 @@ export function createReplayTools({
           describer: lookDescriber,
           config: hot.config,
           labels,
-          guildId,
+          placeId,
           args,
           mediaOf: (id: string) => history.find((item: Rec) => String(item?.id) === String(id)) ?? null,
           takeTurnSlot: () => {
@@ -4075,7 +4083,7 @@ export function createReplayTools({
             store: typeof store.getGifs === 'function' ? findStore : null,
             config: hot.config,
             labels,
-            guildId,
+            placeId,
             args,
           }),
           usage,
@@ -5036,6 +5044,7 @@ export function renderPairReport(
  * the same fetched chat, the same config and memory, the same number of runs). Returns
  * `{ code, result }`: code 1 when a scenario failed or the runs were stopped.
  */
+// health: allow function-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 async function runSkills({
   args,
   scenarios,
@@ -5047,7 +5056,7 @@ async function runSkills({
   sides,
   store,
   guild,
-  guildId,
+  placeId,
   client,
   self,
   llm,
@@ -5157,7 +5166,7 @@ async function runSkills({
     // The moment the scenario is put after, fetched once for every side.
     let moment;
     try {
-      const channel = await readableChannel({ client, guild, guildId, channelId: scenario.channelId });
+      const channel = await readableChannel({ client, guild, placeId, conversationId: scenario.placeId });
       // Every member who writes in the scenario: one, or each step's authors; for an errand's end, who asked for it.
       const authors = scenario.steps
         ? [
@@ -5196,7 +5205,8 @@ async function runSkills({
       continue;
     }
     const { channel, history, at } = moment;
-    const nameOf = (i: string) => guild.members.cache.get(i)?.displayName ?? store.getUser(guildId, i)?.names?.[0] ?? i;
+    const nameOf = (i: string) =>
+      guild.members.cache.get(i)?.displayName ?? store.getUser(accountOf(store, i))?.names?.[0] ?? i;
     // A scenario's message: the single one and a step's own tag her; a burst's message calls her by its text alone.
     const lineOf = (message: Untyped, ts: number, { tagged = true }: Rec = {}) =>
       scenarioTrigger({
@@ -5250,7 +5260,7 @@ async function runSkills({
     // An errand's budget as live: the guild's errands.json of the data read (live or --snapshot) against the scenario's config, never queued into.
     const tasks = sandboxErrandBudget({
       createErrandStore,
-      guildId,
+      placeId,
       config: () => scenarioConfig,
       log,
       memoryDb: memoryFor(dataDir),
@@ -5278,7 +5288,7 @@ async function runSkills({
           view: callViewOf({
             channel,
             snapshot: guildListing(channel),
-            guildId,
+            placeId,
             idByIndex,
             lines,
             pulledIds: new Map(),
@@ -5334,7 +5344,7 @@ async function runSkills({
       const { view } = memoryViewFor({
         hotLike,
         store,
-        guildId,
+        placeId,
         calibrator,
         situation,
         at: firstAt,
@@ -5395,7 +5405,7 @@ async function runSkills({
         return {
           dry: {
             id: scenario.id,
-            channelId: channel.id,
+            placeId: channel.id,
             lines: history.length,
             systemChars: request.system.length,
             userChars: request.user.length,
@@ -5612,7 +5622,7 @@ export async function preTurnLookup({
   recall,
   discovery,
   guild,
-  guildId,
+  placeId,
   channel,
   selfId,
   selfName,
@@ -5722,7 +5732,7 @@ export async function preTurnLookup({
       serverOn && DIRECT_CALL_KINDS.includes(triggerKind) && settings?.fallbackOnClassifierFailure
         ? fallbackLookupPlan({
             text: triggerText,
-            profiles: store.listUserProfiles?.(guildId) ?? [],
+            profiles: store.listUserProfiles?.(placeId) ?? [],
             selfId,
             selfName,
             maxForms: settings.maxForms,
@@ -5744,12 +5754,12 @@ export async function preTurnLookup({
       .then(work)
       .catch(() => null);
   const [webResult, found]: Array<Untyped> = await Promise.all([
-    runWeb ? settle(() => lookup.search(guildId, web)) : null,
+    runWeb ? settle(() => lookup.search(placeId, web)) : null,
     runServer
       ? settle(() =>
           recall.run({
             guild,
-            guildId,
+            placeId,
             channel,
             selfId,
             selfName,
@@ -5911,7 +5921,7 @@ export async function runTriggerLoops({
   rng,
   hot,
   store,
-  guildId,
+  placeId,
   self,
   llm,
   calibrator,
@@ -6001,7 +6011,7 @@ export async function runTriggerLoops({
     const id = `p${index + 1}`;
     let moment;
     try {
-      moment = await momentOf(trigger.channelId, trigger.triggerId);
+      moment = await momentOf(String(trigger.placeId), trigger.triggerId);
     } catch (err: Untyped) {
       failed.push({
         id,
@@ -6052,13 +6062,13 @@ export async function runTriggerLoops({
           return config;
         },
       };
-      const { view } = memoryViewFor({ hotLike, store, guildId, calibrator, situation, at, args, mods: viewMods });
+      const { view } = memoryViewFor({ hotLike, store, placeId, calibrator, situation, at, args, mods: viewMods });
       const images = {
         quota: createImageGen({ apiKey: '', getConfig: () => config, state: frozenState, fetchImpl: refusing }).quota,
       };
       const tasks = sandboxErrandBudget({
         createErrandStore,
-        guildId,
+        placeId,
         config: () => config,
         log,
         memoryDb: memoryFor(dataDir),
@@ -6069,7 +6079,7 @@ export async function runTriggerLoops({
           view: callViewOf({
             channel,
             snapshot: guildListing(channel),
-            guildId,
+            placeId,
             idByIndex,
             lines: lines2,
             pulledIds: new Map(),
@@ -6147,7 +6157,7 @@ export async function runTriggerLoops({
         lines.push({
           id,
           scenario: id,
-          channelId: trigger.channelId,
+          placeId: trigger.placeId,
           triggerId: triggerLine.id,
           turnId: trigger.turnId,
           at: new Date(at).toISOString(),
@@ -6182,7 +6192,7 @@ export async function runTriggerLoops({
     });
     key.pairs[id] = {
       first,
-      channelId: trigger.channelId,
+      placeId: trigger.placeId,
       triggerId: triggerLine.id,
       turnId: trigger.turnId,
       answers: { A: answers.A ?? null, B: answers.B ?? null },
@@ -6272,7 +6282,7 @@ function prefetchSummary(found: Untyped) {
     excerpts: (found.excerpts ?? []).map((e: Rec) => ({
       source: e.source,
       id: e.id ?? null,
-      channelId: e.channelId ?? null,
+      placeId: e.placeId ?? null,
     })),
     ms: found.ms ?? null,
     ...(found.partial ? { partial: true } : {}),
@@ -6306,7 +6316,7 @@ async function loopDepsOf({
   hot,
   store,
   guild,
-  guildId,
+  placeId,
   self,
   dataDir,
   mediaCache,
@@ -6454,7 +6464,7 @@ async function loopDepsOf({
         hot: sideHot,
         store,
         guild,
-        guildId,
+        placeId,
         channel,
         selfId: self.id,
         selfName: self.name,
@@ -6518,6 +6528,7 @@ export async function main(
   }
 }
 
+// health: allow function-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv) {
   const src = path.join(root, 'src');
   if (!fs.existsSync(path.join(src, 'behavior', 'sandbox.ts')))
@@ -6548,7 +6559,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
         throw new CliError(`replay-cli: ${args.triggers}: ${err?.code === 'ENOENT' ? 'not found' : err.message}`);
       }
       if (pairTriggers.length === 0) throw new CliError(`replay-cli: ${args.triggers} names no trigger`);
-    } else pairTriggers = [{ channelId: args.channelId, triggerId: args.triggerId, turnId: null }];
+    } else pairTriggers = [{ placeId: args.placeId, triggerId: args.triggerId, turnId: null }];
   }
   // The scenarios of --skills, read before anything else too: their runs are the estimate.
   let scenarios = null;
@@ -6651,7 +6662,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
   // --show-request <turnId>: a stored dump needs neither Discord nor a key.
   let turnStart = null;
   if (args.showRequestTurn !== null) {
-    const journalGuild = resolveGuildId(liveData, hot.config.bot?.guildId || undefined);
+    const journalGuild = resolveGuildId(liveData, hot.config.bot?.placeId || undefined);
     const journalDirs = [
       ...new Set([
         path.join(liveData, 'guilds', journalGuild, 'journal'),
@@ -6687,7 +6698,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
         'replay-cli: that turn has no channel or trigger message to rebuild it from (a spontaneous or private turn)'
       );
     }
-    args.channelId = turnStart.scope.channel;
+    args.placeId = turnStart.scope.channel;
     args.triggerId = turnStart.trigger.messageId;
   }
   const discordToken = platformToken('discord', { rootDir: root });
@@ -6802,12 +6813,12 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     const connection = await connectDiscord({
       discord,
       token: discordToken,
-      configuredGuildId: hot.config.bot?.guildId || '',
+      configuredGuildId: hot.config.bot?.placeId || '',
       resolveGuild,
       log,
     });
     client = connection.client;
-    const { guild, guildId, self } = connection;
+    const { guild, placeId, self } = connection;
     const config = hot.config;
     // `<channel_directory>`: the guild's readable text channels, as a live turn lists them.
     const channelDirectory = channelDirectoryOf(guild);
@@ -6833,9 +6844,13 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
           ...(noCache ? { cache: false } : {}),
         }),
     };
-    const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
-    const gifs = typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null;
-    const customEmoji = await customEmojiOf(discordReads(client, () => hot.config).reads, String(guildId));
+    const mediaCache =
+      typeof store.getMediaCache === 'function'
+        ? (store.getMediaCache(placeOfCommunity(store, String(placeId))) ?? null)
+        : null;
+    const gifs =
+      typeof store.getGifs === 'function' ? (store.getGifs(placeOfCommunity(store, String(placeId))) ?? null) : null;
+    const customEmoji = await customEmojiOf(discordReads(client, () => hot.config).reads, String(placeId));
     // Her tools that only read (web.search, memory.search) run for real over this guild, read only (createReplayTools).
     const loopDeps = loopWanted
       ? await loopDepsOf({
@@ -6843,7 +6858,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
           hot,
           store,
           guild,
-          guildId,
+          placeId,
           self,
           dataDir,
           mediaCache,
@@ -6856,14 +6871,14 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     // The live journal's records, read once on first need: the mode and trigger kind each turn recorded at its start.
     let journalCache = null;
     const journalOf = () =>
-      (journalCache ??= journalRecords(path.join(liveData, 'guilds', String(guildId), 'journal')));
-    const momentOf = (channelId: string, triggerId: Untyped) =>
+      (journalCache ??= journalRecords(path.join(liveData, 'guilds', String(placeId), 'journal')));
+    const momentOf = (conversationId: string, triggerId: Untyped) =>
       readMoment({
         client,
         guild,
-        guildId,
+        placeId,
         self,
-        channelId,
+        conversationId: conversationId,
         triggerId,
         before,
         config,
@@ -6889,7 +6904,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
         hot,
         store,
         guild,
-        guildId,
+        placeId,
         client,
         self,
         llm,
@@ -6915,7 +6930,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     if (args.pair) {
       // Each side: the bot's config and tracked prompts with its own directory as prompts.local/.
       for (const dir of args.pair) sides.push(promptLayersHot(createHot, root, [dir]));
-      const journalDir = path.join(liveData, 'guilds', String(guildId), 'journal');
+      const journalDir = path.join(liveData, 'guilds', String(placeId), 'journal');
       const turnIds = new Set(pairTriggers.map((t: Rec) => t.turnId).filter(Boolean));
       const actions =
         turnIds.size > 0 ? journalRecords(journalDir).filter((r) => r?.kind === 'action' && turnIds.has(r.turnId)) : [];
@@ -6947,7 +6962,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
         const id = `p${index + 1}`;
         let moment;
         try {
-          moment = await momentOf(trigger.channelId, trigger.triggerId);
+          moment = await momentOf(String(trigger.placeId), trigger.triggerId);
         } catch (err: Untyped) {
           failed.push({
             id,
@@ -6976,7 +6991,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
               return hot.config;
             },
           };
-          const { view } = memoryViewFor({ hotLike, store, guildId, calibrator, situation, at, args, mods: viewMods });
+          const { view } = memoryViewFor({ hotLike, store, placeId, calibrator, situation, at, args, mods: viewMods });
           try {
             const result = await answerReply({
               view,
@@ -7016,7 +7031,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
         });
         key.pairs[id] = {
           first,
-          channelId: trigger.channelId,
+          placeId: trigger.placeId,
           triggerId: triggerLine.id,
           turnId: trigger.turnId,
           journalActions: trigger.turnId
@@ -7071,7 +7086,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
         sides: skillSides,
         store,
         guild,
-        guildId,
+        placeId,
         client,
         self,
         llm,
@@ -7091,7 +7106,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
       });
     }
 
-    const { channel, history, triggerLine, at } = await momentOf(args.channelId!, args.triggerId!);
+    const { channel, history, triggerLine, at } = await momentOf(args.placeId!, args.triggerId!);
 
     // The turn this trigger started: the journal's turn.start record (the one --show-request
     // names, else the newest whose trigger is this message), else the sandbox's guess.
@@ -7134,14 +7149,14 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
       // --text: the same message (author, time, id) with the operator's text in place of its own.
       const trigger = args.text !== null ? { ...triggerLine, content: args.text } : triggerLine;
       // `<recent>` as the reply mode shows it: no line the analyzer added at or after the trigger.
-      const asOf = momentView(liveView({ hot, store, guildId, calibrator }), momentCutoff(situation) ?? at);
+      const asOf = momentView(liveView({ hot, store, placeId, calibrator }), momentCutoff(situation) ?? at);
       return await runRecall({
         hot,
         mods: recallMods,
         llm,
         store,
         guild,
-        guildId,
+        placeId,
         channel,
         self,
         history,
@@ -7161,7 +7176,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     const { view, hiddenSelf, hidden } = memoryViewFor({
       hotLike: hot,
       store,
-      guildId,
+      placeId,
       calibrator,
       situation,
       at,

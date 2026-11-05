@@ -4,6 +4,7 @@
 // `treeSize` (a directory walk for the memory snapshot) and `postingConversation` (a channel
 // looked up through the client it is handed).
 
+import { sharedPlaceOf } from '../../memory/addresses.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { listRules, locateBullets } from '../../rules-list.ts';
@@ -55,8 +56,8 @@ export const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototyp
  * who else may run which command. A path under one, or above one (unsetting `bot` drops both), counts. */
 export const OWNER_ONLY_CONFIG_PATHS = ['bot.owners', 'bot.ownerPerson', 'bot.access'];
 
-/** The error of every guild-bound command before the served guild resolves. */
-export const NO_GUILD = 'no guild resolved yet';
+/** The error of every place-bound command before the served place resolves. */
+export const PLACE_REQUIRED = 'no place resolved yet';
 
 export { listRules, locateBullets };
 
@@ -598,7 +599,7 @@ export function routeRoleArg(args: unknown): string | null {
 // ---------------------------------------------------------------------------
 
 /** Why `/nep emoji rescan` did not run, by src/memory/emoji-backfill.ts's skip reason (the
- * reasons every background job shares -- paused, no guild -- are worded by `skipText`). */
+ * reasons every background job shares -- paused, no place -- are worded by `skipText`). */
 export const EMOJI_RESCAN_SKIPS: Record<string, string> = {
   running: 'An emoji backfill is already running.',
 };
@@ -702,7 +703,7 @@ export const CHANNEL_NEEDS: Readonly<
 /** What posting in another conversation reads of the call's context: where it runs, and the wake it is made in. */
 export type PostingContext = {
   publicationBoundary?: PublicationBoundary;
-  channelId?: string | null;
+  conversationId?: string | null;
   ownInitiative?: boolean;
   wakeKind?: string;
   env?: Env;
@@ -725,8 +726,8 @@ function checkWakePosting(context: PostingContext, capability: string | null): v
 
 /**
  * The conversation an operation acting as the persona aims at (`/nep message`, `/nep draw
- * channel:`): `channelId`, else the one the command runs in. The one it runs in passes as it is;
- * any other must be a conversation of the served community (`guildId`; never a private chat) where
+ * channel:`): `placeId`, else the one the command runs in. The one it runs in passes as it is;
+ * any other must be a conversation of the served community (`placeId`; never a private chat) where
  * the persona holds the permissions `need` names (CHANNEL_NEEDS), as the interface reports them
  * (`reads.conversationInfo`, `iface` its name) -- the platform's permissions are the only limit on where.
  * Otherwise a `denied` error (`channel-no-permission`), a conversation the interface does not know
@@ -737,31 +738,33 @@ function checkWakePosting(context: PostingContext, capability: string | null): v
  */
 export async function postingConversation({
   reads,
+  store = null,
   iface,
-  guildId,
-  channelId,
+  placeId,
+  conversationId,
   context,
   need,
 }: {
   reads: Reads | null;
+  store?: unknown;
   iface: string;
-  guildId: string | null;
-  channelId: string | null | undefined;
+  placeId: string | null;
+  conversationId: string | null | undefined;
   context: PostingContext;
   need: keyof typeof CHANNEL_NEEDS;
 }): Promise<string> {
   const capability = NEED_CAPABILITY[need] ?? null;
   checkWakePosting(context, capability);
-  const id = channelId ? channelId : context.channelId ? context.channelId : null;
+  const id = conversationId ? conversationId : context.conversationId ? context.conversationId : null;
   if (!id) throw invalid('a channel is required');
   if (capability && publicationRefusal(context.publicationBoundary, { iface, conversationId: id }))
     throw denied('publication-boundary', 'not-allowed');
-  if (id === (context.channelId ?? '')) return id;
+  if (id === (context.conversationId ?? '')) return id;
   const allowedThere = CHANNEL_NEEDS[need] as ((permissions: Permissions) => boolean) | undefined;
   if (typeof allowedThere !== 'function') throw new Error(`unknown channel need: ${need}`);
   const found = reads ? await reads.conversationInfo({ iface, conversationId: id }) : null;
   const info = found?.conversation ?? null;
-  const served = info !== null && Boolean(guildId) && info.communityId === guildId;
+  const served = info !== null && Boolean(placeId) && sharedPlaceOf(store, info, iface) === placeId;
   if (!served || info.kind === 'dm' || !allowedThere(info.permissions)) {
     throw denied(`the bot may not ${need} in channel ${id}`, CODE.CHANNEL_NO_PERMISSION);
   }
@@ -772,7 +775,7 @@ export async function postingConversation({
 const MESSAGE_REF_RE = /^ref:([\w-]{1,64})\/([\w-]{1,64})$/;
 
 /**
- * `{ channelId, messageId }` of a message id (`channelId` null), a `ref:<conversation>/<message>` the core wrote, or a
+ * `{ placeId, messageId }` of a message id (`placeId` null), a `ref:<conversation>/<message>` the core wrote, or a
  * message link a person pasted (with or without angle brackets), which the interface reads (`reads.parseLinks`): the
  * core knows no address grammar of a platform. An `invalid` error (`unknown-message`) for anything else, a link
  * included when there are no reads or the interface does not read links.
@@ -780,18 +783,18 @@ const MESSAGE_REF_RE = /^ref:([\w-]{1,64})\/([\w-]{1,64})$/;
 export async function messageRefOf(
   value: unknown,
   reads: Reads | null
-): Promise<{ channelId: string | null; messageId: string }> {
+): Promise<{ placeId: string | null; messageId: string }> {
   const text = (typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '')
     .trim()
     .replace(/^<(.*)>$/, '$1')
     .trim();
-  if (/^[\w-]{1,64}$/.test(text)) return { channelId: null, messageId: text };
+  if (/^[\w-]{1,64}$/.test(text)) return { placeId: null, messageId: text };
   const own = MESSAGE_REF_RE.exec(text);
-  if (own?.[1] !== undefined && own[2] !== undefined) return { channelId: own[1], messageId: own[2] };
+  if (own?.[1] !== undefined && own[2] !== undefined) return { placeId: own[1], messageId: own[2] };
   if (/^https?:\/\//i.test(text) && reads) {
     const parsed = await reads.parseLinks([text]);
     const ref = parsed?.refs[0] ?? null;
-    if (ref) return { channelId: ref.conversationId, messageId: ref.messageId };
+    if (ref) return { placeId: ref.conversationId, messageId: ref.messageId };
   }
   throw invalid('a message id or link is required', CODE.UNKNOWN_MESSAGE);
 }

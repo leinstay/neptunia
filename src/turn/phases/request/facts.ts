@@ -3,6 +3,8 @@
 // follow-up prompt's check, her time away and skills discovery. The request phase (src/turn/phases/request.ts) runs
 // it after the gather step.
 
+import { diaryPlaceNotes } from '../../diary.ts';
+import { accountOf } from '../../../memory/addresses.ts';
 import { messageLinkOf } from '../../../behavior/elsewhere.ts';
 import { FACTS_SHOWN_MAX, factPayload } from '../../../behavior/inner.ts';
 import { isTaggedCall } from '../../../behavior/mention.ts';
@@ -24,7 +26,7 @@ export type Told = {
   factsText: string;
   tasks: ReturnType<typeof taskInput>;
   notAnswered: Set<string>;
-  guildMemory: unknown;
+  placeMemory: unknown;
   taggedCall: boolean | null;
   offPeriods: unknown;
   skillIndex: string | null;
@@ -43,7 +45,7 @@ export async function tellFacts(
   const { store, iface, facts, privateChannels, promptState, offPeriodsFor, skillIndex } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, queued = null, added = null } = params;
   const { missed = null, source = null } = params;
-  const { channel, guildId, isPrivate } = opened;
+  const { channel, placeId, reading, isPrivate } = opened;
   const { config, now, memoryOn, selfId } = setup;
   const { finalMode } = pulled;
   const { history, prompts } = gathered;
@@ -51,16 +53,13 @@ export async function tellFacts(
   // Addressed turns of this channel that failed earlier, told once (first part only); cleared at the turn's end unless it fails too.
   const addressedHere = mode === 'reply' && askedFor(trigger, triggerKind) && (!part || part.index === 1);
   if (isPrivate) privateChannels.add(String(channel.id));
-  const factScope = { channelId: String(channel.id), privateChat: isPrivate };
-  let pendingFacts = addressedHere ? facts().pending(guildId, factScope) : [];
+  const factScope = { placeId: String(channel.id), privateChat: isPrivate };
+  let pendingFacts = addressedHere ? facts().pending(factScope) : [];
   // A send of hers that may have gone out is looked for in the channel's lines first: found, the fact is dropped; not, it is told as unclear.
   if (pendingFacts.some((fact) => fact.kind === 'sendFailed' && fact.unknown === true)) {
     const settled = settleUnknownSends(pendingFacts, history);
     if (settled.dropped.length > 0) {
-      facts().markTold(
-        guildId,
-        settled.dropped.map((fact) => fact.id)
-      );
+      facts().markTold(settled.dropped.map((fact) => fact.id));
       log.info('turn: unknown send found in the channel', { channel: channel.id, count: settled.dropped.length });
     }
     pendingFacts = settled.kept;
@@ -68,17 +67,17 @@ export async function tellFacts(
   const failedFacts = pendingFacts.filter(
     (fact) =>
       fact.kind === 'failedTurn' &&
-      fact.channelId === factScope.channelId &&
+      fact.placeId === factScope.placeId &&
       now - fact.at < FAILED_TURN_KEEP_MS &&
       fact.messageId !== trigger?.id
   );
   const failedEarlier = failedFacts.map((fact) => ({
     author:
       history.find((m) => m.authorId === fact.authorId)?.authorName ??
-      store.getUser?.(guildId, fact.authorId as string | undefined)?.names?.[0] ??
+      store.getUser?.(accountOf(store, String(fact.authorId)))?.names?.[0] ??
       '',
     messageId: fact.messageId,
-    link: messageLinkOf(iface, isPrivate ? null : guildId, channel.id, fact.messageId),
+    link: messageLinkOf(iface, isPrivate ? null : placeId, channel.id, fact.messageId),
     at: fact.at,
     code: fact.code,
   }));
@@ -100,7 +99,7 @@ export async function tellFacts(
     missed,
     failedEarlier,
     labels: prompts?.labels,
-    channelId: channel.id,
+    placeId: channel.id,
   });
   // What this turn had in view yet does not answer (spokeAfterSeeing): the queued calls it
   // named, and on a part of a split message every line after the message -- a call that came
@@ -108,7 +107,7 @@ export async function tellFacts(
   const triggerAt = part && trigger ? history.findIndex((m) => m.id === trigger.id) : -1;
   const notAnswered =
     triggerAt === -1 ? tasks.deferred : new Set([...tasks.deferred, ...history.slice(triggerAt + 1).map((m) => m.id)]);
-  const guildMemory = memoryOn ? store.getGuild(guildId) : null;
+  const placeMemory = memoryOn ? diaryPlaceNotes(store as Parameters<typeof diaryPlaceNotes>[0], reading, null) : null;
   // Whether the call tags the persona, read as decideMention reads it (src/pipeline/answer.ts#decideAndLog):
   // an untagged reply takes the follow-up task (usesFollowUpTask).
   const taggedCall = trigger ? isTaggedCall(trigger, selfId) : null;
@@ -128,7 +127,7 @@ export async function tellFacts(
     promptState.followUpMissing = missing;
   }
   // `<now>`: the persona's recent time away (the journal's pauses and stops).
-  const offPeriods = await offPeriodsFor(guildId);
+  const offPeriods = await offPeriodsFor(placeId);
   // The index of her active skills: every turn kind shows it, and the turn counts the skills it showed.
   const indexed = skillIndex == null ? null : await skillIndex();
   draft.skillsIndexed = indexed?.indexed ?? [];
@@ -136,7 +135,7 @@ export async function tellFacts(
     factsText,
     tasks,
     notAnswered,
-    guildMemory,
+    placeMemory,
     taggedCall,
     offPeriods,
     skillIndex: indexed?.text ? indexed.text : null,

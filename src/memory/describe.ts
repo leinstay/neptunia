@@ -5,7 +5,7 @@
 // default). One request per NEW picture: two callers reaching the same new
 // picture at once (a message prefill and a turn) share one download and one
 // request. Results are cached per
-// attachment/embed id in data/guilds/<id>/media.json (src/memory/store.ts),
+// attachment/embed id in data/places/<id>/media.json (src/memory/store.ts),
 // LRU-trimmed to `MEDIA_CACHE_ENTRIES` (src/web/cache.ts). A failure is cached as a miss for an
 // hour, so a broken picture is not retried on every turn/batch -- except a
 // refusal by `llm.maxRequestsPerDay`, which says nothing about the picture.
@@ -500,21 +500,21 @@ function mediaCacheAccess({ store, hot, now }: Pick<DescriberDeps, 'store' | 'ho
     return !(typeof failedAt === 'number' && isFiniteNumber(failedAt) && now() - failedAt < ttlMs);
   }
 
-  /** A cache hit: LRU-touched and stamped `usedAt`, the guild's cache marked dirty. */
-  function touchHit(guildId: string, cache: Untyped, key: string, entry: Untyped) {
+  /** A cache hit: LRU-touched and stamped `usedAt`, the place's cache marked dirty. */
+  function touchHit(placeId: string, cache: Untyped, key: string, entry: Untyped) {
     entry.usedAt = now();
     touchKey(cache, key, entry);
-    store.markMediaCacheDirty(guildId);
+    store.markMediaCacheDirty(placeId);
   }
 
-  function readEntry(guildId: string, key: string): Untyped {
-    const cache = store.getMediaCache(guildId);
+  function readEntry(placeId: string, key: string): Untyped {
+    const cache = store.getMediaCache(placeId);
     if (Object.hasOwn(cache, key)) return cache[key];
-    const saved = store.getMediaDescription?.(guildId, key);
+    const saved = store.getMediaDescription?.(placeId, key);
     if (!saved) return undefined;
     touchKey(cache, key, saved);
     trimCache(cache, MEDIA_CACHE_ENTRIES);
-    store.markMediaCacheDirty(guildId);
+    store.markMediaCacheDirty(placeId);
     return saved;
   }
   return { dueForRecache, touchHit, readEntry };
@@ -565,17 +565,17 @@ function buildDescriber({
    * see dueForRecache), FRESH_MISS while a failure younger than an hour is
    * remembered, or null when it must be described.
    */
-  function cachedPicture(guildId: string, itemId: string) {
-    const cache = store.getMediaCache(guildId);
-    const cached = readEntry(guildId, itemId);
+  function cachedPicture(placeId: string, itemId: string) {
+    const cache = store.getMediaCache(placeId);
+    const cached = readEntry(placeId, itemId);
     if (!cached) return null;
     if (cached.miss) return now() - cached.ts < MISS_TTL_MS ? FRESH_MISS : null;
-    touchHit(guildId, cache, itemId, cached);
+    touchHit(placeId, cache, itemId, cached);
     const result = { text: cached.text, usage: null, estimated: 0, cached: true };
     return { result, stale: dueForRecache(cached, MISS_TTL_MS), entry: cached };
   }
 
-  // One in-flight description per guild + picture: a message prefill and a
+  // One in-flight description per place + picture: a message prefill and a
   // turn that reach the same new picture at once share one download and one request.
   const pictureFlights = new Map();
 
@@ -584,18 +584,18 @@ function buildDescriber({
    * call waited on another caller's description of the same picture (its
    * request was not this call's).
    */
-  async function describeShared(guildId: string, item: MediaItem) {
+  async function describeShared(placeId: string, item: MediaItem) {
     if (!picturesOn()) return { result: null, joined: false };
-    const hit = cachedPicture(guildId, item.itemId);
+    const hit = cachedPicture(placeId, item.itemId);
     if (hit === FRESH_MISS) return { result: null, joined: false };
     if (hit && !hit.stale) return { result: hit.result, joined: false };
     // A stale caption (media.recacheBefore) is described again; its old text is the fallback.
     const kept = hit?.result ?? null;
-    const flightKey = `${guildId}:${item.itemId}`;
+    const flightKey = `${placeId}:${item.itemId}`;
     const running = pictureFlights.get(flightKey);
     if (running) return { result: (await running) ?? kept, joined: true };
     if (capSpent()) return { result: kept, joined: false };
-    const promise = describeNow(guildId, item, hit?.entry ?? null).finally(() => pictureFlights.delete(flightKey));
+    const promise = describeNow(placeId, item, hit?.entry ?? null).finally(() => pictureFlights.delete(flightKey));
     pictureFlights.set(flightKey, promise);
     return { result: await promise, joined: false };
   }
@@ -611,18 +611,18 @@ function buildDescriber({
    *   `unavailable`: pictures are not described now (pictureBlocker) or `llm.maxRequestsPerDay` is spent.
    */
   async function redescribe(
-    guildId: string,
+    placeId: string,
     item: MediaItem
   ): Promise<{ state: 'done' } | { state: 'failed' } | { state: 'unavailable'; reason: string }> {
     const blocker = pictureBlockerOf(hot);
     if (blocker !== null) return { state: 'unavailable', reason: blocker };
     if (capSpent()) return { state: 'unavailable', reason: 'daily-cap' };
-    const flightKey = `${guildId}:${item.itemId}`;
+    const flightKey = `${placeId}:${item.itemId}`;
     let promise = pictureFlights.get(flightKey);
     if (!promise) {
-      const entry = readEntry(guildId, item.itemId);
+      const entry = readEntry(placeId, item.itemId);
       const previous = entry && !entry.miss && typeof entry.text === 'string' && entry.text ? entry : null;
-      promise = describeNow(guildId, item, previous).finally(() => pictureFlights.delete(flightKey));
+      promise = describeNow(placeId, item, previous).finally(() => pictureFlights.delete(flightKey));
       pictureFlights.set(flightKey, promise);
     }
     const result = await promise;
@@ -641,10 +641,10 @@ function buildDescriber({
    *   src/media/classify.ts#collectPictures.
    */
   async function describe(
-    guildId: string,
+    placeId: string,
     item: { itemId: string; kind: string; url: string }
   ): Promise<{ text: string; usage: Untyped; estimated: number; cached?: boolean } | null> {
-    return (await describeShared(guildId, item)).result;
+    return (await describeShared(placeId, item)).result;
   }
 
   /**
@@ -655,19 +655,19 @@ function buildDescriber({
    * the entry stamped `refreshFailedAt` unless the daily cap refused the
    * request) instead of a miss being cached.
    */
-  async function describeNow(guildId: string, item: MediaItem, previous: Untyped = null) {
+  async function describeNow(placeId: string, item: MediaItem, previous: Untyped = null) {
     const promptText = hot.prompts?.describe;
     if (!promptText) return null;
     const mediaCfg = hot.config.media ?? {};
     const descriptionChars = DESCRIPTION_CHARS;
-    const cache = store.getMediaCache(guildId);
+    const cache = store.getMediaCache(placeId);
 
     // The old caption kept on a failure, its entry stamped when `mark` is set.
     const keepPrevious = (mark: Untyped) => {
       if (mark) {
-        store.markMediaDescriptionRefreshFailed?.(guildId, item.itemId, now());
+        store.markMediaDescriptionRefreshFailed?.(placeId, item.itemId, now());
         touchKey(cache, item.itemId, { ...previous, refreshFailedAt: now() });
-        store.markMediaCacheDirty(guildId);
+        store.markMediaCacheDirty(placeId);
       }
       return { text: previous.text, usage: null, estimated: 0, cached: true, kept: true };
     };
@@ -678,7 +678,7 @@ function buildDescriber({
     // is never replaced by one frame: it is kept instead.
     let watchFailed = false;
     if (item.kind === 'gif') {
-      const watched = await watchGifShared(guildId, item);
+      const watched = await watchGifShared(placeId, item);
       if (watched?.state === 'watched') {
         return { text: watched.text, usage: watched.usage ?? null, estimated: watched.estimated ?? 0 };
       }
@@ -695,7 +695,7 @@ function buildDescriber({
       if (mark) {
         touchKey(cache, item.itemId, { miss: true, ts: now() });
         trimCache(cache, MEDIA_CACHE_ENTRIES);
-        store.markMediaCacheDirty(guildId);
+        store.markMediaCacheDirty(placeId);
       }
       return null;
     };
@@ -762,10 +762,10 @@ function buildDescriber({
     const entry: Record<string, Untyped> = { text, ts, describedAt: ts, model };
     if (item.kind === 'gif') entry.gif = true;
     if (watchFailed) entry.watchFailed = entry.ts;
-    if (isMediaDescriptionEntry(entry)) store.rememberMediaDescription?.(guildId, item.itemId, entry);
+    if (isMediaDescriptionEntry(entry)) store.rememberMediaDescription?.(placeId, item.itemId, entry);
     touchKey(cache, item.itemId, entry);
     trimCache(cache, MEDIA_CACHE_ENTRIES);
-    store.markMediaCacheDirty(guildId);
+    store.markMediaCacheDirty(placeId);
     return { text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
   }
 
@@ -796,7 +796,7 @@ function buildDescriber({
    * spent before the watch, nothing is fetched). One
    * `describe: gif` log line, codes only.
    */
-  async function watchGifNow(guildId: string, item: MediaItem, source: Untyped) {
+  async function watchGifNow(placeId: string, item: MediaItem, source: Untyped) {
     const videoCfg = videoSettingsOf(hot.config);
     const maxSeconds = GIF_MAX_SECONDS;
     const descriptionChars = DESCRIPTION_CHARS;
@@ -844,7 +844,7 @@ function buildDescriber({
     const { text, reaction, action, screen } = fields;
     const ts = now();
     putVideoEntry(
-      guildId,
+      placeId,
       item.itemId,
       {
         text,
@@ -906,30 +906,30 @@ function buildDescriber({
    * watchGifNow behind the switches and the in-flight guard: null when GIFs
    * are not watched now (gifWatchBlocker) or the item has no animation to
    * download (gifAnimationSource); otherwise the outcome, shared with any
-   * caller already watching the same GIF of the same guild.
+   * caller already watching the same GIF of the same place.
    */
-  function watchGifShared(guildId: string, item: MediaItem) {
+  function watchGifShared(placeId: string, item: MediaItem) {
     if (gifWatchBlocker() !== null) return null;
     const source = gifAnimationSource(item);
     if (!source) return null;
-    const flightKey = `${guildId}:gif:${item.itemId}`;
+    const flightKey = `${placeId}:gif:${item.itemId}`;
     const running = inFlight.get(flightKey);
     if (running) return running;
-    const promise = watchGifNow(guildId, item, source).finally(() => inFlight.delete(flightKey));
+    const promise = watchGifNow(placeId, item, source).finally(() => inFlight.delete(flightKey));
     inFlight.set(flightKey, promise);
     return promise;
   }
 
   /** Mark a GIF's cache entry as a failed watch (`watchFailed`): its caption, if any, is kept. */
-  function markGifWatchFailed(guildId: string, itemId: string) {
-    const cache = store.getMediaCache(guildId);
+  function markGifWatchFailed(placeId: string, itemId: string) {
+    const cache = store.getMediaCache(placeId);
     const entry = cache[itemId];
     const ts = now();
     const next =
       entry && !entry.miss && typeof entry.text === 'string' && entry.text
         ? { ...entry, watchFailed: ts }
         : { miss: true, ts, gif: true, watchFailed: ts };
-    putVideoEntry(guildId, itemId, next);
+    putVideoEntry(placeId, itemId, next);
   }
 
   /**
@@ -946,7 +946,7 @@ function buildDescriber({
    *   `unavailable`: GIFs are not watched now (see gifWatchBlocker) or a daily rail is spent.
    */
   async function watchGif(
-    guildId: string,
+    placeId: string,
     item: MediaItem
   ): Promise<
     | { state: 'watched'; text: string; cached?: true }
@@ -955,18 +955,18 @@ function buildDescriber({
   > {
     const blocker = gifWatchBlocker();
     if (blocker !== null) return { state: 'unavailable', reason: blocker };
-    const cached = readEntry(guildId, item.itemId);
+    const cached = readEntry(placeId, item.itemId);
     // An old-format watched entry (no `reaction` field) is watched again for its three fields.
     if (cached?.watched && typeof cached.text === 'string' && typeof cached.reaction === 'string') {
       return { state: 'watched', text: cached.text, cached: true };
     }
     if (!gifAnimationSource(item)) {
-      markGifWatchFailed(guildId, item.itemId);
+      markGifWatchFailed(placeId, item.itemId);
       log.info('describe: gif', { state: 'failed', reason: 'source' });
       return { state: 'failed', reason: 'source' };
     }
-    const outcome = await watchGifShared(guildId, item);
-    if (outcome.state === 'failed') markGifWatchFailed(guildId, item.itemId);
+    const outcome = await watchGifShared(placeId, item);
+    if (outcome.state === 'failed') markGifWatchFailed(placeId, item.itemId);
     if (outcome.state === 'watched') return { state: 'watched', text: outcome.text };
     return { state: outcome.state, reason: outcome.reason };
   }
@@ -989,7 +989,7 @@ function buildDescriber({
    * caller with its own separate token budget can account for it.
    */
   async function describeMany(
-    guildId: string,
+    placeId: string,
     items: Array<MediaItem>,
     { maxNew = Infinity, concurrency = Infinity, onCharge }: DescribeManyOptions = {}
   ): Promise<{ descriptions: Map<string, string>; newCount: number }> {
@@ -1001,7 +1001,7 @@ function buildDescriber({
     for (const item of on ? (items ?? []) : []) {
       if (!item?.itemId || seen.has(item.itemId) || !roleOn(hot.config, mediaRoleOf(item))) continue;
       seen.add(item.itemId);
-      const hit = cachedPicture(guildId, item.itemId);
+      const hit = cachedPicture(placeId, item.itemId);
       if (hit === FRESH_MISS) continue;
       // A stale caption (media.recacheBefore) is picked like a new picture;
       // past `maxNew` (or with the cap spent) its old text is served.
@@ -1015,7 +1015,7 @@ function buildDescriber({
       while (next < picked.length) {
         const item = picked[next];
         next += 1;
-        const { result, joined } = await describeShared(guildId, item);
+        const { result, joined } = await describeShared(placeId, item);
         if (!result) continue;
         if (!result.cached && !joined) onCharge?.(result);
         found.set(item.itemId, result.text);
@@ -1039,30 +1039,30 @@ function buildDescriber({
    * describe prompt). Used where a caption helps but may not cost a request
    * (the address classifier, src/behavior/pipeline.js).
    */
-  function cachedDescriptions(guildId: string, items: Array<MediaItem>): Map<string, string> {
+  function cachedDescriptions(placeId: string, items: Array<MediaItem>): Map<string, string> {
     const descriptions = new Map();
     if (!hot.prompts?.describe) return descriptions;
-    const cache = store.getMediaCache(guildId);
+    const cache = store.getMediaCache(placeId);
     for (const item of items ?? []) {
-      const entry = item?.itemId ? readEntry(guildId, item.itemId) : undefined;
+      const entry = item?.itemId ? readEntry(placeId, item.itemId) : undefined;
       if (!entry || entry.miss || typeof entry.text !== 'string' || !entry.text) continue;
-      touchHit(guildId, cache, item.itemId, entry);
+      touchHit(placeId, cache, item.itemId, entry);
       descriptions.set(item.itemId, entry.text);
     }
     return descriptions;
   }
 
-  // One in-flight watch per guild + video: a message prefill and a turn that
+  // One in-flight watch per place + video: a message prefill and a turn that
   // reach the same new video at once share one request.
   const inFlight = new Map();
 
   /** Store a video cache entry, LRU-touched and trimmed like the picture entries. */
-  function putVideoEntry(guildId: string, key: string, value: Untyped, generated = false) {
-    if (generated && isMediaDescriptionEntry(value)) store.rememberMediaDescription?.(guildId, key, value);
-    const cache = store.getMediaCache(guildId);
+  function putVideoEntry(placeId: string, key: string, value: Untyped, generated = false) {
+    if (generated && isMediaDescriptionEntry(value)) store.rememberMediaDescription?.(placeId, key, value);
+    const cache = store.getMediaCache(placeId);
     touchKey(cache, key, value);
     trimCache(cache, MEDIA_CACHE_ENTRIES);
-    store.markMediaCacheDirty(guildId);
+    store.markMediaCacheDirty(placeId);
   }
 
   /**
@@ -1075,13 +1075,13 @@ function buildDescriber({
    * (dueForRecache, the error retry time as its TTL) comes with `stale`: its
    * cache entry.
    */
-  function cachedVideo(guildId: string, key: string, item: MediaItem, force = false) {
-    const cache = store.getMediaCache(guildId);
-    const entry = readEntry(guildId, key);
+  function cachedVideo(placeId: string, key: string, item: MediaItem, force = false) {
+    const cache = store.getMediaCache(placeId);
+    const entry = readEntry(placeId, key);
     if (!entry) return null;
     const lasting = videoStateFromCache(entry, hot.config, item);
     if (lasting?.state === 'watched') {
-      touchHit(guildId, cache, key, entry);
+      touchHit(placeId, cache, key, entry);
       const result = { ...lasting, usage: null, estimated: 0, cached: true };
       return dueForRecache(entry, videoErrorTtlMs()) ? { ...result, stale: entry } : result;
     }
@@ -1245,7 +1245,7 @@ function buildDescriber({
    * with its entry stamped `refreshFailedAt` -- never a miss over it.
    */
   async function watchVideo(
-    guildId: string,
+    placeId: string,
     item: MediaItem,
     key: string,
     promptText: Untyped,
@@ -1272,8 +1272,8 @@ function buildDescriber({
     };
     // The stale summary kept, its entry stamped so it waits the error retry time.
     const keepPrevious = () => {
-      store.markMediaDescriptionRefreshFailed?.(guildId, key, now());
-      putVideoEntry(guildId, key, { ...previous.entry, refreshFailedAt: now() });
+      store.markMediaDescriptionRefreshFailed?.(placeId, key, now());
+      putVideoEntry(placeId, key, { ...previous.entry, refreshFailedAt: now() });
       return previous.result;
     };
     const errorMiss = (reason: string, extra: Record<string, Untyped> = {}) => {
@@ -1281,7 +1281,7 @@ function buildDescriber({
         report({ state: 'error' }, { ...extra, reason });
         return keepPrevious();
       }
-      putVideoEntry(guildId, key, { miss: true, ts: now(), reason: 'error' });
+      putVideoEntry(placeId, key, { miss: true, ts: now(), reason: 'error' });
       return report({ state: 'error' }, { ...extra, reason });
     };
 
@@ -1303,7 +1303,7 @@ function buildDescriber({
       if (PERMANENT_VIDEO_MISSES.has(media.reason)) {
         const entry: Record<string, Untyped> = { miss: true, ts: now(), reason: media.reason };
         if (media.reason === 'length') entry.durationSec = media.durationSec ?? null;
-        putVideoEntry(guildId, key, entry);
+        putVideoEntry(placeId, key, entry);
         return { result: report({ state: 'limit', reason: media.reason }), sent: false, attempted: true };
       }
       return { result: errorMiss(media.reason ?? 'download'), sent: false, attempted: true };
@@ -1350,7 +1350,7 @@ function buildDescriber({
       entry.watchedSeconds = media.seconds;
       if (typeof media.totalSeconds === 'number') entry.totalSeconds = media.totalSeconds;
     }
-    putVideoEntry(guildId, key, entry, true);
+    putVideoEntry(placeId, key, entry, true);
     const result = { state: 'watched', text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
     Object.assign(result, watchedLengths(entry));
     report(result, sizes);
@@ -1364,12 +1364,12 @@ function buildDescriber({
    * `error` miss (a limit miss and a watched entry still count; every rail
    * still applies).
    */
-  async function describeVideoCharged(guildId: string, item: MediaItem, { cacheOnly = false, force = false } = {}) {
+  async function describeVideoCharged(placeId: string, item: MediaItem, { cacheOnly = false, force = false } = {}) {
     const promptText = hot.prompts?.['describe-video'];
     if (!promptText || !isVideoCandidate(item)) return { result: null, sent: false, attempted: false };
 
     const key = `video:${item.itemId}`;
-    const cached: Untyped = cachedVideo(guildId, key, item, force);
+    const cached: Untyped = cachedVideo(placeId, key, item, force);
     // A stale summary (media.recacheBefore) is watched again; its old result is the fallback.
     let previous: Untyped = null;
     if (cached?.stale) {
@@ -1386,13 +1386,13 @@ function buildDescriber({
     }
     if (cacheOnly) return { result: previous?.result ?? null, sent: false, attempted: false };
 
-    const flightKey = `${guildId}:${key}`;
+    const flightKey = `${placeId}:${key}`;
     const running = inFlight.get(flightKey);
     if (running) {
       const { result } = await running;
       return { result: result ?? previous?.result ?? null, sent: false, attempted: true };
     }
-    const promise = watchVideo(guildId, item, key, promptText, force, previous).finally(() =>
+    const promise = watchVideo(placeId, item, key, promptText, force, previous).finally(() =>
       inFlight.delete(flightKey)
     );
     inFlight.set(flightKey, promise);
@@ -1410,7 +1410,7 @@ function buildDescriber({
    *   is spent (nothing fetched or cached).
    */
   async function describeVideo(
-    guildId: string,
+    placeId: string,
     item: MediaItem,
     { force = false }: { force?: boolean } = {}
   ): Promise<
@@ -1419,7 +1419,7 @@ function buildDescriber({
     | { state: 'error' }
     | null
   > {
-    const { result } = await describeVideoCharged(guildId, item, { force });
+    const { result } = await describeVideoCharged(placeId, item, { force });
     return result;
   }
 
@@ -1434,7 +1434,7 @@ function buildDescriber({
    * `itemId` to a video state, ready for formatTranscript's `videos` option.
    */
   async function describeVideos(
-    guildId: string,
+    placeId: string,
     items: Array<MediaItem>,
     { maxNew = Infinity, onCharge }: { maxNew?: number; onCharge?: (r: Untyped) => void } = {}
   ) {
@@ -1442,7 +1442,7 @@ function buildDescriber({
     let newCount = 0;
     for (const item of roleOn(hot.config, 'video') ? items : []) {
       const cacheOnly = newCount >= maxNew;
-      const { result, sent, attempted } = await describeVideoCharged(guildId, item, { cacheOnly });
+      const { result, sent, attempted } = await describeVideoCharged(placeId, item, { cacheOnly });
       if (attempted) newCount += 1;
       if (sent) onCharge?.(result);
       if (result) videos.set(item.itemId, result);
@@ -1457,10 +1457,10 @@ function buildDescriber({
    * -> video state, ready for formatTranscript's `videos` option.
    * @param items  collectVideos candidates.
    */
-  async function cachedVideos(guildId: string, items: Array<MediaItem>): Promise<Map<string, Untyped>> {
+  async function cachedVideos(placeId: string, items: Array<MediaItem>): Promise<Map<string, Untyped>> {
     const videos = new Map();
     for (const item of items ?? []) {
-      const { result } = await describeVideoCharged(guildId, item, { cacheOnly: true });
+      const { result } = await describeVideoCharged(placeId, item, { cacheOnly: true });
       if (result) videos.set(item.itemId, result);
     }
     return videos;
@@ -1480,7 +1480,7 @@ function buildDescriber({
    * cached. With `llm.maxRequestsPerDay` spent nothing is fetched. The question and the answer are data: never logged.
    * @param item  One collectVideos candidate.
    */
-  async function rewatchVideo(guildId: string, item: MediaItem, question: string, { model = null }: Ask = {}): Looked {
+  async function rewatchVideo(placeId: string, item: MediaItem, question: string, { model = null }: Ask = {}): Looked {
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
     if (!promptText || !isVideoCandidate(item) || !asked) return null;
@@ -1499,18 +1499,18 @@ function buildDescriber({
       });
     };
 
-    const cache = store.getMediaCache(guildId);
+    const cache = store.getMediaCache(placeId);
     const key = questionKey(item.itemId, asked);
-    const hit = readEntry(guildId, key);
+    const hit = readEntry(placeId, key);
     if (hit && typeof hit.answer === 'string') {
       if (now() - hit.ts < REWATCH_TTL_MS) {
         touchKey(cache, key, hit);
-        store.markMediaCacheDirty(guildId);
+        store.markMediaCacheDirty(placeId);
         report('answered', { cached: true });
         return { question: hit.question ?? asked, text: hit.answer };
       }
       delete cache[key];
-      store.markMediaCacheDirty(guildId);
+      store.markMediaCacheDirty(placeId);
     }
 
     // The request would be refused: no fetch, no slot.
@@ -1550,7 +1550,7 @@ function buildDescriber({
       report('error', { reason: 'empty', seconds: media.seconds ?? null });
       return null;
     }
-    putVideoEntry(guildId, key, { answer: text, question: asked, ts: now() }, true);
+    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() }, true);
     report('answered', { seconds: media.seconds ?? null });
     return { question: asked, text };
   }
@@ -1571,7 +1571,7 @@ function buildDescriber({
    * The question and the answer are data: never logged.
    * @param item  One collectPictures item of kind `image`.
    */
-  async function relookImage(guildId: string, item: MediaItem, question: string, { model = null }: Ask = {}): Looked {
+  async function relookImage(placeId: string, item: MediaItem, question: string, { model = null }: Ask = {}): Looked {
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
     if (!promptText || item?.kind !== 'image' || !item.itemId || !item.url || !asked) return null;
@@ -1588,18 +1588,18 @@ function buildDescriber({
       });
     };
 
-    const cache = store.getMediaCache(guildId);
+    const cache = store.getMediaCache(placeId);
     const key = questionKey(item.itemId, asked, 'image');
-    const hit = readEntry(guildId, key);
+    const hit = readEntry(placeId, key);
     if (hit && typeof hit.answer === 'string') {
       if (now() - hit.ts < REWATCH_TTL_MS) {
         touchKey(cache, key, hit);
-        store.markMediaCacheDirty(guildId);
+        store.markMediaCacheDirty(placeId);
         report('answered', { cached: true });
         return { question: hit.question ?? asked, text: hit.answer };
       }
       delete cache[key];
-      store.markMediaCacheDirty(guildId);
+      store.markMediaCacheDirty(placeId);
     }
 
     // The request would be refused: no download, no slot.
@@ -1653,7 +1653,7 @@ function buildDescriber({
       report('error', { reason: 'empty' });
       return null;
     }
-    putVideoEntry(guildId, key, { answer: text, question: asked, ts: now() }, true);
+    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() }, true);
     report('answered');
     return { question: asked, text };
   }
@@ -1668,12 +1668,12 @@ function buildDescriber({
    * re-watch then. The re-watch classifier's GIF candidates.
    * @param items  collectPictures items; only `gif` ones count.
    */
-  function watchedGifs(guildId: string, items: Array<MediaItem>): Map<string, string> {
+  function watchedGifs(placeId: string, items: Array<MediaItem>): Map<string, string> {
     const watched = new Map();
     if (gifWatchBlocker() !== null) return watched;
     for (const item of items ?? []) {
       if (item?.kind !== 'gif' || !item.itemId || watched.has(item.itemId) || !gifAnimationSource(item)) continue;
-      const entry = readEntry(guildId, item.itemId);
+      const entry = readEntry(placeId, item.itemId);
       if (!entry || entry.miss || entry.watched !== true || typeof entry.text !== 'string' || !entry.text) continue;
       watched.set(item.itemId, entry.text);
     }
@@ -1696,7 +1696,7 @@ function buildDescriber({
    * `kind: 'gif'`; the question and the answer are data: never logged.
    * @param item  One collectPictures item of kind `gif`.
    */
-  async function rewatchGif(guildId: string, item: MediaItem, question: string, { model = null }: Ask = {}): Looked {
+  async function rewatchGif(placeId: string, item: MediaItem, question: string, { model = null }: Ask = {}): Looked {
     if (gifWatchBlocker() !== null) return null;
     const promptText = hot.prompts?.['rewatch-answer'];
     const asked = String(question ?? '').trim();
@@ -1719,18 +1719,18 @@ function buildDescriber({
       });
     };
 
-    const cache = store.getMediaCache(guildId);
+    const cache = store.getMediaCache(placeId);
     const key = questionKey(item.itemId, asked, 'gif');
-    const hit = readEntry(guildId, key);
+    const hit = readEntry(placeId, key);
     if (hit && typeof hit.answer === 'string') {
       if (now() - hit.ts < REWATCH_TTL_MS) {
         touchKey(cache, key, hit);
-        store.markMediaCacheDirty(guildId);
+        store.markMediaCacheDirty(placeId);
         report('answered', { cached: true });
         return { question: hit.question ?? asked, text: hit.answer };
       }
       delete cache[key];
-      store.markMediaCacheDirty(guildId);
+      store.markMediaCacheDirty(placeId);
     }
 
     // The request would be refused: no fetch, no slot.
@@ -1768,7 +1768,7 @@ function buildDescriber({
       report('error', { reason: 'empty', seconds: clip.seconds });
       return null;
     }
-    putVideoEntry(guildId, key, { answer: text, question: asked, ts: now() }, true);
+    putVideoEntry(placeId, key, { answer: text, question: asked, ts: now() }, true);
     report('answered', { seconds: clip.seconds });
     return { question: asked, text };
   }

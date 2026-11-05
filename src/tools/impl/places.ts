@@ -31,7 +31,7 @@ export function placeLine(place: Untyped): string {
 }
 
 const handlers = perEnv((env) => {
-  const { resolvedGuildId } = env;
+  const { resolvedPlaceId } = env;
 
   /** The inner life's places view, or an Error naming what is missing. */
   function places() {
@@ -49,7 +49,7 @@ const handlers = perEnv((env) => {
     if (!PLACE_SORTS.includes(sort)) throw invalid(`sort: ${PLACE_SORTS.join(', ')}`, CODE.BAD_SORT);
     const raw = args.page === undefined || args.page === null || args.page === '' ? 1 : Number(args.page);
     if (!Number.isInteger(raw) || raw < 1) throw invalid('page: a whole number from 1', CODE.BAD_PAGE);
-    const result = places().places(resolvedGuildId(context), { filter, sort, page: raw });
+    const result = places().places(resolvedPlaceId(context), { filter, sort, page: raw });
     const lines = result.items.map(placeLine);
     lines.push(`total ${result.total}, ${result.more} more`);
     const text = lines.join('\n');

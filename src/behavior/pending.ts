@@ -4,7 +4,7 @@
 // (config.mention.oneAtATime), somewhere else; a private message waiting for
 // the same reason; a follow-up the address classifier said `yes` to, the
 // same way; a call from a channel the persona cannot write in, routed
-// to the main channel (its `destination`), whose turn found the attention
+// to another conversation (its `destination`), whose turn found the attention
 // taken. Every call waits for its own answer: the queue keeps them all in
 // arrival order, several per channel and per author, and a newer call never
 // takes an older one's place (a deferred follow-up excepted: one per channel,
@@ -31,20 +31,16 @@ import type { Untyped } from '../tools/types.ts';
  * normalized message that called her. `kind` `followUp` or `overheard` is an address-classifier `yes` or
  * `overheard` that found the attention taken (one of them per channel, followUpSlot,
  * src/pipeline/pending-queue.ts#deferFollowUp). `decided` is set on a re-queued server call whose ignore roll
- * already said respond. `destination` belongs to a routed call only: the conversation its turn posts in (the main
- * channel), while `channelId` and `channel` stay its source. `superseded` is also routed only: the message ids of
- * the calls of its source that its settle wait grouped with it, each once. `added` holds later messages of the
+ * already said respond. `added` holds later messages of the
  * author folded into this call (foldInto), oldest first.
  */
 export type PendingPing = {
-  channelId: string;
+  placeId: string;
   channel?: Untyped;
   trigger: Record<string, Untyped>;
   kind: 'mention' | 'reply' | 'name' | 'private' | 'followUp' | 'overheard';
   arrivedAt: number;
   decided?: boolean;
-  destination?: Untyped;
-  superseded?: Array<string>;
   added?: Array<{ id: string; text: string; ts: number }>;
 };
 
@@ -104,8 +100,8 @@ const DIRECT_KINDS = new Set(['mention', 'reply', 'name']);
 
 /**
  * The priority rule of a channel's follow-up slot -- the one deferred
- * `followUp` or `overheard` line (never a routed call) a channel may hold --
- * for a newcomer of `kind` in `channelId`: whether it may be queued
+ * `followUp` or `overheard` line a channel may hold --
+ * for a newcomer of `kind` in `placeId`: whether it may be queued
  * (`admit`) and which waiting entry it takes the place of (`replaced`, null
  * for none; the caller removes and logs it). A `followUp` replaces either
  * kind; an `overheard` replaces a waiting `overheard` and is refused next to a
@@ -116,10 +112,10 @@ const DIRECT_KINDS = new Set(['mention', 'reply', 'name']);
  */
 export function followUpSlot(
   list: Array<PendingPing>,
-  channelId: string,
+  placeId: string,
   kind: PendingPing['kind']
 ): { admit: boolean; replaced: PendingPing | null } {
-  const waiting = list.find((p) => !p.destination && p.channelId === channelId && SLOT_KINDS.has(p.kind)) ?? null;
+  const waiting = list.find((p) => p.placeId === placeId && SLOT_KINDS.has(p.kind)) ?? null;
   if (!waiting) return { admit: true, replaced: null };
   if (kind === 'followUp') return { admit: true, replaced: waiting };
   if (kind === 'overheard')
@@ -146,13 +142,13 @@ export function popOldest(list: Array<PendingPing>): { ping: PendingPing | null;
 }
 
 /**
- * The calls `authorId` wrote in `channelId` that wait in `list`, in arrival
+ * The calls `authorId` wrote in `placeId` that wait in `list`, in arrival
  * order: the author's queued items there. A routed call is not one (its turn
  * is about another channel, and the ring of calls keeps its own account).
  */
-export function authorCalls(list: Array<PendingPing>, channelId: string, authorId: string): Array<PendingPing> {
+export function authorCalls(list: Array<PendingPing>, placeId: string, authorId: string): Array<PendingPing> {
   return list
-    .filter((p) => !p.destination && p.channelId === channelId && p.trigger?.authorId === authorId)
+    .filter((p) => p.placeId === placeId && p.trigger?.authorId === authorId)
     .sort((a, b) => a.arrivedAt - b.arrivedAt);
 }
 
