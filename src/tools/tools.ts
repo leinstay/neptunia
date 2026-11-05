@@ -285,6 +285,10 @@ function quoteReference(entry: QuoteEntry & { n: number }, placeId: string | nul
   };
 }
 
+/** The line that names a sample, under its label; nothing for a search whose words matched. */
+const sampledLine = (l: ToolLabels, sampled: boolean | undefined): Array<string> =>
+  sampled === true && l.sampled ? [l.sampled] : [];
+
 /**
  * The text of a memory.search result (`quotes`: recall's stretches, `{ channelName, startTs,
  * lines }`): `labels.tools.tools.memory.source`, then per stretch `.window` (`{date}`: its first
@@ -295,6 +299,9 @@ function quoteReference(entry: QuoteEntry & { n: number }, placeId: string | nul
  * not fit whole is left out with every one after it, and a closing `.windowsLeft` (`{count}`,
  * `{where}`: each left-out stretch's channel and day, comma-joined) says what she did not get. The
  * first stretch always stays. A missing label adds nothing.
+ *
+ * With `sampled` (the search answered with a sample across the time and place it named) `.sampled` follows the source
+ * line, only when a stretch is shown.
  *
  * With `hidden` (the search found that a better match exists only in a private conversation this one may not open) a
  * last line, `.hidden`, says so: no text, no count. Shown with or without stretches.
@@ -314,6 +321,7 @@ export function memorySearchText(
     maxChars = RECALL_DEFAULTS.quoteMaxChars,
     refs = null,
     hidden = false,
+    sampled,
   }: {
     labels: unknown;
     timezone?: string;
@@ -321,6 +329,7 @@ export function memorySearchText(
     maxChars?: number;
     refs?: HandleRefs | null;
     hidden?: boolean;
+    sampled?: boolean;
   }
 ): string {
   const l = toolLabels(labels, 'memory');
@@ -342,6 +351,8 @@ export function memorySearchText(
     if (hidden && l.hidden) lines.push(l.hidden);
     return lines.join('\n');
   }
+  lines.push(...sampledLine(l, sampled));
+  const headLines = lines.length;
   const kept: Array<{ block: Array<string>; where: string; size: number; stayed: Array<SearchRef> }> = [];
   const left: Array<string> = [];
   let used = lines.join('\n').length;
@@ -390,7 +401,7 @@ export function memorySearchText(
       handled = true;
     }
   }
-  if (handled && l.handles) lines.splice(l.source ? 1 : 0, 0, l.handles);
+  if (handled && l.handles) lines.splice(headLines, 0, l.handles);
   if (closing()) lines.push(closing());
   if (hidden && l.hidden) lines.push(l.hidden);
   return lines.join('\n');
@@ -766,6 +777,7 @@ export async function runMemorySearch({
         maxChars: settings?.quoteMaxChars,
         refs,
         hidden: found.hidden === true,
+        sampled: found.sampled === true,
       });
     // A run that did not search says so; an empty search that ran stays an ok with `memory.none`.
     if (outcome.kind === 'daily-cap') return { status: 'denied', code: CODE.DAILY_CAP };
