@@ -3,8 +3,7 @@
     "src/behavior/recall.ts": 2364,
     "tests/openrouter.test.ts": 3557,
     "tests/prompt.test.ts": 6579,
-    "tests/recall.test.ts": 2419,
-    "tests/turn.test.ts": 8946
+    "tests/recall.test.ts": 2419
   },
   "functions": {
     "interfaces/discord/collect.ts": {
@@ -308,7 +307,7 @@
         "complexity": 80
       },
       "mediaTags": {
-        "complexity": 22
+        "complexity": 21
       },
       "withCalls": {
         "complexity": 25
@@ -649,7 +648,7 @@
     },
     "src/web/lookup.ts": {
       "createLookup": {
-        "function-length": 510
+        "function-length": 509
       }
     },
     "src/web/readable.ts": {

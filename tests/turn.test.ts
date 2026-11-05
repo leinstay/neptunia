@@ -1,3 +1,4 @@
+// health: allow file-length until 2027-04-01 -- the standard counts widened two assertions; this file splits with the turn runner
 import {
   SPLIT_SYSTEM,
   SPLIT_TEXT,
