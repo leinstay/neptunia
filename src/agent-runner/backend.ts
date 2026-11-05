@@ -74,6 +74,8 @@ export type BackendRunOptions = {
   images?: ReadonlyArray<string>;
   /** aborting it kills the process group and answers `cancelled` */
   signal?: AbortSignal;
+  /** claude: `--session-id <uuid>`, so the transcript can be tied to this run */
+  sessionId?: string;
 };
 
 /** Why a run did not start or was stopped by us. */
@@ -99,6 +101,10 @@ export type BackendResult = {
   /** codex: the number after the `tokens used` line of stdout */
   tokens?: number;
   error?: BackendError;
+  /** claude: the id its transcript has, when the run was given one */
+  sessionId?: string;
+  /** What this run knows it could not record, by code; a gap never stops a run. */
+  gaps?: ReadonlyArray<string>;
 };
 
 /** One way to run a brief. `run` resolves, never rejects. */
@@ -156,6 +162,7 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
     tail: false,
     args: (options) => [
       '-p',
+      ...(options.sessionId === undefined ? [] : ['--session-id', options.sessionId]),
       ...(options.maxSteps === undefined ? [] : ['--max-turns', String(options.maxSteps)]),
       ...(options.model === undefined ? [] : ['--model', options.model]),
       ...(options.effort === undefined ? [] : ['--effort', options.effort]),
@@ -489,6 +496,7 @@ export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDep
         ...(maxSteps === undefined ? {} : { maxSteps }),
         search: profile.search,
         signal: task.signal,
+        runId: task.id,
         ...(task.route === undefined ? {} : { route: task.route }),
         ...(task.secrets === undefined ? {} : { routeKey: task.secrets.openrouterKey }),
       },

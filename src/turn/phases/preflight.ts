@@ -98,6 +98,7 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
     // The archive's rows of this attempt name its turn (src/llm/archive.ts).
     Object.assign(currentRequestMeta() ?? {}, {
       turnId: draft.started?.turnId,
+      runId: draft.started?.turnId,
       attemptId: draft.started?.attemptId,
       step: 0,
     });

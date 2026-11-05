@@ -129,6 +129,8 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 
 `neptunia service watcher trigger` starts one inspection without waiting for it and answers `run:` and `state:`. During a run it answers that run and starts nothing. It refuses a disabled watcher, names `service watcher enable` and exits `1`, and a start the manager refuses fails that run and exits `1`. `neptunia service watcher cancel` asks the run in progress to stop and answers `run:` and `state:`, `none` with nothing to stop, and exits `0` however often it is repeated. It changes no flag and no timer. [The watcher](watcher.md#one-run) describes both.
 
+`neptunia service watcher evidence [--from <iso>] [--cursor <c>]` prints one page of the recorded requests and Claude transcripts of the observation window as JSON, with no core and no board. Its keys are `interval`, `runs`, `totalRuns`, `examinedRuns`, `unreviewedRuns`, `inFlightRuns`, `nextCursor` and `gaps`. A `--from` that is no date or a `--cursor` that is no `nextCursor` exits `2`. [The watcher](watcher.md#service-runs) describes the read.
+
 `/report`, `neptunia watcher`, `neptunia selfimprovement` and `neptunia setup` with `watcher`, `selfimprovement` or `mechanics` exit `2`, name the command of this family and run nothing. A word order such as `service status watcher` exits `2` the same way.
 
 ## Other entry points

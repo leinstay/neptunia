@@ -1,6 +1,7 @@
 // One inspection under one durable run (src/watcher/lifecycle.ts), started by `neptunia worker watcher`: the claim, the
 // brief (src/watcher/brief.ts), one agent run that gets the abort signal and the timeout, the checks on its answer
-// (src/watcher/report.ts, tasks.ts), the receipts and the board (src/watcher/filing.ts) and the commit of the report. A
+// (src/watcher/report.ts, tasks.ts), the risk rules over the earlier reports (src/watcher/risk.ts), the rows the engine
+// stamps, the receipts and the board (src/watcher/filing.ts) and the commit of the report. A
 // cancel reaches the agent and a waiting board call through the signal and is looked at between the phases, up to the commit: from the commit on the
 // run has its report and ends as succeeded. The board is opened only when something is to be filed, and a board that cannot
 // be reached or stops answering leaves a report with the filing deferred. Nothing the agent wrote reaches a run record, and an answer that
@@ -15,14 +16,29 @@ import {
   cancelFilings,
   deferFilings,
   filingLines,
+  hasLinkedFilings,
   hasUnsettledFilings,
   readFilings,
+  resolvedFindings,
   retryFilings,
   saveDrafts,
 } from './filing.ts';
-import { claimRun, finishRun, readRun } from './lifecycle.ts';
+import type { InstallFacts } from './install.ts';
+import { claimRun, finishRun, lastRuns, readRun } from './lifecycle.ts';
 import type { ProcessIdentity, RunRecord, RunSource, RunState, RunStore } from './lifecycle.ts';
-import { checkReport, commitReport, findSecret, insertFilingLines } from './report.ts';
+import { readReportRun, reportVersions } from './read.ts';
+import {
+  checkCoverage,
+  checkTemplate,
+  commitReport,
+  findSecret,
+  insertFilingLines,
+  insertUnavailable,
+  stampMetadata,
+} from './report.ts';
+import { observationInterval } from './requests.ts';
+import { applyRiskRules, findingsOf, markFindings } from './risk.ts';
+import type { RiskHistoryEntry, RiskResult } from './risk.ts';
 import { splitAnswer } from './tasks.ts';
 import type { SplitAnswer } from './tasks.ts';
 
@@ -30,7 +46,14 @@ export type InspectionPhase = 'generating' | 'validating' | 'filing' | 'committi
 export type FilingOutcome = 'none' | 'filed' | 'deferred' | 'failed';
 
 /** What an agent run gives back; a backend's result is one. */
-export type InspectionAgentResult = { ok: boolean; text: string; exitCode: number | null; error?: string };
+export type InspectionAgentResult = {
+  ok: boolean;
+  text: string;
+  exitCode: number | null;
+  error?: string;
+  /** What the run knows it could not record: the report names each under `Service runs`. */
+  gaps?: ReadonlyArray<string>;
+};
 
 export type InspectionDeps = {
   store: RunStore;
@@ -45,6 +68,8 @@ export type InspectionDeps = {
     options: { signal: AbortSignal; timeoutMs: number; runId: string }
   ): Promise<InspectionAgentResult>;
   openBoard(): Promise<BoardCaller>;
+  /** The facts of the running install for the brief; absent, the brief holds none. */
+  install?: () => InstallFacts;
   onPhase?: (phase: InspectionPhase, runId: string) => void;
   /** How often the run's record is read for a cancel (ms). */
   cancelPollMs?: number;
@@ -103,9 +128,16 @@ function watchRun(deps: InspectionDeps, runId: string) {
 }
 
 type Watch = ReturnType<typeof watchRun>;
+type Observation = { from: number; to: number; dayFrom: number };
+type BoardOpener = () => Promise<BoardCaller>;
 
 /** The agent's answer, or the end of the run. A cancel wins over whatever the agent came back with. */
-async function generate(deps: InspectionDeps, run: RunRecord, watch: Watch): Promise<string> {
+async function generate(
+  deps: InspectionDeps,
+  run: RunRecord,
+  watch: Watch,
+  observation: Observation
+): Promise<InspectionAgentResult> {
   let prompt = '';
   try {
     prompt = readPromptFile([...deps.promptFiles]);
@@ -113,7 +145,13 @@ async function generate(deps: InspectionDeps, run: RunRecord, watch: Watch): Pro
     // The refusal below names the missing file.
   }
   if (prompt.trim() === '') throw new RunEnd('failed', 'no-prompt', 'prompt.md is missing or empty');
-  const brief = buildBrief({ prompt, day: run.day, reportsDir: deps.reportsDir });
+  const brief = buildBrief({
+    prompt,
+    day: run.day,
+    reportsDir: deps.reportsDir,
+    observation,
+    ...(deps.install === undefined ? {} : { install: deps.install() }),
+  });
   let answer: InspectionAgentResult;
   try {
     answer = await deps.runAgent(brief, { signal: watch.signal, timeoutMs: deps.timeoutMs, runId: run.runId });
@@ -128,7 +166,7 @@ async function generate(deps: InspectionDeps, run: RunRecord, watch: Watch): Pro
     const how = answer.error ?? `exit code ${String(answer.exitCode)}`;
     throw new RunEnd('failed', 'agent-failed', `the agent ended with ${how}`);
   }
-  return answer.text;
+  return answer;
 }
 
 /** The report and drafts of an answer, or the end of the run. Refusals never quote the agent. */
@@ -137,9 +175,72 @@ function validate(text: string): Extract<SplitAnswer, { ok: true }> {
   if (secretLine !== null) throw new RunEnd('failed', 'secret', `a key-looking string on line ${secretLine}`);
   const split = splitAnswer(text);
   if (!split.ok) throw new RunEnd('failed', split.code, split.detail);
-  const checked = checkReport(split.report);
+  const checked = checkTemplate(split.report);
   if (!checked.ok) throw new RunEnd('failed', checked.code, checked.detail);
+  const covered = checkCoverage(split.report);
+  if (!covered.ok) throw new RunEnd('failed', covered.code, covered.detail);
   return split;
+}
+
+/** The earlier successful reports as the risk rules read them, oldest first, with each resolution at its moment. */
+function riskHistory(
+  reportsDir: string,
+  resolved: ReadonlyArray<{ key: string; at: number }>
+): Array<RiskHistoryEntry> {
+  const reports = reportVersions(reportsDir).flatMap(({ runId, day, at }) => {
+    const read = readReportRun(reportsDir, runId);
+    const entry: RiskHistoryEntry = { day, findings: read.ok ? findingsOf(read.report.text) : [] };
+    return [{ at, entry }];
+  });
+  const closed = resolved.map(({ key, at }) => {
+    const entry: RiskHistoryEntry = { day: new Date(at).toISOString().slice(0, 10), findings: [], resolved: [key] };
+    return { at, entry };
+  });
+  return [...reports, ...closed].sort((a, b) => a.at - b.at).map((one) => one.entry);
+}
+
+/**
+ * The rules over `report`. Only a repeat can change with a resolution, so the board is asked only when something repeats and
+ * a receipt names a task. A board that does not answer leaves no resolutions, and a repeat stays a repeat.
+ */
+async function rateFindings(
+  deps: InspectionDeps,
+  report: string,
+  open: BoardOpener,
+  watch: Watch
+): Promise<RiskResult> {
+  const findings = findingsOf(report);
+  const rated = applyRiskRules(findings, riskHistory(deps.reportsDir, []));
+  const dir = deps.store.dir;
+  if (rated.repeats === 0 || !hasLinkedFilings(dir)) return rated;
+  const ms = deps.boardTimeoutMs ?? DEFAULT_BOARD_TIMEOUT_MS;
+  try {
+    const board = await bounded(open, ms, watch.signal);
+    const resolved = await bounded(() => resolvedFindings(dir, board), ms, watch.signal);
+    return applyRiskRules(findings, riskHistory(deps.reportsDir, resolved));
+  } catch {
+    return rated;
+  }
+}
+
+/** The report as the rules and the engine's facts leave it: the finding lines, then the stamped rows. */
+function stamped(
+  deps: InspectionDeps,
+  runId: string,
+  report: string,
+  rated: RiskResult,
+  observation: Observation
+): string {
+  const { backend, model, effort } = deps.selected;
+  return stampMetadata(markFindings(report, rated.findings), {
+    'Observation interval': `${new Date(observation.from).toISOString()} to ${new Date(observation.to).toISOString()}`,
+    'Run id': runId,
+    'Selected backend': backend ?? 'unknown',
+    Model: model ?? 'default',
+    Effort: effort ?? 'default',
+    Risk: rated.risk,
+    'New findings': `${rated.newFindings}, repeats: ${rated.repeats}`,
+  });
 }
 
 /** `work`, rejected when `ms` pass or the signal aborts. What it does later is dropped, and the receipts reconcile it. */
@@ -161,13 +262,13 @@ function bounded<T>(work: () => T | PromiseLike<T>, ms: number, signal: AbortSig
 }
 
 /** Files what this run and earlier ones left to file. A board that cannot be reached or does not answer defers it. */
-async function file(deps: InspectionDeps, runId: string, watch: Watch): Promise<void> {
+async function file(deps: InspectionDeps, runId: string, open: BoardOpener, watch: Watch): Promise<void> {
   const dir = deps.store.dir;
   if (!hasUnsettledFilings(dir)) return;
   const ms = deps.boardTimeoutMs ?? DEFAULT_BOARD_TIMEOUT_MS;
   let opened: BoardCaller;
   try {
-    opened = await bounded(() => deps.openBoard(), ms, watch.signal);
+    opened = await bounded(open, ms, watch.signal);
   } catch {
     deferFilings(dir, runId);
     return;
@@ -195,21 +296,32 @@ async function inspect(deps: InspectionDeps, run: RunRecord, watch: Watch): Prom
     deps.onPhase?.(name, runId);
     if (name !== 'committed') watch.check();
   };
-  phase('generating');
-  const text = await generate(deps, run, watch);
-  phase('validating');
-  const { report, tasks } = validate(text);
-  saveDrafts(dir, runId, deps.store.now(), tasks);
-  phase('filing');
-  await file(deps, runId, watch);
-  phase('committing');
-  const committed = commitReport({
-    reportsDir: deps.reportsDir,
-    day,
-    runId,
-    at: deps.store.now(),
-    text: insertFilingLines(report, filingLines(readFilings(dir, runId))),
+  const observation = observationInterval({
+    now: deps.store.now(),
+    previousSuccessAt: lastRuns(deps.store).lastSuccess?.finishedAt ?? null,
   });
+  // One link per run, however many phases ask for it; a link that failed stays failed for the run.
+  let opening: Promise<BoardCaller> | null = null;
+  const open: BoardOpener = () => (opening ??= deps.openBoard());
+  phase('generating');
+  const answer = await generate(deps, run, watch, observation);
+  phase('validating');
+  const { report, tasks } = validate(answer.text);
+  const rated = await rateFindings(deps, report, open, watch);
+  watch.check();
+  const repeated = new Set(rated.findings.flatMap((one) => (one.repeat === null ? [] : [one.key])));
+  saveDrafts(dir, runId, deps.store.now(), tasks, repeated);
+  phase('filing');
+  await file(deps, runId, open, watch);
+  phase('committing');
+  const text = insertUnavailable(
+    insertFilingLines(stamped(deps, runId, report, rated, observation), filingLines(readFilings(dir, runId))),
+    'Service runs',
+    (answer.gaps ?? []).map((gap) => `- ${gap}`)
+  );
+  const final = checkTemplate(text);
+  if (!final.ok) throw new RunEnd('failed', final.code, final.detail);
+  const committed = commitReport({ reportsDir: deps.reportsDir, day, runId, at: deps.store.now(), text });
   if (!committed.ok) throw new RunEnd('failed', committed.code, committed.detail);
   phase('committed');
   return committed.path ?? path.join(deps.reportsDir, `${day}.md`);

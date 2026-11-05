@@ -8,7 +8,7 @@ import type { Context } from '../memory/db/scope.ts';
 import type { FactInput } from '../behavior/inner.ts';
 import { wakeInputs } from '../behavior/diary-turn.ts';
 import { portIface } from '../interface/capabilities.ts';
-import { withRequestMeta } from '../llm/archive.ts';
+import { currentRequestMeta, turnOutcome, turnService, withRequestMeta } from '../llm/archive.ts';
 import { withIface } from '../memory/db/current-iface.ts';
 import type { Reads } from '../interface/reads.ts';
 import { errorCodeOf } from '../llm/openrouter.ts';
@@ -296,7 +296,13 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    */
   function runTurn(params: TurnParams): Promise<TurnResult> {
     // A turn taken from a queue runs under the interface of its own conversation, whatever event woke the queue.
-    return withIface(params?.conversation?.iface, () => withRequestMeta(() => runTurnHere(params)));
+    return withIface(params?.conversation?.iface, () =>
+      withRequestMeta(() => {
+        const wake = (params?.inner as { wake?: { kind?: unknown } } | undefined)?.wake;
+        Object.assign(currentRequestMeta() ?? {}, { service: turnService(params?.mode, wake?.kind) });
+        return runTurnHere(params);
+      })
+    );
   }
 
   async function runTurnHere(params: TurnParams): Promise<TurnResult> {
@@ -318,6 +324,9 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     } finally {
       noteFailedTurn(params, result, ends, thrown);
       if (attempts.length > 0) await writeTurnRecords(attempts);
+      const request = currentRequestMeta();
+      const outcome = turnOutcome(result, request?.turnId ?? null);
+      if (outcome !== null) await request?.noteOutcome?.(outcome);
       noteTurnEnd(params, result, ends);
     }
   }

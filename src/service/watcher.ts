@@ -1,13 +1,18 @@
-// The watcher's own commands of the `service` family (src/service/commands.ts): `trigger`, `cancel`, `report` and the lines
-// status adds. All of them work with no core, and none asks a model. `trigger` claims the run first and only then asks the
+// The watcher's own commands of the `service` family (src/service/commands.ts): `trigger`, `cancel`, `report`, `evidence`
+// and the lines status adds. All of them work with no core, and none asks a model. `trigger` claims the run first and only then asks the
 // manager for the worker, which adopts the claim, so the answer names the run that will work. `cancel` writes `stopping`
 // into the run's record, and the worker that holds the run, or the worker that comes for a claim nobody holds yet, ends it.
-// Neither `cancel` nor `disable` touches the other's business.
+// Neither `cancel` nor `disable` touches the other's business. `evidence` opens the memory database read-only, spawns
+// nothing and asks nothing: it is the bounded path by which the watcher agent reads what the services asked and answered.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { readKeys } from '../keys/file.ts';
+import { openMemoryDb } from '../memory/db/open.ts';
+import { dbOf } from '../memory/db/types.ts';
 import { backendOfAgent } from '../subharness/control.ts';
+import { subharnessPlace } from '../subharness/place.ts';
+import { readSessionMap } from '../subharness/sessions.ts';
 import { readFilings } from '../watcher/filing.ts';
 import {
   WATCHER_RUN_TIMEOUT_MS,
@@ -20,7 +25,16 @@ import {
 } from '../watcher/lifecycle.ts';
 import type { RunRecord } from '../watcher/lifecycle.ts';
 import { isDay, readReport, readReportRun, reportsDirOf, runLines, watcherDir } from '../watcher/read.ts';
+import {
+  WATCHER_EVIDENCE_MAX_CHARS,
+  observationInterval,
+  readArchiveGaps,
+  readRecordedRuns,
+  taskOutcomes,
+} from '../watcher/requests.ts';
+import type { RecordedRunPage } from '../watcher/requests.ts';
 import { watcherSettings } from '../watcher/settings.ts';
+import { readTranscriptRuns } from '../watcher/transcripts.ts';
 import type { ServiceAnswer, ServiceDeps } from './commands.ts';
 import { startWorker } from './manager.ts';
 
@@ -68,6 +82,128 @@ export function watcherReport(deps: ServiceDeps, target: string | undefined): Se
   const read = asRun === undefined ? readReport(dir, day) : readReportRun(dir, asRun);
   if (read.ok) return { text: [...runLines(dir, read.report), read.report.text].join('\n\n'), status: 'ok' };
   return failed(target === undefined ? 'no report yet' : `no report for ${target}`);
+}
+
+const EVIDENCE_CURSOR = /^(\d+)\.(\d+)\.(\d+)$/;
+
+/** The board's tables migrate apart from the memory's: a board that is down leaves the session unlinked. */
+function taskOf(db: Parameters<typeof taskOutcomes>[0], runId: string): ReturnType<typeof taskOutcomes> {
+  try {
+    return taskOutcomes(db, runId);
+  } catch {
+    return null;
+  }
+}
+
+/** What the memory database holds of the window, or the gap of a database that cannot be read. */
+function recordedPage(
+  deps: ServiceDeps,
+  query: { from: number; to: number; offset: number; excludeRunId: string | null }
+): { page: RecordedRunPage; tasks: (runId: string) => ReturnType<typeof taskOutcomes> } {
+  const none = (): ReturnType<typeof taskOutcomes> => null;
+  const gone: RecordedRunPage = {
+    runs: [],
+    totalRuns: 0,
+    examinedRuns: 0,
+    unreviewedRuns: 0,
+    inFlightRuns: 0,
+    nextCursor: null,
+    gaps: [{ kind: 'memory-unavailable' }],
+  };
+  const file = path.join(deps.dataDir, 'memory.db');
+  if (!fs.existsSync(file)) return { page: gone, tasks: none };
+  let handle: ReturnType<typeof openMemoryDb> | null = null;
+  try {
+    handle = openMemoryDb(file, { readOnly: true });
+    const db = dbOf(handle);
+    const page = readRecordedRuns(db, {
+      from: query.from,
+      to: query.to,
+      maxChars: WATCHER_EVIDENCE_MAX_CHARS,
+      cursor: String(query.offset),
+      excludeRunId: query.excludeRunId,
+      archiveGaps: readArchiveGaps(deps.privateDir),
+    });
+    const known = new Map<string, ReturnType<typeof taskOutcomes>>();
+    const tasks = (runId: string): ReturnType<typeof taskOutcomes> => known.get(runId) ?? null;
+    for (const row of readSessionMap(deps.privateDir)) {
+      if (row.runId !== null) known.set(row.runId, taskOf(db, row.runId));
+    }
+    return { page, tasks };
+  } catch {
+    return { page: gone, tasks: none };
+  } finally {
+    handle?.close();
+  }
+}
+
+/** The flags of `evidence`, or the line that refuses them. */
+function evidenceFlags(
+  args: Readonly<Record<string, unknown>>
+): { from: number | null; to: number | null; records: number; sessions: number } | string {
+  const from = args.from === undefined ? null : typeof args.from === 'string' ? Date.parse(args.from) : NaN;
+  if (from !== null && Number.isNaN(from)) return 'service watcher evidence: --from takes a date';
+  if (args.cursor === undefined) return { from, to: null, records: 0, sessions: 0 };
+  const cursor = typeof args.cursor === 'string' ? EVIDENCE_CURSOR.exec(args.cursor) : null;
+  if (cursor === null) return 'service watcher evidence: --cursor takes the nextCursor of an earlier page';
+  return { from, to: Number(cursor[1]), records: Number(cursor[2]), sessions: Number(cursor[3]) };
+}
+
+/** Records first, then sessions: while records are left, the page holds no session and the sessions' place stays. */
+function joinPages(
+  window: { from: number; to: number },
+  records: RecordedRunPage,
+  sessions: RecordedRunPage,
+  at: number
+) {
+  const moved = records.nextCursor === null;
+  const examined = records.examinedRuns + (moved ? sessions.examinedRuns : at);
+  const total = records.totalRuns + sessions.totalRuns;
+  const next = moved ? (sessions.nextCursor ?? String(sessions.totalRuns)) : String(at);
+  return {
+    interval: { from: iso(window.from), to: iso(window.to) },
+    runs: [...records.runs, ...(moved ? sessions.runs : [])],
+    totalRuns: total,
+    examinedRuns: examined,
+    unreviewedRuns: total - examined,
+    inFlightRuns: records.inFlightRuns,
+    nextCursor:
+      moved && sessions.nextCursor === null
+        ? null
+        : `${window.to}.${records.nextCursor ?? records.examinedRuns}.${next}`,
+    gaps: [...records.gaps, ...(moved ? sessions.gaps : [])],
+  };
+}
+
+/**
+ * `evidence [--from <iso>] [--cursor <c>]`: the recorded requests, then the Claude transcripts, of the window from the last
+ * successful inspection (or `--from`) to now, under `WATCHER_EVIDENCE_MAX_CHARS`, as JSON. The cursor pins the end of the window,
+ * so a walk over pages reads one fixed set of runs. The inspection in progress and its session are left out.
+ */
+export function watcherEvidence(deps: ServiceDeps, args: Readonly<Record<string, unknown>>): ServiceAnswer {
+  const flags = evidenceFlags(args);
+  if (typeof flags === 'string') return { text: flags, status: 'invalid' };
+  const store = storeOf(deps);
+  const interval = observationInterval({
+    now: flags.to ?? deps.now(),
+    previousSuccessAt: lastRuns(store).lastSuccess?.finishedAt ?? null,
+  });
+  const window = { from: flags.from ?? interval.from, to: interval.to };
+  const current = currentRun(store)?.runId ?? null;
+  const map = readSessionMap(deps.privateDir);
+  const recorded = recordedPage(deps, { ...window, offset: flags.records, excludeRunId: current });
+  const agents = new Map(map.map((row) => [row.sessionId, row]));
+  const transcripts = readTranscriptRuns({
+    home: path.join(subharnessPlace(deps.privateDir, 'claude').dir, 'home'),
+    ...window,
+    maxChars: Math.max(WATCHER_EVIDENCE_MAX_CHARS - JSON.stringify(recorded.page.runs).length, 0),
+    fitOnly: recorded.page.runs.length > 0,
+    cursor: String(flags.sessions),
+    excludeSessions: map.filter((row) => current !== null && row.runId === current).map((row) => row.sessionId),
+    attribute: (_project, session) => agents.get(session)?.agent ?? null,
+    outcome: (session) => recorded.tasks(agents.get(session)?.runId ?? ''),
+  });
+  return { text: JSON.stringify(joinPages(window, recorded.page, transcripts, flags.sessions)), status: 'ok' };
 }
 
 /** The backend, model and effort the watcher runs on, `default` for what the backend picks, `unknown` with no backend. */

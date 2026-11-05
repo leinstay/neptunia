@@ -24,11 +24,33 @@ The worker exits `0` for a committed report, with its filing deferred too, and f
 
 ## Reports and versions
 
-The runner checks the answer before it saves or files anything. A failed check fails the run with a code and a detail that never quotes the agent, and the answer is kept nowhere.
+Every report is one Markdown file in one template. `checkTemplate` in `src/watcher/report.ts` checks the title, the metadata rows, the eleven sections, the four subheadings of each and the `coverage` block at the end, and `checkCoverage` reads the block as data. [The prompt contract](prompt-contract.md#watcher-answer) holds the template and the codes.
+
+The runner checks the answer before it saves or files anything. A failed check fails the run with a code and a detail that never quotes the agent, the answer is kept nowhere, and the last successful view stays. The engine then replaces the metadata rows it knows: the observation interval, the run id, the selected backend, the model, the effort, the risk and the counts. The rows `Effective account` and `Available sources` stay the agent's, and so does the `coverage` block.
 
 Each successful run commits an immutable file `reports/runs/<day>_<commit ms>_<run id>.md`, and `reports/<day>.md` is a link swapped atomically to the newest of its day, so a failed or interrupted attempt replaces nothing. A plain `<day>.md` from an older installation reads as before, with no run identity, and stays readable as the run `legacy-<day>` once a run commits over it. The day of a report is the UTC day of its claim.
 
-`neptunia service watcher report` reads the newest report, a day or a run identity, and a day's report names the other runs of that day. The persona's `watcher.read` tool takes `day` or `run` and uses stored reports rather than launching another inspection. The brief in `src/watcher/brief.ts` carries the last seven reports: the newest of each earlier day as `<report day="...">`, then every kept report of the run's own day as `<report day="..." run="...">`.
+`neptunia service watcher report` reads the newest report, a day or a run identity, and a day's report names the other runs of that day. The persona's `watcher.read` tool takes `day` or `run` and uses stored reports rather than launching another inspection. The brief in `src/watcher/brief.ts` carries the observation interval, the facts of the install and the last seven reports: the newest of each earlier day as `<report day="...">`, then every kept report of the run's own day as `<report day="..." run="...">`.
+
+## Finding risk
+
+Each finding line carries a level the agent chose. `applyRiskRules` in `src/watcher/risk.ts` decides from the earlier successful reports whether the finding repeats. `evidenceFingerprint` reduces its text to the paths with their lines, the `snake_case` and `kebab-case` codes and the errno names it holds, and drops timestamps, dates, clock times, uuids, hex ids, long numbers and bare counts. Equal evidence is the same finding under any key, and with no evidence to compare the key decides. A repeat is saved as `- [low] <key>: <text> (repeat <n>, first <day>)`, its model level is ignored, and it files no task. Evidence that changed under a key brings the agent's level back, and the count starts from the change. `Risk` in the metadata is the highest level among new findings, `none` with no new one.
+
+A finding is resolved when its filing receipt's task is `done` with `metadata.merged` set. `resolvedFindings` in `src/watcher/filing.ts` reads that from the board's `task.list`, only when something in the report repeats and a receipt names a task. What was seen before that task last moved no longer counts, under its key or under its evidence, so a finding that comes back is new. With no answer from the board there is no resolved list that run, and a repeat stays a repeat.
+
+## Service runs
+
+`neptunia service watcher evidence` is the agent's read of what the services asked and answered. It reads `model_requests` over a read-only connection (`readRecordedRuns` in `src/watcher/requests.ts`) and the session files of `<data>/subharness/claude/home/projects/` (`readTranscriptRuns` in `src/watcher/transcripts.ts`), writes nothing and spawns nothing. Each record holds the effective system text, the messages, the tool definitions and calls, the answer, the usage, the `outcome` and its `gaps`. Strings shaped like a key are masked, with the gap `credential-masked`.
+
+The window opens at the last successful inspection, or at the start of the UTC day, and closes now (`observationInterval`). A run belongs to the window its last step finished in, so a run crossing midnight or an inspection is read once, and a run still in flight is counted apart in `inFlightRuns`. Sessions go by the window their last request falls in. One page holds at most `WATCHER_EVIDENCE_MAX_CHARS` (50,000) characters of runs, a larger run comes alone and whole, and `nextCursor` walks the records and then the sessions with the end of the window pinned. The inspection in progress and its session are left out. A memory database that cannot be read gives the gap `memory-unavailable`, and the transcripts still come.
+
+`src/subharness/run.ts` gives a claude whose `--help` lists `--session-id` a fresh id on each run, and `src/subharness/sessions.ts` appends the id, the agent, the backend and the run to `<data>/subharness/sessions.jsonl`. That map names each session's service, and a session it does not hold carries the gap `unattributed-session`. Writing the map can fail without stopping a run: the result carries `session-map-write-failed`, and a watcher run saves it under `Unavailable checks` of `Service runs`. Development tasks and errands are board tasks, so their sessions take the `outcome` from `board_tasks`.
+
+`ARCHIVE_COVERAGE` in `src/watcher/coverage.ts` lists what is recorded per service, field by field, and `COVERAGE_GAPS` the words of what is not. Embedding and speech requests have no row. Runs on codex or opencode have no recorded request. The vendor's injected instructions and the memory session's own subprocess transcript are not held, and the row says so with `vendor-instructions` and `absent-transcript`. Only a tool result whose stored message says `truncated` is named `truncated-tool-output`.
+
+## The running install
+
+`Project` and `Modules and structure` work from the install the worker runs in and nothing else. `installFacts` in `src/watcher/install.ts` gives the brief its revision, its `ahead` and `behind` counts against the `origin/main` it last fetched, its modules, the dependencies of its packages and its active skills, and fetches nothing. What it cannot learn is named in `unavailable`: `no-git`, `git-unreadable`, `no-remote`, `no-package-json` or `skills-unreadable`. The agent reports those, and GitHub access it lacks, under `Unavailable checks`.
 
 ## Filing tasks
 
@@ -69,4 +91,4 @@ In a user unit `ProtectSystem=` needs unprivileged user namespaces from the kern
 
 When evaluating a watcher, look for findings supported by file paths or recorded events, tasks that explain the problem, and repeated reports of an already tracked issue. A quiet report is useful only if the agent actually had access to the evidence it needed.
 
-Read the implementation in [report validation](../src/watcher/report.ts), [the run](../src/watcher/lifecycle.ts), [the inspection](../src/watcher/inspection.ts) and [task filing](../src/watcher/filing.ts).
+Read the implementation in [report validation](../src/watcher/report.ts), [finding risk](../src/watcher/risk.ts), [the run](../src/watcher/lifecycle.ts), [the inspection](../src/watcher/inspection.ts), [the recorded requests](../src/watcher/requests.ts), [the transcripts](../src/watcher/transcripts.ts) and [task filing](../src/watcher/filing.ts).

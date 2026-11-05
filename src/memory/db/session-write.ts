@@ -81,7 +81,7 @@
 // Counts and codes only, never a text.
 
 import { applyPersonLinkWrite } from './person-links.ts';
-import { applyRequestArchiveWrite } from './request-archive.ts';
+import { applyRequestArchiveWrite, sessionRequestId, setRequestOutcome } from './request-archive.ts';
 import { randomUUID } from 'node:crypto';
 import { ownershipSql } from './storage-units.ts';
 
@@ -769,6 +769,13 @@ function guard(update: Row): void {
   if (update.mode !== 'shadow' && update.mode !== 'apply') throw coded('BAD_MODE');
 }
 
+/** The request of a session run learns what became of it, in the transaction that says so. */
+function linkRequest(db: Db, run: SessionRunRow | null | undefined, applied: boolean): void {
+  if (!run) return;
+  const state = applied ? 'confirmed' : run.outcome === 'ok' ? 'shadow' : 'failed';
+  setRequestOutcome(db, sessionRequestId(run.id), { kind: 'memory-write', state, ref: run.id });
+}
+
 /** The writers that take the handle and the whole update, by the update's kind. */
 const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unknown>([
   ['wake-queue', applyWakeQueueWrite],
@@ -921,6 +928,7 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
       else db.prepare(SET_META).run(pending.key, asText(pending.value));
     }
     if (applied) db.prepare('UPDATE session_runs SET result = ? WHERE id = ?').run(json(counts), run.id);
+    linkRequest(db, run, applied);
     return counts;
   });
 }

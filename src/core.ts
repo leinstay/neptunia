@@ -43,6 +43,8 @@ import {
 import { DAY_MS, utcDay } from './time.ts';
 import { createCalibrator } from './llm/tokens.ts';
 import { archivedLlm } from './llm/archive.ts';
+import type { ArchiveWriteGap } from './llm/archive.ts';
+import { noteArchiveGap } from './watcher/requests.ts';
 import { createLlm, roleApiKey } from './llm/openrouter.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
 import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
@@ -445,6 +447,8 @@ async function buildCore(
   const requestArchive = {
     write: (update: Record<string, unknown>) => memoryDb.memoryWrite(update),
     log,
+    backend: 'openrouter',
+    noteGap: (gap: ArchiveWriteGap) => noteArchiveGap(paths.privateDir, gap),
   };
   const directLlm = (options.llm ??
     reportingCoreKeys(
