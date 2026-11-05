@@ -251,7 +251,7 @@ export type SelfimprovementFacts = {
     landed: Array<Landed>;
   };
   outboxSeqs: Array<number>;
-  /** The watcher's newest report of the past day (src/watcher/news.ts), null when there is none. */
+  /** What the watcher's newest report of the past day filed (src/watcher/news.ts), null when nothing. */
   watcher?: WatcherNews | null;
 };
 

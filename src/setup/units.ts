@@ -8,7 +8,8 @@
 // paths), and `sudo` drops in addition what would stop `sudo` (`NoNewPrivileges` and the capability bounding set).
 //
 // A subharness backend lives in `<private>/subharness/<backend>/` (src/subharness/place.ts), binary and home. The core
-// writes it through the private folder of its `ReadWritePaths=`, and the watcher has no mount sandbox. An agent unit in
+// writes it through the private folder of its `ReadWritePaths=`, and the watcher's unit names the whole `subharness/`
+// folder in its own. An agent unit in
 // `read` or `write` hides the home (`ProtectHome=tmpfs`) and sees the private folder read-only, so the folder of every
 // backend connected in keys.json or installed there is bound writable into it, and nothing above it: keys.json stays out of the agent's
 // reach.

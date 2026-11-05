@@ -580,7 +580,9 @@
         "review": "A review of {task}: {decision} {scope}{note}",
         "reviewNote": ": {note}",
         "board": "The board's word on {task}: {kind} {status}{reason}",
-        "watcher": "The watcher's report of {day}. What it wrote for the owner:\n{forOwner}\nThe tasks it filed:\n{tasksFiled}"
+        "watcher": "What the watcher filed in its report of {day}:\n{findings}",
+        "watcherFinding": "{title} ({state}{task})",
+        "watcherTask": ", task {task}"
       }
     },
     "journal": {

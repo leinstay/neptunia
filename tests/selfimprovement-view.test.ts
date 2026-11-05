@@ -497,7 +497,11 @@ test('the outbox rows of other addressees are never shown to her', async () => {
 
 test('the watcher report handed in is carried in the facts as it is', async () => {
   // Catches: the view drops the report it was given, so the block never reaches her wake.
-  const watcher = { day: '2026-11-01', forOwner: 'Look at the retries.', tasksFiled: '- T3 fix: retries' };
+  const watcher = {
+    day: '2026-11-01',
+    runId: 'run-1',
+    findings: [{ title: 'Retries', state: 'filed' as const, taskId: 'T3' }],
+  };
   const facts = await buildSelfimprovementFacts(base([], { watcher }));
   assert.deepEqual(facts.watcher, watcher);
 });

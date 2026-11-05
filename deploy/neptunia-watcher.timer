@@ -1,7 +1,7 @@
 # systemd timer for neptunia-watcher.service. `neptunia setup` and `neptunia service watcher setup` replace the
 # calendar line with one line per slot of `watcher.schedule`, UTC, the server clock, or with an interval. After a downtime
-# `Persistent=true` starts one run however many slots passed. The worker writes one report per UTC day and a day that has
-# one is skipped.
+# `Persistent=true` starts one run however many slots passed. Every run keeps its own report, and a start during a run
+# starts nothing.
 
 [Unit]
 Description=neptunia watcher, on its schedule
