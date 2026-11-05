@@ -1,6 +1,7 @@
 // `/search`: quick search's targeted settings, written to the persona's settings file like setup writes them. Its key is
 // bound with `/keys bind search <name>` and checked with `/keys check search`. Deep search through the scout is a
 // separate agent and these commands do not touch it. Reading a known page stays on whatever quick search is set to.
+// Quick search has no built-in engine or model: it is off until `/search engine` or setup chooses one.
 // Called by src/interface/commands/console.ts.
 
 import { readConfig } from '../../config.ts';
@@ -27,7 +28,10 @@ export function searchCommand(
   switch (name) {
     case 'search.enable':
       write(dataDir, 'enabled', true);
-      return { text: 'quick search is on', status: 'ok' };
+      return {
+        text: 'quick search may run once an engine is chosen; /search status says where it stands',
+        status: 'ok',
+      };
     case 'search.disable':
       write(dataDir, 'enabled', false);
       return { text: 'quick search is off; reading a known page stays', status: 'ok' };
@@ -45,10 +49,10 @@ export function searchCommand(
           ? readLocalConfig(localConfigPath(dataDir))
           : readConfig(rootDir, { privateDir: dataDir });
       const search = objOf(objOf(config).web).search;
-      const on = objOf(search).enabled !== false;
       const engine = objOf(search).engine;
+      const isOn = objOf(search).enabled !== false && typeof engine === 'string' && engine !== '';
       return {
-        text: `quick search is ${on ? 'on' : 'off'}, engine ${typeof engine === 'string' ? engine : 'unset'}, model ${searchModel(config)}`,
+        text: `quick search is ${isOn ? 'on' : 'off'}, engine ${typeof engine === 'string' ? engine : 'unset'}, model ${searchModel(config) ?? 'unset'}`,
         status: 'ok',
       };
     }

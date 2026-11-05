@@ -442,6 +442,12 @@ const CODE: Readonly<Record<string, unknown>> = {
 
 /** The switches and knobs that went with their code, with the value production ran with. */
 const GONE: Readonly<Record<string, unknown>> = {
+  // The plugin mechanism left the engine, and no command changes the section a layer written before that still sets.
+  plugins: null,
+  // Quick search runs one chosen engine and nothing answers in its place.
+  'web.search.fallback': [],
+  // Nothing proposes an intention any more, so no candidate waits to expire.
+  'intentions.candidateExpiresHours': 48,
   // The subharness (src/subharness/) holds the agent backend now; scripts/config-migrate.ts says how to set it.
   'errands.backend': 'codex',
   'features.dryRun': false,

@@ -190,7 +190,7 @@ test('replay: explicit data selection supplies canonical config and prompts to d
 
 test('replay: search availability follows web.search.engine through the lookup, not the Brave key alone', () => {
   const searches = { brave: createBraveSearch(), exa: createExaSearch() };
-  const hotOf = (engine: string) => ({ config: { web: { search: { engine } } }, prompts: {} });
+  const hotOf = (engine: string) => ({ config: { web: { search: { engine, model: 'x/quick' } } }, prompts: {} });
   // Service secrets come from keys.json in the selected data root.
   const available = (engine: string, services: Record<string, string>) => {
     const dataDir = tempDir('nep-replay-service-');
@@ -205,7 +205,8 @@ test('replay: search availability follows web.search.engine through the lookup, 
     });
   };
   assert.equal(available('openrouter', {}), true, 'openrouter needs no Brave key');
-  assert.equal(available('exa', {}), true, 'exa needs no key');
+  assert.equal(available('exa', {}), false, 'exa without its key cannot search');
+  assert.equal(available('exa', { exa: 'k' }), true);
   assert.equal(available('brave', {}), false, 'brave without its key cannot search');
   assert.equal(available('brave', { brave: 'k' }), true);
 });

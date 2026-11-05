@@ -1,8 +1,8 @@
 // The Exa search client for web lookup, the second engine beside Brave
-// (src/web/brave.ts): the same contract, so src/web/lookup.ts can try one and
-// fall back to the other. Exa answers keyless through its public MCP endpoint
-// (the errand agents' `websearch` uses the same provider), so this engine
-// needs no subscription; EXA_API_KEY, when given, goes as a bearer header.
+// (src/web/brave.ts): the same contract, so src/web/lookup.ts asks either the
+// same way. Exa answers through its public MCP endpoint (the errand agents'
+// `websearch` uses the same provider). The lookup runs this engine only with
+// the `exa` service key, which goes as a bearer header.
 //
 // Transport: one JSON-RPC 2.0 POST, `method: 'tools/call'`, `params: { name:
 // 'web_search_exa', arguments: { query, numResults } }`, with `Accept:

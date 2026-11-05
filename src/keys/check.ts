@@ -1,7 +1,10 @@
 // The two probes that prove a key before it is saved: `checkRole` sends one minimal request for a model role on a given
-// key (a few tokens, so a check costs cents) and reports what answered, and `checkKey` reads the key's own record
-// (`GET /auth/key`). Neither throws and neither lets the key into what it returns: a provider that echoes the value
-// back has it replaced with `***`, and the provider's words are cut. Called by src/keys/commands.ts.
+// key (a few tokens or characters, so a check costs cents) and reports what answered, and `checkKey` reads the key's own
+// record (`GET /auth/key`). Neither throws and neither lets the key into what it returns: a provider that echoes the
+// value back has it replaced with `***`, and the provider's words are cut. A role no cheap request can prove, such as
+// `drawing`, whose request bills a whole picture, answers `capability: 'unsupported'` and sends nothing: `ok: false` with
+// that capability says nothing about the key, while `ok: false` without it means the provider or the network said no.
+// Called by src/keys/commands.ts.
 
 import { apiUrl, openRouterHeaders } from '../llm/openrouter.ts';
 import type { EffortLevel } from '../llm/roles.ts';
@@ -17,8 +20,10 @@ export type CheckResult = {
   status: number | null;
   /** `usage.cost` in dollars, 0 when absent. */
   cost: number;
-  /** The provider's words with the key replaced by `***`, cut to 500 characters; null when ok. */
+  /** The provider's words with the key replaced by `***`, cut to 500 characters; null when ok or when nothing was asked. */
   error: string | null;
+  /** The check itself is out of reach for this role: nothing was sent, and the key is neither proved nor refused. */
+  capability?: 'unsupported';
 };
 
 export type KeyInfo = {
@@ -37,6 +42,26 @@ const ERROR_CHARS = 500;
 
 /** The model roles a chat completion proves. */
 const CHAT_ROLES: ReadonlyArray<string> = ['core', 'memory', 'analyzer', 'search', 'vision', 'video'];
+
+/** The text of the speech probe: billed per character, so a real voice message's length is never spent on a check. */
+const SPEECH_PROBE_TEXT = 'ok';
+
+/** What one role's probe asks: the endpoint and the body beside the model. */
+type Probe = { endpoint: string; body: Record<string, unknown> };
+
+/** The probe of `role`, or null for a role with none. */
+function probeOf(role: string, voice: string | undefined): Probe | null {
+  if (role === 'embedding') return { endpoint: 'embeddings', body: { input: 'ok' } };
+  if (role === 'speech')
+    return voice === undefined || voice === ''
+      ? null
+      : { endpoint: 'audio/speech', body: { input: SPEECH_PROBE_TEXT, voice, response_format: 'mp3' } };
+  if (!CHAT_ROLES.includes(role)) return null;
+  return {
+    endpoint: 'chat/completions',
+    body: { messages: [{ role: 'user', content: 'Reply with ok.' }], max_tokens: 8 },
+  };
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -98,6 +123,8 @@ export async function checkRole(input: {
   provider?: Record<string, unknown>;
   /** the reasoning effort, sent as the body's `reasoning` */
   reasoning?: { effort: EffortLevel };
+  /** `speech.voice`, which the speech probe synthesizes with */
+  voice?: string;
 }): Promise<CheckResult> {
   const { role, model, keyName, value } = input;
   const failed = (status: number | null, error: string): CheckResult => ({
@@ -110,17 +137,28 @@ export async function checkRole(input: {
     cost: 0,
     error: safe(error, value),
   });
-  const embedding = role === 'embedding';
-  if (!embedding && !CHAT_ROLES.includes(role)) return failed(null, `no probe for the ${role} role`);
-  const answer = await send(input.fetch, apiUrl(input.baseUrl, embedding ? 'embeddings' : 'chat/completions'), {
+  const probe = probeOf(role, input.voice);
+  if (probe === null)
+    return {
+      ok: false,
+      role,
+      model,
+      keyName,
+      isByok: null,
+      status: null,
+      cost: 0,
+      error: null,
+      capability: 'unsupported',
+    };
+  const answer = await send(input.fetch, apiUrl(input.baseUrl, probe.endpoint), {
     method: 'POST',
     value,
     timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     body: {
       model,
-      ...(embedding ? { input: 'ok' } : { messages: [{ role: 'user', content: 'Reply with ok.' }], max_tokens: 8 }),
+      ...probe.body,
       ...(input.provider === undefined ? {} : { provider: input.provider }),
-      ...(input.reasoning === undefined || embedding ? {} : { reasoning: input.reasoning }),
+      ...(input.reasoning === undefined || probe.endpoint !== 'chat/completions' ? {} : { reasoning: input.reasoning }),
     },
   });
   if (typeof answer === 'string') return failed(null, answer);

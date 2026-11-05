@@ -671,14 +671,13 @@ test('inner status: chains, spend, open intentions, the next wake and the last t
       intention('i1', { dueAt: NOW - MINUTE_MS, chainId: 'k1' }),
       intention('i2', { dueAt: NOW + 3 * HOUR_MS, status: 'waiting' }),
       intention('i3', { dueAt: NOW + HOUR_MS, status: 'pending' }),
-      intention('i4', { dueAt: null, status: 'proposed' }),
     ],
     meterUsd: 0.25,
   });
   const before = run.inner.status(GUILD);
   assert.equal(before.lastTurn, null);
   assert.equal(before.chains, 0);
-  assert.deepEqual(before.intentions, { pending: 2, waiting: 1, proposed: 1 });
+  assert.deepEqual(before.intentions, { pending: 2, waiting: 1 });
   assert.deepEqual(before.next, { at: NOW - MINUTE_MS, kind: 'intention' });
   await run.inner.tick();
   clock.t = NOW + MINUTE_MS;
@@ -702,7 +701,6 @@ function realIntentions(hot: Record<string, Untyped>, dataDir: string) {
     expiresDays: 14,
     recurringExpiresDays: 30,
     maxOpen: 20,
-    candidateExpiresHours: 48,
   };
   return createIntentionService({
     stores: createIntentionStores({ dataDir, now: () => clock.t, log: SILENT }),
@@ -879,13 +877,10 @@ test('inner: a review tells her once which intentions of hers expired untouched 
     recordOf(service.set(GUILD, { purpose, expiresAt: NOW - (6 - k) * HOUR_MS, channelId: 'c1', scope: 'group' }))
   );
   service.set(GUILD, { purpose: 'alive', channelId: 'c1', scope: 'group' });
-  const candidate: Untyped = createIntention({
-    purpose: 'never hers',
-    provenance: { kind: 'candidate', span: 'x' },
-    expiresAt: NOW - 30 * MINUTE_MS,
-    now: clock.t,
-    id: 'i0cand000',
-  }).intention;
+  // Changed: nothing makes a candidate now, and a store may still hold a closed one from before.
+  const old = { purpose: 'never hers', expiresAt: NOW - 30 * MINUTE_MS, now: clock.t, id: 'i0cand000' };
+  const made = present(createIntention({ ...old, provenance: { kind: 'self', span: 'x' } }).intention);
+  const candidate = { ...made, provenance: { ...made.provenance, kind: 'candidate' as const } };
   assert.equal(present(service.store(GUILD)).add(candidate).ok, true);
   for (const hours of [6, 5, 4, 3, 2, 1, 0]) {
     clock.t = NOW - hours * HOUR_MS;

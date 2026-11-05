@@ -255,10 +255,9 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `web.links.readCacheHours` | number | `6` | Hours a page read by `web.read` is cached | `src/web/lookup.ts` |
 | `web.links.maxOutputTokens` | number | `4000` | Max output tokens for the condenser | `src/behavior/recall.ts` |
 | `web.links.fetchTimeoutMs` | number | `10000` | Download timeout per page (ms) | `src/web/lookup.ts` |
-| `web.search.enabled` | boolean | `true` | Run a search when the classifier fires | `src/tools/impl/status.ts` |
-| `web.search.engine` | string | `"brave"` | Search engine: `brave`, `exa` or `openrouter` | `src/core.ts` |
-| `web.search.model` | string | `"openai/gpt-6.1-sol"` | The model of the `openrouter` engine and of the search summary, apart from the analyzer | `src/llm/roles.ts` |
-| `web.search.fallback` | array | `[]` | Engines tried in order on failure | `src/core.ts` |
+| `web.search.enabled` | boolean | `true` | Whether quick search may run once an engine is chosen. `web.read` does not depend on it | `src/tools/impl/status.ts` |
+| `web.search.engine` | string, null | `null` | The one engine of quick search: `brave`, `exa` or `openrouter`. `null` leaves quick search off, and nothing answers for a chosen engine that fails | `src/web/lookup.ts` |
+| `web.search.model` | string, null | `null` | The model of the `openrouter` engine and of the search summary, apart from the analyzer. `null` leaves the `openrouter` engine off | `src/llm/roles.ts` |
 | `web.search.rawOutputTokens` | number | `256` | Max output tokens of the `openrouter` engine's request for `web.search` | `src/web/lookup.ts` |
 | `web.search.maxOutputTokens` | number | `4000` | Max output tokens for the condenser | `src/llm/openrouter.ts` |
 | `web.search.classifierMaxOutputTokens` | number | `2000` | Max output tokens for the search classifier the measuring tools ask (no live turn asks it) | `scripts/search-policy-eval.ts` |
@@ -452,7 +451,6 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 | `intentions.expiresDays` | number | `14` | Days before an intention expires | `src/behavior/inner/queue.ts` |
 | `intentions.recurringExpiresDays` | number | `30` | Days before a recurring intention expires | `src/intentions/model.ts` |
 | `intentions.maxOpen` | number | `20` | Max intentions open at once | `src/intentions/service.ts` |
-| `intentions.candidateExpiresHours` | number | `48` | Hours before an unhandled candidate expires | `src/intentions/model.ts` |
 
 ## wakes
 

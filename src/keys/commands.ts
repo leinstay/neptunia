@@ -82,8 +82,9 @@ export function reasonedPause(deps: ReasonedPauseDeps): PauseControl {
 }
 
 /**
- * One command's answer: the status is `ok`, `invalid` (the line or a name is refused) or `failed` (a check or a save did
- * not go through), and the code of a refusal that has one.
+ * One command's answer: the status is `ok`, `invalid` (the line or a name is refused), `failed` (a check or a save did
+ * not go through), `unsupported` (no check exists for the role, and nothing was sent) or `not_configured` (the role is
+ * off), and the code of a refusal that has one.
  */
 export type Answer = { text: string; status: string; code?: string };
 
@@ -97,8 +98,10 @@ export type KeysDeps = {
   baseUrl(): string;
   /** The tracked model of each mandatory role, offered by the first add. */
   defaults: Readonly<Record<string, string>>;
-  /** The live model of a role. */
+  /** The live model of a role; '' while the role is off. */
   currentModel(role: string): string;
+  /** The live `speech.voice`, which `checkRole` probes the speech role with. */
+  speechVoice?(): string;
   /** Saves a role's model (the console runs the `model.set` operation). */
   saveModel(role: string, model: string): Promise<void>;
   pause: PauseControl;
@@ -124,6 +127,13 @@ const importedLine = (report: ImportReport): string => {
 };
 
 const money = (value: number): string => `$${value.toFixed(4)}`;
+
+/** The answer for a role no request can prove for cents; the key is neither proved nor refused. */
+const unsupportedLine = (role: string): string => `No cheap request can check the ${role} role, so nothing was sent.`;
+
+/** What `checkRole` needs beside the model for `role`: the speech probe takes the live voice. */
+const voiceOf = (deps: KeysDeps, role: string): { voice?: string } =>
+  role === 'speech' ? { voice: deps.speechVoice?.() ?? '' } : {};
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 
@@ -370,6 +380,12 @@ export function createKeysCommands(deps: KeysDeps): {
   }
 
   async function checkOne(name: string, role: string): Promise<Answer> {
+    const model = deps.currentModel(role);
+    if (model === '' || voiceOf(deps, role).voice === '')
+      return {
+        text: `${typed(name)}: the ${role} role is off, so there is nothing to check`,
+        status: 'not_configured',
+      };
     const route = ring.route(role);
     if (route === null)
       return failed(name, `the ${role} role has no key: add a core key or bind the role to an extra key`);
@@ -377,10 +393,12 @@ export function createKeysCommands(deps: KeysDeps): {
       fetch: deps.fetch,
       baseUrl: deps.baseUrl(),
       role,
-      model: deps.currentModel(role),
+      model,
       keyName: route.name,
       value: route.value,
+      ...voiceOf(deps, role),
     });
+    if (result.capability === 'unsupported') return { text: unsupportedLine(role), status: 'unsupported' };
     return { text: checkLine(result), status: result.ok ? 'ok' : 'failed' };
   }
 
@@ -414,7 +432,16 @@ export function createKeysCommands(deps: KeysDeps): {
       value: route.value,
       ...(routing === undefined ? {} : { provider: routing }),
       ...(isEffortLevel(effort) ? { reasoning: { effort } } : {}),
+      ...voiceOf(deps, role),
     });
+    if (result.capability === 'unsupported') {
+      await deps.saveModel(role, model);
+      const saved = await saveFlags(deps, { role, model, provider, effort });
+      return {
+        text: [`${unsupportedLine(role)} The ${role} model is saved unverified.`, ...saved].join('\n'),
+        status: 'ok',
+      };
+    }
     if (!result.ok) return failed(name, `${checkLine(result)}\nThe model is not saved.`);
     await deps.saveModel(role, model);
     if (role === MEMORY_ROLE) deps.directPath?.(role);

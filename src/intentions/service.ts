@@ -1,6 +1,5 @@
 // The persona's intentions at work (docs/inner-life.md): her own calls (`intention.set`,
-// `intention.update`, `intention.cancel`, `intention.list`, src/tools/impl/intention.ts) create and move them, the
-// memory analyzer's candidates from her own lines arrive as `proposed` ones (`addCandidates`),
+// `intention.update`, `intention.cancel`, `intention.list`, src/tools/impl/intention.ts) create and move them,
 // an errand's end reaches the intention waiting on it (`onErrandFinished`), and a reconciliation
 // (`reconcile`, at start and for the scheduler of step 2) finds every wait whose errand already
 // ended, is gone, or passed its deadline. Reliable waiting: `waiting` needs a real errand id and
@@ -23,11 +22,9 @@
 
 import { randomUUID } from 'node:crypto';
 import { log as defaultLog } from '../log.ts';
-import { DAY_MS, HOUR_MS, zonedDay } from '../time.ts';
+import { HOUR_MS, zonedDay } from '../time.ts';
 import { isOpenState } from '../errands/store.ts';
-import { createLineSources } from './sources.ts';
 import {
-  acceptRefusal,
   advanceOccurrence,
   arrive,
   attendCounter,
@@ -35,11 +32,9 @@ import {
   bumpAttend,
   isAttend,
   normalizeAttend,
-  candidatesFromAnswer,
   createIntention,
   dropIntention,
   dueList as dueOf,
-  duplicates,
   expireAt,
   heartbeatLimits,
   dueJitterMinutes,
@@ -67,7 +62,6 @@ import type { ErrandRecord } from '../errands/types.ts';
 import type { ErrandLike } from './types.ts';
 import type {
   Advanced,
-  CandidateCounts,
   Created,
   Due,
   Intention,
@@ -75,7 +69,6 @@ import type {
   IntentionServiceOptions,
   IntentionSettings,
   IntentionStore,
-  LineNote,
   Moved,
   ReconcileCounts,
   SetInput,
@@ -175,17 +168,12 @@ function heartbeatCapRefusal(
 
 /**
  * `hot` holds the live config. `errands` is the errand service (src/errands/service.ts): the errand store a wait is
- * checked against. `journal` is where a candidate's turn is looked up. `lineSources` holds the notes of where her
- * lines came from (src/intentions/sources.ts#createLineSources, one of its own by default): the turn runner notes
- * each line she posts (`noteLine`), the memory buffer takes the note with the line (`lineSources`), and a candidate
- * is judged by it (`addCandidates`, strict: a line of hers with no note counts as external).
+ * checked against.
  */
 export function createIntentionService({
   stores,
   hot,
   errands = null,
-  journal = null,
-  lineSources = createLineSources(),
   getGuildId = () => null,
   now = Date.now,
   uuid = randomUUID,
@@ -349,9 +337,6 @@ export function createIntentionService({
    * `set`). `{ ok, intention }` or `{ ok: false, code }` (`not-found`, `terminal`, `cap-open`,
    * `bad-move`, the model's and the wait's codes). `patch.privateChannelId` / `patch.all`: where the
    * caller is (a private chat's intention is `not-found` anywhere else, see `list`).
-   * `patch.initiative` (an inner turn's call), `patch.callerChain` (its chain) and `patch.turnId`
-   * decide whether a candidate may be accepted (model.js#acceptRefusal: `candidate-same-turn`,
-   * `candidate-external`, `candidate-same-chain`).
    */
   function update(guildId: unknown, id: unknown, patch: UpdatePatch = {}): Moved {
     const store = storeOf(guildId);
@@ -363,23 +348,6 @@ export function createIntentionService({
     const dropping = patch.state === 'dropped';
     if (dropping && !(typeof patch.reason === 'string' && patch.reason.trim()))
       return { ok: false, code: CODE.REASON_REQUIRED };
-    // A candidate is accepted only where its origin allows (model.js#acceptRefusal): never in the
-    // turn that wrote its line, and from an inner turn neither an external one nor one born in an
-    // inner turn of the same chain.
-    if (patch.state === 'pending' && current.status === 'proposed') {
-      const refused = acceptRefusal(current, {
-        by,
-        initiative: patch.initiative === true,
-        chainId: patch.callerChain ?? null,
-        turnId: patch.turnId ?? null,
-      });
-      if (refused) {
-        log.info('intentions: accept refused', { guildId: store.guildId, id: idText(id), code: refused });
-        return { ok: false, code: refused };
-      }
-    }
-    if (patch.state === 'pending' && current.status === 'proposed' && activeCount(store.list()) >= settings().maxOpen)
-      return { ok: false, code: CODE.CAP_OPEN };
     // A heartbeat's one-off made recurring counts against the recurring cap like a new recurring one.
     if (current.origin === HEARTBEAT_ORIGIN && patch.every && !current.every) {
       const others = openFromHeartbeat(store.list()).filter((record) => record.id !== current.id);
@@ -440,18 +408,7 @@ export function createIntentionService({
         changed = true;
       }
       if (patch.state === 'pending' && next.status !== 'pending') {
-        const accepted = next.status === 'proposed';
-        // An accepted candidate lives as long as her own (`expiresDays`), not its review window.
-        const expiry =
-          accepted && fields.expiresAt === undefined
-            ? { expiresAt: Math.max(next.expiresAt, at + settings().expiresDays * DAY_MS) }
-            : {};
-        const moved = transition(next, 'pending', {
-          now: at,
-          by,
-          code: accepted ? 'accepted' : 'resumed',
-          patch: expiry,
-        });
+        const moved = transition(next, 'pending', { now: at, by, code: 'resumed' });
         if (!moved.ok) return moved;
         next = moved.intention;
         changed = true;
@@ -498,9 +455,7 @@ export function createIntentionService({
     const current = store.get(id);
     if (current && !visibleTo(current, { privateChannelId, all })) return { ok: false, code: CODE.NOT_FOUND };
     if (current && isFiniteNumber(current.sleptAt)) return { ok: false, code: CODE.SLEPT };
-    const result = store.update(id, (record) =>
-      transition(record, 'cancelled', { now: now(), by, code: record.status === 'proposed' ? 'rejected' : 'cancelled' })
-    );
+    const result = store.update(id, (record) => transition(record, 'cancelled', { now: now(), by, code: 'cancelled' }));
     if (result.ok) log.info('intentions: cancelled', { guildId: store.guildId, id: idText(id), by });
     return result;
   }
@@ -546,7 +501,7 @@ export function createIntentionService({
 
   /**
    * What the `<intentions>` block shows in a conversation: her active ones (`pending`, then
-   * `waiting`, by due time then age), then the candidates (`proposed`), newest first. Empty with
+   * `waiting`, by due time then age). Empty with
    * `features.intentions` off.
    */
   function view(
@@ -556,8 +511,7 @@ export function createIntentionService({
     const open = list(guildId, { privateChannelId });
     const active = open.filter((record) => record.status === 'pending').sort(byDue);
     const waiting = open.filter((record) => record.status === 'waiting').sort(byDue);
-    const proposed = open.filter((record) => record.status === 'proposed').sort((a, b) => b.createdAt - a.createdAt);
-    return [...active, ...waiting, ...proposed];
+    return [...active, ...waiting];
   }
 
   /**
@@ -767,114 +721,12 @@ export function createIntentionService({
     return dueOf(store.list(), now(), dueJitterMinutes(hot.config));
   }
 
-  /**
-   * The candidates one analyzer batch found in her own lines (`raw`: the answer's `intentions`
-   * field; `messages`: the batch's lines the model saw) stored as `proposed` intentions: anchored
-   * and filtered by the model (candidatesFromAnswer), each not repeating an open one, while the
-   * open candidates stay under `intentions.maxCandidates`; each one's turn looked up in the journal
-   * (`findTurn` of the line's message, null when unknown). With `features.intentions` off, nothing.
-   * Each carries its origin (model.js#candidatesFromAnswer over the line's note: the buffered
-   * line's `sources`, else `lineSources`; strict). Never throws; `{ added, external, duplicate, capped, dropped }`.
-   */
-  async function addCandidates(guildId: unknown, raw: unknown, messages: Array<Untyped>): Promise<CandidateCounts> {
-    const out: CandidateCounts = {
-      added: 0,
-      external: 0,
-      duplicate: 0,
-      capped: 0,
-      dropped: { invalid: 0, unanchored: 0, quoted: 0, over: 0 },
-    };
-    try {
-      if (!Array.isArray(raw) || raw.length === 0) return out;
-      const store = storeOf(guildId);
-      if (!store) return out;
-      const limits = settings();
-      const { candidates, dropped } = candidatesFromAnswer(raw, messages, {
-        max: limits.maxCandidates,
-        sourcesOf: (line: Untyped) => line?.sources ?? lineSources?.get?.(String(line?.id ?? '')) ?? null,
-        strict: Boolean(lineSources),
-      });
-      out.dropped = dropped;
-      for (const candidate of candidates) {
-        const open = store.list().filter((record) => isOpen(record.status));
-        if (duplicates(candidate, open)) {
-          out.duplicate += 1;
-          continue;
-        }
-        if (open.filter((record) => record.status === 'proposed').length >= limits.maxCandidates) {
-          out.capped += 1;
-          continue;
-        }
-        let turnId = candidate.turnId ?? null;
-        if (!turnId && typeof journal?.findTurn === 'function' && isFiniteNumber(candidate.ts)) {
-          try {
-            turnId =
-              (await journal.findTurn(store.guildId, { messageId: candidate.messageId, at: candidate.ts }))?.turn
-                ?.turnId ?? null;
-          } catch {
-            turnId = null;
-          }
-        }
-        const created = createIntention({
-          purpose: candidate.purpose,
-          provenance: {
-            kind: 'candidate',
-            turnId,
-            messageId: candidate.messageId,
-            channelId: candidate.channelId,
-            span: candidate.span,
-            scope: 'group',
-            participants: candidate.participants,
-            origin: candidate.origin,
-            originReason: candidate.originReason,
-            bornInner: candidate.bornInner === true,
-            innerChainId: candidate.innerChainId ?? null,
-          },
-          now: now(),
-          settings: limits,
-          id: freshId(store),
-          by: 'analyzer',
-        });
-        if (!created.ok) continue;
-        if (store.add(created.intention).ok) {
-          out.added += 1;
-          if (created.intention.provenance.origin === 'external') out.external += 1;
-        }
-      }
-      const skipped = out.duplicate + out.capped + Object.values(out.dropped).reduce((sum, n) => sum + n, 0);
-      if (out.added + skipped > 0)
-        log.info('intentions: candidates', {
-          guildId: store.guildId,
-          added: out.added,
-          external: out.external,
-          duplicate: out.duplicate,
-          capped: out.capped,
-          ...out.dropped,
-        });
-    } catch (err) {
-      log.warn('intentions: candidates not stored', { error: err });
-    }
-    return out;
-  }
-
-  /** Note where her posted line `messageId` came from (src/intentions/sources.ts#lineSourcesOf's note). */
-  function noteLine(messageId: unknown, sources: LineNote): void {
-    lineSources?.note?.(idText(messageId), sources);
-  }
-
-  /** The note of her line `messageId`, or null. */
-  function lineSourcesOfLine(messageId: unknown): LineNote | null {
-    return lineSources?.get?.(idText(messageId)) ?? null;
-  }
-
   return {
     set: (guildId, input) => setOnce(storeOf(guildId), input, () => set(guildId, input)),
     update,
     cancel,
     list,
     view,
-    noteLine,
-    lineSources: lineSourcesOfLine,
     linkTurnErrand,
     onErrandFinished,
     reconcile,
@@ -885,7 +737,6 @@ export function createIntentionService({
     attendToday,
     countAttendWake,
     markExpiredShown,
-    addCandidates,
     store: storeOf,
   };
 }

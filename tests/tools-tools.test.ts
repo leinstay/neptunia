@@ -227,7 +227,10 @@ test('runWebSearch: her query goes to the raw search as written, the results are
     return [result.status, result.code];
   };
   assert.deepEqual(await status({ args: {} }), ['invalid', 'invalid-args']);
-  assert.deepEqual(await status({ lookup: { hasSearch: false } }), ['not_configured', 'not-configured']);
+  assert.deepEqual(await status({ lookup: { found: { failed: { code: 'not-configured', reason: 'no-engine' } } } }), [
+    'not_configured',
+    'not-configured',
+  ]);
   assert.deepEqual(await status({ lookup: { found: null } }), ['failed', 'error']);
   assert.deepEqual(
     (await runWebSearch({ lookup: null, config: WEB_ON, labels, guildId: 'g1', args: { query: 'x' } })).status,
@@ -709,15 +712,19 @@ test("runWebSearch: the lookup's coded failures reach her as what they are; an e
   assert.deepEqual(await via({ code: 'provider', status: 503 }), {
     status: 'failed',
     code: 'provider',
-    values: { status: '503' },
+    values: { feature: 'quick-search', reason: '', status: '503' },
   });
-  assert.deepEqual(await via({ code: 'provider' }), { status: 'failed', code: 'provider', values: { status: '' } });
+  assert.deepEqual(await via({ code: 'provider' }), {
+    status: 'failed',
+    code: 'provider',
+    values: { feature: 'quick-search', reason: '', status: '' },
+  });
   assert.deepEqual(await via({ code: 'cap' }), { status: 'failed', code: 'cap', values: { what: 'search' } });
   assert.deepEqual(await via({ code: 'empty-query' }), { status: 'invalid', code: 'empty-query' });
   assert.deepEqual(await via({ code: 'not-configured' }), {
     status: 'not_configured',
     code: 'not-configured',
-    values: { feature: 'web' },
+    values: { feature: 'quick-search', reason: '' },
   });
   const none = await runWebSearch({
     lookup: fakeLookup({ found: { results: [] } } as unknown as Parameters<typeof fakeLookup>[0]),

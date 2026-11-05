@@ -26,7 +26,7 @@ import { callTextOf, callViewOf, defaultSkills, MARK_TEXT_CHARS, PERSONA, values
 import type { CallEnvelope } from './calls.ts';
 import { journalResultOf, portError, postedOf } from './journal.ts';
 import type { JournalOp } from './journal.ts';
-import type { CallMark, JournalNotes } from './journal-notes.ts';
+import type { CallMark, JournalNotes, NotesDraft } from './journal-notes.ts';
 import { untaggedNote } from './mentions.ts';
 import { inCommunity, snapshotOfDraft } from './routing.ts';
 import type { RenderedPost, Sends } from './sends.ts';
@@ -69,10 +69,8 @@ export type SkillCallsContext = {
   routes: TurnRoutes;
   lastPostAt: Map<string, number>;
   renderPost: Sends['renderPost'];
-  noteSeen: JournalNotes['noteSeen'];
   noteTrigger: JournalNotes['noteTrigger'];
   notePostedFrom: JournalNotes['notePostedFrom'];
-  noteLineSources: JournalNotes['noteLineSources'];
   noteCall: JournalNotes['noteCall'];
   recordSaid: JournalNotes['recordSaid'];
   journalOp: JournalNotes['journalOp'];
@@ -131,7 +129,7 @@ export type InnerAction = {
 
 /** What an attempt's draft holds that the calls read and write. */
 export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
-  NonNullable<Parameters<JournalNotes['noteLineSources']>[0]> & {
+  NotesDraft & {
     memoryContext?: Context;
     inner?: CallsInner | null;
     ownInitiative?: boolean;
@@ -244,10 +242,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     routes,
     lastPostAt,
     renderPost,
-    noteSeen,
     noteTrigger,
     notePostedFrom,
-    noteLineSources,
     noteCall,
     recordSaid,
     journalOp,
@@ -653,15 +649,6 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         }
       }
     }
-    // What a read of hers returned is outside material her later lines of the turn may repeat.
-    if (
-      ran &&
-      result.status === 'ok' &&
-      typeof result.data?.text === 'string' &&
-      result.data.text &&
-      (skills ?? defaultSkills()).get(skill)?.effects === 'read'
-    )
-      noteSeen(draft, result.data.text, { read: true });
     if (inner && draft) {
       // The intention a call of hers named, however it went: the open-intentions line of the next
       // step (openIntentionsText) no longer lists it; the action record carries it, and the state
@@ -721,8 +708,6 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       if (skill === 'voice.say' && draft?.diary && result.voice)
         draft.diaryVoice = { text: result.voice.text, durationSecs: result.voice.durationSecs };
       if (skill === 'message.create') {
-        // A posted message.create carries the text it was resolved with.
-        noteLineSources(draft, posted.id, args.text as string);
         recordSaid({
           guildId,
           channel: { id: where },

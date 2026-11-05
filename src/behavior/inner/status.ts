@@ -17,7 +17,7 @@ import type { InnerContext, InnerSettings, InnerState, TurnRecord } from './type
 const TURN_OUTCOMES: ReadonlySet<unknown> = new Set(['spoke', 'skip', 'refused', 'not-now', 'error']);
 
 /** The statuses an open intention may have, for the status card. */
-const OPEN_STATES: ReadonlyArray<unknown> = ['pending', 'waiting', 'proposed'];
+const OPEN_STATES: ReadonlyArray<unknown> = ['pending', 'waiting'];
 
 /** What the kill switch answers: done (and whether it was so already, and how many queued wakes it dropped), or why not. */
 export type SwitchAnswer =
@@ -126,7 +126,7 @@ export type InnerStatus = {
   turnsToday: number | null;
   chains: number;
   spentUsd: number;
-  intentions: { pending: number; waiting: number; proposed: number } | null;
+  intentions: { pending: number; waiting: number } | null;
   attention: { open: number; listed: number; run: number; spoken: number; skipped: number; waiting: number } | null;
   next: NextWake | null;
   lastTurn: { at: number; outcome: string | null } | null;
@@ -224,7 +224,7 @@ export function status(life: InnerContext, guildId: string | null = life.getGuil
     spentUsd:
       Math.round(state.spend.filter((item) => item.at >= start).reduce((sum, item) => sum + item.usd, 0) * 10000) /
       10000,
-    intentions: { pending: countOf('pending'), waiting: countOf('waiting'), proposed: countOf('proposed') },
+    intentions: { pending: countOf('pending'), waiting: countOf('waiting') },
     attention,
     next: nextWakeOf(state, open, at, settings),
     lastTurn: last ? { at: last.at, outcome: typeof last.outcome === 'string' ? last.outcome : null } : null,

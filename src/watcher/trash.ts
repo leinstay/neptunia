@@ -95,14 +95,26 @@ const linesOf = (text: string): Array<string> =>
     .map((line) => line.trim())
     .filter((line) => line !== '');
 
-/** The text of each unit of ours in the folder; null when the folder cannot be read. */
+/**
+ * The text of each unit of ours in the folder; null when the folder cannot be read. An entry that cannot be read, such
+ * as the drop-in directory `neptunia-core.service.d` or a dangling link, is left out and the others are still judged.
+ */
 function readUnits(unitDir: string): Map<string, string> | null {
+  let names: Array<string>;
   try {
-    const names = fs.readdirSync(unitDir).filter((name) => name.startsWith(PREFIX));
-    return new Map(names.map((name) => [name, fs.readFileSync(path.join(unitDir, name), 'utf8')]));
+    names = fs.readdirSync(unitDir).filter((name) => name.startsWith(PREFIX));
   } catch {
     return null;
   }
+  const units = new Map<string, string>();
+  for (const name of names) {
+    try {
+      units.set(name, fs.readFileSync(path.join(unitDir, name), 'utf8'));
+    } catch {
+      // Only this entry is out: the dangling-link category names a dangling one.
+    }
+  }
+  return units;
 }
 
 /** Why a unit's `ExecStart` cannot run, or null: its binary or a script it names is gone. */

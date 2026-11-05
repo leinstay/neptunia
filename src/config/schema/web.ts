@@ -36,28 +36,23 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
     'types': ['boolean'],
     'reader': 'src/tools/impl/status.ts',
     'default': true,
-    'text': 'Run a search when the classifier fires',
+    'text': 'Whether quick search may run once an engine is chosen. `web.read` does not depend on it',
   },
   {
     'key': 'web.search.engine',
-    'types': ['string'],
-    'reader': 'src/core.ts',
-    'default': 'brave',
-    'text': 'Search engine: `brave`, `exa` or `openrouter`',
+    'types': ['string', 'null'],
+    'reader': 'src/web/lookup.ts',
+    'default': null,
+    'text':
+      'The one engine of quick search: `brave`, `exa` or `openrouter`. `null` leaves quick search off, and nothing answers for a chosen engine that fails',
   },
   {
     'key': 'web.search.model',
-    'types': ['string'],
+    'types': ['string', 'null'],
     'reader': 'src/llm/roles.ts',
-    'default': 'openai/gpt-6.1-sol',
-    'text': 'The model of the `openrouter` engine and of the search summary, apart from the analyzer',
-  },
-  {
-    'key': 'web.search.fallback',
-    'types': ['array'],
-    'reader': 'src/core.ts',
-    'default': [],
-    'text': 'Engines tried in order on failure',
+    'default': null,
+    'text':
+      'The model of the `openrouter` engine and of the search summary, apart from the analyzer. `null` leaves the `openrouter` engine off',
   },
   {
     'key': 'web.search.rawOutputTokens',

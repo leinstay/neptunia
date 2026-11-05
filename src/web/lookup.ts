@@ -1,8 +1,6 @@
-// The web lookup (features.webLookup, OFF unless set -- it costs money and the
-// Brave search needs a key): the persona reads a link posted in the chat, and, when
-// asked something that needs facts from outside, runs one web search. Two
-// halves, both modelled on the video describer (src/memory/describe.ts), and the
-// persona's own raw tools beside them:
+// The web lookup: the persona reads a link posted in the chat, and quick search answers with one search on the one engine
+// the owner chose. Two halves, both modelled on the video describer (src/memory/describe.ts), and the persona's own raw
+// tools beside them:
 //
 // - readLinks: a normal page link (never a video-site link -- the video
 //   describer owns those -- never an embed classified as anything but a link
@@ -13,25 +11,19 @@
 //   sent as its Accept-Language). The excerpt is the opening of the page's own extracted
 //   text, cut at `LINK_PREVIEW_CHARS` -- what a link preview shows -- cached as
 //   `preview:<link id>`, no model request.
-// - search: one web search whose numbered results are condensed through
-//   prompts/search-summary.md, sources kept. `web.search.engine` picks the
-//   engine: `brave` (src/web/brave.ts, needs BRAVE_SEARCH_API_KEY; the
-//   default), `exa` (src/web/exa.ts, keyless; EXA_API_KEY optional) or
-//   `openrouter` (OpenRouter's web plugin on Exa: the summary request itself
-//   searches, one request billed to credits, its sources the answer's
-//   `url_citation` annotations). `web.search.fallback` lists the engines tried
-//   in order when one fails with `rate-limited` (a Brave 429 counts), `timeout`
-//   or `network`; never after `empty` (nothing found is an answer, and its
-//   summary is never run again) nor any other failure. The daily web slot is
-//   taken once per lookup, whatever the attempts; each attempt logs its own
-//   `lookup: search` line with `engine` and `fallback` (false for the first).
-// - searchResults: the persona's own web.search (src/tools/tools.ts): the same engines,
-//   fallbacks and daily slot, but the results come back raw -- title, url, site, the
-//   engine's snippet and date -- with no summary request. Brave and Exa return them as
-//   they are; `openrouter` sends one request with the web plugin and only the query
-//   (purpose `web-search` on quick search's own role and model, its answer cut at `web.search.rawOutputTokens`
-//   and never read), the results being its `url_citation` annotations with their content.
-//   Cached apart (`results:<sha1 prefix>`), served while younger than `web.search.cacheHours`.
+// - search: one web search whose numbered results are condensed through prompts/search-summary.md, sources kept.
+//   `web.search.engine` picks the engine, and it has no default: `brave` (src/web/brave.ts) and `exa` (src/web/exa.ts) each
+//   need their service key, and `openrouter` (OpenRouter's web plugin, its engine `auto`: the summary request itself
+//   searches, one request billed to credits, its sources the answer's `url_citation` annotations) needs `web.search.model`.
+//   Brave and Exa condense on that model too, so they do not summarise without it. An engine outside the three, or one
+//   without what it needs, leaves quick search off, and when the chosen engine fails nothing answers in its place.
+// - searchResults: the persona's own web.search (src/tools/tools.ts): the same engine, but the results come back raw --
+//   title, url, site, the engine's snippet and date -- with no summary request. Brave and Exa return them as they are;
+//   `openrouter` sends one request with the web plugin and only the query (purpose `quick-search` on quick search's own
+//   role and model, its answer cut at `web.search.rawOutputTokens` and never read), the results being its `url_citation`
+//   annotations with their content. Cached apart (`results:<sha1 prefix>`), served while younger than
+//   `web.search.cacheHours`. A failure says why: `not-configured` with `no-engine`, `no-model`, `no-key` or `disabled`, and
+//   `provider` with the engine and `timeout`, `rate-limited`, `credentials` or the client's own reason.
 // - readPage: the persona's own web.read: one page by url through the same fetcher, its
 //   extracted main text (src/web/readable.ts) cut at `PAGE_READ_CHARS`, with its title
 //   and final url; no model request. Cached (`page:<sha1 prefix of the url>`) for
@@ -63,6 +55,7 @@ import { CODE } from '../tools/codes.ts';
 import { errorFields } from '../error-fields.ts';
 import { objOf, scalarText } from '../tools/types.ts';
 import type { ChatMessage, CompleteOptions, CompleteResult } from '../llm/openrouter.ts';
+import { withoutCredentials } from './fetch-page.ts';
 import type { PageFetcher } from './fetch-page.ts';
 import type { SearchClient } from './search-types.ts';
 
@@ -72,7 +65,7 @@ type LinksSettings = { fetchTimeoutMs?: number; readCacheHours?: unknown };
 type SearchSettings = {
   enabled?: boolean;
   engine?: unknown;
-  fallback?: unknown;
+  model?: unknown;
   cacheHours?: unknown;
   maxOutputTokens?: number;
   rawOutputTokens?: unknown;
@@ -124,12 +117,13 @@ type SearchAnswer = { query: string; text: string; sources: Array<Source>; cache
 
 /** The persona's own search's answer, or why it did not search. */
 type RawAnswer =
-  { query: string; results: Array<RawResult>; cached?: true } | { failed: { code: string; status?: number } };
+  | { query: string; results: Array<RawResult>; cached?: true }
+  | { failed: { code: string; reason?: string; engine?: Engine; status?: number } };
 
 /** A page read's answer. */
 type PageAnswer =
   | { ok: true; url: string; title: string; text: string; cut: boolean; cached?: true }
-  | { ok: false; reason: string; status?: number };
+  | { ok: false; reason: string; status?: number; url?: string };
 
 /** What `readLinkCharged` takes beside the link. */
 type Only = { cacheOnly?: boolean };
@@ -154,7 +148,7 @@ export type Lookup = {
   searchResults: (guildId: string, query: string) => Promise<RawAnswer>;
   readPage: (guildId: string, url: string) => Promise<PageAnswer>;
   hasSearch: () => boolean;
-  searchEngine: () => Engine;
+  searchEngine: () => Engine | null;
 };
 
 /** A search engine of the lookup. */
@@ -205,26 +199,27 @@ const QUERY_CONTROLS = /[\u0000-\u001f\u007f-\u009f]/g;
 // A link to a file, not a page: the reader would only spend an attempt on it.
 const BINARY_PATH = /\.(?:png|jpe?g|gif|webp|avif|svg|mp4|webm|mov|mkv|mp3|ogg|wav|zip|rar|7z|pdf)$/i;
 
-/** The search engines `web.search.engine` and `web.search.fallback` may name. */
+/** The search engines `web.search.engine` may name. */
 export const SEARCH_ENGINES = ['brave', 'exa', 'openrouter'] as const;
-const DEFAULT_ENGINE: Engine = 'brave';
-// The failures another engine may answer: the engine itself was busy or unreachable.
-const FALLBACK_REASONS = new Set(['rate-limited', 'timeout', 'network']);
+/** The reason of an engine's request that had no key to go out on. */
+const NO_KEY = 'no-key';
 
-/** The engine of the live config: `web.search.engine` when it names one, else `brave`. */
-function engineOf(config: LookupConfig): Engine {
+/** The engine of the live config: `web.search.engine` when it names one, else none. */
+function engineOf(config: LookupConfig): Engine | null {
   const engine = config?.web?.search?.engine;
-  return SEARCH_ENGINES.find((name) => name === engine) ?? DEFAULT_ENGINE;
+  return SEARCH_ENGINES.find((name) => name === engine) ?? null;
 }
 
-/** Whether a failed attempt may hand over to the next engine (a Brave 429 comes as `http` with the status). */
-function fallsBack(failure: Failure): boolean {
-  return FALLBACK_REASONS.has(failure.reason) || (failure.reason === 'http' && failure.status === 429);
+/** A failed attempt as the persona's search tells it: refused credentials and a rate limit by name, else the attempt's reason. */
+function toldReason({ reason, status }: Failure): string {
+  if (status === 401 || status === 403) return 'credentials';
+  return status === 429 ? 'rate-limited' : reason;
 }
 
-/** An `openrouter` engine failure as a search reason: a 429 is `rate-limited`, a timeout `timeout`, a failed fetch `network`, else the rail reason. */
+/** An `openrouter` engine failure as a search reason: no key for its role, a 429 `rate-limited`, a timeout `timeout`, a failed fetch `network`, else the rail reason. */
 function openrouterFailure(err: unknown): string {
-  const { statusCode, name } = errorFields(err);
+  const { statusCode, name, code } = errorFields(err);
+  if (code === 'ROLE_KEY_MISSING') return NO_KEY;
   if (statusCode === 429) return 'rate-limited';
   if (name === 'TimeoutError' || name === 'AbortError') return 'timeout';
   if (name === 'TypeError' && statusCode === undefined) return 'network';
@@ -332,15 +327,15 @@ function clampResults(value: unknown, fallback = 5): number {
 }
 
 /**
- * The `plugins` of a request that searches through OpenRouter's web plugin on Exa: the lookup's
- * `openrouter` engine and the scout agent's search command (src/web/web-search.ts). `results`
- * becomes `max_results`, an integer in 1..10, `fallback` when not a number.
+ * The `plugins` of a request that searches through OpenRouter's web plugin, which picks its own search engine (`auto`):
+ * the lookup's `openrouter` engine and the scout agent's search command (src/web/web-search.ts). `results` becomes
+ * `max_results`, an integer in 1..10, `fallback` when not a number.
  */
 export function webSearchPlugins(
   results: unknown,
   fallback: number = 5
-): Array<{ id: 'web'; engine: 'exa'; max_results: number }> {
-  return [{ id: 'web', engine: 'exa', max_results: clampResults(results, fallback) }];
+): Array<{ id: 'web'; engine: 'auto'; max_results: number }> {
+  return [{ id: 'web', engine: 'auto', max_results: clampResults(results, fallback) }];
 }
 
 /** The cache key of one search. */
@@ -373,8 +368,7 @@ export function renderResults(
  * @param deps.searches The search clients: createBraveSearch()
  *   (src/web/brave.ts) and createExaSearch() (src/web/exa.ts); an engine without its client is
  *   never ready.
- * @param deps.keys BRAVE_SEARCH_API_KEY and the
- *   optional EXA_API_KEY; never logged.
+ * @param deps.keys The service keys of the `brave` and `exa` engines; never logged.
  */
 export function createLookup(deps: LookupDeps): Lookup {
   const { hot, store, llm, pageFetcher, searches = {}, keys = {}, now = Date.now } = deps;
@@ -533,10 +527,9 @@ export function createLookup(deps: LookupDeps): Lookup {
   /**
    * One web search on `query`, condensed with its sources, through the shared
    * cache. Needs the feature, `web.search.enabled`, the search-summary prompt,
-   * a chosen engine that can run (hasSearch) and a non-blank query. No
-   * results -> an empty `text` (the caller renders labels.lookup.none). A
-   * failure is never cached; a fallback engine answers only the failures
-   * listed in the header.
+   * a chosen engine that can run (hasSearch), the model the summary goes out on and a non-blank
+   * query. No results -> an empty `text` (the caller renders labels.lookup.none). A failure is
+   * never cached.
    */
   async function search(guildId: string, query: string): Promise<SearchAnswer> {
     const config = hot.config;
@@ -545,7 +538,8 @@ export function createLookup(deps: LookupDeps): Lookup {
     const promptText = hot.prompts?.['search-summary'];
     const asked = cleanQuery(query);
     if (!promptText || !asked) return null;
-    if (!hasSearch()) return null;
+    const engine = engineOf(config);
+    if (engine === null || !hasSearch() || searchModel(config) === undefined) return null;
 
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: search', { state: outcome, reason, ...extra });
@@ -570,53 +564,33 @@ export function createLookup(deps: LookupDeps): Lookup {
       return null;
     }
 
-    const engines = [engineOf(config), ...fallbackEngines(config)];
-    for (let i = 0; i < engines.length; i += 1) {
-      const meta = { engine: engines[i], fallback: i > 0 };
-      // A fallback sends a request of its own: not once the daily request cap is spent.
-      if (i > 0 && capSpent()) {
-        report('limit', 'daily-cap', meta);
-        return null;
-      }
-      const outcome = await attempt(engines[i], asked, promptText, config);
-      if (outcome.result) {
-        putEntry(guildId, key, { ...outcome.result, ts: now() });
-        report(outcome.result.text ? 'found' : 'nothing', null, {
-          cached: false,
-          results: outcome.result.sources.length,
-          ...meta,
-        });
-        return outcome.result;
-      }
-      const { reason, status } = outcome.failure;
-      report('error', reason, { ...(status !== undefined ? { status } : {}), ...meta });
-      if (!fallsBack(outcome.failure)) return null;
+    const outcome = await attempt(engine, asked, promptText, config);
+    if (outcome.result) {
+      putEntry(guildId, key, { ...outcome.result, ts: now() });
+      report(outcome.result.text ? 'found' : 'nothing', null, {
+        cached: false,
+        results: outcome.result.sources.length,
+        engine,
+      });
+      return outcome.result;
     }
+    const { reason, status } = outcome.failure;
+    report('error', reason, { ...(status !== undefined ? { status } : {}), engine });
     return null;
   }
 
-  /** Whether `engine` can run: Brave needs its client and its key, Exa its client, OpenRouter the llm client. */
-  function engineReady(engine: Engine): boolean {
-    if (engine === 'brave')
-      return (
-        typeof searches.brave?.search === 'function' && typeof keys.brave === 'string' && keys.brave.trim().length > 0
-      );
-    if (engine === 'exa') return typeof searches.exa?.search === 'function';
-    return typeof llm?.complete === 'function';
-  }
-
-  /** `web.search.fallback` of the live config: the known engines that can run, in order, each once, never the chosen one. */
-  function fallbackEngines(config: LookupConfig): Array<Engine> {
-    const chosen = engineOf(config);
-    const given = config.web?.search?.fallback;
-    const list: Array<unknown> = Array.isArray(given) ? given : [];
-    const out: Array<Engine> = [];
-    for (const name of list) {
-      const engine = SEARCH_ENGINES.find((known) => known === name);
-      if (!engine || engine === chosen || out.includes(engine) || !engineReady(engine)) continue;
-      out.push(engine);
-    }
-    return out;
+  /** Why quick search is off under `config`, or null when the chosen engine has what it needs. */
+  function whyOff(config: LookupConfig): { reason: string; engine?: Engine } | null {
+    const engine = engineOf(config);
+    if (engine === null) return { reason: 'no-engine' };
+    if (engine === 'openrouter')
+      return typeof llm?.complete === 'function' && searchModel(config) !== undefined
+        ? null
+        : { reason: 'no-model', engine };
+    const key = keys[engine];
+    return typeof searches[engine]?.search === 'function' && typeof key === 'string' && key.trim() !== ''
+      ? null
+      : { reason: NO_KEY, engine };
   }
 
   /** The summary prompt filled for `asked`, and the summary request's options for this config. */
@@ -702,25 +676,23 @@ export function createLookup(deps: LookupDeps): Lookup {
   /**
    * The persona's own web.search: one search on `query` whose results come back raw (see the
    * header): `{ query, results: [{ title, url, site, snippet, age? }], cached? }`, `results`
-   * empty when nothing was found; `{ failed: { code, status? } }` when it did not search:
-   * `not-configured` (the feature, `web.search.enabled`, no engine), `empty-query` (the cleaned
-   * query is blank), `cap` (the day's web slots are spent, or an `openrouter` request would pass
-   * `llm.maxRequestsPerDay`), `provider` (every engine tried failed; `status` the last HTTP
-   * status when it gave one). Shares the engines,
-   * their fallbacks (the failures listed in the header) and the daily web slot with `search`;
-   * never reads the search-summary prompt, never sends a summary request. A failure is never
-   * cached.
+   * empty when nothing was found; `{ failed: { code, reason?, engine?, status? } }` when it did
+   * not search: `not-configured` (`disabled` by `web.search.enabled`, else `no-engine`, `no-model`
+   * or `no-key`), `empty-query` (the cleaned query is blank), `cap` (the day's web slots are spent,
+   * or an `openrouter` request would pass `llm.maxRequestsPerDay`), `provider` (the chosen engine
+   * failed: `timeout`, `rate-limited`, `credentials` or its own reason). Never reads the
+   * search-summary prompt, never sends a summary request. A failure is never cached.
    */
   async function searchResults(guildId: string, query: string): Promise<RawAnswer> {
     const config = hot.config;
-    const failedWith = (code: string, status?: number): RawAnswer => ({
-      failed: { code, ...(status !== undefined ? { status } : {}) },
-    });
     const searchCfg = config.web?.search ?? {};
-    if (searchCfg.enabled === false) return failedWith(CODE.NOT_CONFIGURED);
+    if (searchCfg.enabled === false) return { failed: { code: CODE.NOT_CONFIGURED, reason: 'disabled' } };
     const asked = cleanQuery(query);
-    if (!asked) return failedWith(CODE.EMPTY_QUERY);
-    if (!hasSearch()) return failedWith(CODE.NOT_CONFIGURED);
+    if (!asked) return { failed: { code: CODE.EMPTY_QUERY } };
+    const off = whyOff(config);
+    const engine = engineOf(config);
+    if (off !== null || engine === null)
+      return { failed: { code: CODE.NOT_CONFIGURED, ...(off ?? { reason: 'no-engine' }) } };
 
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: search', { state: outcome, reason, raw: true, ...extra });
@@ -739,36 +711,33 @@ export function createLookup(deps: LookupDeps): Lookup {
       store.markMediaCacheDirty(guildId);
     }
 
-    const engines = [engineOf(config), ...fallbackEngines(config)];
-    // Only the `openrouter` engine sends a model request: the cap matters when it comes first.
-    if (engines[0] === 'openrouter' && capSpent()) {
+    // Only the `openrouter` engine sends a model request.
+    if (engine === 'openrouter' && capSpent()) {
       report('limit', 'daily-cap');
-      return failedWith(CODE.CAP);
+      return { failed: { code: CODE.CAP } };
     }
-    let last: number | undefined;
-    for (let i = 0; i < engines.length; i += 1) {
-      const meta = { engine: engines[i], fallback: i > 0 };
-      if (engines[i] === 'openrouter' && i > 0 && capSpent()) {
-        report('limit', 'daily-cap', meta);
-        return failedWith(CODE.CAP);
-      }
-      const outcome = await rawAttempt(engines[i], asked, config);
-      if (outcome.results) {
-        const result = { query: asked, results: outcome.results };
-        putEntry(guildId, key, { ...result, ts: now() });
-        report(outcome.results.length ? 'found' : 'nothing', null, {
-          cached: false,
-          results: outcome.results.length,
-          ...meta,
-        });
-        return result;
-      }
-      const { reason, status } = outcome.failure;
-      report('error', reason, { ...(status !== undefined ? { status } : {}), ...meta });
-      last = status;
-      if (!fallsBack(outcome.failure)) return failedWith(CODE.PROVIDER, status);
+    const outcome = await rawAttempt(engine, asked, config);
+    if (outcome.results) {
+      const result = { query: asked, results: outcome.results };
+      putEntry(guildId, key, { ...result, ts: now() });
+      report(outcome.results.length ? 'found' : 'nothing', null, {
+        cached: false,
+        results: outcome.results.length,
+        engine,
+      });
+      return result;
     }
-    return failedWith(CODE.PROVIDER, last);
+    const { reason, status } = outcome.failure;
+    report('error', reason, { ...(status !== undefined ? { status } : {}), engine });
+    if (reason === NO_KEY) return { failed: { code: CODE.NOT_CONFIGURED, reason, engine } };
+    return {
+      failed: {
+        code: CODE.PROVIDER,
+        reason: toldReason(outcome.failure),
+        engine,
+        ...(status !== undefined ? { status } : {}),
+      },
+    };
   }
 
   /**
@@ -787,7 +756,7 @@ export function createLookup(deps: LookupDeps): Lookup {
           ...roleRequestOptions(config, {
             role: SEARCH_ROLE,
             maxOutputTokens: positiveOr(searchCfg.rawOutputTokens, RAW_OUTPUT_TOKENS_FALLBACK),
-            purpose: 'web-search',
+            purpose: 'quick-search',
           }),
           // No hedge: a second attempt would run (and bill) the web search twice.
           isRoleRequest: false,
@@ -841,7 +810,7 @@ export function createLookup(deps: LookupDeps): Lookup {
    * title and the url it ended at after redirects; no model request. Needs the feature;
    * takes one daily web slot per fetch (a cache hit is free). `{ ok: false, reason }`:
    * `not-configured` (the feature off), `daily-cap` (the day's slots spent), `empty` (no
-   * text on the page), or the fetcher's reason (`scheme`, `private`, `redirects`, `type`,
+   * text on the page; `url` says where it ended up), or the fetcher's reason (`scheme`, `private`, `redirects`, `type`,
    * `size`, `timeout`, `http`, `network`). A page read is cached for
    * `web.links.readCacheHours`; a failure is not.
    */
@@ -884,13 +853,14 @@ export function createLookup(deps: LookupDeps): Lookup {
       return { ok: false, reason, ...(page?.status !== undefined ? { status: page.status } : {}) };
     }
     const whole = String(page.text ?? '').trim();
+    const finalUrl = withoutCredentials(String(page.finalUrl || asked));
     if (!whole) {
       report('miss', 'empty');
-      return { ok: false, reason: 'empty' };
+      return { ok: false, reason: 'empty', url: finalUrl };
     }
     const text = truncateText(whole, maxChars);
     const read = {
-      url: String(page.finalUrl || asked),
+      url: finalUrl,
       title: oneLine(String(page.title ?? '')),
       text,
       cut: text !== whole,
@@ -900,16 +870,12 @@ export function createLookup(deps: LookupDeps): Lookup {
     return { ok: true, ...read };
   }
 
-  /**
-   * Whether the chosen engine (`web.search.engine`, read now) can run: `brave` needs
-   * BRAVE_SEARCH_API_KEY, `exa` and `openrouter` need no key. The fallback engines do not
-   * count: they only stand in for a chosen engine that runs. `/nep status` reports it.
-   */
+  /** Whether the chosen engine (`web.search.engine`, read now) has what it needs. `/status` reports it. */
   function hasSearch() {
-    return engineReady(engineOf(hot.config));
+    return whyOff(hot.config) === null;
   }
 
-  /** The chosen engine's name (`web.search.engine`, read now; `brave` when it names none). */
+  /** The chosen engine's name (`web.search.engine`, read now), null while none of the three is set. */
   function searchEngine() {
     return engineOf(hot.config);
   }

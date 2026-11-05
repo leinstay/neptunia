@@ -9,7 +9,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `README.md` | public | The project README for people who find the repository. | nothing | none |
 | `*.md` | public | The root documents: agent rules, style guide, writing guide, contributing and security policy. | nothing | none |
 | `LICENSE` | public | The license text. | nothing | none |
-| `.github/` | public | The continuous integration workflow, the issue and pull request templates and the README images. | nothing | none |
+| `.github/` | public | The continuous integration workflows, the issue and pull request templates and the README images. | nothing | none |
 | `.agents/` | local | The working folder of the agents of one deployment. | nothing | none |
 | `prompts.local/` | local | A deployment prompt layer that shadows the tracked prompts. | nothing | none |
 | `config.local.json` | local | The old place of a deployment's settings, read until `scripts/config-files-move.ts` moves it into `config.local/`. | nothing | none |

@@ -9,7 +9,7 @@
 
 import fs from 'node:fs';
 import nodePath from 'node:path';
-import { childEnvOf, tokensOf } from '../agent-runner/backend.ts';
+import { childEnvOf, outputLimitEnv, tokensOf } from '../agent-runner/backend.ts';
 import { log } from '../log.ts';
 import { SESSION_PURPOSE } from '../memory/db/session.ts';
 import type { Completion, SessionContext } from '../memory/db/session.ts';
@@ -141,7 +141,7 @@ function codexCompletion(final: string, outcome: ChildOutcome): Completion {
 /** One run of the writer through `path`. Resolves the completion the sweep reads; rejects with an Error whose `code` says why. */
 export async function runMemoryWriter(
   path: SubharnessMemoryPath,
-  input: { system: string; user: string; timeoutMs: number },
+  input: { system: string; user: string; timeoutMs: number; maxOutputTokens?: number },
   deps: MemoryWriterDeps
 ): Promise<Completion> {
   if (!isInstalled(deps.privateDir, path.backend)) throw refusal('not-installed');
@@ -157,7 +157,7 @@ export async function runMemoryWriter(
       deps.runChild({
         binary: place.binary,
         args: codex ? codexArgs(path, schemaFile, outFile) : claudeArgs(path, input.system),
-        env: childEnvOf({ ...place.env }),
+        env: childEnvOf({ ...place.env, ...outputLimitEnv(path.backend, input.maxOutputTokens) }),
         stdin: codex ? `${input.system}\n\n${input.user}` : input.user,
         cwd: dir,
         timeoutMs: input.timeoutMs,
@@ -231,7 +231,11 @@ export function memoryWriterClient(deps: {
         const timeout = Number(options.timeoutMs);
         const completion = await runMemoryWriter(
           path,
-          { ...splitMessages(messages), timeoutMs: timeout > 0 ? timeout : FALLBACK_TIMEOUT_MS },
+          {
+            ...splitMessages(messages),
+            timeoutMs: timeout > 0 ? timeout : FALLBACK_TIMEOUT_MS,
+            ...(typeof options.maxOutputTokens === 'number' ? { maxOutputTokens: options.maxOutputTokens } : {}),
+          },
           writer
         );
         record?.({

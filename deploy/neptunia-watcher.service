@@ -33,6 +33,8 @@ Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin
 # The agent's own limit is WATCHER_RUN_TIMEOUT_MS (src/watcher/lifecycle.ts), 60 minutes. This leaves ten for filing and the
 # commit, and ends a worker that hung past them.
 TimeoutStartSec=70min
+# The journal readers' group, so its `journalctl` sees the other units. A user unit cannot set groups and does not carry this line.
+SupplementaryGroups=systemd-journal
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict

@@ -78,11 +78,11 @@ test('parseSearchArgs: no query, a bad count or an unknown option is an error co
   assert.deepEqual(parseSearchArgs(['q', '--exec', 'x']), { error: 'bad-option' });
 });
 
-test('buildSearchRequest: the query as the only message, the Exa web plugin with max_results clamped to 1..10, a short answer', () => {
+test('buildSearchRequest: the query as the only message, the web plugin with max_results clamped to 1..10, a short answer', () => {
   const body = requestBody({ query: 'q', count: 8, model: 'openai/small' });
   assert.equal(body.model, 'openai/small');
   assert.deepEqual(body.messages, [{ role: 'user', content: 'q' }]);
-  assert.deepEqual(body.plugins, [{ id: 'web', engine: 'exa', max_results: 8 }]);
+  assert.deepEqual(body.plugins, [{ id: 'web', engine: 'auto', max_results: 8 }]);
   assert.ok(Number.isInteger(body.max_tokens) && body.max_tokens > 0 && body.max_tokens <= 1000);
   assert.equal(requestBody({ query: 'q', count: 50, model: 'm' }).plugins[0]?.max_results, 10);
   // @ts-expect-error: the test leaves the count out, which the type forbids
@@ -143,7 +143,7 @@ test('runWebSearch: one POST to OpenRouter chat completions with the agent key, 
     model: 'openai/small',
     messages: [{ role: 'user', content: 'olé meme' }],
     max_tokens: calls[0].body.max_tokens,
-    plugins: [{ id: 'web', engine: 'exa', max_results: 4 }],
+    plugins: [{ id: 'web', engine: 'auto', max_results: 4 }],
   });
   assert.ok(calls[0].init.signal, 'a timeout signal');
   assert.ok(!out.stdout.includes('secret-free text'), 'the answer text is never printed');

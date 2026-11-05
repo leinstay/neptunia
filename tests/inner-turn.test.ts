@@ -889,37 +889,6 @@ test('inner turn, live: errands she hands off are queued like any call, with no 
   assert.ok(run.tasks.every((task) => typeof task.idempotencyKey === 'string' && task.idempotencyKey));
 });
 
-test('inner turn, live: the line she posts is noted with its turn and chain, and as read when a read of the turn returned something first', async () => {
-  const notes: Array<Untyped> = [];
-  const intentions = {
-    noteLine: (id: string, sources: Array<Record<string, Untyped>>) => notes.push({ id, ...sources }),
-  };
-  const wake = { ...WAKE, chainId: 'chain:greet' };
-  await innerTurn({
-    answers: [toolAnswer('', [call('message.create', { text: 'καλημέρα σε όλους' })]), '<skip/>'],
-    shadow: false,
-    gate: { wake },
-    intentions,
-  });
-  assert.equal(notes.length, 1);
-  assert.equal(notes[0].inner, true);
-  assert.equal(notes[0].chainId, 'chain:greet');
-  assert.equal(notes[0].read, undefined, 'nothing read before it');
-  notes.length = 0;
-  await innerTurn({
-    answers: [
-      toolAnswer('', [call('lore.list')]),
-      toolAnswer('', [call('message.create', { text: 'καλημέρα σε όλους' })]),
-      '<skip/>',
-    ],
-    shadow: false,
-    gate: { wake },
-    intentions,
-  });
-  assert.equal(notes.length, 1);
-  assert.equal(notes[0].read, true);
-});
-
 /** The note that ends request `n` (0-based) of `run`: the trailing user message after her answer and its tool messages ('' when there is none). */
 function noteOf(run: { llm: { calls: Array<Untyped> } }, n: number): string {
   const last = run.llm.calls[n].at(-1);
