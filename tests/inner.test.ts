@@ -2134,12 +2134,14 @@ test('heartbeat: at its moment one turn runs in the channel she spoke in, with n
   assert.equal(call.inner.wake.here, null);
   assert.equal(call.inner.wake.chainId, `heartbeat:${due}`);
   // `landed` left the heartbeat's facts: a landed result belongs to the selfimprovement wake.
+  // S8: the heartbeat's facts carry what retrieval found under `memory`.
   assert.deepEqual(Object.keys(wrongly<object>(call.inner.wake.heartbeat)).sort(), [
     'activity',
     'agents',
     'intentionsOnly',
     'life',
     'maxTokens',
+    'memory',
     'people',
     'places',
     'refs',
