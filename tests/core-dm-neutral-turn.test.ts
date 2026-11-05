@@ -40,10 +40,10 @@ async function dmTurn(running: Running, conversation: string, author: string, id
 
 /**
  * Rows the writer did not make, over a plain connection because the running core holds the writer's lock. Only before
- * the first event, and only rows no cache holds yet.
+ * the first event, and only rows no cache holds yet. It waits out a write of the core's start, which a loaded machine can still be in.
  */
 function seedOver(rig: Rig, body: (db: Db) => void): void {
-  const connection = new DatabaseSync(join(rig.dataDir, 'memory.db'));
+  const connection = new DatabaseSync(join(rig.dataDir, 'memory.db'), { timeout: 5000 });
   try {
     body(wrongly<Db>(connection));
   } finally {
