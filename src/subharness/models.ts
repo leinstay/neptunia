@@ -84,7 +84,8 @@ export async function checkModel(
     if (outcome.error === 'backend-missing')
       return refused('binary-missing', `${backend} is not on the PATH of the core`);
     log.warn('subharness: model check failed', { backend, model, error: outcome.error ?? null });
-    return refused('model-rejected', `${backend} gave no reply on ${model}`);
+    const why = outcome.detail === undefined ? '' : `: ${outcome.detail}`;
+    return refused('model-rejected', `${backend} gave no reply on ${model}${why}`);
   }
   let status: number;
   try {

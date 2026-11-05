@@ -1,18 +1,18 @@
 // The mechanics step of `neptunia setup` (src/setup/run.ts, docs/setup.md): her three ticking mechanics, `heartbeat`,
 // `selfreflection` and `selfimprovement`, each switched on or off at the terminal, and the time of day of the daily
 // selfimprovement wake's schedule (`selfimprovement.schedule`). Each question offers the value in force, so an empty answer keeps it.
-// `selfimprovement` on needs a connected subharness backend, `selfimprovement.repository` and a push right to it
+// `selfimprovement` on needs a subharness source that is logged in, `selfimprovement.repository` and a push right to it
 // through the system's gh login (src/selfimprovement/repository.ts); without them it is stored off and the step is `refused`.
 // The answers go into `<private>/config.local/config.json`, every other key kept, and nothing is written when no
 // answer changes a value. The watcher step (src/setup/watcher.ts) asks through `askSwitch` and `askSchedule` of this file.
 
 import { readConfig } from '../config.ts';
 import { readLabels } from '../hot.ts';
-import { readKeys } from '../keys/file.ts';
 import { innerSettings } from '../behavior/inner/settings.ts';
 import { checkRepository } from '../selfimprovement/repository.ts';
 import type { GhRunner } from '../selfimprovement/repository.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
+import { availableSources } from '../subharness/sources.ts';
 import { updateLocalSettings } from '../service/local-settings.ts';
 import { formatSchedule, parseSchedule } from '../service/schedule.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
@@ -64,8 +64,8 @@ async function selfimprovementMissing(
   config: unknown,
   gh: GhRunner
 ): Promise<string | null> {
-  if (readKeys(options.privateDir).subharness.backends.length === 0)
-    return 'selfimprovement stays off: no subharness backend is connected (setup subharness)';
+  if ((await availableSources(options.privateDir)).length === 0)
+    return 'selfimprovement stays off: no subharness source is logged in (neptunia subharness <backend> login)';
   const { repository } = selfimprovementSettings(config);
   const check = await checkRepository(repository, gh, readLabels(options.rootDir, options.privateDir));
   return check.code === 'ok' ? null : `selfimprovement stays off: ${check.line}`;

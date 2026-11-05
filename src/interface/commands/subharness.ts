@@ -1,41 +1,25 @@
-// The owner's `/subharness` and `/simulation` commands: what the console (console.ts) runs for `subharness.*` and
-// `simulation.*` over keys.json (src/subharness/, src/simulation/). A refused change answers `failed` with the command as
+// The owner's `/subharness`, `/agent mode` and `/simulation` commands: what the console (console.ts) runs for
+// `subharness.*`, `agent.mode` and `simulation.*` over keys.json (src/subharness/, src/simulation/). A refused change answers `failed` with the command as
 // the owner typed it and the reason; a change answers `ok` with what it did. The text is for the owner alone, carries a
 // key's name and never its value, and never reaches a request. Only the owner's chat reaches the console, so a mode is
 // never changed by an agent.
 
-import {
-  agentModels,
-  agentPaths,
-  disableSubharness,
-  enableSubharness,
-  setAgentMode,
-  setAgentModel,
-  statusText,
-  subharnessView,
-  useBackend,
-} from '../../subharness/control.ts';
-import type { Dialog } from '../../keys/commands.ts';
-import { answerEnable, startEnable } from '../../subharness/enable-dialog.ts';
+import { accountCommand } from '../../subharness/account.ts';
+import type { AccountAction } from '../../subharness/account.ts';
+import { agentPaths, setAgentMode, setAgentModel, statusText, subharnessView } from '../../subharness/control.ts';
 import { memoryPath, memoryPathText, setMemoryPath } from '../../subharness/memory-path.ts';
 import type { EnableDeps, SubharnessAgent, SubharnessResult } from '../../subharness/control.ts';
 import { disableSimulation, enableSimulation, simulationStatus } from '../../simulation/key.ts';
 
-/** An answer: its text and status, and the question when the status is `ask` (src/subharness/ask.ts). */
-export type SubharnessAnswer = {
-  text: string;
-  status: string;
-  dialogId?: string;
-  prompt?: string;
-  choices?: Array<string>;
-};
+/** An answer: its text and status, and on a refused change the code that says why. */
+export type SubharnessAnswer = { text: string; status: string; code?: string };
 
-/** What the core hands the console for `/subharness enable`: the run and the fetch of the check, and the unit hook. */
+/** What the core hands the console for a model selection: the run and the fetch of the check, and the unit hook. */
 export type ConsoleSubharness = Omit<EnableDeps, 'privateDir'>;
 
 /**
- * The deps of `subharnessCommand` over a console's private directory. Without a runner the check cannot run: `enable`
- * then finds a runner that throws, and the command answers `failed` before anything starts.
+ * The deps of `subharnessCommand` over a console's private directory. Without a runner the check cannot run: a selection
+ * then finds a runner that throws, and the command answers `failed` before anything is saved.
  */
 export function subharnessDeps(console: { privateDir: string; subharness?: ConsoleSubharness }): EnableDeps {
   const given = console.subharness;
@@ -49,7 +33,7 @@ export function subharnessDeps(console: { privateDir: string; subharness?: Conso
 function typedOf(name: string, args: Readonly<Record<string, unknown>>): string {
   const words = ['/' + name.replaceAll('.', ' ')];
   for (const [key, value] of Object.entries(args))
-    if (key !== 'dialogId' && key !== 'answer' && typeof value === 'string' && value !== '')
+    if (typeof value === 'string' && value !== '')
       words.push(key === 'key' || key === 'effort' ? `--${key} ${value}` : value);
   return words.join(' ');
 }
@@ -61,62 +45,49 @@ const failed = (name: string, args: Readonly<Record<string, unknown>>, why: stri
 
 /** A result as an answer: `ok` with its message, or `failed` with the command as typed. */
 function answerOf(name: string, args: Readonly<Record<string, unknown>>, result: SubharnessResult): SubharnessAnswer {
-  return result.ok ? { text: result.message, status: 'ok' } : failed(name, args, result.message);
+  return result.ok
+    ? { text: result.message, status: 'ok' }
+    : { ...failed(name, args, result.message), code: result.code };
 }
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 
-/** `subharness.model`: an agent's model, and its effort when given, after one reply from it. */
+/** An agent's source, model and effort, after one reply from it; with no `--via` the source stays. */
 async function agentModel(
   deps: EnableDeps,
   name: string,
   args: Readonly<Record<string, unknown>>
 ): Promise<SubharnessAnswer> {
   const effort = text(args.effort);
+  const via = text(args.via);
   try {
-    const result = await setAgentModel(deps, text(args.agent), text(args.model), effort === '' ? undefined : effort);
+    const result = await setAgentModel(
+      deps,
+      text(args.agent),
+      text(args.model),
+      effort === '' ? undefined : effort,
+      via === '' ? undefined : via
+    );
     return answerOf(name, args, result);
   } catch {
     return failed(name, args, 'the check cannot run here: this core has no backend runner');
   }
 }
 
-/** `subharness.enable`: the check, and in the core the dialog of the agents' models, before the backend is stored. */
-async function enable(
-  deps: EnableDeps,
-  name: string,
-  args: Readonly<Record<string, unknown>>,
-  dialog: Dialog | null
-): Promise<SubharnessAnswer> {
-  const key = text(args.key);
-  try {
-    if (!deps.asksModels)
-      return answerOf(name, args, await enableSubharness(deps, text(args.backend), key === '' ? undefined : key));
-    const given = text(args.dialogId);
-    const next =
-      given === ''
-        ? await startEnable(deps, text(args.backend), key === '' ? undefined : key)
-        : await answerEnable(deps, given, text(args.answer));
-    if (dialog === null) return 'dialogId' in next ? next : answerOf(name, args, next);
-    // The link's dialog carries the questions: an answer of the chat reaches the command waiting here.
-    let step = next;
-    while ('dialogId' in step) {
-      const answer = await dialog.ask(step.prompt, step.choices === undefined ? {} : { choices: step.choices });
-      step = await answerEnable(deps, step.dialogId, answer);
-    }
-    return answerOf(name, args, step);
-  } catch {
-    return failed(name, args, 'the check cannot run here: this core has no backend runner');
-  }
+/** The memory row of the status: the path, marked when its source cannot run now. */
+function memoryRow(privateDir: string, sources: Awaited<ReturnType<typeof subharnessView>>['sources']): string {
+  const path = memoryPath(privateDir);
+  const state = path.kind === 'direct' ? undefined : sources.find((one) => one.backend === path.backend);
+  return `  memory  ${memoryPathText(path)}${state === undefined || state.available ? '' : '  unavailable'}`;
 }
 
-/** `subharness.status`: the backends, every agent's line, and last her memory writer's path. */
+/** `subharness.status`: the sources, every agent's line, and last her memory writer's path. No model run. */
 async function statusOf(privateDir: string): Promise<string> {
-  const agents = statusText(await subharnessView(privateDir), agentModels(privateDir), agentPaths(privateDir));
-  return `${agents}\n  memory  ${memoryPathText(memoryPath(privateDir))}`;
+  const view = await subharnessView(privateDir);
+  return `${statusText(view, agentPaths(privateDir))}\n${memoryRow(privateDir, view.sources)}`;
 }
 
-/** `subharness.memory`: the memory writer's path through a backend, after one reply on its model and effort. */
+/** The memory writer's path through a backend, after one reply on its model and effort. */
 async function memoryWriterPath(
   deps: EnableDeps,
   name: string,
@@ -131,40 +102,77 @@ async function memoryWriterPath(
   }
 }
 
+/** `agent.mode`: shows or sets the mode, and a change goes into the agent's unit when `deps.applyMode` is there. */
+async function agentMode(
+  deps: EnableDeps,
+  name: string,
+  args: Readonly<Record<string, unknown>>
+): Promise<SubharnessAnswer> {
+  const agent = text(args.agent);
+  const mode = text(args.mode);
+  const result = await setAgentMode(deps.privateDir, agent, mode === '' ? undefined : mode);
+  if (!result.ok || !result.changed || result.mode === null || deps.applyMode === undefined)
+    return answerOf(name, args, result);
+  const unit = await deps.applyMode(agent as SubharnessAgent, result.mode);
+  return { text: unit === null ? result.message : `${result.message}. ${unit}`, status: 'ok' };
+}
+
+/** The dotted name of an account command, read: its backend and action, null for any other name. */
+export function accountRequest(name: string): { backend: string; action: AccountAction } | null {
+  const match = /^subharness\.([a-z]+)\.(login|status|logout)$/.exec(name);
+  return match === null ? null : { backend: match[1] ?? '', action: match[2] as AccountAction };
+}
+
 /**
- * Runs `subharness.<sub>`. `deps` is null while the core has no subharness to give: every command then answers `failed`.
- * A mode change also puts the mode into the agent's unit when `deps.applyMode` is there.
+ * An account command in the core: no terminal is attached and nothing is installed from here, so a vendor's login
+ * answers the command to type in a shell, and opencode's, which names a key, goes through.
+ */
+async function accountInCore(
+  privateDir: string,
+  request: { backend: string; action: AccountAction },
+  args: Readonly<Record<string, unknown>>
+): Promise<SubharnessAnswer> {
+  const key = text(args.key);
+  const {
+    status,
+    code,
+    text: said,
+  } = await accountCommand(
+    {
+      privateDir,
+      hostEnv: process.env,
+      ask: null,
+      install: () => Promise.reject(new Error('the core installs nothing')),
+    },
+    request.backend,
+    request.action,
+    key === '' ? {} : { key }
+  );
+  return { status, code, text: said };
+}
+
+/**
+ * Runs `subharness.<sub>` and `agent.mode`. `deps` is null while the core has no subharness to give: every command then
+ * answers `failed`.
  */
 export async function subharnessCommand(
   deps: EnableDeps | null | undefined,
   name: string,
-  args: Readonly<Record<string, unknown>>,
-  dialog: Dialog | null = null
+  args: Readonly<Record<string, unknown>>
 ): Promise<SubharnessAnswer> {
   if (deps == null) return failed(name, args, 'the subharness is not available here');
   const privateDir = deps.privateDir;
+  const account = accountRequest(name);
+  if (account !== null) return accountInCore(privateDir, account, args);
   switch (name) {
     case 'subharness.status':
       return { text: await statusOf(privateDir), status: 'ok' };
     case 'subharness.memory':
       return memoryWriterPath(deps, name, args);
-    case 'subharness.enable':
-      return enable(deps, name, args, dialog);
     case 'subharness.model':
       return agentModel(deps, name, args);
-    case 'subharness.use':
-      return answerOf(name, args, await useBackend(privateDir, text(args.agent), text(args.backend)));
-    case 'subharness.disable':
-      return answerOf(name, args, await disableSubharness(privateDir, text(args.backend)));
-    case 'subharness.mode': {
-      const agent = text(args.agent);
-      const mode = text(args.mode);
-      const result = await setAgentMode(privateDir, agent, mode === '' ? undefined : mode);
-      if (!result.ok || !result.changed || result.mode === null || deps.applyMode === undefined)
-        return answerOf(name, args, result);
-      const unit = await deps.applyMode(agent as SubharnessAgent, result.mode);
-      return { text: unit === null ? result.message : `${result.message}. ${unit}`, status: 'ok' };
-    }
+    case 'agent.mode':
+      return agentMode(deps, name, args);
     default:
       return failed(name, args, 'no such command; type /help');
   }

@@ -5,7 +5,10 @@
 // moves the watcher's timer through the manager (src/service/manager.ts). The persona's wakes run in the core and call no
 // manager. A status asks no model and writes nothing. An answer is `key: value` lines; `invalid` is missing syntax.
 
+import type { BackendName } from '../agent-runner/profiles.ts';
 import { readKeys } from '../keys/file.ts';
+import { backendOfAgent } from '../subharness/control.ts';
+import { sourceProblem, sourceState } from '../subharness/sources.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { innerSettings } from '../behavior/inner/settings.ts';
 import { setPath } from '../tools/impl/shared.ts';
@@ -164,18 +167,34 @@ async function moveFlag(deps: ServiceDeps, name: ServiceName, enabled: boolean):
   );
 }
 
+/** The agent roles a mechanic needs a source for: the watcher its own, the wake's tasks the thinker's and the dev's. */
+const SOURCE_ROLES: Readonly<Record<ServiceName, ReadonlyArray<string>>> = {
+  heartbeat: [],
+  selfreflection: [],
+  selfimprovement: ['thinker', 'dev'],
+  watcher: ['watcher'],
+};
+
+/** Why `role` cannot run now, null when its source can. An unreadable keys file names no source. */
+async function sourceMissing(privateDir: string, role: string): Promise<string | null> {
+  let backend: BackendName | null = null;
+  try {
+    backend = backendOfAgent(readKeys(privateDir).subharness, role);
+  } catch {
+    // no source
+  }
+  if (backend === null) return `${role} has no subharness source`;
+  const state = await sourceState(privateDir, backend);
+  return state.available ? null : `${role}: ${sourceProblem(state)}`;
+}
+
 /** What stops the mechanic from running, apart from its saved flag. */
-function missingOf(deps: ServiceDeps, name: ServiceName, config: unknown): Array<string> {
+async function missingOf(deps: ServiceDeps, name: ServiceName, config: unknown): Promise<Array<string>> {
   const missing: Array<string> = [];
   if (name !== 'watcher' && !deps.coreUp) missing.push('the core is not running');
-  if (name === 'watcher' || name === 'selfimprovement') {
-    let backends = 0;
-    try {
-      backends = readKeys(deps.privateDir).subharness.backends.length;
-    } catch {
-      // An unreadable keys file connects no backend.
-    }
-    if (backends === 0) missing.push('no subharness backend is connected');
+  for (const role of SOURCE_ROLES[name]) {
+    const problem = await sourceMissing(deps.privateDir, role);
+    if (problem !== null) missing.push(problem);
   }
   if (name === 'selfimprovement' && selfimprovementSettings(config).repository === null)
     missing.push('selfimprovement.repository is unset');
@@ -208,7 +227,7 @@ async function status(deps: ServiceDeps, name: ServiceName): Promise<ServiceAnsw
   const config = deps.config();
   const enabled = isEnabled(name, config);
   const clock = name === 'watcher' ? null : (deps.wakeClock?.(name) ?? null);
-  const missing = missingOf(deps, name, config);
+  const missing = await missingOf(deps, name, config);
   const newest = reportDays(reportsDirOf(deps.privateDir, watcherDir(config))).at(-1);
   const lastWake = clock === null ? 'unknown' : clock.lastAt === null ? 'none' : iso(clock.lastAt);
   const fields: Array<readonly [string, string]> = [

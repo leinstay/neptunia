@@ -17,7 +17,7 @@
 # brings none.
 #
 # `neptunia setup` renders this template for the installing user
-# (deploy/README.md). The sandbox below is the mode `write`; `subharness mode
+# (deploy/README.md). The sandbox below is the mode `write`; `agent mode
 # scout <mode>` in the chat renders the unit again: `full` drops the mount
 # sandbox (ProtectSystem, ProtectHome and the bind and write paths) and `sudo`
 # also drops NoNewPrivileges.

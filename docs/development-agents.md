@@ -8,7 +8,7 @@ The [development worker](selfimprovement.md) runs the thinker and dev on a filed
 
 Place a replacement prompt in `data/agents/<name>/prompt.md`. Personal profile fields belong in `data/agents/<name>/profile.json`. The loader validates profile fields and resolves the effective definition at use time. Read the shipped profile before overriding it, and keep permission changes separate from prose changes.
 
-Backend and model selection is controlled through `/subharness`, and the thinker takes a backend, a model, an effort and a mode like the other agents (`write` until the owner sets another). `/subharness enable` asks for the models of scout, server, dev and watcher only; set the thinker's with `/subharness use` and `/subharness model`. The core hands each errand its route when it dispatches it, see [errands](errands.md#the-route-of-an-errand). Execution mode and rendered service restrictions are explained in [errands](errands.md#modes). Authentication belongs to the persona's backend home, not the development user's unrelated login.
+Source and model selection is `/model set <agent> <model> --via <backend>`, and the thinker takes a source, a model, an effort and a mode like the other agents (`write` until the owner sets another). The core hands each errand its route when it dispatches it, see [errands](errands.md#the-route-of-an-errand). Execution mode and rendered service restrictions are explained in [errands](errands.md#modes). Authentication belongs to the persona's backend home, not the development user's unrelated login.
 
 A task can ask an agent to create a [skill](skills.md), including scripts and setup declarations, under `data/skills/`, which an agent reaches as `$NEPTUNIA_DATA_DIR/skills/` from its worktree. The package must be complete and reviewed before owner activation. Agent code that changes the engine follows [CONTRIBUTING.md](../CONTRIBUTING.md).
 
@@ -19,7 +19,7 @@ The worker keeps the same worktree layout on every backend, `<checkout>/.worktre
 | Backend | In `write` mode | What a refusal needs |
 |---|---|---|
 | `claude` | No sandbox of its own. `deploy/neptunia-development.service` alone limits what it writes. | Nothing: the unit's write paths hold the whole checkout, `data/skills/` and the socket. |
-| `codex` | `-s workspace-write` allows writes in the worktree and refuses writes outside it and the network. | The checkout's `.git` in `sandbox_workspace_write.writable_roots` of the backend's `config.toml` for its own commits, `data/skills/` there too for a skill task, and `sandbox_workspace_write.network_access = true` when a board command cannot reach the socket. `/subharness mode thinker full` lifts the sandbox altogether. |
+| `codex` | `-s workspace-write` allows writes in the worktree and refuses writes outside it and the network. | The checkout's `.git` in `sandbox_workspace_write.writable_roots` of the backend's `config.toml` for its own commits, `data/skills/` there too for a skill task, and `sandbox_workspace_write.network_access = true` when a board command cannot reach the socket. `/agent mode thinker full` lifts the sandbox altogether. |
 | `opencode` | No sandbox flag. The unit alone limits what it writes. | Nothing: the same unit paths as `claude`. |
 
 On `claude` the worker passes each agent's `profile.json` tools, so `--tools` and `--allowedTools` name Read, Grep, Glob and Bash, plus Edit and Write in `write` mode, and `--dangerously-skip-permissions` replaces the approval list in `full` and `sudo`.

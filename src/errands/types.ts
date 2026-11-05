@@ -206,7 +206,7 @@ export type RunRequest = {
   context?: Partial<RunContext>;
   limits?: Limits;
   secrets?: RunSecrets | null;
-  /** the path the core decided from keys.json at dispatch; absent while no backend is connected for the agent */
+  /** the path the core decided from keys.json at dispatch; absent while the agent names no source */
   route?: TaskRoute;
 };
 
