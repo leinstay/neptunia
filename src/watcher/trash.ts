@@ -27,7 +27,7 @@ export type TrashItem = { name: string; category: TrashCategory; reason: string;
 export type TrashGap = { category: TrashCategory; where: TrashWhere; reason: string };
 export type Trash = { items: Array<TrashItem>; unavailable: Array<TrashGap> };
 
-type RunResult = { code: number; stdout: string; stderr: string };
+type RunResult = { code: number; stdout: string; stderr?: string };
 export type TrashInput = {
   installDir: string;
   checkout: string | null;

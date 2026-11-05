@@ -397,30 +397,6 @@ export function standardFacts(db: Db, window: { from: number; to: number }): Sta
   };
 }
 
-export type MainCi = { branch: 'main'; runs: Array<Record<string, unknown>>; unavailable: string | null };
-
-const CI_FIELDS = 'headBranch,conclusion,status,name,headSha,createdAt';
-
-/**
- * The CI runs of `main` as `gh` lists them: a pull request's branch is not the project's state, so anything else it answers
- * is dropped. No answer is `unavailable`, never an empty list that reads as no failures.
- */
-export async function mainCi(
-  run: (command: string, args: ReadonlyArray<string>) => Promise<{ code: number; stdout: string }>
-): Promise<MainCi> {
-  const none = (unavailable: string): MainCi => ({ branch: 'main', runs: [], unavailable });
-  try {
-    const answer = await run('gh', ['run', 'list', '--branch', 'main', '--limit', '20', '--json', CI_FIELDS]);
-    if (answer.code !== 0) return none('gh cannot list the runs');
-    const parsed: unknown = JSON.parse(answer.stdout);
-    if (!Array.isArray(parsed)) return none('gh gave no list');
-    const runs = (parsed as Array<Record<string, unknown>>).filter((one) => one.headBranch === 'main');
-    return { branch: 'main', runs, unavailable: null };
-  } catch {
-    return none('gh gave no readable answer');
-  }
-}
-
 const gapsFile = (privateDir: string): string => path.join(privateDir, 'agents', 'watcher', 'archive-gaps.jsonl');
 
 /** Appends a request the archive lost, for the next inspection. The gap holds ids and never content. Never throws. */

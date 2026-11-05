@@ -70,6 +70,8 @@ const SECRET_HIDERS: ReadonlyArray<{ start: RegExp; own: string | null }> = [
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
 /** The watcher's unit, which alone takes the lines of development mode. */
+/** The folder under the watcher's own that `GH_CONFIG_DIR` names out of development mode: nothing ever writes a login there. */
+const NO_GH_LOGIN = 'no-gh-login';
 const WATCHER_UNIT = /^ExecStart=\S+ bin\/neptunia\.ts worker watcher\b/m;
 
 /** The `InaccessiblePaths=` line of a unit that hides secrets from its agent, null for any other unit. */
@@ -195,6 +197,8 @@ type LineRules = {
   timer: ReadonlyArray<string> | null;
   /** the `InaccessiblePaths=` line added under `[Service]`, null for a unit that hides nothing or in the modes `full` and `sudo` */
   hidden: string | null;
+  /** the `GH_CONFIG_DIR=` line added under `[Service]` of the watcher's unit, null for any other unit */
+  gh: string | null;
   /** the lines of development mode added after the unit's `ReadWritePaths=`, none in any other unit or with the mode off */
   development: ReadonlyArray<string>;
 };
@@ -213,6 +217,7 @@ function renderedLines(line: string, key: string | null, rules: LineRules): Arra
       line,
       ...(rules.scope === 'user' ? [`Environment=${UNIT_SCOPE_ENV}=user`] : []),
       ...(rules.hidden === null ? [] : [rules.hidden]),
+      ...(rules.gh === null ? [] : [rules.gh]),
     ];
   return null;
 }
@@ -265,6 +270,15 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
           `ReadOnlyPaths=-${checkout}`,
         ]
       : [];
+  // The watcher's worker lists the CI with `gh` in development mode only. `gh` finds its login through GH_CONFIG_DIR: the
+  // installing user's own with the mode on, a folder inside the watcher's own that holds none with it off.
+  const gh = WATCHER_UNIT.test(text)
+    ? `Environment=GH_CONFIG_DIR=${
+        vars.watcherDevelopment
+          ? path.join(vars.home, '.config', 'gh')
+          : path.join(vars.dataDir, DEFAULT_WATCHER_DIR, NO_GH_LOGIN)
+      }`
+    : null;
   const rules: LineRules = {
     scope,
     vars,
@@ -276,6 +290,7 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
     hidden: dropped.has('ProtectSystem')
       ? null
       : hiddenLine(text, vars, typeof checkout === 'string' ? [path.join(checkout, '.env')] : []),
+    gh,
     development,
   };
   return text

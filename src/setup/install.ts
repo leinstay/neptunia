@@ -22,7 +22,7 @@ import { UNIT_AGENTS, renderUnit } from './units.ts';
 import type { UnitVars } from './units.ts';
 
 /** What a command gave back. */
-export type RunResult = { code: number; stdout: string; stderr: string };
+export type RunResult = { code: number; stdout: string; stderr?: string };
 
 /** Where and for whom the units are rendered. */
 export type UnitTarget = {
@@ -115,7 +115,7 @@ const firstLine = (text: string): string => text.trim().split('\n')[0] ?? '';
 
 /** Why a command failed, in one line and without anything it printed beyond its first line. */
 export const whyFailed = (result: RunResult): string =>
-  firstLine(result.stderr) || firstLine(result.stdout) || `exit code ${result.code}`;
+  firstLine(result.stderr ?? '') || firstLine(result.stdout) || `exit code ${result.code}`;
 
 /**
  * Puts `files` (names of UNIT_FILES, templates under `<rootDir>/deploy`) in place: the ones whose text differs from what is installed. It then reloads the
