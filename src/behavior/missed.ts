@@ -609,6 +609,23 @@ const factRecord = (
 /** The candidates of `iface` and the others. With no interface named, all are its own. */
 const byInterface = (list: Array<Candidate>, iface: unknown): [Array<Candidate>, Array<Candidate>] =>
   iface ? [list.filter((c) => c.iface === iface), list.filter((c) => c.iface !== iface)] : [list, []];
+/** The top of a stored place's tree, where its journal lives; the place itself when the store cannot say. */
+const rootOf = (store: unknown, placeId: string): string =>
+  (store as { rootPlaceOf?: (id: string) => string | null }).rootPlaceOf?.(placeId) ?? placeId;
+/**
+ * The place a conversation's candidates belong to: its own, a DM's by its partner. With `top` the top of its tree, where
+ * the journal lives.
+ */
+function placeOwner(
+  store: unknown,
+  partner: string | null,
+  conversationId: string,
+  iface: string | undefined,
+  top: boolean
+): string {
+  const conversation = partner ? { id: conversationId, kind: 'dm', partnerId: partner } : { id: conversationId };
+  return top && !partner ? sharedPlaceOf(store, conversation, iface) : placeOfConversation(store, conversation, iface);
+}
 /** One conversation's key: two interfaces may share a native id. */
 const spotOf = (iface: string, placeId: string): string => JSON.stringify([iface, placeId]);
 /** The interface and native id of a key from spotOf. */
@@ -793,22 +810,15 @@ export function createMissed({
     return typeof id === 'string' && id ? id : null;
   }
 
-  /** The place a conversation's candidates and journal records belong to: its own, a DM's by its partner. */
-  function ownerOf(iface: string | undefined, conversationId: string): string {
-    const partner = partnerOf(conversationId);
-    return placeOfConversation(
-      store,
-      partner ? { id: conversationId, kind: 'dm', partnerId: partner } : { id: conversationId },
-      iface
-    );
-  }
+  const ownerOf = (iface: string | undefined, conversationId: string, top = false): string =>
+    placeOwner(store, partnerOf(conversationId), conversationId, iface, top);
 
-  /** One `answer` record (features.journal on), in the journal of its own place; never throws. */
+  /** One `answer` record (features.journal on), in the journal of the top of its place, a DM's its own; never throws. */
   function record(fields: Untyped) {
     if (!journalOn()) return;
     const iface =
       (fields?.iface as string | undefined) ?? candidates.find((c) => c.messageId === fields?.messageId)?.iface;
-    const placeId = fields?.placeId ? ownerOf(iface, String(fields.placeId)) : PERSONA_ID;
+    const placeId = fields?.placeId ? ownerOf(iface, String(fields.placeId), true) : PERSONA_ID;
     Promise.resolve()
       .then(() => journal.answer(placeId, fields))
       .catch((error) => log.warn('missed: journal failed', { code: objOf(error).code ?? null }));
@@ -865,7 +875,7 @@ export function createMissed({
     started.add(placeId);
     await load(placeId);
     try {
-      const result = reconcileFromRecords(candidates, await recentRecords(placeId), {
+      const result = reconcileFromRecords(candidates, await recentRecords(rootOf(store, placeId)), {
         now: now(),
         recovery: recoveryOn(),
       });

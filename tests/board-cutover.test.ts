@@ -149,7 +149,10 @@ function errandModel(asked: ReadonlyArray<Asked>): Llm {
   return {
     requests,
     options: [],
-    complete: (messages: unknown) => {
+    // Plan 2026-11-04-cli-and-memory B1: the door asks the address classifier first; it says yes and is not scripted.
+    complete: (messages: unknown, given?: unknown) => {
+      if ((given as { purpose?: unknown } | undefined)?.purpose === 'address')
+        return Promise.resolve({ text: 'yes', usage: {}, estimated: 1 });
       requests.push(messages);
       const text = JSON.stringify(messages);
       const due = asked.find((item) => !used.has(item.line) && text.includes(item.line));
