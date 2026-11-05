@@ -10,6 +10,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { unitRows } from '../db/export.ts';
 import { MAPPERS } from '../db/map/index.ts';
 import { migrateMediaStore } from '../db/media-store.ts';
+import { renameToSelfreflection } from './selfreflection-names.ts';
 import { MIGRATIONS, lockPathOf, openMemoryDb, schemaVersion } from '../db/open.ts';
 import { manifestOfFiles } from '../db/readers/vectors.ts';
 import { keyText, storageId } from '../db/storage-keys.ts';
@@ -35,7 +36,7 @@ const WHOLE_TABLES = new Set([
   'publications',
   'publication_grants',
   'mirrors',
-  'diary_mirrors',
+  'selfreflection_mirrors',
 ]);
 /** The columns that hold a JSON value of the engine's own. */
 const JSON_COLUMNS = new Set(['extra', 'value', 'record', 'payload', 'metadata', 'context', 'turn', 'data', 'held']);
@@ -676,8 +677,10 @@ function run(options: ConversionOptions, manifest: ConversionManifest, work: str
     const version = schemaVersion(source);
     manifest.input.schemaVersion = version;
     if (version !== SOURCE_VERSION && version !== MIGRATIONS.length) return refused([{ code: 'UNSUPPORTED_SCHEMA' }]);
-    // The output is at the current schema, so the working copy goes to the one media store first: its rows then fit.
+    // The output is at the current schema, so the working copy takes the names of today and goes to the one media store
+    // first: its rows then fit.
     source.exec('BEGIN');
+    renameToSelfreflection(source);
     migrateMediaStore(source);
     source.exec('COMMIT');
     const plan = planUnits(source);

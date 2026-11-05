@@ -31,8 +31,8 @@
 //      `<people_now>` entry (the entry lives and dies with the profile)
 //   6b. the members the persona feels most strongly about that the request
 //       does not describe (`<attitudes>`, one piece: names and bands)
-//   6c. a diary post only (mode `diary`): the persona's world (`<world>`, one piece, under
-//       `selfreflection.world`), then its past diary posts (`<diary>`, the oldest lines cut first);
+//   6c. a selfreflection post only (mode `selfreflection`): the persona's world (`<world>`, one piece, under
+//       `selfreflection.world`), then its past selfreflection posts (`<diary>`, the oldest lines cut first);
 //       the post's `<plan>` and a set post's `<seeds>` are never cut, and what its search found (`<found>`) ranks
 //       right after `<lookup>`
 //   7. neighbouring channels
@@ -52,7 +52,7 @@
 // (src/behavior/private.ts). Pictures of another channel are shown as
 // captions only: nothing outside the turn's own channel is ever attached.
 // buildRequest assembles the request from the block builders of src/turn/request/, one module per
-// group of blocks. The diary's plan request, the classifiers' transcript and the drawing prompt are
+// group of blocks. The selfreflection's plan request, the classifiers' transcript and the drawing prompt are
 // built here too.
 
 import { createHash } from 'node:crypto';
@@ -61,8 +61,8 @@ import { computeTempo, fill, formatNow, formatTranscript, renderTempo, renderTra
 import type { VideoState } from '../format.ts';
 import type { MemoryRead, Prompts, RequestConfig } from '../turn/request/types.ts';
 import { RECENT_EPISODES_PER_MEMBER, recentSettings, recentView } from '../memory/recent.ts';
-import { DEFAULT_HISTORY_POSTS, renderKindsBlock } from './diary.ts';
-import { diaryHistoryLines, diaryOf, worldText } from '../turn/request/diary.ts';
+import { DEFAULT_HISTORY_POSTS, renderKindsBlock } from './selfreflection.ts';
+import { selfreflectionHistoryLines, selfreflectionOf, worldText } from '../turn/request/selfreflection.ts';
 import { requestHead, requestRoom } from '../turn/request/head.ts';
 import {
   keptEarlier,
@@ -112,11 +112,11 @@ import type {
   BuildDrawPromptInput,
   BuildRequestInput,
   BuildRequestResult,
-  BuildDiaryPlanRequestInput,
+  BuildSelfreflectionPlanRequestInput,
 } from './prompt-types.ts';
 export { skillsInventoryText } from '../turn/request/senses.ts';
 export { usesFollowUpTask } from '../turn/request/task.ts';
-export { worldText } from '../turn/request/diary.ts';
+export { worldText } from '../turn/request/selfreflection.ts';
 
 /**
  * An `analyzer` request's user content in two cache parts: the `stable` block (the
@@ -378,20 +378,20 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   `anchorsView`): the current channel's episodes cut to their lines older than the window's
  *   first line, beside the reply parents of `history`, which then leave `<chat>`; budget section
  *   `earlier` right after the pulled block, capped by `context.caps.earlier` (2500 when unset).
- * @param [input.diaryChannel]  The bare name of the diary channel (the persona's
- *   own, src/behavior/diary.ts) when one is set: `<senses>` gains `senses.diary` with
- *   `{channel}`. Omitted or null -> no line. `input.diaryChannelIds` (ids) are its places, marked in `<server>`.
- * @param [input.diary]  A diary post's own input, read only with `mode:
- *   'diary'` (whose task text is `prompts.diary`): `<world>` (prompts/world.md, `{{name}}` filled,
+ * @param [input.selfreflectionChannel]  The bare name of the selfreflection channel (the persona's
+ *   own, src/behavior/selfreflection.ts) when one is set: `<senses>` gains `senses.selfreflection` with
+ *   `{channel}`. Omitted or null -> no line. `input.selfreflectionChannelIds` (ids) are its places, marked in `<server>`.
+ * @param [input.selfreflection]  A selfreflection post's own input, read only with `mode:
+ *   'selfreflection'` (whose task text is `prompts.selfreflection`): `<world>` (prompts/world.md, `{{name}}` filled,
  *   only with `selfreflection.world === true`, see `worldText`; one piece, fitted right after `<attitudes>`),
- *   `<diary>` (the past posts through src/behavior/diary.ts#renderDiaryBlock, the newest
+ *   `<diary>` (the past posts through src/behavior/selfreflection.ts#renderSelfreflectionBlock, the newest
  *   `selfreflection.historyPosts` (150 when unset) oldest first, fitted after `<world>` and losing its
- *   oldest lines first), `<plan>` (`labels.diary.plan`, then the plan as one JSON line with `kind`,
+ *   oldest lines first), `<plan>` (`labels.selfreflection.plan`, then the plan as one JSON line with `kind`,
  *   `brief`, `picture` and, with an owner's topic, `topic`; never cut), `<seeds>` (`seeds`, a set
  *   post's seed combinations already rendered; right after `<plan>`, never cut; absent when
- *   empty) and `<found>` (`labels.diary.found`, then what the search
+ *   empty) and `<found>` (`labels.selfreflection.found`, then what the search
  *   found; one piece, fitted right after `<lookup>`). They render after `<channel_view>` and before
- *   `<chat>`. `<world>` never renders outside a diary post.
+ *   `<chat>`. `<world>` never renders outside a selfreflection post.
  * @param [input.offPeriods]  The
  *   persona's recent time away (src/memory/journal.js#offPeriods, newest first): with
  *   `features.offPeriods` on (a missing key counts as on), `<now>` gains `labels.journal.offLead`
@@ -426,7 +426,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   snapshot). The live fields (liveFields: status, voice, current activity) come first, then
  *   for a profiled person the attitude, its moves and the message count (profileStateFields);
  *   `labels.peopleNow.lead` and the notices (liveNotices) open the block when it has an entry,
- *   the entries separated by a blank line. `features.around` off, a private chat, a diary post,
+ *   the entries separated by a blank line. `features.around` off, a private chat, a selfreflection post,
  *   an omitted or null input or no `labels.peopleNow`: no live fields, the fields of memory alone.
  * @param [input.errands]  The persona's errands
  *   (src/errands/blocks.ts, rendered by the turn): `list`, the `<errands>` block's body (her open
@@ -552,9 +552,9 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     recentLines: input.recentLines,
     recentAudience: input.recentAudience,
     participation: input.participation,
-    diaryChannel: input.diaryChannel,
-    diaryChannelIds: input.diaryChannelIds,
-    diary: input.diary,
+    selfreflectionChannel: input.selfreflectionChannel,
+    selfreflectionChannelIds: input.selfreflectionChannelIds,
+    selfreflection: input.selfreflection,
     offPeriods: input.offPeriods,
     skillsInventory: input.skillsInventory,
     skillIndex: input.skillIndex,
@@ -582,7 +582,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   const tempoText = ownTime ? '' : renderTempo(view.routed ? { ...tempo, lastIsOwn: false } : tempo, labels);
   const task = taskOf({ ...given, ...base, ...view });
   const senses = sensesOf({ ...given, ...base, ...views });
-  const diary = diaryOf({ ...given, labels });
+  const selfreflection = selfreflectionOf({ ...given, labels });
   const own = wakeTexts(given, labels);
   const room = requestRoom(given);
   const speaker = interlocutorOf({ ...given, ...base, ...room, ...task });
@@ -592,7 +592,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     ...view,
     ...task,
     ...senses,
-    ...diary,
+    ...selfreflection,
     ...own,
     ...room,
     ...speaker,
@@ -613,7 +613,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     ...base,
     ...room,
     ...view,
-    ...diary,
+    ...selfreflection,
     ...placed,
     ...people,
     neighborItems,
@@ -650,7 +650,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     tempoText,
     task: taskText,
     chatItems: ownTime ? null : keptChat,
-    diary: diary.diaryParts,
+    selfreflection: selfreflection.selfreflectionParts,
     errands: own.errandsText,
     intentions: own.intentionsText,
     wake: own.wakeText,
@@ -695,27 +695,38 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   };
 }
 
+/** The stored places the planner may name: the current one, and those the audience of the post's readers covers. */
+function placesNamed(
+  channels: unknown,
+  currentId: unknown,
+  mayName: ((placeId: string) => boolean) | null | undefined
+): Array<Untyped> {
+  const all: Array<Untyped> = Array.isArray(channels) ? channels : [];
+  if (!mayName) return all;
+  return all.filter((channel: { id?: unknown } | null) => channel?.id === currentId || mayName(String(channel?.id)));
+}
+
 /**
- * The diary's plan request (prompts/diary-plan.md, sent on the classifier
+ * The selfreflection's plan request (prompts/selfreflection-planner.md, sent on the classifier
  * model by src/behavior/turn.ts): the system message is the plan prompt with
  * `{{name}}` filled; the user message carries, in this order, `<now>`,
- * `<server>` (the stored channel map, the diary channel first as the current
- * one), `<about_chat>`, `<recent>` (the lines `recentAudience` accepts and the
+ * `<places>` (the stored channel map, the selfreflection channel first as the current
+ * one, without a place `placeAudience` refuses: a post that everyone reads does not retell a narrower room), `<about_chat>`, `<recent>` (the lines `recentAudience` accepts and the
  * members' moments of the last `memory.recentHours`, oldest first; needs
- * `labels.recent.header` and `line`), `<lore>` (the entries the diary
+ * `labels.recent.header` and `line`), `<lore>` (the entries the selfreflection
  * channel's lines match), `<world>` (`worldText`, under `selfreflection.world`),
  * `<diary>` (the past posts, as in the post request), `<kinds>`
- * (src/behavior/diary.ts#renderKindsBlock over `kinds`, the use counted among
+ * (src/behavior/selfreflection.ts#renderKindsBlock over `kinds`, the use counted among
  * the newest `selfreflection.historyPosts`) and `<seeds>` (`seedsText`, already
- * rendered by src/behavior/diary.ts#renderSeedsBlock), then `<topic>`
+ * rendered by src/behavior/selfreflection.ts#renderSeedsBlock), then `<topic>`
  * (`topicText`, the owner's topic already rendered by
- * src/behavior/diary.ts#renderTopicBlock; absent without one). Under the
+ * src/behavior/selfreflection.ts#renderTopicBlock; absent without one). Under the
  * request token limit `<now>`, `<kinds>`, `<seeds>` and `<topic>` are never cut, then in
  * priority order: `<diary>` (the oldest lines first), `<world>` (whole),
- * `<about_chat>`, `<server>`, `<recent>`, `<lore>` (each under its
+ * `<about_chat>`, `<places>`, `<recent>`, `<lore>` (each under its
  * `context.caps` entry). Pure.
  */
-export function buildDiaryPlanRequest(input: BuildDiaryPlanRequestInput): {
+export function buildSelfreflectionPlanRequest(input: BuildSelfreflectionPlanRequestInput): {
   messages: Array<{ role: string; content: string }>;
   stats: Record<string, Untyped>;
 } {
@@ -724,18 +735,18 @@ export function buildDiaryPlanRequest(input: BuildDiaryPlanRequestInput): {
   const timezone: string = config.bot?.timezone;
   const nameOf = typeof input.nameOf === 'function' ? input.nameOf : () => null;
   const history = Array.isArray(input.history) ? input.history : [];
-  const channels = Array.isArray(input.channels) ? input.channels : [];
+  const channels = placesNamed(input.channels, currentChannelId, input.placeAudience);
   const posts = Array.isArray(input.posts) ? input.posts : [];
   const caps: Record<string, number | undefined> = config.context?.caps ?? {};
   const cost = sectionCost(calibrator);
   const limit = Math.max(0, requestTokenLimit(config) - TAG_OVERHEAD);
 
-  const system = fillPromptTemplate(prompts['diary-plan'] ?? '', { name: selfName }).trim();
+  const system = fillPromptTemplate(prompts['selfreflection-planner'] ?? '', { name: selfName }).trim();
   const nowText = formatNow(now, timezone, labels.locale);
   const kindsText = renderKindsBlock(input.kinds, posts, labels, { window: DEFAULT_HISTORY_POSTS });
-  // The live config and prompts, which the diary readers type by the sections they read.
-  const diaryLines = diaryHistoryLines(posts, labels, config as RequestConfig);
-  const diaryIntro = diaryLines.length > 0 ? (labels.diary?.intro ?? '') : '';
+  // The live config and prompts, which the selfreflection readers type by the sections they read.
+  const selfreflectionLines = selfreflectionHistoryLines(posts, labels, config as RequestConfig);
+  const selfreflectionIntro = selfreflectionLines.length > 0 ? (labels.selfreflection?.intro ?? '') : '';
 
   // `<recent>`: the lines of the last hours this channel's audience may read, then the members' moments.
   const recentCfg = recentSettings(config);
@@ -773,9 +784,9 @@ export function buildDiaryPlanRequest(input: BuildDiaryPlanRequestInput): {
       {
         name: 'fixed',
         required: true,
-        items: [system, nowText, kindsText, seedsText, topicText, diaryIntro].filter(Boolean),
+        items: [system, nowText, kindsText, seedsText, topicText, selfreflectionIntro].filter(Boolean),
       },
-      { name: 'diary', keep: 'newest', items: diaryLines },
+      { name: 'selfreflection', keep: 'newest', items: selfreflectionLines },
       { name: 'world', items: [worldText(config, prompts as Prompts, selfName)].filter(Boolean) },
       {
         name: 'aboutChat',
@@ -783,7 +794,7 @@ export function buildDiaryPlanRequest(input: BuildDiaryPlanRequestInput): {
         items: aboutChatItems(input.placeMemory, labels, nameOf, learnedConfig(config)),
       },
       {
-        name: 'server',
+        name: 'places',
         cap: caps.server ?? 4000,
         keep: 'first',
         items: serverItems(
@@ -795,7 +806,7 @@ export function buildDiaryPlanRequest(input: BuildDiaryPlanRequestInput): {
           labels,
           nameOf,
           new Set(),
-          new Set(input.diaryChannelIds ?? [])
+          new Set(input.selfreflectionChannelIds ?? [])
         ),
       },
       {
@@ -824,12 +835,15 @@ export function buildDiaryPlanRequest(input: BuildDiaryPlanRequestInput): {
   }
   const user = [
     block('now', nowText),
-    block('server', kept.server.join('\n\n')),
+    block('places', kept.places.join('\n\n')),
     block('about_chat', kept.aboutChat.join('\n')),
     block('recent', recentText),
     block('lore', kept.lore.join('\n\n')),
     block('world', kept.world.join('\n')),
-    block('diary', kept.diary.length > 0 ? [diaryIntro, ...kept.diary].filter(Boolean).join('\n') : ''),
+    block(
+      'diary',
+      kept.selfreflection.length > 0 ? [selfreflectionIntro, ...kept.selfreflection].filter(Boolean).join('\n') : ''
+    ),
     block('kinds', kindsText),
     block('seeds', seedsText),
     block('topic', topicText),

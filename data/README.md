@@ -5,7 +5,7 @@ The persona root: everything that makes one deployment's persona, kept apart fro
 | Path | What it holds |
 |---|---|
 | `memory.db` | The memory database: memory, the journal, the request archive, media descriptions, intentions and tasks. |
-| `media/` | The media originals kept for the diary. |
+| `media/` | The media originals kept for the selfreflection. |
 | `config/` | Personal settings over the defaults of the engine's `config/`. |
 | `prompts/` | Personal prompts, each replacing the engine's file of the same name. |
 | `keys.json` | Model keys and service credentials, mode `0600`. |

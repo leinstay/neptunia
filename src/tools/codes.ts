@@ -68,7 +68,7 @@ export const CATALOGUE = Object.freeze({
   'selfimprovement-only': skill('denied'),
   'duplicate-task': skill('denied'),
   paused: skill('denied'),
-  'diary-draw-only': skill('denied'),
+  'selfreflection-draw-only': skill('denied'),
 
   // A call that was not right.
   'invalid-args': skill('invalid'),
@@ -160,8 +160,8 @@ export const CATALOGUE = Object.freeze({
   'gif-failed': skill('partial'),
   'no-result': skill('failed'),
   'send-failed': skill('failed'),
-  // A send to a diary mirror's place, refused by the guarded port (src/behavior/mirror.ts#guardMirrorPort).
-  'diary-mirror': skill('failed'),
+  // A send to a selfreflection mirror's place, refused by the guarded port (src/behavior/mirror.ts#guardMirrorPort).
+  'selfreflection-mirror': skill('failed'),
   'link-closed': skill('unknown'),
   'link-busy': skill('failed'),
   'adapter-threw': skill('unknown'),

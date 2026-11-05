@@ -24,7 +24,7 @@ test('the search commands write the same settings the search reads, and leave th
     never
   >;
   assert.equal(searchModel(config), 'x/quick');
-  assert.deepEqual(config, { web: { search: { model: 'x/quick', engine: 'openrouter', enabled: false } } });
+  assert.deepEqual(config, { web: { quickSearch: { model: 'x/quick', engine: 'openrouter', enabled: false } } });
   assert.equal(roleModel({ ...config, models: { base: { analyzer: 'x/analyzer' } } }, 'analyzer'), 'x/analyzer');
   assert.match(searchCommand(dataDir, 'search.status', {}).text, /off, engine openrouter, model x\/quick/);
   searchCommand(dataDir, 'search.enable', {});

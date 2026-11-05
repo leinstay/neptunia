@@ -204,7 +204,7 @@ const LINES: ReadonlyArray<readonly [Array<string>, string]> = [
   [['memory', 'claims', 'versions', 'claim:1'], 'memory.claims.versions'],
   [['memory', 'descriptions', 'show', 'desc:1'], 'memory.descriptions.show'],
   [['memory', 'episodes', 'show', 'episode:1'], 'memory.episodes.show'],
-  [['memory', 'diary', 'show', 'diary:1'], 'memory.diary.show'],
+  [['memory', 'selfreflection', 'show', 'selfreflection:1'], 'memory.selfreflection.show'],
   [['memory', 'media', 'show', 'media:1'], 'memory.media.show'],
   [['memory', 'publications', 'show', 'publication:1'], 'memory.publications.show'],
   [['memory', 'grants', 'show', 'grant:1'], 'memory.grants.show'],

@@ -49,7 +49,7 @@ const BASE_CONFIG: Settings = {
     customEmoji: false,
     gifs: false,
     offlineCatchUp: false,
-    diary: false,
+    selfreflection: false,
     mediaDescriptions: false,
     missedAnswers: false,
     channelRoute: false,

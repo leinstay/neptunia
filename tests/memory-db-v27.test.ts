@@ -24,12 +24,12 @@ function seedV26(db: Db): void {
       "INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, name) VALUES (?, 'fake', 'channel', ?, NULL, 'group', ?)"
     ).run(id, native, native);
   db.prepare(
-    "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES ('m1', 'diary', ?, 1, ?, 'owner', NULL)"
+    "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES ('m1', 'selfreflection', ?, 1, ?, 'owner', NULL)"
   ).run(PLACE, AT);
   const receipts = JSON.stringify([{ authority: 'fake', kind: 'message', key: 'old-1' }]);
   const insert = db.prepare(
     `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, status, idempotency_key, receipts, created_at, sent_at)
-     VALUES (?, 'diary', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, 'selfreflection', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   insert.run('p-sent', 'e-sent', 'h1', 'sent text', PLACE, 'sent', 'k-sent', receipts, AT, AT);
   insert.run('p-queued', 'e-queued', 'h2', 'queued text', PLACE, 'queued', 'k-queued', null, AT, null);

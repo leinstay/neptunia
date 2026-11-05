@@ -8,7 +8,7 @@ import { PERSONA_ID } from '../memory/db/storage-keys.ts';
 import type { PublicationBoundary } from '../tools/publication.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { FactInput } from '../behavior/inner.ts';
-import { wakeInputs } from '../behavior/diary-turn.ts';
+import { wakeInputs } from '../behavior/selfreflection-turn.ts';
 import { portIface } from '../interface/capabilities.ts';
 import { currentRequestMeta, turnOutcome, turnService, withRequestMeta } from '../llm/archive.ts';
 import { withIface } from '../memory/db/current-iface.ts';
@@ -195,7 +195,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * @param {import('../protocol/adapter.ts').ConversationRef} [params.conversation]  absent for the selfreflection wake
    * @param {{ turnId: string, attemptId?: number }|null} [params.journalTurn]  The journal's turn and attempt (runTurn passes them on).
    * @param {string} [params.placeId]  The community of a private chat; a server channel uses its own; a private chat with neither has none.
-   * @param {'reply'|'interject'|'initiate'|'auto'|'diary'|'inner'} params.mode  'auto' lets `chooseMode` pick
+   * @param {'reply'|'interject'|'initiate'|'auto'|'selfreflection'|'inner'} params.mode  'auto' lets `chooseMode` pick
    *   between interject/initiate/nothing once the history is known (spontaneous turns); 'inner'
    *   is an inner turn (with `params.inner`).
    * @param {{ wake: import('./inner/types.ts').TurnWake, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.ts,
@@ -251,26 +251,26 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   the requester of any skill call she makes in it (callEnvelope).
    * @param {(() => boolean)|null} [params.stillDue]  Asked right before anything is posted (dry
    *   run included); false ends the turn `not-now` (`reason: 'answered-meanwhile'`), nothing posted.
-   * @param {{ kind?: string|null, topic?: string|null, forced?: boolean }|null} [params.diary]  With `mode: 'diary'`
-   *   (src/behavior/diary.ts, no trigger; with no `conversation` the selfreflection wake, selfreflectionOf, whose
+   * @param {{ kind?: string|null, topic?: string|null, forced?: boolean }|null} [params.selfreflection]  With `mode: 'selfreflection'`
+   *   (src/behavior/selfreflection.ts, no trigger; with no `conversation` the selfreflection wake, selfreflectionOf, whose
    *   conversation and history memory gives): the post is planned first
-   *   (prepareDiary: the plan request, then the search it asks for; `kind` forces the kind --
+   *   (prepareSelfreflection: the plan request, then the search it asks for; `kind` forces the kind --
    *   a picture kind while the post may not carry a picture is refused before any request,
-   *   `{ outcome: 'refused', reason: 'pictures', limit }`, diaryPictureGate --
+   *   `{ outcome: 'refused', reason: 'pictures', limit }`, selfreflectionPictureGate --
    *   `topic` is the owner's topic for the planner and the plan, `forced` also appends
-   *   prompts.forced to the task), then composed with `prompts.diary` as
+   *   prompts.forced to the task), then composed with `prompts.selfreflection` as
    *   the task and the `<world>`, `<diary>`, `<plan>` and `<found>` blocks. Its speech keeps only
    *   `<msg>` (every reply attribute dropped, links removed, at most `selfreflection.maxMessages` (3), a
    *   message left empty not posted) and `<skip/>`; no reaction and no media pick. It runs on the
    *   step engine with `selfreflection.loop`: only her `draw.create` calls run (any other is refused
-   *   `diary-draw-only`; at most `selfreflection.set.pictures[1]` in a step), each picture staged as it is
-   *   generated and counted against the day's diary pictures then; a picture while the post may
-   *   carry none is refused `daily-cap` (diaryPictureGate). A failed picture holds the post's speech
+   *   `selfreflection-draw-only`; at most `selfreflection.set.pictures[1]` in a step), each picture staged as it is
+   *   generated and counted against the day's selfreflection pictures then; a picture while the post may
+   *   carry none is refused `daily-cap` (selfreflectionPictureGate). A failed picture holds the post's speech
    *   with the staged pictures until her next step. Nothing is sent: her speech is held (holdSpeech), a `voice.say`
-   *   keeps its file (diary-turn.ts#diaryVoiceTool), and the entry is recorded (diary-turn.ts#recordEntry; a set kind
+   *   keeps its file (selfreflection-turn.ts#selfreflectionVoiceTool), and the entry is recorded (selfreflection-turn.ts#recordEntry; a set kind
    *   with fewer than `selfreflection.set.minPosted` pictures staged is not: `turn: set short`, `{ outcome: 'refused', reason:
-   *   'set-short' }`). Its outcome carries `diary: { kind, picture, search, messages, pictures }` and the entry
-   *   (`diary.entry`) the mirrors publish (src/behavior/mirror.ts).
+   *   'set-short' }`). Its outcome carries `selfreflection: { kind, picture, search, messages, pictures }` and the entry
+   *   (`selfreflection.entry`) the mirrors publish (src/behavior/mirror.ts).
    *
    * A private chat (`channel` without a place) works like a server turn on behalf of its partner
    * (the trigger's author, fetched as a member of the served place: privatePartner) with
@@ -285,9 +285,9 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   delivered?: boolean, reason?: string, limit?: { key: string, used: number, cap: number }|null }>}
    *   `delivered` on a
    *   `spoke` turn posted for real: whether anything reached the chat (a reaction put, a message,
-   *   the picked GIF or a diary post's pictures posted; a send that fails stops the
+   *   the picked GIF or a selfreflection post's pictures posted; a send that fails stops the
    *   posting and the turn still ends `spoke` with what reached the chat); `limit` on `outcome:
-   *   'refused'` (a request or token cap; a diary picture gate with `reason: 'pictures'`; a diary
+   *   'refused'` (a request or token cap; a selfreflection picture gate with `reason: 'pictures'`; a selfreflection
    *   set short of `selfreflection.set.minPosted` pictures has `reason: 'set-short'` and no `limit`), for
    *   the caller's limit notice. An answer of hers cut off at its output cap before any complete
    *   action (cutOffOf; the skill follow-up's too, when nothing of the turn reached the chat)
@@ -313,7 +313,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     const attempts: Array<unknown> = [];
     // What every attempt posted in reply to and why it ended (runTurnOnce), for the end hook.
     const ends: Ends = { replyTargets: [], reasons: [], factsShown: null, info: null };
-    const wake = params?.mode === 'diary' && !params.conversation ? await selfreflectionOf() : {};
+    const wake = params?.mode === 'selfreflection' && !params.conversation ? await selfreflectionOf() : {};
     const tracked = { ...params, ...wake, journalAttempts: attempts, turnEnds: ends };
     let result: TurnResult | undefined;
     let thrown: unknown = null;
@@ -335,8 +335,8 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
   }
 
   /**
-   * The `selfreflection` wake (a diary turn with no conversation): the conversation, channel and history memory holds of
-   * her diary's place (diary-turn.ts#wakeInputs). Only it is awaited before a turn takes its attention.
+   * The `selfreflection` wake (a selfreflection turn with no conversation): the conversation, channel and history memory holds of
+   * her selfreflection's place (selfreflection-turn.ts#wakeInputs). Only it is awaited before a turn takes its attention.
    */
   async function selfreflectionOf(): Promise<{
     conversation: ConversationRef;

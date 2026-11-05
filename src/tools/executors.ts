@@ -713,7 +713,7 @@ function callPublicationRefusal(
     return null;
   if (
     resolved.skill === 'message.create' &&
-    resolved.args.diary === true &&
+    resolved.args.selfreflection === true &&
     !resolved.args.channel &&
     !resolved.args.replyTo
   )

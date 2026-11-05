@@ -44,7 +44,7 @@ const EXIT = Object.freeze({ ok: 0, failed: 1, usage: 2 });
  */
 const SCOUT_SEARCH_MODEL = 'openai/gpt-6.1-sol';
 
-/** The model the scout agent searches with in `config` (the live engine config): `web.search.model`, else its own. */
+/** The model the scout agent searches with in `config` (the live engine config): `web.quickSearch.model`, else its own. */
 export function webSearchModel(config: unknown): string {
   return searchModel(config) ?? SCOUT_SEARCH_MODEL;
 }

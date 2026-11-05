@@ -21,7 +21,7 @@
 // is on (src/tools/discovery.ts), as the turn fills them. One completion on the `analyzer` role
 // (roleModel for purpose `query-builder`; `--model` pins another for this run only), with the turn's
 // helper options (roleRequestOptions: its temperature, timeout and hedge), the answer capped at
-// `web.search.classifierMaxOutputTokens`. The answer is read by
+// `web.quickSearch.classifierMaxOutputTokens`. The answer is read by
 // src/behavior/query-builder.ts#parseQueryPlan and mapped to a decision
 // (scripts/lib/search-policy-eval.ts#decisionOf): `web:` -> fast, a server part without `web:` ->
 // memory, nothing -> none (never agent: the classifier asks for no errand); a call that threw or
@@ -230,7 +230,7 @@ export async function main(
             model: roleModel(config, 'analyzer', 'query-builder'),
             ...roleRequestOptions(config, {
               role: 'analyzer',
-              maxOutputTokens: config.web?.search?.classifierMaxOutputTokens ?? 2000,
+              maxOutputTokens: config.web?.quickSearch?.classifierMaxOutputTokens ?? 2000,
               purpose: 'query-builder',
             }),
             origin: ORIGIN,

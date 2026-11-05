@@ -61,7 +61,7 @@ export const ITEM_ID_PREFIX: Readonly<Record<string, string>> = Object.freeze({
   move: 'mv-',
   recent: 'rc-',
   participation: 'pt-',
-  diary: 'dy-',
+  selfreflection: 'dy-',
   injoke: 'ij-',
   version: 'vs-',
 });
@@ -89,7 +89,7 @@ const TEXT_FIELDS: Readonly<Record<string, ReadonlyArray<string>>> = Object.free
   move: ['reason'],
   recent: ['text'],
   participation: ['messages'],
-  diary: ['gist', 'search'],
+  selfreflection: ['gist', 'search'],
   injoke: ['text'],
   version: ['text'],
 });

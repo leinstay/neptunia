@@ -78,7 +78,7 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
  * user text. `cacheSegment` is a neutral tag: src/llm/openrouter.ts#withCacheMarker
  * turns it into the provider's marker under the cache policy and never sends it.
  * `errands`: the `<errands>` and `<errand_result>` bodies
- * (buildRequest's `input.errands`), in the tail before `<people_now>`. `diary` (a diary post only): the
+ * (buildRequest's `input.errands`), in the tail before `<people_now>`. `selfreflection` (a selfreflection post only): the
  * `<diary>` block's intro, shown above its kept lines, the `<plan>` body and
  * the `<seeds>` body (a set post's seed combinations, right after the plan), the `<publication_places>` body after them and the `<audience_refused>` body, a refused audience she has not heard of.
  */
@@ -96,7 +96,7 @@ export function assembleUser({
   tempoText,
   task,
   chatItems,
-  diary = null,
+  selfreflection = null,
   errands = null,
   intentions = '',
   wake = '',
@@ -115,7 +115,13 @@ export function assembleUser({
   tempoText: string;
   task: string;
   chatItems: Array<TranscriptItem> | null;
-  diary?: { intro: string; plan: string; seeds: string; publicationPlaces: string; audienceRefused: string } | null;
+  selfreflection?: {
+    intro: string;
+    plan: string;
+    seeds: string;
+    publicationPlaces: string;
+    audienceRefused: string;
+  } | null;
   errands?: { list: string; result: string } | null;
   intentions?: string;
   wake?: string;
@@ -154,13 +160,18 @@ export function assembleUser({
     block('other_channels', kept.neighbors.join('\n\n')),
     // Another channel pulled into this turn, one item per channel.
     block('channel_view', (kept.pulled ?? []).join('\n\n')),
-    // A diary post: the persona's world, its past posts, this post's plan and what its search found.
+    // A selfreflection post: the persona's world, its past posts, this post's plan and what its search found.
     block('world', (kept.world ?? []).join('\n')),
-    block('diary', (kept.diary ?? []).length > 0 ? [diary?.intro, ...kept.diary].filter(Boolean).join('\n') : ''),
-    block('plan', diary?.plan ?? ''),
-    block('seeds', diary?.seeds ?? ''),
-    block('publication_places', diary?.publicationPlaces ?? ''),
-    block('audience_refused', diary?.audienceRefused ?? ''),
+    block(
+      'diary',
+      (kept.selfreflection ?? []).length > 0
+        ? [selfreflection?.intro, ...kept.selfreflection].filter(Boolean).join('\n')
+        : ''
+    ),
+    block('plan', selfreflection?.plan ?? ''),
+    block('seeds', selfreflection?.seeds ?? ''),
+    block('publication_places', selfreflection?.publicationPlaces ?? ''),
+    block('audience_refused', selfreflection?.audienceRefused ?? ''),
     block('found', (kept.found ?? []).join('\n')),
     // Right before the chat it answers a question from.
     block('lookup', (kept.lookup ?? []).join('\n')),

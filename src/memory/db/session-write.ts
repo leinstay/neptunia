@@ -32,14 +32,14 @@
 //       Schema v11: handed to wakes.ts#applyWakeWrite, skills.ts#applySkillsWrite and index-policy.ts#applyIndexWrite.
 //       Bookkeeping of the database itself, not her memory: no mode.
 //   { kind: 'publication', op: 'prepare' | 'sent' | 'failed' | 'unknown', ... }
-//       The diary's mirrors (src/behavior/mirror.ts), handed to publish.ts#applyPublicationWrite; the claim and the
+//       The selfreflection's mirrors (src/behavior/mirror.ts), handed to publish.ts#applyPublicationWrite; the claim and the
 //       segments of a send (`claim`, `segment`, `settle` and the rest) to publication-delivery.ts#applyDeliveryWrite.
 //   { kind: 'mirror', op: 'add' | 'configure' | 'remove' | 'slot' | 'complete', ... }
 //       The owner's configuration of the mirrors, handed to mirror-config.ts#applyMirrorWrite.
 //   { kind: 'entry-media', id, items, dataDir }
-//       A diary entry's pictures and voice file, kept as files and `media` rows (diary-media.ts#applyEntryMedia).
+//       A selfreflection entry's pictures and voice file, kept as files and `media` rows (selfreflection-media.ts#applyEntryMedia).
 //   { kind: 'unit', op, ... }
-//       The memory units (record and journal lines, the store's cache, the module stores, participation, the diary,
+//       The memory units (record and journal lines, the store's cache, the module stores, participation, the selfreflection,
 //       the vectors) and the projection the writers finish, handed to unit-write.ts#applyUnitWrite.
 //   { kind: 'backup', to, dataDir, now, commit, configHash }
 //       The daily backup (backup.ts#writeBackup) taken on this connection, the writer's, by `VACUUM INTO`:
@@ -123,7 +123,7 @@ import { applyUnitWrite } from './unit-write.ts';
 import { applyPublicationWrite } from './publish.ts';
 import { applyDeliveryWrite, isDeliveryOp } from './publication-delivery.ts';
 import { applyMirrorWrite } from './mirror-config.ts';
-import { applyEntryMedia } from './diary-media.ts';
+import { applyEntryMedia } from './selfreflection-media.ts';
 import { applyMediaBackfill } from './media-backfill.ts';
 import { applyMediaEmbed } from './media-store.ts';
 import { writeBackup } from './backup.ts';
@@ -949,7 +949,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['person-link', applyPersonLinkWrite],
   ['person-merge', applyPersonMergeWrite],
   ['request-archive', applyRequestArchiveWrite],
-  // The diary's mirrors: the state of a send, then the owner's configuration.
+  // The selfreflection's mirrors: the state of a send, then the owner's configuration.
   [
     'publication',
     (handle, update) => (isDeliveryOp(update.op) ? applyDeliveryWrite : applyPublicationWrite)(handle, update),

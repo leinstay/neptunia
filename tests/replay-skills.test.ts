@@ -1406,9 +1406,9 @@ test('replay --skills --prompts: the directory is laid over a copy of data/promp
       ['local réply', 'format B', 'local queued']
     );
     // The diary's --prompts keeps its layering: a labels.json of the directory replaces the private one whole.
-    const diary = overlayPromptsHot(createHot, root, 'side-a', { tmpDir });
-    opened.push(diary);
-    assert.deepEqual(asRecord(diary.hot).prompts.labels.task, { queued: 'queued A' });
+    const selfreflection = overlayPromptsHot(createHot, root, 'side-a', { tmpDir });
+    opened.push(selfreflection);
+    assert.deepEqual(asRecord(selfreflection.hot).prompts.labels.task, { queued: 'queued A' });
     // The live layer is untouched.
     assert.equal(fs.readFileSync(path.join(root, 'data', 'prompts', 'labels.json'), 'utf8'), localLabels);
     assert.equal(fs.readFileSync(path.join(root, 'data', 'prompts', 'reply.md'), 'utf8'), 'local réply');
@@ -1435,7 +1435,7 @@ test('replay --skills --prompts: the directory is laid over a copy of data/promp
   assert.throws(() => parseArgs(['--skills', 's.json', '--prompts', 'c', '--pair-prompts', 'a', 'b']), /usage/);
   assert.throws(() => parseArgs(['--skills', 's.json', '--pair-prompts', 'a']), /usage/);
   assert.throws(() => parseArgs(['--pair-prompts', 'a', 'b', '123456789012345678', '223456789012345678']), /usage/);
-  assert.throws(() => parseArgs(['--diary', 'picture', '--pair-prompts', 'a', 'b']), /usage/);
+  assert.throws(() => parseArgs(['--selfreflection', 'picture', '--pair-prompts', 'a', 'b']), /usage/);
 });
 
 /** A link at `link` to the directory `target`: a symlink, else (Windows without the privilege) a junction; null when neither can be made. */

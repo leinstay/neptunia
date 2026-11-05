@@ -10,7 +10,8 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as DatabaseSyncClass } from 'node:sqlite';
-import { MIGRATIONS, finishDiaryDestination, finishDiaryMirror } from './schema.ts';
+import { MIGRATIONS, finishSelfreflectionDestination, finishSelfreflectionMirror } from './schema.ts';
+import { moveSelfreflectionMedia } from '../migration/selfreflection-names.ts';
 import type { Migration, MigrationContext } from './schema.ts';
 import { ALIVE_LEASE, leaseOf } from './wake-queue.ts';
 import { importWakeQueues } from '../migration/wake-import.ts';
@@ -129,10 +130,11 @@ export function schemaVersion(dbGiven: unknown): number {
 
 /**
  * Applies every migration above the current version, in one transaction. An entry is SQL text or a function of the
- * connection and `context` (what only the opener knows: `diaryPlaceId`, the deployment's diary channel, for v12 and
+ * connection and `context` (what only the opener knows: `selfreflectionPlaceId`, the deployment's selfreflection channel, for v12 and
  * v15, and `dataDir`, the data directory, for v18). A data step v12, v15 or v18 could not finish without the context
  * is finished by the first open that has it. The per-place GIF libraries of v32 are merged here too, because a converted
- * database arrives with the current schema and its old rows.
+ * database arrives with the current schema and its old rows. The folder of the selfreflection's files moves here, before
+ * the commit: a crash on either side of the commit leaves what the next open finishes.
  */
 export function migrate(
   dbGiven: unknown,
@@ -151,10 +153,11 @@ export function migrate(
       db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(version);
     }
     if (migrations === MIGRATIONS && schemaVersion(db) >= MIGRATIONS.length) {
-      finishDiaryDestination(db, context);
-      finishDiaryMirror(db, context);
+      finishSelfreflectionDestination(db, context);
+      finishSelfreflectionMirror(db, context);
       importWakeQueues(db, context);
       mergeGifLibraries(db);
+      if (typeof context.dataDir === 'string') moveSelfreflectionMedia(context.dataDir);
     }
   });
 }

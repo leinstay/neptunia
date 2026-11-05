@@ -3,7 +3,7 @@
 // follow-up prompt's check, her time away and skills discovery. The request phase (src/turn/phases/request.ts) runs
 // it after the gather step.
 
-import { diaryPlaceNotes } from '../../diary.ts';
+import { selfreflectionPlaceNotes } from '../../selfreflection.ts';
 import { accountOf } from '../../../memory/addresses.ts';
 import { messageLinkOf } from '../../../behavior/elsewhere.ts';
 import { FACTS_SHOWN_MAX, factPayload } from '../../../behavior/inner.ts';
@@ -107,7 +107,9 @@ export async function tellFacts(
   const triggerAt = part && trigger ? history.findIndex((m) => m.id === trigger.id) : -1;
   const notAnswered =
     triggerAt === -1 ? tasks.deferred : new Set([...tasks.deferred, ...history.slice(triggerAt + 1).map((m) => m.id)]);
-  const placeMemory = memoryOn ? diaryPlaceNotes(store as Parameters<typeof diaryPlaceNotes>[0], reading, null) : null;
+  const placeMemory = memoryOn
+    ? selfreflectionPlaceNotes(store as Parameters<typeof selfreflectionPlaceNotes>[0], reading, null)
+    : null;
   // Whether the call tags the persona, read as decideMention reads it (src/pipeline/answer.ts#decideAndLog):
   // an untagged reply takes the follow-up task (usesFollowUpTask).
   const taggedCall = trigger ? isTaggedCall(trigger, selfId) : null;

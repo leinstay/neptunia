@@ -1,4 +1,4 @@
-// The owner's configuration of the diary's mirrors over the memory database (schema v27), apart from their delivery
+// The owner's configuration of the selfreflection's mirrors over the memory database (schema v27), apart from their delivery
 // history: `applyMirrorWrite` is the writer's kind `mirror` (add, configure, remove, and the historical slot of a mirror),
 // and the reads below resolve what the owner typed and scan the entries a mirror still lacks. A removed mirror keeps its
 // row, marked `removed_at` and disabled: its `publications` rows are the delivery history, so adding the destination
@@ -10,7 +10,7 @@
 // persisted order (`at_ms`, `position`, `id`). A receipt, a claim in flight or an uncertain send takes an entry out of
 // the scan. Logs: none; a caller logs codes.
 
-import { storedDiaryPublicationRefusal } from './publish.ts';
+import { storedSelfreflectionPublicationRefusal } from './publish.ts';
 import { dbOf, transactionOf } from './types.ts';
 import type { Connection, Db, Row } from './types.ts';
 
@@ -35,7 +35,7 @@ export type MirrorRow = {
 /** What a backfill command changes; a key left out stays as it is. */
 export type BackfillChange = { enabled?: boolean; intervalMs?: number };
 
-/** One entry of the diary as a scan reads it. */
+/** One entry of the selfreflection as a scan reads it. */
 export type ScannedEntry = { id: string; atMs: number; position: number; text: string | null; extra: unknown };
 
 /** What a mirror's history comes to: the entries it still lacks, the first of them, and what holds that one back. */
@@ -48,7 +48,7 @@ export type MirrorHistory = {
 const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
 
 const MIRROR_SELECT = `SELECT m.*, p.iface, p.native_id, p.name FROM mirrors m JOIN places p ON p.id = m.place_id
-  WHERE m.row_kind = 'diary' AND m.removed_at IS NULL`;
+  WHERE m.row_kind = 'selfreflection' AND m.removed_at IS NULL`;
 
 function mirrorOf(row: Row): MirrorRow {
   const registered = numberOrNull(row.registered_at);
@@ -104,7 +104,7 @@ export function placeNamed(
 
 /** Whether an entry may go to a place at all: group material, with no stored restriction that refuses the place. */
 function eligible(db: Db, row: Row, placeId: string): boolean {
-  return row.scope_kind === 'group' && storedDiaryPublicationRefusal(db, row.id, placeId) === null;
+  return row.scope_kind === 'group' && storedSelfreflectionPublicationRefusal(db, row.id, placeId) === null;
 }
 
 const scanned = (row: Row): ScannedEntry => ({
@@ -121,11 +121,13 @@ const ENTRY_COLUMNS = 'id, at_ms, position, text, extra, scope_kind';
 /** The entries up to and including `through`, oldest first; null when no entry has that id. */
 export function entriesThrough(handle: Connection, through: string): Array<string> | null {
   const db = dbOf(handle);
-  const mark = db.prepare('SELECT at_ms, position FROM diary WHERE id = ? AND retired_at IS NULL').get(through);
+  const mark = db
+    .prepare('SELECT at_ms, position FROM selfreflection WHERE id = ? AND retired_at IS NULL')
+    .get(through);
   if (!mark) return null;
   return db
     .prepare(
-      `SELECT id FROM diary WHERE retired_at IS NULL AND (at_ms, COALESCE(position, 0), id) <= (?, ?, ?) ${ENTRY_ORDER}`
+      `SELECT id FROM selfreflection WHERE retired_at IS NULL AND (at_ms, COALESCE(position, 0), id) <= (?, ?, ?) ${ENTRY_ORDER}`
     )
     .all(mark.at_ms, Number(mark.position ?? 0), through)
     .map((row) => String(row.id));
@@ -133,7 +135,7 @@ export function entriesThrough(handle: Connection, through: string): Array<strin
 
 /** The first id of `entries` that names no entry, or null. */
 export function unknownEntry(handle: Connection, entries: ReadonlyArray<string>): string | null {
-  const known = dbOf(handle).prepare('SELECT 1 AS ok FROM diary WHERE id = ? AND retired_at IS NULL');
+  const known = dbOf(handle).prepare('SELECT 1 AS ok FROM selfreflection WHERE id = ? AND retired_at IS NULL');
   return entries.find((id) => known.get(id) === undefined) ?? null;
 }
 
@@ -141,7 +143,7 @@ export function unknownEntry(handle: Connection, entries: ReadonlyArray<string>)
 function publicationsOfPlace(db: Db, placeId: string): Map<string, Row> {
   const rows = db
     .prepare(
-      `SELECT * FROM publications WHERE row_kind = 'diary' AND destination_place_id = ? AND retired_at IS NULL
+      `SELECT * FROM publications WHERE row_kind = 'selfreflection' AND destination_place_id = ? AND retired_at IS NULL
         ORDER BY status = 'sent', created_at, id`
     )
     .all(placeId);
@@ -152,16 +154,17 @@ function publicationsOfPlace(db: Db, placeId: string): Map<string, Row> {
 /** Statuses that take an entry out of a scan: it is on the place, on its way there, or nobody knows. */
 const SETTLED: ReadonlyArray<string> = ['sent', 'sending', 'unknown'];
 
-/** What `mirror` still lacks of the diary up to its high-water mark. */
+/** What `mirror` still lacks of the selfreflection up to its high-water mark. */
 export function historyOf(handle: Connection, mirror: MirrorRow): MirrorHistory {
   const db = dbOf(handle);
   const mark = mirror.backfill.highWater;
-  const top = mark === null ? undefined : db.prepare('SELECT at_ms, position FROM diary WHERE id = ?').get(mark);
+  const top =
+    mark === null ? undefined : db.prepare('SELECT at_ms, position FROM selfreflection WHERE id = ?').get(mark);
   if (!top) return { remaining: 0, next: null, blocked: null };
   const published = publicationsOfPlace(db, mirror.placeId);
   const rows = db
     .prepare(
-      `SELECT ${ENTRY_COLUMNS} FROM diary WHERE retired_at IS NULL AND (at_ms, COALESCE(position, 0), id) <= (?, ?, ?) ${ENTRY_ORDER}`
+      `SELECT ${ENTRY_COLUMNS} FROM selfreflection WHERE retired_at IS NULL AND (at_ms, COALESCE(position, 0), id) <= (?, ?, ?) ${ENTRY_ORDER}`
     )
     .all(top.at_ms, Number(top.position ?? 0), mark)
     .filter((row) => {
@@ -185,7 +188,7 @@ export function unpublishedSince(handle: Connection, mirror: MirrorRow): Array<S
   const db = dbOf(handle);
   const published = publicationsOfPlace(db, mirror.placeId);
   return db
-    .prepare(`SELECT ${ENTRY_COLUMNS} FROM diary WHERE retired_at IS NULL AND at_ms > ? ${ENTRY_ORDER}`)
+    .prepare(`SELECT ${ENTRY_COLUMNS} FROM selfreflection WHERE retired_at IS NULL AND at_ms > ? ${ENTRY_ORDER}`)
     .all(mirror.registeredAt)
     .filter((row) => !published.has(String(row.id)) && eligible(db, row, mirror.placeId))
     .map(scanned);
@@ -194,7 +197,9 @@ export function unpublishedSince(handle: Connection, mirror: MirrorRow): Array<S
 /** The newest entry's id, or null: the high-water mark of a backfill starting now. */
 function newestEntry(db: Db): string | null {
   const row = db
-    .prepare('SELECT id FROM diary WHERE retired_at IS NULL ORDER BY at_ms DESC, COALESCE(position, 0) DESC, id DESC')
+    .prepare(
+      'SELECT id FROM selfreflection WHERE retired_at IS NULL ORDER BY at_ms DESC, COALESCE(position, 0) DESC, id DESC'
+    )
     .get();
   return row ? String(row.id) : null;
 }
@@ -250,12 +255,12 @@ function add(db: Db, given: Row): { mirror: MirrorRow; reused: boolean } | null 
   const placeId = String(given.placeId);
   const now = Number(given.now);
   const by = String(given.by);
-  const found = db.prepare("SELECT * FROM mirrors WHERE row_kind = 'diary' AND place_id = ?").get(placeId);
-  const id = found ? String(found.id) : `mirror:diary:${placeId}`;
+  const found = db.prepare("SELECT * FROM mirrors WHERE row_kind = 'selfreflection' AND place_id = ?").get(placeId);
+  const id = found ? String(found.id) : `mirror:selfreflection:${placeId}`;
   if (!found)
     db.prepare(
       `INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra, registered_at)
-       VALUES (?, 'diary', ?, 1, ?, ?, NULL, ?)`
+       VALUES (?, 'selfreflection', ?, 1, ?, ?, NULL, ?)`
     ).run(id, placeId, new Date(now).toISOString(), by, now);
   else if (found.removed_at !== null)
     // Back after a removal: a new registration with the old row, whose delivery history still stands.

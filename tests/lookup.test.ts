@@ -50,7 +50,7 @@ function fakeHot({
       web: {
         acceptLanguage: 'el,en;q=0.5',
         links: { maxOutputTokens: 300, fetchTimeoutMs: 10_000, ...web.links },
-        search: {
+        quickSearch: {
           enabled: true,
           engine: 'brave',
           model: 'x/search',
@@ -549,9 +549,9 @@ test('search: logs counts and codes, never the query, the summary or the key', a
   assert.ok(!all.includes('test-key'));
 });
 
-// --- the engines and the fallback (web.search.engine, web.search.fallback) ---------
+// --- the engines and the fallback (web.quickSearch.engine, web.quickSearch.fallback) ---------
 
-/** setup() with web.search.engine / fallback set. */
+/** setup() with web.quickSearch.engine / fallback set. */
 function engineSetup(search: Untyped, overrides: Record<string, Untyped> = {}) {
   return setup({ ...overrides, hotOptions: { ...overrides.hotOptions, web: { search } } });
 }
@@ -588,7 +588,7 @@ test('search: engine openrouter -- one analyzer request with the Exa web plugin;
     { type: 'url_citation', url_citation: { url: 'javascript:alert(1)', title: 'Bad' } },
     { type: 'other' },
   ];
-  // PR 7d: `web.search.results` is the constant 5.
+  // PR 7d: `web.quickSearch.results` is the constant 5.
   const { lookup, braveSearch, exaSearch, llm, store } = engineSetup({ engine: 'openrouter' }, { braveApiKey: null });
   llm.complete = async (messages, options) => {
     llm.calls.push({ messages, options });
@@ -742,7 +742,7 @@ test('searchResults: engine openrouter -- one analyzer request (purpose quick-se
     { type: 'url_citation', url_citation: { url: 'https://www.example.com/one', title: 'Twice', content: 'again' } },
     { type: 'url_citation', url_citation: { url: 'javascript:alert(1)', title: 'Bad' } },
   ];
-  // PR 7d: `web.search.results` is the constant 5.
+  // PR 7d: `web.quickSearch.results` is the constant 5.
   const { lookup, braveSearch, exaSearch, llm } = engineSetup(
     { engine: 'openrouter', rawOutputTokens: 64 },
     { braveApiKey: null }

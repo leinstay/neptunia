@@ -177,7 +177,9 @@ function withState(db: DatabaseSync, value: object): void {
 }
 
 /** The state value of a converted database, read back by the store the engine uses. */
-async function stateAfter(value: object): Promise<{ diary?: Record<string, Plan | undefined>; marker?: unknown }> {
+async function stateAfter(
+  value: object
+): Promise<{ selfreflection?: Record<string, Plan | undefined>; marker?: unknown }> {
   const where = scene((db) => withState(db, value));
   assert.equal(convertFile(optionsOf(where)), 0);
   const dataDir = path.dirname(where.output);
@@ -190,7 +192,7 @@ async function stateAfter(value: object): Promise<{ diary?: Record<string, Plan 
   memoryDb.tick();
   try {
     const data: unknown = createStore({ dataDir, memoryDb }).state.data;
-    return structuredClone(data) as { diary?: Record<string, Plan | undefined>; marker?: unknown };
+    return structuredClone(data) as { selfreflection?: Record<string, Plan | undefined>; marker?: unknown };
   } finally {
     await memoryDb.close();
   }
@@ -198,28 +200,28 @@ async function stateAfter(value: object): Promise<{ diary?: Record<string, Plan 
 
 test('the day plan of the served community moves to the persona, with its done marks and its hunger', async () => {
   // Bug: the plan stays under `g1`, the diary plans the cutover day afresh and posts the slots it already spoke in.
-  const state = await stateAfter({ marker: 1, diary: { g1: PLAN } });
+  const state = await stateAfter({ marker: 1, selfreflection: { g1: PLAN } });
   assert.equal(state.marker, 1);
-  assert.deepEqual(state.diary?.persona, PLAN);
+  assert.deepEqual(state.selfreflection?.persona, PLAN);
 });
 
 test('no day plan stays under the community key', async () => {
   // Bug: a copy left behind names the server for ever and is read by nothing.
-  const state = await stateAfter({ diary: { g1: PLAN } });
-  assert.deepEqual(Object.keys(state.diary ?? {}), ['persona']);
+  const state = await stateAfter({ selfreflection: { g1: PLAN } });
+  assert.deepEqual(Object.keys(state.selfreflection ?? {}), ['persona']);
 });
 
 test('the newest day plan wins when several communities held one', async () => {
   // Bug: the order of the keys decides, and the older day loses the done marks of the cutover day.
   const older = { ...PLAN, day: '2026-11-01', done: [] };
-  const state = await stateAfter({ diary: { g0: older, g1: PLAN } });
-  assert.deepEqual(state.diary?.persona, PLAN);
+  const state = await stateAfter({ selfreflection: { g0: older, g1: PLAN } });
+  assert.deepEqual(state.selfreflection?.persona, PLAN);
 });
 
 test('a plan already under the persona is kept', async () => {
   // Bug: converting a converted database starts the day over.
-  const state = await stateAfter({ diary: { persona: PLAN } });
-  assert.deepEqual(state.diary?.persona, PLAN);
+  const state = await stateAfter({ selfreflection: { persona: PLAN } });
+  assert.deepEqual(state.selfreflection?.persona, PLAN);
 });
 
 // ---- a wake's lines filed under a group ----

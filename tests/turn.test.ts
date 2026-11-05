@@ -2218,7 +2218,7 @@ function addChannel(
 }
 
 /** The diary channel's lines: two by Éloïse, `ago` before NOW, the second one with a picture. */
-function diaryLines(ago = 3 * HOUR) {
+function selfreflectionLines(ago = 3 * HOUR) {
   const wall = { id: 'dp1', contentType: 'image/png', name: 'wall.png', url: 'https://cdn.discordapp.com/x/wall.png' };
   return [
     lineIn(DIARY, {
@@ -2249,7 +2249,7 @@ function pullScene({
   config = {},
   bot = {},
   mention = true,
-  diary = {},
+  selfreflection = {},
   between = [],
   routeChannels,
   describer,
@@ -2262,7 +2262,7 @@ function pullScene({
   config?: Record<string, unknown>;
   bot?: Record<string, unknown>;
   mention?: boolean;
-  diary?: Record<string, unknown>;
+  selfreflection?: Record<string, unknown>;
   between?: Array<ReturnType<typeof lineIn>>;
   routeChannels?: (args: Untyped) => Promise<Array<unknown>>;
   describer?: object;
@@ -2280,7 +2280,12 @@ function pullScene({
   });
   const call = lineIn('c1', { id: 'm9', ts: NOW - 1000, content: 'λοιπόν;' });
   const channel = fakeTurnChannel({ historyMessages: [asked, ...between, call] });
-  const other = addChannel(channel, { id: DIARY, name: 'diary', messages: diaryLines(), ...diary });
+  const other = addChannel(channel, {
+    id: DIARY,
+    name: 'diary',
+    messages: selfreflectionLines(),
+    ...selfreflection,
+  });
   const hot = fakeHot(features, bot, config);
   hot.config.context = { ...hot.config.context, ...context };
   const turns = createTurnRunner({
@@ -2593,7 +2598,7 @@ test('runTurn: an earlier route pick fetches the page before the oldest line sho
   );
   const scene = pullScene({
     mention: false,
-    diary: { messages: [...older, ...diaryLines()] },
+    selfreflection: { messages: [...older, ...selfreflectionLines()] },
     routeChannels: async () => answers.shift() ?? [],
   });
 
@@ -2683,8 +2688,8 @@ test('runTurn: context.pull.maxChannels caps the pulled channels, the newest men
 });
 
 test('runTurn: a pulled channel is left out of the neighbours', async () => {
-  const diary = { messages: diaryLines(10 * MINUTE) };
-  const pulled = pullScene({ diary });
+  const selfreflection = { messages: selfreflectionLines(10 * MINUTE) };
+  const pulled = pullScene({ selfreflection });
   await withCapturedLogs(() =>
     pulled.turns.runTurn({ channel: pulled.channel, mode: 'reply', trigger: pulled.trigger, triggerKind: 'mention' })
   );
@@ -2804,7 +2809,7 @@ test('runTurn: fresh captions for a pulled channel are asked only once the turn 
 });
 
 test('runTurn: a failed or throwing pull never fails the turn', async () => {
-  const failing = pullScene({ diary: { fetchFails: true } });
+  const failing = pullScene({ selfreflection: { fetchFails: true } });
   const failed = await withCapturedLogs(() =>
     failing.turns.runTurn({ channel: failing.channel, mode: 'reply', trigger: failing.trigger, triggerKind: 'mention' })
   );
@@ -2888,7 +2893,12 @@ function privatePullScene({
     memberFetches.push(member.accountId);
   });
   // The interface tells whether the partner (u1) can view each conversation of the listing.
-  const diary = addChannel(server, { id: DIARY, name: 'diary', messages: diaryLines(), viewers: { u1: canView } });
+  const selfreflection = addChannel(server, {
+    id: DIARY,
+    name: 'diary',
+    messages: selfreflectionLines(),
+    viewers: { u1: canView },
+  });
   const call = lineIn('dm1', {
     id: 'p1',
     authorId: 'u1',
@@ -2917,11 +2927,11 @@ function privatePullScene({
   const trigger = { ...normalizedTrigger(call), ...(mention ? { mentionedChannelIds: [DIARY] } : {}) };
   const run = () =>
     withCapturedLogs(() => turns.runTurn({ channel, placeId: 'g1', mode: 'reply', trigger, triggerKind: 'private' }));
-  return { channel, diary, memberFetches, llm, run };
+  return { channel, selfreflection, memberFetches, llm, run };
 }
 
 /** A route hook that names #diary and records its arguments. */
-function diaryHook() {
+function selfreflectionHook() {
   const calls: Array<Untyped> = [];
   const hook = async (args: unknown) => {
     calls.push(args);
@@ -2931,7 +2941,7 @@ function diaryHook() {
 }
 
 test('runTurn: with private.likeServer off a private chat asks no route hook, pulls no mention and fetches no partner', async () => {
-  const { calls, hook } = diaryHook();
+  const { calls, hook } = selfreflectionHook();
   const scene = privatePullScene({ likeServer: false, mention: true, routeChannels: hook });
 
   const { result, logs } = await scene.run();
@@ -2939,7 +2949,7 @@ test('runTurn: with private.likeServer off a private chat asks no route hook, pu
   assert.equal(result.outcome, 'spoke');
   assert.equal(calls.length, 0);
   assert.deepEqual(scene.memberFetches, []);
-  assert.deepEqual(scene.diary.fetches, []);
+  assert.deepEqual(scene.selfreflection.fetches, []);
   assert.equal(
     logs.some((l) => l.msg.startsWith('pull: ')),
     false
@@ -2947,7 +2957,7 @@ test('runTurn: with private.likeServer off a private chat asks no route hook, pu
 });
 
 test('runTurn: a private chat asks the route hook for its partner and pulls the picked channel the partner can view', async () => {
-  const { calls, hook } = diaryHook();
+  const { calls, hook } = selfreflectionHook();
   const scene = privatePullScene({ routeChannels: hook });
 
   const { result, logs } = await scene.run();
@@ -2965,20 +2975,20 @@ test('runTurn: a private chat asks the route hook for its partner and pulls the 
     calls[0].history.map((m: Untyped) => m.id),
     ['p1']
   );
-  assert.ok(scene.diary.fetches.length > 0, 'the picked channel was fetched');
+  assert.ok(scene.selfreflection.fetches.length > 0, 'the picked channel was fetched');
   const pulled = logs.find((l) => l.msg === 'pull: channel');
   assert.deepEqual([pulled?.channel, pulled?.source, pulled?.pullReason], ['dm1', DIARY, 'route']);
 });
 
 test('runTurn: a private chat never pulls a picked channel its partner cannot view', async () => {
-  const { calls, hook } = diaryHook();
+  const { calls, hook } = selfreflectionHook();
   const scene = privatePullScene({ routeChannels: hook, canView: false });
 
   const { result, logs } = await scene.run();
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(calls.length, 1);
-  assert.deepEqual(scene.diary.fetches, []);
+  assert.deepEqual(scene.selfreflection.fetches, []);
   assert.equal(
     logs.some((l) => l.msg === 'pull: channel'),
     false
@@ -2993,13 +3003,13 @@ test('runTurn: a private chat pulls an explicitly mentioned channel only when it
 
   const hidden = privatePullScene({ mention: true, canView: false });
   const { logs } = await hidden.run();
-  assert.deepEqual(hidden.diary.fetches, []);
+  assert.deepEqual(hidden.selfreflection.fetches, []);
   const skipped = logs.find((l) => l.msg === 'pull: skipped');
   assert.deepEqual([skipped?.source, skipped?.reason, skipped?.pullReason], [DIARY, 'audience', 'mention']);
 });
 
 test('runTurn: a private chat whose partner left the guild pulls nothing and logs the failed fetch', async () => {
-  const { calls, hook } = diaryHook();
+  const { calls, hook } = selfreflectionHook();
   const scene = privatePullScene({ mention: true, routeChannels: hook });
   world().port.failNext('memberInfo', { status: 'failed', error: { code: 'unknown-member', retryable: false } });
 
@@ -3007,7 +3017,7 @@ test('runTurn: a private chat whose partner left the guild pulls nothing and log
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(calls.length, 0);
-  assert.deepEqual(scene.diary.fetches, []);
+  assert.deepEqual(scene.selfreflection.fetches, []);
   const failed = logs.find((l) => l.msg === 'turn: partner failed');
   assert.deepEqual([failed?.placeId, failed?.accountId], ['g1', 'u1']);
 });
@@ -3044,7 +3054,7 @@ function routedScene({
   const other = addChannel(channel, {
     id: DIARY,
     name: 'diary',
-    messages: [...diaryLines(), ...before, call, ...after],
+    messages: [...selfreflectionLines(), ...before, call, ...after],
     readOnly: true,
   });
   const turns = createTurnRunner({
@@ -3138,14 +3148,14 @@ test("runTurn: a pulled channel shows the ring's earlier unanswered call with it
       content: `και πάλι ${n}`,
     })
   );
-  const diary = { messages: [earlier, ...diaryLines(), ...newer] };
+  const selfreflection = { messages: [earlier, ...selfreflectionLines(), ...newer] };
   const earlierHeader = labels.pull.earlierPings.split('{date}')[0];
 
   const store = fakeStore();
   store.state.data.elsewherePings = [
     { messageId: 'd0', placeId: DIARY, ts: NOW - 5 * HOUR, answeredAt: null, skippedAt: null },
   ];
-  const ringed = pullScene({ store, diary });
+  const ringed = pullScene({ store, selfreflection });
   await withCapturedLogs(() =>
     ringed.turns.runTurn({ channel: ringed.channel, mode: 'reply', trigger: ringed.trigger, triggerKind: 'mention' })
   );
@@ -3155,7 +3165,7 @@ test("runTurn: a pulled channel shows the ring's earlier unanswered call with it
   assert.ok(view?.includes(labels.pull.pingUnanswered), view ?? '');
 
   // Without the ring entry the old line is outside the window and nothing is marked.
-  const plain = pullScene({ diary });
+  const plain = pullScene({ selfreflection });
   await withCapturedLogs(() =>
     plain.turns.runTurn({ channel: plain.channel, mode: 'reply', trigger: plain.trigger, triggerKind: 'mention' })
   );
@@ -3202,11 +3212,13 @@ test("runTurn: a routed call's pictures are captioned through the pull, never as
 });
 
 test('runTurn: a read-only neighbour is marked in the server map', async () => {
-  const store = fakeStore({ channels: [{ id: DIARY, name: 'diary', lastMessageAt: NOW - 10 * MINUTE, days: {} }] });
+  const store = fakeStore({
+    channels: [{ id: DIARY, name: 'diary', lastMessageAt: NOW - 10 * MINUTE, days: {} }],
+  });
   for (const readOnly of [true, false]) {
     const scene = pullScene({
       features: {},
-      diary: { messages: diaryLines(10 * MINUTE), readOnly },
+      selfreflection: { messages: selfreflectionLines(10 * MINUTE), readOnly },
       store,
     });
     await withCapturedLogs(() =>
@@ -3330,7 +3342,7 @@ test('runTurn: a pulled channel whose fetch throws costs the turn only that chan
 
 test('runTurn: fresh captions that fail after a chooser leave the cached ones', async () => {
   const door = { id: 'dp2', contentType: 'image/png', name: 'door.png', url: 'https://cdn.discordapp.com/x/door.png' };
-  const [first, second] = diaryLines();
+  const [first, second] = selfreflectionLines();
   const messages = [{ ...first, attachments: new Map([['dp2', door]]) }, second];
   let reads = 0;
   const describer = {
@@ -3342,7 +3354,7 @@ test('runTurn: fresh captions that fail after a chooser leave the cached ones', 
       return new Map([['dp1', 'cached caption of dp1']]);
     },
   };
-  const scene = pullScene({ features: {}, describer, diary: { messages } });
+  const scene = pullScene({ features: {}, describer, selfreflection: { messages } });
 
   const { result, logs } = await withCapturedLogs(() =>
     scene.turns.runTurn({ channel: scene.channel, mode: 'auto', chooseMode: () => 'interject' })
@@ -3430,13 +3442,13 @@ test('runTurn: without labels.pull.header only the source is pulled, with cached
 // in routedScene the chat is #1 m1 (Bob) and the diary #2 d1, #3 d2, #4 d3 (the call).
 
 /** Discord's jump link to a diary line of the fixture guild g1. */
-function diaryLink(messageId: string) {
+function selfreflectionLink(messageId: string) {
   return `https://discord.com/channels/g1/${DIARY}/${messageId}`;
 }
 
 /** `text` with the jump link to diary line `messageId`, joined through the fixture's labels.elsewhere.link. */
 function linked(text: string, messageId: string) {
-  return fill(labels.elsewhere.link, { text, link: diaryLink(messageId) });
+  return fill(labels.elsewhere.link, { text, link: selfreflectionLink(messageId) });
 }
 
 test('runTurn: a reaction to a pulled line reacts in the source channel, one to a chat line stays here', async () => {
@@ -3740,7 +3752,7 @@ test('runTurn: labels.elsewhere.link is read at the moment of use; without it th
 
   assert.deepEqual(
     scene.channel.sent.map((post) => post.content),
-    [`ναι [from ${diaryLink('d3')}]`, `ναι -> ${diaryLink('d3')}`, `ναι\n${diaryLink('d3')}`]
+    [`ναι [from ${selfreflectionLink('d3')}]`, `ναι -> ${selfreflectionLink('d3')}`, `ναι\n${selfreflectionLink('d3')}`]
   );
 });
 
@@ -3774,7 +3786,7 @@ test('runTurn: a post over the Discord limit keeps its link and arrives whole as
   const posts = postedTexts(scene.channel);
   assertSplitIntact(posts);
   assert.ok(posts.join('').startsWith('a'.repeat(1990)), 'the text is not cut at its end');
-  assert.ok(posts.join('').endsWith(` [from ${diaryLink('d3')}]`), 'the link is kept');
+  assert.ok(posts.join('').endsWith(` [from ${selfreflectionLink('d3')}]`), 'the link is kept');
 });
 
 test('runTurn: a pulled channel gets its seen mark and its spokeSaw ids', async () => {
@@ -3810,7 +3822,7 @@ test('runTurn: the seen mark follows the request sent: set on a skip, never for 
 
   // A channel the bot cannot write in, the one kind that gets spokeSaw ids: shown -> its ids,
   // cut by the budget -> none.
-  const kept = pullScene({ diary: { readOnly: true } });
+  const kept = pullScene({ selfreflection: { readOnly: true } });
   const shown = await withCapturedLogs(() =>
     kept.turns.runTurn({ channel: kept.channel, mode: 'reply', trigger: kept.trigger, triggerKind: 'mention' })
   );
@@ -3819,7 +3831,7 @@ test('runTurn: the seen mark follows the request sent: set on a skip, never for 
   assert.equal(kept.turns.spokeAfterSeeing(DIARY, 'd1'), true, 'the control records what it showed');
 
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
-  const dropped = pullScene({ diary: { readOnly: true }, context: { caps } });
+  const dropped = pullScene({ selfreflection: { readOnly: true }, context: { caps } });
   const cut = await withCapturedLogs(() =>
     dropped.turns.runTurn({ channel: dropped.channel, mode: 'reply', trigger: dropped.trigger, triggerKind: 'mention' })
   );
@@ -3909,7 +3921,7 @@ function markedLines(logs: Untyped) {
  * pullScene options whose read-only #diary holds two calls to the persona before its lines (e1 by
  * Zoë, e2 by Chloé, both in the ring): in the request #3 e1, #4 e2, #5 d1, #6 d2.
  */
-function ringedDiary(options: Parameters<typeof pullScene>[0] = {}) {
+function ringedSelfreflection(options: Parameters<typeof pullScene>[0] = {}) {
   const calls = [
     lineIn(DIARY, {
       id: 'e1',
@@ -3928,8 +3940,12 @@ function ringedDiary(options: Parameters<typeof pullScene>[0] = {}) {
   ];
   const store = fakeStore();
   store.state.data.elsewherePings = calls.map(ringEntry);
-  const { diary = {}, ...rest } = options;
-  return { store, ...rest, diary: { messages: [...calls, ...diaryLines()], readOnly: true, ...diary } };
+  const { selfreflection = {}, ...rest } = options;
+  return {
+    store,
+    ...rest,
+    selfreflection: { messages: [...calls, ...selfreflectionLines()], readOnly: true, ...selfreflection },
+  };
 }
 
 test('runTurn: a turn that showed calls of a read-only channel stamps them: answered when its output answered them, skipped otherwise', async () => {
@@ -3943,7 +3959,7 @@ test('runTurn: a turn that showed calls of a read-only channel stamps them: answ
     ['a message answering no pulled line', '<msg>καλημέρα</msg>', { e1: 'skipped', e2: 'skipped' }],
   ];
   for (const [label, answer, states] of answerCases) {
-    const scene = pullScene(ringedDiary({ features: quiet, llm: fakeLlm(answer) }));
+    const scene = pullScene(ringedSelfreflection({ features: quiet, llm: fakeLlm(answer) }));
 
     const { result, logs } = await withCapturedLogs(() =>
       scene.turns.runTurn({ channel: scene.channel, mode: 'reply', trigger: scene.trigger, triggerKind: 'mention' })
@@ -3963,7 +3979,9 @@ test('runTurn: a turn that showed calls of a read-only channel stamps them: answ
   }
 
   // The reply to e1 posts in the chat with its jump link, never as a Discord reply across channels.
-  const replied = pullScene(ringedDiary({ features: quiet, llm: fakeLlm('<msg reply="#3">ναι, εδώ είμαι</msg>') }));
+  const replied = pullScene(
+    ringedSelfreflection({ features: quiet, llm: fakeLlm('<msg reply="#3">ναι, εδώ είμαι</msg>') })
+  );
   await withCapturedLogs(() =>
     replied.turns.runTurn({ channel: replied.channel, mode: 'reply', trigger: replied.trigger, triggerKind: 'mention' })
   );
@@ -3974,7 +3992,7 @@ test('runTurn: a turn that showed calls of a read-only channel stamps them: answ
 });
 
 test('runTurn: a turn that chose silence stamps the calls it showed skipped; a dropped block or a writable channel stamps none', async () => {
-  const silent = pullScene(ringedDiary({ llm: fakeLlm('<skip/>') }));
+  const silent = pullScene(ringedSelfreflection({ llm: fakeLlm('<skip/>') }));
   const skip = await withCapturedLogs(() =>
     silent.turns.runTurn({ channel: silent.channel, mode: 'reply', trigger: silent.trigger, triggerKind: 'mention' })
   );
@@ -3991,12 +4009,12 @@ test('runTurn: a turn that chose silence stamps the calls it showed skipped; a d
 
   const caps = { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, pulled: 1 };
   const cases: Array<[string, Parameters<typeof pullScene>[0], string]> = [
-    ['the block cut by the budget', ringedDiary({ context: { caps } }), 'spoke'],
-    ['a skip whose block was cut', ringedDiary({ context: { caps }, llm: fakeLlm('<skip/>') }), 'skip'],
+    ['the block cut by the budget', ringedSelfreflection({ context: { caps } }), 'spoke'],
+    ['a skip whose block was cut', ringedSelfreflection({ context: { caps }, llm: fakeLlm('<skip/>') }), 'skip'],
     // A call written where the bot can write is answered there, not by being shown here.
     [
       'a writable channel',
-      ringedDiary({ diary: { readOnly: false }, llm: fakeLlm('<msg reply="#3">ναι</msg>') }),
+      ringedSelfreflection({ selfreflection: { readOnly: false }, llm: fakeLlm('<msg reply="#3">ναι</msg>') }),
       'spoke',
     ],
   ];
@@ -4011,7 +4029,7 @@ test('runTurn: a turn that chose silence stamps the calls it showed skipped; a d
   }
 
   // Paused while the turn ran (the owner may be editing data/): the ring is left as it was.
-  const paused = pullScene(ringedDiary());
+  const paused = pullScene(ringedSelfreflection());
   paused.llm.complete = async () => {
     paused.store.state.data.paused = true;
     return { text: '<msg reply="#3">ναι</msg>', usage: {}, estimated: 10 };
@@ -7690,7 +7708,7 @@ async function callTurn({
   store = fakeStore(),
   beforeSend = null,
   failNext = null,
-  diary = null,
+  selfreflection = null,
   configExtra = {},
   turnExtra = {},
   emoji = null,
@@ -7730,7 +7748,7 @@ async function callTurn({
     reads: world().adopt(port),
     port,
     ...(images ? { images } : {}),
-    ...(diary ? { diary: diary(hot) } : {}),
+    ...(selfreflection ? { selfreflection: selfreflection(hot) } : {}),
   });
   const llm = sequenceLlm(answers);
   const complete = llm.complete;

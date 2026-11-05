@@ -242,7 +242,7 @@
       "maxOutputTokens": 4000,
       "fetchTimeoutMs": 10000
     },
-    "search": {
+    "quickSearch": {
       "enabled": true,
       "engine": null,
       "model": null,

@@ -123,7 +123,7 @@ export function evaluateSchedule(input: {
 }
 
 /**
- * The next `count` moments of `schedule` after `now`, for an answer to read. `onDayGrid` is the diary, which lays an
+ * The next `count` moments of `schedule` after `now`, for an answer to read. `onDayGrid` is the selfreflection, which lays an
  * interval from the start of the UTC day; the other mechanics count an interval from their last run.
  */
 export function nextMoments(

@@ -19,7 +19,7 @@ Start with the task you want to do. These guides describe the engine and its pub
 | [Core](core.md) | How an event becomes a turn and a reply |
 | [Memory](memory.md) | People, accounts, places, recall and the raw archive |
 | [Inner life](inner-life.md) | Heartbeat, attention and recurring intentions |
-| [Diary](diary.md) | Entries, images and publication |
+| [Selfreflection](selfreflection.md) | Entries, images and publication |
 | [Media](media.md) | Descriptions, drawing, voice and search |
 
 ## Extend and maintain

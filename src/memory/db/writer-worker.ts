@@ -5,7 +5,7 @@
 // Messages in  { id, type: 'open', path, context }             open the database with the writer lock (`context`: what
 //                                                               a migration needs from the opener, open.ts#migrate)
 //              { id, type: 'turnReads', turnId, step, rows }    the turn_reads rows, resolved by the caller at assembly time
-//              { id, type: 'diaryApply', update }               one diary row's text and picture rows (diary-media.ts)
+//              { id, type: 'selfreflectionApply', update }               one selfreflection row's text and picture rows (selfreflection-media.ts)
 //              { id, type: 'memoryWrite', update }              one write of her memory session or a description review, or
 //                                                               of a memory unit (session-write.ts, unit-write.ts)
 //              { id, type: 'focus', now, config }               the focus job: recount and recompute (focus.ts#runFocusDay)
@@ -22,7 +22,7 @@ import process from 'node:process';
 import { importCoreJsonState } from '../migration/core-state-import.ts';
 import { openMemoryDb } from './open.ts';
 import { insertTurnReads, turnReadRows } from './service.ts';
-import { applyDiaryUpdate } from './diary-media.ts';
+import { applySelfreflectionUpdate } from './selfreflection-media.ts';
 import { applyMemoryWrite } from './session-write.ts';
 import { runFocusDay } from './focus.ts';
 import { deleteMessage, observeMessage } from './message-families.ts';
@@ -80,8 +80,8 @@ const handlers: Record<string, (message: Row) => unknown> = {
     insertTurnReads(open, turnId as string, step, rows);
     return { rows: rows.length };
   },
-  diaryApply({ update }) {
-    applyDiaryUpdate(opened(), update);
+  selfreflectionApply({ update }) {
+    applySelfreflectionUpdate(opened(), update);
     return {};
   },
   memoryWrite({ update }) {

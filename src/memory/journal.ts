@@ -280,7 +280,7 @@ export function createOffPeriodsReader({
  * Which message started the turn that posted each of the persona's messages, from journal
  * records (parsed lines, any kinds, oldest first): a `turn.start` names its turn's trigger
  * (`trigger.messageId`), a `turn` record its posts (`posted[].messageId`), joined by `turnId`.
- * A turn without a trigger (a spontaneous turn, the diary) or whose `turn.start` is not among the
+ * A turn without a trigger (a spontaneous turn, the selfreflection) or whose `turn.start` is not among the
  * records links nothing. `[postedId, triggerId]` pairs in the order of the posts. Pure.
  */
 export function triggerLinksOf(records: Array<unknown>): Array<[string, string]> {

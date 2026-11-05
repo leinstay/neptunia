@@ -19,7 +19,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `bot.timezone` | string | `"UTC"` | Timezone for model timestamps | `src/behavior/diary.ts` |
+| `bot.timezone` | string | `"UTC"` | Timezone for model timestamps | `src/behavior/selfreflection.ts` |
 | `bot.owners` | array | `[]` | Native ids of the home interface that count as owners until `bot.ownerPerson` is set; the input of that migration | `src/behavior/core-pause.ts` |
 | `bot.ownerPerson` | string | `""` | The person whose bound accounts are the owner, written by the first line of the command line on a raw install and by `/memory bind <iface> <account> owner`. See [Owner identity](memory.md#owner-identity) | `src/tools/impl/grants.ts` |
 | `bot.access` | map | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
@@ -47,7 +47,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.byPurpose` | map | `{}` | Model ids keyed by purpose string (`reply`, `query-builder`, `recall-summary`, `diary-plan`, `planner`, `web-search` and the like). A match on purpose wins over the role's model. Not probed by the status card | `src/llm/embed.ts` |
+| `models.byPurpose` | map | `{}` | Model ids keyed by purpose string (`reply`, `query-builder`, `recall-summary`, `selfreflection-planner`, `planner`, `web-search` and the like). A match on purpose wins over the role's model. Not probed by the status card | `src/llm/embed.ts` |
 
 ## models.errands
 
@@ -279,14 +279,14 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `web.links.readCacheHours` | number | `6` | Hours a page read by `web.read` is cached | `src/web/lookup.ts` |
 | `web.links.maxOutputTokens` | number | `4000` | Max output tokens for the condenser | `src/behavior/recall.ts` |
 | `web.links.fetchTimeoutMs` | number | `10000` | Download timeout per page (ms) | `src/web/lookup.ts` |
-| `web.search.enabled` | boolean | `true` | Whether quick search may run once an engine is chosen. `web.read` does not depend on it | `src/tools/impl/status.ts` |
-| `web.search.engine` | string, null | `null` | The one engine of quick search: `brave`, `exa` or `openrouter`. `null` leaves quick search off, and nothing answers for a chosen engine that fails | `src/web/lookup.ts` |
-| `web.search.model` | string, null | `null` | The model of the `openrouter` engine and of the search summary, apart from the analyzer. `null` leaves the `openrouter` engine off | `src/llm/roles.ts` |
-| `web.search.rawOutputTokens` | number | `256` | Max output tokens of the `openrouter` engine's request for `web.search` | `src/web/lookup.ts` |
-| `web.search.maxOutputTokens` | number | `4000` | Max output tokens for the condenser | `src/llm/openrouter.ts` |
-| `web.search.classifierMaxOutputTokens` | number | `2000` | Max output tokens for the search classifier the measuring tools ask (no live turn asks it) | `scripts/search-policy-eval.ts` |
-| `web.search.cacheHours` | number | `24` | Hours a cached search result is served | `src/web/lookup.ts` |
-| `web.search.timeoutMs` | number | `10000` | Search request timeout (ms) | `src/behavior/recall-run.ts` |
+| `web.quickSearch.enabled` | boolean | `true` | Whether quick search may run once an engine is chosen. `web.read` does not depend on it | `src/tools/impl/status.ts` |
+| `web.quickSearch.engine` | string, null | `null` | The one engine of quick search: `brave`, `exa` or `openrouter`. `null` leaves quick search off, and nothing answers for a chosen engine that fails | `src/web/lookup.ts` |
+| `web.quickSearch.model` | string, null | `null` | The model of the `openrouter` engine and of the search summary, apart from the analyzer. `null` leaves the `openrouter` engine off | `src/llm/roles.ts` |
+| `web.quickSearch.rawOutputTokens` | number | `256` | Max output tokens of the `openrouter` engine's request for `web.search` | `src/web/lookup.ts` |
+| `web.quickSearch.maxOutputTokens` | number | `4000` | Max output tokens for the condenser | `src/llm/openrouter.ts` |
+| `web.quickSearch.classifierMaxOutputTokens` | number | `2000` | Max output tokens for the search classifier the measuring tools ask (no live turn asks it) | `scripts/search-policy-eval.ts` |
+| `web.quickSearch.cacheHours` | number | `24` | Hours a cached search result is served | `src/web/lookup.ts` |
+| `web.quickSearch.timeoutMs` | number | `10000` | Search request timeout (ms) | `src/behavior/recall-run.ts` |
 
 ## recall
 
@@ -397,17 +397,17 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `selfreflection.enabled` | boolean | `true` | Whether her diary posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs | `src/behavior/diary.ts` |
-| `selfreflection.schedule` | string, null | `null` | Exact UTC slots of the diary, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day | `src/behavior/diary.ts` |
-| `selfreflection.placeId` | string | `""` | The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it | `src/memory/db/service.ts` |
-| `selfreflection.world` | boolean | `false` | Include `prompts/world.md` as a `<world>` block in diary requests | `src/behavior/prompt.ts` |
-| `selfreflection.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/diary.ts` |
-| `selfreflection.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/diary.ts` |
-| `selfreflection.forceWaitMs` | number | `120000` | Milliseconds a forced post waits for a running turn | `src/behavior/diary.ts` |
-| `selfreflection.loop.maxSteps` | number | `2` | Further requests one diary post makes | `src/turn/settings.ts` |
+| `selfreflection.enabled` | boolean | `true` | Whether her selfreflection posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs | `src/behavior/selfreflection.ts` |
+| `selfreflection.schedule` | string, null | `null` | Exact UTC slots of the selfreflection, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day | `src/behavior/selfreflection.ts` |
+| `selfreflection.placeId` | string | `""` | The seed of the selfreflection's first mirror: schema v15 makes this channel's place a `selfreflection` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it | `src/memory/db/service.ts` |
+| `selfreflection.world` | boolean | `false` | Include `prompts/world.md` as a `<world>` block in selfreflection requests | `src/behavior/prompt.ts` |
+| `selfreflection.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/selfreflection.ts` |
+| `selfreflection.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/selfreflection.ts` |
+| `selfreflection.forceWaitMs` | number | `120000` | Milliseconds a forced post waits for a running turn | `src/behavior/selfreflection.ts` |
+| `selfreflection.loop.maxSteps` | number | `2` | Further requests one selfreflection post makes | `src/turn/settings.ts` |
 | `selfreflection.loop.timeBudgetMs` | number | `600000` | How long calls and follow-ups may run | `src/turn/settings.ts` |
-| `selfreflection.planMaxOutputTokens` | number | `2000` | Max output tokens for the plan request | `src/turn/diary.ts` |
-| `selfreflection.planTimeoutMs` | number | `60000` | Timeout for the plan request (ms) | `src/turn/diary.ts` |
+| `selfreflection.planMaxOutputTokens` | number | `2000` | Max output tokens for the plan request | `src/turn/selfreflection.ts` |
+| `selfreflection.planTimeoutMs` | number | `60000` | Timeout for the plan request (ms) | `src/turn/selfreflection.ts` |
 
 ## mirrors
 
@@ -415,8 +415,8 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `mirrors.claimLeaseMs` | number | `600000` | How long a claimed diary publication stands with no word from its publisher. Past it the publisher counts as gone and the send as uncertain | `src/behavior/mirror.ts` |
-| `mirrors.sendTimeoutMs` | number | `120000` | How long one send of a diary publication may take before its result counts as uncertain, at most `mirrors.claimLeaseMs` | `src/behavior/mirror.ts` |
+| `mirrors.claimLeaseMs` | number | `600000` | How long a claimed selfreflection publication stands with no word from its publisher. Past it the publisher counts as gone and the send as uncertain | `src/behavior/mirror.ts` |
+| `mirrors.sendTimeoutMs` | number | `120000` | How long one send of a selfreflection publication may take before its result counts as uncertain, at most `mirrors.claimLeaseMs` | `src/behavior/mirror.ts` |
 
 ## private
 

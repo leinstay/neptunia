@@ -11,7 +11,7 @@ import { readKeys } from '../keys/file.ts';
 import { backendOfAgent } from '../subharness/control.ts';
 import { sourceProblem, sourceState } from '../subharness/sources.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
-import { nextWindowStart } from '../behavior/diary.ts';
+import { nextWindowStart } from '../behavior/selfreflection.ts';
 import { innerSettings } from '../behavior/inner/settings.ts';
 import { setPath } from '../tools/impl/shared.ts';
 import { objOf } from '../tools/types.ts';
@@ -71,7 +71,7 @@ const failed = (text: string): ServiceAnswer => ({ text, status: 'failed' });
 const lines = (fields: ReadonlyArray<readonly [string, string]>): string =>
   fields.map(([key, value]) => `${key}: ${value}`).join('\n');
 
-/** The schedule in force: null for a diary with none set, which keeps its windows. */
+/** The schedule in force: null for a selfreflection with none set, which keeps its windows. */
 function scheduleOf(name: ServiceName, config: unknown): ServiceSchedule | null {
   switch (name) {
     case 'heartbeat':
@@ -296,7 +296,7 @@ export function serviceFamily(
   }
 }
 
-/** The clock of a wake out of the running inner life and diary, for the core's console. */
+/** The clock of a wake out of the running inner life and selfreflection, for the core's console. */
 export function wakeClockOf(
   name: ServiceName,
   sources: {
@@ -309,12 +309,14 @@ export function wakeClockOf(
         inflight: { kind: string } | null;
       } | null;
     };
-    diary: { status(): { slots: ReadonlyArray<number>; done: ReadonlyArray<number>; lastPosted?: number | null } };
+    selfreflection: {
+      status(): { slots: ReadonlyArray<number>; done: ReadonlyArray<number>; lastPosted?: number | null };
+    };
   }
 ): WakeClock | null {
-  const { now, inner, diary } = sources;
+  const { now, inner, selfreflection } = sources;
   if (name === 'selfreflection') {
-    const { slots, done, lastPosted } = diary.status();
+    const { slots, done, lastPosted } = selfreflection.status();
     return {
       running: null,
       lastAt: lastPosted ?? null,

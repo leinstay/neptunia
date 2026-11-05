@@ -14,7 +14,7 @@
 // - `analyzer`   the core's classifier model: picks one of a few given options (address, room,
 //                merge, elsewhere-pick, rewatch, split, media-pick, missed),
 //                plans a search and turns sources into notes (query-builder, recall-summary,
-//                search-summary, diary-plan);
+//                search-summary, selfreflection-planner);
 // - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
 // - `embedding`  turns text into vectors for search by meaning;
@@ -51,13 +51,13 @@ export const MEMORY_ROLE_DEFAULT = 'anthropic/claude-opus-4.6';
 
 /**
  * Quick search's own binding target and request role: a key bound to it (`/keys bind search <name>`) leaves the analyzer's
- * key alone, and unbinding it goes back to the core keys. Its model is the setting `web.search.model`.
+ * key alone, and unbinding it goes back to the core keys. Its model is the setting `web.quickSearch.model`.
  */
 export const SEARCH_ROLE = 'search';
 
 /** The model of quick search and of the scout's web search; undefined until the owner sets one, as it has no default. */
 export function searchModel(config: unknown): string | undefined {
-  const model = objOf(objOf(objOf(config).web).search).model;
+  const model = objOf(objOf(objOf(config).web).quickSearch).model;
   return typeof model === 'string' && model !== '' ? model : undefined;
 }
 
@@ -168,7 +168,7 @@ export const PURPOSE_ROLES = Object.freeze({
   'query-builder': 'analyzer',
   'recall-summary': 'analyzer',
   'search-summary': 'analyzer',
-  'diary-plan': 'analyzer',
+  'selfreflection-planner': 'analyzer',
   speech: 'analyzer',
   // Usage rows and `models.byPurpose` pins written before quick search took its own name still read as this.
   'web-search': 'analyzer',

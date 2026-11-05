@@ -8,14 +8,14 @@ import type { SkillUse } from '../../memory/db/skills.ts';
 import type { IndexedSkill } from '../../skills/uses.ts';
 import type { createElsewhereHooks } from '../../behavior/elsewhere-pick.ts';
 import type { createPullViews } from '../../behavior/pull-fetch.ts';
-import type { recordEntry } from '../../behavior/diary-turn.ts';
+import type { recordEntry } from '../../behavior/selfreflection-turn.ts';
 import type { refreshEmojiIfOn } from '../../behavior/emoji-index.ts';
 import type { Deadline } from '../../behavior/turn-parts.ts';
 import type { ErrandRecord } from '../../errands/types.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
 import type { SkillMap } from '../../tools/types.ts';
-import type { Diary, DiaryConfig } from '../diary.ts';
+import type { Selfreflection, SelfreflectionConfig } from '../selfreflection.ts';
 import type { Facts } from '../facts.ts';
 import type { InTurnTools, InTurnConfig } from '../in-turn-tools.ts';
 import type { Inputs, InputsConfig } from '../inputs.ts';
@@ -31,7 +31,7 @@ import type { TriggerKind } from '../triggers.ts';
 /** The live config, as far as the phases read it; the functions they call read their own sections. */
 export type PhaseConfig = LookupConfig &
   PullsConfig &
-  DiaryConfig &
+  SelfreflectionConfig &
   ToolRoundConfig &
   ParticipationConfig &
   SendsConfig &
@@ -39,7 +39,7 @@ export type PhaseConfig = LookupConfig &
   NotesConfig &
   InTurnConfig & {
     web?: {
-      search?: { enabled?: unknown; contextMessages?: number } | null;
+      quickSearch?: { enabled?: unknown; contextMessages?: number } | null;
       links?: { enabled?: unknown; maxPerTurn?: number } | null;
     } | null;
     media?: {
@@ -51,7 +51,7 @@ export type PhaseConfig = LookupConfig &
     mention?: { oneAtATime?: unknown } | null;
     format?: { stripDashes?: unknown } | null;
     bot?: { timezone?: string } | null;
-    diary?: { maxMessages?: number; setKinds?: unknown } | null;
+    selfreflection?: { maxMessages?: number; setKinds?: unknown } | null;
   };
 
 /** The labels, as far as the phases read them; the text functions read their own sections. */
@@ -139,8 +139,8 @@ export type PhaseContext = {
     'conversationOf' | 'turnContextOf' | 'stableFreezeOf' | 'errandsInputFor' | 'intentionsInputFor' | 'placesInputFor'
   > &
   Pick<JournalNotes, 'linkTriggers' | 'linkCalls' | 'earlierThinkFor' | 'journalOn' | 'offPeriodsFor' | 'journalOp'> &
-  Pick<Diary, 'prepareDiary' | 'diaryPictureGate'> &
-  Pick<Sends, 'emojiLookup' | 'settleAuthor' | 'diaryChannelName'> &
+  Pick<Selfreflection, 'prepareSelfreflection' | 'selfreflectionPictureGate'> &
+  Pick<Sends, 'emojiLookup' | 'settleAuthor' | 'selfreflectionChannelName'> &
   Pulls &
   Pick<ToolRound, 'readHistory' | 'noteThink' | 'stepTranscript' | 'runSteps'> & {
     cancelOf: (triggerId: string | null) => AbortSignal | null;
@@ -212,7 +212,7 @@ export type PhaseParams = {
   part?: { index: number; total: number; parts: Array<string> } | null;
   reuseHistory?: Array<object> | null;
   plainPosts?: boolean;
-  diary?: { kind?: unknown; forced?: boolean; [key: string]: unknown } | null;
+  selfreflection?: { kind?: unknown; forced?: boolean; [key: string]: unknown } | null;
   journalTurn?: { turnId?: string | null; attemptId?: string | null } | null;
   missed?: ReadonlyArray<{ author?: unknown; text?: unknown } | null> | null;
   stillDue?: (() => boolean) | null;

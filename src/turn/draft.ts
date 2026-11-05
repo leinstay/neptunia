@@ -54,7 +54,7 @@ type ModuleDrafts = ToolRoundDraft &
  * runTurnOnce creates the draft with its limits, and the request phase sets the tools and the response phase the
  * format counts before the tool round reads them.
  */
-export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'diary'> & {
+export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfreflection'> & {
   limits: Limits;
   // An inner turn (mode `inner`): her calls pass its gate.
   inner?: InnerTurn | null;
@@ -73,8 +73,8 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'diary'>
   transport?: 'native' | 'text';
   snapshot?: Snapshot | null;
   requesterGroups?: Array<string>;
-  // A diary post: whether its kind is a set of pictures.
-  diary?: { set: boolean } | null;
+  // A selfreflection post: whether its kind is a set of pictures.
+  selfreflection?: { set: boolean } | null;
   deletedIds?: unknown;
   factsShown?: Array<string>;
   toolNames?: Array<string>;
@@ -99,9 +99,9 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'diary'>
   replyTargets?: Array<string>;
   sendFailure?: Record<string, unknown>;
   gifFailure?: unknown;
-  diaryVoice?: unknown;
-  /** The bodies of her `<audience>` tags over every answer of a diary turn (src/llm/parse.ts#takeAudience). */
-  diaryAudience?: Array<string>;
+  selfreflectionVoice?: unknown;
+  /** The bodies of her `<audience>` tags over every answer of a selfreflection turn (src/llm/parse.ts#takeAudience). */
+  selfreflectionAudience?: Array<string>;
   innerActions?: Array<unknown>;
   innerIntentIds?: Iterable<string>;
 };

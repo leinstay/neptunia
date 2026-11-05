@@ -35,7 +35,7 @@ function hotFixture() {
       llm: { analyzerTimeoutMs: 9000 },
       web: {
         maxPerDay: 0,
-        search: {
+        quickSearch: {
           model: 'test/search',
           engine: 'brave',
           results: 5,

@@ -5,7 +5,7 @@
 
 import type { AroundSnapshot } from '../behavior/around-store.ts';
 import { audienceCovers } from '../behavior/elsewhere.ts';
-import { diaryConversationIds } from '../behavior/mirror.ts';
+import { selfreflectionConversationIds } from '../behavior/mirror.ts';
 import { audienceAllows, everyMemberAudience, railAudience } from '../behavior/snapshot.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.ts';
@@ -120,12 +120,12 @@ export function createParticipation({ store, around, clock }: ParticipationConte
   /**
    * Whether a server turn in `channel` has the persona's participation store: features.memory
    * and features.participation on (`config`, the turn's live config; a missing key counts as on),
-   * a server channel that is not a place of her diary (src/behavior/mirror.ts#diaryConversationIds), and a store that
+   * a server channel that is not a place of her selfreflection (src/behavior/mirror.ts#selfreflectionConversationIds), and a store that
    * keeps one. Recording, the pick classifier and the `<participation>` block all ask this.
    */
   function participationOn(channel: ConversationInfo): boolean {
     if (!inCommunity(channel) || typeof store.getParticipation !== 'function') return false;
-    return !diaryConversationIds(store).has(String(channel.id));
+    return !selfreflectionConversationIds(store).has(String(channel.id));
   }
 
   /**
@@ -154,7 +154,7 @@ export function createParticipation({ store, around, clock }: ParticipationConte
    * The live part of `<people_now>` (src/behavior/around-store.ts): the snapshot of the voice channels and
    * of the statuses (the prompt builder computes each person's row from it) and the voice channels' names -- only those a member without any role may see, so
    * she never names who sits in a room this chat cannot see. Null without the store, with
-   * `features.around` off (a missing key counts as on), in a private chat and in a diary post.
+   * `features.around` off (a missing key counts as on), in a private chat and in a selfreflection post.
    * Read at the moment of the request; nothing of it is kept.
    */
   function aroundInputFor({
@@ -167,7 +167,7 @@ export function createParticipation({ store, around, clock }: ParticipationConte
     isPrivate: boolean;
     snapshot?: Snapshot | null;
   }): AroundInput | null {
-    if (!around || isPrivate || mode === 'diary') return null;
+    if (!around || isPrivate || mode === 'selfreflection') return null;
     return {
       snapshot: around.view(),
       channelNameOf: (placeId) => {
@@ -298,7 +298,7 @@ export function createParticipation({ store, around, clock }: ParticipationConte
    * block is never worth a turn.
    */
   /**
-   * `<recent>` of a turn that belongs to no server (her diary with no place to be posted in): the recent lines of every
+   * `<recent>` of a turn that belongs to no server (her selfreflection with no place to be posted in): the recent lines of every
    * place in `holders`, each under the audience rule of `recentInput`.
    */
   function recentOfPlaces(

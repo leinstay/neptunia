@@ -88,7 +88,7 @@ test('isReadable refuses a thread, a private chat and an unreadable conversation
 test('isWritable needs a readable conversation she can send in', () => {
   assert.equal(isWritable(info('open')), true);
   assert.equal(
-    isWritable(info('diary', { permissions: { read: true, send: false, attach: true, react: true } })),
+    isWritable(info('selfreflection', { permissions: { read: true, send: false, attach: true, react: true } })),
     false
   );
   assert.equal(

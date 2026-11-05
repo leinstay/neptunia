@@ -14,7 +14,7 @@ export type Planned = {
 
 /**
  * The searches this turn may run: the web lookup when the runner has a lookup client, the web search when
- * `web.search.enabled` is not false and the client searches, and the server search (a private chat only on its
+ * `web.quickSearch.enabled` is not false and the client searches, and the server search (a private chat only on its
  * partner's behalf). Asked once, so the lookup stage and `<senses>` agree.
  */
 export function planRequest(ctx: PhaseContext, opened: Opened, setup: Setup): Planned {
@@ -22,7 +22,7 @@ export function planRequest(ctx: PhaseContext, opened: Opened, setup: Setup): Pl
   const { isPrivate } = opened;
   const { config, likeServer } = setup;
   const webLookupOn = Boolean(lookup);
-  const webSearchOn = webLookupOn && config.web?.search?.enabled !== false && typeof lookup?.search === 'function';
+  const webSearchOn = webLookupOn && config.web?.quickSearch?.enabled !== false && typeof lookup?.search === 'function';
   const serverOn = (!isPrivate || likeServer) && recallAvailable();
   return { webLookupOn, webSearchOn, serverOn };
 }

@@ -3,7 +3,7 @@
 
 import * as archive from './archive.ts';
 import * as channel from './channel.ts';
-import * as diary from './diary.ts';
+import * as selfreflection from './selfreflection.ts';
 import * as errands from './errands.ts';
 import * as gifs from './gifs.ts';
 import type { MapContext } from './common.ts';
@@ -57,7 +57,7 @@ export const MAPPERS = {
   lore,
   participation,
   recent,
-  diary,
+  selfreflection,
   intentions,
   errands,
   archive,

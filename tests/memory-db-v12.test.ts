@@ -34,26 +34,30 @@ test('schema v12: the legacy diary mirrors get the diary channel as destination,
     try {
       assert.equal(
         dbOf(plain)
-          .prepare("SELECT COUNT(*) AS n FROM publications WHERE row_kind = 'diary' AND destination_place_id IS NULL")
+          .prepare(
+            "SELECT COUNT(*) AS n FROM publications WHERE row_kind = 'selfreflection' AND destination_place_id IS NULL"
+          )
           .get()!.n,
         1
       );
       assert.equal(
-        dbOf(plain).prepare("SELECT value FROM meta WHERE key = 'diary_destination_pending'").get()?.value,
+        dbOf(plain).prepare("SELECT value FROM meta WHERE key = 'selfreflection_destination_pending'").get()?.value,
         '1',
         'opened by a tool without the channel'
       );
     } finally {
       plain.close();
     }
-    const known = openMemoryDb(file, { context: { diaryPlaceId: channelPlaceId('discord', CHANNEL) } });
+    const known = openMemoryDb(file, { context: { selfreflectionPlaceId: channelPlaceId('discord', CHANNEL) } });
     try {
       assert.equal(
-        dbOf(known).prepare("SELECT destination_place_id AS d FROM publications WHERE row_kind = 'diary'").get()!.d,
+        dbOf(known)
+          .prepare("SELECT destination_place_id AS d FROM publications WHERE row_kind = 'selfreflection'")
+          .get()!.d,
         channelPlaceId('discord', CHANNEL)
       );
       assert.equal(
-        dbOf(known).prepare("SELECT 1 AS ok FROM meta WHERE key = 'diary_destination_pending'").get(),
+        dbOf(known).prepare("SELECT 1 AS ok FROM meta WHERE key = 'selfreflection_destination_pending'").get(),
         undefined
       );
     } finally {
@@ -70,7 +74,7 @@ test('schema v12 on a new database: no publication to wait for, no mark', () => 
     const handle = openMemoryDb(path.join(root, 'memory.db'));
     try {
       assert.equal(
-        dbOf(handle).prepare("SELECT 1 AS ok FROM meta WHERE key = 'diary_destination_pending'").get(),
+        dbOf(handle).prepare("SELECT 1 AS ok FROM meta WHERE key = 'selfreflection_destination_pending'").get(),
         undefined
       );
       assert.equal(dbOf(handle).prepare('SELECT MAX(version) AS v FROM schema_version').get()!.v, MIGRATIONS.length);

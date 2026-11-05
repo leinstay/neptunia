@@ -1,5 +1,5 @@
 // How the persona's words are rendered and timed before they go out: a post's mentions, custom emoji, jump links and
-// channel links, the wait for the trigger's author to fall quiet and the name of her diary's place for `<senses>`.
+// channel links, the wait for the trigger's author to fall quiet and the name of her selfreflection's place for `<senses>`.
 // createTurnRunner (src/behavior/turn.ts) builds it once per runner with createSends; the act, her calls and the
 // attempt call its functions.
 
@@ -8,7 +8,7 @@ import { messageLinkOf } from '../behavior/elsewhere.ts';
 import type { IndexedEmoji } from '../behavior/emoji-index.ts';
 import { renderCustomEmoji } from '../behavior/emoji.ts';
 import { resolveHandles } from '../behavior/handles.ts';
-import { diaryPlaces, readMirrors } from '../behavior/mirror.ts';
+import { selfreflectionPlaces, readMirrors } from '../behavior/mirror.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.ts';
 import { linkChannels, linkMessageNumbers } from '../memory/mentions.ts';
@@ -68,7 +68,7 @@ export type Sends = {
     placeId: string,
     trigger: { authorId?: string | null; ts?: unknown } | null | undefined
   ) => Promise<number>;
-  diaryChannelName: (
+  selfreflectionChannelName: (
     placeId: string,
     config: SendsConfig,
     snapshot?: Snapshot | null,
@@ -234,21 +234,23 @@ export function createSends(ctx: SendsContext): Sends {
   }
 
   /**
-   * The bare name of her diary's place for `<senses>`: a diary turn's own conversation (`own`), else the first of
-   * mirror.ts#diaryPlaces, as the snapshot, the directory or memory names it; null with none or `features.diary` off.
+   * The bare name of her selfreflection's place for `<senses>`: a selfreflection turn's own conversation (`own`), else the first of
+   * mirror.ts#selfreflectionPlaces, as the snapshot, the directory or memory names it; null with none or `features.selfreflection` off.
    */
-  function diaryChannelName(
+  function selfreflectionChannelName(
     placeId: string,
     config: SendsConfig,
     snapshot: Snapshot | null = null,
     own: { id: string; name?: string | null } | null = null
   ): string | null {
-    const found = own ? { conversationId: String(own.id), name: own.name } : readMirrors(store, diaryPlaces, [])[0];
+    const found = own
+      ? { conversationId: String(own.id), name: own.name }
+      : readMirrors(store, selfreflectionPlaces, [])[0];
     const place = found ?? null;
     if (!place) return null;
     const name = snapshot?.get(place.conversationId)?.name ?? conversationName(place.conversationId) ?? place.name;
     return typeof name === 'string' && name ? name : null;
   }
 
-  return { emojiLookup, renderPost, settleAuthor, diaryChannelName };
+  return { emojiLookup, renderPost, settleAuthor, selfreflectionChannelName };
 }

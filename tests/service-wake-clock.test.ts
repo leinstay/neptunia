@@ -5,7 +5,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInnerLife } from '../src/behavior/inner.ts';
-import { createDiary } from '../src/behavior/diary.ts';
+import { createSelfreflection } from '../src/behavior/selfreflection.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
@@ -125,7 +125,7 @@ function lifeWith(sections: Record<string, unknown>, start: number) {
 }
 
 /** A real diary whose every post speaks, on the schedule of `selfreflection`. */
-function diaryWith(schedule: string, start: number) {
+function selfreflectionWith(schedule: string, start: number) {
   const clock = { t: start };
   const memory = openTestMemorySync({ now: () => start });
   OPENED.push(memory);
@@ -135,24 +135,27 @@ function diaryWith(schedule: string, start: number) {
   };
   const store = {
     state: { data: {}, markDirty() {} },
-    getDiary: () => ({ posts: [], updatedAt: 0 }),
+    getSelfreflection: () => ({ posts: [], updatedAt: 0 }),
     readMemory: (read: (db: unknown) => unknown) => read(memory.memoryDb.readHandle()?.db),
   };
-  const diary = createDiary({
+  const selfreflection = createSelfreflection({
     hot,
-    // @ts-expect-error: the stand-in store holds only the part of DiaryStore that the tick reads
+    // @ts-expect-error: the stand-in store holds only the part of SelfreflectionStore that the tick reads
     store,
     reads: world().reads,
     iface: () => 'fake',
     turns: {
       runTurn: () =>
-        Promise.resolve({ outcome: 'spoke', diary: { kind: 'status', picture: false, search: false, messages: 1 } }),
+        Promise.resolve({
+          outcome: 'spoke',
+          selfreflection: { kind: 'status', picture: false, search: false, messages: 1 },
+        }),
     },
     isServedCommunity: (id: unknown) => id === GUILD,
     rng: () => 0.5,
     now: () => clock.t,
   });
-  return { clock, diary, hot };
+  return { clock, selfreflection, hot };
 }
 
 test('a heartbeat that has drawn its moment shows that moment as next due, none as last and no run', async () => {
@@ -164,7 +167,7 @@ test('a heartbeat that has drawn its moment shows that moment as next due, none 
     wakeClockOf(name, {
       now: start,
       inner: run.life,
-      diary: { status: () => ({ slots: [], done: [] }) },
+      selfreflection: { status: () => ({ slots: [], done: [] }) },
     });
   const fields = await statusOf('heartbeat', run.hot.config, start, read);
   assert.equal(fields.get('next due'), iso(start + 4 * HOUR));
@@ -191,7 +194,7 @@ test('a selfimprovement turn in flight shows as running for its own name alone, 
     wakeClockOf(name, {
       now: due,
       inner: run.life,
-      diary: { status: () => ({ slots: [], done: [] }) },
+      selfreflection: { status: () => ({ slots: [], done: [] }) },
     });
   assert.equal(read('selfimprovement')?.running, true);
   assert.equal(read('heartbeat')?.running, false);
@@ -213,7 +216,7 @@ test('with no community known yet a wake reads unknown, apart from its saved fla
     state: () => null,
   };
   const read = (name: ServiceName) =>
-    wakeClockOf(name, { now: 0, inner, diary: { status: () => ({ slots: [], done: [] }) } });
+    wakeClockOf(name, { now: 0, inner, selfreflection: { status: () => ({ slots: [], done: [] }) } });
   const fields = await statusOf('heartbeat', { heartbeat: { enabled: true, schedule: 'every 4h' } }, 0, read);
   assert.equal(fields.get('enabled'), 'true');
   assert.equal(fields.get('running'), 'unknown');
@@ -222,12 +225,13 @@ test('with no community known yet a wake reads unknown, apart from its saved fla
 
 test('a diary between its slots names the next slot not yet done and the slot that ran', async () => {
   // Catches: the next slot is the first of the plan, so status promises a post that already went out.
-  const run = diaryWith('at 09:00,10:00', at('2026-11-04T08:00:00Z'));
-  await run.diary.tick();
+  const run = selfreflectionWith('at 09:00,10:00', at('2026-11-04T08:00:00Z'));
+  await run.selfreflection.tick();
   run.clock.t = at('2026-11-04T09:05:00Z');
-  await run.diary.tick();
+  await run.selfreflection.tick();
   const now = run.clock.t;
-  const read = (name: ServiceName) => wakeClockOf(name, { now, inner: lifeWith({}, now).life, diary: run.diary });
+  const read = (name: ServiceName) =>
+    wakeClockOf(name, { now, inner: lifeWith({}, now).life, selfreflection: run.selfreflection });
   const fields = await statusOf('selfreflection', run.hot.config, now, read);
   assert.equal(fields.get('next due'), iso(at('2026-11-04T10:00:00Z')));
   assert.equal(fields.get('last result'), iso(at('2026-11-04T09:00:00Z')));
@@ -235,40 +239,43 @@ test('a diary between its slots names the next slot not yet done and the slot th
 
 test('a diary past its last slot of the day names the first slot of tomorrow', async () => {
   // Catches: an empty remainder of the plan reads as no next time for an enabled service.
-  const run = diaryWith('at 09:00', at('2026-11-04T08:00:00Z'));
-  await run.diary.tick();
+  const run = selfreflectionWith('at 09:00', at('2026-11-04T08:00:00Z'));
+  await run.selfreflection.tick();
   run.clock.t = at('2026-11-04T09:05:00Z');
-  await run.diary.tick();
+  await run.selfreflection.tick();
   const now = run.clock.t;
-  const read = (name: ServiceName) => wakeClockOf(name, { now, inner: lifeWith({}, now).life, diary: run.diary });
+  const read = (name: ServiceName) =>
+    wakeClockOf(name, { now, inner: lifeWith({}, now).life, selfreflection: run.selfreflection });
   const fields = await statusOf('selfreflection', run.hot.config, now, read);
   assert.equal(fields.get('next due'), iso(at('2026-11-05T09:00:00Z')));
 });
 
 test('a diary slot dropped past its grace is no last result: only a slot that ran is', async () => {
   // Catches: the dropped slot joins `done`, so status reports a post at a time when nothing was written.
-  const run = diaryWith('at 09:00,10:00', at('2026-11-04T08:00:00Z'));
-  await run.diary.tick();
+  const run = selfreflectionWith('at 09:00,10:00', at('2026-11-04T08:00:00Z'));
+  await run.selfreflection.tick();
   run.clock.t = at('2026-11-04T09:05:00Z');
-  await run.diary.tick();
+  await run.selfreflection.tick();
   run.clock.t = at('2026-11-04T15:00:00Z');
-  await run.diary.tick();
+  await run.selfreflection.tick();
   const now = run.clock.t;
-  const read = (name: ServiceName) => wakeClockOf(name, { now, inner: lifeWith({}, now).life, diary: run.diary });
+  const read = (name: ServiceName) =>
+    wakeClockOf(name, { now, inner: lifeWith({}, now).life, selfreflection: run.selfreflection });
   const fields = await statusOf('selfreflection', run.hot.config, now, read);
   assert.equal(fields.get('last result'), iso(at('2026-11-04T09:00:00Z')));
 });
 
 test("a diary's last result survives midnight", async () => {
   // Catches: the clock reads only today's plan, so every new day reads "none" for a diary that posted last night.
-  const run = diaryWith('at 22:00', at('2026-11-04T21:00:00Z'));
-  await run.diary.tick();
+  const run = selfreflectionWith('at 22:00', at('2026-11-04T21:00:00Z'));
+  await run.selfreflection.tick();
   run.clock.t = at('2026-11-04T22:05:00Z');
-  await run.diary.tick();
+  await run.selfreflection.tick();
   run.clock.t = at('2026-11-05T01:00:00Z');
-  await run.diary.tick();
+  await run.selfreflection.tick();
   const now = run.clock.t;
-  const read = (name: ServiceName) => wakeClockOf(name, { now, inner: lifeWith({}, now).life, diary: run.diary });
+  const read = (name: ServiceName) =>
+    wakeClockOf(name, { now, inner: lifeWith({}, now).life, selfreflection: run.selfreflection });
   const fields = await statusOf('selfreflection', run.hot.config, now, read);
   assert.equal(fields.get('last result'), iso(at('2026-11-04T22:00:00Z')));
 });

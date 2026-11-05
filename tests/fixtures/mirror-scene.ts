@@ -17,7 +17,7 @@ import { channelPlaceId, } from '../../src/memory/db/ids.ts';
 import { insertRows } from '../../src/memory/db/rows.ts';
 import type { Content } from '../../src/protocol/actions.ts';
 import type { ConversationRef, Delivery, SendOptions } from '../../src/protocol/adapter.ts';
-import { dbOf } from './diary-mirror.ts';
+import { dbOf } from './selfreflection-mirror.ts';
 import { openTestMemory } from './memory-db/service.ts';
 
 export const T0 = Date.UTC(2026, 10, 1, 12, 0, 0);
@@ -203,7 +203,7 @@ export async function mirrorScene({
     insertRows(
       db,
       {
-        diary: [
+        selfreflection: [
           {
             id,
             at_ms: when,
@@ -221,15 +221,15 @@ export async function mirrorScene({
     return id;
   }
 
-  /** A receipt from before this model: a `diary_mirrors` row, which derives its `sent` publication. */
+  /** A receipt from before this model: a `selfreflection_mirrors` row, which derives its `sent` publication. */
   function receipt(entryId: string, placeId: string, iface: string, messageIds: ReadonlyArray<string>): void {
     insertRows(
       db,
       {
-        diary_mirrors: [
+        selfreflection_mirrors: [
           {
             id: `mirror:${entryId}:${placeId}`,
-            diary_id: entryId,
+            selfreflection_id: entryId,
             iface,
             place_id: placeId,
             native_ids: JSON.stringify(messageIds),
@@ -246,7 +246,7 @@ export async function mirrorScene({
     db
       .prepare(
         `SELECT m.path FROM media m JOIN media_links l ON l.media_id = m.id
-         WHERE l.owner_kind = 'diary' AND l.owner_id = ? ORDER BY l.position`
+         WHERE l.owner_kind = 'selfreflection' AND l.owner_id = ? ORDER BY l.position`
       )
       .all(entryId)
       .map((row) => path.join(memory.dataDir, String(row.path)));

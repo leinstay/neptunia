@@ -501,9 +501,9 @@ test('recall-eval: a record line becomes a chat message with its link previews, 
   assert.deepEqual(recordMessage(recLine(2, NOW, 'χωρίς'), { nameOf: () => null, selfName: 'Zoë' }).links, []);
 });
 
-test('recall-eval: --web readiness follows web.search.engine through the lookup, not the Brave key alone', () => {
+test('recall-eval: --web readiness follows web.quickSearch.engine through the lookup, not the Brave key alone', () => {
   const searches = { brave: createBraveSearch(), exa: createExaSearch() };
-  const hotOf = (engine: string) => ({ config: { web: { search: { engine, model: 'x/quick' } } }, prompts: {} });
+  const hotOf = (engine: string) => ({ config: { web: { quickSearch: { engine, model: 'x/quick' } } }, prompts: {} });
   // Readiness reads service credentials from the selected prepared persona, not environment secret values.
   const envFor = (services: Record<string, string>) => {
     const dataDir = tempDir('nep-eval-service-');

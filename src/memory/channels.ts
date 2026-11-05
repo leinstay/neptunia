@@ -71,7 +71,7 @@ function topWritersText(
  *   caller) adds the `labels.server.readOnly` line after the fact lines, before the last-message
  *   line; nothing is added when that label is missing or blank, and never on the `current`
  *   channel (the turn is answering there, so it is never shown as one the persona cannot write in).
- *   `diary` (the caller says the channel is a place of her diary, its mirrors) adds the `labels.server.diary`
+ *   `selfreflection` (the caller says the channel is a place of her selfreflection, its mirrors) adds the `labels.server.selfreflection`
  *   line, with `{channel}` the channel's name, right before the read-only line, on any channel
  *   including the current one; nothing is added when that label is missing.
  */
@@ -93,14 +93,14 @@ export function renderChannel(
     now: nowMs,
     nameOf,
     readOnly = false,
-    diary = false,
+    selfreflection = false,
   }: {
     current?: boolean;
     activity?: 'live' | 'slow' | 'dead';
     now?: number;
     nameOf?: (id: string) => string | null;
     readOnly?: boolean;
-    diary?: boolean;
+    selfreflection?: boolean;
   } = {}
 ): string {
   const s = labels.server;
@@ -113,7 +113,7 @@ export function renderChannel(
   if (channel.topics) lines.push(fill(s.topics, { text: channel.topics }));
   if (channel.tone) lines.push(fill(s.tone, { text: channel.tone }));
 
-  if (diary === true && s.diary) lines.push(fill(s.diary, { channel: channel.name }));
+  if (selfreflection === true && s.selfreflection) lines.push(fill(s.selfreflection, { channel: channel.name }));
   if (readOnly === true && !current && s.readOnly) lines.push(fill(s.readOnly));
 
   if (

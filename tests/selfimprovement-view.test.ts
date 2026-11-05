@@ -272,9 +272,9 @@ test('chains older than the window are not counted', async () => {
 test('the tools she holds and never called in the window are named, sorted', async () => {
   const records = turn('t1', NOW - HOUR, LOOKUP);
   const facts = await buildSelfimprovementFacts(
-    base(records, { granted: ['web.search', 'web.read', 'message.create', 'pings.set', 'diary.post'] })
+    base(records, { granted: ['web.search', 'web.read', 'message.create', 'pings.set', 'selfreflection.post'] })
   );
-  assert.deepEqual(facts.unusedTools, ['diary.post', 'pings.set']);
+  assert.deepEqual(facts.unusedTools, ['pings.set', 'selfreflection.post']);
 });
 
 test('her skills come with their use counts and an empty journal gives empty shapes', async () => {

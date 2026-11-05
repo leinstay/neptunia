@@ -12,7 +12,7 @@ export type ConversationRef = { iface: string; conversationId: string };
 /** What createConversations reads: the dependencies of createMessageHandler. */
 export type ConversationsContext = {
   reads: Reads;
-  /** The memory database (src/memory/db/service.ts), read for the places of her diary. */
+  /** The memory database (src/memory/db/service.ts), read for the places of her selfreflection. */
   memoryDb: Parameters<typeof isMirrorPlace>[0];
 };
 
@@ -30,7 +30,7 @@ export function createConversations({ reads, memoryDb }: ConversationsContext): 
   /** The conversation as the interface describes it now, else the one given. */
   const currentOf = async (channel: Conv): Promise<Conv> => (await infoNow(channel.iface, channel.id)) ?? channel;
 
-  /** The conversation of `event` a turn may open in, or null: unknown to the interface, or a diary mirror's place. */
+  /** The conversation of `event` a turn may open in, or null: unknown to the interface, or a selfreflection mirror's place. */
   const turnPlaceOf = ({ iface, conversation: { id } }: { iface: string; conversation: { id: string } }) =>
     isMirrorPlace(memoryDb, iface, id) ? null : infoNow(iface, id);
 

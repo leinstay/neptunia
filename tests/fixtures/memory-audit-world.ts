@@ -61,11 +61,11 @@ function addRows(db: DatabaseSync): void {
   db.exec(`
     INSERT INTO media (id, kind, native_ref, description, scope_kind, scope_iface, scope_dm, audience_id)
       VALUES ('media:held:att-kept', 'image', 'att-kept', '${WORDS}', ${GROUP_SCOPE});
-    INSERT INTO diary (id, at_ms, kind, gist, text, status, scope_kind, scope_iface, scope_dm, audience_id)
-      VALUES ('diary:1', ${AT}, 'entry', '${WORDS}', '${WORDS}', 'written', ${GROUP_SCOPE});
+    INSERT INTO selfreflection (id, at_ms, kind, gist, text, status, scope_kind, scope_iface, scope_dm, audience_id)
+      VALUES ('selfreflection:1', ${AT}, 'entry', '${WORDS}', '${WORDS}', 'written', ${GROUP_SCOPE});
     INSERT INTO media (id, kind, owner, description, scope_kind, scope_iface, scope_dm, audience_id)
-      VALUES ('media:diary:1:0', 'image', 'diary:1', '${WORDS}', ${GROUP_SCOPE});
-    INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('diary', 'diary:1', 0, 'media:diary:1:0');
+      VALUES ('media:diary:1:0', 'image', 'selfreflection:1', '${WORDS}', ${GROUP_SCOPE});
+    INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('selfreflection', 'selfreflection:1', 0, 'media:diary:1:0');
     INSERT INTO claims (id, subject_kind, subject_id, kind, text, scope_kind, scope_iface, scope_dm, audience_id)
       VALUES ('claim:good', 'person', 'person:someone', 'fact', '${WORDS}', ${GROUP_SCOPE});
     INSERT INTO claim_versions (id, claim_id, text) VALUES ('claim:good:v1', 'claim:good', '${WORDS}');

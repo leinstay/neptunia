@@ -23,7 +23,7 @@ import type { Untyped } from '../src/tools/types.ts';
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
 const NOW = Date.UTC(2026, 9, 17, 12);
-const WEB_ON = { web: { search: { enabled: true } } };
+const WEB_ON = { web: { quickSearch: { enabled: true } } };
 
 function fakeLookup({
   found = {

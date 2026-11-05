@@ -382,12 +382,12 @@ async function listing(viewers: Array<string> = []) {
 // shipped settings); the platform's own request is the interface's business.
 test("fetchPull ends the window at the conversation's newest message", async () => {
   mainChannel();
-  const diary = addChannel({
+  const selfreflection = addChannel({
     id: '760000000000000001',
     name: 'ημερολόγιο',
     messages: [{ ts: LAST - 180 * MIN }, { ts: LAST - 150 * MIN }, ...burst(LAST - 60 * MIN, LAST, 10)],
   });
-  const { result, logs } = await withCapturedLogs(() => pull(diary.id));
+  const { result, logs } = await withCapturedLogs(() => pull(selfreflection.id));
   const pulled = pulledOf(result);
   assert.equal(result.skip, null);
   assert.deepEqual(Object.keys(result).sort(), ['pulled', 'skip'], 'the record and the skip code, no platform object');
@@ -397,26 +397,28 @@ test("fetchPull ends the window at the conversation's newest message", async () 
     'every message of 9:00-10:00 two days ago, nothing older, nothing measured from now'
   );
   assert.equal(pulled.olderNotShown, true);
-  assert.equal(pulled.messages.at(-1)?.id, diary.idAt(LAST));
-  assert.equal(pulled.placeId, diary.id);
+  assert.equal(pulled.messages.at(-1)?.id, selfreflection.idAt(LAST));
+  assert.equal(pulled.placeId, selfreflection.id);
   assert.equal(pulled.channelName, 'ημερολόγιο');
   assert.equal(pulled.reason, 'mention');
-  assert.deepEqual(diary.calls(), [{ limit: 61 }], 'one page, no anchor');
+  assert.deepEqual(selfreflection.calls(), [{ limit: 61 }], 'one page, no anchor');
   const line = logged(logs, 'pull: channel');
   assert.equal(line.messages, 7);
-  assert.equal(line.source, diary.id);
+  assert.equal(line.source, selfreflection.id);
   assert.equal(line.channel, MAIN_ID);
 });
 
 // An anchor is read by id first, then the page before it: the interface has no "ending at" query.
 test('fetchPull ends the window at an explicit anchor', async () => {
   mainChannel();
-  const diary = addChannel({
+  const selfreflection = addChannel({
     id: '760000000000000002',
     messages: [...burst(LAST - 300 * MIN, LAST - 120 * MIN, 20), ...burst(LAST - 30 * MIN, LAST, 10)],
   });
-  const anchorId = diary.idAt(LAST - 120 * MIN);
-  const pulled = pulledOf((await withCapturedLogs(() => pull(diary.id, { anchorId, reason: 'recall' }))).result);
+  const anchorId = selfreflection.idAt(LAST - 120 * MIN);
+  const pulled = pulledOf(
+    (await withCapturedLogs(() => pull(selfreflection.id, { anchorId, reason: 'recall' }))).result
+  );
   // PR 7d: pull.minMessages is the constant 5, so the hour before the anchor is widened by one older message.
   assert.deepEqual(
     pulled.messages.map((m) => m.ts),
@@ -425,19 +427,27 @@ test('fetchPull ends the window at an explicit anchor', async () => {
   );
   assert.equal(pulled.olderNotShown, true);
   assert.equal(pulled.messages.at(-1)?.id, anchorId);
-  assert.deepEqual(diary.calls(), [anchorId, { limit: 60, before: anchorId }], 'the anchor, then the page before it');
+  assert.deepEqual(
+    selfreflection.calls(),
+    [anchorId, { limit: 60, before: anchorId }],
+    'the anchor, then the page before it'
+  );
 });
 
 test('fetchPull reads an earlier page just before the oldest message shown last time', async () => {
   mainChannel();
-  const diary = addChannel({ id: '760000000000000011', messages: burst(LAST - 300 * MIN, LAST, 10) });
-  const beforeId = diary.idAt(LAST - 60 * MIN);
+  const selfreflection = addChannel({ id: '760000000000000011', messages: burst(LAST - 300 * MIN, LAST, 10) });
+  const beforeId = selfreflection.idAt(LAST - 60 * MIN);
   const { result, logs } = await withCapturedLogs(() =>
-    pull(diary.id, { reason: 'route', direction: 'earlier', beforeId })
+    pull(selfreflection.id, { reason: 'route', direction: 'earlier', beforeId })
   );
   const pulled = pulledOf(result);
   assert.equal(result.skip, null);
-  assert.deepEqual(diary.calls(), [{ before: beforeId, limit: 61 }], 'one page before the oldest message shown');
+  assert.deepEqual(
+    selfreflection.calls(),
+    [{ before: beforeId, limit: 61 }],
+    'one page before the oldest message shown'
+  );
   assert.deepEqual(
     pulled.messages.map((m) => m.ts),
     burst(LAST - 130 * MIN, LAST - 70 * MIN, 10).map((spec) => spec.ts),
@@ -453,12 +463,12 @@ test('fetchPull reads an earlier page just before the oldest message shown last 
 
 test('fetchPull falls back to the newest page and says so when an earlier page has no previous view', async () => {
   mainChannel();
-  const diary = addChannel({ id: '760000000000000012', messages: burst(LAST - 300 * MIN, LAST, 10) });
+  const selfreflection = addChannel({ id: '760000000000000012', messages: burst(LAST - 300 * MIN, LAST, 10) });
   const { result, logs } = await withCapturedLogs(() =>
-    pull(diary.id, { reason: 'route', direction: 'earlier', beforeId: null })
+    pull(selfreflection.id, { reason: 'route', direction: 'earlier', beforeId: null })
   );
-  assert.deepEqual(diary.calls(), [{ limit: 61 }], 'the newest page, as a plain pull');
-  assert.equal(pulledOf(result).messages.at(-1)?.id, diary.idAt(LAST));
+  assert.deepEqual(selfreflection.calls(), [{ limit: 61 }], 'the newest page, as a plain pull');
+  assert.equal(pulledOf(result).messages.at(-1)?.id, selfreflection.idAt(LAST));
   const line = logged(logs, 'pull: channel');
   assert.equal(line.direction, 'earlier');
   assert.equal(line.beforeId, false);
@@ -467,11 +477,11 @@ test('fetchPull falls back to the newest page and says so when an earlier page h
 
 test('fetchPull logs no direction for a plain pull and ignores a stray beforeId', async () => {
   mainChannel();
-  const diary = addChannel({ id: '760000000000000013', messages: burst(LAST - 300 * MIN, LAST, 10) });
-  const beforeId = diary.idAt(LAST - 60 * MIN);
-  const { result, logs } = await withCapturedLogs(() => pull(diary.id, { beforeId }));
-  assert.deepEqual(diary.calls(), [{ limit: 61 }]);
-  assert.equal(pulledOf(result).messages.at(-1)?.id, diary.idAt(LAST));
+  const selfreflection = addChannel({ id: '760000000000000013', messages: burst(LAST - 300 * MIN, LAST, 10) });
+  const beforeId = selfreflection.idAt(LAST - 60 * MIN);
+  const { result, logs } = await withCapturedLogs(() => pull(selfreflection.id, { beforeId }));
+  assert.deepEqual(selfreflection.calls(), [{ limit: 61 }]);
+  assert.equal(pulledOf(result).messages.at(-1)?.id, selfreflection.idAt(LAST));
   const line = logged(logs, 'pull: channel');
   assert.equal(line.direction, null);
   assert.equal('beforeId' in line || 'pullDirection' in line, false);
@@ -479,10 +489,10 @@ test('fetchPull logs no direction for a plain pull and ignores a stray beforeId'
 
 test('fetchPull skips as empty when nothing is before the previous view and as failed when the earlier page fails', async () => {
   mainChannel();
-  const diary = addChannel({ id: '760000000000000014', messages: burst(LAST - 30 * MIN, LAST, 10) });
-  const first = diary.idAt(LAST - 30 * MIN);
+  const selfreflection = addChannel({ id: '760000000000000014', messages: burst(LAST - 30 * MIN, LAST, 10) });
+  const first = selfreflection.idAt(LAST - 30 * MIN);
   const empty = await withCapturedLogs(() =>
-    pull(diary.id, { reason: 'route', direction: 'earlier', beforeId: first })
+    pull(selfreflection.id, { reason: 'route', direction: 'earlier', beforeId: first })
   );
   assert.equal(empty.result.skip, 'empty');
   const broken = addChannel({ id: '760000000000000015', messages: burst(LAST - 30 * MIN, LAST, 10), fail: true });
@@ -494,11 +504,14 @@ test('fetchPull skips as empty when nothing is before the previous view and as f
 
 test('fetchPull does not find a malformed anchor and pulls an anchor of any age', async () => {
   mainChannel();
-  const diary = addChannel({ id: '760000000000000005', messages: [{ ts: NOW - 40 * DAY }, { ts: NOW - DAY }] });
-  const oldId = diary.idAt(NOW - 40 * DAY);
+  const selfreflection = addChannel({
+    id: '760000000000000005',
+    messages: [{ ts: NOW - 40 * DAY }, { ts: NOW - DAY }],
+  });
+  const oldId = selfreflection.idAt(NOW - 40 * DAY);
   const { result } = await withCapturedLogs(async () => [
-    await pull(diary.id, { anchorId: 'ημέρα' }),
-    await pull(diary.id, { anchorId: oldId }),
+    await pull(selfreflection.id, { anchorId: 'ημέρα' }),
+    await pull(selfreflection.id, { anchorId: oldId }),
   ]);
   assert.equal(result[0]?.skip, 'not-found');
   assert.deepEqual(
@@ -507,14 +520,22 @@ test('fetchPull does not find a malformed anchor and pulls an anchor of any age'
     'no age limit'
   );
   // The anchors are read by id (twice); only the last pull read a page, the malformed anchor read none.
-  assert.equal(diary.calls().filter((call) => typeof call === 'object').length, 1, 'only the last pull read a page');
+  assert.equal(
+    selfreflection.calls().filter((call) => typeof call === 'object').length,
+    1,
+    'only the last pull read a page'
+  );
 });
 
 test('fetchPull gives readOnly from the permissions of the conversation', async () => {
   mainChannel();
-  const diary = addChannel({ id: '760000000000000003', permissions: { send: false }, messages: [{ ts: LAST }] });
+  const selfreflection = addChannel({
+    id: '760000000000000003',
+    permissions: { send: false },
+    messages: [{ ts: LAST }],
+  });
   const talk = addChannel({ id: '760000000000000004', permissions: { react: false }, messages: [{ ts: LAST }] });
-  const { result } = await withCapturedLogs(async () => [await pull(diary.id), await pull(talk.id)]);
+  const { result } = await withCapturedLogs(async () => [await pull(selfreflection.id), await pull(talk.id)]);
   assert.equal(result[0]?.pulled?.readOnly, true);
   assert.equal(result[1]?.pulled?.readOnly, false);
 });
@@ -585,22 +606,26 @@ test('fetchPull blocks a source that a role is denied on although everyone can v
 
 test('checkPull checks the rails without a request and gives the conversation when they pass', async () => {
   const main = mainChannel();
-  const diary = addChannel({ id: '760000000000000046', permissions: { send: false }, messages: [{ ts: LAST }] });
+  const selfreflection = addChannel({
+    id: '760000000000000046',
+    permissions: { send: false },
+    messages: [{ ts: LAST }],
+  });
   const snapshot = await listing();
   const check = (placeId: string, destination: ConversationInfo | null, cfg: Config = config()) =>
     checkPull({ snapshot, placeId, destination, config: cfg, now: NOW });
-  assert.equal(check(diary.id, main.info).channel?.id, diary.id);
-  assert.equal(check(diary.id, main.info).skip, null);
-  assert.deepEqual(check(diary.id, null), { channel: null, skip: 'audience' });
+  assert.equal(check(selfreflection.id, main.info).channel?.id, selfreflection.id);
+  assert.equal(check(selfreflection.id, main.info).skip, null);
+  assert.deepEqual(check(selfreflection.id, null), { channel: null, skip: 'audience' });
   assert.deepEqual(check('', main.info), { channel: null, skip: 'not-found' }, 'no id is not found');
   const railOff = config({ pull: { sameAudience: false } });
   assert.deepEqual(
-    check(diary.id, privateChat(), railOff),
+    check(selfreflection.id, privateChat(), railOff),
     { channel: null, skip: 'private-chat' },
     'a private chat without a partner never pulls, even with the audience rail off'
   );
-  assert.equal(check(diary.id, null, railOff).channel?.id, diary.id);
-  assert.deepEqual(diary.calls(), []);
+  assert.equal(check(selfreflection.id, null, railOff).channel?.id, selfreflection.id);
+  assert.deepEqual(selfreflection.calls(), []);
 });
 
 test('checkPull lets a private chat with its partner pass what the partner can view and refuses the rest as audience', async () => {
@@ -687,16 +712,18 @@ test('checkPull refuses exactly the conversations isReadable refuses', async () 
 
 test('fetchPull adds a routed trigger that lies outside the window', async () => {
   mainChannel();
-  const diary = addChannel({
+  const selfreflection = addChannel({
     id: '760000000000000051',
     permissions: { send: false },
     messages: [{ ts: LAST - 240 * MIN, mentionsSelf: true }, ...burst(LAST - 50 * MIN, LAST, 10)],
   });
   // The copy messageCreate handed over, before an edit: the page's copy is shown instead.
-  const trigger = { ...(await lineById(diary, diary.ids[0] ?? '')), content: 'πριν από την αλλαγή' };
-  diary.mark();
-  const pings = [ringEntry(diary, trigger.id, trigger.ts)];
-  const pulled = pulledOf((await withCapturedLogs(() => pull(diary.id, { reason: 'routed', trigger, pings }))).result);
+  const trigger = { ...(await lineById(selfreflection, selfreflection.ids[0] ?? '')), content: 'πριν από την αλλαγή' };
+  selfreflection.mark();
+  const pings = [ringEntry(selfreflection, trigger.id, trigger.ts)];
+  const pulled = pulledOf(
+    (await withCapturedLogs(() => pull(selfreflection.id, { reason: 'routed', trigger, pings }))).result
+  );
   assert.equal(pulled.messages[0]?.id, trigger.id, 'the call comes first, before the window');
   assert.equal(pulled.messages.length, 7);
   assert.notEqual(pulled.messages[0], trigger, "the page's copy, not the given one");
@@ -707,12 +734,12 @@ test('fetchPull adds a routed trigger that lies outside the window', async () =>
     'shown before the window, so the window keeps its own span'
   );
   assert.equal(pulled.pingState.has(trigger.id), false, 'the trigger itself carries no mark');
-  assert.deepEqual(diary.calls(), [{ limit: 61 }], 'the page holds the trigger: never read by id');
+  assert.deepEqual(selfreflection.calls(), [{ limit: 61 }], 'the page holds the trigger: never read by id');
 });
 
 test('fetchPull does not show a routed trigger that was deleted before the pull', async () => {
   mainChannel();
-  const diary = addChannel({
+  const selfreflection = addChannel({
     id: '760000000000000054',
     permissions: { send: false },
     messages: [
@@ -721,22 +748,22 @@ test('fetchPull does not show a routed trigger that was deleted before the pull'
       { ts: LAST - 25 * MIN, mentionsSelf: true },
     ],
   });
-  const olderId = diary.idAt(LAST - 240 * MIN);
-  const insideId = diary.idAt(LAST - 25 * MIN);
-  const older = await lineById(diary, olderId);
-  const inside = await lineById(diary, insideId);
+  const olderId = selfreflection.idAt(LAST - 240 * MIN);
+  const insideId = selfreflection.idAt(LAST - 25 * MIN);
+  const older = await lineById(selfreflection, olderId);
+  const inside = await lineById(selfreflection, insideId);
   // Both calls are deleted during the settle wait.
-  world().forget(diary.id, insideId);
-  world().forget(diary.id, olderId);
-  diary.mark();
+  world().forget(selfreflection.id, insideId);
+  world().forget(selfreflection.id, olderId);
+  selfreflection.mark();
   const { result, logs } = await withCapturedLogs(async () => [
-    await pull(diary.id, { reason: 'routed', trigger: inside }),
-    await pull(diary.id, { reason: 'routed', trigger: older }),
+    await pull(selfreflection.id, { reason: 'routed', trigger: inside }),
+    await pull(selfreflection.id, { reason: 'routed', trigger: older }),
   ]);
   assert.deepEqual(result[0], { pulled: null, skip: 'trigger-gone' });
   assert.deepEqual(result[1], { pulled: null, skip: 'trigger-gone' });
   assert.deepEqual(
-    diary.calls(),
+    selfreflection.calls(),
     [{ limit: 61 }, { limit: 61 }, olderId],
     'a call inside the page span is known gone without a read; one older than the page is asked for once'
   );
@@ -751,18 +778,18 @@ test('fetchPull does not show a routed trigger that was deleted before the pull'
 
 test('fetchPull reads by id a routed trigger older than the page and shows it before the window', async () => {
   mainChannel();
-  const diary = addChannel({
+  const selfreflection = addChannel({
     id: '760000000000000055',
     permissions: { send: false },
     messages: [{ ts: LAST - 240 * MIN, mentionsSelf: true }, ...burst(LAST - 50 * MIN, LAST, 10)],
   });
-  const trigger = { ...(await lineById(diary, diary.ids[0] ?? '')), content: 'πριν από την αλλαγή' };
+  const trigger = { ...(await lineById(selfreflection, selfreflection.ids[0] ?? '')), content: 'πριν από την αλλαγή' };
   servePageFrom(LAST - 50 * MIN);
-  diary.mark();
-  const { result } = await withCapturedLogs(() => pull(diary.id, { reason: 'routed', trigger }));
+  selfreflection.mark();
+  const { result } = await withCapturedLogs(() => pull(selfreflection.id, { reason: 'routed', trigger }));
   const pulled = pulledOf(result);
   assert.equal(result.skip, null);
-  assert.deepEqual(diary.calls(), [{ limit: 61 }, trigger.id]);
+  assert.deepEqual(selfreflection.calls(), [{ limit: 61 }, trigger.id]);
   assert.equal(pulled.messages[0]?.id, trigger.id);
   assert.equal(pulled.messages[0]?.content, 'καλημέρα σε όλους', 'the copy the conversation holds now');
   assert.deepEqual([...pulled.earlierPingIds], [trigger.id]);
@@ -771,13 +798,13 @@ test('fetchPull reads by id a routed trigger older than the page and shows it be
 
 test('fetchPull keeps a trigger of the window once and never lets in a trigger of another conversation', async () => {
   mainChannel();
-  const diary = addChannel({ id: '760000000000000052', messages: burst(LAST - 30 * MIN, LAST, 10) });
+  const selfreflection = addChannel({ id: '760000000000000052', messages: burst(LAST - 30 * MIN, LAST, 10) });
   const other = addChannel({ id: '760000000000000053', messages: [{ ts: LAST - 300 * MIN }] });
-  const inside = await lineById(diary, diary.ids[1] ?? '');
+  const inside = await lineById(selfreflection, selfreflection.ids[1] ?? '');
   const foreign = await lineById(other, other.ids[0] ?? '');
   const { result } = await withCapturedLogs(async () => [
-    await pull(diary.id, { trigger: inside }),
-    await pull(diary.id, { trigger: foreign }),
+    await pull(selfreflection.id, { trigger: inside }),
+    await pull(selfreflection.id, { trigger: foreign }),
   ]);
   assert.equal(result[0]?.pulled?.messages.filter((m) => m.id === inside.id).length, 1);
   assert.equal(result[0]?.pulled?.messages.length, 4);
@@ -789,7 +816,7 @@ test('fetchPull keeps a trigger of the window once and never lets in a trigger o
 
 test('fetchPull reads an unanswered ring ping outside the window and marks it', async () => {
   mainChannel();
-  const diary = addChannel({
+  const selfreflection = addChannel({
     id: '760000000000000061',
     messages: [
       { ts: LAST - 300 * MIN, mentionsSelf: true },
@@ -798,26 +825,26 @@ test('fetchPull reads an unanswered ring ping outside the window and marks it', 
       ...burst(LAST - 50 * MIN, LAST, 10),
     ],
   });
-  const [unansweredId = '', answeredId = '', skippedId = ''] = diary.ids;
+  const [unansweredId = '', answeredId = '', skippedId = ''] = selfreflection.ids;
   const ring = [
-    ringEntry(diary, unansweredId, LAST - 300 * MIN),
-    ringEntry(diary, answeredId, LAST - 280 * MIN, LAST - 270 * MIN),
-    ringEntry(diary, skippedId, LAST - 260 * MIN, undefined, LAST - 250 * MIN),
+    ringEntry(selfreflection, unansweredId, LAST - 300 * MIN),
+    ringEntry(selfreflection, answeredId, LAST - 280 * MIN, LAST - 270 * MIN),
+    ringEntry(selfreflection, skippedId, LAST - 260 * MIN, undefined, LAST - 250 * MIN),
     { messageId: '769999999999999999', placeId: '760000000000000099', ts: LAST - 100 * MIN },
   ];
   // Only the newest page is served, so the call outside it must be read by id.
   servePageFrom(LAST - 50 * MIN);
-  const { result, logs } = await withCapturedLogs(() => pull(diary.id, { pings: ring }));
+  const { result, logs } = await withCapturedLogs(() => pull(selfreflection.id, { pings: ring }));
   const pulled = pulledOf(result);
   assert.deepEqual(
     pulled.messages.map((m) => m.id),
-    [unansweredId, ...diary.ids.slice(3)]
+    [unansweredId, ...selfreflection.ids.slice(3)]
   );
   assert.deepEqual([...pulled.earlierPingIds], [unansweredId]);
   assert.deepEqual([...pulled.pingState], [[unansweredId, 'unanswered']]);
-  assert.equal(diary.calls().includes(unansweredId), true, 'read by id');
+  assert.equal(selfreflection.calls().includes(unansweredId), true, 'read by id');
   assert.equal(
-    diary.calls().includes(answeredId) || diary.calls().includes(skippedId),
+    selfreflection.calls().includes(answeredId) || selfreflection.calls().includes(skippedId),
     false,
     'answered and skipped calls stay out'
   );
@@ -827,37 +854,41 @@ test('fetchPull reads an unanswered ring ping outside the window and marks it', 
 
 test('fetchPull takes an earlier call that is on the page from it and leaves out an expired or vanished one', async () => {
   mainChannel();
-  const diary = addChannel({
+  const selfreflection = addChannel({
     id: '760000000000000062',
     messages: [{ ts: LAST - 9 * DAY }, { ts: LAST - 200 * MIN }, ...burst(LAST - 50 * MIN, LAST, 10)],
   });
-  const [expiredId = '', onPageId = ''] = diary.ids;
+  const [expiredId = '', onPageId = ''] = selfreflection.ids;
   const ring = [
-    ringEntry(diary, expiredId, LAST - 9 * DAY),
-    ringEntry(diary, onPageId, LAST - 200 * MIN),
-    ringEntry(diary, '760000000000000777', LAST - 190 * MIN),
+    ringEntry(selfreflection, expiredId, LAST - 9 * DAY),
+    ringEntry(selfreflection, onPageId, LAST - 200 * MIN),
+    ringEntry(selfreflection, '760000000000000777', LAST - 190 * MIN),
   ];
-  const { result, logs } = await withCapturedLogs(() => pull(diary.id, { pings: ring, now: LAST + MIN }));
+  const { result, logs } = await withCapturedLogs(() => pull(selfreflection.id, { pings: ring, now: LAST + MIN }));
   const pulled = pulledOf(result);
   assert.deepEqual([...pulled.earlierPingIds], [onPageId]);
   assert.equal(pulled.messages[0]?.id, onPageId);
-  assert.equal(diary.calls().includes(onPageId), false, 'no second read for a message the page holds');
-  assert.equal(diary.calls().includes(expiredId), false, 'an expired ring entry is not read');
-  assert.equal(diary.calls().includes('760000000000000777'), true, 'a deleted call is asked for once and dropped');
+  assert.equal(selfreflection.calls().includes(onPageId), false, 'no second read for a message the page holds');
+  assert.equal(selfreflection.calls().includes(expiredId), false, 'an expired ring entry is not read');
+  assert.equal(
+    selfreflection.calls().includes('760000000000000777'),
+    true,
+    'a deleted call is asked for once and dropped'
+  );
   const line = logged(logs, 'pull: channel');
   assert.deepEqual([line.earlier, line.earlierGone], [1, 1], 'the deleted call is counted as gone');
 });
 
 test('fetchPull marks the ring calls inside the window as answered, skipped or unanswered', async () => {
   mainChannel();
-  const diary = addChannel({ id: '760000000000000063', messages: burst(LAST - 50 * MIN, LAST, 10) });
-  const [a = '', b = '', c = ''] = diary.ids;
+  const selfreflection = addChannel({ id: '760000000000000063', messages: burst(LAST - 50 * MIN, LAST, 10) });
+  const [a = '', b = '', c = ''] = selfreflection.ids;
   const ring = [
-    ringEntry(diary, a, LAST - 50 * MIN, LAST - 45 * MIN),
-    ringEntry(diary, b, LAST - 40 * MIN, undefined, LAST - 35 * MIN),
-    ringEntry(diary, c, LAST - 30 * MIN),
+    ringEntry(selfreflection, a, LAST - 50 * MIN, LAST - 45 * MIN),
+    ringEntry(selfreflection, b, LAST - 40 * MIN, undefined, LAST - 35 * MIN),
+    ringEntry(selfreflection, c, LAST - 30 * MIN),
   ];
-  const pulled = pulledOf((await withCapturedLogs(() => pull(diary.id, { pings: ring }))).result);
+  const pulled = pulledOf((await withCapturedLogs(() => pull(selfreflection.id, { pings: ring }))).result);
   assert.deepEqual(
     [...pulled.pingState],
     [
@@ -1089,11 +1120,15 @@ test('captionPulled renders a late caption blind and clears the timer when all a
 // A history the interface cannot give is what an unreadable page message was: the page fails whole.
 test('fetchPull skips with fetch-failed when the page cannot be read', async () => {
   mainChannel();
-  const diary = addChannel({ id: '760000000000000082', messages: burst(LAST - 30 * MIN, LAST, 10), fail: true });
-  const { result, logs } = await withCapturedLogs(() => pull(diary.id));
+  const selfreflection = addChannel({
+    id: '760000000000000082',
+    messages: burst(LAST - 30 * MIN, LAST, 10),
+    fail: true,
+  });
+  const { result, logs } = await withCapturedLogs(() => pull(selfreflection.id));
   assert.deepEqual(result, { pulled: null, skip: 'fetch-failed' });
   const warn = logged(logs, 'pull: page unreadable');
-  assert.deepEqual([warn.level, warn.source, warn.channel], ['warn', diary.id, MAIN_ID]);
+  assert.deepEqual([warn.level, warn.source, warn.channel], ['warn', selfreflection.id, MAIN_ID]);
   assert.equal(logged(logs, 'pull: skipped').reason, 'fetch-failed');
 });
 
@@ -1116,18 +1151,18 @@ test('fetchPull leaves the other captions in use when one caption request fails'
 // `pull: call unreadable` warning is not logged: the call is left out and counted as gone.
 test('fetchPull leaves out an earlier call that cannot be read and the rest of the pull stands', async () => {
   mainChannel();
-  const diary = addChannel({
+  const selfreflection = addChannel({
     id: '760000000000000084',
     messages: [{ ts: LAST - 300 * MIN, mentionsSelf: true }, ...burst(LAST - 50 * MIN, LAST, 10)],
   });
-  const callId = diary.ids[0] ?? '';
-  const ring = [ringEntry(diary, callId, LAST - 300 * MIN)];
+  const callId = selfreflection.ids[0] ?? '';
+  const ring = [ringEntry(selfreflection, callId, LAST - 300 * MIN)];
   servePageFrom(LAST - 50 * MIN);
-  world().failRead('fetchMessages', diary.id);
-  const { result, logs } = await withCapturedLogs(() => pull(diary.id, { pings: ring }));
+  world().failRead('fetchMessages', selfreflection.id);
+  const { result, logs } = await withCapturedLogs(() => pull(selfreflection.id, { pings: ring }));
   const pulled = pulledOf(result);
   assert.equal(result.skip, null);
-  assert.equal(diary.calls().includes(callId), true, 'asked for by id');
+  assert.equal(selfreflection.calls().includes(callId), true, 'asked for by id');
   assert.equal(pulled.earlierPingIds.size, 0);
   assert.equal(
     pulled.messages.some((m) => m.id === callId),
@@ -1184,7 +1219,7 @@ test('fetchPull logs counts and codes, never message text or captions', async ()
 
 test('fetchPull pulls a read-only conversation where only the persona writes and marks its lines self', async () => {
   const main = mainChannel();
-  const diary = addChannel({
+  const selfreflection = addChannel({
     id: '760000000000000071',
     name: 'ημερολόγιο',
     permissions: { send: false },
@@ -1195,10 +1230,10 @@ test('fetchPull pulls a read-only conversation where only the persona writes and
   });
   const snapshot = await listing();
   assert.equal(
-    checkPull({ snapshot, placeId: diary.id, destination: main.info, config: config(), now: NOW }).skip,
+    checkPull({ snapshot, placeId: selfreflection.id, destination: main.info, config: config(), now: NOW }).skip,
     null
   );
-  const { result } = await withCapturedLogs(() => pull(diary.id));
+  const { result } = await withCapturedLogs(() => pull(selfreflection.id));
   const pulled = pulledOf(result);
   assert.equal(result.skip, null);
   assert.equal(pulled.readOnly, true);

@@ -1,5 +1,5 @@
-// A diary entry as memory holds it, for a publication that goes out after the turn that wrote it: her messages as first
-// sent (the publication's `delivery`, else the `diary` row's `send`, else the rendered text as one message) and its
+// A selfreflection entry as memory holds it, for a publication that goes out after the turn that wrote it: her messages as first
+// sent (the publication's `delivery`, else the `selfreflection` row's `send`, else the rendered text as one message) and its
 // `media` rows with their files under the data directory, in their numbering: the pictures, the voice file and the files
 // of her messages. A file that cannot be read makes the entry `missing`: the publisher posts nothing of it, since a
 // partial post could not be completed later.
@@ -8,9 +8,9 @@ import { entryMedia } from '../memory/db/media-store.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { deliveryOf } from '../memory/db/publication-delivery.ts';
-import { diaryMetadataOf, isPublicationBoundary } from '../tools/publication.ts';
+import { selfreflectionMetadataOf, isPublicationBoundary } from '../tools/publication.ts';
 import type { Db, Row } from '../memory/db/types.ts';
-import type { DiaryEntry, EntryFile, EntryPicture, Publication } from './mirror.ts';
+import type { SelfreflectionEntry, EntryFile, EntryPicture, Publication } from './mirror.ts';
 
 /** The code an error carries, or `fallback`. */
 export function errorCode(err: unknown, fallback: string): string {
@@ -30,18 +30,18 @@ function objectOf(text: unknown): Row {
 }
 
 /** What a stored entry comes to: the entry, whether a file of it is gone, and whether it has any content yet. */
-export type StoredEntry = { entry: DiaryEntry; missing: boolean; hasContent: boolean };
+export type StoredEntry = { entry: SelfreflectionEntry; missing: boolean; hasContent: boolean };
 
 /** The entry's `media` rows as its parts; `missing` when one has no readable file. */
 function storedMedia(
   db: Db,
   id: string,
   dataDir: string | null
-): { pictures: Array<EntryPicture>; files: Array<EntryFile>; voice: DiaryEntry['voice']; missing: boolean } {
+): { pictures: Array<EntryPicture>; files: Array<EntryFile>; voice: SelfreflectionEntry['voice']; missing: boolean } {
   const media = entryMedia(db, id);
   const pictures: Array<EntryPicture> = [];
   const files: Array<EntryFile> = [];
-  let voice: DiaryEntry['voice'] = null;
+  let voice: SelfreflectionEntry['voice'] = null;
   let missing = false;
   for (const item of media) {
     const file = dataDir && typeof item.path === 'string' ? path.join(dataDir, item.path) : null;
@@ -66,8 +66,8 @@ function storedMedia(
 
 /** The entry of a publication as memory holds it (see the head of this file). */
 export function storedEntry(db: Db, publication: Publication, dataDir: string | null): StoredEntry {
-  const row = db.prepare('SELECT extra FROM diary WHERE id = ?').get(publication.row_id);
-  const metadata = diaryMetadataOf(row?.extra);
+  const row = db.prepare('SELECT extra FROM selfreflection WHERE id = ?').get(publication.row_id);
+  const metadata = selfreflectionMetadataOf(row?.extra);
   const send = metadata.send as { messages?: unknown; mentions?: unknown; maxMessageBytes?: unknown } | undefined;
   const delivered = deliveryOf(publication);
   const given = Array.isArray(send?.messages) ? (send.messages as Array<string>) : null;
@@ -95,6 +95,6 @@ export function storedEntry(db: Db, publication: Publication, dataDir: string | 
 
 /** What a publication prepared by a scan renders: her messages as first sent, else the entry's text as one message. */
 export function scannedMessages(extra: unknown, text: string | null): Array<string> {
-  const send = diaryMetadataOf(extra).send as { messages?: unknown } | undefined;
+  const send = selfreflectionMetadataOf(extra).send as { messages?: unknown } | undefined;
   return Array.isArray(send?.messages) ? (send.messages as Array<string>) : [text ?? ''];
 }

@@ -36,7 +36,7 @@ async function boot(complete?: (messages: unknown, options?: unknown) => Promise
       followUp: false,
       participation: false,
       offlineCatchUp: false,
-      diary: false,
+      selfreflection: false,
       mediaDescriptions: false,
       channelRoute: false,
       memoryPrefetch: false,

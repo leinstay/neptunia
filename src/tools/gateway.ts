@@ -80,7 +80,7 @@ function targetConversation(args: unknown, audience: Audience | null): string | 
 }
 
 /**
- * The one rule for a call nobody asked for (a spontaneous turn, the diary): only a read (the
+ * The one rule for a call nobody asked for (a spontaneous turn, the selfreflection): only a read (the
  * owner's decision, 2026-10-14). Her own initiative -- an inner turn, `context.ownInitiative` --
  * is lifted in requesterRefusal: there her grants alone decide (the owner's decision, 2026-10-18).
  * Null when `skill` may run, else the refusal.
@@ -98,7 +98,7 @@ const isSelfOwned = (op: string | null): boolean => op !== null && SELF_OWNED_OP
  * or one on an owner-only operation -- runs only for a requester who may run that operation
  * themselves (src/tools/impl/rights.ts, the owner commands' own check: an owner passes everything, an
  * owner-only operation only an owner, a member as their grants say); with no requester (nobody
- * asked: a spontaneous turn, the diary) only a read, and only one open to everyone (`no-requester`
+ * asked: a spontaneous turn, the selfreflection) only a read, and only one open to everyone (`no-requester`
  * for a write). Her own expressive operations (src/tools/impl/effects.ts#SELF_OWNED_OPS) skip the
  * requester's right -- hers alone decides -- but not the two rules on who asked: no write for
  * several people, only a read for nobody. Any other shared-state skill checks a requester's right

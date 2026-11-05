@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { applyEntryMedia } from '../src/memory/db/diary-media.ts';
+import { applyEntryMedia } from '../src/memory/db/selfreflection-media.ts';
 import { topPlaceSpelled } from '../src/memory/db/ids.ts';
 import { MEDIA_KINDS, lineMedia, migrateMediaStore, tellMedia } from '../src/memory/db/media-store.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
@@ -39,7 +39,7 @@ import type { Env, Kind, Presence, Shape } from './fixtures/media-memory.ts';
 import type { Db, Row } from '../src/memory/db/types.ts';
 
 const internal = internalContext();
-const rowsOf = (env: Env, source: string, ownerKind: 'source' | 'diary' = 'source') =>
+const rowsOf = (env: Env, source: string, ownerKind: 'source' | 'selfreflection' = 'source') =>
   lineMedia(env.db, [source], internal, ownerKind).get(source) ?? [];
 const named = (name: string) => KINDS.find((kind) => kind.name === name) as Kind;
 
@@ -373,7 +373,7 @@ for (const [order, steps] of [
 test("a diary entry's files are items linked to it, each with its path under media/ and its bytes' sha1", () =>
   withEnv((env) => {
     const dataDir = tempDir('nep-media-diary-');
-    env.db.prepare("INSERT INTO diary (id, scope_kind, scope_iface) VALUES ('d1', 'group', 'discord')").run();
+    env.db.prepare("INSERT INTO selfreflection (id, scope_kind, scope_iface) VALUES ('d1', 'group', 'discord')").run();
     applyEntryMedia(env.handle, {
       dataDir,
       id: 'd1',
@@ -382,7 +382,7 @@ test("a diary entry's files are items linked to it, each with its path under med
         { data: Buffer.from('ogg'), mime: 'audio/ogg', extra: { voice: true, text: 'a cathedral', durationSec: 2 } },
       ],
     });
-    const rows = rowsOf(env, 'd1', 'diary');
+    const rows = rowsOf(env, 'd1', 'selfreflection');
     assert.deepEqual(
       rows.map((one) => [one.position, one.kind]),
       [
@@ -400,7 +400,7 @@ test("a diary entry's files are items linked to it, each with its path under med
 
 test('a diary entry and a message showing the same file are one item with two links', () =>
   withEnv((env) => {
-    env.db.prepare("INSERT INTO diary (id, scope_kind, scope_iface) VALUES ('d2', 'group', 'discord')").run();
+    env.db.prepare("INSERT INTO selfreflection (id, scope_kind, scope_iface) VALUES ('d2', 'group', 'discord')").run();
     const source = observeLine(env, KINDS[0], 'absent');
     applyEntryMedia(env.handle, {
       dataDir: tempDir('nep-media-diary-'),
@@ -415,7 +415,7 @@ test('a diary entry and a message showing the same file are one item with two li
     });
     const [linked] = rowsOf(env, source);
     assert.ok(String(linked.path).startsWith('media/'), 'the line now knows the file');
-    assert.equal(rowsOf(env, 'd2', 'diary')[0].mediaId, linked.mediaId);
+    assert.equal(rowsOf(env, 'd2', 'selfreflection')[0].mediaId, linked.mediaId);
   }));
 
 // ---------- the migration ----------
@@ -607,15 +607,16 @@ test(
   "a diary post's rows become items of their kinds, linked to the entry and to the line that posted them",
   migrated((env) => {
     const source = legacyLine(env, 'm4', ['image', 'voice']);
-    env.db.prepare("INSERT INTO diary (id, scope_kind, scope_iface) VALUES ('d9', 'group', 'discord')").run();
-    legacyMedia(env, 'media:diary:d9-1', 'diary', JSON.stringify({ messageId: 'm4', attachmentId: 'd1' }), {
+    env.db.prepare("INSERT INTO selfreflection (id, scope_kind, scope_iface) VALUES ('d9', 'group', 'discord')").run();
+    legacyMedia(env, 'media:diary:d9-1', 'selfreflection', JSON.stringify({ messageId: 'm4', attachmentId: 'd1' }), {
       description: 'a walrus',
-      path: 'media/diary/d9-1.png',
+      // B10 of the master plan: her files live under media/selfreflection, by the owner's word.
+      path: 'media/selfreflection/d9-1.png',
       sha1: 'aa',
       mime: 'image/png',
     });
-    legacyMedia(env, 'media:diary:d9-2', 'diary', JSON.stringify({ messageId: 'm4', attachmentId: 'd2' }), {
-      path: 'media/diary/d9-2.ogg',
+    legacyMedia(env, 'media:diary:d9-2', 'selfreflection', JSON.stringify({ messageId: 'm4', attachmentId: 'd2' }), {
+      path: 'media/selfreflection/d9-2.ogg',
       sha1: 'bb',
       mime: 'audio/ogg',
       extra: { voice: true, text: 'a cathedral at dusk' },
@@ -624,14 +625,14 @@ test(
     const [picture, voice] = rowsOf(env, source);
     assert.deepEqual(
       [picture.kind, picture.nativeRef, picture.description, picture.path],
-      ['image', 'd1', 'a walrus', 'media/diary/d9-1.png']
+      ['image', 'd1', 'a walrus', 'media/selfreflection/d9-1.png']
     );
     assert.deepEqual(
       [voice.kind, voice.nativeRef, voice.description, voice.extra.textOrigin],
       ['voice', 'd2', 'a cathedral at dusk', 'voiced']
     );
     assert.deepEqual(
-      rowsOf(env, 'd9', 'diary').map((one) => one.mediaId),
+      rowsOf(env, 'd9', 'selfreflection').map((one) => one.mediaId),
       [picture.mediaId, voice.mediaId]
     );
   })

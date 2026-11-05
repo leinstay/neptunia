@@ -501,7 +501,7 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
         now: NOW,
       }
     );
-    m.store.appendDiaryPost(
+    m.store.appendSelfreflectionPost(
       // @ts-expect-error a post without a picture is null, the shape the diary writes before one is drawn
       { at: NOW, kind: 'day', gist: 'une journée de pluie', picture: null, messageIds: [], search: null },
       { max: 150, now: NOW }

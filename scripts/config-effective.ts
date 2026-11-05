@@ -33,7 +33,7 @@ import { sessionSettings } from '../src/memory/db/session.ts';
 import { boardSettings } from '../src/board/board.ts';
 import { elsewherePickSettings } from '../src/behavior/elsewhere-pick.ts';
 import { pullSettings } from '../src/behavior/pull.ts';
-import { setSettings } from '../src/behavior/diary.ts';
+import { setSettings } from '../src/behavior/selfreflection.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
 import { splitSettings } from '../src/behavior/split.ts';
 import { mediaPickSettings } from '../src/behavior/media-pick.ts';
@@ -77,7 +77,7 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['audioMapSettings', (config) => audioMapSettings(treeOf(treeOf(treeOf(config).media).video).audioMap)],
   ['setSettings', (config) => setSettings(treeOf(config).selfreflection)],
   ['mediaPickSettings', (config) => mediaPickSettings(config)],
-  ['loopSettings diary', (config) => loopSettings(config, { diary: true })],
+  ['loopSettings selfreflection', (config) => loopSettings(config, { selfreflection: true })],
   ['hedgeSettings', (config) => hedgeSettings(config)],
   ['boardSettings', (config) => boardSettings(config)],
   ['splitSettings', (config) => splitSettings(config)],

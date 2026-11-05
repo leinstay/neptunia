@@ -20,7 +20,7 @@ export const MEDIA_CACHE_ENTRIES = 5000;
 
 /**
  * Drop the oldest entries once `cache` holds more than `maxEntries`, the entries of `linked` aside: an attachment id or its
- * video summary (`video:<id>`) that a stored line or a diary post links stays, however old. `linked` is asked only when
+ * video summary (`video:<id>`) that a stored line or a selfreflection post links stays, however old. `linked` is asked only when
  * something is to go, and with every entry linked the cache stays over the cap.
  */
 export function trimCache(

@@ -1,4 +1,4 @@
-// The owner's desk of the diary's mirrors: what `/mirror` reads and changes (src/interface/commands/mirror.ts). A change of
+// The owner's desk of the selfreflection's mirrors: what `/mirror` reads and changes (src/interface/commands/mirror.ts). A change of
 // configuration goes through the writer (`memoryWrite`, kind `mirror`; src/memory/db/mirror-config.ts) and leaves the
 // delivery history alone, so removing and adding a destination again keeps deduplication. Reconciliation records which
 // entries already count as published on a mirror, named one by one or up to a boundary entry, with who said so. A number
@@ -16,8 +16,8 @@ import {
   unknownEntry,
 } from '../memory/db/mirror-config.ts';
 import type { BackfillChange, MirrorRow } from '../memory/db/mirror-config.ts';
-import { refusedEntries } from '../memory/db/diary-audience.ts';
-import { storedDiaryPublicationRefusal } from '../memory/db/publish.ts';
+import { refusedEntries } from '../memory/db/selfreflection-audience.ts';
+import { storedSelfreflectionPublicationRefusal } from '../memory/db/publish.ts';
 import { publicationFor, stateOfRow } from '../memory/db/publication-delivery.ts';
 import type { PublicationState } from '../memory/db/publication-delivery.ts';
 import type { Db } from '../memory/db/types.ts';
@@ -121,12 +121,12 @@ export function createMirrorDesk({
 
   /** Whether `entryId` went out to `placeId` and its audience has since left that place out: no edit takes the copy back. */
   const outsideAudience = (db: Db, status: unknown, entryId: unknown, placeId: unknown): boolean =>
-    status === 'sent' && storedDiaryPublicationRefusal(db, entryId, placeId) === 'audience-excluded';
+    status === 'sent' && storedSelfreflectionPublicationRefusal(db, entryId, placeId) === 'audience-excluded';
 
   function statusOf(db: Db, mirror: MirrorRow): MirrorStatus {
     const rows = db
       .prepare(
-        "SELECT row_id, status, code, retryable FROM publications WHERE row_kind = 'diary' AND destination_place_id = ? AND retired_at IS NULL ORDER BY created_at, id"
+        "SELECT row_id, status, code, retryable FROM publications WHERE row_kind = 'selfreflection' AND destination_place_id = ? AND retired_at IS NULL ORDER BY created_at, id"
       )
       .all(mirror.placeId);
     const having = (status: string) => rows.filter((row) => row.status === status);

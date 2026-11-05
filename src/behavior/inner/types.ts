@@ -296,11 +296,11 @@ export type InnerJournalOp = {
   unknown(result?: Obj): Promise<void> | void;
 };
 
-/** The memory store as the inner life reads it: its pause, the profiles and her diary for the heartbeat. */
+/** The memory store as the inner life reads it: its pause, the profiles and her selfreflection for the heartbeat. */
 export type InnerStore = {
   state?: { data?: { paused?: unknown; pausedAt?: unknown } };
   listUserProfiles?(): unknown;
-  getDiary?(): { posts?: unknown } | null | undefined;
+  getSelfreflection?(): { posts?: unknown } | null | undefined;
 };
 
 /** The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.ts). */

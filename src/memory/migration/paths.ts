@@ -7,7 +7,7 @@
 //                         recall trace, the journal's `.running` marker and request dumps (`journal/` is a mixed
 //                         directory: only its day files retire), the backfill folders and the backfill cursor
 //                         (`record/backfill.json`), the archive's pending queue, the vault, the snapshots, the unit
-//                         writes a shutdown could not make (`memory-pending/`), her diary media (`media/diary/`), the
+//                         writes a shutdown could not make (`memory-pending/`), her selfreflection media (`media/selfreflection/`, `media/diary/` until the migration moves it), the
 //                         database's own files (`memory.db*`), the tools' output folders, and the leftovers of any file
 //                         (`*.bak*`, `*.unreadable-*`, `*.tmp`, `*.tmp-*`, `*.torn-*`).
 //   MEMORY_PATTERNS       the memory paths, which no module writes as a file any more (the database holds their units;
@@ -72,6 +72,7 @@ export const OPERATIONAL_PATTERNS = Object.freeze([
   pattern('snapshots/**', 'snapshots/.+'),
   pattern('memory-pending/**', 'memory-pending/.+'),
   pattern('media/diary/**', 'media/diary/.+'),
+  pattern('media/selfreflection/**', 'media/selfreflection/.+'),
   pattern('memory.db*', 'memory\\.db[^/]*'),
   pattern('{mentor,recall-eval,vision-compare}/**', TOOL_OUTPUT),
   pattern('guilds/*/{mentor,recall-eval,vision-compare}/**', `${G}${TOOL_OUTPUT}`),
@@ -213,6 +214,9 @@ function legacySelector(kind: StorageKind, rel: string): StorageSelector | undef
   return undefined;
 }
 
+/** Whether `owner` is the file path the selfreflection unit was stored under before the units had keys. */
+export const isLegacySelfreflectionFile = (owner: string): boolean => /\/diary\.json$/.test(owner);
+
 /** A legacy wrapper's community scope stays separate from its exact account or place subject. */
 function legacySubject(
   kind: StorageKind,
@@ -221,7 +225,8 @@ function legacySubject(
   scope: string,
   selector?: StorageSelector
 ): StorageSubject {
-  if (['diary', 'intentions', 'errands', 'inner'].includes(kind)) return { type: 'persona', id: 'persona:local' };
+  if (['selfreflection', 'intentions', 'errands', 'inner'].includes(kind))
+    return { type: 'persona', id: 'persona:local' };
   const itemId = /([^/]+)\.json$/.exec(rel)?.[1];
   if (kind === 'user' || kind === 'private') return { type: 'account', id: accountId(iface, itemId) };
   if (kind === 'channel') return { type: 'place', id: channelPlaceId(iface, itemId) };

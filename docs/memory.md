@@ -56,7 +56,7 @@ A turn gets a bounded selection of relevant information: people nearby, the curr
 
 The observation in `src/memory/db/observe.ts` keeps a conversation's containment. A declared parent gets a row in `places` even when no line was seen in it, so a chain of parents holds whatever order the places are seen in. The row gains its conversation and title from its first own line. A conversation of a community sits under that community's place, directly or through its declared parent. A DM has no parent.
 
-A storage unit is named by its subject alone (`src/memory/db/storage-keys.ts`): `accountCollection` for a profile and a private layer, `placeCollection` for a place's notes, lore, emoji rails, media cache, recent lines, participation, record, journal and archive, and `personaKey` for the diary, the intentions, the errands, the inner state and the one GIF library. A direct chat's record, journal and archive are collections of its DM place, and its lines keep their DM audience. `store.accountOf`, `store.placeOfConversation` and `store.sharedPlaceOf` turn the native ids an interface gives into these ids, and an empty id is refused with `BAD_COLLECTION_ID`.
+A storage unit is named by its subject alone (`src/memory/db/storage-keys.ts`): `accountCollection` for a profile and a private layer, `placeCollection` for a place's notes, lore, emoji rails, media cache, recent lines, participation, record, journal and archive, and `personaKey` for the selfreflection, the intentions, the errands, the inner state and the one GIF library. A direct chat's record, journal and archive are collections of its DM place, and its lines keep their DM audience. `store.accountOf`, `store.placeOfConversation` and `store.sharedPlaceOf` turn the native ids an interface gives into these ids, and an empty id is refused with `BAD_COLLECTION_ID`.
 
 The notes of a place are scoped together by `toRows` in `src/memory/db/map/place.ts`: its descriptions, in-jokes, self facts and lessons belong to the partner's DM on a DM place and to the groups on any other. `scripts/memory-repair-self-audience.ts --db <file> [--apply]` brings self facts stored under `aud:none` to that scope. Run it with the core stopped. A row whose place cannot be found becomes `aud:internal`, and a row with a live `decisions` row of the action `audience-none-kept` stays. Without `--apply` it prints the counts and writes nothing.
 
@@ -82,7 +82,7 @@ The authenticated owner CLI has a separate internal view across stored memory. T
 
 A search has two steps with a model around it. The query builder (`createQueryBuilder` and `parseQueryPlan` in `src/behavior/query-builder.ts`, purpose `query-builder`, prompt `prompts/query-builder.md`) plans before the search: `web:`, `history:`, `who:`, `when:`, `when-role:` and `recent:`, or `none`. A live turn has no such step, because the persona's own tools search during her reply, so `src/turn/phases/request/lookup.ts` logs `lookup: skipped` with the reason `core-tools` and adds no helper model. Its callers are `scripts/replay.ts`, `scripts/recall-eval.ts` and `scripts/search-policy-eval.ts`.
 
-The summary builder (`createSummaryBuilder` and `parseSummaryNote` in `src/behavior/summary-builder.ts`) condenses what a search found into a note bounded by `maxChars`. Chat evidence reads `prompts/recall-summary.md` under the purpose `recall-summary` on the analyzer, and web evidence reads `prompts/search-summary.md` under the purpose `search-summary` on the `search` role with `web.search.model`. The single word `none` is no note. `src/behavior/recall-run.ts` and `src/web/lookup.ts` both go through it.
+The summary builder (`createSummaryBuilder` and `parseSummaryNote` in `src/behavior/summary-builder.ts`) condenses what a search found into a note bounded by `maxChars`. Chat evidence reads `prompts/recall-summary.md` under the purpose `recall-summary` on the analyzer, and web evidence reads `prompts/search-summary.md` under the purpose `search-summary` on the `search` role with `web.quickSearch.model`. The single word `none` is no note. `src/behavior/recall-run.ts` and `src/web/lookup.ts` both go through it.
 
 ## Searches and backups off the main thread
 
@@ -107,7 +107,7 @@ When those four streams find nothing and the plan names a channel or a side of a
 
 The table `media` is the only store of media, in `src/memory/db/media-store.ts`. It holds one row per item, whatever the interface. `kind` is one of `image`, `gif`, `video`, `sticker`, `emoji`, `voice`, `audio`, `link`, `text` and `file`. `native_ref` is the interface's reference, opaque to the core, and an item is the same item when its interface and reference are the same. `path` is null or a file under `media/`. `availability` is `present`, `missing`, `unknown` or `unreadable`. `extra` holds what a kind has beside that: `fileName` and `durationSec` of an attachment, `name` of a sticker, an emoji or a library GIF, and `title`, `site` and `url` of a link.
 
-`media_links(owner_kind, owner_id, position, media_id)` ties an item to what shows it, a message (`source`) or a diary entry (`diary`), at its position there. Audience comes only from a link: an item is read through an owner the reader may open, and a file shown by a message and an entry is one row with two links. A `sources` row holds no kinds, no ids and no link cards, and its `text` and `stems` stay what was written.
+`media_links(owner_kind, owner_id, position, media_id)` ties an item to what shows it, a message (`source`) or a selfreflection entry (`selfreflection`), at its position there. Audience comes only from a link: an item is read through an owner the reader may open, and a file shown by a message and an entry is one row with two links. A `sources` row holds no kinds, no ids and no link cards, and its `text` and `stems` stay what was written.
 
 An item's text form is its `description`, with its origin in `extra.textOrigin`: `retelling`, `frame`, `transcript`, `voiced`, `embed`, `preview` or `page`. `tellMedia` is the one write of a text form. A text form that ranks higher stays over one that ranks lower, so what she voiced is never replaced and a watched summary replaces a still frame. A file no model can read is `unreadable` and renders the standard mark with its name, which `safeFileName` in `src/media/classify.ts` cuts to 120 characters and rids of anything that opens a tag.
 
@@ -117,7 +117,7 @@ A text form is stemmed and embedded once on its row. `media_fts` and `media_tri`
 
 ## Moving old media to the store
 
-`migrateMediaStore` is one forward schema step. It turns `sources.media`, `extra.links` and `extra.extra.attachmentIds` into items and links and removes them, maps the old cache rows to items, takes a description the cap had trimmed from the durable versions, and links a line stored without ids through the GIF library or diary row that names its message. A line that still has no reference gets a placeholder with no reference. A second run changes nothing.
+`migrateMediaStore` is one forward schema step. It turns `sources.media`, `extra.links` and `extra.extra.attachmentIds` into items and links and removes them, maps the old cache rows to items, takes a description the cap had trimmed from the durable versions, and links a line stored without ids through the GIF library or selfreflection row that names its message. A line that still has no reference gets a placeholder with no reference. A second run changes nothing.
 
 `neptunia memory backfill-media [--dry-run|status]` runs `backfillMedia` in `src/memory/db/media-backfill.ts`, for the owner only. It reads each line's message through the interface's history, one read a second, and writes its items through the one writer. A line's message id is `messageId` of `extra.$messageLocator`, else `native_id`, because `native_id` on a line observed through the family catalog is a key of the catalog that no platform knows. The run keeps a valid locator as it found it. Items without a text form go through the describer, so no model call is made for a text form already held. Its report counts `linked`, `gone` when the platform no longer returns the message, and `bare` when the line names no conversation to read, with the reason per class in `classes`. `--dry-run` counts the lines to read in `classes.toRead` and the lines waiting on a conversation in `classes.toOpen`. `BACKFILL_FIELDS` names every field a new line carries and how an old line comes to hold it.
 
@@ -131,7 +131,7 @@ A run that stops is taken up by the next one, because a finished line holds its 
 
 An old source does not become unreachable merely because it is outside the recent-context window. Prompt budgets bound what is shown, not the age of everything stored. Review the relevant `memoryDb`, `recall` and `context` settings in [configuration](configuration.md).
 
-The media cache of a place keeps `MEDIA_CACHE_ENTRIES`, 5000, of the rows nothing links. `trimCache` in `src/web/cache.ts` leaves a row alone when a live line or a live diary picture links its attachment, as `linkedAttachmentIds` in `src/memory/db/line-media.ts` lists them, so a place with many linked rows stays over the cap. A line stored before `extra.attachmentIds` links nothing by that list until its echo brings the ids.
+The media cache of a place keeps `MEDIA_CACHE_ENTRIES`, 5000, of the rows nothing links. `trimCache` in `src/web/cache.ts` leaves a row alone when a live line or a live selfreflection picture links its attachment, as `linkedAttachmentIds` in `src/memory/db/line-media.ts` lists them, so a place with many linked rows stays over the cap. A line stored before `extra.attachmentIds` links nothing by that list until its echo brings the ids.
 
 ## The memory audit
 
@@ -145,7 +145,7 @@ The media cache of a place keeps `MEDIA_CACHE_ENTRIES`, 5000, of the rows nothin
 | `danglingLinks` | Links from a live claim or episode to a missing or retired line, versions of a row that does not exist, and a description's missing current version |
 | `unexplainedNone` | Rows under `aud:none` with no live `decisions` row of the action `audience-none-kept` naming them |
 | `vectorManifests` | Months whose manifest disagrees with the rows they hold or their vector size, or cannot be read. A month kept raw is left out |
-| `linkedMediaKept` | Retired media rows that a live line or a live diary entry links |
+| `linkedMediaKept` | Retired media rows that a live line or a live selfreflection entry links |
 
 ## Entities and assertions
 
@@ -182,7 +182,7 @@ Every read filters by the context's audience before any limit, and a version's s
 | Heartbeat | `src/behavior/inner/heartbeat.ts`, `src/behavior/heartbeat-view.ts` | Recent previews, open intentions, focus people | Internal | `facts.memory`, in `<wake>` |
 | Attention | `src/intentions/model.ts#attentionRetrieval`, `src/turn/lookup.ts` | The intention's purpose, people and place | The wake's | The prefetch's excerpts |
 | Selfimprovement | `src/behavior/inner/selfimprovement.ts`, `src/behavior/selfimprovement-view.ts` | The failures the view holds | Internal | `facts.memory`, in `<wake>` |
-| Diary plan | `src/turn/diary.ts` | Known people up to the post's moment | `groupsContext` | `<stored_facts>` in the plan request |
+| Selfreflection plan | `src/turn/selfreflection.ts` | Known people up to the post's moment | `groupsContext` | `<stored_facts>` in the plan request |
 | Memory session | `src/memory/db/session-retrieved.ts` | The batch's words, people and places | The scope's | `<retrieved>`, as of the batch's newest line |
 | Errand | `src/errands/service.ts`, `src/core.ts` | The goal | A group context; a `dm` errand reads nothing | `context.memory` |
 | Watcher | `src/watcher/install.ts#watcherMemory` | Failure words | `groupsContext`, because a report can reach a public filing | `<memory>` in the brief |
@@ -213,6 +213,6 @@ The [archive wrapper](../src/llm/archive.ts) awaits writes around model calls. I
 
 Recall diagnostics also stay in the database, with a bounded recent history.
 
-Successful media descriptions persist across cache eviction and restart. [Media](media.md) explains reuse and rewatching; [diary](diary.md) explains the originals kept under `data/media/`. Back up the whole persona using [persona migration](persona-migration.md#backup-and-restore).
+Successful media descriptions persist across cache eviction and restart. [Media](media.md) explains reuse and rewatching; [selfreflection](selfreflection.md) explains the originals kept under `data/media/`. Back up the whole persona using [persona migration](persona-migration.md#backup-and-restore).
 
 The journal keeps its process marker in `data/run/journal.running`. A leftover marker records an unclean stop; a clean shutdown removes it. It holds no conversation history.

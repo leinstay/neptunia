@@ -405,4 +405,4 @@ export function errandService(hot: { config: Record<string, unknown> }): {
 export const AGENTS = { errands: { maxOpen: 3, resultMaxChars: 400 }, agents: { scout: { enabled: true, daily: { tasks: 10 } } } };
 
 // PR 7d: the web cap is gone and the links, search counts and recall forms are constants.
-export const WEB_CONFIG = { web: { search: { enabled: true } } };
+export const WEB_CONFIG = { web: { quickSearch: { enabled: true } } };

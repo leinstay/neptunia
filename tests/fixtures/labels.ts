@@ -146,7 +146,7 @@ export const labels = {
     channels: 'you see only the channels shown here',
     participation: 'a <participation> block holds slices of your own exchanges on other channels',
     elsewhere: 'read-only channels: read and react only; a call there is answered in #{destination}',
-    diary: 'You keep a diary in #{channel}; you post there yourself, nobody asked, and people here read it.',
+    selfreflection: 'You keep a diary in #{channel}; you post there yourself, nobody asked, and people here read it.',
   },
   tempo: {
     counts: 'messages in the last 10 min: {last10min}, last hour: {lastHour}, last day: {lastDay}',
@@ -211,7 +211,7 @@ export const labels = {
     stretch: '[stretch of {date} in #{channel}]',
     timeEstimate: '[time cue {range}, an estimate]',
   },
-  diaryFacts: {
+  selfreflectionFacts: {
     header: 'Stored facts:',
     fact: '- ({state}) {text}',
   },
@@ -272,7 +272,7 @@ export const labels = {
     activityLive: 'live',
     activitySlow: 'slow',
     activityDead: 'dead',
-    diary: 'Your diary.',
+    selfreflection: 'Your diary.',
   },
   triggers: {
     mention: 'tagged you',
@@ -399,7 +399,7 @@ export const labels = {
     none: 'Measured: no audible sound in this clip.',
     map: 'Measured: sound only during {spans}.',
   },
-  diary: {
+  selfreflection: {
     intro: 'Your latest diary posts, oldest first:',
     line: '- {date} {kind}: {gist}',
     picture: ' [picture: {scene}]',
@@ -469,8 +469,8 @@ export const labels = {
         'malformed-call': 'call unreadable',
         'truncated-call': 'call cut off',
         'think-in-text': 'a think tag in the text, nothing sent',
-        'diary-draw-only': 'a diary post takes only draw.create',
-        'diary-mirror': 'the diary\'s mirror',
+        'selfreflection-draw-only': 'a diary post takes only draw.create',
+        'selfreflection-mirror': 'the diary\'s mirror',
         other: 'other failure',
       },
     },
@@ -592,7 +592,7 @@ export const labels = {
       action: '{when}: {skill}{where}',
       where: ' in #{place}',
       errand: '{when}: errand to {agent} ({state}): {goal}',
-      diary: '{when}: a diary post: {gist}',
+      selfreflection: '{when}: a diary post: {gist}',
       post: '{when}: you wrote in #{place}: {text}{media}',
       open: 'Your open intentions:',
       openItem: '{id} · {purpose}{due}{origin}',

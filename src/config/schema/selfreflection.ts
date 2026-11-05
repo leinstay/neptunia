@@ -6,18 +6,18 @@ export const SELFREFLECTION: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'selfreflection.enabled',
     'types': ['boolean'],
-    'reader': 'src/behavior/diary.ts',
+    'reader': 'src/behavior/selfreflection.ts',
     'default': true,
     'text':
-      'Whether her diary posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs',
+      'Whether her selfreflection posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs',
   },
   {
     'key': 'selfreflection.schedule',
     'types': ['string', 'null'],
-    'reader': 'src/behavior/diary.ts',
+    'reader': 'src/behavior/selfreflection.ts',
     'default': null,
     'text':
-      'Exact UTC slots of the diary, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day',
+      'Exact UTC slots of the selfreflection, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day',
   },
   {
     'key': 'selfreflection.placeId',
@@ -25,19 +25,19 @@ export const SELFREFLECTION: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/memory/db/service.ts',
     'default': '',
     'text':
-      "The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it",
+      "The seed of the selfreflection's first mirror: schema v15 makes this channel's place a `selfreflection` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it",
   },
   {
     'key': 'selfreflection.world',
     'types': ['boolean'],
     'reader': 'src/behavior/prompt.ts',
     'default': false,
-    'text': 'Include `prompts/world.md` as a `<world>` block in diary requests',
+    'text': 'Include `prompts/world.md` as a `<world>` block in selfreflection requests',
   },
   {
     'key': 'selfreflection.windows',
     'types': ['array'],
-    'reader': 'src/behavior/diary.ts',
+    'reader': 'src/behavior/selfreflection.ts',
     'default': [
       { 'from': 7, 'to': 11, 'posts': [0, 0] },
       { 'from': 12, 'to': 16, 'posts': [0, 1] },
@@ -49,14 +49,14 @@ export const SELFREFLECTION: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'selfreflection.quietDayChance',
     'types': ['number'],
-    'reader': 'src/behavior/diary.ts',
+    'reader': 'src/behavior/selfreflection.ts',
     'default': 0.3,
     'text': 'Chance of no posts for the whole day',
   },
   {
     'key': 'selfreflection.forceWaitMs',
     'types': ['number'],
-    'reader': 'src/behavior/diary.ts',
+    'reader': 'src/behavior/selfreflection.ts',
     'default': 120000,
     'text': 'Milliseconds a forced post waits for a running turn',
   },
@@ -65,7 +65,7 @@ export const SELFREFLECTION: ReadonlyArray<SchemaEntry> = [
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
     'default': 2,
-    'text': 'Further requests one diary post makes',
+    'text': 'Further requests one selfreflection post makes',
   },
   {
     'key': 'selfreflection.loop.timeBudgetMs',
@@ -77,14 +77,14 @@ export const SELFREFLECTION: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'selfreflection.planMaxOutputTokens',
     'types': ['number'],
-    'reader': 'src/turn/diary.ts',
+    'reader': 'src/turn/selfreflection.ts',
     'default': 2000,
     'text': 'Max output tokens for the plan request',
   },
   {
     'key': 'selfreflection.planTimeoutMs',
     'types': ['number'],
-    'reader': 'src/turn/diary.ts',
+    'reader': 'src/turn/selfreflection.ts',
     'default': 60000,
     'text': 'Timeout for the plan request (ms)',
   },

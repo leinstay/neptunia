@@ -160,7 +160,7 @@ export async function heartbeatFacts(
       journal,
       intentions: guarded(() => intentions?.list?.({ all: true, closed: true }), []),
       tasks: guarded(() => heartbeatSources.tasks?.(), []),
-      diary: guarded(() => store?.getDiary?.()?.posts, []),
+      selfreflection: guarded(() => store?.getSelfreflection?.()?.posts, []),
       places: placesInWakeOf(life, settings),
       skills: guarded(() => heartbeatSources.skills?.(), []),
       agents: guarded(() => heartbeatSources.agents?.(), []),

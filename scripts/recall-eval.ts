@@ -34,7 +34,7 @@
 // -- the web search.
 //
 // `--web`: the classifier's `web:` query, when it gives one, goes to the live web lookup
-// (src/web/lookup.ts#createLookup `search`, on the configured web.search.engine: `brave` with
+// (src/web/lookup.ts#createLookup `search`, on the configured web.quickSearch.engine: `brave` with
 // BRAVE_SEARCH_API_KEY from .env and `exa` condensed through prompts.search-summary, `openrouter`
 // through its web plugin; `--web` refuses to start when that engine cannot run), as the live turn runs it
 // beside the server part, with features.webLookup switched on for this process only; its daily
@@ -167,7 +167,7 @@ export function webSearchKeys(env = process.env): { brave: string | null; exa: s
 
 /**
  * Whether `--web` can search: the lookup's own `hasSearch()` for the configured
- * `web.search.engine` (`brave` needs BRAVE_SEARCH_API_KEY, `exa` and `openrouter` need no key).
+ * `web.quickSearch.engine` (`brave` needs BRAVE_SEARCH_API_KEY, `exa` and `openrouter` need no key).
  * Builds the lookup only to ask; nothing is searched, read or written.
  * @param input `createLookup` from src/web/lookup.ts; `searches` the engine clients (`{ brave, exa }`).
  */
@@ -692,7 +692,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
     webParts = { createLookup, searches: { brave: createBraveSearch(), exa: createExaSearch() } };
     if (!webSearchReady({ hot: evalHot, ...webParts })) {
       throw new CliError(
-        'recall-eval: --web needs a web search that can run (web.search.engine brave needs BRAVE_SEARCH_API_KEY in .env)'
+        'recall-eval: --web needs a web search that can run (web.quickSearch.engine brave needs BRAVE_SEARCH_API_KEY in .env)'
       );
     }
   }
@@ -805,7 +805,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
 
   /** The search classifier's server part for `trigger`, as maybeLookup asks it; `fallback` on a failed or empty answer. */
   async function classify(trigger: Rec, history: Rec) {
-    const searchCfg = hot.config.web?.search ?? {};
+    const searchCfg = hot.config.web?.quickSearch ?? {};
     const contextMessages = Math.max(0, Math.floor(searchCfg.contextMessages ?? 50));
     const context = contextMessages > 0 ? history.filter((m: Rec) => m.id !== trigger.id).slice(-contextMessages) : [];
     const triggerText = [...String(trigger.content ?? '')].slice(0, MAX_MESSAGE_CHARS).join('');

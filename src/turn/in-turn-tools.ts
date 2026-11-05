@@ -1,9 +1,9 @@
 // Her in-turn tools for one turn: `web.search`, `web.read`, `media.look`, `media.find`, `memory.search`,
-// `conversation.read`, `draw.create` and a diary post's `voice.say`, each run over the turn's own context in place of
+// `conversation.read`, `draw.create` and a selfreflection post's `voice.say`, each run over the turn's own context in place of
 // the operation's command (src/tools/executors.ts#executeCall). createTurnRunner (src/behavior/turn.ts) builds it once
 // per runner with createInTurnTools; the attempt hands the tools to its calls.
 
-import { diaryVoiceTool } from '../behavior/diary-turn.ts';
+import { selfreflectionVoiceTool } from '../behavior/selfreflection-turn.ts';
 import { pullPictures } from '../behavior/pull.ts';
 import { checkPull } from '../behavior/pull-fetch.ts';
 import { RECALL_DEFAULTS, recallSettings } from '../behavior/recall.ts';
@@ -75,7 +75,7 @@ export type InTurnToolsContext = {
 export type InTurnDraft = NonNullable<Parameters<DrawGif['drawTool']>[1]['draft']> & {
   searchRefs?: SearchRefs;
   handleFloor?: number | null;
-  diaryVoice?: Parameters<typeof diaryVoiceTool>[0]['held']['diaryVoice'];
+  selfreflectionVoice?: Parameters<typeof selfreflectionVoiceTool>[0]['held']['selfreflectionVoice'];
 };
 
 /** A message of the turn's history, as a tool finds it by its id. */
@@ -198,8 +198,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       cachedMessage(call?.messageRef, messageId, draft?.searchRefs, history ?? [], conversationOf(channel));
     return {
       'draw.create': (args) => routes.tool('drawing', (model) => drawTool(args, where, model)),
-      // The attempt always hands its draft to a diary post's tools.
-      ...(mode === 'diary' ? diaryVoiceTool({ speech, held: draft as InTurnDraft }) : {}),
+      // The attempt always hands its draft to a selfreflection post's tools.
+      ...(mode === 'selfreflection' ? selfreflectionVoiceTool({ speech, held: draft as InTurnDraft }) : {}),
       'web.search': (args) =>
         runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, placeId, args }),
       'web.read': (args, call) =>

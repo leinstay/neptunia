@@ -68,7 +68,7 @@ Use `/interfaces setup <name>` or `/skills setup <name>` to repeat these questio
 
 The optional Google YouTube Data API key improves metadata retrieval. Obtain one through [Google's setup guide](https://developers.google.com/youtube/v3/getting-started), then use `/keys service set youtube`. It does not replace the model that watches video.
 
-Quick search is optional and declined by default. The `services` step asks for one engine, `openrouter`, `brave` or `exa`, and then for what that engine needs, a model or a service key. An empty answer to either leaves `web.search.engine` unset and quick search off. `/search engine` sets it later, and [keys](keys.md#quick-search) covers the routing.
+Quick search is optional and declined by default. The `services` step asks for one engine, `openrouter`, `brave` or `exa`, and then for what that engine needs, a model or a service key. An empty answer to either leaves `web.quickSearch.engine` unset and quick search off. `/search engine` sets it later, and [keys](keys.md#quick-search) covers the routing.
 
 ## Subharness backends
 

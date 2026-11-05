@@ -88,7 +88,7 @@ import { toolsBlockText } from '../llm/tool-text.ts';
 import { requestTokenLimit } from '../llm/budget.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { isPlainObject } from '../config.ts';
-import { diaryConversationIds, viewDiaryIds } from './mirror.ts';
+import { selfreflectionConversationIds, viewSelfreflectionIds } from './mirror.ts';
 import { utcDay } from '../time.ts';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../errands/blocks.ts';
 import { CODE } from '../tools/codes.ts';
@@ -192,8 +192,9 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
     "no part of a split message, no queued or folded call: a replay knows none (a skill scenario's burst hands in its waiting calls: `queued`)",
   recentAudience: "no place to compare audiences in: <recent> shows the lines of the turn's own channel only",
   participation: "no place to compare audiences in: no <participation> block of the persona's exchanges elsewhere",
-  diaryChannel: 'no diary is offered: a sandbox turn never posts, so <senses> has no diary line',
-  diary: 'never a diary post: no <world>, <diary>, <plan> or <found> block',
+  selfreflectionChannel:
+    'no selfreflection is offered: a sandbox turn never posts, so <senses> has no selfreflection line',
+  selfreflection: 'never a selfreflection post: no <world>, <diary>, <plan> or <found> block',
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
   skillsInventory: 'no catalogue: a replay runs no classifier (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
   skillIndex: 'no skill registry in a replay: no <skills> index of her active skills',
@@ -570,7 +571,7 @@ export function liveView({ hot, store, placeId, calibrator }: LiveViewInput): Li
       listChannels: () => store.listChannels(placeId),
       getLore: () => store.getLore(placeId),
       getRecent: () => (typeof store.getRecent === 'function' ? store.getRecent(placeId) : null),
-      diaryChannelIds: () => [...diaryConversationIds(store)],
+      selfreflectionChannelIds: () => [...selfreflectionConversationIds(store)],
     },
   };
 }
@@ -824,9 +825,9 @@ export function sandboxRequestInput({
     tasks,
     recentAudience: null,
     participation: null,
-    diaryChannel: null,
-    diaryChannelIds: viewDiaryIds(view),
-    diary: null,
+    selfreflectionChannel: null,
+    selfreflectionChannelIds: viewSelfreflectionIds(view),
+    selfreflection: null,
     offPeriods: null,
     around: null,
     skillIndex: null,

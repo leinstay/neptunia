@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CliError, simKey } from '../scripts/lib/cli.ts';
-import { diaryDayKey } from '../scripts/replay.ts';
+import { selfreflectionDayKey } from '../scripts/replay.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -45,8 +45,8 @@ test('OPENROUTER_SIM_KEY in the environment does not override the off switch', (
 test('a diary-day run takes the same key for live and fake pictures and refuses the same way', () => {
   // Bug: --draw live keeps its own reader of the environment and spends with the simulation off.
   const on = envWith({ key: 'sim' });
-  assert.equal(diaryDayKey('live', on), SIM);
-  assert.equal(diaryDayKey('fake', on), SIM);
+  assert.equal(selfreflectionDayKey('live', on), SIM);
+  assert.equal(selfreflectionDayKey('fake', on), SIM);
   const off = envWith({ key: null });
-  assert.throws(() => diaryDayKey('live', off), CliError);
+  assert.throws(() => selfreflectionDayKey('live', off), CliError);
 });

@@ -484,14 +484,14 @@ test('reads an old llm.helperTimeoutMs of the local file as the analyzer timeout
 test('drops selfreflection.placeId and reports it moved to the database once the database has a diary mirror', () => {
   const { config, toDatabase } = moveConfigKeys(
     { selfreflection: { placeId: 'c9', maxPerDay: 3 }, bot: { owners: ['o1'] } },
-    { diaryMirror: true }
+    { selfreflectionMirror: true }
   );
   assert.deepEqual(config, { selfreflection: { maxPerDay: 3 }, bot: { owners: ['o1'] } });
   assert.deepEqual(toDatabase, ['selfreflection.placeId']);
 });
 
 test('keeps selfreflection.placeId while the database has no diary mirror', () => {
-  const { config, toDatabase } = moveConfigKeys({ selfreflection: { placeId: 'c9' } }, { diaryMirror: false });
+  const { config, toDatabase } = moveConfigKeys({ selfreflection: { placeId: 'c9' } }, { selfreflectionMirror: false });
   assert.deepEqual(config, { selfreflection: { placeId: 'c9' } });
   assert.deepEqual(toDatabase, []);
 });
@@ -523,7 +523,7 @@ function memoryFile({ mirror }: { mirror: boolean }): string {
     const db = handle.db as { prepare(sql: string): { run(...params: Array<unknown>): unknown } };
     if (mirror)
       db.prepare(
-        "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES ('m1', 'diary', 'discord:channel:c9', 1, ?, 'owner', NULL)"
+        "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES ('m1', 'selfreflection', 'discord:channel:c9', 1, ?, 'owner', NULL)"
       ).run(at);
   } finally {
     handle.close();

@@ -28,7 +28,7 @@ export type SensesOptions = {
   interfaceText?: string | null;
   gifWatching?: boolean;
   elsewhereDestination?: { name?: unknown } | null;
-  diaryChannel?: string | null;
+  selfreflectionChannel?: string | null;
   participation?: boolean;
   toolsGranted?: Array<string>;
   /** The messages the request shows: the media of an off role among them is told once (mediaOffLines). */
@@ -145,9 +145,9 @@ function abilitiesOffLine(config: RequestConfig, labels: SensesLabels): string |
  * persona sees only the channels this request shows), then, with
  * `participation` (the request shows `<participation>`), `senses.participation`, then, with an
  * `elsewhereDestination` (`{ name }`, where a call from a read-only channel is
- * answered), `senses.elsewhere` with `{destination}`. With a `diaryChannel`
- * (the bare name of the diary channel; the label carries the `#`),
- * `senses.diary` with `{channel}` follows. A missing label adds nothing.
+ * answered), `senses.elsewhere` with `{destination}`. With a `selfreflectionChannel`
+ * (the bare name of the selfreflection channel; the label carries the `#`),
+ * `senses.selfreflection` with `{channel}` follows. A missing label adds nothing.
  */
 // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/prompt.js in stage 5d, a pure move
 export function renderSenses(
@@ -161,7 +161,7 @@ export function renderSenses(
     interfaceText = null,
     gifWatching = false,
     elsewhereDestination = null,
-    diaryChannel = null,
+    selfreflectionChannel = null,
     participation = false,
     toolsGranted = [],
     window = [],
@@ -196,7 +196,7 @@ export function renderSenses(
   // The web lookup: the links line stays as it is and the read-excerpt line follows it; the search line follows
   // only when a search key is configured (`searchAvailable`). An older labels.json without either line shows
   // nothing extra.
-  const searchOn = config.web?.search?.enabled !== false && searchAvailable === true;
+  const searchOn = config.web?.quickSearch?.enabled !== false && searchAvailable === true;
   // With her own page reader (web.read granted) the links line says a preview may show the opening of the page
   // and she can read it all, in place of "cannot open the page".
   const readerOn = granted('web.read');
@@ -230,9 +230,9 @@ export function renderSenses(
   if (!privateChat && senses.elsewhere && typeof elsewhereDestination?.name === 'string' && elsewhereDestination.name) {
     lines.push(fill(senses.elsewhere, { destination: elsewhereDestination.name }));
   }
-  // Where the persona keeps its diary, so it can speak of it anywhere.
-  if (senses.diary && typeof diaryChannel === 'string' && diaryChannel)
-    lines.push(fill(senses.diary, { channel: diaryChannel }));
+  // Where the persona keeps its selfreflection, so it can speak of it anywhere.
+  if (senses.selfreflection && typeof selfreflectionChannel === 'string' && selfreflectionChannel)
+    lines.push(fill(senses.selfreflection, { channel: selfreflectionChannel }));
   // Private chat: the one line for this conversation (per turn), or -- on the
   // server, with the feature on -- the rule about what was said in private.
   if (privateChat) turnLines.push(senses.privateChat);
@@ -385,7 +385,7 @@ export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
     // Whether a GIF in the transcript was watched rather than seen in one frame, under the live config and prompts.
     gifWatching: gifWatchBlocker(prompts) === null,
     elsewhereDestination: given.elsewhereDestination ?? null,
-    diaryChannel: typeof given.diaryChannel === 'string' ? given.diaryChannel : null,
+    selfreflectionChannel: typeof given.selfreflectionChannel === 'string' ? given.selfreflectionChannel : null,
     // Fitted as if `<participation>` is shown; checked once the budget is spent.
     participation: participationOffered,
   };

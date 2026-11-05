@@ -30,7 +30,7 @@ import { lookupClassifierInput } from '../turn/lookup-input.ts';
 import { mentionDirectory, pickOtherProfiles, resolveMentions, untaggedNote } from '../turn/mentions.ts';
 import { continuationHistory } from '../turn/history.ts';
 import { createAct } from '../turn/act.ts';
-import { createDiary } from '../turn/diary.ts';
+import { createSelfreflection } from '../turn/selfreflection.ts';
 import { createDrawGif } from '../turn/draw-gif.ts';
 import { createMediaPick } from './media-pick.ts';
 import { createFacts } from '../turn/facts.ts';
@@ -70,7 +70,7 @@ import type { Reads } from '../interface/reads.ts';
 import { untracked } from '../loop-watch.ts';
 import type { CreateTurnRunnerInput, TrackedParams, TurnRunner } from './turn-types.ts';
 
-// A set's pictures are split and named as the diary's mirrors send them (src/behavior/mirror.ts).
+// A set's pictures are split and named as the selfreflection's mirrors send them (src/behavior/mirror.ts).
 export { chunkPictures };
 
 /**
@@ -183,9 +183,9 @@ export { fallbackLookupPlan };
  * counts as no id (a throw logs `pull: route failed`).
  *
  * Participation (src/memory/participation.js; features.participation and features.memory,
- * a missing key counts as on; never in a private chat or a place of her diary): every message a
+ * a missing key counts as on; never in a private chat or a place of her selfreflection): every message a
  * turn sends for real in a server channel is recorded in the place's participation store with
- * the history lines before it and the line it replies to (recordOwnParticipation). A server turn that builds a reply request (not a diary post) hands the
+ * the history lines before it and the line it replies to (recordOwnParticipation). A server turn that builds a reply request (not a selfreflection post) hands the
  * store to buildRequest as `<participation>`; beside its preparation the pick classifier
  * (src/behavior/elsewhere-pick.ts) chooses which stored episodes
  * of other channels come first, under the same deadline -- late, the newest are shown.
@@ -230,7 +230,7 @@ export { fallbackLookupPlan };
  * (src/format.ts#withTriggers), so the request's `<chat>` and `<channel_view>` and every
  * analyzer transcript built from that history name the message that started the turn which posted
  * each line (`transcript.triggeredBy` / `triggeredByOlder`). The neighbours' lines show no `#n`
- * and carry none. A spontaneous turn or a diary post links nothing.
+ * and carry none. A spontaneous turn or a selfreflection post links nothing.
  *
  * Call marks: every skill call she makes (runCall: its skill, status, target and the messages its
  * turn posted) is remembered in process, `seedCallMarks` adding the ones the journal kept from
@@ -240,12 +240,12 @@ export { fallbackLookupPlan };
  * linkCalls), so she sees what she called and how it went, in the channel where she called it.
  *
  * Skills and the interface: every effect of a reply -- a message with its reply target and
- * mentions, the GIF, the picture's publication after its generation, a diary set's pictures, a
+ * mentions, the GIF, the picture's publication after its generation, a selfreflection set's pictures, a
  * reaction, the typing indicator -- is checked by src/tools/gateway.ts#checkReplyEffect right
  * before it runs (`message.create`, a picture or GIF being one with its media or URL, and
  * `message.react.add`: carried over in the current conversation, refused only under the full stop
  * -- features.tools false, she goes silent; each refusal logs `skill: refused` (`skill`, `code`,
- * `reason`) and nothing is done; no picture or diary set is generated for a post the check
+ * `reason`) and nothing is done; no picture or selfreflection set is generated for a post the check
  * already refuses, and no typing indicator shows), then made through the interface port `port`
  * (src/interface/port.js). Nothing counts as posted (journal, record, stats, lastPostAt) unless the port
  * answered `ok`; `unknown` is journaled as unknown and never sent again.
@@ -270,7 +270,7 @@ export { fallbackLookupPlan };
  * (reactorNames).
  *
  * Intentions: `intentions` (src/intentions/service.ts#createIntentionService, null: none) gives the
- * `<intentions>` block of every turn but a diary post while features.intentions is exactly true.
+ * `<intentions>` block of every turn but a selfreflection post while features.intentions is exactly true.
  *
  * The interface: `reads` (src/interface/reads.ts#createReads over the port) is how a turn asks the interface
  * about a conversation, its lines, a member and the reactors: `runTurn` takes a conversation reference and reads
@@ -333,7 +333,7 @@ export function createTurnRunner({
   places = null,
   // The memory rows a request carried (src/memory/db/service.js#recordTurnReads) and a turn's execution context (#issueContext, `(spec) => ctx`); null: none.
   memoryReads = null,
-  diaryFacts = null,
+  selfreflectionFacts = null,
   memoryContext = null,
   // Her attention, one turn at a time (src/behavior/attention.ts mirrors it as leases; a plain set without them), the model roles that are down (src/llm/role-health.ts, her tool roles route on it); null: none.
   attention = new Set(),
@@ -451,7 +451,7 @@ export function createTurnRunner({
       writeTurnRecords: (list: Array<unknown>) => writeTurnRecords(list as Parameters<typeof writeTurnRecords>[0]),
       runTurnOnce,
     });
-  const { prepareDiary, diaryPictureGate } = createDiary({
+  const { prepareSelfreflection, selfreflectionPictureGate } = createSelfreflection({
     hot,
     store,
     llm,
@@ -461,7 +461,7 @@ export function createTurnRunner({
     images,
     journalOp,
     recentOfPlaces,
-    diaryFacts,
+    selfreflectionFacts,
   });
   const mediaPick = createMediaPick({
     hot,
@@ -485,10 +485,10 @@ export function createTurnRunner({
     schedule,
     ...inputs,
     lastPostAt,
-    diaryPictureGate: (config, channel, now) =>
-      diaryPictureGate(config as Parameters<typeof diaryPictureGate>[0], channel, now),
+    selfreflectionPictureGate: (config, channel, now) =>
+      selfreflectionPictureGate(config as Parameters<typeof selfreflectionPictureGate>[0], channel, now),
   });
-  const { emojiLookup, renderPost, settleAuthor, diaryChannelName } = createSends({
+  const { emojiLookup, renderPost, settleAuthor, selfreflectionChannelName } = createSends({
     hot,
     store,
     emoji,
@@ -647,11 +647,11 @@ export function createTurnRunner({
     journalOn,
     offPeriodsFor,
     journalOp,
-    prepareDiary,
-    diaryPictureGate,
+    prepareSelfreflection,
+    selfreflectionPictureGate,
     emojiLookup,
     settleAuthor,
-    diaryChannelName,
+    selfreflectionChannelName,
     pullChannels,
     captionAll,
     withSeenBefore,

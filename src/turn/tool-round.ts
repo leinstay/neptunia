@@ -3,7 +3,7 @@
 // note and the open intentions of an inner turn. createTurnRunner (src/behavior/turn.js) builds it once per runner with
 // createToolRound; the attempt calls its functions.
 
-import { setSettings } from '../behavior/diary.ts';
+import { setSettings } from '../behavior/selfreflection.ts';
 import { historyLines } from '../behavior/lines.ts';
 import type { Line, ReactorNames } from '../behavior/lines.ts';
 import { skillsInventoryText } from '../behavior/prompt.ts';
@@ -70,7 +70,7 @@ export type ToolRoundConfig = Parameters<typeof resultCharsFor>[1] & {
     channelMessages: number;
     reactions?: { fetchTimeoutMs?: number } | null;
   };
-  diary?: unknown;
+  selfreflection?: unknown;
 };
 
 /** The labels, as the tool round hands them on; the text functions read their own sections. */
@@ -119,7 +119,7 @@ type StepLine = {
   [key: string]: unknown;
 };
 
-/** A diary set's picture as the turn staged it. */
+/** A selfreflection set's picture as the turn staged it. */
 type StagedPicture = { picture: Obj; self: unknown; text: string };
 
 /** The counts of what a turn's answers looked like, for its turn record. */
@@ -145,7 +145,7 @@ export type ToolRoundDraft = CallsDraft & {
       intentions?: unknown;
     } | null;
   } | null;
-  diary?: { set?: unknown } | null;
+  selfreflection?: { set?: unknown } | null;
   staged?: Array<StagedPicture>;
   tools: Array<object>;
   deletedIds?: unknown;
@@ -434,14 +434,14 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     const inner = Boolean(draft.inner);
     const isCancelled = (): boolean => cancel?.aborted === true;
     const wakeKind = draft.inner?.wake?.kind ?? null;
-    // A diary post (draft.diary): only draw.create runs; its pictures are staged and posted with the messages.
-    const diary = Boolean(draft.diary);
+    // A selfreflection post (draft.selfreflection): only draw.create runs; its pictures are staged and posted with the messages.
+    const selfreflection = Boolean(draft.selfreflection);
     const registry = skills ?? defaultSkills();
     const definitionOf = (name: string) => registry.get(name) ?? null;
-    const settings = loopSettings(hot.config, { inner, diary });
+    const settings = loopSettings(hot.config, { inner, selfreflection });
     // The pictures staged so far as the set the post carries (a single picture is a set of one), or null.
     const stagedSet = () =>
-      diary && (draft.staged?.length ?? 0) > 0
+      selfreflection && (draft.staged?.length ?? 0) > 0
         ? { pictures: (draft.staged ?? []).map(({ picture, self, text }) => ({ ...picture, self, text })) }
         : null;
     // The most one call may run: an inner turn's own (wakes.loop.callTimeoutMs), else tools.callTimeoutMs (read now).
@@ -580,7 +580,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
             room,
             maxCallsPerStep: settings.maxCallsPerStep,
             finalReason,
-            diary,
+            selfreflection,
           });
           const coercion = preRefuse
             ? { args: record.args, coerced: [] }
@@ -638,7 +638,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       }
 
       // 2. Her speech: out after the calls when every one of them worked and needs no reading, else held.
-      // What there is to say now: her messages and reactions, and a diary post's staged pictures (one item).
+      // What there is to say now: her messages and reactions, and a selfreflection post's staged pictures (one item).
       const heldItems = speechItemsOf(parsed) + (stagedSet() ? 1 : 0);
       let speak =
         records.length === 0
@@ -905,7 +905,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       let acted: ActOutcome | HeldSpeech | null = null;
       const set = stagedSet();
       // A set kind with fewer pictures staged than `selfreflection.set.minPosted` is not posted at all, not even its messages.
-      if (diary && draft.diary?.set) {
+      if (selfreflection && draft.selfreflection?.set) {
         const staged = draft.staged?.length ?? 0;
         const minPosted = setSettings(hot.config.selfreflection).minPosted;
         if (staged < minPosted) {
@@ -928,7 +928,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           handles: routed.handles,
           channelHandles: routed.channelHandles,
         } as ActArgs & HoldArgs;
-        acted = await (diary ? holdSpeech : act)(speech);
+        acted = await (selfreflection ? holdSpeech : act)(speech);
       }
       const out: {
         acted: ActOutcome | HeldSpeech | null;
@@ -958,7 +958,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * Why a call of a step cannot run, decided before it is planned: `{ code, reason, values? }`, or null when it can. A
    * call the transport could not read or no skill has is refused with its own code (`malformed-call`, `truncated-call`,
    * `unknown-skill`); a call past what the step allows (the final request's, the time's, the step's cap of calls) is
-   * `loop-cap` with `what` saying which; in a diary post anything but `draw.create` is `diary-draw-only`. An inner turn's last answer still makes its one terminal call (`terminalAt`).
+   * `loop-cap` with `what` saying which; in a selfreflection post anything but `draw.create` is `selfreflection-draw-only`. An inner turn's last answer still makes its one terminal call (`terminalAt`).
    */
   function preRefusalOf(
     record: NormalCall,
@@ -968,21 +968,21 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       room,
       maxCallsPerStep,
       finalReason,
-      diary = false,
+      selfreflection = false,
     }: {
       isFinal: boolean;
       terminalAt: number;
       room: { run: boolean; capReason: string | null };
       maxCallsPerStep: number;
       finalReason: string | null;
-      diary?: boolean;
+      selfreflection?: boolean;
     }
   ): CallRefusal | null {
     if (record.problem)
       return { code: record.problem, reason: record.problem === CODE.UNKNOWN_SKILL ? record.name : '' };
-    // A diary post makes pictures, and may say one thing aloud; nothing else.
-    if (diary && record.name !== 'draw.create' && record.name !== 'voice.say')
-      return { code: CODE.DIARY_DRAW_ONLY, reason: record.name };
+    // A selfreflection post makes pictures, and may say one thing aloud; nothing else.
+    if (selfreflection && record.name !== 'draw.create' && record.name !== 'voice.say')
+      return { code: CODE.SELFREFLECTION_DRAW_ONLY, reason: record.name };
     // A think tag never goes out, and nothing edits her words: the call is refused whole.
     if (record.name === 'message.create' && hasThinkTag(JSON.stringify(record.args?.text ?? '')))
       return { code: CODE.THINK_IN_TEXT, reason: '' };

@@ -4,7 +4,7 @@
 // `agents.<name>.search.provider` (now `searchProvider`), the analyzer timeout `llm.helperTimeoutMs` (now
 // `llm.analyzerTimeoutMs`), the switch `features.innerLife` (now `features.wakes`), and the sections of the wakes and
 // the three ticking mechanics (MECHANIC_MOVES): `innerLife.heartbeat.*` and `innerLife.wakes.heartbeat.*` under
-// `heartbeat`, `diary.*` under `selfreflection`, `selfdev.*` and `innerLife.wakes.selfimprovement.*` under
+// `heartbeat`, `diary.*` under `selfreflection`, `web.search.*` under `web.quickSearch`, the pin `models.byPurpose.diary-plan` under `selfreflection-planner`, `selfdev.*` and `innerLife.wakes.selfimprovement.*` under
 // `selfimprovement`, the other `innerLife.wakes.<kind>.*` under `wakes.kinds`, and the rest of `innerLife.*` under
 // `wakes`, then the old forms of a schedule (`watcher.at`, `selfimprovement.at`, `heartbeat.everyMinutes`) under
 // `<name>.schedule`, a value that is no schedule dropped and reported. A local config written with the old keys keeps its meaning
@@ -16,8 +16,8 @@
 // same config. Where the old and the new key are both set, the new one wins and the old one is dropped and reported as
 // shadowed. Keys nothing reads any more (three grants of `bot.access`, `agents.maxDownloadBytes`, the two context
 // keys of `agents.thinker`, `agents.ledger.socket`, and `bot.commandName` and `features.adminCommands` of the slash
-// command that is gone) are removed, with a section they leave empty, and reported as dropped. `selfreflection.placeId` is the seed of the diary's mirror
-// (schema v15): once the memory database has that mirror (`diaryMirror`, told by the caller) the key is removed and
+// command that is gone) are removed, with a section they leave empty, and reported as dropped. `selfreflection.placeId` is the seed of the selfreflection's mirror
+// (schema v15): once the memory database has that mirror (`selfreflectionMirror`, told by the caller) the key is removed and
 // reported as moved to the database (`toDatabase`). Nothing here reads a file.
 //
 // The grants of `bot.access` stored under the keys of the old slash command (`memory.show`, `emoji.rescan`, ...) are
@@ -203,6 +203,20 @@ function moveErrandKeys(config: Config, report: MovedConfig): void {
   if (Object.keys(agents).length === 0) delete config.agents;
 }
 
+/** The pin of the selfreflection planner's model follows its purpose. */
+function movePlannerPin(config: Config, report: MovedConfig): void {
+  const models = sectionOf(config, 'models', false);
+  const pins = models === null ? null : sectionOf(models, 'byPurpose', false);
+  if (pins === null || !Object.hasOwn(pins, 'diary-plan')) return;
+  place(
+    pins,
+    pins,
+    { from: 'diary-plan', to: 'selfreflection-planner' },
+    { from: 'models.byPurpose.diary-plan', to: 'models.byPurpose.selfreflection-planner' },
+    report
+  );
+}
+
 /** `agents.<name>.search.provider` becomes `agents.<name>.searchProvider`, the shape a profile has. */
 function moveSearchProvider(config: Config, report: MovedConfig): void {
   const agents = sectionOf(config, 'agents', false);
@@ -253,6 +267,7 @@ function dropKeys(config: Config, report: MovedConfig): void {
  * `wakes`.
  */
 export const MECHANIC_MOVES: ReadonlyArray<{ from: ReadonlyArray<string>; to: ReadonlyArray<string> }> = [
+  { from: ['web', 'search'], to: ['web', 'quickSearch'] },
   { from: ['innerLife', 'heartbeat'], to: ['heartbeat'] },
   { from: ['diary'], to: ['selfreflection'] },
   { from: ['selfdev'], to: ['selfimprovement'] },
@@ -334,20 +349,23 @@ function moveSchedules(config: Config, report: MovedConfig): void {
   }
 }
 
-/** `selfreflection.placeId` removed once the memory database has the diary's mirror; a section it empties goes too. */
-function moveDiarySeed(config: Config, diaryMirror: boolean, report: MovedConfig): void {
+/** `selfreflection.placeId` removed once the memory database has the selfreflection's mirror; a section it empties goes too. */
+function moveMirrorSeed(config: Config, selfreflectionMirror: boolean, report: MovedConfig): void {
   const section = sectionOf(config, 'selfreflection', false);
-  if (!diaryMirror || section === null || !Object.hasOwn(section, 'placeId')) return;
+  if (!selfreflectionMirror || section === null || !Object.hasOwn(section, 'placeId')) return;
   delete section.placeId;
   if (Object.keys(section).length === 0) delete config.selfreflection;
   report.toDatabase.push('selfreflection.placeId');
 }
 
 /**
- * `config` with the old keys written under their new names. `diaryMirror`: the memory database has the diary's mirror,
+ * `config` with the old keys written under their new names. `selfreflectionMirror`: the memory database has that mirror,
  * so `selfreflection.placeId` (or the old `diary.placeId`) goes and `toDatabase` names it (empty otherwise). The argument is not changed.
  */
-export function moveConfigKeys(config: Config, { diaryMirror = false }: { diaryMirror?: boolean } = {}): MovedConfig {
+export function moveConfigKeys(
+  config: Config,
+  { selfreflectionMirror = false }: { selfreflectionMirror?: boolean } = {}
+): MovedConfig {
   const report: MovedConfig = { config: structuredClone(config), moved: [], shadowed: [], dropped: [], toDatabase: [] };
   moveSection(report.config, report);
   renameKey(report.config, 'features', 'skills', 'tools', report);
@@ -356,12 +374,13 @@ export function moveConfigKeys(config: Config, { diaryMirror = false }: { diaryM
   dropGrants(report.config, report);
   moveErrandKeys(report.config, report);
   moveSearchProvider(report.config, report);
+  movePlannerPin(report.config, report);
   renameKey(report.config, 'llm', 'helperTimeoutMs', 'analyzerTimeoutMs', report);
   renameKey(report.config, 'features', 'innerLife', 'wakes', report);
   dropKeys(report.config, report);
   moveMechanics(report.config, report);
   moveSchedules(report.config, report);
-  moveDiarySeed(report.config, diaryMirror, report);
+  moveMirrorSeed(report.config, selfreflectionMirror, report);
   return report;
 }
 

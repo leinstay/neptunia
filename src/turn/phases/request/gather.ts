@@ -1,16 +1,16 @@
 // The eighth step of a turn's request: what the preparation brought, taken as the request will show it. The deleted
 // lines put back, the late video states, the captions, reads and searches that came in time, the neighbours and
-// pulled channels, a diary post's plan, the drawing quota and the `<recent>` lines. The request phase
+// pulled channels, a selfreflection post's plan, the drawing quota and the `<recent>` lines. The request phase
 // (src/turn/phases/request.ts) runs it after the wait.
 
 import { accountOf } from '../../../memory/addresses.ts';
 import { DELETED_LINES_MAX, deletedLinesOf, withDeletedLines } from '../../../behavior/deleted-lines.ts';
-import { DEFAULT_SET_KINDS, isSetKind } from '../../../behavior/diary.ts';
+import { DEFAULT_SET_KINDS, isSetKind } from '../../../behavior/selfreflection.ts';
 import type { Neighbor } from '../../../behavior/neighbors.ts';
 import type { PulledChannel } from '../../../behavior/pull-fetch.ts';
 import { lateVideoStates } from '../../../media/classify.ts';
 import { log } from '../../../log.ts';
-import type { Diary } from '../../diary.ts';
+import type { Selfreflection } from '../../selfreflection.ts';
 import type { Draft } from '../../draft.ts';
 import { describableCandidates } from '../../media.ts';
 import type { Participation } from '../../participation.ts';
@@ -38,7 +38,7 @@ export type Gathered = {
   neighbors: Array<Neighbor>;
   neighborsHidden: number;
   pulled: Array<PulledChannel>;
-  diaryPrep: Awaited<ReturnType<Diary['prepareDiary']>> | null;
+  selfreflectionPrep: Awaited<ReturnType<Selfreflection['prepareSelfreflection']>> | null;
   neighborDescriptions: Map<string, unknown> | undefined;
   drawOn: boolean;
   readOnlyIds: Set<string>;
@@ -61,7 +61,7 @@ export async function gatherRequest(
 ): Promise<Gathered> {
   const { hot, store, clock, record, describer, images, recentOfPlaces } = ctx;
   const { channel, placeId, reading, isPrivate, prep } = opened;
-  const { config, memoryOn, selfId, selfName, snapshot, now, prefetching, diaryPending } = setup;
+  const { config, memoryOn, selfId, selfName, snapshot, now, prefetching, selfreflectionPending } = setup;
   const { beforeBar } = setup;
   const { previewed, captions, captionCandidates, videoStage, videoCandidates } = staged;
   const { slot: second2, videosSoFar } = second;
@@ -151,16 +151,16 @@ export async function gatherRequest(
 
   // A neighbour's pictures get only the captions the cache already holds, under the
   // chat captions' switch: cachedDescriptions never sends a request or counts a day.
-  // A diary post's plan, search and picture check (a request or token cap refuses the turn).
-  let diaryPrep: Gathered['diaryPrep'] = null;
-  if (diaryPending) {
-    const settled = await beforeBar(diaryPending);
+  // A selfreflection post's plan, search and picture check (a request or token cap refuses the turn).
+  let selfreflectionPrep: Gathered['selfreflectionPrep'] = null;
+  if (selfreflectionPending) {
+    const settled = await beforeBar(selfreflectionPending);
     // eslint-disable-next-line @typescript-eslint/only-throw-error -- the plan's failure as it came, a rail error the turn's end reads
     if ('error' in settled && settled.error) throw settled.error;
     // A settled plan without an error is its value.
-    diaryPrep = (settled as { value: NonNullable<Gathered['diaryPrep']> }).value;
+    selfreflectionPrep = (settled as { value: NonNullable<Gathered['selfreflectionPrep']> }).value;
     // The post's kind decides how many pictures it takes (drawTool, runSteps): a set kind several, any other one.
-    draft.diary = { set: isSetKind(diaryPrep.plan.kind, DEFAULT_SET_KINDS) };
+    draft.selfreflection = { set: isSetKind(selfreflectionPrep.plan.kind, DEFAULT_SET_KINDS) };
   }
   const neighborDescriptions =
     typeof describer?.cachedDescriptions === 'function' && neighbors.length > 0
@@ -169,8 +169,9 @@ export async function gatherRequest(
           neighbors.flatMap((neighbor) => describableCandidates(neighbor.messages))
         )
       : undefined;
-  // Drawing needs the image client and Attach Files here. A diary post draws only while its picture check allowed it.
-  const drawOn = Boolean(images) && channel.permissions.attach && (!diaryPrep || diaryPrep.pictureAllowed);
+  // Drawing needs the image client and Attach Files here. A selfreflection post draws only while its picture check allowed it.
+  const drawOn =
+    Boolean(images) && channel.permissions.attach && (!selfreflectionPrep || selfreflectionPrep.pictureAllowed);
   // Neighbours the bot can read but not write in, marked in `<server>` (a pulled channel's
   // record carries its own mark). A pulled channel whose block is shown is left out of the
   // neighbours by buildRequest itself.
@@ -192,7 +193,7 @@ export async function gatherRequest(
     neighbors,
     neighborsHidden,
     pulled: pulledList,
-    diaryPrep,
+    selfreflectionPrep,
     neighborDescriptions,
     drawOn,
     readOnlyIds,

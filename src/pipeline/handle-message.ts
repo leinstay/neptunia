@@ -224,7 +224,7 @@ export function createHandleMessage({
       }
 
       // 10. A caught-up line stops here unless it is a flagged line to answer: no classifier for chatter from before
-      // the start. Nothing opens a turn in a diary mirror's place: only her diary writes there (src/behavior/mirror.ts).
+      // the start. Nothing opens a turn in a selfreflection mirror's place: only her selfreflection writes there (src/behavior/mirror.ts).
       if (catchUp && (!kind || !catchUp.trigger)) return 'observed';
       const channel = await turnPlaceOf(event);
       if (!channel) return 'observed';

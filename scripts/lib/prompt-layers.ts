@@ -138,12 +138,12 @@ export function promptLayersHot(
 }
 
 /**
- * The prompt layers of a `--diary --prompts <dir>` run, for promptLayersHot:
+ * The prompt layers of a `--selfreflection --prompts <dir>` run, for promptLayersHot:
  * the live data/prompts/ (when the private directory has one: NEPTUNIA_DATA_DIR, else the
  * checkout; scripts/lib/cli.ts#privateDirOf), then `promptsDir`. The live layer is named
  * `data/prompts` when it is in the checkout, by its absolute path when it is apart.
  */
-export function diaryPromptLayers(
+export function selfreflectionPromptLayers(
   root: string,
   promptsDir: string,
   env: Record<string, string | undefined> = process.env
@@ -155,10 +155,10 @@ export function diaryPromptLayers(
 
 /**
  * A hot view whose private layer is a copy of the live data/prompts/ with `promptsDir` laid over
- * it (diaryPromptLayers, then scripts/lib/prompt-layers.ts): a file of the directory replaces the
+ * it (selfreflectionPromptLayers, then scripts/lib/prompt-layers.ts): a file of the directory replaces the
  * private one of the same name, the rest stay. `mergeJson` (src/config.js#deepMerge) merges the
  * directory's labels.json / tools.json over the private ones as src/hot.js merges its layers
- * (`--skills --prompts` and `--pair-prompts`); without it they replace them whole (`--diary
+ * (`--skills --prompts` and `--pair-prompts`); without it they replace them whole (`--selfreflection
  * --prompts`). The live data/prompts/ is only read. Returns `{ hot, dir }`: the caller closes
  * the view and removes `dir`.
  */
@@ -168,7 +168,7 @@ export function overlayPromptsHot(
   promptsDir: string,
   { mergeJson = null, tmpDir }: { mergeJson?: ((...args: Array<Untyped>) => Untyped) | null; tmpDir?: string } = {}
 ): { hot: Hot; dir: string } {
-  return promptLayersHot(createHot, root, diaryPromptLayers(root, promptsDir), {
+  return promptLayersHot(createHot, root, selfreflectionPromptLayers(root, promptsDir), {
     mergeJson,
     ...(tmpDir ? { tmpDir } : {}),
   });

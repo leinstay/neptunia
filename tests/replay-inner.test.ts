@@ -48,7 +48,7 @@ test("replay --inner: an intention's wake needs --intention, the review takes no
     ['--inner', 'review', '--intention', 'i1'],
     ['--inner', 'errand_deadline', '--intention', 'i1', '--review'],
     ['--inner', 'nap'],
-    ['--inner', 'review', '--diary', 'picture'],
+    ['--inner', 'review', '--selfreflection', 'picture'],
     ['--inner', 'review', 'c1', 'm1'],
     ['--review'],
     ['--intention', 'i1'],
@@ -167,7 +167,7 @@ function heartbeatFixture({ stopped = false } = {}) {
     record,
     reads: world().reads,
     iface: () => 'fake',
-    store: { state: { data: {} }, listUserProfiles: () => [], getDiary: () => ({ posts: [] }) },
+    store: { state: { data: {} }, listUserProfiles: () => [], getSelfreflection: () => ({ posts: [] }) },
     nameOf: () => null,
   };
   const hot = {

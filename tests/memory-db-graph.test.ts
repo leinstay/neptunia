@@ -100,7 +100,6 @@ test('the manifest names only tables and columns the schema has, every projected
       'decision',
       'description',
       'description_version',
-      'diary',
       'episode',
       'intention',
       'interface',
@@ -110,6 +109,7 @@ test('the manifest names only tables and columns the schema has, every projected
       'person',
       'place',
       'publication',
+      'selfreflection',
       'semantic_entity',
       'skill',
       'source',
@@ -839,7 +839,7 @@ test('v9 migration: durable ids, legacy evidence marked, the projection pending 
       assert.ok(MIGRATIONS.length >= 9);
       assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
       assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
-      for (const table of ['claim_sources', 'episode_sources', 'diary_mirrors']) {
+      for (const table of ['claim_sources', 'episode_sources', 'selfreflection_mirrors']) {
         assert.equal(
           count(db, `SELECT COUNT(*) AS n FROM ${table} WHERE id IS NULL`),
           0,
@@ -863,7 +863,7 @@ test('v9 migration: durable ids, legacy evidence marked, the projection pending 
         ]
       );
       assert.equal(
-        db.prepare("SELECT id FROM diary_mirrors WHERE diary_id = 'diary-x'").get().id,
+        db.prepare("SELECT id FROM selfreflection_mirrors WHERE selfreflection_id = 'diary-x'").get().id,
         'mirror:diary-x:discord:p1'
       );
       db.prepare("INSERT INTO episode_sources (episode_id, source_id, position) VALUES ('ep-new', ?, 0)").run(

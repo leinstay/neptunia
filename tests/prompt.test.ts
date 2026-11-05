@@ -851,7 +851,7 @@ function cacheScene({
     recallAvailable: true,
     searchAvailable: true,
     elsewhereDestination: { name: 'général' },
-    diaryChannel: 'ημερολόγιο',
+    selfreflectionChannel: 'ημερολόγιο',
     ...overrides,
   });
 }
@@ -900,7 +900,7 @@ test('buildRequest: the senses lines are the ones of one block, only moved; the 
     S.time,
     S.channels,
     fill(S.elsewhere, { destination: 'général' }),
-    fill(S.diary, { channel: 'ημερολόγιο' }),
+    fill(S.selfreflection, { channel: 'ημερολόγιο' }),
     S.privateAware,
   ];
   const perTurn = new Set([S.draw]);
@@ -3122,7 +3122,7 @@ test('people: an author of a pulled line asked about through the pulled block sh
 
 function webConfig(web: { links?: object; search?: object } = {}) {
   const config: ReturnType<typeof fakeConfig> & { web?: object } = fakeConfig();
-  config.web = { links: { enabled: true, ...web.links }, search: { enabled: true, ...web.search } };
+  config.web = { links: { enabled: true, ...web.links }, quickSearch: { enabled: true, ...web.search } };
   return config;
 }
 
@@ -6430,9 +6430,9 @@ test('buildRequest: people_now -- no live fields with no input, in a private cha
     assert.deepEqual(fieldsOf(rowOf(request, 'Alice')), ALICE_STATE, `${name}: the attitude, moves and count stay`);
     assert.equal(rowOf(request, 'Ηλέκτρα'), null, `${name}: nobody in voice`);
   }
-  const diary = buildRequest(aroundScene({ mode: 'diary', trigger: null, interlocutor: null, otherProfiles: [] }));
-  assert.ok(!live(diary), 'a diary post');
-  assert.ok(!contentText(diary.messages[1].content).includes('Ηλέκτρα'));
+  const r = buildRequest(aroundScene({ mode: 'selfreflection', trigger: null, interlocutor: null, otherProfiles: [] }));
+  assert.ok(!live(r), 'a diary post');
+  assert.ok(!contentText(r.messages[1].content).includes('Ηλέκτρα'));
 });
 
 test('buildRequest: people_now -- context.around.maxTokens caps the people in voice (400 when unset); the interlocutor entry is never cut', () => {

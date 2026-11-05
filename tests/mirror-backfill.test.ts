@@ -212,7 +212,7 @@ test('an audience narrowed during backfill stops a later send and the next entry
   await mirrors.addMirror({ destination: D1, by: OWNER, backfill: ON });
   await mirrors.drainQueued();
   scene.db
-    .prepare('UPDATE diary SET extra = ? WHERE id = ?')
+    .prepare('UPDATE selfreflection SET extra = ? WHERE id = ?')
     .run(JSON.stringify({ publicationAudience: { kind: 'interface', iface: 'other' } }), 'e2');
   scene.advance(FOUR_HOURS);
   await mirrors.drainQueued();

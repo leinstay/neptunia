@@ -30,7 +30,7 @@ export const PROMPT_MARK = {
   heartbeat: 'MARK-HEARTBEAT-TASK',
   selfimprovement: 'MARK-SELFIMPROVEMENT-WAKE',
   brief: 'MARK-EXECUTOR-BRIEF',
-  diary: 'MARK-DIARY-TASK',
+  selfreflection: 'MARK-DIARY-TASK',
 } as const;
 
 const GRANTED = [
@@ -148,7 +148,7 @@ export async function wakeTurn({
       heartbeat: PROMPT_MARK.heartbeat,
       selfimprovement: PROMPT_MARK.selfimprovement,
       'executor-brief': PROMPT_MARK.brief,
-      diary: PROMPT_MARK.diary,
+      selfreflection: PROMPT_MARK.selfreflection,
       labels,
     },
   };

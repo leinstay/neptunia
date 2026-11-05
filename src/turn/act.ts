@@ -1,11 +1,11 @@
 // The act of a turn: her reactions, her messages and the GIF the media pick chose posted for real, each checked by the gateway right before it, typed
-// out like a person would, journaled and recorded; and a diary post's speech held where the act would send it.
+// out like a person would, journaled and recorded; and a selfreflection post's speech held where the act would send it.
 // createTurnRunner (src/behavior/turn.ts) builds it once per runner with createAct; the attempt and her calls call act
 // and holdSpeech.
 
 import { bindPublicationPort, turnBoundary } from '../tools/publication.ts';
 import type { Context } from '../memory/db/scope.ts';
-import { setSettings } from '../behavior/diary.ts';
+import { setSettings } from '../behavior/selfreflection.ts';
 import { chunkPictures, filesPerMessage } from '../behavior/mirror.ts';
 import type { EntryPicture } from '../behavior/mirror.ts';
 import { between, typingMs } from '../behavior/random.ts';
@@ -163,7 +163,7 @@ export type ActOutcome = {
   reacted: Array<ReactNote>;
 };
 
-/** A diary set's picture as the turn staged it, with what its generation logged. */
+/** A selfreflection set's picture as the turn staged it, with what its generation logged. */
 type HeldPicture = EntryPicture & { text: string; seconds?: unknown; cost?: unknown; self?: unknown };
 
 export type HoldArgs = Omit<RenderArgs, 'channel' | 'snapshot' | 'placeId' | 'privateChat' | 'link'> & {
@@ -217,8 +217,8 @@ export function createAct(ctx: ActContext): Act {
   } = ctx;
 
   /**
-   * A diary post's speech held where act would send it: her messages as written and as renderPost renders them (pings
-   * off left out) and the staged pictures; the turn records the entry (diary-turn.ts#recordEntry), its mirrors post it.
+   * A selfreflection post's speech held where act would send it: her messages as written and as renderPost renders them (pings
+   * off left out) and the staged pictures; the turn records the entry (selfreflection-turn.ts#recordEntry), its mirrors post it.
    */
   function holdSpeech({ channel, placeId, privateChat, parsed, set, draft = null, ...routing }: HoldArgs): HeldSpeech {
     const options = { channel, snapshot: snapshotOfDraft(draft), placeId, privateChat, ...routing, link: null };
@@ -246,7 +246,7 @@ export function createAct(ctx: ActContext): Act {
    * anything reached the chat (a reaction put, a message, the picked GIF or the
    * picture posted; a limit notice is not the persona's answer), and the ids
    * of the pulled lines what reached it answered (a reaction put on one, a
-   * message, the GIF or a diary set's pictures posted answering one: stampShownCalls).
+   * message, the GIF or a selfreflection set's pictures posted answering one: stampShownCalls).
    *
    * Everything is posted in `channel`. A reaction on a pulled line
    * (`pulledIds`) is put in that line's channel when the bot may react there,
@@ -285,7 +285,7 @@ export function createAct(ctx: ActContext): Act {
    * id map, in place of all three (renderPost);
    * `sourceId`: the channel the turn is about (its `source`), logged on every message sent;
    * with it a refused drawing's limit notice quotes nothing (the trigger of a routed turn
-   * lives in that channel); `mediaPicks`: false keeps the media pick from running (a diary post); `participation` (`{ descriptions }`: the captions the turn had, or
+   * lives in that channel); `mediaPicks`: false keeps the media pick from running (a selfreflection post); `participation` (`{ descriptions }`: the captions the turn had, or
    * null): each message sent in a server channel is recorded in the participation store
    * (recordOwnParticipation) with the lines of `history` before it.
    * Resolves `delivered`, `answered`, `messageIds` (the ids of the messages posted, in order), `texts` (the messages

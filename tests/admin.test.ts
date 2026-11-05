@@ -2286,7 +2286,7 @@ test('status: the limits field names the web search engine (one word), off when 
     },
   };
   const { admin, hot } = makeAdmin(rootDir, { lookup });
-  hot.config.web = { search: { enabled: true } };
+  hot.config.web = { quickSearch: { enabled: true } };
   const searchLine = async () => {
     const { fields } = await admin.run('status.show', { field: 'limits' }, { accountId: '42' });
     return fields[0].value.split('\n').filter((line: string) => line.startsWith('search'));
@@ -2298,7 +2298,7 @@ test('status: the limits field names the web search engine (one word), off when 
   lookup.ready = false;
   assert.deepEqual(await searchLine(), ['search: off'], 'the chosen engine cannot run (no Brave key)');
   lookup.ready = true;
-  hot.config.web.search.enabled = false;
+  hot.config.web.quickSearch.enabled = false;
   assert.deepEqual(await searchLine(), ['search: off']);
 });
 

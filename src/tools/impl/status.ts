@@ -596,10 +596,10 @@ const handlers = perEnv((env) => {
   function limitsValue(cfg: Untyped, data: Untyped): string {
     const nowMs = Date.now();
     const parts = [`requests ${usedOf(llmCountToday(data, nowMs), cfg?.llm?.maxRequestsPerDay)}`];
-    // The web search engine, one word: the chosen engine (web.search.engine) when a search can
-    // run (features.webLookup on, web.search.enabled not false, the engine ready), else `off`.
+    // The web search engine, one word: the chosen engine (web.quickSearch.engine) when a search can
+    // run (features.webLookup on, web.quickSearch.enabled not false, the engine ready), else `off`.
     if (typeof lookup?.searchEngine === 'function') {
-      const on = cfg?.web?.search?.enabled !== false && lookup.hasSearch();
+      const on = cfg?.web?.quickSearch?.enabled !== false && lookup.hasSearch();
       parts.push(`search: ${on ? lookup.searchEngine() : 'off'}`);
     }
     return `${parts.join('\n')}\nresets 00:00 UTC`;

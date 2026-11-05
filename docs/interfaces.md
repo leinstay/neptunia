@@ -30,7 +30,7 @@ Account linking is performed by the owner's [memory commands](memory.md#one-pers
 
 Delivery reports distinguish success, failure and unknown outcome. Preserve the idempotency key across split messages. After a connection loss, an uncertain delivery must not become an unconditional retry days later.
 
-The diary's publisher passes `idempotencyKey` on each send and keeps it stable on a retry. When a platform can find a send by its key, declare `capabilities().reconcile` and have `fetchMessages(conversation, ids, { idempotencyKey })` answer the messages posted under it. An `ok` answer with no message is a claim that the send did not happen, and the publisher then sends again. An adapter that cannot know, such as one asked about a key from before its restart, answers a failed read, which leaves the send uncertain. On a platform with no lookup, only the owner's `/mirror reconcile` settles it.
+The selfreflection's publisher passes `idempotencyKey` on each send and keeps it stable on a retry. When a platform can find a send by its key, declare `capabilities().reconcile` and have `fetchMessages(conversation, ids, { idempotencyKey })` answer the messages posted under it. An `ok` answer with no message is a claim that the send did not happen, and the publisher then sends again. An adapter that cannot know, such as one asked about a key from before its restart, answers a failed read, which leaves the send uncertain. On a platform with no lookup, only the owner's `/mirror reconcile` settles it.
 
 ## Media of a message
 

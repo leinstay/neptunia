@@ -13,7 +13,7 @@ import { familyOf, ImageGenError, UnsupportedImageModelError } from '../src/llm/
 import { onWorld, world } from './fixtures/turn-world.ts';
 import { labels as baseLabels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
-import { publishTo } from './fixtures/diary-mirror.ts';
+import { publishTo } from './fixtures/selfreflection-mirror.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { drawPicture, drawPromptOf } from '../src/media/draw.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -34,9 +34,9 @@ const PROMPTS = {
   'character-card': 'CARD_TEXT',
   format: 'FORMAT_TEXT',
   reply: 'Someone called you: {{author}}.',
-  diary: 'DIARY_TASK for {{name}}',
-  'diary-plan': 'PLAN_SYSTEM for {{name}}',
-  'diary-seeds': '# place\na pier\n# light\nfog',
+  selfreflection: 'DIARY_TASK for {{name}}',
+  'selfreflection-planner': 'PLAN_SYSTEM for {{name}}',
+  'selfreflection-seeds': '# place\na pier\n# light\nfog',
   draw: 'A drawing by {{name}}.\n\n{{appearance}}\n\n{{when}}\n\nScene: {{request}}',
   appearance: '{{name}} has silver hair and a green scarf.',
   labels: LABELS,
@@ -45,7 +45,7 @@ const PROMPTS = {
 function hot() {
   return {
     // PR 7d: the switches are code, the daily caps are gone and the diary's kinds and sets are constants of
-    // src/behavior/diary.ts (`photoset` is a set of 4 to 6 pictures), so only the settings stay.
+    // src/behavior/selfreflection.ts (`photoset` is a set of 4 to 6 pictures), so only the settings stay.
     config: {
       bot: { timezone: TZ, owners: ['42'] },
       context: {
@@ -148,8 +148,8 @@ function store() {
     listUserProfiles: () => [],
     getLore: () => [],
     getMediaCache: () => ({}),
-    getDiary: () => ({ posts: [], updatedAt: 0 }),
-    appendDiaryPost: () => ({ dropped: [] }),
+    getSelfreflection: () => ({ posts: [], updatedAt: 0 }),
+    appendSelfreflectionPost: () => ({ dropped: [] }),
     state: { data: {}, markDirty() {} },
   };
 }
@@ -159,7 +159,7 @@ function llm(post: Untyped, plan = null) {
   let composed = 0;
   return {
     complete: async (_messages: Record<string, Untyped>, opts: Record<string, Untyped>) => {
-      if (opts?.purpose === 'diary-plan') return { text: JSON.stringify(plan), usage: {}, estimated: 5 };
+      if (opts?.purpose === 'selfreflection-planner') return { text: JSON.stringify(plan), usage: {}, estimated: 5 };
       const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
       composed += 1;
       return completionOf(answer);
@@ -222,8 +222,8 @@ test('diary set: the avatar is fetched once and goes with the first picture; the
   const { result }: Record<string, Untyped> = await withCapturedLogs(() =>
     runner({ answer, plan, images, hotValue }).runTurn({
       channel: target,
-      mode: 'diary',
-      diary: { kind: null, forced: false },
+      mode: 'selfreflection',
+      selfreflection: { kind: null, forced: false },
     })
   );
   assert.equal(result.outcome, 'spoke');

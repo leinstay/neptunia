@@ -5,6 +5,7 @@
 // and the request dumps stay files: nothing reads them from the database; participation.json and media.json are both,
 // as the store writes them (the file, and its memory rows sent). The stems and the graph projection are
 // finished at the end, as the writers' projection job does. Synthetic fixtures only.
+import { withCurrentNames } from '../../../src/memory/migration/selfreflection-names.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { FileFormat, MapperKind } from '../../../src/memory/db/map/index.ts';
@@ -95,16 +96,22 @@ export function seedUnits(
   const now = typeof clock === 'function' ? clock() : clock;
   let written = 0;
   const codes: Array<string> = [];
-  for (const unit of unitsOf(dataDir)) {
-    try {
-      applyUnitWrite(handle, { kind: 'unit', ...updateOf(dataDir, unit), now });
-      written += 1;
-    } catch (error) {
-      const failure = error as { code?: string; name?: string } | null;
-      codes.push(failure?.code ?? failure?.name ?? 'ERROR');
+  const seed = (): void => {
+    for (const unit of unitsOf(dataDir)) {
+      try {
+        applyUnitWrite(handle, { kind: 'unit', ...updateOf(dataDir, unit), now });
+        written += 1;
+      } catch (error) {
+        const failure = error as { code?: string; name?: string } | null;
+        codes.push(failure?.code ?? failure?.name ?? 'ERROR');
+      }
     }
-  }
-  fillStems(handle.db as Db);
-  projectPending(handle, { at: new Date(now).toISOString() });
+    fillStems(handle.db as Db);
+    projectPending(handle, { at: new Date(now).toISOString() });
+  };
+  // B10 of the master plan: the writers speak `selfreflection`, and a database at an older schema holds the old names.
+  const db = handle.db as Db;
+  if (db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE name = 'diary'").get()) withCurrentNames(db, seed);
+  else seed();
   return { units: written, errors: codes.length, codes };
 }

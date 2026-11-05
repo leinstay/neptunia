@@ -2860,7 +2860,7 @@ test('store: an item without itemId gets one on write and old items load unchang
   store.applyRecentOps(placeOfCommunity(store, 'g1'), [{ text: 'γραμμή', at: ID_NOW, placeId: '900000000000000001' }], {
     now: ID_NOW,
   });
-  store.appendDiaryPost(
+  store.appendSelfreflectionPost(
     { at: ID_NOW, kind: null, gist: 'ημέρα', picture: null, messageIds: [], search: '' },
     { now: ID_NOW }
   );
@@ -2892,7 +2892,7 @@ test('store: an item without itemId gets one on write and old items load unchang
   );
   assert.ok(every(asRecord(reread.getPlace(placeOfCommunity(reread, 'g1'))).learned, 'ln-u'));
   assert.ok(every(reread.getRecent(placeOfCommunity(reread, 'g1')).lines, 'rc-u'));
-  assert.ok(every(reread.getDiary().posts, 'dy-u'));
+  assert.ok(every(reread.getSelfreflection().posts, 'dy-u'));
   assert.ok(every(reread.getParticipation(placeOfCommunity(reread, 'g1')).episodes, 'pt-u'));
   const all = [
     asRecord(profile).interests,
@@ -2930,11 +2930,11 @@ test('store: eviction returns the dropped items with their itemId', () => {
     messageIds: [],
     search: '',
   }));
-  store.setDiaryPosts(posts.slice(0, 2), { max: 2, now: ID_NOW });
-  const firstPostId = asRecord(store.getDiary().posts[0]).itemId;
-  const diary = store.appendDiaryPost(posts[2], { max: 2, now: ID_NOW });
+  store.setSelfreflectionPosts(posts.slice(0, 2), { max: 2, now: ID_NOW });
+  const firstPostId = asRecord(store.getSelfreflection().posts[0]).itemId;
+  const selfreflection = store.appendSelfreflectionPost(posts[2], { max: 2, now: ID_NOW });
   assert.deepEqual(
-    diary.dropped.map((p) => [asRecord(p).gist, asRecord(p).itemId]),
+    selfreflection.dropped.map((p) => [asRecord(p).gist, asRecord(p).itemId]),
     [['ένα', firstPostId]]
   );
   assert.ok(firstPostId.startsWith('dy-u'));

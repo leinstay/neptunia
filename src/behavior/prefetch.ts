@@ -151,7 +151,7 @@ function textOf(message: PrefetchLine | null | undefined, nameOf: ((id: string) 
 /**
  * Whether a prefetch runs for this turn and over which lanes. None (`skip` with a code): no
  * trigger, or one of the persona's own (`no-trigger`); a turn no person's new message opened -- an
- * errand's result, the turn after a failed drawing, a diary post (`not-external`); a trivial
+ * errand's result, the turn after a failed drawing, a selfreflection post (`not-external`); a trivial
  * trigger (isTrivialTrigger with `settings.trivial` and the persona's names: `trivial`). Else the
  * lanes, each `{ kind, text, words }` -- `text` what is embedded (speakers named, `<@id>` tokens as
  * names), `words` what the lexical forms come from (the messages' own texts, no speaker names):
@@ -192,7 +192,7 @@ export function prefetchLanes({
   const none = (skip: Untyped) => ({ lanes: [], skip });
   if (!trigger || trigger.self === true || (selfId && String(trigger.authorId) === String(selfId)))
     return none('no-trigger');
-  if (NOT_EXTERNAL.has(triggerKind) || mode === 'diary') return none('not-external');
+  if (NOT_EXTERNAL.has(triggerKind) || mode === 'selfreflection') return none('not-external');
   const asked = candidate ?? trigger;
   if (isTrivialTrigger(asked.content, { trivial: settings.trivial, selfNames: [selfName, ...selfNames] }))
     return none('trivial');

@@ -519,22 +519,22 @@ const RENDERED = 'RENDERED-WORDS-OF-THE-POST';
 const PLACE_NAME = 'place:diary';
 
 /** A diary with two entries and one mirror, with a publication in each state the facts count. */
-function diaryScene(data: string): void {
+function selfreflectionScene(data: string): void {
   const handle = openMemoryDb(path.join(data, 'memory.db'));
   const db = dbOf(handle);
   db.prepare("INSERT INTO places (id, iface, kind, native_id) VALUES (?, 'discord', 'channel', 'c1')").run(PLACE_NAME);
   db.prepare(
     `INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, backfill_enabled, backfill_high_water, backfill_next_due_at)
-     VALUES ('mirror:1', 'diary', ?, 1, ?, 'owner', 1, 'entry-1', ?)`
+     VALUES ('mirror:1', 'selfreflection', ?, 1, ?, 'owner', 1, 'entry-1', ?)`
   ).run(PLACE_NAME, iso(NOW - 86_400_000), NOW + 60_000);
   const entry = db.prepare(
-    "INSERT INTO diary (id, at_ms, kind, gist, text, status) VALUES (?, ?, 'entry', ?, ?, 'written')"
+    "INSERT INTO selfreflection (id, at_ms, kind, gist, text, status) VALUES (?, ?, 'entry', ?, ?, 'written')"
   );
   entry.run('entry-1', NOW - 7_200_000, GIST_TEXT, ENTRY_TEXT);
   entry.run('entry-2', NOW - 3_600_000, GIST_TEXT, ENTRY_TEXT);
   const publication = db.prepare(
     `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, status, idempotency_key, created_at, sent_at)
-     VALUES (?, 'diary', ?, 'hash', ?, ?, ?, ?, ?, ?)`
+     VALUES (?, 'selfreflection', ?, 'hash', ?, ?, ?, ?, ?, ?)`
   );
   const rows: ReadonlyArray<readonly [string, string, string | null]> = [
     ['p-sent', 'sent', iso(NOW - 3_000_000)],
@@ -552,7 +552,7 @@ function diaryScene(data: string): void {
 test('the evidence gives each mirror its last entry, counts and backfill, and no words', async () => {
   // Bug: the report cannot say whether the diary reaches its channel, or says it by quoting her diary.
   const data = evidenceRig();
-  diaryScene(data);
+  selfreflectionScene(data);
   const { page, text } = await evidenceOf(data);
   const [mirror] = page.mirrors ?? [];
   assert.equal(mirror?.place, PLACE_NAME);
@@ -573,7 +573,7 @@ test('the evidence gives each mirror its last entry, counts and backfill, and no
 test('the evidence gives selfreflection its last entry and the totals, and no words', async () => {
   // Bug: the facts come per mirror only, and a diary with no mirror looks as if it never wrote.
   const data = evidenceRig();
-  diaryScene(data);
+  selfreflectionScene(data);
   const { page } = await evidenceOf(data);
   assert.deepEqual(page.selfreflection, {
     lastEntryId: 'entry-2',

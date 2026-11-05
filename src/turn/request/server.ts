@@ -1,6 +1,6 @@
 // The server and its places as a request shows them: the `<server>` entries of the current channel and the channels
 // this turn shows beside it, the `<about_chat>` lines of how the server talks and what people taught the persona, and
-// the `<lore>` entries the transcript matches. buildRequest and buildDiaryPlanRequest (src/behavior/prompt.js) call
+// the `<lore>` entries the transcript matches. buildRequest and buildSelfreflectionPlanRequest (src/behavior/prompt.js) call
 // them.
 
 import { fill } from '../../format.ts';
@@ -105,7 +105,7 @@ export function serverItems(
   labels: Labels,
   nameOf: NameOf,
   readOnlyIds: Set<string> = new Set(),
-  diaryChannelIds: Set<string> = new Set(),
+  selfreflectionChannelIds: Set<string> = new Set(),
   ids: Array<string | null> | null = null
 ): Array<string> {
   const byId = new Map<string | null, StoredChannel>(channels.map((channel) => [channel.id, channel]));
@@ -132,8 +132,8 @@ export function serverItems(
         now,
         nameOf,
         readOnly: readOnlyIds.has(channel.id),
-        // A place of the persona's own diary (its mirrors): marked so it is found by name like any channel.
-        diary: diaryChannelIds.has(channel.id),
+        // A place of the persona's own selfreflection (its mirrors): marked so it is found by name like any channel.
+        selfreflection: selfreflectionChannelIds.has(channel.id),
       }
     )
   );

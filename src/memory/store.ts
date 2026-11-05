@@ -7,7 +7,7 @@
 //   an account's      its profile (`user`) and what it said in private (`private`)
 //   a place's         its notes (`place`), its map entry (`channel`), lore, media, GIFs, recent lines, participation
 //                     and the previous texts of its prose (`versions`)
-//   the persona's     the diary
+//   the persona's     the selfreflection
 //
 // The errand tasks (src/errands/store.ts) and the intentions (src/intentions/store.ts) are units of their own
 // stores, not cached here. Everything is cached in memory, marked dirty on change and flushed on a timer and on
@@ -103,7 +103,7 @@ import type { StoredRecord, MemoryDb, Untyped } from './types.ts';
 import type { Track } from '../loop-watch.ts';
 import { untracked } from '../loop-watch.ts';
 
-const DIARY_HISTORY_POSTS = 150; // selfreflection.historyPosts
+const SELFREFLECTION_HISTORY_POSTS = 150; // selfreflection.historyPosts
 
 /** Version history when a writer's caller passes none: `features.versions`, `memory.versionsKept`. */
 const DEFAULT_VERSIONS = { enabled: true, kept: 20 };
@@ -127,8 +127,8 @@ const CLOSED_KINDS = ['interest', 'detail', 'alias', 'realName'];
 /** How long a stored real name may be. */
 const REAL_NAME_CHARS = 60;
 
-/** The diary of a place with no post yet (the place's diary.json). */
-const emptyDiary = () => ({ posts: [], updatedAt: 0 });
+/** The selfreflection of a place with no post yet (the persona's selfreflection unit). */
+const emptySelfreflection = () => ({ posts: [], updatedAt: 0 });
 
 /** The prefix of an item's `itemId` by kind (src/memory/archive.ts#ITEM_ID_PREFIX, the one copy). */
 export { ITEM_ID_PREFIX };
@@ -1132,7 +1132,7 @@ type RecentOpsOptions = {
   removeIds?: Array<unknown>;
 };
 
-type DiaryPostOptions = {
+type SelfreflectionPostOptions = {
   at: number;
   kind: string | null;
   gist: string;
@@ -1561,8 +1561,8 @@ function buildStore({
         return place(['self'], true);
       case 'injoke':
         return place(['injokes'], true);
-      case 'diary':
-        return { item: diaryEntry(), path: ['posts'] };
+      case 'selfreflection':
+        return { item: selfreflectionEntry(), path: ['posts'] };
       default:
         return null;
     }
@@ -1775,7 +1775,7 @@ function buildStore({
   const privateFile = (accountId: string) => address(accountCollection('private', accountId));
   const recentFile = (placeId: string) => placeUnitFile('recent', placeId);
   const participationFile = (placeId: string) => placeUnitFile('participation', placeId);
-  const diaryFile = () => address(personaKey('diary'));
+  const selfreflectionFile = () => address(personaKey('selfreflection'));
   const versionsFile = (placeId: string | null, kind: string, id: string) => {
     const selector: StorageSelector = {
       versionKind: kind as NonNullable<StorageSelector['versionKind']>,
@@ -2048,34 +2048,34 @@ function buildStore({
     return item;
   }
 
-  /** The cache entry of a place's diary, the empty diary when there is no file; a value that is not
-   * a diary (not an object, or `posts` not a list) is replaced by the empty one in the cache, and
+  /** The cache entry of a place's selfreflection, the empty selfreflection when there is no file; a value that is not
+   * a selfreflection (not an object, or `posts` not a list) is replaced by the empty one in the cache, and
    * the disk copy is only rewritten by the next change. */
-  function diaryEntry() {
-    const item = entry(diaryFile(), emptyDiary);
-    if (!isRecord(item.value) || !Array.isArray(item.value.posts)) item.value = emptyDiary();
+  function selfreflectionEntry() {
+    const item = entry(selfreflectionFile(), emptySelfreflection);
+    if (!isRecord(item.value) || !Array.isArray(item.value.posts)) item.value = emptySelfreflection();
     return item;
   }
 
-  /** Store `posts` (the newest `max`) as the place's diary, stamped `now`, and mark it dirty. Every
+  /** Store `posts` (the newest `max`) as the place's selfreflection, stamped `now`, and mark it dirty. Every
    * post gets an `itemId` when it has none (`dy-`); returns `{ dropped }`, the posts that fell past
    * `max`, oldest first, with theirs. */
-  function writeDiary(posts: Untyped, { max, now }: { max?: number; now?: number } = {}) {
-    const item = diaryEntry();
+  function writeSelfreflection(posts: Untyped, { max, now }: { max?: number; now?: number } = {}) {
+    const item = selfreflectionEntry();
     const previous = item.value.posts;
-    const limit = isFiniteNumber(max) && max > 0 ? Math.floor(max) : DIARY_HISTORY_POSTS;
-    const all = withItemIds(posts, ITEM_ID_PREFIX.diary, newId);
+    const limit = isFiniteNumber(max) && max > 0 ? Math.floor(max) : SELFREFLECTION_HISTORY_POSTS;
+    const all = withItemIds(posts, ITEM_ID_PREFIX.selfreflection, newId);
     const kept = all.slice(-limit);
     item.value = { posts: kept, updatedAt: isFiniteNumber(now) ? now : Date.now() };
     item.dirty = true;
     const dropped = all.slice(0, all.length - kept.length);
     holdVictims({
       item,
-      file: diaryFile(),
+      file: selfreflectionFile(),
       path: ['posts'],
       previous,
       victims: dropped,
-      itemKind: 'diary',
+      itemKind: 'selfreflection',
       eventOf: () => 'evicted',
       scope: {},
     });
@@ -2961,7 +2961,7 @@ function buildStore({
       return value;
     },
 
-    /** The attachment ids stored lines and diary posts link: what the media cache's cap leaves alone (src/web/cache.ts#trimCache). */
+    /** The attachment ids stored lines and selfreflection posts link: what the media cache's cap leaves alone (src/web/cache.ts#trimCache). */
     linkedMediaKeys(): ReadonlySet<string> {
       return memoryDb ? seam.run(() => linkedAttachmentIds(seam.db())) : new Set<string>();
     },
@@ -3164,40 +3164,43 @@ function buildStore({
       return removed;
     },
 
-    // ---- the diary: the persona's own posts in its diary channel (src/behavior/diary.ts) ----
+    // ---- the selfreflection: the persona's own posts in its selfreflection channel (src/behavior/selfreflection.ts) ----
 
     /**
-     * A copy of the place's diary (the place's diary.json): `{ posts, updatedAt }`, posts newest last; the empty
-     * diary (`{ posts: [], updatedAt: 0 }`) when there is no file, never null. Reading never creates the file.
+     * A copy of the place's selfreflection (the persona's selfreflection unit): `{ posts, updatedAt }`, posts newest last; the empty
+     * selfreflection (`{ posts: [], updatedAt: 0 }`) when there is no file, never null. Reading never creates the file.
      */
-    getDiary(): {
-      posts: Array<DiaryPostOptions & { messageIds: Array<string> }>;
+    getSelfreflection(): {
+      posts: Array<SelfreflectionPostOptions & { messageIds: Array<string> }>;
       updatedAt: number;
     } {
-      return structuredClone(diaryEntry().value);
+      return structuredClone(selfreflectionEntry().value);
     },
 
     /**
-     * Append one post to the place's diary, keep the newest `max` (selfreflection.historyPosts), stamp `updatedAt` with `now`.
+     * Append one post to the place's selfreflection, keep the newest `max` (selfreflection.historyPosts), stamp `updatedAt` with `now`.
      * @param post  `pictures`: a set's count
      *   (`picture` its first scene); `text`: the entry in full; `itemId`: the entry's id.
-     * @returns The posts that fell past `max` (see `writeDiary`).
+     * @returns The posts that fell past `max` (see `writeSelfreflection`).
      */
-    appendDiaryPost(post: DiaryPostOptions, opts: { max?: number; now?: number } = {}): { dropped: Array<object> } {
-      const done = writeDiary([...diaryEntry().value.posts, structuredClone(post)], opts);
+    appendSelfreflectionPost(
+      post: SelfreflectionPostOptions,
+      opts: { max?: number; now?: number } = {}
+    ): { dropped: Array<object> } {
+      const done = writeSelfreflection([...selfreflectionEntry().value.posts, structuredClone(post)], opts);
       // The post goes to the database at once; a failed write waits in the outbox, past a shutdown in `memory-pending/`.
-      flushEntry(diaryFile(), diaryEntry());
+      flushEntry(selfreflectionFile(), selfreflectionEntry());
       if (outbox) outbox.push();
       return done;
     },
 
     /**
-     * Replace the place's post list (the backfill, run only on an empty diary, posts oldest first), keeping the newest
-     * `max` (selfreflection.historyPosts), stamping `updatedAt` with `now`; returns the posts that fell past `max` (`writeDiary`).
+     * Replace the place's post list (the backfill, run only on an empty selfreflection, posts oldest first), keeping the newest
+     * `max` (selfreflection.historyPosts), stamping `updatedAt` with `now`; returns the posts that fell past `max` (`writeSelfreflection`).
      * @param posts @param [opts]
      */
-    setDiaryPosts(posts: Array<StoredRecord>, opts: { max?: number; now?: number } = {}) {
-      return writeDiary(Array.isArray(posts) ? structuredClone(posts) : [], opts);
+    setSelfreflectionPosts(posts: Array<StoredRecord>, opts: { max?: number; now?: number } = {}) {
+      return writeSelfreflection(Array.isArray(posts) ? structuredClone(posts) : [], opts);
     },
 
     /** `read(db)` on the memory database's read connection, null without one (src/behavior/mirror.ts reads its mirrors).
@@ -3509,7 +3512,7 @@ function buildStore({
      * Its text fields come back without links (`withoutLinks`; a plain-string item that was only
      * links is not restored, `kind`).
      * Kinds: episode, interest, detail, alias (a member's profile, or their private layer for a
-     * private entry; no private aliases), lesson, selfFact, injoke, diary (the place). Nothing
+     * private entry; no private aliases), lesson, selfFact, injoke, selfreflection (the place). Nothing
      * changes when the item is hot already (`hot`), the member has no profile or private layer
      * (`no-profile`), or the kind cannot go back (`kind`: moves, recent lines, participation
      * episodes and versions belong to their moment).
@@ -3674,13 +3677,13 @@ export type Store = Omit<
  *   before its copy is in the archive -- see "The archive" inside, `settleArchive`,
  *   `drainArchive` and `trimArchived`.
  *   `memoryDb` (the memory database service): every memory unit of the cache (users, private layers, channels, the
- *   place, lore, recent, versions, the diary) is loaded from it (`unitValue`; a unit it does not hold is new; a closed
+ *   place, lore, recent, versions, the selfreflection) is loaded from it (`unitValue`; a unit it does not hold is new; a closed
  *   database throws, with a code), whether it exists is the database's `files` row (`known`), a directory's ids
  *   are the database's (`idsUnder`), and a flush hands its whole value to the outbox (src/memory/db/unit-outbox.ts,
  *   op `value`): the entry stays the truth and counts as written only when the outbox no longer holds it (the write
  *   resolved); a failed write waits there and goes again at the next flush. Core state, participation, GIFs and media
  *   use the database with their existing unit owners. Other operational files retain their file backend.
- *   A diary post is sent at once (`appendDiaryPost` flushes the diary: its
+ *   A selfreflection post is sent at once (`appendSelfreflectionPost` flushes the selfreflection: its
  *   row and its mirror's `sent` publication). `flushSettled({ final: true })` (the shutdown) waits for the outbox and
  *   keeps what still fails in `memory-pending/` (`memoryDb.keepPending`, replayed by the service at its next open);
  *   `dropCaches` keeps the entries the outbox holds; `validate` (`/nep resume`) checks the operational JSON files.

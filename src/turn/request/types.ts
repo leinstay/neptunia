@@ -10,7 +10,7 @@ import type { SkillRow } from './senses.ts';
 import type { Tasks } from './task.ts';
 import type { PreviousThink } from './wake.ts';
 import type { MediaCache } from './emoji-gifs.ts';
-import type { DiaryInput } from './diary.ts';
+import type { SelfreflectionInput } from './selfreflection.ts';
 
 /** A group of label texts (`labels.<group>.<key>`); a key the labels file lacks reads as undefined at run time. */
 export type LabelGroup = { readonly [key: string]: string };
@@ -72,7 +72,7 @@ export type Labels = {
   readonly participation?: LabelGroup;
   readonly pull?: LabelGroup;
   readonly server?: LabelGroup;
-  readonly diary?: LabelGroup;
+  readonly selfreflection?: LabelGroup;
   readonly room?: LabelGroup;
   readonly triggers?: LabelGroup;
   readonly elsewhere?: LabelGroup;
@@ -113,7 +113,10 @@ export type RequestConfig = {
   readonly gifs?: GifsConfig;
   readonly lore?: { readonly scanMessages?: number; readonly maxMatches?: number };
   readonly tools?: { readonly loop?: { readonly stepReserveTokens?: number } };
-  readonly web?: { readonly links?: { readonly enabled?: unknown }; readonly search?: { readonly enabled?: unknown } };
+  readonly web?: {
+    readonly links?: { readonly enabled?: unknown };
+    readonly quickSearch?: { readonly enabled?: unknown };
+  };
   readonly selfreflection?: { readonly world?: unknown; readonly historyPosts?: number };
   readonly media?: { readonly video?: { readonly sites?: ReadonlyArray<string> } };
   readonly models?: { readonly base?: Record<string, unknown> };
@@ -307,9 +310,9 @@ export type RequestInput = {
   readonly recentLines?: unknown;
   readonly recentAudience?: unknown;
   readonly participation?: ParticipationInput | null;
-  readonly diaryChannel?: unknown;
-  readonly diaryChannelIds?: Iterable<string> | null;
-  readonly diary?: DiaryInput | null;
+  readonly selfreflectionChannel?: unknown;
+  readonly selfreflectionChannelIds?: Iterable<string> | null;
+  readonly selfreflection?: SelfreflectionInput | null;
   readonly offPeriods?: unknown;
   readonly skillsInventory?: Array<SkillRow | null> | null;
   /** The body of the `<skills>` block, the index of her active skills; empty or null sends no block. */

@@ -1,4 +1,4 @@
-// `/mirror`: the owner's commands over the diary's mirrors (src/behavior/mirror-desk.ts). Each handler checks what the
+// `/mirror`: the owner's commands over the selfreflection's mirrors (src/behavior/mirror-desk.ts). Each handler checks what the
 // words say before it changes anything, so a bad value answers `invalid` and writes nothing. A refused answer starts with
 // the command as the owner typed it. The text is for the owner alone.
 
@@ -21,7 +21,7 @@ const WHY: Readonly<Record<string, string>> = {
   'ambiguous-place': 'more than one interface has that id; give its interface-qualified place id',
   'unknown-mirror': 'no mirror has that id or place',
   'no-interval': '--backfill true needs --every, such as --every 4h',
-  'unknown-entry': 'no diary entry has that id, so nothing was recorded',
+  'unknown-entry': 'no selfreflection entry has that id, so nothing was recorded',
   'no-selection': 'name entries with --entries, or a boundary entry with --through; --absent takes --entries alone',
   'not-uncertain': 'that entry has no uncertain send on this mirror, so nothing was queued',
 };
@@ -158,7 +158,7 @@ export async function mirrorCommand(
   args: Readonly<Record<string, unknown>>,
   requester: { id: string }
 ): Promise<Answer> {
-  if (!desk) return { text: 'the diary publisher is not running', status: 'failed' };
+  if (!desk) return { text: 'the selfreflection publisher is not running', status: 'failed' };
   const typed =
     `/mirror ${name.slice('mirror.'.length)} ${word(args, 'destination') ?? word(args, 'mirror') ?? ''}`.trim();
   const refused = (why: string): Answer => ({ text: `${typed}: ${why}`, status: 'invalid' });

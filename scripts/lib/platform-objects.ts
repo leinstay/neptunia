@@ -175,12 +175,12 @@ function arrayOf(json: unknown): Array<unknown> {
 }
 
 /**
- * What her diary posted, as the memory database `memoryDb` (scripts/lib/memory-read.ts) holds it: the ids of the
- * messages (an entry's `diary_mirrors` ids, and the message receipts of its sent publication, where an `attachment`
+ * What her selfreflection posted, as the memory database `memoryDb` (scripts/lib/memory-read.ts) holds it: the ids of the
+ * messages (an entry's `selfreflection_mirrors` ids, and the message receipts of its sent publication, where an `attachment`
  * receipt names a file) and the platform ids of the conversations her `said` lines of them are in. Both empty with no
  * database.
  */
-function diaryPosts(memoryDb: unknown): { messages: Set<string>; conversations: Set<string> } {
+function selfreflectionPosts(memoryDb: unknown): { messages: Set<string>; conversations: Set<string> } {
   const database = obj(memoryDb).database;
   const db = obj(typeof database === 'function' ? (database as () => unknown)() : null);
   const prepare = db.prepare as ((sql: string) => Rows) | undefined;
@@ -188,9 +188,10 @@ function diaryPosts(memoryDb: unknown): { messages: Set<string>; conversations: 
   const conversations = new Set<string>();
   if (typeof prepare !== 'function') return { messages, conversations };
   const rows = (sql: string, ...args: Array<unknown>): Array<Obj> => prepare.call(db, sql).all(...args);
-  for (const row of rows('SELECT native_ids FROM diary_mirrors WHERE retired_at IS NULL'))
+  for (const row of rows('SELECT native_ids FROM selfreflection_mirrors WHERE retired_at IS NULL'))
     for (const id of arrayOf(row.native_ids)) if (typeof id === 'string' && id) messages.add(id);
-  const sent = "SELECT receipts FROM publications WHERE row_kind = 'diary' AND status = 'sent' AND retired_at IS NULL";
+  const sent =
+    "SELECT receipts FROM publications WHERE row_kind = 'selfreflection' AND status = 'sent' AND retired_at IS NULL";
   for (const row of rows(sent))
     for (const receipt of arrayOf(row.receipts).map(obj))
       if (typeof receipt.key === 'string' && receipt.key && receipt.kind !== 'attachment') messages.add(receipt.key);
@@ -205,14 +206,14 @@ function diaryPosts(memoryDb: unknown): { messages: Set<string>; conversations: 
 const HISTORY_PAGE = 100;
 
 /**
- * A wrapper of `reads` whose history of a conversation her diary posted in, as `memoryDb` names it (diaryPosts), keeps
+ * A wrapper of `reads` whose history of a conversation her selfreflection posted in, as `memoryDb` names it (selfreflectionPosts), keeps
  * only her own messages: a page as large as the platform gives, hers of it, the newest `query.limit` of them. Schema
- * v15's step makes every message of hers there part of an entry (src/memory/db/diary-past.ts), so this is what a diary
- * turn of the code before the selfreflection wake would have read of her diary channel had it held her diary only
- * (scripts/replay.ts `--diary-own-history`). Any other conversation reads as `reads` does.
+ * v15's step makes every message of hers there part of an entry (src/memory/db/selfreflection-past.ts), so this is what a selfreflection
+ * turn of the code before the selfreflection wake would have read of her selfreflection channel had it held her selfreflection only
+ * (scripts/replay.ts `--selfreflection-own-history`). Any other conversation reads as `reads` does.
  */
 export function ownHistoryReads(memoryDb: unknown): <T extends Reads>(reads: T) => T {
-  const posted = diaryPosts(memoryDb);
+  const posted = selfreflectionPosts(memoryDb);
   return <T extends Reads>(reads: T): T => ownHistoryOf(reads, posted);
 }
 

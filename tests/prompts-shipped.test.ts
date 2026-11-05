@@ -18,8 +18,19 @@ import { SnowflakeUtil } from 'discord.js';
 import { joinLabels } from '../src/config/labels.ts';
 import { deepMerge, isPlainObject } from '../src/config.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../src/time.ts';
-import { buildDiaryPlanRequest, buildDrawPrompt, hasRequiredLabels, userText } from '../src/behavior/prompt.ts';
-import { DIARY_KINDS, SEED_SETS, parseSeedFamilies, pickSeeds, renderSeedsBlock } from '../src/behavior/diary.ts';
+import {
+  buildSelfreflectionPlanRequest,
+  buildDrawPrompt,
+  hasRequiredLabels,
+  userText,
+} from '../src/behavior/prompt.ts';
+import {
+  SELFREFLECTION_KINDS,
+  SEED_SETS,
+  parseSeedFamilies,
+  pickSeeds,
+  renderSeedsBlock,
+} from '../src/behavior/selfreflection.ts';
 import { fill, formatDate } from '../src/format.ts';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { createRecall as createRecallOf } from '../src/behavior/recall-run.ts';
@@ -105,8 +116,9 @@ const NOT_BUILT = {
   address: 'built inside the src/behavior/pipeline.ts closure (O-9)',
   // The executor's brief moved to executor-brief.md; selfimprovement.md is her wake, loaded below.
   'executor-brief': 'filled by src/development/brief.ts#briefFrom, an agent run of the development worker reads it',
-  // Split into families and drawn from line by line (src/behavior/diary.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
-  'diary-seeds': 'drawn from line by line into <seeds> (src/behavior/diary.ts#pickSeeds), never sent whole',
+  // Split into families and drawn from line by line (src/behavior/selfreflection.ts#pickSeeds): the plan request carries a few random lines in <seeds>, never the file whole.
+  'selfreflection-seeds':
+    'drawn from line by line into <seeds> (src/behavior/selfreflection.ts#pickSeeds), never sent whole',
   // Her memory session and the description review build their requests over the memory database, not from a turn:
   // tests/memory-db-session.test.ts and tests/memory-db-describe.test.ts check what they load.
   'memory-session': 'built over the memory database (src/memory/db/session.ts)',
@@ -166,11 +178,11 @@ const LOADS = {
   routed: [...SYSTEM, 'reply'],
   noticed: [...SYSTEM, 'elsewhere'],
   draw: ['draw', 'appearance'],
-  diary: [...SYSTEM, 'diary', 'world'],
+  selfreflection: [...SYSTEM, 'selfreflection', 'world'],
   inner: [...SYSTEM, 'inner'],
   heartbeat: [...SYSTEM, 'heartbeat'],
   selfimprovement: [...SYSTEM, 'selfimprovement'],
-  diaryPlan: ['diary-plan', 'world'],
+  selfreflectionPlan: ['selfreflection-planner', 'world'],
   describe: ['describe'],
   avatar: ['avatar'],
   describeGif: ['describe-gif'],
@@ -538,7 +550,7 @@ function rawMessage(
 
 const GENERAL_INFO = { id: GENERAL, name: 'général', category: 'Café', topic: 'tout et rien' };
 const GARDEN_INFO = { id: GARDEN, name: 'jardin', category: 'Café', topic: null };
-const DIARY_INFO = { id: DIARY, name: 'journal', category: 'Notes', topic: 'one member per thread' };
+const SELFREFLECTION_INFO = { id: DIARY, name: 'journal', category: 'Notes', topic: 'one member per thread' };
 
 const GIF_EMBED = {
   url: 'https://tenor.com/view/cat-wave-123',
@@ -1049,13 +1061,18 @@ test('buildRequest: a private chat fills private.md after the reply task', async
  * #journal, a channel the persona reads but cannot write in, pulled into a turn in #général
  * (`reason`): Ana's lines, an earlier call answered, the last line a call when `called`.
  */
-function diaryPulled(reason: string, { called = true }: { called?: boolean } = {}) {
+function selfreflectionPulled(reason: string, { called = true }: { called?: boolean } = {}) {
   const at = (minutes: number) => NOW - minutes * MINUTE_MS;
   const messages = normalize([
-    rawMessage(DIARY_INFO, { ts: at(40), author: PEOPLE[ANA], content: 'journal du jour : semis' }),
-    rawMessage(DIARY_INFO, { ts: at(30), author: PEOPLE[ANA], content: '@Zoë tu te souviens ?', mentions: [SELF_ID] }),
-    rawMessage(DIARY_INFO, { ts: at(20), author: PEOPLE[ANA], content: 'et les tomates ?' }),
-    rawMessage(DIARY_INFO, {
+    rawMessage(SELFREFLECTION_INFO, { ts: at(40), author: PEOPLE[ANA], content: 'journal du jour : semis' }),
+    rawMessage(SELFREFLECTION_INFO, {
+      ts: at(30),
+      author: PEOPLE[ANA],
+      content: '@Zoë tu te souviens ?',
+      mentions: [SELF_ID],
+    }),
+    rawMessage(SELFREFLECTION_INFO, { ts: at(20), author: PEOPLE[ANA], content: 'et les tomates ?' }),
+    rawMessage(SELFREFLECTION_INFO, {
       ts: at(3),
       author: PEOPLE[ANA],
       content: called ? '@Zoë alors, ces tomates ?' : 'les tomates ont gelé',
@@ -1081,7 +1098,7 @@ function diaryPulled(reason: string, { called = true }: { called?: boolean } = {
 }
 
 test('buildRequest: a routed call fills the task and renders the pulled channel with its call', async () => {
-  const pulled = diaryPulled('routed');
+  const pulled = selfreflectionPulled('routed');
   const call = pulled.messages.at(-1);
   const input = await turnInput({
     trigger: call,
@@ -1113,7 +1130,7 @@ test('buildRequest: a routed call fills the task and renders the pulled channel 
 });
 
 test('buildRequest: a noticed turn fills elsewhere.md with the channel it read and the one it speaks in', async () => {
-  const pulled = diaryPulled('noticed', { called: false });
+  const pulled = selfreflectionPulled('noticed', { called: false });
   const request = buildRequest(
     await turnInput({
       mode: 'elsewhere',
@@ -1162,7 +1179,7 @@ test('buildDrawPrompt: draw.md and appearance.md are filled for a picture the pe
 // ---- the diary ----------------------------------------------------------------------
 
 /** Two past diary posts, one with a picture. */
-const DIARY_POSTS = [
+const SELFREFLECTION_POSTS = [
   { at: NOW - 2 * DAY_MS, kind: 'status', gist: 'pluie toute la journée', picture: null, messageIds: [], search: null },
   {
     at: NOW - DAY_MS,
@@ -1312,7 +1329,7 @@ test('buildRequest: an inner turn woken by the selfimprovement wake fills selfim
 
 test('buildRequest: a diary post fills system-prompt, character-card, rules, format, diary.md and world.md', async () => {
   const input = await turnInput({
-    mode: 'diary',
+    mode: 'selfreflection',
     trigger: null,
     triggerKind: null,
     interlocutor: null,
@@ -1322,25 +1339,32 @@ test('buildRequest: a diary post fills system-prompt, character-card, rules, for
   const plan = { kind: 'selfPicture', brief: 'a pier in the fog', picture: true };
   const request = buildRequest({
     ...input,
-    diaryChannel: 'journal',
-    diary: { posts: DIARY_POSTS, plan, found: 'Une comète passe ce soir.' },
+    selfreflectionChannel: 'journal',
+    selfreflection: { posts: SELFREFLECTION_POSTS, plan, found: 'Une comète passe ce soir.' },
   });
   const text = assertFilled(
     request.messages,
-    { files: LOADS.diary, blocks: ['senses', 'world', 'diary', 'plan', 'found', 'chat', 'task'] },
-    'diary'
+    { files: LOADS.selfreflection, blocks: ['senses', 'world', 'diary', 'plan', 'found', 'chat', 'task'] },
+    'selfreflection'
   );
-  assert.ok(text.includes(fill(LABELS.senses.diary, { channel: 'journal' })), 'senses.diary names the channel');
+  assert.ok(
+    text.includes(fill(LABELS.senses.selfreflection, { channel: 'journal' })),
+    'senses.selfreflection names the channel'
+  );
 });
 
-test('buildDiaryPlanRequest: diary-plan.md and world.md fill the plan request with its blocks', async () => {
+test('buildSelfreflectionPlanRequest: selfreflection-planner.md and world.md fill the plan request with its blocks', async () => {
   const config = shippedConfig({ selfreflection: { world: true, placeId: DIARY } });
   const seeds = renderSeedsBlock(
-    // PR 7d: the seed sets and the kinds are the constants of src/behavior/diary.ts.
-    pickSeeds(parseSeedFamilies((SHIPPED.prompts as Record<string, unknown>)['diary-seeds']), SEED_SETS, () => 0.5),
+    // PR 7d: the seed sets and the kinds are the constants of src/behavior/selfreflection.ts.
+    pickSeeds(
+      parseSeedFamilies((SHIPPED.prompts as Record<string, unknown>)['selfreflection-seeds']),
+      SEED_SETS,
+      () => 0.5
+    ),
     LABELS
   );
-  const request = buildDiaryPlanRequest({
+  const request = buildSelfreflectionPlanRequest({
     config,
     prompts: SHIPPED.prompts,
     calibrator: createCalibrator(),
@@ -1355,13 +1379,13 @@ test('buildDiaryPlanRequest: diary-plan.md and world.md fill the plan request wi
     recentAudience: () => true,
     candidateProfiles: Object.values(PROFILES),
     nameOf,
-    posts: DIARY_POSTS,
-    kinds: DIARY_KINDS,
+    posts: SELFREFLECTION_POSTS,
+    kinds: SELFREFLECTION_KINDS,
     seedsText: seeds,
   });
   assertFilled(
     request.messages,
-    { files: LOADS.diaryPlan, blocks: ['now', 'server', 'about_chat', 'world', 'diary', 'kinds', 'seeds'] },
+    { files: LOADS.selfreflectionPlan, blocks: ['now', 'places', 'about_chat', 'world', 'diary', 'kinds', 'seeds'] },
     'diary plan'
   );
 });
@@ -1629,7 +1653,7 @@ test('createElsewhereHooks: the elsewhere pick fills elsewhere-pick.md', async (
   const channels = worldChannelsOf([
     [GENERAL_INFO, generalRaws()],
     [GARDEN_INFO, []],
-    [DIARY_INFO, []],
+    [SELFREFLECTION_INFO, []],
   ]);
   const store = {
     getParticipation: () => participationState(),

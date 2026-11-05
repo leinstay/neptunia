@@ -230,12 +230,12 @@ const CONSTANTS: Readonly<Record<string, unknown>> = {
     'v.redd.it',
     'pbs.twimg.com',
   ],
-  'web.search.maxPerTurn': 1,
-  'web.search.results': 5,
-  'web.search.summaryChars': 900,
-  'web.search.snippetChars': 400,
-  'web.search.resultsChars': 3000,
-  'web.search.contextMessages': 50,
+  'web.quickSearch.maxPerTurn': 1,
+  'web.quickSearch.results': 5,
+  'web.quickSearch.summaryChars': 900,
+  'web.quickSearch.snippetChars': 400,
+  'web.quickSearch.resultsChars': 3000,
+  'web.quickSearch.contextMessages': 50,
   'participation.hours': 72,
   'participation.linesBefore': 3,
   'participation.linesAfter': 1,
@@ -454,7 +454,7 @@ const GONE: Readonly<Record<string, unknown>> = {
   // The plugin mechanism left the engine, and no command changes the section a layer written before that still sets.
   plugins: null,
   // Quick search runs one chosen engine and nothing answers in its place.
-  'web.search.fallback': [],
+  'web.quickSearch.fallback': [],
   // Nothing proposes an intention any more, so no candidate waits to expire.
   'intentions.candidateExpiresHours': 48,
   // The subharness (src/subharness/) holds the agent backend now; scripts/config-migrate.ts says how to set it.

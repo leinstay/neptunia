@@ -14,7 +14,7 @@ export type StorageKind =
   | 'lore'
   | 'participation'
   | 'recent'
-  | 'diary'
+  | 'selfreflection'
   | 'intentions'
   | 'errands'
   | 'archive'

@@ -65,8 +65,8 @@ export type CreateTurnRunnerInput = {
   intentions?: Untyped;
   places?: Untyped;
   memoryReads?: Untyped;
-  /** A diary post's stored facts through the one retrieval service. */
-  diaryFacts?: Untyped;
+  /** A selfreflection post's stored facts through the one retrieval service. */
+  selfreflectionFacts?: Untyped;
   memoryContext?: Untyped;
   attention?: Set<string>;
   roleHealth?: Untyped;
