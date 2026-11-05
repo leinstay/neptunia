@@ -11,7 +11,9 @@ import { parseToolCallBlocks } from '../llm/tool-text.ts';
 import { REPLY_REQUEST } from '../llm/openrouter.ts';
 import { thinkLeakOf } from '../llm/parse.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
+import { readablePlaces } from '../behavior/readable-places.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
+import type { ConversationInfo } from '../protocol/adapter.ts';
 import type { CallView } from '../tools/executors.ts';
 import { skillRegistry } from '../tools/registry.ts';
 import { normalizeCalls } from '../tools/tool-calls.ts';
@@ -101,7 +103,9 @@ type ViewStore = {
  * profiles (only with memory on), her own id (`selfId`), the community's groups, the request's channel
  * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name), the request's
  * member handles (`memberHandles`: handle -> member id, her `@handle` in a member argument) and the skill registry
- * (`skills`: a skill's options are resolved by its dispatch), `searchRefs` (the turn's quoted lines
+ * (`skills`: a skill's options are resolved by its dispatch), `places` (the channels a read call may name, from the
+ * snapshot by the pull rail with `partnerId` as the reader of a private chat or the command line; left out without a
+ * `config` or a snapshot), `stem` (the loaded stemmer, `stem` as given), `searchRefs` (the turn's quoted lines
  * of a memory.search, searchHandles), and `fileOf` (a file handle
  * of one of her errands -> the file, null when this conversation may not use it), and `triggerText` (the
  * trigger message's text: a channel it names may take an errand's file). Reads `store` only. Exported
@@ -126,6 +130,9 @@ export function callViewOf({
   triggerText = null,
   deletedIds = null,
   searchRefs = null,
+  partnerId = null,
+  config = null,
+  stem = null,
 }: {
   channel: { id: string | number; name?: unknown; rootId?: string | null };
   currentIface?: string;
@@ -144,6 +151,9 @@ export function callViewOf({
   triggerText?: unknown;
   deletedIds?: unknown;
   searchRefs?: Pick<SearchRefs, 'base' | 'byNumber'> | null;
+  partnerId?: string | null;
+  config?: Record<string, unknown> | null;
+  stem?: ((word: string) => string) | null;
 }): CallView & { currentConversationId: string } {
   const conversations: Array<{ id: string; name: string }> = [];
   // A private chat shows no channel of the community: only the turn's own.
@@ -162,11 +172,24 @@ export function callViewOf({
   for (const group of listing?.groups ?? []) {
     if (group.id && typeof group.name === 'string') roles.push({ id: String(group.id), name: group.name });
   }
+  // The channels a read call may name: the pull rail's verdict over the snapshot, a private chat's too.
+  const places =
+    config && snapshot
+      ? readablePlaces({
+          snapshot,
+          destination: channel as ConversationInfo,
+          partnerId,
+          config,
+          handles: channelHandles instanceof Map ? (channelHandles as Map<string, string>) : null,
+        })
+      : null;
   // The request's handle maps and the record's deleted ids hold strings: handle -> id, and message ids.
   return {
     currentConversationId: String(channel.id),
     currentIface,
     conversations,
+    ...(places ? { places } : {}),
+    ...(stem ? { stem } : {}),
     channelHandles: channelHandles instanceof Map ? (channelHandles as Map<string, string>) : null,
     memberHandles: memberHandles instanceof Map ? (memberHandles as Map<string, string>) : null,
     messageAt: (n) => {

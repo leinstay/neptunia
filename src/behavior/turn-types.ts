@@ -39,6 +39,8 @@ export type CreateTurnRunnerInput = {
   dataDir?: string | null;
   getSelfName?: (placeId: string | null) => string;
   selfId?: () => string;
+  /** The learned stemmer a place name in a read call is compared with, read at the moment of use; null while no memory is open. */
+  stemmer?: () => { stem: (word: string) => string } | null;
   reads: Reads;
   memberOf?: Untyped;
   membersOf?: Untyped;
