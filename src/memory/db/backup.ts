@@ -2,8 +2,11 @@
 // Runtime files under run/ and the database's WAL, SHM and writer lock are excluded.
 // The manifest records checksums and table counts; restoration verifies them before copying.
 // The scheduler keeps the configured number of finished backups and retries failed writes.
-// A backup holds the persona's keys and memory: every folder it creates is 700 and every file 600, whatever the source's
-// mode. The manifest keeps each file's mode for the restore, with `keys.json` at 600 even from a looser source.
+// A backup holds no credential: the files secret-files.ts names (keys, logins, client tokens, env files, the backups
+// folder, any file with a provider key in its text) are left out and the manifest counts them per class in `leftOut`,
+// never by value. Restoring a persona on a new host means entering its keys again with `neptunia keys`. A restore never
+// writes a secret file and skips one an older manifest lists. Every folder a backup creates is 700 and every file 600,
+// whatever the source's mode; the manifest keeps each file's mode for the restore.
 // A backup copies and hashes the whole data folder, seconds on a large one: inside the core it runs on another thread
 // (the writer for the daily one, `backupInWorker` for the owner's), and the pruning deletes through the async `fs`.
 
@@ -14,6 +17,7 @@ import { Worker } from 'node:worker_threads';
 import { openMemoryDb, schemaVersion } from './open.ts';
 import type { Config, Db, MemoryHandle, Row } from './types.ts';
 import { dbOf, asText, isWholeNumber } from './types.ts';
+import { secretClassOfContent, secretClassOfPath, type SecretClass } from './secret-files.ts';
 
 /** A backup's manifest: what it holds and the checksum of every file. */
 export type BackupManifest = {
@@ -22,6 +26,8 @@ export type BackupManifest = {
   /** `mode`: what a restore gives the file back; the backup's own copy is always 600. */
   files: Array<{ path: string; size: number; sha256: string; mode?: number }>;
   rows?: Record<string, number>;
+  /** Files left out of the backup as secret, counted per class. */
+  leftOut?: Partial<Record<SecretClass, number>>;
   [key: string]: unknown;
 };
 
@@ -32,8 +38,8 @@ export const BACKUP_DEFAULTS = Object.freeze({ enabled: false, hour: 3, dir: '..
 /** A finished backup's folder name. */
 const NAME_RE = /^\d{4}-\d{2}-\d{2}-\d{6}-memory$/;
 const PARTIAL = '.partial';
-/** The persona's key file: never looser than 600, in a backup or after a restore. */
-const KEYS_FILE = 'keys.json';
+/** A file larger than this is not read for a key pattern (media, mostly); its path still decides. */
+const SCAN_LIMIT = 16 * 1024 * 1024;
 const BACKUP_WORKER = new URL('./backup-worker.ts', import.meta.url);
 
 const sha256File = (file: string): string => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
@@ -122,14 +128,22 @@ export function writeBackup(
   const databaseFiles = new Set(['', '-wal', '-shm', '.lock'].map((suffix) => path.resolve(handle.path + suffix)));
   const files = ['memory.db'];
   const modes = new Map<string, number>();
+  const leftOut: Partial<Record<SecretClass, number>> = {};
   for (const rel of filesUnder(dataDir)) {
     const source = path.join(dataDir, rel);
     if (rel.split(path.sep)[0] === 'run' || databaseFiles.has(path.resolve(source))) continue;
+    const secret =
+      secretClassOfPath(rel) ??
+      (fs.statSync(source).size <= SCAN_LIMIT ? secretClassOfContent(fs.readFileSync(source)) : null);
+    if (secret !== null) {
+      leftOut[secret] = (leftOut[secret] ?? 0) + 1;
+      continue;
+    }
     const out = path.join(to, rel);
     fs.mkdirSync(path.dirname(out), { recursive: true, mode: 0o700 });
     fs.copyFileSync(source, out);
     fs.chmodSync(out, 0o600);
-    modes.set(rel, rel === KEYS_FILE ? 0o600 : fs.statSync(source).mode & 0o777);
+    modes.set(rel, fs.statSync(source).mode & 0o777);
     files.push(rel);
   }
   const manifest = {
@@ -146,6 +160,7 @@ export function writeBackup(
       ...(modes.has(rel) ? { mode: modes.get(rel) } : {}),
     })),
     rows: rowCounts(dbOf(handle)),
+    leftOut,
   };
   fs.writeFileSync(path.join(to, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
   return manifest;
@@ -231,7 +246,9 @@ export function restoreDatabase({
   for (const suffix of ['', '-wal', '-shm', '.lock'])
     if (fs.existsSync(`${dbPath}${suffix}`))
       throw new Error(`${dbPath}${suffix} exists; restore only into an empty path`);
-  const personaFiles = manifest.files.filter((file) => file.path !== 'memory.db');
+  const personaFiles = manifest.files.filter(
+    (file) => file.path !== 'memory.db' && secretClassOfPath(String(file.path)) === null
+  );
   for (const file of personaFiles) {
     const out = path.join(data, ...String(file.path).split('/'));
     if (fs.existsSync(out)) throw new Error(`${out} exists; restore never overwrites a file`);
