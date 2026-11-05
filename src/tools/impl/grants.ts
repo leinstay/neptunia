@@ -41,6 +41,19 @@ export function useOwnerAccounts(accounts: OwnerAccounts): () => void {
   };
 }
 
+/** `bot.ownerPerson` of the live config, or null while it is unset. */
+export function ownerPersonOf(config: unknown): string | null {
+  const person = idText(objOf(objOf(config).bot).ownerPerson);
+  return person === '' ? null : person;
+}
+
+/** The native ids `bot.owners` lists, the home interface's owners until `bot.ownerPerson` is set. */
+export function ownerNativesOf(config: unknown): Array<string> {
+  return listOf(objOf(objOf(config).bot).owners)
+    .map(idText)
+    .filter((native) => native !== '');
+}
+
 /**
  * The one owner check of the owner commands and the private-chat gate. With `bot.ownerPerson` set the caller is the
  * owner when the owner bound the caller's account to that person, and nobody is while the accounts cannot be read.

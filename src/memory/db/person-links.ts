@@ -4,8 +4,10 @@
 // links to the accounts of one person. `linkedDmScopes` tells a DM context the stored DM places of those accounts, so a
 // DM reads the person's history while each row keeps the scope of the conversation it came from. A merge written by the
 // owner widens a DM context and a merge written by anyone else never does. One `people` row carries the shared affinity
-// score. `createOwnerAccounts` answers the owner check over the same links (src/tools/impl/grants.ts#isOwnerId). Called
-// by session-write.ts (the writes), service.ts (the context), private-read.ts (the private view), core.ts and
+// score. `createOwnerAccounts` answers the owner check over the same links (src/tools/impl/grants.ts#isOwnerId): the live
+// row of `account_person_links` is the one source of truth, and the account's `link` and `linked_by` columns are its copy
+// for the readers that join accounts. Called by session-write.ts (the writes), service.ts (the context), private-read.ts
+// (the private view), identity-links.ts and person-merge.ts (the links they write), core.ts and
 // src/interface/commands/console.ts.
 
 import { currentIface } from './current-iface.ts';
@@ -22,7 +24,6 @@ type AccountRow = {
   native: string;
   person_id: string | null;
   link: string | null;
-  linked_by: string | null;
 };
 export type LinkedDm = { iface: string; person: string; place: string | null };
 /** One person as the stored rows hold them: the final survivor, the people merged into it and their accounts. */
@@ -34,9 +35,7 @@ function coded(code: string): Error {
 
 function accountById(db: Db, id: unknown): AccountRow | undefined {
   return db
-    .prepare(
-      'SELECT id, iface, COALESCE(native_key, native_id) AS native, person_id, link, linked_by FROM accounts WHERE id = ?'
-    )
+    .prepare('SELECT id, iface, COALESCE(native_key, native_id) AS native, person_id, link FROM accounts WHERE id = ?')
     .get(id) as AccountRow | undefined;
 }
 
@@ -44,7 +43,7 @@ function accountById(db: Db, id: unknown): AccountRow | undefined {
 function accountByNative(db: Db, iface: unknown, native: unknown): AccountRow | undefined {
   return db
     .prepare(
-      `SELECT id, iface, COALESCE(native_key, native_id) AS native, person_id, link, linked_by FROM accounts
+      `SELECT id, iface, COALESCE(native_key, native_id) AS native, person_id, link FROM accounts
        WHERE iface = ? AND (native_key = ? OR native_id = ?) ORDER BY generation DESC LIMIT 1`
     )
     .get(iface, native, native) as AccountRow | undefined;
@@ -77,15 +76,33 @@ function closeLinks(db: Db, accountId: string, at: string): void {
   );
 }
 
-function link(db: Db, accountId: string, person: string, at: string): void {
+/** Who wrote a link and why: the owner's command unless a caller names another writer. */
+export type LinkAuthor = { by: string; reason: string; state?: 'verified' | 'proposed' };
+
+const OWNER_COMMAND: LinkAuthor = { by: 'owner', reason: 'owner command' };
+
+/**
+ * Links `accountId` to `person`: its live links closed, one new row in `account_person_links`, and the account's columns
+ * copied from it (a proposal leaves `person_id` empty, as `people:add` does).
+ */
+export function linkAccount(db: Db, accountId: string, person: string, at: string, author: LinkAuthor): void {
+  const state = author.state ?? 'verified';
   closeLinks(db, accountId, at);
   db.prepare(
     `INSERT INTO account_person_links (id, account_id, person_id, state, by, reason, valid_from_at, recorded_at)
-     VALUES (?, ?, ?, 'verified', 'owner', 'owner command', ?, ?)`
-  ).run(`link:${accountId}:${person}:${at}`, accountId, person, at, at);
-  db.prepare(
-    "UPDATE accounts SET person_id = ?, link = 'verified', linked_by = 'owner', linked_at = ? WHERE id = ?"
-  ).run(person, at, accountId);
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(`link:${accountId}:${person}:${at}`, accountId, person, state, author.by, author.reason, at, at);
+  if (state === 'verified')
+    db.prepare("UPDATE accounts SET person_id = ?, link = 'verified', linked_by = ?, linked_at = ? WHERE id = ?").run(
+      person,
+      author.by,
+      at,
+      accountId
+    );
+}
+
+function link(db: Db, accountId: string, person: string, at: string): void {
+  linkAccount(db, accountId, person, at, OWNER_COMMAND);
 }
 
 /**
@@ -252,9 +269,21 @@ export function linkedDmScopes(db: Db, iface: string, dmPerson: string): Array<L
   return linked;
 }
 
+/** The person of an account's live verified link the owner wrote, or null. */
+export function ownerLinkedPerson(db: Db, accountId: string): string | null {
+  const row = db
+    .prepare(
+      `SELECT person_id FROM account_person_links WHERE account_id = ? AND state = 'verified' AND by = 'owner'
+       AND valid_to_at IS NULL ORDER BY recorded_at DESC, id DESC LIMIT 1`
+    )
+    .get(accountId);
+  return typeof row?.person_id === 'string' ? row.person_id : null;
+}
+
 /**
- * The owner check's reader over a read connection. Only a link the owner wrote counts: a memory session proposes links
- * and an import carries them, and neither hands out his rights. The interface is the current event's or turn's, the
+ * The owner check's reader over a read connection. Only a live link the owner wrote counts: a memory session proposes
+ * links and an import carries them, and neither hands out his rights. The account's columns are never read, and a
+ * person merged away stands for the person it was merged into. The interface is the current event's or turn's, the
  * home interface on a wake. Closed memory passes nobody.
  */
 export function createOwnerAccounts({ database, home }: { database: () => Db | null; home: () => string }): {
@@ -266,7 +295,8 @@ export function createOwnerAccounts({ database, home }: { database: () => Db | n
       const db = database();
       if (db === null) return false;
       const account = accountByNative(db, currentIface() ?? home(), native);
-      return account?.person_id === person && account.link === 'verified' && account.linked_by === 'owner';
+      const linked = account === undefined ? null : ownerLinkedPerson(db, account.id);
+      return linked !== null && survivorOf(db, linked) === survivorOf(db, person);
     },
     onHomeInterface() {
       const iface = currentIface();

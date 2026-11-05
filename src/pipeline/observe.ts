@@ -1,10 +1,14 @@
 // The live observation of a line: a message event as an observation of the memory database, sent through its writer
 // and awaited at most `memoryDb.observeTimeoutMs`. createMessageHandler (src/behavior/pipeline.ts) builds it once with
-// createObserve; a new line, an edit and a private message observe through it.
+// createObserve; a new line, an edit and a private message observe through it. A line of the owner's command line
+// carries his person (`bot.ownerPerson`); on a raw install the first such line mints it, and once that line is stored
+// the setting is written (src/memory/db/identity-links.ts).
 
 import type { MessageDeletion } from '../memory/db/message-families.ts';
 import type { MessageReceived } from '../protocol/events.ts';
 import { log } from '../log.ts';
+import { OWNER_CONSOLE_IFACE } from '../memory/db/identity-links.ts';
+import { newPersonId } from '../memory/db/ids.ts';
 import { observationOf, deletionOf } from '../memory/db/observe-event.ts';
 import { DEFAULT_KEEP_DAYS, withIngestRow } from '../memory/db/ingest.ts';
 import { objOf } from '../tools/types.ts';
@@ -32,6 +36,18 @@ export type ObserveContext = {
   } | null;
   selfIdOf: () => string;
   timers: Timers;
+  /** The owner's person for the lines of his command line; absent, those lines name nobody. */
+  ownerPerson?: OwnerPerson | null;
+};
+
+/**
+ * Where the owner's person comes from: `current` reads `bot.ownerPerson` (null while unset), `listed` the accounts
+ * `bot.owners` names on the home interface, and `adopt` writes a person minted for a raw install into the setting.
+ */
+export type OwnerPerson = {
+  current(): string | null;
+  listed(): ReadonlyArray<{ iface: string; native: string }>;
+  adopt(person: string): void;
 };
 
 /** The logger as the refusal line calls it: a debug level it may lack. */
@@ -91,10 +107,37 @@ export type DeleteLine = (
   acceptedEvent?: AcceptedMessageEvent
 ) => Promise<Observed> | null;
 
-export function createObserve({ hot, memoryDb, selfIdOf, timers }: ObserveContext): {
+export function createObserve({ hot, memoryDb, selfIdOf, timers, ownerPerson = null }: ObserveContext): {
   observeLine: ObserveLine;
   deleteLine: DeleteLine;
 } {
+  // The person a raw install mints with its first line of the command line, kept until the setting names it, so the
+  // lines that arrive before the setting is written join the same person.
+  let minted: string | null = null;
+
+  /** The envelope of a line, with the owner's person when the line is his command line's. */
+  function withConsoleOwner(envelope: Envelope | null): Envelope | null {
+    if (envelope === null || envelope.iface !== OWNER_CONSOLE_IFACE || ownerPerson === null) return envelope;
+    const current = ownerPerson.current();
+    if (current !== null) minted = null;
+    const person = current ?? (minted ??= newPersonId());
+    return { ...envelope, consoleOwner: { person, listed: current === null ? ownerPerson.listed() : [] } };
+  }
+
+  /** Once a line that minted the owner's person is stored, the setting names that person. */
+  async function adoptMinted(write: unknown): Promise<object | null> {
+    const done = (await write) as object | null | undefined;
+    const person = minted;
+    if (person === null || ownerPerson === null || objOf(done).ok !== true || ownerPerson.current() !== null)
+      return done ?? null;
+    try {
+      ownerPerson.adopt(person);
+    } catch (err) {
+      log.warn('events: owner person not written', { code: (err as Thrown)?.code ?? null });
+    }
+    return done ?? null;
+  }
+
   function writeBeforeDeadline(
     write: () => object | Promise<object | null> | null | undefined
   ): Promise<Observed> | null {
@@ -140,13 +183,14 @@ export function createObserve({ hot, memoryDb, selfIdOf, timers }: ObserveContex
   ): Promise<Observed> | null {
     if (!acceptedEvent && !memoryDb) return null;
     try {
-      const mapEnvelope = (): Envelope | null => observationOf(event, { selfId: selfIdOf() || null, direct });
+      const mapEnvelope = (): Envelope | null =>
+        withConsoleOwner(observationOf(event, { selfId: selfIdOf() || null, direct }));
       const envelope = acceptedEvent ? null : mapEnvelope();
       if (!acceptedEvent && !envelope) return null;
       const write = acceptedEvent
         ? acceptedObservation({ envelope: mapEnvelope, accepted: acceptedEvent, memoryDb, hot, where })
         : (memoryDb?.observeMessage ?? memoryDb?.observe)?.(envelope ?? {}, where);
-      return writeBeforeDeadline(() => write);
+      return writeBeforeDeadline(() => adoptMinted(write));
     } catch (err) {
       log.warn('events: observe failed', { code: (err as Thrown)?.code ?? null });
       return null;
