@@ -327,7 +327,7 @@ test('an embedded document is found by meaning with no shared word', () => {
     found.hits.map((hit) => [hit.versionId, hit.streams]),
     [[pub.versionId, ['vector']]]
   );
-  assert.equal(typeof found.hits[0]?.similarity, 'number');
+  assert.ok(Number(found.hits[0]?.similarity) > 0.99);
   world.handle.close();
 });
 
