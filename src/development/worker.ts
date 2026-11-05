@@ -25,6 +25,11 @@
 // is listed in `heldBack` and never started, unless the worker began it already or the owner admitted it with
 // `metadata.admitted`.
 //
+// A skill task opens no pull request. Its thinker's stop submits it once the `packageSkill` seam bound the exact version,
+// and the next wake accepts her bound task, because nothing else ever reviews it. The core activates the version of a done
+// task. An owner's skill task waits for the owner's review. A crash between the submit and the accept recovers at the next
+// wake.
+//
 // Git, gh, the test runner, the board and the agent runs are injected. The journal carries ids, counts and codes.
 
 import type { BoardOp, BoardResults, HandoffTest, TaskRecord, TaskView } from '../board/board.ts';
@@ -72,7 +77,7 @@ export type DevelopmentBrief = {
   generation: number;
   children: ReadonlyArray<ChildReport>;
 };
-/** What the seam of a skill task answers: the package waits for the owner, or why it does not. */
+/** What the seam of a skill task answers: the package is bound to the task, or why it is not. */
 export type SkillPackageAnswer = { code: 'pending' } | { code: 'refused'; reason: string };
 
 /** Read at each use. The last two are absent only where nothing bounds them: a test of something else. */
@@ -542,7 +547,7 @@ class Worker {
   async finishSkill(entry: Held, task: TaskRecord): Promise<void> {
     const answer = await this.deps.packageSkill({ task, tree: entry.tree });
     if (answer.code === 'refused') return await this.failAndDrop(entry, `skill-refused: ${answer.reason}`);
-    const handoff = handoffOf(`Skill package of ${task.id} waits for the owner`);
+    const handoff = handoffOf(`Skill package of ${task.id} is bound to the task`);
     await this.call('task.submit', { id: entry.id, generation: entry.generation, handoff });
     this.drop(entry);
   }
@@ -903,6 +908,21 @@ class Worker {
     return (await this.show(task.id)).task.status === 'needs_validation';
   }
 
+  /** Closes her skill tasks whose package is bound: the package seam was their check, and they have no pull request. */
+  async acceptBoundSkills(): Promise<void> {
+    for (const task of await this.call('task.list', { lane: 'dev', status: 'needs_validation', requester: SELF })) {
+      if (task.metadata?.kind !== 'skill' || task.metadata.package === undefined) continue;
+      try {
+        await this.remember(task.id, { ci: 'green' });
+        await this.call('task.review', { id: task.id, decision: 'accept' });
+        this.journal({ event: 'skill-accepted', taskId: task.id });
+      } catch (error) {
+        if (isLinkLost(error)) throw error;
+        this.journal({ event: 'look-failed', taskId: task.id, code: codeOf(error) });
+      }
+    }
+  }
+
   async watch(): Promise<number> {
     let watching = 0;
     for (const task of await this.call('task.list', { lane: 'dev', status: 'needs_validation' })) {
@@ -928,6 +948,7 @@ class Worker {
     const started: WakeReport['started'] = [];
     await this.nextTurns(started);
     await this.startReady(started, heldBack);
+    await this.acceptBoundSkills();
     const watching = await this.watch();
     for (const id of heldBack) {
       if (!this.toldHeldBack.has(id)) this.journal({ event: 'held-back', taskId: id });

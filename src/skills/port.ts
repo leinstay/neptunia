@@ -10,6 +10,7 @@ import type { ActiveSkill, MissingTool } from './index-block.ts';
 import { parseSkillFile } from './format.ts';
 import type { LoadedSkill, SkillProblem } from './load.ts';
 import {
+  activateNamedVersion,
   activateSkill,
   appendUses,
   listSkills,
@@ -31,10 +32,18 @@ export type SkillsPort = {
   list(): Array<SkillListRow>;
   /** The skill folders the loader refused, with the reason. */
   problems(): Array<SkillProblem>;
+  /** The content hash of the package the folder holds now, or null when it holds none. */
+  diskHash(name: string): string | null;
   show(name: string): { row: SkillListRow; text: string | null } | null;
   pending(): Array<VersionView & { skill: string }>;
   review(name: string): { active: VersionView | null; candidates: Array<VersionView> } | null;
   activate(name: string, by: string): ReturnType<typeof activateSkill>;
+  /** Activates exactly this version of `name`, as a task's settlement does (task-activation.ts). */
+  activateVersion(
+    name: string,
+    versionId: string,
+    by: string
+  ): ReturnType<typeof activateNamedVersion> | { ok: false; code: 'db-closed' };
   rollback(name: string, by: string): ReturnType<typeof rollbackSkill>;
   reject(name: string, by: string): ReturnType<typeof rejectPending>;
   disable(name: string, by: string): ReturnType<typeof setDisabled>;
@@ -134,6 +143,7 @@ export function createSkillsPort(deps: {
       return reads.list();
     },
     problems: () => deps.load().problems,
+    diskHash: (name) => deps.load().skills.find((one) => one.name === name)?.contentHash ?? null,
     show(name) {
       sync();
       return reads.show(name);
@@ -149,6 +159,10 @@ export function createSkillsPort(deps: {
     activate(name, by) {
       sync();
       return activateSkill(handle, name, { at: deps.now(), by });
+    },
+    activateVersion(name, versionId, by) {
+      sync();
+      return activateNamedVersion(handle, name, versionId, { at: deps.now(), by });
     },
     rollback(name, by) {
       sync();

@@ -1,6 +1,6 @@
-// An agent files a skill and never activates one (the owner's decision of 2026-11-04): `skill.pending <name>` checks a
-// complete package under `data/skills/<name>/`, the link lets no agent's `skill.activate` through, and the owner's
-// activation of the filed package runs its scripts.
+// An agent files a skill and has no activation command: `skill.pending <name>` checks a complete package under
+// `data/skills/<name>/`, and the link lets no agent's `skill.activate` through. Her done task activates what it bound
+// (tests/skills-task-activation.test.ts), and the owner's activation of a filed package runs its scripts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -143,7 +143,7 @@ async function task(dirs: Dirs, args: ReadonlyArray<string>) {
   return { code: exit.code, out: cli.stdout() + cli.stderr() };
 }
 
-test('over the socket an agent files a package and the owner, not the agent, activates it', async () => {
+test('over the socket an agent files a package and cannot activate it, and the owner can', async () => {
   // Bug: the link refuses the agent's filing as it refuses every non-task command, or lets its activation through.
   const clients = [CLI_CLIENT, { name: 'hand', kind: 'agent' as const, roles: ['worker'] }];
   await withRig({ clients }, async ({ dirs, llm, cores }) => {

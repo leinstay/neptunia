@@ -77,7 +77,7 @@ What cannot be read is a row of `unavailable` with its category, its `where` and
 
 An unreachable board leaves a report with those drafts `deferred`, and the next inspection files them. So does a board that gives no answer within 30 seconds, for opening the link or for one call, and the first such call defers the remaining drafts without asking again. The report keeps the words it was committed with, and the receipt holds the outcome. A refusal of the board is `failed` and is not retried. Before any new add, a draft whose answer was lost is looked for on the board by its run and finding, so it becomes one task however long the machine was down. With nothing to file, a run never opens the board.
 
-Duplicates are found by the draft's `finding` key, so a reworded repeat files nothing. A draft or a task with no key compares by its evidence. A task counts while it is open, or when it was created on the UTC day of the run or the day before, so a problem that returns after its fix is filed again. Only the watcher's own tasks count, so a task of the persona's on the same problem never silences it.
+Duplicates are found by the draft's `finding` key, so a reworded repeat files nothing. A draft or a task with no key compares by its evidence. A task counts while it is open, or when it was created on the UTC day of the run or the day before, so a problem that returns after its fix is filed again. The persona's open task with the same evidence covers a draft as well: the draft files nothing, its receipt names her task, and each task keeps its origin. Her closed task covers nothing.
 
 ## What the persona hears
 

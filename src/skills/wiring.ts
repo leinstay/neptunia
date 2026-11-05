@@ -1,7 +1,7 @@
 // The core's skills, wired once (src/core.ts calls it): the access over the memory writer (client.ts), the index of her
-// active skills for a request with the list of what it showed, and the sources of the selfimprovement wake's facts that
-// concern skills and the board. The skill folders are `skills/` in the checkout (tracked) and `skills.local/` in the
-// private layer; both are read at each call, and the grants, the labels and `skills.reviewDays` are read from `hot` at
+// active skills for a request with the list of what it showed, the sweep that settles her done skill tasks
+// (task-activation.ts), and the sources of the selfimprovement wake's facts that concern skills and the board. The packages
+// are `<data>/skills/<name>/`, read at each call, and the grants, the labels and `skills.reviewDays` are read from `hot` at
 // the moment of use, never kept.
 
 import path from 'node:path';
@@ -19,6 +19,8 @@ import { skillIndexBlock } from './index-block.ts';
 import { loadSkills } from './load.ts';
 import type { SkillsAccess } from './port.ts';
 import { skillsSettings } from './settings.ts';
+import { settleSkillTasks } from './task-activation.ts';
+import type { SettledTask } from './task-activation.ts';
 import type { IndexedSkill } from './uses.ts';
 
 export type SkillsWiring = {
@@ -27,6 +29,8 @@ export type SkillsWiring = {
   index: () => Promise<{ text: string; indexed: Array<IndexedSkill> } | null>;
   /** Writes the use rows of a turn; resolves how many were written. */
   record: (uses: ReadonlyArray<SkillUse>) => Promise<number>;
+  /** One sweep over her done skill tasks, as the board's `development` principal. */
+  settle: () => Promise<Array<SettledTask>>;
   selfimprovement: Pick<SelfimprovementSources, 'granted' | 'skills' | 'proposals' | 'ackOutbox' | 'landed'>;
 };
 
@@ -66,6 +70,11 @@ export function wireSkills(deps: SkillsWiringDeps): SkillsWiring {
   return {
     access,
     record: async (uses) => access.record(uses),
+    // Nothing to settle while the memory database is not open, as with the reaper's beat beside it in src/core.ts.
+    settle: async () =>
+      memoryDb.database() === null
+        ? []
+        : await settleSkillTasks({ skills: access, board: deps.board, principal: 'development' }),
     index: async () => {
       try {
         const labels = objOf(objOf(objOf(hot.prompts).labels).skills);

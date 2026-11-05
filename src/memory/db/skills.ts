@@ -1,8 +1,8 @@
 // The registry of her skills in the memory database (schema v11 tables, v22 for the stored text and `skill_uses`).
 // A skill is a `SKILL.md` on disk; the registry records which version of it is active and who made it so. `syncSkills`
 // turns every new file text into a `candidate` version and never touches an active one. Nobody approves a candidate:
-// an agent or the owner activates it with `activateVersion` or `activateSkill`, the first version included, and
-// `rollbackSkill` walks the activations back. A skill's disabled flag is her own or the owner's switch and keeps its
+// her done task activates the exact version it bound with `activateNamedVersion`, the owner the newest one with
+// `activateSkill`, the first version included, and `rollbackSkill` walks the activations back. A skill's disabled flag is her own or the owner's switch and keeps its
 // active version. A version stores the text it was synced from, so she reads what was activated after the file moved
 // on. `skill_uses` is the append-only record of how her turns used a skill.
 //
@@ -174,6 +174,24 @@ export function activateVersion(
     );
     return { ok: true, previous } as const;
   });
+}
+
+/**
+ * `activateVersion` for exactly the version `versionId` of the skill `name`. A version of another skill is unknown here, so
+ * a task that names one activates nothing.
+ */
+export function activateNamedVersion(
+  handle: SkillsHandle,
+  name: string,
+  versionId: string,
+  options: { at: number; by: string }
+):
+  | { ok: true; versionId: string; previous: string | null }
+  | { ok: false; code: 'unknown-version' | 'already-active' | 'not-candidate' } {
+  const version = dbOf(handle).prepare('SELECT skill_id FROM skill_versions WHERE id = ?').get(versionId);
+  if (version?.skill_id !== skillId(name)) return { ok: false, code: 'unknown-version' };
+  const done = activateVersion(handle, versionId, options);
+  return done.ok ? { ok: true, versionId, previous: done.previous } : done;
 }
 
 /** The newest candidate of a skill, oldest-first order reversed. */
@@ -450,6 +468,7 @@ export function reviewsDue(
 export type SkillsUpdate =
   | { kind: 'skills'; op: 'sync'; files: Array<SkillSource>; at: number }
   | { kind: 'skills'; op: 'activate'; name: string; at: number; by: string }
+  | { kind: 'skills'; op: 'activate-version'; name: string; versionId: string; at: number; by: string }
   | { kind: 'skills'; op: 'rollback'; name: string; at: number; by: string }
   | { kind: 'skills'; op: 'reject'; name: string; at: number; by: string }
   | { kind: 'skills'; op: 'disable'; name: string; disabled: boolean; at: number; by: string }
@@ -471,6 +490,8 @@ export function applySkillsWrite(handle: unknown, update: unknown): unknown {
       return syncSkills(writer, write.files, { at: write.at });
     case 'activate':
       return activateSkill(writer, write.name, { at: write.at, by: write.by });
+    case 'activate-version':
+      return activateNamedVersion(writer, write.name, write.versionId, { at: write.at, by: write.by });
     case 'rollback':
       return rollbackSkill(writer, write.name, { at: write.at, by: write.by });
     case 'reject':
@@ -480,9 +501,12 @@ export function applySkillsWrite(handle: unknown, update: unknown): unknown {
     case 'uses':
       return appendUses(writer, write.uses);
     default:
-      throw Object.assign(new Error('a skills write names sync, activate, rollback, reject, disable or uses'), {
-        code: 'BAD_UPDATE',
-      });
+      throw Object.assign(
+        new Error('a skills write names sync, activate, activate-version, rollback, reject, disable or uses'),
+        {
+          code: 'BAD_UPDATE',
+        }
+      );
   }
 }
 
