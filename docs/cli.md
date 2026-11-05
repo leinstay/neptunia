@@ -24,11 +24,12 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 | Up and Down | Browse command suggestions or input history |
 | Tab | Complete the selected command |
 | Esc | Close a panel, cancel a panel still loading, cancel a question or clear the input |
-| Ctrl+O | Expand folded answers, or show the text behind the chip before the caret |
+| Ctrl+O | Expand or fold the newest folded answer on the screen, or show the text behind the chip before the caret |
+| Page Up and Page Down | Scroll the transcript |
 | Ctrl+V | Attach an image from the clipboard of this machine |
 | Ctrl+C | Exit the CLI |
 
-The Project Neptunia header shows separate lines for the core, memory and enabled interfaces. Missing reports show a check in progress, and old reports are marked outdated. A lost core connection leaves memory and interface states unknown. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation.
+The Project Neptunia header shows separate lines for the core, memory and enabled interfaces. Missing reports show a check in progress, and old reports are marked outdated. A lost core connection leaves memory and interface states unknown. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation, and `NEPTUNIA_LINEAR=1` draws the plain column described under [Rendering](#rendering).
 
 ## Pastes and history
 
@@ -43,6 +44,34 @@ Ctrl+V reads the clipboard of the machine the chat runs on, with `wl-paste`, `xc
 An image is staged before it joins the draft, as a chip such as `[image chart.png]`. `src/media/staging.ts` copies its bytes to `data/staging/images/`, private to the user, and takes the content type from the bytes. Only PNG, JPEG, GIF and WebP up to the vision reader's limit of 1,500,000 bytes pass. Enter sends the caption and its images as one message with a `neptunia-staged:` reference, which the core's image fetcher opens like any address, so the file may be deleted afterwards. The core and the chat must run as the same user. Backspace on the chip frees the image at once. Any other staged image goes one week after it was staged, so a line waiting for `/resume` keeps its image. A draft recalled after that week still sends, and the describer logs a failed download for its image.
 
 An image the persona sends is kept the same way, up to 10 MiB, and the transcript shows its name and text alternative. `/attach open` opens the newest one with `xdg-open` or `open`, and `/attach save <file>` writes it to a file. A failure says why, and the same command tries again. The plain chat and `-p` print `[image <name>]` and the path of the kept file.
+
+## Rendering
+
+`cli/app.ts` gives the transcript what the other parts leave: the transcript budget is `max(0, R - F - C - O)` (`transcriptBudget` in `cli/layout.ts`), with `R` the terminal's rows, `F` the header, footer, notice and question rows, `C` the input with its borders, and `O` the slash menu or a panel. Everything is counted in cells by `cli/layout.ts`: Backspace and the caret cross a whole grapheme, wrapping never splits a wide glyph, and the caret stands on the next row when its row is full. The input grows to at most 8 rows, then scrolls inside its box with the caret's row in view and a row counting what is hidden. Deleting rows gives them back to the transcript.
+
+`cli/transcript.ts` wraps each entry to the width and draws only the rows that fit, however long the session. Following the tail and reading further up are separate views. Page Up anchors the view to an entry and a row inside it, so a new answer or a resize leaves the reader in place, and reaching the end follows the tail again. An answer folds to at most 20 lines, fewer when the terminal has less room, so it starts on the screen. Ctrl+O changes one entry, and an expanded last entry may go past the budget. The full text stays in the entry.
+
+A stored control character is drawn as one visible character (`displaySafe`), so a line from memory can neither run an escape sequence nor vanish unseen. The owner's line starts with `> `, a command's answer with `· ` and her reply with no mark, so the kinds differ without colour. The selected row of the slash menu carries `›` beside its inverse video. Fenced code, quotes and headings get a style by their line, and their text stays as it arrived.
+
+`cli/theme.ts` holds the semantic tokens: `text`, `muted`, `title`, `mark`, `userMarker`, `activeBorder`, `inactiveBorder`, `selection`, `caret`, `code`, `quote`, `heading`, `success`, `warning` and `error`. A token asks for an ANSI style. The font family, its faces and the cell size belong to the terminal emulator.
+
+`NEPTUNIA_LINEAR=1` sets `ChatEnv.linear`: one plain column in reading order, with no borders and no galaxy, for a screen reader.
+
+### Measured geometry
+
+These rows were read from frames the chat wrote into the fake terminal of `tests/fixtures/chat-rig.ts`, with one owner line, one reply and one command result. They count cells and rows, say nothing about pixels, and were taken without an emulator, a font or a theme. No comparison with another program's layout was made.
+
+| Element | 80 by 24 | 40 by 18 | 20 by 6 | Linear, 80 by 24 |
+|---|---|---|---|---|
+| Header | 5 rows and 1 blank | 5 rows and 1 blank | None | 1 row |
+| Transcript budget | 14 rows | 8 rows | 2 rows | 16 rows |
+| Input with one row of text | 3 rows, on rows 20 to 22 | 3 rows, on rows 14 to 16 | 3 rows, on rows 2 to 4 | 1 row |
+| Text column of the input | 4 | 4 | 4 | 2 |
+| Footer | 1 row, cut with `…` | 1 row, cut with `…` | 1 row, cut with `…` | 1 row |
+| Blank rows above an owner line | 1 | 1 | 1 | 1 |
+| Blank rows between a reply and a command result | 0 | 0 | 0 | 0 |
+
+The galaxy needs at least 16 rows and 40 columns. Below that the header is one line, and under 8 rows it goes.
 
 ## Overlays and questions
 

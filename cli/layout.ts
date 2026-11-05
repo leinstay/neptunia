@@ -8,11 +8,11 @@ const SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 // The ranges a terminal draws two cells wide: East Asian scripts, full-width forms and emoji that present as emoji.
 // Half-width katakana (U+FF65 to U+FF9F) has Script=Katakana and stays one cell, so it is taken out first.
-const HALF_WIDTH = /^[｡-ﾟﾠ-ￜ]/u;
+const HALF_WIDTH = /^[\uff61-\uff9f\uffa0-\uffdc]/u;
 const WIDE =
-  /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Emoji_Presentation}\p{Regional_Indicator}　-〿！-｠￠-￦]/u;
+  /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Emoji_Presentation}\p{Regional_Indicator}\u3000-\u303f\uff01-\uff60\uffe0-\uffe6]/u;
 const ZERO_WIDTH = /^[\p{Mark}\p{Cf}\p{Cc}]/u;
-const EMOJI_STYLE = '️';
+const EMOJI_STYLE = '\ufe0f';
 
 /** The text as the eye counts it: a joined emoji or a letter with its accent is one item. */
 export function graphemes(text: string): Array<string> {

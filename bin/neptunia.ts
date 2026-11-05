@@ -587,6 +587,7 @@ async function runInkChat(
       return pasteLimits(where);
     },
     still: reducedMotion(process.env),
+    linear: process.env.NEPTUNIA_LINEAR === '1',
     now: () => Date.now(),
     subscribe(listeners) {
       entry = listeners.entry;

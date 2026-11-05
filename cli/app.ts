@@ -1,5 +1,5 @@
-// The interactive chat's screen, written with `React.createElement`, so no build step appears: a header with the rotating
-// galaxy and the status line, the conversation with long answers folded, the input with its slash menu, and panels over
+// The interactive chat's screen, written with `React.createElement`, so no build step appears: the header, the rows of the
+// transcript that fit (cli/transcript.ts), the input with its slash menu (cli/chat-view.ts), and panels over
 // the chat for `/help`, `/status` and `/config` with a search, and the model selector for `/model`. The commands and their
 // answers come from the caller, this file knows no command's meaning. A question the core asks replaces the input and
 // keeps the draft it interrupted, a secret drawn as stars and kept out of the history, and a closed question is a selector
@@ -11,6 +11,17 @@
 import { createElement as h, useEffect, useReducer, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Box, Text, useApp, useInput, usePaste, useStdout } from 'ink';
+import {
+  ComposerBox,
+  Header,
+  Menu,
+  TranscriptRows,
+  composerLayout,
+  composerMaxRows,
+  headerMode,
+  headerRows,
+  menuRows,
+} from './chat-view.ts';
 import {
   DEFAULT_PASTE_LIMITS,
   assembleDraft,
@@ -29,8 +40,7 @@ import {
   typeIntoDraft,
 } from './composer.ts';
 import type { ChatAttachment, Draft, DraftPart, PasteLimits } from './composer.ts';
-import { graphemes } from './layout.ts';
-import { galaxyFrame } from './galaxy.ts';
+import { graphemes, transcriptBudget, wrapWords } from './layout.ts';
 import { alternativeText } from './attachment-actions.ts';
 import type { AttachmentActions } from './attachment-actions.ts';
 import type { ClipboardResult } from './clipboard.ts';
@@ -39,7 +49,10 @@ import { PanelView } from './panel-view.ts';
 import type { Panel } from './panel.ts';
 export type { Panel } from './panel.ts';
 import { ChoiceSelector } from './selector.ts';
-import { backspace, browse, emptyInput, foldedText, insert, menuOf, moveCursor, statusLine, submit } from './state.ts';
+import { THEME } from './theme.ts';
+import { FOLD_LINES, backspace, browse, emptyInput, insert, menuOf, moveCursor, statusLine, submit } from './state.ts';
+import { TAIL, displaySafe, scrollView, transcriptWindow } from './transcript.ts';
+import type { TranscriptDims, TranscriptView } from './transcript.ts';
 import type { InputState, MenuCommand, StatusBrief } from './state.ts';
 
 export type ChatEntry = {
@@ -96,9 +109,10 @@ export type ChatEnv = {
   images?: ChatImages;
   /** What `/attach open` and `/attach save` run on the newest received image. */
   received?: AttachmentActions;
+  /** A plain column in reading order, for a screen reader: no borders, no galaxy. */
+  linear?: boolean;
 };
 
-const GALAXY_MS = 200;
 const POLL_MS = 15_000;
 /** The rows a question's selector draws at most; the input it replaces stays out of the way of the panel above it. */
 const QUESTION_ROWS = 8;
@@ -114,15 +128,25 @@ const STAGE_REFUSALS: Readonly<Record<string, string>> = {
  */
 const ANSWER_BURST_MS = 700;
 
+/** An entry as the transcript holds it: `text` is what is drawn, `original` what arrived. */
+type ShownEntry = {
+  id: string;
+  who: ChatEntry['who'];
+  text: string;
+  original: string;
+  attachments: ReadonlyArray<ChatAttachment>;
+};
+
 type Model = {
-  entries: ReadonlyArray<ChatEntry>;
+  entries: ReadonlyArray<ShownEntry>;
   draft: Draft;
   history: ReadonlyArray<string>;
   /** the history row on show, and the unfinished draft that browsing set aside */
   browsing: number | null;
   held: Draft | null;
   selected: number;
-  expanded: boolean;
+  expanded: ReadonlySet<string>;
+  view: TranscriptView;
   panel: Panel | null;
   question: Question | null;
   /** what is typed for the open question: a buffer of its own, so an answer reaches neither the draft nor a store */
@@ -142,76 +166,43 @@ function focusOwner({ question, panel }: Pick<Model, 'question' | 'panel'>): 'ch
   return panel === null ? 'input' : 'panel';
 }
 
-/** The text of the caret's row as three pieces, the caret on a whole grapheme so a style never splits a character. */
-function caretPieces(shown: string, cursor: number): { before: string; on: string; after: string } {
-  const rest = graphemes(shown.slice(cursor));
-  return { before: shown.slice(0, cursor), on: rest[0] ?? ' ', after: rest.slice(1).join('') };
-}
-
-function Header({ env, line }: { env: ChatEnv; line: string }) {
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (env.still) return undefined;
-    const timer = setInterval(() => setTick((value) => value + 1), GALAXY_MS);
-    return () => clearInterval(timer);
-  }, [env.still]);
-  return h(
-    Box,
-    { paddingX: 1, gap: 2, marginBottom: 1 },
-    h(Text, { color: 'magenta' }, galaxyFrame(tick).join('\n')),
-    h(
-      Box,
-      { flexDirection: 'column' },
-      h(Text, { bold: true, color: 'cyan' }, env.title),
-      h(Text, { wrap: 'wrap' }, line)
-    )
-  );
-}
-
 /** An entry's text and a row for each of its images, so a terminal that cannot draw one still says what it was. */
 function entryText(entry: ChatEntry): string {
   const images = (entry.attachments ?? []).map((one) => `[image] ${alternativeText(one)}`);
   return (entry.text === '' ? images : [entry.text, ...images]).join('\n');
 }
 
-function Entry({ entry, expanded }: { entry: ChatEntry; expanded: boolean }) {
-  const folded = foldedText(entryText(entry), expanded);
-  const mark = entry.who === 'owner' ? '> ' : '';
-  return h(
-    Box,
-    { flexDirection: 'column' },
-    h(Text, { dimColor: entry.who === 'system' }, `${mark}${folded.text}`),
-    folded.hidden > 0 ? h(Text, { dimColor: true }, `… ${folded.hidden} more lines, ctrl+o shows them`) : null
-  );
+/**
+ * What the transcript draws for an entry: a blank row and `> ` for the owner, `· ` for a command's answer and no mark for
+ * her, so the kinds differ without colour, and every control character made visible.
+ */
+function drawnText(entry: ChatEntry): string {
+  const lines = displaySafe(entryText(entry).replaceAll('\r\n', '\n')).split('\n');
+  if (entry.who === 'her') return lines.join('\n');
+  const mark = entry.who === 'owner' ? '> ' : '· ';
+  const body = lines.map((line, index) => `${index === 0 ? mark : '  '}${line}`).join('\n');
+  return entry.who === 'owner' ? `\n${body}` : body;
 }
 
-function Menu({ items, selected }: { items: ReadonlyArray<MenuCommand>; selected: number }) {
-  return h(
-    Box,
-    { flexDirection: 'column' },
-    ...items
-      .slice(Math.max(0, selected - 7), Math.max(0, selected - 7) + 8)
-      .map((item, index) =>
-        h(
-          Text,
-          { key: item.name, inverse: index + Math.max(0, selected - 7) === selected },
-          `/${item.name}  `,
-          h(Text, { dimColor: index + Math.max(0, selected - 7) !== selected }, item.help)
-        )
-      )
-  );
-}
+const FOOTER_ROWS = 1;
+const FILTER_ROWS = 1;
+const OFF_TAIL_ROWS = 1;
 
 export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const [rows, setRows] = useState<number>((stdout as { rows?: number }).rows || 24);
+  const sizeOf = (): { rows: number; columns: number } => {
+    const { rows, columns } = stdout as { rows?: number; columns?: number };
+    return { rows: rows || 24, columns: columns || 80 };
+  };
+  const [{ rows, columns }, setSize] = useState(sizeOf);
   useEffect(() => {
-    const resize = (): void => setRows((stdout as { rows?: number }).rows || 24);
+    const resize = (): void => setSize(sizeOf());
     stdout.on('resize', resize);
     return () => {
       stdout.off('resize', resize);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `sizeOf` reads only `stdout`
   }, [stdout]);
   const serial = useRef(0);
   const nextId = (prefix: string): string => `${prefix}${(serial.current += 1)}`;
@@ -226,7 +217,8 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
     browsing: null,
     held: null,
     selected: 0,
-    expanded: false,
+    expanded: new Set(),
+    view: TAIL,
     panel: null,
     question: null,
     answer: emptyInput(),
@@ -241,6 +233,18 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
     model.current = { ...model.current, ...change };
     paint();
   };
+  const addEntry = (entry: ChatEntry): void => {
+    const shown: ShownEntry = {
+      id: nextId('e'),
+      who: entry.who,
+      text: drawnText(entry),
+      original: entry.text,
+      attachments: entry.attachments ?? [],
+    };
+    update({ entries: [...model.current.entries, shown] });
+  };
+  // The transcript's size as last drawn: what a scroll key measures against.
+  const drawn = useRef<TranscriptDims>({ columns: 80, budget: 0, expanded: new Set(), foldLines: FOLD_LINES });
   const subscribed = useRef(false);
   // Counts the panel requests: an answer that is not of the newest one belongs to an overlay the owner left.
   const panelRequest = useRef(0);
@@ -258,7 +262,7 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
     if (subscribed.current) return;
     subscribed.current = true;
     env.subscribe({
-      entry: (entry) => update({ entries: [...model.current.entries, entry] }),
+      entry: addEntry,
       question: (asked) => {
         // Only one question fits the screen: the older command gets the empty answer of a cancelled one.
         model.current.question?.answer('');
@@ -341,10 +345,11 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       env.saveHistory(history, { text: line, attachments: sent });
     }
     if (line.trim() === '/clear') {
-      update({ entries: [] });
+      update({ entries: [], view: TAIL, expanded: new Set() });
       return;
     }
-    update({ entries: [...model.current.entries, { who: 'owner', text: line, attachments: sent }] });
+    update({ view: TAIL });
+    addEntry({ who: 'owner', text: line, attachments: sent });
     // A chat line replaces no overlay; a command does, and the older request's answer is dropped whatever it is.
     if (isCommand) panelRequest.current += 1;
     const request = panelRequest.current;
@@ -357,7 +362,7 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       .catch((error: unknown) => say(error instanceof Error ? error.message : 'The command failed.'));
   }
 
-  const say = (text: string): void => update({ entries: [...model.current.entries, { who: 'system', text }] });
+  const say = (text: string): void => addEntry({ who: 'system', text });
 
   /** A staged image for the draft it was asked for: a draft sent or cleared meanwhile gets nothing, and the staging is freed. */
   function attachStaged(draftId: string, result: StageResult, source: string): void {
@@ -393,7 +398,7 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
 
   /** Open or save the newest image she sent. A failed save says so, and the same command tries again. */
   function runReceived(argument: string): void {
-    const image = model.current.entries.flatMap((one) => (one.who === 'her' ? (one.attachments ?? []) : [])).at(-1);
+    const image = model.current.entries.flatMap((one) => (one.who === 'her' ? one.attachments : [])).at(-1);
     const { received } = env;
     if (received === undefined || image === undefined) {
       update({ notice: 'No received image to act on.' });
@@ -466,6 +471,17 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
     else editDraft(typeIntoDraft(now.draft, plain));
   }
 
+  /** Ctrl+O: the newest entry on the screen that folds or is expanded changes alone. */
+  function toggleFold(): void {
+    const now = model.current;
+    const shownRows = transcriptWindow(now.entries, now.view, drawn.current).rows;
+    const target = shownRows.toReversed().find((row) => row.kind === 'fold' || now.expanded.has(row.entryId));
+    if (target === undefined) return;
+    const expanded = new Set(now.expanded);
+    if (!expanded.delete(target.entryId)) expanded.add(target.entryId);
+    update({ expanded });
+  }
+
   function moveMenu(delta: -1 | 1, count: number): void {
     update({ selected: Math.max(0, Math.min(count - 1, model.current.selected + delta)) });
   }
@@ -480,7 +496,7 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       const chip = chipBeforeCaret(now.draft);
       const inspected = chip === null ? null : inspectPart(now.draft, chip.id);
       if (inspected !== null) update({ panel: { title: 'Pasted text', lines: inspected.split('\n') } });
-      else update({ expanded: !now.expanded });
+      else toggleFold();
     } else if (key.ctrl && text === 'd' && displayDraft(now.draft) === '' && now.question === null) exit();
     else if (key.ctrl && text === 'j') typed('\n');
     else if (key.return && key.meta) typed('\n');
@@ -522,6 +538,9 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
         editDraft(edit.draft);
         afterRemoval(edit.removed);
       }
+    } else if (key.pageUp || key.pageDown) {
+      const page = Math.max(1, drawn.current.budget - 1);
+      update({ view: scrollView(now.entries, now.view, key.pageUp ? -page : page, drawn.current) });
     } else if (key.ctrl && text === 'v') {
       if (now.question === null) pasteImage();
     } else if (text !== '' && !key.ctrl && !key.meta) typed(text);
@@ -550,7 +569,7 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
     { isActive: owner === 'input' }
   );
 
-  const { entries, draft, question, panel, answer, selected, expanded, notice, brief, connected, polledAt } =
+  const { entries, draft, question, panel, answer, selected, expanded, view, notice, brief, connected, polledAt } =
     model.current;
   const items = itemsOf(model.current);
   const closePanel = (): void => {
@@ -562,24 +581,58 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
     question?.answer(value);
     endQuestion();
   };
+  const isLinear = env.linear === true;
+  const hasChoices = owner === 'choices';
+  // A panel takes the transcript's rows and the header's: it is what the owner opened it to read.
+  const mode = panel === null ? headerMode(rows, columns, isLinear) : 'none';
+  const fixed =
+    headerRows(mode) +
+    FOOTER_ROWS +
+    (notice === null ? 0 : 1) +
+    (question === null ? 0 : wrapWords(question.question, columns).length);
+  const isSecret = question?.secret === true;
   const shown =
-    question === null ? displayDraft(draft) : question.secret ? '*'.repeat(answer.text.length) : answer.text;
-  const caret = caretPieces(
-    shown,
-    question === null ? draft.cursor : question.secret ? [...answer.text.slice(0, answer.cursor)].length : answer.cursor
-  );
+    question === null ? displayDraft(draft) : isSecret ? '*'.repeat(graphemes(answer.text).length) : answer.text;
+  const caretAt =
+    question === null ? draft.cursor : isSecret ? graphemes(answer.text.slice(0, answer.cursor)).length : answer.cursor;
+  const layout = composerLayout(shown, caretAt, { columns, maxRows: composerMaxRows(rows, fixed, isLinear), isLinear });
+  const choiceRows = Math.min(QUESTION_ROWS, Math.max(1, rows - fixed - FILTER_ROWS));
+  const inputRows = hasChoices ? choiceRows + FILTER_ROWS : layout.height;
+  const menuHeight = panel === null && items.length > 0 ? menuRows(items.length, rows - fixed - inputRows - 1) : 0;
+  const budget = transcriptBudget({ rows, fixed, composer: inputRows, overlay: panel === null ? menuHeight : rows });
+  const isOffTail = view.kind === 'anchor' && budget > OFF_TAIL_ROWS;
+  const dims: TranscriptDims = {
+    columns,
+    budget: isOffTail ? budget - OFF_TAIL_ROWS : budget,
+    expanded,
+    // A folded answer starts on the screen: the fold's own row and its lines fit what the terminal has left.
+    foldLines: Math.max(1, Math.min(FOLD_LINES, budget - 1)),
+  };
+  drawn.current = dims;
+  const shownWindow = transcriptWindow(entries, view, dims);
+  const whoOf = (entryId: string): ShownEntry['who'] | undefined => entries.find((one) => one.id === entryId)?.who;
+  const footer =
+    question !== null
+      ? hasChoices
+        ? '↑↓ select · type to filter · Enter choose · Esc cancel'
+        : 'Enter continue · Esc cancel'
+      : '/ commands · /setup connections · /config settings · Ctrl+O expand';
   return h(
     Box,
-    { flexDirection: 'column', minHeight: Math.max(10, rows) },
-    h(Header, { env, line: statusLine(brief, { connected, polledAt, now: env.now() }) }),
+    { flexDirection: 'column', ...(isLinear ? {} : { minHeight: rows }) },
+    h(Header, {
+      mode,
+      title: env.title,
+      still: env.still,
+      status: statusLine(brief, { connected, polledAt, now: env.now() }),
+    }),
     h(
       Box,
       { flexDirection: 'column', flexGrow: 1 },
-      h(
-        Box,
-        { flexDirection: 'column', flexGrow: 1, justifyContent: 'flex-end' },
-        ...entries.map((entry, index) => h(Entry, { key: String(index), entry, expanded }))
-      ),
+      h(TranscriptRows, { rows: shownWindow.rows, whoOf }),
+      isOffTail
+        ? h(Text, { ...THEME.muted, wrap: 'truncate' }, `↓ ${shownWindow.hiddenBelow} rows below · Page Down`)
+        : null,
       panel === null
         ? null
         : panel.picker !== undefined
@@ -603,32 +656,20 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
     h(
       Box,
       { flexDirection: 'column', flexShrink: 0 },
-      panel === null && items.length > 0 ? h(Menu, { items, selected }) : null,
+      menuHeight > 0 ? h(Menu, { items, selected, height: menuHeight }) : null,
       question === null ? null : h(Text, { bold: true }, question.question),
-      notice === null ? null : h(Text, { color: 'yellow', wrap: 'truncate' }, notice),
-      owner === 'choices' && question !== null
+      notice === null ? null : h(Text, { ...THEME.warning, wrap: 'truncate' }, notice),
+      hasChoices && question !== null
         ? h(ChoiceSelector, {
             key: question.question,
             choices: question.choices ?? [],
             active: true,
-            height: QUESTION_ROWS,
+            height: choiceRows,
             answer: closeQuestion,
             cancel: () => closeQuestion(''),
           })
-        : h(
-            Box,
-            { borderStyle: 'round', paddingX: 1 },
-            h(Text, null, '> ', caret.before, h(Text, { inverse: true }, caret.on), caret.after)
-          ),
-      h(
-        Text,
-        { dimColor: true },
-        question !== null
-          ? owner === 'choices'
-            ? '↑↓ select · type to filter · Enter choose · Esc cancel'
-            : 'Enter continue · Esc cancel'
-          : '/ commands · /setup connections · /config settings · Ctrl+O expand'
-      )
+        : h(ComposerBox, { layout, isLinear }),
+      h(Text, { ...THEME.muted, wrap: 'truncate' }, footer)
     )
   );
 }
