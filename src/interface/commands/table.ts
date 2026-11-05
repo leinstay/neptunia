@@ -171,6 +171,14 @@ const SERVICE_SUBCOMMANDS: ReadonlyArray<Subcommand> = [
 /** The flags of a page of an owner read. */
 const PAGE_FLAGS: ReadonlyArray<CommandArg> = [flagArg('limit', false), flagArg('cursor', false)];
 
+/** The flags that choose which graph edges a read follows. */
+const EDGE_FLAGS: ReadonlyArray<CommandArg> = [
+  flagArg('predicates', false),
+  flagArg('mode', false),
+  flagArg('valid-at', false),
+  flagArg('recorded-before', false),
+];
+
 /** The owner's browser of memory (src/interface/commands/memory.ts), each read answering JSON. */
 const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
   sub('users.list', 'List people, unlinked accounts and anonymous participants', [
@@ -207,6 +215,31 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
   sub('places.lore.list', 'Show the lore entries of a place', [arg('place'), arg('query', false)]),
   sub('places.lore.show', 'Show one lore entry of a place', [arg('place'), arg('id')]),
   sub('places.lore.remove', 'Remove a lore entry from a place', [arg('place'), arg('id')]),
+  sub('graph.kinds', 'List node kinds and predicates with their counts, deferred ones as deferred'),
+  sub('graph.nodes', 'List every graph node', [flagArg('kinds', false), ...PAGE_FLAGS]),
+  sub('graph.edges', 'List every graph edge', [...EDGE_FLAGS, ...PAGE_FLAGS]),
+  sub('graph.node', 'Show a node: its typed record, witnesses and edge counts', [arg('node')]),
+  sub('graph.neighbors', 'List the edges at a node', [
+    arg('node'),
+    flagArg('direction', false),
+    ...EDGE_FLAGS,
+    ...PAGE_FLAGS,
+  ]),
+  sub('graph.walk', 'Walk from nodes, each visited once, leaving a frontier at the bounds', [
+    arg('nodes-from'),
+    flagArg('direction', false),
+    ...EDGE_FLAGS,
+    flagArg('depth', false),
+    flagArg('nodes', false),
+    flagArg('cursor', false),
+  ]),
+  sub('graph.path', 'Find the shortest association between two nodes; it is read and never remembered', [
+    arg('from'),
+    arg('to'),
+    flagArg('direction', false),
+    ...EDGE_FLAGS,
+    flagArg('depth', false),
+  ]),
 ];
 
 /** The commands the plural families, `/logs watcher` and `/doctor` replaced: what each is refused with, by the words after it. */

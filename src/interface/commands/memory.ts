@@ -6,6 +6,16 @@
 // `code`. Linking and unlinking go through the one writer. `/memory inspect` reads through a snapshot the core holds for the
 // owner: a command without `--snapshot` opens one and names it in its answer, and `--snapshot` goes on reading that moment.
 
+import {
+  graphEdges,
+  graphKinds,
+  graphNeighbors,
+  graphNode,
+  graphNodes,
+  graphPath,
+  graphWalk,
+} from '../../memory/db/graph-read.ts';
+import type { GraphDirection, GraphEdgeRequest } from '../../memory/db/graph-read.ts';
 import { listPeople, personDetail } from '../../memory/db/people-read.ts';
 import { listPlaces, placeDetail, placeLore } from '../../memory/db/places-read.ts';
 import { privateByPerson } from '../../memory/db/private-read.ts';
@@ -18,6 +28,9 @@ type Answer = { text: string; status: string; code?: string };
 type Args = Record<string, unknown>;
 type Deps = { memoryDb: unknown; hot: unknown };
 
+/** How deep a walk or a path goes when the line names no depth. Past it the answer says so and leaves a frontier. */
+const DEFAULT_DEPTH = 32;
+
 /** The reasons a reader refuses for what was asked rather than for how the database stands. */
 const ASKED_WRONG = /^(INSPECTION|PERSON|PLACE|NODE|RECORD|ACCOUNT)_/;
 
@@ -25,6 +38,10 @@ const word = (args: Args, key: string): string => (typeof args[key] === 'string'
 const wordOrNull = (args: Args, key: string): string | null => {
   const value = word(args, key);
   return value === '' ? null : value;
+};
+const listOrNull = (args: Args, key: string): Array<string> | null => {
+  const value = wordOrNull(args, key);
+  return value === null ? null : value.split(',').filter((one) => one !== '');
 };
 
 const ok = (data: unknown): Answer => ({ text: JSON.stringify(data), status: 'ok' });
@@ -64,6 +81,25 @@ const limitOf = (args: Args, bounds: InspectionBounds): number =>
 
 function cursorOf(args: Args): string | null {
   return wordOrNull(args, 'cursor');
+}
+
+function edgeRequestOf(args: Args): GraphEdgeRequest {
+  const mode = word(args, 'mode');
+  if (mode !== '' && mode !== 'active' && mode !== 'historical')
+    throw coded('INSPECTION_BAD_ARGUMENT', '--mode is active or historical');
+  return {
+    predicates: listOrNull(args, 'predicates'),
+    mode: mode === 'historical' ? 'historical' : 'active',
+    validAt: wordOrNull(args, 'valid-at'),
+    recordedBefore: wordOrNull(args, 'recorded-before'),
+  };
+}
+
+function directionOf(args: Args, absent: GraphDirection): GraphDirection {
+  const direction = word(args, 'direction');
+  if (direction === '') return absent;
+  if (direction === 'in' || direction === 'out' || direction === 'both') return direction;
+  throw coded('INSPECTION_BAD_ARGUMENT', '--direction is in, out or both');
 }
 
 function usersRead(db: Db, name: string, args: Args, bounds: InspectionBounds): Answer | null {
@@ -155,6 +191,55 @@ function placesRead(db: Db, name: string, args: Args, bounds: InspectionBounds):
   }
 }
 
+function graphRead(db: Db, name: string, args: Args, bounds: InspectionBounds): Answer | null {
+  const context = internalContext();
+  const limit = limitOf(args, bounds);
+  const cursor = cursorOf(args);
+  switch (name) {
+    case 'memory.graph.kinds':
+      return ok(graphKinds(db, context));
+    case 'memory.graph.nodes':
+      return ok(graphNodes(db, context, { kinds: listOrNull(args, 'kinds'), limit, cursor }));
+    case 'memory.graph.edges':
+      return ok(graphEdges(db, context, { ...edgeRequestOf(args), limit, cursor }));
+    case 'memory.graph.node':
+      return detail(name, graphNode(db, context, word(args, 'node')));
+    case 'memory.graph.neighbors':
+      return ok(
+        graphNeighbors(db, context, {
+          ...edgeRequestOf(args),
+          node: word(args, 'node'),
+          direction: directionOf(args, 'both'),
+          limit,
+          cursor,
+        })
+      );
+    case 'memory.graph.walk':
+      return ok(
+        graphWalk(db, context, {
+          ...edgeRequestOf(args),
+          from: word(args, 'nodes-from').split(' '),
+          direction: directionOf(args, 'out'),
+          maxDepth: numberOf(args, 'depth', DEFAULT_DEPTH),
+          maxNodes: Math.min(numberOf(args, 'nodes', bounds.pageRows), bounds.pageRows),
+          cursor,
+        })
+      );
+    case 'memory.graph.path':
+      return ok(
+        graphPath(db, context, {
+          ...edgeRequestOf(args),
+          from: word(args, 'from'),
+          to: word(args, 'to'),
+          direction: directionOf(args, 'out'),
+          maxDepth: numberOf(args, 'depth', DEFAULT_DEPTH),
+        })
+      );
+    default:
+      return null;
+  }
+}
+
 /** A command of this module run, a refusal of the reader as an answer with its code. */
 async function answering(name: string, read: () => Answer | Promise<Answer> | null): Promise<Answer | null> {
   try {
@@ -168,7 +253,7 @@ async function answering(name: string, read: () => Answer | Promise<Answer> | nu
 }
 
 /** The prefixes of the commands this module answers. */
-const BROWSER_NAME = new RegExp(`^memory\\.(users|places)\\.`);
+const BROWSER_NAME = new RegExp(`^memory\\.(users|places|graph)\\.`);
 
 /** Whether this module answers `name`: the writes that stay operations are the console's. */
 export const isMemoryBrowserCommand = (name: string): boolean =>
@@ -186,7 +271,7 @@ export async function memoryBrowserCommand(
     if (db == null) return closedDatabase(name);
     if (name === 'memory.users.link' || name === 'memory.users.unlink') return usersWrite(memoryDb, db, name, args);
     const bounds = boundsOf(hot);
-    return usersRead(db, name, args, bounds) ?? placesRead(db, name, args, bounds);
+    return usersRead(db, name, args, bounds) ?? placesRead(db, name, args, bounds) ?? graphRead(db, name, args, bounds);
   });
   return answer ?? { text: `/${name.replaceAll('.', ' ')}: no such command; type /help`, status: 'invalid' };
 }
