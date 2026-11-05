@@ -101,7 +101,8 @@ test('the hidden tokens stay hidden in the mode', () => {
   // Bug: the new lines replace the mount sandbox's own, and a test run from the checkout reads the owner's token.
   rendersTheMode();
   const text = render('system', { ...ON, clients: ['owner', 'watcher'] });
-  assert.deepEqual(pathsOf(text, 'InaccessiblePaths'), [`${DATA}/clients/owner.token`]);
+  // Changed by the lead's ruling on stage S: the unit also hides the checkout's `.env` in the mode.
+  assert.deepEqual(pathsOf(text, 'InaccessiblePaths'), [`${DATA}/clients/owner.token`, `${CHECKOUT}/.env`]);
 });
 
 for (const mode of ['full', 'sudo'] as const) {
@@ -135,7 +136,10 @@ function rig(selfimprovement: Record<string, unknown>, uses: Record<string, 'cla
     path.join(dataDir, 'config', 'config.json'),
     JSON.stringify({ selfimprovement: { checkout, ...selfimprovement } })
   );
-  writeKeysFile(dataDir, { subharness: { backends: ['claude'], key: null, modes: {}, models: {}, uses } });
+  // Changed: `readKeys` gives every agent the first connected backend when `uses` does not name it, so a rig with no `dev`
+  // connects none, and `the dev agent has no backend` holds in the file as the engine reads it.
+  const backends: Array<'claude'> = Object.keys(uses).length === 0 ? [] : ['claude'];
+  writeKeysFile(dataDir, { subharness: { backends, key: null, modes: {}, models: {}, uses } });
   const options: SetupOptions = {
     system: false,
     user: 'alice',

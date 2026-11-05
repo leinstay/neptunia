@@ -24,7 +24,7 @@ The worker exits `0` for a committed report, with its filing deferred too, and f
 
 ## Reports and versions
 
-Every report is one Markdown file in one template. `checkTemplate` in `src/watcher/report.ts` checks the title, the metadata rows, the twelve sections, the four subheadings of each, `Decisions needed` ahead of them in `For the owner`, and the `coverage` block at the end, and `checkCoverage` reads the block as data. [The prompt contract](prompt-contract.md#watcher-answer) holds the template and the codes.
+Every report is one Markdown file in one template. `checkTemplate` in `src/watcher/report.ts` checks the title, the metadata rows, the twelve sections, the thirteenth in [development mode](#development-mode), the four subheadings of each, `Decisions needed` ahead of them in `For the owner`, and the `coverage` block at the end, and `checkCoverage` reads the block as data. [The prompt contract](prompt-contract.md#watcher-answer) holds the template and the codes.
 
 The runner checks the answer before it saves or files anything, and a refusal's detail never quotes the agent. An answer refused by the template, the coverage block, the `tasks` block or the key check earns one more attempt on the same run. `src/watcher/inspection.ts` counts it in `attempts` on the run's record before it starts. Its brief holds the first brief whole, `agents/watcher/retry.md`, the code and detail, and the refused answer. The second attempt gets what is left of `WATCHER_RUN_TIMEOUT_MS`, a run with no time left fails with `timeout`, and a retry prompt that cannot be read ends the run with the refusal. A second refusal fails the run with its own code and nothing filed, and the last successful view stays. An exit code, a timeout or the engine's own check after stamping earns no attempt. Each refused answer stays in `reports/refused/<run id>-<attempt>.md`, mode 600 and invisible to the report readers, with a string shaped like a key masked there and in the second brief. The engine then replaces the metadata rows it knows: the observation interval, the run id, the selected backend, the model, the effort, the risk and both counts. It stamps `observation` and `backend` of the `coverage` block with the same facts, so the block and the rows cannot disagree. The rows `Effective account` and `Available sources` and the block's other fields stay the agent's.
 
@@ -52,9 +52,35 @@ The window opens at the last successful inspection, or at the start of the UTC d
 
 `Project` and `Modules and structure` work from the install the worker runs in. `installFacts` in `src/watcher/install.ts` gives the brief its revision, its `ahead` and `behind` counts against the `origin/main` it last fetched, its modules, the dependencies of its packages and its active skills, and fetches nothing. What it cannot learn is named in `unavailable`: `no-git`, `git-unreadable`, `no-remote`, `no-package-json` or `skills-unreadable`. The agent reports those, and GitHub access it lacks, under `Unavailable checks`.
 
+## Development mode
+
+`developmentMode` in `src/watcher/development.ts` turns the mode on when `selfimprovement.enabled` is not `false`, `selfimprovement.checkout` is an absolute path other than the running install, `selfimprovement.repository` is `owner/name` and `keys.json` gives the agent `dev` a backend. Anything less is off, and the off report has no section `Development`, not even as a heading. The agent then touches no code outside the install, its brief holds nothing of the mode, and whatever it wrote under that heading goes before any check, so it neither counts nor files. Drafts file as described under [filing tasks](#filing-tasks).
+
+With the mode on, `Development` stands right after `The server`, `For the owner` stays last, and a report without it is refused. `developmentFacts` reads the section's facts with no model call and no write to the checkout, and `stampDevelopment` puts them ahead of what the agent wrote: lines under `Inspected without a finding` and what could not be read under `Unavailable checks`. The lines carry no level, so nothing is counted or filed from them. Each fact is a count or a name.
+
+| Fact | Where it comes from |
+|---|---|
+| `base` | `git rev-list --count` of `selfimprovement.base` against `origin/<base>`, as last fetched: the watcher fetches nothing |
+| `worktrees` | `git worktree list`, the folders under `.worktrees/`, each with its age and the task `board_attempts` names for it |
+| `branches` | `git for-each-ref refs/heads` without the base, each with the task `board_attempts` names for it |
+| `tasks` | `board_tasks` of the lane `dev`: `filed` counts `proposed`, `triaged` and `approved`, `running` counts `in_progress`, `waiting` counts `needs_validation`, `merged` counts `done` with `metadata.merged`, and `failed` names up to 20 tasks, newest first, each with the `finish_reason` of its last attempt |
+| `pullRequests` | `gh pr list --repo <selfimprovement.repository>`, each with the worst of its checks: `failure`, `pending`, `success` or `none` |
+| `worker` | `systemctl show neptunia-development.service`, its state and since when |
+| `modules` | Whether the checkout has `node_modules`, without which the executor's tests cannot run |
+
+`gh` failing gives the line `pull requests unavailable` and never a count. Facts that throw whole give `development facts unavailable`, and the report still commits. The section is evidence for the owner and for her selfimprovement wake, so the engine files, merges and cancels nothing because of it.
+
+`src/watcher/inspection.ts` empties `<data>/agents/watcher/scratch` at the start of each run in the mode. The brief's `<development>` gives the agent the one form of a test run, `singleTestCommand`: a single file under `tests/`, the flag `--test-global-setup=tests/fixtures/refuse-manager.ts` ahead of it, working in the checkout, the scratch as `TMPDIR`, and `NEPTUNIA_PRIVATE_DIR` and `NEPTUNIA_DATA_DIR` out of its environment.
+
+`neptunia services watcher select --sql <statement>` is the agent's read of the live database, `watcherSelect` in `src/service/watcher.ts`. It takes one statement that opens with `SELECT` or `WITH`, over a read-only connection to `memory.db`, with no copy and no work folder. It answers `{ rows, truncated }`, at most 500 rows and `WATCHER_EVIDENCE_MAX_CHARS` characters, a cell cut at 4,000 characters, a binary cell as its length and a string shaped like a key masked. A write fails, a missing database fails and makes no file, and the agent keeps what a row shows of a direct message out of the report by the rule of its prompt.
+
+`watcher.auditTopics` is a queue of narrow topics. `<audit-topic>` holds one per run, `currentAuditTopic` reads where the queue stands from `<data>/agents/watcher/audit-queue.json`, and `finishAuditTopic` moves it on once per run that committed a report and comes round after the last. A failed, cancelled or refused run leaves the topic where it was. A state that cannot be read, or a topic taken out of the list, starts at the first, and an empty list audits no topic and keeps no state.
+
+A draft in the mode files only with a `command` that reproduces its finding. `reproducingCommand` takes any line but one that runs tests in another form: `missing` for no line, `test-without-refusal` for a run without the flag and `whole-suite` for `npm test`, or for a run that names anything but one test file. Such a draft gets the receipt state `hypothesis`. Its finding stays in the report, `Tasks filed` names it, no board is asked, and no later run files it. A filed task carries the line in its description and in `metadata.command`.
+
 ## Leftovers
 
-`collectTrash` in `src/watcher/trash.ts` gives the `Trash` section its evidence, through `trash` on the first page of `services watcher evidence`. Each item has a `name`, a `category`, a `reason` and a `where` of `install`, `checkout` or `system`. Every command is a read through the injected `run`, nothing is deleted, and no leftover is opened. A name shaped like a key is masked. This is the one place the watcher looks at the checkout `selfimprovement.checkout` names, and with none set only the install and the system are read.
+`collectTrash` in `src/watcher/trash.ts` gives the `Trash` section its evidence, through `trash` on the first page of `services watcher evidence`. Each item has a `name`, a `category`, a `reason` and a `where` of `install`, `checkout` or `system`. Every command is a read through the injected `run`, nothing is deleted, and no leftover is opened. A name shaped like a key is masked. This read looks at the checkout `selfimprovement.checkout` names whether or not development mode is on, and with none set only the install and the system are read.
 
 | Category | What it lists |
 |---|---|
@@ -75,7 +101,7 @@ What cannot be read is a row of `unavailable` with its category, its `where` and
 
 A draft files only when its key names a finding line at `medium` or above, read after the risk rules. Any other draft gets the receipt state `unmatched-draft`, which is settled: the report names it under `Tasks filed`, no board is asked and no later run retries it. A draft for a repeat is a `duplicate`, linked to the task an earlier receipt of its key holds.
 
-`src/watcher/filing.ts` saves the validated drafts of a run in `data/agents/watcher/filings/<run id>.json` before it asks the board, and each draft keeps a receipt with one of the states `pending`, `filed`, `duplicate`, `deferred`, `failed` and `cancelled`. A task carries `origin`, `runId` and `finding` in its metadata.
+`src/watcher/filing.ts` saves the validated drafts of a run in `data/agents/watcher/filings/<run id>.json` before it asks the board, and each draft keeps a receipt with one of the states `pending`, `filed`, `duplicate`, `deferred`, `failed`, `cancelled`, `unmatched-draft` and `hypothesis`. A task carries `origin`, `runId` and `finding` in its metadata.
 
 An unreachable board leaves a report with those drafts `deferred`, and the next inspection files them. So does a board that gives no answer within 30 seconds, for opening the link or for one call, and the first such call defers the remaining drafts without asking again. The report keeps the words it was committed with, and the receipt holds the outcome. A refusal of the board is `failed` and is not retried. Before any new add, a draft whose answer was lost is looked for on the board by its run and finding, so it becomes one task however long the machine was down. With nothing to file, a run never opens the board.
 
@@ -92,13 +118,14 @@ Duplicates are found by the draft's `finding` key, so a reworded repeat files no
 | Setting | What it does |
 |---|---|
 | `ProtectSystem=strict` | The whole file system is read-only, the checkout and `data/memory.db` included |
-| `ReadWritePaths=` | `data/agents/watcher` and `data/subharness` stay writable, each only if it exists. `services watcher enable` makes the first |
+| `ReadWritePaths=` | `data/agents/watcher` and `data/subharness` stay writable, each only if it exists, and in development mode `data/agents/watcher/scratch`. `services watcher enable` makes the first |
 | `SupplementaryGroups=systemd-journal` | The unit reads the journal of the other units. Only a system unit carries it, because a user manager refuses the line |
 | `NoNewPrivileges=yes` | No child gains privileges through a setuid binary |
 | `PrivateTmp=yes` | The unit has its own `/tmp` |
-| `InaccessiblePaths=-<path>` | One entry per other client's `clients/<name>.token` and per interface's `interfaces/<name>/credentials.json`, so a child of the unit cannot connect to the core as the owner or read the Discord token. The unit's own token stays readable. The leading `-` lets the unit start before a file exists |
+| `InaccessiblePaths=-<path>` | One entry per other client's `clients/<name>.token` and per interface's `interfaces/<name>/credentials.json`, so a child of the unit cannot connect to the core as the owner or read the Discord token, and in development mode one for the checkout's `.env`. The unit's own token stays readable. The leading `-` lets the unit start before a file exists |
+| `ReadOnlyPaths=-<checkout>` | In development mode only, and with `neptunia setup` deciding the mode as `developmentMode` does: the unit reads the development checkout and cannot write it. The leading `-` lets the unit start with the folder gone, and the report then says so |
 
-The mode `full` drops `ProtectSystem=`, `ReadWritePaths=` and `InaccessiblePaths=`, and `sudo` also drops `NoNewPrivileges=`, as for the [agent units](errands.md#modes).
+The mode `full` drops `ProtectSystem=`, `ReadWritePaths=`, `ReadOnlyPaths=` and `InaccessiblePaths=`, and `sudo` also drops `NoNewPrivileges=`, as for the [agent units](errands.md#modes).
 
 Other limits are promises of a program, and the kernel does not hold them:
 
@@ -116,4 +143,4 @@ In a user unit `ProtectSystem=` needs unprivileged user namespaces from the kern
 
 When evaluating a watcher, look for findings supported by file paths or recorded events, tasks that explain the problem, and repeated reports of an already tracked issue. A quiet report is useful only if the agent actually had access to the evidence it needed.
 
-Read the implementation in [report validation](../src/watcher/report.ts), [finding risk](../src/watcher/risk.ts), [the run](../src/watcher/lifecycle.ts), [the inspection](../src/watcher/inspection.ts), [the recorded requests](../src/watcher/requests.ts), [the transcripts](../src/watcher/transcripts.ts) and [task filing](../src/watcher/filing.ts).
+Read the implementation in [development mode](../src/watcher/development.ts), [report validation](../src/watcher/report.ts), [finding risk](../src/watcher/risk.ts), [the run](../src/watcher/lifecycle.ts), [the inspection](../src/watcher/inspection.ts), [the recorded requests](../src/watcher/requests.ts), [the transcripts](../src/watcher/transcripts.ts) and [task filing](../src/watcher/filing.ts).

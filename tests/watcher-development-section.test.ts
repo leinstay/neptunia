@@ -1,5 +1,5 @@
-// The report's thirteenth section, `Development`, stands in every report at one place. With the mode off it says
-// `not configured`. With the mode on the engine writes what it read of the checkout, the board, GitHub and the worker
+// The report's thirteenth section, `Development`. Changed by the lead's ruling, B12.1 of the plan: with the mode off the
+// section does not exist, not even as an empty heading. With the mode on the engine writes what it read of the checkout, the board, GitHub and the worker
 // under the section's subheadings, with no model call and no write to the checkout. `developmentFacts` gets a real git
 // repository, a real memory database and a fake `gh` and `systemctl`. Counts and names only: no diff and no file content.
 import { test } from 'node:test';
@@ -25,31 +25,41 @@ test('the section stands right after `The server`, and `For the owner` stays the
   assert.deepEqual([...reports.REPORT_HEADINGS], [...THIRTEEN]);
 });
 
-test('a report without the section is refused, so the template stays one for every day', () => {
-  // Bug: the section is optional, and a report that left it out reads as a clean development checkout.
+test('with the mode on a report without the section is refused', () => {
+  // Bug: the section is optional in the mode, and a report that left it out reads as a clean development checkout.
+  // Changed by B12.1: the refusal holds with the mode on, and the next test holds the mode off.
   const twelve = templateOf({ sections: THIRTEEN.filter((one) => one !== 'Development') });
-  const checked = reports.checkTemplate(twelve);
+  const checked = reports.checkTemplate(twelve, { development: true });
   assert.equal(checked.ok ? 'passed' : checked.code, 'missing-heading');
+});
+
+test('with the mode off a report with the section is refused and one without it passes', () => {
+  // Bug: B12.1 of the plan: the checker takes the section in any mode, and it leaks into a report with no development.
+  const twelve = templateOf({ sections: THIRTEEN.filter((one) => one !== 'Development') });
+  const checked = reports.checkTemplate(devAnswer());
+  assert.equal(checked.ok ? 'passed' : checked.code, 'extra-heading');
+  assert.ok(reports.checkTemplate(twelve).ok);
 });
 
 test('a report with thirteen sections passes, findings allowed under the new section', () => {
   // Bug: the section joins the list without the four subheadings, or its findings are refused as stray text.
+  // Changed by B12.1: the section belongs to the template with the mode on.
   const checked = reports.checkTemplate(
-    devAnswer({ Development: { 'Observed defects': '- [medium] dead-export: src/a.ts:1 is called by nothing' } })
+    devAnswer({ Development: { 'Observed defects': '- [medium] dead-export: src/a.ts:1 is called by nothing' } }),
+    { development: true }
   );
   assert.ok(checked.ok, checked.ok ? '' : `${checked.code} ${checked.detail}`);
 });
 
 // ---------- the mode off ----------
 
-test('with the mode off the section says `not configured` under `Unavailable checks`, and the report passes', async () => {
-  // Bug: the owner cannot tell a checkout that was never set up from a checkout that was looked at and found clean.
+test('with the mode off the section does not exist, not even as an empty heading, and the report passes', async () => {
+  // Bug: B12.1 of the plan: an install with no development carries a heading about a checkout it does not have.
+  // Changed by B12.1: this test expected the line `not configured`, which the owner's word rules out.
   const { stampDevelopment } = await development();
   const text = stampDevelopment(devAnswer(), { on: false });
-  const section = sectionText(text, 'Development');
-  assert.equal(subsectionText(section, 'Unavailable checks'), '- not configured');
-  for (const sub of ['Observed defects', 'Suspicious evidence', 'Inspected without a finding'])
-    assert.equal(subsectionText(section, sub), 'none', sub);
+  assert.equal(text.includes('## Development'), false);
+  assert.equal(text.includes('not configured'), false);
   assert.ok(reports.checkTemplate(text).ok);
 });
 
@@ -95,7 +105,7 @@ test('the section names each worktree with its age and task, the branches, the c
 test('the lines are no findings: nothing is counted or filed from them, and the report passes', async () => {
   // Bug: B12.3 of the plan: a fact line shaped like a finding raises the report's risk and files a task on its own.
   const text = await stampedOn();
-  assert.ok(reports.checkTemplate(text).ok);
+  assert.ok(reports.checkTemplate(text, { development: true }).ok);
   assert.deepEqual(reports.findingLines(text), []);
 });
 
@@ -145,7 +155,7 @@ test('each fact that could not be read is named under `Unavailable checks`, with
 test('no facts at all still leave the section in the template, saying they could not be read', async () => {
   // Bug: a probe that threw leaves `none` everywhere, the same as a clean checkout.
   const text = await stampedOn(null);
-  assert.ok(reports.checkTemplate(text).ok);
+  assert.ok(reports.checkTemplate(text, { development: true }).ok);
   assert.match(unavailable(text), /development facts unavailable/);
 });
 
@@ -161,7 +171,8 @@ const NINE_DAYS_AGO = Date.now() - 9 * 86_400_000 - 3_600_000;
 
 /** A checkout on `trunk` three commits behind `origin/trunk`, with one worktree a task left and one nothing owns. */
 function checkoutRig(): string {
-  const checkout = tempDir('nep-watcher-dev-checkout-');
+  // Changed: the folder's name held the word `checkout`, which the test of the git commands below looks for in each line.
+  const checkout = tempDir('nep-watcher-dev-repo-');
   git(checkout, 'init', '--quiet', '-b', 'trunk');
   for (const one of ['a', 'b', 'c', 'd']) git(checkout, 'commit', '--quiet', '--allow-empty', '-m', one);
   git(checkout, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD');
@@ -305,11 +316,12 @@ test('each worktree under `.worktrees` comes with its age and the task `board_at
 test('the branches the executor left are named with their tasks, and the base is not one of them', async () => {
   // Bug: the base counts as a leftover, so the count is never zero and nobody reads it.
   const { branches } = (await readOnce()).facts;
+  // Changed: `localeCompare` puts `work/stray` ahead of `work/T-1`, so the sorted list had its two rows the wrong way round.
   assert.deepEqual(
     [...branches].sort((a, b) => a.name.localeCompare(b.name)),
     [
-      { name: 'work/T-1', taskId: 'T-1' },
       { name: 'work/stray', taskId: null },
+      { name: 'work/T-1', taskId: 'T-1' },
     ]
   );
 });
@@ -332,7 +344,7 @@ test('the open pull requests come from the configured repository, each with its 
   // Bug: `gh` picks the repository from the folder it runs in, and the worst check of a pull request is lost.
   const { facts, called } = await readOnce();
   const gh = called.find((one) => one.command === 'gh');
-  assert.ok(gh?.args.includes(REPOSITORY), gh?.args.join(' '));
+  assert.ok(gh?.args.includes(REPOSITORY), gh?.args.join(' ') ?? 'no gh call');
   assert.deepEqual(
     facts.pullRequests?.map((one) => [one.number, one.ci]),
     [
@@ -349,7 +361,7 @@ test('the worker line reads the state of `neptunia-development.service`', async 
   const { facts, called } = await readOnce();
   assert.equal(facts.worker?.state, 'active');
   const asked = called.find((one) => one.command === 'systemctl');
-  assert.ok(asked?.args.includes('neptunia-development.service'), asked?.args.join(' '));
+  assert.ok(asked?.args.includes('neptunia-development.service'), asked?.args.join(' ') ?? 'no systemctl call');
 });
 
 test('a checkout with no `node_modules` says so, and one with it says that', async () => {

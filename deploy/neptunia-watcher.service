@@ -8,7 +8,8 @@
 # The file system is read-only for this unit but for the watcher folder, which holds its reports and run records, and the
 # backends' folders, which hold their sessions and logins. The checkout and the memory stay readable. What this does and does
 # not enforce is in docs/watcher.md. It reaches the board through the core's socket and runs the agent backend from its
-# folder in the private layer.
+# folder in the private layer. In development mode `neptunia setup` adds the development checkout as read-only, hides its
+# `.env` and names the scratch writable.
 #
 # `neptunia setup` renders this service and its timer for the installing user (deploy/README.md), makes the client
 # `watcher` with its token and does not start them. `neptunia services watcher enable` enables the timer.

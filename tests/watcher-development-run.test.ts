@@ -106,14 +106,14 @@ for (const [name, dep] of [
     assert.equal(briefs[0]?.includes(REFUSING_FLAG), false);
   });
 
-  test(`with ${name} the report says not configured, and the watcher's folder holds no queue and no scratch`, async () => {
+  test(`with ${name} the report has no section, and the watcher's folder holds no queue and no scratch`, async () => {
     // Bug: an off run reads the facts anyway and leaves state behind, as if development had been set up.
+    // Changed by B12.1 of the plan: this test expected the line `not configured`, and the section does not exist.
     const rig = inspectionRig();
     const before = new Set(fs.readdirSync(rig.dir));
     const done = await runInspection(runDeps(rig, [], devAnswer(), { development: dep }));
     assert.equal(done.state, 'succeeded');
-    const section = sectionText(reportOf(rig, done.runId), 'Development');
-    assert.equal(subsectionText(section, 'Unavailable checks'), '- not configured');
+    assert.equal(reportOf(rig, done.runId).includes('## Development'), false);
     const made = fs.readdirSync(rig.dir).filter((name) => !before.has(name));
     assert.deepEqual(
       made.filter((name) => /audit|queue|scratch/.test(name)),

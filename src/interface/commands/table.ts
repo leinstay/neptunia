@@ -166,6 +166,7 @@ const SERVICE_SUBCOMMANDS: ReadonlyArray<Subcommand> = [
     flagArg('from', false),
     flagArg('cursor', false),
   ]),
+  sub('watcher.select', 'Read the memory database with one read-only statement, as JSON', [flagArg('sql', true)]),
 ];
 
 /** The flags of a page of an owner read. */

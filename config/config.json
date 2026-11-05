@@ -342,7 +342,16 @@
   },
   "watcher": {
     "enabled": false,
-    "schedule": "at 00:00"
+    "schedule": "at 00:00",
+    "auditTopics": [
+      "dm-privacy-paths",
+      "schema-against-code",
+      "dead-code",
+      "long-chains",
+      "media-parity",
+      "restart-and-recovery",
+      "tests-that-prove-nothing"
+    ]
   },
   "selfimprovement": {
     "enabled": true,
