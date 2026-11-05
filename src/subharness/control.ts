@@ -1,30 +1,28 @@
-// The owner's switch of the subharness: which backends are connected, the key opencode runs on, and the mode of each
-// agent. Enable adds one backend to the list after its check, disable removes one; an agent runs through the backend
-// `subharness.uses` names for it, else through the first connected one (src/subharness/run.ts).
-// Everything is stored in keys.json (src/keys/file.ts) and read again at each use, so a change needs no
-// restart. The shape follows the approval mode of Hermes (hermes_cli/approval_mode.py): a tuple of modes, a frozen
-// result with `ok`, `changed` and a message, no argument inspects, and the one write of each change is in this file.
-// Enabling checks the backend installed in the private layer (src/subharness/place.ts) first and stores nothing when
-// the check fails. No result, log line or status text carries a key value, only a key's name.
+// The owner's settings of the subharness roles: the source, model and effort each agent runs on and the mode it runs in.
+// A source is a backend that is installed and logged in (src/subharness/sources.ts); it has no switch of its own, and its
+// account commands are src/subharness/account.ts. Everything is stored in keys.json (src/keys/file.ts) and read again at
+// each use, so a change needs no restart. The shape follows the approval mode of Hermes (hermes_cli/approval_mode.py): a
+// tuple of modes, a frozen result with `ok`, `changed` and a message, no argument inspects, and the one write of each
+// change is in this file. No result, log line or status text carries a key value, only a key's name.
 
 import type { BackendResult } from '../agent-runner/backend.ts';
 import type { TaskRoute } from '../agent-runner/protocol.ts';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
-import { log } from '../log.ts';
 import { EFFORT_LEVELS, isEffortLevel } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
-import { hasExtraKey, readKeys, writeKeys } from '../keys/file.ts';
-import { checkModel } from './models.ts';
-import { subharnessPlace } from './place.ts';
+import { SUBHARNESS_AGENTS, readKeys, writeKeys } from '../keys/file.ts';
+import type { KeyStore, SubharnessAgent } from '../keys/file.ts';
+import { checkedSelection } from './selection.ts';
+import { sourceState } from './sources.ts';
+import type { SourceState } from './sources.ts';
+
+export { SUBHARNESS_AGENTS };
+export type { SubharnessAgent };
 
 /** What an agent may do, from the narrowest: see run.ts#sandboxOfMode for the sandbox each maps to. */
 export const AGENT_MODES = ['read', 'write', 'full', 'sudo'] as const;
 export type AgentMode = (typeof AGENT_MODES)[number];
-
-/** The agents that have a mode: the two errand agents, the development agents, the watcher and the thinker. */
-export const SUBHARNESS_AGENTS = ['scout', 'server', 'dev', 'watcher', 'thinker'] as const;
-export type SubharnessAgent = (typeof SUBHARNESS_AGENTS)[number];
 
 /** The model roles that have no subharness path: their requests run on the direct path alone. */
 export const DIRECT_ONLY_ROLES = ['analyzer', 'embedding', 'vision', 'video', 'speech', 'drawing'] as const;
@@ -41,29 +39,20 @@ export const DEFAULT_MODES: Readonly<Record<SubharnessAgent, AgentMode>> = {
 /** The mode of an agent the table does not list. */
 export const FALLBACK_MODE: AgentMode = 'read';
 
-/** The endpoint of OpenRouter, where a key's `/auth/key` answers. */
-const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
-
-/** How long the key check waits for the provider (ms). */
-const KEY_CHECK_MS = 15_000;
-
 /** How long the reply check of codex or claude may run (ms). */
 export const REPLY_CHECK_MS = 120_000;
-
-/** The one-word brief of the reply check. */
-const CHECK_BRIEF = 'Reply with the single word ok.';
 
 /** The outcome of one change: `code` is `ok` on success, else why it was refused. */
 export type SubharnessResult = { ok: boolean; code: string; changed: boolean; message: string };
 
-/** What the owner sees: the connected backends, the name of opencode's key and every agent's mode. */
+/** What the owner sees: every source as it stands, the name of opencode's key and every agent's mode. */
 export type SubharnessView = {
-  backends: Array<BackendName>;
+  sources: Array<SourceState>;
   key: string | null;
   modes: Record<SubharnessAgent, AgentMode>;
 };
 
-/** What `enableSubharness` takes. */
+/** What a model selection takes: the checks of src/subharness/selection.ts and the unit hook of a mode change. */
 export type EnableDeps = {
   privateDir: string;
   /** One minimal run of codex or claude, `effort` passed as BackendRunOptions.effort; resolves, never rejects. */
@@ -72,17 +61,6 @@ export type EnableDeps = {
   helpOf?(name: BackendName): Promise<string>;
   fetch: typeof fetch;
   baseUrl?: string;
-  /**
-   * Whether a backend is in its folder of the private layer (src/subharness/place.ts#isInstalled); the core passes it,
-   * and opencode, whose check runs no binary, is refused `not-installed` when it answers false. codex and claude learn
-   * it from `runBackend`.
-   */
-  isInstalled?(name: BackendName): boolean;
-  /**
-   * True in the core: `/subharness enable` then asks which model each agent runs on (src/subharness/enable-dialog.ts)
-   * before it stores anything. Absent, enable stores the backend alone and the agents run on its default model.
-   */
-  asksModels?: boolean;
   /**
    * Called after a mode changed: puts the new mode into the agent's systemd unit (src/setup/mode-unit.ts). It answers
    * a line for the owner, or null when the agent has no unit.
@@ -103,129 +81,15 @@ export function modeOf(modes: Readonly<Record<string, string>>, agent: string): 
   return isAgent(agent) ? DEFAULT_MODES[agent] : FALLBACK_MODE;
 }
 
-/** The subharness as keys.json holds it now. */
-export function subharnessView(privateDir: string): Promise<SubharnessView> {
+/** The subharness as keys.json and the installed sources hold it now. Runs each CLI's status command, no model. */
+export async function subharnessView(privateDir: string): Promise<SubharnessView> {
   const stored = readKeys(privateDir).subharness;
   const modes = Object.fromEntries(SUBHARNESS_AGENTS.map((agent) => [agent, modeOf(stored.modes, agent)])) as Record<
     SubharnessAgent,
     AgentMode
   >;
-  const key = stored.backends.includes('opencode') ? stored.key : null;
-  return Promise.resolve({ backends: stored.backends, key, modes });
-}
-
-/** The key check of opencode: the named extra key answers `/auth/key`. */
-async function checkKey(deps: EnableDeps, value: string): Promise<SubharnessResult | null> {
-  const base = (deps.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
-  let status: number;
-  try {
-    const response = await deps.fetch(`${base}/auth/key`, {
-      headers: { Authorization: `Bearer ${value}` },
-      signal: AbortSignal.timeout(KEY_CHECK_MS),
-    });
-    status = response.status;
-  } catch {
-    log.warn('subharness: key check unreachable');
-    return refused('key-unreachable', 'the provider did not answer the key check; nothing was changed');
-  }
-  if (status >= 200 && status < 300) return null;
-  log.warn('subharness: key check rejected', { status });
-  return refused('key-rejected', `the provider refused that key (HTTP ${status}); nothing was changed`);
-}
-
-/** The refusal of a backend that is not in its folder of the private layer (src/subharness/place.ts). */
-const notInstalled = (privateDir: string, name: BackendName): SubharnessResult =>
-  refused(
-    'not-installed',
-    `${name} is not installed in ${subharnessPlace(privateDir, name).dir}: run neptunia setup subharness ${name}; nothing was changed`
-  );
-
-/** The reply check of codex or claude: the binary runs and answers one brief. */
-async function checkReply(deps: EnableDeps, name: 'codex' | 'claude'): Promise<SubharnessResult | null> {
-  const outcome = await deps.runBackend(name, CHECK_BRIEF);
-  if (outcome.ok && outcome.text.trim() !== '') return null;
-  if (outcome.error === 'not-installed') return notInstalled(deps.privateDir, name);
-  if (outcome.error === 'backend-missing')
-    return refused('binary-missing', `${name} is not on the PATH of the core; nothing was changed`);
-  log.warn('subharness: reply check failed', {
-    backend: name,
-    error: outcome.error ?? null,
-    exitCode: outcome.exitCode,
-  });
-  return refused('no-reply', `${name} runs but gave no reply (is it logged in?); nothing was changed`);
-}
-
-/** The model each agent runs on, by agent; an agent that is not in the map runs on the backend's default. */
-export function agentModels(privateDir: string): Readonly<Record<string, string>> {
-  return readKeys(privateDir).subharness.models;
-}
-
-/** What passes the check of an enable: the backend and the value of the key it runs on (empty for codex and claude). */
-export type Checked = { name: BackendName; key: string | null; keyValue: string };
-
-/**
- * The check of an enable, which stores nothing: the binary and one reply for `codex` and `claude`, the named extra key
- * answering `/auth/key` for `opencode`, which needs `key` and is the only backend that takes one. Resolves with a
- * refusal, with an ok result when that backend is on already, or with what passed.
- */
-export async function checkEnable(
-  deps: EnableDeps,
-  backend: string,
-  key?: string
-): Promise<SubharnessResult | Checked> {
-  const name = BACKEND_NAMES.find((known) => known === backend);
-  if (name === undefined)
-    return refused('unknown-backend', `${backend} is no backend; use ${BACKEND_NAMES.join(', ')}`);
-  if (name === 'opencode' && key === undefined)
-    return refused('key-needed', 'opencode needs an extra key: add --key <name>');
-  if (name !== 'opencode' && key !== undefined)
-    return refused('key-not-allowed', `${name} brings its own login and takes no key`);
-  const store = readKeys(deps.privateDir);
-  if (name === 'opencode' && (key === undefined || !hasExtraKey(store, key)))
-    return refused('key-unknown', `${key ?? ''} is no extra key; an extra key is added with keys extra`);
-  const now = store.subharness;
-  if (now.backends.includes(name) && (name !== 'opencode' || now.key === key))
-    return done(`${name} is connected already`, false);
-  const keyValue = key === undefined ? '' : (store.extra[key] ?? '');
-  if (name === 'opencode' && deps.isInstalled?.(name) === false) return notInstalled(deps.privateDir, name);
-  const failed = name === 'opencode' ? await checkKey(deps, keyValue) : await checkReply(deps, name);
-  return failed ?? { name, key: key ?? null, keyValue };
-}
-
-/**
- * Adds the backend of `checked` to the list, with its key's name for opencode, and stores the models. The backends
- * connected before stay. The store is read again, the check took a while.
- */
-export function commitEnable(
-  privateDir: string,
-  checked: Checked,
-  models: Readonly<Record<string, string>>
-): SubharnessResult {
-  const fresh = readKeys(privateDir);
-  const { backends } = fresh.subharness;
-  writeKeys(privateDir, {
-    ...fresh,
-    subharness: {
-      ...fresh.subharness,
-      backends: backends.includes(checked.name) ? backends : [...backends, checked.name],
-      key: checked.name === 'opencode' ? checked.key : fresh.subharness.key,
-      models: { ...fresh.subharness.models, ...models },
-    },
-  });
-  return done(
-    checked.key === null ? `${checked.name} is connected` : `${checked.name} is connected, key ${checked.key}`
-  );
-}
-
-/** Connects `backend` after `checkEnable`'s check; a failed check stores nothing and keeps the backends connected before. */
-export async function enableSubharness(
-  deps: EnableDeps,
-  backend: string,
-  key?: string,
-  models: Readonly<Record<string, string>> = {}
-): Promise<SubharnessResult> {
-  const checked = await checkEnable(deps, backend, key);
-  return 'ok' in checked ? checked : commitEnable(deps.privateDir, checked, models);
+  const sources = await Promise.all(BACKEND_NAMES.map((backend) => sourceState(privateDir, backend)));
+  return { sources, key: stored.key, modes };
 }
 
 /** The refusal of a name that is no agent: its own code for a model role that runs on the direct path alone. */
@@ -235,91 +99,75 @@ function notAnAgent(name: string): SubharnessResult {
   return refused('unknown-agent', `${name} is no agent; use ${SUBHARNESS_AGENTS.join(', ')}`);
 }
 
-/** Names the backend `agent` runs through. The backend must be connected; a refusal writes nothing. */
-export function useBackend(privateDir: string, agent: string, backend: string): Promise<SubharnessResult> {
-  if (!isAgent(agent)) return Promise.resolve(notAnAgent(agent));
-  const name = BACKEND_NAMES.find((known) => known === backend);
-  if (name === undefined)
-    return Promise.resolve(refused('unknown-backend', `${backend} is no backend; use ${BACKEND_NAMES.join(', ')}`));
-  const store = readKeys(privateDir);
-  if (!store.subharness.backends.includes(name))
-    return Promise.resolve(
-      refused('backend-not-connected', `${name} is not connected: subharness enable ${name}; nothing was changed`)
-    );
-  if (store.subharness.uses[agent] === name)
-    return Promise.resolve(done(`${agent} runs through ${name} already`, false));
-  writeKeys(privateDir, {
-    ...store,
-    subharness: { ...store.subharness, uses: { ...store.subharness.uses, [agent]: name } },
-  });
-  return Promise.resolve(done(`${agent} runs through ${name} from its next run`));
-}
-
-/** Whether `backend` takes the effort flag: claude only when its `--help` lists `--effort`. */
-async function takesEffort(deps: EnableDeps, backend: BackendName): Promise<boolean> {
-  if (backend !== 'claude') return true;
-  if (deps.helpOf === undefined) return false;
-  try {
-    return (await deps.helpOf(backend)).includes('--effort');
-  } catch {
-    // a help that cannot be read is a claude whose flags are unknown
-    return false;
-  }
-}
+/** What a stored route of `agent` is, for telling whether it moved while a check ran. */
+const routeText = (store: KeyStore, agent: string): string => {
+  const { uses, models, efforts } = store.subharness;
+  return JSON.stringify([uses[agent] ?? null, models[agent] ?? null, efforts[agent] ?? null]);
+};
 
 /**
- * Sets the model of one agent, and its effort when one is given, after one reply from that model at that effort
- * through the backend the agent runs through. Without an effort the stored one stays. The key of opencode is the
- * stored one.
+ * Sets the source, the model and the effort of one agent in one write, after one reply from that model at that effort
+ * through that source. `via` absent keeps the source in force. An effort that is not given stays while the source stays,
+ * and goes with a source that changes, because no reply checked it there. The key of opencode is the stored one.
  */
 export async function setAgentModel(
   deps: EnableDeps,
   agent: string,
   model: string,
-  effort?: string
+  effort?: string,
+  via?: string
 ): Promise<SubharnessResult> {
   if (!isAgent(agent)) return notAnAgent(agent);
   if (effort !== undefined && !isEffortLevel(effort))
     return refused('unknown-effort', `${effort} is no effort; use ${EFFORT_LEVELS.join(', ')}`);
   const store = readKeys(deps.privateDir);
+  const current = backendOfAgent(store.subharness, agent);
+  const backend = via === undefined ? current : BACKEND_NAMES.find((one) => one === via);
+  if (backend === undefined)
+    return refused('unknown-backend', `${via ?? ''} is no backend; use ${BACKEND_NAMES.join(', ')}`);
+  if (backend === null)
+    return refused('subharness-off', `${agent} has no source yet: /model set ${agent} <model> --via <backend>`);
   const { key } = store.subharness;
-  const backend = backendOfAgent(store.subharness, agent);
-  if (backend === null) return refused('subharness-off', `no backend is connected for ${agent}: subharness enable`);
-  if (effort !== undefined && !(await takesEffort(deps, backend)))
-    return refused('effort-unsupported', `this ${backend} takes no --effort; nothing was changed`);
   const value = key === null ? '' : (store.extra[key] ?? '');
-  const failed = await checkModel(deps, backend, value, model, effort);
-  if (failed !== null) return { ...failed, message: `${failed.message}; nothing was changed` };
-  const fresh = readKeys(deps.privateDir);
-  writeKeys(deps.privateDir, {
-    ...fresh,
-    subharness: {
-      ...fresh.subharness,
-      models: { ...fresh.subharness.models, [agent]: model },
-      efforts: effort === undefined ? fresh.subharness.efforts : { ...fresh.subharness.efforts, [agent]: effort },
-    },
-  });
-  const at = effort === undefined ? '' : ` at ${effort} effort`;
-  return done(`${agent} runs on ${model}${at} from its next run`);
+  return checkedSelection(
+    deps,
+    { claim: agent, backend, keyValue: value, model, ...(effort === undefined ? {} : { effort }) },
+    () => routeText(readKeys(deps.privateDir), agent),
+    () => {
+      const fresh = readKeys(deps.privateDir);
+      const { efforts } = fresh.subharness;
+      const kept =
+        backend === fresh.subharness.uses[agent]
+          ? efforts
+          : Object.fromEntries(Object.entries(efforts).filter(([role]) => role !== agent));
+      writeKeys(deps.privateDir, {
+        ...fresh,
+        subharness: {
+          ...fresh.subharness,
+          uses: { ...fresh.subharness.uses, [agent]: backend },
+          models: { ...fresh.subharness.models, [agent]: model },
+          efforts: effort === undefined ? kept : { ...kept, [agent]: effort },
+        },
+      });
+      const at = effort === undefined ? '' : ` at ${effort} effort`;
+      return done(`${agent} runs through ${backend} on ${model}${at} from its next run`);
+    }
+  );
 }
 
-/**
- * The backend `agent` runs through: the one `uses` names for it when that one is connected, the first connected one
- * when it names none, null when the named one is not connected or nothing is.
- */
+/** The backend `agent` runs through: the one `uses` names for it, null when it names none. */
 export function backendOfAgent(
-  stored: Readonly<{ backends: ReadonlyArray<BackendName>; uses: Readonly<Record<string, BackendName>> }>,
+  stored: Readonly<{ uses: Readonly<Record<string, BackendName>> }>,
   agent: string
 ): BackendName | null {
-  const named = Object.hasOwn(stored.uses, agent) ? stored.uses[agent] : undefined;
-  if (named !== undefined) return stored.backends.includes(named) ? named : null;
-  return stored.backends[0] ?? null;
+  return Object.hasOwn(stored.uses, agent) ? (stored.uses[agent] ?? null) : null;
 }
 
 /**
  * The path the core puts inside a task for `agent`: the backend it runs through, its model and effort (null where the
- * owner set none) and its mode, as keys.json holds them now. Null while no backend is connected for the agent. Throws
- * when keys.json cannot be read.
+ * owner set none) and its mode, as keys.json holds them now. Null while the agent has no source; a source that is
+ * gone from the machine fails the run with `not-installed`, where a runner can see it. Throws when keys.json cannot be
+ * read.
  */
 export function routeOfAgent(privateDir: string, agent: string): TaskRoute | null {
   const stored = readKeys(privateDir).subharness;
@@ -331,25 +179,6 @@ export function routeOfAgent(privateDir: string, agent: string): TaskRoute | nul
     effort: Object.hasOwn(stored.efforts, agent) ? (stored.efforts[agent] ?? null) : null,
     mode: modeOf(stored.modes, agent),
   };
-}
-
-/** Disconnects one backend; removing opencode clears its key, removing the last one turns the subharness off. The modes stay. */
-export function disableSubharness(privateDir: string, backend: string): Promise<SubharnessResult> {
-  const name = BACKEND_NAMES.find((known) => known === backend);
-  if (name === undefined)
-    return Promise.resolve(refused('unknown-backend', `${backend} is no backend; use ${BACKEND_NAMES.join(', ')}`));
-  const store = readKeys(privateDir);
-  if (!store.subharness.backends.includes(name)) return Promise.resolve(done(`${name} is not connected`, false));
-  const backends = store.subharness.backends.filter((one) => one !== name);
-  const key = name === 'opencode' ? null : store.subharness.key;
-  writeKeys(privateDir, { ...store, subharness: { ...store.subharness, backends, key } });
-  return Promise.resolve(
-    done(
-      backends.length === 0
-        ? `${name} is disconnected; the subharness is off and every agent task is refused until a backend is connected`
-        : `${name} is disconnected; ${backends.join(', ')} stays connected`
-    )
-  );
 }
 
 /** Sets the mode of one agent, or with no `mode` reports the current one and writes nothing. */
@@ -377,17 +206,20 @@ export function setAgentMode(
   return Promise.resolve({ ...done(`${agent} runs in ${mode} from its next run`), mode });
 }
 
-/** The line of one connected backend: its key's name for opencode, and who enforces `read` and `write` under it. */
-function backendLine(view: SubharnessView, name: BackendName): string {
+/** The line of one source: whether it can run, its key's name for opencode, and who enforces `read` and `write` under it. */
+function sourceLine(view: SubharnessView, state: SourceState): string {
+  const name = state.backend;
   const key = name === 'opencode' && view.key !== null ? `, key ${view.key}` : '';
+  if (state.code === 'not-installed') return `  ${name}: not installed`;
+  if (state.code === 'not-logged-in') return `  ${name}: installed, not logged in${key}`;
   const held =
     name === 'codex'
       ? 'read and write enforced by its sandbox and by the unit'
       : 'read and write held by the systemd unit alone, no sandbox flags';
-  return `  ${name}${key}: ${held}`;
+  return `  ${name}: logged in${key}: ${held}`;
 }
 
-/** The path of one agent: the backend it runs through (null when none is connected for it), its model and its effort. */
+/** The path of one agent: the backend it runs through (null when it names none), its model and its effort. */
 export type AgentPath = {
   agent: SubharnessAgent;
   backend: BackendName | null;
@@ -407,25 +239,17 @@ export function agentPaths(privateDir: string): Array<AgentPath> {
 }
 
 /**
- * The status the owner reads: every connected backend with its key's name, every agent with its mode, and with
- * `paths` its backend, model and effort. No key value.
+ * The status the owner reads: every source as it stands, with its key's name, then every agent with its mode, its source,
+ * its model and its effort. A source that cannot run stays on the row of the agent that chose it, marked unavailable. No
+ * key value.
  */
-export function statusText(
-  view: SubharnessView,
-  models: Readonly<Record<string, string>> = {},
-  paths?: ReadonlyArray<AgentPath>
-): string {
-  const head =
-    view.backends.length === 0
-      ? ['subharness: off (every agent task is refused until: subharness enable codex|claude|opencode)']
-      : ['subharness:', ...view.backends.map((name) => backendLine(view, name))];
-  const rows = SUBHARNESS_AGENTS.map((agent) => {
-    const path = paths?.find((one) => one.agent === agent);
-    if (path === undefined)
-      return `  ${agent}  ${view.modes[agent]}${Object.hasOwn(models, agent) ? `  model ${models[agent]}` : ''}`;
+export function statusText(view: SubharnessView, paths: ReadonlyArray<AgentPath>): string {
+  const rows = paths.map((path) => {
+    const state = view.sources.find((one) => one.backend === path.backend);
+    const mark = state === undefined || state.available ? '' : '  unavailable';
     const model = path.model ?? 'default';
     const effort = path.effort ?? 'default';
-    return `  ${agent}  ${view.modes[agent]}  ${path.backend ?? 'none'}  model ${model}  effort ${effort}`;
+    return `  ${path.agent}  ${view.modes[path.agent]}  ${path.backend ?? 'none'}${mark}  model ${model}  effort ${effort}`;
   });
-  return [...head, 'modes:', ...rows].join('\n');
+  return ['subharness:', ...view.sources.map((state) => sourceLine(view, state)), 'modes:', ...rows].join('\n');
 }

@@ -64,16 +64,16 @@ function watcherSchedule(target: UnitTarget): ServiceSchedule | null {
 }
 
 /**
- * The text of one unit as the scope, the owner's modes, the backends connected in keys.json or installed in the private layer and the hour of the
+ * The text of one unit as the scope, the owner's modes, the backends a role names in keys.json or installed in the private layer and the hour of the
  * watcher's run (`watcher.schedule` of the settings) want it.
  */
 export function unitText(target: UnitTarget, template: string, file: string): string {
   const agent = UNIT_AGENTS[file];
   const { subharness } = readKeys(target.dataDir);
-  // Connected or installed: a role moved to an installed backend finds its folder bound before keys.json says so.
-  const backends = BACKEND_NAMES.filter(
-    (name) => subharness.backends.includes(name) || isInstalled(target.dataDir, name)
-  );
+  // Named or installed: a restored persona's role finds its folder bound before the install, and a role moved to an
+  // installed backend finds it bound before keys.json says so.
+  const named = new Set<string>([...Object.values(subharness.uses), subharness.memory?.backend ?? '']);
+  const backends = BACKEND_NAMES.filter((name) => named.has(name) || isInstalled(target.dataDir, name));
   const vars: UnitVars = { ...target, backends };
   const schedule = watcherSchedule(target);
   if (schedule !== null) vars.watcherSchedule = schedule;

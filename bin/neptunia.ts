@@ -19,6 +19,7 @@
 //                                                the watcher, units, linger, the core; a step of those last-named three
 //                                                alone is `neptunia service <name> setup`
 //   neptunia setup subharness <backend> [--from <path>]   one subharness backend into <private>/subharness/<backend>/
+//   neptunia subharness <backend> login|status|logout   its account, with no core (src/subharness/account.ts)
 //   neptunia task <command> [options]            the task board's command line (bin/neptunia-task.ts)
 //
 // Every command reads `NEPTUNIA_PRIVATE_DIR` (the local layer) and `NEPTUNIA_DATA_DIR` (the data folder), as the core
@@ -88,21 +89,19 @@ import { interfaceCredential } from '../src/config/files.ts';
 import { interfacePackageDir } from '../src/config/files.ts';
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
-import { createAgentEngine, createInstalledBackend } from '../src/agent-runner/backend.ts';
+import { createAgentEngine } from '../src/agent-runner/backend.ts';
 import { BACKEND_NAMES, agentSettings, profileOf } from '../src/agent-runner/profiles.ts';
 import type { BackendName } from '../src/agent-runner/profiles.ts';
 import type { RunnerTask } from '../src/agent-runner/protocol.ts';
 import { startSweeper } from '../src/agent-runner/sweep.ts';
 import { spawnGh } from '../src/selfimprovement/repository.ts';
 import { spawnRun } from '../src/setup/install.ts';
-import { REPLY_CHECK_MS } from '../src/subharness/control.ts';
-import type { EnableDeps } from '../src/subharness/control.ts';
+import { accountCommand } from '../src/subharness/account.ts';
 import { installSubharness, rollbackSubharness, updateSubharness } from '../src/subharness/install.ts';
 import type { InstallRun } from '../src/subharness/install.ts';
-import { loginCommand } from '../src/subharness/place.ts';
-import type { LoginCommand } from '../src/subharness/place.ts';
 import { SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { SetupReport } from '../src/setup/run.ts';
+import { accountRequest } from '../src/interface/commands/subharness.ts';
 import { featureRows } from '../src/subharness/summary.ts';
 import { defaultDenyDir } from '../src/subharness/run.ts';
 import { ROOT_DIR, deepMerge, readConfig, resolveEnvRefs } from '../src/config.ts';
@@ -181,6 +180,8 @@ const USAGE = [
   '       neptunia service start|stop|restart|status [<unit> ...]',
   '       neptunia setup [--system] [--node <path>] [folders|keys-file|interfaces|services|subharness|units|linger|core]',
   '       neptunia setup subharness codex|claude|opencode [--from <path>] [--version <version>] [--rollback]',
+  '       neptunia subharness codex|claude login|status|logout',
+  '       neptunia subharness opencode login --key <name>|status|logout',
   '       neptunia task <command> [options]   (neptunia task help)',
   COMMANDS_LINE,
 ].join('\n');
@@ -626,6 +627,8 @@ async function requireCliLink(print: ((text: string) => void) | null): Promise<C
 async function runCommand({ parsed, secretStdin }: Request): Promise<never> {
   if (!parsed.ok) return refuseSyntax(parsed.reason);
   const named = { name: parsed.name, args: parsed.args };
+  const account = accountRequest(named.name);
+  if (account !== null) return finish(await runAccount(account, named.args));
   if (runsHere(named.name)) {
     const isBareSetup =
       named.name.endsWith('.setup') && isServiceRequest(named.name) && Object.keys(named.args).length === 0;
@@ -650,6 +653,29 @@ async function runCommand({ parsed, secretStdin }: Request): Promise<never> {
   questions?.close();
   link.close();
   return finish(answer);
+}
+
+/** `neptunia subharness <backend> login|status|logout`: runs here with no core, so a broken core can be repaired from a shell. */
+async function runAccount(
+  request: NonNullable<ReturnType<typeof accountRequest>>,
+  args: Command['args']
+): Promise<Answer> {
+  const where = paths();
+  const config = readConfig(where.rootDir, { privateDir: where.privateDir });
+  const errands = isObject(config.errands) ? config.errands : {};
+  const key = typeof args.key === 'string' ? args.key : undefined;
+  return accountCommand(
+    {
+      privateDir: where.privateDir,
+      hostEnv: process.env,
+      install: installRun,
+      ask: process.stdin.isTTY === true ? (question) => askAtTerminal(question, null) : null,
+      opencodeSource: typeof errands.opencodePath === 'string' ? errands.opencodePath : DEFAULT_OPENCODE_PATH,
+    },
+    request.backend,
+    request.action,
+    key === undefined ? {} : { key }
+  );
 }
 
 /** The longest `-p` waits for the end of a turn (ms), so a line that never gets a turn still ends; decided 2026-11-04. */
@@ -1344,19 +1370,9 @@ async function changeSubharnessVersion(backend: BackendName, flag: string, value
   if (outcome.state === 'failed') process.exitCode = 1;
 }
 
-/** The `--help` of the binary `login` starts, empty when it did not run. */
-function installedHelp(login: LoginCommand): string {
-  const run = spawnSync(login.command, ['--help'], {
-    env: { PATH: process.env.PATH ?? '', HOME: os.homedir(), ...login.env },
-    encoding: 'utf8',
-    timeout: 30_000,
-  });
-  return run.error === undefined ? run.stdout : '';
-}
-
 /**
- * `setup subharness <backend> [--from <path>]`: the backend installed into the private layer, then the login line the
- * owner types at this terminal. opencode is copied from `--from`, else from `errands.opencodePath`.
+ * `setup subharness <backend> [--from <path>]`: the backend installed into the private layer, then the account command
+ * that logs it in. opencode is copied from `--from`, else from `errands.opencodePath`.
  */
 async function runSubharnessSetup(argv: ReadonlyArray<string>): Promise<void> {
   const [name, flag, value, ...extra] = argv;
@@ -1382,29 +1398,8 @@ async function runSubharnessSetup(argv: ReadonlyArray<string>): Promise<void> {
   );
   console.log(`${outcome.state.padEnd(8)}  subharness ${backend}  ${outcome.detail}`);
   if (outcome.state === 'failed') process.exit(1);
-  const plain = loginCommand(where.privateDir, backend);
-  if (plain === null) {
-    console.log(`next, in the chat: subharness enable ${backend} --key <name>`);
-    process.exit(0);
-  }
-  // The login subcommand of claude differs between releases: the installed binary's help names the one it has. A help
-  // that names none, or a binary that did not run, throws here and `fault` prints the diagnostic with exit 1.
-  const help = backend === 'claude' ? installedHelp(plain) : undefined;
-  const login = loginCommand(where.privateDir, backend, help) ?? plain;
-  console.log(`log in at this terminal: ${login.text}`);
-  console.log(`then, in the chat: subharness enable ${backend}`);
+  console.log(`next: neptunia subharness ${backend} login${backend === 'opencode' ? ' --key <name>' : ''}`);
   process.exit(0);
-}
-
-/** The reply check of the subharness step: one run of her installed codex or claude, read-only, in the temp folder. */
-function replyCheck(privateDir: string): EnableDeps['runBackend'] {
-  return (backend, brief, model) =>
-    createInstalledBackend(backend, privateDir).run(brief, {
-      cwd: os.tmpdir(),
-      timeoutMs: REPLY_CHECK_MS,
-      sandbox: 'read-only',
-      ...(model === undefined ? {} : { model }),
-    });
 }
 
 async function runSetupCommand(argv: ReadonlyArray<string>): Promise<void> {
@@ -1441,8 +1436,6 @@ async function runSetupCommand(argv: ReadonlyArray<string>): Promise<void> {
             ask: askAtTerminal,
             gh: spawnGh(process.env),
             install: installRun,
-            runBackend: replyCheck(where.privateDir),
-            fetch,
             hostEnv: process.env,
           }
         : {}),

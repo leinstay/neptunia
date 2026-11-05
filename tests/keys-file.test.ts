@@ -41,12 +41,12 @@ test('a backend that is none of the three reads as off', () => {
     path.join(dir, 'keys.json'),
     JSON.stringify({ subharness: { backend: 'rm', key: null, modes: {} } })
   );
-  // Changed for spec 2026-11-02 PR 5 "Several subharnesses": the store holds the list `backends`, and off is the empty list.
-  assert.deepEqual(readKeys(dir).subharness.backends, []);
+  // Changed: the store holds what each agent uses, and off is no entry.
+  assert.deepEqual(readKeys(dir).subharness.uses, {});
 });
 
-// Several subharnesses (spec 2026-11-02, PR 5): `subharness.backends` is the list of connected backends, and the old
-// single `subharness.backend` of a store written before it reads as a one-element list.
+// A stored `subharness.backends`, and the old single `subharness.backend` before it, migrate at read time into the
+// `uses` entry of every agent that named no backend. The first valid name is what those agents ran through.
 
 const writeRaw = (subharness: Record<string, unknown>): string => {
   const dir = tempDir('nep-keysfile-');
@@ -54,36 +54,42 @@ const writeRaw = (subharness: Record<string, unknown>): string => {
   return dir;
 };
 
-test('a stored list of backends reads in its order, a repeat and an unknown name dropped', () => {
-  // Catches: the list is sorted or deduplicated badly, so backends[0] (the default of an agent) is not the first one
-  // connected, or a hand-edited name reaches a spawn.
-  const dir = writeRaw({ backends: ['claude', 'rm', 'codex', 'claude'], key: null, modes: {} });
-  assert.deepEqual(readKeys(dir).subharness.backends, ['claude', 'codex']);
+test('a stored list becomes the uses of the agents, its first valid name, an unknown name dropped', () => {
+  // Catches: the list is sorted badly, so an agent moves off the backend it ran through, or a hand-edited name reaches a
+  // spawn.
+  // Changed: the list is read into `uses`, not kept.
+  const dir = writeRaw({ backends: ['rm', 'claude', 'codex', 'claude'], key: null, modes: {} });
+  assert.equal(readKeys(dir).subharness.uses.dev, 'claude');
 });
 
-test('the single backend of a store written before the list reads as a list of that one', () => {
+test('the single backend of a store written before the list migrates the same way', () => {
   // Catches: a deployment that enabled codex before this change reads as off after the upgrade and every errand fails.
+  // Changed: the list is read into `uses`, not kept.
   const dir = writeRaw({ backend: 'codex', key: null, modes: {} });
-  assert.deepEqual(readKeys(dir).subharness.backends, ['codex']);
+  assert.equal(readKeys(dir).subharness.uses.dev, 'codex');
 });
 
-test('an old single backend that is null or no backend reads as an empty list', () => {
-  // Catches: `[null]` or `['rm']` is read as a connected backend and an agent run spawns it.
-  assert.deepEqual(readKeys(writeRaw({ backend: null, key: null, modes: {} })).subharness.backends, []);
-  assert.deepEqual(readKeys(writeRaw({ backend: 'rm', key: null, modes: {} })).subharness.backends, []);
+test('an old single backend that is null or no backend assigns nothing', () => {
+  // Catches: `[null]` or `['rm']` is read as a backend and an agent run spawns it.
+  // Changed: the list is read into `uses`, not kept.
+  assert.deepEqual(readKeys(writeRaw({ backend: null, key: null, modes: {} })).subharness.uses, {});
+  assert.deepEqual(readKeys(writeRaw({ backend: 'rm', key: null, modes: {} })).subharness.uses, {});
 });
 
 test('the backend each agent runs through keeps only backend names', () => {
   // Catches: a hand-edited `uses` entry such as "sh" is passed to the run as a backend.
-  const dir = writeRaw({ backends: ['codex'], uses: { watcher: 'claude', scout: 'sh' }, key: null, modes: {} });
+  // Changed: no list in the seed, which would assign the other agents.
+  const dir = writeRaw({ uses: { watcher: 'claude', scout: 'sh' }, key: null, modes: {} });
   assert.deepEqual(readKeys(dir).subharness.uses, { watcher: 'claude' });
 });
 
-test('a write of the store leaves no single backend field beside the list', () => {
+test('a write of the store leaves neither the single backend nor the list', () => {
   // Catches: the old `backend` survives a write and a reader of the old shape keeps a backend the owner disabled.
+  // Changed: the list is gone from the store too, its choice kept in `uses`.
   const dir = writeRaw({ backend: 'codex', key: null, modes: {} });
   writeKeys(dir, readKeys(dir));
   const raw = JSON.parse(fs.readFileSync(path.join(dir, 'keys.json'), 'utf8')) as { subharness: object };
   assert.equal(Object.hasOwn(raw.subharness, 'backend'), false);
-  assert.deepEqual(readKeys(dir).subharness.backends, ['codex']);
+  assert.equal(Object.hasOwn(raw.subharness, 'backends'), false);
+  assert.equal(readKeys(dir).subharness.uses.dev, 'codex');
 });

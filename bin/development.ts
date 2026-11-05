@@ -54,13 +54,22 @@ function profileTools(agent: string, where: { rootDir: string; dataDir: string }
   return definition && 'tools' in definition ? definition.tools : undefined;
 }
 
-/** A skill task's package: filed when a pending version names the task, which the thinker's `task skill-pending` does. */
-async function skillPackage(link: BoardLink, task: TaskRecord): Promise<SkillPackageAnswer> {
+/**
+ * A skill task's package: the one pending version whose `task` names the task, bound to it by the core's `bindPackage`
+ * (`skill.pending { name, task }`). This process has the link and no skills access, so the core does the binding.
+ */
+export async function skillPackage(link: Pick<BoardLink, 'command'>, task: TaskRecord): Promise<SkillPackageAnswer> {
   const answer = await link.command('skill.pending', { json: true });
   if (answer.status !== 'ok') return { code: 'refused', reason: `${answer.status}: ${answer.text}` };
   const pending: unknown = JSON.parse(answer.text);
-  const named = Array.isArray(pending) && pending.some((one) => (one as { task?: unknown } | null)?.task === task.id);
-  return named ? { code: 'pending' } : { code: 'refused', reason: `no pending skill version names ${task.id}` };
+  const named = (Array.isArray(pending) ? (pending as Array<{ task?: unknown; skill?: unknown }>) : []).filter(
+    (one) => one?.task === task.id
+  );
+  const [only] = named;
+  if (only === undefined) return { code: 'refused', reason: `no pending skill version names ${task.id}` };
+  if (named.length > 1) return { code: 'refused', reason: `more than one pending skill version names ${task.id}` };
+  const bound = await link.command('skill.pending', { name: only.skill, task: task.id });
+  return bound.status === 'ok' ? { code: 'pending' } : { code: 'refused', reason: `${bound.status}: ${bound.text}` };
 }
 
 /** The edges over the checkout of the settings, or why the worker cannot work there. */

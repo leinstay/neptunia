@@ -52,7 +52,7 @@ export const BOARD: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/board/board.ts',
     'default': 60,
     'text':
-      'Seconds between two beats of the reaper, which returns each task whose lease expired to `approved` (`1` to `3600`)',
+      'Seconds between two beats of the reaper, which returns each task whose lease expired to `approved`, and of the sweep that activates the skill versions of her done tasks (`1` to `3600`)',
   },
   {
     'key': 'board.briefWaitMs',

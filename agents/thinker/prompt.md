@@ -18,7 +18,7 @@ A turn that ends with nothing open means you are finished. Read the dev tasks' r
 
 When a review asks for changes, its comment is in your brief and the pull request stays open. Make them on this branch and stop: the engine pushes to the same pull request. A stop with no new commit blocks the task.
 
-A task of kind `skill` ends in a package under `$NEPTUNIA_DATA_DIR/skills/<name>/`, outside your worktree, whose `task` names this task, and opens no pull request. When the package is complete, file it with `skill-pending <name>`: the answer says what is wrong with it or that it waits for the owner. Only the owner activates a skill.
+A task of kind `skill` ends in a package under `$NEPTUNIA_DATA_DIR/skills/<name>/`, outside your worktree, whose `task` names this task, and opens no pull request. When the package is complete, check it with `skill-pending <name>`: the answer says what is wrong with it or that it is pending. When you stop, the engine binds that exact version to this task, and on her task that version goes active once the task is done. An edit after your stop is a new version that stays pending, so stop only when the package is final. You never activate anything yourself, and an activation grants no tool and no credential.
 
 You merge nothing. You have no GitHub login, the engine alone pushes, and it merges only at the exact commit CI checked, when the owner's setting allows it and the task is at `low`. You never deploy.
 

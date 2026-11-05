@@ -10,11 +10,11 @@
 import fs from 'node:fs';
 import nodePath from 'node:path';
 import { childEnvOf, tokensOf } from '../agent-runner/backend.ts';
-import { readKeys } from '../keys/file.ts';
 import { log } from '../log.ts';
 import { SESSION_PURPOSE } from '../memory/db/session.ts';
 import type { Completion, SessionContext } from '../memory/db/session.ts';
 import type { UsageEntry } from '../tools/impl/usage.ts';
+import { markedRun } from './activity.ts';
 import { memoryPath } from './memory-path.ts';
 import type { SubharnessMemoryPath } from './memory-path.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
@@ -144,7 +144,6 @@ export async function runMemoryWriter(
   input: { system: string; user: string; timeoutMs: number },
   deps: MemoryWriterDeps
 ): Promise<Completion> {
-  if (!readKeys(deps.privateDir).subharness.backends.includes(path.backend)) throw refusal('subharness-off');
   if (!isInstalled(deps.privateDir, path.backend)) throw refusal('not-installed');
   const place = subharnessPlace(deps.privateDir, path.backend);
   fs.mkdirSync(deps.workDir, { recursive: true });
@@ -154,14 +153,16 @@ export async function runMemoryWriter(
     const outFile = nodePath.join(dir, 'final.txt');
     const codex = path.backend === 'codex';
     if (codex) fs.writeFileSync(schemaFile, JSON.stringify(MEMORY_ANSWER_SCHEMA));
-    const outcome = await deps.runChild({
-      binary: place.binary,
-      args: codex ? codexArgs(path, schemaFile, outFile) : claudeArgs(path, input.system),
-      env: childEnvOf({ ...place.env }),
-      stdin: codex ? `${input.system}\n\n${input.user}` : input.user,
-      cwd: dir,
-      timeoutMs: input.timeoutMs,
-    });
+    const outcome = await markedRun(deps.privateDir, path.backend, () =>
+      deps.runChild({
+        binary: place.binary,
+        args: codex ? codexArgs(path, schemaFile, outFile) : claudeArgs(path, input.system),
+        env: childEnvOf({ ...place.env }),
+        stdin: codex ? `${input.system}\n\n${input.user}` : input.user,
+        cwd: dir,
+        timeoutMs: input.timeoutMs,
+      })
+    );
     log.info('memory writer: subharness run', {
       backend: path.backend,
       exitCode: outcome.exitCode,

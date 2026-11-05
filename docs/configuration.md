@@ -442,7 +442,7 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 | `board.autoTriage.steps` | number | `80` | The step cap `task.add` with `auto` fills in when the caller left it out | `src/board/board.ts` |
 | `board.autoTriage.estimate` | number | `30` | The estimate in minutes `task.add` with `auto` fills in when the caller left it out | `src/board/board.ts` |
 | `board.projects` | map | `{}` | Per project: `autoTriage` overrides the board-wide one field by field, and `ci: false` marks a project without CI, whose tasks a reviewer merges on recorded passing tests | `src/board/board.ts` |
-| `board.reapSeconds` | number | `60` | Seconds between two beats of the reaper, which returns each task whose lease expired to `approved` (`1` to `3600`) | `src/board/board.ts` |
+| `board.reapSeconds` | number | `60` | Seconds between two beats of the reaper, which returns each task whose lease expired to `approved`, and of the sweep that activates the skill versions of her done tasks (`1` to `3600`) | `src/board/board.ts` |
 | `board.briefWaitMs` | number | `1800000` | Milliseconds `task.next` holds back a task whose answer no reviewer has acted on yet (`0` to 7 days) | `src/board/board.ts` |
 
 ## intentions

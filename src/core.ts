@@ -132,7 +132,7 @@ import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
 import { RELATIONSHIP_LIMITS } from './memory/text-limits.ts';
 import { createInstalledBackend, runChildProcess } from './agent-runner/backend.ts';
-import { helpOfInstalled, isInstalled } from './subharness/place.ts';
+import { helpOfInstalled } from './subharness/place.ts';
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
 import { clearMemoryPath } from './subharness/memory-path.ts';
@@ -1362,11 +1362,9 @@ async function buildCore(
       skills: skillsWiring.access,
       // `/keys` and the checked `/model set` (src/keys/commands.ts), over the key store.
       keys: { enabled: () => true, run: (name, args, dialog) => keysCommands.run(name, args, dialog) },
-      // `/subharness enable` checks with one run of the backend or one GET of the key (src/subharness/control.ts); a
-      // mode change goes into the agent's unit (src/setup/install.ts).
+      // `/model set --via` checks with one reply of the backend (src/subharness/selection.ts); a mode change goes into
+      // the agent's unit (src/setup/install.ts).
       subharness: {
-        asksModels: true,
-        isInstalled: (backend) => isInstalled(paths.privateDir, backend),
         runBackend: runSubharnessBackend,
         helpOf: (backend) => helpOfInstalled(paths.privateDir, backend),
         fetch,
@@ -1381,8 +1379,9 @@ async function buildCore(
     guildId: getGuildId,
     // The agents' board commands (src/board/commands.ts), each run in the memory writer.
     tasks: board,
-    // The agents' `skill.pending` (src/skills/agent-commands.ts).
+    // The agents' `skill.pending` (src/skills/agent-commands.ts), which binds a package on the board.
     skills: skillsWiring.access,
+    board,
     facts: () =>
       coreStatusFacts({
         hot,
@@ -1588,6 +1587,16 @@ async function buildCore(
     run: async () => {
       const ids = await board.reap();
       if (ids.length > 0) log.info('board: leases expired', { count: ids.length, tasks: ids });
+    },
+  });
+  // Her done skill tasks activate the version each one bound (src/skills/task-activation.ts), on the reaper's clock. Only the
+  // core holds the skills access and the board together. A sweep looks at the board and not at a notification, so a crash
+  // between a task's end and its activation recovers on the first beat after the start.
+  scheduler.add({
+    name: 'skills.settle',
+    everyMs: () => boardTimings(settings.config).reapSeconds * 1000,
+    run: async () => {
+      for (const one of await skillsWiring.settle()) log.info('skills: task settled', { ...one });
     },
   });
   // The inner life's tick, every wakes.tickSeconds (read before each wait).
