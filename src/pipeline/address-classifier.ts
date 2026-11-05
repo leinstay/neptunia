@@ -11,6 +11,12 @@ import { MINUTE_MS } from '../time.ts';
 import type { ClassifierParams, ClassifierRequest } from './classifier-request.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot, PipelineLlm, PipelineMissed } from './types.ts';
 
+/** Whether `text` starts with one of the three verdict words, `yes`, `no` or `overheard`, in any case. */
+function isVerdict(text: unknown): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's answer as it came, read as text
+  return /^\s*(?:y\w*|no|overheard)\b/iu.test(String(text ?? ''));
+}
+
 /** How recent a one-to-one exchange keeps a line when the classifier fails. Production value, config cut of 2026-10-31. */
 const FAIL_OPEN_MINUTES = 3;
 
@@ -147,7 +153,7 @@ export function createAddressClassifier({
 
     // No model to ask: a flagged line opens as it does on a failed call, and nothing failed.
     let answer: AddressAnswer = flagged && !llm ? 'yes' : 'no';
-    let failure: 'classifier-failed' | 'empty' | null = null; // set when the call gave no answer
+    let failure: 'classifier-failed' | 'empty' | 'unparsed' | null = null; // set when the call gave no answer
     if (llm) {
       // Read once: the request and its empty-answer warning name the same model.
       const model: unknown = roleModel(config, 'analyzer', 'address');
@@ -175,8 +181,13 @@ export function createAddressClassifier({
         // A completion carries its text (src/llm/openrouter.ts#complete).
         const done = completion as { text?: unknown };
         // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's answer as it came, read as text
-        if (String(done.text ?? '').trim()) {
-          answer = parseAddressAnswer(done.text);
+        const said = String(done.text ?? '');
+        if (flagged && !isVerdict(said)) {
+          // A flagged line whose answer is no verdict at all was not judged: it opens like a failed call.
+          log.warn('follow-up: classifier failed', { channel: placeId, reason: 'unparsed', model: model ?? null });
+          failure = 'unparsed';
+        } else if (said.trim()) {
+          answer = parseAddressAnswer(said);
         } else {
           // Nothing at all (typically a reasoning model that spent its whole
           // output cap thinking) is a failed call, not a silent "no".

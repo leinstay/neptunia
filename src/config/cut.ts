@@ -442,6 +442,12 @@ const CODE: Readonly<Record<string, unknown>> = {
 
 /** The switches and knobs that went with their code, with the value production ran with. */
 const GONE: Readonly<Record<string, unknown>> = {
+  // A name in a line opens nothing: the classifier reads the card's `## Aliases` (src/behavior/mention.ts#cardAliases).
+  'bot.nameTriggers': [],
+  // One elsewhere pick replaced the route classifier and the participation pick, under `elsewhere.*`.
+  'route.maxOutputTokens': 120,
+  'participation.maxOutputTokens': 60,
+  'participation.pickTimeoutMs': 1500,
   // The plugin mechanism left the engine, and no command changes the section a layer written before that still sets.
   plugins: null,
   // Quick search runs one chosen engine and nothing answers in its place.
