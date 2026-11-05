@@ -52,14 +52,16 @@ const BOUNDARIES: ReadonlyArray<{ what: string; argv: ReadonlyArray<string>; nam
   },
   {
     what: 'spaces inside an argument before the last',
-    argv: ['memory', 'lore', 'add', 'The Tower', 'tower, spire', NASTY],
-    name: 'memory.lore.add',
-    args: { title: 'The Tower', keys: 'tower, spire', text: NASTY },
+    // Plan 2026-11-04-cli-and-memory task 8 retires `/memory lore`: its writes are place-qualified.
+    argv: ['memory', 'places', 'lore', 'add', 'g1', 'The Tower', 'tower, spire', NASTY],
+    name: 'memory.places.lore.add',
+    args: { place: 'g1', title: 'The Tower', keys: 'tower, spire', text: NASTY },
   },
   {
     what: 'two arguments each holding spaces',
-    argv: ['memory', 'aliases', 'add', 'Two Words', 'Νίκος "Νίκη" $(x)'],
-    name: 'memory.aliases.add',
+    // Plan 2026-11-04-cli-and-memory task 8 retires `/memory aliases`: its writes live under `/memory users names`.
+    argv: ['memory', 'users', 'names', 'add', 'Two Words', 'Νίκος "Νίκη" $(x)'],
+    name: 'memory.users.names.add',
     args: { user: 'Two Words', name: 'Νίκος "Νίκη" $(x)' },
   },
   {
@@ -219,10 +221,11 @@ test('a hostile value reaches the handler whole from a real argv, and no shell r
   fresh();
   const canary = join(dirs.root, 'canary');
   const text = `${nasty(canary)}${SPACED}`;
-  const run = await runChild(dirs, ['memory', 'lore', 'add', 'The Tower', 'tower, spire', text]);
+  // Plan 2026-11-04-cli-and-memory task 8 retires `/memory lore`: its writes are place-qualified.
+  const run = await runChild(dirs, ['memory', 'places', 'lore', 'add', 'g1', 'The Tower', 'tower, spire', text]);
   assert.equal(run.code, 0, run.stderr.slice(0, 200));
   assert.deepEqual(core.commands, [
-    { name: 'memory.lore.add', args: { title: 'The Tower', keys: 'tower, spire', text } },
+    { name: 'memory.places.lore.add', args: { place: 'g1', title: 'The Tower', keys: 'tower, spire', text } },
   ]);
   assert.equal(existsSync(canary), false, 'no shell ran the value');
 });

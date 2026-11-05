@@ -13,6 +13,7 @@ import { modelRoleRegistry } from '../src/subharness/model-capabilities.ts';
 import type { RoleSources, SourceDescriptor } from '../src/subharness/model-capabilities.ts';
 import { ModelPicker, openPicker, pickerReduce, pickerReview, pickerRows } from '../cli/model-picker.ts';
 import type { PickerEffect, PickerEvent, PickerState, PickerCommand } from '../cli/model-picker.ts';
+import { until } from './fixtures/chat-rig.ts';
 
 const API: SourceDescriptor = {
   id: 'api:openrouter',
@@ -423,11 +424,21 @@ const pause = (ms = 50): Promise<void> => new Promise((resolve) => setTimeout(re
 const ENTER = '\r';
 const ESC = '\u001b';
 
-async function pressed(type: (text: string) => void, keys: ReadonlyArray<string>): Promise<void> {
-  for (const key of keys) {
-    type(key);
-    await pause();
-  }
+/** Types one key and waits until the screen shows the step it leads to, so the next key meets that step. */
+async function go(rig: ReturnType<typeof terminal>, key: string, shown: string): Promise<void> {
+  rig.type(key);
+  await until(() => rig.screen().includes(shown));
+}
+
+/** The walk to the review of the speech role: Main, the Voice role, API, its source and its model. */
+async function walkToReview(rig: ReturnType<typeof terminal>): Promise<void> {
+  await until(() => rig.screen().includes('Choose a category'));
+  await go(rig, ENTER, 'Choose a role');
+  await go(rig, 'Voice', 'filter: Voice');
+  await go(rig, ENTER, 'Choose a provider type');
+  await go(rig, ENTER, 'Choose a source');
+  await go(rig, ENTER, 'Choose a model');
+  await go(rig, ENTER, 'Review');
 }
 
 function drawPicker(over: {
@@ -468,20 +479,13 @@ test('the keys walk the screen to one commit of the speech role, double Enter on
   // Catches: the screen drifting from the reducer, or the review's Enter reaching the setter twice.
   const { rig, commits, app, closes } = drawPicker({ read: (role) => Promise.resolve(read(role, [API])) });
   try {
-    await pause();
-    await pressed(rig.type, [
-      ENTER, // Main
-      'Voice',
-      ENTER, // the role, filtered
-      ENTER, // API
-      ENTER, // the source
-      ENTER, // the model
-    ]);
-    await pause();
+    await walkToReview(rig);
     assert.ok(rig.screen().includes('speech'), rig.screen());
     assert.ok(rig.screen().includes('vendor/voice-1'), rig.screen());
     assert.deepEqual(commits, []);
-    await pressed(rig.type, [ENTER, ENTER]);
+    await go(rig, ENTER, 'saved it');
+    rig.type(ENTER);
+    // The second Enter changes nothing on the saved screen, so only a fixed wait lets a second commit show.
     await pause();
     assert.deepEqual(commits, [{ name: 'model.set', args: { role: 'speech', model: 'vendor/voice-1' } }]);
     assert.equal(closes(), 0);
@@ -497,16 +501,16 @@ test('Escape at the top closes the selector, and a late read afterwards draws no
   const held = new Promise<RoleSources>((resolve) => (release = resolve));
   const { rig, commits, app, closes } = drawPicker({ read: () => held });
   try {
-    await pause();
-    await pressed(rig.type, [ENTER, ENTER]);
-    await pressed(rig.type, [ESC]);
-    await pause(100);
-    await pressed(rig.type, [ESC]);
-    await pause(100);
-    await pressed(rig.type, [ESC]);
-    await pause(100);
+    await until(() => rig.screen().includes('Choose a category'));
+    await go(rig, ENTER, 'Choose a role');
+    await go(rig, ENTER, 'Loading…');
+    await go(rig, ESC, 'Choose a role');
+    await go(rig, ESC, 'Choose a category');
+    rig.type(ESC);
+    await until(() => closes() === 1);
     assert.equal(closes(), 1);
     release(read('core', [{ ...API, label: 'A late source row' }]));
+    // The late listing must draw nothing, so only a fixed wait lets it show.
     await pause();
     assert.equal(rig.screen().includes('A late source row'), false, rig.screen());
     assert.deepEqual(commits, []);
@@ -522,9 +526,8 @@ test('a refused commit stays on the review with the reason on the screen', async
     commit: () => Promise.resolve({ status: 'failed', code: 'model-rejected', text: 'that model is not on this key' }),
   });
   try {
-    await pause();
-    await pressed(rig.type, [ENTER, 'Voice', ENTER, ENTER, ENTER, ENTER, ENTER]);
-    await pause();
+    await walkToReview(rig);
+    await go(rig, ENTER, 'that model is not on this key');
     assert.ok(rig.screen().includes('that model is not on this key'), rig.screen());
     assert.equal(commits.length, 1);
     assert.ok(rig.screen().includes('vendor/voice-1'), rig.screen());

@@ -1,5 +1,5 @@
 // Operations: `/nep alias`: the owner confirms or removes a member's alias, and the owner's console read
-// `/memory aliases list` (no operation, so no tool of hers) lists them.
+// `/memory users names` (no operation, so no tool of hers) lists them.
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -97,7 +97,7 @@ const handlers = perEnv((env) => {
     return formatAliasList(after, memoryCfg);
   }
 
-  /** `/memory aliases list <user>`: the member's aliases, as `add` and `remove` answer them. A member with no
+  /** The member's aliases, as `add` and `remove` answer them. A member with no
    * profile is an error. */
   function cmdAliasList(args: Obj, context: OpContext) {
     const accountId = idText(args.accountId);
@@ -110,7 +110,7 @@ const handlers = perEnv((env) => {
   return { cmdAliasAdd, cmdAliasRemove, cmdAliasList };
 });
 
-/** `/memory aliases list <user>` of the owner's console (src/interface/commands/console.ts), over the ops env `env`. */
+/** The member's aliases for the owner's console (src/interface/commands/console.ts), over the ops env `env`. */
 export function listAliases(env: Env, args: Obj, context: OpContext): string {
   return handlers(env).cmdAliasList(args, context);
 }

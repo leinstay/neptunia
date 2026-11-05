@@ -5,6 +5,7 @@ import { Writable, Readable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
 import { runInteractive } from '../cli/index.ts';
 import type { ChatEnv, ChatEntry, Question } from '../cli/index.ts';
+import { until } from './fixtures/chat-rig.ts';
 
 function terminal(columns = 80) {
   let frames = '';
@@ -31,7 +32,8 @@ function terminal(columns = 80) {
   return { stdout, stdin, type, frames: () => frames, screen: () => screen.replace(/\n$/, '').split('\n') };
 }
 
-const pause = (ms = 60): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const shows = (rig: ReturnType<typeof terminal>, needle: string) => (): boolean =>
+  rig.screen().join('\n').includes(needle);
 
 function envOf(over: Partial<ChatEnv> = {}) {
   const sent: Array<string> = [];
@@ -66,8 +68,17 @@ function envOf(over: Partial<ChatEnv> = {}) {
 
 async function withChat(env: ChatEnv, body: (rig: ReturnType<typeof terminal>) => Promise<void>): Promise<void> {
   const rig = terminal();
-  const running = runInteractive(env, { stdin: rig.stdin as never, stdout: rig.stdout as never });
-  await pause();
+  let subscribed = false;
+  const watched: ChatEnv = {
+    ...env,
+    subscribe: (given) => {
+      subscribed = true;
+      return env.subscribe(given);
+    },
+  };
+  const running = runInteractive(watched, { stdin: rig.stdin as never, stdout: rig.stdout as never });
+  // The first frame is drawn and the app listens for entries and questions: one sent earlier would be lost.
+  await until(() => subscribed && rig.screen().join('').trim() !== '');
   // A failed assertion still closes the chat, so a red test reports instead of hanging the run.
   try {
     await body(rig);
@@ -83,13 +94,13 @@ test("the screen shows the galaxy, the status line, and a typed line reaches the
   await withChat(env, async (rig) => {
     assert.match(rig.frames(), /neptunia/);
     assert.match(rig.frames(), /@/);
-    await pause();
+    await until(() => /Core: running/.test(rig.frames()));
     // The header presents each status on its own readable line.
     assert.match(rig.frames(), /Core: running/);
     rig.type('γεια');
-    await pause();
+    await until(shows(rig, '> γεια'));
     rig.type('\r');
-    await pause();
+    await until(() => sent.length === 1 && saved.length > 0);
   });
   assert.deepEqual(sent, ['γεια']);
   assert.deepEqual(saved.at(-1), ['γεια']);
@@ -99,15 +110,16 @@ test('the input stays at the terminal bottom when the conversation is empty and 
   // Bug: an empty conversation leaves the input below the header instead of at the terminal bottom.
   const { env } = envOf();
   await withChat(env, async (rig) => {
+    const inputRow = (): number => rig.screen().findIndex((line) => line.includes('> bottom-input'));
     rig.type('bottom-input');
-    await pause();
+    await until(() => inputRow() === rig.stdout.rows - 3);
     assert.equal(
       rig.screen().findIndex((line) => line.includes('> bottom-input')),
       rig.stdout.rows - 3
     );
     rig.stdout.rows = 32;
     rig.stdout.emit('resize');
-    await pause();
+    await until(() => inputRow() === rig.stdout.rows - 3);
     assert.equal(
       rig.screen().findIndex((line) => line.includes('> bottom-input')),
       rig.stdout.rows - 3
@@ -121,11 +133,11 @@ test('expanding a long answer preserves its first and final lines in terminal ou
   const lines = Array.from({ length: 40 }, (_, index) => `answer-line-${index + 1}`);
   await withChat(env, async (rig) => {
     listeners.entry?.({ who: 'her', text: lines.join('\n') });
-    await pause();
+    await until(() => rig.screen().includes('answer-line-1'));
     assert.ok(rig.screen().includes('answer-line-1'));
     assert.equal(rig.screen().includes('answer-line-40'), false);
     rig.type('\u000f');
-    await pause();
+    await until(() => rig.screen().includes('answer-line-40'));
     assert.ok(rig.screen().includes('answer-line-1'));
     assert.ok(rig.screen().includes('answer-line-40'));
   });
@@ -136,18 +148,18 @@ test('a slash opens its menu with descriptions, and a panel opens with its searc
   const { env, sent } = envOf();
   await withChat(env, async (rig) => {
     rig.type('/');
-    await pause();
+    await until(() => /\/status {2}the short summary/.test(rig.frames()));
     assert.match(rig.frames(), /\/status {2}the short summary/);
     rig.type('help');
-    await pause();
+    await until(shows(rig, '> /help'));
     rig.type('\r');
-    await pause(120);
+    await until(() => /search:/.test(rig.frames()));
     assert.match(rig.frames(), /search:/);
     rig.type('keys');
-    await pause();
+    await until(shows(rig, 'search: keys'));
     assert.match(rig.frames(), /keys the model keys/);
     rig.type('\u001b');
-    await pause(120);
+    await until(() => !rig.screen().join('\n').includes('search:'));
   });
   assert.deepEqual(sent, []);
 });
@@ -158,12 +170,12 @@ test('a secret question draws stars, its answer stays out of the history and off
   let answer = '';
   await withChat(env, async (rig) => {
     listeners.question?.({ question: 'The key:', secret: true, answer: (text) => (answer = text) });
-    await pause();
+    await until(shows(rig, 'The key:'));
     rig.type('sk-secret');
-    await pause();
+    await until(() => /\*{9}/.test(rig.frames()));
     assert.match(rig.frames(), /\*{9}/);
     rig.type('\r');
-    await pause();
+    await until(() => answer !== '');
     assert.equal(rig.frames().includes('sk-secret'), false);
   });
   assert.equal(answer, 'sk-secret');
@@ -175,11 +187,11 @@ test('clearing the display sends nothing to the core', async () => {
   const { env, sent, listeners } = envOf();
   await withChat(env, async (rig) => {
     listeners.entry?.({ who: 'her', text: 'μια απάντηση' });
-    await pause();
+    await until(shows(rig, 'μια απάντηση'));
     rig.type('/clear');
-    await pause();
+    await until(shows(rig, '> /clear'));
     rig.type('\r');
-    await pause();
+    await until(() => !rig.screen().join('\n').includes('μια απάντηση'));
   });
   assert.deepEqual(sent, []);
 });
@@ -220,21 +232,21 @@ test('panel navigation toggles a setting, edits another value and returns to cha
   });
   await withChat(env, async (rig) => {
     rig.type('/config');
-    await pause();
+    await until(shows(rig, '> /config'));
     rig.type('\r');
-    await pause(100);
+    await until(shows(rig, '1/2'));
     rig.type('\r');
-    await pause(100);
+    await until(shows(rig, 'Enabled  true'));
     rig.type('\u001b[B');
-    await pause();
+    await until(shows(rig, '2/2'));
     rig.type('\r');
-    await pause();
+    await until(shows(rig, 'Value:'));
     rig.type('new name');
-    await pause();
+    await until(shows(rig, 'Value: new name'));
     rig.type('\r');
-    await pause(100);
+    await until(shows(rig, 'Name  new name'));
     rig.type('\u001b');
-    await pause();
+    await until(() => !rig.screen().join('\n').includes('Enter open/toggle'));
   });
   assert.deepEqual(changed, ['true', 'new name']);
   assert.deepEqual(sent, []);
@@ -246,15 +258,15 @@ test('setup choices use arrows and Enter, while secret answers never appear in t
   const rig = terminal();
   const streams = { stdin: rig.stdin as never, stdout: rig.stdout as never };
   const choice = askQuestion('Enable heartbeat?', 'off', { choices: ['on', 'off'] }, streams);
-  await pause();
+  await until(shows(rig, 'Enable heartbeat?'));
   rig.type('\u001b[A');
-  await pause();
+  await until(() => /› on/.test(rig.screen().join('\n')));
   rig.type('\r');
   assert.equal(await choice, 'on');
   const secret = askQuestion('Service key', null, { secret: true }, streams);
-  await pause();
+  await until(shows(rig, 'Service key'));
   rig.type('private-value');
-  await pause();
+  await until(() => rig.screen().join('\n').includes('*'.repeat('private-value'.length)));
   rig.type('\r');
   assert.equal(await secret, 'private-value');
   assert.equal(rig.frames().includes('private-value'), false);

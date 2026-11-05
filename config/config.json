@@ -87,6 +87,11 @@
       "deadlineMs": 1000,
       "embedDocuments": true
     },
+    "inspection": {
+      "pageRows": 100,
+      "snapshotIdleSeconds": 60,
+      "snapshotMaxSeconds": 300
+    },
     "backup": {
       "enabled": false,
       "hour": 3,

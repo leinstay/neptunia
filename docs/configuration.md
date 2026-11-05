@@ -106,6 +106,9 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `memoryDb.retrieval.tokens` | number | `1500` | Tokens of assertion text on one page, except a prefetch, which shares `recall.prefetch.maxTokens` | `src/memory/retrieval-input.ts` |
 | `memoryDb.retrieval.deadlineMs` | number | `1000` | Milliseconds of one retrieval, except a prefetch, which shares `recall.prefetch.deadlineMs` | `src/memory/retrieval-input.ts` |
 | `memoryDb.retrieval.embedDocuments` | boolean | `true` | Whether new semantic search documents are embedded, one bounded batch a minute. Off, a search of them stays lexical | `src/memory/db/service.ts` |
+| `memoryDb.inspection.pageRows` | number | `100` | The most rows one page of an owner memory read holds, whatever limit a command asks for | `src/interface/commands/memory.ts` |
+| `memoryDb.inspection.snapshotIdleSeconds` | number | `60` | How long an inspection snapshot stays open with no read of it | `src/interface/commands/memory.ts` |
+| `memoryDb.inspection.snapshotMaxSeconds` | number | `300` | How long an inspection snapshot stays open at most, so it cannot hold the write-ahead log back | `src/interface/commands/memory.ts` |
 | `memoryDb.backup.enabled` | boolean | `false` | Daily backup of the persona data, including a consistent memory database snapshot | `src/memory/db/backup.ts` |
 | `memoryDb.backup.hour` | number | `3` | The UTC hour (0 to 23) from which the day's backup is taken | `src/memory/db/backup.ts` |
 | `memoryDb.backup.dir` | string | `"../backups/memory"` | Where the backups go, relative to the data directory or absolute | `src/memory/db/backup.ts` |

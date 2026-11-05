@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ClipboardResult } from '../cli/clipboard.ts';
 import type { ChatAttachment, ChatImages, StageResult } from '../cli/index.ts';
-import { KEY, chatEnv, pause, withChat } from './fixtures/chat-rig.ts';
+import { KEY, chatEnv, pause, press, shows, until, withChat } from './fixtures/chat-rig.ts';
 import { syntheticPng } from './fixtures/synthetic-png.ts';
 
 function images(over: Partial<ChatImages> = {}) {
@@ -45,13 +45,11 @@ test('a caption and a clipboard image go out together, once, with the staged ref
   const { fake } = images();
   const { env, turns, saved } = chatOf(fake);
   await withChat(env, async (rig) => {
-    rig.type('Explain this chart.');
-    await pause();
-    rig.type(KEY.ctrlV);
-    await pause();
+    await press(rig, 'Explain this chart.', shows(rig, '> Explain this chart.'));
+    await press(rig, KEY.ctrlV, shows(rig, '[image clipboard.png]'));
+    await press(rig, KEY.enter, () => turns.length === 1);
     rig.type(KEY.enter);
-    await pause();
-    rig.type(KEY.enter);
+    // The second Enter finds an empty composer and changes nothing, so only a fixed wait lets a second turn show.
     await pause();
   });
   assert.equal(turns.length, 1);
@@ -68,14 +66,10 @@ test('/attach stages a file on this machine, and the path never reaches the core
   const { fake } = images();
   const { env, turns } = chatOf(fake);
   await withChat(env, async (rig) => {
-    rig.type('/attach /home/example/chart.png');
-    await pause();
-    rig.type(KEY.enter);
-    await pause();
-    rig.type('Caption');
-    await pause();
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, '/attach /home/example/chart.png', shows(rig, '> /attach /home/example/chart.png'));
+    await press(rig, KEY.enter, shows(rig, '[image chart.png]'));
+    await press(rig, 'Caption', shows(rig, 'Caption'));
+    await press(rig, KEY.enter, () => turns.length === 1);
   });
   assert.equal(turns.length, 1);
   assert.equal(turns[0]?.line, 'Caption');
@@ -89,11 +83,9 @@ test('an unavailable clipboard keeps the caption and sends nothing', async () =>
   });
   const { env, turns, saved } = chatOf(fake);
   await withChat(env, async (rig) => {
-    rig.type('Explain this chart.');
-    await pause();
+    await press(rig, 'Explain this chart.', shows(rig, '> Explain this chart.'));
     const before = rig.screen().join('\n');
-    rig.type(KEY.ctrlV);
-    await pause();
+    await press(rig, KEY.ctrlV, shows(rig, 'No clipboard image'));
     assert.match(rig.screen().join('\n'), /Explain this chart\./);
     assert.notEqual(rig.screen().join('\n'), before, 'the state shows');
   });
@@ -115,18 +107,15 @@ test('a clipboard result that arrives after the draft changed attaches nothing a
   });
   const { env, turns } = chatOf(fake);
   await withChat(env, async (rig) => {
-    rig.type('first');
-    await pause();
-    rig.type(KEY.ctrlV);
-    await pause();
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, 'first', shows(rig, '> first'));
+    await press(rig, KEY.ctrlV, () => asked === 1);
+    await press(rig, KEY.enter, () => turns.length === 1);
     finish({ status: 'image', bytes: syntheticPng(), contentType: 'image/png' });
+    // The late result is dropped before it stages anything, so nothing on the screen or in the fakes changes. Only a
+    // fixed wait lets a wrongly staged or attached image show.
     await pause();
-    rig.type('second');
-    await pause();
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, 'second', shows(rig, '> second'));
+    await press(rig, KEY.enter, () => turns.length === 2);
   });
   assert.deepEqual(
     turns.map((turn) => [turn.line, turn.attachments.length]),
@@ -144,16 +133,12 @@ test('an invalid file shows its failure and sends nothing', async () => {
   const { fake } = images({ stageFile: () => Promise.resolve({ ok: false, code: 'invalid-image' }) });
   const { env, turns } = chatOf(fake);
   await withChat(env, async (rig) => {
-    rig.type('/attach /home/example/not.png');
-    await pause();
+    await press(rig, '/attach /home/example/not.png', shows(rig, '> /attach /home/example/not.png'));
     const before = rig.screen().join('\n');
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, KEY.enter, shows(rig, 'was not attached'));
     assert.notEqual(rig.screen().join('\n'), before);
-    rig.type('Caption');
-    await pause();
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, 'Caption', shows(rig, '> Caption'));
+    await press(rig, KEY.enter, () => turns.length === 1);
   });
   assert.deepEqual(
     turns.map((turn) => [turn.line, turn.attachments.length]),
@@ -166,14 +151,10 @@ test('Backspace on an attachment removes it and frees its staging', async () => 
   const { fake, released } = images();
   const { env, turns } = chatOf(fake);
   await withChat(env, async (rig) => {
-    rig.type(KEY.ctrlV);
-    await pause();
-    rig.type(KEY.backspace);
-    await pause();
-    rig.type('text');
-    await pause();
-    rig.type(KEY.enter);
-    await pause();
+    await press(rig, KEY.ctrlV, shows(rig, '[image clipboard.png]'));
+    await press(rig, KEY.backspace, () => !rig.screen().join('\n').includes('[image') && released.length === 1);
+    await press(rig, 'text', shows(rig, '> text'));
+    await press(rig, KEY.enter, () => turns.length === 1);
   });
   assert.deepEqual(released, ['a1']);
   assert.deepEqual(turns[0]?.attachments, []);
@@ -188,7 +169,7 @@ test('a received image shows its name and text alternative in the transcript', a
       text: '',
       attachments: [{ id: 'out1', name: 'out.png', contentType: 'image/png', reference: 'ref', alt: 'A grey square' }],
     });
-    await pause();
+    await until(() => shows(rig, 'out.png')() && shows(rig, 'A grey square')());
     const shown = rig.screen().join('\n');
     assert.match(shown, /out\.png/);
     assert.match(shown, /A grey square/);

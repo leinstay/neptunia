@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { boundaryPanel, checkpointPanel, sessionsPanel } from '../cli/session-picker.ts';
 import type { SessionClient } from '../cli/session-picker.ts';
-import { KEY, chatEnv, pause, withChat } from './fixtures/chat-rig.ts';
+import { KEY, chatEnv, press, shows, withChat } from './fixtures/chat-rig.ts';
 
 function clientOf(over: Partial<SessionClient> = {}) {
   const calls: Array<string> = [];
@@ -120,14 +120,10 @@ test('the mounted picker keeps the draft, and Enter on its row resumes without a
     panelOf: async (line) => (line === '/sessions' ? sessionsPanel(client) : null),
   });
   await withChat(env, async (rig) => {
-    rig.type('/sessions');
-    await pause();
-    rig.type(KEY.enter);
-    await pause(100);
-    rig.type(KEY.enter);
-    await pause(100);
-    rig.type(KEY.escape);
-    await pause(100);
+    await press(rig, '/sessions', shows(rig, '> /sessions'));
+    await press(rig, KEY.enter, shows(rig, 'First question'));
+    await press(rig, KEY.enter, () => calls.includes('resume:s1'));
+    await press(rig, KEY.escape, () => !rig.screen().join('\n').includes('First question'));
   });
   assert.deepEqual(calls, ['list', 'resume:s1']);
   assert.deepEqual(sent, []);

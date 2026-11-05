@@ -53,10 +53,32 @@ export function terminal(columns = 80, rows = 24): Rig {
 
 export const pause = (ms = 40): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Polls until the condition holds or the deadline passes; a condition that never held fails in the assertion after it. */
+const turn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+/**
+ * Polls until the condition holds or the deadline passes; a condition that never held fails in the assertion after it.
+ * Once it holds, two turns of the event loop let React run the effects of the frame just drawn, which bind the key
+ * handler to the new owner: a key typed in that gap reaches the handler of the frame before.
+ */
 export async function until(condition: () => boolean, deadlineMs = 5000): Promise<void> {
   const end = Date.now() + deadlineMs;
   while (!condition() && Date.now() < end) await pause(10);
+  await turn();
+  await turn();
+}
+
+/** A condition that holds while the screen shows the text (or the pattern) anywhere. */
+export const shows =
+  (rig: Rig, needle: string | RegExp) =>
+  (): boolean => {
+    const text = rig.screen().join('\n');
+    return typeof needle === 'string' ? text.includes(needle) : needle.test(text);
+  };
+
+/** Types one input and waits until the app shows its effect, so the next input meets the state it depends on. */
+export async function press(rig: Rig, input: string | Buffer, landed: () => boolean): Promise<void> {
+  rig.type(input);
+  await until(landed);
 }
 
 export const KEY = {
@@ -128,8 +150,17 @@ export async function withChat(
   size: { columns?: number; rows?: number } = {}
 ): Promise<void> {
   const rig = terminal(size.columns, size.rows);
-  const running = runInteractive(env, { stdin: rig.stdin as never, stdout: rig.stdout as never });
-  await pause();
+  let subscribed = false;
+  const watched: ChatEnv = {
+    ...env,
+    subscribe: (given) => {
+      subscribed = true;
+      return env.subscribe(given);
+    },
+  };
+  const running = runInteractive(watched, { stdin: rig.stdin as never, stdout: rig.stdout as never });
+  // The first frame is drawn and the app listens for entries: a key or a question sent earlier would be lost.
+  await until(() => subscribed && rig.screen().join('').trim() !== '');
   // A failed assertion still closes the chat, so a red test reports instead of hanging the run.
   try {
     await body(rig);

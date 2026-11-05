@@ -171,7 +171,8 @@ test('every read command of the table answers with exit 0 and asks no model', as
       '/model',
       '/routes',
       '/memory recent --place g1',
-      '/memory lore list --place g1',
+      // Plan 2026-11-04-cli-and-memory task 8 retires `/memory lore`: its reads are place-qualified.
+      '/memory places lore list g1',
       '/rules list',
       '/tools list',
       '/tools describe web.search',
@@ -387,12 +388,13 @@ test('/memory conversation prints a line of that conversation', async () => {
   });
 });
 
-test('/memory lore add stores an entry that /memory lore list then names', async () => {
+// Plan 2026-11-04-cli-and-memory task 8 retires `/memory lore`: its operations are place-qualified.
+test('/memory places lore add stores an entry that /memory places lore list then names', async () => {
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const added = await p(dirs, '/memory lore add Zetatower zetatower,spire The tower has seven floors --place g1');
+    const added = await p(dirs, '/memory places lore add g1 Zetatower zetatower,spire The tower has seven floors');
     assert.equal(added.code, 0, added.stdout + added.stderr.slice(-2000));
-    assert.ok((await p(dirs, '/memory lore list --place g1')).stdout.includes('Zetatower'));
+    assert.ok((await p(dirs, '/memory places lore list g1')).stdout.includes('Zetatower'));
   });
 });
 
