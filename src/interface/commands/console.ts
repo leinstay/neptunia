@@ -27,9 +27,11 @@ import { memoryHealth } from '../../health/memory.ts';
 import { serverHealth, systemProbe, worse } from '../../health/server.ts';
 import type { HealthStatus } from '../../health/server.ts';
 import type { Dialog } from '../../keys/commands.ts';
+import { untracked } from '../../loop-watch.ts';
+import type { Track } from '../../loop-watch.ts';
 import { setInterfaceToken } from './interface-token.ts';
 import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
-import { backupDatabase, backupName, backupSettings, backupsIn, partialOf } from '../../memory/db/backup.ts';
+import { backupInWorker, backupName, backupSettings, backupsIn, partialOf } from '../../memory/db/backup.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
 import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
@@ -82,6 +84,8 @@ export type ConsoleDeps = {
   /** The private directory, where config.local/config.json lives. */
   privateDir: string;
   dataDir: string;
+  /** The event loop watch's `track` (src/loop-watch.ts): names the owner's long operations. */
+  track?: Track;
   /** What the chat's status line reads: what the core already knows, with no probe (src/core.ts). */
   statusBrief?: () => unknown;
   /** The memory writer as its last probe left it, for `status.readiness`; `unknown` before the first. */
@@ -580,16 +584,20 @@ export function createConsole(deps: ConsoleDeps): {
     return { text: JSON.stringify(found.value, null, 2) ?? 'null', status: 'ok' };
   }
 
-  function memoryBackup(name: string, args: Record<string, unknown>): Answer {
+  /** The owner's backup: on its own thread, because it copies the whole data folder (backup.ts). */
+  async function memoryBackup(name: string, args: Record<string, unknown>): Promise<Answer> {
     const { dir } = backupSettings(config(), deps.dataDir);
-    const made = backupName(deps.now());
+    const at = deps.now();
+    const made = backupName(at);
     const partial = path.join(dir, partialOf(made));
     try {
       fs.mkdirSync(dir, { recursive: true });
-      backupDatabase({ db: memoryFile(), to: partial, data: deps.dataDir, now: () => deps.now() });
+      await (deps.track ?? untracked)('memory.backup', () =>
+        backupInWorker({ db: memoryFile(), to: partial, data: deps.dataDir, at })
+      );
       fs.renameSync(partial, path.join(dir, made));
     } catch (err) {
-      fs.rmSync(partial, { recursive: true, force: true });
+      await fs.promises.rm(partial, { recursive: true, force: true });
       return refused(name, args, err instanceof Error ? err.message : String(err), 'failed');
     }
     return {

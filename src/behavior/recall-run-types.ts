@@ -62,7 +62,12 @@ export type CreateRecallInput = {
   /** src/llm/embed.js's `embed`: one call per run that searches by meaning. */
   embed?: ((texts: Array<string>, opts: Untyped) => Promise<Array<Float32Array>>) | null;
   /** src/memory/db/service.js: the open memory database (the persona's own search, her window reads and the prefetch). */
-  memoryDb?: { database: () => Untyped; issueContext?: (spec: Untyped) => Untyped } | null;
+  memoryDb?: {
+    database: () => Untyped;
+    issueContext?: (spec: Untyped) => Untyped;
+    /** Off the main thread (src/memory/db/service.ts); a fake without it searches synchronously. */
+    searchRecord?: (input: Untyped, options: { signal: AbortSignal }) => Promise<Untyped>;
+  } | null;
   /** The interface the persona's ids belong to (`hello.iface`); the legacy namespace without one. */
   iface?: string;
   now?: () => number;

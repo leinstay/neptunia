@@ -37,6 +37,8 @@ The execution context carries trusted access information outside message text. A
 
 Actions interrupted by a restart or lost connection are not automatically sent again. Their records can inform a later turn, where the persona decides whether another action is appropriate. A transport acknowledgment is not proof that a message reached the platform.
 
+The main thread holds no long read or copy, because nothing else in the core moves while one runs. A search of the record runs on a reader thread, every write on the writer thread, and the owner's `/memory backup` on a thread of its own. [Memory](memory.md#searches-and-backups-off-the-main-thread) names the modules. `src/loop-watch.ts` logs `core: event loop stalled` when a tick comes later than `diagnostics.loopStallMs`, default `1000`, with the operations `track` marked around it: `recall.prefetch`, `recall.run`, `memory.backup`, `backup` and `backup.prune` among them.
+
 ## Where to read the code
 
 | Area | Entry point |

@@ -1410,6 +1410,7 @@ async function buildCore(
   commandDesk = createCommandDesk({
     // The owner's console (src/interface/commands/console.ts): the chat's table over the operations, run as the owner.
     console: createConsole({
+      track: loopWatch.track,
       statusBrief: () => ({
         core: {
           state: store.state.data.paused ? 'paused' : 'running',

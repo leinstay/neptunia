@@ -12,6 +12,11 @@
 //     read connection (the block each was in, its order, the exact claim / description version and source revision),
 //     and writes the turn_reads rows deferred, one transaction. The persistence is deferred; the
 //     resolution is not, so a later write cannot change which version a turn is said to have read.
+//   - `searchRecord(input, { signal })` is a search of the record (recall.ts#search) on the reader thread
+//     (reader-client.ts, reader-worker.ts), with the result the synchronous call gives. It rejects with a code:
+//     `SEARCH_ABANDONED` (the signal aborted: the reader is restarted, the searches behind it are still answered),
+//     `WORKER_EXIT` (the reader died under it; the next search starts a new one) or `DB_CLOSED`. Without a worker it
+//     runs on this thread's connection.
 //   - `memoryWrite` is the one way her memory session and the description review write (session-write.ts): a message to
 //     the worker, so the bot's loop never holds a write transaction. The service stamps `audienceColumn` (the target check
 //     reads through `audience_id`) into every write. After an apply, its committed attitude moves are told
@@ -80,8 +85,9 @@
 //     `onBackupFailure({ code, at })` per UTC day (her fact); it is tried again an hour later.
 //   - `inspection()` is the owner's port of snapshots over read-only connections of their own (inspection-snapshots.ts), null
 //     while the database is closed. Each tick closes the expired ones, and a close of the database ends them all.
-//   - `close()` waits for the jobs under way, writes the turn reads and the observations still waiting, closes the
-//     database and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the
+//   - `close()` ends the reader first (a read-only connection closing last would leave the WAL behind), waits for the
+//     jobs under way, writes the turn reads and the observations still waiting, closes the database and releases the
+//     lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the
 //     worker is terminated.
 //
 // Threads. By default the writer connection, the lock and every write live in a worker thread (writer-worker.ts); the
@@ -127,6 +133,10 @@ import { observe as observeEnvelope } from './observe.ts';
 import { graphPending } from './graph.ts';
 import { stemsPending } from './stems.ts';
 import { backupName, backupOn, backupSettings, configHash, partialOf, pruneBackups } from './backup.ts';
+import { createReaderClient, SEARCH_ABANDONED } from './reader-client.ts';
+import type { ReaderClient } from './reader-client.ts';
+import { search } from './recall.ts';
+import type { SearchInput, SearchResult } from './recall.ts';
 import { mirrorPlaces, readMirrors } from './mirrors.ts';
 import { noteSkipped } from '../../board/errands.ts';
 import type { Config, Db, Log, MemoryHandle, Row } from './types.ts';
@@ -162,6 +172,7 @@ export function engineCommit(cwd = ENGINE_ROOT): string {
   }
 }
 const WORKER_FILE = new URL('./writer-worker.ts', import.meta.url);
+const READER_FILE = new URL('./reader-worker.ts', import.meta.url);
 const noop = () => {};
 const silent: Log = { info: noop, warn: noop, error: noop, debug: noop };
 
@@ -567,6 +578,8 @@ export type MemoryDbService = {
   tick(): Promise<void>;
   database(): Db | null;
   readHandle(): MemoryHandle | null;
+  /** A search of the record off the main thread (see the head of this file). */
+  searchRecord(input: SearchInput, options?: { signal?: AbortSignal }): Promise<SearchResult>;
   recordTurnReads(args: {
     turnId: string;
     step?: unknown;
@@ -618,6 +631,7 @@ export type MemoryDbOptions = {
   defer?: (fn: () => unknown) => unknown;
   worker?: boolean;
   workerFile?: string | URL;
+  readerFile?: string | URL;
   diaryMediaDeps?: (() => { port?: unknown; imageFetcher?: unknown } | null) | null;
   diarySleep?: (ms: number) => Promise<void>;
   embed?: ((texts: ReadonlyArray<string>, opts: Row) => Promise<unknown>) | null;
@@ -697,6 +711,7 @@ export function createMemoryDb({
   defer = (fn: () => unknown) => setImmediate(fn),
   worker: useWorker,
   workerFile = WORKER_FILE,
+  readerFile = READER_FILE,
   diaryMediaDeps = null,
   diarySleep,
   embed = null,
@@ -715,6 +730,7 @@ export function createMemoryDb({
   const openDb = open ?? openMemoryDb;
   let handle: MemoryHandle | null = null;
   let engine: Engine | null = null;
+  let reader: ReaderClient | null = null;
   let inspectionPort: InspectionPort | null = null;
   let openedAt: number | null = null;
   const pendingReads = new Set<ReadJob>();
@@ -757,6 +773,8 @@ export function createMemoryDb({
       // The writes a shutdown left pending go in before anything reads (synchronous without a worker).
       await replayPending();
       await writeUnit({ op: 'consolidate-inner', now: now() });
+      // A turn's prefetch has a short deadline: the reader's start does not spend it.
+      if (engine) await openReader().warm();
       openedAt = now();
       openErrors.clear();
       log.info('memory db: opened', { file });
@@ -793,9 +811,27 @@ export function createMemoryDb({
     if (!readHandle()) throw Object.assign(new Error('DB_CLOSED'), { code: 'DB_CLOSED' });
   }
 
+  /** Ends the reader of this open; a later open starts its own. */
+  async function stopReader(timeoutMs: number): Promise<void> {
+    const ending = reader;
+    reader = null;
+    await ending?.stop(timeoutMs);
+  }
+
+  /** The reader of this open, started at its first use. */
+  function openReader(): ReaderClient {
+    reader ??= createReaderClient({
+      workerFile: readerFile,
+      dbPath: path.join(dataDir, settings().file),
+      log,
+    });
+    return reader;
+  }
+
   /** Closes the database; the worker gets `timeoutMs` to finish what it holds, then it is terminated. */
   async function closeNow(timeoutMs = settings().closeMs) {
     if (!handle && !engine) return;
+    await stopReader(timeoutMs);
     if (handle) {
       try {
         handle.close();
@@ -1301,7 +1337,7 @@ export function createMemoryDb({
     const partial = path.join(dir, partialOf(name));
     backupRun = (async () => {
       try {
-        fs.rmSync(partial, { recursive: true, force: true });
+        await fs.promises.rm(partial, { recursive: true, force: true });
         fs.mkdirSync(dir, { recursive: true });
         const update = {
           kind: 'backup',
@@ -1320,7 +1356,7 @@ export function createMemoryDb({
         backupState.failedAt = null;
         let removed = 0;
         try {
-          removed = pruneBackups(dir, keep);
+          removed = await track('backup.prune', () => pruneBackups(dir, keep));
         } catch (error) {
           log.warn('memory db: backup prune failed', { code: codeOf(error) });
         }
@@ -1330,11 +1366,9 @@ export function createMemoryDb({
           removed,
         });
       } catch (error) {
-        try {
-          fs.rmSync(partial, { recursive: true, force: true });
-        } catch {
+        await fs.promises.rm(partial, { recursive: true, force: true }).catch(() => {
           /* removed at the next prune */
-        }
+        });
         backupFailed(codeOf(error), at);
       }
     })().finally(() => {
@@ -1510,6 +1544,15 @@ export function createMemoryDb({
 
   /** The database for recall (src/memory/db/recall.ts): the read-only connection while it is open, else null. */
   const database = () => (handle !== null && !replaying ? dbOf(handle) : null);
+
+  /** A search of the record: on the reader thread, or on this thread's connection without a worker. */
+  async function searchRecord(input: SearchInput, { signal }: { signal?: AbortSignal } = {}): Promise<SearchResult> {
+    const db = closing || closed ? null : database();
+    if (db === null) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
+    if (engine) return openReader().search(input, signal);
+    if (signal?.aborted) throw Object.assign(new Error('memory db search abandoned'), { code: SEARCH_ABANDONED });
+    return search(db, input);
+  }
 
   /**
    * The memory a turn's request carried (prompt.js `memoryReads`), written as turn_reads rows of its step, deferred.
@@ -1716,6 +1759,7 @@ export function createMemoryDb({
     closing = true;
     const { closeMs } = settings();
     const deadline = performance.now() + closeMs;
+    await stopReader(closeMs);
     await waitFor(diaryJob.stop(), closeMs);
     await waitFor(focusRun, Math.max(0, deadline - performance.now()));
     await waitFor(indexRun, Math.max(0, deadline - performance.now()));
@@ -1742,6 +1786,7 @@ export function createMemoryDb({
     tick,
     database,
     readHandle,
+    searchRecord,
     recordTurnReads,
     memoryWrite,
     onAffinityMoves,

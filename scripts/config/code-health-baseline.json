@@ -239,10 +239,10 @@
         "complexity": 36
       },
       "createRecall>prefetch": {
-        "complexity": 34
+        "complexity": 33
       },
       "createRecall>recallWith": {
-        "complexity": 74,
+        "complexity": 73,
         "function-length": 478
       },
       "createRecall>run": {
