@@ -604,6 +604,8 @@ export type MemoryDbService = {
   personLink(update: Row): Promise<Row>;
   /** The owner's merge of one person into another (person-merge.ts): `{ from, into, by, reason?, now? }`. */
   personMerge(update: Row): Promise<Row>;
+  /** The owner's fill of the audience on old group selfreflection entries (selfreflection-audience-fill.ts): `{ by, dryRun?, now? }`. */
+  selfreflectionAudienceFill(update: Row): Promise<Row>;
   /** The owner's snapshots of the whole database (inspection-snapshots.ts), null while it is closed. */
   inspection(): InspectionPort | null;
   /** The private view of a person or a DM place (private-read.ts). Throws `DB_CLOSED` while memory is closed. */
@@ -1917,6 +1919,7 @@ export function createMemoryDb({
     retrieve,
     personLink: (update: Row) => write({ ...update, kind: 'person-link' }),
     personMerge: (update: Row) => write({ ...update, kind: 'person-merge' }),
+    selfreflectionAudienceFill: (update: Row) => write({ ...update, kind: 'selfreflection-audience-fill' }),
     inspection,
     ...privateReads(() => dbOf(opened())),
     observe,

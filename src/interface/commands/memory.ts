@@ -177,6 +177,19 @@ async function usersWrite(memoryDb: unknown, db: Db, name: string, args: Args): 
   }
 }
 
+/** `/memory selfreflection audience fill`: the owner's fill of the audience on old group entries, through the one writer. */
+async function audienceFill(memoryDb: unknown, name: string, args: Args): Promise<Answer> {
+  try {
+    const filled = await (callMethod(memoryDb, 'selfreflectionAudienceFill', {
+      by: 'owner',
+      dryRun: word(args, 'dry-run') === 'true',
+    }) as Promise<unknown>);
+    return ok(filled);
+  } catch {
+    return { text: `/${name.replaceAll('.', ' ')}: the audience could not be written`, status: 'failed' };
+  }
+}
+
 /** `/memory users merge`: both people checked on the read connection, the merge through the one writer as the owner. */
 async function usersMerge(memoryDb: unknown, db: Db, name: string, args: Args): Promise<Answer> {
   const from = word(args, 'from');
@@ -510,6 +523,7 @@ export async function memoryBrowserCommand(
       if (port == null) return closedDatabase(name);
       return inspectRead(port, name, args, requester.id, boundsOf(hot));
     }
+    if (name === 'memory.selfreflection.audience.fill') return audienceFill(memoryDb, name, args);
     const db = callMethod(memoryDb, 'database') as Db | null | undefined;
     if (db == null) return closedDatabase(name);
     if (name === 'memory.users.link' || name === 'memory.users.unlink') return usersWrite(memoryDb, db, name, args);
