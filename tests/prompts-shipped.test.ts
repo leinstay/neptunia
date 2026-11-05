@@ -1869,7 +1869,6 @@ test('createMissed: the missed-answer check fills missed.md', async () => {
     llm,
     turns: { triggerOf: () => null },
     reads: world().reads,
-    iface: () => world().port.iface,
     isServedCommunity: (id: unknown) => id === GUILD,
     getSelfName: () => SELF_NAME,
     dataDir,
@@ -1878,8 +1877,8 @@ test('createMissed: the missed-answer check fills missed.md', async () => {
   });
   try {
     await withCapturedLogs(async () => {
-      missed.noteFact({ reason: 'gate-failed', message: candidate });
-      await missed.sweep(GENERAL);
+      missed.noteFact({ reason: 'gate-failed', message: candidate, iface: world().port.iface });
+      await missed.sweep(world().port.iface, GENERAL);
     });
     assert.equal(llm.calls.length, 1, 'one check for the channel');
     assertFilled(llm.calls[0].messages, { files: LOADS.missed, blocks: ['candidates'] }, 'missed');

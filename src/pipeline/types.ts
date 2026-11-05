@@ -165,8 +165,8 @@ export type PipelineLlm = {
 /** The missed-answer registry (src/behavior/missed.ts#createMissed), as the pipeline notes into it. */
 export type PipelineMissed = {
   noteFact: (fact: object) => void;
-  noteActivity: (placeId: string, at: number) => void;
-  noteNotAddressed?: (message: Line) => void;
+  noteActivity: (placeId: string, at: number, iface?: string) => void;
+  noteNotAddressed?: (message: Line, iface?: string) => void;
 };
 
 /** A thrown value as the pipeline logs it: a name, a code and an HTTP status, each when it has one. */

@@ -19,11 +19,10 @@ export const SPLIT_DEFAULTS = Object.freeze({
 });
 
 /**
- * The trigger kinds that may hold parts: a direct call (a mention, a reply,
- * a follow-up, a private message). Never an overheard
- * line or an unprompted turn.
+ * The trigger kinds that may hold parts: every started turn with a line of a person (a mention, a reply, a follow-up,
+ * an overheard line, a private message). Never a missed-answer recovery or an unprompted turn.
  */
-const SPLIT_KINDS = new Set<string | null>(['mention', 'reply', 'followUp', 'private']);
+const SPLIT_KINDS = new Set<string | null>(['mention', 'reply', 'followUp', 'overheard', 'private']);
 
 // What separates two requests in one message: sentence enders, question marks, line breaks,
 // semicolons and commas (their full-width forms too). A run of them, with the spaces between,

@@ -49,7 +49,7 @@ export type PendingQueueOps = {
   queuedCount: (placeId: string, authorId: string) => number;
   itemText: (text: string | undefined) => string;
   queuedFor: (placeId: string, trigger: Line | null | undefined) => TurnRequest['queued'];
-  noteUnanswered: (ping: Pick<Ping, 'kind' | 'placeId' | 'trigger'>, code: string) => void;
+  noteUnanswered: (ping: Pick<Ping, 'kind' | 'placeId' | 'trigger'> & { channel?: Conv }, code: string) => void;
   logPending: (ping: Ping, event: string, fields?: object) => void;
   deferFollowUp: (channel: Conv, trigger: Line, kind?: 'followUp' | 'overheard') => void;
   enqueuePending: (
@@ -127,11 +127,12 @@ export function createPendingQueue({
    * a missed fact with that code (src/behavior/missed.js), so the missed-answer recovery owes it like
    * a turn that was dropped. A private message's stays in its chat. Never throws.
    */
-  function noteUnanswered(ping: Pick<Ping, 'kind' | 'placeId' | 'trigger'>, code: string): void {
+  function noteUnanswered(ping: Pick<Ping, 'kind' | 'placeId' | 'trigger'> & { channel?: Conv }, code: string): void {
     if (!missed || !OWED_PING_KINDS.has(ping?.kind) || !ping.trigger?.id) return;
     missed.noteFact({
       reason: code,
       message: { ...ping.trigger, placeId: ping.trigger.placeId ?? ping.placeId },
+      iface: ping.channel?.iface,
     });
   }
 
@@ -179,7 +180,7 @@ export function createPendingQueue({
     const slot = followUpSlot(pending.list, placeId, kind) as { admit: boolean; replaced: Ping | null };
     if (!slot.admit) {
       log.info('follow-up: dropped', { channel: placeId, message: trigger.id, reason: 'outranked' });
-      noteUnanswered({ kind, placeId, trigger }, CODE.PENDING_OUTRANKED);
+      noteUnanswered({ kind, placeId, trigger, channel }, CODE.PENDING_OUTRANKED);
       return;
     }
     if (slot.replaced) dropReplaced(slot.replaced, trigger.id);
@@ -208,7 +209,12 @@ export function createPendingQueue({
     pending.list = pending.list.filter((p) => p !== older);
     log.info('follow-up: dropped', { channel: older.placeId, message: older.trigger.id, reason: 'newer' });
     if (older.kind === 'followUp')
-      missed?.noteFact({ reason: 'replaced-deferred', message: older.trigger, replacedBy: newerId });
+      missed?.noteFact({
+        reason: 'replaced-deferred',
+        message: older.trigger,
+        replacedBy: newerId,
+        iface: older.channel?.iface,
+      });
   }
 
   /**

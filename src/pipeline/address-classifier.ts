@@ -222,7 +222,7 @@ export function createAddressClassifier({
       answer,
       ms: now() - startedAt,
     });
-    if (answer === 'no') missed?.noteNotAddressed?.(normalized);
+    if (answer === 'no') missed?.noteNotAddressed?.(normalized, channel.iface);
     return answer;
   }
 

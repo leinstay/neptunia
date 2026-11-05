@@ -174,7 +174,7 @@ export function createHandleMessage({
       if (event.message.author.id !== selfIdOf())
         activity?.note(event.conversation.id, event.message.author.id, event.message.at);
       // Any message, hers included, pushes back a missed-answer sweep armed here (src/behavior/missed.ts).
-      missed?.noteActivity(event.conversation.id, event.message.at);
+      missed?.noteActivity(event.conversation.id, event.message.at, event.iface);
 
       const selfId = selfIdOf();
       // lineOf gives the normalized line of a message event.

@@ -35,6 +35,12 @@ A failed classifier call on a flagged line opens: the turn starts and the line l
 
 `decideAndLog` in `src/pipeline/answer.ts` holds a rail in front of each turn a verdict asks for. Past `address.maxTurnsPerAuthor` started turns, 50 by default, of one author in one place within `address.attentionMinutes`, the turn is refused and logged as `address: refused` with its counts. `0` in `address.maxTurnsPerAuthor` turns the rail off, and `mention.neverIgnore` lists authors it never refuses. A line caught up after a restart follows the same path when it carries a flag, and is only observed otherwise.
 
+## Split and the missed-answer check
+
+`split` (`src/behavior/split.ts`) runs for every started turn with a line of a person, on any interface and in a DM: a mention, a reply, a follow-up, an overheard line or a private message. A `missed` turn never runs it. `merge` (`src/pipeline/merge.ts`) works on the pending queue and stays in the pipeline.
+
+The missed-answer registry in `src/behavior/missed.ts` covers every group place and every DM. `noteFact` takes the line's `iface` and the candidate keeps it, so its sweep reads its conversation on that interface and its recovery turn runs there. Each candidate is stored in the unit `missed` of its own place, and `src/core.ts` starts the registry of every place that holds one (`start(placeId)` adds to those already started).
+
 ## Boundaries
 
 The core writes memory through one writer. Interfaces neither open the database nor decide what the persona remembers. Stored recall and fetching live platform history are separate operations with separate access checks.

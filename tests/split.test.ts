@@ -37,14 +37,16 @@ test('mayHaveParts: links and Discord tokens neither count toward length nor bri
 });
 
 test('splitCandidate: a direct call of every kind with structured text is a candidate', () => {
-  // Plan 2026-11-04-cli-and-memory B1: the `name` kind is gone with name triggers.
-  for (const kind of ['mention', 'reply', 'followUp', 'private']) {
+  // Plan 2026-11-04-cli-and-memory B1 and B2: the `name` kind is gone with name triggers, and `split` runs for every
+  // started turn, an overheard one included.
+  for (const kind of ['mention', 'reply', 'followUp', 'overheard', 'private']) {
     assert.equal(splitCandidate({ content: LONG }, kind, config()), true, kind);
   }
 });
 
-test('splitCandidate: an overheard line and an unprompted turn never are', () => {
-  assert.equal(splitCandidate({ content: LONG }, 'overheard', config()), false);
+// Plan 2026-11-04-cli-and-memory B2: `missed` turns do not split; the overheard line moved to the test above.
+test('splitCandidate: a missed-answer recovery and an unprompted turn never are', () => {
+  assert.equal(splitCandidate({ content: LONG }, 'missed', config()), false);
   assert.equal(splitCandidate(null, null, config()), false);
 });
 

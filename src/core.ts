@@ -1143,7 +1143,6 @@ async function buildCore(
     llm,
     turns,
     reads,
-    iface: () => identity.iface,
     partnerOf: (conversationId) => directory.partnerOf(conversationId),
     getSelfName,
     dataDir,
@@ -1896,7 +1895,10 @@ async function buildCore(
 
   // The missed-answer registry: data/places/<id>/missed.json, reconciled with the journal of the
   // last hour; a sweep armed where a candidate waits.
-  await startupStep('missed.start', () => missed.start(store.placeHolding('missed') ?? PERSONA_ID));
+  await startupStep('missed.start', async () => {
+    const holders = store.placesHolding('missed');
+    for (const place of holders.length > 0 ? holders : [PERSONA_ID]) await missed.start(place);
+  });
 
   // The errands a restart left open: their runner can no longer answer this process, so they fail
   // (`restarted`) and show in her `<errands>` block as failed.
