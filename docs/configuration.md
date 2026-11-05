@@ -504,3 +504,10 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `diagnostics.loopStallMs` | number | `1000` | A tick of the event loop watch later than this logs a stall with the operations around it (ms, 0 is off) | `src/loop-watch.ts` |
+
+## cli
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `cli.paste.collapseLines` | number | `10` | A paste of more lines than this draws as one chip in the chat input. The turn still gets its exact text | `bin/neptunia.ts` |
+| `cli.paste.collapseChars` | number | `2000` | A paste of more characters than this draws as one chip in the chat input. The turn still gets its exact text | `bin/neptunia.ts` |

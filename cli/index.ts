@@ -8,6 +8,7 @@ import type { ChatEnv } from './app.ts';
 
 export { reducedMotion } from './galaxy.ts';
 export type { ChatEntry, ChatEnv, Panel, Question } from './app.ts';
+export type { ChatAttachment, DraftPart, PasteLimits } from './composer.ts';
 export type { StatusBrief } from './state.ts';
 
 /** Draws the chat until the owner leaves. Leaving ends this process only: the core goes on. */

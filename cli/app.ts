@@ -5,11 +5,30 @@
 // keeps the draft it interrupted, a secret drawn as stars and kept out of the history, and a closed question is a selector
 // over its choices. Keys and a paste have one owner at a time (`focusOwner`), and the answer of a panel that was replaced
 // or closed opens nothing and runs nothing. Clearing the display touches nothing else, and leaving ends only this process.
-// cli/index.ts starts it.
+// The state lives in one ref and is read and written synchronously, because several keys can arrive before the next
+// render. cli/index.ts starts it.
 
-import { createElement as h, useEffect, useRef, useState } from 'react';
+import { createElement as h, useEffect, useReducer, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import { Box, Text, useApp, useInput, useStdout } from 'ink';
+import { Box, Text, useApp, useInput, usePaste, useStdout } from 'ink';
+import {
+  DEFAULT_PASTE_LIMITS,
+  assembleDraft,
+  backspaceInDraft,
+  chipBeforeCaret,
+  deleteInDraft,
+  displayDraft,
+  draftFromHistory,
+  draftFromParts,
+  draftFromText,
+  inspectPart,
+  moveInDraft,
+  pasteIntoDraft,
+  replaceDraftText,
+  typeIntoDraft,
+} from './composer.ts';
+import type { ChatAttachment, Draft, DraftPart, PasteLimits } from './composer.ts';
+import { graphemes } from './layout.ts';
 import { galaxyFrame } from './galaxy.ts';
 import { ModelPicker } from './model-picker.ts';
 import { PanelView } from './panel-view.ts';
@@ -43,20 +62,63 @@ export type ChatEnv = {
     connected: (connected: boolean) => void;
   }) => void;
   status: () => Promise<StatusBrief | null>;
-  saveHistory: (history: ReadonlyArray<string>) => void;
+  /** The history after a submit, newest first, and the draft that was added to it. */
+  saveHistory: (
+    history: ReadonlyArray<string>,
+    added?: { text: string; attachments: ReadonlyArray<ChatAttachment> }
+  ) => void;
   now: () => number;
   initialInput?: string;
+  /** A restored draft, in place of `initialInput`. */
+  initialParts?: ReadonlyArray<DraftPart>;
+  /** When a paste becomes a chip. Read at each paste, so a getter follows the settings. */
+  composer?: PasteLimits;
+  /** The images of the history's drafts, by the text of the draft. */
+  recalled?: ReadonlyMap<string, ReadonlyArray<ChatAttachment>>;
 };
 
 const GALAXY_MS = 200;
 const POLL_MS = 15_000;
 /** The rows a question's selector draws at most; the input it replaces stays out of the way of the panel above it. */
 const QUESTION_ROWS = 8;
+/**
+ * How long Enter does nothing after a question closed and gave the draft back, counted again from each swallowed Enter. A
+ * held key repeats only after its delay of up to 500 ms, so the window outlasts that delay; decided 2026-11-05.
+ */
+const ANSWER_BURST_MS = 700;
+
+type Model = {
+  entries: ReadonlyArray<ChatEntry>;
+  draft: Draft;
+  history: ReadonlyArray<string>;
+  /** the history row on show, and the unfinished draft that browsing set aside */
+  browsing: number | null;
+  held: Draft | null;
+  selected: number;
+  expanded: boolean;
+  panel: Panel | null;
+  question: Question | null;
+  /** what is typed for the open question: a buffer of its own, so an answer reaches neither the draft nor a store */
+  answer: InputState;
+  connected: boolean;
+  brief: StatusBrief | null;
+  polledAt: number | null;
+  /** one row of feedback, gone with the next key */
+  notice: string | null;
+  /** until when Enter is swallowed, after a question closed */
+  enterHeldUntil: number;
+};
 
 /** Who takes the keys and a paste now. A question goes first, because the core is waiting on it. */
-function focusOwner(question: Question | null, panel: Panel | null): 'choices' | 'input' | 'panel' {
+function focusOwner({ question, panel }: Pick<Model, 'question' | 'panel'>): 'choices' | 'input' | 'panel' {
   if (question !== null) return (question.choices?.length ?? 0) > 0 ? 'choices' : 'input';
   return panel === null ? 'input' : 'panel';
+}
+
+/** The text of the caret's row as three pieces, the caret on a whole grapheme so a style never splits a character. */
+function caretPieces(shown: string, cursor: number): { before: string; on: string; after: string } {
+  const rest = graphemes(shown.slice(cursor));
+  return { before: shown.slice(0, cursor), on: rest[0] ?? ' ', after: rest.slice(1).join('') };
 }
 
 function Header({ env, line }: { env: ChatEnv; line: string }) {
@@ -118,44 +180,60 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       stdout.off('resize', resize);
     };
   }, [stdout]);
-  const [entries, setEntries] = useState<ReadonlyArray<ChatEntry>>([]);
-  const [input, setInput] = useState(() => {
-    const state = emptyInput(env.history);
-    return { ...state, text: env.initialInput ?? '', cursor: env.initialInput?.length ?? 0 };
+  const serial = useRef(0);
+  const nextId = (prefix: string): string => `${prefix}${(serial.current += 1)}`;
+  const limits = (): PasteLimits => env.composer ?? DEFAULT_PASTE_LIMITS;
+  const model = useRef<Model>({
+    entries: [],
+    draft:
+      env.initialParts === undefined
+        ? draftFromText('d0', env.initialInput ?? '', env.initialInput?.length ?? 0)
+        : draftFromParts('d0', env.initialParts),
+    history: env.history,
+    browsing: null,
+    held: null,
+    selected: 0,
+    expanded: false,
+    panel: null,
+    question: null,
+    answer: emptyInput(),
+    connected: true,
+    brief: null,
+    polledAt: null,
+    notice: null,
+    enterHeldUntil: 0,
   });
-  const [selected, setSelected] = useState(0);
-  const [expanded, setExpanded] = useState(false);
-  const [panel, setPanel] = useState<Panel | null>(null);
-  const [question, setQuestion] = useState<Question | null>(null);
-  const [connected, setConnected] = useState(true);
-  const [brief, setBrief] = useState<StatusBrief | null>(null);
-  const [polledAt, setPolledAt] = useState<number | null>(null);
+  const [, paint] = useReducer((tick: number) => tick + 1, 0);
+  const update = (change: Partial<Model>): void => {
+    model.current = { ...model.current, ...change };
+    paint();
+  };
   const subscribed = useRef(false);
   // Counts the panel requests: an answer that is not of the newest one belongs to an overlay the owner left.
   const panelRequest = useRef(0);
-  // The composer as a question found it. The answer is typed in another buffer, so it can reach neither the draft nor the screen.
-  const draft = useRef<InputState | null>(null);
-  const latestInput = useRef(input);
-  latestInput.current = input;
-  const latestQuestion = useRef(question);
-  latestQuestion.current = question;
+  const recalled = useRef(new Map(env.recalled ?? []));
+  // Set while a child closes itself on a key: the same key must not reach the composer that just got the focus back.
+  const keyTaken = useRef(false);
+  const takeKey = (): void => {
+    keyTaken.current = true;
+    queueMicrotask(() => {
+      keyTaken.current = false;
+    });
+  };
 
   useEffect(() => {
     if (subscribed.current) return;
     subscribed.current = true;
     env.subscribe({
-      entry: (entry) => setEntries((list) => [...list, entry]),
+      entry: (entry) => update({ entries: [...model.current.entries, entry] }),
       question: (asked) => {
-        const open = latestQuestion.current;
         // Only one question fits the screen: the older command gets the empty answer of a cancelled one.
-        if (open === null) draft.current = latestInput.current;
-        else open.answer('');
-        latestQuestion.current = asked;
-        setInput(emptyInput(latestInput.current.history));
-        setQuestion(asked);
+        model.current.question?.answer('');
+        update({ question: asked, answer: emptyInput() });
       },
-      connected: (now) => setConnected(now),
+      connected: (now) => update({ connected: now }),
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `update` only writes the ref and asks for a paint
   }, [env]);
 
   // A read of what the core already knows: no probe and no provider call for the display.
@@ -164,55 +242,63 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       void env
         .status()
         .then((answer) => {
-          if (answer !== null) {
-            setBrief(answer);
-            setPolledAt(env.now());
-          }
+          if (answer !== null) update({ brief: answer, polledAt: env.now() });
         })
         .catch(() => {});
     };
     poll();
     const timer = setInterval(poll, POLL_MS);
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `update` only writes the ref and asks for a paint
   }, [env]);
 
-  const items = question === null ? menuOf(input.text, env.commands) : [];
-  const owner = focusOwner(question, panel);
+  const itemsOf = (now: Model): Array<MenuCommand> =>
+    now.question === null ? menuOf(displayDraft(now.draft), env.commands) : [];
 
-  /** Closes the question and gives the composer back what it held, with what `history` says now. */
-  function endQuestion(history: ReadonlyArray<string>): void {
-    const held = draft.current;
-    draft.current = null;
-    latestQuestion.current = null;
-    setQuestion(null);
-    setInput(held === null ? emptyInput(history) : { ...held, history, browsing: null });
+  /** Closes the question. Its draft waits in the composer, and a held Enter must not send it unseen. */
+  function endQuestion(): void {
+    update({ question: null, answer: emptyInput(), enterHeldUntil: env.now() + ANSWER_BURST_MS });
+  }
+
+  function completeCommand(item: MenuCommand): void {
+    const { draft } = model.current;
+    update({ draft: replaceDraftText(draft, `/${item.name} `), selected: 0 });
   }
 
   function send(): void {
-    if (
-      question === null &&
-      items[selected] !== undefined &&
-      !env.commands.some((one) => input.text === `/${one.name}`)
-    ) {
-      setInput(emptyInputWith(input, `/${items[selected].name} `));
+    const now = model.current;
+    if (now.question !== null) {
+      now.question.answer(now.answer.text);
+      endQuestion();
       return;
     }
-    const secret = question?.secret === true;
-    const { line, next } = submit(input, { secret });
-    setInput(next);
-    setSelected(0);
-    if (question !== null) {
-      question.answer(line);
-      endQuestion(next.history);
+    if (env.now() < now.enterHeldUntil) {
+      update({ enterHeldUntil: env.now() + ANSWER_BURST_MS });
       return;
     }
+    const shown = displayDraft(now.draft);
+    const item = itemsOf(now)[now.selected];
+    if (item !== undefined && !env.commands.some((one) => shown === `/${one.name}`)) {
+      completeCommand(item);
+      return;
+    }
+    const assembled = assembleDraft(now.draft);
+    if (!assembled.ok) {
+      update({ notice: 'A pasted text is gone and the message stays here: Backspace removes its chip.' });
+      return;
+    }
+    const line = assembled.text;
+    update({ draft: draftFromText(nextId('d'), '', 0), selected: 0, browsing: null, held: null, notice: null });
     if (line.trim() === '') return;
-    env.saveHistory(next.history);
+    const history = submit(insert(emptyInput(now.history), line), { secret: false }).next.history;
+    recalled.current.set(line, assembled.attachments);
+    update({ history });
+    env.saveHistory(history, { text: line, attachments: assembled.attachments });
     if (line.trim() === '/clear') {
-      setEntries([]);
+      update({ entries: [] });
       return;
     }
-    setEntries((list) => [...list, { who: 'owner', text: line }]);
+    update({ entries: [...model.current.entries, { who: 'owner', text: line }] });
     // A chat line replaces no overlay; a command does, and the older request's answer is dropped whatever it is.
     if (line.trim().startsWith('/')) panelRequest.current += 1;
     const request = panelRequest.current;
@@ -221,56 +307,138 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       .then((opened) => {
         if (request !== panelRequest.current) return;
         if (opened === null) env.send(line);
-        else setPanel(opened);
+        else update({ panel: opened });
       })
       .catch((error: unknown) =>
-        setEntries((old) => [
-          ...old,
-          { who: 'system', text: error instanceof Error ? error.message : 'The command failed.' },
-        ])
+        update({
+          entries: [
+            ...model.current.entries,
+            { who: 'system', text: error instanceof Error ? error.message : 'The command failed.' },
+          ],
+        })
       );
   }
 
-  // health: allow complexity until 2027-04-01 -- one table of the keys of the chat, and split up it would hide which key does what
-  useInput((typed, key) => {
-    if (key.ctrl && typed === 'c') {
-      exit();
+  /** Up and Down over the history. Past the newest row the draft that browsing set aside comes back. */
+  function browseHistory(delta: -1 | 1): void {
+    const now = model.current;
+    const moved = browse({ ...emptyInput(now.history), browsing: now.browsing }, delta);
+    if (moved.browsing === null) {
+      if (now.browsing !== null)
+        update({ draft: now.held ?? draftFromText(nextId('d'), '', 0), browsing: null, held: null });
       return;
     }
-    if (owner !== 'input') return;
-    if (key.ctrl && typed === 'o') setExpanded((value) => !value);
-    else if (key.ctrl && typed === 'd' && input.text === '') exit();
-    else if (key.ctrl && typed === 'j') setInput((state) => insert(state, '\n'));
-    else if (key.return && key.meta) setInput((state) => insert(state, '\n'));
+    if (moved.browsing === now.browsing) return;
+    update({
+      draft: draftFromHistory(nextId('d'), moved.text, recalled.current.get(moved.text) ?? [], limits()),
+      browsing: moved.browsing,
+      held: now.browsing === null ? now.draft : now.held,
+    });
+  }
+
+  function editDraft(draft: Draft): void {
+    update({ draft, browsing: null, held: null, selected: 0, notice: null });
+  }
+
+  /** Text that is not a key. A chunk that is not a bracketed paste stays text, whatever it holds: only a paste can collapse. */
+  function typed(text: string): void {
+    const now = model.current;
+    const plain = text.replaceAll('\r', '\n');
+    if (now.question !== null) update({ answer: insert(now.answer, plain) });
+    else editDraft(typeIntoDraft(now.draft, plain));
+  }
+
+  function moveMenu(delta: -1 | 1, count: number): void {
+    update({ selected: Math.max(0, Math.min(count - 1, model.current.selected + delta)) });
+  }
+
+  // health: allow complexity until 2027-04-01 -- one table of the keys of the chat, and split up it would hide which key does what
+  function keyOfInput(text: string, key: Parameters<Parameters<typeof useInput>[0]>[1]): void {
+    const now = model.current;
+    const items = itemsOf(now);
+    const item = items[now.selected];
+    if (now.notice !== null) update({ notice: null });
+    if (key.ctrl && text === 'o') {
+      const chip = chipBeforeCaret(now.draft);
+      const inspected = chip === null ? null : inspectPart(now.draft, chip.id);
+      if (inspected !== null) update({ panel: { title: 'Pasted text', lines: inspected.split('\n') } });
+      else update({ expanded: !now.expanded });
+    } else if (key.ctrl && text === 'd' && displayDraft(now.draft) === '' && now.question === null) exit();
+    else if (key.ctrl && text === 'j') typed('\n');
+    else if (key.return && key.meta) typed('\n');
     else if (key.return) send();
-    else if (key.tab && items[selected] !== undefined) setInput(emptyInputWith(input, `/${items[selected].name} `));
+    else if (key.tab && item !== undefined) completeCommand(item);
     else if (key.escape) {
-      if (question !== null) {
-        question.answer('');
-        endQuestion(input.history);
+      if (now.question !== null) {
+        now.question.answer('');
+        endQuestion();
         return;
       }
       // The panel still on its way opens nothing now.
       panelRequest.current += 1;
-      setInput((state) => ({ ...state, text: '', cursor: 0 }));
+      update({ draft: draftFromText(nextId('d'), '', 0), browsing: null, held: null, selected: 0 });
     } else if (key.upArrow) {
-      if (items.length > 0) setSelected((value) => Math.max(0, value - 1));
-      else if (question === null) setInput((state) => browse(state, -1));
+      if (items.length > 0) moveMenu(-1, items.length);
+      else if (now.question === null) browseHistory(-1);
     } else if (key.downArrow) {
-      if (items.length > 0) setSelected((value) => Math.min(items.length - 1, value + 1));
-      else if (question === null) setInput((state) => browse(state, 1));
-    } else if (key.leftArrow) setInput((state) => moveCursor(state, -1));
-    else if (key.rightArrow) setInput((state) => moveCursor(state, 1));
-    else if (key.backspace || key.delete) setInput((state) => backspace(state));
-    else if (typed !== '' && !key.ctrl && !key.meta) {
-      setSelected(0);
-      setInput((state) => insert(state, typed));
+      if (items.length > 0) moveMenu(1, items.length);
+      else if (now.question === null) browseHistory(1);
+    } else if (key.leftArrow) {
+      if (now.question !== null) update({ answer: moveCursor(now.answer, -1) });
+      else update({ draft: moveInDraft(now.draft, -1) });
+    } else if (key.rightArrow) {
+      if (now.question !== null) update({ answer: moveCursor(now.answer, 1) });
+      else update({ draft: moveInDraft(now.draft, 1) });
+    } else if (key.backspace) {
+      if (now.question !== null) update({ answer: backspace(now.answer) });
+      else editDraft(backspaceInDraft(now.draft).draft);
+    } else if (key.delete) {
+      if (now.question !== null) update({ answer: backspace(now.answer) });
+      else editDraft(deleteInDraft(now.draft).draft);
+    } else if (text !== '' && !key.ctrl && !key.meta) typed(text);
+  }
+
+  const owner = focusOwner(model.current);
+
+  useInput((text, key) => {
+    if (key.ctrl && text === 'c') {
+      exit();
+      return;
     }
+    if (owner !== 'input' || focusOwner(model.current) !== 'input' || keyTaken.current) return;
+    // A held Enter can come as one chunk of returns, which Ink hands over as text.
+    if (/^\r{2,}$/.test(text)) for (let press = 0; press < text.length; press += 1) send();
+    else keyOfInput(text, key);
   });
 
-  const shown = question?.secret === true ? '*'.repeat([...input.text].length) : input.text;
-  const before = shown.slice(0, input.cursor);
-  const after = shown.slice(input.cursor);
+  // Only while the input holds the keys: otherwise Ink hands a paste to the owner's key handler, as text.
+  usePaste(
+    (payload) => {
+      const now = model.current;
+      if (now.question !== null) update({ answer: insert(now.answer, payload) });
+      else editDraft(pasteIntoDraft(now.draft, { id: nextId('p'), payload }, limits()));
+    },
+    { isActive: owner === 'input' }
+  );
+
+  const { entries, draft, question, panel, answer, selected, expanded, notice, brief, connected, polledAt } =
+    model.current;
+  const items = itemsOf(model.current);
+  const closePanel = (): void => {
+    takeKey();
+    update({ panel: null });
+  };
+  const closeQuestion = (value: string): void => {
+    takeKey();
+    question?.answer(value);
+    endQuestion();
+  };
+  const shown =
+    question === null ? displayDraft(draft) : question.secret ? '*'.repeat(answer.text.length) : answer.text;
+  const caret = caretPieces(
+    shown,
+    question === null ? draft.cursor : question.secret ? [...answer.text.slice(0, answer.cursor)].length : answer.cursor
+  );
   return h(
     Box,
     { flexDirection: 'column', minHeight: Math.max(10, rows) },
@@ -290,16 +458,16 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
               key: String(panelRequest.current),
               env: panel.picker,
               active: owner === 'panel',
-              close: () => setPanel(null),
+              close: closePanel,
             })
           : h(PanelView, {
               key: String(panelRequest.current),
               panel,
               active: owner === 'panel',
-              close: () => setPanel(null),
+              close: closePanel,
               prefill: (line: string) => {
-                setPanel(null);
-                setInput(emptyInputWith(input, line));
+                takeKey();
+                update({ panel: null, draft: replaceDraftText(draftFromText(nextId('d'), '', 0), line) });
               },
             })
     ),
@@ -308,25 +476,20 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       { flexDirection: 'column', flexShrink: 0 },
       panel === null && items.length > 0 ? h(Menu, { items, selected }) : null,
       question === null ? null : h(Text, { bold: true }, question.question),
+      notice === null ? null : h(Text, { color: 'yellow', wrap: 'truncate' }, notice),
       owner === 'choices' && question !== null
         ? h(ChoiceSelector, {
             key: question.question,
             choices: question.choices ?? [],
             active: true,
             height: QUESTION_ROWS,
-            answer: (value: string) => {
-              question.answer(value);
-              endQuestion(input.history);
-            },
-            cancel: () => {
-              question.answer('');
-              endQuestion(input.history);
-            },
+            answer: closeQuestion,
+            cancel: () => closeQuestion(''),
           })
         : h(
             Box,
             { borderStyle: 'round', paddingX: 1 },
-            h(Text, null, '> ', before, h(Text, { inverse: true }, after[0] ?? ' '), after.slice(1))
+            h(Text, null, '> ', caret.before, h(Text, { inverse: true }, caret.on), caret.after)
           ),
       h(
         Text,
@@ -339,8 +502,4 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       )
     )
   );
-}
-
-function emptyInputWith(state: ReturnType<typeof emptyInput>, text: string): ReturnType<typeof emptyInput> {
-  return { ...state, text, cursor: text.length, browsing: null };
 }

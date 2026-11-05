@@ -36,7 +36,7 @@
 // `/logs` (journalctl of the core's unit in the units' scope, src/service/journal.ts), `/logs watcher` (the saved reports) and `/services`
 // (bin/neptunia-service.ts) run here and ask the core nothing, but `/doctor live` asks it for the probes of the model roles. A line typed before the link is up waits in the input until it is. The chat opens with the core's
 // header and, above it, the picture in `<private>/cli/picture.txt` when that file exists. In a terminal the command
-// history is kept in `<private>/cli/history`. The end of the input ends the chat with exit 0, once the answers of the
+// history is kept in `<private>/cli/history` (bin/cli-history.ts). The end of the input ends the chat with exit 0, once the answers of the
 // commands still running have arrived.
 //
 // The direct form and `-p` with a slash send one command the same way and print its answer alone. Exit 0 is an answer
@@ -130,7 +130,7 @@ import { cutConfigKeys } from '../src/config/cut.ts';
 import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { COMMANDS, isRetiredCommand, parseCommandLine } from '../src/interface/commands/table.ts';
-import type { Question, StatusBrief } from '../cli/index.ts';
+import type { PasteLimits, Question, StatusBrief } from '../cli/index.ts';
 import { chatPanel } from './chat-panels.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
@@ -140,6 +140,8 @@ import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../src/llm/openrouter.ts';
 import { log, logToStderr } from '../src/log.ts';
 import { resolvePaths } from '../src/paths.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
+import { addToHistory, readHistory, writeHistory } from './cli-history.ts';
+import type { HistoryRecord } from './cli-history.ts';
 import { CLI_CLIENT, openLinkOver } from './cli-link.ts';
 import type { Answer, CliLink, Command, LinkAnswers } from './cli-link.ts';
 import { runDevelopment } from './development.ts';
@@ -446,17 +448,25 @@ async function tryCliLink(): Promise<CliLink | null> {
   }
 }
 
-/** The command history of a terminal chat, oldest last as readline keeps it; none when the file is unreadable. */
-function readHistory(file: string): Array<string> {
-  try {
-    return fs
-      .readFileSync(file, 'utf8')
-      .split('\n')
-      .filter((line) => line !== '')
-      .reverse();
-  } catch {
-    return [];
-  }
+/** How many drafts the history file keeps, as readline's `historySize` of the plain chat. */
+const HISTORY_SIZE = 1000;
+
+/** The plain chat's history, as readline keeps it: lines, newest first. A line it adds is a record of that line alone. */
+function saveLines(file: string, lines: ReadonlyArray<string>, now: number): void {
+  const known = new Map(readHistory(file).records.map((one) => [one.text, one]));
+  writeHistory(
+    file,
+    lines.map((text) => known.get(text) ?? { version: 1, text, attachments: [], at: now })
+  );
+}
+
+/** The settings of the chat's input, read when they are used. */
+function pasteLimits(where: { rootDir: string; privateDir: string }): PasteLimits {
+  const config = readConfig(where.rootDir, { privateDir: where.privateDir }) as {
+    cli?: { paste?: Partial<PasteLimits> };
+  };
+  const paste = config.cli?.paste;
+  return { collapseLines: paste?.collapseLines ?? 10, collapseChars: paste?.collapseChars ?? 2000 };
 }
 
 function printBlock(text: string): void {
@@ -479,7 +489,7 @@ function interfaceNames(dataDir: string): Array<string> {
   return [...names].sort();
 }
 
-async function runInkChat(where: { privateDir: string }, firstLine = ''): Promise<void> {
+async function runInkChat(where: { rootDir: string; privateDir: string }, firstLine = ''): Promise<void> {
   const { runInteractive, reducedMotion } = await import('../cli/index.ts');
   let entry: (one: { who: 'owner' | 'her' | 'system'; text: string }) => void = () => {};
   let question: (asked: Question) => void = () => {};
@@ -499,6 +509,7 @@ async function runInkChat(where: { privateDir: string }, firstLine = ''): Promis
       }),
   };
   const historyFile = path.join(where.privateDir, 'cli', 'history');
+  let records: ReadonlyArray<HistoryRecord> = readHistory(historyFile).records;
   const run = (parsed: Command): Promise<Answer> =>
     runsHere(parsed.name) ? runLocal(parsed, (asked) => link.ask(asked)) : link.ask(parsed, answers);
   await runInteractive({
@@ -514,7 +525,10 @@ async function runInkChat(where: { privateDir: string }, firstLine = ''): Promis
         })),
       ]),
     ],
-    history: readHistory(historyFile),
+    history: records.map((one) => one.text),
+    get composer() {
+      return pasteLimits(where);
+    },
     still: reducedMotion(process.env),
     now: () => Date.now(),
     subscribe(listeners) {
@@ -522,9 +536,14 @@ async function runInkChat(where: { privateDir: string }, firstLine = ''): Promis
       question = listeners.question;
       linked = listeners.connected;
     },
-    saveHistory(lines) {
-      fs.mkdirSync(path.dirname(historyFile), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(historyFile, `${[...lines].reverse().join('\n')}\n`, { mode: 0o600 });
+    saveHistory(_lines, added) {
+      if (added === undefined) return;
+      records = addToHistory(records, added, { now: Date.now(), limit: HISTORY_SIZE });
+      try {
+        writeHistory(historyFile, records);
+      } catch (err) {
+        entry({ who: 'system', text: `the history was not saved (${(err as NodeJS.ErrnoException).code ?? 'error'})` });
+      }
     },
     status: async () => {
       const answer = await link.ask({ name: 'status.brief', args: {} });
@@ -652,16 +671,15 @@ async function runChat(firstLine?: string): Promise<void> {
     input: process.stdin,
     output: output ?? undefined,
     terminal,
-    history: terminal ? readHistory(historyFile) : [],
-    historySize: 1000,
+    history: terminal ? readHistory(historyFile).records.map((one) => one.text) : [],
+    historySize: HISTORY_SIZE,
   });
   const answers = createAnswers({ rl: input, input: process.stdin, output, target: process.stdout });
   if (terminal) {
     input.on('history', (lines: Array<string>) => {
       // A secret answer is neither kept in the file nor in the list: it is taken out of both.
       if (answers.secretWaiting()) return;
-      fs.mkdirSync(path.dirname(historyFile), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(historyFile, `${[...lines].reverse().join('\n')}\n`, { mode: 0o600 });
+      saveLines(historyFile, lines, Date.now());
     });
     input.setPrompt('> ');
     input.prompt();

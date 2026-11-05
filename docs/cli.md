@@ -24,16 +24,22 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 | Up and Down | Browse command suggestions or input history |
 | Tab | Complete the selected command |
 | Esc | Close a panel, cancel a panel still loading, cancel a question or clear the input |
-| Ctrl+O | Expand folded answers |
+| Ctrl+O | Expand folded answers, or show the text behind the chip before the caret |
 | Ctrl+C | Exit the CLI |
 
 The Project Neptunia header shows separate lines for the core, memory and enabled interfaces. Missing reports show a check in progress, and old reports are marked outdated. A lost core connection leaves memory and interface states unknown. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation.
+
+## Pastes and history
+
+`cli/composer.ts` keeps the draft as ordered parts with their own ids: text, pastes and attachments. A bracketed paste reaches the owner of the keys through Ink's `usePaste`, and nothing is sent until an explicit Enter. A paste of more lines than `cli.paste.collapseLines` (default `10`) or more characters than `cli.paste.collapseChars` (default `2000`) draws as one chip such as `[pasted 40 lines]`. A paste at either limit stays text in the input. The turn gets the exact text of every paste in its place, with newlines, tabs and trailing spaces. Backspace after a chip removes that paste alone, and Ctrl+O shows its text. A draft whose paste text is gone stays in the input with a message and is not sent until Backspace removes the chip.
+
+`bin/cli-history.ts` keeps `data/cli/history` as one record per draft, so Up recalls a multiline draft whole, its text collapsed by the same limits. Up sets the unfinished draft aside, and Down past the newest row brings it back. A file in the older format, one draft per line, is read as it is and rewritten as records on the next send. Each write goes through a temporary file and a rename, and the file is private to the owner.
 
 ## Overlays and questions
 
 One screen element holds the keys and a paste at a time. A question from the core goes first, then an open panel, then the input. `focusOwner` in `cli/app.ts` decides, and a panel that loses the keys stays on the screen.
 
-A question replaces the input and keeps the unfinished line it interrupted. The line comes back after the answer or Esc, and an answer never joins it. A secret answer is drawn as stars and stays out of the input history. A question with choices opens the selector in `cli/selector.ts`. Typing or pasting narrows the list, Enter answers with the choice exactly as the core sent it, and a filter that matches nothing answers nothing. The plain chat prints the choices beside the prompt.
+A question replaces the input and keeps the unfinished line it interrupted. The line comes back after the answer or Esc, and an answer never joins it. Enter does nothing for 700 ms after the question closes, counted again from each Enter it swallows, so a held key cannot send a draft its owner has not seen. A secret answer is drawn as stars and stays out of the input history. A question with choices opens the selector in `cli/selector.ts`. Typing or pasting narrows the list, Enter answers with the choice exactly as the core sent it, and a filter that matches nothing answers nothing. The plain chat prints the choices beside the prompt.
 
 Each slash command replaces the panel request before it. An answer of a request that was replaced or cancelled with Esc opens nothing and runs nothing. The same rule holds inside a selector, whose reducer compares the overlay id and the generation of every answer. Moving and filtering change no setting.
 
@@ -65,8 +71,6 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Set what an agent may do | `/agent mode <agent> [<mode>]` |
 | Schedule, switch and inspect the four scheduled mechanics | `/services` |
 | Read a watcher report | `/logs watcher` |
-
-A secret question hides its answer and excludes it from input history. History lives in `data/cli/`.
 
 ## Backend usage
 

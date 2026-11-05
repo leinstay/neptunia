@@ -195,3 +195,7 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 ## diagnostics
 
 <!-- settings: diagnostics -->
+
+## cli
+
+<!-- settings: cli -->

@@ -456,5 +456,11 @@
   },
   "diagnostics": {
     "loopStallMs": 1000
+  },
+  "cli": {
+    "paste": {
+      "collapseLines": 10,
+      "collapseChars": 2000
+    }
   }
 }

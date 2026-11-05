@@ -44,6 +44,7 @@ import { HEARTBEAT } from './schema/heartbeat.ts';
 import { APPEND_STORE } from './schema/append-store.ts';
 import { ARCHIVE } from './schema/archive.ts';
 import { DIAGNOSTICS } from './schema/diagnostics.ts';
+import { CLI } from './schema/cli.ts';
 
 export type ConfigType = 'boolean' | 'number' | 'string' | 'array' | 'null' | 'map';
 
@@ -100,6 +101,7 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...APPEND_STORE,
   ...ARCHIVE,
   ...DIAGNOSTICS,
+  ...CLI,
 ];
 
 const isTree = (value: unknown): value is Record<string, unknown> =>
