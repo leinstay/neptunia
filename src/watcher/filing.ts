@@ -16,7 +16,7 @@ import type { BoardCaller } from '../tools/impl/board.ts';
 import { HER, WATCHER, herOpenTask, normalized } from './tasks.ts';
 import type { TaskDraft } from './tasks.ts';
 
-export type FilingState = 'pending' | 'filed' | 'duplicate' | 'deferred' | 'failed' | 'cancelled';
+export type FilingState = 'pending' | 'filed' | 'duplicate' | 'deferred' | 'failed' | 'cancelled' | 'unmatched-draft';
 
 export type FilingReceipt = {
   /** The model's key, or the normalized evidence of a draft with none. */
@@ -67,14 +67,16 @@ function sameFinding(a: FilingReceipt, b: FilingReceipt): boolean {
 
 /**
  * Saves a run's validated drafts as `pending`. A repeat inside the answer is a `duplicate` from the start, and so is a draft
- * for a finding in `repeated`, a key the risk rules found to repeat an earlier report with no new evidence.
+ * for a finding in `limits.repeated`, a key the risk rules found to repeat an earlier report with no new evidence. With
+ * `limits.fileable`, the keys of the finding lines at `medium` or above, any other draft is `unmatched-draft`: settled, never
+ * sent to the board and never retried.
  */
 export function saveDrafts(
   dir: string,
   runId: string,
   at: number,
   drafts: ReadonlyArray<TaskDraft>,
-  repeated: ReadonlySet<string> = new Set()
+  limits: { repeated?: ReadonlySet<string>; fileable?: ReadonlySet<string> } = {}
 ): void {
   if (drafts.length === 0) return;
   fs.mkdirSync(filingsDir(dir), { recursive: true });
@@ -89,7 +91,11 @@ export function saveDrafts(
       state: 'pending',
       taskId: null,
     };
-    if (repeated.has(receipt.finding) || receipts.some((one) => sameFinding(one, receipt))) receipt.state = 'duplicate';
+    if (limits.repeated?.has(receipt.finding) === true) {
+      receipt.state = 'duplicate';
+      receipt.taskId = linkedReceipts(dir).findLast((one) => one.finding === receipt.finding)?.taskId ?? null;
+    } else if (limits.fileable?.has(receipt.finding) === false) receipt.state = 'unmatched-draft';
+    else if (receipts.some((one) => sameFinding(one, receipt))) receipt.state = 'duplicate';
     receipts.push(receipt);
   }
   writeFile(dir, { runId, at, receipts });
@@ -295,7 +301,9 @@ export function filingLines(receipts: ReadonlyArray<FilingReceipt>): Array<strin
     const title = one.title.replace(/\s+/g, ' ').trim();
     const tag = hasOwnKey(one) ? `${one.kind}, ${one.finding}` : one.kind;
     if (one.state === 'filed') return [`- ${one.taskId ?? ''} (${tag}): ${title}`];
-    if (one.state === 'deferred' || one.state === 'failed') return [`- ${one.state} (${tag}): ${title}`];
+    if (one.state === 'deferred' || one.state === 'failed' || one.state === 'unmatched-draft') {
+      return [`- ${one.state} (${tag}): ${title}`];
+    }
     if (one.state === 'duplicate' && one.taskId !== null) return [`- already ${one.taskId} (${tag}): ${title}`];
     return [];
   });

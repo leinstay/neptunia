@@ -614,6 +614,11 @@ test('the real command line answers evidence as JSON, with no core and no board'
   const where = rig();
   writeTranscript(where.home, oneRequest(new Date(Date.now() - 60_000).toISOString(), 'dev'));
   const home = tempDir('nep-evidence-home-');
+  // Changed: evidence asks `gh` for the CI of main, so a refusing stand-in keeps this test off the network.
+  const refusing = tempDir('nep-evidence-bin-');
+  for (const tool of ['gh', 'sudo', 'systemctl']) {
+    fs.writeFileSync(path.join(refusing, tool), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  }
   const done = spawnSync(
     process.execPath,
     [BIN, 'services', 'watcher', 'evidence', '--from', new Date(Date.now() - 3_600_000).toISOString()],
@@ -622,7 +627,7 @@ test('the real command line answers evidence as JSON, with no core and no board'
       encoding: 'utf8',
       timeout: 6_000,
       env: {
-        PATH: '/usr/bin:/bin',
+        PATH: `${refusing}:/usr/bin:/bin`,
         HOME: home,
         TMPDIR: process.env.TMPDIR,
         NEPTUNIA_PRIVATE_DIR: where.data,

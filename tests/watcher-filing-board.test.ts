@@ -25,7 +25,6 @@ const filing = () => import('../src/watcher/filing.ts');
 
 const DRAFT = { kind: 'fix', finding: 'rail', title: 'Retry rail', evidence: 'src/a.ts:1', done: 'It holds' };
 const OTHER = { kind: 'chore', finding: 'key', title: 'Unread key', evidence: 'config/b.json:2', done: 'It is gone' };
-const PLAIN = { kind: DRAFT.kind, title: DRAFT.title, evidence: DRAFT.evidence, done: DRAFT.done };
 
 const never = (): Promise<never> => new Promise(() => {});
 const answering =
@@ -153,15 +152,17 @@ test('a draft is filed as the watcher, in the dev lane, with its evidence, done-
   assert.equal(row?.metadata?.kind, DRAFT.kind);
 });
 
+// Changed: a draft files only from a finding line at `medium` or above, which a draft with no key cannot match, so the cases
+// below file keyed drafts. A row from before keys still holds its evidence alone, and that comparison stays.
 test('a closed task from yesterday still stops the same evidence', async () => {
   // Bug: a task closed this morning is filed again tonight, before anyone can have seen whether the fix held.
   const closed = taskRow({
     id: 'T-closed',
     status: 'done',
     created_at: '2026-11-03T00:03:00.000Z',
-    metadata: { kind: 'fix', evidence: PLAIN.evidence },
+    metadata: { kind: 'fix', evidence: DRAFT.evidence },
   });
-  assert.equal((await filedOver({ rows: [closed] }, PLAIN)).adds.length, 0);
+  assert.equal((await filedOver({ rows: [closed] }, DRAFT)).adds.length, 0);
 });
 
 test('a closed task from five days ago does not stop it: the problem came back, so it is filed again', async () => {
@@ -170,19 +171,19 @@ test('a closed task from five days ago does not stop it: the problem came back, 
     id: 'T-closed',
     status: 'done',
     created_at: '2026-10-30T00:03:00.000Z',
-    metadata: { kind: 'fix', evidence: PLAIN.evidence },
+    metadata: { kind: 'fix', evidence: DRAFT.evidence },
   });
-  assert.equal((await filedOver({ rows: [closed] }, PLAIN)).adds.length, 1);
+  assert.equal((await filedOver({ rows: [closed] }, DRAFT)).adds.length, 1);
 });
 
 test('the same evidence is matched through case and spacing', async () => {
-  // Bug: a draft with no key slips past by one capital letter or a doubled space, and files the bug again.
+  // Bug: a task from before keys is missed by one capital letter or a doubled space, and the bug is filed again.
   const open = taskRow({
     id: 'T-open',
     status: 'proposed',
     metadata: { kind: 'fix', evidence: '  SRC/A.TS:1   FOURTEEN RETRIES ' },
   });
-  const draft = { ...PLAIN, evidence: 'src/a.ts:1 fourteen retries' };
+  const draft = { ...DRAFT, evidence: 'src/a.ts:1 fourteen retries' };
   assert.equal((await filedOver({ rows: [open] }, draft)).adds.length, 0);
 });
 
@@ -193,12 +194,12 @@ test('other evidence is filed beside a recent task of the watcher', async () => 
     status: 'proposed',
     metadata: { kind: 'fix', evidence: 'something else' },
   });
-  assert.equal((await filedOver({ rows: [recent] }, PLAIN)).adds.length, 1);
+  assert.equal((await filedOver({ rows: [recent] }, DRAFT)).adds.length, 1);
 });
 
-test('the same evidence twice in one answer with no key is filed once', async () => {
+test('the same key twice in one answer is filed once', async () => {
   // Bug: the comparison looks only at the board, and two drafts of one answer both pass it.
-  assert.equal((await filedOver({}, PLAIN, { ...PLAIN, title: 'Same thing again' })).adds.length, 1);
+  assert.equal((await filedOver({}, DRAFT, { ...DRAFT, title: 'Same thing again' })).adds.length, 1);
 });
 
 // ---- what the report says under "Tasks filed" ---------------------------------------------------------------------

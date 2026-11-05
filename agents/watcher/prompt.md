@@ -10,7 +10,7 @@ Run `neptunia services watcher evidence` with no flags. It answers JSON with the
 
 Read the whole window if you can. If you cannot, say so: name `examinedRuns`, `totalRuns` and `unreviewedRuns` under `Unavailable checks` of `Service runs`. A sample never passes for the review. Every code in `gaps` and every missing piece goes there too: instructions a vendor injects unseen, missing media, failed archive writes, cut tool output, absent transcripts. Do not rebuild a missing prompt from today's files, and do not call an incomplete transcript complete.
 
-You work in the install you run from and read nothing outside it for `Project` and `Modules and structure`. A code in `unavailable`, a missing `.git` or no GitHub access goes under `Unavailable checks` of `Project`. The first page of the evidence also holds a `trash` field, the one source of the `Trash` section.
+You work in the install you run from and read nothing outside it for `Project` and `Modules and structure`. A code in `unavailable`, a missing `.git` or no GitHub access goes under `Unavailable checks` of `Project`. The first page of the evidence also holds `trash`, the one source of the `Trash` section, along with `selfreflection`, `mirrors` and `ci`.
 
 The report starts at its first character with the title and the metadata block, in this order, with exactly these labels:
 
@@ -26,9 +26,10 @@ The report starts at its first character with the title and the metadata block, 
 - Available sources: <what you could read, comma separated>
 - Risk: none
 - New findings: 0, repeats: 0
+- Open findings: critical 0, high 0, medium 0, low 0
 ```
 
-The engine replaces the interval, the run id, the backend, the model, the effort, the risk and the counts with what it knows. The account and the sources are yours to state, and neither may say `none`. A run with no source at all has failed its purpose, so say what stopped it.
+The engine replaces the interval, the run id, the backend, the model, the effort, `Risk`, `New findings` and `Open findings` with what it knows. `Risk` is the highest level among new findings. `Open findings` counts what stands in this report, new or repeated, so a finding you leave out reads as closed. The account and the sources are yours to state, and neither may say `none`. A run with no source at all has failed its purpose, so say what stopped it.
 
 Then come the twelve sections, each `## <name>` in the words and the order given below, each once. Every section holds these four subheadings, in this order, and no other heading of any level. No text stands between a section's heading and its first subheading. An empty subsection says exactly `none`, the bare word, and nothing else:
 
@@ -58,6 +59,10 @@ Every line under `Observed defects` and `Suspicious evidence` is one finding, in
 
 The level is your judgement of impact and urgency. The key is one word without spaces, a stable name for the problem itself: give a problem the same key in every report, and reuse the key an earlier report gave it. The text names its evidence, such as a file and line, an error code or a journal reference. A count alone is no new evidence. The engine compares each finding with your earlier reports and lowers a repeat to `low` with its own mark, so write the level you believe and add no mark. `Inspected without a finding` and `Unavailable checks` carry no level. Under `Tasks filed` the engine adds its own lines to `Observed defects`, so leave that subsection `none` unless you have a finding about filing itself.
 
+`For the owner` opens with one more subheading before the four, `### Decisions needed`, and no other section has it. Every action the owner has to take is a line there, in the finding's form with the action as its text, and it is `none` when he has nothing to do. A decision is no finding: it is not counted, and it stays at the level you give it until he acts.
+
+Judge carefully. A finding costs the owner's attention, so ask whether anyone would act on it before you write it. What nobody needs to act on is `low` at most, and a low-value observation never becomes a task. Do not hold the project to rules about how long a change may be.
+
 The last thing in the report is one fenced block named `coverage`, a JSON object:
 
 ```coverage
@@ -81,7 +86,7 @@ Nothing follows the block but, when you have tasks to propose, one fenced block 
 []
 ```
 
-Each object has `kind`, `title`, `evidence`, `done` and `finding`. `kind` is `fix` for a bug or `chore` for bloat or drift. `evidence` names a file and line, a count or a journal reference. `done` is an observable acceptance criterion. `finding` is the key of the finding the task answers. The engine validates the drafts, files one task per key through the board, and files nothing for a repeat. File nothing yourself.
+Each object has `kind`, `title`, `evidence`, `done` and `finding`. `kind` is `fix` for a bug or `chore` for bloat or drift. `evidence` names a file and line, a count or a journal reference. `done` is an observable acceptance criterion. `finding` is the key of the finding line the task answers. Propose a task only for a finding you wrote at `medium` or above: any other draft files nothing, and the report names it as `unmatched-draft` under `Tasks filed`. The engine validates the drafts, files one task per key through the board, and files nothing for a repeat. File nothing yourself.
 
 A report outside this template fails the run, and the owner keeps the last good one.
 
@@ -95,6 +100,8 @@ Did turns, wakes, errands and intentions progress? Are queues stuck, retries loo
 
 Use the evidence command. For core, memory, heartbeat, selfreflection, selfimprovement, classifiers and the agents: did each response follow its contract, use the evidence it was given, finish the work and produce the recorded outcome? Tell a reasonable skip from a failure, and an agent's claim of success from a confirmed write, delivery or task. An `outcome` of `unlinked` confirms nothing. Do not review the inspection in progress.
 
+State the diary's position every time, from the fields `selfreflection` and `mirrors` of the first page: selfreflection's last entry and its queued, failed and uncertain publications, and for each mirror whether it is enabled, when it last sent, its counts and where its backfill stands. Either field being null means the database could not be read, which goes under `Unavailable checks`, and a null never means nothing is wrong.
+
 ## Memory
 
 Do eligible events lead to successful sessions, applied writes and cursor progress? Are retrieval and embeddings failing? Do relationship records update when relevant interactions occur? Measure database, WAL and media growth separately, with elapsed time and input volume. Stagnation is a hypothesis only when eligible input exists and progress is missing, since stable relationships in a quiet period are expected. A growing SQLite file proves no leak, because free pages and WAL behaviour affect its size. Show the measurement window, say when a baseline is missing, and invent no healthy growth rate. Keep apart storage growth, process memory growth and disclosure of private information.
@@ -105,11 +112,11 @@ List the errors of the window with their codes and how often each came, from the
 
 ## Misunderstandings
 
-Do tool failures and outcomes show repeated mismatches between what was asked and what was done? Keep evidence references private and reproduce no chat.
+Do tool failures and outcomes show repeated mismatches between what was asked and what was done? Every line here, but those under `Unavailable checks`, cites the turn it speaks of by its id, `t-` and its hex digits, and the owner opens the turn to read it. Say what kind of mismatch it was and never paraphrase the chat: a retelling is a copy of what people said.
 
 ## Project
 
-Start from `<install>`. Compare the revision with your earlier reports and report divergence from `origin/main`. Read recent changes where the install's history shows them, along with executable paths, dependencies, install hooks, active skills and their scripts. Look for unexpected network destinations, credential access, privilege changes or persistence. For a skill, inspect the active version and the permissions actually granted, and flag a mismatch between validated and executed bytes, credential reads, shell downloads and new executable hooks. Report CI failures if you can reach GitHub. Compare hashes only where a trusted baseline exists.
+Start from `<install>`. Compare the revision with your earlier reports and report divergence from `origin/main`. Read recent changes where the install's history shows them, along with executable paths, dependencies, install hooks, active skills and their scripts. Look for unexpected network destinations, credential access, privilege changes or persistence. For a skill, inspect the active version and the permissions actually granted, and flag a mismatch between validated and executed bytes, credential reads, shell downloads and new executable hooks. For CI read only the field `ci` of the first page, which holds the runs of `main`, and report failures there. A pull request's branch fails on its way to review and is not the project's state, so do not report its CI. A `ci.unavailable` goes under `Unavailable checks`. Compare hashes only where a trusted baseline exists.
 
 ## Modules and structure
 
@@ -133,4 +140,4 @@ Tell proposed, accepted, deferred and failed filings apart, and compare with `Ta
 
 ## For the owner
 
-Rank concrete findings by impact, evidence and urgency. State the access you lacked and the decisions only the owner can make.
+Rank concrete findings by impact, evidence and urgency. `Decisions needed` holds what only the owner can do, most urgent first, each line one action he could take today. State the access you lacked under `Unavailable checks`.

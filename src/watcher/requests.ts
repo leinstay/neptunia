@@ -297,6 +297,88 @@ export function openTaskIds(db: Db): Array<string> {
     .map((row) => String(row.id));
 }
 
+export type PublicationCounts = { queued: number; failed: number; uncertain: number };
+export type MirrorFacts = PublicationCounts & {
+  place: string;
+  enabled: boolean;
+  lastSentAt: string | null;
+  backfill: { enabled: boolean; highWater: string | null; nextDueAt: string | null; completedAt: string | null };
+};
+export type SelfreflectionFacts = PublicationCounts & { lastEntryId: string | null; lastEntryAt: string | null };
+
+const isoOrNull = (at: unknown): string | null => (typeof at === 'number' ? iso(at) : null);
+
+/** The publications of the diary in each state that still means something, for a place or for all of them. */
+function publicationCounts(db: Db, place: string | null): PublicationCounts & { lastSentAt: string | null } {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(status IN ('queued', 'sending')), 0) AS queued, COALESCE(SUM(status = 'failed'), 0) AS failed,
+         COALESCE(SUM(status IN ('unknown', 'incomplete')), 0) AS uncertain, MAX(sent_at) AS lastSentAt
+       FROM publications WHERE row_kind = 'diary' AND retired_at IS NULL AND (? IS NULL OR destination_place_id = ?)`
+    )
+    .get(place, place);
+  return {
+    queued: Number(row?.queued ?? 0),
+    failed: Number(row?.failed ?? 0),
+    uncertain: Number(row?.uncertain ?? 0),
+    lastSentAt: text(row?.lastSentAt),
+  };
+}
+
+/** Each live mirror of the diary: its place, its counts and its backfill. Ids and times only, no words of the diary. */
+export function mirrorFacts(db: Db): Array<MirrorFacts> {
+  return db
+    .prepare("SELECT * FROM mirrors WHERE row_kind = 'diary' AND removed_at IS NULL ORDER BY place_id")
+    .all()
+    .map((row) => {
+      const place = String(row.place_id);
+      return {
+        place,
+        enabled: row.enabled === 1,
+        ...publicationCounts(db, place),
+        backfill: {
+          enabled: row.backfill_enabled === 1,
+          highWater: text(row.backfill_high_water),
+          nextDueAt: isoOrNull(row.backfill_next_due_at),
+          completedAt: isoOrNull(row.backfill_completed_at),
+        },
+      };
+    });
+}
+
+/** The diary's last entry and the totals of its publications, mirror or none. No words of the diary. */
+export function selfreflectionFacts(db: Db): SelfreflectionFacts {
+  const entry = db
+    .prepare('SELECT id, at_ms FROM diary WHERE retired_at IS NULL ORDER BY at_ms DESC, rowid DESC LIMIT 1')
+    .get();
+  const { queued, failed, uncertain } = publicationCounts(db, null);
+  return { lastEntryId: text(entry?.id), lastEntryAt: isoOrNull(entry?.at_ms), queued, failed, uncertain };
+}
+
+export type MainCi = { branch: 'main'; runs: Array<Record<string, unknown>>; unavailable: string | null };
+
+const CI_FIELDS = 'headBranch,conclusion,status,name,headSha,createdAt';
+
+/**
+ * The CI runs of `main` as `gh` lists them: a pull request's branch is not the project's state, so anything else it answers
+ * is dropped. No answer is `unavailable`, never an empty list that reads as no failures.
+ */
+export async function mainCi(
+  run: (command: string, args: ReadonlyArray<string>) => Promise<{ code: number; stdout: string }>
+): Promise<MainCi> {
+  const none = (unavailable: string): MainCi => ({ branch: 'main', runs: [], unavailable });
+  try {
+    const answer = await run('gh', ['run', 'list', '--branch', 'main', '--limit', '20', '--json', CI_FIELDS]);
+    if (answer.code !== 0) return none('gh cannot list the runs');
+    const parsed: unknown = JSON.parse(answer.stdout);
+    if (!Array.isArray(parsed)) return none('gh gave no list');
+    const runs = (parsed as Array<Record<string, unknown>>).filter((one) => one.headBranch === 'main');
+    return { branch: 'main', runs, unavailable: null };
+  } catch {
+    return none('gh gave no readable answer');
+  }
+}
+
 const gapsFile = (privateDir: string): string => path.join(privateDir, 'agents', 'watcher', 'archive-gaps.jsonl');
 
 /** Appends a request the archive lost, for the next inspection. The gap holds ids and never content. Never throws. */
