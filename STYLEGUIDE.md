@@ -205,6 +205,7 @@ throw new Error(`unknown wake kind "${kind}"; use one of ${WAKE_KINDS.join(', ')
 - An empty `catch` needs a comment saying why the error is ignored.
 - Fail loudly at a boundary. A wrong event, config key or tool call gets refused with a reason.
 - Skip checks for what the types already rule out.
+- A property chain reads at most three segments deep. Past that, the owner of the data gets a named method or the caller a named variable. Settings paths under `hot.config` are exempt. A property name never repeats in a row, as in `extra.extra`.
 
 ## Naming
 
