@@ -1,30 +1,27 @@
 // The inventory of what the archive holds per service (src/watcher/coverage.ts), checked against the code as it is, and
 // the report's coverage block (`checkCoverage` of src/watcher/report.ts), which the validator requires of an inspection.
 // The audit behind the pins: `archivedLlm` wraps the chat client and the memory session's client in src/core.ts; every
-// wake and helper goes through that chat client; `runAgent` of src/subharness/run.ts records nothing; the embedder
-// (src/llm/embed.ts) and the speech call (src/speech/synth.ts) bypass `complete`.
+// wake and helper goes through that chat client; the embedder (src/llm/embed.ts) and the speech call
+// (src/speech/synth.ts) bypass `complete`. The agents' source is pinned in tests/watcher-transcripts.test.ts.
+// Changed: the agents' test here said a CLI run records through the writer or declares its transcript absent. A real run
+// of 2026-11-04 showed the transcripts hold those requests, so the coordinator moved that pin to the transcript source.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openMemoryDb } from '../src/memory/db/open.ts';
-import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
-import { readRequests } from '../src/memory/db/request-archive.ts';
-import { dbOf } from '../src/memory/db/types.ts';
-import { runAgent } from '../src/subharness/run.ts';
 import * as reports from '../src/watcher/report.ts';
 import { readReport } from '../src/watcher/read.ts';
-import { writeKeysFile } from './fixtures/keys-file.ts';
-import { tempDir } from './fixtures/tmp.ts';
 import {
   DAY,
   MINUTE,
+  answerOf,
   coverageBlock,
   coverageOf,
   inspectionDeps,
   inspectionRig,
   said,
+  templateOf,
 } from './fixtures/watcher-inspection-rig.ts';
 import { PLANTED_KEY, reportText } from './fixtures/watcher-rig.ts';
 
@@ -47,7 +44,6 @@ const SERVICES = [
 ];
 const FIELDS = ['request', 'toolResults', 'backend', 'model', 'runIdentity', 'timestamps', 'outcomeLink'] as const;
 const CHAT_CLIENT = ['core', 'heartbeat', 'selfreflection', 'selfimprovement', 'helpers'];
-const AGENTS = ['thinker', 'dev', 'scout', 'server', 'watcher'];
 
 const entryOf = async (service: string) =>
   (await coverage()).ARCHIVE_COVERAGE.find((entry) => entry.service === service) ?? assert.fail(`no entry: ${service}`);
@@ -112,39 +108,6 @@ test('memory declares both its paths: the wrapped client, and a subprocess with 
   assert.ok(entry.gaps.includes('vendor-instructions'));
   assert.ok(entry.gaps.includes('absent-transcript'));
 });
-
-for (const service of AGENTS) {
-  test(`${service} either records its run through the single writer or declares the gap`, async () => {
-    // Bug: `runAgent` writes no row and nothing says so, so a dev run reads as reviewed when only its result was seen.
-    const entry = await entryOf(service);
-    assert.equal(entry.path, 'subprocess');
-    assert.ok(entry.gaps.includes('vendor-instructions'), 'a CLI adds instructions nobody can see');
-    if (entry.fields.request.state === 'gap') {
-      assert.ok(entry.gaps.includes('absent-transcript'));
-      return;
-    }
-    const handle = openMemoryDb(path.join(tempDir('nep-coverage-'), 'memory.db'));
-    const privateDir = tempDir('nep-coverage-keys-');
-    writeKeysFile(privateDir, { subharness: { backends: ['claude'], key: null, modes: {}, models: {}, uses: {} } });
-    const done = await runAgent(
-      { agent: service, brief: 'THE-BRIEF', cwd: privateDir, timeoutMs: 1000 },
-      {
-        privateDir,
-        denyDir: tempDir('nep-coverage-deny-'),
-        backendFactory: () => ({
-          name: 'claude',
-          run: () => Promise.resolve({ ok: true, text: 'THE-ANSWER', exitCode: 0 }),
-        }),
-        archive: (update) => Promise.resolve(applyMemoryWrite(handle, update)),
-      }
-    );
-    assert.equal(done.ok, true);
-    const [row] = readRequests(dbOf(handle));
-    assert.ok(String(row?.messages).includes('THE-BRIEF'));
-    assert.equal(row?.response_text, 'THE-ANSWER');
-    handle.close();
-  });
-}
 
 test('a declared gap is one the read knows, so every gap in the table can be shown to the owner', async () => {
   // Bug: the table and the read drift into two vocabularies, and a gap in one never surfaces in the other.
@@ -248,7 +211,9 @@ test('an inspection whose answer has no coverage block fails its check and saves
   // Bug: the validator exists but the run does not call it.
   const { runInspection } = await inspection();
   const rig = inspectionRig();
-  const result = await runInspection(inspectionDeps(rig, { runAgent: () => Promise.resolve(said(reportText())) }));
+  const result = await runInspection(
+    inspectionDeps(rig, { runAgent: () => Promise.resolve(said(templateOf({ end: '' }))) })
+  );
   assert.equal(result.state, 'failed');
   assert.equal(result.code, 'coverage-missing');
   assert.equal(readReport(rig.reportsDir, DAY).ok, false);
@@ -269,7 +234,7 @@ test('the brief states the window: from the last success to now, and a failed at
     inspectionDeps(rig, {
       runAgent: (brief) => {
         briefs.push(brief);
-        return Promise.resolve(said(reportText() + '\n' + coverageBlock()));
+        return Promise.resolve(said(answerOf()));
       },
     })
   );

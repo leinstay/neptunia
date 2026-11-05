@@ -1,7 +1,7 @@
 // Fakes for the watcher's lifecycle tests: a watcher folder under a temp persona root, a run store with an injected
 // clock and an injected table of live processes, an agent that answers a canned text, and a board that keeps rows,
 // honours an idempotency key the way src/board/board.ts does, and can lose its answer after accepting a task. The answers
-// carry a `coverage` block from the start, so these tests hold both before and after the report validator requires it.
+// follow the report's exact template with its `coverage` block at the end, which the check of an inspection requires.
 // Synthetic data only: no provider, no database, no socket.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,7 +11,7 @@ import type { BoardCaller } from '../../src/tools/impl/board.ts';
 import type { InspectionAgentResult, InspectionDeps } from '../../src/watcher/inspection.ts';
 import type { ProcessIdentity, RunStore } from '../../src/watcher/lifecycle.ts';
 import { tempDir } from './tmp.ts';
-import { reportText, taskRow, tasksBlock } from './watcher-rig.ts';
+import { HEADINGS, taskRow, tasksBlock } from './watcher-rig.ts';
 
 export const NOW = Date.parse('2026-11-04T06:00:00Z');
 export const DAY = '2026-11-04';
@@ -38,12 +38,62 @@ export function coverageOf(fields: Readonly<Record<string, unknown>> = {}): Reco
 export const coverageBlock = (fields: Readonly<Record<string, unknown>> = {}): string =>
   '```coverage\n' + JSON.stringify(coverageOf(fields), null, 2) + '\n```\n';
 
-/** A whole answer: the seven sections with `bodies`, the coverage block and, with drafts, the tasks block. */
+export const SUBHEADINGS: ReadonlyArray<string> = [
+  'Observed defects',
+  'Suspicious evidence',
+  'Inspected without a finding',
+  'Unavailable checks',
+];
+
+/** What the fixed metadata block says, in its fixed order. */
+export const METADATA: ReadonlyArray<readonly [string, string]> = [
+  ['Observation interval', '2026-11-03T06:00:00.000Z to 2026-11-04T06:00:00.000Z'],
+  ['Run id', 'run-template'],
+  ['Selected backend', 'claude'],
+  ['Model', 'model-m'],
+  ['Effort', 'medium'],
+  ['Effective account', 'the persona account'],
+  ['Available sources', 'model_requests, service journal'],
+];
+
+/** One section's body: a string goes under its first subheading, an object names the subheadings it fills. */
+type SectionBody = string | Readonly<Record<string, string>>;
+
+/**
+ * A report in the exact template of `checkTemplate`. The options reorder or replace a part so a test can break one thing:
+ * the title line, the metadata rows, the sections, the subheadings of each section, and the block at the end.
+ */
+export function templateOf(
+  options: {
+    day?: string;
+    title?: string;
+    metadata?: ReadonlyArray<readonly [string, string]>;
+    bodies?: Readonly<Record<string, SectionBody>>;
+    sections?: ReadonlyArray<string>;
+    subheadings?: ReadonlyArray<string>;
+    end?: string;
+  } = {}
+): string {
+  const title = options.title ?? `# Watcher report ${options.day ?? DAY}`;
+  const metadata = (options.metadata ?? METADATA).map(([label, value]) => `- ${label}: ${value}`).join('\n');
+  const subheadings = options.subheadings ?? SUBHEADINGS;
+  const sections = (options.sections ?? HEADINGS).map((heading) => {
+    const body = options.bodies?.[heading] ?? {};
+    const of = (name: string): string => {
+      if (typeof body !== 'string') return body[name] ?? 'none';
+      return name === subheadings[0] ? body : 'none';
+    };
+    return [`## ${heading}`, ...subheadings.map((name) => `### ${name}\n\n${of(name)}`)].join('\n\n');
+  });
+  return [title, metadata, ...sections, options.end ?? coverageBlock()].join('\n\n').trimEnd() + '\n';
+}
+
+/** A whole answer: the report in its template with `bodies` and, with drafts, the tasks block after it. */
 export function answerOf(
   bodies: Readonly<Record<string, string>> = {},
   drafts: ReadonlyArray<Record<string, unknown>> = []
 ): string {
-  return reportText(bodies) + '\n' + coverageBlock() + (drafts.length === 0 ? '' : tasksBlock(drafts));
+  return templateOf({ bodies }) + (drafts.length === 0 ? '' : tasksBlock(drafts));
 }
 
 export const said = (text: string): InspectionAgentResult => ({ ok: true, text, exitCode: 0 });
