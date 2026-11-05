@@ -1379,8 +1379,9 @@ async function buildCore(
     guildId: getGuildId,
     // The agents' board commands (src/board/commands.ts), each run in the memory writer.
     tasks: board,
-    // The agents' `skill.pending` (src/skills/agent-commands.ts).
+    // The agents' `skill.pending` (src/skills/agent-commands.ts), which binds a package on the board.
     skills: skillsWiring.access,
+    board,
     facts: () =>
       coreStatusFacts({
         hot,
@@ -1586,6 +1587,16 @@ async function buildCore(
     run: async () => {
       const ids = await board.reap();
       if (ids.length > 0) log.info('board: leases expired', { count: ids.length, tasks: ids });
+    },
+  });
+  // Her done skill tasks activate the version each one bound (src/skills/task-activation.ts), on the reaper's clock. Only the
+  // core holds the skills access and the board together. A sweep looks at the board and not at a notification, so a crash
+  // between a task's end and its activation recovers on the first beat after the start.
+  scheduler.add({
+    name: 'skills.settle',
+    everyMs: () => boardTimings(settings.config).reapSeconds * 1000,
+    run: async () => {
+      for (const one of await skillsWiring.settle()) log.info('skills: task settled', { ...one });
     },
   });
   // The inner life's tick, every wakes.tickSeconds (read before each wait).

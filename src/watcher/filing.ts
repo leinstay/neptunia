@@ -3,8 +3,8 @@
 // receipt, so a crash or an outage loses nothing and a later inspection finishes the job. A draft may have been accepted
 // with its answer lost, so before any `task.add` the rows on the board are searched for this run's finding, and the add
 // itself carries an idempotency key. Duplicates are found by the model's `finding` key, and a draft or a task that has
-// none by its evidence. Only the watcher's own tasks count, so her task about the same thing never silences it. A
-// `failed` receipt is a refusal of the board and is not retried; a `deferred` one is an outage and is.
+// none by its evidence. Her open task on the same evidence covers a draft too, so one issue runs once and each task keeps
+// its origin. A `failed` receipt is a refusal of the board and is not retried; a `deferred` one is an outage and is.
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -13,7 +13,7 @@ import type { TaskRecord } from '../board/board.ts';
 import { BoardError, BoardRefusal } from '../board/machine.ts';
 import { DAY_MS } from '../time.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
-import { WATCHER, normalized } from './tasks.ts';
+import { HER, WATCHER, herOpenTask, normalized } from './tasks.ts';
 import type { TaskDraft } from './tasks.ts';
 
 export type FilingState = 'pending' | 'filed' | 'duplicate' | 'deferred' | 'failed' | 'cancelled';
@@ -209,7 +209,7 @@ async function fileOne(
 ): Promise<boolean> {
   const { dir, board, rows, since } = args;
   const accepted = acceptedRow(rows, runId, receipt);
-  const covering = accepted ?? coveringRow(rows, receipt, since);
+  const covering = accepted ?? coveringRow(rows, receipt, since) ?? herOpenTask(rows, receipt.evidence);
   if (covering !== undefined) {
     settle(dir, runId, index, accepted === undefined ? 'duplicate' : 'filed', covering.id);
     return false;
@@ -269,7 +269,10 @@ export async function retryFilings(args: {
   const since = Math.floor(args.now() / DAY_MS) * DAY_MS - DAY_MS;
   let rows: Array<TaskRecord>;
   try {
-    rows = [...(await board.call(WATCHER, 'task.list', { requester: WATCHER }))];
+    rows = [
+      ...(await board.call(WATCHER, 'task.list', { requester: WATCHER })),
+      ...(await board.call(WATCHER, 'task.list', { requester: HER })),
+    ];
   } catch (error) {
     settleAll(dir, files, stateOfError(error));
     return;

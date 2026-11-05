@@ -63,7 +63,33 @@ export function snapshotPackage(skillDir: string, text: string, hash: string): v
   fs.renameSync(temp, target);
 }
 
-export type PackageCode = 'bad-setup' | 'missing-script' | 'undeclared-script';
+export type PackageCode = 'bad-setup' | 'missing-script' | 'undeclared-script' | 'symlink';
+
+const isLink = (file: string): boolean => {
+  try {
+    return fs.lstatSync(file).isSymbolicLink();
+  } catch {
+    // A file that is not there is no link.
+    return false;
+  }
+};
+
+function holdsLink(dir: string): boolean {
+  if (isLink(dir)) return true;
+  if (!fs.existsSync(dir)) return false;
+  return fs.readdirSync(dir, { withFileTypes: true }).some((entry) => {
+    return entry.isSymbolicLink() || (entry.isDirectory() && holdsLink(path.join(dir, entry.name)));
+  });
+}
+
+/**
+ * Whether a package reaches outside its folder: `SKILL.md`, `setup.json`, `scripts/` or anything under it is a symbolic
+ * link. The loader asks before it reads a byte, so a version never holds bytes from elsewhere.
+ */
+export function packageHasLink(skillDir: string): boolean {
+  const files = [path.join(skillDir, 'SKILL.md'), path.join(skillDir, SETUP_FILE)];
+  return files.some(isLink) || holdsLink(path.join(skillDir, SCRIPTS_DIR));
+}
 
 /**
  * The first thing that keeps a package from running, or null: `setup.json` that does not parse, a declared script with

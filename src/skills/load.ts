@@ -1,13 +1,14 @@
 // Loads the skills from disk at the moment of use: `<trackedDir>/<name>/SKILL.md` for the tracked layer and
 // `<localDir>/<name>/SKILL.md` for the local one, each call reading the folders anew. A local skill replaces the
 // tracked skill of the same name whole. A folder without a `SKILL.md`, a README and any loose file are ignored; a
-// file that does not parse, one whose `name` differs from its folder, or a package that cannot run (package.ts) is a
-// problem and no skill, and never stops the others. The skills port (port.ts) is the caller.
+// file that does not parse, one whose `name` differs from its folder, a package that cannot run or one holding a symbolic
+// link (package.ts) is a problem and no skill, and never stops the others. A folder that is itself a link is ignored. The
+// skills port (port.ts) is the caller.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseSkillFile } from './format.ts';
-import { packageHash, packageProblem, snapshotPackage } from './package.ts';
+import { packageHasLink, packageHash, packageProblem, snapshotPackage } from './package.ts';
 import type { PackageCode } from './package.ts';
 import type { ParsedSkill, SkillFileCode } from './format.ts';
 
@@ -33,6 +34,10 @@ function readLayer(
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const file = path.join(root, entry.name, FILE);
+    if (packageHasLink(path.join(root, entry.name))) {
+      problems.push({ dir: entry.name, code: 'symlink' });
+      continue;
+    }
     let text: string;
     try {
       text = fs.readFileSync(file, 'utf8');

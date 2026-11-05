@@ -62,7 +62,7 @@ export const TASK_USAGE = `usage: neptunia task <command> [options]   (--socket 
   task escalate Q-xxxxxx [--note "..."]        # the question's addressee hands it up to the owner
   task comment T-xxxxxx "..."                  task result T-xxxxxx --kind pr --uri https://... [--body -] [--no-submit]
                                                [--generation N]
-  task skill-pending [<name>] [--json]         # the versions waiting for the owner; with a name, files that package
+  task skill-pending [<name>] [--json]         # the pending versions; with a name, checks that package
   task events [--from <seq>] [--limit N] [--json]
   task inbox [--json]                          # the caller's outbox rows, acknowledged on read
   task costs [--now ISO] [--json]              # the agents: runs, tokens, USD today / 7 / 30 UTC days
