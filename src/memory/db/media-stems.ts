@@ -10,7 +10,7 @@ const BATCH = 1000;
 
 const hasStems = new WeakMap<Db, boolean>();
 /** Whether the database holds the store yet: a migration older than it may stamp source rows. Once true it stays true. */
-function storeHeld(db: Db): boolean {
+export function storeHeld(db: Db): boolean {
   if (hasStems.get(db)) return true;
   const held = db
     .prepare('PRAGMA table_info(media)')

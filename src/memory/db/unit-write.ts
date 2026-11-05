@@ -24,6 +24,7 @@ import { unitRows, isMediaDescriptionEntry, mediaDescriptionId } from './export.
 import { unitValue } from './readers/common.ts';
 import { assignDiaryDestination } from './publish.ts';
 import { graphPending, projectPending } from './graph.ts';
+import { storeHeld } from './media-stems.ts';
 import { fillStems, markStemsPending, stemsPending } from './stems.ts';
 import {
   adoptLibraryRows,
@@ -380,7 +381,7 @@ function writeLine(
   // A row is looked up only for a source line, so `keep` holds only with one.
   if (keep) (source as Row).position = found.position;
   // A source row's media go to `media` and `media_links`: what a record line holds of them leaves its `extra`.
-  const media = source ? takeRecordMedia(source) : null;
+  const media = source && storeHeld(db) ? takeRecordMedia(source) : null;
   writeMapping(db, qualify(mapping, unit), unit.full, { at, ignoreClaims: archive });
   if (source && media) writeRecordMedia(db, asText(source.id), media, at);
   return { written: 1, duplicates: 0, adopted: found?.origin === 'observation' ? 1 : 0, advance: keep ? 0 : 1 };
@@ -508,7 +509,7 @@ function writeMediaDescriptions(db: Db, unit: Unit, given: unknown, at: string) 
       unit.full,
       { at }
     );
-    if (filled(key.selector?.itemId) && typeof text === 'string' && text !== '') {
+    if (storeHeld(db) && filled(key.selector?.itemId) && typeof text === 'string' && text !== '') {
       tellFromCacheKey(db, { iface: storageContext(db, key).iface ?? null, key: key.selector.itemId, text, at });
     }
     written += 1;
@@ -524,17 +525,17 @@ function writeValue(db: Db, update: Row, at: string): Row {
   const unit = updateUnit(db, update);
   if (unit.format !== 'json' || NOT_VALUE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
   // The describer's cache lives on the items: an entry is the text form of its row, and a linked row is never trimmed.
-  if (unit.kind === 'media') {
+  if (unit.kind === 'media' && storeHeld(db)) {
     const iface = (unit.key ? storageContext(db, unit.key).iface : null) ?? ifaceOf(update);
     const cached = writeMediaCache(db, { owner: unit.full, iface, value: (update.value ?? {}) as Row, at });
     noteUnit(db, unit.full, unit.kind, { at });
     return { ...cached, destinations: [] };
   }
   const mapping = qualify(unit.mapper.toRows(unit.rel, update.value ?? {}, { iface: ifaceOf(update) }), unit);
-  if (unit.kind === 'gifs') keepItemFields(db, mapping.media ?? []);
+  if (unit.kind === 'gifs' && storeHeld(db)) keepItemFields(db, mapping.media ?? []);
   const upserted = writeMapping(db, mapping, unit.full, { at });
   const retired = retireAbsent(db, unit.full, mapping, at);
-  if (unit.kind === 'gifs') adoptLibraryRows(db, unit.full, at);
+  if (unit.kind === 'gifs' && storeHeld(db)) adoptLibraryRows(db, unit.full, at);
   noteUnit(db, unit.full, unit.kind, { at });
   const destinations =
     unit.kind === 'diary' && filled(update.destination)

@@ -1308,12 +1308,12 @@ function showItemsOnce(windows: ReadonlyArray<{ messages: ReadonlyArray<RecallMe
         ...(message.stickers as Array<Row>),
         ...(message.emojis as Array<Row>),
       ]) {
-        if (!item.mediaId || !('told' in item)) continue;
-        if (seen.has(item.mediaId)) {
+        if (!('told' in item) && !('previewText' in item)) continue;
+        if (seen.has(item.id)) {
           delete item.told;
           delete item.previewText;
         }
-        seen.add(item.mediaId);
+        seen.add(item.id);
       }
     }
   }

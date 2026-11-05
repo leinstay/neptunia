@@ -15,6 +15,7 @@ async function voiceTurn(outcome: Untyped) {
     answers: [toolAnswer('', [call('voice.say', { text: 'ignored' })]), textAnswer('')],
     allowed: ['voice.say'],
     runner: {
+      runOwnOp: () => Promise.resolve(outcome),
       record: {
         append: (_place: string, lines: Array<Untyped>) => {
           appended.push(...lines);
@@ -22,8 +23,6 @@ async function voiceTurn(outcome: Untyped) {
         },
       },
     },
-    wrapCommand: (run: Untyped) => (op: Untyped, args: Untyped, context: Untyped) =>
-      op === 'voice.say' || op?.skill === 'voice.say' ? Promise.resolve(outcome) : run(op, args, context),
   });
   return appended.filter((line) => line.kind === 'said');
 }

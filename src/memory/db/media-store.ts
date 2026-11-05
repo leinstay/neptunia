@@ -300,7 +300,7 @@ export function mediaMessageParts(
     const name = orNull(row.extra.fileName) ?? orNull(row.extra.name);
     const told =
       row.description === null ? {} : { told: { text: row.description, origin: row.extra.textOrigin ?? null } };
-    const held = { mediaId: row.mediaId, ...told };
+    const held = told;
     switch (row.kind) {
       case 'link':
         parts.links.push({
@@ -311,7 +311,6 @@ export function mediaMessageParts(
           text: row.description ?? '',
           url: orNull(row.extra.url),
           thumbnailUrl: null,
-          mediaId: row.mediaId,
         });
         break;
       case 'sticker':
@@ -326,12 +325,11 @@ export function mediaMessageParts(
           id,
           kind: 'text',
           name: name ?? row.kind,
-          mediaId: row.mediaId,
           ...(row.description === null ? {} : { previewText: row.description }),
         });
         break;
       case 'file':
-        parts.attachments.push({ id, kind: 'file', name: name ?? row.kind, mediaId: row.mediaId });
+        parts.attachments.push({ id, kind: 'file', name: name ?? row.kind });
         break;
       case 'image':
       case 'gif':
@@ -342,7 +340,7 @@ export function mediaMessageParts(
           id,
           kind: row.kind,
           name: name ?? row.kind,
-          durationSec: isFiniteNumber(row.extra.durationSec) ? row.extra.durationSec : null,
+          ...(isFiniteNumber(row.extra.durationSec) ? { durationSec: row.extra.durationSec } : {}),
           ...held,
         });
         break;
@@ -737,7 +735,7 @@ export function fillLineMedia(db: Db, sourceId: string, items: ReadonlyArray<Med
 /** The fields of a cache entry kept on its row beside the text. */
 const entryRest = (entry: Row): Row => {
   const rest = { ...entry };
-  delete rest.text;
+  if (filled(rest.text)) delete rest.text;
   return rest;
 };
 
@@ -878,7 +876,8 @@ export function writeEntryFiles(db: Db, entry: Row, files: ReadonlyArray<EntryFi
       .get(entry.id, position);
     const id = held ? String(held.id) : file.id;
     const voiced = filled(file.extra.text) ? file.extra.text : null;
-    const extra = {
+    // A read that named no attachment is not asked again (pendingDiaryRows).
+    const extra: Row = {
       ...parsedObject(held?.extra),
       ...file.extra,
       ...defined({ messageId: file.messageId, url: file.url }),
@@ -1577,6 +1576,11 @@ export function migrateMediaStore(db: Db): MediaMigration {
       }
       const row = itemRowFor(db, line as LineRow, item, position);
       link.run('source', line.id, position, row.id);
+      // A durable description with no cache row left: the cap trimmed it, and its reference is known only now.
+      if (item.nativeRef !== null && !filled(row.description)) {
+        const kept = durable.get(`${asText(line.scope_iface ?? '')}\u0000${item.nativeRef}`);
+        if (kept) writeText(db, row, { text: kept.text, origin: originOf(item.kind, false), at });
+      }
       report.links += 1;
       if (item.description !== null && item.origin !== null)
         writeText(db, row, { text: item.description, origin: item.origin, at });
@@ -1588,6 +1592,6 @@ export function migrateMediaStore(db: Db): MediaMigration {
   }
   if (holdsColumn) db.exec('ALTER TABLE sources DROP COLUMN media');
   for (const id of merged) projectRow(db, 'media', { id }, { at });
-  if (db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE name = 'meta'").get()) markStemsPending(db);
+  if (all.length > 0 || lines.length > 0) markStemsPending(db);
   return report;
 }

@@ -641,9 +641,10 @@ test('isDescribable: true for image/gif/video/sticker/emoji/link (a link thumbna
   assert.equal(isDescribable({ kind: 'sticker' }), true);
   assert.equal(isDescribable({ kind: 'emoji' }), true);
   assert.equal(isDescribable({ kind: 'link', thumbnailUrl: 'x' }), true);
-  assert.equal(isDescribable({ kind: 'audio' }), false);
-  assert.equal(isDescribable({ kind: 'voice' }), false);
-  assert.equal(isDescribable({ kind: 'text' }), false);
+  // Stage P: the `video` role hears audio and voice, and a text file is told by its own words.
+  assert.equal(isDescribable({ kind: 'audio' }), true);
+  assert.equal(isDescribable({ kind: 'voice' }), true);
+  assert.equal(isDescribable({ kind: 'text' }), true);
   assert.equal(isDescribable({ kind: 'file' }), false);
 });
 
@@ -695,9 +696,13 @@ function sticker(name: Untyped, url: Untyped) {
 }
 
 test('stickerLabelFor: a Lottie sticker (url null) is always the plain name form, ignoring a description', () => {
-  assert.deepEqual(stickerLabelFor(sticker('dancing-cat', null)), { key: 'sticker', values: { name: 'dancing-cat' } });
+  // Stage M: a sticker with no picture says so plainly, under its own key.
+  assert.deepEqual(stickerLabelFor(sticker('dancing-cat', null)), {
+    key: 'stickerUnreadable',
+    values: { name: 'dancing-cat' },
+  });
   assert.deepEqual(stickerLabelFor(sticker('dancing-cat', null), { description: 'a cat dances' }), {
-    key: 'sticker',
+    key: 'stickerUnreadable',
     values: { name: 'dancing-cat' },
   });
 });

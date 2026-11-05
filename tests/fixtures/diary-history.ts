@@ -267,34 +267,39 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
   if (fourth) {
     const media = db.prepare(
       `INSERT INTO media (id, kind, owner, path, native_ref, description, sha1, bytes, mime, scope_kind, scope_iface, scope_dm, extra, audience_id)
-        VALUES (?, 'diary', ?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, ?, ?)`
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, ?, ?)`
     );
     media.run(
       `media:diary:${String(fourth.id)}-1`,
+      'image',
       fourth.id,
       `media/diary/${String(fourth.id)}-1.png`,
-      JSON.stringify({ url: 'https://cdn.example/pier.png', messageId: 'm5', attachmentId: PICTURE.id }),
+      PICTURE.id,
       PICTURE.description,
       2048,
       'image/png',
       fourth.scope_kind,
       fourth.scope_iface,
-      null,
+      JSON.stringify({ messageId: 'm5', url: 'https://cdn.example/pier.png', textOrigin: 'retelling' }),
       fourth.audience_id
     );
     media.run(
       `media:diary:${String(fourth.id)}-2`,
+      'voice',
       fourth.id,
       `media/diary/${String(fourth.id)}-2.ogg`,
-      JSON.stringify({ url: 'https://cdn.example/voice.ogg', messageId: 'm6', attachmentId: VOICE.id }),
+      VOICE.id,
       null,
       4096,
       'audio/ogg',
       fourth.scope_kind,
       fourth.scope_iface,
-      JSON.stringify({ voice: true, durationSec: VOICE.durationSec }),
+      JSON.stringify({ voice: true, durationSec: VOICE.durationSec, messageId: 'm6', url: 'https://cdn.example/voice.ogg' }),
       fourth.audience_id
     );
+    const link = db.prepare("INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('diary', ?, ?, ?)");
+    link.run(fourth.id, 0, `media:diary:${String(fourth.id)}-1`);
+    link.run(fourth.id, 1, `media:diary:${String(fourth.id)}-2`);
   }
   const hasMirrors = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").all();
   if (hasMirrors.length > 0) seedMirror(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: NOW });

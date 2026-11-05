@@ -548,7 +548,8 @@ test('describeMany: calls onCharge once per NEW request, never for a cache hit',
 });
 
 /** A fake llm whose answers wait until `release()`: shows which requests were in flight together. */
-function gatedLlm(text = 'ένας γάτος') {
+// English: a description in another script is asked again once (src/memory/text-standard.ts), which is not what these count.
+function gatedLlm(text = 'a grey cat') {
   const calls: Array<Untyped> = [];
   let open: (value?: unknown) => void = () => {};
   const gate = new Promise((resolve) => {
@@ -584,8 +585,8 @@ test('describeMany: two concurrent calls on one new picture share one download a
 
   assert.equal(imageFetcher.calls.length, 1);
   assert.equal(llm.calls.length, 1);
-  assert.equal(a.descriptions.get('s1'), 'ένας γάτος');
-  assert.equal(b.descriptions.get('s1'), 'ένας γάτος');
+  assert.equal(a.descriptions.get('s1'), 'a grey cat');
+  assert.equal(b.descriptions.get('s1'), 'a grey cat');
   assert.equal(charges.length, 1, 'the request is charged to the caller that sent it, once');
 });
 

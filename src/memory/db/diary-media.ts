@@ -166,7 +166,8 @@ export function pendingDiaryRows(db: Db): Array<PendingDiaryRow> {
         AND (d.text IS NULL
           OR json_extract(d.extra, '$.mediaPending') = 1
           OR EXISTS (SELECT 1 FROM media_links l JOIN media y ON y.id = l.media_id
-            WHERE l.owner_kind = 'diary' AND l.owner_id = d.id AND y.native_ref IS NULL)
+            WHERE l.owner_kind = 'diary' AND l.owner_id = d.id AND y.native_ref IS NULL
+              AND json_type(y.extra, '$.platformRead') IS NULL)
           OR (json_type(d.extra, '$.voice') = 'object'
             AND NOT EXISTS (SELECT 1 FROM media_links l JOIN media x ON x.id = l.media_id
               WHERE l.owner_kind = 'diary' AND l.owner_id = d.id AND x.mime LIKE 'audio/%')))
@@ -273,7 +274,11 @@ export function applyDiaryUpdate(handle: MemoryHandle, given: unknown): void {
           sha1: (item.sha1 as string | null | undefined) ?? null,
           bytes: (item.bytes as number | null | undefined) ?? null,
           mime: (item.mime as string | null | undefined) ?? null,
-          extra: typeof item.extra === 'string' ? parsedRef(item.extra) : {},
+          extra: {
+            ...(typeof item.extra === 'string' ? parsedRef(item.extra) : {}),
+            // A post read once and named no attachment is not asked again.
+            ...('attachmentId' in ref ? { platformRead: true } : {}),
+          },
         };
       }),
       null

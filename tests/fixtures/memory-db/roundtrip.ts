@@ -34,6 +34,10 @@ export function roundTrip(
   try {
     insertRows(db, rows);
     const stored = readRows(db, Object.keys(rows));
+    // A record line's kinds live on its links, not on a column of the row: the mapper's own field comes back as `unitRows` gives it.
+    for (const [at, row] of (rows.sources ?? []).entries()) {
+      if (row.media !== undefined && stored.sources?.[at]) stored.sources[at].media = row.media;
+    }
     // Schema v7 seeds her own `people` row (`person:self`, no file owns it): it is not part of any mapping.
     if (stored.people) stored.people = stored.people.filter((row) => !(row.id === 'person:self' && row.owner_file === null));
     return { rows, stored, back: mapper.fromRows(stored, ctx) };

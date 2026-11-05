@@ -317,8 +317,8 @@ test("the media job gives a step's entry its picture with the attachment id and 
       {
         media: [
           {
-            id: 'media:attachment:att-p1',
-            kind: 'attachment',
+            id: 'media:held:att-p1',
+            kind: 'image',
             owner: null,
             path: null,
             native_ref: 'att-p1',

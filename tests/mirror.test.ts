@@ -349,13 +349,12 @@ test("a publication keeps the port's attachment ids in its receipts and on the e
   );
   const entry = entryOf(result);
   const rows = dbOf(core.memory.memoryDb)
-    .prepare("SELECT native_ref FROM media WHERE kind = 'diary' AND owner = ? ORDER BY id")
+    .prepare(
+      `SELECT m.native_ref, m.extra FROM media m JOIN media_links l ON l.media_id = m.id
+       WHERE l.owner_kind = 'diary' AND l.owner_id = ? ORDER BY l.position`
+    )
     .all(entry.id)
-    .map(
-      (row) =>
-        (JSON.parse(typeof row.native_ref === 'string' ? row.native_ref : '{}') as { attachmentId?: unknown })
-          .attachmentId
-    );
+    .map((row) => row.native_ref);
   assert.deepEqual([...rows].sort(), named, "the entry's media rows carry the ids");
 });
 
@@ -404,16 +403,15 @@ test('a picture set sent across two messages keeps every attachment id with the 
     'every attachment id is in the receipts'
   );
   const rows = dbOf(core.memory.memoryDb)
-    .prepare("SELECT native_ref FROM media WHERE kind = 'diary' AND owner = ? ORDER BY id")
-    .all(entryOf(result).id)
-    .map(
-      (row) =>
-        JSON.parse(typeof row.native_ref === 'string' ? row.native_ref : '{}') as {
-          messageId?: unknown;
-          attachmentId?: unknown;
-        }
+    .prepare(
+      `SELECT m.native_ref, m.extra FROM media m JOIN media_links l ON l.media_id = m.id
+       WHERE l.owner_kind = 'diary' AND l.owner_id = ? ORDER BY l.position`
     )
-    .map((ref) => ({ messageId: ref.messageId, attachmentId: ref.attachmentId }));
+    .all(entryOf(result).id)
+    .map((row) => ({
+      messageId: (JSON.parse(typeof row.extra === 'string' ? row.extra : '{}') as { messageId?: unknown }).messageId,
+      attachmentId: row.native_ref,
+    }));
   const byId = (list: Array<{ attachmentId?: unknown }>) =>
     [...list].sort((a, b) => String(a.attachmentId).localeCompare(String(b.attachmentId)));
   assert.deepEqual(byId(rows), byId(carried), 'each media row names its attachment and the message that carried it');
@@ -674,7 +672,7 @@ test('restricting a saved diary entry hides its existing media while independent
   const db = dbOf(core.memory.memoryDb);
   const nodes = db
     .prepare(
-      "SELECT g.id, m.id AS media_id, m.owner FROM graph_nodes g JOIN media m ON g.row_id = m.id WHERE g.kind = 'media' AND m.kind = 'diary'"
+      "SELECT g.id, m.id AS media_id, m.owner FROM graph_nodes g JOIN media m ON g.row_id = m.id WHERE g.kind = 'media' AND m.id LIKE 'media:diary:%'"
     )
     .all();
   assert.equal(nodes.length, 2);

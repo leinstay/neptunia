@@ -15,9 +15,9 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const iface = ifaceOf(ctx);
   const rows: Rows = {};
   for (const [key, entry] of Object.entries(value)) {
-    const given = isPlainObject(entry) ? { ...entry } : { $raw: entry };
-    const text = typeof given.text === 'string' ? given.text : null;
-    delete given.text;
+    const given: Row = isPlainObject(entry) ? { ...entry } : { $raw: entry };
+    const text = typeof given.text === 'string' && given.text !== '' ? given.text : null;
+    if (text !== null) delete given.text;
     const { ref, kinds } = cacheKeyParts(key);
     put(rows, 'media', {
       id: `media:${iface}:${key}`,

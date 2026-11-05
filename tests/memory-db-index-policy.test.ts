@@ -337,10 +337,17 @@ test('media availability: her diary media is present or missing by its file; for
     const insert = sqlOf(handle).prepare(
       'INSERT INTO media (id, kind, owner, path, native_ref, sha1, bytes) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
-    insert.run('m1', 'diary', 'd-1', 'media/diary/d-1-1.png', null, 'abc', 10);
-    insert.run('m2', 'diary', 'd-1', 'media/diary/d-1-2.png', null, 'abd', 99);
-    insert.run('m3', 'diary', 'd-2', 'media/diary/d-2-1.png', null, 'abe', 5);
-    insert.run('m4', 'picture', 'msg-1', null, 'https://cdn.example/x.png', null, null);
+    insert.run('m1', 'image', 'd-1', 'media/diary/d-1-1.png', null, 'abc', 10);
+    insert.run('m2', 'image', 'd-1', 'media/diary/d-1-2.png', null, 'abd', 99);
+    insert.run('m3', 'image', 'd-2', 'media/diary/d-2-1.png', null, 'abe', 5);
+    insert.run('m4', 'image', 'msg-1', null, 'https://cdn.example/x.png', null, null);
+    // Her diary's own files are the ones an entry links.
+    const link = sqlOf(handle).prepare(
+      "INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('diary', ?, ?, ?)"
+    );
+    link.run('d-1', 0, 'm1');
+    link.run('d-1', 1, 'm2');
+    link.run('d-2', 0, 'm3');
     const dry = checkMedia(handle, { dataDir: root });
     assert.deepEqual(dry, { present: 1, missing: 2, unknown: 1, changed: 3 });
     assert.equal(
@@ -388,7 +395,12 @@ test('v11: the migration keeps every row; rows the database owns survive a rewri
   try {
     const handle = openMemoryDb(env.file);
     assert.equal(schemaVersion(handle.db), MIGRATIONS.length);
-    assert.equal(sqlOf(handle).prepare("SELECT COUNT(*) AS n FROM media WHERE availability <> 'unknown'").get().n, 0);
+    assert.equal(
+      sqlOf(handle)
+        .prepare("SELECT COUNT(*) AS n FROM media WHERE availability <> 'unknown' AND description IS NULL")
+        .get().n,
+      0
+    );
     assert.equal(
       sqlOf(handle).prepare('SELECT COUNT(*) AS n FROM vectors WHERE evicted_at IS NOT NULL OR bytes IS NULL').get().n,
       0

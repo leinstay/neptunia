@@ -21,6 +21,9 @@ import { mediaParts } from '../media/classify.ts';
 import { sortRanked } from './ranking.ts';
 import type { StoredRecord, Untyped } from './types.ts';
 
+/** A library entry's own kind: posted as a file, as against a link. */
+const ATTACHED = 'attachment';
+
 // Production values, config cut of 2026-10-31.
 /** The GIFs the library keeps. */
 export const GIF_STORE_MAX = 300;
@@ -262,7 +265,7 @@ export function collectGifItems(message: StoredRecord): Array<{
       const key = String(attachment.id);
       items.push({
         key,
-        kind: 'attachment',
+        kind: ATTACHED,
         url: attachment.url,
         ...(attachment.name ? { name: String(attachment.name) } : {}),
         itemId: key,
