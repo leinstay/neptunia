@@ -507,6 +507,10 @@ test('her fix merged in auto mode reaches her next wake as landed, once', async 
   // Catches: the merge closes the task and she never hears that her change is in.
   const world = developmentWorld(t);
   const id = await herProposal(world, 'fix');
+  // Changed: a fix of hers merges in `auto` only with a thinker's assessment on the board, so its thinker records one.
+  world.scripts.thinker = (_run, turn) => {
+    if (turn === 1) world.board.call(WORKER, 'task.risk', { id, risk: 'low', reason: 'One constant in one reader.' });
+  };
   await settle(world.worker());
   prOf(world).checks = ['SUCCESS'];
   world.mode = 'auto';

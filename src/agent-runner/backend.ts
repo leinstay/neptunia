@@ -72,6 +72,8 @@ export type BackendRunOptions = {
   effort?: EffortLevel;
   /** codex: one `-i <path>` each */
   images?: ReadonlyArray<string>;
+  /** claude: the profile's OpenCode tool names (`webfetch`, `websearch` add the web tools); absent gives the base set */
+  tools?: ReadonlyArray<string>;
   /** aborting it kills the process group and answers `cancelled` */
   signal?: AbortSignal;
   /** claude: `--session-id <uuid>`, so the transcript can be tied to this run */
@@ -135,6 +137,37 @@ type Recipe = {
   tail: boolean;
 };
 
+/** The OpenCode tool names that have a claude tool of their own; the rest (`list`, `todowrite`, ...) name nothing. */
+const CLAUDE_TOOLS: Readonly<Record<string, string>> = {
+  read: 'Read',
+  grep: 'Grep',
+  glob: 'Glob',
+  bash: 'Bash',
+  webfetch: 'WebFetch',
+  websearch: 'WebSearch',
+};
+const CLAUDE_BASE_TOOLS = ['Read', 'Grep', 'Glob', 'Bash'];
+
+/**
+ * The tools of a `claude -p` run. Without profile tools: Read, Grep, Glob and Bash. With them: the claude tools their
+ * names map to. A sandbox that allows writes (`workspace-write`, `none`) gives the whole base set plus Edit and Write on
+ * top, and `webfetch` or `websearch` in the profile add WebFetch or WebSearch. `--tools` limits the set and
+ * `--allowedTools` approves it, since a headless run cannot ask; `none` approves everything with
+ * `--dangerously-skip-permissions` instead.
+ */
+function claudeToolArgs(options: BackendRunOptions): Array<string> {
+  const names = new Set<string>(
+    options.tools === undefined ? CLAUDE_BASE_TOOLS : options.tools.flatMap((declared) => CLAUDE_TOOLS[declared] ?? [])
+  );
+  if (options.sandbox !== undefined && options.sandbox !== 'read-only') {
+    for (const name of [...CLAUDE_BASE_TOOLS, 'Edit', 'Write']) names.add(name);
+  }
+  const list = [...names].join(',');
+  return options.sandbox === 'none'
+    ? ['--tools', list, '--dangerously-skip-permissions']
+    : ['--tools', list, '--allowedTools', list];
+}
+
 const RECIPES: Readonly<Record<BackendName, Recipe>> = {
   codex: {
     binary: 'codex',
@@ -163,6 +196,7 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
     args: (options) => [
       '-p',
       ...(options.sessionId === undefined ? [] : ['--session-id', options.sessionId]),
+      ...claudeToolArgs(options),
       ...(options.maxSteps === undefined ? [] : ['--max-turns', String(options.maxSteps)]),
       ...(options.model === undefined ? [] : ['--model', options.model]),
       ...(options.effort === undefined ? [] : ['--effort', options.effort]),
@@ -495,6 +529,7 @@ export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDep
         timeoutMs: cap * 1000,
         ...(maxSteps === undefined ? {} : { maxSteps }),
         search: profile.search,
+        tools: profile.tools,
         signal: task.signal,
         runId: task.id,
         ...(task.route === undefined ? {} : { route: task.route }),

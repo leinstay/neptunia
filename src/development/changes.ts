@@ -1,5 +1,8 @@
 // What the development worker (src/development/worker.ts) reads out of git, gh and the test runner, as pure functions:
-// the paths a change touched, the test files they call for, the counts of a TAP report and a pull request as gh shows it.
+// the paths a change touched, the test files they call for, the counts of a TAP report and a pull request as gh shows it,
+// what it writes from them, the pull request's body and the task's handoff, and its record in `metadata.development`.
+
+import type { Handoff, HandoffTest, TaskRecord } from '../board/board.ts';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -112,3 +115,71 @@ export function listedPullRequest(stdout: string): { number: number; url: string
     head: typeof row.headRefOid === 'string' ? row.headRefOid : '',
   };
 }
+
+/** The pull request body: the evidence, the paths, the engine's own test counts and the task. */
+export function bodyOf(
+  task: TaskRecord,
+  changed: ReadonlyArray<string>,
+  test: HandoffTest | null,
+  uncovered: ReadonlyArray<string>
+): string {
+  const tests = test === null ? 'No test ran.' : `\`${test.command}\`: ${test.passed} passed, ${test.failed} failed.`;
+  const open = uncovered.length === 0 ? '' : `\n\nNo test covers: ${uncovered.join(', ')}`;
+  return [
+    task.description ?? '',
+    `Changed files:\n${changed.map((one) => `- ${one}`).join('\n')}`,
+    `${tests}${open}`,
+    `Task ${task.id}, filed by ${task.requester}.`,
+  ].join('\n\n');
+}
+
+export const handoffOf = (result: string, over: Partial<Handoff> = {}): Handoff => ({
+  result,
+  evidence: [],
+  artifacts: [],
+  tests: [],
+  open_issues: [],
+  ...over,
+});
+
+/** `metadata.development`: where a task's work is, kept for the next claim. */
+export type Development = {
+  branch: string;
+  worktree: string;
+  pr: number | null;
+  head: string | null;
+  /** The thinker turns taken since the task last started or blocked. */
+  turns: number;
+  /** The questions answered when the last thinker turn started. */
+  answered: number;
+  /** The requests for changes the last thinker turn started under. */
+  reviewed: number;
+  /** The head a request for changes refused: the next pull request head must differ from it. */
+  refused: string | null;
+};
+
+export function developmentOf(task: TaskRecord): Development | null {
+  const saved = task.metadata?.development;
+  if (!isRecord(saved) || typeof saved.branch !== 'string' || typeof saved.worktree !== 'string') return null;
+  return {
+    branch: saved.branch,
+    worktree: saved.worktree,
+    pr: typeof saved.pr === 'number' ? saved.pr : null,
+    head: typeof saved.head === 'string' ? saved.head : null,
+    turns: typeof saved.turns === 'number' ? saved.turns : 0,
+    answered: typeof saved.answered === 'number' ? saved.answered : 0,
+    reviewed: typeof saved.reviewed === 'number' ? saved.reviewed : 0,
+    refused: typeof saved.refused === 'string' ? saved.refused : null,
+  };
+}
+
+export const newDevelopment = (branch: string, worktree: string): Development => ({
+  branch,
+  worktree,
+  pr: null,
+  head: null,
+  turns: 0,
+  answered: 0,
+  reviewed: 0,
+  refused: null,
+});

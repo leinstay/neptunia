@@ -11,6 +11,8 @@
 //
 // Merging a pull request is this file's gate and no agent's: green checks on the persisted head, then `gh pr merge
 // --match-head-commit`, only with `selfimprovement.mode` `auto`. `approve` marks the draft ready and waits for the owner.
+// Each look reads the diff of that literal head and raises the task to `high` by the list in src/development/risk.ts, and
+// `auto` merges only at `low`, with a readable diff and, on her task, a recorded assessment. Anything else waits.
 //
 // Recovery is the short lease with renewal: nothing here remembers a process across a restart. systemd's default
 // KillMode takes the agents with the worker, the lease lapses, the reaper returns the task to approved, and the next
@@ -25,15 +27,29 @@
 //
 // Git, gh, the test runner, the board and the agent runs are injected. The journal carries ids, counts and codes.
 
-import type { BoardOp, BoardResults, Handoff, HandoffTest, TaskRecord, TaskView } from '../board/board.ts';
+import type { BoardOp, BoardResults, HandoffTest, TaskRecord, TaskView } from '../board/board.ts';
 import { CLOSED } from '../board/machine.ts';
 import type { BackendResult } from '../agent-runner/backend.ts';
 import type { RepositoryCheck } from '../selfimprovement/repository.ts';
 import type { SelfimprovementSettings } from '../selfimprovement/settings.ts';
 import type { AgentRun } from '../subharness/run.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
-import { firstLine, linesOf, listedPullRequest, pathsOfStatus, pullRequestOf, tapCount, testsFor } from './changes.ts';
-import type { PullRequest } from './changes.ts';
+import {
+  bodyOf,
+  developmentOf,
+  firstLine,
+  handoffOf,
+  linesOf,
+  listedPullRequest,
+  newDevelopment,
+  pathsOfStatus,
+  pullRequestOf,
+  tapCount,
+  testsFor,
+} from './changes.ts';
+import type { Development, PullRequest } from './changes.ts';
+import { holdOf, readDanger } from './risk.ts';
+import type { DangerCategory } from './risk.ts';
 
 export type ExecResult = { code: number; stdout: string; stderr: string };
 /** One command, never a shell. The engine passes it three ways: git, gh and the test runner. */
@@ -112,22 +128,6 @@ export type DevelopmentWorker = {
   stop(): Promise<void>;
 };
 
-/** `metadata.development`: where a task's work is, kept for the next claim. */
-type Development = {
-  branch: string;
-  worktree: string;
-  pr: number | null;
-  head: string | null;
-  /** The thinker turns taken since the task last started or blocked. */
-  turns: number;
-  /** The questions answered when the last thinker turn started. */
-  answered: number;
-  /** The requests for changes the last thinker turn started under. */
-  reviewed: number;
-  /** The head a request for changes refused: the next pull request head must differ from it. */
-  refused: string | null;
-};
-
 /** A task this process holds the lease of: running an agent or waiting for its dev tasks. */
 type Held = {
   id: string;
@@ -162,21 +162,6 @@ function codeOf(error: unknown): string {
 /** Whether the link to the core is gone, which only a restart of the worker mends. */
 const isLinkLost = (error: unknown): boolean => ['unavailable', 'board-unavailable'].includes(codeOf(error));
 
-function developmentOf(task: TaskRecord): Development | null {
-  const saved = task.metadata?.development;
-  if (!isRecord(saved) || typeof saved.branch !== 'string' || typeof saved.worktree !== 'string') return null;
-  return {
-    branch: saved.branch,
-    worktree: saved.worktree,
-    pr: typeof saved.pr === 'number' ? saved.pr : null,
-    head: typeof saved.head === 'string' ? saved.head : null,
-    turns: typeof saved.turns === 'number' ? saved.turns : 0,
-    answered: typeof saved.answered === 'number' ? saved.answered : 0,
-    reviewed: typeof saved.reviewed === 'number' ? saved.reviewed : 0,
-    refused: typeof saved.refused === 'string' ? saved.refused : null,
-  };
-}
-
 const parentOf = (view: TaskView): string | null => {
   const row = view.dependencies.find((one) => one.type === 'parent-child');
   return typeof row?.depends_on_id === 'string' ? row.depends_on_id : null;
@@ -198,17 +183,6 @@ const changesIn = (view: TaskView): number =>
  */
 const owesRework = (view: TaskView, saved: Development): boolean =>
   saved.pr !== null && (changesIn(view) > saved.reviewed || saved.head === null);
-
-const newDevelopment = (branch: string, worktree: string): Development => ({
-  branch,
-  worktree,
-  pr: null,
-  head: null,
-  turns: 0,
-  answered: 0,
-  reviewed: 0,
-  refused: null,
-});
 
 const isClosed = (status: TaskRecord['status']): boolean => CLOSED.includes(status);
 
@@ -246,32 +220,6 @@ export async function listHeldBack(board: BoardCaller, startedAt: string | null)
     ...proposed.filter((task) => PROPOSAL_KINDS.includes(task.metadata?.kind) && predates(task.created_at, startedAt)),
   ];
 }
-
-/** The pull request body: the evidence, the paths, the engine's own test counts and the task. */
-function bodyOf(
-  task: TaskRecord,
-  changed: ReadonlyArray<string>,
-  test: HandoffTest | null,
-  uncovered: ReadonlyArray<string>
-): string {
-  const tests = test === null ? 'No test ran.' : `\`${test.command}\`: ${test.passed} passed, ${test.failed} failed.`;
-  const open = uncovered.length === 0 ? '' : `\n\nNo test covers: ${uncovered.join(', ')}`;
-  return [
-    task.description ?? '',
-    `Changed files:\n${changed.map((one) => `- ${one}`).join('\n')}`,
-    `${tests}${open}`,
-    `Task ${task.id}, filed by ${task.requester}.`,
-  ].join('\n\n');
-}
-
-const handoffOf = (result: string, over: Partial<Handoff> = {}): Handoff => ({
-  result,
-  evidence: [],
-  artifacts: [],
-  tests: [],
-  open_issues: [],
-  ...over,
-});
 
 /** One worker's state: the leases it holds, its runs in flight and the timers that renew them. */
 class Worker {
@@ -879,14 +827,39 @@ class Worker {
     if (done.code !== 0) this.journal({ event: 'branch-delete-failed', taskId: task.id, pr: number });
   }
 
-  /** Green at the persisted head: the draft goes ready, and with `auto` this file merges exactly that head. */
-  async releaseGreen(task: TaskRecord, number: number, pull: PullRequest, head: string): Promise<void> {
+  /** The categories of the diff of `head`, null when unreadable; a listed path raises the task to `high`, once. */
+  async readRisk(task: TaskRecord, head: string): Promise<Array<DangerCategory> | null> {
+    const range = `${trackingRefOf(this.deps.settings().base)}...${head}`;
+    const danger = await readDanger((args) => this.git(args, this.deps.repoDir), range);
+    if (danger === null) this.journal({ event: 'diff-unreadable', taskId: task.id });
+    else if (danger.length > 0 && task.risk !== 'high') {
+      await this.call('task.risk', { id: task.id, risk: 'high', reason: `danger list: ${danger.join(', ')}` });
+    }
+    return danger;
+  }
+
+  /** Green at the persisted head: the draft goes ready, and `auto` merges exactly that head unless risk holds it. */
+  async releaseGreen(
+    task: TaskRecord,
+    number: number,
+    pull: PullRequest,
+    head: string,
+    danger: ReadonlyArray<DangerCategory> | null
+  ): Promise<void> {
     if (pull.isDraft) {
       const ready = await this.pr('ready', [String(number)]);
       if (ready.code !== 0) return this.journal({ event: 'ready-failed', taskId: task.id, pr: number });
       this.journal({ event: 'ready', taskId: task.id, pr: number });
     }
     if (this.deps.settings().mode !== 'auto') return;
+    const now = await this.show(task.id);
+    const isHers = now.task.requester === SELF;
+    const hold = holdOf(danger, now.task.risk, isHers && !now.assessed);
+    if (hold !== null) {
+      // A diff that could not be read may read at the next look, so it spends nothing of the one word she gets.
+      if (isHers && hold !== 'unreadable') await this.call('task.risk.held', { id: task.id, reason: hold });
+      return;
+    }
     // The rule is written down before the merge, so a look that finds the pull request merged after a crash still
     // knows who decided.
     await this.remember(task.id, { autoMerge: true });
@@ -923,8 +896,9 @@ class Worker {
       this.journal({ event: 'closed', taskId: task.id, pr: number });
       return false;
     }
-    if (pull.isGreen && saved.head !== null && pull.head === saved.head) {
-      await this.releaseGreen(task, number, pull, saved.head);
+    if (saved.head !== null && pull.head === saved.head) {
+      const danger = await this.readRisk(task, saved.head);
+      if (pull.isGreen) await this.releaseGreen(task, number, pull, saved.head, danger);
     }
     return (await this.show(task.id)).task.status === 'needs_validation';
   }
