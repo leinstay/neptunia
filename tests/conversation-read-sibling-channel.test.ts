@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startCore } from '../src/core.ts';
+import type { Llm } from '../src/llm/openrouter.ts';
 import { start } from '../src/interface/fake-interface.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { COMMUNITY, SELF, channelInfo, lineEvent, settle, until } from './fixtures/core-over-fake.ts';
@@ -44,7 +45,10 @@ const FIXED: Record<string, string> = {
 
 const toolResults = (messages: unknown): string =>
   (Array.isArray(messages) ? messages : [])
-    .filter((message): message is { role: string; content: unknown } => message?.role === 'tool')
+    .filter(
+      (message: unknown): message is { role: string; content: unknown } =>
+        (message as { role?: unknown } | null)?.role === 'tool'
+    )
     .map((message) => (typeof message.content === 'string' ? message.content : JSON.stringify(message.content)))
     .join('\n');
 
@@ -57,9 +61,9 @@ test('a group turn reads a line stored in another channel of the same server', a
   writeFileSync(join(dataDir, 'config', 'config.json'), JSON.stringify(CONFIG));
   let step = 0;
   let read = '';
-  const llm = {
-    complete: (messages: unknown, options: Record<string, unknown> = {}) => {
-      const fixed = FIXED[String(options.purpose)];
+  const llm: Pick<Llm, 'complete'> = {
+    complete: (messages, options = {}) => {
+      const fixed = FIXED[String((options as { purpose?: unknown }).purpose)];
       if (fixed !== undefined) return Promise.resolve(toolAnswer(fixed));
       step += 1;
       if (step === 1)
