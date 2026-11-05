@@ -826,6 +826,7 @@
         },
         "memory": {
           "source": "Source: memory.search, this server's message history. Quoted messages as they were written, each with its time and author; a sample, not the whole history.",
+          "sampled": "Nothing matched words in this search, or it named none. These lines are a sample across the time and place it named.",
           "window": "{date} in #{channel}:",
           "windowCut": "({dropped} more lines not shown)",
           "handles": "The number before each quoted line is a message number you can use in your calls like any other in the chat.",
