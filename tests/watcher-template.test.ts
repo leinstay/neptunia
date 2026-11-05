@@ -57,8 +57,9 @@ test('a report in the template passes, and the check gives back its day and meta
   });
 });
 
-test('the sections are the twelve of the owner, exact and in order', () => {
+test('the sections are the thirteen of the owner, exact and in order', () => {
   // Bug: a section is renamed in one place, and the check, the prompt and the readers hold different lists.
+  // Changed by B12.1 of the plan: `Development` joins the list, and only a report in development mode holds it.
   assert.deepEqual(
     [...reports.REPORT_HEADINGS],
     [
@@ -71,6 +72,7 @@ test('the sections are the twelve of the owner, exact and in order', () => {
       'Modules and structure',
       'Trash',
       'The server',
+      'Development',
       'Wishes',
       'Tasks filed',
       'For the owner',

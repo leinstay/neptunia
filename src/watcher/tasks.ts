@@ -1,12 +1,20 @@
 // The watcher's tasks: the agent ends its answer with one ```tasks block, a JSON array of { kind, title, evidence, done }
-// with an optional `finding`. `splitAnswer` takes the block out of the report and checks it; src/watcher/inspection.ts
+// with an optional `finding` and `command`. `splitAnswer` takes the block out of the report and checks it; src/watcher/inspection.ts
 // calls it, and src/watcher/filing.ts files the drafts. `normalized` and `herOpenTask` are how filing compares evidence.
 
 import type { TaskRecord } from '../board/board.ts';
 import { SELF } from '../board/fields.ts';
 import { CLOSED } from '../board/machine.ts';
 
-export type TaskDraft = { kind: 'fix' | 'chore'; title: string; evidence: string; done: string; finding?: string };
+export type TaskDraft = {
+  kind: 'fix' | 'chore';
+  title: string;
+  evidence: string;
+  done: string;
+  finding?: string;
+  /** The shell line that reproduces the finding; development mode files no draft without one. */
+  command?: string;
+};
 export type SplitAnswer =
   { ok: true; report: string; tasks: Array<TaskDraft> } | { ok: false; code: 'bad-tasks'; detail: string };
 
@@ -31,21 +39,24 @@ function draftOf(raw: unknown, index: number): TaskDraft | string {
     if (typeof value !== 'string' || value.trim() === '') return `task ${index + 1}: ${name} is empty`;
     fields.push(value.trim());
   }
-  const { finding } = raw;
+  const { finding, command } = raw;
   if (finding !== undefined && typeof finding !== 'string') return `task ${index + 1}: finding is a string`;
+  if (command !== undefined && typeof command !== 'string') return `task ${index + 1}: command is a string`;
   return {
     kind,
     title: fields[0] ?? '',
     evidence: fields[1] ?? '',
     done: fields[2] ?? '',
     ...(finding === undefined || finding.trim() === '' ? {} : { finding: finding.trim() }),
+    ...(command === undefined || command.trim() === '' ? {} : { command: command.trim() }),
   };
 }
 
 /**
  * The report and the drafts of an answer. The one optional ```tasks block is cut out of the report; a second block,
  * an unclosed one, text that is not a JSON array and a draft with a kind other than fix or chore, a blank title,
- * evidence or done-criterion or a `finding` that is no string are `bad-tasks`. A blank `finding` counts as none.
+ * evidence or done-criterion or a `finding` or `command` that is no string are `bad-tasks`. A blank `finding` or
+ * `command` counts as none.
  */
 export function splitAnswer(text: string): SplitAnswer {
   const lines = text.split('\n');

@@ -15,8 +15,12 @@ const codeOf = (text: string): string | null => {
   return checked.ok ? null : checked.code;
 };
 
-test('the report headings are the twelve of the design, in order', () => {
-  assert.deepEqual([...REPORT_HEADINGS], [...HEADINGS]);
+test('the report headings are the twelve of the design, in order, and `Development` only in development mode', () => {
+  // Changed by B12.1 of the plan: `Development` joins the list, and `HEADINGS` stays the report with the mode off.
+  assert.deepEqual(
+    REPORT_HEADINGS.filter((name) => name !== 'Development'),
+    [...HEADINGS]
+  );
 });
 
 test('a report with the twelve headings, each saying nothing found, is accepted: a quiet day is a good day', () => {

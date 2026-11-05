@@ -9,8 +9,12 @@ import path from 'node:path';
 import { listAgents, promptFilesOf } from '../src/agent-runner/profiles.ts';
 import { readConfig } from '../src/config.ts';
 import { readKeys } from '../src/keys/file.ts';
+import { readMemoryAt } from '../src/service/watcher.ts';
+import { unitScope } from '../src/service/manager.ts';
+import { spawnRun } from '../src/setup/install.ts';
 import { backendOfAgent } from '../src/subharness/control.ts';
 import { defaultDenyDir, runAgent } from '../src/subharness/run.ts';
+import { auditTopicsOf, developmentFacts, developmentMode } from '../src/watcher/development.ts';
 import { installFacts, watcherMemory } from '../src/watcher/install.ts';
 import { runInspection } from '../src/watcher/inspection.ts';
 import type { InspectionDeps } from '../src/watcher/inspection.ts';
@@ -48,6 +52,34 @@ function promptFiles(where: Where): Array<string> {
   return definition ? promptFilesOf(definition.id, { ...agentPaths, prompt: definition.prompt }) : [];
 }
 
+/** The dev agent's backend as keys.json holds it; null with none or with no readable file. */
+function devAgentOf(privateDir: string): string | null {
+  try {
+    return backendOfAgent(readKeys(privateDir).subharness, 'dev');
+  } catch {
+    return null;
+  }
+}
+
+/** Development mode as the settings and keys.json make it for this run. */
+function developmentOf(where: Where, config: unknown): NonNullable<InspectionDeps['development']> {
+  const mode = developmentMode({ config, rootDir: where.rootDir, devAgent: devAgentOf(where.privateDir) });
+  return {
+    mode,
+    topics: auditTopicsOf(config),
+    facts: () => {
+      if (!mode.on) return Promise.reject(new Error('development mode is off'));
+      return developmentFacts({
+        mode,
+        run: spawnRun,
+        readMemory: (read) => readMemoryAt(where.dataDir, read),
+        now: () => Date.now(),
+        scope: unitScope(process.env),
+      });
+    },
+  };
+}
+
 /** Runs the worker and answers its exit code. */
 export async function runWatcherWorker(where: Where): Promise<number> {
   const config = readConfig(where.rootDir, { privateDir: where.privateDir });
@@ -73,6 +105,7 @@ export async function runWatcherWorker(where: Where): Promise<number> {
       selected: selectedOf(where.privateDir),
       install: () => installFacts({ rootDir: where.rootDir, dataDir: where.dataDir }),
       memory: () => watcherMemory({ dataDir: where.dataDir, config }),
+      development: developmentOf(where, config),
       runAgent: (brief, { signal, timeoutMs, runId }) =>
         runAgent(
           {

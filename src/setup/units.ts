@@ -21,6 +21,9 @@
 // stays readable: the watcher and the development worker read their agents' routes from it (docs/watcher.md). The modes
 // `full` and `sudo` drop the entries with the rest of the mount sandbox.
 //
+// In development mode (src/watcher/development.ts) the watcher's unit reads the development checkout with its `.env` hidden and
+// names its scratch writable. The modes `full` and `sudo` drop these with the rest of the mount sandbox.
+//
 // The watcher's timer takes `watcher.schedule` when the render is given it: one `OnCalendar=` per daily time, or an
 // interval counted from the timer's own activation and then from the last run. The other timers keep their lines.
 
@@ -30,6 +33,8 @@ import type { BackendName } from '../agent-runner/profiles.ts';
 import type { AgentMode, SubharnessAgent } from '../subharness/control.ts';
 import { subharnessPlace } from '../subharness/place.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
+import { watcherScratch } from '../watcher/development.ts';
+import { DEFAULT_WATCHER_DIR } from '../watcher/read.ts';
 
 /** The templates `setup` renders, by file name. The bot unit is not among them. */
 export const UNIT_FILES: ReadonlyArray<string> = [
@@ -64,8 +69,11 @@ const SECRET_HIDERS: ReadonlyArray<{ start: RegExp; own: string | null }> = [
 /** A client or interface name that is one plain path segment: nothing that climbs out of its folder. */
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
+/** The watcher's unit, which alone takes the lines of development mode. */
+const WATCHER_UNIT = /^ExecStart=\S+ bin\/neptunia\.ts worker watcher\b/m;
+
 /** The `InaccessiblePaths=` line of a unit that hides secrets from its agent, null for any other unit. */
-function hiddenLine(text: string, vars: UnitVars): string | null {
+function hiddenLine(text: string, vars: UnitVars, also: ReadonlyArray<string>): string | null {
   const hider = SECRET_HIDERS.find(({ start }) => start.test(text));
   if (hider === undefined) return null;
   const named = (names: ReadonlyArray<string> | undefined): Array<string> =>
@@ -75,6 +83,7 @@ function hiddenLine(text: string, vars: UnitVars): string | null {
       .filter((name) => name !== hider.own)
       .map((name) => path.join(vars.dataDir, 'clients', `${name}.token`)),
     ...named(vars.interfaces).map((name) => path.join(vars.dataDir, 'interfaces', name, 'credentials.json')),
+    ...also,
   ];
   return hidden.length === 0 ? null : `InaccessiblePaths=${hidden.map((one) => `-${one}`).join(' ')}`;
 }
@@ -112,6 +121,8 @@ export type UnitVars = {
   interfaces?: ReadonlyArray<string>;
   /** `watcher.schedule`: what the watcher's timer fires on; absent keeps the template's `OnCalendar=` */
   watcherSchedule?: ServiceSchedule;
+  /** the development checkout while the watcher's development mode is on; the watcher's unit alone reads it */
+  watcherDevelopment?: { checkout: string } | null;
 };
 
 /** The directives of the mount sandbox: gone in the modes `full` and `sudo`. */
@@ -184,6 +195,8 @@ type LineRules = {
   timer: ReadonlyArray<string> | null;
   /** the `InaccessiblePaths=` line added under `[Service]`, null for a unit that hides nothing or in the modes `full` and `sudo` */
   hidden: string | null;
+  /** the lines of development mode added after the unit's `ReadWritePaths=`, none in any other unit or with the mode off */
+  development: ReadonlyArray<string>;
 };
 
 /** The lines the backends' binds and the watcher's schedule make of `line`, or null when they leave it alone. */
@@ -193,6 +206,7 @@ function renderedLines(line: string, key: string | null, rules: LineRules): Arra
   // The runner reads agents/ at its start, so a persona folder emptied for the unit shows that folder.
   if (key === 'TemporaryFileSystem') return [line, `BindReadOnlyPaths=-${path.join(rules.vars.dataDir, 'agents')}`];
   if (rules.timer !== null && key === 'OnCalendar') return [...rules.timer];
+  if (key === 'ReadWritePaths' && rules.development.length > 0) return [line, ...rules.development];
   // The profiles' socket and out defaults follow the unit's own runtime and state folders (agentSettings).
   if (line === '[Service]')
     return [
@@ -242,6 +256,15 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
     : [];
   const timer =
     vars.watcherSchedule !== undefined && WATCHER_TIMER.test(text) ? timerLines(vars.watcherSchedule) : null;
+  // Fully sandboxed units only: the two modes that drop the mount sandbox have nothing for these to narrow.
+  const checkout = dropped.has('ProtectSystem') || !WATCHER_UNIT.test(text) ? null : vars.watcherDevelopment?.checkout;
+  const development =
+    typeof checkout === 'string'
+      ? [
+          `ReadWritePaths=-${watcherScratch(path.join(vars.dataDir, DEFAULT_WATCHER_DIR))}`,
+          `ReadOnlyPaths=-${checkout}`,
+        ]
+      : [];
   const rules: LineRules = {
     scope,
     vars,
@@ -250,7 +273,10 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
     isInterface: /^ExecStart=.*\binterface run\b/m.test(text),
     backendDirs,
     timer,
-    hidden: dropped.has('ProtectSystem') ? null : hiddenLine(text, vars),
+    hidden: dropped.has('ProtectSystem')
+      ? null
+      : hiddenLine(text, vars, typeof checkout === 'string' ? [path.join(checkout, '.env')] : []),
+    development,
   };
   return text
     .split('\n')

@@ -15,6 +15,7 @@
 //   neptunia services <name> setup|enable|disable|status   one of them
 //   neptunia services watcher trigger|cancel     the operations of one watcher run
 //   neptunia services watcher evidence [--from <iso>] [--cursor <c>]  what the services asked and answered, as JSON
+//   neptunia services watcher select --sql <statement>  one read-only statement over the memory database, as JSON
 //   neptunia services start|stop|restart|status [<unit> ...]   the units, through the scope's systemctl
 //   neptunia logs [errors] [follow] [since <when>]   the core's journal, in the scope of the units
 //   neptunia logs watcher [<date or run>]        the watcher's saved report, with no core
@@ -189,6 +190,7 @@ const USAGE = [
   '       neptunia services <name> setup|enable|disable|status   (heartbeat, selfreflection, selfimprovement, watcher)',
   '       neptunia services watcher trigger|cancel',
   '       neptunia services watcher evidence [--from <iso>] [--cursor <c>]',
+  '       neptunia services watcher select --sql <statement>',
   '       neptunia services start|stop|restart|status [<unit> ...]',
   '       neptunia logs watcher [<date or run>]',
   '       neptunia setup [--system] [--node <path>]',

@@ -23,6 +23,7 @@ import {
   readyWatcherFolder,
   triggerWatcher,
   watcherEvidence,
+  watcherSelect,
   watcherReport,
   watcherStatusFields,
 } from './watcher.ts';
@@ -288,6 +289,8 @@ export function serviceFamily(
       return Promise.resolve(watcherReport(deps, typeof args.target === 'string' ? args.target : undefined));
     case 'evidence':
       return watcherEvidence(deps, args);
+    case 'select':
+      return Promise.resolve(watcherSelect(deps, args));
     default:
       return Promise.resolve(invalid(`no such command: services ${String(word)} ${String(action)}`));
   }

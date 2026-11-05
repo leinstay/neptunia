@@ -4,7 +4,8 @@
 // into the run's record, and the worker that holds the run, or the worker that comes for a claim nobody holds yet, ends it.
 // Neither `cancel` nor `disable` touches the other's business. `evidence` opens the memory database read-only, runs only
 // reads and asks no model: it is the bounded path by which the watcher agent reads what the services asked and answered,
-// and what is left over (src/watcher/trash.ts).
+// and what is left over (src/watcher/trash.ts). `select` runs one read-only statement of the agent's over the same kind of
+// connection (src/watcher/development.ts).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,6 +17,7 @@ import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { backendOfAgent } from '../subharness/control.ts';
 import { subharnessPlace } from '../subharness/place.ts';
 import { readSessionMap } from '../subharness/sessions.ts';
+import { selectRefusal, selectRows } from '../watcher/development.ts';
 import { readFilings } from '../watcher/filing.ts';
 import {
   WATCHER_RUN_TIMEOUT_MS,
@@ -41,6 +43,7 @@ import {
   standardFacts,
 } from '../watcher/requests.ts';
 import type { RecordedRunPage } from '../watcher/requests.ts';
+import { maskCredentials } from '../watcher/report.ts';
 import { watcherSettings } from '../watcher/settings.ts';
 import { readTranscriptRuns } from '../watcher/transcripts.ts';
 import { collectTrash } from '../watcher/trash.ts';
@@ -147,9 +150,9 @@ function recordedPage(
   }
 }
 
-/** What `read` makes of a read-only connection; null when the database or what it asks for cannot be read. */
-function readMemory<TResult>(deps: ServiceDeps, read: (db: ReturnType<typeof dbOf>) => TResult): TResult | null {
-  const file = path.join(deps.dataDir, 'memory.db');
+/** What `read` makes of a read-only connection to the memory of `dataDir`; null when it cannot be read. */
+export function readMemoryAt<TResult>(dataDir: string, read: (db: ReturnType<typeof dbOf>) => TResult): TResult | null {
+  const file = path.join(dataDir, 'memory.db');
   if (!fs.existsSync(file)) return null;
   let handle: ReturnType<typeof openMemoryDb> | null = null;
   try {
@@ -161,6 +164,9 @@ function readMemory<TResult>(deps: ServiceDeps, read: (db: ReturnType<typeof dbO
     handle?.close();
   }
 }
+
+const readMemory = <TResult>(deps: ServiceDeps, read: (db: ReturnType<typeof dbOf>) => TResult): TResult | null =>
+  readMemoryAt(deps.dataDir, read);
 
 /** What only the first page of a walk carries, read once per walk: the leftovers, the diary's facts and the CI of `main`. */
 async function firstPageFacts(deps: ServiceDeps, window: { from: number; to: number }) {
@@ -260,6 +266,31 @@ export async function watcherEvidence(
   const page = joinPages(window, recorded.page, transcripts, flags.sessions);
   const first = flags.to === null ? await firstPageFacts(deps, window) : {};
   return { text: JSON.stringify({ ...page, ...first }), status: 'ok' };
+}
+
+/**
+ * `select --sql <statement>`: the rows of one read-only statement over the live database as JSON, its text bounded, what looks
+ * like a key masked. A statement that is no read is refused before the database is opened, and a read-only connection
+ * refuses what slips past that. It opens no missing database, so it makes no file.
+ */
+export function watcherSelect(deps: ServiceDeps, args: Readonly<Record<string, unknown>>): ServiceAnswer {
+  const { sql } = args;
+  if (typeof sql !== 'string' || sql.trim() === '') {
+    return { text: 'services watcher select: --sql takes one read-only statement', status: 'invalid' };
+  }
+  const refusal = selectRefusal(sql);
+  if (refusal !== null) return failed(`services watcher select: ${refusal}`);
+  const file = path.join(deps.dataDir, 'memory.db');
+  if (!fs.existsSync(file)) return failed('services watcher select: no memory database');
+  let handle: ReturnType<typeof openMemoryDb> | null = null;
+  try {
+    handle = openMemoryDb(file, { readOnly: true });
+    return { text: selectRows(dbOf(handle), sql), status: 'ok' };
+  } catch (error) {
+    return failed(`services watcher select: ${maskCredentials((error as Error).message).text}`);
+  } finally {
+    handle?.close();
+  }
 }
 
 /** The backend, model and effort the watcher runs on, `default` for what the backend picks, `unknown` with no backend. */
