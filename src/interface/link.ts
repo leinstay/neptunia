@@ -148,7 +148,7 @@ export const AGENT_IFACE = 'agent';
 
 /** The prefix of the only commands an agent principal sends: the board's (src/board/commands.ts). */
 const TASK_PREFIX = 'task.';
-/** The one skill command an agent may send: it files a package, and activation stays the owner's. */
+/** The one skill command an agent may send: it files a package and activates nothing. */
 const SKILL_FILING = 'skill.pending';
 
 /** Whether `principal` may send `command.requested`: the owner's command line or an agent, never an interface. */

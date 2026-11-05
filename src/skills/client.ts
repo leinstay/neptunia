@@ -79,6 +79,8 @@ export function createSkillsClient(
       return reads()?.review(name) ?? null;
     },
     activate: (name, by) => change({ kind: 'skills', op: 'activate', name, at: deps.now(), by }),
+    activateVersion: (name, versionId, by) =>
+      change({ kind: 'skills', op: 'activate-version', name, versionId, at: deps.now(), by }),
     rollback: (name, by) => change({ kind: 'skills', op: 'rollback', name, at: deps.now(), by }),
     reject: (name, by) => change({ kind: 'skills', op: 'reject', name, at: deps.now(), by }),
     disable: (name, by) => change({ kind: 'skills', op: 'disable', name, disabled: true, at: deps.now(), by }),

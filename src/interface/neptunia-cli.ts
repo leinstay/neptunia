@@ -42,6 +42,7 @@ import type { TaskAnswer } from '../board/commands.ts';
 import type { AdapterLink, From, LinkDoor } from './link.ts';
 import type { Principal } from './principals.ts';
 import { SKILL_COMMAND_PREFIX, skillCommandOf } from '../skills/agent-commands.ts';
+import type { BoardCaller } from '../tools/impl/board.ts';
 import type { SkillsAccess } from '../skills/port.ts';
 
 /** One command's answer: the text the owner reads and its outcome. */
@@ -102,6 +103,8 @@ export type CommandDeps = {
   tasks: { command(principal: string, name: string, args: Record<string, unknown>): Promise<TaskAnswer> };
   /** Her skills: an agent lists the pending versions and files a package (`skill.pending`); absent, the command fails. */
   skills?: SkillsAccess | null;
+  /** The board `skill.pending { name, task }` binds a package on, as the calling agent. */
+  board?: BoardCaller | null;
 };
 
 /** The prefix of the board's commands. */
@@ -214,7 +217,9 @@ export function createCommandDesk(deps: CommandDeps): {
 
   async function skillCommandOfAgent(event: CommandEvent, principal: string): Promise<Answer> {
     if (deps.skills == null) return { text: 'skills are not available here', status: 'failed' };
-    const answer = await skillCommandOf(deps.skills, { name: principal }, event.name, event.args);
+    const answer = await skillCommandOf(deps.skills, { name: principal }, event.name, event.args, {
+      board: deps.board,
+    });
     return { text: answer.text, status: answer.status };
   }
 

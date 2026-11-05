@@ -16,7 +16,7 @@ The worker first checks that her gh login may push to `selfimprovement.repositor
 
 The thinker runs on its own route in one-shot turns. A small thing it finishes itself. Larger work it files as dev tasks with `--parent`, and each dev runs on its own route, one at a time, in a branch and worktree of its own from the task's branch. When a dev run ends, code commits what it left, merges it into the task's branch and closes the dev task. The task keeps its lease meanwhile, and the thinker gets its next turn when the last dev task closed.
 
-A turn that ends with nothing open means finished. Code then commits what is left, runs the tests of the touched modules and only then pushes and opens a draft pull request. Failing tests fail the task with `tests-failed`, and a branch with no change fails it with `no-change`. A task of kind `skill` opens no pull request and ends when its package waits for the owner, see [skills](skills.md). Past `development.thinkerTurns` turns (default `12`) the task blocks with `thinker-turns`, and an unblock gives it new turns.
+A turn that ends with nothing open means finished. Code then commits what is left, runs the tests of the touched modules and only then pushes and opens a draft pull request. Failing tests fail the task with `tests-failed`, and a branch with no change fails it with `no-change`. A task of kind `skill` opens no pull request. The worker binds the exact version of its package to the task and accepts her task at its next wake, and the core then activates that version, see [skills](skills.md). The owner's task of kind `skill` waits for the owner's review. Past `development.thinkerTurns` turns (default `12`) the task blocks with `thinker-turns`, and an unblock gives it new turns.
 
 ## Merging
 

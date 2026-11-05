@@ -30,7 +30,8 @@ export type SkillParse = { ok: true; skill: ParsedSkill } | { ok: false; code: S
 
 const FENCE = '---';
 const KEYS: ReadonlyArray<string> = ['name', 'description', 'tools', 'task'];
-const NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+/** A skill's name, which is also its folder: no separator and no dot, so it cannot leave `data/skills/`. */
+export const SKILL_NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 const TOOL = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/;
 
 type Front = { values: Map<string, string>; list: Array<string> | null };
@@ -81,7 +82,7 @@ export function parseSkillFile(source: string): SkillParse {
   if (front === null) return { ok: false, code: 'bad-front-matter' };
   const name = front.values.get('name');
   if (name === undefined || name === '') return { ok: false, code: 'no-name' };
-  if (!NAME.test(name)) return { ok: false, code: 'bad-name' };
+  if (!SKILL_NAME.test(name)) return { ok: false, code: 'bad-name' };
   const description = front.values.get('description') ?? '';
   if (description === '') return { ok: false, code: 'no-description' };
   if (!front.values.has('tools')) return { ok: false, code: 'no-tools' };
