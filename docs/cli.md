@@ -68,6 +68,19 @@ Start with `/help`. It is generated from the command table, so it includes the a
 
 A secret question hides its answer and excludes it from input history. History lives in `data/cli/`.
 
+## Backend usage
+
+`/usage` prints the engine's own accounting, then what each backend's account says of itself under `backend accounts:`. `readAllUsage` in `src/subharness/usage.ts` reads the four sources, and no read starts a model run. One source that fails leaves the others readable, and it prints its code after `not read:`.
+
+| Source | Read | What it shows |
+|---|---|---|
+| `codex` | `codex app-server` with `account/read`, `account/rateLimits/read` and `account/usage/read` under the persona's home | The email and plan, used percentage, reset time, window, lifetime and daily tokens |
+| `claude` | `claude auth status` | Whether the account can be read by hand. Its `/usage` is an interactive screen, so the block is `unsupported` and names the command to open it |
+| `opencode` | `opencode stats` under the persona's home | Sessions, messages, days, dollars and tokens, under the name of its extra key |
+| `openrouter` | `GET /key` on the core role's key | Spend, limit and what remains, under the key's name |
+
+Each block names its source, its account and its observation time. A value the source did not report prints `unknown`, never zero. Subscription tokens carry no price. A failed read of the same known account keeps the last numbers until the core restarts, each marked `(stale)` under its own observation time, and a logout or another account drops them. The blocks are never added together, because the `openrouter` spend of a key already holds what `opencode` spent on that key.
+
 ## Mirrors
 
 `/mirror` manages the places her diary is published to, in the chat and as `neptunia mirror <subcommand>`. A mirror is named by its id or its place id. A bad value answers `invalid` and changes nothing. [Diary](diary.md#mirrors) describes delivery and backfill.
