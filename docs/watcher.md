@@ -24,9 +24,9 @@ The worker exits `0` for a committed report, with its filing deferred too, and f
 
 ## Reports and versions
 
-Every report is one Markdown file in one template. `checkTemplate` in `src/watcher/report.ts` checks the title, the metadata rows, the eleven sections, the four subheadings of each and the `coverage` block at the end, and `checkCoverage` reads the block as data. [The prompt contract](prompt-contract.md#watcher-answer) holds the template and the codes.
+Every report is one Markdown file in one template. `checkTemplate` in `src/watcher/report.ts` checks the title, the metadata rows, the twelve sections, the four subheadings of each and the `coverage` block at the end, and `checkCoverage` reads the block as data. [The prompt contract](prompt-contract.md#watcher-answer) holds the template and the codes.
 
-The runner checks the answer before it saves or files anything. A failed check fails the run with a code and a detail that never quotes the agent, the answer is kept nowhere, and the last successful view stays. The engine then replaces the metadata rows it knows: the observation interval, the run id, the selected backend, the model, the effort, the risk and the counts. The rows `Effective account` and `Available sources` stay the agent's, and so does the `coverage` block.
+The runner checks the answer before it saves or files anything. A failed check fails the run with a code and a detail that never quotes the agent, the answer is kept nowhere, and the last successful view stays. The engine then replaces the metadata rows it knows: the observation interval, the run id, the selected backend, the model, the effort, the risk and the counts. It stamps `observation` and `backend` of the `coverage` block with the same facts, so the block and the rows cannot disagree. The rows `Effective account` and `Available sources` and the block's other fields stay the agent's.
 
 Each successful run commits an immutable file `reports/runs/<day>_<commit ms>_<run id>.md`, and `reports/<day>.md` is a link swapped atomically to the newest of its day, so a failed or interrupted attempt replaces nothing. A plain `<day>.md` from an older installation reads as before, with no run identity, and stays readable as the run `legacy-<day>` once a run commits over it. The day of a report is the UTC day of its claim.
 
@@ -50,7 +50,26 @@ The window opens at the last successful inspection, or at the start of the UTC d
 
 ## The running install
 
-`Project` and `Modules and structure` work from the install the worker runs in and nothing else. `installFacts` in `src/watcher/install.ts` gives the brief its revision, its `ahead` and `behind` counts against the `origin/main` it last fetched, its modules, the dependencies of its packages and its active skills, and fetches nothing. What it cannot learn is named in `unavailable`: `no-git`, `git-unreadable`, `no-remote`, `no-package-json` or `skills-unreadable`. The agent reports those, and GitHub access it lacks, under `Unavailable checks`.
+`Project` and `Modules and structure` work from the install the worker runs in. `installFacts` in `src/watcher/install.ts` gives the brief its revision, its `ahead` and `behind` counts against the `origin/main` it last fetched, its modules, the dependencies of its packages and its active skills, and fetches nothing. What it cannot learn is named in `unavailable`: `no-git`, `git-unreadable`, `no-remote`, `no-package-json` or `skills-unreadable`. The agent reports those, and GitHub access it lacks, under `Unavailable checks`.
+
+## Leftovers
+
+`collectTrash` in `src/watcher/trash.ts` gives the `Trash` section its evidence, through `trash` on the first page of `service watcher evidence`. Each item has a `name`, a `category`, a `reason` and a `where` of `install`, `checkout` or `system`. Every command is a read through the injected `run`, nothing is deleted, and no leftover is opened. A name shaped like a key is masked. This is the one place the watcher looks at the checkout `selfimprovement.checkout` names, and with none set only the install and the system are read.
+
+| Category | What it lists |
+|---|---|
+| `units` | A `neptunia-*` unit whose binary or script is gone, or that is disabled with nothing referencing it |
+| `identities` | A `neptunia-*` user or group that owns no process and no file under `/home`, `/var/lib`, `/srv`, `/opt` and `/etc`, searched to depth 4 |
+| `state-folders` | A `neptunia-*` folder of `/var/lib` that no unit names |
+| `stray-files` | An untracked file, from `git status --porcelain` |
+| `dangling-symlinks` | A link whose target is gone, outside `node_modules`, `.git`, `.worktrees` and `.claude` |
+| `retired-config-keys` | A key of the local settings that `moveConfigKeys` or `cutConfigKeys` would take out, by name and never with its value |
+| `unloaded-files` | A file of `prompts/` that `src/` never names, or a file of an agent's folder its profile does not name |
+| `dead-branches` | A branch merged into `main`, or with no commit for `ABANDONED_BRANCH_DAYS` (14) |
+| `dead-worktrees` | A worktree git calls prunable, or whose branch is merged |
+| `old-worktrees` | A folder of `.worktrees` untouched for `OLD_WORKTREE_DAYS` (30) with no open board task |
+
+What cannot be read is a row of `unavailable` with its category, its `where` and a reason, so an empty category means it was looked at. Each category in each place holds at most `TRASH_ITEM_LIMIT` (50) items, and a cut is named there too. A leftover the agent reports is a finding like any other: it repeats and turns `low`.
 
 ## Filing tasks
 

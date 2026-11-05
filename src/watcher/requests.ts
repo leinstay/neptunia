@@ -289,6 +289,14 @@ export function taskOutcomes(db: Db, runId: string): RequestOutcome | null {
   return { kind: 'task', state: CLOSED_BADLY.includes(status) ? 'failed' : 'open', ref: runId };
 }
 
+/** The ids of the board's tasks still open. */
+export function openTaskIds(db: Db): Array<string> {
+  return db
+    .prepare("SELECT id FROM board_tasks WHERE status NOT IN ('done', 'failed', 'cancelled', 'rejected')")
+    .all()
+    .map((row) => String(row.id));
+}
+
 const gapsFile = (privateDir: string): string => path.join(privateDir, 'agents', 'watcher', 'archive-gaps.jsonl');
 
 /** Appends a request the archive lost, for the next inspection. The gap holds ids and never content. Never throws. */

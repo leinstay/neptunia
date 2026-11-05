@@ -16,6 +16,7 @@ export const REPORT_HEADINGS = [
   'Misunderstandings',
   'Project',
   'Modules and structure',
+  'Trash',
   'The server',
   'Wishes',
   'Tasks filed',
@@ -409,6 +410,16 @@ export function stampMetadata(text: string, rows: Readonly<Record<string, string
         : line;
     })
     .join('\n');
+}
+
+/** The coverage block with its interval and backend replaced by the engine's, so it cannot disagree with the metadata. */
+export function stampCoverage(text: string, observation: { from: string; to: string }, backend: string): string {
+  const lines = text.split('\n');
+  const block = partsOf(lines, 0).find((part) => part.kind === 'fence' && part.info === 'coverage');
+  if (block?.kind !== 'fence') return text;
+  const held = JSON.parse(lines.slice(block.at + 1, block.end).join('\n')) as Record<string, unknown>;
+  const body = JSON.stringify({ ...held, observation, backend }, null, 2);
+  return [...lines.slice(0, block.at + 1), body, ...lines.slice(block.end)].join('\n');
 }
 
 const LISTS = ['defects', 'suspicious', 'inspected', 'unavailable'] as const;

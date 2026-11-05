@@ -34,6 +34,7 @@ import {
   findSecret,
   insertFilingLines,
   insertUnavailable,
+  stampCoverage,
   stampMetadata,
 } from './report.ts';
 import { observationInterval } from './requests.ts';
@@ -231,11 +232,15 @@ function stamped(
   rated: RiskResult,
   observation: Observation
 ): string {
-  const { backend, model, effort } = deps.selected;
-  return stampMetadata(markFindings(report, rated.findings), {
-    'Observation interval': `${new Date(observation.from).toISOString()} to ${new Date(observation.to).toISOString()}`,
+  const { model, effort } = deps.selected;
+  const backend = deps.selected.backend ?? 'unknown';
+  const from = new Date(observation.from).toISOString();
+  const to = new Date(observation.to).toISOString();
+  const marked = stampCoverage(markFindings(report, rated.findings), { from, to }, backend);
+  return stampMetadata(marked, {
+    'Observation interval': `${from} to ${to}`,
     'Run id': runId,
-    'Selected backend': backend ?? 'unknown',
+    'Selected backend': backend,
     Model: model ?? 'default',
     Effort: effort ?? 'default',
     Risk: rated.risk,

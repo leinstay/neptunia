@@ -2,14 +2,16 @@
 // and the lines status adds. All of them work with no core, and none asks a model. `trigger` claims the run first and only then asks the
 // manager for the worker, which adopts the claim, so the answer names the run that will work. `cancel` writes `stopping`
 // into the run's record, and the worker that holds the run, or the worker that comes for a claim nobody holds yet, ends it.
-// Neither `cancel` nor `disable` touches the other's business. `evidence` opens the memory database read-only, spawns
-// nothing and asks nothing: it is the bounded path by which the watcher agent reads what the services asked and answered.
+// Neither `cancel` nor `disable` touches the other's business. `evidence` opens the memory database read-only, runs only
+// reads and asks no model: it is the bounded path by which the watcher agent reads what the services asked and answered,
+// and what is left over (src/watcher/trash.ts).
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { readKeys } from '../keys/file.ts';
 import { openMemoryDb } from '../memory/db/open.ts';
 import { dbOf } from '../memory/db/types.ts';
+import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { backendOfAgent } from '../subharness/control.ts';
 import { subharnessPlace } from '../subharness/place.ts';
 import { readSessionMap } from '../subharness/sessions.ts';
@@ -28,6 +30,7 @@ import { isDay, readReport, readReportRun, reportsDirOf, runLines, watcherDir } 
 import {
   WATCHER_EVIDENCE_MAX_CHARS,
   observationInterval,
+  openTaskIds,
   readArchiveGaps,
   readRecordedRuns,
   taskOutcomes,
@@ -35,8 +38,10 @@ import {
 import type { RecordedRunPage } from '../watcher/requests.ts';
 import { watcherSettings } from '../watcher/settings.ts';
 import { readTranscriptRuns } from '../watcher/transcripts.ts';
+import { collectTrash } from '../watcher/trash.ts';
+import type { Trash } from '../watcher/trash.ts';
 import type { ServiceAnswer, ServiceDeps } from './commands.ts';
-import { startWorker } from './manager.ts';
+import { startWorker, unitFolder, unitScope } from './manager.ts';
 
 const iso = (moment: number): string => new Date(moment).toISOString();
 const failed = (text: string): ServiceAnswer => ({ text, status: 'failed' });
@@ -137,6 +142,34 @@ function recordedPage(
   }
 }
 
+/** The ids of the open board tasks; null when the database or the board cannot be read. */
+function openTasks(deps: ServiceDeps): Array<string> | null {
+  const file = path.join(deps.dataDir, 'memory.db');
+  if (!fs.existsSync(file)) return null;
+  let handle: ReturnType<typeof openMemoryDb> | null = null;
+  try {
+    handle = openMemoryDb(file, { readOnly: true });
+    return openTaskIds(dbOf(handle));
+  } catch {
+    return null;
+  } finally {
+    handle?.close();
+  }
+}
+
+/** The leftovers of the install and of the development checkout the settings name, if they name one. */
+function trashOf(deps: ServiceDeps): Promise<Trash> {
+  return collectTrash({
+    installDir: deps.rootDir,
+    checkout: selfimprovementSettings(deps.config()).checkout,
+    unitDir: unitFolder(deps.env),
+    env: { ...deps.env, NEPTUNIA_PRIVATE_DIR: deps.privateDir, NEPTUNIA_UNIT_SCOPE: unitScope(deps.env) },
+    run: deps.run,
+    now: () => deps.now(),
+    tasks: () => openTasks(deps),
+  });
+}
+
 /** The flags of `evidence`, or the line that refuses them. */
 function evidenceFlags(
   args: Readonly<Record<string, unknown>>
@@ -178,9 +211,13 @@ function joinPages(
 /**
  * `evidence [--from <iso>] [--cursor <c>]`: the recorded requests, then the Claude transcripts, of the window from the last
  * successful inspection (or `--from`) to now, under `WATCHER_EVIDENCE_MAX_CHARS`, as JSON. The cursor pins the end of the window,
- * so a walk over pages reads one fixed set of runs. The inspection in progress and its session are left out.
+ * so a walk over pages reads one fixed set of runs. The inspection in progress and its session are left out. The first page,
+ * the one with no cursor, also carries `trash`, read once per walk.
  */
-export function watcherEvidence(deps: ServiceDeps, args: Readonly<Record<string, unknown>>): ServiceAnswer {
+export async function watcherEvidence(
+  deps: ServiceDeps,
+  args: Readonly<Record<string, unknown>>
+): Promise<ServiceAnswer> {
   const flags = evidenceFlags(args);
   if (typeof flags === 'string') return { text: flags, status: 'invalid' };
   const store = storeOf(deps);
@@ -203,7 +240,9 @@ export function watcherEvidence(deps: ServiceDeps, args: Readonly<Record<string,
     attribute: (_project, session) => agents.get(session)?.agent ?? null,
     outcome: (session) => recorded.tasks(agents.get(session)?.runId ?? ''),
   });
-  return { text: JSON.stringify(joinPages(window, recorded.page, transcripts, flags.sessions)), status: 'ok' };
+  const page = joinPages(window, recorded.page, transcripts, flags.sessions);
+  const trash = flags.to === null ? { trash: await trashOf(deps) } : {};
+  return { text: JSON.stringify({ ...page, ...trash }), status: 'ok' };
 }
 
 /** The backend, model and effort the watcher runs on, `default` for what the backend picks, `unknown` with no backend. */

@@ -10,7 +10,7 @@ Run `neptunia service watcher evidence` with no flags. It answers JSON with the 
 
 Read the whole window if you can. If you cannot, say so: name `examinedRuns`, `totalRuns` and `unreviewedRuns` under `Unavailable checks` of `Service runs`. A sample never passes for the review. Every code in `gaps` and every missing piece goes there too: instructions a vendor injects unseen, missing media, failed archive writes, cut tool output, absent transcripts. Do not rebuild a missing prompt from today's files, and do not call an incomplete transcript complete.
 
-You work in the install you run from and read nothing outside it for `Project` and `Modules and structure`. A code in `unavailable`, a missing `.git` or no GitHub access goes under `Unavailable checks` of `Project`.
+You work in the install you run from and read nothing outside it for `Project` and `Modules and structure`. A code in `unavailable`, a missing `.git` or no GitHub access goes under `Unavailable checks` of `Project`. The first page of the evidence also holds a `trash` field, the one source of the `Trash` section.
 
 The report starts at its first character with the title and the metadata block, in this order, with exactly these labels:
 
@@ -30,7 +30,7 @@ The report starts at its first character with the title and the metadata block, 
 
 The engine replaces the interval, the run id, the backend, the model, the effort, the risk and the counts with what it knows. The account and the sources are yours to state, and neither may say `none`. A run with no source at all has failed its purpose, so say what stopped it.
 
-Then come the eleven sections, each `## <name>` in the words and the order given below, each once. Every section holds these four subheadings, in this order, and no other heading of any level. No text stands between a section's heading and its first subheading. An empty subsection says exactly `none`, the bare word, and nothing else:
+Then come the twelve sections, each `## <name>` in the words and the order given below, each once. Every section holds these four subheadings, in this order, and no other heading of any level. No text stands between a section's heading and its first subheading. An empty subsection says exactly `none`, the bare word, and nothing else:
 
 ```
 ### Observed defects
@@ -114,6 +114,10 @@ Start from `<install>`. Compare the revision with your earlier reports and repor
 ## Modules and structure
 
 From the install: which modules, interfaces and dependencies it holds, what changed since your earlier reports, and whether anything sits where the structure does not expect it. Name bloat and drift you can show with a count or a path.
+
+## Trash
+
+Take this from the `trash` field and do not go looking further. Its `items` are leftovers, each with a `name`, a `category`, a `reason` and a `where`. Report each one you judge worth the owner's time as a finding, by name and reason. A leftover that stays turns `low` as a repeat like any finding, so keep its key. Its `unavailable` goes under `Unavailable checks`, since a category that could not be read is not an empty one. Nothing is known of a leftover beyond its name, so do not open it, and do not delete, move or clean anything: the owner decides what goes.
 
 ## The server
 

@@ -1,6 +1,6 @@
 // What the watcher knows of the install it runs from, for its brief: the revision, how far it stands from `origin/main`, the
 // modules, the dependencies and the active skills. Only `rootDir`, the running install, is ever read: a public install has no
-// development checkout, and `selfimprovement.checkout` belongs to another mechanism. What cannot be learned is named in
+// development checkout, and the leftovers of one are src/watcher/trash.ts's alone. What cannot be learned is named in
 // `unavailable`, by code, and the report carries it under `Unavailable checks`. Nothing fetches, so the divergence is from
 // the last `origin/main` this install fetched.
 

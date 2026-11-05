@@ -249,7 +249,7 @@ export function serviceFamily(
     case 'report':
       return Promise.resolve(watcherReport(deps, typeof args.target === 'string' ? args.target : undefined));
     case 'evidence':
-      return Promise.resolve(watcherEvidence(deps, args));
+      return watcherEvidence(deps, args);
     default:
       return Promise.resolve(invalid(`no such command: service ${String(word)} ${String(action)}`));
   }
