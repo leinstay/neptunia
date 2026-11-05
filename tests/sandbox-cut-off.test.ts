@@ -64,7 +64,9 @@ test('answerSkillScenario drops the fragment of a message cut at the output cap'
     at: NOW,
     onCall: () => Promise.reject(new Error('no call is expected')),
   });
-  const answer = asRecord(answered.runs[0]?.answer);
+  // R.2: the first run gets a name, so the read stays three segments deep.
+  const [firstRun] = answered.runs;
+  const answer = asRecord(firstRun?.answer);
   assert.deepEqual(answer.messages, []);
   assert.equal(answer.skip, true);
 });
