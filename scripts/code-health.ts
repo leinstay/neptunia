@@ -4,7 +4,7 @@
 //
 //   size       a file over its line limit (2,000 unless its `scripts/config/structure.json` entry says otherwise) and a function
 //              over 300 lines, nesting 6 or cyclomatic complexity 20
-//   chains     a property chain of four or more segments (`a.b.c.d`) and a name repeated in a row (`extra.extra`), counted
+//   chains     a property chain of four or more segments (`a.b.c.d`) and a name repeated in a row (`scope.scope`), counted
 //              per file; a chain under `hot.config`, `process` or `import.meta` is exempt from depth
 //   structure  a tracked file that matches no entry of `scripts/config/structure.json`, a tracked file in the local layer, an
 //              import its entry does not allow, a module of a `required` entry without a test
