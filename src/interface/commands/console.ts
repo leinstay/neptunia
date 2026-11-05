@@ -45,6 +45,7 @@ import { serviceFamily } from '../../service/commands.ts';
 import type { WakeClock } from '../../service/commands.ts';
 import type { ServiceName } from '../../service/schedule.ts';
 import { spawnRun } from '../../setup/install.ts';
+import type { RunManager } from '../../service/manager.ts';
 import { SUBHARNESS_AGENTS } from '../../subharness/control.ts';
 import { callMethod, listOf, objOf } from '../../tools/types.ts';
 import type { Counters, DaysSum, RoleRow } from '../../tools/impl/usage.ts';
@@ -99,6 +100,8 @@ export type ConsoleDeps = {
   subharness?: ConsoleSubharness;
   /** The diary's mirrors (src/behavior/mirror-desk.ts); `/mirror` fails while there is none. */
   mirrors?: MirrorDesk | null;
+  /** How `/service watcher` reaches the service manager, `spawnRun` when absent. A test always gives its own. */
+  serviceManager?: RunManager;
   /** What the core knows of one of its wakes, for `/service <name> status`. */
   wakeClock?: (name: ServiceName) => WakeClock | null;
 };
@@ -363,7 +366,7 @@ function serviceRun(
     config,
     now,
     env: process.env,
-    run: spawnRun,
+    run: deps.serviceManager ?? spawnRun,
     coreUp: true,
   };
   return serviceFamily(wakeClock === undefined ? given : { ...given, wakeClock }, name, args);
