@@ -60,11 +60,26 @@ Settings use the [module setup contract](interfaces.md#setup-contract). A secret
 
 The working directory is the skill's `state/`. `SKILL_STATE_DIR` and `SKILL_OUT_DIR` name persistent state and the current run's output folder. A result can include `text`, `data`, `error` and `files`; attachment names are returned as `skill:` handles. TypeScript runs through Node, and `.sh` scripts run through `/bin/sh`. No general terminal tool is exposed to the persona.
 
-Scripts run with the installing user's operating-system permissions. The working directory is not a sandbox. Do not open or modify the memory database from a script; core records go through its writer. Review code and dependencies before activation.
+Scripts run with the installing user's operating-system permissions. The working directory is not a sandbox. Do not open or modify the memory database from a script; core records go through its writer. Review the code and dependencies of a package you activate yourself, because the version her task produced activates with no review by a person.
 
 ## Review and use
 
-A new or edited package becomes a candidate version. A development agent files the complete package with `neptunia task skill-pending <name>`. Filing rejects an incomplete package and grants no activation right. The owner reviews it with `/skills review <name>` and activates it with `/skills activate <name>`. The active snapshot includes `SKILL.md`, `setup.json` and the script bytes, so editing the working files does not silently change the version that runs.
+A package lives under `<data>/skills/<name>/`, and a new or edited one becomes a candidate version. A development agent checks a complete package with `neptunia task skill-pending <name>`, which answers with what is wrong with it or that it is pending. The loader refuses a symbolic link as `SKILL.md`, `setup.json`, `scripts/` or anything under it with the problem `symlink`, and it ignores a skill folder that is itself a link. The active snapshot includes `SKILL.md`, `setup.json` and the script bytes, so editing the working files does not silently change the version that runs.
+
+Her skill task activates what it produced. When the thinker stops on a task of kind `skill`, the development worker finds the one pending version whose `task` names the task and asks the core with `skill.pending { name, task }`. `bindPackage` in [task activation](../src/skills/task-activation.ts) validates the package and writes that version on the task as `metadata.package`, and a refusal fails the task with the reason. The refusal `version-not-on-disk` means the folder's bytes differ from the version that would be bound, as after a revert to an older version. The worker accepts her bound task at its next wake. Every `board.reapSeconds` (default `60`) the core's `skills.settle` beat runs `settleSkillTasks` over her done tasks of kind `skill`, and it activates exactly the bound version through the writer's `activate-version` operation, with the version and the actor `task:<id>` recorded. A crash before an activation recovers on the first beat after the start, because the beat reads the board.
+
+Each settled task gets one comment, `skill-activation <code>`, which names the result on the task.
+
+| Code | What it means |
+|---|---|
+| `activated` | The bound version is active, and the version it replaced stays for a rollback. |
+| `already-active` | The bound version was active already, and nothing was written. |
+| `superseded` | The bound version is no longer a candidate, because a later edit, a rejection or a rollback retired it. Nothing changes. |
+| `invalid-package` | The folder has a problem now, named after the code, or is gone. The version stays inactive. |
+| `invalid-name` | The binding's skill name is no skill name, so no folder was read. |
+| `unknown-version` | The binding's version is not a version of that skill. |
+
+Nothing else activates. Other pending versions stay pending, and so does the version of a failed or cancelled task, of a task the owner or the watcher filed, and an edit made after the binding. A watcher's finding about a skill is evidence for the owner and changes no skill. The owner reviews a pending version with `/skills review <name>` and activates the newest one with `/skills activate <name>`. `/skills rollback <name>` returns to the previous version, and a later beat leaves that in place. `/skills disable <name>` keeps a skill out of her index, and an activation does not lift the switch.
 
 The prompt lists usable active skills by name and description. `skill.read` opens the procedure; `skill.run` executes a declared script. Required tools must already be registered and granted. Activation grants no additional tool access.
 

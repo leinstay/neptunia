@@ -1,6 +1,10 @@
 // The watcher's tasks: the agent ends its answer with one ```tasks block, a JSON array of { kind, title, evidence, done }
 // with an optional `finding`. `splitAnswer` takes the block out of the report and checks it; src/watcher/inspection.ts
-// calls it, and src/watcher/filing.ts files the drafts. `normalized` is how filing compares evidence.
+// calls it, and src/watcher/filing.ts files the drafts. `normalized` and `herOpenTask` are how filing compares evidence.
+
+import type { TaskRecord } from '../board/board.ts';
+import { SELF } from '../board/fields.ts';
+import { CLOSED } from '../board/machine.ts';
 
 export type TaskDraft = { kind: 'fix' | 'chore'; title: string; evidence: string; done: string; finding?: string };
 export type SplitAnswer =
@@ -8,6 +12,8 @@ export type SplitAnswer =
 
 /** The board principal the watcher files as. */
 export const WATCHER = 'watcher';
+/** The requester of her own tasks. */
+export const HER = SELF;
 
 const bad = (detail: string): SplitAnswer => ({ ok: false, code: 'bad-tasks', detail });
 
@@ -67,3 +73,14 @@ export function splitAnswer(text: string): SplitAnswer {
 
 /** The evidence as compared: trimmed, lower case, runs of spaces as one. */
 export const normalized = (evidence: string): string => evidence.trim().toLowerCase().replace(/\s+/g, ' ');
+
+const evidenceOf = (row: TaskRecord): string => {
+  const kept = row.metadata?.evidence;
+  return normalized(typeof kept === 'string' ? kept : (row.description ?? ''));
+};
+
+/** Her open task on this evidence: the issue already runs under her name, so a draft on it files nothing. */
+export function herOpenTask(rows: ReadonlyArray<TaskRecord>, evidence: string): TaskRecord | undefined {
+  const wanted = normalized(evidence);
+  return rows.find((row) => row.requester === HER && !CLOSED.includes(row.status) && evidenceOf(row) === wanted);
+}

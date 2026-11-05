@@ -1,11 +1,15 @@
-// What an agent principal may ask of the skills on the core socket: `skill.pending` lists the versions waiting for an
-// activation, and `skill.pending { name }` files the package under `data/skills/<name>/`, answering what is wrong with
-// it or that it waits. An agent never activates, rolls back, disables or rejects: activation is the owner's
-// `/skills activate`. Answers are the socket's `{ status, text, data }`. `skillCommand` runs over a port that answers at
-// once, `skillCommandOf` over the core's access, which answers later.
+// What an agent principal may ask of the skills on the core socket: `skill.pending` lists the pending versions,
+// `skill.pending { name }` checks the package under `data/skills/<name>/`, answering what is wrong with it or that it is
+// pending, and `skill.pending { name, task }` also binds that exact version to the task (task-activation.ts), as the
+// caller. An agent never activates, rolls back, disables or rejects: her done task activates what it bound, and the owner
+// has `/skills`. Answers are the socket's `{ status, text, data }`. `skillCommand` runs over a port that answers at once,
+// `skillCommandOf` over the core's access, which answers later.
 
+import type { BoardCaller } from '../tools/impl/board.ts';
+import { SKILL_NAME } from './format.ts';
 import type { SkillProblem } from './load.ts';
 import type { SkillsAccess, SkillsPort } from './port.ts';
+import { bindPackage } from './task-activation.ts';
 
 export type SkillCommandAnswer = { status: 'ok' | 'invalid' | 'failed'; text: string; data: unknown };
 
@@ -24,8 +28,6 @@ function answerOfPending(pending: Pending, args: Readonly<Record<string, unknown
   return { status: 'ok', text, data: pending };
 }
 
-const SKILL_NAME = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
-
 /** The answer to filing `name`, over what the core's next read of the folders found. */
 function answerOfFiling(
   name: string,
@@ -37,8 +39,7 @@ function answerOfFiling(
   if (problem !== undefined)
     return { status: 'invalid', text: `skill.pending ${name}: ${problem.code}`, data: { code: problem.code } };
   const version = pending.find((one) => one.skill === name);
-  if (version !== undefined)
-    return { status: 'ok', text: `${name} ${version.version} waits for the owner`, data: version };
+  if (version !== undefined) return { status: 'ok', text: `${name} ${version.version} is pending`, data: version };
   return known
     ? { status: 'ok', text: `${name} has no new version`, data: null }
     : { status: 'failed', text: `skill.pending ${name}: no-package`, data: null };
@@ -75,17 +76,34 @@ export function skillCommand(
   );
 }
 
-/** The same commands over the core's skills access. */
+/** The answer to binding `name` to the task `taskId`. */
+async function answerOfBinding(
+  deps: { skills: SkillsAccess; board: BoardCaller; principal: string },
+  taskId: string,
+  name: string
+): Promise<SkillCommandAnswer> {
+  const bound = await bindPackage(deps, { taskId, name });
+  if (bound.ok) return { status: 'ok', text: `${name} ${bound.versionId} is bound to ${taskId}`, data: bound };
+  const status = bound.code === 'no-package' ? 'failed' : 'invalid';
+  return { status, text: `skill.pending ${name}: ${bound.code}`, data: { code: bound.code } };
+}
+
+/** The same commands over the core's skills access; `task` needs the board. */
 export async function skillCommandOf(
   access: SkillsAccess,
-  _caller: { name: string },
+  caller: { name: string },
   command: string,
-  args: Readonly<Record<string, unknown>>
+  args: Readonly<Record<string, unknown>>,
+  options: { board?: BoardCaller | null } = {}
 ): Promise<SkillCommandAnswer> {
   if (command !== 'skill.pending') return unknownCommand(command);
   const name = args.name;
   if (name === undefined) return answerOfPending(await access.pending(), args);
   if (typeof name !== 'string' || !SKILL_NAME.test(name)) return badName(name);
+  if (typeof args.task === 'string') {
+    if (options.board == null) return { status: 'failed', text: 'the board is not available here', data: null };
+    return answerOfBinding({ skills: access, board: options.board, principal: caller.name }, args.task, name);
+  }
   const pending = await access.pending();
   const rows = await access.list();
   return answerOfFiling(

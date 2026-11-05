@@ -10,7 +10,7 @@ Place a replacement prompt in `data/agents/<name>/prompt.md`. Personal profile f
 
 Backend and model selection is controlled through `/subharness`, and the thinker takes a backend, a model, an effort and a mode like the other agents (`write` until the owner sets another). `/subharness enable` asks for the models of scout, server, dev and watcher only; set the thinker's with `/subharness use` and `/subharness model`. The core hands each errand its route when it dispatches it, see [errands](errands.md#the-route-of-an-errand). Execution mode and rendered service restrictions are explained in [errands](errands.md#modes). Authentication belongs to the persona's backend home, not the development user's unrelated login.
 
-A task can ask an agent to create a [skill](skills.md), including scripts and setup declarations, under `data/skills/`, which an agent reaches as `$NEPTUNIA_DATA_DIR/skills/` from its worktree. The package must be complete and reviewed before owner activation. Agent code that changes the engine follows [CONTRIBUTING.md](../CONTRIBUTING.md).
+A task can ask an agent to create a [skill](skills.md), including scripts and setup declarations, under `data/skills/`, which an agent reaches as `$NEPTUNIA_DATA_DIR/skills/` from its worktree. The package must be complete. The version her task produced activates when the task is done, and any other pending version waits for the owner. Agent code that changes the engine follows [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## What holds a development agent
 
