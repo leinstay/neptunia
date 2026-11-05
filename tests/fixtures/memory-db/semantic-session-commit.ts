@@ -1,8 +1,8 @@
 // Writes a semantic candidate the way her memory session does: through the session's two operations
 // (`writeSessionEntity` and `writeSessionAssertion` of src/memory/db/semantic-write.ts, the pair `applySemantic` of
-// src/memory/db/session-write.ts calls) inside one writer transaction. It is the fixture that stands where tests called
-// `applySemanticWrite`. The session path only creates: a candidate that names a claim to continue has no session
-// operation, so the fixture refuses it instead of taking another road to the tables.
+// src/memory/db/session-write.ts calls) inside one writer transaction. The assertion op carries the candidate whole, so
+// a successor (`claimId` with `baseVersionId`) and conflicting evidence travel the same road as a new fact. A refusal of
+// the writer throws with its code, so a seed that fails stops the test at its cause.
 import { writeSessionAssertion, writeSessionEntity } from '../../../src/memory/db/semantic-write.ts';
 import type { SessionSemantics } from '../../../src/memory/db/semantic-write.ts';
 import type { Context } from '../../../src/memory/db/scope.ts';
@@ -14,7 +14,20 @@ import type {
 } from '../../../src/memory/db/semantic-types.ts';
 import { dbOf } from '../../../src/memory/db/types.ts';
 import type { World } from './semantic-world.ts';
-import { everythingRead } from './semantic-world.ts';
+
+/** Every stored source and claim version: the read set of a writer that was shown all of them. */
+export function everythingRead(world: World): SemanticReadSet {
+  return {
+    sourceIds: world.db
+      .prepare('SELECT id FROM sources')
+      .all()
+      .map((row) => String(row.id)),
+    versionIds: world.db
+      .prepare('SELECT id FROM claim_versions')
+      .all()
+      .map((row) => String(row.id)),
+  };
+}
 
 /** Commits `candidate` in `ctx` through the session operations; a refusal throws with its code. */
 export function commitViaSession(
@@ -23,8 +36,6 @@ export function commitViaSession(
   ctx: Context = world.contexts.group,
   read: SemanticReadSet = everythingRead(world)
 ): SemanticWriteResult {
-  if ('claimId' in candidate && candidate.claimId !== null)
-    throw new Error('the session path creates claims, it does not continue one');
   const session: SessionSemantics = {
     ctx,
     read,

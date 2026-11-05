@@ -1,10 +1,11 @@
 // The persona's memory writer for structured facts, stage S3: `validateSemanticCandidate` resolves one candidate or
-// refuses it with a stable code, `applySemanticWrite` writes it in one transaction. Code checks references, roles, evidence
-// and compare-and-set; the meaning is hers, so no test asks the code to judge a fact. The session path and the other
-// writers are in memory-db-semantic-session.test.ts. Synthetic content only.
+// refuses it with a stable code, and the session operations write it in one transaction (tests/fixtures/memory-db/
+// semantic-session-commit.ts). Code checks references, roles, evidence and compare-and-set; the meaning is hers, so no test
+// asks the code to judge a fact. The session path and the other writers are in memory-db-semantic-session.test.ts.
+// Synthetic content only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applySemanticWrite, validateSemanticCandidate } from '../src/memory/db/semantic-write.ts';
+import { validateSemanticCandidate } from '../src/memory/db/semantic-write.ts';
 import type { SemanticCandidate, SemanticReadSet } from '../src/memory/db/semantic-types.ts';
 import {
   ALEX,
@@ -45,7 +46,6 @@ const evidenceOf = (world: World, versionId: string) =>
     .prepare('SELECT source_id, role FROM claim_version_sources WHERE version_id = ? ORDER BY source_id')
     .all(versionId)
     .map((row) => ({ ...row }));
-const deps = (world: World) => ({ now: world.now, uuid: world.uuid, runId: 'run:direct' });
 const versionOf = (result: object): { claimId: string; versionId: string } =>
   result as { claimId: string; versionId: string };
 
@@ -387,23 +387,17 @@ test('refuses a stale base at validation', () => {
   world.handle.close();
 });
 
-test('refuses a stale base at apply when another write got in after validation', () => {
-  // Bug: the check runs on the read connection and the write commits on a state nobody checked.
+test('refuses a stale base at the write and stores nothing when another write got in first', () => {
+  // Bug: the check runs on a state nobody re-read and the write commits a successor on a base that moved.
+  // The session operations validate and write in one transaction, so the race of two connections cannot be staged; the
+  // base that moved is the whole case.
   const world = semanticWorld();
   const source = addSource(world, 'public', 'one');
   const { entityId } = addEntity(world, 'project', 'Lumen', [source]);
   const first = versionOf(commit(world, worksOn(ALEX, entityId, [source])));
-  const late = validateSemanticCandidate(
-    world.db,
-    world.contexts.group,
-    worksOn(ALEX, entityId, [source], successor(first)),
-    everythingRead(world)
-  );
-  assert.equal(late.ok, true);
   commit(world, worksOn(ALEX, entityId, [source], successor(first)));
   const before = count(world, 'claim_versions');
-  if (late.ok)
-    assert.deepEqual(applySemanticWrite(world.handle, late.resolved, deps(world)), { ok: false, code: 'stale_base' });
+  assert.throws(() => commit(world, worksOn(ALEX, entityId, [source], successor(first))), /stale_base/);
   assert.equal(count(world, 'claim_versions'), before);
   world.handle.close();
 });
@@ -498,14 +492,6 @@ test('a failure inside the write leaves no claim, version, argument or evidence'
   const world = semanticWorld();
   const source = addSource(world, 'public', 'one');
   const { entityId } = addEntity(world, 'project', 'Lumen', [source]);
-  const checked = validateSemanticCandidate(
-    world.db,
-    world.contexts.group,
-    worksOn(ALEX, entityId, [source]),
-    everythingRead(world)
-  );
-  assert.equal(checked.ok, true);
-  if (!checked.ok) return;
   const tables = [
     'claims',
     'claim_versions',
@@ -518,49 +504,11 @@ test('a failure inside the write leaves no claim, version, argument or evidence'
   // The temporary trigger stands in for any failure at the last step of the transaction.
   world.db.exec(`CREATE TEMP TRIGGER fail_seal BEFORE INSERT ON semantic_assertion_versions
     WHEN new.assertion_kind = 'relation' BEGIN SELECT RAISE(ABORT, 'the seal failed'); END;`);
-  assert.throws(() => applySemanticWrite(world.handle, checked.resolved, deps(world)), /the seal failed/);
+  assert.throws(() => commit(world, worksOn(ALEX, entityId, [source])), /the seal failed/);
   assert.deepEqual(
     tables.map((table) => count(world, table)),
     before
   );
-  world.handle.close();
-});
-
-test('a forged resolved write is refused by the writer and stores nothing', () => {
-  // Bug: the write trusts what it is handed and skips the checks of the validation.
-  // The `semantic` writer message had no production caller and is gone, so this drives applySemanticWrite directly.
-  const world = semanticWorld();
-  const source = addSource(world, 'public', 'one');
-  const before = count(world, 'semantic_entities');
-  assert.throws(
-    () =>
-      applySemanticWrite(
-        world.handle,
-        { forged: true, kind: 'entity', entityKind: 'project', source },
-        { now: () => 1, uuid: world.uuid }
-      ),
-    /BAD_SEMANTIC/
-  );
-  assert.equal(count(world, 'semantic_entities'), before);
-  world.handle.close();
-});
-
-test('a resolved write survives a copy as plain data', () => {
-  // Bug: the resolved form holds a function or a Map, so it cannot cross to another thread.
-  // The `semantic` writer message had no production caller and is gone, so this drives applySemanticWrite directly.
-  const world = semanticWorld();
-  const source = addSource(world, 'public', 'one');
-  const checked = validateSemanticCandidate(
-    world.db,
-    world.contexts.group,
-    entityCandidate('project', 'Lumen', [source]),
-    everythingRead(world)
-  );
-  assert.equal(checked.ok, true);
-  if (!checked.ok) return;
-  const copied = structuredClone(checked.resolved);
-  const result = applySemanticWrite(world.handle, copied, { now: world.now, uuid: world.uuid }) as { entityId: string };
-  assert.equal(world.db.prepare('SELECT COUNT(*) AS n FROM semantic_entities WHERE id = ?').get(result.entityId)?.n, 1);
   world.handle.close();
 });
 
