@@ -119,7 +119,7 @@ test('the sweep finds a DM with an opaque partner as its own scope, and its answ
     now: () => Date.UTC(2026, 10, 5, 12),
     log: {},
     selfName: 'Nep',
-  } as unknown as Parameters<typeof sweep>[0]);
+  });
   const row = world.db.prepare('SELECT audience_id FROM claims WHERE text = ?').get(NOTE);
   assert.equal(row?.audience_id, dmAudience(DM_ALEX));
   world.handle.close();

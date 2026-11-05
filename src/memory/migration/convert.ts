@@ -430,13 +430,19 @@ function ensuredUnit(target: Db, id: string, key: StorageKey): boolean {
 }
 
 /** The rows of the semantic search index's own tables: derived from its documents, so they are only counted. */
-function countSemanticShadows(target: Db, tables: Record<string, Counts>): void {
+function countSemanticShadows(source: Db, target: Db, tables: Record<string, Counts>): void {
   const names = target
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'semantic_search_fts_*'")
     .all() as Array<Row>;
-  for (const { name } of names) {
-    const held = Number((target.prepare(`SELECT COUNT(*) AS n FROM ${quote(String(name))}`).get() as Row).n);
-    tables[String(name)] = { ...emptyCounts(), added: held, output: held };
+  const count = (db: Db, name: string): number =>
+    Number((db.prepare(`SELECT COUNT(*) AS n FROM ${quote(name)}`).get() as Row).n);
+  const inSource = source.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?");
+  for (const row of names) {
+    const name = String(row.name);
+    const held = count(target, name);
+    tables[name] = inSource.get(name)
+      ? { ...emptyCounts(), input: count(source, name), preserved: held, output: held }
+      : { ...emptyCounts(), added: held, output: held };
   }
 }
 
@@ -548,7 +554,7 @@ function copyRows(
   const sequence = target.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)');
   for (const row of sequences) sequence.run(String(row.name), Number(row.seq));
   restoreGuards();
-  countSemanticShadows(target, tables);
+  countSemanticShadows(source, target, tables);
   return tables;
 }
 
