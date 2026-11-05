@@ -34,6 +34,7 @@ import {
   validDate,
 } from './semantic-registry.ts';
 import { entityWitnesses, projectSealedVersion, visibleMerges } from './semantic-rows.ts';
+import { writeSearchDocument } from './semantic-search.ts';
 import { takeOverClaim } from './session-rows.ts';
 import { dbOf } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
@@ -521,6 +522,13 @@ function writeAssertion(db: Db, payload: Payload, deps: WriteDeps): { claimId: s
     payload.audienceId
   );
   projectSealedVersion(db, versionId, payload.predicate.id);
+  writeSearchDocument(db, {
+    versionId,
+    claimId,
+    text: payload.text,
+    arguments: payload.arguments,
+    audienceId: payload.audienceId,
+  });
   projectRow(db, 'claims', { id: claimId }, { at });
   return { claimId, versionId };
 }

@@ -82,6 +82,8 @@
 //     page), `context_id` the run's context (`update.context`, an issued context's row, recorded in
 //     `execution_contexts` the same way);
 //   - every row written here is projected into the graph in the same transaction (graph.ts#projectRow).
+//   { kind: 'semantic-embedding', documentKey, model, vector, now }
+//       One embedding of a semantic search document (semantic-search.ts#applySemanticEmbedding).
 //   { kind: 'semantic', resolved, now, uuid?, runId? }
 //       One resolved entity or assertion from another thread (semantic-write.ts): checked again here, because a message
 //       carries anything, and a base that moved since it was resolved answers `{ ok: false, code: 'stale_base' }`.
@@ -108,6 +110,7 @@ import {
   SCOPE_INTERNAL,
 } from './scope.ts';
 import { NEWEST_CLAIM_VERSION_SQL, ensureAudience, ensureInterface, newestClaimVersion } from './rows.ts';
+import { applySemanticEmbedding } from './semantic-search.ts';
 import { applySemanticMessage, writeSessionAssertion, writeSessionEntity } from './semantic-write.ts';
 import type { SessionSemantics } from './semantic-write.ts';
 import { projectRow } from './graph.ts';
@@ -939,6 +942,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ],
   ['mirror', applyMirrorWrite],
   ['semantic', applySemanticMessage],
+  ['semantic-embedding', applySemanticEmbedding],
 ]);
 
 /** Applies one write on the writer connection; returns counts. */

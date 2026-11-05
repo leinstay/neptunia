@@ -69,8 +69,9 @@ test('a relation projects one role edge per reference and one shortcut, all nami
     edgesOf(world, fact.versionId).map((row) => [row.predicate, row.src, row.dst]),
     [
       ['asserts', personNode(ALEX), entityNode(entityId)],
-      ['has_role', versionNode(fact.versionId), entityNode(entityId)],
+      // The query orders by dst, and `person:` sorts before `semantic_entity:`.
       ['has_role', versionNode(fact.versionId), personNode(ALEX)],
+      ['has_role', versionNode(fact.versionId), entityNode(entityId)],
     ]
   );
   world.handle.close();
