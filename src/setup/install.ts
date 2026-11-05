@@ -16,6 +16,7 @@ import { modeOf } from '../subharness/control.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
 import { isInstalled } from '../subharness/place.ts';
 import { watcherSettings } from '../watcher/settings.ts';
+import { ClientsError, readClients } from './clients.ts';
 import { UNIT_AGENTS, renderUnit } from './units.ts';
 import type { UnitVars } from './units.ts';
 
@@ -63,6 +64,18 @@ function watcherSchedule(target: UnitTarget): ServiceSchedule | null {
   }
 }
 
+/** The names of the clients and of the interfaces of the install: the folders under `interfaces/` and the interface of each client. */
+function secretsOf(privateDir: string): { clients: Array<string>; interfaces: Array<string> } {
+  const clients = readClients(privateDir);
+  const folders = fs.existsSync(path.join(privateDir, 'interfaces'))
+    ? fs.readdirSync(path.join(privateDir, 'interfaces'), { withFileTypes: true }).filter((one) => one.isDirectory())
+    : [];
+  const named = Object.entries(clients)
+    .filter(([, client]) => client.kind === 'interface')
+    .map(([name, client]) => client.iface ?? name);
+  return { clients: Object.keys(clients), interfaces: [...new Set([...folders.map((one) => one.name), ...named])] };
+}
+
 /**
  * The text of one unit as the scope, the owner's modes, the backends a role names in keys.json or installed in the private layer and the hour of the
  * watcher's run (`watcher.schedule` of the settings) want it.
@@ -74,7 +87,7 @@ export function unitText(target: UnitTarget, template: string, file: string): st
   // installed backend finds it bound before keys.json says so.
   const named = new Set<string>([...Object.values(subharness.uses), subharness.memory?.backend ?? '']);
   const backends = BACKEND_NAMES.filter((name) => named.has(name) || isInstalled(target.dataDir, name));
-  const vars: UnitVars = { ...target, backends };
+  const vars: UnitVars = { ...target, backends, ...secretsOf(target.privateDir) };
   const schedule = watcherSchedule(target);
   if (schedule !== null) vars.watcherSchedule = schedule;
   if (agent !== undefined) vars.mode = modeOf(subharness.modes, agent);
@@ -127,6 +140,7 @@ export async function installUnits(
     }
     return { ok: true, written };
   } catch (err) {
+    if (err instanceof ClientsError) return { ok: false, reason: err.message };
     return { ok: false, reason: (err as NodeJS.ErrnoException).code ?? 'the unit folder cannot be written' };
   } finally {
     if (staging !== null) fs.rmSync(staging, { recursive: true, force: true });

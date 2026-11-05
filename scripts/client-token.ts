@@ -73,7 +73,10 @@ function add(privateDir: string, name: string, flags: Flags) {
     permissions: flags['--permission'] ?? [],
     boardRoles: rolesOf(flags['--roles']),
   });
-  return `added ${name} (${kind}${iface ? `, iface ${iface}` : ''}): its token is in ${tokenFile}\n`;
+  return (
+    `added ${name} (${kind}${iface ? `, iface ${iface}` : ''}): its token is in ${tokenFile}\n` +
+    'the watcher, development and server units still see it until `neptunia setup` renders them again\n'
+  );
 }
 
 function rotate(privateDir: string, name: string) {

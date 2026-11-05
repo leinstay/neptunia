@@ -150,9 +150,10 @@ for (const { file, own } of AGENT_UNITS) {
   });
 }
 
-test('the core, the interfaces and the errand units get no hidden token: they need theirs', () => {
+test('the core, the interfaces and the scout unit get no hidden token: they need theirs', () => {
   // Bug: the same entries on the core or on an interface unit would lock the core out of every client's token.
-  for (const file of ['neptunia-core.service', 'neptunia-agent-scout.service', 'neptunia-agent-server.service']) {
+  // The server unit is tested below: the server agent reads the host, not the persona's credentials.
+  for (const file of ['neptunia-core.service', 'neptunia-agent-scout.service']) {
     const hidden = hiddenOf(render(file, 'system'));
     assert.equal(
       hidden.some((one) => one.includes('/clients/') || one.includes('credentials.json')),
@@ -160,6 +161,15 @@ test('the core, the interfaces and the errand units get no hidden token: they ne
       `${file}: ${hidden.join(' ')}`
     );
   }
+});
+
+test('the server unit hides every token and every credentials.json, and drops them in the mode full', () => {
+  // Bug: the server agent runs as the core's user with no persona folder emptied, so it could read owner.token. It connects
+  // as no client, so it keeps no token. It reads the host, not the persona's credentials.
+  const hidden = hiddenOf(render('neptunia-agent-server.service', 'system'));
+  for (const name of VARS.clients ?? []) assert.ok(hidden.includes(`-${token(name)}`), name);
+  for (const name of VARS.interfaces ?? []) assert.ok(hidden.includes(`-${credentials(name)}`), name);
+  assert.deepEqual(hiddenOf(render('neptunia-agent-server.service', 'system', { mode: 'full' })), []);
 });
 
 // ---------- the same lines, through `neptunia setup` ----------
