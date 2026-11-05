@@ -107,13 +107,15 @@ test('a running engine reads personal prompts and limits afresh while retaining 
         ['codex', 'worker-selected-model', 'high', 29000],
       ]
     );
-    assert.match(rig.calls[0]?.brief ?? '', /PERSONAL-WORKER-FIRST/);
-    assert.match(rig.calls[1]?.brief ?? '', /PERSONAL-WORKER-SECOND/);
-    for (const call of rig.calls) assert.doesNotMatch(call.brief, /PRIVATE-DECOY-MARKER|shared marker/);
+    // Stage X: the agent's prompt is part of the system instructions and stays out of the brief (the owner's word; see
+    // tests/agent-backend-preamble-system.test.ts), so these read `options.system`.
+    assert.match(rig.calls[0]?.options.system ?? '', /PERSONAL-WORKER-FIRST/);
+    assert.match(rig.calls[1]?.options.system ?? '', /PERSONAL-WORKER-SECOND/);
+    for (const call of rig.calls) assert.doesNotMatch(call.options.system ?? '', /PRIVATE-DECOY-MARKER|shared marker/);
     fs.unlinkSync(path.join(rig.personal, 'prompt.md'));
     assert.equal(engine.checkPrompt(), 'shared marker');
     assert.equal((await engine.run({ ...task, id: 'fallback' })).status, 'done');
-    assert.match(rig.calls[2]?.brief ?? '', /shared marker/);
+    assert.match(rig.calls[2]?.options.system ?? '', /shared marker/);
     assert.deepEqual(
       [rig.calls[2]?.name, rig.calls[2]?.options.model, rig.calls[2]?.options.effort],
       ['codex', 'worker-selected-model', 'high']

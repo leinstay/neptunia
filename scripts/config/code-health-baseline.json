@@ -167,7 +167,7 @@
     },
     "src/agent-runner/protocol.ts": {
       "validateRun": {
-        "complexity": 42
+        "complexity": 41
       }
     },
     "src/behavior/around.ts": {

@@ -1,5 +1,6 @@
 // The backends an agent runs on: `codex exec`, `claude -p` or OpenCode, behind one interface. A CLI backend is one
-// child process per run: the brief on stdin, a minimal environment (PATH, HOME, TMPDIR and the locale variables, plus
+// child process per run: the brief on stdin (OpenCode: as the last argument), the system instructions when a run has
+// them in the form its backend reads (see `BackendRunOptions.system`), a minimal environment (PATH, HOME, TMPDIR and the locale variables, plus
 // what the caller adds; nothing of the bot's own environment), its own process group so that a timeout kills what the
 // child spawned too. Which backend an agent runs on is the owner's switch, the subharness (src/subharness/): every
 // agent run goes through `runAgent` (src/subharness/run.ts), which takes the path from the task's route, else reads the switch and the agent's
@@ -84,6 +85,12 @@ export type BackendRunOptions = {
   signal?: AbortSignal;
   /** claude: `--session-id <uuid>`, so the transcript can be tied to this run */
   sessionId?: string;
+  /**
+   * The system instructions, any length, which replace the backend's own: claude `--system-prompt-file`, codex
+   * `-c model_instructions_file=<path>`, opencode the `build` agent's `prompt` in the config file `OPENCODE_CONFIG`
+   * names. Each file is mode 600 in a folder of the run's own (mode 700) and is removed when the run ends.
+   */
+  system?: string;
 };
 
 /** Why a run did not start or was stopped by us. */
@@ -138,11 +145,14 @@ export type BackendDeps = {
   now?: () => number;
 };
 
+/** The files of one run: the final message (when the recipe writes one) and the system instructions (when given). */
+type RunFiles = { outFile: string | undefined; systemFile: string | undefined };
+
 /** The command line of one backend and what it takes from the run's output. */
 type Recipe = {
   binary: string;
-  /** the arguments, with the file the final message goes to when `outFile` is set */
-  args(options: BackendRunOptions, outFile: string | undefined): Array<string>;
+  /** the arguments, with the run's files where the backend takes them on its command line */
+  args(options: BackendRunOptions, files: RunFiles): Array<string>;
   /** the brief goes on stdin (else as the last argument) */
   stdin: boolean;
   /** the final message is read from a file the CLI writes */
@@ -188,7 +198,7 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
     stdin: true,
     outFile: true,
     tail: true,
-    args: (options, outFile) => [
+    args: (options, { outFile, systemFile }) => [
       'exec',
       '--skip-git-repo-check',
       ...(options.sandbox === 'none'
@@ -198,6 +208,7 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
       outFile ?? '',
       ...(options.model === undefined ? [] : ['-m', options.model]),
       ...(options.effort === undefined ? [] : ['-c', `model_reasoning_effort=${options.effort}`]),
+      ...(systemFile === undefined ? [] : ['-c', `model_instructions_file=${JSON.stringify(systemFile)}`]),
       ...(options.images ?? []).flatMap((image) => ['-i', image]),
       ...(options.search === true ? ['--search'] : []),
     ],
@@ -207,10 +218,11 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
     stdin: true,
     outFile: false,
     tail: false,
-    args: (options) => [
+    args: (options, { systemFile }) => [
       '-p',
       '--output-format',
       'json',
+      ...(systemFile === undefined ? [] : ['--system-prompt-file', systemFile]),
       ...(options.sessionId === undefined ? [] : ['--session-id', options.sessionId]),
       ...claudeToolArgs(options),
       ...(options.maxSteps === undefined ? [] : ['--max-turns', String(options.maxSteps)]),
@@ -493,6 +505,26 @@ export async function runChildProcess(run: ChildRun): Promise<ChildOutcome> {
 }
 
 /**
+ * Writes the system instructions of a run of `name` into `dir`, mode 600: the text itself for claude and codex, an
+ * OpenCode config whose `build` agent has it as its `prompt` for opencode. OpenCode merges that file
+ * (`OPENCODE_CONFIG`) with `OPENCODE_CONFIG_CONTENT`, so the agent's `steps` set there stays.
+ */
+async function writeSystem(
+  name: BackendName,
+  dir: string,
+  system: string
+): Promise<{ file?: string; env?: Record<string, string> }> {
+  if (name === 'opencode') {
+    const config = path.join(dir, 'opencode.json');
+    await fsp.writeFile(config, JSON.stringify({ agent: { build: { prompt: system } } }), { mode: 0o600 });
+    return { env: { OPENCODE_CONFIG: config } };
+  }
+  const file = path.join(dir, 'system.md');
+  await fsp.writeFile(file, system, { mode: 0o600 });
+  return { file };
+}
+
+/**
  * The backend `name`. Throws for a name outside BACKEND_NAMES.
  * @param deps.binary The command: a path, or a name looked up on PATH.
  */
@@ -507,21 +539,29 @@ export function createBackend(name: BackendName, deps: BackendDeps = {}): Backen
     let tokens: number | undefined;
     let result: BackendResult;
     let tmpDir: string | undefined;
+    const system = options.system;
     try {
       if (brief.trim() === '') {
         result = { ok: false, text: '', exitCode: null, error: 'empty-brief' };
       } else if (!findBinary(binary)) {
         result = { ok: false, text: '', exitCode: null, error: 'backend-missing' };
       } else {
-        tmpDir = recipe.outFile ? await fsp.mkdtemp(path.join(os.tmpdir(), `${name}-`)) : undefined;
-        const outFile = tmpDir && path.join(tmpDir, 'final.txt');
-        const args = recipe.args(options, outFile);
+        // mkdtemp makes the folder mode 700, so only this user reads the system instructions written into it.
+        tmpDir =
+          recipe.outFile || system !== undefined ? await fsp.mkdtemp(path.join(os.tmpdir(), `${name}-`)) : undefined;
+        const outFile = recipe.outFile && tmpDir ? path.join(tmpDir, 'final.txt') : undefined;
+        const systemForm = system !== undefined && tmpDir ? await writeSystem(name, tmpDir, system) : undefined;
+        const args = recipe.args(options, { outFile, systemFile: systemForm?.file });
         const outcome = await runChild({
           binary,
           args: recipe.stdin ? args : [...args, brief],
           stdin: recipe.stdin ? brief : undefined,
           options,
-          env: childEnvOf({ ...options.env, ...outputLimitEnv(name, options.maxOutputTokens) }),
+          env: childEnvOf({
+            ...options.env,
+            ...outputLimitEnv(name, options.maxOutputTokens),
+            ...systemForm?.env,
+          }),
           spawnImpl,
           tail: recipe.tail,
         });
@@ -583,8 +623,8 @@ export type EngineDeps = RunnerDeps & { subharness: RunDeps; agentPaths?: AgentP
 const FALLBACK_SECONDS = 300;
 
 /**
- * The task engine of a runner: it works the task's brief (the profile's prompt, the preamble, the goal and context)
- * in `<outDir>/<id>/` through `runAgent` (src/subharness/run.ts) and delivers the files left there. The agent runs as
+ * The task engine of a runner: it works the task's goal and context in `<outDir>/<id>/`, with the task's preamble and
+ * then the profile's prompt as its system instructions, through `runAgent` (src/subharness/run.ts) and delivers the files left there. The agent runs as
  * the agent named like the profile, in the mode the owner set for it, and with `--search` when the profile asks. A
  * task's `route` (the backend, model, effort and mode the core decided) is the path of the run and keys.json stays
  * closed; without one, and while the subharness is off, the task fails with `subharness-off`. A backend brings its own
@@ -629,7 +669,7 @@ export function createAgentEngine({
       return failed('no-prompt');
     }
     const preamble = typeof task.preamble === 'string' ? task.preamble.trim() : '';
-    const brief = [preamble, system, taskPrompt(task.goal, task.context)].filter(Boolean).join('\n\n');
+    const instructions = [preamble, system].filter(Boolean).join('\n\n');
     const seconds = Number(task.limits?.seconds);
     const cap = Number.isFinite(seconds) && seconds > 0 ? seconds : (profile.defaultLimits.seconds ?? FALLBACK_SECONDS);
     const steps = Number(task.limits?.steps);
@@ -638,7 +678,8 @@ export function createAgentEngine({
     const outcome = await runAgent(
       {
         agent: profile.name,
-        brief,
+        brief: taskPrompt(task.goal, task.context),
+        ...(instructions === '' ? {} : { system: instructions }),
         cwd: dir,
         timeoutMs: cap * 1000,
         ...(maxSteps === undefined ? {} : { maxSteps }),

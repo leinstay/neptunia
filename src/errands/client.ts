@@ -17,13 +17,12 @@
 // is the agent's role model (`models.errands.scout`, `models.errands.server`), resolved here at send
 // time and sent on the `run` line as `model`, with the deployment's own price (`agents.<profile>.cost` of the live
 // config, when it has finite input and output) as `cost`: the runners cannot read the private config, so without it a
-// run falls back to the profile's price. A composed text over MAX_PREAMBLE_CHARS sends the files that fit, whole and
-// in order, with a warning naming the rest. The core reads the private layer, the runners never do. Logs carry the model id, the file names and the length,
+// run falls back to the profile's price. The composed preamble goes out whole, however long. The core reads the private layer, the runners never do. Logs carry the model id, the file names and the length,
 // never a text or the cost.
 
 import net from 'node:net';
 import { log as defaultLog } from '../log.ts';
-import { encodeLine, normalizeResult, normalizeUsage, MAX_PREAMBLE_CHARS } from '../agent-runner/protocol.ts';
+import { encodeLine, normalizeResult, normalizeUsage } from '../agent-runner/protocol.ts';
 import { agentSettings, profileOf } from '../agent-runner/profiles.ts';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { roleModel } from '../llm/roles.ts';
@@ -31,15 +30,7 @@ import { composePreamble } from './preambles.ts';
 import { CODE } from '../tools/codes.ts';
 import { errorCode, objOf, textOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
-import type {
-  ErrandClient,
-  ErrandClientOptions,
-  Logger,
-  PingAnswer,
-  RunOutcome,
-  RunRequest,
-  TimerHandle,
-} from './types.ts';
+import type { ErrandClient, ErrandClientOptions, PingAnswer, RunOutcome, RunRequest, TimerHandle } from './types.ts';
 
 /** One agent's connection to its runner. */
 type Link = {
@@ -90,33 +81,13 @@ function socketOf(agent: string, config: Untyped, agentPaths?: AgentPaths): stri
   return settings.socket || null;
 }
 
-/**
- * The preamble of a run of `agent` on `runModel`: `{ text, files, chars }`.
- * Over MAX_PREAMBLE_CHARS, a warning names the files sent and left out.
- */
+/** The preamble of a run of `agent` on `runModel`: `{ text, files, chars }`, every matching file whole. */
 function preambleOf(
   agent: string,
   runModel: string | null,
-  hot: ErrandClientOptions['hot'],
-  log: Logger
+  hot: ErrandClientOptions['hot']
 ): ReturnType<typeof composePreamble> {
-  const composed = composePreamble({
-    prompts: { preambles: hot?.prompts?.preambles },
-    agent,
-    model: runModel,
-    maxChars: MAX_PREAMBLE_CHARS,
-  });
-  if (composed.dropped.length > 0) {
-    log.warn('errands: preamble over the cap', {
-      agent,
-      model: runModel,
-      files: composed.files,
-      dropped: composed.dropped,
-      chars: composed.chars,
-      maxChars: MAX_PREAMBLE_CHARS,
-    });
-  }
-  return composed;
+  return composePreamble({ prompts: { preambles: hot?.prompts?.preambles }, agent, model: runModel });
 }
 
 /**
@@ -379,7 +350,7 @@ export function createErrandClient({
       if (model) request.model = model;
       const cost = costFor(agent, hot?.config);
       if (cost) request.cost = cost;
-      const preamble = preambleOf(agent, model, hot, log);
+      const preamble = preambleOf(agent, model, hot);
       if (preamble.text) request.preamble = preamble.text;
       if (!send(agent, request)) {
         pending.delete(id);

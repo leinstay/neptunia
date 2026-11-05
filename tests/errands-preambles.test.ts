@@ -1,6 +1,6 @@
 // Tests for src/errands/preambles.ts: the preamble of one errand run, picked from the files of
 // prompts.local/preambles/ by agent and model, composed in order (all, agent, model,
-// agent+model), prompts.local/agents.md never read, and capped by whole files.
+// agent+model), prompts.local/agents.md never read.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { modelSlugs, preambleNames, composePreamble } from '../src/errands/preambles.ts';
@@ -47,7 +47,8 @@ test('composePreamble: the matching files in order, joined by a blank line, empt
       'scout@openrouter-moonshotai-kimi-k3': '',
     },
   };
-  const out = composePreamble({ prompts, agent: 'scout', model: 'openrouter/moonshotai/kimi-k3', maxChars: 8000 });
+  // Stage X: the preamble has no cap, so `maxChars` and the result's `dropped` are gone from these expectations.
+  const out = composePreamble({ prompts, agent: 'scout', model: 'openrouter/moonshotai/kimi-k3' });
   assert.equal(out.text, 'ALL\n\nSCOUT\n\nMODEL-FULL\n\nMODEL-SHORT\n\nSCOUT-MODEL');
   assert.deepEqual(out.files, [
     'preambles/all.md',
@@ -56,7 +57,6 @@ test('composePreamble: the matching files in order, joined by a blank line, empt
     'preambles/@moonshotai-kimi-k3.md',
     'preambles/scout@moonshotai-kimi-k3.md',
   ]);
-  assert.deepEqual(out.dropped, []);
   assert.equal(out.chars, out.text.length);
 
   const short = composePreamble({
@@ -67,12 +67,8 @@ test('composePreamble: the matching files in order, joined by a blank line, empt
   assert.equal(short.text, 'only the short form', 'the id without its provider prefix matches, trimmed');
 
   const none = composePreamble({ prompts: {}, agent: 'scout', model: 'openrouter/x/y' });
-  assert.deepEqual(none, { text: '', files: [], dropped: [], chars: 0 });
-  assert.deepEqual(
-    composePreamble({ agent: 'scout' }),
-    { text: '', files: [], dropped: [], chars: 0 },
-    'no prompts at all'
-  );
+  assert.deepEqual(none, { text: '', files: [], chars: 0 });
+  assert.deepEqual(composePreamble({ agent: 'scout' }), { text: '', files: [], chars: 0 }, 'no prompts at all');
 });
 
 test('composePreamble: prompts.local/agents.md (the prompt `agents`) is never a preamble', () => {
@@ -87,26 +83,10 @@ test('composePreamble: prompts.local/agents.md (the prompt `agents`) is never a 
 
   // @ts-expect-error: the retired agents key is passed on purpose, to check that it is ignored
   const emptyAll = composePreamble({ prompts: { agents: 'OLD', preambles: { all: '' } }, agent: 'scout' });
-  assert.deepEqual(emptyAll, { text: '', files: [], dropped: [], chars: 0 }, 'an empty all.md is nothing');
+  assert.deepEqual(emptyAll, { text: '', files: [], chars: 0 }, 'an empty all.md is nothing');
 
   // @ts-expect-error: the retired agents key is passed on purpose, to check that it is ignored
   assert.equal(composePreamble({ prompts: { agents: 'OLD' }, agent: 'scout' }).text, '', 'without the folder');
 });
 
-test('composePreamble: over the cap, whole files are taken in order while they fit and the rest named', () => {
-  const prompts = { preambles: { all: 'a'.repeat(60), scout: 'w'.repeat(30), '@x-y': 'm'.repeat(10) } };
-  // all (60) + sep (2) + scout (30) = 92 > 80: scout dropped; all + sep + model (10) = 72 fits.
-  const out = composePreamble({ prompts, agent: 'scout', model: 'x/y', maxChars: 80 });
-  assert.equal(out.text, `${'a'.repeat(60)}\n\n${'m'.repeat(10)}`);
-  assert.deepEqual(out.files, ['preambles/all.md', 'preambles/@x-y.md']);
-  assert.deepEqual(out.dropped, ['preambles/scout.md']);
-  assert.equal(out.chars, 72);
-  assert.ok(out.chars <= 80);
-
-  const exact = composePreamble({ prompts, agent: 'scout', model: 'x/y', maxChars: 92 });
-  assert.deepEqual(exact.files, ['preambles/all.md', 'preambles/scout.md'], 'exactly at the cap fits');
-  assert.deepEqual(exact.dropped, ['preambles/@x-y.md']);
-
-  const tooBig = composePreamble({ prompts: { preambles: { all: 'a'.repeat(100) } }, agent: 'scout', maxChars: 50 });
-  assert.deepEqual(tooBig, { text: '', files: [], dropped: ['preambles/all.md'], chars: 0 }, 'never a cut file');
-});
+// Stage X: the cap test that stood here is gone with the cap; tests/preamble-no-cap.test.ts checks every file goes in.

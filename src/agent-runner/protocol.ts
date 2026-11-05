@@ -107,8 +107,6 @@ export const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
 export const MAX_GOAL_CHARS = 4000;
 /** The longest `context` a `run` may carry, as JSON (characters). */
 export const MAX_CONTEXT_CHARS = 20_000;
-/** The longest shared preamble a `run` may carry, trimmed (characters). */
-export const MAX_PREAMBLE_CHARS = 8000;
 /** The longest line either side reads (characters). */
 export const MAX_LINE_CHARS = 1_000_000;
 /** The most lines a `run`'s `context.recent` keeps (the latest; the earlier ones are dropped). */
@@ -278,7 +276,6 @@ function validateRun(msg: Rec, id: string): Checked {
     // Only the code on a refusal, like every field: the text never travels back in an error.
     if (typeof msg.preamble !== 'string') return refuse('bad-preamble');
     const preamble = msg.preamble.trim();
-    if (preamble.length > MAX_PREAMBLE_CHARS) return refuse('preamble-too-long');
     if (preamble) out.preamble = preamble;
   }
   return { ok: true, message: out };
@@ -296,9 +293,8 @@ function validateRun(msg: Rec, id: string): Checked {
  * OpenCode web search provider id) and `secrets` (`{ openrouterKey, proxy?,
  * searchKey? }`, each a non-empty string without whitespace, no other key;
  * `proxy` in the http form, see httpProxyForm) and `preamble` (the deployment's
- * shared text put before the agent's prompt: a string, trimmed, at most
- * MAX_PREAMBLE_CHARS, else `bad-preamble` / `preamble-too-long`; a blank one
- * is dropped) and `route` (`{ backend, model, effort, mode }`, exactly those keys, see parseRoute, else `bad-route`). A refusal carries its code
+ * shared text that opens the agent's system instructions: a string of any
+ * length, trimmed, else `bad-preamble`; a blank one is dropped) and `route` (`{ backend, model, effort, mode }`, exactly those keys, see parseRoute, else `bad-route`). A refusal carries its code
  * only, never a value of the message. `cancel` needs an id. `ping` may carry `ids` (task ids
  * the core still waits for). Unknown top-level keys are ignored.
  */
