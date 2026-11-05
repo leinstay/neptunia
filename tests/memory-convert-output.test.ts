@@ -65,7 +65,7 @@ test('every converted config file is readable by its owner alone', () => {
   fs.mkdirSync(path.join(where.configIn, 'nested'));
   fs.writeFileSync(path.join(where.configIn, 'nested', 'extra.json'), '{}\n', { mode: 0o644 });
   assert.equal(convert(where).status, 0);
-  const files = ['config.json', 'interfaces/discord.json', 'nested/extra.json'];
+  const files = ['config.json', 'interfaces/discord/config.json', 'nested/extra.json'];
   assert.deepEqual(
     files.map((file) => modeOf(path.join(where.configOut, file))),
     [0o600, 0o600, 0o600]

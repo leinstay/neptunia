@@ -6,12 +6,19 @@ import path from 'node:path';
 import { convertConfig } from '../src/memory/migration/convert-config.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
-function converted(config: object): { config: Record<string, Record<string, unknown>>; out: string; report: object } {
+function converted(
+  config: object,
+  discord?: object
+): { config: Record<string, Record<string, unknown>>; out: string; report: object } {
   const root = tempDir('nep-convert-config-');
   const from = path.join(root, 'in');
   const out = path.join(root, 'out');
   fs.mkdirSync(from);
   fs.writeFileSync(path.join(from, 'config.json'), JSON.stringify(config));
+  if (discord !== undefined) {
+    fs.mkdirSync(path.join(from, 'interfaces', 'discord'), { recursive: true });
+    fs.writeFileSync(path.join(from, 'interfaces', 'discord', 'config.json'), JSON.stringify(discord));
+  }
   const report = convertConfig(from, out);
   return {
     config: JSON.parse(fs.readFileSync(path.join(out, 'config.json'), 'utf8')) as Record<
@@ -48,11 +55,24 @@ test('the served server moves to the interface settings and the main channel is 
   });
   assert.deepEqual(config.bot, { timezone: 'UTC' });
   assert.deepEqual(config.memory, { aliasHalfLifeDays: 3 });
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(out, 'interfaces', 'discord.json'), 'utf8')), {
+  // the interface reads interfaces/<name>/config.json
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(out, 'interfaces', 'discord', 'config.json'), 'utf8')), {
     servers: ['g1'],
   });
   assert.deepEqual(report, {
     removed: ['memory.mainChannelIds'],
-    moved: [{ from: 'bot.guildId', to: 'interfaces/discord.json#servers' }],
+    moved: [{ from: 'bot.guildId', to: 'interfaces/discord/config.json#servers' }],
   });
+});
+
+test('the interface config keeps its own keys, gains the server and is private to the owner', () => {
+  // Bug: the converted install loses the interface's existing settings, or leaves its server list readable by others.
+  const { out } = converted({ bot: { guildId: 'g1' } }, { servers: ['g0'], greeting: 'hi', nested: { keep: 1 } });
+  const file = path.join(out, 'interfaces', 'discord', 'config.json');
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
+    servers: ['g0', 'g1'],
+    greeting: 'hi',
+    nested: { keep: 1 },
+  });
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });

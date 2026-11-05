@@ -1,5 +1,5 @@
 // The config half of the offline conversion: the input folder copied, the retired fallback key gone and the served
-// server moved to the Discord interface's settings. Nothing here reads the database.
+// server added to `interfaces/discord/config.json` (the file the interface reads), whose other keys stay. Nothing here reads the database.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,7 +19,8 @@ function readJson(file: string): Settings {
 
 const writeJson = (file: string, value: unknown): void => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
 };
 
 /** Writes the converted config folder; a missing input folder gives an empty output folder. */
@@ -43,12 +44,12 @@ export function convertConfig(configIn: string, configOut: string): ConfigReport
     const server = bot.guildId;
     delete bot.guildId;
     if (typeof server === 'string' && server) {
-      const target = path.join(configOut, 'interfaces', 'discord.json');
+      const target = path.join(configOut, 'interfaces', 'discord', 'config.json');
       const settings = fs.existsSync(target) ? readJson(target) : {};
       const servers = Array.isArray(settings.servers) ? (settings.servers as Array<unknown>) : [];
       settings.servers = servers.includes(server) ? servers : [...servers, server];
       writeJson(target, settings);
-      report.moved.push({ from: 'bot.guildId', to: 'interfaces/discord.json#servers' });
+      report.moved.push({ from: 'bot.guildId', to: 'interfaces/discord/config.json#servers' });
     } else {
       report.removed.push('bot.guildId');
     }

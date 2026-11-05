@@ -553,18 +553,25 @@ test('the config loses the two retired keys and keeps everything else', () => {
 
 test('the server moves to the settings of the Discord interface', () => {
   // Bug: `bot.guildId` is deleted, and the adapter no longer knows which server it serves.
-  const file = path.join(done().configOut, 'interfaces', 'discord.json');
+  const file = path.join(done().configOut, 'interfaces', 'discord', 'config.json');
   assert.deepEqual((JSON.parse(fs.readFileSync(file, 'utf8')) as { servers: Array<string> }).servers, ['g1']);
-  assert.deepEqual(reportOf(done()).config.moved, [{ from: 'bot.guildId', to: 'interfaces/discord.json#servers' }]);
+  assert.deepEqual(reportOf(done()).config.moved, [
+    { from: 'bot.guildId', to: 'interfaces/discord/config.json#servers' },
+  ]);
 });
 
 test('a server list the interface already holds is kept, with the server added once', () => {
   // Bug: the owner's list is replaced by the one id, and a second server drops out.
   const where = scene();
-  fs.mkdirSync(path.join(where.configIn, 'interfaces'));
-  fs.writeFileSync(path.join(where.configIn, 'interfaces', 'discord.json'), '{"servers":["g1","g2"],"intents":[]}');
+  fs.mkdirSync(path.join(where.configIn, 'interfaces', 'discord'), { recursive: true });
+  fs.writeFileSync(
+    path.join(where.configIn, 'interfaces', 'discord', 'config.json'),
+    '{"servers":["g1","g2"],"intents":[]}'
+  );
   assert.equal(convert(where).status, 0);
-  const out = JSON.parse(fs.readFileSync(path.join(where.configOut, 'interfaces', 'discord.json'), 'utf8')) as object;
+  const out = JSON.parse(
+    fs.readFileSync(path.join(where.configOut, 'interfaces', 'discord', 'config.json'), 'utf8')
+  ) as object;
   assert.deepEqual(out, { servers: ['g1', 'g2'], intents: [] });
 });
 

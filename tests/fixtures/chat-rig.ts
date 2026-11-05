@@ -53,6 +53,12 @@ export function terminal(columns = 80, rows = 24): Rig {
 
 export const pause = (ms = 40): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Polls until the condition holds or the deadline passes; a condition that never held fails in the assertion after it. */
+export async function until(condition: () => boolean, deadlineMs = 5000): Promise<void> {
+  const end = Date.now() + deadlineMs;
+  while (!condition() && Date.now() < end) await pause(10);
+}
+
 export const KEY = {
   enter: '\r',
   escape: '\u001b',
