@@ -112,14 +112,22 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 |---|---|
 | `service` | The mechanic |
 | `enabled` | The saved flag |
-| `running` | Whether a run is going. `unknown` for a wake with no core, and for the watcher with no `systemctl` |
+| `running` | Whether a run is going, as the manager says for the watcher. `unknown` for a wake with no core, and for the watcher with no `systemctl` |
 | `readiness` | `ready`, or `not ready` and what is missing: the core, a subharness backend or the repository |
 | `schedule` | The schedule, with the heartbeat's jitter. `windows` for a diary with no `selfreflection.schedule` |
 | `next due` | The next time, `none` when disabled, `unknown` for a diary drawing from windows with no core |
 | `last result` | The newest report of the watcher, the core's last wake of the others, `unknown` with no core |
+| `current run` | The watcher's run in progress with its state and source, `none` with no run |
+| `last success` | The watcher's newest succeeded run and when it ended |
+| `last failure` | The watcher's newest failed run, its code and when it ended |
+| `filing` | The receipts of the last success by state, such as `filed 2, deferred 1`, `none` with no drafts |
+| `source` | The watcher's backend, model and effort from `keys.json`, `default` where the backend picks, `unknown` with no backend. Reading it asks no model |
+| `run timeout` | How long the watcher's agent may run |
 | `timer` | The watcher's timer as the manager reads it |
 
-`neptunia service watcher report [day]` prints the newest report or the report of a date, with no core. `trigger` refuses a disabled watcher, names `service watcher enable` and exits `1`. On an enabled watcher `trigger` and `cancel` exit `1` and change nothing, because the watcher has no run identity to start or cancel.
+`neptunia service watcher report [day or run]` prints the newest report, the report of a date or the report of a run, with no core. A report names its run and the other runs of its day.
+
+`neptunia service watcher trigger` starts one inspection without waiting for it and answers `run:` and `state:`. During a run it answers that run and starts nothing. It refuses a disabled watcher, names `service watcher enable` and exits `1`, and a start the manager refuses fails that run and exits `1`. `neptunia service watcher cancel` asks the run in progress to stop and answers `run:` and `state:`, `none` with nothing to stop, and exits `0` however often it is repeated. It changes no flag and no timer. [The watcher](watcher.md#one-run) describes both.
 
 `/report`, `neptunia watcher`, `neptunia selfimprovement` and `neptunia setup` with `watcher`, `selfimprovement` or `mechanics` exit `2`, name the command of this family and run nothing. A word order such as `service status watcher` exits `2` the same way.
 

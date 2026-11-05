@@ -1,5 +1,6 @@
-// Operation `watcher.read`: her side of the watcher's reports (src/watcher/). `watcher.read { day? }` answers the
-// latest report, or the report of one day `YYYY-MM-DD`, as text, with its day in the data. It reads a file the watcher
+// Operation `watcher.read`: her side of the watcher's reports (src/watcher/). `watcher.read { day?, run? }` answers the
+// latest report, the newest report of one day `YYYY-MM-DD` or the report of one run, as text, with its day and its run
+// identity in the data. It reads a file the watcher
 // wrote through the reader the core gives the operations' environment (`env.watcher`); a core with none answers
 // `failed`. It is not granted to her in the tracked config: the owner opens it with `/tools grant watcher.read`. Her
 // grant alone does not let anyone else read it: it is an owner-only read for a person who asks.
@@ -15,14 +16,16 @@ function cmdRead(args: Obj, ctx: OpContext) {
     return { status: 'failed', code: CODE.NOT_CONFIGURED, summary: 'watcher: no reports here', data: null };
   }
   const asked = textOf(args.day).trim();
-  const read = reader.read(asked === '' ? undefined : asked);
+  const run = textOf(args.run).trim();
+  const read = reader.read(asked === '' ? undefined : asked, run === '' ? undefined : run);
   if (!read.ok) {
     if (read.code === 'invalid-day') throw invalid('day: a date written YYYY-MM-DD');
-    const which = asked === '' ? 'no report yet' : `no report for ${asked}`;
+    const wanted = run === '' ? asked : run;
+    const which = wanted === '' ? 'no report yet' : `no report for ${wanted}`;
     return { status: 'failed', code: CODE.NOT_FOUND, summary: which, data: null };
   }
-  const { day, text } = read.report;
-  return { status: 'ok', code: CODE.OK, summary: text, data: { day, text } };
+  const { day, text, runId } = read.report;
+  return { status: 'ok', code: CODE.OK, summary: text, data: { day, text, ...(runId === undefined ? {} : { runId }) } };
 }
 
 defineOp({

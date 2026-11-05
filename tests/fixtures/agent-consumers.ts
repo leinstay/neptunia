@@ -8,7 +8,6 @@ import { profileOf } from '../../src/agent-runner/profiles.ts';
 import { createErrandClient } from '../../src/errands/client.ts';
 import { createErrandService } from '../../src/errands/service.ts';
 import { createErrandStore, createErrandStores } from '../../src/errands/store.ts';
-import { runWatcher } from '../../src/watcher/run.ts';
 import type { RunDeps } from '../../src/subharness/run.ts';
 import { fixture, watcher } from './agent-overrides.ts';
 import type { AgentPaths } from './agent-overrides.ts';
@@ -21,9 +20,8 @@ export const consumers: {
   service: (deps: Parameters<typeof createErrandService>[0] & { agentPaths?: AgentPaths }) => ReturnType<typeof createErrandService>;
   store: (deps: Parameters<typeof createErrandStore>[0] & { agentPaths?: AgentPaths }) => ReturnType<typeof createErrandStore>;
   stores: (deps: Parameters<typeof createErrandStores>[0] & { agentPaths?: AgentPaths }) => ReturnType<typeof createErrandStores>;
-  watcher: (deps: Parameters<typeof runWatcher>[0] & { promptFiles: Array<string> }) => ReturnType<typeof runWatcher>;
 } = { engine: createAgentEngine, client: createErrandClient, service: createErrandService, store: createErrandStore,
-  stores: createErrandStores, watcher: runWatcher };
+  stores: createErrandStores };
 
 export function consumerRig(): ReturnType<typeof fixture> & {
   privateDir: string;

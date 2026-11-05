@@ -1,5 +1,5 @@
 // The `service` family: `service <name> setup|enable|disable|status` for the four scheduled mechanics, and `trigger`,
-// `cancel` and `report` of the watcher. bin/neptunia.ts calls `serviceFamily` for the shell and `-p`, and the owner's
+// `cancel` and `report` of the watcher (src/service/watcher.ts). bin/neptunia.ts calls `serviceFamily` for the shell and `-p`, and the owner's
 // console (src/interface/commands/console.ts) for a chat that reaches the core, so one handler answers every form. It
 // writes `<name>.schedule` and `<name>.enabled` of the local settings, which every mechanic's own scheduler reads, and
 // moves the watcher's timer through the manager (src/service/manager.ts). The persona's wakes run in the core and call no
@@ -10,9 +10,10 @@ import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { innerSettings } from '../behavior/inner/settings.ts';
 import { setPath } from '../tools/impl/shared.ts';
 import { objOf } from '../tools/types.ts';
-import { readReport, reportDays, reportsDirOf, watcherDir, isDay } from '../watcher/read.ts';
+import { reportDays, reportsDirOf, watcherDir } from '../watcher/read.ts';
 import { watcherSettings } from '../watcher/settings.ts';
 import { updateLocalSettings } from './local-settings.ts';
+import { cancelWatcher, readyWatcherFolder, triggerWatcher, watcherReport, watcherStatusFields } from './watcher.ts';
 import { moveTimer, renderTimer, timerState, workerRunning } from './manager.ts';
 import type { Environment, RunManager } from './manager.ts';
 import {
@@ -43,8 +44,8 @@ export type ServiceDeps = {
   coreUp: boolean;
   /** The core's clock of a wake; absent with no core, whose wakes then read `unknown`. */
   wakeClock?: (name: ServiceName) => WakeClock | null;
-  /** One report as the terminal shows it; absent, the report's markdown as it is. */
-  report?: (day: string | undefined) => ServiceAnswer;
+  /** One report by day or run as the terminal shows it; absent, the report's markdown as it is. */
+  report?: (day: string | undefined, runId?: string) => ServiceAnswer;
 };
 
 /** How many next times `setup` answers. */
@@ -144,6 +145,7 @@ async function moveFlag(deps: ServiceDeps, name: ServiceName, enabled: boolean):
     ['enabled', String(enabled)],
   ] as const;
   if (name !== 'watcher') return { text: lines(fields), status: 'ok' };
+  if (enabled) readyWatcherFolder(deps);
   const verb = enabled ? 'enable' : 'disable';
   const refused = await moveTimer(deps.run, deps.env, verb);
   if (refused === null) return { text: lines(fields), status: 'ok' };
@@ -211,24 +213,8 @@ async function status(deps: ServiceDeps, name: ServiceName): Promise<ServiceAnsw
     ['next due', nextDue(deps, name, config, enabled, clock)],
     ['last result', name === 'watcher' ? (newest === undefined ? 'none' : `report ${newest}`) : lastWake],
   ];
-  if (name === 'watcher') fields.push(['timer', await timerState(deps.run, deps.env)]);
+  if (name === 'watcher') fields.push(...watcherStatusFields(deps), ['timer', await timerState(deps.run, deps.env)]);
   return { text: lines(fields), status: 'ok' };
-}
-
-/** `trigger`: the watcher's lifecycle comes in its own slice, so an enabled watcher hears that plainly. */
-function trigger(deps: ServiceDeps): ServiceAnswer {
-  if (!watcherSettings(deps.config()).enabled)
-    return failed('service watcher trigger: the watcher is disabled; run neptunia service watcher enable first');
-  return failed('service watcher trigger: one immediate inspection is not built yet; the timer runs the next one');
-}
-
-/** `report [target]`: what the reports folder holds for a day, or the newest. Run identities come with the lifecycle. */
-function report(deps: ServiceDeps, target: string | undefined): ServiceAnswer {
-  if (target !== undefined && !isDay(target)) return failed(`no report for ${target}: reports are kept by date`);
-  if (deps.report !== undefined) return deps.report(target);
-  const read = readReport(reportsDirOf(deps.privateDir, watcherDir(deps.config())), target);
-  if (read.ok) return { text: read.report.text, status: 'ok' };
-  return failed(target === undefined ? 'no report yet' : `no report for ${target}`);
 }
 
 /** One command of the family by its parsed name, `service.<name>.<action>`. */
@@ -250,11 +236,11 @@ export function serviceFamily(
     case 'status':
       return status(deps, name);
     case 'trigger':
-      return Promise.resolve(trigger(deps));
+      return triggerWatcher(deps);
     case 'cancel':
-      return Promise.resolve(failed('service watcher cancel: stopping a run is not built yet; nothing was cancelled'));
+      return Promise.resolve(cancelWatcher(deps));
     case 'report':
-      return Promise.resolve(report(deps, typeof args.target === 'string' ? args.target : undefined));
+      return Promise.resolve(watcherReport(deps, typeof args.target === 'string' ? args.target : undefined));
     default:
       return Promise.resolve(invalid(`no such command: service ${String(word)} ${String(action)}`));
   }

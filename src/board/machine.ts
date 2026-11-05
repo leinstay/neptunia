@@ -81,6 +81,9 @@ export class BoardError extends Error {
   }
 }
 
+/** A refusal of the board as a client over the socket hears it: the message is `<status>: <text>`, and no code travels. */
+export class BoardRefusal extends Error {}
+
 export type Rule = { from: Status; to: Status; via: ReadonlyArray<Via>; requires: ReadonlyArray<Requirement> };
 
 // One entry of a rule's who-list: a role, the conditions the task must also meet, and the requirements that replace

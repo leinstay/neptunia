@@ -1,102 +1,51 @@
-// src/watcher/news.ts: what the selfimprovement wake carries of the watcher (spec 2026-11-02, "`selfimprovement` daily,
-// after the watcher"): the newest report of the past day, its date and the bodies of its `## For the owner` and
-// `## Tasks filed` sections. Absent with no such report or with the watcher off. The reports folder is a temp dir
-// under data/agents/watcher; the clock is injected. Each test names the bug it catches.
+// src/watcher/news.ts: when the selfimprovement wake carries nothing of the watcher, over a report and receipts a real
+// inspection left: with the report older than the past day, with the watcher off, and with its folder gone. Each test first
+// shows the same report does reach her, so it fails for its own reason. What she hears is in
+// tests/watcher-versions.test.ts. The clock is injected. Each test names the bug it catches.
+// Changed: these cases wrote report files by hand, and a report with no receipts now gives nothing whatever else holds.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
+import { runInspection } from '../src/watcher/inspection.ts';
 import { watcherNews } from '../src/watcher/news.ts';
-import { tempDir } from './fixtures/tmp.ts';
+import { DAY, NOW, answerOf, inspectionDeps, inspectionRig, said } from './fixtures/watcher-inspection-rig.ts';
+import type { InspectionRig } from './fixtures/watcher-inspection-rig.ts';
 
-const NOW = Date.parse('2026-11-02T03:00:00Z');
+const DRAFT = { kind: 'fix', finding: 'rail', title: 'Retry rail', evidence: 'src/a.ts:1', done: 'It holds' };
+const HOUR = 60 * 60 * 1000;
+const ON = { watcher: { enabled: true } };
 
-/** A report with the seven headings; `owner` and `filed` are the bodies of the two sections the wake carries. */
-function report(owner: string, filed: string): string {
-  return [
-    '## Her day',
-    'A quiet day.',
-    '## Misunderstandings',
-    'None.',
-    '## Memory',
-    'Nothing lost.',
-    '## The project',
-    'One pull request open.',
-    '## The server',
-    'Disk at 40 percent.',
-    '## Tasks filed',
-    filed,
-    '## For the owner',
-    owner,
-    '',
-  ].join('\n');
+/** A rig whose inspection at NOW filed one finding, and the proof that it reaches her at that moment. */
+async function inspected(): Promise<InspectionRig> {
+  const rig = inspectionRig();
+  await runInspection(inspectionDeps(rig, { runAgent: () => Promise.resolve(said(answerOf({}, [DRAFT]))) }));
+  const news = watcherNews({ config: ON, rootDir: rig.root, now: NOW });
+  assert.equal(news?.day, DAY);
+  assert.deepEqual(
+    news?.findings.map((one) => one.title),
+    [DRAFT.title]
+  );
+  return rig;
 }
 
-/** The injected root is the selected persona data directory, containing the canonical watcher reports. */
-function rig(reports: Record<string, string>, enabled = true): { config: unknown; rootDir: string } {
-  const rootDir = tempDir('nep-watcher-news-');
-  // Reports belong to the canonical persona tree, independent of the retired watcher.dir override.
-  const dir = path.join(rootDir, 'agents', 'watcher');
-  fs.mkdirSync(path.join(dir, 'reports'), { recursive: true });
-  for (const [day, text] of Object.entries(reports)) fs.writeFileSync(path.join(dir, 'reports', `${day}.md`), text);
-  return { config: { watcher: { enabled, dir } }, rootDir };
-}
-
-test("today's report gives its date and the two sections' bodies", () => {
-  // Catches: the wake gets the whole report, or the headings with the bodies, and her facts grow by every section.
-  const { config, rootDir } = rig({ '2026-11-02': report('Look at the retry rail.', '- T12 fix: the retry rail') });
-  assert.deepEqual(watcherNews({ config, rootDir, now: NOW }), {
-    day: '2026-11-02',
-    forOwner: 'Look at the retry rail.',
-    tasksFiled: '- T12 fix: the retry rail',
-  });
+test("yesterday's report still reaches her, and one older than the past day does not", async () => {
+  // Catches: a stale report from a watcher that stopped days ago is shown to her every day as if it were new, or a wake
+  // just after midnight misses the report of the evening before.
+  const rig = await inspected();
+  assert.equal(watcherNews({ config: ON, rootDir: rig.root, now: NOW + 24 * HOUR })?.day, DAY);
+  assert.equal(watcherNews({ config: ON, rootDir: rig.root, now: NOW + 48 * HOUR }), null);
 });
 
-test('a section ends at the next heading', () => {
-  // Catches: "Tasks filed" is read to the end of the file and carries the owner's section a second time.
-  const { config, rootDir } = rig({ '2026-11-02': report('For the owner only.', 'No task.') });
-  assert.equal(watcherNews({ config, rootDir, now: NOW })?.tasksFiled, 'No task.');
-});
-
-test("of yesterday's and today's reports the newest is carried", () => {
-  // Catches: the oldest report of the window is read, and she works from a day-old report when a fresh one exists.
-  const { config, rootDir } = rig({ '2026-11-01': report('old', 'old'), '2026-11-02': report('new', 'new') });
-  assert.equal(watcherNews({ config, rootDir, now: NOW })?.day, '2026-11-02');
-});
-
-test("yesterday's report is carried when today has none", () => {
-  // Catches: a watcher set to run late in the evening never reaches the morning wake, whose UTC date is the next one.
-  const { config, rootDir } = rig({ '2026-11-01': report('evening run', 'none') });
-  assert.equal(watcherNews({ config, rootDir, now: NOW })?.day, '2026-11-01');
-});
-
-test('a report older than the past day is not carried', () => {
-  // Catches: a stale report from a watcher that stopped days ago is shown to her every day as if it were new.
-  const { config, rootDir } = rig({ '2026-10-30': report('stale', 'stale') });
-  assert.equal(watcherNews({ config, rootDir, now: NOW }), null);
-});
-
-test('with the watcher off a report on disk is not carried', () => {
+test('with the watcher off its report on disk reaches her no more', async () => {
   // Catches: the block appears although the owner switched the watcher off in setup.
-  const { config, rootDir } = rig({ '2026-11-02': report('x', 'y') }, false);
-  assert.equal(watcherNews({ config, rootDir, now: NOW }), null);
+  const rig = await inspected();
+  const config = { watcher: { enabled: false } };
+  assert.equal(watcherNews({ config, rootDir: rig.root, now: NOW }), null);
 });
 
-test('a watcher folder that does not exist gives no report', () => {
-  // Catches: a deployment that never ran the watcher throws while building the wake, and the wake loses all its facts.
-  const rootDir = tempDir('nep-watcher-news-');
-  const config = { watcher: { enabled: true, dir: path.join(rootDir, 'never-made') } };
-  assert.equal(watcherNews({ config, rootDir, now: NOW }), null);
-});
-
-test('a report with neither section gives no report, and one with a single section an empty other', () => {
-  // Catches: a hand-written note in the folder becomes an empty block, or a missing section reads as "undefined".
-  const { config, rootDir } = rig({ '2026-11-02': '## Her day\nA note.\n' });
-  assert.equal(watcherNews({ config, rootDir, now: NOW }), null);
-  const half = rig({ '2026-11-02': '## For the owner\nOnly this.\n' });
-  assert.deepEqual(watcherNews({ config: half.config, rootDir: half.rootDir, now: NOW }), {
-    day: '2026-11-02',
-    forOwner: 'Only this.',
-    tasksFiled: '',
-  });
+test('a watcher folder that is gone gives nothing and throws nothing', async () => {
+  // Catches: a deployment whose folder is missing throws while building the wake, and the wake loses all its facts.
+  const rig = await inspected();
+  fs.rmSync(rig.dir, { recursive: true });
+  assert.equal(watcherNews({ config: ON, rootDir: rig.root, now: NOW }), null);
 });

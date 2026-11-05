@@ -385,10 +385,11 @@
   },
   "watcher.read": {
     "title": "Read the watcher's report",
-    "whenToUse": "The daily report of the watcher, an agent that looks over you, the project and the server once a day: the latest, or one day's. Read it when the owner asks what it found, or when you want to know.",
+    "whenToUse": "The daily report of the watcher, an agent that looks over you, the project and the server on its schedule: the latest, one day's or one run's. Read it when the owner asks what it found, or when you want to know.",
     "whenNotToUse": "Not for your own memory or your own skills.",
     "args": {
-      "day": "YYYY-MM-DD. Leave it out for the latest report."
+      "day": "YYYY-MM-DD. Leave it out for the latest report.",
+      "run": "The run identity of one report, when a day has several."
     }
   },
   "skill.run": {
