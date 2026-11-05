@@ -820,6 +820,10 @@ const ENTRIES: Array<Definition> = [
       move: oneOf(['up', 'down']),
       messages: int(1, 60),
       minutes: int(1, 1440),
+      entity: str(200),
+      predicate: str(100),
+      as_of: str(40),
+      historical: bool(),
     }),
     refs: { channel: 'channel' },
     body: 'question',
@@ -836,6 +840,11 @@ const ENTRIES: Array<Definition> = [
           .filter((name) => val(a, name) !== null)
           .map((name) => [name, val(a, name)])
       ),
+      // The filters of the stored facts, the same way.
+      ...(val(a, 'entity') === null ? {} : { entity: val(a, 'entity') }),
+      ...(val(a, 'predicate') === null ? {} : { predicate: val(a, 'predicate') }),
+      ...(val(a, 'as_of') === null ? {} : { asOf: val(a, 'as_of') }),
+      ...(val(a, 'historical') === null ? {} : { historical: val(a, 'historical') }),
     }),
   }),
   def('conversation.read', {

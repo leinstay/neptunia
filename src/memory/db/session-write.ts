@@ -56,6 +56,10 @@
 //   episodes:     { subjectId, what, feeling, sources }
 //   affinity:     { personId, delta, reason, sources }
 //   descriptions: { subjectKind, subjectId, field, why }
+//   entities:     { handle, kind, name, language, sources }   (schema v31; semantic-write.ts#writeSessionEntity)
+//   assertions:   { predicate, assertionKind, text, arguments, polarity, how, state, sources, dependencies }   (schema v31)
+//                 An argument's `ref` is a typed reference or `{ handle }`, a new entity of this answer. An op the writer
+//                 refuses is a `decisions` row `rejected:<code>`, and an assertion naming a refused entity is `unknown_ref`.
 //   people:       { op: 'add', subjectKind: 'account' | 'participant', subjectId, sources, reason }   (schema v8)
 //                 shadow: a `decisions` row `proposed:people_add`. apply: a new person `person:<uuid>` (kind `person`,
 //                 the uuid minted here; `update.uuid` injects it in tests), a `proposed` link (`account_person_links`
@@ -78,6 +82,10 @@
 //     page), `context_id` the run's context (`update.context`, an issued context's row, recorded in
 //     `execution_contexts` the same way);
 //   - every row written here is projected into the graph in the same transaction (graph.ts#projectRow).
+//   { kind: 'semantic-embedding', documentKey, model, vector, now }
+//       One embedding of a semantic search document (semantic-search.ts#applySemanticEmbedding).
+// Schema v31: every new claim version the session writes is sealed by its `semantic_assertion_versions` snapshot (`text`,
+// polarity `unknown`), with the audience the meet of the run and its sources on audience ids.
 // Counts and codes only, never a text.
 
 import { applyPersonLinkWrite } from './person-links.ts';
@@ -86,8 +94,22 @@ import { randomUUID } from 'node:crypto';
 import { ownershipSql } from './storage-units.ts';
 
 import { CORE_AUTHORITY, SELF_PERSON, linkId, newPersonId, otherSourceId, shortHash, survivorOf } from './ids.ts';
-import { audienceOf, canRead, dmContext, groupContext, internalContext, narrowest, SCOPE_INTERNAL } from './scope.ts';
-import { ensureAudience, ensureInterface } from './rows.ts';
+import {
+  audienceOf,
+  audienceParts,
+  canRead,
+  dmContext,
+  groupContext,
+  internalContext,
+  isOpaquePerson,
+  narrowestAudience,
+  scopeOfAudience,
+  SCOPE_INTERNAL,
+} from './scope.ts';
+import { NEWEST_CLAIM_VERSION_SQL, ensureAudience, ensureInterface, newestClaimVersion } from './rows.ts';
+import { applySemanticEmbedding } from './semantic-search.ts';
+import { writeSessionAssertion, writeSessionEntity } from './semantic-write.ts';
+import type { SessionSemantics } from './semantic-write.ts';
 import { projectRow } from './graph.ts';
 import { applyWakeWrite } from './wakes.ts';
 import { applySkillsWrite } from './skills.ts';
@@ -106,15 +128,7 @@ import { asText, dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
 import type { Context, Scope } from './scope.ts';
 
-/**
- * The newest live version of a claim (recorded time, then row order): the version a read of the claim is said to have
- * read (service.ts#turnReadRows) and the one a `base` is checked against. Its one spelling.
- */
-export const NEWEST_CLAIM_VERSION_SQL =
-  "SELECT id FROM claim_versions WHERE claim_id = ? AND retired_at IS NULL ORDER BY COALESCE(recorded_at, '') DESC, rowid DESC LIMIT 1";
-/** The id of the newest live version of a claim, or null. */
-export const newestClaimVersion = (db: Db, claimId: unknown): unknown =>
-  db.prepare(NEWEST_CLAIM_VERSION_SQL).get(claimId)?.id ?? null;
+export { NEWEST_CLAIM_VERSION_SQL, newestClaimVersion };
 const hasTable = (db: Db, name: string): boolean =>
   db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
 
@@ -138,6 +152,9 @@ type WriteState = {
   index: number;
   audienceColumn: boolean;
   uuid: () => string;
+  /** The audience the run reads and writes under: the DM place of an opaque partner, which the triple cannot spell. */
+  audience: string;
+  semantics: SessionSemantics;
 };
 
 /** The run a session write records (see `insertRun`). */
@@ -146,6 +163,7 @@ type SessionRunRow = {
   sweepId?: string | null;
   scopeKey?: string;
   scope?: Scope | null;
+  audienceId?: string | null;
   batchKey?: string | null;
   startedAt?: string;
   finishedAt?: string | null;
@@ -173,21 +191,24 @@ function targetOf(group: unknown, op: Row): { kind: unknown; id: unknown } {
       return { kind: 'person', id: op.personId };
     case 'people':
       return { kind: op.subjectKind, id: op.subjectId };
+    case 'entities':
+      return { kind: 'semantic_entity', id: null };
+    case 'assertions':
+      return { kind: 'claim', id: null };
     default:
       return { kind: 'description', id: `desc:${asText(op.subjectId)}:${asText(op.field)}` };
   }
 }
 
+const GROUP_OPS: Record<string, string> = {
+  descriptions: 'description',
+  episodes: 'episode',
+  affinity: 'affinity',
+  entities: 'entity',
+  assertions: 'assertion',
+};
 const nameOf = (group: unknown, op: Row): unknown =>
-  group === 'claims'
-    ? op.op
-    : group === 'descriptions'
-      ? 'description'
-      : group === 'episodes'
-        ? 'episode'
-        : group === 'people'
-          ? `people_${asText(op.op)}`
-          : 'affinity';
+  group === 'claims' ? op.op : group === 'people' ? `people_${asText(op.op)}` : GROUP_OPS[asText(group)];
 const reasonOf = (op: unknown): string | null =>
   typeof (op as Row).reason === 'string' && (op as Row).reason
     ? ((op as Row).reason as string)
@@ -200,23 +221,52 @@ const scopeOfRow = (row: Row): Scope => ({
   scope_iface: (row.scope_iface as string | null | undefined) ?? null,
   scope_dm: (row.scope_dm as string | null | undefined) ?? null,
 });
-const sameScope = (a: Scope, b: Scope): boolean =>
-  (a.scope_kind ?? null) === (b.scope_kind ?? null) &&
-  (a.scope_iface ?? null) === (b.scope_iface ?? null) &&
-  (a.scope_dm ?? null) === (b.scope_dm ?? null);
-function contextOf(scope: Scope | null | undefined, audienceColumn = false): Context {
+function contextOf(scope: Scope | null | undefined, audienceColumn = false, audience: string | null = null): Context {
   let ctx = internalContext();
   if (scope?.scope_kind === 'group' && scope.scope_iface) ctx = groupContext(scope.scope_iface);
   else if (scope?.scope_kind === 'dm' && scope.scope_iface && scope.scope_dm)
-    ctx = dmContext(scope.scope_dm, scope.scope_iface);
+    ctx = dmContext(scope.scope_dm, scope.scope_iface, audienceParts(audience)?.place_id ?? null);
   return audienceColumn === true ? { ...ctx, audienceColumn: true } : ctx;
+}
+
+/** The one stored DM place of an opaque partner on an interface; null for none and for several, which no triple can tell apart. */
+function onlyDmPlaceOf(db: Db, scope: Scope): string | null {
+  if (scope.scope_kind !== 'dm' || !isOpaquePerson(scope.scope_dm)) return null;
+  const places = db
+    .prepare("SELECT id FROM places WHERE partner_person = ? AND iface = ? AND (kind = 'dm' OR conversation = 'dm')")
+    .all(scope.scope_dm, scope.scope_iface);
+  return places.length === 1 ? String(places[0]?.id) : null;
 }
 
 /** The audience id of a scope (the one resolver), its audience row created when missing. */
 function audienceIdOf(db: Db, scope: Scope | null | undefined, at: string): string {
-  const resolved = audienceOf(scope);
+  const dmPlace = scope ? onlyDmPlaceOf(db, scope) : null;
+  const resolved = audienceOf(scope, { dmPlace });
   ensureAudience(db, resolved, { at });
   return resolved.audience_id;
+}
+
+const lookupPlaceOf =
+  (db: Db) =>
+  (placeId: string): Row | undefined =>
+    db.prepare('SELECT iface, partner_person FROM places WHERE id = ?').get(placeId);
+
+/** The audience of a row with the scope triple: its stored one, else what its triple resolves to. */
+const audienceOfRow = (row: Row): unknown =>
+  typeof row.audience_id === 'string' && row.audience_id !== ''
+    ? row.audience_id
+    : audienceOf(scopeOfRow(row)).audience_id;
+
+/**
+ * What a new row of this run is scoped to: the meet of the run's audience and of its own sources, on audience ids, because
+ * the triple of an opaque partner names no conversation. Its audience row is created when missing.
+ */
+function narrowed(db: Db, state: WriteState, evidence: ReadonlyArray<Row>): { scope: Scope; audienceId: string } {
+  const lookup = lookupPlaceOf(db);
+  const audienceId = narrowestAudience([state.audience, ...evidence.map(audienceOfRow)], lookup);
+  const scope = scopeOfAudience(audienceId, lookup);
+  ensureAudience(db, { ...scope, audience_id: audienceId }, { at: state.at });
+  return { scope, audienceId };
 }
 
 function insertRun(
@@ -251,7 +301,7 @@ function insertRun(
     run.batchKey ?? null,
     applied ? 1 : 0,
     answerSource ?? null,
-    audienceIdOf(db, run.scope ?? null, at)
+    typeof run.audienceId === 'string' ? run.audienceId : audienceIdOf(db, run.scope ?? null, at)
   );
 }
 
@@ -336,7 +386,7 @@ function addSources(db: Db, table: string, key: string, id: string, sources: Rea
 function evidenceOf(db: Db, ids: unknown): Array<Row> | null {
   if (!Array.isArray(ids) || ids.length === 0) return null;
   const find = db.prepare(
-    'SELECT id, scope_kind, scope_iface, scope_dm FROM sources WHERE id = ? AND retired_at IS NULL'
+    'SELECT id, scope_kind, scope_iface, scope_dm, audience_id FROM sources WHERE id = ? AND retired_at IS NULL'
   );
   const rows: Array<Row> = [];
   for (const id of ids) {
@@ -360,6 +410,7 @@ function version(
     extra = null,
     sources = [],
     evidence = 'supports',
+    snapshot,
   }: {
     claimId: unknown;
     at: string;
@@ -370,9 +421,13 @@ function version(
     extra?: unknown;
     sources?: ReadonlyArray<unknown>;
     evidence?: unknown;
+    snapshot: { truth: unknown; how: unknown; audienceId: string };
   }
 ): void {
   const id = `cv:${asText(claimId)}:${shortHash(runId, index, event)}`;
+  // A version is sealed by its snapshot below: the same op written again leaves it as it was.
+  const snapshots = hasTable(db, 'semantic_assertion_versions');
+  if (snapshots && db.prepare('SELECT 1 AS ok FROM semantic_assertion_versions WHERE version_id = ?').get(id)) return;
   db.prepare(
     ownershipSql(
       db,
@@ -386,8 +441,22 @@ function version(
     );
     for (const source of new Set(sources ?? [])) insert.run(id, source, evidence);
   }
+  if (snapshots) {
+    db.prepare(
+      `INSERT INTO semantic_assertion_versions (version_id, format_version, assertion_kind, truth_state, how, polarity, recorded_at,
+         audience_id, historical_metadata_complete)
+       VALUES (?, 1, 'text', ?, ?, 'unknown', ?, ?, 1)`
+    ).run(id, snapshot.truth ?? 'unknown', snapshot.how ?? null, at, snapshot.audienceId);
+  }
   projectRow(db, 'claims', { id: claimId }, { at });
 }
+
+/** The kind of row a decision's action names; every other action names a claim. */
+const DECISION_TARGETS: Record<string, string> = {
+  episode: 'episode',
+  affinity: 'person',
+  entity: 'semantic_entity',
+};
 
 function insertDecisionFor(
   db: Db,
@@ -409,7 +478,7 @@ function insertDecisionFor(
   ).run(
     `dec:${asText(runId)}:${index}`,
     at,
-    action === 'episode' ? 'episode' : action === 'affinity' ? 'person' : 'claim',
+    DECISION_TARGETS[asText(action)] ?? 'claim',
     target,
     action,
     reasonOf(op),
@@ -443,7 +512,17 @@ function deriveClaim(
     how,
     truth,
     shown,
-  }: { at: string; runId: unknown; index: number; text?: unknown; how?: unknown; truth?: unknown; shown?: unknown }
+    audienceId,
+  }: {
+    at: string;
+    runId: unknown;
+    index: number;
+    text?: unknown;
+    how?: unknown;
+    truth?: unknown;
+    shown?: unknown;
+    audienceId: string;
+  }
 ): string {
   const id = `clm:${shortHash(runId, index, 'derived', claim.id)}`;
   let extra: Row = {};
@@ -476,7 +555,7 @@ function deriveClaim(
     scope.scope_iface,
     scope.scope_dm,
     at,
-    audienceIdOf(db, scope, at)
+    audienceId
   );
   projectRow(db, 'claims', { id }, { at });
   return id;
@@ -487,7 +566,7 @@ function applyClaim(db: Db, op: Row, state: WriteState): void {
   const evidence = evidenceOf(db, op.sources);
   if (!evidence) return reject(db, state, 'claims', op, 'unknown_source');
   // The scope of the NEW version: the narrowest of the run and of its own sources, never the old version's.
-  const scope = narrowest([state.scope, ...evidence.map(scopeOfRow)]);
+  const { scope, audienceId } = narrowed(db, state, evidence);
   if (op.op === 'add') {
     const id = `clm:${shortHash(runId, index, op.subjectId, op.text)}`;
     db.prepare(
@@ -511,10 +590,19 @@ function applyClaim(db: Db, op: Row, state: WriteState): void {
       scope.scope_iface,
       scope.scope_dm,
       at,
-      audienceIdOf(db, scope, at)
+      audienceId
     );
     addSources(db, 'claim_sources', 'claim_id', id, op.sources as Array<string>);
-    version(db, { claimId: id, at, text: op.text, event: 'add', runId, index, sources: op.sources as Array<string> });
+    version(db, {
+      claimId: id,
+      at,
+      text: op.text,
+      event: 'add',
+      runId,
+      index,
+      sources: op.sources as Array<string>,
+      snapshot: { truth: 'current', how: op.how, audienceId },
+    });
     insertDecisionFor(db, { runId, index, at, op, action: 'add', target: id });
     counts.added += 1;
     return;
@@ -524,17 +612,17 @@ function applyClaim(db: Db, op: Row, state: WriteState): void {
     counts.missing += 1;
     return;
   }
-  if (!canRead(claim, contextOf(state.scope, state.audienceColumn)))
+  if (!canRead(claim, contextOf(state.scope, state.audienceColumn, state.audience)))
     return reject(db, state, 'claims', op, 'out_of_scope');
   if ((op.op === 'revise' || op.op === 'retire') && !present(op.reason))
     return reject(db, state, 'claims', op, 'no_reason');
   // Compare-and-set on the claim: the version the session read must still be its newest (schema v9).
   if (Object.hasOwn(op, 'base') && (op.base ?? null) !== newestClaimVersion(db, op.id))
     return reject(db, state, 'claims', op, 'stale_base');
-  const derived = !sameScope(scope, scopeOfRow(claim));
+  const derived = audienceId !== audienceOfRow(claim);
   let target = op.id;
   if (op.op === 'confirm') {
-    if (derived) target = deriveClaim(db, claim, scope, { at, runId, index });
+    if (derived) target = deriveClaim(db, claim, scope, { at, runId, index, audienceId });
     else db.prepare('UPDATE claims SET last_seen_at = ? WHERE id = ?').run(at, op.id);
     addSources(db, 'claim_sources', 'claim_id', target as string, op.sources as Array<string>);
     version(db, {
@@ -545,10 +633,11 @@ function applyClaim(db: Db, op: Row, state: WriteState): void {
       runId,
       index,
       sources: op.sources as Array<string>,
+      snapshot: { truth: claim.truth, how: claim.how, audienceId },
     });
     counts.confirmed += 1;
   } else if (op.op === 'revise') {
-    if (derived) target = deriveClaim(db, claim, scope, { at, runId, index, text: op.text, how: op.how });
+    if (derived) target = deriveClaim(db, claim, scope, { at, runId, index, text: op.text, how: op.how, audienceId });
     else
       db.prepare('UPDATE claims SET text = ?, how = ?, last_seen_at = ? WHERE id = ?').run(op.text, op.how, at, op.id);
     addSources(db, 'claim_sources', 'claim_id', target as string, op.sources as Array<string>);
@@ -561,6 +650,7 @@ function applyClaim(db: Db, op: Row, state: WriteState): void {
       index,
       extra: { before: claim.text, reason: op.reason },
       sources: op.sources as Array<string>,
+      snapshot: { truth: claim.truth, how: op.how, audienceId },
     });
     counts.revised += 1;
   } else {
@@ -568,7 +658,7 @@ function applyClaim(db: Db, op: Row, state: WriteState): void {
     const shown = op.truth === 'disputed' ? 1 : 0;
     const validTo = op.truth === 'disputed' ? null : at;
     if (derived) {
-      target = deriveClaim(db, claim, scope, { at, runId, index, truth: op.truth, shown });
+      target = deriveClaim(db, claim, scope, { at, runId, index, truth: op.truth, shown, audienceId });
       if (validTo) db.prepare('UPDATE claims SET valid_to = ? WHERE id = ?').run(validTo, target);
     } else {
       db.prepare('UPDATE claims SET truth = ?, shown = ?, valid_to = COALESCE(?, valid_to) WHERE id = ?').run(
@@ -589,6 +679,7 @@ function applyClaim(db: Db, op: Row, state: WriteState): void {
       extra: { truth: op.truth, reason: op.reason },
       sources: op.sources as Array<string>,
       evidence: 'conflicts',
+      snapshot: { truth: op.truth, how: claim.how, audienceId },
     });
     counts.retired += 1;
   }
@@ -601,7 +692,7 @@ function applyEpisode(db: Db, op: Row, state: WriteState): void {
   const { at, runId, index, counts } = state;
   const evidence = evidenceOf(db, op.sources);
   if (!evidence) return reject(db, state, 'episodes', op, 'unknown_source');
-  const scope = narrowest([state.scope, ...evidence.map(scopeOfRow)]);
+  const { scope, audienceId } = narrowed(db, state, evidence);
   const id = `ep:${shortHash(runId, index, op.subjectId, op.what)}`;
   db.prepare(
     ownershipSql(
@@ -621,7 +712,7 @@ function applyEpisode(db: Db, op: Row, state: WriteState): void {
     scope.scope_iface,
     scope.scope_dm,
     at,
-    audienceIdOf(db, scope, at)
+    audienceId
   );
   addSources(db, 'episode_sources', 'episode_id', id, op.sources as Array<string>);
   projectRow(db, 'episodes', { id }, { at });
@@ -634,7 +725,7 @@ function applyAffinity(db: Db, op: Row, state: WriteState): void {
   const evidence = evidenceOf(db, op.sources);
   if (!evidence) return reject(db, state, 'affinity', op, 'unknown_source');
   if (!present(op.reason)) return reject(db, state, 'affinity', op, 'no_reason');
-  const scope = narrowest([state.scope, ...evidence.map(scopeOfRow)]);
+  const { scope, audienceId } = narrowed(db, state, evidence);
   const person = db.prepare('SELECT affinity FROM people WHERE id = ? AND retired_at IS NULL').get(op.personId);
   if (!person) {
     counts.missing += 1;
@@ -668,7 +759,7 @@ function applyAffinity(db: Db, op: Row, state: WriteState): void {
     scope.scope_iface,
     scope.scope_dm,
     json({ run: runId, sources: op.sources as Array<string> }),
-    audienceIdOf(db, scope, at)
+    audienceId
   );
   db.prepare('UPDATE people SET affinity = ?, affinity_reason = ? WHERE id = ?').run(score, op.reason, op.personId);
   insertDecisionFor(db, { runId, index, at, op, action: 'affinity', target: op.personId });
@@ -748,6 +839,63 @@ function applyPeopleAdd(db: Db, op: Row, state: WriteState): void {
   counts.people += 1;
 }
 
+const SEMANTIC_GROUPS: ReadonlySet<string> = new Set(['entities', 'assertions']);
+
+/** An `entities` or `assertions` op: the writer's refusal is its decision, the rest of the answer stands. */
+function applySemantic(db: Db, group: string, op: Row, state: WriteState): void {
+  const write = group === 'entities' ? writeSessionEntity : writeSessionAssertion;
+  const outcome = write(db, op, state.semantics);
+  if (!outcome.ok) return reject(db, state, group, op, outcome.code);
+  const { at, runId, index, counts } = state;
+  const entity = outcome.result.kind === 'entity';
+  insertDecisionFor(db, {
+    runId,
+    index,
+    at,
+    op,
+    action: entity ? 'entity' : 'assertion',
+    target: outcome.result.kind === 'entity' ? outcome.result.entityId : outcome.result.claimId,
+  });
+  if (entity) counts.entities += 1;
+  else counts.assertions += 1;
+}
+
+/** What the run's request showed: the only sources and claim versions its structured ops may cite. */
+function readSetOf(reads: unknown): SessionSemantics['read'] {
+  const rows = (Array.isArray(reads) ? reads : []) as Array<Row>;
+  return {
+    sourceIds: rows.filter((row) => row.row_kind === 'sources').map((row) => String(row.row_id)),
+    versionIds: rows
+      .filter((row) => (row.row_kind === 'claims' || row.row_kind === 'claim_versions') && row.version_id)
+      .map((row) => String(row.version_id)),
+  };
+}
+
+/** What the ops of one run share, with the audience the run reads and writes under. */
+function writeStateOf(db: Db, run: SessionRunRow, update: Row, counts: Counts, at: string): WriteState {
+  const uuid = typeof update.uuid === 'function' ? (update.uuid as () => string) : randomUUID;
+  const audience = typeof run.audienceId === 'string' ? run.audienceId : audienceIdOf(db, run.scope ?? null, at);
+  return {
+    at,
+    runId: run.id,
+    run,
+    scope: run.scope as Scope,
+    maxDelta: update.maxDelta,
+    counts,
+    index: 0,
+    audienceColumn: update.audienceColumn === true,
+    uuid,
+    audience,
+    semantics: {
+      ctx: contextOf(run.scope, true, audience),
+      read: readSetOf(update.reads),
+      handles: new Map(),
+      at,
+      uuid,
+    },
+  };
+}
+
 const emptyCounts = (): Counts => ({
   proposed: 0,
   added: 0,
@@ -762,6 +910,8 @@ const emptyCounts = (): Counts => ({
   derived: 0,
   duplicate: 0,
   people: 0,
+  entities: 0,
+  assertions: 0,
 });
 
 /** Throws unless `mode` is one the writer knows. */
@@ -788,6 +938,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
     (handle, update) => (isDeliveryOp(update.op) ? applyDeliveryWrite : applyPublicationWrite)(handle, update),
   ],
   ['mirror', applyMirrorWrite],
+  ['semantic-embedding', applySemanticEmbedding],
 ]);
 
 /** Applies one write on the writer connection; returns counts. */
@@ -865,18 +1016,8 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
       );
     }
     if (plan && run) {
-      const state: WriteState = {
-        at,
-        runId: run.id,
-        run,
-        scope: run.scope as Scope,
-        maxDelta: update.maxDelta,
-        counts,
-        index: 0,
-        audienceColumn: update.audienceColumn === true,
-        uuid: typeof update.uuid === 'function' ? (update.uuid as () => string) : randomUUID,
-      };
-      for (const group of ['claims', 'episodes', 'affinity', 'descriptions', 'people']) {
+      const state = writeStateOf(db, run, update, counts, at);
+      for (const group of ['claims', 'episodes', 'affinity', 'descriptions', 'people', 'entities', 'assertions']) {
         for (const op of plan[group] ?? []) {
           state.index += 1;
           if (mode === 'shadow') {
@@ -898,6 +1039,8 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
           } else if (group === 'people') {
             if (op.op === 'add') applyPeopleAdd(db, op, state);
             else reject(db, state, 'people', op, 'bad_op');
+          } else if (SEMANTIC_GROUPS.has(group)) {
+            applySemantic(db, group, op, state);
           } else {
             insertDecision(db, { id: `dec:${run.id}:${state.index}`, at, group, op, action: 'flag:description', run });
             counts.flags += 1;

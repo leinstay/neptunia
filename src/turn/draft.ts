@@ -3,6 +3,7 @@
 // (src/behavior/turn.ts) creates it with the attempt's limits and hands the same object to every phase in
 // src/turn/phases/; the topic modules each read and write the part of it their own draft type names.
 
+import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 import type { Act } from './act.ts';
@@ -25,7 +26,8 @@ export type InnerTurn = {
   wake?: {
     kind?: string | null;
     chainId?: string | null;
-    heartbeat?: { refs?: unknown } | null;
+    heartbeat?: { refs?: unknown; memory?: MemoryPage | null } | null;
+    selfimprovement?: { memory?: MemoryPage | null } | null;
     intentions?: ReadonlyArray<{ purpose?: unknown } | null>;
     items?: unknown;
     [key: string]: unknown;

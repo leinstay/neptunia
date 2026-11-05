@@ -80,7 +80,10 @@ export function collectReads(
   if ((kept.prefetch ?? []).length > 0) {
     for (const excerpt of Array.isArray(given.prefetch?.excerpts) ? given.prefetch.excerpts : []) {
       if (typeof excerpt?.lines !== 'string' || !excerpt.lines.trim()) continue;
-      if (excerpt.source === 'memory') {
+      if (excerpt.source === 'semantic') {
+        if (typeof excerpt.versionId === 'string' && excerpt.versionId)
+          memoryReads.push({ kind: 'claim_version', id: excerpt.versionId, block: 'retrieved' });
+      } else if (excerpt.source === 'memory') {
         if (typeof excerpt.id === 'string' && excerpt.id)
           memoryReads.push({ kind: 'item', id: excerpt.id, block: 'retrieved' });
       } else {

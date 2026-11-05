@@ -7,6 +7,8 @@
 // names, codes, counts, ids, costs and the board's own titles and notes. `src/behavior/inner/selfimprovement.ts` asks
 // for the facts when the wake runs, and marks the outbox rows it showed delivered once the wake committed.
 
+import type { MemoryPage, MemoryQuery, RetrievalBounds } from '../memory/db/semantic-types.ts';
+import { memoryQueryFor } from '../memory/retrieval-input.ts';
 import { DAY_MS, utcDay } from '../time.ts';
 import type { Landed } from '../selfimprovement/landed.ts';
 import type { WatcherNews } from '../watcher/news.ts';
@@ -216,6 +218,8 @@ export type OutboxRow = Readonly<Record<string, unknown>>;
 export type SkillUseRow = { name: string; active: boolean; counts: UseCounts };
 
 export type SelfimprovementFacts = {
+  /** What the one retrieval service brought for this wake; null without it or when the read failed. */
+  memory?: MemoryPage | null;
   from: number;
   days: number;
   shapes: Array<Shape>;
@@ -305,6 +309,28 @@ function kindOf(task: ProposalEntry['task']): 'skill' | 'fix' | null {
 const after = (row: Readonly<Record<string, unknown>>, since: number | null): boolean =>
   since === null || !(timeOf(row.created_at) <= since);
 
+/** What this wake reads memory for: the failures it already holds. A failed read leaves the wake its other facts. */
+async function improvementMemory(
+  input: {
+    retrieve?: ((query: MemoryQuery) => Promise<MemoryPage | null>) | null;
+    bounds?: RetrievalBounds | null;
+    log?: { warn?(message: string, fields: Record<string, unknown>): void } | null;
+  },
+  failures: ReadonlyArray<CallFailure>
+): Promise<MemoryPage | null> {
+  const { retrieve, bounds } = input;
+  if (typeof retrieve !== 'function' || !bounds) return null;
+  try {
+    const seeds = failures.map((one) => ({ tool: one.tool, code: one.code ?? null }));
+    return await retrieve(
+      memoryQueryFor({ purpose: 'improvement', failures: seeds, lessons: [], entities: [] }, bounds)
+    );
+  } catch (error) {
+    input.log?.warn?.('selfimprovement: retrieval failed', { code: objOf(error).code ?? null });
+    return null;
+  }
+}
+
 /** The facts of one wake. Nothing here throws: a source that fails leaves its part empty. */
 export async function buildSelfimprovementFacts(input: {
   now: number;
@@ -318,6 +344,10 @@ export async function buildSelfimprovementFacts(input: {
   outbox: ReadonlyArray<OutboxRow>;
   landed?: ReadonlyArray<Landed>;
   watcher?: WatcherNews | null;
+  /** The one retrieval service under this wake's issued context, and its budget; absent, the facts hold no page. */
+  retrieve?: ((query: MemoryQuery) => Promise<MemoryPage | null>) | null;
+  bounds?: RetrievalBounds | null;
+  log?: { warn?(message: string, fields: Record<string, unknown>): void } | null;
 }): Promise<SelfimprovementFacts> {
   const days = input.days ?? DAYS_DEFAULT;
   const from = input.now - days * DAY_MS;
@@ -341,7 +371,9 @@ export async function buildSelfimprovementFacts(input: {
       ...(typeof payload.reason === 'string' ? { blockedReason: payload.reason } : {}),
     };
   });
+  const failures = failuresOf(chains);
   return {
+    memory: await improvementMemory(input, failures),
     from,
     days,
     shapes,
@@ -349,7 +381,7 @@ export async function buildSelfimprovementFacts(input: {
     repeated: allShapes(chains)
       .filter((shape) => shape.count >= 2)
       .map(({ key, count, turnIds }) => ({ key, count, turnIds })),
-    failures: failuresOf(chains),
+    failures,
     unusedTools: [...new Set(input.granted)].filter((tool) => !called.has(tool)).sort(),
     skills: [...input.skills],
     proposals: input.proposals.map(({ task }) => ({

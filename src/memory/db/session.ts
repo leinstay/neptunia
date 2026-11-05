@@ -40,7 +40,6 @@
 // A chat line's revisions are matched by the line's native tuple (authority, native kind, generation, native id).
 
 import { block, fillPromptTemplate, renderProfile } from '../../behavior/prompt.ts';
-import { concernsMember, isOpen } from '../../intentions/model.ts';
 import { ROLE_KEY_NAME } from '../../llm/openrouter.ts';
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
 import { estimateMessages } from '../../llm/tokens.ts';
@@ -50,13 +49,19 @@ import type { MemoryPath } from '../../subharness/memory-path.ts';
 import { storageValue } from './export.ts';
 import { accountCollection } from './storage-keys.ts';
 import { SELF_PERSON, nativeOf, shortHash } from './ids.ts';
-import { audienceOf, contextRow, dmContext, groupContext, issueContext, scopeWhere, wellFormed } from './scope.ts';
+import { contextRow, issueContext, scopeWhere } from './scope.ts';
+import { scopesOf } from './session-scopes.ts';
+import type { SweepScope } from './session-scopes.ts';
 import { columnsOf } from './rows.ts';
 import { turnReadRows } from './service.ts';
 import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
+import { ASSERTION_HOW } from './semantic-registry.ts';
+import { validateSemanticAnswer } from './semantic-answer.ts';
+import { episodeLinesOf, intentionLinesOf } from './session-blocks.ts';
+import { readRetrieved, requestCapOf, retrievedLines } from './session-retrieved.ts';
+import type { MemoryPage } from './semantic-types.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import { sessionRequestId } from './request-archive.ts';
-import type { Intention } from '../../intentions/types.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import type { Labels, Profile } from '../../turn/request/types.ts';
 import type { Config, Db, Log, Row } from './types.ts';
@@ -72,6 +77,7 @@ const SESSION_BLOCKS: ReadonlyArray<string> = Object.freeze([
   'people',
   'episodes',
   'intentions',
+  'retrieved',
   'batch',
 ]);
 export const CLAIM_KINDS: ReadonlyArray<string> = Object.freeze([
@@ -83,7 +89,7 @@ export const CLAIM_KINDS: ReadonlyArray<string> = Object.freeze([
   'lesson',
   'pattern',
 ]);
-export const HOW: ReadonlyArray<string> = Object.freeze(['said', 'saw', 'claimed', 'inferred', 'taught']);
+export const HOW = ASSERTION_HOW;
 export const TRUTHS: ReadonlyArray<string> = Object.freeze(['historical', 'disputed', 'retired']);
 export const DESCRIPTION_FIELDS: ReadonlyArray<string> = Object.freeze([
   'character',
@@ -289,49 +295,8 @@ function currentSql(db: Db): string {
   AND NOT EXISTS (SELECT 1 FROM sources d WHERE ${same('d')} AND d.kind = 'deleted' AND d.retired_at IS NULL)`;
 }
 
-/**
- * A scope as the sweep walks it: `{ key, scope: { scope_kind, scope_iface, scope_dm }, ctx }`; read through `audience_id`
- * (`audienceColumn`: the entry also carries `audienceId`, and its context reads that column), else through the triple.
- */
-/** A scope as the sweep walks it: its key, the triple, the context that reads it and, with `audienceColumn`, its audience. */
-export type SweepScope = { key: string; scope: Scope; ctx: Context; audienceId?: string };
-
-function scopeOf(row: Row, audienceColumn = false): SweepScope {
-  const entry: SweepScope =
-    row.scope_kind === 'group'
-      ? {
-          key: `group:${asText(row.scope_iface)}`,
-          scope: { scope_kind: 'group', scope_iface: row.scope_iface as string, scope_dm: null },
-          ctx: groupContext(row.scope_iface as string),
-        }
-      : {
-          key: `dm:${asText(row.scope_iface)}:${asText(row.scope_dm)}`,
-          scope: { scope_kind: 'dm', scope_iface: row.scope_iface as string, scope_dm: row.scope_dm as string },
-          ctx: dmContext(row.scope_dm as string, row.scope_iface as string),
-        };
-  if (audienceColumn !== true) return entry;
-  return { ...entry, audienceId: audienceOf(entry.scope).audience_id, ctx: { ...entry.ctx, audienceColumn: true } };
-}
-
-/**
- * The scopes that have chat lines, group first, in a stable order. `audienceColumn`: read them through `audience_id`.
- * A triple that names no valid audience (a DM whose partner is not a person id of its interface) is not a scope of its
- * own: its lines are internal (scope.ts#audienceOf), never read as a conversation.
- */
-export function scopesOf(
-  dbGiven: unknown,
-  { audienceColumn = false }: { audienceColumn?: boolean } = {}
-): Array<SweepScope> {
-  const db = dbGiven as Db;
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT scope_kind, scope_iface, scope_dm FROM sources
-      WHERE kind IN ('seen', 'said') AND retired_at IS NULL AND scope_kind IN ('group', 'dm') AND scope_iface IS NOT NULL
-      ORDER BY scope_kind, scope_iface, scope_dm`
-    )
-    .all();
-  return rows.filter((row) => wellFormed(row)).map((row) => scopeOf(row, audienceColumn));
-}
+export { scopesOf };
+export type { SweepScope };
 
 export const cursorKey = (mode: unknown, scopeKey: unknown): string =>
   `memory_session.cursor.${asText(mode)}.${asText(scopeKey)}`;
@@ -622,6 +587,10 @@ export type RequestMaps = {
   places: Map<string, string>;
   authors: Map<string, BatchAuthor>;
   versions?: Map<string, unknown>;
+  /** `vN`: a stored version the request showed, a premise an assertion may name. */
+  priorVersions?: Map<string, string>;
+  /** `xN`: a stored entity the request showed, a `ref` an assertion may name. */
+  priorEntities?: Map<string, string>;
 };
 
 /** A request of one batch page: the messages, the maps of its local ids, its counts and the reads it renders. */
@@ -656,6 +625,7 @@ export function buildSessionRequest({
   selfName,
   now,
   page = 0,
+  retrieved = null,
 }: {
   db: Db;
   scope: Pick<SweepScope, 'scope' | 'ctx'>;
@@ -665,6 +635,8 @@ export function buildSessionRequest({
   selfName: unknown;
   now: number;
   page?: number;
+  /** What the retrieval service found for this batch: rendered as `<retrieved>`, each item with its own handle. */
+  retrieved?: MemoryPage | null;
 }): SessionRequest {
   const settings = sessionSettings(config);
   const labels = (prompts?.labels ?? {}) as Labels & Row;
@@ -740,6 +712,25 @@ export function buildSessionRequest({
     );
   }
   const batchBody = [`cutoff: ${stamp(cutoff, timezone)}`, ...rendered].join('\n');
+
+  // <retrieved>
+  let shownRetrieved: Array<string> = [];
+  if (retrieved) {
+    maps.priorVersions = new Map();
+    maps.priorEntities = new Map();
+    shownRetrieved = retrievedLines({
+      db,
+      ctx,
+      retrieved,
+      cutoffIso,
+      lineNumber: n,
+      sources: maps.sources,
+      versions: maps.priorVersions,
+      entities: maps.priorEntities,
+      read,
+      timeOf: (ms) => stamp(ms, timezone),
+    }).lines;
+  }
 
   // <self>
   const selfScope = scopeWhere(ctx, 'c');
@@ -851,48 +842,13 @@ export function buildSessionRequest({
     peopleBodies.push(lines.join('\n'));
   }
 
-  // <episodes>
-  const episodeLines: Array<string> = [];
-  if (shown.length > 0) {
-    const episodeScope = scopeWhere(ctx, 'e');
-    const ids = shown.map((person) => person.id);
-    const rows = db
-      .prepare(
-        `SELECT e.id, e.subject_id, e.date, e.what, e.feeling FROM episodes e
-        WHERE e.retired_at IS NULL AND (e.status IS NULL OR e.status != 'closed') AND e.subject_id IN (${ids.map(() => '?').join(', ')}) AND ${episodeScope.sql}
-          AND (e.created_at IS NULL OR e.created_at <= ?)
-        ORDER BY COALESCE(e.last_ms, 0) DESC, e.date DESC, e.id LIMIT ?`
-      )
-      .all(...ids, ...episodeScope.params, cutoffIso, settings.episodesMax);
-    rows.forEach((row: Row, index: number) => {
-      maps.episodes.set(`e${index + 1}`, row.id as string);
-      read('episode', row.id, 'episodes');
-      const who = shown.find((person) => person.id === row.subject_id)?.name ?? row.subject_id;
-      episodeLines.push(
-        `[e${index + 1}] ${[row.date, who].filter(Boolean).join(' ')}: ${asText(row.what)}${row.feeling ? ` (${asText(row.feeling)})` : ''}`
-      );
-    });
-  }
-
-  // <intentions>
-  const intentionLines: Array<string> = [];
-  const intentionScope = scopeWhere(ctx, 'i');
-  const records = db
-    .prepare(
-      `SELECT i.id, i.record FROM intentions i WHERE i.archived = 0 AND i.retired_at IS NULL AND ${intentionScope.sql} ORDER BY i.created_ms`
-    )
-    .all(...intentionScope.params);
-  for (const row of records) {
-    const record = parseJson(row.record) as (Row & Intention) | null;
-    if (!record || !isOpen(record.status)) continue;
-    const concerns =
-      shown.some((person) => concernsMember(record, { accountId: person.native, names: [person.name] })) ||
-      placeIds.some((id) => JSON.stringify(record).includes(nativeOf(id) ?? '\u0000'));
-    if (concerns && typeof record.purpose === 'string') {
-      intentionLines.push(`${record.status}: ${record.purpose}`);
-      read('intention', row.id, 'intentions');
-    }
-  }
+  const episodeLines = episodeLinesOf(db, ctx, shown, {
+    max: settings.episodesMax,
+    cutoffIso,
+    episodes: maps.episodes,
+    read,
+  });
+  const intentionLines = intentionLinesOf(db, ctx, shown, placeIds, read);
 
   const system = systemTextOf(prompts, selfName, prompts?.['memory-session']);
   // The stable blocks first (the cache marker covers them and the system text), the lines last: the stable part holds
@@ -909,7 +865,10 @@ export function buildSessionRequest({
   const user = [
     // `<place>` always has its scope line, so the stable part is never empty.
     { type: 'text' as const, text: `${stable}\n\n`, cacheSegment: 'stable' as const },
-    { type: 'text' as const, text: block('batch', batchBody) },
+    {
+      type: 'text' as const,
+      text: [block('retrieved', shownRetrieved.join('\n')), block('batch', batchBody)].filter(Boolean).join('\n\n'),
+    },
   ];
   // A read's order is its place in the request: the blocks in the order the user content has them, then as built.
   const rank = (name: string) => SESSION_BLOCKS.indexOf(name);
@@ -992,7 +951,14 @@ export type AnswerPlan = {
   affinity: Array<Row>;
   descriptions: Array<Row>;
   people: Array<Row>;
+  entities: Array<Row>;
+  assertions: Array<Row>;
 };
+
+/** A group the contract does not name is counted, so a misspelled one never reads as kept. */
+function dropUnknownGroups(value: Row, plan: AnswerPlan, drop: (reason: string) => void): void {
+  for (const key of Object.keys(value)) if (!Object.hasOwn(plan, key)) drop('unknown_group');
+}
 
 /**
  * Checks a parsed answer against the request and resolves it to database ids. Anything that does not hold is dropped
@@ -1007,11 +973,20 @@ export function validateAnswer(
   { maps, people }: { maps: RequestMaps; people: ReadonlyArray<BatchPerson> }
 ): { plan: AnswerPlan; counts: { kept: number; dropped: Record<string, number> } } {
   const value = valueGiven as Row;
-  const plan: AnswerPlan = { claims: [], episodes: [], affinity: [], descriptions: [], people: [] };
+  const plan: AnswerPlan = {
+    claims: [],
+    episodes: [],
+    affinity: [],
+    descriptions: [],
+    people: [],
+    entities: [],
+    assertions: [],
+  };
   const counts: { kept: number; dropped: Record<string, number> } = { kept: 0, dropped: {} };
   const drop = (reason: string): void => {
     counts.dropped[reason] = (counts.dropped[reason] ?? 0) + 1;
   };
+  dropUnknownGroups(value, plan, drop);
   const personByKey = new Map<string, BatchPerson>();
   const ambiguous = new Set<string>();
   for (const person of people) {
@@ -1204,12 +1179,17 @@ export function validateAnswer(
     keep('affinity', { personId: found.id, delta: Math.round(item.delta), reason: text(item.reason), sources });
   }
 
+  // A stored entity the request showed is flagged by its `xN`.
+  const flagSubjectOf = (item: Row) => {
+    const stored = maps.priorEntities?.get(text(item.subject));
+    return stored === undefined ? subjectOf(item) : { kind: 'entity', id: stored };
+  };
   for (const item of list('descriptions')) {
     if (!isObject(item)) {
       drop('bad_op');
       continue;
     }
-    const subject = subjectOf(item);
+    const subject = flagSubjectOf(item);
     if (!subject) continue;
     if (!DESCRIPTION_FIELDS.includes(item.field as string)) {
       drop('bad_field');
@@ -1246,6 +1226,16 @@ export function validateAnswer(
     if (!sources) continue;
     keep('people', { op: 'add', subjectKind: author.kind, subjectId: author.id, sources, reason: text(item.reason) });
   }
+  validateSemanticAnswer({
+    priorEntities: maps.priorEntities,
+    list,
+    sourcesOf,
+    person,
+    places: maps.places,
+    priorVersions: maps.priorVersions,
+    keep,
+    drop,
+  });
   return { plan, counts };
 }
 
@@ -1748,6 +1738,17 @@ async function skipBatch(
 }
 
 /** One request (one page of the batch): build, send, parse, validate, write. Never throws; the outcome is in the result. */
+/** The context a run's reads are recorded under. */
+const issuedSessionContext = (scope: SweepScope, runId: string, startedAt: number): Context =>
+  issueContext({
+    kind: scope.scope.scope_kind === 'dm' ? 'dm' : 'group',
+    iface: scope.scope.scope_iface ?? undefined,
+    person: scope.scope.scope_dm,
+    place: scope.ctx.place ?? null,
+    now: () => startedAt,
+    newId: () => `ctx:session:${runId}`,
+  });
+
 async function runScope(
   ctx: SessionContext,
   {
@@ -1791,6 +1792,7 @@ async function runScope(
     sweepId,
     scopeKey: scope.key,
     scope: scope.scope,
+    audienceId: scope.audienceId,
     batchKey,
     startedAt: new Date(startedAt).toISOString(),
     finishedAt: null as string | null,
@@ -1877,10 +1879,19 @@ async function runScope(
     };
   };
 
+  const retrieved = await readRetrieved({
+    db,
+    ctx: scope.ctx,
+    config,
+    batch,
+    people: peopleOf(db, batch, ctx.selfName ?? '').people.map((person) => person.id),
+    now,
+    log,
+  });
   let request: SessionRequest;
   try {
-    request = (ctx.track ?? untracked)('session.request', () =>
-      buildSessionRequest({
+    request = (ctx.track ?? untracked)('session.request', () => {
+      const given = {
         db,
         scope,
         batch,
@@ -1889,20 +1900,18 @@ async function runScope(
         selfName: ctx.selfName ?? '',
         now: startedAt,
         page,
-      })
-    );
+      };
+      const whole = buildSessionRequest({ ...given, retrieved });
+      // The batch was fitted to the request cap without this block: the block gives way, never the batch.
+      const cap = requestCapOf(config, CAP_SHARE);
+      return retrieved && cap !== null && estimateMessages(whole.messages) > cap ? buildSessionRequest(given) : whole;
+    });
   } catch (error) {
     run.errors.push(`build:${codeOf(error)}`);
     return finish('build_error');
   }
   try {
-    const issued = issueContext({
-      kind: scope.scope.scope_kind === 'dm' ? 'dm' : 'group',
-      iface: scope.scope.scope_iface ?? undefined,
-      person: scope.scope.scope_dm,
-      now: () => startedAt,
-      newId: () => `ctx:session:${runId}`,
-    });
+    const issued = issuedSessionContext(scope, runId, startedAt);
     readSet = { rows: resolveSessionReads(db, request, issued.iface as string), context: contextRow(issued) };
   } catch (error) {
     // The run goes on without its read-set (and without bases): logged with a code, counted in its errors.
@@ -1952,6 +1961,8 @@ async function runScope(
     affinity: plan.affinity.length,
     descriptions: plan.descriptions.length,
     people: plan.people.length,
+    entities: plan.entities.length,
+    assertions: plan.assertions.length,
   };
   return finish(counts.kept === 0 && Object.keys(counts.dropped).length > 0 ? 'all_dropped' : 'ok', {
     plan,

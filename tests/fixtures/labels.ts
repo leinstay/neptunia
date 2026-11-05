@@ -211,7 +211,20 @@ export const labels = {
     stretch: '[stretch of {date} in #{channel}]',
     timeEstimate: '[time cue {range}, an estimate]',
   },
+  diaryFacts: {
+    header: 'Stored facts:',
+    fact: '- ({state}) {text}',
+  },
   prefetch: {
+    factExcerpt: '[{n}] {source}, {state}',
+    factStates: {
+      current: 'current',
+      disputed: 'disputed',
+      historical: 'historical',
+      retired: 'retired',
+      unknown: 'unverified',
+      negative: 'not so',
+    },
     header: '[retrieved]',
     basis: '[basis {basis}]',
     lanes: { message: 'message', reply: 'reply', recent: 'recent', wake: 'wake' },
@@ -526,6 +539,7 @@ export const labels = {
     earlier: '(an earlier turn here, {ago} ago)',
   },
   wake: {
+    memory: { header: 'Stored facts:', fact: '- ({state}) {text}' },
     header: 'wake:',
     kinds: { intention_due: 'due: {id} {purpose} ({due})', review: 'review', errand_deadline: 'deadline passed: {id} {purpose} errand {errand}', attend: 'talk in #{place} ({id} {purpose}): {lines} lines since {since} by {people}', feedback: 'feedback on your previous turn:', heartbeat: 'heartbeat' },
     delayed: 'delayed {minutes} {code}',

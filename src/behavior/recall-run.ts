@@ -107,6 +107,9 @@ import { fitExcerpts, focusHits, lanePlan, lexicalKeep, rankPrefetch } from './p
 import { indexWords } from '../memory/record-index.ts';
 import { CODE } from '../tools/codes.ts';
 import { dbSettings, quotesOf, search as searchRows, window as windowRows } from '../memory/db/recall.ts';
+import { factExcerpts, prefetchFacts, searchFacts } from './recall-facts.ts';
+import type { MemoryPage } from '../memory/db/semantic-types.ts';
+import type { RetrievalInput } from '../memory/retrieval-input.ts';
 import { personId } from '../memory/db/ids.ts';
 import { currentIface } from '../memory/db/current-iface.ts';
 import { isIssuedInternalContext, issueContext, readContextSpec } from '../memory/db/scope.ts';
@@ -174,7 +177,8 @@ const LATIN_LETTER_RE = /\p{Script=Latin}/u;
 const TRACE_TEXT_CHARS = 120;
 
 /** Whether the parsed server part asks anything. */
-function asksServer(server: Untyped) {
+function asksServer(server: Untyped, retrieval: Untyped = null) {
+  if (typeof retrieval?.entity === 'string' && retrieval.entity !== '') return true;
   if (!server || typeof server !== 'object') return false;
   const some = (list: Untyped) => Array.isArray(list) && list.length > 0;
   return some(server.forms) || some(server.who) || Number.isFinite(server.from) || Number.isFinite(server.to);
@@ -986,6 +990,7 @@ export function createRecall({
     decorate,
     started,
     memoryContext = null,
+    retrieval = null,
   }: RunDbQuotesInput) {
     const stats = emptyStats();
     const reader = dbReader({
@@ -1040,6 +1045,17 @@ export function createRecall({
     const quotes = dbQuotes({ config, settings, placeId, selfName, windows: found.windows, decorate });
     stats.kept = quotes.length;
     stats.summary = 'quotes';
+    const page = await searchFacts({
+      db,
+      ctx: reader.ctx,
+      text: candidate?.content,
+      retrieval,
+      config,
+      prefetch: settings.prefetch,
+      now,
+      vector,
+      model: reader.model,
+    });
     log.info('recall: quoted', {
       channel: channel.id,
       windows: found.windows.length,
@@ -1055,6 +1071,8 @@ export function createRecall({
       hidden: found.hidden === true,
       hitIds: found.hits.map((hit: Untyped) => hit.messageId),
       people: [],
+      assertions: page?.assertions ?? [],
+      factsCut: page?.next != null,
       stats: { ...stats, ms: now() - started },
       outcome: { kind: 'searched', degraded, failed: 0, total: 1 },
     };
@@ -1645,6 +1663,7 @@ export function createRecall({
     decorate = null,
     quotes = false,
     memoryContext = null,
+    retrieval = null,
   }: RunInput) {
     const started = now();
     const conversationId = channel?.id ?? null;
@@ -1687,7 +1706,7 @@ export function createRecall({
       trace = newTrace({ started, placeId: conversationId, candidate, server });
       traceMaxLines = settings.traceMaxLines;
       if (!hasRecallContext({ channel, partnerId, memoryContext })) return skip('private-chat');
-      if (!asksServer(server)) return skip('no-query');
+      if (!asksServer(server, retrieval)) return skip('no-query');
       const prompt = summaryPrompt(hot.prompts);
       if (!prompt && !quotes) return skip('no-prompt');
       if (capSpent()) return skip('daily-cap');
@@ -1716,6 +1735,7 @@ export function createRecall({
           decorate,
           started,
           memoryContext,
+          retrieval,
         });
         if (trace) trace.summary = { answer: 'quotes', stretch: null, text: null, note: null };
         if (op) await op.succeeded(opResult(found, 'ok'));
@@ -1813,6 +1833,89 @@ export function createRecall({
     };
   }
 
+  /** The prefetch's fused units as excerpts: a stored item as it is, a stretch cut around its best hits. */
+  function renderUnits(
+    units: ReturnType<typeof rankPrefetch>,
+    config: Untyped,
+    placeId: string | null,
+    decorate: Untyped,
+    render: Parameters<typeof renderRecallWindows>[1],
+    excerptChars: number,
+    nameOf: Untyped
+  ): Array<Untyped> {
+    const rendered: Array<Untyped> = [];
+    for (const unit of units) {
+      if (unit.kind === 'memory') {
+        const item = unit.item;
+        rendered.push({
+          source: 'memory',
+          kind: item.kind,
+          date: item.date ?? null,
+          accountId: item.accountId ?? null,
+          who: item.accountId ? nameOf(item.accountId) : null,
+          id: item.itemId ?? null,
+          lines: item.text,
+          text: item.text,
+        });
+        continue;
+      }
+      // Only the best hit and the hits close to it are marked, so a long stretch with many hits is cut around them.
+      const focus = focusHits(
+        unit.window.messages.map((m: Untyped) => m.id),
+        unit.hitIds,
+        FOCUS_LINES
+      );
+      const focused = { ...unit.window, hitIds: new Set(focus) };
+      const window = typeof decorate === 'function' ? { ...focused, messages: decorate(focused.messages) } : focused;
+      window.descriptions = cachedCaptions(config, placeId, [window]);
+      const [shown] = renderRecallWindows([window], render);
+      const lines = cutStretch(shown?.lines ?? [], excerptChars);
+      if (lines.length === 0) continue;
+      const text = lines.map((line) => line.text).join('\n');
+      const ids = lines.map((line) => line.id);
+      rendered.push({
+        source: 'history',
+        placeId: window.placeId,
+        channelName: window.channelName ?? null,
+        startTs: lines[0].ts,
+        endTs: lines[lines.length - 1].ts,
+        id: unit.hitIds[0] ?? ids[0],
+        ids,
+        hitIds: focus.filter((id) => ids.includes(id)),
+        lines: text,
+        text,
+      });
+    }
+    return rendered;
+  }
+
+  /** A prefetch's facts under the context its own reads use, anchored on who is speaking. */
+  function readPrefetchFacts(
+    db: Untyped,
+    config: Untyped,
+    settings: Untyped,
+    where: Omit<DbReaderInput, 'db' | 'config'>,
+    retrieval: RetrievalInput | null,
+    text: unknown,
+    laneVectors: unknown
+  ): Promise<MemoryPage | null> {
+    const reader = dbReader({ db, config, ...where });
+    const asker: unknown = where.asker;
+    const speaks = typeof asker === 'string' && asker !== '' && typeof store.personOfAccount === 'function';
+    return prefetchFacts({
+      db,
+      ctx: reader.ctx,
+      retrieval,
+      text,
+      speaker: speaks ? [personOfMember(store, asker, String(reader.ctx.iface))] : [],
+      config,
+      prefetch: settings.prefetch,
+      now,
+      laneVectors,
+      model: reader.model,
+    });
+  }
+
   async function prefetch({
     placeId = null,
     snapshot = null,
@@ -1827,6 +1930,7 @@ export function createRecall({
     decorate = null,
     asker = null,
     memoryContext = null,
+    retrieval = null,
   }: PrefetchInput): Promise<PrefetchOutcome | null> {
     const started = now();
     const list = Array.isArray(lanes) ? lanes.filter((lane) => lane && typeof lane.kind === 'string') : [];
@@ -2033,11 +2137,28 @@ export function createRecall({
         });
       }
       if (tasks.length === 0) return finish('none', { stats: { ...stats, candidates: 0 } });
+      // The stored facts of the same moment, through the one retrieval service: they share this deadline and token budget.
+      const facts: { page: MemoryPage | null } = { page: null };
+      const factsRead = (
+        db
+          ? readPrefetchFacts(
+              db,
+              config,
+              settings,
+              { snapshot, placeId, channel, partnerId, asker, memoryContext },
+              retrieval,
+              trigger || list[0].words,
+              dbMeaning ? laneVectors : null
+            )
+          : Promise.resolve(null)
+      ).then((page: MemoryPage | null) => {
+        if (!signal.aborted) facts.page = page;
+      });
       const deadline = new Promise((resolve) => {
         // Not unref'd: a turn waits for it, and it is short.
         timer = timers.set(() => resolve(TIMEOUT), p.deadlineMs);
       });
-      const outcome = await Promise.race([Promise.all(tasks), deadline]);
+      const outcome = await Promise.race([Promise.all([...tasks, factsRead]), deadline]);
       const timedOut = outcome === TIMEOUT;
       if (timedOut) controller.abort();
       const found = [...settled];
@@ -2049,49 +2170,9 @@ export function createRecall({
         seeReactions: true,
         indexed: false,
       };
-      const rendered: Array<Untyped> = [];
-      for (const unit of units) {
-        if (unit.kind === 'memory') {
-          const item = unit.item;
-          rendered.push({
-            source: 'memory',
-            kind: item.kind,
-            date: item.date ?? null,
-            accountId: item.accountId ?? null,
-            who: item.accountId ? nameOf(item.accountId) : null,
-            id: item.itemId ?? null,
-            lines: item.text,
-            text: item.text,
-          });
-          continue;
-        }
-        // Only the best hit and the hits close to it are marked, so a long stretch with many hits is cut around them.
-        const focus = focusHits(
-          unit.window.messages.map((m: Untyped) => m.id),
-          unit.hitIds,
-          FOCUS_LINES
-        );
-        const focused = { ...unit.window, hitIds: new Set(focus) };
-        const window = typeof decorate === 'function' ? { ...focused, messages: decorate(focused.messages) } : focused;
-        window.descriptions = cachedCaptions(config, placeId, [window]);
-        const [shown] = renderRecallWindows([window], render);
-        const lines = cutStretch(shown?.lines ?? [], p.excerptChars);
-        if (lines.length === 0) continue;
-        const text = lines.map((line) => line.text).join('\n');
-        const ids = lines.map((line) => line.id);
-        rendered.push({
-          source: 'history',
-          placeId: window.placeId,
-          channelName: window.channelName ?? null,
-          startTs: lines[0].ts,
-          endTs: lines[lines.length - 1].ts,
-          id: unit.hitIds[0] ?? ids[0],
-          ids,
-          hitIds: focus.filter((id) => ids.includes(id)),
-          lines: text,
-          text,
-        });
-      }
+      const rendered = renderUnits(units, config, placeId, decorate, render, p.excerptChars, nameOf);
+      // Facts come after the windows: they take the room the windows leave, so they can never hide a plain line.
+      rendered.push(...factExcerpts(facts.page));
       const excerpts = fitExcerpts(rendered, p).map(({ text, ...excerpt }) => excerpt);
       const extra = {
         excerpts,

@@ -32,6 +32,7 @@
 // (src/behavior/inner.ts). normalizeAttend fills the defaults (ATTEND_DEFAULTS, or
 // `wakes.attention.*` through attentionSettings); validAttend checks the shape.
 
+import type { RetrievalInput } from '../memory/retrieval-input.ts';
 import { isPublicationBoundary } from '../tools/publication.ts';
 import type { PublicationBoundary } from '../tools/publication.ts';
 import { createHash, randomUUID } from 'node:crypto';
@@ -227,6 +228,36 @@ export function isTerminal(status: unknown): boolean {
 }
 
 /** True for an open status. */
+/**
+ * What the wake of `records` reads memory for: each intention's own purpose, the people it attends and its place, never what
+ * is active now. Null without an intention. The purposes join into one query, because a turn reads memory once.
+ */
+export function attentionRetrieval(
+  records: ReadonlyArray<
+    | {
+        purpose?: unknown;
+        attend?: { place?: unknown; people?: ReadonlyArray<unknown> } | null;
+        destination?: unknown;
+      }
+    | null
+    | undefined
+  >,
+  personOf: (id: string) => string | null
+): RetrievalInput | null {
+  const open = records.flatMap((one) => (one === null || one === undefined ? [] : [one]));
+  if (open.length === 0) return null;
+  const people = open.flatMap((one) => one.attend?.people ?? []).flatMap((id) => personOf(String(id)) ?? []);
+  return {
+    purpose: 'attention',
+    intention: {
+      purpose: open.map((one) => (typeof one.purpose === 'string' ? one.purpose : '')).join('\n'),
+      people: [...new Set(people)],
+      entities: [],
+      place: [open[0].attend?.place, open[0].destination].find((id): id is string => typeof id === 'string') ?? null,
+    },
+  };
+}
+
 export function isOpen(status: unknown): boolean {
   return typeof status === 'string' && OPEN.includes(status);
 }

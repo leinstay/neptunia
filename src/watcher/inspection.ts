@@ -78,6 +78,8 @@ export type InspectionDeps = {
   openBoard(): Promise<BoardCaller>;
   /** The facts of the running install for the brief; absent, the brief holds none. */
   install?: () => InstallFacts;
+  /** Stored facts that bear on failing work for the brief; absent, the brief holds none. */
+  memory?: () => Promise<ReadonlyArray<string>>;
   onPhase?: (phase: InspectionPhase, runId: string) => void;
   /** How often the run's record is read for a cancel (ms). */
   cancelPollMs?: number;
@@ -145,7 +147,7 @@ type Observation = { from: number; to: number; dayFrom: number };
 type BoardOpener = () => Promise<BoardCaller>;
 
 /** The first brief, or the end of the run. */
-function firstBrief(deps: InspectionDeps, run: RunRecord, observation: Observation): string {
+async function firstBrief(deps: InspectionDeps, run: RunRecord, observation: Observation): Promise<string> {
   let prompt = '';
   try {
     prompt = readPromptFile([...deps.promptFiles]);
@@ -159,6 +161,7 @@ function firstBrief(deps: InspectionDeps, run: RunRecord, observation: Observati
     reportsDir: deps.reportsDir,
     observation,
     ...(deps.install === undefined ? {} : { install: deps.install() }),
+    ...(deps.memory === undefined ? {} : { memory: await deps.memory() }),
   });
 }
 
@@ -348,7 +351,7 @@ async function passedAnswer(
   observation: Observation,
   phase: (name: InspectionPhase) => void
 ): Promise<PassedAnswer> {
-  const first = firstBrief(deps, run, observation);
+  const first = await firstBrief(deps, run, observation);
   const startedAt = deps.store.now();
   const attempt = async (
     brief: string,

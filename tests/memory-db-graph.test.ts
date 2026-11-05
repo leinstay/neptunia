@@ -90,7 +90,8 @@ test('the manifest names only tables and columns the schema has, every projected
         has(table, unit[1]);
       } else assert.ok(UNIT_ORDER.includes(table), table);
     }
-    // The spec's list of node kinds and predicates (section 3), node_facts deferred to its own migration.
+    // The spec's list of node kinds and predicates (section 3), node_facts deferred to its own migration. Semantic memory
+    // adds `semantic_entity` and the `asserts`, `denies` and `has_role` edges of an assertion version.
     assert.deepEqual(Object.keys(NODE_KINDS).sort(), [
       'account',
       'authority',
@@ -109,6 +110,7 @@ test('the manifest names only tables and columns the schema has, every projected
       'person',
       'place',
       'publication',
+      'semantic_entity',
       'skill',
       'source',
       'work',
@@ -116,12 +118,15 @@ test('the manifest names only tables and columns the schema has, every projected
     assert.deepEqual(Object.keys(PREDICATES).sort(), [
       'about',
       'account_of',
+      'asserts',
       'authored_by',
       'contained_in',
       'continues',
+      'denies',
       'derived_from',
       'follows',
       'has_membership',
+      'has_role',
       'located_in',
       'membership_in',
       'mentions',
