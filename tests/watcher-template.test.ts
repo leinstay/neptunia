@@ -1,5 +1,5 @@
 // Every watcher report is one Markdown file in one exact template (`checkTemplate` of src/watcher/report.ts): the title
-// with its day, the fixed metadata block, the seven sections, the same four subheadings in each, and the coverage block
+// with its day, the fixed metadata block, the eleven sections, the same four subheadings in each, and the coverage block
 // at the end. A text outside it is refused with a code, the run fails, and the last successful view stays.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -49,7 +49,30 @@ test('a report in the template passes, and the check gives back its day and meta
     effort: 'medium',
     account: 'the persona account',
     sources: 'model_requests, service journal',
+    risk: 'none',
+    newFindings: 0,
+    repeats: 0,
   });
+});
+
+test('the sections are the eleven of the owner, exact and in order', () => {
+  // Bug: a section is renamed in one place, and the check, the prompt and the readers hold different lists.
+  assert.deepEqual(
+    [...reports.REPORT_HEADINGS],
+    [
+      'Her day',
+      'Service runs',
+      'Memory',
+      'Errors',
+      'Misunderstandings',
+      'Project',
+      'Modules and structure',
+      'The server',
+      'Wishes',
+      'Tasks filed',
+      'For the owner',
+    ]
+  );
 });
 
 test('findings of any length pass under their subheadings, and a heading quoted in a fence is no heading', () => {
@@ -57,13 +80,18 @@ test('findings of any length pass under their subheadings, and a heading quoted 
   const text = templateOf({
     bodies: {
       Memory: {
-        'Observed defects': '- the cursor stalled\n- two sessions failed\n\nBoth on one scope.',
+        'Observed defects': '- [high] cursor-stalled: the cursor stalled\n- [low] two-failed: two sessions failed',
+        'Inspected without a finding': '- the scope cursors\n\nBoth scopes were read.',
         'Unavailable checks': '```\n## Summary\n### Notes\n```',
       },
     },
   });
   assert.equal(codeOf(text), 'passed');
 });
+
+/** The metadata with one row's value replaced. */
+const withRow = (label: string, value: string): Array<readonly [string, string]> =>
+  METADATA.map((row) => (row[0] === label ? ([label, value] as const) : row));
 
 const SECTIONS = {
   'an extra section': [
@@ -110,6 +138,11 @@ const TOP = {
     templateOf({ metadata: [['Interval', 'x'], ...METADATA.slice(1)] }),
     'bad-metadata',
   ],
+  'a risk that is no level': [templateOf({ metadata: withRow('Risk', 'severe') }), 'bad-metadata'],
+  'a risk in brackets': [templateOf({ metadata: withRow('Risk', '[high]') }), 'bad-metadata'],
+  'counts that are no numbers': [templateOf({ metadata: withRow('New findings', 'many, repeats: 1') }), 'bad-metadata'],
+  'counts with no repeats': [templateOf({ metadata: withRow('New findings', '2') }), 'bad-metadata'],
+  'the word none in another row': [templateOf({ metadata: withRow('Effective account', 'none') }), 'bad-metadata'],
   'text after the metadata': [templateOf().replace('\n\n## Her day\n', '\n\nA note.\n\n## Her day\n'), 'stray-text'],
   'text between a section and its first subheading': [
     templateOf().replace('## Memory\n', '## Memory\n\nA note.\n'),
@@ -135,13 +168,53 @@ for (const [name, body, code] of [
 ] as const) {
   test(`an empty subsection saying ${name} is refused as ${code}`, () => {
     // Bug: "nothing" is written five ways, and counting the checks with no finding across a month needs a guess.
-    assert.equal(codeOf(templateOf({ bodies: { Memory: { 'Suspicious evidence': body } } })), code);
+    assert.equal(codeOf(templateOf({ bodies: { Memory: { 'Unavailable checks': body } } })), code);
   });
 }
 
 test('an empty subsection says exactly the one fixed word', () => {
   // Bug: the check refuses the fixed word itself, or the fixture and the contract name different words.
   assert.equal(codeOf(templateOf({ bodies: { Memory: { 'Suspicious evidence': EMPTY } } })), 'passed');
+});
+
+for (const sub of ['Observed defects', 'Suspicious evidence']) {
+  for (const [name, line] of [
+    ['no level', '- retry-rail: the rail loops'],
+    ['no key', '- [high] the rail loops'],
+    ['a key with no text', '- [high] retry-rail:'],
+    ['the level none', '- [none] retry-rail: the rail loops'],
+    ['an unknown level', '- [urgent] retry-rail: the rail loops'],
+    ['a level in capitals', '- [HIGH] retry-rail: the rail loops'],
+    ['a plain sentence', 'The rail loops.'],
+    ['a good line and a loose one', '- [high] retry-rail: the rail loops\nIt loops at night.'],
+  ] as const) {
+    test(`a line with ${name} under ${sub} is refused as bad-risk`, () => {
+      // Bug: a finding with no level slips through, so the day's highest risk is computed from part of the report.
+      assert.equal(codeOf(templateOf({ bodies: { Memory: { [sub]: line } } })), 'bad-risk');
+    });
+  }
+  for (const level of ['critical', 'high', 'medium', 'low']) {
+    test(`a line at ${level} under ${sub} passes`, () => {
+      // Bug: the list of levels in the check misses one the prompt offers, and every report using it fails.
+      assert.equal(
+        codeOf(templateOf({ bodies: { Wishes: { [sub]: `- [${level}] retry-rail: it loops` } } })),
+        'passed'
+      );
+    });
+  }
+}
+
+for (const sub of ['Inspected without a finding', 'Unavailable checks']) {
+  test(`a line under ${sub} carrying a level is refused as bad-risk`, () => {
+    // Bug: a defect hides among the checks with no finding, and the risk line never counts it.
+    assert.equal(codeOf(templateOf({ bodies: { Memory: { [sub]: '- [high] retry-rail: it loops' } } })), 'bad-risk');
+  });
+}
+
+test('the engine filing lines under Observed defects of Tasks filed carry no level and pass', () => {
+  // Bug: the risk rule covers the section the engine writes, so every report with a task is refused after its own stamp.
+  const lines = '- T-1 (fix, rail): Rail\n- deferred (fix, other): Other\n- already T-2 (chore, third): Third';
+  assert.equal(codeOf(templateOf({ bodies: { 'Tasks filed': { 'Observed defects': lines } } })), 'passed');
 });
 
 const END = {
@@ -166,7 +239,7 @@ test('a credential-shaped string anywhere is refused and the detail never quotes
   // Bug: the template check replaces the secret check, or repeats the line it refused into a log.
   for (const text of [
     templateOf({ bodies: { 'The server': `journal: ${PLANTED_KEY}` } }),
-    templateOf({ metadata: [...METADATA.slice(0, 5), ['Effective account', PLANTED_KEY], METADATA[6] ?? ['', '']] }),
+    templateOf({ metadata: withRow('Effective account', PLANTED_KEY) }),
   ]) {
     const checked = reports.checkTemplate(text);
     assert.ok(!checked.ok);
@@ -255,6 +328,8 @@ test('the engine writes the facts it knows into the metadata, whatever the agent
       ['Effort', 'invented-effort'],
       ['Effective account', 'the persona account'],
       ['Available sources', 'model_requests'],
+      ['Risk', 'critical'],
+      ['New findings', '9, repeats: 9'],
     ],
   });
   const result = await runInspection(
@@ -274,6 +349,9 @@ test('the engine writes the facts it knows into the metadata, whatever the agent
   assert.ok(checked.metadata.observationInterval.endsWith(new Date(rig.clock.t).toISOString()));
   assert.equal(checked.metadata.observationInterval.includes('2020-01-01'), false);
   assert.equal(checked.metadata.account, 'the persona account');
+  assert.equal(checked.metadata.risk, 'none');
+  assert.equal(checked.metadata.newFindings, 0);
+  assert.equal(checked.metadata.repeats, 0);
 });
 
 test('prompt.md asks for the whole template', () => {
@@ -283,4 +361,5 @@ test('prompt.md asks for the whole template', () => {
   for (const [label] of METADATA) assert.ok(prompt.includes(`- ${label}: `), label);
   for (const name of SUBHEADINGS) assert.ok(prompt.includes(`### ${name}`), name);
   assert.ok(prompt.includes('`none`'));
+  assert.ok(prompt.includes('[critical|high|medium|low]'));
 });

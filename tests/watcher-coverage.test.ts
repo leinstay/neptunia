@@ -23,7 +23,7 @@ import {
   said,
   templateOf,
 } from './fixtures/watcher-inspection-rig.ts';
-import { PLANTED_KEY, reportText } from './fixtures/watcher-rig.ts';
+import { HEADINGS, PLANTED_KEY, reportText } from './fixtures/watcher-rig.ts';
 
 const coverage = () => import('../src/watcher/coverage.ts');
 const inspection = () => import('../src/watcher/inspection.ts');
@@ -202,7 +202,7 @@ test('prompt.md keeps its seven sections and asks for the coverage block', () =>
   const headings = prompt.split('\n').filter((line) => line.startsWith('## '));
   assert.deepEqual(
     headings.map((line) => line.slice(3)),
-    [...reports.REPORT_HEADINGS]
+    [...HEADINGS]
   );
   assert.ok(prompt.includes('```coverage'));
 });

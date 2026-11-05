@@ -8,10 +8,14 @@ import { tempDir } from './tmp.ts';
 /** The headings of a report, in order (src/watcher/report.ts#REPORT_HEADINGS). */
 export const HEADINGS: ReadonlyArray<string> = [
   'Her day',
-  'Misunderstandings',
+  'Service runs',
   'Memory',
-  'The project',
+  'Errors',
+  'Misunderstandings',
+  'Project',
+  'Modules and structure',
   'The server',
+  'Wishes',
   'Tasks filed',
   'For the owner',
 ];

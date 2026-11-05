@@ -286,7 +286,11 @@ test('the real worker writes a report with the board unreachable and marks the f
   );
   const { binary } = subharnessPlace(where.data, 'claude');
   fs.mkdirSync(path.dirname(binary), { recursive: true });
-  fs.writeFileSync(binary, `#!/bin/sh\ncat > /dev/null\ncat ${JSON.stringify(answer)}\n`, { mode: 0o755 });
+  fs.writeFileSync(
+    binary,
+    `#!/bin/sh\nif [ "$1" = --help ]; then echo '  --session-id <uuid>'; exit 0; fi\ncat > /dev/null\ncat ${JSON.stringify(answer)}\n`,
+    { mode: 0o755 }
+  );
   const home = tempDir('nep-watcher-worker-home-');
   const code = await new Promise<number | null>((resolve, reject) => {
     const child = spawn(process.execPath, [BIN, 'worker', 'watcher'], {
@@ -316,4 +320,8 @@ test('the real worker writes a report with the board unreachable and marks the f
   const { lastRuns } = await lifecycle();
   const last = lastRuns(await storeOf(where)).lastSuccess;
   assert.equal(readFilings(where.dir, last?.runId ?? '')[0]?.state, 'deferred');
+  const { readSessionMap } = await import('../src/subharness/sessions.ts');
+  const [session] = readSessionMap(where.data);
+  assert.equal(session?.agent, 'watcher');
+  assert.equal(session?.runId, last?.runId);
 });

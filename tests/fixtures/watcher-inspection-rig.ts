@@ -54,9 +54,11 @@ export const METADATA: ReadonlyArray<readonly [string, string]> = [
   ['Effort', 'medium'],
   ['Effective account', 'the persona account'],
   ['Available sources', 'model_requests, service journal'],
+  ['Risk', 'none'],
+  ['New findings', '0, repeats: 0'],
 ];
 
-/** One section's body: a string goes under its first subheading, an object names the subheadings it fills. */
+/** One section's body: a string goes under `Inspected without a finding`, an object names the subheadings it fills. */
 type SectionBody = string | Readonly<Record<string, string>>;
 
 /**
@@ -81,7 +83,7 @@ export function templateOf(
     const body = options.bodies?.[heading] ?? {};
     const of = (name: string): string => {
       if (typeof body !== 'string') return body[name] ?? 'none';
-      return name === subheadings[0] ? body : 'none';
+      return name === 'Inspected without a finding' ? body : 'none';
     };
     return [`## ${heading}`, ...subheadings.map((name) => `### ${name}\n\n${of(name)}`)].join('\n\n');
   });

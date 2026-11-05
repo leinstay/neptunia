@@ -16,6 +16,7 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { serviceFamily } from '../src/service/commands.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
+import { runAgent } from '../src/subharness/run.ts';
 import type { RecordedRunPage } from '../src/watcher/requests.ts';
 import {
   SESSION,
@@ -25,8 +26,10 @@ import {
   requestRecord,
   shapeRecord,
   textBlob,
+  writeFakeClaude,
   writeTranscript,
 } from './fixtures/claude-transcript.ts';
+import { writeKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { PLANTED_KEY } from './fixtures/watcher-rig.ts';
 
@@ -257,6 +260,8 @@ for (const service of ['thinker', 'dev', 'scout', 'server', 'watcher']) {
       assert.equal(field.state, 'recorded', name);
       assert.ok(field.state === 'recorded' && field.where.startsWith('src/watcher/transcripts.ts#'), name);
     }
+    const identity = entry.fields.runIdentity;
+    assert.ok(identity.state === 'recorded' && identity.where.startsWith('src/subharness/sessions.ts#'));
     assert.equal(entry.gaps.includes('vendor-instructions'), false);
     assert.equal(entry.gaps.includes('absent-transcript'), false);
     assert.ok(entry.gaps.includes('missing-blob'));
@@ -266,6 +271,109 @@ for (const service of ['thinker', 'dev', 'scout', 'server', 'watcher']) {
       ['opencode', 'gap'],
     ]);
     for (const other of others) assert.notEqual(other.reason?.trim(), '');
+  });
+}
+
+// ---- the run-to-session mapping -------------------------------------------------------------------------------------
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const HELP_WITH = '  --resume <session-id>  Resume\n  --session-id <uuid>    Use a specific session ID';
+const HELP_WITHOUT = '  --resume <session-id>  Resume a conversation by its session-id';
+
+function installed(help: string | null, subharness: Record<string, unknown> = {}) {
+  const privateDir = tempDir('nep-session-');
+  writeKeysFile(privateDir, {
+    subharness: { backends: ['claude'], key: null, modes: {}, models: {}, uses: {}, ...subharness },
+  });
+  const argvFile = path.join(privateDir, 'argv');
+  writeFakeClaude(subharnessPlace(privateDir, 'claude').binary, argvFile, help);
+  const deps = { privateDir, denyDir: tempDir('nep-session-deny-') };
+  const run = { agent: 'dev', brief: 'THE-BRIEF', cwd: privateDir, timeoutMs: 5_000 };
+  const argv = (): Array<string> => fs.readFileSync(argvFile, 'utf8').split('\n');
+  return { privateDir, deps, run, argv };
+}
+
+test('a claude run gets a fresh --session-id when its help lists it, and the mapping names the agent and the run', async () => {
+  // Bug: one account home holds every agent's sessions, so a transcript cannot be tied to the run that made it.
+  const { readSessionMap } = await import('../src/subharness/sessions.ts');
+  const { privateDir, deps, run, argv } = installed(HELP_WITH);
+  const done = await runAgent({ ...run, runId: 'task-7' }, deps);
+  assert.equal(done.ok, true);
+  const args = argv();
+  const id = args[args.indexOf('--session-id') + 1] ?? '';
+  assert.match(id, UUID);
+  assert.equal(done.sessionId, id);
+  const [row] = readSessionMap(privateDir);
+  assert.equal(row?.sessionId, id);
+  assert.equal(row?.agent, 'dev');
+  assert.equal(row?.backend, 'claude');
+  assert.equal(row?.runId, 'task-7');
+});
+
+test('two runs get two session ids, both on the map', async () => {
+  // Bug: the id is computed once per process, and the second run's --session-id collides with the first's transcript.
+  const { readSessionMap } = await import('../src/subharness/sessions.ts');
+  const { privateDir, deps, run } = installed(HELP_WITH);
+  await runAgent(run, deps);
+  await runAgent({ ...run, agent: 'scout' }, deps);
+  const rows = readSessionMap(privateDir);
+  assert.deepEqual(
+    rows.map((row) => row.agent),
+    ['dev', 'scout']
+  );
+  assert.notEqual(rows[0]?.sessionId, rows[1]?.sessionId);
+});
+
+test('a run on a task route gets its session id too, with keys.json closed', async () => {
+  // Bug: only the keys.json path sets the flag, so every dev task, which carries a route, stays unattributed.
+  const { readSessionMap } = await import('../src/subharness/sessions.ts');
+  const { privateDir, deps, run, argv } = installed(HELP_WITH);
+  fs.rmSync(path.join(privateDir, 'keys.json'));
+  const route = { backend: 'claude', model: 'model-r', effort: null, mode: 'write' } as const;
+  const done = await runAgent({ ...run, route }, deps);
+  assert.equal(done.ok, true);
+  assert.ok(argv().includes('--session-id'));
+  assert.equal(readSessionMap(privateDir)[0]?.agent, 'dev');
+});
+
+for (const [name, help] of [
+  ['does not list the flag', HELP_WITHOUT],
+  ['cannot be read', null],
+] as const) {
+  test(`a claude whose help ${name} runs without the flag, and the map stays empty`, async () => {
+    // Bug: an older CLI dies on an unknown flag, or the words `<session-id>` under --resume pass for the flag.
+    const { readSessionMap } = await import('../src/subharness/sessions.ts');
+    const { privateDir, deps, run, argv } = installed(help);
+    const done = await runAgent(run, deps);
+    assert.equal(done.ok, true);
+    assert.equal(argv().includes('--session-id'), false);
+    assert.equal(done.sessionId, undefined);
+    assert.deepEqual(readSessionMap(privateDir), []);
+  });
+}
+
+for (const backend of ['codex', 'opencode'] as const) {
+  test(`${backend} gets no session id and no row`, async () => {
+    // Bug: the claude flag reaches another CLI, which refuses it and fails the run.
+    const { readSessionMap } = await import('../src/subharness/sessions.ts');
+    const { privateDir, deps, run } = installed(HELP_WITH);
+    const seen: Array<Record<string, unknown>> = [];
+    const done = await runAgent(
+      { ...run, route: { backend, model: 'm', effort: null, mode: 'read' }, routeKey: 'k' },
+      {
+        ...deps,
+        backendFactory: (name) => ({
+          name,
+          run: (_brief, options) => {
+            seen.push({ ...options });
+            return Promise.resolve({ ok: true, text: 'x', exitCode: 0 });
+          },
+        }),
+      }
+    );
+    assert.equal(done.ok, true);
+    assert.equal(seen[0]?.sessionId, undefined);
+    assert.deepEqual(readSessionMap(privateDir), []);
   });
 }
 
@@ -401,6 +509,38 @@ test('evidence leaves out the current inspection', async () => {
     page?.runs.flatMap((one) => one.requests.map((request) => request.id)),
     ['other']
   );
+});
+
+test('evidence names each session by the map, leaves out the running watcher session, keeps earlier ones', async () => {
+  // Bug: the watcher reads its own transcript as it grows, or a dev session reads as nobody's.
+  const { recordSession } = await import('../src/subharness/sessions.ts');
+  const { claimRun, defaultProcessStart } = await lifecycle();
+  const where = rig();
+  const store = {
+    dir: path.join(where.data, 'agents', 'watcher'),
+    now: () => TO,
+    newRunId: () => 'run-now',
+    processStart: defaultProcessStart,
+  };
+  const owner = { pid: process.pid, startId: defaultProcessStart(process.pid) ?? '' };
+  claimRun(store, { source: 'timer', owner, timeoutMs: 3_600_000 });
+  const rows = [
+    { sessionId: 's-now', agent: 'watcher', backend: 'claude', runId: 'run-now', at: FROM },
+    { sessionId: 's-before', agent: 'watcher', backend: 'claude', runId: 'run-before', at: FROM },
+    { sessionId: 's-dev', agent: 'dev', backend: 'claude', runId: 'task-7', at: FROM },
+  ];
+  for (const row of rows) recordSession(where.data, row);
+  for (const session of ['s-now', 's-before', 's-dev', 's-lost']) {
+    writeTranscript(where.home, oneRequest(T1, session), { session });
+  }
+  const { page } = await evidence(where, { from: new Date(FROM).toISOString() });
+  const requests = page?.runs.flatMap((run) => run.requests) ?? [];
+  const of = (session: string) => requests.find((one) => one.runId === session);
+  assert.equal(of('s-now'), undefined);
+  assert.equal(of('s-before')?.service, 'watcher');
+  assert.equal(of('s-dev')?.service, 'dev');
+  assert.equal(of('s-lost')?.service, null);
+  assert.ok(of('s-lost')?.gaps.includes('unattributed-session'));
 });
 
 test('evidence with no memory database still gives the transcripts, and names what it could not read', async () => {

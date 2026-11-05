@@ -94,3 +94,17 @@ export function oneRequest(at: string, mark = 'x'): Array<TranscriptRecord> {
     answerRecord(`req-${mark}`, at, `ANSWERED ${mark}`),
   ];
 }
+
+/**
+ * A stand-in for the installed `claude` at `binary`: `--help` prints `help`, or fails with null; a run appends its
+ * arguments to `argvFile`, one per line, and prints `final`.
+ */
+export function writeFakeClaude(binary: string, argvFile: string, help: string | null, final = 'THE-ANSWER'): void {
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  const helpLine = help === null ? 'exit 3' : `printf '%s\\n' ${JSON.stringify(help)}; exit 0`;
+  fs.writeFileSync(
+    binary,
+    `#!/bin/sh\nif [ "$1" = --help ]; then ${helpLine}; fi\nprintf '%s\\n' "$@" >> ${JSON.stringify(argvFile)}\ncat > /dev/null\nprintf '%s\\n' ${JSON.stringify(final)}\n`,
+    { mode: 0o755 }
+  );
+}

@@ -36,7 +36,7 @@ const REPO = fileURLToPath(new URL('..', import.meta.url));
 async function inspected(rig: InspectionRig, mark: string): Promise<string> {
   const { runInspection } = await inspection();
   const result = await runInspection(
-    inspectionDeps(rig, { runAgent: () => Promise.resolve(said(answerOf({ 'The project': mark }))) })
+    inspectionDeps(rig, { runAgent: () => Promise.resolve(said(answerOf({ Project: mark }))) })
   );
   rig.clock.t += MINUTE;
   assert.equal(result.state, 'succeeded');
@@ -214,7 +214,7 @@ async function reported(rig: InspectionRig, mark = 'x'): Promise<string> {
   const { runInspection } = await inspection();
   const result = await runInspection(
     inspectionDeps(rig, {
-      runAgent: () => Promise.resolve(said(answerOf({ ...SECRET_BODIES, 'The project': mark }, [DRAFT]))),
+      runAgent: () => Promise.resolve(said(answerOf({ ...SECRET_BODIES, Project: mark }, [DRAFT]))),
     })
   );
   return result.runId;

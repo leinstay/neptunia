@@ -53,7 +53,7 @@ test('text before the first heading is refused, so a chatty opener never reaches
 });
 
 test('a heading-looking line inside a code fence is not a heading', () => {
-  const text = reportText({ 'The project': 'The prose check printed:\n\n```\n## Summary\n```' });
+  const text = reportText({ 'Project': 'The prose check printed:\n\n```\n## Summary\n```' });
   assert.equal(checkReport(text).ok, true);
 });
 
@@ -72,7 +72,7 @@ test('a GitHub token, an AWS key id and a bearer header are refused too', () => 
 
 test('ordinary hyphenated words and the bare prefix of a key are not taken for a secret', () => {
   const text = reportText({
-    'The project': 'task-runner-sweep drifted; the key prefix sk-or-v1- is logged by name only.',
+    'Project': 'task-runner-sweep drifted; the key prefix sk-or-v1- is logged by name only.',
   });
   assert.equal(checkReport(text).ok, true);
 });
