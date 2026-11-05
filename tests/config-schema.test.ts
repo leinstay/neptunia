@@ -194,6 +194,8 @@ const READERS: ReadonlyArray<{ name: string; group: CutGroup; read: (config: Tre
  * derived objects, and the switches whose behaviour became code. A switch left in its object keeps its value.
  */
 const MAY_CHANGE: ReadonlyArray<string> = [
+  // A setting added after the cut (master plan V.6), off by default: no production value to compare it with.
+  'sessionSettings.mediaPass',
   'recallSettings.maxPerDay',
   'dbSettings.maxPerDay',
   'attentionSettings.perDayDefault',
