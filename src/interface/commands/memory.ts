@@ -1,4 +1,4 @@
-// The owner's browser of memory: `/memory users`, `places`, `graph`, `inspect` and the domain routes, over the typed readers
+// The owner's browser of memory: `/memory users`, `places`, `entities`, `graph`, `inspect` and the domain routes, over the typed readers
 // of src/memory/db/. Each answers the reader's own result as JSON, so a script and a panel see the same typed ids. A read goes
 // straight to its reader with the owner's internal context: it runs no operation, asks no model, changes no setting and writes
 // no row, and what it answers never reaches her memory or a request. Only the `cli` principal reaches this module
@@ -8,6 +8,7 @@
 
 import path from 'node:path';
 import { domainDetail, domainList, versionsOf } from '../../memory/db/domain-read.ts';
+import { entityDetail, entityRelations, listEntities } from '../../memory/db/entities-read.ts';
 import type { DomainFamily } from '../../memory/db/domain-read.ts';
 import {
   graphEdges,
@@ -39,7 +40,7 @@ type Deps = { memoryDb: unknown; hot: unknown };
 const DEFAULT_DEPTH = 32;
 
 /** The reasons a reader refuses for what was asked rather than for how the database stands. */
-const ASKED_WRONG = /^(INSPECTION|PERSON|PLACE|NODE|RECORD|ACCOUNT)_/;
+const ASKED_WRONG = /^(INSPECTION|PERSON|PLACE|NODE|RECORD|ACCOUNT|ENTITY)_/;
 
 /** The families of the domain routes: `/memory <word> show` and `/memory <word> list`. */
 const FAMILY_WORDS: ReadonlyArray<DomainFamily> = [
@@ -230,6 +231,46 @@ function placesRead(db: Db, name: string, args: Args, bounds: InspectionBounds):
     }
     case 'memory.places.lore':
       return detail(name, placeLore(db, place, context));
+    default:
+      return null;
+  }
+}
+
+function entitiesRead(db: Db, name: string, args: Args, bounds: InspectionBounds): Answer | null {
+  const context = internalContext();
+  const entity = word(args, 'entity');
+  const recordedBefore = wordOrNull(args, 'recorded-before');
+  switch (name) {
+    case 'memory.entities.list':
+      return ok(
+        listEntities(db, {
+          context,
+          filters: { kind: wordOrNull(args, 'kind'), name: wordOrNull(args, 'name') },
+          recordedBefore,
+          limit: limitOf(args, bounds),
+          cursor: cursorOf(args),
+        })
+      );
+    case 'memory.entities.show':
+      return detail(name, entityDetail(db, entity, { context, recordedBefore }));
+    case 'memory.entities.names': {
+      const view = entityDetail(db, entity, { context, recordedBefore: null });
+      return view.found ? ok({ names: view.names }) : detail(name, view);
+    }
+    case 'memory.entities.relations': {
+      const { predicates, mode } = edgeRequestOf(args);
+      return ok(
+        entityRelations(db, {
+          context,
+          entityId: entity,
+          predicates,
+          mode,
+          recordedBefore,
+          limit: limitOf(args, bounds),
+          cursor: cursorOf(args),
+        })
+      );
+    }
     default:
       return null;
   }
@@ -450,7 +491,7 @@ async function answering(name: string, read: () => Answer | Promise<Answer> | nu
 }
 
 /** The prefixes of the commands this module answers. */
-const BROWSER_NAME = new RegExp(`^memory\\.(users|places|graph|inspect|${FAMILY_WORDS.join('|')})\\.`);
+const BROWSER_NAME = new RegExp(`^memory\\.(users|places|entities|graph|inspect|${FAMILY_WORDS.join('|')})\\.`);
 
 /** Whether this module answers `name`: the writes that stay operations are the console's. */
 export const isMemoryBrowserCommand = (name: string): boolean =>
@@ -477,6 +518,7 @@ export async function memoryBrowserCommand(
     return (
       usersRead(db, name, args, bounds) ??
       placesRead(db, name, args, bounds) ??
+      entitiesRead(db, name, args, bounds) ??
       graphRead(db, name, args, bounds) ??
       domainRead(db, name, args, bounds)
     );

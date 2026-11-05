@@ -104,7 +104,7 @@ function derivedFromOf(extra: unknown): string | null {
  * Of every claim of `claimFilter`, the newest version `ctx` may read at the cutoff. A claim whose private fork the context
  * also reads is left out, because the fork speaks for that context.
  */
-function selectedOf(
+export function selectedVersionsWhere(
   db: Db,
   ctx: Context,
   claimFilter: { sql: string; params: Array<unknown> },
@@ -144,7 +144,8 @@ export const selectedVersionsOf = (
   ctx: Context,
   predicateId: string,
   recordedBefore: string | null
-): Array<SelectedVersion> => selectedOf(db, ctx, { sql: 'a.predicate_id = ?', params: [predicateId] }, recordedBefore);
+): Array<SelectedVersion> =>
+  selectedVersionsWhere(db, ctx, { sql: 'a.predicate_id = ?', params: [predicateId] }, recordedBefore);
 
 /** Which entity a context takes each entity to be: `from` to `into`, from the equivalences in force for it at the cutoff. */
 export function visibleMerges(db: Db, ctx: Context, recordedBefore: string | null): Map<string, string> {

@@ -1,6 +1,7 @@
 // The owner's typed detail of each memory family. A detail keeps every stored field exactly and links to the exact records
-// around it by id: a claim to all its versions, a version to the source revisions it rests on, a publication to its grant, a
-// turn to the versions it read. Retired and internal records open like any other, for a context that may read them. The
+// around it by id: a claim to all its versions, a version to the source revisions it rests on and to the premise versions
+// and dependent versions of its semantic payload, a publication to its grant, a turn to the versions it read. A semantic
+// claim version also carries its sealed assertion, argument and premise rows. Retired and internal records open like any other, for a context that may read them. The
 // families that have no audience of their own and hold the persona's whole prompt or a delivery's state are the owner's
 // alone. Reading writes nothing. src/interface/commands/memory.ts answers the domain routes of `/memory`.
 
@@ -29,6 +30,12 @@ export type DomainFamily =
   | 'requests'
   | 'turns';
 export type DomainLink = { family: DomainFamily; id: string; role: string };
+/** The sealed semantic payload of a claim version, each row as stored. */
+export type SemanticPayload = {
+  assertion: InspectionRow;
+  arguments: Array<InspectionRow>;
+  dependencies: Array<InspectionRow>;
+};
 export type DomainDetail =
   | {
       found: true;
@@ -37,6 +44,8 @@ export type DomainDetail =
       rows: Array<InspectionRow>;
       links: Array<DomainLink>;
       media?: Array<MediaRow>;
+      /** On a semantic claim version only. */
+      semantic?: SemanticPayload;
     }
   | { found: false; code: 'RECORD_NOT_FOUND' };
 
@@ -176,6 +185,18 @@ function linksOfRecord(db: Db, family: DomainFamily, id: string): Array<DomainLi
           id: String(row.source_id),
           role: String(row.role),
         })),
+        ...linksOf(
+          rows(
+            'SELECT premise_version_id AS id FROM semantic_dependencies WHERE version_id = ? ORDER BY premise_version_id'
+          ),
+          'claim_versions',
+          'premise'
+        ),
+        ...linksOf(
+          rows('SELECT version_id AS id FROM semantic_dependencies WHERE premise_version_id = ? ORDER BY version_id'),
+          'claim_versions',
+          'dependent'
+        ),
       ];
     case 'sources':
       return sourceLinks(db, id);
@@ -212,6 +233,17 @@ function linksOfRecord(db: Db, family: DomainFamily, id: string): Array<DomainLi
   }
 }
 
+/** The semantic payload of a claim version, or null for a plain one. */
+function semanticOf(db: Db, versionId: string): SemanticPayload | null {
+  const [assertion] = rowsWithValue(db, 'semantic_assertion_versions', 'version_id', versionId, 1);
+  if (assertion === undefined) return null;
+  return {
+    assertion,
+    arguments: rowsWithValue(db, 'semantic_arguments', 'version_id', versionId, RECORD_ROWS),
+    dependencies: rowsWithValue(db, 'semantic_dependencies', 'version_id', versionId, RECORD_ROWS),
+  };
+}
+
 /** One record of a family, every column exact, with its links to the exact records around it that the context may open. */
 export function domainDetail(db: Db, request: { family: DomainFamily; id: string; context: Context }): DomainDetail {
   const { family, id, context } = request;
@@ -226,7 +258,16 @@ export function domainDetail(db: Db, request: { family: DomainFamily; id: string
     return true;
   });
   const media = family === 'sources' ? { media: lineMedia(db, [id], context).get(id) ?? [] } : {};
-  return { found: true, family, id, rows: rowsWithValue(db, spec.table, spec.key, id, RECORD_ROWS), links, ...media };
+  const semantic = family === 'claim_versions' ? semanticOf(db, id) : null;
+  return {
+    found: true,
+    family,
+    id,
+    rows: rowsWithValue(db, spec.table, spec.key, id, RECORD_ROWS),
+    links,
+    ...media,
+    ...(semantic === null ? {} : { semantic }),
+  };
 }
 
 /** Each record of a family once across pages, retired and internal ones included, as far as the context may read. */

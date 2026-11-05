@@ -3,6 +3,7 @@
 // continuation links, which are not containment. The context decides before anything is counted: a DM place outside its
 // audiences is neither listed nor counted. Reading writes nothing. src/interface/commands/memory.ts answers `/memory places`.
 
+import { versionsNaming } from './entities-read.ts';
 import { checkLimit, coded, contextBinding, keysetPage, positionOf } from './read-page.ts';
 import type { Page } from './read-page.ts';
 import { audienceWhere } from './scope.ts';
@@ -205,7 +206,7 @@ function descriptionsOf(db: Db, context: Context, placeIds: ReadonlyArray<string
     }));
 }
 
-/** The exact records of a place by id: its lines and episodes, and the claims about it. */
+/** The exact records of a place by id: its lines and episodes, the claims about it and the semantic versions held in it. */
 function recordsOf(db: Db, context: Context, placeId: string): Array<PlaceRecord> {
   const audience = audienceWhere(context, 't');
   const read = (table: string, where: string): Array<PlaceRecord> =>
@@ -224,6 +225,10 @@ function recordsOf(db: Db, context: Context, placeId: string): Array<PlaceRecord
     ...read('sources', 't.place_id = ?'),
     ...read('claims', "t.subject_kind = 'place' AND t.subject_id = ?"),
     ...read('episodes', 't.place_id = ?'),
+    ...versionsNaming(db, context, { kind: 'place', ids: [placeId] }).map(({ versionId }) => ({
+      table: 'semantic_assertion_versions',
+      id: versionId,
+    })),
     ...members,
   ];
 }
