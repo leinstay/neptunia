@@ -236,7 +236,8 @@ test('a finding with a new key files a new task, even with the same words as an 
   assert.equal(rig.fake.rows.length, 2);
 });
 
-test('a draft with no finding key falls back to its evidence', async () => {
+// Changed: by the lead's word a draft files only from a finding line at `medium` or above, and a draft with no key matches none.
+test('a draft with no finding key files nothing, on any run', async () => {
   // Bug: an older answer without the key files a duplicate on every run.
   const { runInspection } = await inspection();
   const rig = inspectionRig();
@@ -244,7 +245,7 @@ test('a draft with no finding key falls back to its evidence', async () => {
   await runInspection(inspectionDeps(rig, { runAgent: answering(plain) }));
   rig.clock.t += MINUTE;
   await runInspection(inspectionDeps(rig, { runAgent: answering({ ...plain, title: 'Another title' }) }));
-  assert.equal(rig.fake.rows.length, 1);
+  assert.equal(rig.fake.rows.length, 0);
 });
 
 test('prompt.md asks for the finding key the filing compares', () => {
@@ -262,8 +263,7 @@ test('a repeat of an open task from before finding keys files nothing, by its ev
     metadata: { kind: 'fix', evidence: DRAFT.evidence },
   });
   const rig = inspectionRig(undefined, watcherBoard({ rows: [old] }));
-  const plain = { kind: DRAFT.kind, title: DRAFT.title, evidence: DRAFT.evidence, done: DRAFT.done };
-  await runInspection(inspectionDeps(rig, { runAgent: answering(plain) }));
+  await runInspection(inspectionDeps(rig, { runAgent: answering(DRAFT) }));
   assert.equal(rig.fake.rows.length, 1);
 });
 

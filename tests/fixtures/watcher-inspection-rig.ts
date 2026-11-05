@@ -56,6 +56,7 @@ export const METADATA: ReadonlyArray<readonly [string, string]> = [
   ['Available sources', 'model_requests, service journal'],
   ['Risk', 'none'],
   ['New findings', '0, repeats: 0'],
+  ['Open findings', 'critical 0, high 0, medium 0, low 0'],
 ];
 
 /** One section's body: a string goes under `Inspected without a finding`, an object names the subheadings it fills. */
@@ -85,17 +86,30 @@ export function templateOf(
       if (typeof body !== 'string') return body[name] ?? 'none';
       return name === 'Inspected without a finding' ? body : 'none';
     };
-    return [`## ${heading}`, ...subheadings.map((name) => `### ${name}\n\n${of(name)}`)].join('\n\n');
+    const own = heading === 'For the owner' ? ['Decisions needed', ...subheadings] : subheadings;
+    return [`## ${heading}`, ...own.map((name) => `### ${name}\n\n${of(name)}`)].join('\n\n');
   });
   return [title, metadata, ...sections, options.end ?? coverageBlock()].join('\n\n').trimEnd() + '\n';
 }
 
-/** A whole answer: the report in its template with `bodies` and, with drafts, the tasks block after it. */
+/**
+ * A whole answer: the report in its template with `bodies` and, with drafts, the tasks block after it. A draft files only
+ * from a finding line at `medium` or above, so each draft with a key brings its line under `Errors`, its evidence as the text.
+ */
 export function answerOf(
   bodies: Readonly<Record<string, string>> = {},
   drafts: ReadonlyArray<Record<string, unknown>> = []
 ): string {
-  return templateOf({ bodies }) + (drafts.length === 0 ? '' : tasksBlock(drafts));
+  const lines = drafts.flatMap((draft) =>
+    typeof draft.finding === 'string' ? [`- [medium] ${draft.finding}: ${String(draft.evidence)}`] : []
+  );
+  if (lines.length === 0) return templateOf({ bodies }) + (drafts.length === 0 ? '' : tasksBlock(drafts));
+  const inspected = bodies.Errors;
+  const errors = {
+    'Observed defects': lines.join('\n'),
+    ...(inspected === undefined ? {} : { 'Inspected without a finding': inspected }),
+  };
+  return templateOf({ bodies: { ...bodies, Errors: errors } }) + tasksBlock(drafts);
 }
 
 export const said = (text: string): InspectionAgentResult => ({ ok: true, text, exitCode: 0 });
