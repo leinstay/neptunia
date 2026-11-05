@@ -1,7 +1,6 @@
 {
   "files": {
     "src/behavior/recall.ts": 2375,
-    "tests/inner.test.ts": 2373,
     "tests/openrouter.test.ts": 3557,
     "tests/prompt.test.ts": 6595,
     "tests/recall.test.ts": 2419,
