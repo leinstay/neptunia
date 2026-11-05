@@ -154,7 +154,8 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Choose credentials and models | `/keys`, `/model`, `/search` |
 | Configure a chat platform | `/interfaces` |
 | Choose which providers serve a model | `/routes` |
-| Link a person's accounts | `/memory bind`, `/memory accounts`, `/memory unbind` |
+| Link a person's accounts | `/memory bind`, `/memory users link`, `/memory users unlink` |
+| Browse people, places, the graph and each memory family, and read every stored row | `/memory users`, `/memory places`, `/memory graph`, `/memory inspect`, `/memory claims` and the other families. See [The memory browser](#the-memory-browser) |
 | Choose where the diary is published | `/mirror` |
 | Review and activate a skill | `/skills` |
 | Show the sources of the agents and log them in or out | `/subharness status`, `/subharness <backend> login`, `/subharness <backend> status`, `/subharness <backend> logout` |
@@ -166,6 +167,32 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Restore a development task's files, in the chat only | `/checkpoints` |
 | Answer what waits on the task board, in the chat only | `/approvals` |
 | See the request limit, route and model, in the chat only | `/context` |
+
+## The memory browser
+
+The browser reads her memory for the owner and nobody else: only the `cli` principal reaches it, no operation of hers names it, and a development agent's command goes to the task board. `src/interface/commands/memory.ts` answers each read with the JSON of its reader in `src/memory/db/`, so a script and the chat select the same typed ids. A read asks no model, changes no setting and writes no row, `node_access` and `turn_reads` included, and what it answers never reaches her memory. A refusal has a status other than `ok` and a stable `code`, such as `PERSON_NOT_FOUND` or `INSPECTION_BAD_CURSOR`. In the chat, a bare `/memory users`, `/memory places`, `/memory graph` or `/memory inspect` opens a panel whose rows prefill the command that opens them.
+
+A page holds at most `memoryDb.inspection.pageRows` rows, whatever `--limit` asks for, and says what it left out in `total`, `truncated` and `reason`. Its `next` is the `--cursor` of the next page. A cursor is bound to its read: another filter, table, context or snapshot refuses it.
+
+| Command | What it reads |
+|---|---|
+| `/memory users list`, `show`, `accounts`, `names`, `relationship`, `private` | People, unlinked accounts and anonymous participants, by `--name`, `--interface` and `--authority`. A name is a search term and links nothing |
+| `/memory users link <person> <account>`, `unlink <person> <account>` | The writes of an account's link, through the memory writer, by typed ids |
+| `/memory users names add <user> <name>`, `remove <user> <name>` | The owner's confirmation of a member's alias |
+| `/memory places list`, `tree`, `show`, `lore` | Places of any kind and depth, with `--roots`. `show --include-children` adds every descendant and its descriptions. An orphan is a root, and a cycle ends with an explicit reference |
+| `/memory places lore add <place> <title> <keys> <text>`, `list <place>`, `show <place> <id>`, `remove <place> <id>` | The lore of a place |
+| `/memory graph kinds`, `nodes`, `edges`, `node`, `neighbors`, `walk`, `path` | The projection, every node and edge once, `--mode active` by default or `--mode historical`. `--valid-at` and `--recorded-before` are two questions. Node kinds and predicates with no typed table are listed as deferred |
+| `/memory sources`, `claims`, `descriptions`, `episodes`, `diary`, `media`, `publications`, `grants`, `sessions`, `requests`, `turns`, each `show <id>` and `list` | One record with every stored field and links to the exact records around it, retired and internal ones included |
+| `/memory claims versions <id>`, `version <id>`, `/memory descriptions versions <id>`, `version <id>` | Every version in order, or one |
+| `/memory inspect tables`, `schema`, `rows`, `row`, `value`, `export`, `close` | Every table the database holds, whether or not a menu names it |
+
+`/memory graph walk` visits each node once whatever the number of paths. `--depth` and `--nodes` bound it, a node at the depth bound with an edge not yet followed is its `frontier`, and a walk from the frontier goes on. With no `--depth` it stops at 32. `/memory graph path` answers the shortest association and why there is none (`none`, `depth` or `work`). A path is read and never remembered.
+
+`/memory inspect` reads through a snapshot, so its pages hold still while she goes on writing. A command without `--snapshot` opens a snapshot and names it in `snapshot`; `--snapshot <id>` reads on from that moment. A snapshot ends with `/memory inspect close`, after `memoryDb.inspection.snapshotIdleSeconds` without a read and after `memoryDb.inspection.snapshotMaxSeconds` in any case, and an ended one refuses with `INSPECTION_CLOSED` or `INSPECTION_EXPIRED`. `rows` takes `--filters`, one JSON word of `{ "column", "value" }` entries with typed values, and `row` and `value` take a page's `locator` as one JSON word. From a shell these words keep their spaces. A chat line splits on spaces, so there they are written without any.
+
+A page shortens a cell over 4 KiB, and the cell's `excerpt` gives `totalBytes`, `remainingBytes` and `nextOffset`. `/memory inspect value <table> <locator> <column> --offset <n>` reads on in chunks of 1 MiB by byte offset in the stored value. A stored text that is not valid UTF-8 comes back from `value` as base64, with `encoding` saying so, and a page or an export names its stored bytes in the cell's `exactBytes`.
+
+`/memory inspect export <file>` writes one new JSONL file, at an absolute path on the core's machine, at mode `0600`, and refuses a file that exists. It holds a `header` with the engine revision and both schema versions, the `catalog`, one `row` record per row with full values and a `manifest` of row counts it reconciled against the snapshot. It is complete or it does not exist. FTS shadows are marked as derived storage. The restorable copy of the database is `/memory backup`.
 
 ## Backend usage
 

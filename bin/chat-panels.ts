@@ -365,6 +365,105 @@ async function contextPanel(run: Run): Promise<Panel> {
   return { title: 'Context', lines: [contextLine(JSON.parse(answer.text) as ContextFacts)] };
 }
 
+/** A row of a memory panel: what it names, and the command that opens it. */
+const memoryRow = (id: string, label: string, detail: string, prefill: string): PanelRow => ({
+  id,
+  label,
+  detail,
+  group: 'Memory',
+  prefill,
+});
+
+/** The command that opens one row of `table` by its id, for what has no detail of its own. */
+const rowById = (table: string, id: string): string =>
+  `/memory inspect rows ${table} --filters ${JSON.stringify([{ column: 'id', value: { kind: 'text', value: id } }])}`;
+
+type MemoryPage = { items: Array<Record<string, unknown>>; total: number | null };
+const countLine = ({ items, total }: MemoryPage): string =>
+  total !== null && total > items.length ? `${items.length} of ${total}` : `${items.length}`;
+const asText = (value: unknown): string => (typeof value === 'string' ? value : '');
+const namesOf = (value: unknown): string => (Array.isArray(value) ? value.map(asText).join(', ') : '');
+
+function userRow(item: Record<string, unknown>): PanelRow {
+  const id = asText(item.id);
+  if (item.kind === 'person') return memoryRow(id, id, `person: ${namesOf(item.names)}`, `/memory users show ${id}`);
+  if (item.kind === 'account')
+    return memoryRow(id, id, `unlinked account: ${namesOf(item.names)}`, rowById('accounts', id));
+  return memoryRow(id, id, `anonymous participant: ${asText(item.display)}`, rowById('participants', id));
+}
+
+const placeRow = (item: Record<string, unknown>): PanelRow => {
+  const id = asText(item.id);
+  return memoryRow(
+    id,
+    id,
+    `${asText(item.name)}, ${String(item.childCount)} directly under it`,
+    `/memory places tree ${id}`
+  );
+};
+
+/** The bare memory browsers: one panel over the reads a script gets, each row prefilling the command that opens it. */
+const MEMORY_PANELS: Readonly<Record<string, (run: Run) => Promise<Panel>>> = {
+  '/memory users': (run) => memoryPagePanel(run, 'People', 'memory.users.list', {}, userRow),
+  '/memory places': (run) => memoryPagePanel(run, 'Places', 'memory.places.list', { roots: 'true' }, placeRow),
+  '/memory graph': async (run) => {
+    const answer = await run({ name: 'memory.graph.kinds', args: {} });
+    if (answer.status !== 'ok') return { title: 'Graph', lines: [answer.text] };
+    const { kinds } = JSON.parse(answer.text) as {
+      kinds: Array<{ kind: string; state: string; reason: string | null; nodes: number }>;
+    };
+    return {
+      title: 'Graph',
+      lines: ['/memory graph edges, node, neighbors, walk and path read on from a node.'],
+      rows: kinds.map((one) =>
+        memoryRow(
+          one.kind,
+          one.kind,
+          one.state === 'deferred' ? `deferred: ${one.reason ?? ''}` : `${one.nodes} nodes`,
+          `/memory graph nodes --kinds ${one.kind}`
+        )
+      ),
+    };
+  },
+  '/memory inspect': async (run) => {
+    const answer = await run({ name: 'memory.inspect.tables', args: {} });
+    if (answer.status !== 'ok') return { title: 'Storage', lines: [answer.text] };
+    const { snapshot, catalog } = JSON.parse(answer.text) as {
+      snapshot: string;
+      catalog: { tables: Array<{ name: string; kind: string; storageClass: string }> };
+    };
+    return {
+      title: 'Storage',
+      lines: [`Snapshot ${snapshot}: ${catalog.tables.length} tables, one moment.`],
+      rows: catalog.tables.map((table) =>
+        memoryRow(
+          table.name,
+          table.name,
+          `${table.storageClass}, ${table.kind}`,
+          `/memory inspect rows ${table.name} --snapshot ${snapshot}`
+        )
+      ),
+    };
+  },
+};
+
+async function memoryPagePanel(
+  run: Run,
+  title: string,
+  name: string,
+  args: Record<string, unknown>,
+  rowOf: (item: Record<string, unknown>) => PanelRow
+): Promise<Panel> {
+  const answer = await run({ name, args });
+  if (answer.status !== 'ok') return { title, lines: [answer.text] };
+  const page = JSON.parse(answer.text) as MemoryPage;
+  return {
+    title,
+    lines: [`${countLine(page)} on this page; ${name.replaceAll('.', ' ')} --cursor reads on.`],
+    rows: page.items.map(rowOf),
+  };
+}
+
 /** The panel of a line of the chat's own, or null for any other line. */
 async function localPanel(line: string, run: Run, view: ChatView): Promise<Panel | null> {
   const word = line.split(/\s+/)[0];
@@ -374,6 +473,8 @@ async function localPanel(line: string, run: Run, view: ChatView): Promise<Panel
   if (word === '/checkpoints') return checkpointsPanel(line, run);
   if (word === '/approvals') return approvalsPanel(line, run);
   if (line === '/context') return contextPanel(run);
+  const memory = MEMORY_PANELS[line];
+  if (memory !== undefined) return memory(run);
   if (line === '/tools' || line === '/skills' || line === '/interfaces' || line === '/agents' || line === '/plugins')
     return capabilityPanel(line.slice(1) as keyof typeof CAPABILITY_MENUS, run);
   // Bare `/resume` stays the command that ends a pause: only a session's id makes this one.

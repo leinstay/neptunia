@@ -179,6 +179,21 @@ const EDGE_FLAGS: ReadonlyArray<CommandArg> = [
   flagArg('recorded-before', false),
 ];
 
+/** The families with one record per id: each opens a record whole and lists every id. */
+const DOMAIN_FAMILIES: ReadonlyArray<string> = [
+  'sources',
+  'claims',
+  'descriptions',
+  'episodes',
+  'diary',
+  'media',
+  'publications',
+  'grants',
+  'sessions',
+  'requests',
+  'turns',
+];
+
 /** The owner's browser of memory (src/interface/commands/memory.ts), each read answering JSON. */
 const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
   sub('users.list', 'List people, unlinked accounts and anonymous participants', [
@@ -240,6 +255,39 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
     ...EDGE_FLAGS,
     flagArg('depth', false),
   ]),
+  sub('inspect.tables', 'List every table of the database with its class', [flagArg('snapshot', false)]),
+  sub('inspect.schema', 'Show the columns, keys, indexes and triggers of a table', [
+    arg('table'),
+    flagArg('snapshot', false),
+  ]),
+  sub('inspect.rows', 'Read the rows of any table by page', [
+    arg('table'),
+    flagArg('snapshot', false),
+    ...PAGE_FLAGS,
+    flagArg('filters', false),
+  ]),
+  sub('inspect.row', 'Read one row by the locator its page gave', [
+    arg('table'),
+    arg('locator'),
+    flagArg('snapshot', false),
+  ]),
+  sub('inspect.value', 'Read a large value of a row from a byte offset', [
+    arg('table'),
+    arg('locator'),
+    arg('column'),
+    flagArg('snapshot', false),
+    flagArg('offset', false),
+  ]),
+  sub('inspect.export', 'Write every table of one snapshot to a new JSONL file at mode 0600', [arg('file')]),
+  sub('inspect.close', 'Close a snapshot', [arg('snapshot')]),
+  ...DOMAIN_FAMILIES.flatMap((family) => [
+    sub(`${family}.show`, `Open one record of ${family} with every stored field and its links`, [arg('id')]),
+    sub(`${family}.list`, `List the ids of ${family}`, PAGE_FLAGS),
+  ]),
+  sub('claims.versions', 'Open every version of a claim in order of recording', [arg('id')]),
+  sub('claims.version', 'Open one version of a claim', [arg('id')]),
+  sub('descriptions.versions', 'Open every version of a description in order of writing', [arg('id')]),
+  sub('descriptions.version', 'Open one version of a description', [arg('id')]),
 ];
 
 /** The commands the plural families, `/logs watcher` and `/doctor` replaced: what each is refused with, by the words after it. */

@@ -20,8 +20,8 @@ The owner links accounts explicitly in the CLI after the persona has encountered
 
 ```text
 /memory bind discord ACCOUNT_A telegram ACCOUNT_B
-/memory accounts discord ACCOUNT_A
-/memory unbind discord ACCOUNT_A
+/memory users accounts PERSON
+/memory users unlink PERSON ACCOUNT
 ```
 
 Names, model suggestions and statements inside a conversation do not create a verified link. `self` as a bind target denotes the persona. Linking accounts changes who they belong to; it does not turn private messages into group messages. [Person links](../src/memory/db/person-links.ts) retains the link history.
@@ -77,6 +77,12 @@ A message she sends reaches the writer twice. The interface echoes it as a `mess
 `native_id` holds the family's key in both orders, so a reader that holds a protocol id goes through `message_families`. `linkVectors` in `src/memory/db/upsert.ts` does it for the `record:<message id>:<revision>` key of a vector, narrowing by the vector's channel and interface when conversations reuse an id. A publication's receipts in `src/memory/db/graph.ts` and `recordNewestRevision` do it for theirs. A write by a legacy owner is the importer's and keeps the keys of the rows it brings.
 
 `scripts/memory-repair-said.ts` folds the rows of lines stored twice by an older writer and links the vectors left unlinked. [Scripts](../scripts/README.md) lists how to run it.
+
+## Reading all of it as the owner
+
+Everything stored stays reachable for the owner, whether or not a turn would ever read it. `src/memory/db/people-read.ts`, `places-read.ts`, `graph-read.ts` and `domain-read.ts` read people, places, the graph and each memory family under a context, which decides before anything is counted. `src/memory/db/inspection.ts` lists the tables the connection holds rather than a list of its own, and reads any row of any of them: retired, internal, unowned, keyless and derived rows alike, with integers, JSON text and blobs exact. Its classes in `src/memory/db/inspection-classes.ts` sort a table into `domain`, `operational`, `derived` or `metadata`, and a table added since reads like any other and reports as `unclassified`.
+
+`src/memory/db/inspection-snapshots.ts` holds one moment still on a read-only connection of its own, so pages, large values and a whole export agree while the writer goes on. None of these reads writes a row. [The memory browser](cli.md#the-memory-browser) lists the commands.
 
 ## Raw archive and media
 

@@ -6,6 +6,9 @@
 // `code`. Linking and unlinking go through the one writer. `/memory inspect` reads through a snapshot the core holds for the
 // owner: a command without `--snapshot` opens one and names it in its answer, and `--snapshot` goes on reading that moment.
 
+import path from 'node:path';
+import { domainDetail, domainList, versionsOf } from '../../memory/db/domain-read.ts';
+import type { DomainFamily } from '../../memory/db/domain-read.ts';
 import {
   graphEdges,
   graphKinds,
@@ -16,6 +19,10 @@ import {
   graphWalk,
 } from '../../memory/db/graph-read.ts';
 import type { GraphDirection, GraphEdgeRequest } from '../../memory/db/graph-read.ts';
+import { writeInspectionExport } from '../../memory/db/inspection-snapshots.ts';
+import type { InspectionBounds, InspectionPort, SnapshotHandle } from '../../memory/db/inspection-snapshots.ts';
+import { isInspectionValue } from '../../memory/db/inspection-values.ts';
+import type { InspectionRead, RowLocator } from '../../memory/db/inspection.ts';
 import { listPeople, personDetail } from '../../memory/db/people-read.ts';
 import { listPlaces, placeDetail, placeLore } from '../../memory/db/places-read.ts';
 import { privateByPerson } from '../../memory/db/private-read.ts';
@@ -33,6 +40,21 @@ const DEFAULT_DEPTH = 32;
 
 /** The reasons a reader refuses for what was asked rather than for how the database stands. */
 const ASKED_WRONG = /^(INSPECTION|PERSON|PLACE|NODE|RECORD|ACCOUNT)_/;
+
+/** The families of the domain routes: `/memory <word> show` and `/memory <word> list`. */
+const FAMILY_WORDS: ReadonlyArray<DomainFamily> = [
+  'sources',
+  'claims',
+  'descriptions',
+  'episodes',
+  'diary',
+  'media',
+  'publications',
+  'grants',
+  'sessions',
+  'requests',
+  'turns',
+];
 
 const word = (args: Args, key: string): string => (typeof args[key] === 'string' ? args[key] : '');
 const wordOrNull = (args: Args, key: string): string | null => {
@@ -240,6 +262,159 @@ function graphRead(db: Db, name: string, args: Args, bounds: InspectionBounds): 
   }
 }
 
+function domainRead(db: Db, name: string, args: Args, bounds: InspectionBounds): Answer | null {
+  const context = internalContext();
+  const id = word(args, 'id');
+  if (name === 'memory.claims.versions' || name === 'memory.descriptions.versions') {
+    const family = name === 'memory.claims.versions' ? 'claims' : 'descriptions';
+    return detail(name, versionsOf(db, { family, id, context }));
+  }
+  if (name === 'memory.claims.version')
+    return detail(name, domainDetail(db, { family: 'claim_versions', id, context }));
+  if (name === 'memory.descriptions.version')
+    return detail(name, domainDetail(db, { family: 'description_versions', id, context }));
+  const [, familyWord, leaf] = name.split('.');
+  const family = FAMILY_WORDS.find((one) => one === familyWord);
+  if (family === undefined) return null;
+  if (leaf === 'show') return detail(name, domainDetail(db, { family, id, context }));
+  if (leaf === 'list')
+    return ok(domainList(db, { family, context, limit: limitOf(args, bounds), cursor: cursorOf(args) }));
+  return null;
+}
+
+function filtersOf(args: Args): InspectionRead['filters'] {
+  const raw = wordOrNull(args, 'filters');
+  if (raw === null) return [];
+  const refusal = coded('INSPECTION_BAD_FILTER', '--filters is a JSON list of { column, value } with typed values');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw refusal;
+  }
+  if (!Array.isArray(parsed)) throw refusal;
+  return parsed.map((one: unknown) => {
+    const { column, value } = objOf(one);
+    if (typeof column !== 'string' || !isInspectionValue(value)) throw refusal;
+    return { column, value };
+  });
+}
+
+function isLocator(input: unknown): input is RowLocator {
+  const shape = objOf(input);
+  if (shape.kind === 'rowid') return typeof shape.alias === 'string' && typeof shape.value === 'string';
+  if (shape.kind === 'snapshot-position')
+    return typeof shape.snapshot === 'string' && typeof shape.position === 'string';
+  if (shape.kind !== 'primary' || !Array.isArray(shape.values)) return false;
+  return shape.values.every((one: unknown) => {
+    const { column, value } = objOf(one);
+    return typeof column === 'string' && isInspectionValue(value);
+  });
+}
+
+function locatorOf(args: Args): RowLocator {
+  const refusal = coded('INSPECTION_BAD_LOCATOR', 'a locator is the JSON of a page row’s `locator`');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(word(args, 'locator'));
+  } catch {
+    throw refusal;
+  }
+  if (!isLocator(parsed)) throw refusal;
+  return parsed;
+}
+
+/** `/memory inspect export`: one new snapshot, a complete file written from it, the snapshot closed however that ended. */
+function inspectExport(port: InspectionPort, args: Args, ownerId: string, bounds: InspectionBounds): Answer {
+  const file = word(args, 'file');
+  if (!path.isAbsolute(file)) throw coded('INSPECTION_BAD_PATH', 'an export names an absolute path');
+  const handle = port.openInspection({ ownerId, bounds });
+  try {
+    return ok(writeInspectionExport(port, handle, { file }));
+  } finally {
+    port.closeInspection(handle);
+  }
+}
+
+/** A read of `/memory inspect` over the `--snapshot` it names, or over a new one it closes again when the read is refused. */
+function overSnapshot(
+  port: InspectionPort,
+  args: Args,
+  ownerId: string,
+  bounds: InspectionBounds,
+  read: (handle: SnapshotHandle) => Answer
+): Answer {
+  const named = wordOrNull(args, 'snapshot');
+  if (named !== null) return read(port.snapshotOf(named, ownerId));
+  const handle = port.openInspection({ ownerId, bounds });
+  try {
+    return read(handle);
+  } catch (error) {
+    port.closeInspection(handle);
+    throw error;
+  }
+}
+
+function inspectRead(
+  port: InspectionPort,
+  name: string,
+  args: Args,
+  ownerId: string,
+  bounds: InspectionBounds
+): Answer | null {
+  const table = word(args, 'table');
+  switch (name) {
+    case 'memory.inspect.tables':
+      return overSnapshot(port, args, ownerId, bounds, (handle) =>
+        ok({ snapshot: handle.id, catalog: port.catalog(handle) })
+      );
+    case 'memory.inspect.schema':
+      return overSnapshot(port, args, ownerId, bounds, (handle) => {
+        const found = port.catalog(handle).tables.find((one) => one.name === table);
+        if (found === undefined) throw coded('INSPECTION_UNKNOWN_TABLE', 'no such table');
+        return ok({ snapshot: handle.id, table: found });
+      });
+    case 'memory.inspect.rows': {
+      const filters = filtersOf(args);
+      return overSnapshot(port, args, ownerId, bounds, (handle) =>
+        ok(
+          port.readInspectionPage(handle, {
+            table,
+            filters,
+            limit: numberOf(args, 'limit', bounds.pageRows),
+            cursor: cursorOf(args),
+          })
+        )
+      );
+    }
+    case 'memory.inspect.row': {
+      const locator = locatorOf(args);
+      return overSnapshot(port, args, ownerId, bounds, (handle) =>
+        ok({ snapshot: handle.id, row: port.readInspectionRow(handle, { table, locator }) })
+      );
+    }
+    case 'memory.inspect.value': {
+      const locator = locatorOf(args);
+      const offset = numberOf(args, 'offset', 0);
+      return overSnapshot(port, args, ownerId, bounds, (handle) =>
+        ok({
+          ...port.readInspectionValue(handle, { table, locator, column: word(args, 'column'), offset }),
+          snapshot: handle.id,
+        })
+      );
+    }
+    case 'memory.inspect.export':
+      return inspectExport(port, args, ownerId, bounds);
+    case 'memory.inspect.close': {
+      const handle = port.snapshotOf(word(args, 'snapshot'), ownerId);
+      port.closeInspection(handle);
+      return ok({ closed: handle.id });
+    }
+    default:
+      return null;
+  }
+}
+
 /** A command of this module run, a refusal of the reader as an answer with its code. */
 async function answering(name: string, read: () => Answer | Promise<Answer> | null): Promise<Answer | null> {
   try {
@@ -253,7 +428,7 @@ async function answering(name: string, read: () => Answer | Promise<Answer> | nu
 }
 
 /** The prefixes of the commands this module answers. */
-const BROWSER_NAME = new RegExp(`^memory\\.(users|places|graph)\\.`);
+const BROWSER_NAME = new RegExp(`^memory\\.(users|places|graph|inspect|${FAMILY_WORDS.join('|')})\\.`);
 
 /** Whether this module answers `name`: the writes that stay operations are the console's. */
 export const isMemoryBrowserCommand = (name: string): boolean =>
@@ -267,11 +442,21 @@ export async function memoryBrowserCommand(
   requester: { id: string }
 ): Promise<Answer> {
   const answer = await answering(name, () => {
+    if (name.startsWith('memory.inspect.')) {
+      const port = callMethod(memoryDb, 'inspection') as InspectionPort | null | undefined;
+      if (port == null) return closedDatabase(name);
+      return inspectRead(port, name, args, requester.id, boundsOf(hot));
+    }
     const db = callMethod(memoryDb, 'database') as Db | null | undefined;
     if (db == null) return closedDatabase(name);
     if (name === 'memory.users.link' || name === 'memory.users.unlink') return usersWrite(memoryDb, db, name, args);
     const bounds = boundsOf(hot);
-    return usersRead(db, name, args, bounds) ?? placesRead(db, name, args, bounds) ?? graphRead(db, name, args, bounds);
+    return (
+      usersRead(db, name, args, bounds) ??
+      placesRead(db, name, args, bounds) ??
+      graphRead(db, name, args, bounds) ??
+      domainRead(db, name, args, bounds)
+    );
   });
   return answer ?? { text: `/${name.replaceAll('.', ' ')}: no such command; type /help`, status: 'invalid' };
 }
