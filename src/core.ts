@@ -104,6 +104,7 @@ import { createChatState } from './interface/commands/chat-state.ts';
 import type { ChatState } from './interface/commands/chat-state.ts';
 import { createConversationSessions } from './conversation/sessions.ts';
 import { createConversationStore } from './conversation/store.ts';
+import type { ApprovalGate, ApprovalResult } from './board/approval-view.ts';
 import { createCheckpointDesk } from './development/checkpoint-desk.ts';
 import { WORKTREE_FOLDER } from './development/edges.ts';
 import { selfimprovementSettings } from './selfimprovement/settings.ts';
@@ -695,12 +696,17 @@ async function buildCore(
   // The link of the owner's chat that sent the last line is where her replies in `cli:dm:owner` go.
   let commandDesk: ReturnType<typeof createCommandDesk> | null = null;
   let chatState: ChatState | null = null;
+  const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
+  const stringOrNull = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
   const intake = createCommandIntake({
     door: linkDoor,
     ready: () => doorReady.promise,
     desk: () => commandDesk,
     linesHeld: () => isPausedIn(store),
-    queueCapacity: () => hot.config.cli.queue.capacity,
+    queueCapacity: () => {
+      const capacity = objOf(objOf(objOf(hot.config).cli).queue).capacity;
+      return typeof capacity === 'number' ? capacity : 0;
+    },
     chatCommands: (name: string, args: Record<string, unknown>) => chatState?.command(name, args) ?? null,
     log,
   });
@@ -1393,6 +1399,22 @@ async function buildCore(
       storeDir: path.join(paths.privateDir, 'development', 'checkpoints'),
       now: clock,
       newId: randomUUID,
+    }),
+    // The owner's gates, under the owner's own board name: the board's rights decide.
+    approvals: {
+      gates: async () =>
+        ((await board.command(OWNER_CLIENT.name, 'task.approvals', {})).data ?? []) as ReadonlyArray<ApprovalGate>,
+      answer: async (answer) => {
+        const reply = await board.command(OWNER_CLIENT.name, 'task.approval.answer', answer);
+        return (reply.data ?? { status: 'refused', code: reply.status, message: reply.text }) as ApprovalResult;
+      },
+    },
+    // No read holds the last request's size, so that number stays unknown.
+    context: () => ({
+      usedTokens: null,
+      limitTokens: numberOrNull(objOf(objOf(hot.config).llm).maxRequestTokens),
+      route: keyRing.route('core')?.name ?? null,
+      model: stringOrNull(roleModel(objOf(hot.config), 'core')),
     }),
   });
   // The owner's commands over the link: the `neptunia` chat and `-p`, and the board commands of the agents.

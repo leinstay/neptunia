@@ -1,10 +1,12 @@
-// What the owner's chat reads and changes beside her turns: `session.*` over the conversation sessions and `checkpoint.*` over
-// the development checkpoints. They are not rows of the command table, because only the chat's panels use them (bin/chat-panels.ts),
+// What the owner's chat reads and changes beside her turns: `session.*` over the conversation sessions, `checkpoint.*` over the
+// development checkpoints, `approval.*` over the board's gates and `context.read`. They are not rows of the command table, because only the chat's panels use them (bin/chat-panels.ts),
 // and each answer is JSON for a panel to read. Only the `cli` principal reaches this (src/interface/neptunia-cli.ts), so the
 // session authority stays here: the owner's command line holds the right to every session, and nothing else can ask.
 
 import type { ConversationSessions, OpenSession } from '../../conversation/sessions.ts';
+import type { ApprovalAnswer, ApprovalGate, ApprovalResult } from '../../board/approval-view.ts';
 import type { CheckpointDesk } from '../../development/checkpoint-desk.ts';
+import { createApprovalRelay } from '../../tools/approvals.ts';
 
 export type ChatStateAnswer = { text: string; status: string; code?: string };
 
@@ -23,13 +25,49 @@ export type ChatState = {
   command(name: string, args: Readonly<Record<string, unknown>>): Promise<ChatStateAnswer> | null;
 };
 
+/** The board's gates, as the owner's commands read and answer them inside the memory writer. */
+export type ApprovalBoard = {
+  gates(): Promise<ReadonlyArray<ApprovalGate>>;
+  answer(answer: ApprovalAnswer): Promise<ApprovalResult>;
+};
+
 export function createChatState({
   sessions,
   checkpoints,
+  approvals,
+  context,
 }: {
   sessions: ConversationSessions;
   checkpoints: CheckpointDesk;
+  approvals: ApprovalBoard;
+  /** What the core knows of a request: a number it does not hold is null. */
+  context: () => { usedTokens: number | null; limitTokens: number | null; route: string | null; model: string | null };
 }): ChatState {
+  const relay = createApprovalRelay({ authorize: (answer) => approvals.answer(answer) });
+
+  /** The gates as the board holds them now: a gate gone from the board leaves the relay too. */
+  async function currentGates(): Promise<ChatStateAnswer> {
+    const gates = await approvals.gates();
+    const held = new Set(gates.map((gate) => `${gate.taskId}:${gate.scope}`));
+    for (const old of relay.pending()) if (!held.has(`${old.taskId}:${old.scope}`)) relay.withdraw(old);
+    for (const gate of gates) relay.present(gate);
+    return json(relay.pending());
+  }
+
+  async function answerGate(args: Readonly<Record<string, unknown>>): Promise<ChatStateAnswer> {
+    const note = typeof args.note === 'string' ? { note: args.note } : {};
+    const answer = await relay.respond({
+      taskId: textOf(args.taskId),
+      scope: args.scope === 'merge' ? 'merge' : 'plan',
+      revision: Number(args.revision),
+      decision: args.decision === 'reject' ? 'reject' : 'approve',
+      ...note,
+    });
+    if (answer.status === 'refused') return refused(answer.code);
+    if (answer.result.status === 'refused') return refused(answer.result.code);
+    return { text: `The board moved the task to ${answer.result.taskStatus}.`, status: 'ok' };
+  }
+
   function sessionCommand(name: string, args: Readonly<Record<string, unknown>>): ChatStateAnswer | null {
     switch (name) {
       case 'session.open': {
@@ -96,6 +134,9 @@ export function createChatState({
   return {
     command(name, args) {
       if (name.startsWith('checkpoint.')) return checkpointCommand(name, args);
+      if (name === 'approval.list') return currentGates();
+      if (name === 'approval.answer') return answerGate(args);
+      if (name === 'context.read') return Promise.resolve(json(context()));
       if (!name.startsWith('session.')) return null;
       const answer = sessionCommand(name, args);
       return Promise.resolve(answer ?? refused('unknown-command'));

@@ -635,6 +635,10 @@ async function runInkChat(
       { name: 'sessions', help: 'List stored conversations and resume one' },
       { name: 'branch', help: 'Continue this conversation from an earlier line' },
       { name: 'checkpoints', help: "Preview and restore a development task's files" },
+      { name: 'approvals', help: 'Approve or reject what waits on the task board' },
+      { name: 'context', help: 'The route, the model and the request limit of her turns' },
+      { name: 'agents', help: 'Agents and what each may do' },
+      { name: 'plugins', help: 'Plugins, which no operation installs yet' },
       ...COMMANDS.flatMap((command) => [
         { name: command.name, help: command.help },
         ...command.subcommands.map((sub) => ({

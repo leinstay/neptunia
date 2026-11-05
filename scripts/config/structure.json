@@ -588,6 +588,13 @@
       "test": "required"
     },
     {
+      "path": "src/board/approval-view.ts",
+      "purpose": "The owner's gates read and answered through the board's own operations. Tested through `tests/tools-approvals.test.ts` on a real board.",
+      "layer": "public",
+      "imports": ["node:*", "src/board/**"],
+      "test": "none"
+    },
+    {
       "path": "src/board/archive.ts",
       "purpose": "Her errands as rows of the board's errand lane, board v3's move of them out of the work archive, and the archive's comparison with the board. Tested through the board v3 and verify-errands tests.",
       "layer": "public",

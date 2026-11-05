@@ -4,6 +4,10 @@ import { CONFIG_SCHEMA, schemaDefaults } from '../src/config/schema.ts';
 import { deepMerge } from '../src/config.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import type { Panel, PanelResult, PanelRow } from '../cli/panel.ts';
+import { approvalPanel } from '../cli/approval-view.ts';
+import type { GateView } from '../cli/approval-view.ts';
+import { contextLine } from '../cli/context-line.ts';
+import type { ContextFacts } from '../cli/context-line.ts';
 import { boundaryPanel, checkpointPanel, sessionsPanel } from '../cli/session-picker.ts';
 import type { CheckpointPoint, SessionClient, SessionLineView, SessionRowView } from '../cli/session-picker.ts';
 import type { PickerEnv } from '../cli/model-picker.ts';
@@ -301,6 +305,67 @@ async function branchPanel(line: string, client: SessionClient, run: Run): Promi
     : boundaryPanel(client, session.id);
 }
 
+/** `/approvals`: the gate it names or the one that waits, or a row per gate when several wait. */
+async function approvalsPanel(line: string, run: Run): Promise<Panel> {
+  const answer = await run({ name: 'approval.list', args: {} });
+  if (answer.status !== 'ok') return { title: 'Approvals', lines: [answer.text], rows: [] };
+  const gates = JSON.parse(answer.text) as Array<GateView>;
+  const named = line.split(/\s+/)[1];
+  const chosen = named === undefined && gates.length === 1 ? gates[0] : gates.find((one) => one.taskId === named);
+  if (chosen !== undefined)
+    return approvalPanel(chosen, { respond: (given) => run({ name: 'approval.answer', args: given }) });
+  if (named !== undefined) return { title: 'Approvals', lines: [`No gate waits on ${named}.`], rows: [] };
+  if (gates.length === 0) return { title: 'Approvals', lines: ['Nothing waits for your approval.'], rows: [] };
+  const rows = gates.map((gate): PanelRow => ({
+    id: gate.taskId,
+    label: `${gate.scope} ${gate.taskId}`,
+    detail: gate.title,
+    group: 'Gates',
+    prefill: `/approvals ${gate.taskId}`,
+  }));
+  return { title: 'Approvals', lines: [], rows };
+}
+
+/** What each menu reads and which command its actions belong to. A family with no operation has neither. */
+const CAPABILITY_MENUS = {
+  tools: { title: 'Tools', command: 'tools', list: 'tools.list' },
+  skills: { title: 'Skills', command: 'skills', list: 'skills.list' },
+  interfaces: { title: 'Interfaces', command: 'interfaces', list: 'interfaces.list' },
+  agents: { title: 'Agents', command: 'agent', list: null },
+  plugins: { title: 'Plugins', command: null, list: null },
+} as const;
+
+/**
+ * A menu over the command table: its text is the family's own list operation and its rows are the table's subcommands, each
+ * prefilling its typed command. Opening one runs that read alone, and no row acts by itself.
+ */
+export async function capabilityPanel(kind: keyof typeof CAPABILITY_MENUS, run: Run): Promise<Panel> {
+  const { title, command, list } = CAPABILITY_MENUS[kind];
+  if (command === null)
+    return {
+      title,
+      lines: ['No operation installs or activates a plugin, so this menu has nothing to act on.'],
+      rows: [],
+    };
+  const read = list === null ? null : await run({ name: list, args: {} });
+  if (read !== null && read.status !== 'ok') return { title, lines: read.text.split('\n'), rows: [] };
+  const found = COMMANDS.find((one) => one.name === command);
+  const rows = (found?.subcommands ?? [])
+    .filter((one) => one.name !== 'list')
+    .map((one): PanelRow => {
+      const words = one.name.replaceAll('.', ' ');
+      return { id: one.name, label: words, detail: one.help, group: title, prefill: `/${command} ${words} ` };
+    });
+  return { title, lines: read === null ? [found?.help ?? title] : read.text.split('\n'), rows };
+}
+
+/** `/context`: the numbers the core holds of a request, an absent one named as unknown. */
+async function contextPanel(run: Run): Promise<Panel> {
+  const answer = await run({ name: 'context.read', args: {} });
+  if (answer.status !== 'ok') return { title: 'Context', lines: [answer.text] };
+  return { title: 'Context', lines: [contextLine(JSON.parse(answer.text) as ContextFacts)] };
+}
+
 /** The panel of a line of the chat's own, or null for any other line. */
 async function localPanel(line: string, run: Run, view: ChatView): Promise<Panel | null> {
   const word = line.split(/\s+/)[0];
@@ -308,6 +373,10 @@ async function localPanel(line: string, run: Run, view: ChatView): Promise<Panel
   if (line === '/sessions') return sessionsPanel(client);
   if (word === '/branch') return branchPanel(line, client, run);
   if (word === '/checkpoints') return checkpointsPanel(line, run);
+  if (word === '/approvals') return approvalsPanel(line, run);
+  if (line === '/context') return contextPanel(run);
+  if (line === '/tools' || line === '/skills' || line === '/interfaces' || line === '/agents' || line === '/plugins')
+    return capabilityPanel(line.slice(1) as keyof typeof CAPABILITY_MENUS, run);
   // Bare `/resume` stays the command that ends a pause: only a session's id makes this one.
   if (word === '/resume' && line !== word) {
     const answer = await client.resume(line.slice(word.length).trim());

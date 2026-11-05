@@ -35,6 +35,11 @@ function rig() {
   const state = createChatState({
     sessions: createConversationSessions({ store, now: () => 100, newId: () => `id${(serial += 1)}` }),
     checkpoints: noCheckpoints,
+    approvals: {
+      gates: () => Promise.resolve([]),
+      answer: () => Promise.resolve({ status: 'refused', code: 'unused', message: '' }),
+    },
+    context: () => ({ usedTokens: null, limitTokens: 50000, route: 'zeta-route', model: 'zeta-model' }),
   });
   const run = async (command: { name: string; args: Record<string, unknown> }) =>
     (await state.command(command.name, command.args)) ?? { text: 'no such command', status: 'failed' };
@@ -43,7 +48,7 @@ function rig() {
   return { run, view, shown, rows, state };
 }
 
-test('names outside these two families are left to the desk', () => {
+test('names outside its families are left to the desk', () => {
   // Bug: the chat state swallows `status` or a board command.
   assert.equal(rig().state.command('status', {}), null);
   assert.equal(rig().state.command('task.list', {}), null);

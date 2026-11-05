@@ -123,6 +123,14 @@ Resuming or branching replaces the transcript on the screen and the lines the co
 
 `/checkpoints` previews and restores the files of a development task's worktree (`src/development/checkpoints.ts`). The board decides what counts: an open task whose `metadata.development.worktree` lies under `selfimprovement.checkout`'s `.worktrees` folder (`src/development/checkpoint-desk.ts`). With no such task the panel says why and offers no row. `/checkpoints take <task>` copies the worktree to `<private>/development/checkpoints/<task>/`. A row shows the affected paths, and Enter on it restores them. Every restore first takes a checkpoint of what it replaces, reported as its undo. A symlink leading out of the worktree refuses the restore, and a partial failure reports `failed` with the undo. `.git`, `.env`, `.secrets`, `data`, `config.local`, `prompts.local`, `node_modules`, `.agents`, `.claude` and `.worktrees` are neither captured nor restored. Nothing takes a checkpoint by itself. Rewinding a conversation is `/branch`, and it changes no file.
 
+## Approvals and capability menus
+
+`/approvals` opens what waits on the task board: a triaged task is a plan gate, and a task in `needs_validation` a merge gate that shows the worker's handoff (`src/board/approval-view.ts`). Several gates list as rows, and `/approvals <task>` opens one. Approve and reject are two rows, and a reject takes the reason the board asks for. An answer is the board's `task.approve` under the `owner` client's name, naming the revision on the screen, so the board's rights and revision check decide and a stale answer changes nothing. `createApprovalRelay` in `src/tools/approvals.ts` forwards one answer per shown revision, so a double Enter is one approval, and a refused answer leaves the gate open. Esc answers nothing. The panel starts no executor and adds no merge policy, which remain `selfimprovement.mode` and the development worker's (`docs/development-agents.md`).
+
+Tool calls have no such panel, because nothing asks. An agent's mode (`read`, `write`, `full` or `sudo`, `/agent mode`) is set in advance and becomes the sandbox of its run (`src/subharness/control.ts`), and a headless backend cannot stop to ask. Her own tools are decided by grants before the turn (`/tools grant`). So no command panel, scope or expiry exists to show, and no proposed command or file diff reaches a gate: a merge gate shows the artifacts the worker named, and the diff lives in its pull request.
+
+`/tools`, `/skills`, `/interfaces` and `/agents` open a menu: the family's list operation as text, where it has one, and a row per subcommand of the command table that prefills the typed command. Opening a menu runs only that read, and every change goes through its typed command. `/plugins` says that no operation installs a plugin. `/context` shows the request limit (`llm.maxRequestTokens`), the core's route and its model through `cli/context-line.ts`. The size of the last request is held by no read, so it shows as unknown. The chat offers no context compression, because the core has no such operation.
+
 ## Settings and setup panels
 
 `/config` opens settings with readable names and descriptions, grouped into tabs. Search accepts both these names and the underlying configuration keys. Use Left and Right or Tab to change tabs, Up and Down to select a row, and Enter to toggle a boolean or edit a value. Typing filters settings across all tabs. In an editor, Enter saves through the normal command handler, Ctrl+U clears the input and Esc cancels.
@@ -151,6 +159,11 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Set what an agent may do | `/agent mode <agent> [<mode>]` |
 | Schedule, switch and inspect the four scheduled mechanics | `/services` |
 | Read a watcher report | `/logs watcher` |
+| Edit the waiting lines, in the chat only | `/queue` |
+| Resume or branch a conversation, in the chat only | `/sessions`, `/resume <id>`, `/branch` |
+| Restore a development task's files, in the chat only | `/checkpoints` |
+| Answer what waits on the task board, in the chat only | `/approvals` |
+| See the request limit, route and model, in the chat only | `/context` |
 
 ## Backend usage
 
