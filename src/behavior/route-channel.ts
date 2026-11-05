@@ -8,6 +8,7 @@
 // phase's own rails (src/behavior/pull-fetch.ts#checkPull over the turn's snapshot, no read) and
 // sends the one request through the rails of src/llm/openrouter.js.
 
+import { accountOf } from '../memory/addresses.ts';
 import { log } from '../log.ts';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
@@ -32,13 +33,13 @@ import type { StoredChannel, StoredProfile } from './route.ts';
 
 /** What the route classifier reads of the store: the stored channels and a member's profile. */
 export type RouteStore = {
-  listChannels: (guildId: string) => Array<object>;
-  getUser: (guildId: string, userId: string) => StoredProfile | null;
+  listChannels: (placeId: string) => Array<object>;
+  getUser: (accountId: string) => StoredProfile | null;
 };
 
 /**
  * The numbered `<channels>` list of one route decision for the route hook below: the stored
- * channels of `guildId` other than `channel` and the candidate's own, each
+ * channels of `placeId` other than `channel` and the candidate's own, each
  * judged with the pull phase's rails (checkPull against `channel` over `snapshot`,
  * `partnerId` for a private chat; a check that throws drops that channel), at most
  * `settings.maxChannels` (routeEntries), rendered by routeChannelList.
@@ -46,7 +47,7 @@ export type RouteStore = {
  */
 export function routeChannelOffer({
   store,
-  guildId,
+  placeId,
   channel,
   snapshot = null,
   partnerId = null,
@@ -56,18 +57,18 @@ export function routeChannelOffer({
   now,
 }: {
   store: RouteStore;
-  guildId: string;
+  placeId: string;
   channel: ConversationInfo;
   snapshot?: Snapshot | null;
   partnerId?: string | null;
-  candidate: { channelId?: string | null } | null;
+  candidate: { placeId?: string | null } | null;
   config: Record<string, Untyped>;
   settings: { maxChannels: number; purposeChars: number };
   now: number;
 }): { lines: Array<string>; ids: Array<string> } {
   const check = (id: string) => {
     try {
-      const judged = checkPull({ snapshot, channelId: id, destination: channel, partnerId, config, now });
+      const judged = checkPull({ snapshot, placeId: id, destination: channel, partnerId, config, now });
       return judged.skip === null ? judged.channel : null;
     } catch {
       return null;
@@ -75,10 +76,10 @@ export function routeChannelOffer({
   };
   const entries = routeEntries({
     // The store answers its channels as plain objects; they are the stored channels.
-    channels: store.listChannels(guildId) as Array<StoredChannel>,
-    exclude: [channel?.id ?? null, candidate?.channelId ?? null].filter((id): id is string => Boolean(id)),
+    channels: store.listChannels(placeId) as Array<StoredChannel>,
+    exclude: [channel?.id ?? null, candidate?.placeId ?? null].filter((id): id is string => Boolean(id)),
     check,
-    profileOf: (userId) => store.getUser(guildId, userId),
+    profileOf: (userId) => store.getUser(accountOf(store, userId)),
     max: settings.maxChannels,
     aliasHalfLifeDays: MEMORY_LIMITS.aliasHalfLifeDays,
   });
@@ -118,7 +119,7 @@ export function createChannelRouter({
   llm: { complete: (...args: Array<Untyped>) => Untyped };
   now?: () => number;
 }): (args: {
-  guildId: string;
+  placeId: string;
   channel: ConversationInfo;
   snapshot?: Snapshot | null;
   partner?: { id: string } | null;
@@ -129,7 +130,7 @@ export function createChannelRouter({
   config?: Untyped;
 }) => Promise<Array<string | { id: string; direction: 'earlier' }>> {
   return async function routeChannels({
-    guildId,
+    placeId,
     channel,
     snapshot = null,
     partner = null,
@@ -138,7 +139,7 @@ export function createChannelRouter({
     triggerKind = null,
     selfName,
   }) {
-    const channelId = channel?.id ?? null;
+    const conversationId = channel?.id ?? null;
     try {
       const config = hot.config;
       const settings = routeSettings(config);
@@ -150,19 +151,19 @@ export function createChannelRouter({
       if (!allowed) return [];
       const prompt = hot.prompts?.['route-channel'];
       if (typeof prompt !== 'string' || !prompt.trim()) {
-        log.info('route: skipped', { channel: channelId, reason: 'no-prompt' });
+        log.info('route: skipped', { channel: conversationId, reason: 'no-prompt' });
         return [];
       }
       const candidate = routeCandidate(history, trigger);
       if (!candidate) {
-        log.info('route: skipped', { channel: channelId, reason: 'no-candidate' });
+        log.info('route: skipped', { channel: conversationId, reason: 'no-candidate' });
         return [];
       }
 
       const at = now();
       const { lines, ids } = routeChannelOffer({
         store,
-        guildId,
+        placeId,
         channel,
         snapshot,
         partnerId: partner?.id ?? null,
@@ -196,7 +197,7 @@ export function createChannelRouter({
         });
       } catch (err) {
         log.warn('route: failed', {
-          channel: channelId,
+          channel: conversationId,
           reason: railReason(err),
           status: objOf(err).statusCode ?? null,
           name: objOf(err).name ?? null,
@@ -206,7 +207,7 @@ export function createChannelRouter({
       const { index, reason, direction } = parseRouteAnswer(completion?.text, ids.length);
       const pick = index === null ? null : ids[index - 1];
       log.info('route: classified', {
-        channel: channelId,
+        channel: conversationId,
         kind: triggerKind ?? null,
         channels: ids.length,
         pick,
@@ -217,7 +218,12 @@ export function createChannelRouter({
       if (!pick) return [];
       return direction === 'earlier' ? [{ id: pick, direction }] : [pick];
     } catch (err) {
-      log.warn('route: failed', { channel: channelId, reason: 'error', status: null, name: objOf(err).name ?? null });
+      log.warn('route: failed', {
+        channel: conversationId,
+        reason: 'error',
+        status: null,
+        name: objOf(err).name ?? null,
+      });
       return [];
     }
   };

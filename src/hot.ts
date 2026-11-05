@@ -435,7 +435,7 @@ export function createHot({
   /**
    * Subscribe to every reload that took: `listener` gets the layer name (`'config'` or
    * `'prompts'`); a failed reload calls nothing. Returns the unsubscribe function. The hook the
-   * journal's `reload` records hang on (src/index.ts), as this module knows no guild.
+   * journal's `reload` records hang on (src/index.ts), as this module knows no place.
    */
   hot.onReload = (listener: (what: 'config' | 'prompts') => void): (() => void) => {
     const handler = ({ what }: { what: Untyped }) => listener(what);

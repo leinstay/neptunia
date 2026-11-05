@@ -141,7 +141,7 @@ function newLine(id: string, triggerId: string, steps: Untyped) {
   });
   return {
     id,
-    channelId: CHANNEL,
+    placeId: CHANNEL,
     triggerId,
     context: [{ author: 'Alice', text: 'hello there' }],
     counts: {},

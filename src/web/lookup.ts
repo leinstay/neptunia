@@ -29,7 +29,7 @@
 //   and final url; no model request. Cached (`page:<sha1 prefix of the url>`) for
 //   `web.links.readCacheHours`; a failure is not cached.
 //
-// Both share the media cache (data/guilds/<id>/media.json, LRU-trimmed to
+// Both share the media cache (data/places/<id>/media.json, LRU-trimmed to
 // `MEDIA_CACHE_ENTRIES` of src/web/cache.ts): `preview:<link id>` holds an excerpt `{ text, ts }` or a
 // miss `{ miss, ts, reason }` skipped for 6 hours (never for a refusal by
 // `llm.maxRequestsPerDay`); `search:<sha1 prefix of the
@@ -99,8 +99,8 @@ type LinkItem = { id: string; url: string; site?: string; title?: string; kind?:
 export type LookupDeps = {
   hot: { config: LookupConfig; prompts?: { 'search-summary'?: string } };
   store: {
-    getMediaCache: (guildId: string) => Record<string, CacheEntry>;
-    markMediaCacheDirty: (guildId: string) => void;
+    getMediaCache: (placeId: string) => Record<string, CacheEntry>;
+    markMediaCacheDirty: (placeId: string) => void;
   };
   llm: {
     complete: (messages: Array<ChatMessage>, options?: CompleteOptions) => Promise<CompleteResult>;
@@ -142,11 +142,11 @@ type Fetched = { result: { text: string } | null; attempted: boolean };
 
 /** The lookup: link reads, searches and page reads over the shared media cache. */
 export type Lookup = {
-  readLinks: (guildId: string, links: Array<LinkItem>, options?: MaxNew) => Promise<Reads>;
-  cachedReads: (guildId: string, links: Array<LinkItem>) => Map<string, string>;
-  search: (guildId: string, query: string) => Promise<SearchAnswer>;
-  searchResults: (guildId: string, query: string) => Promise<RawAnswer>;
-  readPage: (guildId: string, url: string) => Promise<PageAnswer>;
+  readLinks: (placeId: string, links: Array<LinkItem>, options?: MaxNew) => Promise<Reads>;
+  cachedReads: (placeId: string, links: Array<LinkItem>) => Map<string, string>;
+  search: (placeId: string, query: string) => Promise<SearchAnswer>;
+  searchResults: (placeId: string, query: string) => Promise<RawAnswer>;
+  readPage: (placeId: string, url: string) => Promise<PageAnswer>;
   hasSearch: () => boolean;
   searchEngine: () => Engine | null;
 };
@@ -369,15 +369,15 @@ export function renderResults(
  */
 export function createLookup(deps: LookupDeps): Lookup {
   const { hot, store, llm, pageFetcher, searches = {}, keys = {}, now = Date.now } = deps;
-  // One in-flight read per guild + link: a message prefill and a turn that
+  // One in-flight read per place + link: a message prefill and a turn that
   // reach the same new link at once share one request.
   const inFlight = new Map<string, Promise<Fetched>>();
 
-  function putEntry(guildId: string, key: string, value: CacheEntry): void {
-    const cache = store.getMediaCache(guildId);
+  function putEntry(placeId: string, key: string, value: CacheEntry): void {
+    const cache = store.getMediaCache(placeId);
     touchKey(cache, key, value);
     trimCache(cache, MEDIA_CACHE_ENTRIES);
-    store.markMediaCacheDirty(guildId);
+    store.markMediaCacheDirty(placeId);
   }
 
   /** Today's UTC date `YYYY-MM-DD` on the injected clock (the daily counter and `{{today}}`). */
@@ -407,26 +407,26 @@ export function createLookup(deps: LookupDeps): Lookup {
   }
 
   /** The cached state of a link: `{ text }` (LRU-touched), `'miss'` (still fresh) or null. */
-  function cachedRead(guildId: string, key: string): { text: string } | 'miss' | null {
-    const cache = store.getMediaCache(guildId);
+  function cachedRead(placeId: string, key: string): { text: string } | 'miss' | null {
+    const cache = store.getMediaCache(placeId);
     const entry = cache[key];
     if (!entry) return null;
     if (entry.miss) return now() - entry.ts < READ_MISS_TTL_MS ? 'miss' : null;
     if (typeof entry.text !== 'string') return null;
     touchKey(cache, key, entry);
-    store.markMediaCacheDirty(guildId);
+    store.markMediaCacheDirty(placeId);
     return { text: entry.text };
   }
 
   /** The uncached part of a read: resolves `{ result, attempted }`. */
-  async function fetchAndRead(guildId: string, link: LinkItem, key: string): Promise<Fetched> {
+  async function fetchAndRead(placeId: string, link: LinkItem, key: string): Promise<Fetched> {
     const config = hot.config;
     const linksCfg: LinksSettings = config.web?.links ?? {};
     const location = safeLocation(link.url);
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: link', { state: outcome, reason, cached: false, location, ...extra });
     const miss = (reason: string, extra?: object): { result: null; attempted: true } => {
-      putEntry(guildId, key, { miss: true, ts: now(), reason });
+      putEntry(placeId, key, { miss: true, ts: now(), reason });
       report('miss', reason, extra);
       return { result: null, attempted: true };
     };
@@ -445,27 +445,27 @@ export function createLookup(deps: LookupDeps): Lookup {
     // The opening of the page's own text, no model request.
     const opening = cleanText(body, LINK_PREVIEW_CHARS);
     if (!opening) return miss('empty');
-    putEntry(guildId, key, { text: opening, ts: now() });
+    putEntry(placeId, key, { text: opening, ts: now() });
     report('read', null, { chars: opening.length, preview: true });
     return { result: { text: opening }, attempted: true };
   }
 
   /** One link read through the cache, with readLinks' accounting: `attempted` = a fetch was tried (or awaited in flight). */
-  async function readLinkCharged(guildId: string, link: LinkItem, { cacheOnly = false }: Only = {}): Promise<Got> {
+  async function readLinkCharged(placeId: string, link: LinkItem, { cacheOnly = false }: Only = {}): Promise<Got> {
     if (!readable(link)) return { result: null, attempted: false };
     const key = linkKey(hot.config, link);
-    const cached = cachedRead(guildId, key);
+    const cached = cachedRead(placeId, key);
     if (cached === 'miss') return { result: null, attempted: false };
     if (cached) return { result: { ...cached, cached: true }, attempted: false };
     if (cacheOnly) return { result: null, attempted: false };
 
-    const flightKey = `${guildId}:${key}`;
+    const flightKey = `${placeId}:${key}`;
     const running = inFlight.get(flightKey);
     if (running) {
       const { result } = await running;
       return { result, attempted: true };
     }
-    const promise = fetchAndRead(guildId, link, key).finally(() => inFlight.delete(flightKey));
+    const promise = fetchAndRead(placeId, link, key).finally(() => inFlight.delete(flightKey));
     inFlight.set(flightKey, promise);
     return promise;
   }
@@ -481,7 +481,7 @@ export function createLookup(deps: LookupDeps): Lookup {
    * @returns link id -> excerpt.
    */
   async function readLinks(
-    guildId: string,
+    placeId: string,
     links: Array<LinkItem>,
     { maxNew = Infinity }: MaxNew = {}
   ): Promise<Reads> {
@@ -491,7 +491,7 @@ export function createLookup(deps: LookupDeps): Lookup {
     for (const link of links ?? []) {
       if (!link?.id || seen.has(link.id)) continue;
       seen.add(link.id);
-      const { result, attempted } = await readLinkCharged(guildId, link, { cacheOnly: newCount >= maxNew });
+      const { result, attempted } = await readLinkCharged(placeId, link, { cacheOnly: newCount >= maxNew });
       if (attempted) newCount += 1;
       if (result) reads.set(link.id, result.text);
     }
@@ -508,14 +508,14 @@ export function createLookup(deps: LookupDeps): Lookup {
    * link stage (the turn's search classifier).
    * @returns link id -> excerpt.
    */
-  function cachedReads(guildId: string, links: Array<LinkItem>): Map<string, string> {
+  function cachedReads(placeId: string, links: Array<LinkItem>): Map<string, string> {
     const reads = new Map<string, string>();
     const seen = new Set<string>();
     for (const link of links ?? []) {
       if (!link?.id || seen.has(link.id)) continue;
       seen.add(link.id);
       if (!readable(link)) continue;
-      const cached = cachedRead(guildId, linkKey(hot.config, link));
+      const cached = cachedRead(placeId, linkKey(hot.config, link));
       if (cached && cached !== 'miss') reads.set(link.id, cached.text);
     }
     return reads;
@@ -528,7 +528,7 @@ export function createLookup(deps: LookupDeps): Lookup {
    * query. No results -> an empty `text` (the caller renders labels.lookup.none). A failure is
    * never cached.
    */
-  async function search(guildId: string, query: string): Promise<SearchAnswer> {
+  async function search(placeId: string, query: string): Promise<SearchAnswer> {
     const config = hot.config;
     const searchCfg: SearchSettings = config.web?.search ?? {};
     if (searchCfg.enabled === false) return null;
@@ -540,19 +540,19 @@ export function createLookup(deps: LookupDeps): Lookup {
 
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: search', { state: outcome, reason, ...extra });
-    const cache = store.getMediaCache(guildId);
+    const cache = store.getMediaCache(placeId);
     const key = searchKey(asked);
     const hit = cache[key];
     if (hit && typeof hit.text === 'string') {
       const maxAgeMs = positiveOr(searchCfg.cacheHours, SEARCH_CACHE_HOURS_FALLBACK) * 60 * MINUTE_MS;
       if (now() - hit.ts < maxAgeMs) {
         touchKey(cache, key, hit);
-        store.markMediaCacheDirty(guildId);
+        store.markMediaCacheDirty(placeId);
         report(hit.text ? 'found' : 'nothing', null, { cached: true, results: hit.sources?.length ?? 0 });
         return { query: hit.query ?? asked, text: hit.text, sources: hit.sources ?? [], cached: true };
       }
       delete cache[key];
-      store.markMediaCacheDirty(guildId);
+      store.markMediaCacheDirty(placeId);
     }
 
     // The summary request would be refused: no search, no slot.
@@ -563,7 +563,7 @@ export function createLookup(deps: LookupDeps): Lookup {
 
     const outcome = await attempt(engine, asked, promptText, config);
     if (outcome.result) {
-      putEntry(guildId, key, { ...outcome.result, ts: now() });
+      putEntry(placeId, key, { ...outcome.result, ts: now() });
       report(outcome.result.text ? 'found' : 'nothing', null, {
         cached: false,
         results: outcome.result.sources.length,
@@ -680,7 +680,7 @@ export function createLookup(deps: LookupDeps): Lookup {
    * failed: `timeout`, `rate-limited`, `credentials` or its own reason). Never reads the
    * search-summary prompt, never sends a summary request. A failure is never cached.
    */
-  async function searchResults(guildId: string, query: string): Promise<RawAnswer> {
+  async function searchResults(placeId: string, query: string): Promise<RawAnswer> {
     const config = hot.config;
     const searchCfg = config.web?.search ?? {};
     if (searchCfg.enabled === false) return { failed: { code: CODE.NOT_CONFIGURED, reason: 'disabled' } };
@@ -693,19 +693,19 @@ export function createLookup(deps: LookupDeps): Lookup {
 
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: search', { state: outcome, reason, raw: true, ...extra });
-    const cache = store.getMediaCache(guildId);
+    const cache = store.getMediaCache(placeId);
     const key = hashedKey('results', normalizeQuery(asked));
     const hit = cache[key];
     if (hit && Array.isArray(hit.results)) {
       const maxAgeMs = positiveOr(searchCfg.cacheHours, SEARCH_CACHE_HOURS_FALLBACK) * 60 * MINUTE_MS;
       if (now() - hit.ts < maxAgeMs) {
         touchKey(cache, key, hit);
-        store.markMediaCacheDirty(guildId);
+        store.markMediaCacheDirty(placeId);
         report(hit.results.length ? 'found' : 'nothing', null, { cached: true, results: hit.results.length });
         return { query: hit.query ?? asked, results: hit.results, cached: true };
       }
       delete cache[key];
-      store.markMediaCacheDirty(guildId);
+      store.markMediaCacheDirty(placeId);
     }
 
     // Only the `openrouter` engine sends a model request.
@@ -716,7 +716,7 @@ export function createLookup(deps: LookupDeps): Lookup {
     const outcome = await rawAttempt(engine, asked, config);
     if (outcome.results) {
       const result = { query: asked, results: outcome.results };
-      putEntry(guildId, key, { ...result, ts: now() });
+      putEntry(placeId, key, { ...result, ts: now() });
       report(outcome.results.length ? 'found' : 'nothing', null, {
         cached: false,
         results: outcome.results.length,
@@ -811,7 +811,7 @@ export function createLookup(deps: LookupDeps): Lookup {
    * `size`, `timeout`, `http`, `network`). A page read is cached for
    * `web.links.readCacheHours`; a failure is not.
    */
-  async function readPage(guildId: string, url: string): Promise<PageAnswer> {
+  async function readPage(placeId: string, url: string): Promise<PageAnswer> {
     const config = hot.config;
     const linksCfg: LinksSettings = config.web?.links ?? {};
     const maxChars = PAGE_READ_CHARS;
@@ -819,13 +819,13 @@ export function createLookup(deps: LookupDeps): Lookup {
     const location = safeLocation(asked);
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: page', { state: outcome, reason, location, ...extra });
-    const cache = store.getMediaCache(guildId);
+    const cache = store.getMediaCache(placeId);
     const key = hashedKey('page', asked);
     const hit = cache[key];
     if (hit && typeof hit.text === 'string') {
       if (now() - hit.ts < positiveOr(linksCfg.readCacheHours, PAGE_CACHE_HOURS_FALLBACK) * 60 * MINUTE_MS) {
         touchKey(cache, key, hit);
-        store.markMediaCacheDirty(guildId);
+        store.markMediaCacheDirty(placeId);
         report('read', null, { cached: true, chars: hit.text.length });
         return {
           ok: true,
@@ -837,7 +837,7 @@ export function createLookup(deps: LookupDeps): Lookup {
         };
       }
       delete cache[key];
-      store.markMediaCacheDirty(guildId);
+      store.markMediaCacheDirty(placeId);
     }
     const page = await pageFetcher.fetchText(asked, {
       maxBytes: LINK_MAX_BYTES,
@@ -862,7 +862,7 @@ export function createLookup(deps: LookupDeps): Lookup {
       text,
       cut: text !== whole,
     };
-    putEntry(guildId, key, { ...read, ts: now() });
+    putEntry(placeId, key, { ...read, ts: now() });
     report('read', null, { cached: false, chars: text.length, cut: read.cut });
     return { ok: true, ...read };
   }

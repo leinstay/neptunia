@@ -73,7 +73,7 @@ test('recordChunk: the line with its context as author lines, names resolved, th
     id: 'm3',
     revision: 2,
     occurredAt: '2026-10-12T10:02:00.000Z',
-    channelId: 'c1',
+    placeId: 'c1',
     by: ELENI,
     participants: [ELENI, NIKOS],
     sourceIds: ['m1', 'm2', 'm3'],
@@ -170,7 +170,7 @@ test('archiveChunk: what (or text) and the quote; provenance from the entry', ()
     scope: { user: ELENI },
     participants: [NIKOS],
     observedAt: { date: '2026-10-01', precision: 'day' },
-    sourceRefs: [{ channelId: 'c1', messageId: 'm9' }],
+    sourceRefs: [{ placeId: 'c1', messageId: 'm9' }],
     text: { what: 'sang by the <@422222222222222222> harbour', quote: 'λα λα', feeling: 'warm' },
   };
   const { text, meta } = archiveChunk(entry, opts);
@@ -180,7 +180,7 @@ test('archiveChunk: what (or text) and the quote; provenance from the entry', ()
     id: 'ep-1',
     revision: 'rv-abc',
     occurredAt: '2026-10-01T00:00:00.000Z',
-    channelId: null,
+    placeId: null,
     by: null,
     participants: [NIKOS, ELENI],
     sourceIds: ['m9'],

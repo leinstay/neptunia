@@ -87,7 +87,6 @@ function rig(t: { after: (fn: () => void) => void }) {
 
 function facts(entries: Awaited<ReturnType<typeof proposalsOf>>) {
   return buildSelfimprovementFacts({
-    guildId: 'g1',
     now: T0,
     since: null,
     journal: null,

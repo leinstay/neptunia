@@ -9,7 +9,7 @@ import type { Logger } from '../protocol/serve.ts';
 
 export type AddCandidateArg2 = {
   messageId: string;
-  channelId: string;
+  placeId: string;
   authorId?: string | null;
   at: number;
   reason: string;
@@ -18,7 +18,7 @@ export type AddCandidateArg2 = {
 };
 
 export type ResolveByTurnArg2 = {
-  channelId: string | null;
+  placeId: string | null;
   triggerId?: string | null;
   triggerAuthorId?: string | null;
   triggerAt?: number | null;
@@ -64,8 +64,7 @@ export type CreateMissedInput = {
   reads: Reads;
   iface?: () => string;
   partnerOf?: (conversationId: string) => string | null;
-  getGuildId: () => string | null;
-  getSelfName?: (guildId: string) => string;
+  getSelfName?: (placeId: string) => string;
   dataDir: string;
   memoryDb?: Pick<MemoryDbService, 'readHandle' | 'writeUnit'> & Partial<Pick<MemoryDbService, 'namespace'>>;
   fs?: Pick<typeof nodeFs, 'mkdir' | 'writeFile' | 'rename' | 'readFile'>;
@@ -75,13 +74,13 @@ export type CreateMissedInput = {
 };
 
 export type CreateMissedResult = {
-  start: (guildId: string) => Promise<void>;
+  start: (placeId: string) => Promise<void>;
   noteFact: (fact: Untyped) => void;
   noteNotAddressed: (message: Untyped) => void;
   setPrivateRecovery: (hooks: Untyped) => void;
   onTurnEnd: (end: Untyped) => void;
-  noteActivity: (channelId: string, at?: number) => void;
-  sweep: (channelId: string) => Promise<void>;
+  noteActivity: (placeId: string, at?: number) => void;
+  sweep: (placeId: string) => Promise<void>;
   save: () => Promise<void>;
   stop: () => void;
   candidates: () => Array<Candidate>;
@@ -102,7 +101,7 @@ export type ClassifyContext = { channel: Untyped; history: Untyped; config: Unty
 /** One candidate of the registry: a message the persona may have missed, and where its check stands. */
 export type Candidate = {
   messageId: string;
-  channelId: string;
+  placeId: string;
   authorId: string | null;
   at: number;
   reason: string;

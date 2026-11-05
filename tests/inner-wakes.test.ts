@@ -6,6 +6,7 @@
 // `sleptAt` mark, so her calls on it answer `slept`. A recurring intention loses only the occurrence that slept: its
 // history records `slept`, and the next occurrence comes due and runs. A real memory database on the calling thread, a real intention
 // service and event door, a fake turn runner standing in for the model call; the clock injected as `now`.
+import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -15,8 +16,9 @@ import type { InnerTurnParams } from '../src/behavior/inner/types.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
-import { communityKey, personaKey } from '../src/memory/db/storage-keys.ts';
-import { guildPlaceId } from '../src/memory/db/ids.ts';
+import { personaKey } from '../src/memory/db/storage-keys.ts';
+import { communityKey } from './fixtures/memory-db/legacy-keys.ts';
+import {} from '../src/memory/db/ids.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
@@ -73,7 +75,7 @@ function hotOf() {
  * opens a new one and a new inner life over the same directory, as a new process would.
  */
 async function core(dataDir = tempDir('nep-inner-wakes-')) {
-  world().channel({ id: 'c1', name: 'chan-c1', guildId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
   const clock = { t: T };
   const hot = hotOf();
   const flags: PauseFlags = {};
@@ -81,7 +83,6 @@ async function core(dataDir = tempDir('nep-inner-wakes-')) {
   const service = createIntentionService({
     stores: createIntentionStores({ now: () => clock.t, log: SILENT }),
     hot,
-    getGuildId: () => GUILD,
     now: () => clock.t,
     log: SILENT,
   });
@@ -111,7 +112,6 @@ async function core(dataDir = tempDir('nep-inner-wakes-')) {
       conversationName: (id: string) => `chan-${id}`,
       submit: (event: object) => door.submit(event),
       store,
-      getGuildId: () => GUILD,
       meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
       memoryDb: memory.memoryDb,
       rng: () => 0.5,
@@ -145,7 +145,7 @@ type Core = Awaited<ReturnType<typeof core>>;
 
 /** A one-off intention of hers in c1 due at `dueAt`, and the id of the wake it gives. */
 function dueIntention(run: Core, dueAt: number): { id: string; wakeId: string } {
-  const made = run.service.set(GUILD, { purpose: 'ask how the trip went', dueAt, channelId: 'c1', scope: 'group' });
+  const made = run.service.set({ purpose: 'ask how the trip went', dueAt, placeId: 'c1', scope: 'group' });
   if (!made.ok) throw new Error(`intention not set: ${made.code}`);
   return { id: made.intention.id, wakeId: `inner.wake:intention_due:${made.intention.id}:${dueAt}` };
 }
@@ -215,7 +215,7 @@ test('a wake cut off by a restart is interrupted without another model call', as
   const run = await core();
   try {
     const { wakeId } = dueIntention(run, T - MINUTE);
-    const unfinished = structuredClone(run.service.list(GUILD, { all: true }));
+    const unfinished = structuredClone(run.service.list({ all: true }));
     let started: () => void = () => {};
     const asked = new Promise<void>((resolve) => (started = resolve));
     // The first process dies inside the model call: its turn never answers.
@@ -236,7 +236,7 @@ test('a wake cut off by a restart is interrupted without another model call', as
     assert.equal(kept?.state, 'handled');
     assert.equal(kept?.outcome, 'interrupted');
     assert.equal(kept?.turnId, ids[0], 'the original turn identity remains evidence');
-    assert.deepEqual(run.service.list(GUILD, { all: true }), unfinished, 'restart retains unfinished work exactly');
+    assert.deepEqual(run.service.list({ all: true }), unfinished, 'restart retains unfinished work exactly');
   } finally {
     await run.close();
   }
@@ -264,7 +264,7 @@ test('restart abandons an already queued wake while a wake due during downtime s
     const slept = wakeOf(readHandleOf(run.memory), during.wakeId);
     assert.equal(slept?.state, 'slept');
     assert.equal(slept?.handledAt, T + 2 * HOUR);
-    assert.equal(run.life.status(GUILD).slept, 1, 'the status counts the slept wake since the start');
+    assert.equal(run.life.status().slept, 1, 'the status counts the slept wake since the start');
   } finally {
     await run.close();
   }
@@ -287,7 +287,7 @@ test('a wake that fell due during a pause sleeps at the resume and never runs', 
     await run.life.tick();
     assert.equal(run.turns.calls.length, 0);
     assert.equal(wakeOf(readHandleOf(run.memory), wakeId)?.state, 'slept');
-    assert.equal(run.life.status(GUILD).slept, 1);
+    assert.equal(run.life.status().slept, 1);
   } finally {
     await run.close();
   }
@@ -306,11 +306,11 @@ test('her calls on an intention whose wake slept answer slept, and the record ke
     delete run.flags.paused;
     delete run.flags.pausedAt;
     await run.life.tick();
-    const record = run.service.store(GUILD)?.get(id);
+    const record = run.service.store()?.get(id);
     assert.equal(record?.status, 'cancelled', 'a cancel, never a deletion');
     assert.equal(record?.sleptAt, T + 40 * MINUTE);
-    assert.equal(run.service.update(GUILD, id, { state: 'done' }).code, 'slept');
-    assert.equal(run.service.cancel(GUILD, id).code, 'slept');
+    assert.equal(run.service.update(id, { state: 'done' }).code, 'slept');
+    assert.equal(run.service.cancel(id).code, 'slept');
   } finally {
     await run.close();
   }
@@ -320,11 +320,11 @@ test('a recurring intention whose occurrence fell due during the downtime loses 
   const run = await core();
   try {
     const first = T + 30 * MINUTE;
-    const made = run.service.set(GUILD, {
+    const made = run.service.set({
       purpose: 'say good morning',
       dueAt: first,
       every: { period: 'day', at: null },
-      channelId: 'c1',
+      placeId: 'c1',
       scope: 'group',
     });
     if (!made.ok) throw new Error(`intention not set: ${made.code}`);
@@ -335,7 +335,7 @@ test('a recurring intention whose occurrence fell due during the downtime loses 
     await run.life.tick();
     assert.equal(run.turns.calls.length, 0, 'the occurrence of the downtime never runs');
     assert.equal(wakeOf(readHandleOf(run.memory), `inner.wake:intention_due:${id}:${first}`)?.state, 'slept');
-    const record = run.service.store(GUILD)?.get(id);
+    const record = run.service.store()?.get(id);
     assert.equal(record?.status, 'pending', 'the intention goes on');
     assert.equal(record?.dueAt, first + DAY);
     assert.equal(record?.history.at(-1)?.code, 'slept');
@@ -357,11 +357,11 @@ test('inner stop state saved through the writer survives reopening without inner
   const run = await core();
   const file = path.join(run.dataDir, 'guilds', GUILD, 'inner.json');
   try {
-    run.life.stop(GUILD, { by: 'owner' });
+    run.life.stop({ by: 'owner' });
     await run.life.release();
     assert.equal(fs.existsSync(file), false);
     await run.restart();
-    assert.equal(run.life.status(GUILD).stopped, true);
+    assert.equal(run.life.status().stopped, true);
     assert.equal(fs.existsSync(file), false);
   } finally {
     await run.close();
@@ -381,9 +381,7 @@ test('legacy inner states consolidate into one persistent life with scoped facts
     heartbeat: { lastAt: T - 3 * MINUTE, nextAt: T + 5 * MINUTE },
     selfimprovement: { lastAt: T - MINUTE, raisedAt: T - 4 * MINUTE },
     review: { day: '2026-10-31', at: T + MINUTE, done: true, channels: ['c1'], lines: 2 },
-    facts: [
-      { id: 'f1', kind: 'turnFailed', channelId: 'c1', privateChat: false, at: T - MINUTE, told: false as const },
-    ],
+    facts: [{ id: 'f1', kind: 'turnFailed', placeId: 'c1', privateChat: false, at: T - MINUTE, told: false as const }],
     turns: [{ at: T - MINUTE, chainId: 'one', usd: 1, outcome: 'skip', kinds: ['review'] }],
     spend: [{ at: T - MINUTE, usd: 1 }],
     turnIds: ['turn-one'],
@@ -393,7 +391,7 @@ test('legacy inner states consolidate into one persistent life with scoped facts
     heartbeat: { lastAt: T - 2 * MINUTE, nextAt: T + 3 * MINUTE },
     selfimprovement: { lastAt: T - 2 * MINUTE, raisedAt: T - 3 * MINUTE },
     review: { day: '2026-10-31', at: T + 2 * MINUTE, done: false, channels: ['c2'], lines: 3 },
-    facts: [{ id: 'f2', kind: 'turnFailed', channelId: 'c2', privateChat: false, at: T, told: false as const }],
+    facts: [{ id: 'f2', kind: 'turnFailed', placeId: 'c2', privateChat: false, at: T, told: false as const }],
     turns: [{ at: T, chainId: 'two', usd: 2, outcome: 'skip', kinds: ['review'] }],
     spend: [{ at: T, usd: 2 }],
     turnIds: ['turn-two'],
@@ -408,16 +406,16 @@ test('legacy inner states consolidate into one persistent life with scoped facts
   }
   const run = await core(dataDir);
   try {
-    const state = run.life.state(GUILD);
-    assert.equal(run.life.state('g2').stopped, true, 'the stop applies across community contexts');
-    assert.deepEqual(run.life.state('g2').heartbeat, { lastAt: T - 2 * MINUTE, nextAt: T + 5 * MINUTE });
+    const state = run.life.state();
+    assert.equal(run.life.state().stopped, true, 'the stop applies across community contexts');
+    assert.deepEqual(run.life.state().heartbeat, { lastAt: T - 2 * MINUTE, nextAt: T + 5 * MINUTE });
     assert.deepEqual(state.heartbeat, { lastAt: T - 2 * MINUTE, nextAt: T + 5 * MINUTE });
     assert.deepEqual(state.selfimprovement, { lastAt: T - MINUTE, raisedAt: T - 3 * MINUTE });
     assert.equal(state.review?.day, '2026-10-31');
     assert.equal(state.review?.done, true);
     assert.deepEqual(state.reviewViews, {
-      [guildPlaceId('fake', GUILD)]: { day: '2026-10-31', channels: ['c1'], lines: 2 },
-      [guildPlaceId('fake', 'g2')]: { day: '2026-10-31', channels: ['c2'], lines: 3 },
+      [legacyServerPlaceId('fake', GUILD)]: { day: '2026-10-31', channels: ['c1'], lines: 2 },
+      [legacyServerPlaceId('fake', 'g2')]: { day: '2026-10-31', channels: ['c2'], lines: 3 },
     });
     assert.equal(state.stopped, true);
     assert.equal(state.stoppedBy, 'owner');
@@ -425,8 +423,8 @@ test('legacy inner states consolidate into one persistent life with scoped facts
     assert.deepEqual(
       state.turns.map((turn): [string, unknown] => [turn.chainId, Reflect.get(turn, 'scopePlaceId')]).toSorted(),
       [
-        ['one', guildPlaceId('fake', GUILD)],
-        ['two', guildPlaceId('fake', 'g2')],
+        ['one', legacyServerPlaceId('fake', GUILD)],
+        ['two', legacyServerPlaceId('fake', 'g2')],
       ]
     );
     assert.deepEqual(
@@ -434,14 +432,14 @@ test('legacy inner states consolidate into one persistent life with scoped facts
       [...first.spend, ...second.spend]
     );
     assert.deepEqual(
-      run.life.facts.pending(GUILD, { channelId: 'c1' }).map((fact) => fact.id),
+      run.life.facts.pending({ placeId: 'c1' }).map((fact) => fact.id),
       ['f1']
     );
     assert.deepEqual(
-      run.life.facts.pending('g2', { channelId: 'c2' }).map((fact) => fact.id),
+      run.life.facts.pending({ placeId: 'c2' }).map((fact) => fact.id),
       ['f2']
     );
-    run.life.facts.add('g2', { kind: 'turnFailed', channelId: 'c2', text: 'retained after reopen' });
+    run.life.facts.add({ kind: 'turnFailed', placeId: 'c2', text: 'retained after reopen' });
     await run.life.release();
     const handle = run.memory.memoryDb.readHandle();
     assert.ok(handle);
@@ -452,12 +450,12 @@ test('legacy inner states consolidate into one persistent life with scoped facts
     assert.equal(persisted.found, true);
     await run.memory.memoryDb.writeUnit({ op: 'value', key: firstKey, value: { ...first, stopped: false } });
     await run.restart();
-    assert.equal(run.life.state('g2').stopped, true, 'historical source units never overwrite existing persona state');
+    assert.equal(run.life.state().stopped, true, 'historical source units never overwrite existing persona state');
     const reopened = run.memory.memoryDb.readHandle();
     assert.ok(reopened);
     assert.deepEqual(unitValue(dbOf(reopened), personaKey('inner')), persisted);
     assert.deepEqual(
-      run.life.facts.pending('g2', { channelId: 'c2' }).map((fact) => fact.text ?? fact.id),
+      run.life.facts.pending({ placeId: 'c2' }).map((fact) => fact.text ?? fact.id),
       ['f2', 'retained after reopen']
     );
   } finally {

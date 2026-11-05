@@ -10,7 +10,7 @@ import { createStore, operationalJsonPath } from '../src/memory/store.ts';
 import { createRecord } from '../src/memory/record.ts';
 import { createVectors } from '../src/memory/vectors.ts';
 import { createEmbedder } from '../src/memory/embedder.ts';
-import { GUILD, GUILD_2, MEMBER, readerEnv } from './fixtures/memory-db/readers.ts';
+import { GUILD, placeOfGuild, GUILD_2, MEMBER, readerEnv } from './fixtures/memory-db/readers.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 
 const silent = { info() {}, debug() {}, warn() {}, error() {} };
@@ -51,14 +51,12 @@ test('store: the directory ids come from the database only; a closed database is
     }) as typeof fs.readdirSync;
     try {
       const store = createStore({ dataDir: env.data, memoryDb: env.memoryDb });
-      for (const g of [GUILD, GUILD_2])
-        assert.deepEqual(
-          { privates: store.listPrivate(g).sort(), users: store.countUsers(g) },
-          { privates: [MEMBER], users: 1 },
-          g
-        );
+      // The account of the private layer, stored under its spelled id; the same in every guild it writes from.
+      assert.deepEqual(
+        { privates: store.listPrivate().sort(), users: store.countUsers() },
+        { privates: [`discord:${MEMBER}`], users: 1 }
+      );
       assert.equal(readdirs, 0, 'no directory listed');
-      assert.deepEqual(store.listPrivate('300000000000000099'), []);
     } finally {
       fs.readdirSync = originalReaddir;
     }
@@ -75,30 +73,31 @@ test('store: the directory ids come from the database only; a closed database is
 test('store: /nep resume checks only the operational JSON files', async () => {
   const env = await readerEnv();
   try {
-    const g = path.join(env.data, 'guilds', GUILD);
+    const g = path.join(env.data, 'places', GUILD);
+    fs.mkdirSync(path.join(g, 'users'), { recursive: true });
     fs.writeFileSync(path.join(g, 'users', '100000000000000077.json'), '{ broken');
-    fs.writeFileSync(path.join(g, 'inner.json'), '{ broken');
+    fs.writeFileSync(path.join(g, 'unknown.json'), '{ broken');
     fs.mkdirSync(path.join(g, 'journal', 'requests', '2026-10-21'), { recursive: true });
     fs.writeFileSync(path.join(g, 'journal', 'requests', '2026-10-21', 'turn-9-s1.json'), '{ broken');
     const broken = createStore({ dataDir: env.data, memoryDb: env.memoryDb }).validate().sort();
     // Retired inner state is database-authoritative. The malformed operational request still fails validation.
-    assert.deepEqual(broken, [`guilds/${GUILD}/journal/requests/2026-10-21/turn-9-s1.json`]);
+    assert.deepEqual(broken, [`places/${GUILD}/journal/requests/2026-10-21/turn-9-s1.json`]);
     for (const [rel, kept] of [
       ['state.json', false],
       ['usage.json', false],
-      ['vault/x/guilds/1/users/2.json', true],
+      ['vault/x/places/1/users/2.json', true],
       ['snapshots/a/b.json', true],
-      [`guilds/${GUILD}/gifs.json`, false],
-      [`guilds/${GUILD}/media.json`, false],
-      [`guilds/${GUILD}/participation.json`, false],
-      [`guilds/${GUILD}/backfill/state.json`, true],
-      [`guilds/${GUILD}/record/backfill.json`, true],
-      [`guilds/${GUILD}/private/${MEMBER}/missed.json`, true],
-      [`guilds/${GUILD}/guild.json`, false],
-      [`guilds/${GUILD}/intentions.json`, false],
-      [`guilds/${GUILD}/private/${MEMBER}.json`, false],
-      [`guilds/${GUILD}/record/2026-10/ids.json`, false],
-      [`guilds/${GUILD}/forgotten.json`, false],
+      [`places/${GUILD}/gifs.json`, false],
+      [`places/${GUILD}/media.json`, false],
+      [`places/${GUILD}/participation.json`, false],
+      [`places/${GUILD}/backfill/state.json`, true],
+      [`places/${GUILD}/record/backfill.json`, true],
+      [`places/${GUILD}/private/${MEMBER}/missed.json`, true],
+      [`places/${GUILD}/guild.json`, false],
+      [`places/${GUILD}/intentions.json`, false],
+      [`places/${GUILD}/private/${MEMBER}.json`, false],
+      [`places/${GUILD}/record/2026-10/ids.json`, false],
+      [`places/${GUILD}/forgotten.json`, false],
     ] as Array<[string, boolean]>)
       assert.equal(operationalJsonPath(rel), kept, rel);
   } finally {
@@ -123,9 +122,9 @@ test('embedder: the catch-up survey comes from the database', async () => {
       record: createRecord({ dataDir: env.data, log: env.log, memoryDb: env.memoryDb }),
       vectors: createVectors({ dataDir: env.data, log: env.log, memoryDb: env.memoryDb }),
     });
-    const found = await embedder.coverage(GUILD, { hours: 72 });
+    const found = await embedder.coverage(placeOfGuild(GUILD), { hours: 72 });
     assert.ok(found.messages > 0 && found.indexed > 0, 'messages counted and some indexed');
-    const second = await embedder.coverage(GUILD_2, { hours: 72 });
+    const second = await embedder.coverage(placeOfGuild(GUILD_2), { hours: 72 });
     assert.ok(second.messages > 0, 'the second guild counted');
     assert.deepEqual(
       env.warns.filter((warn) => warn.message === 'memory db: read failed'),

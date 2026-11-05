@@ -20,14 +20,14 @@ export async function freshAttachmentUrl({
 }: {
   reads: Reads;
   channel: { iface: string; conversationId: string };
-  entry: { messageId?: string; channelId?: string; itemId?: string };
+  entry: { messageId?: string; placeId?: string; itemId?: string };
   onError?: (err: unknown) => void;
 }): Promise<string | null> {
   if (!entry.messageId) return null;
   try {
     const ref =
-      entry.channelId && entry.channelId !== channel.conversationId
-        ? { ...channel, conversationId: entry.channelId }
+      entry.placeId && entry.placeId !== channel.conversationId
+        ? { ...channel, conversationId: entry.placeId }
         : channel;
     const found = await reads.fetchMessages(ref, [entry.messageId]);
     // A message the interface cannot give (the read failed, the message is gone) is a failed lookup.

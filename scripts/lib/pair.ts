@@ -11,26 +11,26 @@ const TURN_ID = /^t-[A-Za-z0-9-]{1,80}$/;
 export const SCORES = Object.freeze(['first', 'second', 'even']);
 
 /**
- * The triggers file: one trigger per line, `<channelId> <triggerMessageId> [<turnId>]`; blank
+ * The triggers file: one trigger per line, `<placeId> <triggerMessageId> [<turnId>]`; blank
  * lines and `#` comments are skipped. Throws an Error naming the first bad line.
  */
-export function parseTriggers(text: string): Array<{ channelId: string; triggerId: string; turnId: string | null }> {
+export function parseTriggers(text: string): Array<{ placeId: string; triggerId: string; turnId: string | null }> {
   const out: Array<Untyped> = [];
   String(text ?? '')
     .split(/\r?\n/)
     .forEach((raw, index) => {
       const line = raw.replace(/#.*$/, '').trim();
       if (!line) return;
-      const [channelId, triggerId, turnId, extra] = line.split(/\s+/);
+      const [placeId, triggerId, turnId, extra] = line.split(/\s+/);
       if (
         extra !== undefined ||
-        !SNOWFLAKE.test(channelId ?? '') ||
+        !SNOWFLAKE.test(placeId ?? '') ||
         !SNOWFLAKE.test(triggerId ?? '') ||
         (turnId !== undefined && !TURN_ID.test(turnId))
       ) {
-        throw new Error(`triggers line ${index + 1}: expected "<channelId> <triggerMessageId> [<turnId>]"`);
+        throw new Error(`triggers line ${index + 1}: expected "<placeId> <triggerMessageId> [<turnId>]"`);
       }
-      out.push({ channelId, triggerId, turnId: turnId ?? null });
+      out.push({ placeId, triggerId, turnId: turnId ?? null });
     });
   return out;
 }

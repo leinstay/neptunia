@@ -22,16 +22,6 @@ Settings live in `data/config/config.json`. Personal prompt files live in `data/
 
 ## First run
 
-Write the following to `data/config/config.json`, substituting your server ID:
-
-```json
-{
-  "bot": { "guildId": "YOUR_SERVER_ID" }
-}
-```
-
-The core still needs this home community setting. The Discord setup also accepts a list of servers.
-
 Run the interactive setup:
 
 ```bash

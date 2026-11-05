@@ -6,7 +6,7 @@
 // or found nothing to do (`not-now`), a call that left the pending queue unanswered because the queue
 // was full, the call waited too long or a stronger line took its place (`pending-full`,
 // `pending-expired`, `pending-outranked`, src/behavior/pipeline.ts) -- become candidates in a small registry, persisted in
-// the database unit `guilds/<id>/missed.json` through the memory writer and written to
+// the database unit `places/<id>/missed.json` through the memory writer and written to
 // the journal as `answer` records. A `<skip/>` and a refusal are the persona's decisions and
 // never candidates; neither is an overheard line or a routed call. A private chat's are: its
 // records go to that person's private journal and its recovery turn runs in that chat, after the
@@ -35,7 +35,8 @@
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
 import type { StorageKey } from '../memory/db/storage-keys.ts';
-import { communityKey, namespaceOf } from '../memory/db/storage-keys.ts';
+import { PERSONA_ID, placeOrPersona } from '../memory/db/storage-keys.ts';
+import { placeOfConversation, sharedPlaceOf } from '../memory/addresses.ts';
 
 import { createReadSeam, unitValue } from '../memory/db/readers/common.ts';
 import { formatTranscript, MAX_MESSAGE_CHARS, renderTranscript, withTriggers } from '../format.ts';
@@ -159,7 +160,7 @@ export function addCandidate(
   fact: AddCandidateArg2,
   { now = fact?.at }: { now?: number } = {}
 ): { list: Array<Candidate>; added: boolean; candidate: Candidate | null } {
-  if (!fact?.messageId || !fact.channelId || !MISSED_REASONS.includes(fact.reason))
+  if (!fact?.messageId || !fact.placeId || !MISSED_REASONS.includes(fact.reason))
     return { list, added: false, candidate: null };
   const turnIds = typeof fact.turnId === 'string' && fact.turnId ? [fact.turnId] : [];
   const existing = list.find((candidate) => candidate.messageId === fact.messageId);
@@ -180,7 +181,7 @@ export function addCandidate(
   }
   const candidate = {
     messageId: fact.messageId,
-    channelId: fact.channelId,
+    placeId: fact.placeId,
     authorId: fact.authorId ?? null,
     at: fact.at,
     reason: fact.reason,
@@ -205,12 +206,12 @@ export function addCandidate(
 export function resolveByTurn(
   list: Array<Candidate>,
   turn: ResolveByTurnArg2
-): { list: Array<Candidate>; resolved: Array<{ messageId: string; channelId: string; by: string }> } {
-  if (!turn || (turn.outcome !== 'spoke' && turn.outcome !== 'skip') || !turn.channelId) return { list, resolved: [] };
+): { list: Array<Candidate>; resolved: Array<{ messageId: string; placeId: string; by: string }> } {
+  if (!turn || (turn.outcome !== 'spoke' && turn.outcome !== 'skip') || !turn.placeId) return { list, resolved: [] };
   const targets = new Set(Array.isArray(turn.replyTargets) ? turn.replyTargets : []);
   const resolved: Array<Untyped> = [];
   const next = list.map((candidate) => {
-    if (!isOpen(candidate) || candidate.channelId !== turn.channelId) return candidate;
+    if (!isOpen(candidate) || candidate.placeId !== turn.placeId) return candidate;
     let by = null;
     if (turn.triggerId && turn.triggerId === candidate.messageId) by = 'trigger';
     else if (targets.has(candidate.messageId)) by = 'reply';
@@ -225,7 +226,7 @@ export function resolveByTurn(
       by = 'author';
     }
     if (!by) return candidate;
-    resolved.push({ messageId: candidate.messageId, channelId: candidate.channelId, by });
+    resolved.push({ messageId: candidate.messageId, placeId: candidate.placeId, by });
     const turnIds =
       typeof turn.turnId === 'string' && turn.turnId
         ? [...new Set([...candidate.turnIds, turn.turnId])]
@@ -282,7 +283,7 @@ export function expiryMs(
  */
 export function sweepPlan(
   list: Array<Candidate>,
-  channelId: string,
+  placeId: string,
   {
     now,
     settings,
@@ -299,7 +300,7 @@ export function sweepPlan(
   } = { expired: [], resolved: [], notShown: [], owed: [], check: [] };
   const shown = new Set((Array.isArray(history) ? history : []).map((message) => message?.id));
   for (const candidate of list) {
-    if (candidate.channelId !== channelId || candidate.state !== 'pending') continue;
+    if (candidate.placeId !== placeId || candidate.state !== 'pending') continue;
     if (now - candidate.at > expiryMs(candidate, settings)) {
       out.expired.push(candidate);
       continue;
@@ -418,7 +419,7 @@ export function reconcileFromRecords(
   for (const record of Array.isArray(records) ? records : []) {
     const at = Date.parse(record?.occurredAt);
     if (!Number.isFinite(at)) continue;
-    const channelId = record.scope?.channel ?? null;
+    const placeId = record.scope?.channel ?? null;
     if (record.kind === 'turn.start') {
       starts.set(record.turnId, {
         triggerId: record.trigger?.messageId ?? null,
@@ -434,7 +435,7 @@ export function reconcileFromRecords(
         .map((post: Untyped) => post?.replyTo)
         .filter((id: Untyped) => typeof id === 'string' && id);
       const result = resolveByTurn(out, {
-        channelId,
+        placeId,
         ...start,
         triggerAt: start.at ?? null,
         outcome: record.outcome,
@@ -453,7 +454,7 @@ export function reconcileFromRecords(
         out,
         {
           messageId: record.messageId,
-          channelId,
+          placeId,
           authorId: record.authorId ?? null,
           at: Number.isFinite(messageAt) ? messageAt : at,
           reason: record.reason,
@@ -564,10 +565,9 @@ export function buildCheckRequest({
   };
 }
 
-const missedKey = (memoryDb: CreateMissedInput['memoryDb'], guildId: string) =>
-  communityKey('missed', guildId, { iface: namespaceOf(memoryDb) });
-const registryOwner = (guildId: string): string => `guilds/${guildId}/missed.json`;
-const registryFile = (dataDir: string, guildId: string): string => path.join(dataDir, registryOwner(guildId));
+const missedKey = (placeId: string) => placeOrPersona('missed', placeId);
+const registryOwner = (placeId: string): string => `places/${placeId}/missed.json`;
+const registryFile = (dataDir: string, placeId: string): string => path.join(dataDir, registryOwner(placeId));
 
 /** The candidate registry's existing JSON shape, independent of its persistence backend. */
 function registryOf(value: unknown): { candidates: Array<Candidate>; lastRecoveryAt: Record<string, number> } {
@@ -586,7 +586,7 @@ async function writeRegistry(
   memoryDb: CreateMissedInput['memoryDb'],
   fs: NonNullable<CreateMissedInput['fs']>,
   dataDir: string,
-  guildId: string,
+  placeId: string,
   key: StorageKey,
   value: unknown
 ): Promise<void> {
@@ -594,7 +594,7 @@ async function writeRegistry(
     await memoryDb.writeUnit({ op: 'value', key, value });
     return;
   }
-  const file = registryFile(dataDir, guildId);
+  const file = registryFile(dataDir, placeId);
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(`${file}.tmp`, JSON.stringify(value));
   await fs.rename(`${file}.tmp`, file);
@@ -624,7 +624,6 @@ export function createMissed({
   reads,
   iface = () => '',
   partnerOf: partnerOfConversation = () => null,
-  getGuildId,
   getSelfName = () => 'bot',
   dataDir,
   memoryDb,
@@ -644,11 +643,11 @@ export function createMissed({
   let candidates: Array<Candidate> = [];
   let privateRecovery: Untyped = null;
   let lastRecoveryAt: Record<string, number> = {};
-  let loadedGuildId: string | null = null;
+  let loadedPlaceId: string | null = null;
   let dirty = false;
   let chain = Promise.resolve();
   let promptMissingLogged = false;
-  const sweeps = new Map(); // channelId -> { firstAt, lastAt, timer }
+  const sweeps = new Map(); // placeId -> { firstAt, lastAt, timer }
   const sweeping = new Set();
 
   const enabled = () => true;
@@ -658,34 +657,36 @@ export function createMissed({
   const iso = (ms: number) => new Date(ms).toISOString();
 
   /** The person a private chat belongs to, null for a server channel (or one not known). */
-  function partnerOf(channelId: string) {
-    const id = partnerOfConversation(String(channelId));
+  function partnerOf(placeId: string) {
+    const id = partnerOfConversation(String(placeId));
     return typeof id === 'string' && id ? id : null;
   }
 
   /** One `answer` record (features.journal on), a private chat's in that person's private journal; never throws. */
   function record(fields: Untyped) {
-    const guildId = getGuildId?.();
-    if (!guildId || !journalOn()) return;
-    const partner = fields?.channelId ? partnerOf(fields.channelId) : null;
+    if (!journalOn()) return;
+    const partner = fields?.placeId ? partnerOf(fields.placeId) : null;
+    const placeId = partner
+      ? placeOfConversation(store, { id: fields.placeId, kind: 'dm', partnerId: partner })
+      : (loadedPlaceId ?? PERSONA_ID);
     Promise.resolve()
-      .then(() => journal.answer(guildId, partner ? { ...fields, privateUserId: partner } : fields))
+      .then(() => journal.answer(placeId, fields))
       .catch((error) => log.warn('missed: journal failed', { code: objOf(error).code ?? null }));
   }
 
   /** Write the registry through its persistence backend when the core is running. */
   function save() {
     dirty = true;
-    const guildId = loadedGuildId ?? getGuildId?.();
-    if (!guildId || paused()) return chain;
-    const key = missedKey(memoryDb, guildId);
+    const placeId = loadedPlaceId;
+    if (placeId === null || paused()) return chain;
+    const key = missedKey(placeId);
     const run = chain.then(async () => {
       if (!dirty) return;
       dirty = false;
       candidates = pruneCandidates(candidates, now());
       const value = { v: FILE_VERSION, candidates, lastRecoveryAt };
       try {
-        await writeRegistry(memoryDb, fs, dataDir, guildId, key, value);
+        await writeRegistry(memoryDb, fs, dataDir, placeId, key, value);
       } catch (error) {
         dirty = true;
         log.warn('missed: save failed', { code: objOf(error).code ?? null });
@@ -696,13 +697,13 @@ export function createMissed({
   }
 
   /** Read the database registry, or the standalone file backend when no service is supplied. */
-  async function load(guildId: string) {
+  async function load(placeId: string) {
     if (memoryDb) {
-      const found = seam.run(() => unitValue(seam.db(), missedKey(memoryDb, guildId)));
+      const found = seam.run(() => unitValue(seam.db(), missedKey(placeId)));
       ({ candidates, lastRecoveryAt } = registryOf(found.found ? found.value : null));
       return;
     }
-    const file = registryFile(dataDir, guildId);
+    const file = registryFile(dataDir, placeId);
     let text;
     try {
       text = await fs.readFile(file, 'utf8');
@@ -713,18 +714,18 @@ export function createMissed({
     try {
       ({ candidates, lastRecoveryAt } = registryOf(JSON.parse(text)));
     } catch {
-      log.warn('missed: file unreadable, moved aside', { guildId: String(guildId) });
+      log.warn('missed: file unreadable, moved aside', { placeId: String(placeId) });
       await fs.rename(file, `${file}.bad-${now()}`).catch(() => {});
     }
   }
 
   /** The journal's records of the last hour (the days it spans), oldest first. */
-  async function recentRecords(guildId: string) {
+  async function recentRecords(placeId: string) {
     if (typeof journal?.read !== 'function') return [];
     const at = now();
     const days = [...new Set([utcDay(at - RECONCILE_WINDOW_MS), utcDay(at)])];
     const out = [];
-    for (const day of days) out.push(...(await journal.read(guildId, { day, n: Number.MAX_SAFE_INTEGER })));
+    for (const day of days) out.push(...(await journal.read(placeId, { day, n: Number.MAX_SAFE_INTEGER })));
     return out;
   }
 
@@ -732,59 +733,59 @@ export function createMissed({
    * At start: the registry loaded, reconciled with the journal of the last hour (features.journal
    * on), pruned and written; a sweep armed in every channel with a pending candidate.
    */
-  async function start(guildId: string) {
-    loadedGuildId = guildId;
-    await load(guildId);
+  async function start(placeId: string) {
+    loadedPlaceId = placeId;
+    await load(placeId);
     try {
-      const result = reconcileFromRecords(candidates, await recentRecords(guildId), {
+      const result = reconcileFromRecords(candidates, await recentRecords(placeId), {
         now: now(),
         recovery: recoveryOn(),
       });
       candidates = result.list;
-      log.info('missed: reconciled', { guildId: String(guildId), added: result.added, closed: result.closed });
+      log.info('missed: reconciled', { placeId: String(placeId), added: result.added, closed: result.closed });
     } catch (error) {
       log.warn('missed: reconcile failed', { code: objOf(error).code ?? null });
     }
     candidates = pruneCandidates(candidates, now());
     await save();
     if (!enabled()) return;
-    for (const channelId of new Set(
-      candidates.filter((candidate) => candidate.state === 'pending').map((candidate) => candidate.channelId)
+    for (const conversationId of new Set(
+      candidates.filter((candidate) => candidate.state === 'pending').map((candidate) => candidate.placeId)
     ))
-      arm(channelId);
+      arm(conversationId);
   }
 
   /** (Re)schedule a channel's sweep at sweepDueAt, never before its `notBefore` (a held recovery). */
-  function schedule(channelId: string, entry: Untyped) {
+  function schedule(placeId: string, entry: Untyped) {
     if (entry.timer) timers.clear(entry.timer);
     const due = Math.max(entry.notBefore ?? 0, sweepDueAt(entry, missedSettings(hot.config)));
     const wait = Math.max(0, due - now());
     // The sweep's promise is returned (never rejects) for a caller that waits on the timer.
     entry.timer = timers.set(() => {
-      sweeps.delete(channelId);
-      return sweep(channelId).catch((error) => log.error('missed: sweep failed', { channelId, error }));
+      sweeps.delete(placeId);
+      return sweep(placeId).catch((error) => log.error('missed: sweep failed', { placeId, error }));
     }, wait);
   }
 
-  /** A candidate event in `channelId`: its sweep armed, or pushed back. */
-  function arm(channelId: string, at = now()) {
-    const entry = sweeps.get(channelId);
+  /** A candidate event in `placeId`: its sweep armed, or pushed back. */
+  function arm(placeId: string, at = now()) {
+    const entry = sweeps.get(placeId);
     if (entry) {
       entry.lastAt = at;
-      schedule(channelId, entry);
+      schedule(placeId, entry);
       return;
     }
     const fresh = { firstAt: at, lastAt: at, notBefore: null, timer: null };
-    sweeps.set(channelId, fresh);
-    schedule(channelId, fresh);
+    sweeps.set(placeId, fresh);
+    schedule(placeId, fresh);
   }
 
-  /** A message in `channelId`: an armed sweep waits for the talk to settle (never past its cap). */
-  function noteActivity(channelId: string, at = now()) {
-    const entry = sweeps.get(channelId);
+  /** A message in `placeId`: an armed sweep waits for the talk to settle (never past its cap). */
+  function noteActivity(placeId: string, at = now()) {
+    const entry = sweeps.get(placeId);
     if (!entry) return;
     entry.lastAt = Math.max(entry.lastAt, Number.isFinite(at) ? at : now());
-    schedule(channelId, entry);
+    schedule(placeId, entry);
   }
 
   /**
@@ -794,14 +795,14 @@ export function createMissed({
    */
   function noteNotAddressed(message: MissedLine) {
     try {
-      if (!message?.id || !message.channelId) return;
+      if (!message?.id || !message.placeId) return;
       const at = Number.isFinite(message.ts) ? message.ts : now();
       record({
         event: 'address',
         verdict: 'not-addressed',
         messageId: message.id,
         authorId: message.authorId ?? null,
-        channelId: message.channelId,
+        placeId: message.placeId,
         at: iso(at),
         participants: message.authorId ? [message.authorId] : [],
       });
@@ -817,7 +818,7 @@ export function createMissed({
    */
   function noteFact({ reason, message, replacedBy = null, failure = null, turnId = null }: NoteFactInput = {}) {
     try {
-      if (!enabled() || !MISSED_REASONS.includes(String(reason)) || !message?.id || !message.channelId) return;
+      if (!enabled() || !MISSED_REASONS.includes(String(reason)) || !message?.id || !message.placeId) return;
       const at = Number.isFinite(message.ts) ? message.ts : now();
       const authorId = message.authorId ?? null;
       const question = isQuestion(message.content);
@@ -826,7 +827,7 @@ export function createMissed({
         reason,
         messageId: message.id,
         authorId,
-        channelId: message.channelId,
+        placeId: message.placeId,
         at: iso(at),
         question,
         ...(replacedBy ? { replacedBy } : {}),
@@ -837,18 +838,18 @@ export function createMissed({
       });
       const result = addCandidate(
         candidates,
-        { messageId: message.id, channelId: message.channelId, authorId, at, reason: String(reason), question, turnId },
+        { messageId: message.id, placeId: message.placeId, authorId, at, reason: String(reason), question, turnId },
         { now: now() }
       );
       candidates = result.list;
       log.info('missed: candidate', {
-        channelId: message.channelId,
+        placeId: message.placeId,
         messageId: message.id,
         reason,
         added: result.added,
       });
       save();
-      if (result.candidate && isOpen(result.candidate)) arm(message.channelId);
+      if (result.candidate && isOpen(result.candidate)) arm(message.placeId);
     } catch (error) {
       log.warn('missed: fact failed', { reason, error });
     }
@@ -856,16 +857,16 @@ export function createMissed({
 
   /** Close what a turn's end resolved: journaled `resolved`, logged. */
   function noteResolved(resolved: Untyped, turnId: string | null = null) {
-    for (const { messageId, channelId, by } of resolved) {
+    for (const { messageId, placeId, by } of resolved) {
       record({
         event: 'resolved',
         messageId,
-        channelId,
+        placeId,
         by,
         ...(turnId ? { turnId } : {}),
         sourceMessageIds: [messageId],
       });
-      log.info('missed: resolved', { channelId, messageId, by });
+      log.info('missed: resolved', { placeId, messageId, by });
     }
   }
 
@@ -878,11 +879,11 @@ export function createMissed({
    */
   function onTurnEnd(end: TurnEnd) {
     try {
-      if (!enabled() || !end || !end.channelId) return;
+      if (!enabled() || !end || !end.conversationId) return;
       const trigger = end.trigger ?? null;
       const turnId = typeof end.turnId === 'string' ? end.turnId : null;
       const result = resolveByTurn(candidates, {
-        channelId: end.channelId,
+        placeId: end.conversationId,
         triggerId: trigger?.id ?? null,
         triggerAuthorId: trigger?.authorId ?? null,
         triggerAt: trigger?.ts ?? null,
@@ -905,7 +906,7 @@ export function createMissed({
       if (reason)
         noteFact({
           reason,
-          message: { ...trigger, channelId: trigger.channelId ?? end.channelId },
+          message: { ...trigger, placeId: trigger.placeId ?? end.conversationId },
           turnId: end.turnId ?? null,
           failure,
         });
@@ -921,7 +922,7 @@ export function createMissed({
     record({
       event,
       messageId: candidate.messageId,
-      channelId: candidate.channelId,
+      placeId: candidate.placeId,
       reason: candidate.reason,
       ...fields,
       sourceMessageIds: [candidate.messageId],
@@ -938,7 +939,7 @@ export function createMissed({
       event: 'verdict',
       messageId: candidate.messageId,
       authorId: candidate.authorId,
-      channelId: candidate.channelId,
+      placeId: candidate.placeId,
       reason: candidate.reason,
       verdict,
       by,
@@ -947,7 +948,7 @@ export function createMissed({
       sourceMessageIds: [candidate.messageId],
     });
     log.info('missed: verdict', {
-      channelId: candidate.channelId,
+      placeId: candidate.placeId,
       messageId: candidate.messageId,
       reason: candidate.reason,
       verdict,
@@ -956,21 +957,21 @@ export function createMissed({
     return result.changed;
   }
 
-  /** The conversation `channelId` as the interface describes it now (permissions and all), or null when it does not. */
-  async function channelOf(channelId: string) {
-    return (await reads.conversationInfo({ iface: iface(), conversationId: String(channelId) }))?.conversation ?? null;
+  /** The conversation `placeId` as the interface describes it now (permissions and all), or null when it does not. */
+  async function channelOf(placeId: string) {
+    return (await reads.conversationInfo({ iface: iface(), conversationId: String(placeId) }))?.conversation ?? null;
   }
 
   /** The analyzer's verdicts for `list` (one call), each `unchecked` when it fails. */
   async function classify(list: Array<Candidate>, { channel, history, config }: ClassifyContext) {
     const unchecked = () => list.map(() => UNCHECKED);
     const prompts = hot.prompts;
-    const guildId = channel.communityId ?? getGuildId?.();
+    const placeId = sharedPlaceOf(store, channel);
     const request = buildCheckRequest({
       prompt: prompts?.missed,
       labels: prompts?.labels,
       config,
-      selfName: getSelfName(guildId),
+      selfName: getSelfName(placeId),
       history,
       candidates: list,
       triggerOf: typeof turns?.triggerOf === 'function' ? (id: string) => turns.triggerOf(id) : undefined,
@@ -1001,11 +1002,11 @@ export function createMissed({
         }
       );
       const { verdicts, empty } = parseMissedAnswer(completion?.text, request.candidates.length);
-      if (empty) log.warn('missed: helper failed', { channelId: channel.id, reason: 'empty' });
+      if (empty) log.warn('missed: helper failed', { placeId: channel.id, reason: 'empty' });
       const byId = new Map(request.candidates.map((candidate, i) => [candidate.messageId, verdicts[i]]));
       return list.map((candidate: Candidate) => byId.get(candidate.messageId) ?? UNCHECKED);
     } catch (error) {
-      log.warn('missed: helper failed', { channelId: channel.id, error });
+      log.warn('missed: helper failed', { placeId: channel.id, error });
       return unchecked();
     }
   }
@@ -1015,22 +1016,22 @@ export function createMissed({
    * for what is left, then a recovery turn for the owed ones or, in
    * shadow mode, nothing posted. Skipped while paused.
    */
-  async function sweep(channelId: string) {
+  async function sweep(placeId: string) {
     if (!enabled()) return;
     if (paused()) {
-      log.info('missed: sweep skipped', { channelId, reason: 'paused' });
+      log.info('missed: sweep skipped', { placeId, reason: 'paused' });
       return;
     }
-    if (sweeping.has(channelId)) {
-      arm(channelId);
+    if (sweeping.has(placeId)) {
+      arm(placeId);
       return;
     }
-    if (!candidates.some((candidate) => candidate.channelId === channelId && candidate.state === 'pending')) return;
-    sweeping.add(channelId);
+    if (!candidates.some((candidate) => candidate.placeId === placeId && candidate.state === 'pending')) return;
+    sweeping.add(placeId);
     try {
       const config = hot.config;
       const settings = missedSettings(config);
-      const channel = await channelOf(channelId);
+      const channel = await channelOf(placeId);
       let history = null;
       if (channel) {
         try {
@@ -1040,26 +1041,24 @@ export function createMissed({
             { limit: Math.max(1, Math.floor(settings.contextMessages)) }
           );
         } catch (error) {
-          log.warn('missed: history fetch failed', { channelId, error });
+          log.warn('missed: history fetch failed', { placeId, error });
         }
       }
       if (!channel || !Array.isArray(history)) {
-        for (const candidate of candidates.filter(
-          (entry) => entry.channelId === channelId && entry.state === 'pending'
-        ))
+        for (const candidate of candidates.filter((entry) => entry.placeId === placeId && entry.state === 'pending'))
           applyVerdict(candidate, UNCHECKED, 'code');
         await save();
         return;
       }
       const triggerOf = typeof turns?.triggerOf === 'function' ? (id: Untyped) => turns.triggerOf(id) : null;
-      const plan = sweepPlan(candidates, channelId, { now: now(), settings, history, triggerOf });
+      const plan = sweepPlan(candidates, placeId, { now: now(), settings, history, triggerOf });
       for (const candidate of plan.expired) {
         close(candidate, 'expired', 'expired');
-        log.info('missed: expired', { channelId, messageId: candidate.messageId, reason: candidate.reason });
+        log.info('missed: expired', { placeId, messageId: candidate.messageId, reason: candidate.reason });
       }
       for (const { candidate, by } of plan.resolved) {
         close(candidate, 'resolved', 'resolved', { by });
-        log.info('missed: resolved', { channelId, messageId: candidate.messageId, by });
+        log.info('missed: resolved', { placeId, messageId: candidate.messageId, by });
       }
       for (const candidate of plan.notShown) applyVerdict(candidate, 'stale', 'code');
       const owed = [...plan.owed];
@@ -1073,23 +1072,23 @@ export function createMissed({
       await save();
       if (owed.length > 0 && recoveryOn()) await recover(channel, owed, history);
     } finally {
-      sweeping.delete(channelId);
+      sweeping.delete(placeId);
     }
   }
 
-  /** Whether a turn would find the attention taken in `channelId` now (the rule runTurn applies). */
-  function attentionTaken(channelId: string) {
-    if (typeof turns?.isBusy === 'function' && turns.isBusy(channelId)) return true;
+  /** Whether a turn would find the attention taken in `placeId` now (the rule runTurn applies). */
+  function attentionTaken(placeId: string) {
+    if (typeof turns?.isBusy === 'function' && turns.isBusy(placeId)) return true;
     return typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy();
   }
 
   /** Hold the owed candidates of a channel for a later sweep, `waitMs` from now at the earliest. */
-  function holdFor(channelId: string, waitMs: Untyped) {
+  function holdFor(placeId: string, waitMs: Untyped) {
     const at = now();
-    const entry = sweeps.get(channelId) ?? { firstAt: at, lastAt: at, notBefore: null, timer: null };
+    const entry = sweeps.get(placeId) ?? { firstAt: at, lastAt: at, notBefore: null, timer: null };
     entry.notBefore = at + Math.max(0, waitMs);
-    sweeps.set(channelId, entry);
-    schedule(channelId, entry);
+    sweeps.set(placeId, entry);
+    schedule(placeId, entry);
   }
 
   /**
@@ -1102,26 +1101,26 @@ export function createMissed({
    * attempt per candidate.
    */
   async function recover(channel: ConversationInfo, owed: Array<Candidate>, history: Array<MissedLine>) {
-    const channelId = channel.id;
+    const placeId = channel.id;
     const config = hot.config;
     const settings = missedSettings(config);
     if (paused()) return;
     const list = [...owed].sort((a, b) => a.at - b.at);
     if (!channel.permissions.send) {
-      finishRecovery(channelId, list, { outcome: 'cannot-send' }, null);
+      finishRecovery(placeId, list, { outcome: 'cannot-send' }, null);
       await save();
       return;
     }
     const cooldownMs = settings.channelCooldownMinutes * MINUTE_MS;
-    const last = lastRecoveryAt[channelId];
+    const last = lastRecoveryAt[placeId];
     if (Number.isFinite(last) && now() - last < cooldownMs) {
-      log.info('missed: recovery held', { channelId, reason: 'cooldown', candidates: list.length });
-      holdFor(channelId, last + cooldownMs - now());
+      log.info('missed: recovery held', { placeId, reason: 'cooldown', candidates: list.length });
+      holdFor(placeId, last + cooldownMs - now());
       return;
     }
-    if (attentionTaken(channelId)) {
-      log.info('missed: recovery held', { channelId, reason: 'busy', candidates: list.length });
-      holdFor(channelId, settings.sweepDelaySeconds * 1000);
+    if (attentionTaken(placeId)) {
+      log.info('missed: recovery held', { placeId, reason: 'busy', candidates: list.length });
+      holdFor(placeId, settings.sweepDelaySeconds * 1000);
       return;
     }
     const byId = new Map<string, Untyped>(history.map((message: Untyped) => [message.id, message]));
@@ -1138,8 +1137,8 @@ export function createMissed({
         (await privateRecovery.allow(channel, trigger).catch(() => false))
       )
     ) {
-      log.info('missed: recovery refused', { channelId, reason: 'private-gate', candidates: ids.length });
-      finishRecovery(channelId, shown, { outcome: 'private-gate' }, trigger.id);
+      log.info('missed: recovery refused', { placeId, reason: 'private-gate', candidates: ids.length });
+      finishRecovery(placeId, shown, { outcome: 'private-gate' }, trigger.id);
       await save();
       return;
     }
@@ -1150,7 +1149,7 @@ export function createMissed({
         attempts: candidate.attempts + 1,
         updatedAt: startedAt,
       }).list;
-    lastRecoveryAt = { ...lastRecoveryAt, [channelId]: startedAt };
+    lastRecoveryAt = { ...lastRecoveryAt, [placeId]: startedAt };
     await save();
     const maxChars = MAX_MESSAGE_CHARS;
     const missedItems = shown.map((candidate) => {
@@ -1162,16 +1161,15 @@ export function createMissed({
       };
     });
     const stillDue = () => {
-      const lastPost = typeof turns?.lastPostAt === 'function' ? turns.lastPostAt(channelId) : 0;
+      const lastPost = typeof turns?.lastPostAt === 'function' ? turns.lastPostAt(placeId) : 0;
       if (Number.isFinite(lastPost) && lastPost > startedAt) return false;
       return ids.every((id) => candidates.find((candidate) => candidate.messageId === id)?.state === 'in_progress');
     };
-    log.info('missed: recovery', { channelId, candidates: ids.length, trigger: trigger.id });
+    log.info('missed: recovery', { placeId, candidates: ids.length, trigger: trigger.id });
     let result;
     try {
       result = await turns.runTurn({
         conversation: { iface: channel.iface, conversationId: channel.id },
-        ...(isPrivate ? { guildId: getGuildId?.() } : {}),
         mode: 'reply',
         trigger,
         triggerKind: 'missed',
@@ -1179,7 +1177,7 @@ export function createMissed({
         stillDue,
       });
     } catch (error) {
-      log.error('missed: recovery failed', { channelId, error });
+      log.error('missed: recovery failed', { placeId, error });
       result = { outcome: 'error' };
     }
     const outcome = result?.outcome ?? 'error';
@@ -1191,13 +1189,13 @@ export function createMissed({
           attempts: candidate.attempts,
           updatedAt: now(),
         }).list;
-      const { [channelId]: _ours, ...others } = lastRecoveryAt;
-      lastRecoveryAt = Number.isFinite(last) ? { ...others, [channelId]: last } : others;
-      holdFor(channelId, settings.sweepDelaySeconds * 1000);
+      const { [placeId]: _ours, ...others } = lastRecoveryAt;
+      lastRecoveryAt = Number.isFinite(last) ? { ...others, [placeId]: last } : others;
+      holdFor(placeId, settings.sweepDelaySeconds * 1000);
       await save();
       return;
     }
-    finishRecovery(channelId, shown, result ?? { outcome }, trigger.id);
+    finishRecovery(placeId, shown, result ?? { outcome }, trigger.id);
     if (isPrivate)
       await Promise.resolve(privateRecovery.after?.(channel, trigger, result ?? { outcome })).catch((error) =>
         log.warn('missed: private recovery count failed', { error })
@@ -1209,7 +1207,7 @@ export function createMissed({
    * Close the candidates of one recovery (`list`): `resolved` when its turn spoke or chose
    * silence, else `dismissed` (one attempt each); one `recovery` record with the outcome.
    */
-  function finishRecovery(channelId: string, list: Array<Candidate>, result: Untyped, triggerId: Untyped) {
+  function finishRecovery(placeId: string, list: Array<Candidate>, result: Untyped, triggerId: Untyped) {
     const outcome = result?.outcome ?? 'error';
     const done = outcome === 'spoke' || outcome === 'skip';
     const ids = list.map((candidate: Candidate) => candidate.messageId);
@@ -1224,7 +1222,7 @@ export function createMissed({
     }
     record({
       event: 'recovery',
-      channelId,
+      placeId,
       messageIds: ids,
       triggerId,
       outcome,
@@ -1232,7 +1230,7 @@ export function createMissed({
       participants: [...new Set(list.map((candidate: Candidate) => candidate.authorId).filter(Boolean))],
       sourceMessageIds: ids,
     });
-    log.info('missed: recovered', { channelId, candidates: ids.length, outcome });
+    log.info('missed: recovered', { placeId, candidates: ids.length, outcome });
   }
 
   /** Every armed sweep cleared (shutdown). */

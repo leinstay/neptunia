@@ -25,7 +25,7 @@ export type Waited = {
   neighborsStage: Tracked<{ neighbors: Array<Neighbor>; hidden: number }> | null;
   pulledStage: Tracked<Array<PulledChannel>> | null;
   participationShown: boolean;
-  participationAudienceOf: ((channelId: string) => boolean) | null;
+  participationAudienceOf: ((placeId: string) => boolean) | null;
   participationStage: Tracked<Array<unknown>> | null;
   prepareMs: number;
   late: Array<string>;
@@ -45,7 +45,7 @@ export async function waitForPreparation(
 ): Promise<Ended | Waited> {
   const { clock, ifaceReads, participationOn, participationAudience, pickParticipation } = ctx;
   const { triggerKind = null } = params;
-  const { channel, guildId, isPrivate, life } = opened;
+  const { channel, placeId, isPrivate, life } = opened;
   const { config, snapshot, now, likeServer, rawHistory, candidate, selfName, startedAt, historyMs, beforeBar } = setup;
   const { finalMode, pulledPending, pullStartedAt } = pulled;
   const { deadline, stages, track, previews, captions, videoStage, splitStage, hasParts, prefetchStage } = staged;
@@ -78,7 +78,7 @@ export async function waitForPreparation(
   const participationStage = participationAudienceOf
     ? track('participation', (): Promise<Array<unknown>> =>
         pickParticipation({
-          guildId,
+          placeId,
           channel,
           snapshot,
           history: rawHistory,

@@ -29,27 +29,27 @@ export type FollowUpWindowsContext = {
   store: { state?: PipelineState } | null | undefined;
   now: () => number;
   turns: PipelineTurns;
-  turnBlocked: (channelId: string, config: PipelineConfig) => boolean;
+  turnBlocked: (placeId: string, config: PipelineConfig) => boolean;
 };
 
 export type FollowUpWindows = {
-  windowOf: (channelId: string) => FollowUpWindow | undefined;
-  noteFollowUpSend: (channelId: string, ts: number) => void;
-  bumpFollowUpNoStreak: (channelId: string, state: FollowUpWindow) => void;
+  windowOf: (placeId: string) => FollowUpWindow | undefined;
+  noteFollowUpSend: (placeId: string, ts: number) => void;
+  bumpFollowUpNoStreak: (placeId: string, state: FollowUpWindow) => void;
   followUpMuted: () => 'paused' | null;
   followUpGate: (channel: Conv, normalized: Line, selfId: string) => FollowUpGate;
   followUpStale: (ping: Ping, config?: PipelineConfig) => 'closed' | null;
 };
 
 export function createFollowUpWindows({ hot, store, now }: FollowUpWindowsContext): FollowUpWindows {
-  const followUpWindows = new Map<string, FollowUpWindow>(); // channelId -> { openedAt, lastAnswerAt, noStreak }
+  const followUpWindows = new Map<string, FollowUpWindow>(); // placeId -> { openedAt, lastAnswerAt, noStreak }
 
   /** Mirror one window into state.json (a fresh copy, numbers only). */
-  function persistFollowUpWindow(channelId: string, window: FollowUpWindow): void {
+  function persistFollowUpWindow(placeId: string, window: FollowUpWindow): void {
     const state = store?.state;
     if (!state?.data) return;
     if (!state.data.followUpWindows || typeof state.data.followUpWindows !== 'object') state.data.followUpWindows = {};
-    state.data.followUpWindows[channelId] = {
+    state.data.followUpWindows[placeId] = {
       openedAt: window.openedAt,
       lastAnswerAt: window.lastAnswerAt,
       noStreak: window.noStreak,
@@ -58,11 +58,11 @@ export function createFollowUpWindows({ hot, store, now }: FollowUpWindowsContex
   }
 
   /** Close a window: drop it from the Map and delete its key from state.json. */
-  function closeFollowUpWindow(channelId: string): void {
-    followUpWindows.delete(channelId);
+  function closeFollowUpWindow(placeId: string): void {
+    followUpWindows.delete(placeId);
     const saved = store?.state?.data?.followUpWindows;
-    if (saved && typeof saved === 'object' && Object.hasOwn(saved, channelId)) {
-      delete saved[channelId];
+    if (saved && typeof saved === 'object' && Object.hasOwn(saved, placeId)) {
+      delete saved[placeId];
       // A saved window lives in the state, so the state is there.
       (store?.state as PipelineState).markDirty?.();
     }
@@ -83,20 +83,20 @@ export function createFollowUpWindows({ hot, store, now }: FollowUpWindowsContex
     const minutes = FOLLOW_UP_MINUTES;
     const t = now();
     let dropped = 0;
-    for (const [channelId, entry] of Object.entries(saved)) {
+    for (const [placeId, entry] of Object.entries(saved)) {
       const valid =
         entry &&
         Number.isFinite(entry.openedAt) &&
         Number.isFinite(entry.lastAnswerAt) &&
         Number.isFinite(entry.noStreak);
       if (valid && t - entry.lastAnswerAt < minutes * MINUTE_MS) {
-        followUpWindows.set(channelId, {
+        followUpWindows.set(placeId, {
           openedAt: entry.openedAt,
           lastAnswerAt: entry.lastAnswerAt,
           noStreak: entry.noStreak,
         });
       } else {
-        if (!paused) delete saved[channelId];
+        if (!paused) delete saved[placeId];
         dropped += 1;
       }
     }
@@ -112,23 +112,23 @@ export function createFollowUpWindows({ hot, store, now }: FollowUpWindowsContex
   loadFollowUpWindows();
 
   /** (Re)opens/extends the window -- called wherever the persona's own message is observed. */
-  function noteFollowUpSend(channelId: string, ts: number): void {
+  function noteFollowUpSend(placeId: string, ts: number): void {
     const window = { openedAt: ts, lastAnswerAt: ts, noStreak: 0 };
-    followUpWindows.set(channelId, window);
-    persistFollowUpWindow(channelId, window);
+    followUpWindows.set(placeId, window);
+    persistFollowUpWindow(placeId, window);
   }
 
   /** One "no" verdict (pre-filter or model): bump the streak, close the window once the streak reaches the limit. */
-  function bumpFollowUpNoStreak(channelId: string, state: FollowUpWindow): void {
+  function bumpFollowUpNoStreak(placeId: string, state: FollowUpWindow): void {
     state.noStreak += 1;
     // A window replaced meanwhile (the persona spoke again while a classifier
     // call was in flight) is not the live one: nothing to mirror or close.
-    if (followUpWindows.get(channelId) !== state) return;
+    if (followUpWindows.get(placeId) !== state) return;
     if (state.noStreak >= FOLLOW_UP_NO_STREAK) {
-      log.info('follow-up: window closed', { channel: channelId });
-      closeFollowUpWindow(channelId);
+      log.info('follow-up: window closed', { channel: placeId });
+      closeFollowUpWindow(placeId);
     } else {
-      persistFollowUpWindow(channelId, state);
+      persistFollowUpWindow(placeId, state);
     }
   }
 
@@ -150,10 +150,10 @@ export function createFollowUpWindows({ hot, store, now }: FollowUpWindowsContex
    */
   function followUpGate(channel: Conv, normalized: Line, selfId: string): FollowUpGate {
     const config = hot.config;
-    const channelId = channel.id;
-    const state = followUpWindows.get(channelId);
+    const placeId = channel.id;
+    const state = followUpWindows.get(placeId);
     if (!isFollowUpOpen(state, now())) {
-      if (state) closeFollowUpWindow(channelId); // expired: forget it here and in state.json
+      if (state) closeFollowUpWindow(placeId); // expired: forget it here and in state.json
       return { kind: 'skip', reason: 'closed' };
     }
     // isFollowUpOpen is false without a window, so there is one here.
@@ -165,13 +165,13 @@ export function createFollowUpWindows({ hot, store, now }: FollowUpWindowsContex
     const startedAt = now();
     if (followUpPreFilter(normalized, selfId)) {
       log.info('follow-up: verdict', {
-        channel: channelId,
+        channel: placeId,
         author: normalized.authorId,
         verdict: 'no',
         answer: 'no',
         ms: now() - startedAt,
       });
-      bumpFollowUpNoStreak(channelId, open);
+      bumpFollowUpNoStreak(placeId, open);
       return { kind: 'handled' };
     }
     return { kind: 'classify', config, state: open };
@@ -188,16 +188,16 @@ export function createFollowUpWindows({ hot, store, now }: FollowUpWindowsContex
    * line in view is the drain's spokeAfterSeeing check, made before this one.
    */
   function followUpStale(ping: Ping): 'closed' | null {
-    const window = followUpWindows.get(ping.channelId);
+    const window = followUpWindows.get(ping.placeId);
     if (!isFollowUpOpen(window, now())) {
-      if (window) closeFollowUpWindow(ping.channelId);
+      if (window) closeFollowUpWindow(ping.placeId);
       return 'closed';
     }
     return null;
   }
 
-  /** The window of `channelId`, open or not, as the room classifier checks it. */
-  const windowOf = (channelId: string): FollowUpWindow | undefined => followUpWindows.get(channelId);
+  /** The window of `placeId`, open or not, as the room classifier checks it. */
+  const windowOf = (placeId: string): FollowUpWindow | undefined => followUpWindows.get(placeId);
 
   return {
     windowOf,

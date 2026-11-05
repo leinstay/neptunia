@@ -173,7 +173,7 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
       : (labels.triggers?.[String(triggerKind)] ?? '');
   // A turn about another channel (routed or noticed) names both channels in its task: the
   // source, and this one, where the words go (its live name first).
-  const sourceChannel = source ? (offered.find((channel) => channel.channelId === source.channelId) ?? null) : null;
+  const sourceChannel = source ? (offered.find((channel) => channel.placeId === source.placeId) ?? null) : null;
   const here = sourceChannel
     ? (currentChannelFallback(currentChannelId, history)?.name ??
       (given.elsewhereDestination?.name || null) ??

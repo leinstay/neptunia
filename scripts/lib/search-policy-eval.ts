@@ -108,7 +108,7 @@ export function parseSheet(text: string): { rows: Array<SheetRow>; errors: Array
 function chatMessage({ id, authorName, content, ts, self }: Rec) {
   return {
     id,
-    channelId: 'search-policy-eval',
+    placeId: 'search-policy-eval',
     authorId: self ? 'self' : `author:${authorName}`,
     authorName,
     self,

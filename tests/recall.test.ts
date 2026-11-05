@@ -257,17 +257,17 @@ test('sampleOffsets: evenly spaced over the total, one page when it fits', () =>
 test('clusterHits: hits of one channel closer than the gap join; the newest clusters are kept', () => {
   const t = Date.UTC(2026, 9, 1, 15, 19);
   const hits = [
-    { id: 'a1', channelId: 'c1', ts: t },
-    { id: 'a2', channelId: 'c1', ts: t + 20 * MINUTE },
-    { id: 'a3', channelId: 'c1', ts: t + 27 * MINUTE },
-    { id: 'b1', channelId: 'c1', ts: t + 34 * HOUR },
-    { id: 'x1', channelId: 'c2', ts: t + 21 * MINUTE },
-    { id: 'old', channelId: 'c1', ts: t - 40 * HOUR },
-    { id: 'a2', channelId: 'c1', ts: t + 20 * MINUTE },
+    { id: 'a1', placeId: 'c1', ts: t },
+    { id: 'a2', placeId: 'c1', ts: t + 20 * MINUTE },
+    { id: 'a3', placeId: 'c1', ts: t + 27 * MINUTE },
+    { id: 'b1', placeId: 'c1', ts: t + 34 * HOUR },
+    { id: 'x1', placeId: 'c2', ts: t + 21 * MINUTE },
+    { id: 'old', placeId: 'c1', ts: t - 40 * HOUR },
+    { id: 'a2', placeId: 'c1', ts: t + 20 * MINUTE },
   ];
   const clusters = clusterHits(hits, { gapMinutes: 30, maxClusters: 3, keepOldest: 0 });
   assert.deepEqual(
-    clusters.map((c) => [c.channelId, c.ids, c.middleId]),
+    clusters.map((c) => [c.placeId, c.ids, c.middleId]),
     [
       ['c1', ['b1'], 'b1'],
       ['c1', ['a1', 'a2', 'a3'], 'a2'],
@@ -348,7 +348,7 @@ test('clusterHits: a message found by two queries counts both; hits without quer
     { gapMinutes: 30 }
   );
   assert.deepEqual([one.ids, one.forms, one.queries], [['x'], 1, 2]);
-  const [bare] = clusterHits([{ id: 'y', channelId: 'c1', ts: t }], { gapMinutes: 30 });
+  const [bare] = clusterHits([{ id: 'y', placeId: 'c1', ts: t }], { gapMinutes: 30 });
   assert.deepEqual([bare.forms, bare.queries], [0, 0]);
 });
 
@@ -554,10 +554,10 @@ test('clusterHits: with no more clusters than maxClusters, keepOldest changes no
 test('mergeWindows: windows of one channel sharing a message become one', () => {
   const t = Date.UTC(2026, 9, 1, 15);
   const merged = mergeWindows([
-    { channelId: 'c1', channelName: 'general', messages: [msg('m1', t), msg('m2', t + 1)], hitIds: ['m1'] },
-    { channelId: 'c2', channelName: 'garden', messages: [msg('n1', t)], hitIds: ['n1'] },
-    { channelId: 'c1', channelName: 'general', messages: [msg('m2', t + 1), msg('m3', t + 2)], hitIds: ['m3'] },
-    { channelId: 'c1', channelName: 'general', messages: [], hitIds: [] },
+    { placeId: 'c1', channelName: 'general', messages: [msg('m1', t), msg('m2', t + 1)], hitIds: ['m1'] },
+    { placeId: 'c2', channelName: 'garden', messages: [msg('n1', t)], hitIds: ['n1'] },
+    { placeId: 'c1', channelName: 'general', messages: [msg('m2', t + 1), msg('m3', t + 2)], hitIds: ['m3'] },
+    { placeId: 'c1', channelName: 'general', messages: [], hitIds: [] },
   ]);
   assert.equal(merged.length, 2);
   assert.deepEqual(
@@ -570,7 +570,7 @@ test('mergeWindows: windows of one channel sharing a message become one', () => 
 test('fallbackWindow: the newest window with the most matched lines among the newest three', () => {
   const t = Date.UTC(2026, 9, 1, 15);
   const win = (name: string, ids: Untyped, hitIds: Array<string>) => ({
-    channelId: name,
+    placeId: name,
     channelName: name,
     messages: ids.map((id: Untyped, i: Untyped) => msg(id, t + i)),
     hitIds: new Set(hitIds),
@@ -595,7 +595,7 @@ test('fallbackWindow: the newest window with the most matched lines among the ne
 test('renderRecallWindows: hit lines carry the mark; captions render; unindexed lines drop the index and reply markers', () => {
   const t = Date.UTC(2026, 9, 1, 18, 40);
   const window = {
-    channelId: 'c1',
+    placeId: 'c1',
     channelName: 'general',
     messages: [
       msg('m1', t, { attachments: [{ id: 'p1', kind: 'image', name: 'x.png', url: 'https://cdn.example/x.png' }] }),
@@ -630,7 +630,7 @@ test('renderRecallWindows: her call marks name their target by number when index
     ts: t + MINUTE,
   };
   const window = {
-    channelId: 'c1',
+    placeId: 'c1',
     channelName: 'general',
     messages: [msg('m1', t, { self: true }), msg('m2', t + MINUTE, { self: true, content: 'διόρθωσα', calls: [mark] })],
     hitIds: [],
@@ -648,7 +648,7 @@ test('renderRecallWindows: her call marks name their target by number when index
 test('renderRecallWindows: a matched message with a line break is marked on its first line, after a gap marker', () => {
   const t = Date.UTC(2026, 9, 1, 18, 40);
   const window = {
-    channelId: 'c1',
+    placeId: 'c1',
     channelName: 'general',
     messages: [
       msg('m1', t),
@@ -676,11 +676,11 @@ test('renderRecallWindows: a matched message with a line break is marked on its 
 test('buildRecallRequest: system prompt filled; people, numbered found sections, the question', () => {
   const t = Date.UTC(2026, 9, 1, 18, 40);
   const windows = [
-    { channelId: 'c1', channelName: 'general', messages: [msg('m1', t), msg('m2', t + MINUTE)], hitIds: ['m2'] },
+    { placeId: 'c1', channelName: 'general', messages: [msg('m1', t), msg('m2', t + MINUTE)], hitIds: ['m2'] },
     {
-      channelId: 'c2',
+      placeId: 'c2',
       channelName: 'garden',
-      messages: [msg('n1', t - 30 * HOUR, { channelId: 'c2' })],
+      messages: [msg('n1', t - 30 * HOUR, { placeId: 'c2' })],
       hitIds: ['n1'],
     },
   ];
@@ -719,7 +719,7 @@ test('buildRecallRequest: system prompt filled; people, numbered found sections,
 
 test('buildRecallRequest: no prompt or no window line gives null; no people leaves the block out', () => {
   const base = { selfName: 'Zoë', question: { authorName: 'A', content: 'q' }, labels, answerChars: 100 };
-  const windows = [{ channelId: 'c1', channelName: 'general', messages: [msg('m1', NOW)], hitIds: [] }];
+  const windows = [{ placeId: 'c1', channelName: 'general', messages: [msg('m1', NOW)], hitIds: [] }];
   assert.equal(buildRecallRequest({ ...base, prompt: ' ', windows }), null);
   assert.equal(buildRecallRequest({ ...base, prompt: 'p', windows: [] }), null);
   const user = buildRecallRequest({ ...base, prompt: 'p', windows })?.[1].content;
@@ -837,7 +837,7 @@ test('matchMemory: a feeling is never searched; learned items and recent lines a
     {
       id: 1,
       at: Date.UTC(2026, 9, 4, 22, 30),
-      channelId: 'c1',
+      placeId: 'c1',
       text: `<@${ANA}> lost her κουνέλι`,
       who: [ANA],
       weight: 2,
@@ -905,8 +905,8 @@ test('matchMemory: a range keeps only dated items inside it', () => {
   ];
   const lore = [{ title: 'κουνέλι', keys: ['κουνέλι'], text: 'timeless' }];
   const recentLines = [
-    { id: 1, at: Date.UTC(2026, 0, 1, 10), channelId: 'c1', text: 'κουνέλι inside', weight: 2 },
-    { id: 2, at: Date.UTC(2026, 0, 2, 10), channelId: 'c1', text: 'κουνέλι after', weight: 2 },
+    { id: 1, at: Date.UTC(2026, 0, 1, 10), placeId: 'c1', text: 'κουνέλι inside', weight: 2 },
+    { id: 2, at: Date.UTC(2026, 0, 2, 10), placeId: 'c1', text: 'κουνέλι after', weight: 2 },
   ];
   const from = Date.UTC(2025, 11, 31, 23);
   const to = Date.UTC(2026, 0, 1, 23) - 1;
@@ -949,7 +949,7 @@ test('buildRecallRequest: the memory block comes before found, one structural li
   };
   const user = buildRecallRequest({
     ...base,
-    windows: [{ channelId: 'c1', channelName: 'general', messages: [msg('m1', t)], hitIds: ['m1'] }],
+    windows: [{ placeId: 'c1', channelName: 'general', messages: [msg('m1', t)], hitIds: ['m1'] }],
   })?.[1].content;
   assert.ok(
     user?.startsWith(
@@ -1029,10 +1029,10 @@ test('dropChatHits: hits already shown in the chat go before clustering and are 
 test("rankClusters: a window with the persona's line gets selfBonus on its topic; recency stays the last tiebreak", () => {
   const t = Date.UTC(2026, 9, 10, 8);
   const clusters = [
-    { channelId: 'c1', middleId: 'a', endTs: t + 3 * HOUR, topic: 2, queries: 2, self: false },
-    { channelId: 'c2', middleId: 'b', endTs: t + 2 * HOUR, topic: 1, queries: 1, self: true },
-    { channelId: 'c1', middleId: 'c', endTs: t + HOUR, topic: 2, queries: 2, self: true },
-    { channelId: 'c2', middleId: 'd', endTs: t, topic: 1, queries: 1, self: false },
+    { placeId: 'c1', middleId: 'a', endTs: t + 3 * HOUR, topic: 2, queries: 2, self: false },
+    { placeId: 'c2', middleId: 'b', endTs: t + 2 * HOUR, topic: 1, queries: 1, self: true },
+    { placeId: 'c1', middleId: 'c', endTs: t + HOUR, topic: 2, queries: 2, self: true },
+    { placeId: 'c2', middleId: 'd', endTs: t, topic: 1, queries: 1, self: false },
   ];
   const ids = (list: Untyped) => list.map((c: Untyped) => c.middleId);
   assert.deepEqual(
@@ -1109,9 +1109,9 @@ test('buildRecallRequest: the context block sits right before the question, own 
   const t = Date.UTC(2026, 9, 10, 20, 0);
   const windows = [
     {
-      channelId: 'c2',
+      placeId: 'c2',
       channelName: 'garden',
-      messages: [msg('w1', t - 5 * HOUR, { channelId: 'c2' })],
+      messages: [msg('w1', t - 5 * HOUR, { placeId: 'c2' })],
       hitIds: ['w1'],
     },
   ];
@@ -1162,26 +1162,26 @@ test('buildRecallRequest: a stretch header carries the self flag, then the curre
   const t = Date.UTC(2026, 9, 10, 15);
   const windows = [
     {
-      channelId: 'c1',
+      placeId: 'c1',
       channelName: 'general',
       messages: [msg('a1', t), msg('a2', t + MINUTE, { self: true, authorId: 'self' })],
       hitIds: ['a1'],
       overlapsChat: true,
     },
     {
-      channelId: 'c2',
+      placeId: 'c2',
       channelName: 'garden',
-      messages: [msg('b1', t - HOUR, { channelId: 'c2', self: true, authorId: 'self' })],
+      messages: [msg('b1', t - HOUR, { placeId: 'c2', self: true, authorId: 'self' })],
       hitIds: ['b1'],
     },
     {
-      channelId: 'c3',
+      placeId: 'c3',
       channelName: 'news',
-      messages: [msg('c1', t - 2 * HOUR, { channelId: 'c3' })],
+      messages: [msg('c1', t - 2 * HOUR, { placeId: 'c3' })],
       hitIds: ['c1'],
       overlapsChat: true,
     },
-    { channelId: 'c4', channelName: 'misc', messages: [msg('d1', t - 3 * HOUR, { channelId: 'c4' })], hitIds: ['d1'] },
+    { placeId: 'c4', channelName: 'misc', messages: [msg('d1', t - 3 * HOUR, { placeId: 'c4' })], hitIds: ['d1'] },
   ];
   const base = {
     prompt: 'p',
@@ -1219,15 +1219,15 @@ test('buildRecallRequest: a stretch header carries the self flag, then the curre
 test('mergeWindows: a merged window overlaps the chat when any of its parts does', () => {
   const t = Date.UTC(2026, 9, 1, 15);
   const merged = mergeWindows([
-    { channelId: 'c1', channelName: 'general', messages: [msg('m1', t), msg('m2', t + 1)], hitIds: ['m1'] },
+    { placeId: 'c1', channelName: 'general', messages: [msg('m1', t), msg('m2', t + 1)], hitIds: ['m1'] },
     {
-      channelId: 'c1',
+      placeId: 'c1',
       channelName: 'general',
       messages: [msg('m2', t + 1), msg('m3', t + 2)],
       hitIds: ['m3'],
       overlapsChat: true,
     },
-    { channelId: 'c2', channelName: 'garden', messages: [msg('n1', t)], hitIds: ['n1'] },
+    { placeId: 'c2', channelName: 'garden', messages: [msg('n1', t)], hitIds: ['n1'] },
   ]);
   assert.deepEqual(
     merged.map((w) => w.overlapsChat),
@@ -1367,7 +1367,7 @@ test('recall: a vague recently ranks recency first and her own exchanges first',
     { id: ANA, names: ['Ana'], episodes: [{ ...ep('2026-10-04', 'κουνέλι and καρότο'), itemId: 'ep-a' }] },
   ];
   const recentLines = [
-    { id: 1, itemId: 'rc-1', at: Date.UTC(2026, 9, 5, 9), channelId: 'c1', text: 'a κουνέλι ran past', weight: 2 },
+    { id: 1, itemId: 'rc-1', at: Date.UTC(2026, 9, 5, 9), placeId: 'c1', text: 'a κουνέλι ran past', weight: 2 },
   ];
   const entries = [
     archived('episode', 'ep-b', { what: 'the κουνέλι escaped' } as unknown as Parameters<typeof archived>[2], {
@@ -1451,7 +1451,7 @@ test('recall: the record reader returns the matching lines with reply chain and 
     rec('f3', T - 2 * MINUTE),
     rec('f4', T - MINUTE),
     rec('h1', T, { by: KITE, text: 'το κουνέλι μου', replyTo: 'q2' }),
-    rec('other', T + 30_000, { channelId: 'c1', text: 'unrelated' }),
+    rec('other', T + 30_000, { placeId: 'c1', text: 'unrelated' }),
     rec('n1', T + MINUTE, { kind: 'said', text: 'ωραίο' }),
     rec('n2', T + 2 * MINUTE, { text: 'x' }),
     rec('n2', T + 2 * MINUTE, { text: 'x edited', revision: 2 }),
@@ -1459,7 +1459,7 @@ test('recall: the record reader returns the matching lines with reply chain and 
     { ...rec('n3', T + 3 * MINUTE), kind: 'deleted' },
     rec('n4', T + 4 * MINUTE),
     rec('n5', T + 5 * MINUTE),
-    rec('k1', T + 2 * HOUR, { channelId: 'c3', text: 'ask Κιτέζου' }),
+    rec('k1', T + 2 * HOUR, { placeId: 'c3', text: 'ask Κιτέζου' }),
   ];
   const record = fakeRecord(lines);
   const names: Record<string, string> = { [ANA]: 'Ana', [ELO]: 'Éloïse', [KITE]: 'Kitezu' };
@@ -1481,7 +1481,7 @@ test('recall: the record reader returns the matching lines with reply chain and 
   assert.equal(windows.length, 1, 'the line older than recordDays is not read');
   const [window] = windows;
   assert.equal(window.source, 'record');
-  assert.equal(window.channelId, 'c2');
+  assert.equal(window.placeId, 'c2');
   assert.deepEqual(
     window.messages.map((m) => m.id),
     ['q1', 'q2', 'f2', 'f3', 'f4', 'h1', 'n1', 'n2', 'n4'],
@@ -1524,8 +1524,8 @@ test('recall: the record reader returns the matching lines with reply chain and 
 test('recall: a dateless, not-recent record read keeps the window of the earliest best match within maxWindows', async () => {
   const D = 24 * HOUR;
   const lines = [
-    rec('origin', NOW - 21 * D, { channelId: 'c1', text: 'το κουνέλι started here' }),
-    rec('noise', NOW - 25 * D, { channelId: 'c1', text: 'nothing' }),
+    rec('origin', NOW - 21 * D, { placeId: 'c1', text: 'το κουνέλι started here' }),
+    rec('noise', NOW - 25 * D, { placeId: 'c1', text: 'nothing' }),
     ...Array.from({ length: 10 }, (_, i) => rec(`rep${i}`, NOW - (10 - i) * D, { text: `κουνέλι again ${i}` })),
   ];
   const base = {
@@ -1570,11 +1570,11 @@ test('recall: a dateless, not-recent record read keeps the window of the earlies
 test('matchRecord: a name or member match only locates the person and ranks below any topic match', async () => {
   const D = 24 * HOUR;
   const lines = [
-    rec('both', NOW - 20 * D, { channelId: 'c4', text: 'ακτίνες καλοσύνης για Κιτέζου' }),
-    rec('topic', NOW - 12 * D, { channelId: 'c1', text: 'έστειλα ακτίνες καλοσύνης' }),
+    rec('both', NOW - 20 * D, { placeId: 'c4', text: 'ακτίνες καλοσύνης για Κιτέζου' }),
+    rec('topic', NOW - 12 * D, { placeId: 'c1', text: 'έστειλα ακτίνες καλοσύνης' }),
     rec('n1', NOW - 1 * D, { by: ELO, text: 'ask Κιτέζου one' }),
     rec('n2', NOW - 2 * D, { by: ELO, text: 'ask Κιτέζου two' }),
-    rec('k1', NOW - 3 * D, { channelId: 'c3', by: KITE, text: 'hello there' }),
+    rec('k1', NOW - 3 * D, { placeId: 'c3', by: KITE, text: 'hello there' }),
   ];
   const base = {
     range: { from: NOW - 30 * D, to: NOW },
@@ -1618,7 +1618,7 @@ test('matchRecord: a link title or description matches as topic text and the win
   const linked = toRecordLine(
     {
       id: 'v1',
-      channelId: 'c2',
+      placeId: 'c2',
       authorId: KITE,
       content: 'https://video.example/watch?v=7',
       ts: NOW - 3 * D,
@@ -1680,9 +1680,9 @@ test('recall: a record line outside the range is not read: each read asks the re
     const asked: Array<Untyped> = [];
     const record = {
       ...stored,
-      iterate: (guildId: string, query: Untyped) => {
+      iterate: (placeId: string, query: Untyped) => {
         asked.push(query);
-        return stored.iterate(guildId, query);
+        return stored.iterate(placeId, query);
       },
     };
     const base = {
@@ -1758,7 +1758,7 @@ test('recall: a record window follows its conversation past recordContext until 
     rec('b1', T - MINUTE),
     rec('h1', T, { text: 'είναι το όνομά μου Ίρις;' }),
     rec('n1', T + MINUTE),
-    rec('x1', T + 2 * MINUTE, { channelId: 'c3', text: 'elsewhere' }),
+    rec('x1', T + 2 * MINUTE, { placeId: 'c3', text: 'elsewhere' }),
     rec('n2', T + 4 * MINUTE),
     rec('n3', T + 8 * MINUTE),
     rec('n4', T + 12 * MINUTE, { text: 'κέρδισες, Ηλέκτρα' }),
@@ -1936,14 +1936,14 @@ test('recall: record rows found by meaning are read around their time, fused wit
   const S = NOW - 30 * D;
   const lines = [
     rec('w1', NOW - 5 * HOUR, { text: 'κουνέλι και καρότο' }),
-    rec('w2', NOW - 10 * HOUR, { channelId: 'c1', text: 'ένα καρότο' }),
+    rec('w2', NOW - 10 * HOUR, { placeId: 'c1', text: 'ένα καρότο' }),
     rec('p0', M - 3 * HOUR, { by: ELO, text: 'who made the rabbit up?' }),
     rec('b1', M - MINUTE),
     rec('m1', M, { by: KITE, text: 'he did, back then', replyTo: 'p0' }),
     rec('a1', M + MINUTE),
     rec('far', M + 5 * HOUR),
-    rec('s-secret', S - MINUTE, { channelId: 'c4' }),
-    rec('m2', S, { channelId: 'c4', text: 'hidden context' }),
+    rec('s-secret', S - MINUTE, { placeId: 'c4' }),
+    rec('m2', S, { placeId: 'c4', text: 'hidden context' }),
   ];
   const base = {
     range: { from: null, to: null },
@@ -1969,7 +1969,7 @@ test('recall: record rows found by meaning are read around their time, fused wit
     ...base,
     record,
     allowLine,
-    meaning: [meantRow('m2', S, { channelId: 'c4', sourceIds: ['s-secret', 'm2'] }), meantRow('m1', M)],
+    meaning: [meantRow('m2', S, { placeId: 'c4', sourceIds: ['s-secret', 'm2'] }), meantRow('m1', M)],
   });
   assert.deepEqual(
     ids(fused),
@@ -1987,7 +1987,7 @@ test('recall: record rows found by meaning are read around their time, fused wit
       (q) =>
         asRecord(q).from === new Date(M - 6 * HOUR).toISOString() &&
         asRecord(q).to === new Date(M + 2 * HOUR).toISOString() &&
-        asRecord(q).channelIds?.includes('c2')
+        asRecord(q).placeIds?.includes('c2')
     ),
     JSON.stringify(record.queries)
   );
@@ -1996,7 +1996,7 @@ test('recall: record rows found by meaning are read around their time, fused wit
     ...base,
     record: fakeRecord(lines),
     maxWindows: 3,
-    meaning: [meantRow('m1', M), meantRow('w2', NOW - 10 * HOUR, { channelId: 'c1' })],
+    meaning: [meantRow('m1', M), meantRow('w2', NOW - 10 * HOUR, { placeId: 'c1' })],
   });
   assert.deepEqual(ids(both), [['w1'], ['w2'], ['m1']], 'all three kept, newest first');
 
@@ -2020,17 +2020,17 @@ test('recall: record rows found by meaning are read around their time, fused wit
 test('matchRecord: fused with meaning rows, the best topic-matched word hit keeps a window the fused order would drop', async () => {
   const D = 24 * HOUR;
   const lines = [
-    rec('gift', NOW - 9 * D, { channelId: 'c5', by: ELO, text: 'έστειλα ακτίνες καλοσύνης σε όλους' }),
-    rec('k1', NOW - 1 * D, { channelId: 'c1', by: KITE, text: 'hello one' }),
-    rec('k2', NOW - 2 * D, { channelId: 'c2', by: KITE, text: 'hello two' }),
-    rec('k3', NOW - 3 * D, { channelId: 'c3', by: KITE, text: 'hello three' }),
-    rec('k4', NOW - 4 * D, { channelId: 'c4', by: KITE, text: 'hello four' }),
+    rec('gift', NOW - 9 * D, { placeId: 'c5', by: ELO, text: 'έστειλα ακτίνες καλοσύνης σε όλους' }),
+    rec('k1', NOW - 1 * D, { placeId: 'c1', by: KITE, text: 'hello one' }),
+    rec('k2', NOW - 2 * D, { placeId: 'c2', by: KITE, text: 'hello two' }),
+    rec('k3', NOW - 3 * D, { placeId: 'c3', by: KITE, text: 'hello three' }),
+    rec('k4', NOW - 4 * D, { placeId: 'c4', by: KITE, text: 'hello four' }),
   ];
   const meaning = [
-    meantRow('k1', NOW - 1 * D, { channelId: 'c1' }),
-    meantRow('k2', NOW - 2 * D, { channelId: 'c2' }),
-    meantRow('k3', NOW - 3 * D, { channelId: 'c3' }),
-    meantRow('k4', NOW - 4 * D, { channelId: 'c4' }),
+    meantRow('k1', NOW - 1 * D, { placeId: 'c1' }),
+    meantRow('k2', NOW - 2 * D, { placeId: 'c2' }),
+    meantRow('k3', NOW - 3 * D, { placeId: 'c3' }),
+    meantRow('k4', NOW - 4 * D, { placeId: 'c4' }),
   ];
   const base = {
     range: { from: null, to: null },
@@ -2307,9 +2307,9 @@ test('matchMemory: a locator matches past the range and reserves a share for the
 test('rankClusters: with a locator the dated slots favour the range, the reserved ones the topic; without one nothing changes', () => {
   const at = (ms: number) => ({ startTs: ms, endTs: ms });
   const make = () => [
-    { channelId: 'c1', topic: 2, queries: 2, ...at(Date.UTC(2026, 8, 20)), id: 'far' },
-    { channelId: 'c1', topic: 1, queries: 1, ...at(OCT_7.from + HOUR), id: 'd1' },
-    { channelId: 'c2', topic: 1, queries: 1, ...at(OCT_7.from + 2 * HOUR), id: 'd2' },
+    { placeId: 'c1', topic: 2, queries: 2, ...at(Date.UTC(2026, 8, 20)), id: 'far' },
+    { placeId: 'c1', topic: 1, queries: 1, ...at(OCT_7.from + HOUR), id: 'd1' },
+    { placeId: 'c2', topic: 1, queries: 1, ...at(OCT_7.from + 2 * HOUR), id: 'd2' },
   ];
   const plain = rankClusters(make(), { maxClusters: 2, keepOldest: 0, selfBonus: 0 });
   assert.deepEqual(
@@ -2346,9 +2346,9 @@ test('rankClusters: with a locator the dated slots favour the range, the reserve
 test('buildRecallRequest: a time cue goes in <time_cue> right before <question> through labels.lookup.timeEstimate', () => {
   const windows = [
     {
-      channelId: 'c2',
+      placeId: 'c2',
       channelName: 'garden',
-      messages: [msg('w1', OCT_7.from + HOUR, { channelId: 'c2' })],
+      messages: [msg('w1', OCT_7.from + HOUR, { placeId: 'c2' })],
       hitIds: ['w1'],
     },
   ];
@@ -2395,7 +2395,7 @@ test("memorySearchPlan: her terms and people first, then the question's long wor
     people: 'Ἀλέξανδρος, Éloïse',
     terms: 'κόκκινο φεγγάρι; λαγός',
     when: '2026-09-01..2026-09-30',
-    channelId: 'c2',
+    placeId: 'c2',
     profiles,
     selfId: 'self',
     selfName: 'Zoë',
@@ -2406,7 +2406,7 @@ test("memorySearchPlan: her terms and people first, then the question's long wor
   assert.deepEqual(plan?.forms, ['κόκκινο φεγγάρι', 'λαγός', 'παιχνίδι']);
   assert.deepEqual(plan?.who, ['ἀλέξανδρος', 'éloïse', 'λευτέρης']);
   assert.deepEqual([plan?.from, plan?.to], [Date.UTC(2026, 8, 1), Date.UTC(2026, 9, 1) - 1]);
-  assert.equal(plan?.channelId, 'c2');
+  assert.equal(plan?.placeId, 'c2');
   assert.equal(asRecord(plan).locator, undefined, 'her range bounds the search');
   // Nothing to search: null. A range alone is a question.
   assert.equal(memorySearchPlan({ question: 'τι;', now }), null);

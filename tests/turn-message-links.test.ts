@@ -14,7 +14,7 @@ const MESSAGE_ID = '900000000000000001';
 function rawMessage({ id, content = 'γεια' }: { id: string; content?: string }) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: 'u1', bot: false, globalName: 'Alice', username: 'Alice' },
     member: { displayName: 'Alice' },
     cleanContent: content,
@@ -28,7 +28,7 @@ function rawMessage({ id, content = 'γεια' }: { id: string; content?: string
 function normalizedTrigger(raw: ReturnType<typeof rawMessage>) {
   return {
     id: raw.id,
-    channelId: raw.channelId,
+    placeId: raw.placeId,
     authorId: raw.author.id,
     authorName: raw.author.globalName,
     self: false,
@@ -45,7 +45,7 @@ function fakeTurnChannel(historyMessages: Array<Record<string, unknown>>, { dm =
   return world().channel({
     id: 'c1',
     name: 'chat',
-    guildId: 'g1',
+    placeId: 'g1',
     dm,
     historyMessages,
     permissions: { attach: false },
@@ -54,7 +54,7 @@ function fakeTurnChannel(historyMessages: Array<Record<string, unknown>>, { dm =
 
 function fakeStore() {
   return {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     getPrivate: () => null,
     listChannels: () => [],
@@ -102,7 +102,7 @@ async function runLinkTurn(responseText: string, { dm = false }: { dm?: boolean 
     mode: 'reply',
     trigger: normalizedTrigger(raw),
     triggerKind: 'mention',
-    guildId: 'g1',
+    placeId: 'g1',
   });
   return { result, channel };
 }
@@ -145,7 +145,7 @@ test('runTurn: a message link in the window reads as the #n of the message it na
     mode: 'reply',
     trigger: normalizedTrigger(second),
     triggerKind: 'mention',
-    guildId: 'g1',
+    placeId: 'g1',
   });
   assert.equal(requests.length, 1);
   assert.ok(requests[0]?.includes('see #1 please'), 'the link is the number of the first line');

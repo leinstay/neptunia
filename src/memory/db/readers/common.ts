@@ -5,26 +5,16 @@
 import { hasStorageUnits } from '../storage-units.ts';
 import { storageId } from '../storage-keys.ts';
 import type { StorageKey } from '../storage-keys.ts';
-import { legacyStorageKey, rootStateKind } from '../paths.ts';
+import { legacyStorageKey, rootStateKind } from '../../migration/paths.ts';
 
 import { filesOfUnit, unitRows, storageValue, storageLines } from '../export.ts';
-import { classify } from '../map/index.ts';
-import type { MappedPath } from '../map/index.ts';
-import { asText } from '../types.ts';
+import { classify } from '../../migration/classify.ts';
+import type { MappedPath } from '../../migration/classify.ts';
 import type { Db, Log } from '../types.ts';
 
 /** An Error with a code. */
 export function codedError(code: string, message = code): Error & { code: string } {
   return Object.assign(new Error(message), { code });
-}
-
-/** `guilds/<g>/<sub>`, or `guilds/<g>/private/<u>/<sub>` for a member's private layer (no trailing slash). */
-export function layerDir(guildId: string, privateUserId: unknown, sub: unknown): string {
-  const layer =
-    typeof privateUserId === 'string' && privateUserId
-      ? `guilds/${guildId}/private/${privateUserId}`
-      : `guilds/${guildId}`;
-  return sub ? `${layer}/${asText(sub)}` : layer;
 }
 
 /** Sorts strings the way SQLite's BINARY collation and a sorted ASCII `readdir` do. */
@@ -39,7 +29,7 @@ function infoOf(owner: string, format: string): MappedPath {
   return info;
 }
 
-const unitRelOf = (owner: string) => /^guilds\/[^/]+\/(.+)$/.exec(owner)?.[1] ?? owner;
+const unitRelOf = (owner: string) => /^[^/]+\/[^/]+\/(.+)$/.exec(owner)?.[1] ?? owner;
 
 /**
  * The lines of a JSONL memory unit (`owner` its full path) rebuilt from the database, in file order, without their

@@ -15,15 +15,16 @@
 //
 // The catch-up keeps the index whole across every gap the queue cannot see (a stop, a crash, a
 // pause, the switches turned on late, a line the queue dropped): `catchUp` reads the record of the
-// last `CATCH_UP_HOURS` in the guild and every private layer, takes each message's newest
+// last `CATCH_UP_HOURS` in the place, takes each message's newest
 // revision, and queues every message whose
 // `record:<id>:<revision>` the index does not hold (src/memory/vectors.ts#has), with its channel
 // context from the same read, at most up to `QUEUE_MAX`; the rest goes on a later pass, run
 // once the queue has drained. A pass runs when the caller starts it (the start, `/nep resume`),
 // on the tick when the switches turn on, and every `CATCH_UP_EVERY_MINUTES`; never while the
 // bot is paused. Each pass logs its coverage (counts), and warns when a message the queue had
-// taken is missing with nothing left to send it (lost). Logs carry counts and guild ids, never text.
+// taken is missing with nothing left to send it (lost). Logs carry counts and place ids, never text.
 
+import { recordHolders } from './db/readers/record.ts';
 import { log as defaultLog } from '../log.ts';
 import { roleModel } from '../llm/roles.ts';
 import { EMBED_ROLE } from '../llm/embed.ts';
@@ -36,7 +37,6 @@ import {
   compareLines,
   contextFor,
   embeddableLine,
-  layerChannelKey,
   newestRevisions,
   recordChunk,
 } from './chunks.ts';
@@ -44,7 +44,6 @@ import { isoOf, asRecordLines } from './record.ts';
 import type { createRecord, RecordLine } from './record.ts';
 import type { createVectors } from './vectors.ts';
 
-import { recordLayers } from './db/readers/record.ts';
 import { propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
 import type { Hot, MemoryDb, Untyped } from './types.ts';
 
@@ -74,20 +73,40 @@ const positiveNumber = (value: Untyped, fallback: Untyped) =>
   typeof value === 'number' && isFiniteNumber(value) && value > 0 ? value : fallback;
 const revisionOf = (line: Pick<RecordLine, 'revision'> | null | undefined): number =>
   isIntegerNumber(line?.revision) && line.revision > 0 ? line.revision : 1;
-const layerOf = (privateUserId: string | null) =>
-  typeof privateUserId === 'string' && privateUserId ? privateUserId : null;
 
 /** What a survey of the record finds: the messages read, the ones indexed and the ones still missing. */
 type Survey = {
   messages: number;
   indexed: number;
-  missing: Array<{ layer: string | null; line: Untyped; context: Array<Untyped> | null }>;
+  missing: Array<{ line: Untyped; context: Array<Untyped> | null }>;
 };
+
+/** The counts of a catch-up pass, one place's or all of them. */
+type PassTotal = Record<(typeof PASS_COUNTS)[number], number> & { oldestMissing: string | null };
+const PASS_COUNTS = ['messages', 'indexed', 'missing', 'queued', 'waiting', 'left', 'lost'] as const;
+
+/** `total` with the counts of `pass` added; a pass that did not run leaves it as it is. */
+function addPass(total: PassTotal | null, pass: PassTotal | null): PassTotal | null {
+  if (!pass) return total;
+  const sum: PassTotal = total ?? {
+    messages: 0,
+    indexed: 0,
+    missing: 0,
+    queued: 0,
+    waiting: 0,
+    left: 0,
+    lost: 0,
+    oldestMissing: null,
+  };
+  for (const key of PASS_COUNTS) sum[key] += pass[key];
+  const oldest = pass.oldestMissing;
+  if (oldest && (!sum.oldestMissing || Date.parse(oldest) < Date.parse(sum.oldestMissing))) sum.oldestMissing = oldest;
+  return sum;
+}
 
 /** One line waiting to be embedded, with the ring it joins and the lines before it (a catch-up job carries its own). */
 type Job = {
-  guildId: string;
-  privateUserId: string | null;
+  placeId: string;
   line: RecordLine;
   revision: number;
   idKey: string;
@@ -95,13 +114,12 @@ type Job = {
   context?: Array<RecordLine> | null;
 };
 
-/** The latest lines of one channel and layer, kept as the context of the next line there. */
+/** The latest lines of one conversation of a place, kept as the context of the next line there. */
 type Ring = { lines: Array<RecordLine>; warmed: boolean };
 
-/** The span of record to read for the jobs of one guild and layer whose rings are not filled yet. */
+/** The span of record to read for the jobs of one place whose rings are not filled yet. */
 type WarmGroup = {
-  guildId: string;
-  privateUserId: string | null;
+  placeId: string;
   channels: Set<string | null>;
   from: number;
   to: number;
@@ -114,8 +132,8 @@ type EmbedderDeps = {
   record: ReturnType<typeof createRecord>;
   log?: { info: Untyped; warn: Untyped };
   now?: () => number;
-  nameOf?: ((guildId: string, userId: string) => string | null) | null;
-  selfName?: ((guildId: string) => string) | null;
+  nameOf?: ((placeId: string, userId: string) => string | null) | null;
+  selfName?: ((placeId: string) => string) | null;
   paused?: () => boolean;
   memoryDb: MemoryDb | null;
 };
@@ -158,7 +176,7 @@ function oldestOf(missing: Untyped) {
  *   flush in the background. `flush` sends at most one request (the oldest jobs, up to
  *   `BATCH` and within `llm.maxRequestTokens`) and appends what survives the checks; one
  *   flush runs at a time. `tick` flushes once `FLUSH_SECONDS` have passed since the last one;
- *   with `guildId` it first runs a catch-up pass when one is due (the switches just turned on, the
+ *   with `placeId` it first runs a catch-up pass when one is due (the switches just turned on, the
  *   first tick, `CATCH_UP_EVERY_MINUTES` since the last pass, or a pass that left messages
  *   behind and a drained queue); null when it did nothing. `catchUp` runs one pass (one at a time:
  *   a second call shares the running one) and resolves `{ messages, indexed, missing, queued,
@@ -166,8 +184,8 @@ function oldestOf(missing: Untyped) {
  *   `left`: no room in the queue this pass; `lost`: missing although the queue had taken them),
  *   or null when the index is off, the bot is paused, the queue closed or the index has no `has`.
  *   `coverage` reads the same window (`hours`, default `CATCH_UP_HOURS`) without queueing,
- *   whatever the switches say. `indexSummary`: the rows of the guild's index and every private
- *   layer's, and the missing count of the guild's last pass (null before one). `close` (shutdown)
+ *   whatever the switches say. `indexSummary`: the rows of the place's index and the missing count of
+ *   the place's last pass (null before one). `close` (shutdown)
  *   flushes once, waiting at most `timeoutMs` (default 5000), and resolves its counts, or null on
  *   the timeout, a failure or a second call; after it nothing is queued.
  */
@@ -183,28 +201,28 @@ export function createEmbedder({
   paused = () => false,
   memoryDb = null,
 }: EmbedderDeps): {
-  enqueue(guildId: string, lines: Array<RecordLine>, opts?: { privateUserId?: string | null }): number;
+  enqueue(placeId: string, lines: Array<RecordLine>): number;
   flush(): Promise<{ embedded: number; dropped: number; left: number }>;
-  tick(guildId?: string | null): Promise<Untyped> | null;
-  catchUp(guildId: string): Promise<object | null>;
+  tick(placeId?: string | null): Promise<Untyped> | null;
+  catchUp(placeId?: string | null): Promise<object | null>;
   coverage(
-    guildId: string,
+    placeId: string,
     opts?: { hours?: number }
   ): Promise<{ messages: number; indexed: number; missing: number; oldestMissing: string | null }>;
-  indexSummary(guildId: string): Promise<{ rows: number; missing: number | null }>;
+  indexSummary(placeId: string): Promise<{ rows: number; missing: number | null }>;
   close(opts?: { timeoutMs?: number }): Promise<{ embedded: number; dropped: number; left: number } | null>;
   stats(): { queued: number; rings: number };
 } {
   const seam = readSeamOf(memoryDb, log, 'embedder');
   let queue: Array<Job> = [];
-  const rings = new Map<string, Ring>(); // `${guildId}|${layerChannelKey}` -> { lines, warmed }
-  const latest = new Map<string, number>(); // `${guildId}|${layer}|${messageId}` -> newest revision queued
+  const rings = new Map<string, Ring>(); // `${placeId}|${conversation}` -> { lines, warmed }
+  const latest = new Map<string, number>(); // `${placeId}|${messageId}` -> newest revision queued
   let lastFlushAt = now();
   let flushing: Untyped = null;
   let closed = false;
   // The catch-up: the pass running, when the last one ran, whether it left messages behind, the
   // switches as the last tick saw them, the jobs of the flush in flight, the jobs appended while
-  // a pass ran, and each guild's last pass.
+  // a pass ran, and each place's last pass.
   let catching: Untyped = null;
   let lastCatchUpAt: number | null = null;
   let behind = false;
@@ -228,8 +246,7 @@ export function createEmbedder({
     };
   }
 
-  const ringKey = (guildId: string, privateUserId: string | null, channelId: string | null) =>
-    `${guildId}|${layerChannelKey(privateUserId ?? '', channelId)}`;
+  const ringKey = (placeId: string, conversationId: string | null) => `${placeId}|${conversationId ?? ''}`;
   const channelOf = (line: RecordLine) =>
     typeof line?.scope?.channel === 'string' && line.scope.channel ? line.scope.channel : null;
 
@@ -251,26 +268,21 @@ export function createEmbedder({
     }
   }
 
-  function enqueue(
-    guildId: string,
-    lines: Array<RecordLine>,
-    { privateUserId = null }: { privateUserId?: string | null } = {}
-  ) {
+  function enqueue(placeId: string, lines: Array<RecordLine>) {
     if (closed || !on()) return 0;
     const { batch, queueMax } = settings();
-    const layer = layerOf(privateUserId);
     let added = 0;
     for (const raw of Array.isArray(lines) ? lines : []) {
       if (!embeddableLine(raw)) continue;
       const line = { ...raw, occurredAt: isoOf(raw.occurredAt) ?? new Date(now()).toISOString() };
       const revision = revisionOf(line);
-      const idKey = `${guildId}|${layer ?? ''}|${line.messageId}`;
+      const idKey = `${placeId}|${line.messageId}`;
       if ((latest.get(idKey) ?? 0) >= revision) continue;
       remember(idKey, revision);
       queue = queue.filter((job) => job.idKey !== idKey);
-      const key = ringKey(String(guildId), layer, channelOf(line));
+      const key = ringKey(String(placeId), channelOf(line));
       ringAdd(ringOf(key), line);
-      queue.push({ guildId: String(guildId), privateUserId: layer, line, revision, idKey, ringKey: key });
+      queue.push({ placeId: String(placeId), line, revision, idKey, ringKey: key });
       added += 1;
     }
     if (queue.length > queueMax) {
@@ -291,7 +303,7 @@ export function createEmbedder({
     }
   }
 
-  /** Fill the rings of `jobs` not yet filled, from the record, one pass per guild and layer. */
+  /** Fill the rings of `jobs` not yet filled, from the record, one pass per place. */
   async function warm(jobs: Array<Job>) {
     const groups = new Map<string, WarmGroup>();
     for (const job of jobs) {
@@ -299,12 +311,11 @@ export function createEmbedder({
       if (job.context) continue;
       const ring = ringOf(job.ringKey);
       if (ring.warmed) continue;
-      const key = `${job.guildId}|${job.privateUserId ?? ''}`;
+      const key = job.placeId;
       let group = groups.get(key);
       if (!group) {
         group = {
-          guildId: job.guildId,
-          privateUserId: job.privateUserId,
+          placeId: job.placeId,
           channels: new Set(),
           from: Infinity,
           to: -Infinity,
@@ -317,25 +328,23 @@ export function createEmbedder({
       group.to = Math.max(group.to, at);
     }
     for (const group of groups.values()) {
-      const channelIds = [...group.channels].filter((id): id is string => Boolean(id));
+      const placeIds = [...group.channels].filter((id): id is string => Boolean(id));
       try {
-        if (channelIds.length > 0 && isFiniteNumber(group.from)) {
+        if (placeIds.length > 0 && isFiniteNumber(group.from)) {
           const query = {
             from: new Date(group.from - WARM_MS).toISOString(),
             to: new Date(group.to).toISOString(),
-            channelIds,
-            privateUserId: group.privateUserId,
+            placeIds,
           };
-          for await (const line of asRecordLines(record.iterate(group.guildId, query))) {
+          for await (const line of asRecordLines(record.iterate(group.placeId, query))) {
             if (!embeddableLine(line)) continue;
-            ringAdd(ringOf(ringKey(group.guildId, group.privateUserId, channelOf(line))), line);
+            ringAdd(ringOf(ringKey(group.placeId, channelOf(line))), line);
           }
         }
       } catch (error) {
-        log.warn('embedder: warm failed', { guildId: group.guildId, code: propOf(error, 'code') ?? null });
+        log.warn('embedder: warm failed', { placeId: group.placeId, code: propOf(error, 'code') ?? null });
       }
-      for (const channelId of group.channels)
-        ringOf(ringKey(group.guildId, group.privateUserId, channelId)).warmed = true;
+      for (const placeId of group.channels) ringOf(ringKey(group.placeId, placeId)).warmed = true;
     }
   }
 
@@ -350,8 +359,8 @@ export function createEmbedder({
       -CHUNK_CONTEXT_LINES
     );
     return recordChunk(job.line, context, {
-      nameOf: (id) => (typeof nameOf === 'function' ? nameOf(job.guildId, id) : null),
-      selfName: typeof selfName === 'function' ? (selfName(job.guildId) ?? '') : '',
+      nameOf: (id) => (typeof nameOf === 'function' ? nameOf(job.placeId, id) : null),
+      selfName: typeof selfName === 'function' ? (selfName(job.placeId) ?? '') : '',
     });
   }
 
@@ -415,9 +424,8 @@ export function createEmbedder({
         dropped += 1;
         continue;
       }
-      const key = `${job.guildId}|${job.privateUserId ?? ''}`;
-      if (!groups.has(key))
-        groups.set(key, { guildId: job.guildId, privateUserId: job.privateUserId, rows: [], jobs: [] });
+      const key = job.placeId;
+      if (!groups.has(key)) groups.set(key, { placeId: job.placeId, rows: [], jobs: [] });
       groups.get(key).rows.push({ meta: chunk.meta, vector: vectorsOut[i] });
       groups.get(key).jobs.push(job);
     }
@@ -425,14 +433,14 @@ export function createEmbedder({
     let embedded = 0;
     for (const group of groups.values()) {
       try {
-        await vectors.append(group.guildId, group.rows, { privateUserId: group.privateUserId, model });
+        await vectors.append(group.placeId, group.rows, { model });
         embedded += group.rows.length;
         if (appendedDuringPass) for (const job of group.jobs) appendedDuringPass.add(jobKey(job.idKey, job.revision));
       } catch (error) {
         // Kept for the next flush: the jobs go back to the front of the queue.
         queue = [...group.jobs, ...queue];
         log.warn('embedder: append failed', {
-          guildId: group.guildId,
+          placeId: group.placeId,
           rows: group.rows.length,
           code: propOf(error, 'code') ?? null,
         });
@@ -454,29 +462,28 @@ export function createEmbedder({
 
   // ---- the catch-up ---------------------------------------------------------------------------
 
-  /** The members with a private record in the guild. */
-  function privateLayers(guildId: string) {
+  /** Every place that holds a record. */
+  function recordPlaces(): Array<string> {
     const db = seam.db();
-    return seam.run(() => recordLayers(db, guildId));
+    return seam.run(() => recordHolders(db));
   }
 
   /**
    * The record of the last `hours` against the index: every message (its newest revision)
-   * counted, and the missing ones, oldest first per layer, with their
+   * counted, and the missing ones, oldest first, with their
    * channel's earlier lines when `withContext` (read a day further back for that).
    */
-  async function survey(guildId: string, hours: Untyped, { withContext = false } = {}) {
+  async function survey(placeId: string, hours: Untyped, { withContext = false } = {}) {
     const to = now();
     const from = to - hours * HOUR_MS;
     const out: Survey = { messages: 0, indexed: 0, missing: [] };
-    for (const layer of [null, ...privateLayers(guildId)]) {
+    {
       const raw = [];
       const query = {
         from: new Date(from - (withContext ? WARM_MS : 0)).toISOString(),
         to: new Date(to).toISOString(),
-        privateUserId: layer,
       };
-      for await (const line of asRecordLines(record.iterate(guildId, query))) raw.push(line);
+      for await (const line of asRecordLines(record.iterate(placeId, query))) raw.push(line);
       const lines = newestRevisions(raw);
       const channels = new Map();
       const months = new Map<string, Set<string>>();
@@ -488,14 +495,13 @@ export function createEmbedder({
         if (!(Date.parse(line.occurredAt) >= from)) continue;
         out.messages += 1;
         const month = (isoOf(line.occurredAt) ?? '').slice(0, 7);
-        const indexedKeys = months.get(month) ?? (await vectors.has(guildId, month, { privateUserId: layer }));
+        const indexedKeys = months.get(month) ?? (await vectors.has(placeId, month));
         months.set(month, indexedKeys);
         if (indexedKeys.has(chunkKey({ kind: 'record', id: line.messageId, revision: revisionOf(line) }))) {
           out.indexed += 1;
           continue;
         }
         out.missing.push({
-          layer,
           line,
           context: withContext ? channelLines.slice(Math.max(0, channelLines.length - 1 - RING_SIZE), -1) : null,
         });
@@ -504,9 +510,9 @@ export function createEmbedder({
     return out;
   }
 
-  async function coverage(guildId: string, { hours = null }: { hours?: number | null } = {}) {
+  async function coverage(placeId: string, { hours = null }: { hours?: number | null } = {}) {
     const window = positiveNumber(hours, settings().catchUpHours);
-    const found = await survey(String(guildId), window);
+    const found = await survey(String(placeId), window);
     return {
       messages: found.messages,
       indexed: found.indexed,
@@ -515,7 +521,7 @@ export function createEmbedder({
     };
   }
 
-  async function runCatchUp(guildId: string) {
+  async function runCatchUp(placeId: string) {
     if (closed || !on() || isPaused() || typeof vectors?.has !== 'function') return null;
     lastCatchUpAt = now();
     wasOn = true;
@@ -524,10 +530,10 @@ export function createEmbedder({
     appendedDuringPass = new Set();
     let found;
     try {
-      found = await survey(guildId, catchUpHours, { withContext: true });
+      found = await survey(placeId, catchUpHours, { withContext: true });
     } catch (error) {
       appendedDuringPass = null;
-      log.warn('embedder: catch-up failed', { guildId, code: propOf(error, 'code') ?? null });
+      log.warn('embedder: catch-up failed', { placeId, code: propOf(error, 'code') ?? null });
       return null;
     }
     const appendedMeanwhile = appendedDuringPass;
@@ -541,7 +547,7 @@ export function createEmbedder({
     const missing: Array<Untyped> = [];
     for (const item of found.missing) {
       const revision = revisionOf(item.line);
-      const idKey = `${guildId}|${item.layer ?? ''}|${item.line.messageId}`;
+      const idKey = `${placeId}|${item.line.messageId}`;
       const key = jobKey(idKey, revision);
       if (appendedMeanwhile.has(key)) {
         indexed += 1;
@@ -563,12 +569,11 @@ export function createEmbedder({
       queue = queue.filter((job) => job.idKey !== idKey);
       const line = { ...item.line, occurredAt: isoOf(item.line.occurredAt) };
       queue.push({
-        guildId,
-        privateUserId: item.layer,
+        placeId,
         line,
         revision,
         idKey,
-        ringKey: ringKey(guildId, item.layer, channelOf(line)),
+        ringKey: ringKey(placeId, channelOf(line)),
         context: item.context,
       });
       room -= 1;
@@ -582,17 +587,24 @@ export function createEmbedder({
       ...counts,
       oldestMissing: oldestOf(missing),
     };
-    lastPass.set(guildId, pass);
-    log.info('embedder: coverage', { guildId, ...pass });
+    lastPass.set(placeId, pass);
+    log.info('embedder: coverage', { placeId, ...pass });
     if (counts.lost > 0)
-      log.warn('embedder: coverage gap', { guildId, missing: pass.missing, lost: counts.lost, queued: counts.queued });
+      log.warn('embedder: coverage gap', { placeId, missing: pass.missing, lost: counts.lost, queued: counts.queued });
     kick(batch);
     return pass;
   }
 
-  function catchUp(guildId: string) {
+  /** One pass over every place that holds a record: the counts of all of them, null when none ran. */
+  async function catchUpAll(): Promise<PassTotal | null> {
+    let total: PassTotal | null = null;
+    for (const placeId of recordPlaces()) total = addPass(total, await runCatchUp(placeId));
+    return total;
+  }
+
+  function catchUp(placeId: string | null = null) {
     if (!catching) {
-      catching = runCatchUp(String(guildId)).finally(() => {
+      catching = (placeId === null ? catchUpAll() : runCatchUp(String(placeId))).finally(() => {
         catching = null;
       });
     }
@@ -607,24 +619,23 @@ export function createEmbedder({
     return behind && queue.length === 0 && !flushing;
   }
 
-  async function indexSummary(guildId: string) {
-    const id = String(guildId);
+  async function indexSummary(placeId: string) {
+    const id = String(placeId);
     let rows = 0;
     if (typeof vectors?.stats === 'function') {
-      for (const layer of [null, ...privateLayers(id)])
-        rows += (await vectors.stats(id, { privateUserId: layer })).rows ?? 0;
+      rows += (await vectors.stats(id)).rows ?? 0;
     }
     return { rows, missing: lastPass.get(id)?.missing ?? null };
   }
 
-  function tick(guildId = null) {
+  function tick(placeId: string | null = null) {
     const isOn = on();
-    const pass = guildId && catchUpDue(isOn) ? catchUp(guildId) : null;
+    const pass = catchUpDue(isOn) ? catchUp(placeId) : null;
     wasOn = isOn;
     const flushDue = () => now() - lastFlushAt >= settings().flushSeconds * 1000;
     if (pass) {
       const logged = pass.catch((error: Untyped) =>
-        log.warn('embedder: catch-up failed', { guildId: String(guildId), code: error?.code ?? null })
+        log.warn('embedder: catch-up failed', { code: error?.code ?? null })
       );
       return logged.then(() => (flushDue() ? flush() : null));
     }

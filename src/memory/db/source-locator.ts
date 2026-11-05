@@ -12,7 +12,7 @@ export function nativeLocatorOf(row: Row, extra: Row): NativeMessageLocator | un
   if (Object.hasOwn(extra, '$messageLocator')) return undefined;
   if (
     (row.storage_kind !== 'record' &&
-      !/^(?:guilds\/[^/]+\/)?(?:private\/[^/]+\/)?record\/\d{4}-\d{2}\/\d{4}-\d{2}-\d{2}\.jsonl$/.test(
+      !/^(?:[^/]+\/[^/]+\/)?(?:private\/[^/]+\/)?record\/\d{4}-\d{2}\/\d{4}-\d{2}-\d{2}\.jsonl$/.test(
         typeof row.owner_file === 'string' ? row.owner_file : ''
       )) ||
     extra.v !== 1 ||

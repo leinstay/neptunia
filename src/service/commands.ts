@@ -287,20 +287,19 @@ export function serviceFamily(
 export function wakeClockOf(
   name: ServiceName,
   sources: {
-    guildId: string | null;
     now: number;
     inner: {
-      state(guildId: string): {
+      state(): {
         heartbeat: { nextAt: number | null; lastAt: number | null } | null;
         selfimprovement: { lastAt: number | null } | null;
         queue: ReadonlyArray<{ kind: string }>;
         inflight: { kind: string } | null;
-      };
+      } | null;
     };
     diary: { status(): { slots: ReadonlyArray<number>; done: ReadonlyArray<number>; lastPosted?: number | null } };
   }
 ): WakeClock | null {
-  const { guildId, now, inner, diary } = sources;
+  const { now, inner, diary } = sources;
   if (name === 'selfreflection') {
     const { slots, done, lastPosted } = diary.status();
     return {
@@ -309,8 +308,9 @@ export function wakeClockOf(
       nextAt: slots.find((slot) => slot > now && !done.includes(slot)) ?? null,
     };
   }
-  if (guildId === null || name === 'watcher') return null;
-  const state = inner.state(guildId);
+  if (name === 'watcher') return null;
+  const state = inner.state();
+  if (!state) return null;
   const running = state.inflight?.kind === name || state.queue.some((wake) => wake.kind === name);
   return name === 'heartbeat'
     ? { running, lastAt: state.heartbeat?.lastAt ?? null, nextAt: state.heartbeat?.nextAt ?? null }

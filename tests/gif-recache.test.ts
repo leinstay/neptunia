@@ -5,6 +5,7 @@
 // the per-run cap, watched entries skipped, one run at a time, the pause
 // respected.
 
+import { placeOfCommunity } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -35,8 +36,8 @@ const TENOR = (n: number) => `https://tenor.com/view/danse-${n}`;
 
 /** The store with the library typed as it is kept: `getGifs` answers entries of the library, not bare objects. */
 type GifStore = Omit<Store, 'getGifs' | 'getMediaCache'> & {
-  getMediaCache(guildId: string): Record<string, Untyped>;
-  getGifs(guildId: string): {
+  getMediaCache(placeId: string): Record<string, Untyped>;
+  getGifs(placeId: string): {
     nextId: number;
     entries: Record<string, GifEntry>;
     backfill: { at: string; channels: number; messages: number } | null;
@@ -59,7 +60,7 @@ function linkEntry(n: number, overrides = {}) {
     site: 'Tenor',
     itemId: `m${n}#e0`,
     messageId: `m${n}`,
-    channelId: 'c1',
+    placeId: 'c1',
     count: 1,
     last: T0,
     firstSeen: T0,
@@ -278,16 +279,16 @@ function fakeDescriber(
     gate?: () => Promise<unknown>;
   } = {}
 ) {
-  const calls: Array<{ guildId: string; item: Item; opts: Record<string, Untyped> }> = [];
+  const calls: Array<{ placeId: string; item: Item; opts: Record<string, Untyped> }> = [];
   return {
     calls,
     gifWatchBlocker: () => blocker,
-    async watchGif(guildId: string, item: Item, opts: Record<string, Untyped>) {
-      calls.push({ guildId, item, opts });
+    async watchGif(placeId: string, item: Item, opts: Record<string, Untyped>) {
+      calls.push({ placeId, item, opts });
       if (gate) await gate();
       const result = outcome ? outcome(item) : { state: 'watched', text: `watched ${item.itemId}` };
       if (result.state === 'watched') {
-        store.getMediaCache(guildId)[item.itemId] = {
+        store.getMediaCache(placeOfCommunity(store, placeId))[item.itemId] = {
           text: result.text,
           reaction: '',
           action: result.text,
@@ -314,10 +315,10 @@ function silentLog() {
 }
 
 function seed(store: GifStore, entries: Array<Record<string, Untyped>>, cache = {}) {
-  store.recordGifs('g1', []);
-  const gifs = store.getGifs('g1');
+  store.recordGifs(placeOfCommunity(store, 'g1'), []);
+  const gifs = store.getGifs(placeOfCommunity(store, 'g1'));
   Object.assign(gifs, library(entries));
-  Object.assign(store.getMediaCache('g1'), cache);
+  Object.assign(store.getMediaCache(placeOfCommunity(store, 'g1')), cache);
 }
 
 // PR 7d: `gifs.recachePerRun` is the constant 50, so the three entries are watched in one run (recacheQueue's cap is
@@ -342,11 +343,11 @@ test('gif recache: drops one-frame captions at once, then watches the entries, o
     const started = recache.start('g1');
     assert.deepEqual(started, { ok: true, dropped: 1, queued: 3 });
     assert.equal(
-      store.getMediaCache('g1')['x9#e0'],
+      store.getMediaCache(placeOfCommunity(store, 'g1'))['x9#e0'],
       undefined,
       'the stray one-frame caption is dropped, not re-described'
     );
-    assert.equal(store.getMediaCache('g1')['556'].text, 'a picture');
+    assert.equal(store.getMediaCache(placeOfCommunity(store, 'g1'))['556'].text, 'a picture');
     assert.equal(recache.isRunning(), true);
     await recache.waitIdle();
     assert.equal(recache.isRunning(), false);
@@ -384,12 +385,18 @@ test('gif recache: a second run skips what the first watched and continues with 
       describer.calls.map((c) => c.item.itemId),
       ids.map((n) => `m${n}#e0`)
     );
-    assert.deepEqual(gifCaptionCounts(store.getGifs('g1'), store.getMediaCache('g1')), {
-      watched: 51,
-      'one-frame': 0,
-      failed: 0,
-      none: 0,
-    });
+    assert.deepEqual(
+      gifCaptionCounts(
+        store.getGifs(placeOfCommunity(store, 'g1')),
+        store.getMediaCache(placeOfCommunity(store, 'g1'))
+      ),
+      {
+        watched: 51,
+        'one-frame': 0,
+        failed: 0,
+        none: 0,
+      }
+    );
     assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 0 });
     await recache.waitIdle();
   });
@@ -463,7 +470,7 @@ test('gif recache: refused while paused, without a describer or while GIFs are n
       ok: false,
       reason: 'paused',
     });
-    assert.equal(store.getMediaCache('g1')['x9#e0'].text, 'a stray still');
+    assert.equal(store.getMediaCache(placeOfCommunity(store, 'g1'))['x9#e0'].text, 'a stray still');
   });
 });
 
@@ -618,7 +625,7 @@ test('recordFinder: a gif embed by its message, an attachment by its upload time
 function rawPictureMessage(id: string, attachmentId: Untyped) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: 'u1', bot: false, username: 'u1' },
     cleanContent: '',
     createdTimestamp: snowflakeMs(id) ?? T0,
@@ -645,7 +652,7 @@ function rawPictureMessage(id: string, attachmentId: Untyped) {
 /** A record whose iterate yields `lines` from `from` on, as src/memory/record.ts does. */
 function fakeRecord(lines: Array<Record<string, Untyped>>) {
   return {
-    async *iterate(guildId: string, { from = null }: { from?: Untyped } = {}) {
+    async *iterate(placeId: string, { from = null }: { from?: Untyped } = {}) {
       const fromMs = from ? Date.parse(from) : -Infinity;
       for (const line of lines) if (Date.parse(line.occurredAt) >= fromMs) yield line;
     },
@@ -665,12 +672,12 @@ function fakeMediaDescriber(
     blocker?: string | null;
   } = {}
 ) {
-  const calls: Array<{ guildId: string; item: Item; at: number }> = [];
+  const calls: Array<{ placeId: string; item: Item; at: number }> = [];
   return {
     calls,
     pictureBlocker: () => blocker,
-    async redescribe(guildId: string, item: Item) {
-      calls.push({ guildId, item, at: clock.at });
+    async redescribe(placeId: string, item: Item) {
+      calls.push({ placeId, item, at: clock.at });
       clock.at += costMs;
       return outcome ? outcome(item) : { state: 'done' };
     },

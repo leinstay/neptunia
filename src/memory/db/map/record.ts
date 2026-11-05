@@ -1,11 +1,11 @@
 // Mapper: one line of the record (`record/<YYYY-MM>/<day>.jsonl`, or a private layer's) <-> one `sources` row.
 // The line's kind is the source's kind (seen, said, deleted, felt). Every field a column names is in the column;
-// the rest of the line (`v`, `id`, `guildId`, `participants`, `sourceMessageIds`, `links`, ...) is in `extra`.
+// the rest of the line (`v`, `id`, `placeId`, `participants`, `sourceMessageIds`, `links`, ...) is in `extra`.
 //
 // `seen_at` is the time the line's message was observed: the line's own `recordedAt` for a `seen` line (the moment the
 // engine saw the message), null for every other kind (a line of hers, a deletion, a feeling is not an observation).
 //
-// toRows(rel, line, ctx) -> { sources: [row] }       ctx: { position?, guildId? }
+// toRows(rel, line, ctx) -> { sources: [row] }       ctx: { position?, placeId? }
 // fromRows(rows, ctx) -> the line
 
 import { messageLocator } from '../message-locator.ts';
@@ -76,7 +76,8 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
     scopeRest,
     line.scope as OldScope | undefined,
     ctx.privateUserId ?? privateUserOf(rel),
-    iface
+    iface,
+    ctx.dmPlace
   );
   Object.assign(rest, scopeRest);
   const identity = ctx.messageIdentity;

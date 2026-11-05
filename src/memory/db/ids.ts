@@ -19,12 +19,6 @@ import { LEGACY_IFACE } from './legacy-namespace.ts';
 
 export const SELF_PERSON = 'person:self';
 
-/**
- * The storage scope of a direct chat with no community to belong to. A scope of units only: it names no place row, and a
- * read of the interface under it answers nothing (src/interface/reads.ts).
- */
-export const NO_COMMUNITY = 'no-community';
-
 type Row = Record<string, unknown>;
 type Db = {
   prepare(sql: string): { all(...params: Array<string>): Array<Row>; get(...params: Array<string>): Row | undefined };
@@ -35,12 +29,12 @@ const text = (value: unknown): string => String(value);
 // The interface and the native id are any value an adapter or a legacy file gave: they are written with `String`.
 export const personId = (iface: unknown, userId: unknown): string => `person:${text(iface)}:${text(userId)}`;
 export const accountId = (iface: unknown, userId: unknown): string => `${text(iface)}:${text(userId)}`;
-export const guildPlaceId = (iface: unknown, guildId: unknown): string => `${text(iface)}:guild:${text(guildId)}`;
-export const channelPlaceId = (iface: unknown, channelId: unknown): string =>
-  `${text(iface)}:channel:${text(channelId)}`;
+/** The spelled id of the top place an interface names by a native id, when the database holds none for it yet. */
+export const topPlaceSpelled = (iface: unknown, nativeId: unknown): string => `${text(iface)}:server:${text(nativeId)}`;
+export const channelPlaceId = (iface: unknown, placeId: unknown): string => `${text(iface)}:channel:${text(placeId)}`;
 export const dmPlaceId = (iface: unknown, userId: unknown): string => `${text(iface)}:dm:${text(userId)}`;
 
-const LEGACY_NATIVE_RE = new RegExp(`^(?:person:${LEGACY_IFACE}:|${LEGACY_IFACE}:(?:guild:|channel:|dm:)?)(.+)$`);
+const LEGACY_NATIVE_RE = new RegExp(`^(?:person:${LEGACY_IFACE}:|${LEGACY_IFACE}:(?:[a-z_]+:)?)(.+)$`);
 
 /** The native id inside a legacy person, account or place id (the legacy spellings); null when the id has another shape. */
 export function nativeOf(id: unknown): string | null {
@@ -48,7 +42,7 @@ export function nativeOf(id: unknown): string | null {
   return match ? (match[1] ?? null) : null;
 }
 
-const ANY_NATIVE_RE = /^(?:person:[^:]+:|(?!person:|src:)[^:]+:(?:guild:|channel:|dm:)?)(.+)$/;
+const ANY_NATIVE_RE = /^(?:person:[^:]+:|(?!person:|src:)[^:]+:(?:[a-z_]+:)?)(.+)$/;
 
 /**
  * The native id inside a person, account or place id of any interface (`person:<iface>:<id>`, `<iface>:<id>`,
@@ -63,9 +57,6 @@ export function nativeOfAny(id: unknown): string | null {
 export { CORE_AUTHORITY, nativeAuthorityOf };
 /** The namespace of the full legacy id spellings (every row id from before schema v7 is an alias here too). */
 export const LEGACY_AUTHORITY = 'legacy/local';
-
-/** The community-local namespace of an interface (nicks, roles). */
-export const guildAuthorityOf = (guildId: unknown, iface: unknown): string => `${text(iface)}/guild:${text(guildId)}`;
 
 /**
  * The DM place of a DM partner on an interface, from the legacy person spelling `person:<iface>:<native>`
@@ -101,8 +92,8 @@ export function legacyAccountNative(account: unknown, iface: unknown): string | 
 }
 
 /**
- * The native key of a place inside its authority: the place kind and the native id (`channel:<id>`, `guild:<id>`,
- * `dm:<partner native>`), so a guild and a channel that share a snowflake never collide.
+ * The native key of a place inside its authority: the place kind and the native id (`channel:<id>`, `server:<id>`,
+ * `dm:<partner native>`), so a server and a channel that share a native id never collide.
  */
 export function placeNativeKey(place: Row | null | undefined): string | null {
   const kind = typeof place?.kind === 'string' && place.kind ? place.kind : 'place';
@@ -237,7 +228,7 @@ export const sourceTargetKey = (sourceId: unknown): string => `source:${text(sou
 const LEGACY_AUTHORITY_OF_IFACE = `${LEGACY_IFACE}/global`;
 /** Place kinds the importer writes under their own id spelling, and the spelling. */
 const LEGACY_PLACE_IDS: Record<string, (iface: unknown, id: unknown) => string> = {
-  guild: guildPlaceId,
+  server: topPlaceSpelled,
   channel: channelPlaceId,
   dm: dmPlaceId,
 };
@@ -250,7 +241,7 @@ export function legacyAccountIdOf(authority: unknown, key: unknown, generation: 
 }
 
 /**
- * The importer's place of a native place key (`channel:<id>`, `dm:<user id>`, `guild:<id>`): `{ id, native_id }` as
+ * The importer's place of a native place key (`channel:<id>`, `dm:<user id>`, `server:<id>`): `{ id, native_id }` as
  * the importer writes them (a DM place has no native id of its own), or null.
  */
 export function legacyPlaceOf(
@@ -329,9 +320,9 @@ export function uniqueIds(): (id: unknown) => string {
 }
 
 // ---------- one id per account and place of an interface ----------
-// The observation (observe.ts) and the store's unit mappers (map/) name a generation-1 account and a channel, guild or
+// The observation (observe.ts) and the store's unit mappers (map/) name a generation-1 account and a channel, server or
 // DM place of the same interface with the same id: the spelling the mappers write (`accountId`, `channelPlaceId`,
-// `guildPlaceId`, `dmPlaceId`), so a unit write that brings a row the observation made lands on that row and a reopen
+// `topPlaceSpelled`, `dmPlaceId`), so a unit write that brings a row the observation made lands on that row and a reopen
 // replays no conflict. On the legacy interface that spelling is `legacyAccountIdOf` and `legacyPlaceOf`, whose stored
 // bytes are frozen. Anything else (a thread, a later generation, the core's own authority) is a node id.
 

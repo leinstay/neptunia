@@ -67,7 +67,7 @@ export type SearchRef = {
   stored?: StoredSourceRef;
   n: number;
   id: string | number;
-  channelId?: string | null;
+  placeId?: string | null;
   authorId?: string | null;
   self?: boolean;
   deleted?: boolean;
@@ -86,9 +86,9 @@ export type SearchRefs = {
 /** A store of the memory, as far as a call view reads it. */
 type ViewStore = {
   listChannels?: (
-    guildId: string
+    placeId: string
   ) => ReadonlyArray<{ id?: string | number | null; name?: unknown } | null> | null | undefined;
-  listUserProfiles?: (guildId: string) => CallView['members'] | null | undefined;
+  listUserProfiles: () => CallView['members'] | null | undefined;
 };
 
 /**
@@ -111,7 +111,7 @@ export function callViewOf({
   channel,
   currentIface,
   snapshot = null,
-  guildId,
+  placeId,
   idByIndex,
   lines,
   pulledIds,
@@ -129,7 +129,7 @@ export function callViewOf({
   channel: { id: string | number; name?: unknown; communityId?: string | null };
   currentIface?: string;
   snapshot?: Snapshot | null;
-  guildId?: string | null;
+  placeId?: string | null;
   idByIndex?: ReadonlyMap<number, string> | null;
   lines?: ReadonlyArray<{ id?: unknown; authorId?: string | null; self?: unknown; deleted?: unknown }> | null;
   pulledIds?: ReadonlyMap<string, string> | null;
@@ -150,8 +150,8 @@ export function callViewOf({
   for (const entry of listing?.conversations ?? []) {
     if (entry.id && typeof entry.name === 'string') conversations.push({ id: String(entry.id), name: entry.name });
   }
-  if (guildId && typeof store?.listChannels === 'function') {
-    for (const note of store.listChannels(guildId) ?? [])
+  if (placeId && typeof store?.listChannels === 'function') {
+    for (const note of store.listChannels(placeId) ?? [])
       if (note?.id && typeof note.name === 'string') conversations.push({ id: String(note.id), name: note.name });
   }
   if (typeof channel.name === 'string' && channel.name)
@@ -180,11 +180,11 @@ export function callViewOf({
             (!found.stored && currentIface
               ? {
                   iface: currentIface,
-                  conversationId: String(found.channelId ?? channel.id),
+                  conversationId: String(found.placeId ?? channel.id),
                   messageId: String(found.id),
                 }
               : undefined),
-          conversationId: found.stored?.native?.conversationId ?? String(found.channelId ?? channel.id),
+          conversationId: found.stored?.native?.conversationId ?? String(found.placeId ?? channel.id),
           authorId: found.authorId ?? null,
           self: found.self === true,
           ...(found.deleted === true ? { deleted: true } : {}),
@@ -204,9 +204,7 @@ export function callViewOf({
       };
     },
     members:
-      memoryOn && guildId && typeof store?.listUserProfiles === 'function'
-        ? (store.listUserProfiles(guildId) ?? [])
-        : [],
+      memoryOn && placeId && typeof store?.listUserProfiles === 'function' ? (store.listUserProfiles() ?? []) : [],
     selfId: selfId ?? null,
     roles,
     skills,
@@ -228,7 +226,7 @@ export const SEARCH_HANDLE_GAP = 20;
  * SEARCH_HANDLE_GAP, so the steps of the loop, which rebuild the transcript, keep them clear),
  * each resolving to its message (channel and id) for the turn and its loop steps. `next()` is the
  * next free number, `take(shown)` registers the quoted lines the result kept
- * (`{ n, id, channelId, authorId, self, message }`).
+ * (`{ n, id, placeId, authorId, self, message }`).
  */
 export function searchHandles(draft: { searchRefs?: SearchRefs; handleFloor?: number | null }): {
   next(): number;
@@ -255,7 +253,7 @@ export function searchHandles(draft: { searchRefs?: SearchRefs; handleFloor?: nu
         refs.byNumber.set(ref.n, ref);
         const sameId = [...refs.byNumber.values()].filter((entry) => String(entry.id) === String(ref.id));
         const identities = new Set(
-          sameId.map((entry) => entry.stored?.sourceId ?? JSON.stringify([entry.channelId, entry.id]))
+          sameId.map((entry) => entry.stored?.sourceId ?? JSON.stringify([entry.placeId, entry.id]))
         );
         if (identities.size === 1) refs.byId.set(String(ref.id), ref);
         else refs.byId.delete(String(ref.id));

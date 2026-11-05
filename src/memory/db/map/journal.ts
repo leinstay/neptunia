@@ -59,6 +59,13 @@ const markHas = (rest: Row, key: string): void => {
   ((rest.$has ??= []) as Array<string>).push(key);
 };
 
+/** What a row keeps of a line's scope when its place is not one of its columns: the triple and, for a DM, the audience. */
+function scopeRows(scope: Row): Row {
+  const out = { ...scope };
+  delete out.place_id;
+  return out;
+}
+
 function memoryRows(rel: string, line: Row, ctx: MapContext, privateUser: string | null) {
   const iface = ifaceOf(ctx);
   const rows: Rows = {};
@@ -79,7 +86,7 @@ function memoryRows(rel: string, line: Row, ctx: MapContext, privateUser: string
   });
   if (mappable) {
     const scopeRest: Row = {};
-    const scope = scopeInto(scopeRest, line.scope as OldScope | undefined, privateUser, iface);
+    const scope = scopeRows(scopeInto(scopeRest, line.scope as OldScope | undefined, privateUser, iface, ctx.dmPlace));
     attitude.forEach((entry, index) => {
       const part = split(entry, ATTITUDE_SPEC, iface);
       put(rows, 'affinity_events', {
@@ -87,9 +94,7 @@ function memoryRows(rel: string, line: Row, ctx: MapContext, privateUser: string
         ...part.cols,
         at: typeof line.occurredAt === 'string' ? line.occurredAt : null,
         score: null,
-        scope_kind: scope.scope_kind,
-        scope_iface: scope.scope_iface,
-        scope_dm: scope.scope_dm,
+        ...scope,
         extra: extraText(part.rest),
         owner_file: rel,
         position: index,
@@ -117,15 +122,15 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
     );
   }
   const { cols, rest } = split(body, DAY_SPEC);
-  const scope = scopeInto(rest, line.scope as OldScope | undefined, privateUser, iface);
+  const scope = scopeInto(rest, line.scope as OldScope | undefined, privateUser, iface, ctx.dmPlace);
+  const placeId = scope.place_id;
+  const scoped = scopeRows(scope);
   put(rows, 'day', {
     ...cols,
-    place_id: scope.place_id,
+    place_id: placeId,
     source_id: sourceId,
     work_id: errandIdOfLine(line),
-    scope_kind: scope.scope_kind,
-    scope_iface: scope.scope_iface,
-    scope_dm: scope.scope_dm,
+    ...scoped,
     extra: extraText(rest),
     owner_file: rel,
     position: ctx.position ?? null,
@@ -138,15 +143,13 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
       id: sourceId,
       kind: 'answer',
       iface,
-      place_id: scope.place_id,
+      place_id: placeId,
       occurred_at: typeof line.occurredAt === 'string' ? line.occurredAt : null,
       recorded_at: typeof line.recordedAt === 'string' ? line.recordedAt : null,
       turn_id: typeof line.turnId === 'string' ? line.turnId : null,
       origin: typeof line.origin === 'string' ? line.origin : null,
       ...part.cols,
-      scope_kind: scope.scope_kind,
-      scope_iface: scope.scope_iface,
-      scope_dm: scope.scope_dm,
+      ...scoped,
       extra: extraText(part.rest),
       owner_file: rel,
       position: ctx.position ?? null,

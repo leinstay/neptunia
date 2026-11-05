@@ -1,6 +1,7 @@
 // Tests for src/memory/record.ts: the record of every observed message, the persona's own lines
 // and her feelings, written to the memory database of a temporary directory (never the
 // deployment's data/).
+import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -22,6 +23,8 @@ import { openTestMemory, unitFile } from './fixtures/memory-db/service.ts';
 const quiet = { info() {}, warn() {}, error() {} };
 const T1 = Date.UTC(2026, 9, 11, 11, 55, 51, 568);
 const T2 = Date.UTC(2026, 9, 12, 8, 0, 0);
+const G1 = legacyServerPlaceId('discord', 'g1');
+const DM_U1 = 'discord:dm:u1';
 const NOW = Date.UTC(2026, 9, 13, 9, 0, 0);
 
 // The line as the record stores it: `toRecordLine` types it as a plain object.
@@ -35,7 +38,7 @@ function counter(prefix: string) {
 function slim(overrides: Record<string, unknown> = {}) {
   return {
     id: 'm1',
-    channelId: 'c1',
+    placeId: 'c1',
     channelName: 'général',
     authorId: 'u1',
     authorName: 'Zoé',
@@ -106,7 +109,6 @@ test('record: toRecordLine keeps only the whitelisted fields and lists participa
     revision: 1,
     occurredAt: new Date(T1).toISOString(),
     recordedAt: new Date(NOW).toISOString(),
-    guildId: null,
     scope: { channel: 'c1' },
     by: 'u1',
     replyTo: 'm0',
@@ -137,13 +139,12 @@ test('record: toRecordLine keeps only the whitelisted fields and lists participa
   assert.equal(said.opId, 'op-1');
 
   const deleted = toRecordLine(
-    { id: 'm1', channelId: 'c1', authorId: 'u1', ts: T2 },
+    { id: 'm1', placeId: 'c1', authorId: 'u1', ts: T2 },
     { kind: 'deleted', now: () => NOW, uuid: () => 'u-3' }
   );
   assert.deepEqual(
     Object.keys(deleted).sort(),
     [
-      'guildId',
       'id',
       'kind',
       'messageId',
@@ -175,7 +176,7 @@ test('record: a message with link embeds keeps a compact links field (url, title
   ];
   const message = {
     id: 'm1',
-    channelId: 'c1',
+    placeId: 'c1',
     channel: { name: 'général' },
     author: { id: 'u1', bot: false, username: 'zoe' },
     cleanContent: 'κοίτα https://video.example/watch?v=1',
@@ -212,21 +213,21 @@ test('record: a message with link embeds keeps a compact links field (url, title
 
 test('record: append writes to the day of occurredAt under the month directory and refuses a duplicate messageId+revision', async () => {
   const { dataDir, record, memoryDb, done } = await scene();
-  const first = await record.append('g1', [
+  const first = await record.append(G1, [
     toRecordLine(slim({ id: 'm1', ts: T1 })),
     toRecordLine(slim({ id: 'm2', ts: T2 })),
   ]);
   assert.deepEqual(first, { written: 2, duplicates: 0 });
-  const again = await record.append('g1', [toRecordLine(slim({ id: 'm1', ts: T1 }))]);
+  const again = await record.append(G1, [toRecordLine(slim({ id: 'm1', ts: T1 }))]);
   assert.deepEqual(again, { written: 0, duplicates: 1 });
 
-  const file1 = path.join(dataDir, 'guilds', 'g1', 'record', '2026-10', '2026-10-11.jsonl');
-  const file2 = path.join(dataDir, 'guilds', 'g1', 'record', '2026-10', '2026-10-12.jsonl');
-  assert.equal(record.dayFile('g1', new Date(T1).toISOString()), file1);
+  const file1 = path.join(dataDir, 'places', encodeURIComponent(G1), 'record', '2026-10', '2026-10-11.jsonl');
+  const file2 = path.join(dataDir, 'places', encodeURIComponent(G1), 'record', '2026-10', '2026-10-12.jsonl');
+  assert.equal(record.dayFile(G1, new Date(T1).toISOString()), file1);
   const day1 = unitLines(memoryDb, 'guilds/g1/record/2026-10/2026-10-11.jsonl');
   assert.equal(day1.length, 1);
   assert.equal(day1[0].messageId, 'm1');
-  assert.equal(day1[0].guildId, 'g1', 'the guild is stamped on append');
+  // The line no longer spells its community: the unit's key names the place.
   assert.deepEqual(
     unitLines(memoryDb, 'guilds/g1/record/2026-10/2026-10-12.jsonl').map((l) => l.messageId),
     ['m2']
@@ -235,7 +236,7 @@ test('record: append writes to the day of occurredAt under the month directory a
 
   // A fresh instance reads the database and still refuses the duplicate.
   const reopened = createRecord({ dataDir, log: quiet, now: () => NOW, memoryDb });
-  assert.deepEqual(await reopened.append('g1', [toRecordLine(slim({ id: 'm2', ts: T2 }))]), {
+  assert.deepEqual(await reopened.append(G1, [toRecordLine(slim({ id: 'm2', ts: T2 }))]), {
     written: 0,
     duplicates: 1,
   });
@@ -244,10 +245,10 @@ test('record: append writes to the day of occurredAt under the month directory a
 
 test('record: an edit is a new line with revision 2', async () => {
   const { dataDir, record, memoryDb, done } = await scene();
-  await record.append('g1', [toRecordLine(slim({ content: 'first' }))]);
-  const edit = await record.append('g1', [toRecordLine(slim({ content: 'second' }), { revision: 2 })]);
+  await record.append(G1, [toRecordLine(slim({ content: 'first' }))]);
+  const edit = await record.append(G1, [toRecordLine(slim({ content: 'second' }), { revision: 2 })]);
   assert.deepEqual(edit, { written: 1, duplicates: 0 });
-  const lines = await collect(record.iterate('g1', OCTOBER));
+  const lines = await collect(record.iterate(G1, OCTOBER));
   assert.deepEqual(
     lines.map((l) => [l.messageId, l.revision, l.text]),
     [
@@ -261,13 +262,13 @@ test('record: an edit is a new line with revision 2', async () => {
 
 test('record: iterate filters by time and channel', async () => {
   const { record, memoryDb, done } = await scene();
-  await record.append('g1', [
-    toRecordLine(slim({ id: 'm1', ts: T1, channelId: 'c1' })),
-    toRecordLine(slim({ id: 'm2', ts: T2, channelId: 'c2' })),
-    toRecordLine(slim({ id: 'm3', ts: T2 + 1000, channelId: 'c1' })),
+  await record.append(G1, [
+    toRecordLine(slim({ id: 'm1', ts: T1, placeId: 'c1' })),
+    toRecordLine(slim({ id: 'm2', ts: T2, placeId: 'c2' })),
+    toRecordLine(slim({ id: 'm3', ts: T2 + 1000, placeId: 'c1' })),
   ]);
   const lines = await collect(
-    record.iterate('g1', { from: new Date(T2).toISOString(), to: new Date(NOW).toISOString(), channelIds: ['c1'] })
+    record.iterate(G1, { from: new Date(T2).toISOString(), to: new Date(NOW).toISOString(), placeIds: ['c1'] })
   );
   assert.deepEqual(
     lines.map((l) => l.messageId),
@@ -278,21 +279,19 @@ test('record: iterate filters by time and channel', async () => {
 
 test('record: a private line never lands in the guild directory', async () => {
   const { dataDir, record, memoryDb, done } = await scene();
-  const result = await record.append('g1', [toRecordLine(slim({ id: 'd1', channelId: 'dm1' }))], {
-    privateUserId: 'u1',
-  });
+  const result = await record.append(DM_U1, [toRecordLine(slim({ id: 'd1', placeId: 'dm1' }))]);
   assert.deepEqual(result, { written: 1, duplicates: 0 });
-  const privateFile = path.join(dataDir, 'guilds', 'g1', 'private', 'u1', 'record', '2026-10', '2026-10-11.jsonl');
-  assert.equal(record.dayFile('g1', new Date(T1).toISOString(), 'u1'), privateFile);
+  const privateFile = path.join(dataDir, 'places', encodeURIComponent(DM_U1), 'record', '2026-10', '2026-10-11.jsonl');
+  assert.equal(record.dayFile(DM_U1, new Date(T1).toISOString()), privateFile);
   const [line] = unitLines(memoryDb, 'guilds/g1/private/u1/record/2026-10/2026-10-11.jsonl');
   assert.equal(line.messageId, 'd1');
   assert.deepEqual(line.scope, { user: 'u1', private: true, channel: 'dm1' });
   assert.equal(unitFile(memoryDb, 'guilds/g1/record/2026-10/2026-10-11.jsonl'), null, 'nothing in the guild record');
   assert.deepEqual(
-    (await collect(record.iterate('g1', { ...OCTOBER, privateUserId: 'u1' }))).map((l) => l.messageId),
+    (await collect(record.iterate(DM_U1, OCTOBER))).map((l) => l.messageId),
     ['d1']
   );
-  assert.deepEqual(await collect(record.iterate('g1', OCTOBER)), []);
+  assert.deepEqual(await collect(record.iterate(G1, OCTOBER)), []);
   await done();
 });
 
@@ -300,32 +299,28 @@ test('record: an edit refused as a duplicate revision lands after the newest one
   const { dataDir, record, memoryDb, done } = await scene();
   const logs: Array<{ msg: string; fields: unknown }> = [];
   const log = { info: (msg: string, fields: unknown) => logs.push({ msg, fields }), warn() {}, error() {} };
-  await record.append('g1', [toRecordLine(slim({ content: 'first' }))]);
+  await record.append(G1, [toRecordLine(slim({ content: 'first' }))]);
   // Revision 2 is written already; the bot restarts and an edit comes in.
-  await record.append('g1', [
+  await record.append(G1, [
     {
       ...toRecordLine(slim({ content: 'first' }), { revision: 2 }),
       links: [{ url: 'https://example.org', title: 'Τίτλος', description: '', site: 'example.org' }],
     },
   ]);
   const reopened = createRecord({ dataDir, log: quiet, now: () => NOW, memoryDb });
-  assert.equal(await reopened.newestRevision('g1', 'm1', new Date(T1).toISOString()), 2);
-  assert.equal(await reopened.newestRevision('g1', 'm9', new Date(T1).toISOString()), null);
+  assert.equal(await reopened.newestRevision(G1, 'm1', new Date(T1).toISOString()), 2);
+  assert.equal(await reopened.newestRevision(G1, 'm9', new Date(T1).toISOString()), null);
   const edited = slim({ content: 'edited' });
-  const out = await appendRevision(
-    reopened,
-    'g1',
-    (revision) => toRecordLine(edited, { revision, now: () => NOW }),
-    2,
-    { log }
-  );
+  const out = await appendRevision(reopened, G1, (revision) => toRecordLine(edited, { revision, now: () => NOW }), 2, {
+    log,
+  });
   assert.deepEqual(out, { revision: 3, written: 1, duplicates: 0, bumps: 1 });
   assert.deepEqual(
     logs,
-    [{ msg: 'record: edit revision bumped', fields: { guildId: 'g1', bumps: 1, written: 1 } }],
+    [{ msg: 'record: edit revision bumped', fields: { placeId: G1, bumps: 1, written: 1 } }],
     'counts only'
   );
-  const lines = await collect(reopened.iterate('g1', OCTOBER));
+  const lines = await collect(reopened.iterate(G1, OCTOBER));
   assert.deepEqual(
     lines.map((l) => l.revision),
     [1, 2, 3]

@@ -16,7 +16,7 @@ type Line = {
   authorId: string;
   authorName: string;
   content: string;
-  channelId: string;
+  placeId: string;
   channelName: string;
   messageRefs?: Array<Ref>;
 };
@@ -28,7 +28,7 @@ function msg(id: string, ts: number, overrides: Partial<Line> = {}): Line {
     authorId: 'u1',
     authorName: 'Nick',
     content: 'text',
-    channelId: 'c1',
+    placeId: 'c1',
     channelName: 'general',
     ...overrides,
   };

@@ -240,7 +240,6 @@ test('heartbeat: a restarted turn of the same wake records no second intention',
   const service = createIntentionService({
     stores: createIntentionStores({ dataDir: tempDir('nep-wake-restart-'), now: () => WAKE_NOW }),
     hot,
-    getGuildId: () => 'g1',
     now: () => WAKE_NOW,
     log: { info() {}, warn() {} },
   });

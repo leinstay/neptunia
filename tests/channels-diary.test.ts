@@ -1,6 +1,7 @@
 // Tests for the diary channel's mark in the server map: src/memory/channels.ts#renderChannel
 // (`diary` option, `labels.server.diary`) and the persona's own lines counting as a writer of
 // that one channel (src/memory/update.ts#touchMemory).
+import { placeOfConversation } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -46,9 +47,9 @@ function withStore<T>(fn: (store: ReturnType<typeof createStore>) => T): T {
   }
 }
 
-const own = (channelId: string) => ({
+const own = (placeId: string) => ({
   id: 'm1',
-  channelId,
+  placeId,
   channelName: 'x',
   authorId: 'self1',
   authorName: 'bot',
@@ -58,7 +59,7 @@ const own = (channelId: string) => ({
   ts: Date.UTC(2026, 8, 20, 12),
 });
 
-// Stage 3 design, section 5: the diary's places are its mirrors in memory, no longer `diary.channelId`; the caller
+// Stage 3 design, section 5: the diary's places are its mirrors in memory, no longer `diary.placeId`; the caller
 // passes them as `diaryChannelIds` (src/behavior/mirror.ts#diaryConversationIds).
 test("touchMemory: the persona's lines count as a writer only in the diary channel", async () => {
   const memory = await openTestMemory();
@@ -69,10 +70,16 @@ test("touchMemory: the persona's lines count as a writer only in the diary chann
       touchMemory(store, 'g1', own('diary'), { diaryChannelIds });
       touchMemory(store, 'g1', own('other'), { diaryChannelIds });
       touchMemory(store, 'g1', own('nowhere'), {});
-      assert.deepEqual(store.getChannel('g1', 'diary')?.topWriters, [{ id: 'self1', count: 1 }]);
-      assert.deepEqual(store.getChannel('g1', 'other')?.topWriters, []);
-      assert.deepEqual(store.getChannel('g1', 'nowhere')?.topWriters, []);
-      assert.equal(store.getChannel('g1', 'diary')?.days['2026-09-20'], 1, 'the day tally counts the post');
+      assert.deepEqual(store.getChannel(placeOfConversation(store, { id: 'diary' }))?.topWriters, [
+        { id: 'self1', count: 1 },
+      ]);
+      assert.deepEqual(store.getChannel(placeOfConversation(store, { id: 'other' }))?.topWriters, []);
+      assert.deepEqual(store.getChannel(placeOfConversation(store, { id: 'nowhere' }))?.topWriters, []);
+      assert.equal(
+        store.getChannel(placeOfConversation(store, { id: 'diary' }))?.days['2026-09-20'],
+        1,
+        'the day tally counts the post'
+      );
     });
   } finally {
     await memory.close();
@@ -82,6 +89,6 @@ test("touchMemory: the persona's lines count as a writer only in the diary chann
 test('touchMemory: other bots never count, even in the diary channel', () => {
   withStore((store) => {
     touchMemory(store, 'g1', { ...own('diary'), self: false, bot: true, authorId: 'b2' }, { diaryChannelId: 'diary' });
-    assert.deepEqual(store.getChannel('g1', 'diary')?.topWriters, []);
+    assert.deepEqual(store.getChannel(placeOfConversation(store, { id: 'diary' }))?.topWriters, []);
   });
 });

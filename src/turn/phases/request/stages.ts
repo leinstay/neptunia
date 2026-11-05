@@ -61,7 +61,7 @@ export function startStages(
 ): Staged {
   const { hot, clock, schedule, describer, fetchImpl, maybeSplit } = ctx;
   const { trigger = null, triggerKind = null, maySplit = false } = params;
-  const { channel, guildId, prepStep, life } = opened;
+  const { channel, libraryPlace: placeId, prepStep, life } = opened;
   const { config, startedAt, waitsForAll, pace, prefetching, rawHistory, selfName } = setup;
   const { routedPull } = pulled;
   // Everything below starts as soon as its inputs exist and runs alongside the rest; the turn
@@ -113,7 +113,7 @@ export function startStages(
     captions = track('captions', () =>
       journalled(
         describeOp,
-        () => describer.describeMany(guildId, captionCandidates, { maxNew: MEDIA_PER_TURN }),
+        () => describer.describeMany(placeId, captionCandidates, { maxNew: MEDIA_PER_TURN }),
         (value) => {
           const count = value?.descriptions?.size ?? 0;
           return { result: { count }, offered: count > 0 };
@@ -128,7 +128,7 @@ export function startStages(
     if (captions.done) return captions.value?.descriptions;
     try {
       return typeof describer?.cachedDescriptions === 'function'
-        ? describer.cachedDescriptions(guildId, captionCandidates)
+        ? describer.cachedDescriptions(placeId, captionCandidates)
         : undefined;
     } catch {
       return undefined;
@@ -150,7 +150,7 @@ export function startStages(
       splitStage = track('split', () =>
         maybeSplit({
           config,
-          channelId: channel.id,
+          placeId: channel.id,
           selfName,
           history: routedPull ? routedPull.messages : rawHistory,
           trigger,
@@ -182,7 +182,7 @@ export function startStages(
     videoStage = track('videos', () =>
       journalled(
         watchOp,
-        () => describeVideos(guildId, candidates, { maxNew: VIDEOS_PER_TURN }),
+        () => describeVideos(placeId, candidates, { maxNew: VIDEOS_PER_TURN }),
         (value) => {
           const states = value?.videos instanceof Map ? [...value.videos.values()] : [];
           return {

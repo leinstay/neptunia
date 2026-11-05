@@ -80,12 +80,12 @@ export type Preview = { at: number; text: string; media?: Media; ref: number | n
 /** One numbered line (`#N` once the turn numbers it), in the shape of a memory.search quote's handle. */
 export type HeartbeatRef = {
   id: string;
-  channelId: string;
+  placeId: string;
   authorId: unknown;
   self: false;
   message: {
     id: string;
-    channelId: string;
+    placeId: string;
     authorId: unknown;
     content: string;
     ts: number;
@@ -192,7 +192,7 @@ type Scan = {
   byId: Map<string, ScanEntry>;
 };
 /** The journal as the view reads it. */
-type JournalSource = { read?(guildId: string, query: { day: string; kind: string; n: number }): unknown } | null;
+type JournalSource = { read?(query: { day: string; kind: string; n: number }): unknown } | null;
 /** The refs the view hands out and the function that numbers a line. */
 type RefBook = { refs: Array<HeartbeatRef>; refOf(entry: ScanEntry, authorId?: unknown): number | null };
 /** A member chosen for the people block: the profile and when it was last seen. */
@@ -249,7 +249,6 @@ function reasonOf(record: Obj): string {
 /** A journal read that never throws: `[]` for a missing source or a failed read. */
 async function readJournal(
   journal: JournalSource,
-  guildId: string,
   from: number,
   to: number,
   kind: string,
@@ -259,7 +258,7 @@ async function readJournal(
   const out: Array<unknown> = [];
   for (const day of daysBetween(from, to)) {
     try {
-      out.push(...listOf(await journal.read(guildId, { day, kind, n: Number.MAX_SAFE_INTEGER })));
+      out.push(...listOf(await journal.read({ day, kind, n: Number.MAX_SAFE_INTEGER })));
     } catch (error) {
       warn('journal', error);
     }
@@ -288,7 +287,6 @@ function mediaOf(line: Obj): Media | null {
  */
 async function scanRecord({
   record,
-  guildId,
   now,
   settings,
   selfId,
@@ -297,7 +295,7 @@ async function scanRecord({
   warn,
 }: {
   record: RecordSource | null;
-  guildId: string;
+
   now: number;
   settings: ViewSettings;
   selfId: unknown;
@@ -315,7 +313,7 @@ async function scanRecord({
   const latest = new Map<string, ScanEntry>();
   const deleted = new Set<string>();
   try {
-    for await (const raw of record.iterate(guildId, { from: new Date(from).toISOString() })) {
+    for await (const raw of record.iterate({ from: new Date(from).toISOString() })) {
       const line = objOf(raw);
       if (line.kind === 'deleted' && typeof line.messageId === 'string') {
         deleted.add(line.messageId);
@@ -372,7 +370,7 @@ async function scanRecord({
 }
 
 /**
- * The numbered lines the view hands out: one ref per record line (`{ id, channelId, authorId, self, message }`,
+ * The numbered lines the view hands out: one ref per record line (`{ id, placeId, authorId, self, message }`,
  * the shape of the handles a memory.search quotes, src/behavior/turn.ts#searchHandles), in the order first asked;
  * the wake words each as `#N` once the turn numbers them.
  */
@@ -398,12 +396,12 @@ function refBook(): RefBook {
       });
       refs.push({
         id,
-        channelId: place,
+        placeId: place,
         authorId: authorId ?? line.by ?? null,
         self: false,
         message: {
           id,
-          channelId: place,
+          placeId: place,
           authorId: authorId ?? line.by ?? null,
           content: typeof line.text === 'string' ? line.text : '',
           ts: parseAt(line.occurredAt),
@@ -757,7 +755,7 @@ function filteredOf({
     .map(objOf)
     .flatMap((item) =>
       within(item.at)
-        ? [{ at: item.at, place: placeName(asText(item.channelId ?? '')), by: 'address' as const, ...ids(item) }]
+        ? [{ at: item.at, place: placeName(asText(item.placeId ?? '')), by: 'address' as const, ...ids(item) }]
         : []
     );
   const missed: Array<FilteredRaw> = missedVerdicts
@@ -895,7 +893,6 @@ function sinceOf({
 
 /** What buildHeartbeatFacts reads: the stores and sources it is given. */
 export type HeartbeatInput = {
-  guildId: string;
   now: number;
   /** Her previous heartbeat (epoch ms); null: the last day. */
   since?: number | null;
@@ -923,7 +920,7 @@ export type HeartbeatInput = {
   agents?: unknown;
   /** The inner state (turns that ended in error, the facts told). */
   innerState?: unknown;
-  /** `{ at, channelId }` of the address check's "not to her"; the journal's `address` records are added by the view. */
+  /** `{ at, placeId }` of the address check's "not to her"; the journal's `address` records are added by the view. */
   addressVerdicts?: ReadonlyArray<unknown> | (() => unknown) | null;
   nameOf?: ((id: string) => unknown) | null;
   placeName?: (id: string) => unknown;
@@ -937,7 +934,6 @@ export type HeartbeatInput = {
 
 /** The heartbeat's facts for `<wake>` (src/behavior/wake.ts words them). */
 export async function buildHeartbeatFacts({
-  guildId,
   now,
   since = null,
   settings = {},
@@ -979,11 +975,11 @@ export async function buildHeartbeatFacts({
   const from = isFiniteNumber(since) && since < now ? Math.max(since, now - 7 * DAY_MS) : now - DAY_MS;
   const windowStart = Math.min(from, now - DAY_MS);
   const [innerTurns, actionRecords, answers] = await Promise.all([
-    readJournal(journal, guildId, windowStart, now, 'inner', warn).then((records) =>
+    readJournal(journal, windowStart, now, 'inner', warn).then((records) =>
       records.filter((entry) => entry.event === 'turn')
     ),
-    readJournal(journal, guildId, from, now, 'action', warn),
-    readJournal(journal, guildId, from, now, 'answer', warn),
+    readJournal(journal, from, now, 'action', warn),
+    readJournal(journal, from, now, 'answer', warn),
   ]);
   const unknownSends = actionRecords.filter((entry) => entry.phase === 'unknown');
   // A send whose message arrived later (a succeeded line of the same operation) is not unknown any more.
@@ -994,7 +990,7 @@ export async function buildHeartbeatFacts({
     .filter((entry) => entry.event === 'address')
     .map((entry) => ({
       at: parseAt(entry.at ?? entry.occurredAt),
-      channelId: entry.channelId ?? objOf(entry.scope).channel ?? '',
+      placeId: entry.placeId ?? objOf(entry.scope).channel ?? '',
       messageId: entry.messageId ?? null,
       authorId: entry.authorId ?? null,
     }));
@@ -1018,7 +1014,6 @@ export async function buildHeartbeatFacts({
   const filteredShown = filteredAll.slice(0, s.filteredShown);
   const scan = await scanRecord({
     record,
-    guildId,
     now,
     settings: s,
     selfId,

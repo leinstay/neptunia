@@ -14,10 +14,10 @@
 // toRows(rel, entry, ctx) -> { claim_versions: [row], claims?: [stub] }     ctx: { position?, hotClaimIds? }
 // fromRows(rows, ctx) -> the entry
 
-import { shortHash } from '../ids.ts';
+import { personId, shortHash } from '../ids.ts';
 import { scopeColumns } from '../scope.ts';
-import { extraText, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.ts';
-import { privateUserOf } from './scope-parts.ts';
+import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.ts';
+import { dmPlaceScope, privateUserOf } from './scope-parts.ts';
 import { LEGACY_IFACE } from '../legacy-namespace.ts';
 import type { Row, Rows } from '../types.ts';
 import type { MapContext, Spec } from './common.ts';
@@ -33,7 +33,7 @@ const SPEC: Array<Spec> = [
 ];
 
 /** The claim row for an archived item that is not in hot memory: retired, historical, text from the entry. */
-export function claimStub(rel: string, entry: Row): Row {
+export function claimStub(rel: string, entry: Row, ctx: MapContext = {}): Row {
   const scope = (entry.scope ?? {}) as { user?: unknown; channel?: unknown };
   const text = entry.text as { text?: unknown } | undefined;
   const observedAt = entry.observedAt as { date?: unknown } | undefined;
@@ -59,7 +59,9 @@ export function claimStub(rel: string, entry: Row): Row {
     from_person: null,
     truth: 'historical',
     shown: 0,
-    ...scopeColumns(entry.scope, { privateUser: privateUserOf(rel) }),
+    ...(ctx.dmPlace && ctx.privateUserId
+      ? dmPlaceScope(personId(ifaceOf(ctx), ctx.privateUserId), ifaceOf(ctx), ctx.dmPlace)
+      : scopeColumns(entry.scope, { privateUser: privateUserOf(rel) })),
     created_at: null,
     retired_at: typeof entry.recordedAt === 'string' ? entry.recordedAt : null,
     origin_file: rel,
@@ -73,14 +75,15 @@ export function withStubs(
   mapping: Rows,
   rel: string,
   entries: ReadonlyArray<Row | null | undefined>,
-  hotClaimIds: ReadonlySet<string>
+  hotClaimIds: ReadonlySet<string>,
+  ctx: MapContext = {}
 ): Rows {
   const seen = new Set<string>();
   for (const entry of entries) {
     const id = entry?.itemId;
     if (typeof id !== 'string' || !id || seen.has(id) || hotClaimIds.has(id)) continue;
     seen.add(id);
-    put(mapping, 'claims', claimStub(rel, entry));
+    put(mapping, 'claims', claimStub(rel, entry, ctx));
   }
   return mapping;
 }
@@ -123,7 +126,7 @@ export function toRows(rel: string, entry: Row, ctx: MapContext = {}): Rows {
     owner_file: rel,
     position: ctx.position ?? null,
   });
-  if (ctx.hotClaimIds instanceof Set) withStubs(rows, rel, [entry], ctx.hotClaimIds);
+  if (ctx.hotClaimIds instanceof Set) withStubs(rows, rel, [entry], ctx.hotClaimIds, ctx);
   return rows;
 }
 

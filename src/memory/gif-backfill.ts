@@ -58,11 +58,11 @@ function buildGifBackfill({
    * it), under the entry's `itemId`; an entry without one is skipped.
    * Returns how many got a caption.
    */
-  async function describeTop(guildId: string, pictures: Map<string, MediaItem>, limit: number) {
+  async function describeTop(placeId: string, pictures: Map<string, MediaItem>, limit: number) {
     if (!describer || typeof describer.describeMany !== 'function' || limit <= 0) return 0;
-    const cache = store.getMediaCache(guildId);
+    const cache = store.getMediaCache(placeId);
     const items: Array<MediaItem> = [];
-    for (const entry of rankGifs(store.getGifs(guildId), GIF_HALF_LIFE_DAYS)) {
+    for (const entry of rankGifs(store.getGifs(placeId), GIF_HALF_LIFE_DAYS)) {
       if (items.length >= limit) break;
       const cached = cache?.[entry.itemId];
       if (cached && !cached.miss && typeof cached.text === 'string' && cached.text.trim()) continue;
@@ -72,7 +72,7 @@ function buildGifBackfill({
     }
     if (items.length === 0) return 0;
     // One at a time, as a background job should: a GIF watch converts with ffmpeg.
-    const { descriptions } = await describer.describeMany(guildId, items, { concurrency: 1 });
+    const { descriptions } = await describer.describeMany(placeId, items, { concurrency: 1 });
     return descriptions.size;
   }
 
@@ -94,24 +94,24 @@ function buildGifBackfill({
    * when the interface lists no readable conversation of the community; an unexpected error is thrown.
    */
   async function run(
-    guildId: string,
+    placeId: string,
     { force = false }: { force?: boolean } = {}
   ): Promise<
     { ok: true; channels: number; messages: number; gifs: number; described: number } | { ok: false; reason: string }
   > {
     if (running) return skipped('running');
     if (store.state?.data?.paused) return skipped('paused');
-    const stamp: StoredRecord | null = store.getGifs(guildId).backfill;
+    const stamp: StoredRecord | null = store.getGifs(placeId).backfill;
     if (!force && stamp?.at) return skipped('done');
 
     running = true;
     try {
-      const history = await readMemberHistory(reads, guildId, BACKFILL_MESSAGES, {
+      const history = await readMemberHistory(reads, placeId, BACKFILL_MESSAGES, {
         iface: iface(),
         log,
         prefix: 'gif-backfill',
       });
-      if (history === null) return skipped('no-guild');
+      if (history === null) return skipped('no-place');
       const { channels, messages: collected } = history;
 
       // From here on nothing awaits until the stamp: no GIF can be recorded in between.
@@ -120,12 +120,12 @@ function buildGifBackfill({
       const opts = gifOpts();
 
       // Always from zero counts: the window already holds what was recorded on arrival.
-      store.resetGifCounts(guildId);
+      store.resetGifCounts(placeId);
       let gifs = 0;
       for (let i = 0; i < members.length; i += CHUNK) {
-        gifs += store.recordGifs(guildId, members.slice(i, i + CHUNK), opts);
+        gifs += store.recordGifs(placeId, members.slice(i, i + CHUNK), opts);
       }
-      store.setGifBackfill(guildId, { at: new Date().toISOString(), channels, messages: members.length });
+      store.setGifBackfill(placeId, { at: new Date().toISOString(), channels, messages: members.length });
       store.flush();
 
       // The picture item to describe per GIF: an attachment's file, an embed's thumbnail and animation.
@@ -137,7 +137,7 @@ function buildGifBackfill({
             pictures.set(picture.itemId, picture);
         }
       }
-      const described = store.state?.data?.paused ? 0 : await describeTop(guildId, pictures, BACKFILL_DESCRIBE);
+      const described = store.state?.data?.paused ? 0 : await describeTop(placeId, pictures, BACKFILL_DESCRIBE);
       if (described > 0) store.flush();
 
       const counts = { channels, messages: members.length, gifs, described };
@@ -153,9 +153,9 @@ function buildGifBackfill({
    * as on) and the library has no `backfill` stamp yet. Meant to be called
    * without awaiting; resolves either way, errors are logged, never thrown.
    */
-  async function startIfNeeded(guildId: string): Promise<void> {
+  async function startIfNeeded(placeId: string): Promise<void> {
     try {
-      await run(guildId);
+      await run(placeId);
     } catch (err) {
       log.error('gif-backfill: failed', { error: err });
     }
@@ -172,7 +172,7 @@ function buildGifBackfill({
 export type GifBackfill = ReturnType<typeof buildGifBackfill>;
 
 /**
- * The GIF history backfill for the served guild.
+ * The GIF history backfill for the served place.
  * @param deps.store      src/memory/store.ts.
  * @param deps.reads  The core's reads of the interface (src/memory/emoji-backfill.ts#readMemberHistory's).
  * @param deps.iface  The interface's name, read when a run starts.

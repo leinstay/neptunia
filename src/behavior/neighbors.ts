@@ -18,7 +18,7 @@ const NEIGHBOR_MESSAGES = 5;
 const NEIGHBOR_MAX_AGE_MINUTES = 60;
 const NEIGHBOR_MAX_CHANNELS = 8;
 
-export type Neighbor = { channelId: string; channelName: string | null; readOnly: boolean; messages: Array<Line> };
+export type Neighbor = { placeId: string; channelName: string | null; readOnly: boolean; messages: Array<Line> };
 
 export async function fetchNeighbors(
   reads: Reads,
@@ -48,14 +48,14 @@ export async function fetchNeighbors(
           { limit: NEIGHBOR_MESSAGES }
         );
         return {
-          channelId: other.id,
+          placeId: other.id,
           channelName: other.name ?? null,
           readOnly,
           messages: lines.filter((line) => line.ts >= minTs),
         };
       } catch (err) {
         log.warn('collect: neighbour channel fetch failed', { channel: other.id, error: err });
-        return { channelId: other.id, channelName: other.name ?? null, readOnly, messages: [] };
+        return { placeId: other.id, channelName: other.name ?? null, readOnly, messages: [] };
       }
     })
   );

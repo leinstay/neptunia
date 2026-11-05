@@ -1,7 +1,7 @@
 // The memory-read collector (spec 2026-10-24-memory-store, section 10): what a request carried from memory, as
 // `{ kind, id }` in the memory's own identity (an item's `itemId`, a channel id, a lore entry's id, a message id).
 // The block builders of src/turn/request/ fill it; no rendered text depends on it. Kinds: claim, episode, item,
-// channel, guild_note, lore, recent_line, participation, source. Items without an `itemId` are not recorded.
+// channel, place_note, lore, recent_line, participation, source. Items without an `itemId` are not recorded.
 
 import type { Prefetch } from './recall.ts';
 import type { Fit, MemoryRead } from './types.ts';
@@ -47,7 +47,7 @@ export function keptIdsOf(
 }
 
 /**
- * The rest of the collector, once the budget is spent: the profiles shown, the server channels, guild notes and lore
+ * The rest of the collector, once the budget is spent: the profiles shown, the server channels, place notes and lore
  * kept, and what the prefetch offered while `<retrieved>` was kept.
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
@@ -74,7 +74,7 @@ export function collectReads(
   for (const id of keptIdsOf(serverOffered, serverIds, kept.server ?? []))
     memoryReads.push({ kind: 'channel', id, block: 'server' });
   for (const id of keptIdsOf(aboutOffered, aboutIds, kept.aboutChat ?? []))
-    memoryReads.push({ kind: 'guild_note', id, block: 'about_chat' });
+    memoryReads.push({ kind: 'place_note', id, block: 'about_chat' });
   for (const id of keptIdsOf(loreOffered, loreIds, kept.lore ?? []))
     memoryReads.push({ kind: 'lore', id, block: 'lore' });
   if ((kept.prefetch ?? []).length > 0) {

@@ -108,7 +108,7 @@ async function innerTurn({
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const store = {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     getPrivate: () => null,
     listChannels: () => [],
@@ -123,14 +123,12 @@ async function innerTurn({
         client: { configured: () => true, run: () => new Promise(() => {}), cancel: () => true },
         stores: createErrandStores(wrongly({ dataDir: tempDir('nep-skip-errand-'), config: () => hot.config })),
         hot,
-        getGuildId: () => 'g1',
       })
     : null;
   const intentions = withIntentions
     ? createIntentionService({
         stores: createIntentionStores({ dataDir: tempDir('nep-skip-intents-'), now: () => NOW }),
         hot,
-        getGuildId: () => 'g1',
         now: () => NOW,
         log: { info() {}, warn() {} },
       })
@@ -140,7 +138,7 @@ async function innerTurn({
     hot,
     store,
     client,
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     port,
     reads: world().adopt(port),
     ...(service ? { errands: service } : {}),
@@ -187,7 +185,7 @@ async function innerTurn({
     intentions,
     ...(service ? { errands: service } : {}),
   });
-  const channel = world().channel({ id: 'c1', name: 'general', guildId: 'g1', historyMessages: [] });
+  const channel = world().channel({ id: 'c1', name: 'general', placeId: 'g1', historyMessages: [] });
   const wake = {
     intentions: [],
     now: NOW,
@@ -199,7 +197,7 @@ async function innerTurn({
   const { result } = await withCapturedLogs(() =>
     turns.runTurn({
       channel,
-      guildId: 'g1',
+      placeId: 'g1',
       mode: 'inner',
       triggerKind: 'inner',
       inner: { wake, shadow, mayAct: () => true, ...gate },

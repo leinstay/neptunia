@@ -54,7 +54,6 @@ test('the selfimprovement facts carry the landed change once, outside the plain 
   const view = await proposalsOf(world.caller);
   const { landed, seqs } = await landedFor(world.caller);
   const facts = await buildSelfimprovementFacts({
-    guildId: 'g1',
     now: SELFIMPROVEMENT_T0,
     since: null,
     journal: null,

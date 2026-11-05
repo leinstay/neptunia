@@ -23,7 +23,7 @@ import { searchPlan } from '../src/behavior/recall.ts';
 
 type Line = {
   id: string;
-  channelId: string;
+  placeId: string;
   ts: number;
   self: boolean;
   bot: boolean;
@@ -32,7 +32,7 @@ type Line = {
 };
 type Server = { forms: Array<string>; who: Array<string>; from: number | null; to: number | null };
 type RunArgs = {
-  guildId: string;
+  placeId: string;
   channel: ConversationInfo;
   partnerId: string | null;
   snapshot: Snapshot | null;
@@ -152,7 +152,7 @@ async function scene(options: Scene = {}) {
   const history: Array<Line> = [
     {
       id: 'h1',
-      channelId: 'c1',
+      placeId: 'c1',
       ts: NOW - 30 * MINUTE,
       self: false,
       bot: false,
@@ -161,7 +161,7 @@ async function scene(options: Scene = {}) {
     },
     {
       id: 'h2',
-      channelId: 'c1',
+      placeId: 'c1',
       ts: NOW - MINUTE,
       self: false,
       bot: false,
@@ -170,7 +170,7 @@ async function scene(options: Scene = {}) {
     },
   ];
   const args: RunArgs = {
-    guildId: COMMUNITY,
+    placeId: COMMUNITY,
     channel: general,
     partnerId: null,
     snapshot,
@@ -216,7 +216,7 @@ test('reads a window around the hits of each conversation, follows it, and the s
   const s = await scene();
   const { result } = await s.run();
   assert.equal(result.text, 'Ana did it on October 1.');
-  assert.equal(result.stretch?.channelId, 'c1');
+  assert.equal(result.stretch?.placeId, 'c1');
   assert.equal(result.stretch?.channelName, 'general');
   const around = s.windows().filter((read) => read.around !== undefined);
   assert.deepEqual(around.map((read) => read.conversationId).sort(), ['c1', 'c2']);

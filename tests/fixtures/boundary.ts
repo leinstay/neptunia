@@ -120,7 +120,6 @@ export async function innerRig({
     iface: () => 'fake',
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
-    getGuildId: () => GUILD,
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
     memoryDb: memory.memoryDb,
     rng: () => 0.5,
@@ -185,7 +184,7 @@ export function replyTo(
   history.push(raw);
   const trigger = {
     id: message.id,
-    channelId: 'c1',
+    placeId: 'c1',
     authorId: 'u1',
     authorName: 'Alice',
     self: false,

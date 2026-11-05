@@ -63,7 +63,7 @@ function baseInput(overrides = {}) {
     neighbors: [],
     trigger: null,
     triggerKind: null,
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     ...overrides,
@@ -92,7 +92,7 @@ function sensesOf(request: Built) {
 }
 
 test('buildRequest: <emoji> lists the top-ranked emoji of the index, header first', () => {
-  const guildMemory = {
+  const placeMemory = {
     emojiUsage: {
       3: { name: 'gamma', count: 9, last: NOW - DAY },
       1: { name: 'alpha', count: 2, last: NOW - DAY },
@@ -100,25 +100,25 @@ test('buildRequest: <emoji> lists the top-ranked emoji of the index, header firs
     },
   };
   // PR 7d: the block holds the constant 30 entries, so the unranked one tops the three ranked up.
-  const lines = emojiBlock(buildRequest(baseInput({ guildMemory, customEmoji: INDEX })));
+  const lines = emojiBlock(buildRequest(baseInput({ placeMemory, customEmoji: INDEX })));
   assert.deepEqual(lines, [labels.emoji.header, ':gamma:', ':delta:', ':alpha:', ':beta:']);
 });
 
 test('buildRequest: <emoji> skips a ranked emoji the server no longer has and uses its current name', () => {
-  const guildMemory = {
+  const placeMemory = {
     emojiUsage: {
       99: { name: 'gone', count: 50, last: NOW },
       2: { name: 'beta_old_name', count: 3, last: NOW },
     },
   };
-  const lines = emojiBlock(buildRequest(baseInput({ guildMemory, customEmoji: INDEX })));
+  const lines = emojiBlock(buildRequest(baseInput({ placeMemory, customEmoji: INDEX })));
   assert.equal(lines![1], ':beta:');
   assert.ok(!lines!.some((line) => line.includes('gone')));
 });
 
 test('buildRequest: <emoji> tops up a short ranking with the rest of the index, in index order', () => {
-  const guildMemory = { emojiUsage: { 4: { name: 'delta', count: 1, last: NOW } } };
-  const lines = emojiBlock(buildRequest(baseInput({ guildMemory, customEmoji: INDEX })));
+  const placeMemory = { emojiUsage: { 4: { name: 'delta', count: 1, last: NOW } } };
+  const lines = emojiBlock(buildRequest(baseInput({ placeMemory, customEmoji: INDEX })));
   assert.deepEqual(lines, [labels.emoji.header, ':delta:', ':alpha:', ':beta:', ':gamma:']);
 });
 
@@ -172,9 +172,9 @@ test('buildRequest: context.caps.emoji trims entries from the bottom, a cap belo
 });
 
 test('buildRequest: <emoji> sits in the tail, right after <server>', () => {
-  const guildMemory = { patterns: 'short lines' };
-  const history = [{ ...baseInput().history[0], channelId: 'c1', channelName: 'general' }];
-  const text = userText(buildRequest(baseInput({ customEmoji: INDEX, guildMemory, history, currentChannelId: 'c1' })));
+  const placeMemory = { patterns: 'short lines' };
+  const history = [{ ...baseInput().history[0], placeId: 'c1', channelName: 'general' }];
+  const text = userText(buildRequest(baseInput({ customEmoji: INDEX, placeMemory, history, currentChannelId: 'c1' })));
   const aboutIdx = text.indexOf('<about_chat>');
   const emojiIdx = text.indexOf('<emoji>\n'); // the senses line names the block too
   const serverIdx = text.indexOf('<server>');

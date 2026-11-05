@@ -24,8 +24,8 @@ type PullSettings = ReturnType<typeof pullSettings>;
 /** One channel pullTargets lists. */
 type PullTarget = ReturnType<typeof pullTargets>[number];
 
-/** What an exchange keeps pulled in a destination: `{ channelIds, at, turns, authorId }`. */
-export type KeptPull = { channelIds: Array<string>; at: number; turns: number; authorId: string | null };
+/** What an exchange keeps pulled in a destination: `{ placeIds, at, turns, authorId }`. */
+export type KeptPull = { placeIds: Array<string>; at: number; turns: number; authorId: string | null };
 
 /** A route hook's pick: a channel, and whether the page before its last view is wanted. */
 type RoutePick = { id: string; direction: 'earlier' | null };
@@ -55,18 +55,18 @@ export type PullsContext = {
 };
 
 /** A request's `pulledKept`: the lines shown of each pulled channel. */
-type Shown = ReadonlyArray<{ channelId: string; ids: Array<string> }>;
+type Shown = ReadonlyArray<{ placeId: string; ids: Array<string> }>;
 
 export type PullArgs = {
   channel: ConversationInfo;
-  guildId: string | null;
+  placeId: string | null;
   snapshot?: Snapshot | null;
   partner?: { id?: string | null } | null;
   history: NonNullable<NonNullable<Parameters<typeof pullTargets>[0]>['history']>;
   trigger: PullTrigger;
   candidate?: unknown;
   triggerKind?: TriggerKind | null;
-  source: { channelId: string; reason: 'routed' | 'noticed' } | null | undefined;
+  source: { placeId: string; reason: 'routed' | 'noticed' } | null | undefined;
   selfName: string;
   config: PullsConfig;
   now: number;
@@ -78,10 +78,10 @@ export type Pulls = {
   pullChannels: (args: PullArgs) => Promise<{ pulled: Array<PulledChannel>; sourceSkip: string | null }>;
   captionAll: (
     pulled: Array<PulledChannel>,
-    at: { guildId: string | null; config: PullsConfig; destination: { id: string } }
+    at: { placeId: string | null; config: PullsConfig; destination: { id: string } }
   ) => Promise<Array<PulledChannel>>;
   withSeenBefore: (pulled: Array<PulledChannel>, destinationId: string, at: number) => Array<PulledChannel>;
-  markPulledSeen: (shown: ReadonlyArray<{ channelId: string; newestTs: number }>) => void;
+  markPulledSeen: (shown: ReadonlyArray<{ placeId: string; newestTs: number }>) => void;
   noteSpokeSaw: (
     channel: { id: string },
     history: ReadonlyArray<{ id: string }>,
@@ -113,7 +113,7 @@ export function createPulls(ctx: PullsContext): Pulls {
     } catch (err) {
       log.warn('pull: failed', {
         channel: args.destination?.id ?? null,
-        source: args.channelId,
+        source: args.conversationId,
         pullReason: args.reason,
         error: err,
       });
@@ -186,7 +186,7 @@ export function createPulls(ctx: PullsContext): Pulls {
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   async function pullChannels({
     channel,
-    guildId,
+    placeId,
     snapshot = null,
     partner = null,
     history,
@@ -207,7 +207,7 @@ export function createPulls(ctx: PullsContext): Pulls {
     let judging = 'mention';
     const judge = (id: string): string | null => {
       try {
-        return checkPull({ snapshot, channelId: id, destination: channel, partnerId: partner?.id ?? null, config, now })
+        return checkPull({ snapshot, placeId: id, destination: channel, partnerId: partner?.id ?? null, config, now })
           .skip;
       } catch (err) {
         log.warn('pull: failed', { channel: channel.id, source: id, pullReason: judging, error: err });
@@ -258,21 +258,21 @@ export function createPulls(ctx: PullsContext): Pulls {
     const pings = (store.state.data.elsewherePings ?? []) as FetchArgs['pings'];
     // The route hook's channels asked for the page before their last view here.
     const earlierIds = new Set<string>();
-    const pageOf = (channelId: string): { direction?: 'earlier'; beforeId?: string | null } => {
-      if (!earlierIds.has(channelId)) return {};
-      const previous = pullViews.previous(channel.id, channelId, { now, ttlMinutes: settings.seenTtlMinutes });
+    const pageOf = (conversationId: string): { direction?: 'earlier'; beforeId?: string | null } => {
+      if (!earlierIds.has(conversationId)) return {};
+      const previous = pullViews.previous(channel.id, conversationId, { now, ttlMinutes: settings.seenTtlMinutes });
       return { direction: 'earlier', beforeId: previous?.oldestId ?? null };
     };
     const pullOne = (target: PullTarget): ReturnType<typeof pullSafely> =>
       pullSafely({
         snapshot,
-        guildId,
-        channelId: target.channelId,
+        placeId,
+        conversationId: target.placeId,
         destination: channel,
         partnerId: partner?.id ?? null,
         reason: target.reason,
         trigger: target.reason === 'routed' ? trigger : null,
-        ...pageOf(target.channelId),
+        ...pageOf(target.placeId),
         pings,
         config,
         now,
@@ -282,7 +282,7 @@ export function createPulls(ctx: PullsContext): Pulls {
 
     let targets = targetsWith([]);
     let picked = false;
-    const sourceTarget = source ? (targets.find((target) => target.channelId === source.channelId) ?? null) : null;
+    const sourceTarget = source ? (targets.find((target) => target.placeId === source.placeId) ?? null) : null;
     let sourcePulled: PulledChannel | null = null;
     if (sourceTarget) {
       const result = await pullOne(sourceTarget);
@@ -295,7 +295,7 @@ export function createPulls(ctx: PullsContext): Pulls {
     if (typeof routeChannels === 'function' && channelPull && targets.length < settings.maxChannels) {
       const routedLines = source?.reason === 'routed' ? sourcePulled?.messages : null;
       const picks = await routeIds({
-        guildId,
+        placeId,
         channel,
         snapshot,
         partner,
@@ -307,7 +307,7 @@ export function createPulls(ctx: PullsContext): Pulls {
       });
       judging = 'route';
       for (const pick of picks)
-        if (pick.direction === 'earlier' && pick.id !== sourceTarget?.channelId) earlierIds.add(pick.id);
+        if (pick.direction === 'earlier' && pick.id !== sourceTarget?.placeId) earlierIds.add(pick.id);
       if (picks.length > 0) {
         targets = targetsWith(picks.map((pick) => pick.id));
         picked = true;
@@ -318,14 +318,14 @@ export function createPulls(ctx: PullsContext): Pulls {
       judging = 'kept';
       targets = targetsWith([], { kept: keptIds });
     }
-    const rest = targets.filter((target) => target.channelId !== sourceTarget?.channelId);
+    const rest = targets.filter((target) => target.placeId !== sourceTarget?.placeId);
     const fetched = await Promise.all(rest.map(pullOne));
     logRefused();
     const got = rest.filter((target, i) => fetched[i].pulled);
     noteKeptPull(channel.id, trigger, now, settings, {
-      fresh: got.filter((target) => target.reason !== 'kept').map((target) => target.channelId),
+      fresh: got.filter((target) => target.reason !== 'kept').map((target) => target.placeId),
       keptWanted: keptIds.length > 0,
-      keptUsed: got.filter((target) => target.reason === 'kept').map((target) => target.channelId),
+      keptUsed: got.filter((target) => target.reason === 'kept').map((target) => target.placeId),
     });
     return {
       pulled: [sourcePulled, ...fetched.map((result) => result.pulled)].filter((entry): entry is PulledChannel =>
@@ -360,7 +360,7 @@ export function createPulls(ctx: PullsContext): Pulls {
       keptPulls.delete(destinationId);
       return [];
     }
-    return entry.channelIds;
+    return entry.placeIds;
   }
 
   /**
@@ -377,7 +377,7 @@ export function createPulls(ctx: PullsContext): Pulls {
   ): void {
     if (!trigger || settings.keepTurns <= 0) return;
     if (fresh.length > 0) {
-      keptPulls.set(destinationId, { channelIds: fresh, at: now, turns: 0, authorId: trigger.authorId ?? null });
+      keptPulls.set(destinationId, { placeIds: fresh, at: now, turns: 0, authorId: trigger.authorId ?? null });
       return;
     }
     const entry = keptPulls.get(destinationId);
@@ -403,13 +403,13 @@ export function createPulls(ctx: PullsContext): Pulls {
    */
   function captionAll(
     pulled: Array<PulledChannel>,
-    { guildId, config, destination }: { guildId: string | null; config: PullsConfig; destination: { id: string } }
+    { placeId, config, destination }: { placeId: string | null; config: PullsConfig; destination: { id: string } }
   ): Promise<Array<PulledChannel>> {
     if (pulled.length === 0 || !describer) return Promise.resolve(pulled);
     return Promise.all(
       pulled.map((entry) =>
-        captionPulled(entry, { describer, guildId, config, destination }).catch((err: unknown) => {
-          log.warn('pull: captions failed', { channel: destination.id, source: entry.channelId, error: err });
+        captionPulled(entry, { describer, placeId, config, destination }).catch((err: unknown) => {
+          log.warn('pull: captions failed', { channel: destination.id, source: entry.placeId, error: err });
           return entry;
         })
       )
@@ -425,7 +425,7 @@ export function createPulls(ctx: PullsContext): Pulls {
   function withSeenBefore(pulled: Array<PulledChannel>, destinationId: string, at: number): Array<PulledChannel> {
     const { seenTtlMinutes } = pullSettings(hot.config);
     return pulled.map((entry) => {
-      const seenBefore = pullViews.previous(destinationId, entry.channelId, { now: at, ttlMinutes: seenTtlMinutes });
+      const seenBefore = pullViews.previous(destinationId, entry.placeId, { now: at, ttlMinutes: seenTtlMinutes });
       return seenBefore ? { ...entry, seenBefore } : entry;
     });
   }
@@ -436,10 +436,10 @@ export function createPulls(ctx: PullsContext): Pulls {
    * `elsewhereSeen` (src/behavior/elsewhere.ts#markSeen: never backwards). The
    * caller marks the state dirty.
    */
-  function markPulledSeen(shown: ReadonlyArray<{ channelId: string; newestTs: number }>): void {
+  function markPulledSeen(shown: ReadonlyArray<{ placeId: string; newestTs: number }>): void {
     if (shown.length === 0) return;
     let seen = store.state.data.elsewhereSeen;
-    for (const { channelId, newestTs } of shown) seen = markSeen(seen, channelId, newestTs);
+    for (const { placeId, newestTs } of shown) seen = markSeen(seen, placeId, newestTs);
     store.state.data.elsewhereSeen = seen;
   }
 
@@ -464,14 +464,14 @@ export function createPulls(ctx: PullsContext): Pulls {
   ): void {
     spokeSaw.set(channel.id, new Set(history.map((m) => m.id).filter((id) => !deferred.has(id))));
     const readOnly = readOnlyIdsOf(pulled);
-    for (const { channelId, ids } of shown) {
-      if (readOnly.has(channelId)) spokeSaw.set(channelId, new Set(ids));
+    for (const { placeId, ids } of shown) {
+      if (readOnly.has(placeId)) spokeSaw.set(placeId, new Set(ids));
     }
   }
 
   /** The ids of the pulled channels (PulledChannel records) the bot cannot write in. */
   function readOnlyIdsOf(pulled: ReadonlyArray<PulledChannel>): Set<string> {
-    return new Set(pulled.filter((entry) => entry.readOnly === true).map((entry) => entry.channelId));
+    return new Set(pulled.filter((entry) => entry.readOnly === true).map((entry) => entry.placeId));
   }
 
   /**
@@ -503,7 +503,7 @@ export function createPulls(ctx: PullsContext): Pulls {
   }): void {
     const readOnly = readOnlyIdsOf(pulled);
     const stamps = shown
-      .filter(({ channelId }) => readOnly.has(channelId))
+      .filter(({ placeId }) => readOnly.has(placeId))
       .flatMap(({ ids }) =>
         ids
           .filter((id) => id !== exceptId)
@@ -515,8 +515,8 @@ export function createPulls(ctx: PullsContext): Pulls {
     if (marked.length === 0) return;
     data.elsewherePings = ring;
     store.state.markDirty();
-    for (const { messageId, channelId, status } of marked)
-      log.info('elsewhere: marked', { source: channelId, message: messageId, status });
+    for (const { messageId, placeId, status } of marked)
+      log.info('elsewhere: marked', { source: placeId, message: messageId, status });
   }
 
   return { pullChannels, captionAll, withSeenBefore, markPulledSeen, noteSpokeSaw, stampShownCalls };

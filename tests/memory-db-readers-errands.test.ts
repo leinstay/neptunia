@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createErrandStores } from '../src/errands/store.ts';
-import { GUILD, GUILD_2, readerEnv } from './fixtures/memory-db/readers.ts';
+import { GUILD, readerEnv } from './fixtures/memory-db/readers.ts';
 
 const NOW = 1792000600000;
 
@@ -27,11 +27,9 @@ test('tasks db reader: the list and the spend records come from the database', a
       config: config(env.root),
       now: () => NOW,
     });
-    for (const [guildId, id] of [
-      [GUILD, 't1'],
-      [GUILD_2, 't1.g2'],
-    ]) {
-      const store = stores.get(guildId)!;
+    // Tasks are the persona's: one store, whichever place asks.
+    for (const [placeId, id] of [[GUILD, 't1']]) {
+      const store = stores.get()!;
       assert.deepEqual(
         {
           open: ids(store.open()),
@@ -41,13 +39,13 @@ test('tasks db reader: the list and the spend records come from the database', a
           costs: store.costs(),
         },
         { open: [], recent: [id], unseen: [], unread: [], costs: {} },
-        guildId
+        placeId
       );
       assert.equal(store.get('nope') ?? null, null);
     }
     // The fixture's record has no agent, goal, error or result. The board keeps those in its columns (role, title,
     // close_reason, the handoff), so the rebuilt errand carries them empty. Every errand the store adds has all four.
-    assert.deepEqual(stores.get(GUILD)!.get('t1'), {
+    assert.deepEqual(stores.get()!.get('t1'), {
       id: 't1',
       agent: '',
       goal: '',
@@ -78,7 +76,7 @@ test('tasks db reader: a closed database fails the load with a code, logged; the
     const memoryDb = { readHandle: () => (open ? env.handle : null), database: () => (open ? env.handle.db : null) };
     const stores = createErrandStores({ log: env.log, memoryDb, config: config(env.root), now: () => NOW });
     assert.throws(
-      () => stores.get(GUILD),
+      () => stores.get(),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     assert.deepEqual(
@@ -86,7 +84,7 @@ test('tasks db reader: a closed database fails the load with a code, logged; the
       [['memory db: read failed', 'tasks', 'DB_CLOSED']]
     );
     open = true;
-    assert.equal(stores.get(GUILD)!.get('t1')?.id, 't1');
+    assert.equal(stores.get()!.get('t1')?.id, 't1');
   } finally {
     env.done();
   }

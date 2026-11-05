@@ -52,7 +52,7 @@ export type Base = {
   frozen: <T>(key: string, signature: string, compute: () => T) => T;
   liveOn: boolean;
   liveSnapshot: AroundSnapshot | null;
-  voiceChannelNameOf: ((channelId: string) => string | null) | undefined;
+  voiceChannelNameOf: ((placeId: string) => string | null) | undefined;
   selfMemberId: string | null;
   handleById: Map<string, string> | null;
   directoryText: string;
@@ -115,7 +115,7 @@ export function requestHead(given: RequestInput): Base {
   // the gateway's voice states and presences, never in a private chat or a diary post.
   // The live glance as the turn hands it: checked to be an object with a snapshot below.
   const aroundInput = given.around as
-    { snapshot?: AroundSnapshot | null; channelNameOf?: (channelId: string) => string | null } | null | undefined;
+    { snapshot?: AroundSnapshot | null; channelNameOf?: (placeId: string) => string | null } | null | undefined;
   const liveOn =
     !privateChat &&
     mode !== 'diary' &&
@@ -137,7 +137,7 @@ export function requestHead(given: RequestInput): Base {
         }).map((occupant) => occupant.memberId)
       : [];
   const directory = handlesOn
-    ? // The served guild's stored profiles, as the store lists them.
+    ? // The served place's stored profiles, as the store lists them.
       directoryEntries((given.candidateProfiles ?? []) as Iterable<object>, { selfId: given.selfId ?? null })
     : [];
   // The interlocutor and the other people a profile is offered for are in view too, so every

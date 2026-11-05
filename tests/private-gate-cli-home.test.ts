@@ -2,6 +2,7 @@
 // (`dmCommunityOf`, src/pipeline/private-gate.ts) keeps reading those units, and with none stored it has no community.
 // Only his: another interface never falls back to a home community it does not serve. A real store over the memory
 // service, so the read goes under the DM's interface whatever interface is current when it is asked.
+import { accountOf } from '../src/memory/addresses.ts';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { currentIface, withIface } from '../src/memory/db/current-iface.ts';
@@ -36,14 +37,16 @@ function rigOf(): { store: ReturnType<typeof createStore>; gate: ReturnType<type
   const context = wrongly<Parameters<typeof createPrivateGate>[0]>({
     hot: { config: { private: { enabled: true } } },
     store,
-    getGuildId: () => HOME,
+    isServedCommunity: (id: unknown) => id === HOME,
     communitiesOf: (name: string) => (name === 'first' ? [HOME] : []),
   });
   return { store, gate: createPrivateGate(context) };
 }
 
 const keepPrivate = async (store: ReturnType<typeof createStore>, iface: string, member: string): Promise<void> => {
-  withIface(iface, () => store.applyPrivateOps(HOME, member, { details: { add: ['keeps a private note'] } }));
+  withIface(iface, () =>
+    store.applyPrivateOps(accountOf(store, member), { details: { add: ['keeps a private note'] } })
+  );
   store.flush();
   await store.flushSettled({});
 };
@@ -52,23 +55,14 @@ test('the owner chat with private units under the home community reads them', as
   // Bug: the DM moves to no community and the owner's private memory disappears from his own chat.
   const { store, gate } = rigOf();
   await keepPrivate(store, 'cli', 'owner');
-  const units = withIface('cli', () => store.getPrivate(HOME, 'owner')) as { details: Array<{ text: string }> };
+  const units = withIface('cli', () => store.getPrivate(accountOf(store, 'owner'))) as {
+    details: Array<{ text: string }>;
+  };
   assert.deepEqual(
     units.details.map((detail) => detail.text),
     ['keeps a private note']
   );
-  assert.equal(gate.dmCommunityOf('cli', 'owner'), HOME);
+  assert.equal('dmCommunityOf' in gate, false, 'a private chat is its own place: no community is looked for');
 });
 
-test('the owner chat with no private units under the home community has no community', () => {
-  // Bug: the fallback always answers the home community, so a fresh owner chat is kept under a community it never had.
-  const { gate } = rigOf();
-  assert.equal(gate.dmCommunityOf('cli', 'owner'), null);
-});
-
-test('another interface with units under a home community it does not serve has no community', async () => {
-  // Bug: the owner's fallback applies to everyone, so a DM borrows a community of another interface again.
-  const { store, gate } = rigOf();
-  await keepPrivate(store, 'other', 'owner');
-  assert.equal(gate.dmCommunityOf('other', 'owner'), null);
-});
+// Two more tests of `dmCommunityOf` stood here: the function is gone with the home community (owner, 2026-11-05).

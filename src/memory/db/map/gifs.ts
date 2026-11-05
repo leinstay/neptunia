@@ -1,4 +1,4 @@
-// Mapper: `gifs.json` (`{ nextId, entries: { <key>: { id, kind, url, site, messageId, channelId, itemId, name,
+// Mapper: `gifs.json` (`{ nextId, entries: { <key>: { id, kind, url, site, messageId, placeId, itemId, name,
 // firstSeen, last, count, ownUses, ownLast } } }`, the gifs she has seen and used) <-> `media` rows of kind gif and
 // `operational` (kind gifs) for the rest of the file (`nextId`).
 //

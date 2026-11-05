@@ -30,7 +30,7 @@ export function msg(id: string, ts: number, overrides: Record<string, unknown> =
     authorId: 'u1',
     authorName: 'Nick',
     content: 'text',
-    channelId: 'c1',
+    placeId: 'c1',
     channelName: 'general',
     ...overrides,
   };

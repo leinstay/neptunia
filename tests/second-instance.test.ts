@@ -40,8 +40,8 @@ type Instance = {
 type Stat = { size: number; mtimeMs: number };
 type Tree = Map<string, Stat>;
 
-const settings = (guildId: string) => ({
-  bot: { timezone: 'UTC', owners: [], guildId },
+const settings = (placeId: string) => ({
+  bot: { timezone: 'UTC', owners: [], placeId },
   // No video role, so the start sends no canary probe to YouTube.
   models: { base: { video: false } },
   pace: { settleMs: 0, settleMaxMs: 0 },

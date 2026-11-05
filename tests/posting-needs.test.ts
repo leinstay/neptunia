@@ -41,10 +41,11 @@ for (const need of Object.keys(REQUIRES) as Array<Need>) {
       fake.seedConversation(channel('c2', { permissions }));
       const allowed = await postingConversation({
         reads,
+        store: null,
         iface: IFACE,
-        guildId: COMMUNITY,
-        channelId: 'c2',
-        context: { channelId: 'c1' },
+        placeId: COMMUNITY,
+        conversationId: 'c2',
+        context: {},
         need,
       })
         .then(() => true)
@@ -65,10 +66,11 @@ test('returns the id of the conversation it runs in without asking the interface
   const { reads, asked } = rig();
   const id = await postingConversation({
     reads,
+    store: null,
     iface: IFACE,
-    guildId: COMMUNITY,
-    channelId: null,
-    context: { channelId: 'c1' },
+    placeId: COMMUNITY,
+    conversationId: null,
+    context: { conversationId: 'c1' },
     need: 'attach',
   });
   assert.equal(id, 'c1');
@@ -81,10 +83,11 @@ test('refuses a conversation of another community even with every permission', a
   await assert.rejects(
     postingConversation({
       reads,
+      store: null,
       iface: IFACE,
-      guildId: COMMUNITY,
-      channelId: 'c2',
-      context: { channelId: 'c1' },
+      placeId: COMMUNITY,
+      conversationId: 'c2',
+      context: {},
       need: 'send',
     }),
     { status: 'denied', code: 'channel-no-permission' }
@@ -97,10 +100,11 @@ test('refuses a private chat even with every permission', async () => {
   await assert.rejects(
     postingConversation({
       reads,
+      store: null,
       iface: IFACE,
-      guildId: COMMUNITY,
-      channelId: 'dm2',
-      context: { channelId: 'c1' },
+      placeId: COMMUNITY,
+      conversationId: 'dm2',
+      context: {},
       need: 'send',
     }),
     { status: 'denied', code: 'channel-no-permission' }
@@ -112,10 +116,11 @@ test('refuses a conversation the interface does not know', async () => {
   await assert.rejects(
     postingConversation({
       reads,
+      store: null,
       iface: IFACE,
-      guildId: COMMUNITY,
-      channelId: 'gone',
-      context: { channelId: 'c1' },
+      placeId: COMMUNITY,
+      conversationId: 'gone',
+      context: {},
       need: 'send',
     }),
     { status: 'denied', code: 'channel-no-permission' }
@@ -127,10 +132,11 @@ test('refuses another conversation when the interface cannot describe conversati
   await assert.rejects(
     postingConversation({
       reads,
+      store: null,
       iface: IFACE,
-      guildId: COMMUNITY,
-      channelId: 'c2',
-      context: { channelId: 'c1' },
+      placeId: COMMUNITY,
+      conversationId: 'c2',
+      context: {},
       need: 'send',
     }),
     { status: 'denied', code: 'channel-no-permission' }
@@ -142,9 +148,10 @@ test('refuses a call with neither a target nor a current conversation', async ()
   await assert.rejects(
     postingConversation({
       reads,
+      store: null,
       iface: IFACE,
-      guildId: COMMUNITY,
-      channelId: undefined,
+      placeId: COMMUNITY,
+      conversationId: undefined,
       context: {},
       need: 'send',
     }),

@@ -3,6 +3,7 @@
 // most recently active, and the note on tags that went nowhere. src/behavior/turn.ts calls them while it renders a
 // post and builds a request; the replay sandbox (src/behavior/sandbox.ts) reads pickOtherProfiles through its re-export.
 
+import { accountOf } from '../memory/addresses.ts';
 import { untaggedNames } from '../behavior/handles.ts';
 import { fill } from '../format.ts';
 import { outsideUrls } from '../memory/mentions.ts';
@@ -27,7 +28,7 @@ type MentionLine = { self?: boolean; bot?: boolean; authorName?: string | null; 
  * two stored profiles sharing a name the first handed over wins. Longer names are matched
  * first, so a multi-word name is never cut at a shorter one it starts with. A URL in the text
  * is left exactly as written (src/memory/mentions.ts#outsideUrls).
- * What is left falls back to `directory` (mentionDirectory: every member of the served guild
+ * What is left falls back to `directory` (mentionDirectory: every member of the served place
  * the bot knows): matched case-insensitively, longest first, only as a whole name (no letter,
  * digit or underscore right after it); a name one of the request's own sources gives in any
  * case keeps that member, any other resolves only when exactly one member carries it, and a
@@ -228,8 +229,8 @@ const OTHER_PROFILES = 6;
  * Also used by the replay sandbox (src/behavior/sandbox.ts) with a store-shaped reader.
  */
 export function pickOtherProfiles<TProfile>(
-  store: { getUser: (guildId: string, userId: string | undefined) => TProfile | null | undefined },
-  guildId: string,
+  store: { getUser: (accountId: string | undefined) => TProfile | null | undefined },
+  placeId: string,
   history: ReadonlyArray<{ self?: boolean; bot?: boolean; authorId?: string }>,
   exceptId: string | undefined,
   count: number = OTHER_PROFILES
@@ -239,7 +240,7 @@ export function pickOtherProfiles<TProfile>(
   for (const message of [...history].reverse()) {
     if (message.self || message.bot || message.authorId === exceptId || seen.has(message.authorId)) continue;
     seen.add(message.authorId);
-    const profile = store.getUser(guildId, message.authorId);
+    const profile = store.getUser(accountOf(store, String(message.authorId)));
     if (profile) profiles.push(profile);
     if (profiles.length >= count) break;
   }

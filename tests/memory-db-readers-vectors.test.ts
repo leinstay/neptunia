@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createVectors } from '../src/memory/vectors.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { GUILD, GUILD_2, MEMBER, readerEnv } from './fixtures/memory-db/readers.ts';
+import { GUILD, placeOfGuild, readAt, GUILD_2, MEMBER, readerEnv } from './fixtures/memory-db/readers.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 
 const QUERIES = [
@@ -129,9 +129,16 @@ test('vectors db reader: search answers every layer, month, range and filter fro
     const vectors = createVectors({ dataDir: env.data, log: env.log, memoryDb: env.memoryDb });
     for (const [q, query] of QUERIES.entries()) {
       for (const [o, option] of OPTIONS.entries()) {
-        sameHits(await vectors.search(GUILD, query, option), EXPECTED[q][o], `query ${q} option ${o}`);
+        const { placeId, rest } = readAt(GUILD, option as { privateUserId?: string });
+        sameHits(await vectors.search(placeId, query, rest), EXPECTED[q][o], `query ${q} option ${o}`);
         // The second guild's only month is the fixture's hand-made one, whose files fail their checksum.
-        assert.deepEqual(await vectors.search(GUILD_2, query, option), [], `guild 2 query ${q} option ${o}`);
+        // A DM place has no guild: the private option ran above.
+        if ('privateUserId' in option) continue;
+        assert.deepEqual(
+          await vectors.search(placeOfGuild(GUILD_2), query, option),
+          [],
+          `guild 2 query ${q} option ${o}`
+        );
       }
     }
     // A month whose rows fail their checksum (the fixture's hand-made month) is skipped, and logged.
@@ -150,31 +157,27 @@ test('vectors db reader: has and stats for every layer and month', async () => {
       [
         GUILD,
         null,
-        { months: 2, rows: 5, bytes: 1420 },
+        { months: 2, rows: 5, bytes: 1410 },
         { '2026-09': keys(R(21), R(22), R(23)), '2026-10': keys(R('01'), R('02')), '2026-11': [] },
       ],
       [
         GUILD,
         MEMBER,
-        { months: 1, rows: 1, bytes: 296 },
+        { months: 1, rows: 1, bytes: 294 },
         { '2026-09': [], '2026-10': keys('400000000000000005'), '2026-11': [] },
       ],
       [
         GUILD_2,
         null,
-        { months: 1, rows: 2, bytes: 532 },
+        { months: 1, rows: 2, bytes: 528 },
         { '2026-09': [], '2026-10': keys('410000000000000001', '410000000000000002'), '2026-11': [] },
       ],
-      [GUILD_2, MEMBER, { months: 0, rows: 0, bytes: 0 }, { '2026-09': [], '2026-10': [], '2026-11': [] }],
     ];
-    for (const [guildId, privateUserId, stats, months] of expected) {
-      assert.deepEqual(await vectors.stats(guildId, { privateUserId }), stats, `${guildId} ${privateUserId}`);
+    for (const [placeId, privateUserId, stats, months] of expected) {
+      const holder = readAt(placeId, { privateUserId }).placeId;
+      assert.deepEqual(await vectors.stats(holder), stats, `${placeId} ${privateUserId}`);
       for (const [month, held] of Object.entries(months)) {
-        assert.deepEqual(
-          [...(await vectors.has(guildId, month, { privateUserId }))].sort(),
-          held,
-          `${guildId} ${privateUserId} ${month}`
-        );
+        assert.deepEqual([...(await vectors.has(holder, month))].sort(), held, `${placeId} ${privateUserId} ${month}`);
       }
     }
   } finally {
@@ -199,16 +202,16 @@ test('vectors db reader: an evicted vector is left out of the month, which is st
     const vectors = createVectors({ dataDir: env.data, log: env.log, memoryDb: env.memoryDb });
     for (const [q, query] of QUERIES.entries()) {
       sameHits(
-        await vectors.search(GUILD, query, { k: 10, months: ['2026-09'] }),
+        await vectors.search(placeOfGuild(GUILD), query, { k: 10, months: ['2026-09'] }),
         EXPECTED[q][2].filter(([id]) => id !== R(22)),
         `query ${q}`
       );
     }
-    assert.deepEqual([...(await vectors.has(GUILD, '2026-09'))].sort(), [
+    assert.deepEqual([...(await vectors.has(placeOfGuild(GUILD), '2026-09'))].sort(), [
       'record:400000000000000021:1',
       'record:400000000000000023:1',
     ]);
-    assert.equal((await vectors.stats(GUILD)).rows, 4);
+    assert.equal((await vectors.stats(placeOfGuild(GUILD))).rows, 4);
     assert.deepEqual(
       env.warns.filter((warn) => warn.message !== 'vectors: checksum mismatch'),
       []
@@ -223,15 +226,15 @@ test('vectors db reader: a closed database is an error with a code, logged', asy
   try {
     const closed = createVectors({ dataDir: env.data, log: env.log, memoryDb: env.closedDb });
     await assert.rejects(
-      () => closed.search(GUILD, QUERIES[0], { k: 5 }),
+      () => closed.search(placeOfGuild(GUILD), QUERIES[0], { k: 5 }),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     await assert.rejects(
-      () => closed.has(GUILD, '2026-09'),
+      () => closed.has(placeOfGuild(GUILD), '2026-09'),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     await assert.rejects(
-      () => closed.stats(GUILD),
+      () => closed.stats(placeOfGuild(GUILD)),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     assert.deepEqual(

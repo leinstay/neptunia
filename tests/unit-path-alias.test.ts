@@ -1,4 +1,4 @@
-// `currentUnitPath` (src/memory/db/paths.ts) is the one alias table for unit paths: the names an errand unit had
+// `currentUnitPath` (src/memory/migration/paths.ts) is the one alias table for unit paths: the names an errand unit had
 // (`guilds/<g>/tasks.json`, `tasks.jsonl`) map to the current ones (`errands.json`, `errands.jsonl`), directly under a
 // guild and nowhere else. The unit writer reads an owner through it, so a write that a shutdown kept in
 // `memory-pending/` under the old name is known as an errand unit when the next start replays it: past board v3 the
@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { currentUnitPath } from '../src/memory/db/paths.ts';
+import { currentUnitPath } from '../src/memory/migration/paths.ts';
 import { dbOf } from './fixtures/memory-db/v13-errands.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 

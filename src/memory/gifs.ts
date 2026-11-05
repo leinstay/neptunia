@@ -1,7 +1,7 @@
 // The GIF library the persona builds from the chat: every GIF a member posts
 // (a GIF embed -- a `gifv` one of any site, or a tenor/giphy/klipy page, see
 // src/media/classify.ts#classifyEmbed -- or an attached .gif) is counted deterministically (no
-// LLM) into data/guilds/<id>/gifs.json, and the persona can post one back by
+// LLM) into data/places/<id>/gifs.json, and the persona can post one back by
 // its short handle (`<gif>g12</gif>`, see src/llm/parse.ts and
 // src/behavior/turn.js). An entry is keyed by the describer's item id of the
 // GIF, so its caption is found in the media cache under the same id; its
@@ -15,8 +15,8 @@
 // reset, so the `<gifs>` list can show it which ones it posted lately.
 //
 // Shape: `{ nextId, entries: { [key]: { id, kind: 'link'|'attachment', url,
-// site?, name?, itemId, messageId, channelId, count, last, firstSeen,
-// ownLast?, ownUses? } }, backfill }`. `messageId`/`channelId` point at the latest message carrying
+// site?, name?, itemId, messageId, placeId, count, last, firstSeen,
+// ownLast?, ownUses? } }, backfill }`. `messageId`/`placeId` point at the latest message carrying
 // the GIF, so the poster can re-fetch an attachment's fresh URL (an
 // attachment's address may expire).
 
@@ -48,7 +48,7 @@ function str(value: Untyped) {
 
 /**
  * A stored history-backfill stamp made safe to read -- the GIF library's `backfill` and the
- * guild's `emojiBackfill` (src/memory/store.ts) alike: `{ at, channels, messages }` with `at` a
+ * place's `emojiBackfill` (src/memory/store.ts) alike: `{ at, channels, messages }` with `at` a
  * non-empty string and the counts non-negative integers (floored, a bad one becomes 0); anything
  * without a string `at` becomes null (never backfilled).
  */
@@ -72,7 +72,7 @@ export type GifEntry = {
   name?: string;
   itemId: string;
   messageId: string;
-  channelId: string;
+  placeId: string;
   count: number;
   last: number;
   firstSeen: number;
@@ -114,7 +114,7 @@ export function normalizeGifs(value: unknown): {
       ...(typeof entry.name === 'string' && entry.name ? { name: entry.name } : {}),
       itemId: typeof entry.itemId === 'string' && entry.itemId ? entry.itemId : key,
       messageId: str(entry.messageId),
-      channelId: str(entry.channelId),
+      placeId: str(entry.placeId),
       count,
       last,
       firstSeen: isFiniteNumber(entry.firstSeen) ? entry.firstSeen : last,
@@ -157,11 +157,11 @@ export function collectGifItems(message: StoredRecord): Array<{
   name?: string;
   itemId: string;
   messageId: string;
-  channelId: string;
+  placeId: string;
 }> {
   if (!message) return [];
   const messageId = str(message.id);
-  const channelId = str(message.channelId);
+  const placeId = str(message.placeId);
   const items: ReturnType<typeof collectGifItems> = [];
   const parts: Array<Untyped> = mediaParts(message);
   for (const part of parts) {
@@ -177,7 +177,7 @@ export function collectGifItems(message: StoredRecord): Array<{
         ...(attachment.name ? { name: String(attachment.name) } : {}),
         itemId: key,
         messageId,
-        channelId,
+        placeId,
       });
     }
     for (const link of Array.isArray(part.links) ? part.links : []) {
@@ -193,7 +193,7 @@ export function collectGifItems(message: StoredRecord): Array<{
         ...(link.title ? { name: String(link.title) } : {}),
         itemId: key,
         messageId,
-        channelId,
+        placeId,
       });
     }
   }
@@ -344,7 +344,7 @@ export function gifHandleOf(
  * first entry, whose key a caption may already be cached under, keeps
  * counting). A new GIF gets the next handle; a known one -- a reset entry at
  * count 0 included (see resetGifCounts) -- keeps its handle. The latest use
- * moves `last`, `messageId`, `channelId` and `url`. Past `storeMax` entries
+ * moves `last`, `messageId`, `placeId` and `url`. Past `storeMax` entries
  * the lowest-ranked (rankGifs: count-0 entries first) are evicted (`storeMax`
  * not a non-negative integer -> no cap); an evicted handle is never reused.
  * Never mutates `gifs`.
@@ -380,7 +380,7 @@ export function mergeGifs(
       const entry = before
         ? {
             ...before,
-            ...(newer ? { url: item.url, messageId: item.messageId, channelId: item.channelId } : {}),
+            ...(newer ? { url: item.url, messageId: item.messageId, placeId: item.placeId } : {}),
             count: before.count + 1,
             last: newer ? ts : before.last,
             firstSeen: Math.min(before.firstSeen, ts),

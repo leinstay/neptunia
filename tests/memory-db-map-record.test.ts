@@ -19,7 +19,7 @@ const seen = () => ({
   revision: 1,
   occurredAt: '2026-10-20T10:00:00.000Z',
   recordedAt: '2026-10-20T10:00:01.000Z',
-  guildId: GUILD,
+  placeId: GUILD,
   scope: { channel: CHANNEL },
   by: '100000000000000001',
   replyTo: null,
@@ -64,7 +64,7 @@ test('extra holds only the fields no column names', () => {
   assert.deepEqual(
     Object.keys(extra).sort(),
     // Versioned locator metadata is internal to the stored source and removed by the inverse mapper.
-    ['guildId', 'id', 'links', 'participants', 'sourceMessageIds', 'v', '$null', '$messageLocator'].sort()
+    ['placeId', 'id', 'links', 'participants', 'sourceMessageIds', 'v', '$null', '$messageLocator'].sort()
   );
   assert.deepEqual(extra.$null, ['replyTo']);
 });
@@ -111,7 +111,7 @@ test('a deleted line has no revision, text or author and still round trips', () 
     messageId: '400000000000000002',
     occurredAt: '2026-10-20T11:00:00.000Z',
     recordedAt: '2026-10-20T11:00:00.000Z',
-    guildId: GUILD,
+    placeId: GUILD,
     scope: { channel: CHANNEL },
     participants: [],
     sourceMessageIds: ['400000000000000002'],
@@ -130,7 +130,7 @@ test('a felt line has its own id, no message, and a user scope', () => {
     kind: 'felt',
     occurredAt: '2026-10-20T12:00:00.000Z',
     recordedAt: '2026-10-20T12:00:00.000Z',
-    guildId: GUILD,
+    placeId: GUILD,
     scope: { user: '100000000000000001' },
     participants: ['100000000000000001'],
     sourceMessageIds: [],

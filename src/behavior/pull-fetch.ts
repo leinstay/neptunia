@@ -28,9 +28,9 @@ type Config = Record<string, unknown>;
 type Timers = { set(fn: () => void, ms: number): unknown; clear(timer: unknown): void };
 
 type Describer = {
-  cachedDescriptions?(guildId: string | null, items: ReadonlyArray<object>): Map<string, string> | null | undefined;
+  cachedDescriptions?(placeId: string | null, items: ReadonlyArray<object>): Map<string, string> | null | undefined;
   describeMany?(
-    guildId: string | null,
+    placeId: string | null,
     items: ReadonlyArray<object>,
     options: { maxNew: number }
   ): Promise<{ descriptions?: Map<string, string> } | null | undefined>;
@@ -52,7 +52,7 @@ type PingState = 'answered' | 'skipped' | 'unanswered';
  * seen marks); no platform object is inside it.
  */
 export type PulledChannel = {
-  channelId: string;
+  placeId: string;
   channelName: string | null;
   /** The persona cannot send there. */
   readOnly: boolean;
@@ -90,7 +90,7 @@ export function createPullViews(): {
   remember(
     destinationId: string,
     views: ReadonlyArray<{
-      channelId: string;
+      placeId: string;
       hashes: Map<string, string>;
       oldestTs: number;
       oldestId?: string | number | null;
@@ -110,10 +110,10 @@ export function createPullViews(): {
     },
     remember(destinationId, shown, now) {
       for (const view of shown) {
-        if (!view.channelId || !(view.hashes instanceof Map)) continue;
+        if (!view.placeId || !(view.hashes instanceof Map)) continue;
         const oldestId =
           view.oldestId === null || view.oldestId === undefined || view.oldestId === '' ? null : String(view.oldestId);
-        views.set(`${destinationId}:${view.channelId}`, {
+        views.set(`${destinationId}:${view.placeId}`, {
           hashes: view.hashes,
           oldestTs: view.oldestTs,
           oldestId,
@@ -151,21 +151,21 @@ function readableRefusal(entry: ConversationInfo): string | null {
  */
 export function checkPull({
   snapshot,
-  channelId,
+  placeId,
   destination = null,
   partnerId = null,
   config,
   now = Date.now(),
 }: {
   snapshot: Snapshot | null;
-  channelId: string;
+  placeId: string;
   destination?: ConversationInfo | null;
   partnerId?: string | null;
   config: Config;
   now?: number;
 }): { channel: ConversationInfo | null; skip: string | null } {
   if (destination && destination.communityId === null && partnerId === null) return refused('private-chat');
-  const entry = typeof channelId === 'string' && channelId ? (snapshot?.get(channelId) ?? null) : null;
+  const entry = typeof placeId === 'string' && placeId ? (snapshot?.get(placeId) ?? null) : null;
   if (entry === null) return refused('not-found');
   const unreadable = readableRefusal(entry);
   if (unreadable) return refused(unreadable);
@@ -241,15 +241,15 @@ async function messageById(
   return event === undefined ? null : (lineOf(event) as Line);
 }
 
-/** Whether `trigger` is a line of conversation `channelId` with an id and a time. */
+/** Whether `trigger` is a line of conversation `placeId` with an id and a time. */
 function isTriggerOf(
-  trigger: { id?: unknown; channelId?: unknown; ts?: unknown } | null,
-  channelId: string
-): trigger is { id: string; channelId: string; ts: number } {
+  trigger: { id?: unknown; placeId?: unknown; ts?: unknown } | null,
+  placeId: string
+): trigger is { id: string; placeId: string; ts: number } {
   return (
     typeof trigger?.id === 'string' &&
     trigger.id !== '' &&
-    trigger.channelId === channelId &&
+    trigger.placeId === placeId &&
     typeof trigger.ts === 'number' &&
     Number.isFinite(trigger.ts)
   );
@@ -263,14 +263,14 @@ function isTriggerOf(
  */
 async function freshCaptions({
   describer,
-  guildId,
+  placeId,
   items,
   timeoutMs,
   timers,
   logIds,
 }: {
   describer: Describer;
-  guildId: string | null;
+  placeId: string | null;
   items: ReadonlyArray<Item>;
   timeoutMs: number;
   timers: Timers;
@@ -282,7 +282,7 @@ async function freshCaptions({
   let settled = 0;
   const requests = items.map(async (item) => {
     try {
-      const result = await describer.describeMany?.(guildId, [item], { maxNew: 1 });
+      const result = await describer.describeMany?.(placeId, [item], { maxNew: 1 });
       const text = result?.descriptions?.get(item.itemId);
       if (open && typeof text === 'string' && text) got.set(item.itemId, text);
     } catch (err) {
@@ -324,7 +324,7 @@ async function pullCaptions(
   messages: ReadonlyArray<Line>,
   {
     describer,
-    guildId,
+    placeId,
     config,
     requestFresh,
     timers,
@@ -332,7 +332,7 @@ async function pullCaptions(
     logIds,
   }: {
     describer: Describer | null;
-    guildId: string | null;
+    placeId: string | null;
     config: Config;
     requestFresh: boolean;
     timers: Timers;
@@ -354,14 +354,14 @@ async function pullCaptions(
   if (describer) {
     const unknown = [...pictures, ...emoji].filter((item) => !descriptions.has(item.itemId));
     if (unknown.length > 0 && typeof describer.cachedDescriptions === 'function') {
-      for (const [id, text] of describer.cachedDescriptions(guildId, unknown) ?? []) descriptions.set(id, text);
+      for (const [id, text] of describer.cachedDescriptions(placeId, unknown) ?? []) descriptions.set(id, text);
     }
     if (requestFresh && typeof describer.describeMany === 'function') {
       const uncached = items.filter((item) => !descriptions.has(item.itemId)).slice(0, settings.maxNewDescriptions);
       asked = uncached.length;
       const result = await freshCaptions({
         describer,
-        guildId,
+        placeId,
         items: uncached,
         timeoutMs: settings.describeTimeoutMs,
         timers,
@@ -410,13 +410,13 @@ export async function captionPulled(
   pulled: PulledChannel,
   {
     describer = null,
-    guildId = null,
+    placeId = null,
     config,
     destination = null,
     timers = DEFAULT_TIMERS,
   }: {
     describer?: Describer | null;
-    guildId?: string | null;
+    placeId?: string | null;
     config: Config;
     destination?: { id: string } | null;
     timers?: Timers;
@@ -424,10 +424,10 @@ export async function captionPulled(
 ): Promise<PulledChannel> {
   if (!Array.isArray(pulled.messages)) return pulled;
   const started = Date.now();
-  const logIds: LogIds = { channel: destination?.id ?? null, source: pulled.channelId };
+  const logIds: LogIds = { channel: destination?.id ?? null, source: pulled.placeId };
   const captions = await pullCaptions(pulled.messages, {
     describer,
-    guildId,
+    placeId,
     config,
     requestFresh: true,
     timers,
@@ -465,7 +465,7 @@ function addRingCalls(shown: Shown, read: ReadonlyArray<Line | null>): number {
   return added;
 }
 
-type Ring = { messageId: string; channelId: string; ts: number; answeredAt?: number; skippedAt?: number };
+type Ring = { messageId: string; placeId: string; ts: number; answeredAt?: number; skippedAt?: number };
 
 type Opened = {
   page: Array<Line>;
@@ -538,7 +538,7 @@ async function gatherShown({
   reads: Reads;
   channel: ConversationInfo;
   opened: Opened;
-  trigger: { id?: unknown; channelId?: unknown; ts?: unknown } | null;
+  trigger: { id?: unknown; placeId?: unknown; ts?: unknown } | null;
   pings: ReadonlyArray<Ring>;
   config: Config;
   nowMs: number;
@@ -622,8 +622,8 @@ async function gatherShown({
 export async function fetchPull({
   reads,
   snapshot,
-  guildId = null,
-  channelId,
+  placeId = null,
+  conversationId,
   destination = null,
   partnerId = null,
   reason = null,
@@ -640,15 +640,15 @@ export async function fetchPull({
 }: {
   reads: Reads;
   snapshot: Snapshot | null;
-  guildId?: string | null;
-  channelId: string;
+  placeId?: string | null;
+  conversationId: string;
   destination?: ConversationInfo | null;
   partnerId?: string | null;
   reason?: PulledChannel['reason'];
   anchorId?: string | null;
   direction?: 'earlier' | null;
   beforeId?: string | null;
-  trigger?: { id?: unknown; channelId?: unknown; ts?: unknown } | null;
+  trigger?: { id?: unknown; placeId?: unknown; ts?: unknown } | null;
   pings?: ReadonlyArray<Ring>;
   config: Config;
   now?: number;
@@ -658,13 +658,16 @@ export async function fetchPull({
 }): Promise<{ pulled: PulledChannel | null; skip: string | null }> {
   const started = Date.now();
   const nowMs = Number.isFinite(now) ? now : Date.now();
-  const logIds: LogIds = { channel: destination?.id ?? null, source: typeof channelId === 'string' ? channelId : null };
+  const logIds: LogIds = {
+    channel: destination?.id ?? null,
+    source: typeof conversationId === 'string' ? conversationId : null,
+  };
   const skipWith = (skip: string): { pulled: null; skip: string } => {
     log.info('pull: skipped', { ...logIds, reason: skip, pullReason: reason });
     return { pulled: null, skip };
   };
 
-  const checked = checkPull({ snapshot, channelId, destination, partnerId, config, now: nowMs });
+  const checked = checkPull({ snapshot, placeId: conversationId, destination, partnerId, config, now: nowMs });
   if (checked.skip !== null || checked.channel === null) return skipWith(checked.skip ?? 'not-found');
   const channel = checked.channel;
 
@@ -684,7 +687,7 @@ export async function fetchPull({
   // Captions: the cache's for every picture and emoji, fresh ones only for a turn certain to run.
   const captions = await pullCaptions(shown.lines, {
     describer,
-    guildId,
+    placeId,
     config,
     requestFresh: turnCertain === true,
     timers,
@@ -692,7 +695,7 @@ export async function fetchPull({
   });
 
   const pulled: PulledChannel = {
-    channelId: channel.id,
+    placeId: channel.id,
     channelName: channel.name ?? null,
     readOnly: !channel.permissions.send,
     reason,

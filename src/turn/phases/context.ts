@@ -76,15 +76,16 @@ export type PhasePrompts = {
 /** The memory store (src/memory/store.ts), as far as the phases read it. */
 export type PhaseStore = Parameters<typeof recordEntry>[0]['store'] & {
   state: { data: { paused?: unknown; calibration?: unknown }; markDirty: () => void };
-  getUser: (guildId: string, userId: string | undefined) => { names?: Array<string> } | null | undefined;
-  getPrivate: (guildId: string, userId: string) => unknown;
-  getGuild: (guildId: string) => unknown;
-  listUserProfiles: (guildId: string) => unknown;
-  listChannels: (guildId: string) => unknown;
-  getLore: (guildId: string) => unknown;
-  getGifs?: (guildId: string) => unknown;
-  getMediaCache: (guildId: string) => unknown;
-  getParticipation: (guildId: string) => unknown;
+  getUser: (accountId: string | undefined) => { names?: Array<string> } | null | undefined;
+  getPrivate: (accountId: string) => unknown;
+  getPlace: (placeId: string) => unknown;
+  topPlaces?: (iface?: string) => Array<string>;
+  listUserProfiles: () => unknown;
+  listChannels: (placeId: string) => unknown;
+  getLore: (placeId: string) => unknown;
+  getGifs?: (placeId: string) => unknown;
+  getMediaCache: (placeId: string) => unknown;
+  getParticipation: (placeId: string) => unknown;
 };
 
 /** The language model client (src/llm/openrouter.ts#createLlm), as the reply request uses it. */
@@ -108,7 +109,7 @@ export type PhaseContext = {
     | (NonNullable<Parameters<typeof refreshEmojiIfOn>[0]> & { list: () => Array<unknown> | null | undefined })
     | null
     | undefined;
-  journal: { start: (guildId: string, fields: object) => { turnId: string; attemptId: string; startedAt: number } };
+  journal: { start: (placeId: string, fields: object) => { turnId: string; attemptId: string; startedAt: number } };
   record: { iterate?: unknown } | null;
   iface: unknown;
   ifaceReads: Reads;
@@ -119,7 +120,7 @@ export type PhaseContext = {
   memoryReads: ((args: Record<string, unknown>) => void) | null;
   busy: Set<string>;
   selfIdOf: () => string;
-  getSelfName: (guildId: string) => string;
+  getSelfName: (placeId: string) => string;
   // The channels known to be private chats (a deferred call names only its channel).
   privateChannels: Set<string>;
   pullViews: ReturnType<typeof createPullViews>;
@@ -132,7 +133,7 @@ export type PhaseContext = {
   track?: Track;
 } & Pick<
   Participation,
-  'participationOn' | 'participationAudience' | 'aroundInputFor' | 'liveChannelName' | 'recentInput'
+  'participationOn' | 'participationAudience' | 'aroundInputFor' | 'liveChannelName' | 'recentInput' | 'recentOfPlaces'
 > &
   Pick<
     Inputs,
@@ -153,21 +154,21 @@ export type PhaseContext = {
 /** The describer (src/memory/describe.ts#createDescriber), as the preparation of a turn uses it. */
 export type PhaseDescriber = {
   describeMany: (
-    guildId: string,
+    placeId: string,
     candidates: Array<object>,
     options: { maxNew: number }
   ) => Promise<{ descriptions?: Map<string, unknown> } | null | undefined>;
-  cachedDescriptions?: (guildId: string, candidates: Array<object>) => Map<string, unknown> | undefined;
+  cachedDescriptions?: (placeId: string, candidates: Array<object>) => Map<string, unknown> | undefined;
   describeVideos?: (
-    guildId: string,
+    placeId: string,
     candidates: Array<object>,
     options: { maxNew: number }
   ) => Promise<{ videos?: Map<string, VideoState> } | null | undefined>;
-  cachedVideos?: (guildId: string, candidates: Array<object>) => Promise<Map<string, VideoState> | undefined>;
+  cachedVideos?: (placeId: string, candidates: Array<object>) => Promise<Map<string, VideoState> | undefined>;
   rewatchVideo?: unknown;
   relookImage?: unknown;
   rewatchGif?: unknown;
-  watchedGifs?: (guildId: string, items: Array<{ itemId: string }>) => Map<string, unknown>;
+  watchedGifs?: (placeId: string, items: Array<{ itemId: string }>) => Map<string, unknown>;
 };
 
 /** The web lookup (src/web/lookup.ts#createLookup), as the preparation of a turn uses it. */
@@ -175,11 +176,11 @@ export type PhaseWebLookup = {
   search?: unknown;
   hasSearch?: () => boolean;
   readLinks?: (
-    guildId: string,
+    placeId: string,
     links: Array<{ id: string; url?: string }>,
     options: { maxNew: number }
   ) => Promise<unknown>;
-  cachedReads?: (guildId: string, links: Array<{ id: string; url?: string }>) => Map<string, unknown> | undefined;
+  cachedReads?: (placeId: string, links: Array<{ id: string; url?: string }>) => Map<string, unknown> | undefined;
 };
 
 /** The message a turn answers, as the interface delivered it. */
@@ -187,7 +188,7 @@ export type TurnTrigger = {
   id: string;
   authorId: string;
   authorName: string;
-  channelId?: string | null;
+  placeId?: string | null;
   content: string;
   ts: number;
   replyToId?: string | null;
@@ -199,13 +200,13 @@ export type TurnTrigger = {
 /** What a turn attempt was asked to do (runTurn's arguments, as runTurnOnce passes them on). */
 export type PhaseParams = {
   conversation: ConversationRef;
-  guildId?: string | null;
+  placeId?: string | null;
   mode: string;
   trigger?: TurnTrigger | null;
   triggerKind?: TriggerKind | null;
   chooseMode?: ((history: Array<object>, now: number, context: { pulled: Array<object> }) => string | null) | null;
   forced?: boolean;
-  source?: { channelId: string; reason: 'routed' | 'noticed' } | null;
+  source?: { placeId: string; reason: 'routed' | 'noticed' } | null;
   queued?: (() => unknown) | null;
   added?: ReadonlyArray<{ id?: string; text?: unknown } | null> | null;
   maySplit?: boolean;

@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createArchive } from '../src/memory/archive.ts';
-import { GUILD, GUILD_2, MEMBER, all, readerEnv } from './fixtures/memory-db/readers.ts';
+import { GUILD, placeOfGuild, readAt, GUILD_2, MEMBER, all, readerEnv } from './fixtures/memory-db/readers.ts';
 import { HOT_ITEM } from './fixtures/memory-db/datadir.ts';
 
 // The entries of the archive are untyped records; the tests read their ids.
@@ -30,12 +30,15 @@ test('archive db reader: iterate answers every guild, layer, range, kind and sco
       [GUILD]: [pair(''), pair(''), [], pair(''), [], pair(''), ['arp-1'], []],
       [GUILD_2]: [pair('.g2'), pair('.g2'), [], pair('.g2'), [], pair('.g2'), [], []],
     };
-    for (const guildId of [GUILD, GUILD_2]) {
+    for (const placeId of [GUILD, GUILD_2]) {
       for (const [index, query] of queries.entries()) {
+        // A DM place has no guild: the private queries run once, under the first guild.
+        if (placeId === GUILD_2 && 'privateUserId' in query) continue;
+        const { placeId: holder, rest } = readAt(placeId, query);
         assert.deepEqual(
-          (await all(archive.iterate(guildId, query))).map(idOf),
-          expected[guildId][index],
-          `${guildId} ${JSON.stringify(query)}`
+          (await all(archive.iterate(holder, rest))).map(idOf),
+          expected[placeId][index],
+          `${placeId} ${JSON.stringify(query)}`
         );
       }
     }
@@ -51,9 +54,10 @@ test('archive db reader: find gathers an item from the guild and the private arc
     // The reads under test answer from the database, so no append store is given.
     // @ts-expect-error appendStore is required of an archive that writes
     const archive = createArchive({ dataDir: env.data, log: env.log, memoryDb: env.memoryDb });
-    assert.deepEqual((await archive.find(GUILD, 'gone-item')).map(idOf), ['arp-1', 'ar-2']);
-    assert.deepEqual((await archive.find(GUILD, HOT_ITEM)).map(idOf), ['ar-1']);
-    assert.deepEqual(await archive.find(GUILD, 'no-such-item'), []);
+    // Every holder's archive: the DM place's, then each server's copy of the fixture.
+    assert.deepEqual((await archive.find('gone-item')).map(idOf), ['arp-1', 'ar-2', 'ar-2.g2']);
+    assert.deepEqual((await archive.find(HOT_ITEM)).map(idOf), ['ar-1']);
+    assert.deepEqual(await archive.find('no-such-item'), []);
   } finally {
     env.done();
   }
@@ -65,11 +69,11 @@ test('archive db reader: a closed database is an error with a code, logged', asy
     // @ts-expect-error no append store, as above
     const closed = createArchive({ dataDir: env.data, log: env.log, memoryDb: env.closedDb });
     await assert.rejects(
-      () => all(closed.iterate(GUILD)),
+      () => all(closed.iterate(placeOfGuild(GUILD))),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     await assert.rejects(
-      () => closed.find(GUILD, 'gone-item'),
+      () => closed.find('gone-item'),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     assert.deepEqual(

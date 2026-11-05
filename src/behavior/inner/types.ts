@@ -47,7 +47,7 @@ export type Wake = {
   intentionIds: Array<string>;
   chainId: string;
   dueAt: number;
-  channelId: string | null;
+  placeId: string | null;
   privateChat: boolean;
   /** `errand_deadline`: the errand she waits for. */
   errandId?: string;
@@ -90,7 +90,7 @@ export type Fact = FactPayload & {
   scopePlaceId?: string | null;
   conversation?: ConversationRef | null;
   id: string;
-  channelId: string | null;
+  placeId: string | null;
   privateChat: boolean;
   at: number;
   told: false | number;
@@ -101,7 +101,7 @@ export type FactInput = Obj & {
   scopePlaceId?: string | null;
   conversation?: ConversationRef | null;
   kind: string;
-  channelId?: unknown;
+  placeId?: unknown;
   privateChat?: unknown;
   at?: unknown;
 };
@@ -110,7 +110,7 @@ export type FactInput = Obj & {
 export type FactScope = {
   scopePlaceId?: string | null;
   conversation?: ConversationRef | null;
-  channelId?: unknown;
+  placeId?: unknown;
   privateChat?: boolean;
   anywhere?: boolean;
 };
@@ -118,9 +118,9 @@ export type FactScope = {
 /** The facts of the turns that are not inner turns, kept in the inner life's state (or in process). */
 export type FactsApi = {
   enabled: () => boolean;
-  add: (guildId: string | null | undefined, fact: FactInput) => Fact | null;
-  pending: (guildId: string | null | undefined, scope?: FactScope) => Array<Fact>;
-  markTold: (guildId: string | null | undefined, ids: unknown) => void;
+  add: (fact: FactInput) => Fact | null;
+  pending: (scope?: FactScope) => Array<Fact>;
+  markTold: (ids: unknown) => void;
 };
 
 /** What a handled wake leaves in the state: when, how it ended and, for an attend wake, its place. */
@@ -150,12 +150,12 @@ export type Inflight = {
   wakeIds: Array<string>;
   kind: string;
   startedAt: number;
-  channelId: string | null;
+  placeId: string | null;
   privateChat: boolean;
   privateUserId: string | null;
 };
 
-/** The state of one guild's inner life (`data/guilds/<id>/inner.json`). */
+/** The state of one place's inner life (`data/places/<id>/inner.json`). */
 export type InnerState = {
   v: number;
   stopped: boolean;
@@ -238,7 +238,7 @@ export type PlacesPage<TItem = PlaceRow> = {
 /** One line of a place in the index: its message id, time, author (none for hers) and whether it is hers. */
 export type PlaceLine = { id: string; at: number; by: string | null; said: boolean };
 
-/** The index of one guild's places: the lines per place over the lookback window and how far the record was read. */
+/** The index of one place's places: the lines per place over the lookback window and how far the record was read. */
 export type PlaceIndex = {
   scannedTo: number | null;
   places: Map<string, { lines: Array<PlaceLine>; ids: Set<string> }>;
@@ -246,9 +246,9 @@ export type PlaceIndex = {
 
 /** The record as the inner life reads it: its lines from a time on. */
 export type RecordSource = {
-  iterate?(guildId: string, query: { from: string }): AsyncIterable<unknown> | Iterable<unknown>;
+  iterate?(query: { from?: string }): AsyncIterable<unknown> | Iterable<unknown>;
   /** Her lines appended (src/memory/record.ts): a wake's held post becomes her `said` line once it is sent. */
-  append?(guildId: string, lines: ReadonlyArray<unknown>, options?: Obj): unknown;
+  append?(lines: ReadonlyArray<unknown>, options?: Obj): unknown;
 };
 
 /**
@@ -256,30 +256,25 @@ export type RecordSource = {
  * read as untrusted records, so a test's narrower fake of the service fits.
  */
 export type InnerIntentions = {
-  due?(guildId: string): ReadonlyArray<Due>;
-  reconcile?(guildId: string): unknown;
-  list?(guildId: string, options: { all: boolean; closed?: boolean }): ReadonlyArray<unknown>;
-  advance?(guildId: string, id: string, options: { named: boolean }): unknown;
-  attending?(guildId: string): ReadonlyArray<unknown>;
-  store?(
-    guildId: string
-  ): { get?(id: string): Intention | null | undefined; list?(): ReadonlyArray<Intention> } | null | undefined;
-  countAttendWake?(guildId: string, id: string): unknown;
-  markExpiredShown?(guildId: string, id: string): unknown;
+  due?(): ReadonlyArray<Due>;
+  reconcile?(): unknown;
+  list?(options: { all: boolean; closed?: boolean }): ReadonlyArray<unknown>;
+  advance?(id: string, options: { named: boolean }): unknown;
+  attending?(): ReadonlyArray<unknown>;
+  store?(): { get?(id: string): Intention | null | undefined; list?(): ReadonlyArray<Intention> } | null | undefined;
+  countAttendWake?(id: string): unknown;
+  markExpiredShown?(id: string): unknown;
   /** The intention a wake that slept was for: a one-off cancelled with `sleptAt`, a recurring one past its occurrence. */
-  sleep?(guildId: string, id: string): unknown;
+  sleep?(id: string): unknown;
 };
 
 /** The journal as the inner life writes and reads it. */
 export type InnerJournal = {
-  inner?(guildId: string, fields: Obj): unknown;
-  turnOperations?(
-    guildId: string,
-    query: { turnId: string; days: Array<string>; privateUserId: string | null }
-  ): unknown;
-  read?(guildId: string, query: { day: string; kind: string; n: number }): unknown;
+  inner?(fields: Obj): unknown;
+  turnOperations?(query: { turnId: string; days: Array<string>; privateUserId: string | null }): unknown;
+  read?(query: { day: string; kind: string; n: number }): unknown;
   /** One operation of a turn (src/memory/journal.ts#op): a wake's held post is a `post` around its send. */
-  op?(guildId: string, base: Obj): InnerJournalOp;
+  op?(base: Obj): InnerJournalOp;
 };
 
 /** A journal operation as the inner life closes it (src/memory/journal.ts#op). */
@@ -294,17 +289,17 @@ export type InnerJournalOp = {
 /** The memory store as the inner life reads it: its pause, the profiles and her diary for the heartbeat. */
 export type InnerStore = {
   state?: { data?: { paused?: unknown; pausedAt?: unknown } };
-  listUserProfiles?(guildId: string): unknown;
-  getDiary?(guildId: string): { posts?: unknown } | null | undefined;
+  listUserProfiles?(): unknown;
+  getDiary?(): { posts?: unknown } | null | undefined;
 };
 
 /** The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.ts). */
 export type HeartbeatSources = {
-  tasks?(guildId: string): unknown;
+  tasks?(): unknown;
   skills?(): unknown;
   agents?(): unknown;
   selfId?(): unknown;
-  focusPeople?(guildId: string): unknown;
+  focusPeople?(): unknown;
 };
 
 /** The sources of the selfimprovement wake's facts (src/behavior/selfimprovement-view.ts) that are not the journal. */
@@ -370,7 +365,7 @@ export type InnerTurnParams = {
   /** The heartbeat's stand-in when no interface is connected, and its history (none). */
   standIn?: ConversationInfo;
   reuseHistory?: Array<never>;
-  guildId: string;
+
   mode: 'inner';
   triggerKind: 'inner';
   journalTurn: { turnId: string; attemptId: number };
@@ -418,7 +413,7 @@ export type CostMeter = {
 };
 
 /** The `inner.wake` event the life hands to the door. */
-export type InnerWakeEvent = { kind: 'inner.wake'; at: number; id: string; communityId: string; wake: Wake };
+export type InnerWakeEvent = { kind: 'inner.wake'; at: number; id: string; wake: Wake };
 
 /** One write of a wake run to the memory database (src/memory/db/wakes.ts). */
 export type WakeUpdate = { kind: 'wake'; op: 'start' | 'actions' | 'finish' } & Obj;
@@ -426,7 +421,7 @@ export type WakeUpdate = { kind: 'wake'; op: 'start' | 'actions' | 'finish' } & 
 /** What the inner life logs through. */
 export type Logger = { info(message: string, fields?: Obj): void; warn(message: string, fields?: Obj): void };
 
-/** The places the interface publishes for a guild. */
+/** The places the interface publishes for a place. */
 export type PlaceEntry = { id: string; name: string; writable: boolean | null };
 
 /** The context every module of the inner life works over: its sources, its clock and its state in process. */
@@ -436,15 +431,15 @@ export type InnerContext = {
   turns: InnerTurns;
   intentions: InnerIntentions | null;
   record: RecordSource | null;
-  placesOf: ((guildId: string) => unknown) | null;
-  nameOf: ((guildId: string, memberId: string) => unknown) | null;
+  placesOf: (() => unknown) | null;
+  nameOf: ((memberId: string) => unknown) | null;
   journal: InnerJournal | null;
   reads: (Pick<Reads, 'conversationInfo'> & { offers?(wire: string): boolean }) | null;
   iface: () => string;
   conversationName: (conversationId: string) => string | null;
   submit: ((event: InnerWakeEvent) => Promise<unknown>) | null;
   store: InnerStore | null;
-  getGuildId: () => string | null;
+
   peopleWaiting: () => boolean;
   ready: () => Promise<unknown>;
   uuid: () => string;
@@ -459,9 +454,9 @@ export type InnerContext = {
   rng: () => number;
   now: () => number;
   log: Logger;
-  /** Per guild: the state read from its file. */
+  /** Per place: the state read from its file. */
   states: Map<string, InnerState>;
-  /** Per guild: the place index (the record's lines per place over the lookback window). */
+  /** Per place: the place index (the record's lines per place over the lookback window). */
   placeIndexes: Map<string, PlaceIndex>;
   /** The ids of the wakes an inner turn is running for now (a stop leaves them to that turn). */
   running: Set<string>;
@@ -475,17 +470,17 @@ export type InnerContext = {
   wakeDb: WakeBackend | null;
   /** The chain the queue's writes go through, in order. */
   writes: Promise<unknown>;
-  /** Per guild: whether the queue view was read back from the table. */
+  /** Per place: whether the queue view was read back from the table. */
   viewLoaded: Set<string>;
   /** Persisted queue IDs read before this life admits fresh events. */
   oldWakes: Set<string>;
-  /** Per guild: each queued wake as it was last written, by id. */
+  /** Per place: each queued wake as it was last written, by id. */
   synced: Map<string, Map<string, string>>;
   /** The lease tokens of the wakes this life's turns hold, by wake id. */
   claims: Map<string, number>;
-  /** Per guild: the start's recovery, run once. */
+  /** Per place: the start's recovery, run once. */
   started: Map<string, Promise<void>>;
-  /** What she slept through: the downtime and pause intervals, the pause under way, the count per guild. */
+  /** What she slept through: the downtime and pause intervals, the pause under way, the count per place. */
   sleep: { windows: Array<readonly [number, number]>; pausedFrom: number | null; slept: Map<string, number> };
 };
 

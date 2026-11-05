@@ -2,7 +2,7 @@
 // the memory writer's transaction (src/memory/db/unit-write.ts, op `errand`) as the principal `core`: the task filed
 // when the errand is new, then brought to the errand as it stands, an end moved through the board's own `move` (which
 // writes the outbox row to the subscriber, `persona`) with the closing journal line written by the caller in the same
-// transaction. `errandsOf` and `pendingEnds` read a guild's errands and its undelivered ends. The rows and the record
+// transaction. `errandsOf` and `pendingEnds` read a place's errands and its undelivered ends. The rows and the record
 // map through src/board/archive.ts. Nothing here logs.
 
 import {
@@ -33,13 +33,11 @@ const filled = (value: unknown): value is string => typeof value === 'string' &&
 // The memory database's handles hand over node:sqlite's connection, which has every method BoardDb names.
 const boardDbOf = (db: unknown): BoardDb => db as BoardDb;
 
-/** Every errand of guild `guildId` the board holds, in the order they were filed (`db` a read connection). */
-export function errandsOf(db: unknown, guildId: string): Array<ErrandData> {
+/** Every errand the board holds, in the order they were filed (`db` a read connection). */
+export function errandsOf(db: unknown): Array<ErrandData> {
   return boardDbOf(db)
-    .prepare(
-      `${TASKS_WITH_HANDOFF} WHERE t.lane = 'errand' AND json_extract(t.metadata, '$.guildId') = ? ORDER BY t.rowid`
-    )
-    .all(guildId)
+    .prepare(`${TASKS_WITH_HANDOFF} WHERE t.lane = 'errand' ORDER BY t.rowid`)
+    .all()
     .map(errandOf)
     .filter((errand) => errand !== null);
 }
@@ -47,24 +45,24 @@ export function errandsOf(db: unknown, guildId: string): Array<ErrandData> {
 /** One end the board committed whose `errand.done` has not been marked delivered. */
 export type PendingEnd = { errandId: string; state: string };
 
-/** The ends of guild `guildId` with an undelivered outbox row to `persona`, oldest first (`db` a read connection). */
-export function pendingEnds(db: unknown, guildId: string): Array<PendingEnd> {
+/** The ends with an undelivered outbox row to `persona`, oldest first (`db` a read connection). */
+export function pendingEnds(db: unknown): Array<PendingEnd> {
   const kinds = CLOSED.map(() => '?').join(',');
   return boardDbOf(db)
     .prepare(
       `SELECT o.task_id AS id, o.kind AS kind, MIN(o.seq) AS first FROM board_outbox o
       JOIN board_tasks t ON t.id = o.task_id
       WHERE o.to_whom = 'persona' AND o.delivered_at IS NULL AND o.kind IN (${kinds}) AND t.lane = 'errand'
-      AND json_extract(t.metadata, '$.guildId') = ? GROUP BY o.task_id ORDER BY first`
+      GROUP BY o.task_id ORDER BY first`
     )
-    .all(...CLOSED, guildId)
+    .all(...CLOSED)
     .map((row) => ({ errandId: String(row.id), state: stateOfStatus(row.kind) }));
 }
 
 /** One write of the errand store: the errand as it stands (null: only the delivery mark), and whether its end was delivered. */
 export type ErrandSave = {
   id: string;
-  guildId: string;
+
   at: number;
   errand: ErrandData | null;
   delivered: boolean;
@@ -90,12 +88,12 @@ function saveErrand(db: BoardDb, save: ErrandSave, onEnd: () => void): void {
   const errand = save.errand;
   if (errand !== null) {
     if (db.prepare('SELECT 1 AS ok FROM board_tasks WHERE id = ?').get(errand.id) === undefined) {
-      insertTask(db, errand, save.guildId, at);
+      insertTask(db, errand, at);
       board.event(errand.id, ERRAND_PRINCIPAL, 'status', null, 'approved');
     }
     let task = board.getTask(errand.id);
     const fields = {
-      metadata: metadataOf(errand, save.guildId),
+      metadata: metadataOf(errand),
       title: typeof errand.goal === 'string' ? errand.goal : task.title,
     };
     const target = statusOfState(errand.state);
@@ -150,7 +148,7 @@ export type ClosingLines = { owner?: string; key?: object; lines: Array<Record<s
 /**
  * One op `errand` write of the memory writer (src/memory/db/unit-write.ts) on its connection, inside its transaction:
  * `update.value` is an ErrandSave with its `closing` (`{ owner, line }` or null), and `writeClosing` writes that line
- * when the save moves the errand to an end. Throws an Error coded `UNIT_BAD_OP` for a value with no errand id or guild.
+ * when the save moves the errand to an end. Throws an Error coded `UNIT_BAD_OP` for a value with no errand id or place.
  */
 export function applyErrandUnit(
   db: unknown,
@@ -159,14 +157,13 @@ export function applyErrandUnit(
   writeClosing: (lines: ClosingLines) => void
 ): { ended: boolean } {
   const value = isRecord(update) && isRecord(update.value) ? update.value : null;
-  if (value === null || !filled(value.id) || !filled(value.guildId)) {
-    throw Object.assign(new Error('an errand write needs the errand id and its guild'), { code: 'UNIT_BAD_OP' });
+  if (value === null || !filled(value.id)) {
+    throw Object.assign(new Error('an errand write needs the errand id'), { code: 'UNIT_BAD_OP' });
   }
   const closing = isRecord(value.closing) ? value.closing : null;
   const errand = isRecord(value.errand) && filled(value.errand.id) ? { ...value.errand, id: value.errand.id } : null;
   const save: ErrandSave = {
     id: value.id,
-    guildId: value.guildId,
     at: typeof value.at === 'number' && Number.isFinite(value.at) ? value.at : Date.parse(at),
     errand,
     delivered: value.delivered === true,

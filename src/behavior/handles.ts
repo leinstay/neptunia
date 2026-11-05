@@ -113,7 +113,7 @@ function sortedNames(values: Untyped) {
 }
 
 /**
- * The people directory's members from the stored profiles of the served guild: one entry per
+ * The people directory's members from the stored profiles of the served place: one entry per
  * member, never the persona herself (`selfId`; bots get no profile: the live pipeline skips
  * their lines). `names`: the stored
  * names the platform gave them; `aliases`: their open stored aliases (src/memory/interests.js#isOpen),
@@ -121,7 +121,7 @@ function sortedNames(values: Untyped) {
  * the stored order (the newest name first) never moves the text. A member with neither is
  * left out. Sorted by their first name (else first alias), then id. No notes, games or weights.
  * Pure.
- * @param profiles  store.listUserProfiles of the served guild.
+ * @param profiles  store.listUserProfiles of the served place.
  */
 export function directoryEntries(
   profiles: Iterable<Record<string, Untyped>>,

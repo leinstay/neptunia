@@ -27,16 +27,15 @@ const opLabel = (op: Obj): string =>
   ).trim();
 
 /** Resolve known journal effects of a cut-off turn and mark its wakes interrupted without advancing work. */
-export async function resolveInflight(life: InnerContext, guildId: string): Promise<void> {
+export async function resolveInflight(life: InnerContext): Promise<void> {
   const { journal, ready, now, log } = life;
-  const state = stateOf(life, guildId);
+  const state = stateOf(life);
   const mark = state.inflight;
   if (!mark) return;
   try {
     await ready();
   } catch (err) {
     log.warn('inner: journal reconciliation failed before an interrupted turn was resolved', {
-      guildId,
       code: codeOf(err),
     });
   }
@@ -44,14 +43,14 @@ export async function resolveInflight(life: InnerContext, guildId: string): Prom
   if (typeof journal?.turnOperations === 'function') {
     try {
       const at = now();
-      const read = await journal.turnOperations(guildId, {
+      const read = await journal.turnOperations({
         turnId: mark.turnId,
         days: [...new Set([utcDay(mark.startedAt), utcDay(at)])],
         privateUserId: mark.privateUserId,
       });
       ops = listOf(read).map(objOf);
     } catch (err) {
-      log.warn('inner: journal could not say what an interrupted turn did', { guildId, code: codeOf(err) });
+      log.warn('inner: journal could not say what an interrupted turn did', { code: codeOf(err) });
     }
   }
   const done: Array<string> = [];
@@ -71,22 +70,21 @@ export async function resolveInflight(life: InnerContext, guildId: string): Prom
       addFact(life, state, {
         at,
         kind: 'interrupted',
-        ...contextOf(life, guildId, mark.channelId),
+        ...contextOf(life, mark.placeId),
         wake: mark.kind,
         done: done.join('; '),
-        channelId: mark.channelId,
+        placeId: mark.placeId,
         privateChat: mark.privateChat,
       });
   }
-  save(life, guildId);
+  save(life);
   log.warn('inner: a turn was cut off by a restart', {
-    guildId,
     turnId: mark.turnId,
     wakes: wakes.length,
     done: done.length,
     rerun: false,
   });
-  note(life, guildId, {
+  note(life, {
     event: 'interrupted',
     turnId: mark.turnId,
     wakes: wakes.map(wakeFields),
@@ -110,7 +108,7 @@ function cutOffMarks(rows: ReadonlyArray<StoredWake>): Array<Inflight> {
       wakeIds: [row.id],
       kind: row.turn?.kind || row.kind,
       startedAt: row.claimedAt ?? row.leaseExpiresAt ?? 0,
-      channelId: row.turn?.channelId ?? null,
+      placeId: row.turn?.placeId ?? null,
       privateChat: row.turn?.privateChat === true,
       privateUserId: row.turn?.privateUserId ?? null,
     });
@@ -125,61 +123,58 @@ export function sleptThrough(life: InnerContext, dueAt: unknown): boolean {
 
 /**
  * `wakes` slept at `at`: handled in the view with the outcome `slept`, `slept` in the table, each intention they were
- * for told to the intention service, the guild's count raised. No fact, no wake.
+ * for told to the intention service, the place's count raised. No fact, no wake.
  */
-export function markSlept(life: InnerContext, guildId: string, wakes: ReadonlyArray<Wake>, at: number): void {
+export function markSlept(life: InnerContext, wakes: ReadonlyArray<Wake>, at: number): void {
   if (wakes.length === 0) return;
   const { intentions, log } = life;
-  const state = stateOf(life, guildId);
+  const state = stateOf(life);
   const ids = new Set(wakes.map((wake) => wake.id));
   for (const wake of wakes) {
     state.handled[wake.id] = {
       at,
       outcome: 'slept',
-      ...(wake.kind === 'attend' ? { place: wake.channelId ?? null } : {}),
+      ...(wake.kind === 'attend' ? { place: wake.placeId ?? null } : {}),
     };
-    life.synced.get(guildId)?.delete(wake.id);
-    dbSend(life, { kind: 'wake-queue', op: 'sleep', wake, now: at, community: guildId });
+    life.synced.get('persona')?.delete(wake.id);
+    dbSend(life, { kind: 'wake-queue', op: 'sleep', wake, now: at });
   }
   state.queue = state.queue.filter((wake) => !ids.has(wake.id));
   const owned = wakes.filter((wake) => wake.kind === 'intention_due' || wake.kind === 'errand_deadline');
   for (const id of new Set(owned.flatMap((wake) => wake.intentionIds))) {
     try {
-      intentions?.sleep?.(guildId, id);
+      intentions?.sleep?.(id);
     } catch (err) {
-      log.warn('inner: intention not marked slept', { guildId, intentionId: id, code: codeOf(err) });
+      log.warn('inner: intention not marked slept', { intentionId: id, code: codeOf(err) });
     }
   }
-  life.sleep.slept.set(guildId, (life.sleep.slept.get(guildId) ?? 0) + wakes.length);
-  save(life, guildId);
-  log.info('inner: slept', { guildId, wakes: wakes.length });
-  note(life, guildId, { event: 'slept', wakes: wakes.map(wakeFields) });
+  life.sleep.slept.set('persona', (life.sleep.slept.get('persona') ?? 0) + wakes.length);
+  save(life);
+  log.info('inner: slept', { wakes: wakes.length });
+  note(life, { event: 'slept', wakes: wakes.map(wakeFields) });
 }
 
-/** The queued wakes of the guild (none a turn of this life runs) that fell due inside an interval she slept through. */
-function sleepQueued(life: InnerContext, guildId: string, at: number): void {
-  const state = stateOf(life, guildId);
+/** The queued wakes of the place (none a turn of this life runs) that fell due inside an interval she slept through. */
+function sleepQueued(life: InnerContext, at: number): void {
+  const state = stateOf(life);
   markSlept(
     life,
-    guildId,
-    state.queue.filter(
-      (wake) => inScope(life, guildId, wake) && !life.running.has(wake.id) && sleptThrough(life, wake.dueAt)
-    ),
+    state.queue.filter((wake) => inScope(life, wake) && !life.running.has(wake.id) && sleptThrough(life, wake.dueAt)),
     at
   );
 }
 
 /** Startup runs once for the persona; an unopened database is tried again. */
-export function startUp(life: InnerContext, guildId: string): Promise<void> {
+export function startUp(life: InnerContext): Promise<void> {
   const known = life.started.get('persona');
   if (known) return known;
-  const run = startUpNow(life, guildId);
+  const run = startUpNow(life);
   life.started.set('persona', run);
   return run;
 }
 
-async function startUpNow(life: InnerContext, guildId: string): Promise<void> {
-  const state = stateOf(life, guildId);
+async function startUpNow(life: InnerContext): Promise<void> {
+  const state = stateOf(life);
   const read = backendOf(life).read();
   if (!read || !life.viewLoaded.has('persona')) {
     life.started.delete('persona');
@@ -194,7 +189,7 @@ async function startUpNow(life: InnerContext, guildId: string): Promise<void> {
   if (cutOff.length > 0) {
     for (const mark of cutOffMarks(cutOff)) {
       state.inflight = mark;
-      await resolveInflight(life, cutOff.find((row) => row.id === mark.wakeIds[0])?.community ?? guildId);
+      await resolveInflight(life);
     }
   }
   await dbWrite(life, { kind: 'wake-queue', op: 'recover', now: at, ids: [...life.oldWakes] }).catch(() => null);
@@ -203,7 +198,7 @@ async function startUpNow(life: InnerContext, guildId: string): Promise<void> {
   }
   state.queue = state.queue.filter((wake) => !life.oldWakes.has(wake.id));
   for (const synced of life.synced.values()) for (const id of life.oldWakes) synced.delete(id);
-  save(life, guildId);
+  save(life);
   // A handled id is kept as long as the state file kept it (queue.ts, CHAIN_KEEP_MS), so a due item never wakes her twice.
   dbSend(life, { kind: 'wake-queue', op: 'prune', before: at - HANDLED_KEEP_MS, dataDir: life.dataDir });
   renewAlive(life, at);
@@ -242,8 +237,8 @@ export async function releaseAlive(life: InnerContext): Promise<void> {
  * `core:alive` renewed, and the pause followed. True while the store is paused; the first tick after a resume sleeps
  * the queued wakes that fell due during the pause.
  */
-export async function beforeTick(life: InnerContext, guildId: string): Promise<boolean> {
-  await startUp(life, guildId);
+export async function beforeTick(life: InnerContext): Promise<boolean> {
+  await startUp(life);
   const at = life.now();
   renewClaims(life);
   renewAlive(life, at);
@@ -258,20 +253,20 @@ export async function beforeTick(life: InnerContext, guildId: string): Promise<b
   if (life.sleep.pausedFrom !== null) {
     life.sleep.windows.push([life.sleep.pausedFrom, at]);
     life.sleep.pausedFrom = null;
-    sleepQueued(life, guildId, at);
+    sleepQueued(life, at);
   }
   return false;
 }
 
 /** A wake the tick listed: slept when it fell due inside an interval she slept through, else handed to the door. */
-export async function admitListed(life: InnerContext, guildId: string, wake: Wake): Promise<number> {
+export async function admitListed(life: InnerContext, wake: Wake): Promise<number> {
   if (sleptThrough(life, wake.dueAt)) {
-    markSlept(life, guildId, [wake], life.now());
+    markSlept(life, [wake], life.now());
     return 0;
   }
-  await enqueue(life, guildId, wake);
+  await enqueue(life, wake);
   return 1;
 }
 
-/** How many wakes of the guild slept since this life started. */
-export const sleptCount = (life: InnerContext, guildId: string): number => life.sleep.slept.get(guildId) ?? 0;
+/** How many wakes of the place slept since this life started. */
+export const sleptCount = (life: InnerContext): number => life.sleep.slept.get('persona') ?? 0;

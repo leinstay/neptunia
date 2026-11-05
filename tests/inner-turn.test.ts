@@ -90,7 +90,7 @@ function rawMessage({
 }) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: authorId, bot: false, globalName: authorName, username: authorName },
     member: { displayName: authorName },
     cleanContent: content,
@@ -103,12 +103,12 @@ function rawMessage({
 
 /** The channel c1 of the community over `historyMessages`, in the test's world. */
 function fakeChannel(historyMessages: Array<Record<string, Untyped>>) {
-  return world().channel({ id: 'c1', name: 'general', guildId: 'g1', historyMessages });
+  return world().channel({ id: 'c1', name: 'general', placeId: 'g1', historyMessages });
 }
 
 function fakeStore() {
   return {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     getPrivate: () => null,
     listChannels: () => [],
@@ -269,7 +269,7 @@ async function innerTurn({
   const store = fakeStore();
   if (gifs)
     Object.assign(store, {
-      findGif: (guildId: string, handle: string) => gifs[handle] ?? null,
+      findGif: (placeId: string, handle: string) => gifs[handle] ?? null,
       recordOwnGif: () => {},
     });
   // A real errand service over a temp task store, its runner a fake whose runs never end.
@@ -281,7 +281,6 @@ async function innerTurn({
       client: { configured: () => errandConfigured, run: () => new Promise(() => {}), cancel: () => true },
       stores,
       hot,
-      getGuildId: () => 'g1',
     });
   }
   const admin = createAdmin({
@@ -289,7 +288,7 @@ async function innerTurn({
     hot,
     store,
     client,
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     port,
     reads: world().adopt(port),
     ...(errands ? { errands } : {}),
@@ -324,7 +323,7 @@ async function innerTurn({
   const { result, logs } = await withCapturedLogs(() =>
     turns.runTurn({
       channel: fakeChannel(history),
-      guildId: 'g1',
+      placeId: 'g1',
       mode: 'inner',
       triggerKind: 'inner',
       inner,
@@ -339,7 +338,7 @@ async function innerTurn({
     llm,
     sends,
     store,
-    tasks: errands ? present(errands.store('g1')).recent(10) : [],
+    tasks: errands ? present(errands.store()).recent(10) : [],
   };
 }
 
@@ -504,7 +503,6 @@ test("inner turn, live: the heartbeat shows a line under a #N handle numbered pa
     participants: ['u2'],
   };
   const facts = await buildHeartbeatFacts({
-    guildId: 'g1',
     now: NOW,
     record: {
       iterate: async function* iterate() {
@@ -625,7 +623,7 @@ test("inner turn: an ordinary reply's request carries no <wake>", async () => {
     });
     const trigger = {
       id: 'm1',
-      channelId: 'c1',
+      placeId: 'c1',
       authorId: 'u1',
       authorName: 'Alice',
       self: false,
@@ -1635,7 +1633,7 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
       ...fakeStore(),
       ...(withProfile
         ? {
-            getUser: (guildId: string, id: string) => (id === 'u1' ? alice : null),
+            getUser: (id: string) => (id === 'u1' ? alice : null),
             listUserProfiles: () => [alice],
             countUsers: () => 1,
           }
@@ -1654,7 +1652,7 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
     });
     const trigger = {
       id: 'm2',
-      channelId: 'c1',
+      placeId: 'c1',
       authorId: 'u1',
       authorName: 'Alice',
       self: false,
@@ -1675,7 +1673,7 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
       await withCapturedLogs(() =>
         turns.runTurn({
           channel: fakeChannel(history),
-          guildId: 'g1',
+          placeId: 'g1',
           mode: 'inner',
           triggerKind: 'inner',
           inner: { wake, shadow: true, mayAct: () => true },
@@ -1683,7 +1681,7 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
       );
     } else {
       await withCapturedLogs(() =>
-        turns.runTurn({ channel: fakeChannel(history), guildId: 'g1', mode: 'reply', trigger, triggerKind: 'mention' })
+        turns.runTurn({ channel: fakeChannel(history), placeId: 'g1', mode: 'reply', trigger, triggerKind: 'mention' })
       );
     }
     return llm.calls[0];

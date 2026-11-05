@@ -18,7 +18,7 @@ const entry = (extra = {}) => ({
   participants: ['100000000000000001'],
   observedAt: { date: '2026-10-01', precision: 'day' },
   lastSeen: null,
-  sourceRefs: [{ channelId: '200000000000000001', messageId: '400000000000000001' }],
+  sourceRefs: [{ placeId: '200000000000000001', messageId: '400000000000000001' }],
   neutral: null,
   text: { text: 'café at noon' },
   weight: 0.5,
@@ -27,7 +27,7 @@ const entry = (extra = {}) => ({
   by: 'archive',
   occurredAt: '2026-10-01T00:00:00.000Z',
   recordedAt: '2026-10-02T00:00:00.000Z',
-  guildId: '300000000000000001',
+  placeId: '300000000000000001',
   ...extra,
 });
 
@@ -143,7 +143,7 @@ test('channel, guild and lore version files name their descriptions after their 
     versions,
     'versions/guild/guild.json',
     { patterns: [version()] },
-    { guildId: '300000000000000001' }
+    { subjectId: 'discord:guild:300000000000000001', versionKind: 'place' }
   );
   assert.equal(guild.description_versions[0].description_id, 'desc:discord:guild:300000000000000001:patterns');
   const lore = assertRoundTrip(versions, 'versions/lore/715474998364.json', { text: [version()] });

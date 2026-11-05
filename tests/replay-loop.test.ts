@@ -180,14 +180,14 @@ async function loopRun(
     },
   };
   const store = {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
     state: { data: {} },
   };
-  const view = liveView({ hot, store, guildId: 'g1' });
+  const view = liveView({ hot, store, placeId: 'g1' });
   const channel = fakeChannel();
   const here = { id: HERE, name: 'γενικά' };
   const trigger = scenarioTrigger({
@@ -209,7 +209,7 @@ async function loopRun(
       view: callViewOf({
         channel,
         snapshot: guildListing(channel),
-        guildId: GUILD,
+        placeId: GUILD,
         idByIndex,
         lines,
         pulledIds: new Map(),
@@ -285,7 +285,7 @@ test('replay flags: --core-tools goes with --skills only; --pair-transport and -
     [true, null, 't.txt', true, 'snap', 'o']
   );
   const one = parseArgs(['--pair-transport', '123456789012345678', '223456789012345678']);
-  assert.deepEqual([one.channelId, one.triggerId], ['123456789012345678', '223456789012345678']);
+  assert.deepEqual([one.placeId, one.triggerId], ['123456789012345678', '223456789012345678']);
   assert.throws(() => parseArgs(['--pair-transport', '--pair', 'a', 'b', '--triggers', 't.txt']), /usage/);
   assert.throws(() => parseArgs(['--pair-transport']), /usage/);
   assert.throws(() => parseArgs(['--skills', 'a.json', '--pair-transport']), /usage/);
@@ -314,10 +314,7 @@ test('replay flags: --core-tools goes with --skills only; --pair-transport and -
     [true, 'text', 't.txt', 'o', 'a']
   );
   const bare = parseArgs(['--loop-triggers', '123456789012345678', '223456789012345678']);
-  assert.deepEqual(
-    [bare.transport, bare.channelId, bare.triggerId],
-    [null, '123456789012345678', '223456789012345678']
-  );
+  assert.deepEqual([bare.transport, bare.placeId, bare.triggerId], [null, '123456789012345678', '223456789012345678']);
   assert.throws(() => parseArgs(['--loop-triggers']), /usage/);
   assert.throws(() => parseArgs(['--loop-triggers', '--triggers', 't.txt', '--transport', 'carrier-pigeon']), /usage/);
   assert.throws(() => parseArgs(['--loop-triggers', '--triggers', 't.txt', '--samples', '2']), /usage/);
@@ -333,7 +330,7 @@ test('loopRequestEstimate: the expected requests -- her reply, one follow-up, on
   assert.equal(loopRequestEstimate({ maxSteps: 3, maxCallsPerStep: 4 }), 3);
   assert.equal(loopRequestEstimate({ maxSteps: 1, maxCallsPerStep: 1 }), 3);
   const scenarios = parseScenarios(
-    JSON.stringify([{ id: 'a', channelId: HERE, author: OWNER, text: 'Γεια', grants: [], runs: 2 }])
+    JSON.stringify([{ id: 'a', placeId: HERE, author: OWNER, text: 'Γεια', grants: [], runs: 2 }])
   );
   assert.equal(skillRequestEstimate(scenarios), 4);
   assert.equal(skillRequestEstimate(scenarios, { perDecision: 16 }), 32);
@@ -399,14 +396,14 @@ test('the step engine: the first request leaves the step reserve under the promp
     },
   };
   const store = {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
     state: { data: {} },
   };
-  const view = liveView({ hot, store, guildId: 'g1' });
+  const view = liveView({ hot, store, placeId: 'g1' });
   const here = { id: HERE, name: 'γενικά' };
   const lines = [];
   for (let i = 0; i < 300; i += 1)
@@ -469,14 +466,14 @@ test('the step engine: with the production limits (50000 cap, 0.9 margin, 10000 
     },
   };
   const store = {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
     state: { data: {} },
   };
-  const view = liveView({ hot, store, guildId: 'g1' });
+  const view = liveView({ hot, store, placeId: 'g1' });
   const here = { id: HERE, name: 'γενικά' };
   const lines = [];
   for (let i = 0; i < 1500; i += 1)
@@ -871,7 +868,7 @@ test('createReplayTools: web.search and web.read through the lookup and memory.s
     state: { data },
     listUserProfiles: () => [],
     getLore: () => [],
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getRecent: () => null,
   };
   const seen: Record<string, Untyped> = {};
@@ -884,14 +881,14 @@ test('createReplayTools: web.search and web.read through the lookup and memory.s
     return {
       hasSearch: () => true,
       webCapLeft: () => 5,
-      searchResults: async (guildId: string, query: unknown) => {
+      searchResults: async (placeId: string, query: unknown) => {
         await client.complete([], {});
         return {
           query,
           results: [{ title: 'Τελικός', url: 'https://example.com/t', site: 'example.com', snippet: 'Η Ana κέρδισε.' }],
         };
       },
-      readPage: async (guildId: string, url: string) => ({ ok: true, url, title: '', text: 'Το κείμενο.', cut: false }),
+      readPage: async (placeId: string, url: string) => ({ ok: true, url, title: '', text: 'Το κείμενο.', cut: false }),
     };
   };
   const createRecall = ({ store: recallStore }: Untyped) => {
@@ -912,7 +909,7 @@ test('createReplayTools: web.search and web.read through the lookup and memory.s
     hot,
     store,
     guild: { id: GUILD },
-    guildId: GUILD,
+    placeId: GUILD,
     channel: fakeChannel(),
     selfId: SELF,
     selfName: 'Persona',
@@ -1066,7 +1063,7 @@ test("renderLoopTriggersReport: a table of the turns, then each turn's calls and
   const record = runRecord('p1', 0, run);
   const line = {
     id: 'p1',
-    channelId: HERE,
+    placeId: HERE,
     triggerId: '400000000000000009',
     turnId: null,
     at: new Date(NOW).toISOString(),
@@ -1142,7 +1139,7 @@ async function preTurn({
   const lookup = {
     hasSearch: () => true,
     webCapLeft: () => 3,
-    search: async (guildId: string, query: Untyped) => {
+    search: async (placeId: string, query: Untyped) => {
       ran.web.push(query);
       return web as unknown;
     },
@@ -1162,7 +1159,7 @@ async function preTurn({
     recall,
     discovery: { index: 'SKILLS-INDEX', names: ['rule.add'] },
     guild: {},
-    guildId: GUILD,
+    placeId: GUILD,
     channel: fakeChannel(),
     selfId: SELF,
     selfName: 'Persona',
@@ -1229,13 +1226,13 @@ test('createReplayTools.prefetch: the live lanes of the trigger, run as of the m
       { status: 'none', basis: input.lanes.map((lane: Untyped) => lane.kind), excerpts: [] }
     ),
   });
-  const store = { state: { data: {} }, listUserProfiles: () => [], getLore: () => [], getGuild: () => ({}) };
+  const store = { state: { data: {} }, listUserProfiles: () => [], getLore: () => [], getPlace: () => ({}) };
   const make = (config: unknown) =>
     createReplayTools({
       hot: { config, prompts: { labels } },
       store,
       guild: { id: GUILD },
-      guildId: GUILD,
+      placeId: GUILD,
       channel: fakeChannel(),
       selfId: SELF,
       selfName: 'Persona',
@@ -1290,7 +1287,7 @@ test('the step engine with a prefetch: <retrieved> stands in every request, as l
     excerpts: [
       {
         source: 'history',
-        channelId: 'c2',
+        placeId: 'c2',
         channelName: 'κήπος',
         startTs: NOW - 86_400_000,
         id: 'r1',
@@ -1342,7 +1339,7 @@ async function triggerRun({ single, transport = null, answers, config = toolConf
     },
   };
   const store = {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     listChannels: () => [],
     listUserProfiles: () => [],
@@ -1380,12 +1377,12 @@ async function triggerRun({ single, transport = null, answers, config = toolConf
     args,
     root: dataDir,
     liveData: path.join(dataDir, 'live'),
-    pairTriggers: [{ channelId: HERE, triggerId: trigger.id, turnId: null }],
+    pairTriggers: [{ placeId: HERE, triggerId: trigger.id, turnId: null }],
     rng: () => 0.9,
     hot,
     store,
     guild: { id: GUILD },
-    guildId: GUILD,
+    placeId: GUILD,
     self: { id: SELF, name: 'Persona' },
     llm,
     calibrator: { ratio: 1, apply: (n: number) => n, observe: () => 1 },
@@ -1512,7 +1509,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
   };
   const line = (id: string, minutes: number, content: string) => ({
     id,
-    channelId: HERE,
+    placeId: HERE,
     authorId: '100000000000000007',
     authorName: 'Élodie',
     self: false,
@@ -1530,7 +1527,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
     reactions: [],
   });
   // The conversation's history is held by the fake interface; the reads it answers are what the tool asked for.
-  world().channel({ id: HERE, name: 'γενικά', guildId: GUILD });
+  world().channel({ id: HERE, name: 'γενικά', placeId: GUILD });
   for (const entry of [line('m1', 3, 'πρώτο'), line('m2', 2, 'δεύτερο')])
     world().port.seedEvent({
       kind: 'message.received',
@@ -1558,7 +1555,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
       addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
     });
   const discord = { checkPull: () => ({ skip: null }) };
-  const store = { state: { data: {} }, listUserProfiles: () => [], getLore: () => [], getGuild: () => ({}) };
+  const store = { state: { data: {} }, listUserProfiles: () => [], getLore: () => [], getPlace: () => ({}) };
   const warnings = [];
   const channel = fakeChannel();
   const config = toolConfig();
@@ -1566,7 +1563,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
     hot: { config, prompts: { labels: conversationLabels } },
     store,
     guild: channel.guild,
-    guildId: GUILD,
+    placeId: GUILD,
     channel,
     selfId: SELF,
     selfName: 'Persona',
@@ -1624,7 +1621,7 @@ test('createReplayTools: media.look looks again through the describer over the m
     state: { data: {} },
     listUserProfiles: () => [],
     getLore: () => [],
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getGifs: () => [],
   };
   const vision = {
@@ -1637,7 +1634,7 @@ test('createReplayTools: media.look looks again through the describer over the m
   const createDescriber = ({ llm: client, store: cache }: Untyped) => {
     created.push(cache.getMediaCache());
     return {
-      relookImage: async (guildId: string, item: unknown, question: unknown) => (
+      relookImage: async (placeId: string, item: unknown, question: unknown) => (
         await client.complete([], {}),
         { question, text: 'ένα κόκκινο ποδήλατο' }
       ),
@@ -1649,7 +1646,7 @@ test('createReplayTools: media.look looks again through the describer over the m
     hot,
     store,
     guild: { id: GUILD },
-    guildId: GUILD,
+    placeId: GUILD,
     channel: fakeChannel(),
     selfId: SELF,
     selfName: 'Persona',
@@ -1711,7 +1708,7 @@ test('createReplayTools: media.look with a url looks at the video link through t
     state: { data: {} },
     listUserProfiles: () => [],
     getLore: () => [],
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getGifs: () => [],
   };
   const vision = {
@@ -1719,7 +1716,7 @@ test('createReplayTools: media.look with a url looks at the video link through t
   };
   const seen: Array<Untyped> = [];
   const createDescriber = ({ llm: client }: Untyped) => ({
-    rewatchVideo: async (guildId: string, item: unknown, question: unknown) => (
+    rewatchVideo: async (placeId: string, item: unknown, question: unknown) => (
       seen.push(item),
       await client.complete([], {}),
       { question, text: 'ένα τραγούδι' }
@@ -1737,7 +1734,7 @@ test('createReplayTools: media.look with a url looks at the video link through t
     hot,
     store,
     guild: { id: GUILD },
-    guildId: GUILD,
+    placeId: GUILD,
     channel: fakeChannel(),
     selfId: SELF,
     selfName: 'Persona',

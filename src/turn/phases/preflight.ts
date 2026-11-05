@@ -3,7 +3,8 @@
 // (src/behavior/turn.ts) calls it before every other phase; what it opens, the later phases use and the attempt's
 // end closes.
 
-import { NO_COMMUNITY } from '../../memory/db/ids.ts';
+import { PERSONA_ID } from '../../memory/db/storage-keys.ts';
+import { sharedPlaceOf } from '../../memory/addresses.ts';
 import { currentRequestMeta } from '../../llm/archive.ts';
 import { createPrepLedger } from '../../behavior/turn-parts.ts';
 import type { Ledger } from '../../behavior/turn-parts.ts';
@@ -22,17 +23,32 @@ export type Opened = {
   prep: Ledger;
   prepStep: JournalStep;
   channel: ConversationInfo;
-  guildId: string;
+  placeId: string;
+  reading: ReadonlyArray<string>;
+  libraryPlace: string;
   isPrivate: boolean;
   settledMs: number;
   life: Life;
 };
 
+/**
+ * What a turn reads of the places around it: its own tree; a private chat, the servers of its interface; a turn of the
+ * persona's own, every server. Nothing stands in as a home: all of them, under the rule of each read.
+ */
+function placesRead(
+  store: { topPlaces?: (iface?: string) => Array<string> },
+  iface: string,
+  placeId: string,
+  isPrivate: boolean
+): ReadonlyArray<string> {
+  if (isPrivate) return store.topPlaces?.(iface) ?? [];
+  return placeId === PERSONA_ID ? (store.topPlaces?.() ?? []) : [placeId];
+}
+
 export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: Draft): Promise<Ended | Opened> {
   const { store, busy, ifaceReads, journal, journalOp, journalOn, notifyIdle, settleAuthor, clock } = ctx;
   const {
     conversation,
-    guildId: guildIdParam = null,
     mode,
     trigger = null,
     triggerKind = null,
@@ -81,17 +97,20 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   }
   const channel = found.conversation;
   draft.info = channel;
-  // A conversation of a community carries it; a private chat is kept under the community it was given, or under none.
-  const guildId = channel.communityId ?? guildIdParam ?? NO_COMMUNITY;
+  // What the conversation shares with its tree lives at the top of it; a private chat is its own place.
+  const placeId = sharedPlaceOf(store, channel);
   const isPrivate = !inCommunity(channel);
+  const reading = placesRead(store, channel.iface, placeId, isPrivate);
+  // What one place can hold for the turn (its library, its media cache): the one it reads, else its own.
+  const libraryPlace = reading.length === 1 ? (reading[0] ?? placeId) : placeId;
   draft.privateUserId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
   // The journal: the turn starts here, past the pause and
   // attention rails; a later attempt of the same turn (journalTurn) keeps its id.
   if (journalOn()) {
-    draft.guildId = guildId;
-    draft.channelId = channel.id;
+    draft.placeId = placeId;
+    draft.conversationId = channel.id;
     draft.mode = mode;
-    draft.started = journal.start(guildId, journalStartOf({ draft, channel, trigger, triggerKind, mode, journalTurn }));
+    draft.started = journal.start(placeId, journalStartOf({ draft, channel, trigger, triggerKind, mode, journalTurn }));
     // The archive's rows of this attempt name its turn (src/llm/archive.ts).
     Object.assign(currentRequestMeta() ?? {}, {
       turnId: draft.started?.turnId,
@@ -104,8 +123,7 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   // attention meanwhile; the turn's clocks (its deadline, its bar) start after this wait. The
   // first part of a split message reuses the history its message already waited for. The
   // author's activity is read in the trigger's own channel (a routed call's turn posts elsewhere).
-  const settledMs =
-    mode === 'reply' && !reuseHistory ? await settleAuthor(trigger?.channelId ?? channel.id, trigger) : 0;
+  const settledMs = mode === 'reply' && !reuseHistory ? await settleAuthor(trigger?.placeId ?? channel.id, trigger) : 0;
   // The typing indicator, the preparation's deadline and the turn's bar, ended at the attempt's end
   // whatever the outcome; the start and the mode a dropped turn logs. `chained` is set when this turn hands its
   // message to a chain of parts.
@@ -117,5 +135,5 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
     turnStartedAt: clock(),
     turnMode: mode,
   };
-  return { ended: null, prep, prepStep, channel, guildId, isPrivate, settledMs, life };
+  return { ended: null, prep, prepStep, channel, placeId, reading, libraryPlace, isPrivate, settledMs, life };
 }

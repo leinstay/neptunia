@@ -16,7 +16,7 @@ import type { Obj, OpContext, Untyped } from '../types.ts';
 import type { Adapter } from '../../protocol/adapter.ts';
 
 const handlers = perEnv((env) => {
-  const { hot, images, imageFetcher, assertNotPaused, resolvedGuildId } = env;
+  const { hot, images, imageFetcher, assertNotPaused, resolvedPlaceId } = env;
   const { reads } = env;
   const port = env.port as Adapter | null | undefined;
 
@@ -26,9 +26,9 @@ const handlers = perEnv((env) => {
    * reference for `self` when `image.reference` is `'avatar'`; no local time). Answers `{ text, files }`:
    * one line with the model, seconds and cost, plus the picture. A rail or
    * generation failure throws with its reason and HTTP status; the prompt is
-   * never logged. With `channelId` the picture is posted there as the persona, through her
+   * never logged. With `placeId` the picture is posted there as the persona, through her
    * interface (`env.port`), the channel being the one the command runs in or a text channel of
-   * the served guild where the bot may send files (src/tools/impl/shared.ts#postingConversation, checked
+   * the served place where the bot may send files (src/tools/impl/shared.ts#postingConversation, checked
    * before anything is generated); the answer is then the line alone, or a `failed` result when the post did not go
    * through (`data.unknown` when it may have: never generated again).
    */
@@ -39,17 +39,18 @@ const handlers = perEnv((env) => {
     if (!request) throw invalid('text is required');
     // A reply is a message to quote: it follows that message's channel, as message.create does.
     const reply = args.replyTo ? await messageRefOf(args.replyTo, reads) : null;
-    const given = args.channelId ? idText(args.channelId) : null;
-    if (given && reply?.channelId && given !== reply.channelId)
+    const given = args.placeId ? idText(args.placeId) : null;
+    if (given && reply?.placeId && given !== reply.placeId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const target = given ?? reply?.channelId ?? null;
+    const target = given ?? reply?.placeId ?? null;
     const postTo =
       target || reply
         ? await postingConversation({
             reads,
+            store: env.store,
             iface: port?.iface ?? '',
-            guildId: resolvedGuildId(context),
-            channelId: target,
+            placeId: resolvedPlaceId(context),
+            conversationId: target,
             context,
             need: 'attach',
           })
@@ -67,8 +68,8 @@ const handlers = perEnv((env) => {
     }
 
     const self = args.self === true;
-    const guildId = resolvedGuildId(context);
-    const selfName = env.getSelfName(guildId);
+    const placeId = resolvedPlaceId(context);
+    const selfName = env.getSelfName(placeId);
 
     let picture: Untyped;
     let referenceMissing = false;
@@ -78,7 +79,7 @@ const handlers = perEnv((env) => {
         hot,
         // The persona's large avatar, asked of the interface only when the picture needs the reference.
         avatarUrl: async () => {
-          const found = await reads?.memberInfo({ communityId: guildId, memberId: String(env.selfId() ?? '') });
+          const found = await reads?.memberInfo({ communityId: placeId, memberId: String(env.selfId() ?? '') });
           return found?.member?.avatar.largeUrl ?? null;
         },
         imageFetcher,

@@ -38,7 +38,7 @@ function envOf(skills: SkillsPort | null) {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     board: null,
     skills,
   });
@@ -48,7 +48,14 @@ function envOf(skills: SkillsPort | null) {
 async function callOf(skills: SkillsPort | null, name: string, args: Record<string, unknown>): Promise<Result> {
   const env = envOf(skills);
   const { result } = await withCapturedLogs(() =>
-    runOpPrechecked(name, args, { env, guildId: 'g1', channelId: 'c1', userId: null, roleIds: [], actor: 'persona' })
+    runOpPrechecked(name, args, {
+      env,
+      placeId: 'g1',
+      conversationId: 'c1',
+      userId: null,
+      roleIds: [],
+      actor: 'persona',
+    })
   );
   return result;
 }
@@ -152,8 +159,8 @@ test('skill.run runs the activated version only, with the credentials its script
     const { result } = await withCapturedLogs(() =>
       runOpPrechecked('skill.run', args, {
         env,
-        guildId: 'g1',
-        channelId: 'c1',
+        placeId: 'g1',
+        conversationId: 'c1',
         userId: null,
         roleIds: [],
         actor: 'persona',

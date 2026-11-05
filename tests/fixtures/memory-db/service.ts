@@ -6,20 +6,18 @@
 // builds its stores synchronously; `unitFile` is a memory unit as the file it stands for (its text, from the database
 // alone). Synthetic data only.
 import fs from 'node:fs';
-import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { dbOf, type Config, type Log } from '../../../src/memory/db/types.ts';
 import type { MemoryDbService } from '../../../src/memory/db/service.ts';
 import { createMemoryDb } from '../../../src/memory/db/service.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
-import { classify } from '../../../src/memory/db/map/index.ts';
+import { classify } from '../../../src/memory/migration/classify.ts';
 import { filesOfUnit } from '../../../src/memory/db/export.ts';
 import { seedUnits } from './seed.ts';
-import { legacyStorageKey } from '../../../src/memory/db/paths.ts';
+import { legacyStorageKey } from '../../../src/memory/migration/paths.ts';
 import { listUnits } from '../../../src/memory/db/storage-units.ts';
 import { unitValue, unitLines } from '../../../src/memory/db/readers/common.ts';
-import { nativeOfAny } from '../../../src/memory/db/ids.ts';
 import type { StorageKey } from '../../../src/memory/db/storage-keys.ts';
 
 const silent = { info() {}, debug() {}, warn() {}, error() {} };
@@ -139,16 +137,7 @@ export function unitFile(memoryDb: Pick<MemoryDbService, 'readHandle'>, rel: str
   return out ? out.data.toString('utf8') : null;
 }
 
-/** A journal's legacy test label projected from its actual key, with no change to the writer update. */
+/** A journal's test label projected from its actual key, with no change to the writer update. */
 export function journalLabel(dataDir: string, key: StorageKey): string {
-  const privatePart = key.subject.type === 'account' ? ['private', String(nativeOfAny(key.subject.id))] : [];
-  const rel = path.join(
-    'guilds',
-    String(nativeOfAny(key.scopePlaceId)),
-    ...privatePart,
-    'journal',
-    `${key.partition}.jsonl`
-  );
-  assert.deepEqual(legacyStorageKey(rel), key);
-  return path.join(dataDir, rel);
+  return path.join(dataDir, 'places', key.subject.id, 'journal', `${key.partition}.jsonl`);
 }

@@ -1,4 +1,6 @@
+// health: allow file-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 // PR 7b: `admin.run` takes the operation's name (`status.show`, `config.set`, ...); every expectation is as it was.
+import { accountOf, placeOfCommunity } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
@@ -254,7 +256,7 @@ function makeHot(rootDir: string) {
 
 // PR 7b: admin.isAllowed is gone; a caller may run `op` when runSkillOp, which checks the rights, does not deny it.
 const mayRun = async (admin: ReturnType<typeof createAdmin>, op: string, caller: Record<string, unknown>) =>
-  (await admin.runSkillOp(op, {}, { guildId: 'g1', roleIds: [], ...caller })).status !== 'denied';
+  (await admin.runSkillOp(op, {}, { placeId: 'g1', roleIds: [], ...caller })).status !== 'denied';
 
 type AdminExtra = { hot?: Hot; store?: object } & Record<string, Untyped>;
 
@@ -272,7 +274,6 @@ function makeAdmin(rootDir: string, extra: AdminExtra = {}) {
     getSelfName: extra.getSelfName ?? (() => 'Persona'),
     spontaneous: extra.spontaneous ?? {},
     calibrator: extra.calibrator ?? { ratio: 1 },
-    getGuildId: extra.getGuildId ?? (() => 'g1'),
     turns: extra.turns,
     memory: extra.memory,
     pending: extra.pending,
@@ -310,7 +311,7 @@ test('run: rule.add seeds prompts.local/rules.md from the base file, leaving pro
   const { admin, hot } = makeAdmin(rootDir);
 
   const baseBefore = fs.readFileSync(path.join(rootDir, 'prompts', 'rules.md'));
-  const result = await admin.run('rule.add', { text: 'Never spoil the ending' }, { guildId: 'g1' });
+  const result = await admin.run('rule.add', { text: 'Never spoil the ending' }, { placeId: 'g1' });
 
   const localFile = path.join(rootDir, 'prompts.local', 'rules.md');
   assert.ok(fs.existsSync(localFile));
@@ -447,7 +448,7 @@ test('set: a non-owner granted set cannot touch bot.owners or bot.access; an own
   const { admin } = makeAdmin(rootDir, { hot });
   assert.equal(await mayRun(admin, 'config.set', { userId: '999' }), true, 'the non-owner holds the grant');
 
-  const stranger = { guildId: 'g1', userId: '999' };
+  const stranger = { placeId: 'g1', userId: '999' };
   await assert.rejects(
     () => admin.run('config.set', { path: 'bot.owners', value: '["42","999"]' }, stranger),
     /only an owner may change bot\.owners/
@@ -479,7 +480,7 @@ test('set: a non-owner granted set cannot touch bot.owners or bot.access; an own
   const result = await admin.run(
     'config.set',
     { path: 'bot.owners', value: '["42","7"]' },
-    { guildId: 'g1', userId: '42' }
+    { placeId: 'g1', userId: '42' }
   );
   assert.match(result, /^Set bot\.owners/);
   assert.deepEqual(readLocal(rootDir), { bot: { owners: ['42', '7'] } });
@@ -751,12 +752,12 @@ test('runSkillOp: the full rights check -- a member granted memory.affinity.read
   const hot = makeHot(rootDir);
   hot.config.bot.access = { 'memory.affinity.read': { everyone: false, roles: [], users: ['7'] } };
   const { admin } = makeAdmin(rootDir, { hot });
-  const member = { guildId: 'g1', userId: '7', roleIds: [] };
+  const member = { placeId: 'g1', userId: '7', roleIds: [] };
 
   const other = await admin.runSkillOp(
     'memory.affinity.read',
     { userId: '5' },
-    { guildId: 'g1', userId: '8', roleIds: [] }
+    { placeId: 'g1', userId: '8', roleIds: [] }
   );
   assert.equal(other.status, 'denied');
   assert.equal(other.code, 'not-granted');
@@ -766,12 +767,13 @@ test('runSkillOp: the full rights check -- a member granted memory.affinity.read
 /** makeStore with the pings-off list of one guild, the way src/memory/store.ts keeps it. */
 function storeWithPings() {
   const store = makeStore();
-  store.pingsOff = new Set();
-  store.isPingsOff = (guildId: string, userId: string) => store.pingsOff.has(`${guildId}:${userId}`);
-  store.setPingsOff = (guildId: string, userId: string, off: boolean) => {
-    if (off) store.pingsOff.add(`${guildId}:${userId}`);
-    else store.pingsOff.delete(`${guildId}:${userId}`);
-    return store.pingsOff.has(`${guildId}:${userId}`);
+  const pingsOff = new Set<string>();
+  store.pingsOff = pingsOff;
+  store.isPingsOff = (placeId: string, userId: string) => pingsOff.has(`${placeId}:${userId}`);
+  store.setPingsOff = (placeId: string, userId: string, off: boolean) => {
+    if (off) pingsOff.add(`${placeId}:${userId}`);
+    else pingsOff.delete(`${placeId}:${userId}`);
+    return pingsOff.has(`${placeId}:${userId}`);
   };
   return store;
 }
@@ -780,7 +782,7 @@ test('run: pings with no mode shows the state of the caller; off and on change o
   const rootDir = makeRoot();
   const store = storeWithPings();
   const { admin } = makeAdmin(rootDir, { store });
-  const context = { guildId: 'g1', channelId: 'c1', userId: '999' };
+  const context = { placeId: 'g1', conversationId: 'c1', userId: '999' };
 
   assert.equal(await admin.run('pings.get', {}, context), 'Pings: on');
   assert.equal(await admin.run('pings.set', { mode: 'off' }, context), 'Pings: off');
@@ -801,7 +803,7 @@ test('run: pings refuses an unknown mode, writing nothing', async () => {
   const { admin } = makeAdmin(rootDir, { store });
 
   await assert.rejects(
-    () => admin.run('pings.set', { mode: 'maybe' }, { guildId: 'g1', userId: '999' }),
+    () => admin.run('pings.set', { mode: 'maybe' }, { placeId: 'g1', userId: '999' }),
     /mode must be one of: on, off/
   );
   assert.deepEqual([...store.pingsOff], []);
@@ -811,7 +813,7 @@ test('run: pings works while paused, a change included, reading fresh off disk f
   const rootDir = makeRoot();
   const store = storeWithPings();
   const { admin } = makeAdmin(rootDir, { store });
-  const context = { guildId: 'g1', channelId: 'c1', userId: '999' };
+  const context = { placeId: 'g1', conversationId: 'c1', userId: '999' };
   store.state.data.paused = true;
 
   assert.equal(await admin.run('pings.set', { mode: 'off' }, context), 'Pings: off');
@@ -996,8 +998,8 @@ test('migrateAccess: once per guild, the old command-key grants re-expanded unde
   const hot = makeHot(rootDir);
   const journal = fakeJournal();
   const store = makeStore();
-  store.updateGuild = (guildId: string, fields: Record<string, unknown>) =>
-    store.guilds.set(guildId, { ...store.getGuild(guildId), ...fields });
+  store.updatePlace = (placeId: string, fields: Record<string, unknown>) =>
+    store.guilds.set(placeId, { ...store.getPlace(placeOfCommunity(store, placeId)), ...fields });
   const { admin } = makeAdmin(rootDir, { hot, journal, store });
   const open = { everyone: true, roles: [], users: [] };
   fs.writeFileSync(
@@ -1036,16 +1038,18 @@ test('migrateAccess: once per guild, the old command-key grants re-expanded unde
   ]) {
     assert.equal(Object.hasOwn(access, key), false, key);
   }
-  assert.equal(store.getGuild('g1').accessMigrated, 1);
-  const records = journal.calls.filter(([kind]) => kind === 'system');
+  assert.equal(store.getPlace(placeOfCommunity(store, 'g1')).accessMigrated, 1);
+  const records = journal.calls.filter(([kind]) => kind === 'system') as Array<
+    [string, { event: string; note: string }]
+  >;
   assert.equal(records.length, 1);
-  assert.equal(records[0][2].event, 'access-migrated');
+  assert.equal(records[0][1].event, 'access-migrated');
   assert.match(
-    records[0][2].note,
+    records[0][1].note,
     /memory -> memory\.profile\.read, memory\.channel\.read, memory\.server\.read, memory\.recent\.read, memory\.affinity\.read/
   );
-  assert.match(records[0][2].note, /memory\.journal -> nothing; dropped \(owner-only\): memory\.journal\.read/);
-  assert.match(records[0][2].note, /ping -> nothing; dropped \(owner-only\): ping/);
+  assert.match(records[0][1].note, /memory\.journal -> nothing; dropped \(owner-only\): memory\.journal\.read/);
+  assert.match(records[0][1].note, /ping -> nothing; dropped \(owner-only\): ping/);
 
   // once: the flag holds, nothing is rewritten or recorded again
   assert.equal((await admin.migrateAccess('g1')).migrated, false);
@@ -1093,13 +1097,13 @@ test('access.grant: a write operation gets the write note; a read operation none
 test('run: memory.affinity only reads -- the attitude changes through the memory analyzer alone, never by hand', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', { id: '123', affinity: { score: 12, reason: 'kind words', history: [] } });
+  store.profiles.set('123', { id: '123', affinity: { score: 12, reason: 'kind words', history: [] } });
 
   // a score in the arguments (an old caller) reaches no write: the view, the score as it was
   const result = await admin.run(
     'memory.affinity.read',
     { userId: '123', score: 77, reason: 'by hand' },
-    { guildId: 'g1' }
+    { placeId: 'g1' }
   );
   assert.ok(result.includes('score: 12'), result);
   assert.equal(userOf(store, '123').affinity.score, 12);
@@ -1118,29 +1122,29 @@ test('memory.affinity / alias.add / alias.remove: a member with no profile is re
   };
 
   await assert.rejects(
-    () => admin.run('memory.affinity.read', { userId: '555', score: 10 }, { guildId: 'g1' }),
+    () => admin.run('memory.affinity.read', { userId: '555', score: 10 }, { placeId: 'g1' }),
     /^Error: no profile for 555$/
   );
   await assert.rejects(
-    () => admin.run('alias.add', { userId: '555', name: 'Ari' }, { guildId: 'g1' }),
+    () => admin.run('alias.add', { userId: '555', name: 'Ari' }, { placeId: 'g1' }),
     /^Error: no profile for 555$/
   );
   await assert.rejects(
-    () => admin.run('alias.remove', { userId: '555', name: 'Ari' }, { guildId: 'g1' }),
+    () => admin.run('alias.remove', { userId: '555', name: 'Ari' }, { placeId: 'g1' }),
     /^Error: no profile for 555$/
   );
   assert.deepEqual(writes, []);
-  assert.equal(store.getUser('g1', '555'), null);
+  assert.equal(store.getUser(accountOf(store, '555')), null);
 });
 
-test('run: memory.affinity falls back to the single served guild when context.guildId is absent', async () => {
+test('run: memory.affinity is refused when the context names no place, whatever is served', async () => {
+  // The fallback to the single served guild pinned the home place the owner removed: the console names the one place.
   const rootDir = makeRoot();
-  const client = { guilds: { cache: new Map([['g1', { id: 'g1', name: 'The Server' }]]) } };
-  const { admin, store } = makeAdmin(rootDir, { client, getGuildId: () => 'g1' });
-  store.profiles.set('g1:123', { id: '123', affinity: { score: 5, reason: 'ok so far', history: [] } });
+  const { admin, store } = makeAdmin(rootDir);
+  store.profiles.set('123', { id: '123', affinity: { score: 5, reason: 'ok so far', history: [] } });
 
-  const result = await admin.run('memory.affinity.read', { userId: '123' }, {});
-  assert.ok(result.includes('score: 5'));
+  await assert.rejects(() => admin.run('memory.affinity.read', { userId: '123' }, {}), /no place resolved yet/);
+  assert.ok((await admin.run('memory.affinity.read', { userId: '123' }, { placeId: 'g1' })).includes('score: 5'));
 });
 
 // ---------------------------------------------------------------------------
@@ -1193,14 +1197,14 @@ function samplePrivate(overrides = {}) {
 test('run: private.show renders the private layer under the public name, with both scores', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', {
+  store.profiles.set('123', {
     id: '123',
     names: ['Zoé', 'old name'],
     affinity: { score: 50, reason: 'public reason', history: [] },
   });
-  store.privates.set('g1:123', samplePrivate());
+  store.privates.set('123', samplePrivate());
 
-  const result = await admin.run('memory.private.read', { action: 'show', userId: '123' }, { guildId: 'g1' });
+  const result = await admin.run('memory.private.read', { action: 'show', userId: '123' }, { placeId: 'g1' });
 
   assert.match(result.split('\n')[0], /Zoé/);
   assert.match(result, /trusts the persona with plans/);
@@ -1219,50 +1223,45 @@ test('run: private.show renders the private layer under the public name, with bo
 test('run: private.show clamps the effective score for an owner', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:42', { id: '42', names: ['Owner'], affinity: { score: 90, reason: '', history: [] } });
-  store.privates.set('g1:42', samplePrivate({ affinity: { score: 30, reason: '', history: [] } }));
+  store.profiles.set('42', { id: '42', names: ['Owner'], affinity: { score: 90, reason: '', history: [] } });
+  store.privates.set('42', samplePrivate({ affinity: { score: 30, reason: '', history: [] } }));
 
-  const result = await admin.run('memory.private.read', { action: 'show', userId: '42' }, { guildId: 'g1' });
+  const result = await admin.run('memory.private.read', { action: 'show', userId: '42' }, { placeId: 'g1' });
 
   assert.match(result, /effective affinity: 100\b/);
 });
 
-test('run: private.show needs a user and a resolved guild', async () => {
+test('run: private.show needs a user', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
   await assert.rejects(
-    () => admin.run('memory.private.read', { action: 'show' }, { guildId: 'g1' }),
+    () => admin.run('memory.private.read', { action: 'show' }, { placeId: 'g1' }),
     /a user is required/
   );
-
-  const { admin: unresolved } = makeAdmin(rootDir, { getGuildId: () => null });
-  await assert.rejects(
-    () => unresolved.run('memory.private.read', { action: 'show', userId: '123' }, {}),
-    /no guild resolved yet/
-  );
+  // The half that wanted a resolved guild is gone with the guild: a private layer is read by person.
 });
 
 test('run: memory.show never shows the private layer', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', {
+  store.profiles.set('123', {
     id: '123',
     names: ['Zoé'],
     relationship: 'public text',
     affinity: { score: 50, reason: '', history: [] },
   });
-  store.privates.set('g1:123', samplePrivate());
+  store.privates.set('123', samplePrivate());
 
-  const summary = await admin.run('memory.profile.read', { userId: '123' }, { guildId: 'g1' });
-  const raw = await admin.run('memory.profile.read', { userId: '123', section: 'raw' }, { guildId: 'g1' });
+  const summary = await admin.run('memory.profile.read', { userId: '123' }, { placeId: 'g1' });
+  const raw = await admin.run('memory.profile.read', { userId: '123', section: 'raw' }, { placeId: 'g1' });
   for (const text of [summary, raw]) {
     assert.ok(!text.includes('trusts the persona with plans'));
     assert.ok(!text.includes('astronomy'));
   }
 });
 
-function clientWithGuild(guildId: string, name: string) {
-  return { guilds: { cache: new Map([[guildId, { id: guildId, name }]]) } };
+function clientWithGuild(placeId: string, name: string) {
+  return { guilds: { cache: new Map([[placeId, { id: placeId, name }]]) } };
 }
 
 // The following memory.show tests exercise `section: 'raw'` (see
@@ -1272,14 +1271,14 @@ function clientWithGuild(guildId: string, name: string) {
 test('run: memory.show section:raw also prints the stored episodes (date, weight, what, quote)', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', {
+  store.profiles.set('123', {
     id: '123',
     episodes: [
       { date: '2026-01-01', what: 'promised to help', quote: 'I got you', feeling: 'touched', weight: 4, addedAt: 'x' },
     ],
   });
 
-  const result = await admin.run('memory.profile.read', { userId: '123', section: 'raw' }, { guildId: 'g1' });
+  const result = await admin.run('memory.profile.read', { userId: '123', section: 'raw' }, { placeId: 'g1' });
 
   assert.ok(result.includes('episodes:'));
   assert.ok(result.includes('2026-01-01'));
@@ -1299,7 +1298,7 @@ test('run: memory.show section:raw lists every stored interest in rank order and
     firstSeen: 'a',
     lastSeen: '2026-09-20T00:00:00.000Z',
   }));
-  store.profiles.set('g1:123', {
+  store.profiles.set('123', {
     id: '123',
     interests: [
       { topic: 'Ancient favorite', note: '', weight: 10, firstSeen: 'a', lastSeen: '2021-01-01T00:00:00.000Z' },
@@ -1307,7 +1306,7 @@ test('run: memory.show section:raw lists every stored interest in rank order and
     ],
   });
 
-  const result = await admin.run('memory.profile.read', { userId: '123', section: 'raw' }, { guildId: 'g1' });
+  const result = await admin.run('memory.profile.read', { userId: '123', section: 'raw' }, { placeId: 'g1' });
   assert.ok(result.includes('Fresh interest'), 'both stored interests are listed');
   assert.ok(result.includes('Ancient favorite'));
   const lines = result.split('\n');
@@ -1328,7 +1327,7 @@ test('run: memory.show section:raw lists every stored interest in rank order and
 test('run: memory.show order:recent sorts a list section newest lastSeen first, no divider', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', {
+  store.profiles.set('123', {
     id: '123',
     interests: [
       { topic: 'Old', note: '', weight: 5, firstSeen: 'a', lastSeen: '2020-01-01T00:00:00.000Z' },
@@ -1339,7 +1338,7 @@ test('run: memory.show order:recent sorts a list section newest lastSeen first, 
   const result = await admin.run(
     'memory.profile.read',
     { userId: '123', section: 'interests', order: 'recent' },
-    { guildId: 'g1' }
+    { placeId: 'g1' }
   );
   const lines = result.split('\n');
   assert.ok(lines[0].startsWith('New'), 'the newer lastSeen sorts first under order:recent');
@@ -1350,7 +1349,7 @@ test('run: memory.show order:recent sorts a list section newest lastSeen first, 
 test('run: memory.show respects a custom limit, capping a list section', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', {
+  store.profiles.set('123', {
     id: '123',
     interests: Array.from({ length: 5 }, (_, i) => ({
       topic: `T${i}`,
@@ -1364,7 +1363,7 @@ test('run: memory.show respects a custom limit, capping a list section', async (
   const result = await admin.run(
     'memory.profile.read',
     { userId: '123', section: 'interests', limit: 2 },
-    { guildId: 'g1' }
+    { placeId: 'g1' }
   );
   assert.equal(result.split('\n').length, 2);
 });
@@ -1375,9 +1374,10 @@ test('run: memory.show respects a custom limit, capping a list section', async (
 // ---------------------------------------------------------------------------
 
 // The real store hands its records back as plain objects; these read their fields through Untyped.
-const userOf = (store: { getUser: (guildId: string, userId: string) => object | null }, userId: string): Untyped =>
-  store.getUser('g1', userId);
-const guildOf = (store: { getGuild: (guildId: string) => object }): Untyped => store.getGuild('g1');
+const userOf = (store: { getUser: (userId: string) => object | null }, userId: string): Untyped =>
+  store.getUser(accountOf(store, userId));
+const guildOf = (store: { getPlace: (placeId: string) => object }): Untyped =>
+  store.getPlace(placeOfCommunity(store, 'g1'));
 
 function makeRealStoreAdmin(rootDir: string, extra: AdminExtra = {}) {
   const dataDir = tempDir('nep-admin-alias-');
@@ -1392,9 +1392,9 @@ test('run: alias.add creates a new alias already confirmed, firstSeen == lastSee
   const rootDir = makeRoot();
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
-    store.touchUser('g1', '123', 'Bob', Date.now());
+    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
     const before = Date.now();
-    await admin.run('alias.add', { userId: '123', name: 'Ari' }, { guildId: 'g1' });
+    await admin.run('alias.add', { userId: '123', name: 'Ari' }, { placeId: 'g1' });
     const after = Date.now();
 
     const alias = userOf(store, '123').aliases.find((a: Untyped) => a.name === 'Ari');
@@ -1412,11 +1412,11 @@ test('run: alias.add is idempotent -- a second call does not keep bumping the we
   const rootDir = makeRoot();
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
-    store.touchUser('g1', '123', 'Bob', Date.now());
-    await admin.run('alias.add', { userId: '123', name: 'Ari' }, { guildId: 'g1' });
+    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
+    await admin.run('alias.add', { userId: '123', name: 'Ari' }, { placeId: 'g1' });
     const weightAfterFirst = userOf(store, '123').aliases.find((a: Untyped) => a.name === 'Ari').weight;
 
-    await admin.run('alias.add', { userId: '123', name: 'Ari' }, { guildId: 'g1' });
+    await admin.run('alias.add', { userId: '123', name: 'Ari' }, { placeId: 'g1' });
     const weightAfterSecond = userOf(store, '123').aliases.find((a: Untyped) => a.name === 'Ari').weight;
 
     assert.equal(weightAfterSecond, weightAfterFirst, 'already-confirmed alias is left alone by a repeat add');
@@ -1429,19 +1429,19 @@ test('run: alias.add leaves the 40-character clamp to the store, boundary-safe, 
   const rootDir = makeRoot();
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
-    store.touchUser('g1', '123', 'Bob', Date.now());
+    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
     const longName = 'x'.repeat(60);
-    await admin.run('alias.add', { userId: '123', name: longName }, { guildId: 'g1' });
+    await admin.run('alias.add', { userId: '123', name: longName }, { placeId: 'g1' });
     const [alias] = userOf(store, '123').aliases;
     assert.equal(alias.name.length, 40);
     assert.equal(alias.name, 'x'.repeat(40));
     const weight = alias.weight;
-    await admin.run('alias.add', { userId: '123', name: longName }, { guildId: 'g1' });
+    await admin.run('alias.add', { userId: '123', name: longName }, { placeId: 'g1' });
     assert.equal(userOf(store, '123').aliases[0].weight, weight, 'a repeat add of the long name is left alone');
 
     // 39 letters, then a mathematical Greek omega (two UTF-16 units) right at the 40th position.
     const astral = `${'y'.repeat(39)}\u{1D6C0}tail`;
-    await admin.run('alias.add', { userId: '123', name: astral }, { guildId: 'g1' });
+    await admin.run('alias.add', { userId: '123', name: astral }, { placeId: 'g1' });
     const stored = userOf(store, '123').aliases.find((a: Untyped) => a.name.startsWith('y'));
     assert.ok(stored, 'the long name was stored');
     assert.ok(!/[\uD800-\uDBFF]$/.test(stored.name), 'never cut inside a surrogate pair');
@@ -1454,8 +1454,8 @@ test("run: alias.add ignores a name equal, case-insensitively, to one of the mem
   const rootDir = makeRoot();
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
-    store.touchUser('g1', '123', 'Bob', Date.now());
-    const result = await admin.run('alias.add', { userId: '123', name: 'bob' }, { guildId: 'g1' });
+    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
+    const result = await admin.run('alias.add', { userId: '123', name: 'bob' }, { placeId: 'g1' });
     assert.deepEqual(userOf(store, '123').aliases, []);
     assert.equal(result, '(none)');
   } finally {
@@ -1467,9 +1467,9 @@ test('run: alias.remove removes an alias case-insensitively and reports the resu
   const rootDir = makeRoot();
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
-    store.touchUser('g1', '123', 'Bob', Date.now());
-    await admin.run('alias.add', { userId: '123', name: 'Ari' }, { guildId: 'g1' });
-    const result = await admin.run('alias.remove', { userId: '123', name: 'ARI' }, { guildId: 'g1' });
+    store.touchUser(accountOf(store, '123'), 'Bob', Date.now());
+    await admin.run('alias.add', { userId: '123', name: 'Ari' }, { placeId: 'g1' });
+    const result = await admin.run('alias.remove', { userId: '123', name: 'ARI' }, { placeId: 'g1' });
 
     assert.deepEqual(userOf(store, '123').aliases, []);
     assert.equal(result, '(none)');
@@ -1485,11 +1485,11 @@ test('run: alias.add/alias.remove are refused while paused', async () => {
   await admin.run('bot.pause', {}, {});
 
   await assert.rejects(
-    () => admin.run('alias.add', { userId: '123', name: 'Ari' }, { guildId: 'g1' }),
+    () => admin.run('alias.add', { userId: '123', name: 'Ari' }, { placeId: 'g1' }),
     /paused.*resume/i
   );
   await assert.rejects(
-    () => admin.run('alias.remove', { userId: '123', name: 'Ari' }, { guildId: 'g1' }),
+    () => admin.run('alias.remove', { userId: '123', name: 'Ari' }, { placeId: 'g1' }),
     /paused.*resume/i
   );
 });
@@ -1507,7 +1507,7 @@ test('run: learned.add stores a new item without from, confirmed at once, firstS
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
     const before = Date.now();
-    await admin.run('learning.add', { text: '  ο φάρος ανάβει στις εννιά  ' }, { guildId: 'g1' });
+    await admin.run('learning.add', { text: '  ο φάρος ανάβει στις εννιά  ' }, { placeId: 'g1' });
     const after = Date.now();
     const learned = guildOf(store).learned;
     assert.equal(learned.length, 1);
@@ -1527,8 +1527,8 @@ test('run: learned.add confirms an existing unconfirmed item in place (same id a
   const rootDir = makeRoot();
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
-    store.applyLearnedOps('g1', { add: ['Ο Φάρος'] }, { seenAt: LEARNED_DAY('2026-09-01') });
-    await admin.run('learning.add', { text: 'ο φάρος' }, { guildId: 'g1' });
+    store.applyLearnedOps(placeOfCommunity(store, 'g1'), { add: ['Ο Φάρος'] }, { seenAt: LEARNED_DAY('2026-09-01') });
+    await admin.run('learning.add', { text: 'ο φάρος' }, { placeId: 'g1' });
     const learned = guildOf(store).learned;
     assert.equal(learned.length, 1);
     assert.equal(learned[0].id, 1);
@@ -1544,16 +1544,24 @@ test('run: a repeat learned.add of a confirmed item is one ordinary sighting, ne
   const rootDir = makeRoot();
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
-    store.applyLearnedOps('g1', { add: ['première'] }, { ...MEMORY_LIMITS, seenAt: LEARNED_DAY('2026-09-01') });
-    store.applyLearnedOps('g1', { add: ['première'] }, { ...MEMORY_LIMITS, seenAt: LEARNED_DAY('2026-09-02') });
+    store.applyLearnedOps(
+      placeOfCommunity(store, 'g1'),
+      { add: ['première'] },
+      { ...MEMORY_LIMITS, seenAt: LEARNED_DAY('2026-09-01') }
+    );
+    store.applyLearnedOps(
+      placeOfCommunity(store, 'g1'),
+      { add: ['première'] },
+      { ...MEMORY_LIMITS, seenAt: LEARNED_DAY('2026-09-02') }
+    );
     assert.equal(guildOf(store).learned[0].weight, 2);
 
     // Past confirmGapHours a sighting bumps by exactly one, and so does the repeat.
-    await admin.run('learning.add', { text: 'Première' }, { guildId: 'g1' });
+    await admin.run('learning.add', { text: 'Première' }, { placeId: 'g1' });
     assert.equal(guildOf(store).learned[0].weight, 3);
 
     // Within confirmGapHours: a sighting would not bump it, so neither does the repeat.
-    await admin.run('learning.add', { text: 'première' }, { guildId: 'g1' });
+    await admin.run('learning.add', { text: 'première' }, { placeId: 'g1' });
     const learned = guildOf(store).learned;
     assert.equal(learned.length, 1);
     assert.equal(learned[0].weight, 3);
@@ -1566,8 +1574,12 @@ test('run: learned.remove deletes the item by id and reports it', async () => {
   const rootDir = makeRoot();
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
-    store.applyLearnedOps('g1', { add: ['première', 'δεύτερο'] }, { seenAt: LEARNED_DAY('2026-09-01') });
-    const result = await admin.run('learning.remove', { id: 1 }, { guildId: 'g1' });
+    store.applyLearnedOps(
+      placeOfCommunity(store, 'g1'),
+      { add: ['première', 'δεύτερο'] },
+      { seenAt: LEARNED_DAY('2026-09-01') }
+    );
+    const result = await admin.run('learning.remove', { id: 1 }, { placeId: 'g1' });
     assert.deepEqual(
       guildOf(store).learned.map((i: Untyped) => i.id),
       [2]
@@ -1585,8 +1597,8 @@ test('run: learned.add/learned.remove are refused while paused', async () => {
 
   await admin.run('bot.pause', {}, {});
 
-  await assert.rejects(() => admin.run('learning.add', { text: 'première' }, { guildId: 'g1' }), /paused.*resume/i);
-  await assert.rejects(() => admin.run('learning.remove', { id: 1 }, { guildId: 'g1' }), /paused.*resume/i);
+  await assert.rejects(() => admin.run('learning.add', { text: 'première' }, { placeId: 'g1' }), /paused.*resume/i);
+  await assert.rejects(() => admin.run('learning.remove', { id: 1 }, { placeId: 'g1' }), /paused.*resume/i);
 });
 
 // ---------------------------------------------------------------------------
@@ -1600,11 +1612,11 @@ test('run: lore.add saves an owner entry, splitting comma-separated keys', async
   const result = await admin.run(
     'lore.add',
     { title: 'Founders Day', keys: ' founders , founding day ', text: 'The server was founded then.' },
-    { guildId: 'g1' }
+    { placeId: 'g1' }
   );
 
   assert.ok(result.includes('Founders Day'));
-  const [entry] = store.getLore('g1');
+  const [entry] = store.getLore(placeOfCommunity(store, 'g1'));
   assert.equal(entry.title, 'Founders Day');
   assert.deepEqual(entry.keys, ['founders', 'founding day']);
   assert.equal(entry.source, 'owner');
@@ -1613,7 +1625,7 @@ test('run: lore.add saves an owner entry, splitting comma-separated keys', async
 test('run: lore.add overwrites an existing analyzer entry and it becomes an owner entry', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.setLore('g1', [{ title: 'Founders Day', keys: ['founders'], text: 'analyzer text' }], {
+  store.setLore(placeOfCommunity(store, 'g1'), [{ title: 'Founders Day', keys: ['founders'], text: 'analyzer text' }], {
     source: 'analyzer',
     now: 1000,
   });
@@ -1621,10 +1633,10 @@ test('run: lore.add overwrites an existing analyzer entry and it becomes an owne
   await admin.run(
     'lore.add',
     { title: 'Founders Day', keys: 'founders', text: 'owner text', always: true },
-    { guildId: 'g1' }
+    { placeId: 'g1' }
   );
 
-  const [entry] = store.getLore('g1');
+  const [entry] = store.getLore(placeOfCommunity(store, 'g1'));
   assert.equal(entry.text, 'owner text');
   assert.equal(entry.source, 'owner');
   assert.equal(entry.always, true);
@@ -1633,15 +1645,15 @@ test('run: lore.add overwrites an existing analyzer entry and it becomes an owne
 test('run: lore.remove deletes an entry by id and reports its title', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.setLore('g1', [{ title: 'The Flood', keys: ['flood'], text: 'It flooded.' }], {
+  store.setLore(placeOfCommunity(store, 'g1'), [{ title: 'The Flood', keys: ['flood'], text: 'It flooded.' }], {
     source: 'analyzer',
     now: 1000,
   });
-  const [{ id }] = store.getLore('g1');
+  const [{ id }] = store.getLore(placeOfCommunity(store, 'g1'));
 
-  const result = await admin.run('lore.remove', { id }, { guildId: 'g1' });
+  const result = await admin.run('lore.remove', { id }, { placeId: 'g1' });
   assert.ok(result.includes('The Flood'));
-  assert.deepEqual(store.getLore('g1'), []);
+  assert.deepEqual(store.getLore(placeOfCommunity(store, 'g1')), []);
 });
 
 // ---------------------------------------------------------------------------
@@ -1954,17 +1966,17 @@ test('status: the memory field shows the coverage of every kind of memory, compu
   };
   const coverageAsked: Array<Untyped> = [];
   const embedQueue = {
-    async indexSummary() {
-      return { rows: 1234, missing: 5 };
+    indexSummary() {
+      return Promise.resolve({ rows: 1234, missing: 5 });
     },
-    async coverage(guildId: string, options: Untyped) {
-      coverageAsked.push([guildId, options.hours]);
+    async coverage(placeId: string, options: Untyped) {
+      coverageAsked.push([placeId, options.hours]);
       return { messages: 200, indexed: 150, missing: 50, oldestMissing: '2026-10-12T08:00:00.000Z' as string | null };
     },
   };
   const { admin, store } = makeAdmin(rootDir, { record, archive, embedQueue, now });
   // PR 7d: the index switches are code and `embed.catchUpHours` is the constant 72.
-  store.profiles.set('g1:u1', {
+  store.profiles.set('u1', {
     id: 'u1',
     character: 'Ήσυχη και αστεία',
     episodes: [{}, {}, {}],
@@ -1972,8 +1984,8 @@ test('status: the memory field shows the coverage of every kind of memory, compu
     aliases: [{}],
     realName: { name: 'Éloïse' },
   });
-  store.profiles.set('g1:u2', { id: 'u2', character: '', episodes: [{}], details: [], aliases: [] });
-  store.profiles.set('g1:u3', { id: 'u3', character: 'Ζωηρός', episodes: [], details: [], aliases: [] });
+  store.profiles.set('u2', { id: 'u2', character: '', episodes: [{}], details: [], aliases: [] });
+  store.profiles.set('u3', { id: 'u3', character: 'Ζωηρός', episodes: [], details: [], aliases: [] });
   store.lore.set('g1', [{ id: 1 }, { id: 2 }]);
   store.guilds.set('g1', {
     patterns: '',
@@ -2016,7 +2028,7 @@ test('status: the memory field shows the coverage of every kind of memory, compu
   assert.deepEqual(coverageAsked, [['g1', 72]]);
 
   // Within the minute the cached field is shown, whatever changed.
-  store.profiles.set('g1:u4', { id: 'u4', character: 'Νέος', episodes: [], details: [], aliases: [] });
+  store.profiles.set('u4', { id: 'u4', character: 'Νέος', episodes: [], details: [], aliases: [] });
   now.advance(30_000);
   assert.equal((await memoryLines())[3].split(' · ')[0], 'profiles: 3', 'cached');
   assert.equal(coverageAsked.length, 1, 'no second coverage read');
@@ -2067,8 +2079,8 @@ test("status: the speed field ends with today's missed-answer figures from the j
   const journal = {
     dayFile: () => path.join(rootDir, 'no-day.jsonl'),
     stalled: () => false,
-    read: async (guildId: string, query: Untyped) => {
-      asked.push([guildId, query]);
+    read: async (placeId: string, query: Untyped) => {
+      asked.push([placeId, query]);
       return [
         { kind: 'answer', event: 'fact', reason: 'gate-failed', messageId: 'm1' },
         { kind: 'answer', event: 'fact', reason: 'turn-error', messageId: 'm2' },
@@ -2086,6 +2098,33 @@ test("status: the speed field ends with today's missed-answer figures from the j
 });
 
 // PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
+test('status: the card reads every top place, never only the first', async () => {
+  // Bug: a second server's memory and missed answers are invisible on the owner's card.
+  const rootDir = makeRoot();
+  const store = makeStore();
+  store.topPlaces = () => ['g1', 'g2'];
+  store.guilds.set('g1', { name: 'One', injokes: [], self: [], learned: [] });
+  store.guilds.set('g2', { name: 'Two', injokes: [], self: [], learned: [] });
+  store.channels.set('g1:c1', { id: 'c1', purpose: 'chat' });
+  store.channels.set('g2:c8', { id: 'c8', purpose: '' });
+  store.channels.set('g2:c9', { id: 'c9', purpose: '' });
+  const asked: Array<unknown> = [];
+  const journal = {
+    ...fakeJournal(),
+    read: async (placeId: string) => {
+      asked.push(placeId);
+      return [];
+    },
+  };
+  const { admin } = makeAdmin(rootDir, { store, journal });
+  const card = (await admin.run('status.show', {}, { userId: '42' })).fields;
+  const memory = card.find((f: Field) => f.name === 'memory').value;
+
+  assert.match(memory, /One\n[\s\S]*channels: 1 with notes \/ 1 seen/);
+  assert.match(memory, /Two\n[\s\S]*channels: 0 with notes \/ 2 seen/);
+  assert.deepEqual(asked, ['g1', 'g2']);
+});
+
 test('status: the storage line flags a journal that stopped writing while turns happen', async () => {
   const rootDir = makeRoot();
   let lastWriteMs: number | null = null;
@@ -2470,7 +2509,7 @@ test('run: message create gives the persona a turn in the context channel, the o
   world().channel({ id: 'c1' });
   const { admin } = makeAdmin(rootDir, { spontaneous });
 
-  const result = await admin.run('message.create', {}, { channelId: 'c1', userId: '42', roleIds: ['r1'] });
+  const result = await admin.run('message.create', {}, { conversationId: 'c1', userId: '42', roleIds: ['r1'] });
 
   // No mode: the turn reads the channel and joins it or starts a topic itself.
   assert.deepEqual(spontaneous.calls, [['c1', null, { requester: { id: '42', roleIds: ['r1'] } }]]);
@@ -2484,7 +2523,7 @@ test('run: message create uses the channel argument when given, overriding the c
   const { admin } = makeAdmin(rootDir, { spontaneous });
 
   // The mode is the server's: a person always gets her turn, whatever text the arguments carry.
-  await admin.run('message.create', { channelId: 'other', text: 'Σ' }, { channelId: 'c1' });
+  await admin.run('message.create', { placeId: 'other', text: 'Σ' }, { conversationId: 'c1' });
 
   assert.deepEqual(spontaneous.calls, [['other', null, { requester: null }]]);
 });
@@ -2568,9 +2607,9 @@ test('/nep pause: no timer-driven writer (store.flush) writes memory while pause
       },
     };
     const realStore = createStore({ dataDir: mem.dataDir, memoryDb });
-    const guildId = 'g1';
-    realStore.touchUser(guildId, 'u1', 'Alice', 1000);
-    realStore.updateGuild(guildId, { patterns: 'x' });
+    const placeId = 'g1';
+    realStore.touchUser(accountOf(realStore, 'u1'), 'Alice', 1000);
+    realStore.updatePlace(placeOfCommunity(realStore, placeId), { patterns: 'x' });
     realStore.flush();
     await realStore.flushSettled({});
     const before = writes.length;
@@ -2619,30 +2658,31 @@ test('run: resume starts a catch-up pass of the meaning index for the guild; pau
   const rootDir = makeRoot();
   const passes: Array<Untyped> = [];
   const embedQueue = {
-    catchUp: async (guildId: string) => {
-      passes.push(guildId);
+    catchUp: async (placeId: string) => {
+      passes.push(placeId);
       return null;
     },
   };
   const { admin, store } = makeAdmin(rootDir, { embedQueue });
-  await admin.run('bot.pause', {}, { guildId: 'g1' });
+  await admin.run('bot.pause', {}, { placeId: 'g1' });
   store.validateResult = ['guilds/g1/users/u1.json'];
-  await admin.run('bot.resume', {}, { guildId: 'g1' });
+  await admin.run('bot.resume', {}, { placeId: 'g1' });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(passes, [], 'still paused: no pass');
   store.validateResult = [];
-  assert.equal(await admin.run('bot.resume', {}, { guildId: 'g1' }), 'Resumed.');
+  assert.equal(await admin.run('bot.resume', {}, { placeId: 'g1' }), 'Resumed.');
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(passes, ['g1']);
+  // The pass names no place: every place that holds a record.
+  assert.deepEqual(passes, [undefined]);
 });
 
 test('run: every command that writes data/ is refused while paused, with a hint to resume', async () => {
   const rootDir = makeRoot();
   const client = clientWithGuild('g1', 'The Server');
   const { admin, store } = makeAdmin(rootDir, { client });
-  store.profiles.set('g1:123', { id: '123', character: 'chatty' });
-  store.setLore('g1', [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
-  const [{ id: loreId }] = store.getLore('g1');
+  store.profiles.set('123', { id: '123', character: 'chatty' });
+  store.setLore(placeOfCommunity(store, 'g1'), [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
+  const [{ id: loreId }] = store.getLore(placeOfCommunity(store, 'g1'));
 
   await admin.run('bot.pause', {}, {});
 
@@ -2653,7 +2693,7 @@ test('run: every command that writes data/ is refused while paused, with a hint 
   ];
   for (const [key, args] of attempts) {
     await assert.rejects(
-      () => admin.run(key, args, { guildId: 'g1', channelId: 'c1' }),
+      () => admin.run(key, args, { placeId: 'g1', conversationId: 'c1' }),
       /paused.*resume/i,
       `${key} must be refused while paused`
     );
@@ -2664,15 +2704,15 @@ test('run: read-only and config commands keep working while paused', async () =>
   const rootDir = makeRoot();
   const client = clientWithGuild('g1', 'The Server');
   const { admin, store } = makeAdmin(rootDir, { client });
-  store.profiles.set('g1:123', { id: '123', character: 'chatty' });
-  store.setLore('g1', [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
+  store.profiles.set('123', { id: '123', character: 'chatty' });
+  store.setLore(placeOfCommunity(store, 'g1'), [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
 
   await admin.run('bot.pause', {}, {});
 
   await assert.doesNotReject(() => admin.run('status.show', {}, {}));
-  await assert.doesNotReject(() => admin.run('memory.profile.read', { userId: '123' }, { guildId: 'g1' }));
-  await assert.doesNotReject(() => admin.run('memory.affinity.read', { userId: '123' }, { guildId: 'g1' }));
-  await assert.doesNotReject(() => admin.run('lore.list', {}, { guildId: 'g1' }));
+  await assert.doesNotReject(() => admin.run('memory.profile.read', { userId: '123' }, { placeId: 'g1' }));
+  await assert.doesNotReject(() => admin.run('memory.affinity.read', { userId: '123' }, { placeId: 'g1' }));
+  await assert.doesNotReject(() => admin.run('lore.list', {}, { placeId: 'g1' }));
   await assert.doesNotReject(() => admin.run('model.show', {}, {}));
   await assert.doesNotReject(() => admin.run('rule.list', {}, {}));
   await assert.doesNotReject(() => admin.run('config.set', { path: 'models.base.core', value: '"x/y"' }, {}));
@@ -2683,23 +2723,23 @@ test('run: read-only and config commands keep working while paused', async () =>
 test('run: memory.show/lore.list/lore.show drop caches first while paused, so a hand-edit is always seen', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('g1:123', { id: '123', character: 'chatty' });
-  store.setLore('g1', [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
-  const [{ id: loreId }] = store.getLore('g1');
+  store.profiles.set('123', { id: '123', character: 'chatty' });
+  store.setLore(placeOfCommunity(store, 'g1'), [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
+  const [{ id: loreId }] = store.getLore(placeOfCommunity(store, 'g1'));
 
   await admin.run('bot.pause', {}, {});
   const dropsAfterPause = store.dropCachesCalls;
 
-  await admin.run('memory.profile.read', { userId: '123' }, { guildId: 'g1' });
+  await admin.run('memory.profile.read', { userId: '123' }, { placeId: 'g1' });
   assert.equal(store.dropCachesCalls, dropsAfterPause + 1);
 
-  await admin.run('lore.list', {}, { guildId: 'g1' });
+  await admin.run('lore.list', {}, { placeId: 'g1' });
   assert.equal(store.dropCachesCalls, dropsAfterPause + 2);
 
-  await admin.run('lore.show', { id: loreId }, { guildId: 'g1' });
+  await admin.run('lore.show', { id: loreId }, { placeId: 'g1' });
   assert.equal(store.dropCachesCalls, dropsAfterPause + 3);
 
-  await admin.run('memory.affinity.read', { userId: '123' }, { guildId: 'g1' });
+  await admin.run('memory.affinity.read', { userId: '123' }, { placeId: 'g1' });
   assert.equal(store.dropCachesCalls, dropsAfterPause + 4);
 });
 
@@ -2777,7 +2817,7 @@ test('run: draw builds the prompt as a turn does and answers with the picture as
   const imageFetcher = fakeImageFetcher();
   const { admin } = makeAdmin(rootDir, { hot, images, imageFetcher, client: drawClient() });
 
-  const result = await admin.run('draw.create', { text: 'a lighthouse at dusk', self: false }, { guildId: 'g1' });
+  const result = await admin.run('draw.create', { text: 'a lighthouse at dusk', self: false }, { placeId: 'g1' });
 
   assert.equal(images.calls.length, 1);
   assert.deepEqual(images.calls[0], {
@@ -2808,7 +2848,7 @@ test('run: draw clamps the request to image.maxPromptChars before building the p
   const images = fakeImages();
   const { admin } = makeAdmin(rootDir, { hot, images, client: drawClient() });
 
-  await admin.run('draw.create', { text: 'άλφαβήτα', self: false }, { guildId: 'g1' });
+  await admin.run('draw.create', { text: 'άλφαβήτα', self: false }, { placeId: 'g1' });
 
   assert.equal(
     images.calls[0].prompt,
@@ -2824,7 +2864,7 @@ test('run: draw with self adds the appearance and sends the avatar as the refere
   const client = drawClient();
   const { admin } = makeAdmin(rootDir, { hot, images, imageFetcher, client });
 
-  await admin.run('draw.create', { text: 'at the beach', self: true }, { guildId: 'g1' });
+  await admin.run('draw.create', { text: 'at the beach', self: true }, { placeId: 'g1' });
 
   assert.deepEqual(imageFetcher.calls, [
     { url: 'https://cdn.example/avatar.png', opts: { maxBytes: 4000000, timeoutMs: 7000 } },
@@ -2845,7 +2885,7 @@ test('run: draw with self but image.reference none sends no reference', async ()
   const imageFetcher = fakeImageFetcher();
   const { admin } = makeAdmin(rootDir, { hot, images, imageFetcher, client: drawClient() });
 
-  await admin.run('draw.create', { text: 'at the beach', self: true }, { guildId: 'g1' });
+  await admin.run('draw.create', { text: 'at the beach', self: true }, { placeId: 'g1' });
 
   assert.equal(imageFetcher.calls.length, 0);
   assert.equal(images.calls[0].reference, null);
@@ -2859,7 +2899,7 @@ test('run: draw still generates when the avatar cannot be fetched, and says so',
   const imageFetcher = fakeImageFetcher(null);
   const { admin } = makeAdmin(rootDir, { hot, images, imageFetcher, client: drawClient() });
 
-  const result = await admin.run('draw.create', { text: 'at the beach', self: true }, { guildId: 'g1' });
+  const result = await admin.run('draw.create', { text: 'at the beach', self: true }, { placeId: 'g1' });
 
   assert.equal(images.calls.length, 1);
   assert.equal(images.calls[0].reference, null);
@@ -2873,7 +2913,7 @@ test('run: draw with an unsupported image model is a not-configured refusal with
   const { admin } = makeAdmin(rootDir, { hot, images, client: drawClient() });
 
   await assert.rejects(
-    () => admin.run('draw.create', { text: 'a cat' }, { guildId: 'g1' }),
+    () => admin.run('draw.create', { text: 'a cat' }, { placeId: 'g1' }),
     (err: Error & { code?: string }) =>
       err.code === 'not-configured' && /someone\/else-model/.test(err.message) && /unsupported/.test(err.message)
   );
@@ -2890,7 +2930,7 @@ test('run: draw reports a failed generation with its reason and HTTP status', as
   const { admin } = makeAdmin(rootDir, { hot, images: fakeImages({ error }), client: drawClient() });
 
   await assert.rejects(
-    () => admin.run('draw.create', { text: 'a cat' }, { guildId: 'g1' }),
+    () => admin.run('draw.create', { text: 'a cat' }, { placeId: 'g1' }),
     (err: Error) => /moderation/.test(err.message) && /400/.test(err.message) && !err.message.includes('provider text')
   );
 });
@@ -2901,7 +2941,7 @@ test('run: draw is refused while paused', async () => {
   const { admin } = makeAdmin(rootDir, { hot: hotForDraw(rootDir), images, client: drawClient() });
 
   await admin.run('bot.pause', {}, {});
-  await assert.rejects(() => admin.run('draw.create', { text: 'a cat' }, { guildId: 'g1' }), /paused/);
+  await assert.rejects(() => admin.run('draw.create', { text: 'a cat' }, { placeId: 'g1' }), /paused/);
   assert.equal(images.calls.length, 0);
 });
 
@@ -2943,8 +2983,8 @@ test('run: access.grant refuses private memory and access management (owner-only
 function fakeEmojiBackfill(result = { ok: true, channels: 3, messages: 120, emoji: 17 }, { running = false } = {}) {
   return {
     calls: [] as Array<Untyped>,
-    async run(guildId: string, opts: Untyped) {
-      this.calls.push([guildId, opts]);
+    async run(placeId: string, opts: Untyped) {
+      this.calls.push([placeId, opts]);
       return result;
     },
     isRunning: () => running,
@@ -2956,7 +2996,7 @@ test('run: emoji.rescan runs the backfill forced and replies with the counts', a
   const emojiBackfill = fakeEmojiBackfill();
   const { admin } = makeAdmin(rootDir, { emojiBackfill });
 
-  const body = await admin.run('media.rescan', { kind: 'emoji', action: 'rescan' }, { guildId: 'g1' });
+  const body = await admin.run('media.rescan', { kind: 'emoji', action: 'rescan' }, { placeId: 'g1' });
   assert.deepEqual(emojiBackfill.calls, [['g1', { force: true }]]);
   assert.equal(body, 'Emoji rescan done: 3 channels, 120 messages read, 17 emoji uses counted.');
 });
@@ -2967,14 +3007,14 @@ test('run: emoji.rescan is refused while paused and without the backfill', async
   const { admin } = makeAdmin(rootDir, { emojiBackfill });
   await admin.run('bot.pause', {}, {});
   await assert.rejects(
-    () => admin.run('media.rescan', { kind: 'emoji', action: 'rescan' }, { guildId: 'g1' }),
+    () => admin.run('media.rescan', { kind: 'emoji', action: 'rescan' }, { placeId: 'g1' }),
     /paused/
   );
   assert.equal(emojiBackfill.calls.length, 0);
 
   const { admin: bare } = makeAdmin(rootDir);
   assert.equal(
-    await bare.run('media.rescan', { kind: 'emoji', action: 'rescan' }, { guildId: 'g1' }),
+    await bare.run('media.rescan', { kind: 'emoji', action: 'rescan' }, { placeId: 'g1' }),
     'the emoji backfill is not available'
   );
 });
@@ -2989,8 +3029,8 @@ function fakeGifBackfill(
 ) {
   return {
     calls: [] as Array<Untyped>,
-    async run(guildId: string, opts: Untyped) {
-      this.calls.push([guildId, opts]);
+    async run(placeId: string, opts: Untyped) {
+      this.calls.push([placeId, opts]);
       return result;
     },
     isRunning: () => running,
@@ -3003,14 +3043,14 @@ test('run: gifs.rescan is refused while paused and without the backfill', async 
   const { admin } = makeAdmin(rootDir, { gifBackfill });
   await admin.run('bot.pause', {}, {});
   await assert.rejects(
-    () => admin.run('media.rescan', { kind: 'gifs', action: 'rescan' }, { guildId: 'g1' }),
+    () => admin.run('media.rescan', { kind: 'gifs', action: 'rescan' }, { placeId: 'g1' }),
     /paused/
   );
   assert.equal(gifBackfill.calls.length, 0);
 
   const { admin: bare } = makeAdmin(rootDir);
   assert.equal(
-    await bare.run('media.rescan', { kind: 'gifs', action: 'rescan' }, { guildId: 'g1' }),
+    await bare.run('media.rescan', { kind: 'gifs', action: 'rescan' }, { placeId: 'g1' }),
     'the GIF backfill is not available'
   );
 });
@@ -3045,7 +3085,7 @@ test('run: gifs.status counts the library by caption format: watched with fields
     'm3#e0': { text: 'a still', ts: 1, gif: true },
   });
   const { admin } = makeAdmin(rootDir, { store });
-  const out = await admin.run('media.status', { kind: 'gifs', action: 'status' }, { guildId: 'g1' });
+  const out = await admin.run('media.status', { kind: 'gifs', action: 'status' }, { placeId: 'g1' });
   assert.ok(
     out.includes('caption format: 1 watched with fields, 1 watched in the old format (to re-describe), 2 unwatched'),
     out
@@ -3059,8 +3099,8 @@ function fakeGifRecache(result = { ok: true, dropped: 4, queued: 50 }, { running
   return {
     calls: [] as Array<Untyped>,
     idleWaits: 0,
-    start(guildId: string) {
-      this.calls.push(guildId);
+    start(placeId: string) {
+      this.calls.push(placeId);
       return result;
     },
     isRunning: () => running,
@@ -3077,14 +3117,14 @@ test('run: gifs.recache is refused while paused and without the recache; pause w
   await admin.run('bot.pause', {}, {});
   assert.equal(gifRecache.idleWaits, 1, '/nep pause waits for the recache');
   await assert.rejects(
-    () => admin.run('media.recache', { kind: 'gifs', action: 'recache' }, { guildId: 'g1' }),
+    () => admin.run('media.recache', { kind: 'gifs', action: 'recache' }, { placeId: 'g1' }),
     /paused/
   );
   assert.equal(gifRecache.calls.length, 0);
 
   const { admin: bare } = makeAdmin(rootDir);
   assert.equal(
-    await bare.run('media.recache', { kind: 'gifs', action: 'recache' }, { guildId: 'g1' }),
+    await bare.run('media.recache', { kind: 'gifs', action: 'recache' }, { placeId: 'g1' }),
     'the GIF recache is not available'
   );
 });
@@ -3097,8 +3137,8 @@ function fakeMediaRecache(result: Untyped = { ok: true, picked: 12, days: 7 }) {
     start() {
       throw new Error('the GIF run is not asked for');
     },
-    startMedia(guildId: string, options: Untyped) {
-      this.calls.push({ guildId, options });
+    startMedia(placeId: string, options: Untyped) {
+      this.calls.push({ placeId, options });
       return typeof result === 'function' ? result(options) : result;
     },
     isRunning: () => false,
@@ -3111,10 +3151,10 @@ test('run: media pictures recache starts the media run with days (default 7) and
   const gifRecache = fakeMediaRecache((options: Untyped) => ({ ok: true, picked: 12, days: options.days }));
   const { admin } = makeAdmin(rootDir, { gifRecache });
 
-  const reply = await admin.run('media.recache', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' });
-  assert.deepEqual(gifRecache.calls[0], { guildId: 'g1', options: { days: 7 } });
+  const reply = await admin.run('media.recache', { kind: 'pictures', action: 'recache' }, { placeId: 'g1' });
+  assert.deepEqual(gifRecache.calls[0], { placeId: 'g1', options: { days: 7 } });
   assert.match(reply, /^Media recache started: 12 cached descriptions used in the last 7 days/);
-  await admin.run('media.recache', { kind: 'pictures', action: 'recache', days: 30 }, { guildId: 'g1' });
+  await admin.run('media.recache', { kind: 'pictures', action: 'recache', days: 30 }, { placeId: 'g1' });
   assert.deepEqual(gifRecache.calls[1].options, { days: 30 });
 });
 
@@ -3123,24 +3163,24 @@ test('run: media pictures recache refuses days out of 1..60 and a run in flight;
   const { admin } = makeAdmin(rootDir, { gifRecache: fakeMediaRecache() });
   for (const days of [0, 61, 2.5, '7']) {
     await assert.rejects(
-      () => admin.run('media.recache', { kind: 'pictures', action: 'recache', days }, { guildId: 'g1' }),
+      () => admin.run('media.recache', { kind: 'pictures', action: 'recache', days }, { placeId: 'g1' }),
       /days must be a whole number from 1 to 60/,
       String(days)
     );
   }
   await assert.rejects(
-    () => admin.run('media.status', { kind: 'pictures', action: 'status' }, { guildId: 'g1' }),
+    () => admin.run('media.status', { kind: 'pictures', action: 'status' }, { placeId: 'g1' }),
     /kind must be one of: emoji, gifs/
   );
 
   const { admin: busy } = makeAdmin(rootDir, { gifRecache: fakeMediaRecache({ ok: false, reason: 'running' }) });
   assert.match(
-    await busy.run('media.recache', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }),
+    await busy.run('media.recache', { kind: 'pictures', action: 'recache' }, { placeId: 'g1' }),
     /already running/
   );
   const { admin: bare } = makeAdmin(rootDir);
   assert.equal(
-    await bare.run('media.recache', { kind: 'pictures', action: 'recache' }, { guildId: 'g1' }),
+    await bare.run('media.recache', { kind: 'pictures', action: 'recache' }, { placeId: 'g1' }),
     'the media recache is not available'
   );
 });
@@ -3337,7 +3377,7 @@ const RECENT_NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const HOUR = 3600 * 1000;
 
 function recentLine(id: number, hoursAgo: number, text: string, extra: Record<string, unknown> = {}) {
-  return { id, at: RECENT_NOW - hoursAgo * HOUR, addedAt: null, channelId: 'c1', text, who: [], weight: 2, ...extra };
+  return { id, at: RECENT_NOW - hoursAgo * HOUR, addedAt: null, placeId: 'c1', text, who: [], weight: 2, ...extra };
 }
 
 function makeRecentAdmin(t: TestContext, lines: Array<Untyped>, config: Record<string, unknown> = {}) {
@@ -3358,7 +3398,7 @@ test('run: memory.recent lists the live lines newest first and leaves out the ex
     recentLine(4, 5, 'middle line'),
   ]);
 
-  const rows = (await admin.run('memory.recent.read', {}, { guildId: 'g1' })).split('\n');
+  const rows = (await admin.run('memory.recent.read', {}, { placeId: 'g1' })).split('\n');
 
   assert.equal(rows.length, 4, 'the header and three live lines');
   assert.match(rows[0], /3/);
@@ -3371,10 +3411,10 @@ test('run: memory.recent lists the live lines newest first and leaves out the ex
 test('run: memory.recent resolves <@id> tokens, names the channel from its note and shows the weight', async (t) => {
   const otherId = '999999999999999999';
   const { admin, store } = makeRecentAdmin(t, [recentLine(1, 1, `joked with <@${otherId}>`, { weight: 3 })]);
-  store.profiles.set(`g1:${otherId}`, { id: otherId, names: ['Zoe'] });
+  store.profiles.set(`${otherId}`, { id: otherId, names: ['Zoe'] });
   store.channels.set('g1:c1', { id: 'c1', name: 'general' });
 
-  const text = await admin.run('memory.recent.read', {}, { guildId: 'g1' });
+  const text = await admin.run('memory.recent.read', {}, { placeId: 'g1' });
 
   assert.ok(text.includes(`joked with Zoe (id:${otherId})`));
   assert.ok(!text.includes('<@'));
@@ -3388,14 +3428,14 @@ test('run: memory.recent shows the time in the configured time zone', async (t) 
   ]);
   hot.config.bot.timezone = 'Europe/Athens';
 
-  const text = await admin.run('memory.recent.read', {}, { guildId: 'g1' });
+  const text = await admin.run('memory.recent.read', {}, { placeId: 'g1' });
 
   assert.ok(text.includes('2026-10-06 01:30'), text);
 });
 
 test('run: memory.recent answers one short line with no live line', async (t) => {
   const none = makeRecentAdmin(t, [recentLine(1, 100, 'expired line')]);
-  const noneText = await none.admin.run('memory.recent.read', {}, { guildId: 'g1' });
+  const noneText = await none.admin.run('memory.recent.read', {}, { placeId: 'g1' });
   assert.ok(!noneText.includes('\n'));
   assert.ok(!noneText.includes('expired line'));
 });
@@ -3405,7 +3445,7 @@ test('run: memory.recent works while paused, writes nothing and is open to a gra
   store.state.data.paused = true;
   hot.config.bot.access = { 'memory.recent.read': { everyone: false, roles: ['123'], users: [] } };
 
-  const text = await admin.run('memory.recent.read', {}, { guildId: 'g1' });
+  const text = await admin.run('memory.recent.read', {}, { placeId: 'g1' });
 
   assert.ok(text.includes('a line'));
   assert.equal(store.flushCalls, 0);
@@ -3433,27 +3473,31 @@ test('admin: memory restore re-inserts an episode and writes a restored event, i
   const { admin } = makeAdmin(rootDir, { store, archive });
   try {
     const opts = { maxEpisodes: 1, maxNew: 3, now: Date.UTC(2026, 9, 12) };
-    store.touchUser('g1', 'u1', 'Zoé', opts.now);
-    store.addEpisodes('g1', 'u1', [{ date: '2026-10-01', what: 'Έχασε στο σκάκι', quote: 'ξανά', weight: 1 }], opts);
+    store.touchUser(accountOf(store, 'u1'), 'Zoé', opts.now);
+    store.addEpisodes(
+      accountOf(store, 'u1'),
+      [{ date: '2026-10-01', what: 'Έχασε στο σκάκι', quote: 'ξανά', weight: 1 }],
+      opts
+    );
     const [old] = userOf(store, 'u1').episodes;
-    store.addEpisodes('g1', 'u1', [{ date: '2026-10-12', what: 'Κέρδισε στο σκάκι', weight: 3 }], opts);
-    await store.settleArchive('g1');
+    store.addEpisodes(accountOf(store, 'u1'), [{ date: '2026-10-12', what: 'Κέρδισε στο σκάκι', weight: 3 }], opts);
+    await store.settleArchive();
     assert.deepEqual(
       userOf(store, 'u1').episodes.map((ep: Untyped) => ep.what),
       ['Κέρδισε στο σκάκι'],
       'evicted and archived'
     );
 
-    const listed = await admin.run('memory.archive.read', { userId: 'u1' }, { guildId: 'g1' });
+    const listed = await admin.run('memory.archive.read', { userId: 'u1' }, { placeId: 'g1' });
     assert.match(listed, new RegExp(`evicted\\s+episode\\s+${old.itemId}`));
     assert.match(listed, /Έχασε στο σκάκι/);
     assert.equal(
-      await admin.run('memory.archive.read', { kind: 'episode' }, { guildId: 'g1' }),
+      await admin.run('memory.archive.read', { kind: 'episode' }, { placeId: 'g1' }),
       '(none)',
       'nothing at the server level'
     );
 
-    const reply = await admin.run('memory.restore', { itemId: old.itemId }, { guildId: 'g1' });
+    const reply = await admin.run('memory.restore', { itemId: old.itemId }, { placeId: 'g1' });
     assert.match(reply, /restored/);
     const episodes = userOf(store, 'u1').episodes;
     const back = episodes.find((ep: Untyped) => ep.itemId === old.itemId);
@@ -3463,7 +3507,7 @@ test('admin: memory restore re-inserts an episode and writes a restored event, i
       [old.date, old.what, old.quote, old.weight, old.addedAt]
     );
     assert.equal(episodes.length, 2, 'not pinned, and no cap applied by the restore itself');
-    let lines = await archive.find('g1', old.itemId);
+    let lines = await archive.find(old.itemId);
     assert.deepEqual(
       lines.map((entry: Untyped) => [entry.event, entry.by]),
       [
@@ -3473,13 +3517,13 @@ test('admin: memory restore re-inserts an episode and writes a restored event, i
     );
 
     // Again: the item is hot already, nothing is written.
-    const again = await admin.run('memory.restore', { itemId: old.itemId }, { guildId: 'g1' });
+    const again = await admin.run('memory.restore', { itemId: old.itemId }, { placeId: 'g1' });
     assert.match(again, /already/);
     assert.equal(userOf(store, 'u1').episodes.length, 2);
-    lines = await archive.find('g1', old.itemId);
+    lines = await archive.find(old.itemId);
     assert.equal(lines.length, 2);
 
-    await assert.rejects(admin.run('memory.restore', { itemId: 'ep-none' }, { guildId: 'g1' }), /no archived item/);
+    await assert.rejects(admin.run('memory.restore', { itemId: 'ep-none' }, { placeId: 'g1' }), /no archived item/);
   } finally {
     await appendStore.close();
     await mem.close();
@@ -3496,19 +3540,19 @@ function fakeJournal(days: Record<string, Array<Untyped>> = {}) {
   const calls: Array<Untyped> = [];
   return {
     calls,
-    system: async (guildId: string, record: Untyped) => {
-      calls.push(['system', guildId, record]);
+    system: async (record: Untyped) => {
+      calls.push(['system', record]);
     },
-    read: async (guildId: string, { day, kind = null, n = 50 }: { day: string; kind?: string | null; n?: number }) => {
-      calls.push(['read', guildId, { day, kind, n }]);
+    read: async (placeId: string, { day, kind = null, n = 50 }: { day: string; kind?: string | null; n?: number }) => {
+      calls.push(['read', placeId, { day, kind, n }]);
       return (days[day] ?? []).filter((record: Untyped) => !kind || record.kind === kind).slice(-n);
     },
-    forgetUser: async (guildId: string, userId: string) => {
-      calls.push(['forgetUser', guildId, userId]);
+    forgetUser: async (placeId: string, userId: string) => {
+      calls.push(['forgetUser', placeId, userId]);
       return { files: 2, dropped: 5 };
     },
-    removeGuild: async (guildId: string) => {
-      calls.push(['removeGuild', guildId]);
+    removeGuild: async (placeId: string) => {
+      calls.push(['removeGuild', placeId]);
       return { files: 3 };
     },
   };
@@ -3538,23 +3582,24 @@ test('admin: pause and resume write system records and post nothing to the chat'
   hot.config.journal = {};
   const { admin } = makeAdmin(rootDir, { hot, client, journal });
 
-  const paused = await admin.run('bot.pause', {}, { guildId: 'g1' });
+  const paused = await admin.run('bot.pause', {}, { placeId: 'g1' });
   assert.match(paused, /^Paused./);
   assert.equal(client.sent.length, 0);
   const pauseRecord = journal.calls.find(([name]) => name === 'system');
-  assert.deepEqual(pauseRecord, ['system', 'g1', { event: 'pause', by: 'owner' }]);
+  // A system record is the persona's: no place in its call.
+  assert.deepEqual(pauseRecord, ['system', { event: 'pause', by: 'owner' }]);
 
-  const resumed = await admin.run('bot.resume', {}, { guildId: 'g1' });
+  const resumed = await admin.run('bot.resume', {}, { placeId: 'g1' });
   assert.equal(resumed, 'Resumed.');
   assert.equal(client.sent.length, 0);
-  const records = journal.calls.filter(([name]) => name === 'system').map(([, , record]) => record);
+  const records = journal.calls.filter(([name]) => name === 'system').map(([, record]) => record);
   assert.deepEqual(records, [
     { event: 'pause', by: 'owner' },
     { event: 'resume', by: 'owner' },
   ]);
 
   // A repeat pause or resume that changes nothing records nothing.
-  await admin.run('bot.resume', {}, { guildId: 'g1' });
+  await admin.run('bot.resume', {}, { placeId: 'g1' });
   assert.equal(journal.calls.filter(([name]) => name === 'system').length, 2);
 });
 
@@ -3586,7 +3631,7 @@ test('admin: journal lists the last n records of a day as short lines', async ()
   });
   const { admin } = makeAdmin(rootDir, { journal });
 
-  const all = await admin.run('memory.journal.read', { day, n: 3 }, { guildId: 'g1' });
+  const all = await admin.run('memory.journal.read', { day, n: 3 }, { placeId: 'g1' });
   const lines = all.split('\n');
   assert.deepEqual(lines.slice(1), [
     '10:00:07 turn reply spoke 2 msgs, think: Η Ελένη ρωτά.',
@@ -3596,18 +3641,18 @@ test('admin: journal lists the last n records of a day as short lines', async ()
   assert.match(lines[0], /2026-10-12/);
   assert.deepEqual(journal.calls.at(-1), ['read', 'g1', { day, kind: null, n: 3 }]);
 
-  const actions = await admin.run('memory.journal.read', { day, kind: 'action' }, { guildId: 'g1' });
+  const actions = await admin.run('memory.journal.read', { day, kind: 'action' }, { placeId: 'g1' });
   assert.deepEqual(actions.split('\n').slice(1), ['10:00:05 action post started', '10:00:06 action post succeeded']);
   assert.deepEqual(journal.calls.at(-1)[2], { day, kind: 'action', n: 20 });
 
   // Today (UTC) by default; nothing there is said plainly.
-  const today = await admin.run('memory.journal.read', {}, { guildId: 'g1' });
+  const today = await admin.run('memory.journal.read', {}, { placeId: 'g1' });
   assert.equal(journal.calls.at(-1)[2].day, new Date(Date.now()).toISOString().slice(0, 10));
   assert.match(today, /no journal records/);
 
-  await assert.rejects(admin.run('memory.journal.read', { day: '12.10.2026' }, { guildId: 'g1' }), /YYYY-MM-DD/);
-  await assert.rejects(admin.run('memory.journal.read', { day, n: 51 }, { guildId: 'g1' }), /1\.\.50/);
-  await assert.rejects(admin.run('memory.journal.read', { day, kind: 'lore' }, { guildId: 'g1' }), /kind/);
+  await assert.rejects(admin.run('memory.journal.read', { day: '12.10.2026' }, { placeId: 'g1' }), /YYYY-MM-DD/);
+  await assert.rejects(admin.run('memory.journal.read', { day, n: 51 }, { placeId: 'g1' }), /1\.\.50/);
+  await assert.rejects(admin.run('memory.journal.read', { day, kind: 'lore' }, { placeId: 'g1' }), /kind/);
   // Owner-only: no grant opens it.
   assert.equal(await mayRun(admin, 'memory.journal.read', { userId: '42' }), true);
   const openHot = makeHot(rootDir);
@@ -3659,7 +3704,7 @@ test('admin: memory snapshot flushes and copies data under the writer lock', asy
   };
   let reply;
   try {
-    reply = await admin.run('memory.snapshot', {}, { guildId: 'g1', userId: '42' });
+    reply = await admin.run('memory.snapshot', {}, { placeId: 'g1', userId: '42' });
   } finally {
     fs.promises.cp = realCp;
   }

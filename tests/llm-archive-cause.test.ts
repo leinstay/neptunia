@@ -149,7 +149,7 @@ test('a participation pick past its budget leaves the row aborted while the turn
       episodes: [
         {
           id: 'p1',
-          channelId: 'c2',
+          placeId: 'c2',
           continues: null,
           messages: [
             {
@@ -183,7 +183,7 @@ test('a participation pick past its budget leaves the row aborted while the turn
     const candidate = { id: 'm1', authorId: 'u1', authorName: 'Nikos', content: 'θυμάσαι;', ts: NOW, self: false };
     const { result } = await withCapturedLogs(async () => {
       const picking = picker({
-        guildId: 'community',
+        placeId: 'community',
         channel: { id: 'c1', communityId: 'community' },
         snapshot: snapshotOf('community', { conversations: [], groups: [] }),
         history: [candidate],

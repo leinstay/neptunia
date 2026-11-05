@@ -4,7 +4,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createJournal } from '../src/memory/journal.ts';
-import { GUILD, GUILD_2, MEMBER, readerEnv, type ReaderEnv } from './fixtures/memory-db/readers.ts';
+import {
+  GUILD,
+  placeOfGuild,
+  readAt,
+  GUILD_2,
+  MEMBER,
+  readerEnv,
+  type ReaderEnv,
+} from './fixtures/memory-db/readers.ts';
 
 const NOW = Date.parse('2026-10-21T23:00:00.000Z');
 const DAYS = ['2026-10-19', '2026-10-20', '2026-10-21'];
@@ -49,15 +57,18 @@ test('journal db reader: read answers every day, kind, limit and layer, the turn
       },
       [GUILD_2]: { '2026-10-19': none, '2026-10-20': day20('.g2', []), '2026-10-21': none },
     };
-    for (const guildId of [GUILD, GUILD_2]) {
+    for (const placeId of [GUILD, GUILD_2]) {
       for (const day of DAYS) {
         for (const [index, query] of queries.entries()) {
-          const ids = (await journal.read(guildId, { day, ...query })).map((record) => rec(record)?.id);
-          assert.deepEqual(ids, expected[guildId][day][index], `${guildId} ${day} ${JSON.stringify(query)}`);
+          // A DM place has no guild: the private queries run once, under the first guild.
+          if (placeId === GUILD_2 && 'privateUserId' in query) continue;
+          const { placeId: holder, rest } = readAt(placeId, query);
+          const ids = (await journal.read(holder, { day, ...rest })).map((record) => rec(record)?.id);
+          assert.deepEqual(ids, expected[placeId][day][index], `${placeId} ${day} ${JSON.stringify(query)}`);
         }
       }
     }
-    const day = await journal.read(GUILD, { day: '2026-10-20', n: 1000 });
+    const day = await journal.read(placeOfGuild(GUILD), { day: '2026-10-20', n: 1000 });
     assert.equal(rec(day.find((record) => rec(record)?.kind === 'turn'))?.think, 'Καλημέρα. A café thought.');
     assert.equal(rec(day.find((record) => rec(record)?.kind === 'memory'))?.attitude?.length, 1);
     assert.deepEqual(env.warns, []);
@@ -70,7 +81,7 @@ test('journal db reader: findTurn, turnOperations, pending, triggerLinks, callMa
   const env = await readerEnv();
   try {
     const journal = journalOf(env);
-    const found = await journal.findTurn(GUILD, {
+    const found = await journal.findTurn(placeOfGuild(GUILD), {
       messageId: '400000000000000014',
       at: Date.parse('2026-10-21T08:07:00.000Z'),
     });
@@ -78,7 +89,7 @@ test('journal db reader: findTurn, turnOperations, pending, triggerLinks, callMa
       { turn: rec(found?.turn)?.id, start: rec(found?.start)?.id, posted: found?.posted, calls: found?.calls },
       { turn: 'j2-turn', start: 'j2-start', posted: ['400000000000000014'], calls: [] }
     );
-    const first = await journal.findTurn(GUILD, {
+    const first = await journal.findTurn(placeOfGuild(GUILD), {
       messageId: '400000000000000009',
       at: Date.parse('2026-10-20T10:00:00.000Z'),
     });
@@ -87,11 +98,14 @@ test('journal db reader: findTurn, turnOperations, pending, triggerLinks, callMa
       ['j-turn', 'turn-1', 'j-start', ['400000000000000009']]
     );
     assert.equal(
-      await journal.findTurn(GUILD, { messageId: '400000000000000098', at: Date.parse('2026-10-20T10:00:00.000Z') }),
+      await journal.findTurn(placeOfGuild(GUILD), {
+        messageId: '400000000000000098',
+        at: Date.parse('2026-10-20T10:00:00.000Z'),
+      }),
       null
     );
     assert.deepEqual(
-      (await journal.turnOperations(GUILD, { turnId: 'turn-2', days: DAYS })).map((op) => [
+      (await journal.turnOperations(placeOfGuild(GUILD), { turnId: 'turn-2', days: DAYS })).map((op) => [
         op.opId,
         op.name,
         op.phase,
@@ -104,40 +118,43 @@ test('journal db reader: findTurn, turnOperations, pending, triggerLinks, callMa
       ]
     );
     assert.deepEqual(
-      (await journal.turnOperations(GUILD, { turnId: 'turn-p', days: DAYS, privateUserId: MEMBER })).map((op) => [
-        op.phase,
-        op.skill,
-      ]),
+      (
+        await journal.turnOperations(readAt(GUILD, { privateUserId: MEMBER }).placeId, { turnId: 'turn-p', days: DAYS })
+      ).map((op) => [op.phase, op.skill]),
       [['failed', 'msg']]
     );
     assert.deepEqual(
-      (await journal.pending(GUILD, { days: DAYS })).map((op) => op.opId),
+      (await journal.pending(placeOfGuild(GUILD), { days: DAYS })).map((op) => op.opId),
       ['op-3', 'op-4']
     );
-    assert.deepEqual(await journal.pending(GUILD, { days: DAYS, before: Date.parse('2026-10-21T08:07:00.000Z') }), []);
-    assert.deepEqual(await journal.triggerLinks(GUILD, { days: DAYS }), []);
-    assert.deepEqual(await journal.callMarks(GUILD, { days: DAYS }), { calls: [], postedFrom: [] });
+    assert.deepEqual(
+      await journal.pending(placeOfGuild(GUILD), { days: DAYS, before: Date.parse('2026-10-21T08:07:00.000Z') }),
+      []
+    );
+    assert.deepEqual(await journal.triggerLinks(placeOfGuild(GUILD), { days: DAYS }), []);
+    assert.deepEqual(await journal.callMarks(placeOfGuild(GUILD), { days: DAYS }), { calls: [], postedFrom: [] });
     const kinds = (timeline: Array<{ kind: string; event: string | null }>) =>
       timeline.map((entry) => (entry.event ? `${entry.kind}:${entry.event}` : entry.kind));
-    assert.deepEqual(kinds(await journal.timeline(GUILD, { from: Date.parse('2026-10-19T00:00:00.000Z') })), [
-      'turn.start',
-      'turn',
-      'system:start',
-      'memory',
-      'turn.start',
-      'action',
-      'action',
-      'action',
-      'turn',
-      'action',
-      'system:stop',
-    ]);
-    assert.deepEqual(kinds(await journal.timeline(GUILD_2, { from: Date.parse('2026-10-20T00:00:00.000Z') })), [
-      'turn.start',
-      'turn',
-      'system:start',
-      'memory',
-    ]);
+    assert.deepEqual(
+      kinds(await journal.timeline(placeOfGuild(GUILD), { from: Date.parse('2026-10-19T00:00:00.000Z') })),
+      [
+        'turn.start',
+        'turn',
+        'system:start',
+        'memory',
+        'turn.start',
+        'action',
+        'action',
+        'action',
+        'turn',
+        'action',
+        'system:stop',
+      ]
+    );
+    assert.deepEqual(
+      kinds(await journal.timeline(placeOfGuild(GUILD_2), { from: Date.parse('2026-10-20T00:00:00.000Z') })),
+      ['turn.start', 'turn', 'system:start', 'memory']
+    );
   } finally {
     env.done();
   }
@@ -147,8 +164,8 @@ test('journal db reader: stats is the latest recordedAt of today and yesterday f
   const env = await readerEnv();
   try {
     const journal = journalOf(env);
-    assert.deepEqual(await journal.stats(GUILD), { lastWriteMs: Date.parse('2026-10-21T20:00:00.000Z') });
-    assert.deepEqual(await journal.stats(GUILD, { now: Date.parse('2026-10-25T10:00:00.000Z') }), {
+    assert.deepEqual(await journal.stats(placeOfGuild(GUILD)), { lastWriteMs: Date.parse('2026-10-21T20:00:00.000Z') });
+    assert.deepEqual(await journal.stats(placeOfGuild(GUILD), { now: Date.parse('2026-10-25T10:00:00.000Z') }), {
       lastWriteMs: null,
     });
   } finally {
@@ -161,19 +178,19 @@ test('journal db reader: a closed database is an error with a code, logged', asy
   try {
     const closed = journalOf(env, env.closedDb);
     await assert.rejects(
-      () => closed.read(GUILD, { day: '2026-10-20' }),
+      () => closed.read(placeOfGuild(GUILD), { day: '2026-10-20' }),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     await assert.rejects(
-      () => closed.findTurn(GUILD, { messageId: '400000000000000014', at: NOW }),
+      () => closed.findTurn(placeOfGuild(GUILD), { messageId: '400000000000000014', at: NOW }),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     await assert.rejects(
-      () => closed.timeline(GUILD, { from: NOW }),
+      () => closed.timeline(placeOfGuild(GUILD), { from: NOW }),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     await assert.rejects(
-      () => closed.stats(GUILD),
+      () => closed.stats(placeOfGuild(GUILD)),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     assert.equal(env.warns.length, 4);

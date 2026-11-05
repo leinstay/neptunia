@@ -1,10 +1,10 @@
 // The persona's journal: one record per thing that happened -- a turn started, a turn
 // ended (what it saw, what it thought, what it posted), an action's phase, a memory change, a
 // system event -- written to the memory database (src/memory/db/service.ts, `memoryDb.writeUnit`) in
-// the unit of its day, `guilds/<g>/journal/<YYYY-MM-DD>.jsonl`, as the journal mapper maps it, so it
+// the unit of its day, `places/<g>/journal/<YYYY-MM-DD>.jsonl`, as the journal mapper maps it, so it
 // keeps its order. The day is the UTC day of the record's `occurredAt`; a private chat has its own
-// units under the partner's private directory and is never written to the guild's journal. Every record carries the same envelope (`v`, `id`,
-// `kind`, `occurredAt`, `recordedAt`, `guildId`, `scope`, `participants`, `sourceMessageIds`,
+// units under the partner's private directory and is never written to the place's journal. Every record carries the same envelope (`v`, `id`,
+// `kind`, `occurredAt`, `recordedAt`, `placeId`, `scope`, `participants`, `sourceMessageIds`,
 // `origin`); a record missing a list is written with an empty one, never rejected: a journal
 // line lost to validation is worse than an incomplete one. The model's `think` is stored whole,
 // never shown back to it.
@@ -48,7 +48,7 @@
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { journalKey, namespaceOf } from './db/storage-keys.ts';
+import { PERSONA_ID, placeOrPersona } from './db/storage-keys.ts';
 import type { StorageKey } from './db/storage-keys.ts';
 
 import { log as defaultLog } from '../log.ts';
@@ -76,7 +76,7 @@ const RECONCILE_SKEW_MS = 60_000;
 /** The phases that close an operation. */
 const CLOSING_PHASES = new Set(['succeeded', 'failed', 'unknown']);
 /** The fields a closing line repeats from its operation (never the input or the intent). */
-const OP_FIELDS = ['turnId', 'name', 'by', 'channelId', 'privateUserId', 'participants', 'sourceMessageIds', 'dryRun'];
+const OP_FIELDS = ['turnId', 'name', 'by', 'placeId', 'scope', 'participants', 'sourceMessageIds', 'dryRun'];
 /** The characters of `think` a `/nep journal` line shows. */
 export const LINE_THINK_CHARS = 80;
 
@@ -235,10 +235,10 @@ export function offPeriods(
 }
 
 /**
- * The off periods of a guild's last `windowHours` hours (`DEFAULT_OFF_WINDOW_HOURS` when omitted), read through
- * `journal.timeline` and reused for a minute per guild and window, so a busy channel does not read
+ * The off periods of a place's last `windowHours` hours (`DEFAULT_OFF_WINDOW_HOURS` when omitted), read through
+ * `journal.timeline` and reused for a minute per place and window, so a busy channel does not read
  * the day files every turn. A read that fails gives no period and one warn (`journal: off periods
- * unread`, the guild and the error code); no journal, or one without `timeline`, gives none.
+ * unread`, the place and the error code); no journal, or one without `timeline`, gives none.
  */
 export function createOffPeriodsReader({
   journal,
@@ -249,26 +249,26 @@ export function createOffPeriodsReader({
   now?: () => number;
   log?: Pick<Log, 'warn'>;
 }): (
-  guildId: string,
+  placeId: string,
   options?: { windowHours?: number }
 ) => Promise<Array<{ kind: string; from: number; to: number }>> {
-  const cache = new Map(); // `${guildId}:${hours}` -> { at, periods }
-  return async function read(guildId, { windowHours } = {}) {
-    if (!journal || typeof journal.timeline !== 'function' || !guildId) return [];
+  const cache = new Map(); // `${placeId}:${hours}` -> { at, periods }
+  return async function read(placeId, { windowHours } = {}) {
+    if (!journal || typeof journal.timeline !== 'function' || !placeId) return [];
     const hours =
       typeof windowHours === 'number' && isFiniteNumber(windowHours) && windowHours > 0
         ? windowHours
         : DEFAULT_OFF_WINDOW_HOURS;
     const at = now();
-    const key = `${guildId}:${hours}`;
+    const key = `${placeId}:${hours}`;
     const cached = cache.get(key);
     if (cached && at - cached.at >= 0 && at - cached.at < OFF_CACHE_MS) return cached.periods;
     const windowMs = hours * HOUR_MS;
     let periods: Array<{ kind: string; from: number; to: number }> = [];
     try {
-      periods = offPeriods(await journal.timeline(guildId, { from: at - windowMs }), { now: at, windowMs });
+      periods = offPeriods(await journal.timeline(placeId, { from: at - windowMs }), { now: at, windowMs });
     } catch (error) {
-      log.warn('journal: off periods unread', { guildId: String(guildId), code: propOf(error, 'code') ?? null });
+      log.warn('journal: off periods unread', { placeId: String(placeId), code: propOf(error, 'code') ?? null });
     }
     cache.clear();
     cache.set(key, { at, periods });
@@ -327,17 +327,17 @@ const CALL_STATUS_RE = /^[a-z_]{1,32}$/;
 /**
  * The persona's skill calls, from journal records (parsed lines, any kinds, oldest first), for
  * the call marks of her transcript lines (src/format.js#withCalls): every `skill`
- * operation of a guild channel as `{ channelId, at, skill, status, target, postedId, posted }` --
- * `channelId` the channel of its turn (the operation's scope), `at` the time of its last line
+ * operation of a place channel as `{ placeId, at, skill, status, target, postedId, posted }` --
+ * `placeId` the channel of its turn (the operation's scope), `at` the time of its last line
  * (epoch ms), `skill` its `input.skill`, `status` the closing line's: `ok` for `succeeded`,
  * `unknown` for `unknown`, a `failed` line's `result.status` (`failed` when it has none: an older
  * line), `unknown` with no closing line; `code` and `reason` of a `failed` or `unknown` closing
  * line's `result`, each only when that line has it (src/tools/executors.ts#outcomeDetail reads
- * them); `target` its `started` line's ids (`{ messageId, channelId
+ * them); `target` its `started` line's ids (`{ messageId, placeId
  * }`: `message`, else `reply`; null fields when unknown), `postedId` the message it posted
  * (`succeeded` with a `messageId`), `posted` every message its turn posted (its `turn` records'
  * `posted` and its operations' succeeded ids, once each, in order). `postedFrom`: `[postedId,
- * channelId]` for a call that posted in another channel than its turn's. Pure.
+ * placeId]` for a call that posted in another channel than its turn's. Pure.
  */
 export function callMarksOf(records: Array<unknown>): {
   calls: Array<object>;
@@ -369,7 +369,7 @@ export function callMarksOf(records: Array<unknown>): {
       continue;
     const op = ops.get(record.opId) ?? {
       turnId: null,
-      channelId: null,
+      placeId: null,
       skill: null,
       target: null,
       status: null,
@@ -380,7 +380,7 @@ export function callMarksOf(records: Array<unknown>): {
       values: null,
     };
     op.turnId = text(record.turnId) ?? op.turnId;
-    op.channelId = text(record.scope?.channel) ?? op.channelId;
+    op.placeId = text(record.scope?.channel) ?? op.placeId;
     op.skill = currentToolName(text(record.input?.skill)) ?? op.skill;
     if (record.target && typeof record.target === 'object') op.target = record.target;
     if (record.phase === 'succeeded') op.status = 'ok';
@@ -404,13 +404,13 @@ export function callMarksOf(records: Array<unknown>): {
   const calls = [];
   const postedFrom: Array<[string, string]> = [];
   for (const op of ops.values()) {
-    if (!op.channelId || !op.skill) continue;
+    if (!op.placeId || !op.skill) continue;
     const target = {
       messageId: text(op.target?.message) ?? text(op.target?.reply),
-      channelId: text(op.target?.channel),
+      placeId: text(op.target?.channel),
     };
     calls.push({
-      channelId: op.channelId,
+      placeId: op.placeId,
       at: op.at,
       skill: op.skill,
       status: op.status ?? 'unknown',
@@ -421,8 +421,7 @@ export function callMarksOf(records: Array<unknown>): {
       postedId: op.postedId,
       posted: [...(postedByTurn.get(op.turnId) ?? [])],
     });
-    if (op.postedId && target.channelId && target.channelId !== op.channelId)
-      postedFrom.push([op.postedId, op.channelId]);
+    if (op.postedId && target.placeId && target.placeId !== op.placeId) postedFrom.push([op.postedId, op.placeId]);
   }
   return { calls, postedFrom };
 }
@@ -551,61 +550,57 @@ export function turnView({
   ].join('\n');
 }
 
-/** The record's scope: the partner's private layer, a channel, or the whole guild. */
-function scopeOf({ privateUserId = null, channelId = null } = {}) {
-  if (typeof privateUserId === 'string' && privateUserId) return { user: privateUserId, private: true };
-  if (typeof channelId === 'string' && channelId) return { channel: channelId };
-  return { guild: true };
+/** The record's scope: the conversation it happened in, when it names one. */
+function scopeOf(conversationId: unknown): { channel?: string } {
+  return typeof conversationId === 'string' && conversationId ? { channel: conversationId } : {};
 }
 
 /** The persona's own latest messages in a channel, as the interface reads them again. */
 type ReconcileFetch = (
-  channelId: string,
+  placeId: string,
   n: number
 ) => Promise<Array<{ id: string; content: string; replyToId: string | null; createdAt: unknown }>>;
 
-/** The journal of a deployment: one append-only file per guild and day, read back by the owner's commands and the turn. */
+/** The journal of a deployment: one append-only file per place and day, read back by the owner's commands and the turn. */
 export type Journal = {
+  /** Whatever the writer still holds (a stand-in may have nothing to wait for). */
+  flush?(): Promise<void>;
   start(
-    guildId: string,
+    placeId: string,
     input: {
-      channelId?: string;
+      placeId?: string;
       mode?: string;
       trigger?: object;
       participants?: Array<string>;
       sourceMessageIds?: Array<string>;
-      privateUserId?: string | null;
       turnId?: string;
       attemptId?: number;
     }
   ): { turnId: string; attemptId: number; startedAt: string };
-  turn(guildId: string, record: object): Promise<void>;
-  action(guildId: string, record: object): Promise<void>;
-  actionLine(guildId: string, record: object): { key: StorageKey; line: unknown };
-  memory(guildId: string, record: object): Promise<void>;
-  system(guildId: string, record: object): Promise<void>;
-  answer(guildId: string, record: object): Promise<void>;
-  inner(guildId: string, record: object): Promise<void>;
-  read(
-    guildId: string,
-    query?: { day?: string; kind?: string | null; n?: number; privateUserId?: string | null }
-  ): Promise<Array<object>>;
+  turn(placeId: string, record: object): Promise<void>;
+  action(placeId: string, record: object): Promise<void>;
+  actionLine(placeId: string, record: object): { key: StorageKey; line: unknown };
+  memory(placeId: string, record: object): Promise<void>;
+  system(record: object): Promise<void>;
+  answer(placeId: string, record: object): Promise<void>;
+  inner(placeId: string, record: object): Promise<void>;
+  read(placeId: string | null, query?: { day?: string; kind?: string | null; n?: number }): Promise<Array<object>>;
   timeline(
-    guildId: string,
+    placeId: string,
     query?: { from?: number }
   ): Promise<Array<{ at: number; kind: string; event: string | null }>>;
-  triggerLinks(guildId: string, query?: { days?: Array<string> }): Promise<Array<[string, string]>>;
+  triggerLinks(placeId: string, query?: { days?: Array<string> }): Promise<Array<[string, string]>>;
   callMarks(
-    guildId: string,
+    placeId: string,
     query?: { days?: Array<string> }
   ): Promise<{ calls: Array<object>; postedFrom: Array<[string, string]> }>;
   findTurn(
-    guildId: string,
+    placeId: string,
     query?: { messageId?: string; at?: number }
   ): Promise<{ turn: object; start: object | null; posted: Array<string>; calls: Array<object> } | null>;
-  dayFile(guildId: string, dateIso: string, privateUserId?: string | null): string;
+  dayFile(placeId: string, dateIso: string): string;
   op(
-    guildId: string,
+    placeId: string,
     base: object
   ): {
     opId: string;
@@ -616,14 +611,14 @@ export type Journal = {
     unknown(result?: object): Promise<void>;
   };
   pending(
-    guildId: string,
+    placeId: string,
     query?: { day?: string | null; days?: Array<string> | null; before?: number | null }
   ): Promise<
-    Array<{ opId: string; turnId: string | null; name: string | null; intent: object; channelId: string | null }>
+    Array<{ opId: string; turnId: string | null; name: string | null; intent: object; placeId: string | null }>
   >;
   turnOperations(
-    guildId: string,
-    query?: { turnId?: string; days?: Array<string>; privateUserId?: string | null }
+    placeId: string,
+    query?: { turnId?: string; days?: Array<string> }
   ): Promise<
     Array<{
       opId: string;
@@ -637,32 +632,31 @@ export type Journal = {
     }>
   >;
   reconcile(
-    guildId: string,
+    placeId: string,
     options?: { days?: Array<string>; before?: number | null; fetchOwnMessages?: ReconcileFetch }
   ): Promise<{ succeeded: number; unknown: number }>;
   stalled(): boolean;
-  markRunning(guildId: string): Promise<{ unclean: boolean }>;
-  clearRunning(guildId: string): Promise<void>;
+  markRunning(): Promise<{ unclean: boolean }>;
+  clearRunning(): Promise<void>;
   withWriterLock<TResult>(fn: () => Promise<TResult> | TResult): Promise<TResult>;
   waitUnlocked(): Promise<void>;
-  stats(guildId: string, query?: { now?: number }): Promise<{ lastWriteMs: number | null }>;
+  stats(placeId: string, query?: { now?: number }): Promise<{ lastWriteMs: number | null }>;
 };
 
 type ReconcileOptions = { days?: Array<string>; fetchOwnMessages?: ReconcileFetch; before?: number | null };
 
-type TurnOperationsQuery = { turnId?: string; days?: Array<string>; privateUserId?: string | null };
+type TurnOperationsQuery = { turnId?: string; days?: Array<string> };
 
 type PendingQuery = { day?: string | null; days?: Array<string> | null; before?: number | null };
 
-type ReadQuery = { day?: string; kind?: string | null; n?: number; privateUserId?: string | null };
+type ReadQuery = { day?: string; kind?: string | null; n?: number };
 
 type StartInput = {
-  channelId?: string | null;
+  placeId?: string | null;
   mode?: string | null;
   trigger?: Untyped;
   participants?: Array<string>;
   sourceMessageIds?: Array<string>;
-  privateUserId?: string | null;
   turnId?: string | null;
   attemptId?: number | null;
 };
@@ -678,10 +672,6 @@ type JournalDeps = {
   lockStores?: Array<{ flush: Untyped }>;
   memoryDb: MemoryDb | null;
 };
-
-function runningMarker(dataDir: string, iface: string, community: string): string {
-  return path.join(dataDir, 'run', 'journal', encodeURIComponent(iface), `${encodeURIComponent(community)}.running`);
-}
 
 /**
  * Create the journal.
@@ -701,7 +691,7 @@ function runningMarker(dataDir: string, iface: string, community: string): strin
  *   `.running` marker stays a file.
  *   `actionLine` builds an `action` line and its day unit without writing it: an errand's end writes it with its
  *   board move.
- *   `stats` says when the guild journal was last written: the latest `recordedAt` of the lines of the day of `now`
+ *   `stats` says when the place journal was last written: the latest `recordedAt` of the lines of the day of `now`
  *   and the day before (the first hour after midnight); null when neither holds one.
  *   `start` writes a `turn.start` line (not awaited: a failed append is logged) and returns the
  *   turn's id: a new one, or `input.turnId` with `input.attemptId` for a later attempt of the
@@ -710,14 +700,14 @@ function runningMarker(dataDir: string, iface: string, community: string): strin
  *   last `n` records of the day (of `kind` when given), newest last.
  *
  *   `op` allots an operation's `opId` (`op-<uuid>`) for one side effect; `base` holds its
- *   `turnId`, `name`, `by` (`persona` | `engine`), `channelId`, `privateUserId`,
+ *   `turnId`, `name`, `by` (`persona` | `engine`), `placeId`,
  *   `participants`, `sourceMessageIds`, `input`, `intent` (a post's `{ replyTo, text }`, the
  *   text cut to INTENT_CHARS) and `dryRun`. `proposed(extra)` writes a `proposed` line (a skill
  *   call the persona asked for, before its checks; never pending without a `started` line);
  *   `started(extra)` writes the `started` line (`extra`
  *   adds fields known only then); the first of `succeeded(result)`, `failed(code, result)`
  *   (`result.code`) or `unknown(result)` writes the closing line, any later one is ignored.
- *   `pending` lists the guild journal's operations of `day` (or of every day of `days`) whose
+ *   `pending` lists the place journal's operations of `day` (or of every day of `days`) whose
  *   `started` line has no closing line in those days (with `before`, epoch ms: only those started
  *   earlier, so an operation of a turn running meanwhile is left alone). `reconcile` closes them, never sending
  *   anything: a `post` whose channel's last RECONCILE_FETCH own messages (one fetch per
@@ -741,29 +731,17 @@ export function createJournal({
 }: JournalDeps): Journal {
   const root = memoryRootOf(dataDir);
   const seam = readSeamOf(memoryDb, log, 'journal');
-  const guildDir = root.guildDir;
-  function journalDir(guildId: string, privateUserId: string | null = null) {
-    return typeof privateUserId === 'string' && privateUserId
-      ? path.join(guildDir(guildId), 'private', privateUserId, 'journal')
-      : path.join(guildDir(guildId), 'journal');
-  }
-  const runningFile = (guildId: string) => runningMarker(dataDir, namespaceOf(memoryDb), guildId);
+  const journalDir = (placeId: string | null): string => path.join(root.placeDir(placeId), 'journal');
+  const runningFile = (): string => path.join(dataDir, 'run', 'journal.running');
 
-  function dayFile(guildId: string, dateIso: unknown, privateUserId: string | null = null) {
+  function dayFile(placeId: string, dateIso: unknown) {
     const day = String(dateIso).match(DAY_RE)?.[0] ?? utcDay(now());
-    return path.join(journalDir(guildId, privateUserId), `${day}.jsonl`);
+    return path.join(journalDir(placeId), `${day}.jsonl`);
   }
 
-  /** `fields` wrapped in the envelope; `channelId` and `privateUserId` decide the scope, not stored twice. */
-  function envelope(guildId: string, kind: string, fields: Untyped) {
-    const {
-      channelId = null,
-      privateUserId = null,
-      participants,
-      sourceMessageIds,
-      occurredAt,
-      ...rest
-    } = fields ?? {};
+  /** `fields` wrapped in the envelope. */
+  function envelope(kind: string, fields: Untyped) {
+    const { placeId: conversationId = null, participants, sourceMessageIds, occurredAt, ...rest } = fields ?? {};
     const at = new Date(now()).toISOString();
     return {
       record: {
@@ -772,14 +750,12 @@ export function createJournal({
         kind,
         occurredAt: typeof occurredAt === 'string' && occurredAt ? occurredAt : at,
         recordedAt: at,
-        guildId: String(guildId),
-        scope: scopeOf({ privateUserId, channelId }),
+        scope: scopeOf(conversationId),
         participants: idList(participants),
         sourceMessageIds: idList(sourceMessageIds),
         origin: 'live',
         ...rest,
       },
-      privateUserId,
     };
   }
 
@@ -792,35 +768,34 @@ export function createJournal({
   }
 
   /** @returns a line of `kind` in its envelope, and the unit of its day */
-  function lineOf(guildId: string, kind: string, fields: Untyped): { key: StorageKey; line: unknown } {
-    const { record, privateUserId } = envelope(guildId, kind, fields);
+  function lineOf(placeId: string | null, kind: string, fields: Untyped): { key: StorageKey; line: unknown } {
+    const { record } = envelope(kind, fields);
     return {
-      key: journalKey(memoryDb, guildId, String(record.occurredAt).slice(0, 10), privateUserId),
+      key: placeOrPersona('journal', placeId, { partition: String(record.occurredAt).slice(0, 10) }),
       line: record,
     };
   }
 
-  async function write(guildId: string, kind: string, fields: Untyped) {
+  async function write(placeId: string | null, kind: string, fields: Untyped) {
     try {
-      const { key, line } = lineOf(guildId, kind, fields);
+      const { key, line } = lineOf(placeId, kind, fields);
       await unlocked();
       if (typeof memoryDb?.writeUnit !== 'function')
         throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
       await memoryDb.writeUnit({ op: 'lines', key, lines: [line] });
     } catch (error) {
-      log.warn('journal: append failed', { kind, code: propOf(error, 'code') ?? null, guildId: String(guildId) });
+      log.warn('journal: append failed', { kind, code: propOf(error, 'code') ?? null });
     }
   }
 
   function start(
-    guildId: string,
+    placeId: string,
     {
-      channelId = null,
+      placeId: conversationId = null,
       mode = null,
       trigger = null,
       participants,
       sourceMessageIds,
-      privateUserId = null,
       turnId = null,
       attemptId = null,
     }: StartInput = {}
@@ -828,9 +803,8 @@ export function createJournal({
     const id = typeof turnId === 'string' && turnId ? turnId : `t-${uuid()}`;
     const attempt = typeof attemptId === 'number' && isIntegerNumber(attemptId) && attemptId > 0 ? attemptId : 1;
     const startedAt = new Date(now()).toISOString();
-    write(guildId, 'turn.start', {
-      channelId,
-      privateUserId,
+    write(placeId, 'turn.start', {
+      placeId: conversationId,
       occurredAt: startedAt,
       participants,
       sourceMessageIds,
@@ -842,34 +816,34 @@ export function createJournal({
     return { turnId: id, attemptId: attempt, startedAt };
   }
 
-  function turn(guildId: string, record: StoredRecord) {
+  function turn(placeId: string, record: StoredRecord) {
     const { think, ...rest } = record ?? {};
     const fields = { ...rest };
     fields.think = typeof think === 'string' ? think : null;
-    return write(guildId, 'turn', fields);
+    return write(placeId, 'turn', fields);
   }
 
-  const action = (guildId: string, record: StoredRecord) => write(guildId, 'action', record);
-  const memory = (guildId: string, record: StoredRecord) => write(guildId, 'memory', { ...record, channelId: null });
-  const system = (guildId: string, record: StoredRecord) => write(guildId, 'system', { ...record, channelId: null });
-  const answer = (guildId: string, record: StoredRecord) => write(guildId, 'answer', record);
+  const action = (placeId: string, record: StoredRecord) => write(placeId, 'action', record);
+  const memory = (placeId: string, record: StoredRecord) => write(placeId, 'memory', { ...record, placeId: null });
+  const system = (record: StoredRecord) => write(null, 'system', { ...record, placeId: null });
+  const answer = (placeId: string, record: StoredRecord) => write(placeId, 'answer', record);
   // The inner life's scheduler and turns (src/behavior/inner.ts): `event` `wake`, `turn`,
   // `capped`, `overflow`, `stale`, `no-channel`, `review-drawn`, `review-missed`, `errand-cost`,
   // `stopped`, `started`. Ids, codes, counts and costs only.
-  const inner = (guildId: string, record: StoredRecord) => write(guildId, 'inner', record);
+  const inner = (placeId: string, record: StoredRecord) => write(placeId, 'inner', record);
 
   /** The lines (text) of one day's unit in the database. */
   function* dayLines(db: Untyped, key: StorageKey) {
     for (const line of seam.run(() => journalLines(db, key))) yield line;
   }
 
-  async function read(guildId: string, { day, kind = null, n = DEFAULT_READ_N, privateUserId = null }: ReadQuery = {}) {
+  async function read(placeId: string | null, { day, kind = null, n = DEFAULT_READ_N }: ReadQuery = {}) {
     const db = seam.db();
     const limit = isIntegerNumber(n) && n > 0 ? n : DEFAULT_READ_N;
     const out: Array<StoredRecord> = [];
     for (const line of dayLines(
       db,
-      journalKey(memoryDb, guildId, String(day).match(DAY_RE)?.[0] ?? utcDay(now()), privateUserId)
+      placeOrPersona('journal', placeId, { partition: String(day).match(DAY_RE)?.[0] ?? utcDay(now()) })
     )) {
       let record;
       try {
@@ -886,39 +860,39 @@ export function createJournal({
   }
 
   /**
-   * The guild journal's records from the UTC day of `from` (epoch ms) through today, oldest
-   * first, each as `{ at, kind, event }` (`event` of a system record, else null): the times
-   * offPeriods reads, nothing about anyone. A line's kind and time come from the envelope's head;
-   * only a system line, or one whose head does not match, is parsed whole. A private journal is
-   * not read.
+   * The records of the place's journal and the persona's from the UTC day of `from` (epoch ms)
+   * through today, oldest first, each as `{ at, kind, event }` (`event` of a system record, else
+   * null): the times offPeriods reads, nothing about anyone. A line's kind and time come from the
+   * envelope's head; only a system line, or one whose head does not match, is parsed whole.
    */
-  async function timeline(guildId: string, { from }: { from?: number } = {}) {
+  async function timeline(placeId: string, { from }: { from?: number } = {}) {
     const db = seam.db();
     const end = now();
     const start = typeof from === 'number' && isFiniteNumber(from) ? Math.min(from, end) : end;
     const out: Array<{ at: number; kind: string; event: string | null }> = [];
-    for (let day = Date.parse(`${utcDay(start)}T00:00:00Z`); day <= end; day += DAY_MS) {
-      for (const line of dayLines(db, journalKey(memoryDb, guildId, utcDay(day)))) {
-        const head = ENVELOPE_HEAD_RE.exec(line);
-        let kind: string | null = head?.[1] ?? null;
-        let occurredAt: string | null = head?.[2] ?? null;
-        let event: string | null = null;
-        if (!head || kind === 'system') {
-          let record;
-          try {
-            record = JSON.parse(line);
-          } catch {
-            continue;
+    for (const holder of placeId === PERSONA_ID ? [PERSONA_ID] : [placeId, PERSONA_ID])
+      for (let day = Date.parse(`${utcDay(start)}T00:00:00Z`); day <= end; day += DAY_MS) {
+        for (const line of dayLines(db, placeOrPersona('journal', holder, { partition: utcDay(day) }))) {
+          const head = ENVELOPE_HEAD_RE.exec(line);
+          let kind: string | null = head?.[1] ?? null;
+          let occurredAt: string | null = head?.[2] ?? null;
+          let event: string | null = null;
+          if (!head || kind === 'system') {
+            let record;
+            try {
+              record = JSON.parse(line);
+            } catch {
+              continue;
+            }
+            if (!record || typeof record !== 'object') continue;
+            kind = record.kind;
+            occurredAt = record.occurredAt;
+            event = kind === 'system' && typeof record.event === 'string' ? record.event : null;
           }
-          if (!record || typeof record !== 'object') continue;
-          kind = record.kind;
-          occurredAt = record.occurredAt;
-          event = kind === 'system' && typeof record.event === 'string' ? record.event : null;
+          const at = Date.parse(String(occurredAt));
+          if (typeof kind === 'string' && isFiniteNumber(at)) out.push({ at, kind, event });
         }
-        const at = Date.parse(String(occurredAt));
-        if (typeof kind === 'string' && isFiniteNumber(at)) out.push({ at, kind, event });
       }
-    }
     return out
       .map((entry, i) => ({ entry, i }))
       .sort((a, b) => a.entry.at - b.entry.at || a.i - b.i)
@@ -926,14 +900,14 @@ export function createJournal({
   }
 
   /**
-   * The guild journal's `[postedId, triggerId]` pairs of `days` (UTC day keys, oldest first;
+   * The place journal's `[postedId, triggerId]` pairs of `days` (UTC day keys, oldest first;
    * triggerLinksOf over their `turn.start` and `turn` records, read in that order, so a turn that
    * closed the day after it started is joined). A private journal is not read.
    */
-  async function triggerLinks(guildId: string, { days = [] }: { days?: Array<string> } = {}) {
+  async function triggerLinks(placeId: string, { days = [] }: { days?: Array<string> } = {}) {
     const records: Array<StoredRecord> = [];
     for (const day of Array.isArray(days) ? days : []) {
-      for (const record of await read(guildId, { day, n: Number.MAX_SAFE_INTEGER })) {
+      for (const record of await read(placeId, { day, n: Number.MAX_SAFE_INTEGER })) {
         if (record.kind === 'turn.start' || record.kind === 'turn') records.push(record);
       }
     }
@@ -941,13 +915,13 @@ export function createJournal({
   }
 
   /**
-   * The guild journal's skill calls of `days` (UTC day keys, oldest first; callMarksOf over their
+   * The place journal's skill calls of `days` (UTC day keys, oldest first; callMarksOf over their
    * `turn` and `action` records, read in that order). A private journal is not read.
    */
-  async function callMarks(guildId: string, { days = [] }: { days?: Array<string> } = {}) {
+  async function callMarks(placeId: string, { days = [] }: { days?: Array<string> } = {}) {
     const records: Array<StoredRecord> = [];
     for (const day of Array.isArray(days) ? days : []) {
-      for (const record of await read(guildId, { day, n: Number.MAX_SAFE_INTEGER })) {
+      for (const record of await read(placeId, { day, n: Number.MAX_SAFE_INTEGER })) {
         if (record.kind === 'turn' || record.kind === 'action') records.push(record);
       }
     }
@@ -956,27 +930,27 @@ export function createJournal({
 
   /**
    * The turn that posted message `messageId` (turnOfMessage), sent at `at` (epoch ms, its
-   * snowflake's time): searched in the guild journal's UTC day of `at` and the next (a turn
+   * snowflake's time): searched in the place journal's UTC day of `at` and the next (a turn
    * record is written when the turn ends, maybe after midnight); a turn found without its
    * `turn.start` there (one that started before midnight) has it looked for in the day before.
    * Null when none posted it. A private journal is not read.
    */
-  async function findTurn(guildId: string, { messageId, at }: { messageId?: string; at?: number } = {}) {
+  async function findTurn(placeId: string, { messageId, at }: { messageId?: string; at?: number } = {}) {
     const id = typeof messageId === 'string' ? messageId : '';
     if (!id || typeof at !== 'number' || !isFiniteNumber(at)) return null;
     const records: Array<StoredRecord> = [];
     for (const day of [utcDay(at), utcDay(at + DAY_MS)]) {
-      for (const record of await read(guildId, { day, n: Number.MAX_SAFE_INTEGER })) {
+      for (const record of await read(placeId, { day, n: Number.MAX_SAFE_INTEGER })) {
         if (record.kind === 'turn.start' || record.kind === 'turn' || record.kind === 'action') records.push(record);
       }
     }
     const found = turnOfMessage(records, id);
     if (!found || found.start) return found;
-    const before = await read(guildId, { day: utcDay(at - DAY_MS), kind: 'turn.start', n: Number.MAX_SAFE_INTEGER });
+    const before = await read(placeId, { day: utcDay(at - DAY_MS), kind: 'turn.start', n: Number.MAX_SAFE_INTEGER });
     return turnOfMessage([...before, ...records], id);
   }
 
-  function op(guildId: string, base: Untyped = {}) {
+  function op(placeId: string, base: Untyped = {}) {
     const opId = `op-${uuid()}`;
     const { intent, ...rest } = base ?? {};
     const common: Record<string, Untyped> = { ...rest, opId };
@@ -992,14 +966,14 @@ export function createJournal({
     const close = (phase: Untyped, result: Untyped) => {
       if (closed) return Promise.resolve();
       closed = true;
-      return write(guildId, 'action', { ...closingBase, phase, ...(result !== undefined ? { result } : {}) });
+      return write(placeId, 'action', { ...closingBase, phase, ...(result !== undefined ? { result } : {}) });
     };
     return {
       opId,
       proposed: (extra: Record<string, Untyped> = {}) =>
-        write(guildId, 'action', { ...common, ...extra, opId, phase: 'proposed' }),
+        write(placeId, 'action', { ...common, ...extra, opId, phase: 'proposed' }),
       started: (extra: Record<string, Untyped> = {}) =>
-        write(guildId, 'action', { ...common, ...extra, opId, phase: 'started' }),
+        write(placeId, 'action', { ...common, ...extra, opId, phase: 'started' }),
       succeeded: (result = {}) => close('succeeded', result),
       failed: (code: Untyped, result = {}) =>
         close('failed', { ...result, code: typeof code === 'string' && code ? code : 'error' }),
@@ -1008,14 +982,14 @@ export function createJournal({
   }
 
   /**
-   * The `started` action lines of `days` (guild journal) with no closing line in those days, in
+   * The `started` action lines of `days` (place journal) with no closing line in those days, in
    * order; with `before` (epoch ms) only those that started earlier.
    */
-  async function openOperations(guildId: string, days: Array<string>, before: number | null = null) {
+  async function openOperations(placeId: string, days: Array<string>, before: number | null = null) {
     const started = new Map<string, StoredRecord>();
     const closedIds = new Set<string>();
     for (const day of days) {
-      for (const record of await read(guildId, { day, kind: 'action', n: Number.MAX_SAFE_INTEGER })) {
+      for (const record of await read(placeId, { day, kind: 'action', n: Number.MAX_SAFE_INTEGER })) {
         if (typeof record.opId !== 'string' || !record.opId) continue;
         if (record.phase === 'started' && !started.has(record.opId)) started.set(record.opId, record);
         else if (CLOSING_PHASES.has(record.phase)) closedIds.add(record.opId);
@@ -1026,27 +1000,27 @@ export function createJournal({
     return [...started.values()].filter((record) => !closedIds.has(record.opId) && earlier(record));
   }
 
-  async function pending(guildId: string, { day = null, days = null, before = null }: PendingQuery = {}) {
+  async function pending(placeId: string, { day = null, days = null, before = null }: PendingQuery = {}) {
     const list = Array.isArray(days) ? days : [day ?? utcDay(now())];
-    return (await openOperations(guildId, list, before)).map((record) => ({
+    return (await openOperations(placeId, list, before)).map((record) => ({
       opId: record.opId,
       turnId: record.turnId ?? null,
       name: record.name ?? null,
       intent: record.intent ?? null,
-      channelId: record.scope?.channel ?? null,
+      placeId: record.scope?.channel ?? null,
     }));
   }
 
   /**
    * The operations of one turn (`turnId`) in the journal of `days`, each `{ opId, name, by, phase, skill, text, dryRun, shadow }`:
    * `phase` is how it ended (`succeeded`, `failed`, `unknown`; `open` when it started and has no closing line; `proposed`
-   * when it never started). `privateUserId` reads that member's private journal instead of the guild's.
+   * when it never started).
    */
-  async function turnOperations(guildId: string, { turnId, days, privateUserId = null }: TurnOperationsQuery = {}) {
+  async function turnOperations(placeId: string, { turnId, days }: TurnOperationsQuery = {}) {
     const ops = new Map();
     if (typeof turnId !== 'string' || !turnId) return [];
     for (const day of Array.isArray(days) ? days : []) {
-      for (const record of await read(guildId, { day, kind: 'action', n: Number.MAX_SAFE_INTEGER, privateUserId })) {
+      for (const record of await read(placeId, { day, kind: 'action', n: Number.MAX_SAFE_INTEGER })) {
         if (record.turnId !== turnId || typeof record.opId !== 'string' || !record.opId) continue;
         const op = ops.get(record.opId) ?? {
           opId: record.opId,
@@ -1075,36 +1049,35 @@ export function createJournal({
     );
   }
 
-  /** The persona's last own messages of `channelId`, fetched once per reconciliation; null when the fetch failed. */
-  function ownMessagesOnce(fetches: Untyped, fetchOwnMessages: Untyped, guildId: string, channelId: string) {
-    if (!fetches.has(channelId)) {
+  /** The persona's last own messages of `placeId`, fetched once per reconciliation; null when the fetch failed. */
+  function ownMessagesOnce(fetches: Untyped, fetchOwnMessages: Untyped, placeId: string, conversationId: string) {
+    if (!fetches.has(conversationId)) {
       const fetching = Promise.resolve()
-        .then(() => fetchOwnMessages(channelId, RECONCILE_FETCH))
+        .then(() => fetchOwnMessages(conversationId, RECONCILE_FETCH))
         .catch((error) => {
           log.warn('journal: reconcile fetch failed', {
             code: error?.code ?? null,
-            channelId,
-            guildId: String(guildId),
+            placeId: conversationId,
           });
           return null;
         });
-      fetches.set(channelId, fetching);
+      fetches.set(conversationId, fetching);
     }
-    return fetches.get(channelId);
+    return fetches.get(conversationId);
   }
 
-  async function reconcile(guildId: string, { days, fetchOwnMessages, before = null }: ReconcileOptions = {}) {
-    const open = await openOperations(guildId, Array.isArray(days) ? days : [utcDay(now())], before);
+  async function reconcile(placeId: string, { days, fetchOwnMessages, before = null }: ReconcileOptions = {}) {
+    const open = await openOperations(placeId, Array.isArray(days) ? days : [utcDay(now())], before);
     const fetches = new Map();
     const used = new Set();
     const counts = { succeeded: 0, unknown: 0 };
     for (const record of open) {
-      const channelId = record.scope?.channel ?? null;
-      const closing: Record<string, Untyped> = { opId: record.opId, channelId, reconciled: true };
-      for (const key of OP_FIELDS) if (key !== 'channelId' && key in record) closing[key] = record[key];
+      const conversationId = record.scope?.channel ?? null;
+      const closing: Record<string, Untyped> = { opId: record.opId, placeId: conversationId, reconciled: true };
+      for (const key of OP_FIELDS) if (key !== 'placeId' && key in record) closing[key] = record[key];
       let match = null;
-      if (record.name === 'post' && channelId && record.intent && typeof fetchOwnMessages === 'function') {
-        const messages = await ownMessagesOnce(fetches, fetchOwnMessages, guildId, channelId);
+      if (record.name === 'post' && conversationId && record.intent && typeof fetchOwnMessages === 'function') {
+        const messages = await ownMessagesOnce(fetches, fetchOwnMessages, placeId, conversationId);
         const startedAt = Date.parse(String(record.occurredAt));
         const replyTo = record.intent.replyTo ?? null;
         match =
@@ -1119,10 +1092,10 @@ export function createJournal({
       if (match) {
         used.add(match.id);
         counts.succeeded += 1;
-        await write(guildId, 'action', { ...closing, phase: 'succeeded', result: { messageId: match.id } });
+        await write(placeId, 'action', { ...closing, phase: 'succeeded', result: { messageId: match.id } });
       } else {
         counts.unknown += 1;
-        await write(guildId, 'action', { ...closing, phase: 'unknown' });
+        await write(placeId, 'action', { ...closing, phase: 'unknown' });
       }
     }
     return counts;
@@ -1161,8 +1134,8 @@ export function createJournal({
    * At start: a `.running` marker left by a run that never stopped cleanly writes an
    * `unclean-stop` system record first; then the marker is written for this run.
    */
-  async function markRunning(guildId: string): Promise<{ unclean: boolean }> {
-    const file = runningFile(guildId);
+  async function markRunning(): Promise<{ unclean: boolean }> {
+    const file = runningFile();
     let unclean = false;
     try {
       await fs.stat(file);
@@ -1170,19 +1143,19 @@ export function createJournal({
     } catch (error) {
       if (propOf(error, 'code') !== 'ENOENT') throw error;
     }
-    if (unclean) await system(guildId, { event: 'unclean-stop' });
+    if (unclean) await system({ event: 'unclean-stop' });
     await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, `${JSON.stringify({ startedAt: new Date(now()).toISOString() })}\n`);
     return { unclean };
   }
 
   /** On a clean stop: the `.running` marker goes. */
-  async function clearRunning(guildId: string) {
-    await fs.rm(runningFile(guildId), { force: true });
+  async function clearRunning() {
+    await fs.rm(runningFile(), { force: true });
   }
 
-  async function stats(guildId: string, { now: at = now() } = {}) {
-    const keys = [at, at - DAY_MS].map((ms) => journalKey(memoryDb, guildId, utcDay(ms)));
+  async function stats(placeId: string, { now: at = now() } = {}) {
+    const keys = [at, at - DAY_MS].map((ms) => placeOrPersona('journal', placeId, { partition: utcDay(ms) }));
     return {
       lastWriteMs: seam.run(() => journalLastWrite(seam.db(), keys)),
     };
@@ -1192,7 +1165,7 @@ export function createJournal({
     start,
     turn,
     action,
-    actionLine: (guildId, record) => lineOf(guildId, 'action', record),
+    actionLine: (placeId, record) => lineOf(placeId, 'action', record),
     memory,
     system,
     answer,

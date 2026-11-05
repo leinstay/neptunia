@@ -20,7 +20,7 @@ const STOPPED = { stopped: true, stoppedAt: NOW - 1000, stoppedBy: 'owner' };
 /** A data folder whose inner state file holds `state`, and the file. */
 function stored(state: Record<string, unknown>): { dataDir: string; file: string } {
   const dataDir = tempDir('nep-stored-stop-');
-  const file = path.join(dataDir, 'guilds', GUILD, 'inner.json');
+  const file = path.join(dataDir, 'persona', 'inner.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const day = new Date(NOW).toISOString().slice(0, 10);
   fs.writeFileSync(file, JSON.stringify({ review: { day, at: null, done: true }, ...state }));
@@ -33,9 +33,9 @@ test('releaseStoredStop clears a stored stop, so a tick runs and a restart stays
   const { dataDir } = stored(STOPPED);
   const first = setup({ records: [], dataDir });
   assert.equal(first.inner.releaseStoredStop(), true);
-  assert.equal(first.inner.status(GUILD).stopped, false);
+  assert.equal(first.inner.status().stopped, false);
   assert.notEqual((await first.inner.tick()).reason, 'stopped');
-  assert.equal(setup({ records: [], dataDir }).inner.status(GUILD).stopped, false);
+  assert.equal(setup({ records: [], dataDir }).inner.status().stopped, false);
 });
 
 test('releaseStoredStop with no stored stop answers false and writes nothing', () => {
@@ -51,7 +51,7 @@ test('releaseStoredStop with no stored stop answers false and writes nothing', (
 
 test('the core clears a stored stop on its own tick, with no command', async () => {
   // Catches: the method exists and the core never calls it, so the flag in memory.db still holds the wakes off.
-  await withRig({ config: { bot: { guildId: GUILD }, wakes: { tickSeconds: 1 } } }, async ({ dirs, llm, cores }) => {
+  await withRig({ config: { bot: { placeId: GUILD }, wakes: { tickSeconds: 1 } } }, async ({ dirs, llm, cores }) => {
     const file = path.join(dirs.dataDir, 'memory.db');
     const seed = openMemoryDb(file);
     applyUnitWrite(seed, { op: 'value', key: personaKey('inner'), value: { ...emptyState(), ...STOPPED } });

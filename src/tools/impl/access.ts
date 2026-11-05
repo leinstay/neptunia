@@ -126,10 +126,10 @@ const handlers = perEnv((env) => {
 
   /** The ids of the groups the persona holds in the served community (the interface's member info), [] when unknown. */
   async function personaRoleIds(context: OpContext): Promise<Array<string>> {
-    const guildId = env.resolvedGuildId(context);
+    const placeId = env.resolvedPlaceId(context);
     const self = personaId();
-    if (!reads || !guildId || self === null) return [];
-    const found = await reads.memberInfo({ communityId: guildId, memberId: self });
+    if (!reads || !placeId || self === null) return [];
+    const found = await reads.memberInfo({ communityId: placeId, memberId: self });
     return found?.member?.groupIds ?? [];
   }
 
@@ -276,14 +276,14 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * Once per guild (`accessMigrated: 1` in data/guilds/<id>/guild.json): the stored grants,
+   * Once per place (`accessMigrated: 1` in data/places/<id>/place.json): the stored grants,
    * keyed by the old slash-command keys, re-expanded under the operation names
    * (src/tools/impl/grants.ts#migrateGrants with `legacy`, src/config-moves.ts#legacyGrantOps), written
    * back to the private settings file when they changed, and a journal `system` record `access-migrated`
    * whose note lists what each grant covers now and the owner-only operations dropped.
    */
   async function migrateStoredGrants(
-    guildId: string | null,
+    placeId: string | null,
     legacy: (key: string) => { from: string | null; names: Array<string> } | null
   ): Promise<{ migrated: boolean; note?: string }> {
     const { store } = env;
@@ -293,7 +293,7 @@ const handlers = perEnv((env) => {
       writeAccess(renamed);
       log.info('access: renamed', { names: Object.keys(RENAMED_OPS).length });
     }
-    if (!guildId || store.getGuild(guildId)?.accessMigrated === 1) return { migrated: false };
+    if (!placeId || store.getPlace(placeId)?.accessMigrated === 1) return { migrated: false };
     const before = effectiveAccess();
     const ops = listOps();
     // The persona's grants on skills no person may hold are hers as they are: never migrated.
@@ -303,10 +303,10 @@ const handlers = perEnv((env) => {
     const { access: migrated, report, note } = migrateGrants({ access: rest, ops, legacy });
     const access = { ...migrated, ...kept };
     if (JSON.stringify(access) !== JSON.stringify(before)) writeAccess(access);
-    store.updateGuild(guildId, { accessMigrated: 1 });
+    store.updatePlace(placeId, { accessMigrated: 1 });
     const dropped = report.reduce((sum, line) => sum + line.dropped.length, 0);
-    log.info('access: migrated', { guildId, grants: report.length, dropped });
-    await env.journalSystem(guildId, { event: 'access-migrated', note: note || NONE });
+    log.info('access: migrated', { placeId, grants: report.length, dropped });
+    await env.journalSystem({ event: 'access-migrated', note: note || NONE });
     return { migrated: true, note };
   }
 
@@ -322,15 +322,15 @@ const handlers = perEnv((env) => {
 });
 
 /**
- * The one-time migration of the stored grants for `guildId` (see `migrateStoredGrants` above),
+ * The one-time migration of the stored grants for `placeId` (see `migrateStoredGrants` above),
  * against the ops env `env` (src/tools/impl/env.ts#createOpsEnv).
  */
 export function migrateStoredGrants(
   env: Env,
-  guildId: string | null,
+  placeId: string | null,
   legacy: (key: string) => { from: string | null; names: Array<string> } | null
 ): Promise<{ migrated: boolean; note?: string }> {
-  return handlers(env).migrateStoredGrants(guildId, legacy);
+  return handlers(env).migrateStoredGrants(placeId, legacy);
 }
 
 defineOp({

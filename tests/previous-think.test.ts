@@ -15,9 +15,9 @@ const whyOf = (picked: object) => (picked as { why?: string }).why;
 
 const MIN = 60_000;
 const T0 = Date.UTC(2026, 9, 20, 12, 0, 0);
-const GROUP = placeKey({ guildId: 'g1', channelId: 'c1' });
-const OTHER = placeKey({ guildId: 'g1', channelId: 'c2' });
-const DM = placeKey({ channelId: 'd1' });
+const GROUP = placeKey({ placeId: 'g1', conversationId: 'c1' });
+const OTHER = placeKey({ placeId: 'g1', conversationId: 'c2' });
+const DM = placeKey({ conversationId: 'd1' });
 
 test('select: the latest finished turn of the place within the window, with its age; older or none carries nothing', () => {
   const store = createThinkStore();
@@ -61,11 +61,16 @@ test('select: a turn counts for each place it delivered into; an inner turn only
 
 test('store: keeps the latest entry per place and drops the oldest places past its bound', () => {
   const store = createThinkStore({ maxPlaces: 2 });
-  for (const [i, channelId] of ['a', 'b', 'c'].entries())
-    store.record({ turnId: `t${i}`, at: T0 + i, think: channelId, ran: placeKey({ guildId: 'g', channelId }) });
+  for (const [i, placeId] of ['a', 'b', 'c'].entries())
+    store.record({
+      turnId: `t${i}`,
+      at: T0 + i,
+      think: placeId,
+      ran: placeKey({ placeId: 'g', conversationId: placeId }),
+    });
   assert.equal(store.size(), 2);
   assert.equal(
-    whyOf(store.select(placeKey({ guildId: 'g', channelId: 'a' }), { now: T0 + 5, minutes: 30 })),
+    whyOf(store.select(placeKey({ placeId: 'g', conversationId: 'a' }), { now: T0 + 5, minutes: 30 })),
     'none-in-window'
   );
 });
@@ -127,7 +132,7 @@ function requestWith(
     neighbors: [],
     trigger,
     triggerKind: 'mention',
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     channels: [{ id: 'c1', name: 'general' }],
@@ -192,7 +197,7 @@ test('withCalls: a call mark carries its arguments into the line through labels.
     {
       id: 'q1',
       ts: T0,
-      channelId: 'c1',
+      placeId: 'c1',
       authorId: 'a1',
       authorName: 'Nikos',
       self: false,
@@ -204,7 +209,7 @@ test('withCalls: a call mark carries its arguments into the line through labels.
     {
       id: 'p1',
       ts: T0 + MIN,
-      channelId: 'c1',
+      placeId: 'c1',
       authorId: 'self',
       authorName: 'Nept',
       self: true,
@@ -223,11 +228,11 @@ test('withCalls: a call mark carries its arguments into the line through labels.
     },
   };
   const call = (status: string, args: unknown) => ({
-    channelId: 'c1',
+    placeId: 'c1',
     at: T0 + 2 * MIN,
     skill: 'web.search',
     status,
-    target: { messageId: null, channelId: null },
+    target: { messageId: null, placeId: null },
     postedId: null,
     posted: ['p1'],
     args,

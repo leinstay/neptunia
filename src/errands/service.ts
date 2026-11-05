@@ -1,5 +1,5 @@
 // The persona's errands in the background: an errand the `errand.run` operation accepted (queued in
-// the guild's errand store, src/errands/store.ts) is handed to its agent runner through the client
+// the place's errand store, src/errands/store.ts) is handed to its agent runner through the client
 // (src/errands/client.ts) right after the operation answered -- nobody waits for it. The errand is
 // `running` from the moment it is sent, with the limits of the profile (`limits`, overridable under `agents.<profile>`; the
 // profile's defaults under them) and a context the runner applies its scope policy to
@@ -143,23 +143,22 @@ function dispatchOf(privateDir: string | undefined, agent: string, log: Logger, 
 
 /**
  * The last `errands.recentLines` lines (read now; at most MAX_RECENT_ENTRIES) of channel
- * `channelId` in the memory's buffer of `guildId`, oldest first, as `{ author, text }` (the
+ * `placeId` in the memory's buffer of `placeId`, oldest first, as `{ author, text }` (the
  * display name and the text on one line, each cut to RECENT_CHARS; a line without text left
  * out). [] for a `dm` scope, without a channel or a buffer.
  */
 function recentLinesOf(
   { memory, log }: { memory: ErrandServiceOptions['memory']; log: Logger },
-  guildId: string,
-  channelId: string | null,
+  conversationId: string | null,
   scope: ErrandScope
 ): RunContext['recent'] {
-  if (scope === 'dm' || !channelId || typeof memory?.recentLines !== 'function') return [];
+  if (scope === 'dm' || !conversationId || typeof memory?.recentLines !== 'function') return [];
   const count = Math.min(MAX_RECENT_ENTRIES, DEFAULT_RECENT_LINES);
   let lines: Array<{ author?: unknown; text?: unknown }>;
   try {
-    lines = memory.recentLines(guildId, channelId, count);
+    lines = memory.recentLines(conversationId, count);
   } catch (err) {
-    log.warn('errands: recent lines unreadable', { guildId: String(guildId), code: errorCode(err) });
+    log.warn('errands: recent lines unreadable', { code: errorCode(err) });
     return [];
   }
   return (Array.isArray(lines) ? lines : [])
@@ -175,7 +174,7 @@ function recentLinesOf(
 function dispatchContext(errand: ErrandRecord, recent: RunContext['recent']): RunContext {
   return {
     scope: errand.scope,
-    channel: errand.origin?.channelId ?? null,
+    channel: errand.origin?.placeId ?? null,
     asker: errand.requester?.userId ?? null,
     recent: errand.scope === 'dm' ? [] : recent,
   };
@@ -197,7 +196,7 @@ function runRequestOf(
 /**
  * `hot` holds the live config. `env` is the parsed environment (src/config.ts#env): the keys and the proxy a run
  * carries. `memory` gives the channel's newest lines, oldest first (src/index.ts reads them from the memory
- * database): an errand's `context.recent`. `getGuildId` names the served guild when a caller gives none. `defer` is how
+ * database): an errand's `context.recent`. `defer` is how
  * the background run starts (setImmediate by default). `now` is the clock of the runner rechecks.
  */
 export function createErrandService({
@@ -208,7 +207,6 @@ export function createErrandService({
   agentPaths,
   privateDir,
   memory = null,
-  getGuildId = () => null,
   onFinished = null,
   log = defaultLog,
   defer = (fn) => setImmediate(fn),
@@ -267,14 +265,14 @@ export function createErrandService({
     return true;
   }
 
-  /** The store of `guildId`, else of the served guild. */
-  function storeOf(guildId?: unknown): ErrandStore | null {
-    return stores.get(guildId || getGuildId?.() || '');
+  /** The store of `placeId`, else of the served place. */
+  function storeOf(): ErrandStore | null {
+    return stores.get();
   }
 
   const limitsOf = (agent: string): Limits => limitsFor(agent, hot.config, agentPaths);
-  const recentOf = (guildId: string, channelId: string | null, scope: ErrandScope): RunContext['recent'] =>
-    recentLinesOf({ memory, log }, guildId, channelId, scope);
+  const recentOf = (conversationId: string | null, scope: ErrandScope): RunContext['recent'] =>
+    recentLinesOf({ memory, log }, conversationId, scope);
 
   /** One queued errand sent to its runner and closed with its end. Never throws. */
   async function runErrand(store: ErrandStore, id: string): Promise<ErrandRecord | null> {
@@ -299,7 +297,7 @@ export function createErrandService({
     if (!finished) return null;
     if (typeof onFinished === 'function') {
       try {
-        await onFinished(finished, store.guildId);
+        await onFinished(finished);
       } catch (err) {
         log.warn('errands: onFinished failed', { id: finished.id, error: err });
       }
@@ -311,21 +309,13 @@ export function createErrandService({
    * A new errand queued and, once the caller has its answer, started in the background:
    * `{ ok: true, errand }` (the errand as queued) or `{ ok: false, code }` (the store's refusal, or
    * `not-configured` when the agent's runner is not set up, `runner-down` while its runner is
-   * known unreachable, `no-guild` without a guild).
+   * known unreachable, `no-place` without a place).
    * An errand the store already holds under the call's `idempotencyKey` is answered as it is
    * (`duplicate: true`), never run again.
    */
-  function submit({
-    guildId = null,
-    agent,
-    goal,
-    requester,
-    origin,
-    scope,
-    idempotencyKey = null,
-  }: SubmitInput): AddResult {
-    const store = storeOf(guildId);
-    if (!store) return { ok: false, code: CODE.NO_GUILD };
+  function submit({ agent, goal, requester, origin, scope, idempotencyKey = null }: SubmitInput): AddResult {
+    const store = storeOf();
+    if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
     if (!profileOf(agent, agentPaths)) return { ok: false, code: CODE.UNKNOWN_AGENT };
     if (typeof client?.configured === 'function' && !client.configured(agent))
       return { ok: false, code: CODE.NOT_CONFIGURED };
@@ -334,7 +324,7 @@ export function createErrandService({
     if (!added.ok || added.duplicate) return added;
     const id = added.errand.id;
     // The channel as it was when the errand was asked for, not when it is sent.
-    recentById.set(id, recentOf(store.guildId, added.errand.origin?.channelId ?? null, added.errand.scope));
+    recentById.set(id, recentOf(added.errand.origin?.placeId ?? null, added.errand.scope));
     // After the operation's answer: the persona never waits for her errand.
     const run = new Promise<void>((resolve) => defer(resolve))
       .then(() => runErrand(store, id))
@@ -347,9 +337,9 @@ export function createErrandService({
    * Errand `id` cancelled: the store closes it and the runner is told. `by`, who cancelled it, is the caller's
    * account of the cancel; the service keeps nothing of it. `{ ok, errand }` or `{ ok: false, code }`.
    */
-  function cancel({ guildId = null, id }: { guildId?: string | null; id: string; by?: string }): CancelResult {
-    const store = storeOf(guildId);
-    if (!store) return { ok: false, code: CODE.NO_GUILD };
+  function cancel({ id }: { id: string; by?: string }): CancelResult {
+    const store = storeOf();
+    if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
     const errand = store.get(id);
     if (!errand) return { ok: false, code: CODE.NOT_FOUND };
     if (!isOpenState(errand.state)) return { ok: false, code: CODE.NOT_OPEN, errand };
@@ -360,8 +350,8 @@ export function createErrandService({
   }
 
   /** The gateway's budget of a new `agent` errand (src/tools/gateway.ts): the store's caps. */
-  function budget({ guildId = null, agent }: { guildId?: string | null; agent?: string } = {}): Budget | null {
-    const store = storeOf(guildId);
+  function budget({ agent }: { agent?: string } = {}): Budget | null {
+    const store = storeOf();
     return store ? store.budget(agent ?? '') : null;
   }
 
@@ -371,14 +361,11 @@ export function createErrandService({
    * one), oldest first. In a server channel only the `group` ones; in a private
    * chat (`privateChannelId`) also the `dm` ones asked in that chat.
    */
-  function view({
-    guildId = null,
-    privateChannelId = null,
-  }: { guildId?: string | null; privateChannelId?: string | null } = {}): Array<ErrandRecord> {
-    const store = storeOf(guildId);
+  function view({ privateChannelId = null }: { privateChannelId?: string | null } = {}): Array<ErrandRecord> {
+    const store = storeOf();
     if (!store) return [];
     const visible = (errand: ErrandRecord): boolean =>
-      errand.scope !== 'dm' || (privateChannelId !== null && errand.origin?.channelId === String(privateChannelId));
+      errand.scope !== 'dm' || (privateChannelId !== null && errand.origin?.placeId === String(privateChannelId));
     return [...store.open(), ...store.unread()].filter(visible);
   }
 
@@ -391,7 +378,7 @@ export function createErrandService({
     );
     if (
       !errand ||
-      (errand.scope === 'dm' && (privateChannelId === null || errand.origin?.channelId !== String(privateChannelId)))
+      (errand.scope === 'dm' && (privateChannelId === null || errand.origin?.placeId !== String(privateChannelId)))
     )
       return null;
     return { expired: true, errand };
@@ -402,28 +389,24 @@ export function createErrandService({
    * conversation that may see its errand (view's rule: a private chat's errand only in that chat);
    * null otherwise.
    */
-  function fileOf({
-    guildId = null,
-    handle,
-    privateChannelId = null,
-  }: { guildId?: string | null; handle?: unknown; privateChannelId?: string | null } = {}):
+  function fileOf({ handle, privateChannelId = null }: { handle?: unknown; privateChannelId?: string | null } = {}):
     ErrandFileRef | ExpiredFileRef | null {
-    const store = storeOf(guildId);
+    const store = storeOf();
     const file = store ? store.fileOf(handle) : null;
     // Files the runner has deleted: a marker the callers refuse as `file-expired`, never a path.
     if (!file)
       return store?.fileExpired?.(handle) === true ? expiredFile(store, idText(handle), privateChannelId) : null;
     if (
       file.errand.scope === 'dm' &&
-      (privateChannelId === null || file.errand.origin?.channelId !== String(privateChannelId))
+      (privateChannelId === null || file.errand.origin?.placeId !== String(privateChannelId))
     )
       return null;
     return file;
   }
 
   /** The errands `ids` marked as seen by the persona (a turn of hers showed them). */
-  function markSeen({ guildId = null, ids = [] }: IdsInput = {}): number {
-    const store = storeOf(guildId);
+  function markSeen({ ids = [] }: IdsInput = {}): number {
+    const store = storeOf();
     if (!store) return 0;
     let marked = 0;
     for (const id of ids) if (store.markSeen(id)) marked += 1;
@@ -431,8 +414,8 @@ export function createErrandService({
   }
 
   /** The errands `ids` marked as read by the persona (their result turn completed, or `errand.read` returned them). */
-  function markRead({ guildId = null, ids = [] }: IdsInput = {}): number {
-    const store = storeOf(guildId);
+  function markRead({ ids = [] }: IdsInput = {}): number {
+    const store = storeOf();
     if (!store) return 0;
     let marked = 0;
     for (const id of ids) if (store.markRead(id)) marked += 1;
@@ -440,8 +423,8 @@ export function createErrandService({
   }
 
   /** The errands `ids` noted as ones whose result turn never completed (kept unread; the `<errands>` line says so). */
-  function markResultFailed({ guildId = null, ids = [] }: IdsInput = {}): number {
-    const store = storeOf(guildId);
+  function markResultFailed({ ids = [] }: IdsInput = {}): number {
+    const store = storeOf();
     if (!store) return 0;
     let marked = 0;
     for (const id of ids) if (store.markResultFailed(id)) marked += 1;
@@ -449,25 +432,24 @@ export function createErrandService({
   }
 
   /**
-   * The errands of the served guild a restart left open, failed (`restarted`). Each enabled
+   * The errands of the served place a restart left open, failed (`restarted`). Each enabled
    * agent's runner is pinged in the background (its health flag).
    */
-  function start(guildId: unknown): number {
+  function start(): number {
     // Each enabled agent's runner pinged in the background: its flag known before the first ask.
     for (const agent of Object.keys(loadProfiles(agentPaths))) check(agent).catch(() => {});
-    const store = storeOf(guildId);
+    const store = storeOf();
     if (!store) return 0;
     const failed = store.failOpen('restarted');
-    if (failed > 0) log.info('errands: open tasks failed at start', { guildId: store.guildId, count: failed });
+    if (failed > 0) log.info('errands: open tasks failed at start', { count: failed });
     // Finished errands whose result turn never ran (a restart cut it short, or it kept failing):
     // their turn is opened again, one after another through the turn runner's own cooldown.
     if (typeof onFinished === 'function') {
-      const waiting = store.unseen().filter((errand) => errand.origin?.channelId);
-      if (waiting.length > 0)
-        log.info('errands: result turns reopened at start', { guildId: store.guildId, count: waiting.length });
+      const waiting = store.unseen().filter((errand) => errand.origin?.placeId);
+      if (waiting.length > 0) log.info('errands: result turns reopened at start', { count: waiting.length });
       for (const errand of waiting)
         defer(() =>
-          Promise.resolve(onFinished(errand, store.guildId)).catch((err) =>
+          Promise.resolve(onFinished(errand)).catch((err) =>
             log.warn('errands: onFinished failed', { id: errand.id, error: err })
           )
         );

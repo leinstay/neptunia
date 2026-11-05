@@ -38,13 +38,13 @@ const REFUSALS = Object.freeze({
   [CODE.CAP_OPEN]: 'failed',
   [CODE.CAP_TASKS]: 'failed',
   [CODE.NOT_CONFIGURED]: 'failed',
-  [CODE.NO_GUILD]: 'failed',
+  [CODE.PLACE_REQUIRED]: 'failed',
   [CODE.UNKNOWN_AGENT]: 'invalid',
   [CODE.BAD_GOAL]: 'invalid',
 });
 
 const handlers = perEnv((env) => {
-  const { hot, assertNotPaused, resolvedGuildId, now = Date.now } = env;
+  const { hot, assertNotPaused, now = Date.now } = env;
 
   /** The errand service, or an Error naming what is missing. */
   function errands(): ErrandService {
@@ -68,7 +68,7 @@ const handlers = perEnv((env) => {
   /** Whether the conversation the command runs in is a private chat. */
   function inPrivate(context: OpContext) {
     if (context?.privateChat === true) return true;
-    return context?.channelId ? env.directory.isPrivate(idText(context.channelId)) : false;
+    return context?.conversationId ? env.directory.isPrivate(idText(context.conversationId)) : false;
   }
 
   /** Whether the caller may see `errand`: a group errand anyone; a private chat's only its requester or an owner. */
@@ -109,14 +109,13 @@ const handlers = perEnv((env) => {
     // Her own call carries its turn and its idempotency key (src/tools/executors.ts); a command neither.
     const persona = context?.actor === 'persona';
     const origin = {
-      channelId: context?.channelId ? idText(context.channelId) : null,
+      placeId: context?.conversationId ? idText(context.conversationId) : null,
       messageId: context?.sourceMessageId ? idText(context.sourceMessageId) : null,
       ...(persona && context?.turnId ? { turnId: idText(context.turnId) } : {}),
       ...(context?.publicationBoundary ? { publicationBoundary: context.publicationBoundary } : {}),
     };
     const idempotencyKey = persona && typeof context?.idempotencyKey === 'string' ? context.idempotencyKey : null;
     const submitted = errands().submit({
-      guildId: resolvedGuildId(context),
       agent,
       goal,
       requester,
@@ -128,8 +127,7 @@ const handlers = perEnv((env) => {
     const { errand } = submitted;
     // An intention of the same turn waiting for the errand it hands off is linked to it now
     // (src/intentions/service.ts#linkTurnErrand); a refused errand above links nothing.
-    if (origin.turnId)
-      env.intentions?.linkTurnErrand?.(resolvedGuildId(context), { turnId: origin.turnId, errandId: errand.id });
+    if (origin.turnId) env.intentions?.linkTurnErrand?.({ turnId: origin.turnId, errandId: errand.id });
     return {
       status: 'ok',
       code: CODE.OK,
@@ -140,8 +138,8 @@ const handlers = perEnv((env) => {
 
   /** `/nep task status [id]`: one errand, or every open one. */
   function cmdStatus(args: Obj, context: OpContext) {
-    const store = errands().store(resolvedGuildId(context));
-    if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
+    const store = errands().store();
+    if (!store) throw Object.assign(new Error('no place'), { code: CODE.PLACE_REQUIRED });
     const id = textOf(args.id).trim();
     if (id) {
       const errand = store.get(id);
@@ -169,8 +167,8 @@ const handlers = perEnv((env) => {
 
   /** A finished errand of the caller's view, or an `invalid` error: not found, not viewable, still open. */
   function finishedErrand(args: Obj, context: OpContext) {
-    const store = errands().store(resolvedGuildId(context));
-    if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
+    const store = errands().store();
+    if (!store) throw Object.assign(new Error('no place'), { code: CODE.PLACE_REQUIRED });
     const id = textOf(args.id).trim();
     if (!id) throw invalid('an id is required');
     const errand = store.get(id);
@@ -230,7 +228,7 @@ const handlers = perEnv((env) => {
     const id = textOf(args.id).trim();
     if (!id) throw invalid('an id is required');
     const service = errands();
-    const store = service.store(resolvedGuildId(context));
+    const store = service.store();
     const errand = store?.get(id) ?? null;
     if (!errand || !mayView(errand, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
     const own = Boolean(context?.userId) && idText(context.userId) === errand.requester?.userId;
@@ -239,7 +237,7 @@ const handlers = perEnv((env) => {
       throw denied('only the requester of the task or an owner may cancel it', CODE.NOT_REQUESTER);
     // Who cancelled it, as the service is told.
     const by = context?.actor === 'persona' ? 'persona' : ownerCalls(context) ? 'owner' : 'requester';
-    const cancelled = service.cancel({ guildId: resolvedGuildId(context), id, by });
+    const cancelled = service.cancel({ id, by });
     if (!cancelled.ok)
       return {
         status: 'failed',
@@ -252,8 +250,8 @@ const handlers = perEnv((env) => {
 
   /** `/nep task list`: the latest ERRAND_LIST_COUNT errands, newest first. */
   function cmdList(args: Obj, context: OpContext) {
-    const store = errands().store(resolvedGuildId(context));
-    if (!store) throw Object.assign(new Error('no guild'), { code: CODE.NO_GUILD });
+    const store = errands().store();
+    if (!store) throw Object.assign(new Error('no place'), { code: CODE.PLACE_REQUIRED });
     const latest = store
       .recent(ERRAND_LIST_COUNT * 3)
       .filter((errand) => mayView(errand, context))

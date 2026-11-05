@@ -14,9 +14,9 @@
 // read stays in her `<errands>` block until `errand.read` or `errand.resolve`. Settings are read at the moment of
 // use; logs carry ids and outcomes, never a goal or a result. An errand's end reaches this module
 // as an `errand.done` event through the core's event door (src/interface/door.ts): the service
-// calls `errandDoneEvent(errand, guildId)` and submits it, the door's handler is `onEvent`; the
+// calls `errandDoneEvent(errand, placeId)` and submits it, the door's handler is `onEvent`; the
 // errand itself rides along in-process under `raw.errand` (the event holds its id and status), and
-// when it does not, the errand store of the event's guild is asked for it. Before the result turn,
+// when it does not, the errand store of the event's place is asked for it. Before the result turn,
 // the end reaches the persona's intentions waiting on that errand (`intentions.onErrandFinished`,
 // src/intentions/service.ts), so the turn already shows them back to pending with the outcome. An `errand.done` for an
 // errand whose result she has read already (`readAt` set, in the event's errand or in the store), as a second delivery
@@ -37,7 +37,7 @@ type TurnResult = { outcome?: string } | null | undefined;
 /** The turn runner as the result turn uses it. */
 type TurnsPort = {
   runTurn: (input: Record<string, unknown>) => Promise<TurnResult>;
-  isBusy?: (channelId: string) => boolean;
+  isBusy?: (placeId: string) => boolean;
   isAnyBusy?: () => boolean;
 };
 
@@ -45,7 +45,6 @@ type TurnsPort = {
 export type ErrandDoneEvent = {
   kind: 'errand.done';
   at: number;
-  communityId: string | null;
   errandId: string;
   status: string;
   raw: { errand: ErrandRecord };
@@ -66,15 +65,10 @@ export const RESULT_ATTEMPTS = 20;
  * rides along as `raw.errand`, which validation never reads. Its id is left to the door (errand and
  * status), so a second delivery of the same end is the same event.
  */
-export function errandDoneEvent(
-  errand: ErrandRecord,
-  guildId: string | null = null,
-  now: () => number = Date.now
-): ErrandDoneEvent {
+export function errandDoneEvent(errand: ErrandRecord, now: () => number = Date.now): ErrandDoneEvent {
   return {
     kind: 'errand.done',
     at: now(),
-    communityId: guildId ?? null,
     errandId: errand.id,
     status: errand.state,
     raw: { errand },
@@ -98,7 +92,6 @@ export function createErrandTurns({
   turns,
   errands,
   intentions = null,
-  getGuildId = () => null,
   now = Date.now,
   setTimer = (fn, ms) => setTimeout(fn, ms),
   log = defaultLog,
@@ -108,13 +101,13 @@ export function createErrandTurns({
   iface?: () => string;
   turns: TurnsPort;
   errands: Partial<Pick<ErrandService, 'markSeen' | 'markRead' | 'markResultFailed' | 'store'>> | null;
-  intentions?: { onErrandFinished: (errand: ErrandRecord, guildId: string | null) => unknown } | null;
-  getGuildId?: () => string | null;
+  intentions?: { onErrandFinished: (errand: ErrandRecord) => unknown } | null;
+
   now?: () => number;
   setTimer?: (fn: () => void, ms: number) => TimerHandle;
   log?: ErrorLogger;
 }): {
-  onFinished: (errand: ErrandRecord, guildId: string | null) => Promise<TurnResult>;
+  onFinished: (errand: ErrandRecord) => Promise<TurnResult>;
   onEvent: (event: ErrandDoneEvent) => Promise<TurnResult>;
   stop: () => void;
 } {
@@ -130,18 +123,18 @@ export function createErrandTurns({
     return Number.isFinite(value) && value >= 0 ? value : fallback;
   }
 
-  /** Whether a turn would find the attention taken in `channelId` now (the rule runTurn applies). */
-  function attentionTaken(channelId: string): boolean {
-    if (typeof turns?.isBusy === 'function' && turns.isBusy(channelId)) return true;
+  /** Whether a turn would find the attention taken in `placeId` now (the rule runTurn applies). */
+  function attentionTaken(placeId: string): boolean {
+    if (typeof turns?.isBusy === 'function' && turns.isBusy(placeId)) return true;
     return typeof turns?.isAnyBusy === 'function' && turns.isAnyBusy();
   }
 
   /** Try `errand` again in `ms`, unless it ran out of attempts. */
-  function later(errand: ErrandRecord, guildId: string | null, attempt: number, ms: number): void {
+  function later(errand: ErrandRecord, attempt: number, ms: number): void {
     if (attempt + 1 >= RESULT_ATTEMPTS) {
       log.info('errands: result left to the tasks block', { id: errand.id, attempts: attempt + 1 });
       try {
-        errands?.markResultFailed?.({ guildId, ids: [errand.id] });
+        errands?.markResultFailed?.({ ids: [errand.id] });
       } catch (err) {
         log.warn('errands: result failure not noted', { id: errand.id, error: err });
       }
@@ -151,7 +144,7 @@ export function createErrandTurns({
     const timer = setTimer(
       () => {
         waiting.delete(errand.id);
-        deliver(errand, guildId, attempt + 1).catch((err) =>
+        deliver(errand, attempt + 1).catch((err) =>
           log.warn('errands: result turn failed', { id: errand.id, error: err })
         );
       },
@@ -171,61 +164,60 @@ export function createErrandTurns({
   }
 
   /** Whether her turn has had this end's result in front of it, by the errand held or the store now. */
-  function isRead(errand: ErrandRecord, guildId: string | null): boolean {
-    return Boolean(errand.readAt || errands?.store?.(guildId)?.get?.(errand.id)?.readAt);
+  function isRead(errand: ErrandRecord): boolean {
+    return Boolean(errand.readAt || errands?.store?.()?.get?.(errand.id)?.readAt);
   }
 
   /** One attempt at the result turn of `errand`, unless another is running or she has read the result since. */
-  async function deliver(errand: ErrandRecord, guildId: string | null, attempt = 0): Promise<TurnResult> {
+  async function deliver(errand: ErrandRecord, attempt = 0): Promise<TurnResult> {
     if (delivering.has(errand.id)) return null;
-    if (isRead(errand, guildId)) {
+    if (isRead(errand)) {
       log.info('errands: result already read', { id: errand.id });
       return null;
     }
     delivering.add(errand.id);
     try {
-      return await attemptTurn(errand, guildId, attempt);
+      return await attemptTurn(errand, attempt);
     } finally {
       delivering.delete(errand.id);
     }
   }
 
   /** The result turn of `errand`, or the retry when the conversation's cooldown or the attention holds it back. */
-  async function attemptTurn(errand: ErrandRecord, guildId: string | null, attempt: number): Promise<TurnResult> {
-    const channelId = errand.origin?.channelId;
-    if (!channelId) {
+  async function attemptTurn(errand: ErrandRecord, attempt: number): Promise<TurnResult> {
+    const conversationId = errand.origin?.placeId;
+    if (!conversationId) {
       log.info('errands: result without a conversation', { id: errand.id });
       return null;
     }
     const cooldownMs = DEFAULT_COOLDOWN_SECONDS * 1000;
-    const last = lastAt.get(channelId);
+    const last = lastAt.get(conversationId);
     if (typeof last === 'number' && Number.isFinite(last) && now() - last < cooldownMs) {
-      later(errand, guildId, attempt, last + cooldownMs - now());
+      later(errand, attempt, last + cooldownMs - now());
       return null;
     }
     const retryMs = seconds('resultRetrySeconds', DEFAULT_RETRY_SECONDS) * 1000;
-    if (attentionTaken(channelId)) {
-      later(errand, guildId, attempt, retryMs);
+    if (attentionTaken(conversationId)) {
+      later(errand, attempt, retryMs);
       return null;
     }
     // A restricted errand names its exact origin, which may be on another interface than the home one.
     const conversation = {
       iface: errand.origin?.publicationBoundary?.origin.iface ?? iface(),
-      conversationId: String(channelId),
+      conversationId: String(conversationId),
     };
     const known = await reads.conversationInfo(conversation);
     if (known === null) {
-      log.warn('errands: result conversation unavailable', { id: errand.id, channelId });
+      log.warn('errands: result conversation unavailable', { id: errand.id, placeId: conversationId });
       return null;
     }
     const trigger = await originMessage(conversation, errand);
     const requester = errand.requester?.userId ? { id: errand.requester.userId } : null;
-    lastAt.set(channelId, now());
+    lastAt.set(conversationId, now());
     let result: TurnResult;
     try {
       result = await turns.runTurn({
         conversation,
-        guildId: guildId ?? getGuildId?.() ?? null,
         mode: trigger ? 'reply' : 'interject',
         trigger,
         triggerKind: 'errand',
@@ -234,27 +226,33 @@ export function createErrandTurns({
         ...(requester ? { requester } : {}),
       });
     } catch (err) {
-      log.error('errands: result turn failed', { id: errand.id, channelId, error: err });
+      log.error('errands: result turn failed', { id: errand.id, placeId: conversationId, error: err });
       result = { outcome: 'error' };
     }
     const outcome = result?.outcome ?? 'error';
     if (!DONE.has(outcome)) {
       // Held back, or failed on its own: the result is still unread, so the turn is tried again.
-      lastAt.delete(channelId);
-      later(errand, guildId, attempt, retryMs);
-      if (!HELD.has(outcome)) log.warn('errands: result turn not completed', { id: errand.id, channelId, outcome });
+      lastAt.delete(conversationId);
+      later(errand, attempt, retryMs);
+      if (!HELD.has(outcome))
+        log.warn('errands: result turn not completed', { id: errand.id, placeId: conversationId, outcome });
       return result;
     }
-    errands?.markSeen?.({ guildId, ids: [errand.id] });
-    errands?.markRead?.({ guildId, ids: [errand.id] });
-    log.info('errands: result turn', { id: errand.id, channelId, outcome, ...(trigger ? {} : { interject: true }) });
+    errands?.markSeen?.({ ids: [errand.id] });
+    errands?.markRead?.({ ids: [errand.id] });
+    log.info('errands: result turn', {
+      id: errand.id,
+      placeId: conversationId,
+      outcome,
+      ...(trigger ? {} : { interject: true }),
+    });
     return result;
   }
 
   /** The service's `onFinished`: the result turn of `errand`, unless its retry is already armed (never throws). */
-  function onFinished(errand: ErrandRecord, guildId: string | null): Promise<TurnResult> {
+  function onFinished(errand: ErrandRecord): Promise<TurnResult> {
     if (waiting.has(errand.id)) return Promise.resolve(null);
-    return deliver(errand, guildId, 0).catch((err) => {
+    return deliver(errand, 0).catch((err) => {
       log.warn('errands: result turn failed', { id: errand?.id, error: err });
       return null;
     });
@@ -265,19 +263,18 @@ export function createErrandTurns({
    * moved first, then its result turn (never throws); null when the errand cannot be found.
    */
   function onEvent(event: ErrandDoneEvent): Promise<TurnResult> {
-    const guildId = event?.communityId ?? null;
-    const stored = errands?.store?.(guildId)?.get?.(event?.errandId) ?? null;
+    const stored = errands?.store?.()?.get?.(event?.errandId) ?? null;
     const errand = event?.raw?.errand ?? stored;
     if (!errand) {
       log.warn('errands: finished task not found', { id: event?.errandId ?? null });
       return Promise.resolve(null);
     }
     try {
-      intentions?.onErrandFinished?.(errand, guildId);
+      intentions?.onErrandFinished?.(errand);
     } catch (err) {
       log.warn('errands: intentions not reached', { id: errand.id, error: err });
     }
-    return onFinished(errand, guildId);
+    return onFinished(errand);
   }
 
   /** Every result still waiting dropped (shutdown). */

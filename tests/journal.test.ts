@@ -12,11 +12,9 @@ import {
   triggerLinksOf,
 } from '../src/memory/journal.ts';
 import { tempDir } from './fixtures/tmp.ts';
-import { openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.ts';
+import { journalLabel, openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
-import { nativeOfAny } from '../src/memory/db/ids.ts';
-import { legacyStorageKey } from '../src/memory/db/paths.ts';
 import type { StorageKey } from '../src/memory/db/storage-keys.ts';
 
 const DATA = path.join('fake-root', 'data');
@@ -64,17 +62,7 @@ function recordingMemory(lines: Array<Line>) {
       const unit = wrongly<{ key: StorageKey; lines?: Array<unknown> }>(update);
       for (const line of unit.lines ?? []) {
         // File labels are a test export projection. The real writer receives the original semantic update.
-        const privatePart =
-          unit.key.subject.type === 'account' ? ['private', present(nativeOfAny(unit.key.subject.id))] : [];
-        const rel = path.join(
-          'guilds',
-          present(nativeOfAny(unit.key.scopePlaceId)),
-          ...privatePart,
-          'journal',
-          `${unit.key.partition}.jsonl`
-        );
-        assert.deepEqual(legacyStorageKey(rel), unit.key);
-        lines.push({ file: path.join(DATA, rel), line: JSON.stringify(line) });
+        lines.push({ file: journalLabel(DATA, unit.key), line: JSON.stringify(line) });
       }
       return mem.memoryDb.writeUnit(update);
     },
@@ -101,7 +89,7 @@ test('journal: start allots a turnId and writes turn.start to the day of occurre
   const clock = { ms: DAY_D };
   const { journal, appendStore } = journalAt(clock);
   const started = journal.start('g1', {
-    channelId: 'c1',
+    placeId: 'c1',
     mode: 'reply',
     trigger: { kind: 'mention', messageId: 'm1', authorId: 'u1' },
     participants: ['u1'],
@@ -113,7 +101,7 @@ test('journal: start allots a turnId and writes turn.start to the day of occurre
   assert.equal(started.startedAt, new Date(DAY_D).toISOString());
   await Promise.resolve();
   const [{ file, record }] = records(appendStore);
-  assert.equal(file, path.join(DATA, 'guilds', 'g1', 'journal', '2026-10-13.jsonl'));
+  assert.equal(file, path.join(DATA, 'places', 'g1', 'journal', '2026-10-13.jsonl'));
   assert.equal(file, journal.dayFile('g1', '2026-10-13'));
   assert.equal(record.kind, 'turn.start');
   assert.equal(record.v, 1);
@@ -125,12 +113,12 @@ test('journal: start allots a turnId and writes turn.start to the day of occurre
   assert.deepEqual(record.participants, ['u1']);
   assert.deepEqual(record.sourceMessageIds, ['m1']);
   assert.equal(record.origin, 'live');
-  assert.equal(record.guildId, 'g1');
+  // The key names the place (the file above): the line itself no longer spells a guild.
   assert.equal(record.occurredAt, started.startedAt);
   assert.equal(typeof record.recordedAt, 'string');
 
   // A second attempt keeps the turn's id.
-  const second = journal.start('g1', { channelId: 'c1', mode: 'reply', turnId: started.turnId, attemptId: 2 });
+  const second = journal.start('g1', { placeId: 'c1', mode: 'reply', turnId: started.turnId, attemptId: 2 });
   assert.equal(second.turnId, started.turnId);
   assert.equal(second.attemptId, 2);
 });
@@ -141,7 +129,7 @@ test('journal: turn record carries the envelope and its think', async () => {
   await journal.turn('g1', {
     turnId: 't-1',
     attemptId: 1,
-    channelId: 'c1',
+    placeId: 'c1',
     outcome: 'spoke',
     reason: null,
     think: 'Ελένη ρώτησε για το γλυκό και θέλω να απαντήσω σύντομα. '.repeat(80),
@@ -156,7 +144,6 @@ test('journal: turn record carries the envelope and its think', async () => {
     'kind',
     'occurredAt',
     'recordedAt',
-    'guildId',
     'scope',
     'participants',
     'sourceMessageIds',
@@ -173,7 +160,7 @@ test('journal: turn record carries the envelope and its think', async () => {
   assert.equal('thinkTruncated' in record, false);
   assert.deepEqual(record.posted, [{ messageId: 's1', replyTo: 'm2' }]);
 
-  await journal.turn('g1', { turnId: 't-2', attemptId: 1, channelId: 'c1', outcome: 'skip', think: 'κοντό' });
+  await journal.turn('g1', { turnId: 't-2', attemptId: 1, placeId: 'c1', outcome: 'skip', think: 'κοντό' });
   const short = records(appendStore)[1].record;
   assert.equal(short.think, 'κοντό');
   assert.equal('thinkTruncated' in short, false);
@@ -183,7 +170,7 @@ test('journal: a think over the former limit is stored whole', async () => {
   // Bug: a think over 4000 characters lost its tail, so her diary and her replay read a cut thought.
   const { journal, appendStore } = journalAt({ ms: DAY_D });
   const think = 'a'.repeat(9000);
-  await journal.turn('g1', { turnId: 't-1', attemptId: 1, channelId: 'c1', outcome: 'spoke', reason: null, think });
+  await journal.turn('g1', { turnId: 't-1', attemptId: 1, placeId: 'c1', outcome: 'spoke', reason: null, think });
   const [{ record }] = records(appendStore);
   assert.equal(record.think, think);
   assert.equal('thinkTruncated' in record, false);
@@ -192,36 +179,42 @@ test('journal: a think over the former limit is stored whole', async () => {
 test('journal: a private turn goes to the private day file, never the guild file', async () => {
   const clock = { ms: DAY_D };
   const { journal, appendStore } = journalAt(clock);
-  const started = journal.start('g1', { channelId: 'dm1', mode: 'reply', privateUserId: 'u7' });
-  await journal.turn('g1', { ...started, channelId: 'dm1', privateUserId: 'u7', outcome: 'spoke' });
-  const privateFile = path.join(DATA, 'guilds', 'g1', 'private', 'u7', 'journal', '2026-10-13.jsonl');
-  assert.equal(journal.dayFile('g1', '2026-10-13', 'u7'), privateFile);
+  const started = journal.start('dm-u7', { placeId: 'dm1', mode: 'reply' });
+  await journal.turn('dm-u7', { ...started, placeId: 'dm1', outcome: 'spoke' });
+  const privateFile = path.join(DATA, 'places', 'dm-u7', 'journal', '2026-10-13.jsonl');
+  assert.equal(journal.dayFile('dm-u7', '2026-10-13'), privateFile);
   assert.equal(appendStore.lines.length, 2);
   for (const { file, record } of records(appendStore)) {
     assert.equal(file, privateFile);
-    assert.deepEqual(record.scope, { user: 'u7', private: true });
+    // A private chat's lines name the conversation; the place holding them says whose it is.
+    assert.deepEqual(record.scope, { channel: 'dm1' });
   }
   assert.ok(appendStore.lines.every(({ file }) => file !== journal.dayFile('g1', '2026-10-13')));
-  assert.equal((await journal.read('g1', { day: '2026-10-13', privateUserId: 'u7' })).length, 2);
+  assert.equal((await journal.read('dm-u7', { day: '2026-10-13' })).length, 2);
   assert.deepEqual(await journal.read('g1', { day: '2026-10-13' }), []);
 });
 
 test('journal: read returns the last n records of a kind, newest last', async () => {
   const clock = { ms: DAY_D };
   const { journal } = journalAt(clock);
-  const started = journal.start('g1', { channelId: 'c1', mode: 'interject' });
-  await journal.system('g1', { event: 'pause', by: 'owner' });
+  const started = journal.start('g1', { placeId: 'c1', mode: 'interject' });
+  await journal.system({ event: 'pause', by: 'owner' });
   clock.ms = DAY_D1;
-  await journal.turn('g1', { turnId: started.turnId, attemptId: 1, channelId: 'c1', outcome: 'skip' });
+  await journal.turn('g1', { turnId: started.turnId, attemptId: 1, placeId: 'c1', outcome: 'skip' });
   for (let i = 0; i < 3; i += 1) {
-    const next = journal.start('g1', { channelId: 'c1', mode: 'reply' });
-    await journal.turn('g1', { ...next, channelId: 'c1', outcome: `o${i}` });
+    const next = journal.start('g1', { placeId: 'c1', mode: 'reply' });
+    await journal.turn('g1', { ...next, placeId: 'c1', outcome: `o${i}` });
   }
 
   const dayD = await journal.read('g1', { day: '2026-10-13' });
+  // A system record belongs to the persona, not to the place a turn ran in.
   assert.deepEqual(
     dayD.map((r: Record<string, Untyped>) => r.kind),
-    ['turn.start', 'system']
+    ['turn.start']
+  );
+  assert.deepEqual(
+    (await journal.read(null, { day: '2026-10-13' })).map((r) => (r as { kind?: unknown }).kind),
+    ['system']
   );
   const startD: Record<string, Untyped> = (await journal.read('g1', { day: '2026-10-13', kind: 'turn.start' }))[0];
 
@@ -274,38 +267,36 @@ test('journal: triggerLinks rebuilds the links of the days read, a turn closed t
   const clock = { ms: DAY_D };
   const { journal } = journalAt(clock);
   const first = journal.start('g1', {
-    channelId: 'c1',
+    placeId: 'c1',
     mode: 'reply',
     trigger: { kind: 'mention', messageId: 'm1', authorId: 'u1' },
   });
-  const spontaneous = journal.start('g1', { channelId: 'c1', mode: 'interject', trigger: wrongly(null) });
+  const spontaneous = journal.start('g1', { placeId: 'c1', mode: 'interject', trigger: wrongly(null) });
   await journal.turn('g1', {
     ...spontaneous,
-    channelId: 'c1',
+    placeId: 'c1',
     outcome: 'spoke',
     posted: [{ messageId: 'p0', replyTo: null }],
   });
   clock.ms = DAY_D1;
   await journal.turn('g1', {
     ...first,
-    channelId: 'c1',
+    placeId: 'c1',
     outcome: 'spoke',
     posted: [
       { messageId: 'p1', replyTo: null },
       { messageId: 'p2', replyTo: 'm7' },
     ],
   });
-  journal.start('g1', {
-    channelId: 'c1',
+  journal.start('dm-u2', {
+    placeId: 'c1',
     mode: 'reply',
-    privateUserId: 'u2',
     trigger: { kind: 'private', messageId: 'd1', authorId: 'u2' },
     turnId: 't-private',
   });
-  await journal.turn('g1', {
+  await journal.turn('dm-u2', {
     turnId: 't-private',
     attemptId: 1,
-    privateUserId: 'u2',
     outcome: 'spoke',
     posted: [{ messageId: 'd2' }],
   });
@@ -372,61 +363,61 @@ test('callMarksOf: each skill call of the records with its channel, time, status
   const posted = ['p1', 'x1', 'p2'];
   assert.deepEqual(marks.calls, [
     {
-      channelId: 'c1',
+      placeId: 'c1',
       at: Date.parse(at(3)),
       skill: 'message.create',
       status: 'ok',
-      target: { messageId: null, channelId: 'c9' },
+      target: { messageId: null, placeId: 'c9' },
       postedId: 'x1',
       posted,
     },
     {
-      channelId: 'c1',
+      placeId: 'c1',
       at: Date.parse(at(5)),
       skill: 'message.delete',
       status: 'denied',
       code: 'not-allowed',
-      target: { messageId: null, channelId: null },
+      target: { messageId: null, placeId: null },
       postedId: null,
       posted,
     },
     {
-      channelId: 'c1',
+      placeId: 'c1',
       at: Date.parse(at(8)),
       skill: 'message.edit',
       status: 'failed',
       code: 'error',
-      target: { messageId: 'p0', channelId: 'c1' },
+      target: { messageId: 'p0', placeId: 'c1' },
       postedId: null,
       posted,
     },
     {
-      channelId: 'c1',
+      placeId: 'c1',
       at: Date.parse(at(10)),
       skill: 'lore.list',
       status: 'unknown',
       code: 'timeout',
-      target: { messageId: null, channelId: null },
+      target: { messageId: null, placeId: null },
       postedId: null,
       posted,
     },
     {
-      channelId: 'c1',
+      placeId: 'c1',
       at: Date.parse(at(11)),
       skill: 'lore.list',
       status: 'unknown',
-      target: { messageId: null, channelId: null },
+      target: { messageId: null, placeId: null },
       postedId: null,
       posted,
     },
     {
-      channelId: 'c1',
+      placeId: 'c1',
       at: Date.parse(at(14)),
       skill: 'message.delete',
       status: 'invalid',
       code: 'invalid-args',
       reason: 'args.message:required',
-      target: { messageId: null, channelId: null },
+      target: { messageId: null, placeId: null },
       postedId: null,
       posted,
     },
@@ -443,7 +434,7 @@ test('journal: callMarks rebuilds the skill calls of the days read from the oper
   const clock = { ms: DAY_D };
   const { journal } = journalAt(clock);
   const started = journal.start('g1', {
-    channelId: 'c1',
+    placeId: 'c1',
     mode: 'reply',
     trigger: { kind: 'mention', messageId: 'm1', authorId: 'u1' },
   });
@@ -451,7 +442,7 @@ test('journal: callMarks rebuilds the skill calls of the days read from the oper
     turnId: started.turnId,
     name: 'skill',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     input: { skill: 'message.create', invocationId: 'i1' },
   });
   await op.proposed({ input: { skill: 'message.create', invocationId: 'i1', args: ['channel'], body: true } });
@@ -460,7 +451,7 @@ test('journal: callMarks rebuilds the skill calls of the days read from the oper
   await op.succeeded({ messageId: 'x1' });
   await journal.turn('g1', {
     ...started,
-    channelId: 'c1',
+    placeId: 'c1',
     outcome: 'spoke',
     posted: [{ messageId: 'p1', replyTo: 'm1' }],
   });
@@ -468,7 +459,7 @@ test('journal: callMarks rebuilds the skill calls of the days read from the oper
     turnId: started.turnId,
     name: 'skill',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     input: { skill: 'lore.list' },
   });
   await refused.proposed();
@@ -477,7 +468,7 @@ test('journal: callMarks rebuilds the skill calls of the days read from the oper
   const marks = await journal.callMarks('g1', { days: ['2026-10-13', '2026-10-14'] });
   assert.deepEqual(
     marks.calls.map((call: Record<string, Untyped>) => [
-      call.channelId,
+      call.placeId,
       call.skill,
       call.status,
       call.target,
@@ -486,8 +477,8 @@ test('journal: callMarks rebuilds the skill calls of the days read from the oper
       call.at,
     ]),
     [
-      ['c1', 'message.create', 'ok', { messageId: null, channelId: 'c9' }, 'x1', ['x1', 'p1'], DAY_D1],
-      ['c1', 'lore.list', 'denied', { messageId: null, channelId: null }, null, ['x1', 'p1'], DAY_D1],
+      ['c1', 'message.create', 'ok', { messageId: null, placeId: 'c9' }, 'x1', ['x1', 'p1'], DAY_D1],
+      ['c1', 'lore.list', 'denied', { messageId: null, placeId: null }, null, ['x1', 'p1'], DAY_D1],
     ]
   );
   assert.deepEqual(marks.postedFrom, [['x1', 'c1']]);
@@ -500,7 +491,7 @@ test('journal: a record missing participants or sourceMessageIds is written with
   await journal.turn('g1', {
     turnId: 't-1',
     attemptId: 1,
-    channelId: 'c1',
+    placeId: 'c1',
     outcome: 'error',
     participants: null,
     sourceMessageIds: 'm1',
@@ -511,10 +502,10 @@ test('journal: a record missing participants or sourceMessageIds is written with
     phase: 'started',
     name: 'post',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
   });
   await journal.memory('g1', { batchId: 'b-1', participants: [7, 'u1', 'u1'] });
-  await journal.system('g1', { event: 'resume', by: 'owner' });
+  await journal.system({ event: 'resume', by: 'owner' });
   const written = records(appendStore).map(({ record }) => record);
   assert.deepEqual(
     written.map((r) => r.kind),
@@ -528,8 +519,9 @@ test('journal: a record missing participants or sourceMessageIds is written with
   assert.deepEqual(written[0].sourceMessageIds, []);
   assert.deepEqual(written[1].scope, { channel: 'c1' });
   assert.deepEqual(written[2].participants, ['u1']);
-  assert.deepEqual(written[2].scope, { guild: true });
-  assert.deepEqual(written[3].scope, { guild: true });
+  // A record of no conversation has an empty scope: the key already names its place or the persona.
+  assert.deepEqual(written[2].scope, {});
+  assert.deepEqual(written[3].scope, {});
 });
 
 test('journal: op writes started then one closing phase with the same opId', async () => {
@@ -539,7 +531,7 @@ test('journal: op writes started then one closing phase with the same opId', asy
     turnId: 't-1',
     name: 'post',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     participants: ['u1'],
     sourceMessageIds: ['m1'],
     intent: { replyTo: 'm1', text: 'ά'.repeat(100) },
@@ -570,7 +562,7 @@ test('journal: op writes started then one closing phase with the same opId', asy
   assert.equal(closed.name, 'post');
   assert.deepEqual(closed.participants, ['u1']);
 
-  const failing = journal.op('g1', { turnId: 't-1', name: 'draw', by: 'persona', channelId: 'c1', dryRun: true });
+  const failing = journal.op('g1', { turnId: 't-1', name: 'draw', by: 'persona', placeId: 'c1', dryRun: true });
   await failing.started({ input: { self: true } });
   await failing.failed('image-cap');
   const [fs, ff] = records(appendStore)
@@ -590,23 +582,23 @@ test('journal: pending lists started operations without a closing phase', async 
     turnId: 't-1',
     name: 'post',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     intent: { replyTo: 'm1', text: 'Ελένη' },
   });
   await open.started();
-  const done = journal.op('g1', { turnId: 't-1', name: 'react', by: 'persona', channelId: 'c1' });
+  const done = journal.op('g1', { turnId: 't-1', name: 'react', by: 'persona', placeId: 'c1' });
   await done.started();
   await done.succeeded({ to: 'm1', emoji: 'x' });
-  const failed = journal.op('g1', { turnId: 't-1', name: 'gif', by: 'persona', channelId: 'c1' });
+  const failed = journal.op('g1', { turnId: 't-1', name: 'gif', by: 'persona', placeId: 'c1' });
   await failed.started();
   await failed.failed('http-403');
-  const lost = journal.op('g1', { turnId: 't-1', name: 'draw', by: 'persona', channelId: 'c1' });
+  const lost = journal.op('g1', { turnId: 't-1', name: 'draw', by: 'persona', placeId: 'c1' });
   await lost.started();
   await lost.unknown();
-  await journal.turn('g1', { turnId: 't-1', attemptId: 1, channelId: 'c1', outcome: 'spoke' });
+  await journal.turn('g1', { turnId: 't-1', attemptId: 1, placeId: 'c1', outcome: 'spoke' });
   // Started late on day D, closed on D+1: open on D alone, closed over both days.
   clock.ms = DAY_D + 5000;
-  const crossing = journal.op('g1', { turnId: 't-2', name: 'recall', by: 'engine', channelId: 'c2' });
+  const crossing = journal.op('g1', { turnId: 't-2', name: 'recall', by: 'engine', placeId: 'c2' });
   await crossing.started();
   clock.ms = DAY_D1;
   await crossing.succeeded({ hits: 0, delivered: false });
@@ -621,7 +613,7 @@ test('journal: pending lists started operations without a closing phase', async 
     turnId: 't-1',
     name: 'post',
     intent: { replyTo: 'm1', text: 'Ελένη' },
-    channelId: 'c1',
+    placeId: 'c1',
   });
   assert.deepEqual(
     (await journal.pending('g1', { days: ['2026-10-13', '2026-10-14'] })).map((p) => p.opId),
@@ -638,7 +630,7 @@ test('journal: reconcile matches a post by replyTo and the first 80 chars of int
     turnId: 't-1',
     name: 'post',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     participants: ['u1'],
     intent: { replyTo: 'm1', text: long },
   });
@@ -648,7 +640,7 @@ test('journal: reconcile matches a post by replyTo and the first 80 chars of int
     turnId: 't-1',
     name: 'post',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     intent: { replyTo: 'm2', text: 'ναι' },
   });
   await missing.started();
@@ -657,13 +649,13 @@ test('journal: reconcile matches a post by replyTo and the first 80 chars of int
     turnId: 't-2',
     name: 'post',
     by: 'persona',
-    channelId: 'c2',
+    placeId: 'c2',
     intent: { replyTo: null, text: 'éclair' },
   });
   await plain.started();
-  const reacted = journal.op('g1', { turnId: 't-1', name: 'react', by: 'persona', channelId: 'c1' });
+  const reacted = journal.op('g1', { turnId: 't-1', name: 'react', by: 'persona', placeId: 'c1' });
   await reacted.started();
-  const recalled = journal.op('g1', { turnId: 't-1', name: 'recall', by: 'engine', channelId: 'c1' });
+  const recalled = journal.op('g1', { turnId: 't-1', name: 'recall', by: 'engine', placeId: 'c1' });
   await recalled.started();
 
   const sends: Array<Untyped> = [];
@@ -676,9 +668,9 @@ test('journal: reconcile matches a post by replyTo and the first 80 chars of int
     channel: { send: () => sends.push(id) },
   });
   const fetched: Array<Untyped> = [];
-  const fetchOwnMessages = async (channelId: string, n: Untyped) => {
-    fetched.push({ channelId, n });
-    if (channelId === 'c1')
+  const fetchOwnMessages = async (placeId: string, n: Untyped) => {
+    fetched.push({ placeId, n });
+    if (placeId === 'c1')
       return [own('s0', 'ναι', 'm9'), own('s1', `${long} και κάτι ακόμα`, 'm1'), own('s2', 'ναι', null)];
     return [own('s3', 'eclair', null)];
   };
@@ -689,10 +681,10 @@ test('journal: reconcile matches a post by replyTo and the first 80 chars of int
   assert.deepEqual(sends, []);
   // One fetch per channel with a pending post; a react or a recall needs none.
   assert.deepEqual(
-    fetched.sort((a, b) => a.channelId.localeCompare(b.channelId)),
+    fetched.sort((a, b) => a.placeId.localeCompare(b.placeId)),
     [
-      { channelId: 'c1', n: 20 },
-      { channelId: 'c2', n: 20 },
+      { placeId: 'c1', n: 20 },
+      { placeId: 'c2', n: 20 },
     ]
   );
 
@@ -725,7 +717,7 @@ test('journal: reconcile marks a post unknown when the fetch fails', async () =>
     turnId: 't-1',
     name: 'post',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     intent: { replyTo: null, text: 'Ζωή' },
   });
   await op.started();
@@ -742,7 +734,7 @@ test('journal: reconcile marks a post unknown when the fetch fails', async () =>
 test('journal: reconcile leaves alone an operation started after its cutoff', async () => {
   const clock = { ms: DAY_D - 10_000 };
   const { journal } = journalAt(clock);
-  const old = journal.op('g1', { turnId: 't-1', name: 'react', by: 'persona', channelId: 'c1' });
+  const old = journal.op('g1', { turnId: 't-1', name: 'react', by: 'persona', placeId: 'c1' });
   await old.started();
   clock.ms = DAY_D;
   // A turn running while the reconciliation reads: its post is still in flight.
@@ -750,7 +742,7 @@ test('journal: reconcile leaves alone an operation started after its cutoff', as
     turnId: 't-2',
     name: 'post',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     intent: { replyTo: null, text: 'Ζωή' },
   });
   await live.started();
@@ -758,7 +750,7 @@ test('journal: reconcile leaves alone an operation started after its cutoff', as
   const counts = await journal.reconcile('g1', {
     days: ['2026-10-13'],
     before: DAY_D - 1000,
-    fetchOwnMessages: wrongly(async (channelId: string) => fetched.push(channelId) && []),
+    fetchOwnMessages: wrongly(async (placeId: string) => fetched.push(placeId) && []),
   });
   assert.deepEqual(counts, { succeeded: 0, unknown: 1 });
   assert.deepEqual(fetched, []);
@@ -778,10 +770,10 @@ test('journal: stalled follows the append store and a private memory record goes
   stalled = true;
   assert.equal(journal.stalled(), true);
 
-  await journal.memory('g1', { batchId: 'b-1', stage: 'single', participants: ['u7'], privateUserId: 'u7' });
+  await journal.memory('dm-u7', { batchId: 'b-1', stage: 'single', participants: ['u7'] });
   const [{ file, record }] = records(appendStore);
-  assert.equal(file, journal.dayFile('g1', '2026-10-13', 'u7'));
-  assert.deepEqual(record.scope, { user: 'u7', private: true });
+  assert.equal(file, journal.dayFile('dm-u7', '2026-10-13'));
+  assert.deepEqual(record.scope, {});
   assert.equal(record.kind, 'memory');
 });
 
@@ -793,7 +785,7 @@ test('journal: an answer record is scoped to its channel, named by its participa
     reason: 'replaced-deferred',
     messageId: 'm1',
     authorId: 'u7',
-    channelId: 'c1',
+    placeId: 'c1',
     at: '2026-10-13T23:59:40.000Z',
     replacedBy: 'm2',
     participants: ['u7'],
@@ -805,7 +797,7 @@ test('journal: an answer record is scoped to its channel, named by its participa
   assert.deepEqual(record.scope, { channel: 'c1' });
   assert.deepEqual(record.participants, ['u7']);
   assert.deepEqual(record.sourceMessageIds, ['m1', 'm2']);
-  assert.equal(record.channelId, undefined, 'the channel is the scope, not stored twice');
+  assert.equal(record.placeId, undefined, 'the channel is the scope, not stored twice');
   assert.deepEqual(
     (await journal.read('g1', { day: '2026-10-13', kind: 'answer' })).map((r: Record<string, Untyped>) => r.messageId),
     ['m1']
@@ -859,21 +851,21 @@ test('journal: a .running marker left over at start writes an unclean-stop recor
   const { fsp, dataDir, appendStore, journal } = await realJournal(clock);
   try {
     // Runtime markers belong under run/ so starting the journal does not recreate legacy memory folders.
-    const running = path.join(dataDir, 'run', 'journal', 'discord', 'g1.running');
+    const running = path.join(dataDir, 'run', 'journal.running');
     // A clean first start: no leftover marker, no unclean-stop; the marker is written.
-    assert.deepEqual(await journal.markRunning('g1'), { unclean: false });
+    assert.deepEqual(await journal.markRunning(), { unclean: false });
     await fsp.stat(running);
     await assert.rejects(fsp.stat(path.join(dataDir, 'guilds')), { code: 'ENOENT' });
     // A clean shutdown removes it.
-    await journal.clearRunning('g1');
+    await journal.clearRunning();
     await assert.rejects(fsp.stat(running), { code: 'ENOENT' });
-    assert.deepEqual(await journal.read('g1', { day: '2026-10-13' }), []);
+    assert.deepEqual(await journal.read(null, { day: '2026-10-13' }), []);
 
     // A killed process leaves it behind: the next start says so first.
-    await journal.markRunning('g1');
-    assert.deepEqual(await journal.markRunning('g1'), { unclean: true });
+    await journal.markRunning();
+    assert.deepEqual(await journal.markRunning(), { unclean: true });
     await appendStore.flush();
-    const written = await journal.read('g1', { day: '2026-10-13' });
+    const written = await journal.read(null, { day: '2026-10-13' });
     assert.deepEqual(
       written.map((r: Record<string, Untyped>) => [r.kind, r.event]),
       [['system', 'unclean-stop']]
@@ -945,7 +937,7 @@ test('journal: withWriterLock flushes the store first and holds appends until fn
     return 'copied';
   });
   await new Promise((resolve) => setImmediate(resolve));
-  const writing = journal.system('g1', { event: 'pause', by: 'owner' });
+  const writing = journal.system({ event: 'pause', by: 'owner' });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(order, ['flush', 'fn']);
   assert.equal(appendStore.lines.length, 0);
@@ -965,7 +957,7 @@ test('journal: withWriterLock releases the lock when fn throws', async () => {
     }),
     /disk full/
   );
-  await journal.system('g1', { event: 'resume', by: 'owner' });
+  await journal.system({ event: 'resume', by: 'owner' });
   assert.equal(appendStore.lines.length, 1);
 });
 
@@ -1045,13 +1037,13 @@ test('offPeriods: at most 3 periods, newest first; an overlap takes the kind of 
 test('journal: timeline reads the guild day files the window spans, oldest first, kind and event only', async () => {
   const clock = { ms: T0 - 36 * HOUR };
   const { journal } = journalAt(clock);
-  await journal.system('g1', { event: 'stop', by: 'service' }); // two days back: outside the read days
+  await journal.system({ event: 'stop', by: 'service' }); // two days back: outside the read days
   clock.ms = T0 - 20 * HOUR; // yesterday
-  journal.start('g1', { channelId: 'c1', mode: 'reply', participants: ['u1'] });
+  journal.start('g1', { placeId: 'c1', mode: 'reply', participants: ['u1'] });
   await Promise.resolve();
   clock.ms = T0;
-  await journal.system('g1', { event: 'start', by: 'service' });
-  journal.start('g1', { channelId: 'c1', mode: 'reply', privateUserId: 'u2' }); // a private journal: not read
+  await journal.system({ event: 'start', by: 'service' });
+  journal.start('dm-u2', { placeId: 'c1', mode: 'reply' }); // a private journal: not read
   await Promise.resolve();
   const timeline = await journal.timeline('g1', { from: T0 - DAY_WINDOW });
   assert.deepEqual(timeline, [
@@ -1066,8 +1058,8 @@ test('createOffPeriodsReader: reads the window once a minute and gives [] with a
   const warns: Array<Untyped> = [];
   let fail = false;
   const journal = {
-    timeline: async (guildId: string, query: string) => {
-      reads.push([guildId, query]);
+    timeline: async (placeId: string, query: string) => {
+      reads.push([placeId, query]);
       if (fail) throw Object.assign(new Error('boom'), { code: 'EIO' });
       return [sys(T0, 'pause'), sys(T0 + 20 * MINUTE, 'resume')];
     },
@@ -1086,7 +1078,7 @@ test('createOffPeriodsReader: reads the window once a minute and gives [] with a
   fail = true;
   assert.deepEqual(await read('g1', { windowHours: 24 }), []);
   assert.equal(reads.length, 2);
-  assert.deepEqual(warns, [['journal: off periods unread', { guildId: 'g1', code: 'EIO' }]]);
+  assert.deepEqual(warns, [['journal: off periods unread', { placeId: 'g1', code: 'EIO' }]]);
 
   // No reader at all: nothing to show.
   assert.deepEqual(await createOffPeriodsReader({ journal: null })('g1', { windowHours: 24 }), []);
@@ -1099,7 +1091,7 @@ test('journal: turnOperations gives the operations of one turn with how each end
     turnId: 't-1',
     name: 'post',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     intent: { replyTo: null, text: 'Ελένη' },
   });
   await post.started();
@@ -1108,7 +1100,7 @@ test('journal: turnOperations gives the operations of one turn with how each end
     turnId: 't-1',
     name: 'skill',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     input: { skill: 'message.create', invocationId: 'i1' },
   });
   await call.proposed();
@@ -1117,11 +1109,11 @@ test('journal: turnOperations gives the operations of one turn with how each end
     turnId: 't-1',
     name: 'skill',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     input: { skill: 'draw.create', invocationId: 'i2' },
   });
   await refused.proposed();
-  const other = journal.op('g1', { turnId: 't-2', name: 'react', by: 'persona', channelId: 'c1' });
+  const other = journal.op('g1', { turnId: 't-2', name: 'react', by: 'persona', placeId: 'c1' });
   await other.started();
   await other.succeeded({});
   const ops = await journal.turnOperations('g1', { turnId: 't-1', days: ['2026-10-13'] });

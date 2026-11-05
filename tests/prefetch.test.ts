@@ -46,7 +46,7 @@ function msg(
     replyToId?: string | null;
   } = {}
 ) {
-  return { id, channelId: 'c1', authorId, authorName, self, bot, content, ts, replyToId };
+  return { id, placeId: 'c1', authorId, authorName, self, bot, content, ts, replyToId };
 }
 
 test('isTrivialTrigger: empty, a command, only her name or emoji, a bare greeting; a short catchphrase is not', () => {
@@ -214,9 +214,9 @@ test("indexedPlan: the index's terms (rarest first) replace the forms, its phras
 });
 
 test('indexRows: hits of every index merged by score, each message once, as rows to read around', () => {
-  const hit = (messageId: string, score: number, ts: number, channelId: string | null = 'c2') => ({
+  const hit = (messageId: string, score: number, ts: number, placeId: string | null = 'c2') => ({
     messageId,
-    channelId,
+    placeId,
     occurredAt: new Date(ts).toISOString(),
     ts,
     score,
@@ -233,7 +233,7 @@ test('indexRows: hits of every index merged by score, each message once, as rows
     ['c', 'a'],
     'equal scores: the newer first; a hit without a channel is no row'
   );
-  assert.deepEqual(Object.keys(rows[0]).sort(), ['channelId', 'id', 'occurredAt', 'sourceIds']);
+  assert.deepEqual(Object.keys(rows[0]).sort(), ['id', 'occurredAt', 'placeId', 'sourceIds']);
 });
 
 test('lexicalKeep: a phrase always; two terms unless the cosine is weak; one term only with a good cosine; words alone without the meaning search', () => {
@@ -266,8 +266,8 @@ test('focusHits: the best hit, then the next ones that keep the marked lines clo
 
 test('rankPrefetch: lanes fused by rank, windows sharing a line merged into one excerpt, marked with relevant hits only; stored items deduplicated', () => {
   const order = ['a1', 'a2', 'a3', 'a4', 'b1', 'b2', 'z1'];
-  const w = (ids: Array<string>, hitIds: Array<string>, channelId = 'c2') => ({
-    channelId,
+  const w = (ids: Array<string>, hitIds: Array<string>, placeId = 'c2') => ({
+    placeId,
     channelName: 'garden',
     messages: ids.map((id: string) => ({ id, ts: order.indexOf(id) })),
     hitIds: new Set(hitIds),

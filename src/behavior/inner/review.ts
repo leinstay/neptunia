@@ -28,7 +28,7 @@ export function reviewWake(day: unknown, at: unknown): Wake {
     chainId: `review:${String(day)}`,
     // The review's drawn moment, a number; a JavaScript caller hands it in untyped and it is kept as given.
     dueAt: at as number,
-    channelId: null,
+    placeId: null,
     privateChat: false,
   };
 }
@@ -92,71 +92,67 @@ export function drawReviewAt({
 }
 
 /** Her `said` lines of the last `days` from the record, as the review's hours and channels. */
-export async function ownLines(life: InnerContext, guildId: string, days: number): Promise<Array<Obj>> {
+export async function ownLines(life: InnerContext, days: number): Promise<Array<Obj>> {
   const { record, now, log } = life;
   const lines: Array<Obj> = [];
   if (typeof record?.iterate !== 'function') return lines;
   const from = new Date(now() - days * DAY_MS).toISOString();
   try {
-    for await (const raw of record.iterate(guildId, { from })) {
+    for await (const raw of record.iterate({ from })) {
       const line = objOf(raw);
       if (line.kind === 'said') lines.push(line);
     }
   } catch (err) {
-    log.warn('inner: record read failed', { guildId, code: errorCode(err) });
+    log.warn('inner: record read failed', { code: errorCode(err) });
   }
   return lines;
 }
 
 /** Today's review drawn (once per local day, persisted); the wake when its moment came. */
-export async function reviewDue(
-  life: InnerContext,
-  guildId: string,
-  settings: InnerSettings,
-  at: number
-): Promise<Wake | null> {
+export async function reviewDue(life: InnerContext, settings: InnerSettings, at: number): Promise<Wake | null> {
   const { rng, log } = life;
-  const state = stateOf(life, guildId);
+  const state = stateOf(life);
   const timezone = timezoneOf(life);
   const day = zonedDay(at, timezone);
   if (state.review?.day !== day) {
     const previous = state.review;
     if (previous && previous.done !== true && isFiniteNumber(previous.at))
-      note(life, guildId, { event: 'review-missed', day: previous.day });
-    const lines = await ownLines(life, guildId, settings.review.historyDays);
+      note(life, { event: 'review-missed', day: previous.day });
+    const lines = await ownLines(life, settings.review.historyDays);
     const weights = hourWeights(lines, timezone);
     const reviewAt = drawReviewAt({ day, weights, timezone, rng, notBefore: at });
     const channels: Array<string> = [];
     for (const line of [...lines].sort(newestFirst)) {
-      const channelId = objOf(line.scope).channel;
-      if (typeof channelId === 'string' && channelId && !channels.includes(channelId)) channels.push(channelId);
+      const conversationId = objOf(line.scope).channel;
+      if (typeof conversationId === 'string' && conversationId && !channels.includes(conversationId))
+        channels.push(conversationId);
       if (channels.length >= REVIEW_CHANNELS_MAX) break;
     }
     // Re-read: the record scan awaited, a tick of the same day may have drawn it meanwhile.
-    const current = stateOf(life, guildId);
+    const current = stateOf(life);
     if (current.review?.day !== day) {
       // An earlier day's review still queued (held by a cap) gives way to today's.
       const older = current.queue.filter((wake) => wake.kind === 'review' && wake.id !== reviewWake(day, 0).id);
       if (older.length > 0) markHandled(life, current, older, 'superseded', at);
       current.review = { day, at: reviewAt, done: reviewAt === null, channels: [], lines: 0 };
-      current.reviewViews[contextOf(life, guildId).scopePlaceId!] = { day, channels, lines: lines.length };
-      save(life, guildId);
-      log.info('inner: review drawn', { guildId, day, at: reviewAt, lines: lines.length });
-      note(life, guildId, { event: 'review-drawn', day, at: reviewAt, lines: lines.length });
+      current.reviewViews[contextOf(life).scopePlaceId!] = { day, channels, lines: lines.length };
+      save(life);
+      log.info('inner: review drawn', { day, at: reviewAt, lines: lines.length });
+      note(life, { event: 'review-drawn', day, at: reviewAt, lines: lines.length });
     }
   }
-  const review = stateOf(life, guildId).review;
+  const review = stateOf(life).review;
   if (!review || review.done || !isFiniteNumber(review.at) || review.at > at) return null;
   return reviewWake(day, review.at);
 }
 
 /** The channels a review or a heartbeat turn may run in: where she spoke lately (the review's remembered ones, else the record's). */
-export async function recentChannels(life: InnerContext, guildId: string): Promise<Array<string>> {
+export async function recentChannels(life: InnerContext): Promise<Array<string>> {
   const { hot } = life;
-  const known = stateOf(life, guildId).reviewViews[contextOf(life, guildId).scopePlaceId!]?.channels ?? [];
+  const known = stateOf(life).reviewViews[contextOf(life).scopePlaceId!]?.channels ?? [];
   if (known.length > 0) return known;
   const channels: Array<string> = [];
-  const lines = await ownLines(life, guildId, innerSettings(hot.config).review.historyDays);
+  const lines = await ownLines(life, innerSettings(hot.config).review.historyDays);
   for (const line of lines.sort(newestFirst)) {
     const id = objOf(line.scope).channel;
     if (typeof id === 'string' && id && !channels.includes(id)) channels.push(id);
@@ -166,8 +162,8 @@ export async function recentChannels(life: InnerContext, guildId: string): Promi
 }
 
 /** The channel names of the review's recent channels, for `<wake>`. */
-export function channelNames(life: InnerContext, guildId: string): Array<string> {
+export function channelNames(life: InnerContext): Array<string> {
   const { conversationName } = life;
-  const ids = stateOf(life, guildId).reviewViews[contextOf(life, guildId).scopePlaceId!]?.channels ?? [];
+  const ids = stateOf(life).reviewViews[contextOf(life).scopePlaceId!]?.channels ?? [];
   return ids.map((id) => conversationName(String(id))).filter((name): name is string => Boolean(name));
 }

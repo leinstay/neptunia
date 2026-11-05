@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { createErrandStore } from '../src/errands/store.ts';
 import type { ErrandStore } from '../src/errands/types.ts';
 import { openTestMemorySync, tempDataDir } from './fixtures/memory-db/service.ts';
-import { GUILD, T0 } from './fixtures/errand-archive.ts';
+import { T0 } from './fixtures/errand-archive.ts';
 
 const NOW = T0 + 60 * 60 * 1000;
 const SILENT = { info() {}, warn() {}, error() {}, debug() {} };
@@ -21,7 +21,7 @@ const ASKED = {
   agent: 'scout',
   goal: 'find the opening hours of the library',
   requester: { userId: 'u1', kind: 'member' },
-  origin: { channelId: 'c1', messageId: 'm7' },
+  origin: { placeId: 'c1', messageId: 'm7' },
   scope: 'group' as const,
 };
 const DONE = { status: 'done', result: { text: 'Open until eight.', sources: [], files: [] }, usage: { usd: 0.02 } };
@@ -37,7 +37,7 @@ let counter = 0;
 const uuid = (): string => `${(counter += 1).toString(16).padStart(8, '0')}-aaaa-bbbb-cccc-dddddddddddd`;
 
 const storeOver = (memoryDb: MemoryDb): ErrandStore =>
-  createErrandStore({ guildId: GUILD, now: () => NOW, config: () => CONFIG, uuid, log: SILENT, memoryDb });
+  createErrandStore({ now: () => NOW, config: () => CONFIG, uuid, log: SILENT, memoryDb });
 
 /** A few turns of the event loop, with no flush of any store. */
 async function ticks(n = 20): Promise<void> {

@@ -4,7 +4,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRecord } from '../src/memory/record.ts';
 import type { MemoryDb } from '../src/memory/types.ts';
-import { GUILD, GUILD_2, MEMBER, CHANNEL_B, all, readerEnv } from './fixtures/memory-db/readers.ts';
+import {
+  GUILD,
+  placeOfGuild,
+  readAt,
+  GUILD_2,
+  MEMBER,
+  CHANNEL_B,
+  all,
+  readerEnv,
+} from './fixtures/memory-db/readers.ts';
 
 // The entries of the record are untyped; the tests read these fields.
 type Entry = { kind: string; messageId: string; revision?: number; text?: string };
@@ -21,7 +30,7 @@ test('record db reader: iterate answers every guild, layer, range and channel fr
       {},
       { from: '2026-10-21T00:00:00.000Z' },
       { from: '2026-10-20T09:00:00.000Z', to: '2026-10-21T08:05:00.000Z' },
-      { channelIds: [CHANNEL_B] },
+      { placeIds: [CHANNEL_B] },
       { privateUserId: MEMBER },
       { privateUserId: MEMBER, from: '2026-10-21T00:00:00.000Z' },
     ];
@@ -55,7 +64,8 @@ test('record db reader: iterate answers every guild, layer, range and channel fr
           'seen:400000000000000011:2',
         ],
         ['seen:400000000000000012:1', 'deleted:400000000000000012:-'],
-        ['seen:400000000000000005:1'],
+        // Both guilds' private lines of the member: their DM place is one.
+        ['seen:400000000000000005:1', 'seen:410000000000000005:1'],
         [],
       ],
       [GUILD_2]: [
@@ -67,16 +77,21 @@ test('record db reader: iterate answers every guild, layer, range and channel fr
         [],
       ],
     };
-    for (const guildId of [GUILD, GUILD_2]) {
+    for (const placeId of [GUILD, GUILD_2]) {
       for (const [index, query] of queries.entries()) {
+        // A DM place has no guild: the private queries run once, under the first guild.
+        if (placeId === GUILD_2 && 'privateUserId' in query) continue;
+        const { placeId: holder, rest } = readAt(placeId, query);
         assert.deepEqual(
-          (await all(record.iterate(guildId, query))).map(line),
-          expected[guildId][index],
-          `${guildId} ${JSON.stringify(query)}`
+          (await all(record.iterate(holder, rest))).map(line),
+          expected[placeId][index],
+          `${placeId} ${JSON.stringify(query)}`
         );
       }
     }
-    const said = ((await all(record.iterate(GUILD))) as Array<Entry>).find((entry) => entry.kind === 'said');
+    const said = ((await all(record.iterate(placeOfGuild(GUILD)))) as Array<Entry>).find(
+      (entry) => entry.kind === 'said'
+    );
     assert.equal(said!.text, 'Ναι, of course');
     assert.deepEqual(env.warns, []);
   } finally {
@@ -97,8 +112,9 @@ test('record db reader: newestRevision for edited, single, deleted, private and 
       [GUILD, '400000000000000005', '2026-10-20T09:00:00.000Z', MEMBER, 1],
       [GUILD, '400000000000000001', '2026-09-20T09:00:00.000Z', null, null],
     ];
-    for (const [guildId, id, at, privateUserId, revision] of cases) {
-      assert.equal(await record.newestRevision(guildId, id, at, { privateUserId }), revision, id);
+    for (const [placeId, id, at, privateUserId, revision] of cases) {
+      const { placeId: holder } = readAt(placeId, { privateUserId });
+      assert.equal(await record.newestRevision(holder, id, at), revision, id);
     }
   } finally {
     env.done();
@@ -109,8 +125,8 @@ test('record db reader: stats counts days, the first day and the distinct messag
   const env = await readerEnv();
   try {
     const record = createRecord({ dataDir: env.data, log: env.log, memoryDb: env.memoryDb });
-    assert.deepEqual(await record.stats(GUILD_2), { messages: 2, days: 1, first: '2026-10-20' });
-    assert.deepEqual(await record.stats(GUILD), { messages: 6, days: 2, first: '2026-10-20' });
+    assert.deepEqual(await record.stats(placeOfGuild(GUILD_2)), { messages: 2, days: 1, first: '2026-10-20' });
+    assert.deepEqual(await record.stats(placeOfGuild(GUILD)), { messages: 6, days: 2, first: '2026-10-20' });
   } finally {
     env.done();
   }
@@ -121,15 +137,15 @@ test('record db reader: a closed database or a failed read is an error with a co
   try {
     const closed = createRecord({ dataDir: env.data, log: env.log, memoryDb: env.closedDb });
     await assert.rejects(
-      () => all(closed.iterate(GUILD)),
+      () => all(closed.iterate(placeOfGuild(GUILD))),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     await assert.rejects(
-      () => closed.newestRevision(GUILD, '400000000000000001', '2026-10-20T09:00:00.000Z'),
+      () => closed.newestRevision(placeOfGuild(GUILD), '400000000000000001', '2026-10-20T09:00:00.000Z'),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     await assert.rejects(
-      () => closed.stats(GUILD),
+      () => closed.stats(placeOfGuild(GUILD)),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     // A handle whose database throws on the first query: only `db.prepare` is reached, so it stands in for a MemoryDb.
@@ -144,7 +160,7 @@ test('record db reader: a closed database or a failed read is an error with a co
     } as unknown as MemoryDb;
     const failing = createRecord({ dataDir: env.data, log: env.log, memoryDb: broken });
     await assert.rejects(
-      () => all(failing.iterate(GUILD)),
+      () => all(failing.iterate(placeOfGuild(GUILD))),
       (error: NodeJS.ErrnoException) => error.code === 'ERR_SQLITE_ERROR'
     );
     assert.deepEqual(

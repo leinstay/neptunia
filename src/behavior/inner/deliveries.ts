@@ -123,14 +123,39 @@ const settledState = (answer: Sent): DeliveryState =>
   answer.status === 'ok' ? 'sent' : answer.status === 'unknown' ? 'unknown' : 'failed';
 
 /**
+ * The partner of the conversation a delivery goes to, as the interface describes it now; null for a community's and for
+ * one it cannot describe. Without a partner a line of a DM stays sealed (persona-sources.ts), never filed as a group's.
+ */
+export async function partnerOfDelivery(
+  life: Pick<InnerContext, 'reads' | 'log'>,
+  conversation: ConversationRef | null
+): Promise<string | null> {
+  if (!conversation || typeof life.reads?.conversationInfo !== 'function') return null;
+  try {
+    const found = await life.reads.conversationInfo(conversation);
+    const info = found?.conversation;
+    return info && info.communityId === null && typeof info.partnerId === 'string' && info.partnerId
+      ? info.partnerId
+      : null;
+  } catch (err) {
+    life.log.warn('inner: delivery partner not read', { code: errorCode(err) });
+    return null;
+  }
+}
+
+/**
  * Her said line of a sent `message.create` in the record (features.record exactly true, read now), with the message
  * the send became and the turn's id, as recordSaid writes a sent post's. Not awaited; a refused append is logged.
  */
 function recordSaid(
   life: InnerContext,
-  guildId: string,
   delivery: Delivery,
-  { messageId, at, opId }: { messageId: string | null; at: number | null; opId: string | null }
+  {
+    messageId,
+    at,
+    opId,
+    partner,
+  }: { messageId: string | null; at: number | null; opId: string | null; partner: string | null }
 ): void {
   const { record, now, log } = life;
   const noted = notedOf(delivery);
@@ -139,7 +164,7 @@ function recordSaid(
   const line: unknown = toRecordLine(
     {
       id: messageId,
-      channelId: delivery.target,
+      placeId: delivery.target,
       content: said.text,
       ts: at ?? now(),
       replyToId: said.replyId,
@@ -150,23 +175,23 @@ function recordSaid(
   );
   const failed = (err: unknown): void => log.warn('inner: record failed', { lines: 1, code: errorCode(err) });
   try {
-    Promise.resolve(record.append(guildId, [line], {})).catch(failed);
+    Promise.resolve(record.append([line], { privateUserId: partner })).catch(failed);
   } catch (err) {
     failed(err);
   }
 }
 
 /** The `post` operation of the delivery's turn in the journal (features.journal exactly true, read now), or null. */
-function postOp(life: InnerContext, guildId: string, delivery: Delivery): InnerJournalOp | null {
+function postOp(life: InnerContext, delivery: Delivery, partner: string | null): InnerJournalOp | null {
   const { journal } = life;
   const noted = notedOf(delivery);
   if (!noted.said || !noted.turnId || typeof journal?.op !== 'function') return null;
-  return journal.op(guildId, {
+  return journal.op({
     turnId: noted.turnId,
     name: 'post',
     by: 'persona',
-    channelId: delivery.target,
-    privateUserId: null,
+    placeId: delivery.target,
+    privateUserId: partner,
     intent: { replyTo: noted.said.replyId, text: noted.said.text },
     participants: noted.said.repliedAuthorId ? [noted.said.repliedAuthorId] : [],
     sourceMessageIds: noted.said.replyId ? [noted.said.replyId] : [],
@@ -177,9 +202,9 @@ function postOp(life: InnerContext, guildId: string, delivery: Delivery): InnerJ
  * A send that did not go out, told to her: a `callFailed` fact in its conversation, and one `feedback` wake there
  * (`inner.wake:feedback:delivery:<key>`) so her next turn carries it with the facts it is shown.
  */
-async function tellFailed(life: InnerContext, guildId: string, delivery: Delivery, answer: Sent): Promise<void> {
+async function tellFailed(life: InnerContext, delivery: Delivery, answer: Sent): Promise<void> {
   const noted = notedOf(delivery);
-  const state = stateOf(life, guildId);
+  const state = stateOf(life);
   const at = life.now();
   addFact(life, state, {
     at,
@@ -187,18 +212,18 @@ async function tellFailed(life: InnerContext, guildId: string, delivery: Deliver
     skill: noted.skill ?? 'message.create',
     status: answer.status === 'unknown' ? 'unknown' : 'failed',
     code: answer.error?.code ?? answer.status,
-    channelId: delivery.target,
+    placeId: delivery.target,
     privateChat: noted.privateChat,
   });
-  save(life, guildId);
-  await enqueue(life, guildId, {
+  save(life);
+  await enqueue(life, {
     id: `inner.wake:feedback:delivery:${delivery.key}`,
     kind: 'feedback',
     reason: 'feedback',
     intentionIds: [],
     chainId: noted.chainId ?? `delivery:${delivery.key}`,
     dueAt: at,
-    channelId: delivery.target,
+    placeId: delivery.target,
     privateChat: noted.privateChat,
     here: delivery.target,
     turnId: noted.turnId ?? null,
@@ -220,10 +245,10 @@ function deliveryPublicationRefused(payload: unknown, conversation: Conversation
  * out and told to her when it did not. While her inner life is stopped, or when its files cannot be read, the row stays
  * `queued`.
  */
-async function sendOne(life: InnerContext, guildId: string, delivery: Delivery): Promise<void> {
+async function sendOne(life: InnerContext, delivery: Delivery): Promise<void> {
   const { port, log } = life;
   const conversation = conversationOf(delivery);
-  if (!port || !conversation || !mayAct(life, guildId)) return;
+  if (!port || !conversation || !mayAct(life)) return;
   let content: Content;
   try {
     content = contentOf(life, delivery);
@@ -232,7 +257,8 @@ async function sendOne(life: InnerContext, guildId: string, delivery: Delivery):
     return;
   }
   if (!(await move(life, delivery.key, ['queued'], 'sending'))) return;
-  const op = postOp(life, guildId, delivery);
+  const partner = await partnerOfDelivery(life, conversation);
+  const op = postOp(life, delivery, partner);
   if (op) await op.started();
   let answer: Sent;
   try {
@@ -249,7 +275,7 @@ async function sendOne(life: InnerContext, guildId: string, delivery: Delivery):
   const messageId = answer.ref?.messageId ?? answer.parts[0]?.messageId ?? null;
   if (answer.status === 'ok') {
     if (op) await op.succeeded({ messageId });
-    recordSaid(life, guildId, delivery, { messageId, at: answer.at, opId: op?.opId ?? null });
+    recordSaid(life, delivery, { messageId, at: answer.at, opId: op?.opId ?? null, partner });
     return;
   }
   if (op)
@@ -257,32 +283,32 @@ async function sendOne(life: InnerContext, guildId: string, delivery: Delivery):
       ? op.unknown({ code: answer.error?.code ?? null })
       : op.failed(answer.error?.code ?? answer.status));
   log.warn('inner: delivery not sent', { status: answer.status, code: answer.error?.code ?? null });
-  await tellFailed(life, guildId, delivery, answer);
+  await tellFailed(life, delivery, answer);
 }
 
 /** The deliveries `keys` (a completion's, in order) sent once each; a row no longer `queued` is left as it is. */
-export async function sendDeliveries(life: InnerContext, guildId: string, keys: ReadonlyArray<string>): Promise<void> {
+export async function sendDeliveries(life: InnerContext, keys: ReadonlyArray<string>): Promise<void> {
   for (const key of keys) {
     const read = backendOf(life).read();
     const delivery = read ? deliveryOf(read, key) : null;
-    if (delivery?.state === 'queued') await sendOne(life, guildId, delivery);
+    if (delivery?.state === 'queued') await sendOne(life, delivery);
   }
 }
 
 /** An interrupted send told to her: a fact her next turn in that conversation shows. It wakes nothing and sends nothing. */
-function tellInterrupted(life: InnerContext, guildId: string, delivery: Delivery, status: 'failed' | 'unknown'): void {
+function tellInterrupted(life: InnerContext, delivery: Delivery, status: 'failed' | 'unknown'): void {
   const noted = notedOf(delivery);
-  const state = stateOf(life, guildId);
+  const state = stateOf(life);
   addFact(life, state, {
     at: life.now(),
     kind: 'callFailed',
     skill: noted.skill ?? 'message.create',
     status,
     code: 'interrupted',
-    channelId: delivery.target,
+    placeId: delivery.target,
     privateChat: noted.privateChat,
   });
-  save(life, guildId);
+  save(life);
 }
 
 /** Retire queued deliveries and reconcile uncertain sends without issuing a send or a feedback wake. */
@@ -298,26 +324,26 @@ export async function resumeDeliveries(life: InnerContext): Promise<void> {
       port && conversation
         ? await reconcileUnknown(port, { conversation, idempotencyKey: delivery.key }).catch(() => null)
         : null;
-    const lostIn = wakeOf(read, delivery.wakeId)?.community;
+    const lostIn = wakeOf(read, delivery.wakeId);
     if (!found || found.status === 'unknown') {
-      if (lostIn) tellInterrupted(life, lostIn, delivery, 'unknown');
+      if (lostIn) tellInterrupted(life, delivery, 'unknown');
       continue;
     }
     const to = found.status === 'ok' ? 'sent' : 'failed';
     await move(life, delivery.key, ['unknown'], to, to === 'failed' ? { code: 'not-sent' } : receiptOf(found));
     const parent = wakeOf(read, delivery.wakeId);
-    if (to === 'sent' && parent?.community)
-      recordSaid(life, parent.community, delivery, {
+    if (to === 'sent' && parent)
+      recordSaid(life, delivery, {
         messageId: found.ref?.messageId ?? null,
         at: found.at,
         opId: null,
+        partner: await partnerOfDelivery(life, conversation),
       });
   }
   const queued = deliveriesIn(backendOf(life).read() ?? read, 'queued');
   for (const delivery of queued) {
     await move(life, delivery.key, ['queued'], 'failed', { code: 'interrupted' });
-    const community = wakeOf(read, delivery.wakeId)?.community;
-    if (community) tellInterrupted(life, community, delivery, 'failed');
+    if (wakeOf(read, delivery.wakeId)) tellInterrupted(life, delivery, 'failed');
   }
   if (lost.length + queued.length > 0)
     log.info('inner: interrupted deliveries settled', { lost: lost.length, queued: queued.length });

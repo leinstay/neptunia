@@ -21,7 +21,7 @@
 // The request (buildSessionRequest): the system text her turns get (system prompt, card, rules, format), then
 // prompts/memory-session.md; the user content in blocks, stable first: <self> <place> <people> <episodes>
 // <intentions> <batch>. People are rendered by the renderer her turns use (behavior/prompt.js#renderProfile) from the
-// profile the database rebuilds (export.ts#exportOne), then the attitude (the affinity number) and the claims shown
+// profile the database rebuilds (export.ts#storageValue), then the attitude (the affinity number) and the claims shown
 // with their ids. Ids in the request are short and local: `#n` for lines, `cN` / `sN` for claims, `eN` for episodes.
 // The answer is mapped back to database ids here; an id the request did not carry, a line it did not number, a kind or
 // a source list that is missing or wrong is dropped and counted, never guessed.
@@ -47,7 +47,8 @@ import { estimateMessages } from '../../llm/tokens.ts';
 import { rulesPromptOf } from '../../rules-list.ts';
 import { memoryPathText } from '../../subharness/memory-path.ts';
 import type { MemoryPath } from '../../subharness/memory-path.ts';
-import { exportOne } from './export.ts';
+import { storageValue } from './export.ts';
+import { accountCollection } from './storage-keys.ts';
 import { SELF_PERSON, nativeOf, shortHash } from './ids.ts';
 import { audienceOf, contextRow, dmContext, groupContext, issueContext, scopeWhere, wellFormed } from './scope.ts';
 import { columnsOf } from './rows.ts';
@@ -692,7 +693,7 @@ export function buildSessionRequest({
   const early = (alias: string): string =>
     `(${alias}.created_at IS NULL OR ${alias}.created_at <= ?) AND (${alias}.last_seen_at IS NULL OR ${alias}.last_seen_at <= ?)`;
 
-  // The places of the batch get a handle each (`p1`, ...), in order of their first line; the guilds they sit in follow.
+  // The places of the batch get a handle each (`p1`, ...), in order of their first line; the places they sit in follow.
   const placeIds = [...new Set(batch.map((line) => line.place_id as string).filter(Boolean))];
   // A DM place row the database made (schema v7) is not shown: the block stays as it was until its wording is written.
   const placeRows = placeIds
@@ -704,9 +705,9 @@ export function buildSessionRequest({
         .get(id)
     )
     .filter((row): row is Row => row !== undefined);
-  const guilds = [...new Set(placeRows.map((row) => row.parent_id as string).filter(Boolean))];
+  const parents = [...new Set(placeRows.map((row) => row.parent_id as string).filter(Boolean))];
   const handleOf = new Map<unknown, string>();
-  for (const id of [...placeRows.map((row) => row.id), ...guilds]) {
+  for (const id of [...placeRows.map((row) => row.id), ...parents]) {
     const handle = `p${handleOf.size + 1}`;
     handleOf.set(id, handle);
     maps.places.set(handle, id as string);
@@ -762,17 +763,17 @@ export function buildSessionRequest({
     );
     read('place', row.id, 'place');
   }
-  for (const id of guilds) {
+  for (const id of parents) {
     const row = db.prepare('SELECT name FROM places WHERE id = ?').get(id);
-    placeLines.push(`[${handleOf.get(id)}] guild: ${asText(row?.name || id)}`);
+    placeLines.push(`[${handleOf.get(id)}] server: ${asText(row?.name || id)}`);
     read('place', id, 'place');
   }
-  for (const description of currentDescriptions(db, [...guilds, ...placeIds], ctx)) {
+  for (const description of currentDescriptions(db, [...parents, ...placeIds], ctx)) {
     placeLines.push(`${asText(description.field)}: ${asText(description.text)}`);
     read('description', description.id, 'place');
   }
   const placeScope = scopeWhere(ctx, 'c');
-  const placeSubjects = [...guilds, ...placeIds];
+  const placeSubjects = [...parents, ...placeIds];
   const placeClaims =
     placeSubjects.length === 0
       ? []
@@ -811,14 +812,17 @@ export function buildSessionRequest({
   const peopleBodies = [];
   const personScope = scopeWhere(ctx, 'c');
   for (const person of shown) {
-    const file = db
-      .prepare("SELECT path FROM files WHERE path LIKE ? ESCAPE '\\' AND gone_at IS NULL ORDER BY path LIMIT 1")
-      .get(`guilds/%/users/${person.native}.json`);
+    const account = db
+      .prepare(
+        `SELECT u.subject_id AS id FROM storage_units u JOIN accounts a ON a.id = u.subject_id
+         WHERE u.kind = 'user' AND u.subject_type = 'account' AND u.retired_at IS NULL AND a.native_id = ?
+         ORDER BY u.subject_id LIMIT 1`
+      )
+      .get(person.native);
     let profile = null;
-    if (file) {
+    if (typeof account?.id === 'string') {
       try {
-        const found = exportOne(db, file.path as string);
-        if (found.found) profile = profileAsOf(db, found.value as Row, cutoffIso);
+        profile = profileAsOf(db, storageValue(db, accountCollection('user', account.id)) as Row, cutoffIso);
       } catch {
         /* the profile is shown without the stored text */
       }

@@ -1,3 +1,4 @@
+// health: allow file-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 // The replay sandbox (scripts/replay.ts). A sandbox turn takes a real moment of
 // the chat -- normalized channel messages fetched again, the trigger among
 // them -- builds the request a real turn would build for it (live prompts,
@@ -50,6 +51,7 @@
 // as a live turn does; the gateway reads an errand's budget through `tasks`
 // (simulateCall).
 
+import { accountOf } from '../memory/addresses.ts';
 import { buildRequest, skillsInventoryText, userText as userTextOf } from './prompt.ts';
 import { detectTrigger, isTaggedCall } from './mention.ts';
 import { addPending, followUpSlot, popOldest } from './pending.ts';
@@ -120,8 +122,8 @@ import type {
 
 // Token estimates taken as they are: the calibrator of a view built without a live one.
 const IDENTITY_CALIBRATOR = Object.freeze({ ratio: 1, apply: (n: number) => n, observe: () => 1 });
-// pickOtherProfiles takes a guild id; the view serves one guild, so this only fills the argument.
-const SANDBOX_GUILD = 'sandbox';
+// pickOtherProfiles takes a place id; the view serves one place, so this only fills the argument.
+const SANDBOX_PLACE = 'sandbox';
 /**
  * A cache breakpoint on the user part. A JSON field, not prompt text: the llm client
  * (src/llm/openrouter.js#withCacheMarker) gives it its own TTL, or removes it when the
@@ -148,7 +150,7 @@ const HIDDEN_KINDS = ['episodes', 'affinity', 'reasons', 'details', 'interests',
  * on without the recent lines, the GIF library or the captions.
  */
 export const SANDBOX_STORE_READS = Object.freeze([
-  'getGuild',
+  'getPlace',
   'getUser',
   'listUserProfiles',
   'listChannels',
@@ -181,8 +183,8 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   drawOn: 'no drawing is offered: a sandbox never draws, so <senses> has no drawing line',
   tasks:
     "no part of a split message, no queued or folded call: a replay knows none (a skill scenario's burst hands in its waiting calls: `queued`)",
-  recentAudience: "no guild to compare audiences in: <recent> shows the lines of the turn's own channel only",
-  participation: "no guild to compare audiences in: no <participation> block of the persona's exchanges elsewhere",
+  recentAudience: "no place to compare audiences in: <recent> shows the lines of the turn's own channel only",
+  participation: "no place to compare audiences in: no <participation> block of the persona's exchanges elsewhere",
   diaryChannel: 'no diary is offered: a sandbox turn never posts, so <senses> has no diary line',
   diary: 'never a diary post: no <world>, <diary>, <plan> or <found> block',
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
@@ -305,7 +307,7 @@ function mediaItemsOf(message: Line, sites: unknown) {
  * `{ state: 'watched', text }` plus the entry's `watchedSeconds` / `totalSeconds` when stored. Without a cache, empty maps. Pure.
  * @param history  Normalized messages (src/protocol/events.js#Message).
  * @param [options]  `cache`: the
- *   describer's cache (`store.getMediaCache(guildId)`), or null.
+ *   describer's cache (`store.getMediaCache(placeId)`), or null.
  */
 export function replayMedia(
   history: Array<Line>,
@@ -427,11 +429,11 @@ function profileBefore(
   return { profile: out, hidden };
 }
 
-/** The guild memory before `cutoff`: learned items first recorded at or after it left out. */
-function guildBefore(guild: Untyped, cutoff: Untyped) {
-  if (!guild || typeof guild !== 'object') return { guild, hidden: 0 };
-  const learned = keepBefore(guild.learned, (item: Untyped) => isLater(item?.firstSeen, cutoff));
-  return learned.hidden ? { guild: { ...guild, learned: learned.list }, hidden: learned.hidden } : { guild, hidden: 0 };
+/** The place memory before `cutoff`: learned items first recorded at or after it left out. */
+function placeBefore(place: Untyped, cutoff: Untyped) {
+  if (!place || typeof place !== 'object') return { place, hidden: 0 };
+  const learned = keepBefore(place.learned, (item: Untyped) => isLater(item?.firstSeen, cutoff));
+  return learned.hidden ? { place: { ...place, learned: learned.list }, hidden: learned.hidden } : { place, hidden: 0 };
 }
 
 /** The lorebook before `cutoff`: entries created at or after it left out. */
@@ -476,11 +478,11 @@ export function momentCutoff(moment: MomentCutoffInput): number | null {
  * the cutoff's day or later), affinity history entries (by `ts`; when the
  * newest one goes, `reason` falls back to that of the newest kept entry that
  * has one, or to ''; the score stays), details, interests and aliases (by
- * `firstSeen`), the guild's learned items (by `firstSeen`), lore entries (by
+ * `firstSeen`), the place's learned items (by `firstSeen`), lore entries (by
  * `createdAt`) and the recent store's lines (by `addedAt`, else by their
  * moment `at`; null for a base without `getRecent`). Undated items and every
  * other field pass through -- a profile's names and counters, its portrait
- * and relationship text, the guild's patterns, the channel entries, the
+ * and relationship text, the place's patterns, the channel entries, the
  * current text of a lore entry updated later; `prompts`, `config`,
  * `calibrator` and `listChannels` are the base's, read at call time. The base
  * is never written and nothing is cached. Pure.
@@ -498,7 +500,7 @@ export function momentView(base: SandboxView, cutoff: number): SandboxView {
       return base.calibrator;
     },
     memory: {
-      getGuild: () => guildBefore(base.memory.getGuild(), cutoff).guild,
+      getPlace: () => placeBefore(base.memory.getPlace(), cutoff).place,
       getUser: (id: Untyped) => profileBefore(base.memory.getUser(id), cutoff).profile,
       listUserProfiles: () =>
         (base.memory.listUserProfiles() ?? []).map((profile: Untyped) => profileBefore(profile, cutoff).profile),
@@ -522,7 +524,7 @@ export function hiddenLater(base: SandboxView, cutoff: number): HiddenLaterResul
     const { hidden } = profileBefore(profile, cutoff);
     for (const kind of HIDDEN_KINDS) counts[kind] += hidden[kind];
   }
-  counts.learned += guildBefore(base.memory.getGuild(), cutoff).hidden;
+  counts.learned += placeBefore(base.memory.getPlace(), cutoff).hidden;
   counts.lore += loreBefore(base.memory.getLore(), cutoff).hidden;
   return counts;
 }
@@ -546,7 +548,7 @@ function readOnlyCalibrator(live: Untyped) {
   };
 }
 
-export function liveView({ hot, store, guildId, calibrator }: LiveViewInput): LiveViewResult {
+export function liveView({ hot, store, placeId, calibrator }: LiveViewInput): LiveViewResult {
   return {
     get prompts() {
       return hot.prompts;
@@ -556,12 +558,12 @@ export function liveView({ hot, store, guildId, calibrator }: LiveViewInput): Li
     },
     calibrator: readOnlyCalibrator(calibrator),
     memory: {
-      getGuild: () => store.getGuild(guildId),
-      getUser: (id) => store.getUser(guildId, id),
-      listUserProfiles: () => store.listUserProfiles(guildId),
-      listChannels: () => store.listChannels(guildId),
-      getLore: () => store.getLore(guildId),
-      getRecent: () => (typeof store.getRecent === 'function' ? store.getRecent(guildId) : null),
+      getPlace: () => store.getPlace(placeId),
+      getUser: (id) => store.getUser(accountOf(store, String(id))),
+      listUserProfiles: () => store.listUserProfiles(),
+      listChannels: () => store.listChannels(placeId),
+      getLore: () => store.getLore(placeId),
+      getRecent: () => (typeof store.getRecent === 'function' ? store.getRecent(placeId) : null),
       diaryChannelIds: () => [...diaryConversationIds(store)],
     },
   };
@@ -658,7 +660,7 @@ function recentLinesOf(view: Record<string, Untyped>, at: number): Array<Record<
 
 /**
  * The channels a sandbox request's `<channel_directory>` lists: `given` when it is a list (the
- * guild's readable text channels, as a live turn reads them), else the view's stored channel map
+ * place's readable text channels, as a live turn reads them), else the view's stored channel map
  * (`{ id, name, category }`; none with `features.memory` off) with the turn's `channel` when it has
  * a name. Pure but for the view's read.
  */
@@ -698,7 +700,7 @@ function sandboxChannels(
  * (`queued`, `{ id, text, author? }` each, burstTurns's): then the task labels name them as a
  * live turn names its queued calls (src/behavior/turn.ts#taskInput: the trigger author's own
  * under `labels.task.queued`, another member's under `labels.task.queuedOthers`). Never an
- * owner-forced turn. `<channel_directory>` lists `channelDirectory` (the guild's readable text
+ * owner-forced turn. `<channel_directory>` lists `channelDirectory` (the place's readable text
  * channels, src/behavior/turn.ts#channelDirectoryOf, as a live turn passes them) when given, else
  * the view's stored channel map with the turn's channel (sandboxChannels). `taskResult`
  * (a finished task, as src/errands/store.ts keeps one) makes it the turn that errand's end
@@ -749,13 +751,13 @@ export function sandboxRequestInput({
   // A burst's calls still waiting, named as a live turn names its queued calls; absent otherwise.
   const waiting = Array.isArray(queued) && queued.length > 0 ? queued : null;
   const tasks = waiting
-    ? taskInput({ part: null, queued: () => waiting, added: null, labels: view.prompts?.labels, channelId: channel.id })
+    ? taskInput({ part: null, queued: () => waiting, added: null, labels: view.prompts?.labels, placeId: channel.id })
         .input
     : null;
   const memoryOn = true;
   const { history, trigger, triggerKind } = situationHistory(situation);
   // pickOtherProfiles reads a store-shaped object; this one reads the view.
-  const viewAsStore = { getUser: (guildId: string, id: string | undefined) => memory.getUser(id) };
+  const viewAsStore = { getUser: (id: string | undefined) => memory.getUser(id) };
   return {
     config,
     prompts: view.prompts,
@@ -772,9 +774,9 @@ export function sandboxRequestInput({
     triggerKind: taskResult ? 'errand' : triggerKind,
     // As a live turn reads it: an untagged reply takes the follow-up task.
     taggedCall: trigger ? isTaggedCall(trigger, selfId) : null,
-    guildMemory: memoryOn ? memory.getGuild() : {},
+    placeMemory: memoryOn ? memory.getPlace() : {},
     interlocutor: memoryOn && trigger ? memory.getUser(trigger.authorId) : null,
-    otherProfiles: memoryOn ? pickOtherProfiles(viewAsStore, SANDBOX_GUILD, history, trigger?.authorId) : [],
+    otherProfiles: memoryOn ? pickOtherProfiles(viewAsStore, SANDBOX_PLACE, history, trigger?.authorId) : [],
     candidateProfiles: memoryOn ? memory.listUserProfiles() : [],
     nameOf: memoryOn ? (id: Untyped) => memory.getUser(id)?.names?.[0] ?? null : null,
     channels: memoryOn ? memory.listChannels() : [],
@@ -1196,22 +1198,22 @@ const CONTINUATION_STEP_MS = 1000;
 /**
  * The mark one call of hers leaves on the transcript, in src/format.ts#withCalls's shape
  * and as a live turn notes it (src/behavior/turn.ts, `noteCall`): `outcome` (simulateCall's) made
- * in the turn of `channelId`, its result back at `at`; its status and, when it did not work, why
+ * in the turn of `placeId`, its result back at `at`; its status and, when it did not work, why
  * (outcomeDetail, cut at MARK_TEXT_CHARS); its target from the resolved
  * arguments; `postedId` the message the call itself posted, `posted` every message the turn
  * posted. Pure.
  */
-function callMarkOf({ outcome, channelId, at, postedId, posted }: CallMarkOfInput) {
+function callMarkOf({ outcome, placeId, at, postedId, posted }: CallMarkOfInput) {
   const result = outcome.result;
   const args = outcome.executed?.args ?? {};
   const idOf = (value: Untyped) => (typeof value === 'string' && value ? value : null);
   return {
-    channelId,
+    placeId,
     at,
     skill: result.skill,
     status: result.status,
     detail: outcomeDetail(result, { textChars: MARK_TEXT_CHARS }),
-    target: { messageId: idOf(args.message) ?? idOf(args.reply), channelId: idOf(args.channel) },
+    target: { messageId: idOf(args.message) ?? idOf(args.reply), placeId: idOf(args.channel) },
     postedId: postedId ?? null,
     posted,
   };
@@ -1826,7 +1828,7 @@ export function afterScenarioTurn({
   posted: Array<string>;
 } {
   const callMarks = Array.isArray(earlier) ? earlier : [];
-  const channelId = String(channel.id);
+  const placeId = String(channel.id);
   let lines = Array.isArray(transcript) ? [...transcript] : [];
   const own: Array<Untyped> = [];
   let seq = 0;
@@ -1835,7 +1837,7 @@ export function afterScenarioTurn({
     const id = ownLineId(ts, seq);
     const line = {
       id,
-      channelId,
+      placeId,
       ts,
       authorId: String(selfId),
       content: '',
@@ -1858,11 +1860,11 @@ export function afterScenarioTurn({
     const resolved = handles instanceof Map ? resolveHandles(text, handles) : { text: String(text ?? ''), userIds: [] };
     // Her `#handle` links its channel as a live post does (the line keeps the `<#id>` and names the channel).
     const content = channelHandles instanceof Map ? linkChannels(resolved.text, [], channelHandles) : resolved.text;
-    const channelIds = [...new Set(Array.from(content.matchAll(/<#(\d+)>/g), (match) => match[1]))];
+    const placeIds = [...new Set(Array.from(content.matchAll(/<#(\d+)>/g), (match) => match[1]))];
     return {
       content,
       mentionedUserIds: resolved.userIds,
-      ...(channelIds.length > 0 ? { mentionedChannelIds: channelIds } : {}),
+      ...(placeIds.length > 0 ? { mentionedChannelIds: placeIds } : {}),
     };
   };
   // One pass (a shaped answer) answered over `idByIndex`, its request sent at `start`.
@@ -1888,7 +1890,7 @@ export function afterScenarioTurn({
   const callEffects = (outcome: Untyped, callAt: Untyped) => {
     const executed = outcome.verdict?.ok === true ? outcome.executed : null;
     const args = executed?.args ?? {};
-    const here = !args.channel || String(args.channel) === channelId;
+    const here = !args.channel || String(args.channel) === placeId;
     let postedId = null;
     if (executed && here && POSTING_SKILLS.includes(executed.skill)) {
       const reply = typeof args.reply === 'string' && known(args.reply) ? args.reply : null;
@@ -1902,7 +1904,7 @@ export function afterScenarioTurn({
       react(args.message, typeof args.emoji === 'string' ? args.emoji.trim() : '');
     return callMarkOf({
       outcome,
-      channelId,
+      placeId,
       at: callAt,
       postedId,
       posted: own.map((line) => line.id),
@@ -1965,7 +1967,7 @@ export function seededSelfLine({
   const content = String(text ?? '');
   const line = {
     id: ownLineId(at, 1),
-    channelId: String(channel.id),
+    placeId: String(channel.id),
     ts: at,
     authorId: String(selfId),
     content,
@@ -2024,8 +2026,8 @@ export function burstTurns(
   const dropped: Array<{ id: string; reason: string }> = [];
   for (const line of rest) {
     const kind = kindOf(line);
-    const channelId = String(line.channelId ?? '');
-    const slot = followUpSlot(pending, channelId, kind);
+    const placeId = String(line.placeId ?? '');
+    const slot = followUpSlot(pending, placeId, kind);
     if (!slot.admit) continue;
     if (slot.replaced) {
       pending = pending.filter((ping) => ping !== slot.replaced);
@@ -2033,7 +2035,7 @@ export function burstTurns(
     }
     const { list, evicted } = addPending(
       pending,
-      { channelId, trigger: line, kind, arrivedAt: Number(line.ts) || 0 },
+      { placeId, trigger: line, kind, arrivedAt: Number(line.ts) || 0 },
       maxPending
     );
     pending = list;

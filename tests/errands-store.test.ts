@@ -84,7 +84,7 @@ function makeStore({
   const store = createErrandStore({
     // @ts-expect-error: createErrandStore takes no `dataDir`; the memory database holds the board, so the key is ignored
     dataDir,
-    guildId: 'g1',
+    placeId: 'g1',
     now: () => clock.t,
     config: () => config,
     journal,
@@ -98,7 +98,7 @@ const asked: AddInput = {
   agent: 'scout',
   goal: 'find the release notes',
   requester: { userId: 'u1', kind: 'member' },
-  origin: { channelId: 'c1', messageId: 'm1' },
+  origin: { placeId: 'c1', messageId: 'm1' },
   scope: 'group',
 };
 
@@ -115,7 +115,7 @@ test('task store: a new task is queued and written to the board as an approved e
     assert.equal(task.agent, 'scout');
     assert.equal(task.goal, 'find the release notes');
     assert.deepEqual(task.requester, { userId: 'u1', kind: 'member' });
-    assert.deepEqual(task.origin, { channelId: 'c1', messageId: 'm1' });
+    assert.deepEqual(task.origin, { placeId: 'c1', messageId: 'm1' });
     assert.equal(task.scope, 'group');
     assert.equal(task.createdAt, T0);
     assert.equal(task.seen, false);
@@ -125,7 +125,7 @@ test('task store: a new task is queued and written to the board as an approved e
     assert.deepEqual(statusesOf(view), ['approved']);
     // A second store over the same directory reads the list back.
     // @ts-expect-error: createErrandStore takes no `dataDir`; the memory database holds the board, so the key is ignored
-    const again = createErrandStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => T0 });
+    const again = createErrandStore({ dataDir, placeId: 'g1', memoryDb: memoryOf(dataDir), now: () => T0 });
     assert.equal(loose(again.get(task.id)).goal, 'find the release notes');
   });
 });
@@ -237,7 +237,7 @@ test('task store: the caps refuse with cap-open and cap-tasks, a dollar figure n
 
 test('task store: every transition is one journal operation, counts only', async () => {
   const lines: Array<Untyped> = [];
-  const journal = { action: async (guildId: string, record: Untyped) => lines.push({ guildId, ...record }) };
+  const journal = { action: async (placeId: string, record: Untyped) => lines.push({ placeId, ...record }) };
   await withCapturedLogs(async () => {
     const { store } = makeStore({ journal });
     const { errand: task } = store.add(asked);
@@ -259,7 +259,7 @@ test('task store: every transition is one journal operation, counts only', async
     assert.equal(new Set(lines.map((line) => line.opId)).size, 1, 'one operation per task');
     for (const line of lines) {
       assert.equal(line.name, 'errand');
-      assert.equal(line.channelId, 'c1');
+      assert.equal(line.placeId, 'c1');
       assert.deepEqual(line.participants, ['u1']);
       assert.deepEqual(line.sourceMessageIds, ['m1']);
     }
@@ -286,13 +286,13 @@ test("task store: a DM task journals into the requester's private layer", async 
   const lines: Array<Untyped> = [];
   await withCapturedLogs(async () => {
     const { store } = makeStore({
-      journal: { action: async (guildId: string, record: Untyped) => lines.push(record) },
+      journal: { action: async (placeId: string, record: Untyped) => lines.push(record) },
     });
-    store.add({ ...asked, scope: 'dm', origin: { channelId: 'dm1', messageId: 'm9' } });
+    store.add({ ...asked, scope: 'dm', origin: { placeId: 'dm1', messageId: 'm9' } });
     await new Promise((r) => setImmediate(r));
   });
   assert.equal(lines[0].privateUserId, 'u1');
-  assert.equal(lines[0].channelId, undefined);
+  assert.equal(lines[0].placeId, undefined);
 });
 
 test('task store: a file handle resolves only to a file the task lists, inside its out directory', async () => {
@@ -427,7 +427,7 @@ test('task store: costs and the daily caps read the same spend records, rebuilt 
     const again = createErrandStore({
       // @ts-expect-error: createErrandStore takes no `dataDir`; the memory database holds the board, so the key is ignored
       dataDir,
-      guildId: 'g1',
+      placeId: 'g1',
       memoryDb: memoryOf(dataDir),
       now: () => clock.t,
       config: () => config,
@@ -444,13 +444,13 @@ test("task store: the persona's call keeps its turn and its brief as written; th
       ...asked,
       goal: brief,
       requester: { userId: 'u1', kind: 'member' },
-      origin: { channelId: 'c1', messageId: 'm1', turnId: 'turn-7' },
+      origin: { placeId: 'c1', messageId: 'm1', turnId: 'turn-7' },
       idempotencyKey: 'turn-7.1:0',
     };
     const first = store.add(hers);
     assert.equal(first.ok, true);
     assert.equal(first.errand.goal, brief.trim(), 'the brief as she wrote it');
-    assert.deepEqual(first.errand.origin, { channelId: 'c1', messageId: 'm1', turnId: 'turn-7' });
+    assert.deepEqual(first.errand.origin, { placeId: 'c1', messageId: 'm1', turnId: 'turn-7' });
     assert.equal(first.errand.idempotencyKey, 'turn-7.1:0');
     const again = store.add({ ...hers, goal: 'κάτι άλλο' });
     assert.deepEqual(
@@ -464,7 +464,7 @@ test("task store: the persona's call keeps its turn and its brief as written; th
     // A command brings neither: no turn, no key.
     const { store: other } = makeStore();
     const plain = other.add(asked).errand;
-    assert.deepEqual(loose(plain).origin, { channelId: 'c1', messageId: 'm1' });
+    assert.deepEqual(loose(plain).origin, { placeId: 'c1', messageId: 'm1' });
     assert.equal('idempotencyKey' in loose(plain), false);
   });
 });
@@ -473,7 +473,6 @@ test('an existing store reads the personal daily cap again after a profile edit'
   const rig = consumerRig();
   rig.override({ enabled: true, daily: { tasks: 3 } });
   const store = consumers.store({
-    guildId: 'synthetic-guild',
     agentPaths: rig.options,
     now: () => Date.parse('2026-11-03T12:00:00Z'),
   });
@@ -487,7 +486,7 @@ test('an existing store reads the personal daily cap again after a profile edit'
         goal: 'inspect synthetic files',
         scope: 'group',
         requester: { userId: 'synthetic-user', kind: 'member' },
-        origin: { channelId: 'synthetic-room', messageId: 'synthetic-message' },
+        origin: { placeId: 'synthetic-room', messageId: 'synthetic-message' },
       }).ok,
       true
     );
@@ -502,12 +501,12 @@ test('an errand an internal turn asked for keeps its publication restriction on 
   const boundary = { kind: 'internal-turn', origin: { iface: 'cli', conversationId: 'dm-owner' } } as const;
   const dataDir = tempDir('nep-errand-boundary-');
   // @ts-expect-error: createErrandStore takes no `dataDir`; the memory database holds the board
-  const first = createErrandStore({ dataDir, guildId: 'g1', memoryDb: memoryOf(dataDir), now: () => 1000 });
+  const first = createErrandStore({ dataDir, placeId: 'g1', memoryDb: memoryOf(dataDir), now: () => 1000 });
   const added = first.add({
     agent: 'scout',
     goal: 'find it',
     requester: { kind: 'owner', userId: 'u1' },
-    origin: { channelId: 'dm-owner', messageId: null, publicationBoundary: boundary },
+    origin: { placeId: 'dm-owner', messageId: null, publicationBoundary: boundary },
     scope: 'dm',
   });
   // `add` answers the record itself or wraps it, depending on the idempotency key.

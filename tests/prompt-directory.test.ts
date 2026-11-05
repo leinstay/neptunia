@@ -151,7 +151,7 @@ function input(overrides: Record<string, unknown> = {}) {
     neighbors: [],
     trigger: history.at(-1),
     triggerKind: 'mention',
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     candidateProfiles: [...PROFILES, SELF_PROFILE],
@@ -195,7 +195,7 @@ test('buildRequest: the stable part is byte-identical between turns, requesters 
       trigger: otherHistory.at(-1),
       currentChannelId: 'another-channel',
       interlocutor: PROFILES[12],
-      neighbors: [{ channelId: 'n1', channelName: 'next-door', messages: [line('n1', 2, PROFILES[7])] }],
+      neighbors: [{ placeId: 'n1', channelName: 'next-door', messages: [line('n1', 2, PROFILES[7])] }],
     })
   );
   const interject = buildRequest(input({ mode: 'interject', trigger: null, triggerKind: null }));
@@ -253,8 +253,8 @@ test('buildRequest: the authors of the pulled lines and the neighbours get handl
   const neighbor = { id: '650000000000000555', name: 'Neighbour' };
   const pulledAuthor = { id: '650000000000000556', name: 'Pulled' };
   const extra = {
-    neighbors: [{ channelId: 'n1', channelName: 'next-door', messages: [line('n1', 2, neighbor)] }],
-    pulled: [{ channelId: 'p1', channelName: 'elsewhere', messages: [line('p1', 2, pulledAuthor)] }],
+    neighbors: [{ placeId: 'n1', channelName: 'next-door', messages: [line('n1', 2, neighbor)] }],
+    pulled: [{ placeId: 'p1', channelName: 'elsewhere', messages: [line('p1', 2, pulledAuthor)] }],
   };
   const server = buildRequest(input(extra));
   assert.equal(server.handles!.get(handleOf(neighbor.id)), neighbor.id);

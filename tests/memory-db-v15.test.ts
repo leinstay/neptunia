@@ -143,7 +143,7 @@ function recordLineOf(line: Line): Record<string, unknown> {
     revision: 1,
     occurredAt: new Date(line.at).toISOString(),
     recordedAt: new Date(line.at).toISOString(),
-    guildId: 'g1',
+    placeId: 'g1',
     scope: { channel: line.channel ?? MIRROR_CHANNEL },
     ...(line.by ? { by: line.by } : { turnId: line.turnId ?? null, opId: null }),
     replyTo: null,

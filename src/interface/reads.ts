@@ -2,10 +2,10 @@
 // an `ok` answer or null. A read the adapter does not declare in `capabilities().reads` is null without a round trip.
 // An `unsupported`, `forbidden` or `failed` answer is null as well, logged once per read and code (names and codes, never
 // content). A caller leaves out whatever block the read feeds when it gets null: no other channels, no channel view,
-// no recall hits, no reactor names, no custom emoji. A read that names no community (`NO_COMMUNITY`, a direct chat with
+// no recall hits, no reactor names, no custom emoji. A read that names no community (the persona's own turn, a direct chat with
 // none to belong to) is null without a round trip. Nothing here throws.
 
-import { NO_COMMUNITY } from '../memory/db/ids.ts';
+import { PERSONA_ID } from '../memory/db/storage-keys.ts';
 import type { Adapter } from '../protocol/adapter.ts';
 import type { Logger } from '../protocol/serve.ts';
 
@@ -39,7 +39,11 @@ export type Reads = { [K in ReadName]: Wrapped<K> } & {
 
 type Answer = { status: string; error?: { code?: string } };
 
-export function createReads(adapter: Adapter, log: Logger): Reads {
+export function createReads(
+  adapter: Adapter,
+  log: Logger,
+  nativeCommunityOf?: (placeId: string) => string | null
+): Reads {
   const told = new Set<string>();
 
   const offers = (wire: string): boolean => {
@@ -58,8 +62,17 @@ export function createReads(adapter: Adapter, log: Logger): Reads {
     return (async (...args: Array<unknown>) => {
       if (!offers(WIRE[name])) return null;
       const scope: unknown = args[0];
-      if (scope === NO_COMMUNITY || (scope as { communityId?: unknown } | null)?.communityId === NO_COMMUNITY)
-        return null;
+      const named = (scope as { communityId?: unknown } | null)?.communityId;
+      if (scope === PERSONA_ID || named === PERSONA_ID) return null;
+      if (typeof named === 'string' && nativeCommunityOf) {
+        const native = nativeCommunityOf(named);
+        if (native === null) return null;
+        args[0] = { ...(scope as object), communityId: native };
+      } else if (typeof scope === 'string' && nativeCommunityOf) {
+        const native = nativeCommunityOf(scope);
+        if (native === null) return null;
+        args[0] = native;
+      }
       let answer: Answer;
       try {
         const method = (adapter as unknown as Record<string, unknown>)[name];

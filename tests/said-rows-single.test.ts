@@ -1,6 +1,6 @@
 // One sent line, one `sources` row. The interface echoes her own message to the core, the observation stores it under the
 // key of its message family, and the record line of the same send (src/turn/journal-notes.ts#recordSaid and its siblings,
-// all `record.append(guildId, [line], {})`) arrives with no descriptor, so it must find that family by itself.
+// all `record.append(placeId, [line], {})`) arrives with no descriptor, so it must find that family by itself.
 // Synthetic data only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,6 +11,7 @@ import { search } from '../src/memory/db/recall.ts';
 import { recountDaily } from '../src/memory/db/focus.ts';
 import { linkVectors } from '../src/memory/db/upsert.ts';
 import { groupContext, groupScope } from '../src/memory/db/scope.ts';
+import { topPlaceSpelled } from '../src/memory/db/ids.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import type { Db, Row } from '../src/memory/db/types.ts';
 
@@ -18,6 +19,8 @@ const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const SENT = NOW - 60_000;
 const IFACE = 'synthetic';
 const COMMUNITY = 'community';
+// The place that holds the record of the conversation's tree, as the pipeline names it (src/memory/addresses.ts#sharedPlaceOf).
+const TOP = topPlaceSpelled(IFACE, COMMUNITY);
 const ROOM = 'room-a';
 const HER = 'her-account';
 const MEMBER = 'member-account';
@@ -59,7 +62,7 @@ function lineEvent({
 async function observeLine(memory: Memory, options: Parameters<typeof lineEvent>[0] = {}): Promise<string> {
   const envelope = observationOf(lineEvent(options), { selfId: HER });
   if (!envelope) throw new Error('the synthetic event was refused');
-  const done = await memory.memoryDb.observeMessage(envelope, { guildId: COMMUNITY });
+  const done = await memory.memoryDb.observeMessage(envelope, { placeId: TOP });
   if (!done || !('sourceId' in done) || typeof done.sourceId !== 'string')
     throw new Error('the observation was refused');
   return done.sourceId;
@@ -68,10 +71,10 @@ async function observeLine(memory: Memory, options: Parameters<typeof lineEvent>
 /** The record line of her send, as recordSaid builds it, appended with no descriptor as every said writer does. */
 async function recordSent(memory: Memory, { mentionedUserIds = [] }: { mentionedUserIds?: Array<string> } = {}) {
   const line = toRecordLine(
-    { id: 'sent-1', channelId: ROOM, content: WORDS, ts: SENT, replyToId: null, mentionedUserIds },
+    { id: 'sent-1', placeId: ROOM, content: WORDS, ts: SENT, replyToId: null, mentionedUserIds },
     { kind: 'said', now: () => NOW, turnId: 't-1', opId: 'op-1' }
   );
-  await createRecord({ ...memory, now: () => NOW }).append(COMMUNITY, [line], {});
+  await createRecord({ ...memory, now: () => NOW }).append(TOP, [line], {});
 }
 
 function database(memory: Memory): Db {
@@ -162,7 +165,7 @@ test('the record lists her echoed line once under its protocol id', async () => 
   // Bug: every reader of the record (a conversation read, the inner places, the heartbeat view) shows it twice.
   await withEchoedLine(async (memory) => {
     const lines: Array<{ kind?: unknown; messageId?: unknown }> = [];
-    for await (const item of createRecord({ ...memory, now: () => NOW }).iterate(COMMUNITY)) lines.push(item);
+    for await (const item of createRecord({ ...memory, now: () => NOW }).iterate(TOP)) lines.push(item);
     assert.deepEqual(
       lines.filter((line) => line.kind === 'said').map((line) => line.messageId),
       ['sent-1']

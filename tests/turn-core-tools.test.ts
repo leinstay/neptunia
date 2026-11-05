@@ -57,8 +57,8 @@ function fakeLookup(
   text = 'Η Ana κέρδισε τον τελικό.',
   page = { ok: true, url: 'https://example.org/x', title: 'Σελίδα', text: 'Το κείμενο της σελίδας.', cut: false }
 ) {
-  const searches: Array<{ guildId: Untyped; query: Untyped }> = [];
-  const reads: Array<{ guildId: Untyped; url: Untyped }> = [];
+  const searches: Array<{ placeId: Untyped; query: Untyped }> = [];
+  const reads: Array<{ placeId: Untyped; url: Untyped }> = [];
   return {
     searches,
     reads,
@@ -69,14 +69,14 @@ function fakeLookup(
     search: async () => {
       throw new Error('the condensed search is never her tool');
     },
-    searchResults: async (guildId: string, query: unknown) => {
-      searches.push({ guildId, query });
+    searchResults: async (placeId: string, query: unknown) => {
+      searches.push({ placeId, query });
       return text === null
         ? null
         : { query, results: [{ title: 'Un', url: 'https://www.example.com/1', site: 'example.com', snippet: text }] };
     },
-    readPage: async (guildId: string, url: string) => {
-      reads.push({ guildId, url });
+    readPage: async (placeId: string, url: string) => {
+      reads.push({ placeId, url });
       return page;
     },
   };
@@ -86,7 +86,7 @@ function fakeLookup(
 function fakeRecall(
   quotes = [
     {
-      channelId: 'c2',
+      placeId: 'c2',
       channelName: 'jardin',
       startTs: NOW - 3 * 86_400_000,
       lines: '[09:00] Éloïse: ένα κουνέλι στον κήπο',
@@ -221,7 +221,7 @@ test('memory.search handles: a quoted line carries a #N that message.edit resolv
     { id: 'q1', text: '[09:01] Bot: παλιό κείμενο', authorId: 'self-id', self: true, message: mine },
   ];
   const recall = fakeRecall([
-    { channelId: 'c2', channelName: 'jardin', startTs: NOW - 3 * 86_400_000, lines: 'ignored', entries },
+    { placeId: 'c2', channelName: 'jardin', startTs: NOW - 3 * 86_400_000, lines: 'ignored', entries },
   ] as unknown as Parameters<typeof fakeRecall>[0]);
   const probe = await coreTurn({
     answers: [toolAnswer('', [call('memory.search', { question: 'κουνέλι' })]), '<skip/>'],
@@ -409,7 +409,7 @@ test('errand.run in the loop: after a search she hands off the errand, it is que
     journal,
   } as unknown as Parameters<typeof coreTurn>[0]);
   assert.equal(asRecord(run.result).outcome, 'spoke');
-  const tasks = service.store('g1')?.recent(10);
+  const tasks = service.store()?.recent(10);
   assert.equal(tasks?.length, 1, 'one errand');
   const [task] = tasks;
   assert.equal(task.goal, brief, 'the brief as she wrote it');
@@ -433,8 +433,8 @@ test('errand.run in the loop: after a search she hands off the errand, it is que
     'errand.run',
     { agent: 'scout', goal: brief },
     {
-      guildId: 'g1',
-      channelId: 'c1',
+      placeId: 'g1',
+      conversationId: 'c1',
       userId: 'u1',
       roleIds: [],
       actor: 'persona',
@@ -444,7 +444,7 @@ test('errand.run in the loop: after a search she hands off the errand, it is que
   );
   assert.equal(again.status, 'ok');
   assert.equal(asRecord(again.data).task.id, task.id);
-  assert.deepEqual([service.store('g1')?.recent(10).length, runs.length], [1, 1]);
+  assert.deepEqual([service.store()?.recent(10).length, runs.length], [1, 1]);
 });
 
 test('errand.run not granted: refused before it runs, no errand; nothing but her accepted call ever queues one', async () => {
@@ -457,7 +457,7 @@ test('errand.run not granted: refused before it runs, no errand; nothing but her
     runner: { errands: service },
     adminExtra: { errands: service },
   });
-  assert.deepEqual([service.store('g1')?.recent(10).length, runs.length], [0, 0]);
+  assert.deepEqual([service.store()?.recent(10).length, runs.length], [0, 0]);
   assert.ok(
     run.logs.some(
       (entry) => entry.msg === 'skill: refused' && entry.skill === 'errand.run' && entry.code === 'not-allowed'
@@ -480,7 +480,7 @@ function prefetchRecall(
     excerpts: [
       {
         source: 'history',
-        channelId: 'c2',
+        placeId: 'c2',
         channelName: 'jardin',
         startTs: Date.UTC(2026, 9, 2, 9),
         id: 'r9',
@@ -617,11 +617,11 @@ const fakePictures = {
 
 /** A describer whose second look at a picture answers `answer`, recording each call. */
 function lookDescriber({ answer = 'ένα κλειδί στο τραπέζι', caps = null } = {}) {
-  const calls: Array<{ guildId: Untyped; itemId: Untyped; question: Untyped }> = [];
+  const calls: Array<{ placeId: Untyped; itemId: Untyped; question: Untyped }> = [];
   return {
     calls,
-    relookImage: async (guildId: string, item: Untyped, question: unknown) => {
-      calls.push({ guildId, itemId: item.itemId, question });
+    relookImage: async (placeId: string, item: Untyped, question: unknown) => {
+      calls.push({ placeId, itemId: item.itemId, question });
       return { question, text: answer };
     },
     ...(caps ? { videoCapsLeft: () => caps } : {}),
@@ -644,7 +644,7 @@ test("media.look: no re-watch classifier is asked, and her call runs the second 
   assert.equal(asRecord(run.result).outcome, 'spoke');
   assert.equal(run.llm.rewatchCalls.length, 0, 'on: no classifier chooses for her');
   assert.ok(run.logs.some((entry) => entry.msg === 'rewatch: skipped' && entry.reason === 'core-tools'));
-  assert.deepEqual(describer.calls, [{ guildId: 'g1', itemId: 'pb', question: 'τι κρατά η γάτα;' }]);
+  assert.deepEqual(describer.calls, [{ placeId: 'g1', itemId: 'pb', question: 'τι κρατά η γάτα;' }]);
   assert.equal(
     toolContent(run.llm, 1),
     `${labels.tools.result.ok}\n${fill(labels.tools.tools.look.image, { name: 'chat.png', question: 'τι κρατά η γάτα;' })}\nένα κλειδί στο τραπέζι`
@@ -876,7 +876,7 @@ test('draw.create: a reply to a message of another channel (a quoted line of a s
   const theirs = { id: 'q2', authorId: 'u7', self: false, content: 'ξένο' };
   const recall = fakeRecall([
     {
-      channelId: 'c2',
+      placeId: 'c2',
       channelName: 'jardin',
       startTs: NOW - 3 * 86_400_000,
       lines: 'ignored',

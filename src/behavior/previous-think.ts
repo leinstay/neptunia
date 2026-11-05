@@ -21,14 +21,14 @@ export const PLACES_MAX = 200;
  */
 export function placeKey({
   interfaceId = '',
-  guildId = null,
-  channelId,
+  placeId = null,
+  conversationId,
 }: {
   interfaceId?: string;
-  guildId?: string | null;
-  channelId: string | number;
+  placeId?: string | null;
+  conversationId: string | number;
 }): string {
-  return `${interfaceId}:${guildId ? String(guildId) : '@me'}:${String(channelId)}`;
+  return `${interfaceId}:${placeId ? String(placeId) : '@me'}:${String(conversationId)}`;
 }
 
 /**

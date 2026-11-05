@@ -1,17 +1,11 @@
 {
   "files": {
-    "scripts/replay.ts": 7325,
     "src/behavior/recall.ts": 2375,
-    "src/behavior/sandbox.ts": 2063,
-    "tests/admin.test.ts": 3698,
-    "tests/describe.test.ts": 3098,
-    "tests/events.test.ts": 7129,
-    "tests/inner.test.ts": 2389,
+    "tests/inner.test.ts": 2373,
     "tests/openrouter.test.ts": 3557,
     "tests/prompt.test.ts": 6595,
     "tests/recall.test.ts": 2419,
-    "tests/store.test.ts": 3169,
-    "tests/turn.test.ts": 9032
+    "tests/turn.test.ts": 8955
   },
   "functions": {
     "interfaces/discord/collect.ts": {
@@ -43,7 +37,7 @@
       },
       "runWeek": {
         "complexity": 23,
-        "function-length": 580
+        "function-length": 578
       },
       "runWeek>act": {
         "complexity": 39
@@ -94,8 +88,7 @@
     },
     "scripts/recall-eval.ts": {
       "main": {
-        "complexity": 42,
-        "function-length": 515
+        "complexity": 42
       },
       "main>askClassifier": {
         "complexity": 24
@@ -131,12 +124,10 @@
         "function-length": 389
       },
       "runMain": {
-        "complexity": 153,
-        "function-length": 755
+        "complexity": 153
       },
       "runRecall": {
-        "complexity": 64,
-        "function-length": 390
+        "complexity": 64
       },
       "runRecall><anonymous>#2": {
         "complexity": 21
@@ -145,8 +136,7 @@
         "complexity": 21
       },
       "runSkills": {
-        "complexity": 61,
-        "function-length": 547
+        "complexity": 61
       },
       "runSplit": {
         "complexity": 26
@@ -200,7 +190,7 @@
     "src/behavior/inner/drain.ts": {
       "drain": {
         "complexity": 88,
-        "function-length": 376
+        "function-length": 372
       }
     },
     "src/behavior/inner/facts.ts": {
@@ -215,12 +205,12 @@
     },
     "src/behavior/inner/status.ts": {
       "status": {
-        "complexity": 23
+        "complexity": 22
       }
     },
     "src/behavior/missed.ts": {
       "createMissed": {
-        "function-length": 647
+        "function-length": 645
       },
       "createMissed>onTurnEnd": {
         "complexity": 22
@@ -321,7 +311,7 @@
     },
     "src/errands/store.ts": {
       "createErrandStore": {
-        "function-length": 503
+        "function-length": 497
       }
     },
     "src/format.ts": {
@@ -350,7 +340,7 @@
     },
     "src/intentions/service.ts": {
       "createIntentionService": {
-        "function-length": 570
+        "function-length": 555
       },
       "createIntentionService>set": {
         "complexity": 24
@@ -457,7 +447,7 @@
     },
     "src/memory/db/rows.ts": {
       "deriveRow": {
-        "complexity": 43
+        "complexity": 38
       }
     },
     "src/memory/db/service.ts": {
@@ -478,7 +468,7 @@
     },
     "src/memory/db/session.ts": {
       "buildSessionRequest": {
-        "complexity": 36
+        "complexity": 35
       },
       "peopleOf": {
         "complexity": 24
@@ -500,10 +490,7 @@
     },
     "src/memory/embedder.ts": {
       "createEmbedder": {
-        "function-length": 486
-      },
-      "createEmbedder>runFlush": {
-        "complexity": 21
+        "function-length": 479
       }
     },
     "src/memory/gif-recache.ts": {
@@ -529,7 +516,7 @@
         "complexity": 41
       },
       "createJournal": {
-        "function-length": 486
+        "function-length": 469
       },
       "journalLine": {
         "complexity": 22
@@ -566,7 +553,7 @@
     },
     "src/memory/vectors.ts": {
       "createVectors": {
-        "function-length": 488
+        "function-length": 468
       },
       "createVectors>search": {
         "complexity": 35
@@ -617,16 +604,13 @@
     },
     "src/tools/impl/memory.ts": {
       "<anonymous>": {
-        "function-length": 462
+        "function-length": 453
       },
       "<anonymous>>cmdMemoryShow": {
         "complexity": 22
       }
     },
     "src/tools/impl/message.ts": {
-      "<anonymous>": {
-        "function-length": 305
-      },
       "<anonymous>>mediaFile": {
         "complexity": 26
       },
@@ -645,9 +629,6 @@
       }
     },
     "src/tools/impl/status.ts": {
-      "<anonymous>#2": {
-        "function-length": 618
-      },
       "<anonymous>#2>keyCostsValue": {
         "complexity": 21
       },

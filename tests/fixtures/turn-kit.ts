@@ -37,10 +37,10 @@ export function rawMessage({
   content?: string;
   attachments?: Map<string, unknown>;
   stickers?: Map<string, unknown>;
-}): { id: string; channelId: string; author: { id: string; bot: boolean; globalName: string; username: string; }; member: { displayName: string; }; cleanContent: string; createdTimestamp: number; reference: null; attachments: Map<string, unknown>; stickers: Map<string, unknown>; } {
+}): { id: string; placeId: string; author: { id: string; bot: boolean; globalName: string; username: string; }; member: { displayName: string; }; cleanContent: string; createdTimestamp: number; reference: null; attachments: Map<string, unknown>; stickers: Map<string, unknown>; } {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: authorId, bot: false, globalName: authorName, username: authorName },
     member: { displayName: authorName },
     cleanContent: content,
@@ -55,10 +55,10 @@ export function rawMessage({
 export type RawMessage = ReturnType<typeof rawMessage>;
 
 /** The normalized shape pipeline.js would hand to runTurn as `trigger`. */
-export function normalizedTrigger(raw: Omit<ReturnType<typeof rawMessage>, 'reference'>): { id: string; channelId: string; authorId: string; authorName: string; self: boolean; bot: boolean; content: string; ts: number; replyToId: null; attachments: Array<never>; stickers: Array<never>; } {
+export function normalizedTrigger(raw: Omit<ReturnType<typeof rawMessage>, 'reference'>): { id: string; placeId: string; authorId: string; authorName: string; self: boolean; bot: boolean; content: string; ts: number; replyToId: null; attachments: Array<never>; stickers: Array<never>; } {
   return {
     id: raw.id,
-    channelId: raw.channelId,
+    placeId: raw.placeId,
     authorId: raw.author.id,
     authorName: raw.author.globalName,
     self: false,
@@ -75,13 +75,13 @@ export function normalizedTrigger(raw: Omit<ReturnType<typeof rawMessage>, 'refe
 export function fakeTurnChannel({
   id = 'c1',
   name = 'general',
-  guildId = 'g1',
+  placeId = 'g1',
   historyMessages = [],
   attachFiles = true,
   dm = false,
   ...more
 }: ChannelSpec & { attachFiles?: boolean } = {}): Channel {
-  return world().channel({ id, name, guildId, dm, historyMessages, permissions: { attach: attachFiles }, ...more });
+  return world().channel({ id, name, placeId, dm, historyMessages, permissions: { attach: attachFiles }, ...more });
 }
 
 /** A request's options without her tools (`tools`, `toolChoice`): what the rest of the request carries. */
@@ -109,20 +109,20 @@ export function fakeLlm(responseText: unknown): { calls: Array<Untyped>; optionC
 /** The store a turn reads: the calls it made are kept, and a test hangs more members on it. */
 export type FakeStore = {
   guildCalls: Array<unknown>;
-  privateCalls: Array<{ guildId: string; userId: string }>;
+  privateCalls: Array<{ userId: string }>;
   state: { data: Record<string, unknown>; markDirty: () => void };
   [member: string]: Untyped;
 };
 
 export function fakeStore({
-  guildMemory = {},
+  placeMemory = {},
   userProfiles = {},
   channels = [],
   loreEntries = [],
   privateProfiles = {},
   mediaCache = {},
 }: {
-  guildMemory?: Record<string, unknown>;
+  placeMemory?: Record<string, unknown>;
   userProfiles?: Record<string, unknown>;
   channels?: Array<unknown>;
   loreEntries?: Array<unknown>;
@@ -130,17 +130,18 @@ export function fakeStore({
   mediaCache?: Record<string, unknown>;
 } = {}): FakeStore {
   const guildCalls: Array<unknown> = [];
-  const privateCalls: Array<{ guildId: string; userId: string }> = [];
+  const privateCalls: Array<{ userId: string }> = [];
   return {
     guildCalls,
+    topPlaces: () => ['g1'],
     privateCalls,
-    getGuild: (guildId: string) => {
-      guildCalls.push(guildId);
-      return guildMemory;
+    getPlace: (placeId: string) => {
+      guildCalls.push(placeId);
+      return placeMemory;
     },
-    getUser: (guildId: string, userId: string) => userProfiles[userId] ?? null,
-    getPrivate: (guildId: string, userId: string) => {
-      privateCalls.push({ guildId, userId });
+    getUser: (userId: string) => userProfiles[userId] ?? null,
+    getPrivate: (userId: string) => {
+      privateCalls.push({ userId });
       return privateProfiles[userId] ?? null;
     },
     listChannels: () => channels,
@@ -225,7 +226,7 @@ export function fakeImageFetcher(
 }
 
 /** A raw message carrying link embeds. */
-export function linkRaw(id: string, ts: number, embeds: unknown, content = 'κοίτα αυτό'): { embeds: unknown; id: string; channelId: string; author: { id: string; bot: boolean; globalName: string; username: string; }; member: { displayName: string; }; cleanContent: string; createdTimestamp: number; reference: null; attachments: Map<string, unknown>; stickers: Map<string, unknown>; } {
+export function linkRaw(id: string, ts: number, embeds: unknown, content = 'κοίτα αυτό'): { embeds: unknown; id: string; placeId: string; author: { id: string; bot: boolean; globalName: string; username: string; }; member: { displayName: string; }; cleanContent: string; createdTimestamp: number; reference: null; attachments: Map<string, unknown>; stickers: Map<string, unknown>; } {
   return { ...rawMessage({ id, ts, content }), embeds };
 }
 
@@ -247,23 +248,23 @@ export function fakeLookup({
   },
   hasKey = true,
 }: { reads?: Record<string, string>; searchResult?: Record<string, unknown> | null; hasKey?: boolean } = {}): {
-  readCalls: Array<{ guildId: string; links: Array<{ id: string; [key: string]: Untyped }>; options: Record<string, Untyped> }>;
-  searchCalls: Array<{ guildId: string; query: unknown }>;
+  readCalls: Array<{ placeId: string; links: Array<{ id: string; [key: string]: Untyped }>; options: Record<string, Untyped> }>;
+  searchCalls: Array<{ placeId: string; query: unknown }>;
   readLinks: (
-    guildId: string,
+    placeId: string,
     links: Array<{ id: string; [key: string]: Untyped }>,
     options: Record<string, Untyped>
   ) => Promise<{ reads: Map<string, string>; newCount: number }>;
-  search: (guildId: string, query: unknown) => Promise<Record<string, unknown> | null>;
+  search: (placeId: string, query: unknown) => Promise<Record<string, unknown> | null>;
   hasSearch: () => boolean;
 } {
-  const readCalls: Array<{ guildId: string; links: Array<{ id: string; [key: string]: Untyped }>; options: Record<string, Untyped> }> = [];
-  const searchCalls: Array<{ guildId: string; query: unknown }> = [];
+  const readCalls: Array<{ placeId: string; links: Array<{ id: string; [key: string]: Untyped }>; options: Record<string, Untyped> }> = [];
+  const searchCalls: Array<{ placeId: string; query: unknown }> = [];
   return {
     readCalls,
     searchCalls,
-    readLinks: (guildId, links, options) => {
-      readCalls.push({ guildId, links, options });
+    readLinks: (placeId, links, options) => {
+      readCalls.push({ placeId, links, options });
       const map = new Map<string, string>();
       for (const link of links) {
         const read = reads[link.id];
@@ -271,8 +272,8 @@ export function fakeLookup({
       }
       return Promise.resolve({ reads: map, newCount: map.size });
     },
-    search: (guildId, query) => {
-      searchCalls.push({ guildId, query });
+    search: (placeId, query) => {
+      searchCalls.push({ placeId, query });
       return Promise.resolve(searchResult ? { ...searchResult, query } : null);
     },
     hasSearch: () => hasKey,

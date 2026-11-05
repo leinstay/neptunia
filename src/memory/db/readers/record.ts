@@ -1,49 +1,31 @@
 // Record readers enumerate semantic day collections and preserve native message-family identity.
 
-import { communityKey, storageId } from '../storage-keys.ts';
+import { placeOrPersona, storageId } from '../storage-keys.ts';
 import { listUnits } from '../storage-units.ts';
 
 import type { StorageKey } from '../storage-keys.ts';
-import { storageContext } from '../map/index.ts';
 import { LEGACY_IFACE } from '../legacy-namespace.ts';
-import { guildPlaceId } from '../ids.ts';
 import { hasMessageFamilies } from '../message-family-catalog.ts';
-import { unitLines, layerDir } from './common.ts';
+import { unitLines } from './common.ts';
 import type { NativeMessageLocator } from '../recall.ts';
 import type { Db } from '../types.ts';
 
-/** An explicit legacy export directory, independent of live storage ownership. */
-export const recordDirOf = (guildId: unknown, privateUserId: string | null = null): string =>
-  layerDir(String(guildId), privateUserId, 'record');
-
-function daysOf(db: Db, guildId: unknown, privateUserId: string | null, iface: string) {
-  const key = communityKey('record', String(guildId), { iface, privateUserId });
-  return listUnits(db, { kind: 'record', subject: key.subject, scopePlaceId: key.scopePlaceId });
+function daysOf(db: Db, placeId: string | null) {
+  return listUnits(db, { kind: 'record', subject: placeOrPersona('record', placeId).subject });
 }
 
-export function recordMonths(
-  db: Db,
-  guildId: unknown,
-  privateUserId: string | null = null,
-  iface = LEGACY_IFACE
-): Array<string> {
+export function recordMonths(db: Db, placeId: string | null): Array<string> {
   return [
     ...new Set(
-      daysOf(db, guildId, privateUserId, iface)
+      daysOf(db, placeId)
         .map((unit) => unit.key.partition?.slice(0, 7))
         .filter((month): month is string => Boolean(month))
     ),
   ].sort();
 }
 
-export function recordDays(
-  db: Db,
-  guildId: unknown,
-  privateUserId: string | null,
-  month: string,
-  iface = LEGACY_IFACE
-): Array<{ day: string; owner: StorageKey }> {
-  return daysOf(db, guildId, privateUserId, iface)
+export function recordDays(db: Db, placeId: string | null, month: string): Array<{ day: string; owner: StorageKey }> {
+  return daysOf(db, placeId)
     .filter((unit) => unit.key.partition?.startsWith(`${month}-`))
     .map((unit) => ({ day: unit.key.partition!, owner: unit.key }))
     .sort((a, b) => a.day.localeCompare(b.day));
@@ -51,16 +33,22 @@ export function recordDays(
 
 export const recordLines = (db: Db, key: StorageKey): Array<string> => unitLines(db, key);
 
+/** The interface of the place that holds a record: its stored one, else its spelled id's. */
+function ifaceOfHolder(db: Db, placeId: string | null): string {
+  if (placeId === null) return LEGACY_IFACE;
+  const stored = db.prepare('SELECT iface FROM places WHERE id = ?').get(placeId)?.iface;
+  return typeof stored === 'string' ? stored : (placeId.split(':')[0] ?? LEGACY_IFACE);
+}
+
 export function recordNewestRevision(
   db: Db,
-  guildId: unknown,
-  privateUserId: string | null,
+  placeId: string | null,
   month: string,
   messageId: unknown,
   locator?: NativeMessageLocator,
-  iface = locator?.iface ?? LEGACY_IFACE
+  iface = locator?.iface ?? ifaceOfHolder(db, placeId)
 ): number | null {
-  const units = daysOf(db, guildId, privateUserId, iface).filter((unit) => unit.key.partition?.startsWith(`${month}-`));
+  const units = daysOf(db, placeId).filter((unit) => unit.key.partition?.startsWith(`${month}-`));
   if (!units.length) return null;
   const family = locator
     ? db
@@ -94,22 +82,8 @@ export function recordNewestRevision(
   return newest;
 }
 
-export function recordLayers(db: Db, guildId: unknown, iface = LEGACY_IFACE): Array<string> {
-  return [
-    ...new Set(
-      listUnits(db, { kind: 'record', scopePlaceId: guildPlaceId(iface, guildId) })
-        .filter((unit) => unit.key.subject.type === 'account')
-        .map((unit) => storageContext(db, unit.key).subjectNativeId!)
-    ),
-  ].sort();
-}
-
-export function recordStats(
-  db: Db,
-  guildId: unknown,
-  iface = LEGACY_IFACE
-): { messages: number; days: number; first: string | null } {
-  const days = daysOf(db, guildId, null, iface);
+export function recordStats(db: Db, placeId: string | null): { messages: number; days: number; first: string | null } {
+  const days = daysOf(db, placeId);
   const ids = days.map((unit) => unit.id);
   const messages = ids.length
     ? Number(
@@ -122,4 +96,12 @@ export function recordStats(
       )
     : 0;
   return { messages, days: days.length, first: days.map((unit) => unit.key.partition!).sort()[0] ?? null };
+}
+
+/** Every place that holds a record. */
+export function recordHolders(db: Db): Array<string> {
+  const holders = new Set<string>();
+  for (const unit of listUnits(db, { kind: 'record' }))
+    if (unit.key.subject.type === 'place') holders.add(unit.key.subject.id);
+  return [...holders].sort();
 }

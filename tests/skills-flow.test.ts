@@ -67,7 +67,7 @@ function journalOf(turnId: string, at: number, calls: Array<[string, Array<strin
 }
 
 const journalReading = (records: ReadonlyArray<Rec>) => ({
-  read: (_guildId: string, query: { day: string; kind: string }): Array<Rec> =>
+  read: (query: { day: string; kind: string }): Array<Rec> =>
     records.filter((r) => r.kind === query.kind && utcDay(Date.parse(String(r.occurredAt))) === query.day),
 });
 
@@ -112,14 +112,21 @@ function herCalls(board: Board | null, rig: SkillsRig) {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     board,
     skills: rig.port,
     now: () => NOW,
   });
   return async (name: string, args: Record<string, unknown>): Promise<Result> => {
     const { result } = await withCapturedLogs(() =>
-      runOpPrechecked(name, args, { env, guildId: 'g1', channelId: 'c1', userId: null, roleIds: [], actor: 'persona' })
+      runOpPrechecked(name, args, {
+        env,
+        placeId: 'g1',
+        conversationId: 'c1',
+        userId: null,
+        roleIds: [],
+        actor: 'persona',
+      })
     );
     return result;
   };
@@ -130,7 +137,7 @@ function ownerConsole(rig: SkillsRig) {
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: '', data: null }),
     ownerReads: { lessons: () => '', aliases: () => '' },
-    guildId: () => 'g1',
+    places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },
     privateDir: dir,
@@ -166,7 +173,6 @@ test('a chain she repeated becomes a skill she uses: view, proposal, agent, acti
   // 1. Three turns of the same shape, and the view of her `selfimprovement` wake lists it with the count 3.
   const records = ['t1', 't2', 't3'].flatMap((id, n) => journalOf(id, NOW - (3 - n) * DAY, LOOKUP_TURN));
   const facts = await buildSelfimprovementFacts({
-    guildId: 'g1',
     now: NOW,
     since: null,
     journal: journalReading(records),

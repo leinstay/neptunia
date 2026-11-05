@@ -44,12 +44,12 @@ export type InTurnConfig = CheckPullArgs['config'] & {
 
 /** The describer (src/memory/describe.ts#createDescriber), as the in-turn tools use it. */
 export type InTurnDescriber = LookDescriber & {
-  cachedDescriptions?: (guildId: string, items: Array<object>) => unknown;
+  cachedDescriptions?: (placeId: string, items: Array<object>) => unknown;
 };
 
 /** The memory store, as the in-turn tools read it. */
 type InTurnStore = NonNullable<Parameters<typeof runMediaFind>[0]['store']> & {
-  listUserProfiles?: (guildId: string) => ReadonlyArray<{ id?: unknown; names?: Array<unknown> } | null> | null;
+  listUserProfiles: () => ReadonlyArray<{ id?: unknown; names?: Array<unknown> } | null> | null;
 };
 
 /** What createInTurnTools reads: the dependencies and the functions of the other topic modules it calls. */
@@ -101,7 +101,7 @@ function cachedMessage(
         ? entry.stored.native
         : {
             iface: current.iface,
-            conversationId: entry.channelId ?? current.conversationId,
+            conversationId: entry.placeId ?? current.conversationId,
             messageId: String(entry.id),
           };
       if (
@@ -130,7 +130,7 @@ function cachedMessage(
 export type InTurnArgs = {
   channel: ConversationInfo;
   snapshot?: Snapshot | null;
-  guildId: string;
+  placeId: string;
   partner?: { id?: string | null } | null;
   selfId: string | null;
   selfName: string;
@@ -180,7 +180,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
   function inTurnTools({
     channel,
     snapshot = null,
-    guildId,
+    placeId,
     partner = null,
     selfId,
     selfName,
@@ -193,7 +193,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
   }: InTurnArgs): Record<string, (args: Obj, call?: InTurnCall) => unknown> {
     // The second looks this turn took (media.look): every step of the loop shares the count.
     let looks = 0;
-    const where = { channel, guildId, trigger, triggerKind, selfName, draft, mode, plain };
+    const where = { channel, placeId, trigger, triggerKind, selfName, draft, mode, plain };
     const messageOf = (messageId: string, call?: InTurnCall): HistoryMessage | null =>
       cachedMessage(call?.messageRef, messageId, draft?.searchRefs, history ?? [], conversationOf(channel));
     return {
@@ -201,13 +201,13 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       // The attempt always hands its draft to a diary post's tools.
       ...(mode === 'diary' ? diaryVoiceTool({ speech, held: draft as InTurnDraft }) : {}),
       'web.search': (args) =>
-        runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
+        runWebSearch({ lookup: lookup ?? null, config: hot.config, labels: hot.prompts?.labels ?? {}, placeId, args }),
       'web.read': (args, call) =>
         runWebRead({
           lookup: lookup ?? null,
           config: hot.config,
           labels: hot.prompts?.labels ?? {},
-          guildId,
+          placeId,
           args,
           linkOf: (messageId) => {
             const message = messageOf(messageId, call);
@@ -219,7 +219,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           describer: describer ?? null,
           config: hot.config,
           labels: hot.prompts?.labels ?? {},
-          guildId,
+          placeId,
           args,
           mediaOf: (messageId) => messageOf(messageId, call),
           takeTurnSlot: () => {
@@ -230,14 +230,14 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           onRoute: routes.look,
         }),
       'media.find': (args) =>
-        runMediaFind({ store, config: hot.config, labels: hot.prompts?.labels ?? {}, guildId, args }),
+        runMediaFind({ store, config: hot.config, labels: hot.prompts?.labels ?? {}, placeId, args }),
       'memory.search': (args, call) =>
         runMemorySearch({
           recall,
           store,
           config: hot.config,
           labels: hot.prompts?.labels ?? {},
-          guildId,
+          placeId,
           snapshot,
           channel,
           partnerId: partner?.id ?? null,
@@ -245,7 +245,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           selfName,
           // The turn's history as the attempt gave it.
           history: history as ReadonlyArray<unknown>,
-          decorate: (lines: Array<object>) => linkCalls(lines, { channel, snapshot, guildId }),
+          decorate: (lines: Array<object>) => linkCalls(lines, { channel, snapshot, placeId }),
           asker: trigger?.authorId ?? null,
           memoryContext: turnContextOf(draft, channel),
           resolvedAnchor: call?.memoryAnchor,
@@ -255,7 +255,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           // The registry takes the quoted lines the search hands it, as the read's own handles.
           ...(draft ? { refs: searchHandles(draft) } : {}),
         }),
-      'conversation.read': (args) => readConversation({ args, channel, snapshot, guildId, partner, selfName, draft }),
+      'conversation.read': (args) => readConversation({ args, channel, snapshot, placeId, partner, selfName, draft }),
     };
   }
 
@@ -271,7 +271,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     args,
     channel,
     snapshot,
-    guildId,
+    placeId,
     partner,
     selfName,
     draft,
@@ -279,7 +279,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     args: Obj;
     channel: ConversationInfo;
     snapshot: Snapshot | null;
-    guildId: string;
+    placeId: string;
     partner: InTurnArgs['partner'];
     selfName: string;
     draft: InTurnDraft | null;
@@ -289,11 +289,11 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     const labels = hot.prompts?.labels ?? {};
     const channelOf = (id: string): ConversationInfo | null =>
       String(id) === String(channel.id) ? channel : (snapshot.get(String(id)) ?? null);
-    const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles(guildId) ?? []) : [];
+    const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles() ?? []) : [];
     const stored = new Map(profiles.filter((p) => p?.id).map((p) => [String(p?.id), p]));
     const nameOf = (id: string): string | null => {
       const names = stored.get(String(id))?.names;
-      return (typeof names?.[0] === 'string' ? names[0] : null) ?? memberOf(guildId, String(id))?.name ?? null;
+      return (typeof names?.[0] === 'string' ? names[0] : null) ?? memberOf(placeId, String(id))?.name ?? null;
     };
     const settings = recallSettings(config);
     const timezone = config.bot?.timezone ?? 'UTC';
@@ -301,7 +301,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       args,
       labels,
       config,
-      channelId: String(channel.id),
+      placeId: String(channel.id),
       channelNameOf: (id) => channelOf(id)?.name ?? null,
       allowed: (id) => {
         if (String(id) === String(channel.id) && inCommunity(channel)) return true;
@@ -311,7 +311,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           return (
             checkPull({
               snapshot,
-              channelId: String(id),
+              placeId: String(id),
               destination: channel,
               partnerId: partner?.id ?? null,
               config,
@@ -322,10 +322,15 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           return false;
         }
       },
-      readRecord: ({ channelId, from }) =>
-        recordMessages(record, channelOf(channelId)?.communityId ?? guildId, { channelId, from, nameOf, selfName }),
+      readRecord: ({ placeId: conversationId, from }) =>
+        recordMessages(record, channelOf(conversationId)?.communityId ?? placeId, {
+          placeId: conversationId,
+          from,
+          nameOf,
+          selfName,
+        }),
       fetchLive: (request) => {
-        const source = channelOf(request.channelId);
+        const source = channelOf(request.placeId);
         // fetchSpan takes the request as it comes, its anchor included.
         return fetchSpan(
           ifaceReads,
@@ -339,7 +344,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           const { items, rest, emoji } = pullPictures(slice as Array<object>, 0);
           const wanted = [...items, ...rest, ...emoji];
           try {
-            if (wanted.length > 0) descriptions = describer.cachedDescriptions(guildId, wanted) ?? undefined;
+            if (wanted.length > 0) descriptions = describer.cachedDescriptions(placeId, wanted) ?? undefined;
           } catch {
             descriptions = undefined;
           }

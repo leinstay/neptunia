@@ -58,7 +58,7 @@ function hot() {
       models: { base: { drawing: 'openai/image-model' } },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: { maxPromptChars: 1000, reference: 'avatar', referenceMaxBytes: 4_000_000 },
-      selfreflection: { channelId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
+      selfreflection: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
     },
     prompts: { ...PROMPTS },
   };
@@ -66,7 +66,7 @@ function hot() {
 
 /** A text channel of the world with every permission; `history` its raw messages. */
 function channel(id: string, name: string, history: Array<Untyped> = []) {
-  return world().channel({ id, name, guildId: 'g1', historyMessages: history });
+  return world().channel({ id, name, placeId: 'g1', historyMessages: history });
 }
 
 /** A member's message as discord.js hands it over. */
@@ -85,7 +85,7 @@ function rawMessage({
 }) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: authorId, bot: false, globalName: authorName, username: authorName },
     member: { displayName: authorName },
     cleanContent: content,
@@ -141,7 +141,7 @@ function recordingImages() {
 
 function store() {
   return {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     getPrivate: () => null,
     listChannels: () => [],
@@ -192,7 +192,7 @@ function memberTrigger() {
   });
   const trigger = {
     id: raw.id,
-    channelId: raw.channelId,
+    placeId: raw.placeId,
     authorId: 'u1',
     authorName: 'Eléna',
     self: false,
@@ -252,12 +252,12 @@ test('/nep draw: one picture for the owner', async () => {
       getSelfName: () => 'Bot',
       spontaneous: {},
       calibrator: { ratio: 1 },
-      getGuildId: () => 'g1',
+      isServedCommunity: (id: unknown) => id === 'g1',
       images,
       imageFetcher: imageFetcher(),
       now: () => NOW,
     });
-  const ctx = { guildId: 'g1', userId: '42' };
+  const ctx = { placeId: 'g1', userId: '42' };
   const { result } = await withCapturedLogs(() =>
     admin(hotValue).run('draw.create', { text: 'me reading by the window', self: true }, ctx)
   );
@@ -297,7 +297,7 @@ test("draw.create from a member's mention: the picture is charged to the member"
       client: client(),
       selfId: () => 'self-id',
       getSelfName: () => 'Bot',
-      getGuildId: () => 'g1',
+      isServedCommunity: (id: unknown) => id === 'g1',
     }).runSkillOp,
   });
   const { logs } = await withCapturedLogs(() =>
@@ -327,13 +327,13 @@ test("draw.create operation quotes the message it replies to, in that message's 
     getSelfName: () => 'Bot',
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     images: recordingImages(),
     imageFetcher: imageFetcher(),
     now: () => NOW,
     port,
   });
-  const ctx = { guildId: 'g1', channelId: 'c1', userId: '42', roleIds: [], actor: 'owner' };
+  const ctx = { placeId: 'g1', conversationId: 'c1', userId: '42', roleIds: [], actor: 'owner' };
   const quoted = (
     await withCapturedLogs(() => admin.runSkillOp('draw.create', { text: 'a lighthouse', replyTo: 'm9' }, ctx))
   ).result;
@@ -349,7 +349,7 @@ test("draw.create operation quotes the message it replies to, in that message's 
   );
   const refused = await admin.runSkillOp(
     'draw.create',
-    { text: 'a lighthouse', replyTo: 'https://discord.com/channels/g1/c1/m9', channelId: 'c2' },
+    { text: 'a lighthouse', replyTo: 'https://discord.com/channels/g1/c1/m9', placeId: 'c2' },
     ctx
   );
   assert.equal(refused.status, 'invalid');

@@ -73,7 +73,7 @@ test("innerReplayWake: the scheduler's wake for the intention, its budgets from 
     status: 'pending',
     purpose: 'p',
     dueAt: NOW - 5_000,
-    provenance: { channelId: 'c1', scope: 'group' },
+    provenance: { placeId: 'c1', scope: 'group' },
   };
   const { wake, info } = innerReplayWake({
     inner,
@@ -157,7 +157,7 @@ function heartbeatFixture({ stopped = false } = {}) {
     heartbeat: { nextAt: NOW - 1000, lastAt: NOW - 3 * 3_600_000 },
   });
   fs.writeFileSync(stateFile, kept);
-  world().channel({ id: 'c1', name: 'general', guildId: 'g1' });
+  world().channel({ id: 'c1', name: 'general', placeId: 'g1' });
   const record = {
     iterate: async function* iterate() {
       yield { kind: 'said', occurredAt: new Date(NOW - 3_600_000).toISOString(), scope: { channel: 'c1' } };
@@ -183,7 +183,7 @@ test("heartbeatReplayWake: the scheduler's heartbeat wake and conversation, read
     inner,
     hot: fx.hot,
     dataDir: fx.dataDir,
-    guildId: 'g1',
+    placeId: 'g1',
     now: NOW,
     deps: fx.deps,
     tmpRoot: fx.tmpRoot,
@@ -212,7 +212,7 @@ test('heartbeatReplayWake: no conversation to run in is a CliError, not a turn',
       inner,
       hot: fx.hot,
       dataDir: fx.dataDir,
-      guildId: 'g1',
+      placeId: 'g1',
       now: NOW,
       deps: fx.deps,
       tmpRoot: fx.tmpRoot,
@@ -236,7 +236,7 @@ test('innerAnswerOf and innerReportMarkdown: the think whole, the messages, the 
   const markdown = innerReportMarkdown({
     kind: 'heartbeat',
     intention: null,
-    channelId: 'c1',
+    placeId: 'c1',
     wake: '<wake>\nfacts\n</wake>',
     request: { blocks: ['wake'] },
     samples: [
@@ -314,10 +314,10 @@ test('hiddenPlaces drops hidden channels from the list', () => {
 });
 
 test('hiddenReads: history and the listing lose the hidden channels and messages, the info of a hidden channel is none', async () => {
-  const message = (channelId: string, id: string) => ({
+  const message = (placeId: string, id: string) => ({
     id,
-    channelId,
-    channel: { name: channelId },
+    placeId,
+    channel: { name: placeId },
     guild: { id: 'g1' },
     author: { id: 'u1', bot: false, globalName: 'Alice', username: 'alice' },
     member: { displayName: 'Alice' },
@@ -330,7 +330,7 @@ test('hiddenReads: history and the listing lose the hidden channels and messages
     messageSnapshots: new Map(),
     flags: { has: () => false },
   });
-  for (const id of ['c1', 'c2', 'c3', 'c9']) world().channel({ id, guildId: 'g1' });
+  for (const id of ['c1', 'c2', 'c3', 'c9']) world().channel({ id, placeId: 'g1' });
   world().seed('c1', [message('c1', 'm1'), message('c1', 'm2')]);
   world().seed('c9', [message('c9', 'm3')]);
   const hide = hideSetsOf({ hideChannels: ['c2', 'c9'], hideMessages: ['m1'] });
@@ -355,7 +355,7 @@ test('hiddenReads: history and the listing lose the hidden channels and messages
 test('innerReportMarkdown prints the hidden ids in the header', () => {
   const md = innerReportMarkdown({
     kind: 'heartbeat',
-    channelId: 'c1',
+    placeId: 'c1',
     hidden: { channels: ['11'], messages: ['99', '98'] },
     samples: [],
     usage: {},
@@ -385,7 +385,7 @@ test('innerAnswerOf and innerReportMarkdown: a failed step is an error step, not
   const markdown = innerReportMarkdown({
     kind: 'heartbeat',
     intention: null,
-    channelId: 'c1',
+    placeId: 'c1',
     usage,
     samples: [{ outcome: 'ok', reason: null, answers: [ok, failed], actions: [], posted: 0, usage }],
   });

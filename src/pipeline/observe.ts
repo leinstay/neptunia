@@ -13,8 +13,8 @@ import type { Envelope } from '../memory/db/observe.ts';
 import type { MessageEvent, Observed } from './edits.ts';
 import type { AcceptedMessageEvent, Thrown } from './types.ts';
 
-/** The record a line belongs to: the guild's, or a private chat's under it. */
-export type ObserveWhere = { guildId?: string | null; privateUserId?: string } | null;
+/** The record a line belongs to: the place's. */
+export type ObserveWhere = { placeId?: string | null } | null;
 
 /**
  * The timers of the observation's deadline and of the settle waits (setTimeout and clearTimeout by default). A settle
@@ -128,7 +128,7 @@ export function createObserve({ hot, memoryDb, selfIdOf, timers }: ObserveContex
 
   /**
    * The live observation path: `event` as an observation of the memory database (see
-   * deps.memoryDb), with `direct` as memory gets it and `where` (`{ guildId, privateUserId }`)
+   * deps.memoryDb), with `direct` as memory gets it and `where` (`{ placeId }`)
    * the record the line belongs to: a promise of the observe result (null on a failure or past
    * `memoryDb.observeTimeoutMs`), which the caller awaits; null without a memory database. Codes only.
    */

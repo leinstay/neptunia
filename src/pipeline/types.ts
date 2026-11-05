@@ -26,7 +26,7 @@ export type Conv = ConversationInfo;
 /** A normalized line (src/behavior/line-of.ts#lineOf), as the pipeline reads it. */
 export type Line = {
   readonly id: string;
-  readonly channelId: string;
+  readonly placeId: string;
   readonly authorId: string;
   readonly authorName?: string;
   readonly content?: string;
@@ -48,10 +48,9 @@ export type TurnResult =
   { outcome?: TurnOutcome; limit?: Limit | null; delivered?: boolean; reason?: string } | undefined;
 
 /** A queued call of the pending queue (src/behavior/pending.ts#PendingPing), with its conversations and its line. */
-export type Ping = Omit<PendingPing, 'channel' | 'trigger' | 'destination'> & {
+export type Ping = Omit<PendingPing, 'channel' | 'trigger'> & {
   channel: Conv;
   trigger: Line;
-  destination?: Conv | null;
   readOptions?: MessageReadOptions;
 };
 
@@ -77,7 +76,7 @@ export type PipelineConfig = {
     readonly timezone: string;
     readonly nameTriggers?: Array<string>;
   };
-  readonly memory?: { readonly aliasHalfLifeDays?: number; readonly mainChannelIds?: unknown };
+  readonly memory?: { readonly aliasHalfLifeDays?: number };
 };
 
 /** The `mention` settings (config.json), as the pipeline reads them. */
@@ -129,31 +128,30 @@ export type PipelineState = {
 export type TurnRequest = {
   memoryContext?: Context;
   conversation: { iface: string; conversationId: string };
-  guildId?: string;
+  placeId?: string;
   mode: 'reply';
   trigger: Line;
   triggerKind: TriggerKind;
   queued?: (() => Array<{ id: string; text: string; author?: string }>) | null;
   added?: Ping['added'] | null;
-  source?: { channelId: string; reason: 'routed' };
 };
 
 /** The turn runner (src/behavior/turn.ts#createTurnRunner), as far as the pipeline calls it. */
 export type PipelineTurns = {
-  isBusy: (channelId: string) => boolean;
+  isBusy: (placeId: string) => boolean;
   isAnyBusy: () => boolean;
   busyChannels?: () => Array<string>;
   runTurn: (request: TurnRequest) => Promise<TurnResult>;
-  notePost: (channelId: string, ts: number) => void;
-  spokeAfterSeeing?: (channelId: string, messageId: string) => boolean;
-  waitingParts?: (channelId: string, authorId: string) => unknown;
+  notePost: (placeId: string, ts: number) => void;
+  spokeAfterSeeing?: (placeId: string, messageId: string) => boolean;
+  waitingParts?: (placeId: string, authorId: string) => unknown;
   addToPart?: (
-    channelId: string,
+    placeId: string,
     authorId: string,
     index: number,
     message: { id: string; text: string; ts: number }
   ) => unknown;
-  lastPostAt?: (channelId: string) => number;
+  lastPostAt?: (placeId: string) => number;
 };
 
 /** The model client (src/llm/openrouter.ts#createLlm), as the classifiers call it. */
@@ -167,7 +165,7 @@ export type PipelineLlm = {
 /** The missed-answer registry (src/behavior/missed.ts#createMissed), as the pipeline notes into it. */
 export type PipelineMissed = {
   noteFact: (fact: object) => void;
-  noteActivity: (channelId: string, at: number) => void;
+  noteActivity: (placeId: string, at: number) => void;
   noteNotAddressed?: (message: Line) => void;
 };
 

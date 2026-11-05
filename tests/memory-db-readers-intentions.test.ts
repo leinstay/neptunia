@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createIntentionStores } from '../src/intentions/store.ts';
-import { GUILD, GUILD_2, readerEnv } from './fixtures/memory-db/readers.ts';
+import { readerEnv } from './fixtures/memory-db/readers.ts';
 
 const ids = (records: Array<{ id: string }>) => records.map((record) => record.id);
 
@@ -11,13 +11,13 @@ test('intentions db reader: list, get and archived come from the database', asyn
   const env = await readerEnv();
   try {
     const stores = createIntentionStores({ log: env.log, memoryDb: env.memoryDb });
-    const store = stores.get(GUILD)!;
+    const store = stores.get()!;
     assert.deepEqual(ids(store.list()), ['i2', 'i3']);
     assert.deepEqual(ids(store.archived()), ['i0']);
     assert.equal(store.get('i2')?.purpose, 'ask how the café went');
     assert.equal(store.get('i3')?.provenance?.scope, 'dm');
     assert.equal(store.get('nope'), null);
-    assert.deepEqual([ids(stores.get(GUILD_2)!.list()), ids(stores.get(GUILD_2)!.archived())], [[], []]);
+    // The second guild's empty store this line read is gone: intentions are the persona's, one store for every place.
     assert.deepEqual(
       env.warns.filter((warn) => warn.message === 'memory db: read failed'),
       []
@@ -34,7 +34,7 @@ test('intentions db reader: a closed database fails the load with a code, logged
     const memoryDb = { readHandle: () => (open ? env.handle : null), database: () => (open ? env.handle.db : null) };
     const stores = createIntentionStores({ log: env.log, memoryDb });
     assert.throws(
-      () => stores.get(GUILD),
+      () => stores.get(),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
     assert.deepEqual(
@@ -42,7 +42,7 @@ test('intentions db reader: a closed database fails the load with a code, logged
       [['memory db: read failed', 'intentions', 'DB_CLOSED']]
     );
     open = true;
-    assert.deepEqual(ids(stores.get(GUILD)!.list()), ['i2', 'i3']);
+    assert.deepEqual(ids(stores.get()!.list()), ['i2', 'i3']);
   } finally {
     env.done();
   }

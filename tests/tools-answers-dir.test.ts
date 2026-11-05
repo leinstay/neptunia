@@ -287,18 +287,18 @@ test('an answer whose tool-calls.json holds a data call drives two steps of a re
     },
   };
   const store = {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
     state: { data: {} },
   };
-  const view = liveView({ hot, store, guildId: 'g1' });
+  const view = liveView({ hot, store, placeId: 'g1' });
   const at = Date.UTC(2026, 9, 20, 12, 0, 0);
   const trigger = {
     id: '800000000000000002',
-    channelId: '500000000000000001',
+    placeId: '500000000000000001',
     channelName: 'general',
     authorId: '111111111111111111',
     authorName: 'Alice',
@@ -321,7 +321,7 @@ test('an answer whose tool-calls.json holds a data call drives two steps of a re
     situation: { history: [trigger], triggerId: trigger.id, kind: 'mention', mode: 'reply' },
     selfId: '900000000000000001',
     selfName: 'Zoe',
-    channel: { id: trigger.channelId, name: 'general' },
+    channel: { id: trigger.placeId, name: 'general' },
     llm,
     runs: 1,
     at,

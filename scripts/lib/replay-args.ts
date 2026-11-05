@@ -8,15 +8,15 @@ import { DRAW_MODES, DEFAULT_LIVE_PICTURES, MAX_PICTURES, isDateKey } from './di
 import type { Untyped } from '../../src/tools/types.ts';
 
 export const USAGE =
-  'usage: node scripts/replay.ts <channelId> <triggerMessageId> [--before 40] [--samples 1] [--show-request] [--as-of-moment] [--hide-self <substring>]... [--hide-self-all] [--snapshot <dir>] [--spend <usd>]\n' +
-  '       node scripts/replay.ts <channelId> <triggerMessageId> --split [--text "<candidate text>"] [--before <split.contextMessages>] [--samples 3] [--spend <usd>]\n' +
-  '       node scripts/replay.ts <channelId> <triggerMessageId> --recall [--text "<candidate text>"] [--before <context.channelMessages - 1>] [--budget <ms>] [--show-request] [--spend <usd>]\n' +
-  '       node scripts/replay.ts --pair <promptsDirA> <promptsDirB> (--triggers <file> | <channelId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
+  'usage: node scripts/replay.ts <placeId> <triggerMessageId> [--before 40] [--samples 1] [--show-request] [--as-of-moment] [--hide-self <substring>]... [--hide-self-all] [--snapshot <dir>] [--spend <usd>]\n' +
+  '       node scripts/replay.ts <placeId> <triggerMessageId> --split [--text "<candidate text>"] [--before <split.contextMessages>] [--samples 3] [--spend <usd>]\n' +
+  '       node scripts/replay.ts <placeId> <triggerMessageId> --recall [--text "<candidate text>"] [--before <context.channelMessages - 1>] [--budget <ms>] [--show-request] [--spend <usd>]\n' +
+  '       node scripts/replay.ts --pair <promptsDirA> <promptsDirB> (--triggers <file> | <placeId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
   '       node scripts/replay.ts --diary <selfPicture|picture> [--count 1] [--topic "<text>"] [--diary-own-history] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]\n' +
-  '       node scripts/replay.ts --pair-transport (--triggers <file> | <channelId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
-  '       node scripts/replay.ts --loop-triggers (--triggers <file> | <channelId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
+  '       node scripts/replay.ts --pair-transport (--triggers <file> | <placeId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
+  '       node scripts/replay.ts --loop-triggers (--triggers <file> | <placeId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --diary-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
   '       node scripts/replay.ts --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
   '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-first-only] [--answers-all] [--answers-timeout-min 20]])';
@@ -101,14 +101,14 @@ export type ReplayArgs = {
   answersDir: string | null;
   answersFirstOnly: boolean;
   answersTimeoutMin: number;
-  channelId?: string | null;
+  placeId?: string | null;
   triggerId?: string | null;
   answersAll?: boolean;
   diaryOwnHistory?: boolean;
 };
 
 /**
- * `argv` (after the script) as `{ channelId, triggerId, before, samples,
+ * `argv` (after the script) as `{ placeId, triggerId, before, samples,
  * showRequest, asOfMoment, hideSelf, hideSelfAll, split, recall, budget, text }`
  * (`hideSelf`: the substrings, lower-cased; `before` null when not given:
  * the caller picks the mode's default; `text` null without `--text`;
@@ -264,7 +264,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     else positional.push(arg);
   }
   if (out.steps && out.showRequestTurn === null) throw new CliError(USAGE);
-  const [channelId, triggerId, extra] = positional;
+  const [placeId, triggerId, extra] = positional;
   // --no-cache: the trigger runs send her requests with the prompt-cache marker a live turn has; this one sends none.
   if (out.noCache && !(out.pairTransport || out.loopTriggers)) throw new CliError(USAGE);
   if (out.inner !== null) {
@@ -305,7 +305,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     ) {
       throw new CliError(USAGE);
     }
-    return { ...out, review, samples: out.samples ?? 1, channelId: null, triggerId: null };
+    return { ...out, review, samples: out.samples ?? 1, placeId: null, triggerId: null };
   }
   if (out.intention !== null || out.review || out.hideChannels.length > 0 || out.hideMessages.length > 0)
     throw new CliError(USAGE);
@@ -348,7 +348,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       draw,
       maxPictures: draw === 'live' ? (out.maxPictures ?? DEFAULT_LIVE_PICTURES) : null,
       samples: 1,
-      channelId: null,
+      placeId: null,
       triggerId: null,
     };
   }
@@ -378,7 +378,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     ) {
       throw new CliError(USAGE);
     }
-    return { ...out, samples: 1, channelId: null, triggerId: null };
+    return { ...out, samples: 1, placeId: null, triggerId: null };
   }
   if (out.dry || out.pairPrompts !== null || out.coreTools) throw new CliError(USAGE);
   if (
@@ -408,7 +408,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     ) {
       throw new CliError(USAGE);
     }
-    return { ...out, count: out.count ?? 1, samples: 1, channelId: null, triggerId: null };
+    return { ...out, count: out.count ?? 1, samples: 1, placeId: null, triggerId: null };
   }
   if (out.count !== null || out.topic !== null || out.prompts !== null) throw new CliError(USAGE);
   if (out.showRequestTurn !== null) {
@@ -429,7 +429,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     ) {
       throw new CliError(USAGE);
     }
-    return { ...out, samples: DEFAULT_SAMPLES, channelId: null, triggerId: null };
+    return { ...out, samples: DEFAULT_SAMPLES, placeId: null, triggerId: null };
   }
   if (out.pair || out.pairTransport || out.loopTriggers) {
     // Reply mode only, one sample per side; the triggers from the file or the two positionals.
@@ -449,13 +449,13 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     if (
       out.triggers !== null
         ? positional.length > 0
-        : extra !== undefined || !SNOWFLAKE.test(channelId ?? '') || !SNOWFLAKE.test(triggerId ?? '')
+        : extra !== undefined || !SNOWFLAKE.test(placeId ?? '') || !SNOWFLAKE.test(triggerId ?? '')
     )
       throw new CliError(USAGE);
-    return { ...out, samples: 1, channelId: channelId ?? null, triggerId: triggerId ?? null };
+    return { ...out, samples: 1, placeId: placeId ?? null, triggerId: triggerId ?? null };
   }
   if (out.triggers !== null || out.outDir !== null) throw new CliError(USAGE);
-  if (extra !== undefined || !SNOWFLAKE.test(channelId ?? '') || !SNOWFLAKE.test(triggerId ?? ''))
+  if (extra !== undefined || !SNOWFLAKE.test(placeId ?? '') || !SNOWFLAKE.test(triggerId ?? ''))
     throw new CliError(USAGE);
   if (out.split && (out.showRequest || out.asOfMoment || out.hideSelfAll || out.hideSelf.length > 0))
     throw new CliError(USAGE);
@@ -467,7 +467,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
   return {
     ...out,
     samples: out.samples ?? (out.split ? DEFAULT_SPLIT_SAMPLES : DEFAULT_SAMPLES),
-    channelId,
+    placeId,
     triggerId,
   };
 }

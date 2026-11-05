@@ -1,4 +1,5 @@
 // Semantic ownership preserves migrated collections, session changes and accepted pending writes.
+import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +12,7 @@ import { unitLines } from '../src/memory/db/readers/common.ts';
 import { unitRows } from '../src/memory/db/export.ts';
 import { listUnits } from '../src/memory/db/storage-units.ts';
 import type { StorageKey } from '../src/memory/db/storage-keys.ts';
-import { guildPlaceId, personId } from '../src/memory/db/ids.ts';
+import { personId } from '../src/memory/db/ids.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 import { buildDataDir, GUILD, MEMBER } from './fixtures/memory-db/datadir.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
@@ -19,11 +20,11 @@ import { fixture, NOW } from './fixtures/memory-db/session-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { a, profile } from './fixtures/memory-db/storage-ownership.ts';
 
-const b: StorageKey = { ...a, scopePlaceId: guildPlaceId('discord', 'g2') };
+// A second collection of the same account: its scope by community is gone, so a partition keeps the two owners apart.
+const b: StorageKey = { ...a, partition: 'second' };
 const day: StorageKey = {
   kind: 'record',
-  subject: { type: 'place', id: guildPlaceId('discord', 'g1') },
-  scopePlaceId: guildPlaceId('discord', 'g1'),
+  subject: { type: 'place', id: legacyServerPlaceId('discord', 'g1') },
   partition: '2026-10-20',
 };
 const owner = `guilds/${GUILD}/users/${MEMBER}.json`;
@@ -121,14 +122,12 @@ test('migration and reopening preserve populated rows, ownership, evidence and a
       assert.deepEqual(preserved(db), before);
       const retired: StorageKey = {
         kind: 'media',
-        subject: { type: 'place', id: guildPlaceId('discord', GUILD) },
-        scopePlaceId: guildPlaceId('discord', GUILD),
+        subject: { type: 'place', id: legacyServerPlaceId('discord', GUILD) },
       };
       assert.deepEqual(listUnits(db, retired), []);
       const key: StorageKey = {
         kind: 'record',
-        subject: { type: 'place', id: guildPlaceId('discord', GUILD) },
-        scopePlaceId: guildPlaceId('discord', GUILD),
+        subject: { type: 'place', id: legacyServerPlaceId('discord', GUILD) },
         partition: '2026-10-20',
       };
       const [unit] = listUnits(db, key);
@@ -275,7 +274,7 @@ test('accepted legacy pending append translates once and keeps order across sema
     id: 'legacy-row',
     kind: 'seen',
     messageId: 'm1',
-    guildId: 'g1',
+    placeId: 'g1',
     scope: { channel: 'c1' },
     occurredAt: new Date(NOW).toISOString(),
     recordedAt: new Date(NOW).toISOString(),

@@ -3,6 +3,7 @@
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
+import { accountOf } from '../../memory/addresses.ts';
 import { normalizeTopic, applyAliasOps } from '../../memory/index.ts';
 import { confirmTarget, formatAliasList } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
@@ -12,7 +13,7 @@ import type { Obj, OpContext, Untyped } from '../types.ts';
 import { MEMORY_LIMITS } from '../../memory/text-limits.ts';
 
 const handlers = perEnv((env) => {
-  const { hot, store, assertNotPaused, requireGuildId, requireProfile } = env;
+  const { hot, store, assertNotPaused, requirePlaceId, requireProfile } = env;
 
   /**
    * `/nep alias add`: confirms the alias at once instead of
@@ -32,12 +33,12 @@ const handlers = perEnv((env) => {
     assertNotPaused();
     const userId = idText(args.userId);
     if (!userId) throw invalid('a user is required');
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
     const name = textOf(args.name).trim();
     if (!name) throw invalid('a name is required');
 
-    const before = requireProfile(guildId, userId);
+    const before = requireProfile(placeId, userId);
     const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     const target = confirmTarget(memoryCfg);
 
@@ -51,8 +52,7 @@ const handlers = perEnv((env) => {
     const now = Date.now();
     for (let i = 0; i < needed; i += 1) {
       store.applyProfileOps(
-        guildId,
-        userId,
+        accountOf(store, userId),
         { aliases: { add: [name] } },
         {
           confirmGapHours: 0,
@@ -65,7 +65,7 @@ const handlers = perEnv((env) => {
       );
     }
 
-    const after = store.getUser(guildId, userId);
+    const after = store.getUser(accountOf(store, userId));
     return formatAliasList(after, memoryCfg);
   }
 
@@ -76,16 +76,15 @@ const handlers = perEnv((env) => {
     assertNotPaused();
     const userId = idText(args.userId);
     if (!userId) throw invalid('a user is required');
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
     const name = textOf(args.name).trim();
     if (!name) throw invalid('a name is required');
 
-    requireProfile(guildId, userId);
+    requireProfile(placeId, userId);
     const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     store.applyProfileOps(
-      guildId,
-      userId,
+      accountOf(store, userId),
       { aliases: { remove: [name] } },
       {
         maxAliases: memoryCfg.maxAliases,
@@ -94,7 +93,7 @@ const handlers = perEnv((env) => {
       }
     );
 
-    const after = store.getUser(guildId, userId);
+    const after = store.getUser(accountOf(store, userId));
     return formatAliasList(after, memoryCfg);
   }
 
@@ -103,9 +102,9 @@ const handlers = perEnv((env) => {
   function cmdAliasList(args: Obj, context: OpContext) {
     const userId = idText(args.userId);
     if (!userId) throw invalid('a user is required');
-    const guildId = requireGuildId(context);
-    requireProfile(guildId, userId);
-    return formatAliasList(callMethod(store, 'getUser', guildId, userId), objOf(objOf(objOf(hot).config).memory));
+    const placeId = requirePlaceId(context);
+    requireProfile(placeId, userId);
+    return formatAliasList(callMethod(store, 'getUser', placeId, userId), objOf(objOf(objOf(hot).config).memory));
   }
 
   return { cmdAliasAdd, cmdAliasRemove, cmdAliasList };

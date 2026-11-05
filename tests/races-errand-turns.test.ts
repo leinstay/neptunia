@@ -18,7 +18,7 @@ const ERRAND = {
   goal: 'find the opening hours',
   state: 'done',
   requester: { userId: 'u1', kind: 'member' },
-  origin: { channelId: 'c1' },
+  origin: { placeId: 'c1' },
 } as unknown as ErrandRecord;
 
 const settle = async (): Promise<void> => {
@@ -95,8 +95,8 @@ test('new reproduction: the restart reopening an end and the door replaying it o
   // knows of the other, so two result turns answer one errand and she repeats herself in the channel.
   const { service, turns, holdTurns, finishHeld } = rig();
   holdTurns();
-  const reopened = service.onFinished(ERRAND, 'g1');
-  const replayed = service.onEvent(errandDoneEvent(ERRAND, 'g1', () => T0));
+  const reopened = service.onFinished(ERRAND);
+  const replayed = service.onEvent(errandDoneEvent(ERRAND, () => T0));
   await settle();
   finishHeld();
   await settle();
@@ -108,9 +108,9 @@ test('new reproduction: the same end replayed while its first turn runs opens no
   // Bug: `readAt` is only written when the turn ends, so a second delivery during the turn finds the end unread.
   const { service, turns, holdTurns, finishHeld, advance } = rig();
   holdTurns();
-  const first = service.onEvent(errandDoneEvent(ERRAND, 'g1', () => T0));
+  const first = service.onEvent(errandDoneEvent(ERRAND, () => T0));
   await settle();
-  await service.onEvent(errandDoneEvent(ERRAND, 'g1', () => T0 + 1));
+  await service.onEvent(errandDoneEvent(ERRAND, () => T0 + 1));
   await settle();
   finishHeld();
   await first;
@@ -124,7 +124,7 @@ test('new reproduction: a retry timer that fires after the end was read opens no
   // Bug: the timer holds the errand as it was when the turn was held back, and never asks whether she has read it since.
   let busy = true;
   const { service, turns, read, advance } = rig({ busy: () => busy });
-  await service.onEvent(errandDoneEvent(ERRAND, 'g1', () => T0));
+  await service.onEvent(errandDoneEvent(ERRAND, () => T0));
   assert.equal(turns.length, 0, 'held back by the attention');
   busy = false;
   read.add(ERRAND.id);
@@ -137,8 +137,8 @@ test('new reproduction: two deliveries held back at once arm one retry, so one t
   // when the attention frees up each opens a turn.
   let busy = true;
   const { service, turns, advance } = rig({ busy: () => busy });
-  await service.onEvent(errandDoneEvent(ERRAND, 'g1', () => T0));
-  await service.onEvent(errandDoneEvent(ERRAND, 'g1', () => T0 + 1));
+  await service.onEvent(errandDoneEvent(ERRAND, () => T0));
+  await service.onEvent(errandDoneEvent(ERRAND, () => T0 + 1));
   busy = false;
   await advance(MINUTE);
   await advance(2 * MINUTE);

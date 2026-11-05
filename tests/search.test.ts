@@ -132,7 +132,7 @@ test('searchMembers: a failing request resolves null', async () => {
 function djsMessage(id: string, ts: number) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     createdTimestamp: ts,
     cleanContent: `γραμμή ${id}`,
     content: `γραμμή ${id}`,

@@ -203,7 +203,7 @@ export function journalStartOf({
   mode: string | null | undefined;
   journalTurn: { turnId?: string | null; attemptId?: string | null } | null | undefined;
 }): {
-  channelId: string;
+  placeId: string;
   mode: string | null;
   trigger: {
     kind: string | null;
@@ -213,7 +213,6 @@ export function journalStartOf({
   } | null;
   participants: Array<string>;
   sourceMessageIds: Array<string>;
-  privateUserId: string | null | undefined;
   turnId: string | null;
   attemptId: string | null;
 } {
@@ -221,14 +220,13 @@ export function journalStartOf({
     ? { kind: 'inner', messageId: null, authorId: null, wake: draft.inner.wake?.kind ?? null }
     : null;
   return {
-    channelId: channel.id,
+    placeId: channel.id,
     mode: journalMode(mode, triggerKind),
     trigger: trigger
       ? { kind: triggerKind ?? null, messageId: trigger.id ?? null, authorId: trigger.authorId ?? null }
       : woke,
     participants: trigger?.authorId ? [trigger.authorId] : [],
     sourceMessageIds: trigger?.id ? [trigger.id] : [],
-    privateUserId: draft.privateUserId,
     turnId: journalTurn?.turnId ?? null,
     attemptId: journalTurn?.attemptId ?? null,
   };
@@ -324,12 +322,12 @@ export function journalUsage(completion: Completion): JournalUsage {
 export function cutOffOf(
   completion: Completion,
   parsed: { thinkOpen?: unknown; untagged?: unknown },
-  { channelId, empty, followUp }: { channelId: string; empty: boolean; followUp: boolean }
+  { placeId, empty, followUp }: { placeId: string; empty: boolean; followUp: boolean }
 ): { kept: boolean } | null {
   if (completion?.finishReason !== 'length') return null;
   const kept = !parsed.thinkOpen && !parsed.untagged && !empty;
   log.warn('turn: cut off', {
-    channel: channelId,
+    channel: placeId,
     completionTokens: journalUsage(completion).completion,
     kept,
     followUp,
@@ -357,7 +355,7 @@ function formatCountsOf(format: Partial<Record<keyof FormatCounts, unknown>>): F
 export type JournalDraft = {
   started: { turnId: string; attemptId: string; startedAt: number };
   seen?: { messageIds: Array<string>; parents: Array<unknown>; parts: { filePreviews: Array<unknown> } } | null;
-  channelId?: string;
+  conversationId?: string;
   privateUserId?: string | null;
   mode?: string | null;
   reason?: string | null;
@@ -388,8 +386,7 @@ export function journalTurnRecord(
     turnId: draft.started.turnId,
     attemptId: draft.started.attemptId,
     startedAt: draft.started.startedAt,
-    channelId: draft.channelId,
-    privateUserId: draft.privateUserId,
+    placeId: draft.conversationId ?? null,
     mode: result?.mode ?? draft.mode ?? null,
     outcome: result?.outcome ?? 'error',
     reason: typeof result?.reason === 'string' ? result.reason : (draft.reason ?? null),

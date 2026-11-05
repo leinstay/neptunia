@@ -56,7 +56,7 @@ export type ClusterHitsArg2 = {
 };
 
 export type ClusterHitsResult = {
-  channelId: string;
+  placeId: string;
   ids: Array<string>;
   startTs: number;
   endTs: number;
@@ -68,7 +68,7 @@ export type ClusterHitsResult = {
 };
 
 export type RankClustersInput = {
-  channelId: string;
+  placeId: string;
   startTs?: number;
   endTs: number;
   topic: number;
@@ -77,7 +77,7 @@ export type RankClustersInput = {
 };
 
 export type MergeWindowsResult = {
-  channelId: string;
+  placeId: string;
   channelName: string | null;
   messages: Array<Untyped>;
   hitIds: Set<string>;
@@ -90,7 +90,7 @@ export type MergeWindowsResult = {
 export type RecordWindow = MergeWindowsResult & { share?: string };
 
 export type RenderRecallWindowsInput = {
-  channelId: string;
+  placeId: string;
   channelName?: string | null;
   messages: Array<Untyped>;
   hitIds?: Iterable<string>;
@@ -109,7 +109,7 @@ export type RenderRecallWindowsArg2 = {
 };
 
 export type RenderRecallWindowsResult = {
-  channelId: string;
+  placeId: string;
   channelName: string | null;
   startTs: number;
   lines: Array<{ id: string; ts: number; text: string; hit: boolean }>;
@@ -294,7 +294,7 @@ export type MatchRecordArg2 = {
   nameOf?: (id: string) => string | null | undefined;
   selfName?: string;
   channelNameOf?: (id: string) => string | null | undefined;
-  meaning?: Array<{ id: string; channelId: string; occurredAt: string; sourceIds?: Array<string> }>;
+  meaning?: Array<{ id: string; placeId: string; occurredAt: string; sourceIds?: Array<string> }>;
   locator?: Untyped;
   signal?: AbortSignal;
 };
@@ -325,7 +325,7 @@ export type MemorySearchPlanInput = {
   people?: string;
   terms?: string;
   when?: string;
-  channelId?: string | null;
+  placeId?: string | null;
   profiles?: Array<Untyped>;
   selfId?: string | null;
   selfName?: string;
@@ -370,7 +370,7 @@ export type RecallSettingsResult = {
 };
 
 export type MergeWindowsInput = {
-  channelId: string;
+  placeId: string;
   channelName?: string | null;
   messages: Array<Untyped>;
   hitIds: Iterable<string>;
@@ -390,7 +390,7 @@ export type MemorySearchPlanResult = {
   who: Array<string>;
   from: number | null;
   to: number | null;
-  channelId?: string;
+  placeId?: string;
 };
 
 /** The settings of the automatic memory prefetch (`recall.prefetch`), each checked against its default. */

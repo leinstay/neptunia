@@ -17,7 +17,7 @@ import type { Row, Rows } from '../types.ts';
 export const isPlainObject = (value: unknown): value is Row =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** What a mapper is told about the file it maps: the interface, the guild and the position it holds in its unit. */
+/** What a mapper is told about the unit it maps: the interface, the subject and the position a line holds in it. */
 export type ResolvedRecordIdentity = Readonly<{
   sourceId: string;
   authority: string;
@@ -30,7 +30,6 @@ export type ResolvedRecordIdentity = Readonly<{
 export type MapContext = {
   messageIdentity?: ResolvedRecordIdentity;
   iface?: string;
-  guildId?: string;
   position?: number;
   subjectId?: string;
   subjectNativeId?: string;
@@ -39,8 +38,13 @@ export type MapContext = {
   accountLink?: Row;
   /** A linked account whose person's profile is another unit's: its unit holds only what is the account's own. */
   accountOnly?: boolean;
-  scopePlaceId?: string;
-  /** The stored DM place of a private unit's account, with the partner person the place names. */
+  /** The stored row of a place subject, null when the place has none yet. */
+  subjectPlace?: Row | null;
+  /** The subject's id when it is a DM place. */
+  dmPlaceId?: string;
+  /** The membership row of a user unit, as stored. */
+  membership?: { id: string; placeId: string | null } | null;
+  /** The DM place of the unit (its subject, or a private unit's account's), with the partner person the place names. */
   dmPlace?: { id: string; partnerPerson: string | null } | null;
   privateUserId?: string | null;
   collection?: string;

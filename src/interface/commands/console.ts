@@ -11,6 +11,9 @@
 // `invalid`, `failed`). A refused answer starts with the command as the owner typed it, so it names the id, the tool
 // or the path it refused. The text is for the owner alone and never reaches her memory or a request.
 
+import { accountNodeOf } from '../../memory/db/person-links.ts';
+import { nativeAuthorityOf } from '../../protocol/identity.ts';
+import type { Db } from '../../memory/db/types.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -70,7 +73,8 @@ export type ConsoleDeps = {
     lessons(context: Record<string, unknown>): string;
     aliases(args: Record<string, unknown>, context: Record<string, unknown>): string;
   };
-  guildId(): string | null;
+  /** Every place the core serves or holds memory of: a command names one unless there is exactly one. */
+  places(): ReadonlyArray<string>;
   /** Her own id on the interface that said who she is, null before one did. */
   selfId(): string | null;
   /** The hot settings (src/hot.ts): `config` is read at each use. */
@@ -118,6 +122,8 @@ export type ConsoleDeps = {
 };
 
 /** The engine checkout, where the shipped interface packages and their setup contracts are. */
+const PLACE_REQUIRED_CODE = 'PLACE_REQUIRED';
+
 const ENGINE_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 
 type OwnCommandDeps = Pick<ConsoleDeps, 'dataDir' | 'hot' | 'memoryDb' | 'memoryWriter' | 'runOp' | 'statusBrief'>;
@@ -179,11 +185,21 @@ async function personLinkCommand(
       status: 'invalid',
     };
   try {
+    const accountOfWords = (iface: string, native: string): string | null =>
+      accountNodeOf(callMethod(memoryDb, 'database') as Db, {
+        interfaceId: iface,
+        authorityId: nativeAuthorityOf(iface),
+        nativeId: native,
+        generation: 1,
+      });
+    const accountId = accountOfWords(word('iface'), word('account'));
+    const other = 'native' in target ? accountOfWords(String(target.iface), String(target.native)) : null;
+    if (accountId === null || ('native' in target && other === null))
+      return { text: 'she has not met that account yet; bind it after its first message', status: 'invalid' };
     const written = (await (callMethod(memoryDb, 'personLink', {
       op: name === 'memory.bind' ? 'bind' : 'unbind',
-      iface: word('iface'),
-      native: word('account'),
-      target,
+      accountId,
+      target: 'native' in target ? { accountId: other } : target,
     }) as Promise<unknown>)) as { person?: unknown } | null;
     if (name === 'memory.bind' && 'owner' in target) {
       const set = await runOp('config.set', { path: 'bot.ownerPerson', value: written?.person }, { asOwner: true });
@@ -442,6 +458,31 @@ function serviceRun(
   return serviceFamily(wakeClock === undefined ? given : { ...given, wakeClock }, name, args);
 }
 
+/** The place a command addresses: the one it names, else the only one there is, else none. */
+function placeOf(deps: Pick<ConsoleDeps, 'places'>, args: Record<string, unknown>): string | null {
+  const named = text(args.place);
+  if (named !== '') return named;
+  const places = deps.places();
+  return places.length === 1 ? (places[0] ?? null) : null;
+}
+
+/** The answer to a command that needs a place and named none: the places it can name. */
+function placeChoices(deps: Pick<ConsoleDeps, 'places'>): string {
+  const places = deps.places();
+  return places.length === 0
+    ? 'no place is served yet; name one with --place <id>'
+    : `name a place with --place <id>: ${places.join(', ')}`;
+}
+
+/** The context of an operation the owner runs from the console (src/tools/types.ts#OpContext.asOwner). */
+function ownerContextOf(
+  deps: Pick<ConsoleDeps, 'places'>,
+  requester: { id: string },
+  args: Record<string, unknown>
+): Record<string, unknown> {
+  return { placeId: placeOf(deps, args), userId: requester.id, roleIds: [], actor: 'owner', asOwner: true };
+}
+
 export function createConsole(deps: ConsoleDeps): {
   run(name: string, args: Record<string, unknown>, requester: { id: string }, dialog?: Dialog | null): Promise<Answer>;
 } {
@@ -455,14 +496,8 @@ export function createConsole(deps: ConsoleDeps): {
     return path.join(deps.dataDir, typeof file === 'string' && file !== '' ? file : 'memory.db');
   };
 
-  /** The context of an operation the owner runs from the console (src/tools/types.ts#OpContext.asOwner). */
-  const ownerContext = (requester: { id: string }): Record<string, unknown> => ({
-    guildId: deps.guildId(),
-    userId: requester.id,
-    roleIds: [],
-    actor: 'owner',
-    asOwner: true,
-  });
+  const ownerContext = (requester: { id: string }, args: Record<string, unknown> = {}): Record<string, unknown> =>
+    ownerContextOf(deps, requester, args);
 
   /** One operation as the owner, its result as an answer. */
   async function op(
@@ -472,8 +507,10 @@ export function createConsole(deps: ConsoleDeps): {
     args: Record<string, unknown>,
     requester: { id: string }
   ): Promise<Answer> {
-    const context = ownerContext(requester);
+    const context = ownerContext(requester, args);
     const result = await deps.runOp(opName, opArgs, context);
+    if (result.code === PLACE_REQUIRED_CODE)
+      return { text: `${typed(name, args)}: ${placeChoices(deps)}`, status: result.status };
     const said = result.summary !== '' ? result.summary : text(isRecord(result.data) ? result.data.text : '');
     if (result.status === 'ok') return { text: said === '' ? 'done' : said, status: 'ok' };
     return { text: `${typed(name, args)}: ${said === '' ? result.code : said}`, status: result.status };
@@ -696,9 +733,11 @@ export function createConsole(deps: ConsoleDeps): {
       case 'memory.conversation':
         return memoryConversation(args);
       case 'memory.lessons.list':
-        return ownerRead(name, args, () => deps.ownerReads.lessons(ownerContext(requester)));
+        return ownerRead(name, args, () => deps.ownerReads.lessons(ownerContext(requester, args)));
       case 'memory.aliases.list':
-        return ownerRead(name, args, () => deps.ownerReads.aliases({ userId: args.user }, ownerContext(requester)));
+        return ownerRead(name, args, () =>
+          deps.ownerReads.aliases({ userId: args.user }, ownerContext(requester, args))
+        );
       case 'tools.list':
         return toolsList();
       case 'tools.grant':

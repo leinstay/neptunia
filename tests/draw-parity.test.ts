@@ -61,7 +61,7 @@ function hot() {
       models: { base: { drawing: 'openai/image-model' } },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: { maxPromptChars: 1000, reference: 'avatar', referenceMaxBytes: 4_000_000 },
-      selfreflection: { channelId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
+      selfreflection: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },
     },
     prompts: { ...PROMPTS },
   };
@@ -69,7 +69,7 @@ function hot() {
 
 /** A text channel of the world with every permission; `history` its raw messages. */
 function channel(id: string, name: string, history: Array<Untyped> = []) {
-  return world().channel({ id, name, guildId: 'g1', historyMessages: history });
+  return world().channel({ id, name, placeId: 'g1', historyMessages: history });
 }
 
 /** A member's message as discord.js hands it over. */
@@ -88,7 +88,7 @@ function rawMessage({
 }) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: authorId, bot: false, globalName: authorName, username: authorName },
     member: { displayName: authorName },
     cleanContent: content,
@@ -142,7 +142,7 @@ function recordingImages() {
 
 function store() {
   return {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     getPrivate: () => null,
     listChannels: () => [],
@@ -202,7 +202,7 @@ test("draw parity: a reply turn's draw.create call asked by a member", async () 
   });
   const trigger = {
     id: raw.id,
-    channelId: raw.channelId,
+    placeId: raw.placeId,
     authorId: 'u1',
     authorName: 'Eléna',
     self: false,
@@ -294,13 +294,13 @@ test('draw parity: /nep draw with self', async () => {
     getSelfName: () => 'Bot',
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     images,
     imageFetcher: imageFetcher(),
     now: () => NOW,
   });
   const { result } = await withCapturedLogs(() =>
-    admin.run('draw.create', { text: 'me reading by the window', self: true }, { guildId: 'g1', userId: '42' })
+    admin.run('draw.create', { text: 'me reading by the window', self: true }, { placeId: 'g1', userId: '42' })
   );
   assert.equal(result.files.length, 1);
   // The owner's command carries no local time: its `{{when}}` is blank.

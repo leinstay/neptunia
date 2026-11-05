@@ -45,7 +45,6 @@ function rig(privateDir: string, env: Record<string, string> = {}) {
     hot,
     env,
     privateDir,
-    getGuildId: () => 'g1',
     log: quiet,
     defer: (fn) => fn(),
   });

@@ -2,6 +2,7 @@
 // equal the in-thread ones, the main thread reads through its own read-only connection, a crashed worker is restarted
 // at the next tick, and shutdown waits for a write under way (bounded) before it terminates the worker. Synthetic data
 // only.
+import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +14,7 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
 import { unitUpdates } from './fixtures/memory-db/seed.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
-import { guildPlaceId } from '../src/memory/db/ids.ts';
+import {} from '../src/memory/db/ids.ts';
 import { listUnits } from '../src/memory/db/storage-units.ts';
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-worker-'));
@@ -335,7 +336,7 @@ test('worker: the unit writers and the observation write through the worker (buf
       direct: false,
       relations: [],
     };
-    const observed = await env.service.observe(envelope, { guildId: GUILD });
+    const observed = await env.service.observe(envelope, { placeId: legacyServerPlaceId('discord', GUILD) });
     // observe answers the stored-row shape; the test reads these two fields.
     const { ok, revision } = observed as { ok: boolean; revision: number };
     assert.deepEqual([ok, revision], [true, 1]);
@@ -347,7 +348,7 @@ test('worker: the unit writers and the observation write through the worker (buf
       revision: 1,
       occurredAt: '2026-11-03T10:01:00.000Z',
       recordedAt: '2026-11-03T10:01:00.000Z',
-      guildId: GUILD,
+      placeId: GUILD,
       scope: { channel: CHANNEL },
       replyTo: null,
       text: 'Γεια',
@@ -365,7 +366,7 @@ test('worker: the unit writers and the observation write through the worker (buf
       adopted: 0,
     });
     const meta =
-      '{"row":0,"kind":"record","id":"600000000000000002","revision":1,"occurredAt":"2026-11-03T10:01:00.000Z","channelId":null,"by":null,"participants":[],"sourceIds":[],"scale":0.01,"norm":1}\n';
+      '{"row":0,"kind":"record","id":"600000000000000002","revision":1,"occurredAt":"2026-11-03T10:01:00.000Z","placeId":null,"by":null,"participants":[],"sourceIds":[],"scale":0.01,"norm":1}\n';
     const manifest = {
       v: 1,
       gen: 1,
@@ -383,11 +384,10 @@ test('worker: the unit writers and the observation write through the worker (buf
     });
     const db = dbOf(env.service.readHandle()!);
     // Observation and record adoption share semantic ownership even when no legacy provenance path exists.
-    const place = guildPlaceId('discord', GUILD);
+    const place = legacyServerPlaceId('discord', GUILD);
     const units = listUnits(db, {
       kind: 'record',
       subject: { type: 'place', id: place },
-      scopePlaceId: place,
       partition: '2026-11-03',
     });
     assert.equal(units.length, 1);
@@ -404,7 +404,6 @@ test('worker: the unit writers and the observation write through the worker (buf
     const vectorUnits = listUnits(db, {
       kind: 'vectors',
       subject: { type: 'place', id: place },
-      scopePlaceId: place,
       partition: '2026-11',
     });
     assert.equal(vectorUnits.length, 1);

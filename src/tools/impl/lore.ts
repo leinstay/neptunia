@@ -10,11 +10,11 @@ import type { Obj, OpContext, Untyped } from '../types.ts';
 import { LORE_LIMITS, MEMORY_LIMITS } from '../../memory/text-limits.ts';
 
 const handlers = perEnv((env) => {
-  const { store, assertNotPaused, freshenIfPaused, requireGuildId } = env;
+  const { store, assertNotPaused, freshenIfPaused, requirePlaceId } = env;
 
   function cmdLoreAdd(args: Obj, context: OpContext): string {
     assertNotPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
     const title = textOf(args.title).trim();
     if (!title) throw invalid('a title is required');
@@ -26,7 +26,7 @@ const handlers = perEnv((env) => {
     if (!text) throw invalid('text is required');
 
     const maxEntries = LORE_LIMITS.maxEntries;
-    const upserted = store.setLore(guildId, [{ title, keys, text, always: Boolean(args.always) }], {
+    const upserted = store.setLore(placeId, [{ title, keys, text, always: Boolean(args.always) }], {
       source: 'owner',
       by: 'owner',
       now: Date.now(),
@@ -42,10 +42,10 @@ const handlers = perEnv((env) => {
 
   function cmdLoreList(args: Obj, context: OpContext): string {
     freshenIfPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
     const query = textOf(args.query).trim().toLowerCase();
-    let entries = store.getLore(guildId);
+    let entries = store.getLore(placeId);
     if (query) {
       entries = entries.filter(
         (entry: Untyped) =>
@@ -59,22 +59,22 @@ const handlers = perEnv((env) => {
 
   function cmdLoreShow(args: Obj, context: OpContext): string {
     freshenIfPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
     const id = textOf(args.id).trim();
-    const entry = store.getLore(guildId).find((e: Untyped) => e.id === id);
+    const entry = store.getLore(placeId).find((e: Untyped) => e.id === id);
     if (!entry) throw invalid(`no lore entry ${id}`, CODE.NOT_FOUND);
     return JSON.stringify(entry, null, 2);
   }
 
   function cmdLoreRemove(args: Obj, context: OpContext): string {
     assertNotPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
     const id = textOf(args.id).trim();
-    const entry = store.getLore(guildId).find((e: Untyped) => e.id === id);
+    const entry = store.getLore(placeId).find((e: Untyped) => e.id === id);
     if (!entry) throw invalid(`no lore entry ${id}`, CODE.NOT_FOUND);
-    store.removeLore(guildId, id);
+    store.removeLore(placeId, id);
     return `Removed lore entry ${id}: ${entry.title}`;
   }
 

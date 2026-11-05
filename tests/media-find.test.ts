@@ -1,5 +1,6 @@
 // Tests for media.find (src/tools/tools.ts#findGifs, #runMediaFind): the persona's search of her GIF
 // library by the stored descriptions, ranked by words, returning the library's own handles.
+import { placeOfCommunity } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -26,7 +27,7 @@ function fixture(descriptions: Record<string, Untyped>) {
       url: `https://tenor.example/${key}`,
       itemId: key,
       messageId: 'm',
-      channelId: 'c',
+      placeId: 'c',
       count: 10 - index,
       last: 1000,
     };
@@ -131,13 +132,14 @@ test('findGifs: n defaults to 5, is capped at 10 and floored at 1', () => {
 test('runMediaFind: handles in the result are the library handles message.create gif= and <gif> resolve, written as the <gifs> block writes them', () => {
   const lib = fixture(LIBRARY);
   const store = storeOf(lib);
-  const result = runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'cat laughs' } });
+  const result = runMediaFind({ store, config: {}, labels, placeId: 'G', args: { query: 'cat laughs' } });
   assert.equal(result.status, 'ok');
   const lines = present(result.data).text.split('\n');
   assert.equal(lines[0], 'Source: media.find "cat laughs", 2 found.');
   const handles = lines.slice(1).map((line) => line.split(':')[0]);
   assert.equal(handles.length, 2);
-  for (const handle of handles) assert.ok(store.findGif('G', handle), `${handle} resolves in the library`);
+  for (const handle of handles)
+    assert.ok(store.findGif(placeOfCommunity(store, 'G'), handle), `${handle} resolves in the library`);
   const block = renderGifLibrary(lib.gifs && Object.values(lib.gifs.entries), lib.cache, labels, {
     now: 0,
     ownMarkHours: 0,
@@ -149,29 +151,29 @@ test('runMediaFind: handles in the result are the library handles message.create
 
 test('runMediaFind: nothing found is an ok with the none label; bad arguments and no library are refused', () => {
   const store = storeOf(fixture(LIBRARY));
-  const none = runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'submarine' } });
+  const none = runMediaFind({ store, config: {}, labels, placeId: 'G', args: { query: 'submarine' } });
   assert.deepEqual(
     [none.status, present(none.data).text],
     ['ok', 'Source: media.find "submarine", 0 found.\nNothing matched.']
   );
-  const bare = runMediaFind({ store, config: {}, labels: {}, guildId: 'G', args: { query: 'submarine' } });
+  const bare = runMediaFind({ store, config: {}, labels: {}, placeId: 'G', args: { query: 'submarine' } });
   assert.deepEqual([bare.status, present(bare.data).text], ['ok', '']);
-  assert.equal(runMediaFind({ store, config: {}, labels, guildId: 'G', args: {} }).code, 'invalid-args');
-  assert.equal(runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: '!!' } }).status, 'invalid');
+  assert.equal(runMediaFind({ store, config: {}, labels, placeId: 'G', args: {} }).code, 'invalid-args');
+  assert.equal(runMediaFind({ store, config: {}, labels, placeId: 'G', args: { query: '!!' } }).status, 'invalid');
   assert.equal(
-    runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'cat', n: 11 } }).reason,
+    runMediaFind({ store, config: {}, labels, placeId: 'G', args: { query: 'cat', n: 11 } }).reason,
     'args.n:range'
   );
   assert.equal(
-    runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'cat', n: 0 } }).reason,
+    runMediaFind({ store, config: {}, labels, placeId: 'G', args: { query: 'cat', n: 0 } }).reason,
     'args.n:range'
   );
   assert.equal(
-    runMediaFind({ store: null, config: {}, labels, guildId: 'G', args: { query: 'cat' } }).status,
+    runMediaFind({ store: null, config: {}, labels, placeId: 'G', args: { query: 'cat' } }).status,
     'not_configured'
   );
   assert.equal(
-    present(runMediaFind({ store, config: {}, labels, guildId: 'G', args: { query: 'cat', n: 1 } }).data).text.split(
+    present(runMediaFind({ store, config: {}, labels, placeId: 'G', args: { query: 'cat', n: 1 } }).data).text.split(
       '\n'
     ).length,
     2,

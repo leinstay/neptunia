@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { MIGRATIONS } from '../src/memory/db/open.ts';
-import { exportOne } from '../src/memory/db/export.ts';
+import { exportOne } from '../src/memory/migration/export-one.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import {
   dbOf,
@@ -214,8 +214,9 @@ test('the export of a moved unit is errands.json holding { errands }, in the ord
     assert.equal(found.found, true);
     const value = found.found ? (found.value as { errands: Array<{ id: string }>; note: string }) : null;
     assert.deepEqual(
+      // Errands are the persona's: both guilds' units read as one list.
       value?.errands.map((item) => item.id),
-      ['t0000000a', 't0000000b']
+      ['t0000000a', 't0000000c', 't0000000b']
     );
     assert.equal(value?.note, 'kept');
     assert.equal(Object.hasOwn(value ?? {}, 'tasks'), false);

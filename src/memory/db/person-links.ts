@@ -9,7 +9,8 @@
 // src/interface/commands/console.ts.
 
 import { currentIface } from './current-iface.ts';
-import { SELF_PERSON, personId, survivorOf } from './ids.ts';
+import { SELF_PERSON, newPersonId, survivorOf } from './ids.ts';
+import type { AccountAddress } from '../../protocol/identity.ts';
 import type { StorageKey } from './storage-keys.ts';
 import type { Db, MemoryHandle } from './types.ts';
 import { dbOf } from './types.ts';
@@ -31,7 +32,16 @@ function coded(code: string): Error {
   return Object.assign(new Error(code), { code });
 }
 
-function accountOf(db: Db, iface: unknown, native: unknown): AccountRow | undefined {
+function accountById(db: Db, id: unknown): AccountRow | undefined {
+  return db
+    .prepare(
+      'SELECT id, iface, COALESCE(native_key, native_id) AS native, person_id, link, linked_by FROM accounts WHERE id = ?'
+    )
+    .get(id) as AccountRow | undefined;
+}
+
+/** The newest generation of a native id on an interface: what an owner's words name. */
+function accountByNative(db: Db, iface: unknown, native: unknown): AccountRow | undefined {
   return db
     .prepare(
       `SELECT id, iface, COALESCE(native_key, native_id) AS native, person_id, link, linked_by FROM accounts
@@ -40,10 +50,21 @@ function accountOf(db: Db, iface: unknown, native: unknown): AccountRow | undefi
     .get(iface, native, native) as AccountRow | undefined;
 }
 
+/** The account node of exactly this interface, authority, native id and generation, or null. */
+export function accountNodeOf(db: Db, address: AccountAddress): string | null {
+  const row = db
+    .prepare(
+      `SELECT id FROM accounts WHERE iface = ? AND authority_id = ? AND generation = ?
+       AND (native_key = ? OR native_id = ?) LIMIT 1`
+    )
+    .get(address.interfaceId, address.authorityId, address.generation, address.nativeId, address.nativeId);
+  return typeof row?.id === 'string' ? row.id : null;
+}
+
 /** The person of an account, made from the account's own DM person when it has none yet. */
 function personOf(db: Db, account: AccountRow, at: string): string {
   if (account.person_id) return account.person_id;
-  const person = personId(account.iface, account.native);
+  const person = newPersonId();
   db.prepare('INSERT OR IGNORE INTO people (id, first_seen_at) VALUES (?, ?)').run(person, at);
   link(db, account.id, person, at);
   return person;
@@ -67,21 +88,25 @@ function link(db: Db, accountId: string, person: string, at: string): void {
   ).run(person, at, accountId);
 }
 
-/** The one write of a binding, on the writer connection. Throws `UNKNOWN_ACCOUNT` for an account she has not met. */
+/**
+ * The one write of a binding, on the writer connection: `{ op, accountId, target }`, the target `{ accountId }`,
+ * `{ personId }`, `{ self: true }` or `{ owner: true }`. Throws `UNKNOWN_ACCOUNT` or `UNKNOWN_PERSON` for a name nobody
+ * stored. An unbind leaves the account with a person of its own.
+ */
 export function applyPersonLinkWrite(handle: MemoryHandle, update: Row): { ok: true; person: string | null } {
   const at = new Date(typeof update.now === 'number' ? update.now : Date.now()).toISOString();
   return handle.transaction(() => {
     const db = dbOf(handle);
-    const account = accountOf(db, update.iface, update.native);
+    const account = accountById(db, update.accountId);
     if (account === undefined) throw coded('UNKNOWN_ACCOUNT');
     if (update.op === 'unbind') {
       closeLinks(db, account.id, at);
-      const own = personId(account.iface, account.native);
+      const own = newPersonId();
       db.prepare('INSERT OR IGNORE INTO people (id, first_seen_at) VALUES (?, ?)').run(own, at);
       link(db, account.id, own, at);
       return { ok: true as const, person: own };
     }
-    const target = update.target as { self?: boolean; owner?: boolean; iface?: unknown; native?: unknown };
+    const target = update.target as { self?: boolean; owner?: boolean; accountId?: unknown; personId?: unknown };
     if (target.owner === true) {
       // The owner names his own account: it keeps its person and its memory, and the link becomes his own word.
       const own = personOf(db, account, at);
@@ -89,8 +114,12 @@ export function applyPersonLinkWrite(handle: MemoryHandle, update: Row): { ok: t
       return { ok: true as const, person: own };
     }
     let person: string = SELF_PERSON;
-    if (target.self !== true) {
-      const other = accountOf(db, target.iface, target.native);
+    if (typeof target.personId === 'string') {
+      const known = db.prepare('SELECT 1 AS ok FROM people WHERE id = ?').get(target.personId);
+      if (!known) throw coded('UNKNOWN_PERSON');
+      person = target.personId;
+    } else if (target.self !== true) {
+      const other = accountById(db, target.accountId);
       if (other === undefined) throw coded('UNKNOWN_ACCOUNT');
       person = personOf(db, other, at);
     }
@@ -105,7 +134,7 @@ export function accountLinks(
   iface: string,
   native: string
 ): { person: string | null; accounts: Array<{ iface: string; native: string }> } {
-  const account = accountOf(db, iface, native);
+  const account = accountByNative(db, iface, native);
   if (account === undefined || !account.person_id) return { person: null, accounts: [{ iface, native }] };
   const rows = db
     .prepare(
@@ -236,7 +265,7 @@ export function createOwnerAccounts({ database, home }: { database: () => Db | n
     isBoundTo(person, native) {
       const db = database();
       if (db === null) return false;
-      const account = accountOf(db, currentIface() ?? home(), native);
+      const account = accountByNative(db, currentIface() ?? home(), native);
       return account?.person_id === person && account.link === 'verified' && account.linked_by === 'owner';
     },
     onHomeInterface() {

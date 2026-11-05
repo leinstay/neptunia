@@ -71,7 +71,7 @@ function oldLiveRow(db: Db, kept: string, overrides: Row = {}): void {
 async function rig(overrides: Row = {}): Promise<Rig> {
   const memory = await openTestMemory({ now: () => NOW, iface: () => IFACE });
   const observe = async (event: ReturnType<typeof lineEvent>): Promise<string> => {
-    const done = await memory.memoryDb.observeMessage(observationOf(event, { selfId: HER }), { guildId: COMMUNITY });
+    const done = await memory.memoryDb.observeMessage(observationOf(event, { selfId: HER }), { placeId: COMMUNITY });
     return String((done as Row).sourceId);
   };
   await observe(lineEvent('hello-1', MEMBER, SENT - 1000));

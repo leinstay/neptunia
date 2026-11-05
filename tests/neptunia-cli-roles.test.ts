@@ -18,7 +18,6 @@ function sources(health: ReturnType<typeof createRoleHealth>): FactSources {
     interfaces: () => [],
     inner: () => null,
     errands: () => [],
-    guildId: () => null,
     failingRoles: () => health.failing(CONFIG),
   };
 }

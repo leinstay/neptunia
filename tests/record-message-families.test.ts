@@ -16,7 +16,7 @@ const line = (id: string, room: string, text: string, revision: number) => ({
   revision,
   occurredAt: AT,
   recordedAt: new Date(NOW).toISOString(),
-  guildId: 'community',
+  placeId: 'community',
   scope: { channel: room },
   by: 'member',
   text,
@@ -44,9 +44,9 @@ test('recording an observed edit enriches that exact revision without adding a s
   const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
   try {
     const record = createRecord({ ...memory, now: () => NOW });
-    observedId(await memory.memoryDb.observeMessage(envelope('room-a', 'Original'), { guildId: 'community' }));
+    observedId(await memory.memoryDb.observeMessage(envelope('room-a', 'Original'), { placeId: 'community' }));
     const editedId = observedId(
-      await memory.memoryDb.observeMessage(envelope('room-a', 'Edited', true), { guildId: 'community' })
+      await memory.memoryDb.observeMessage(envelope('room-a', 'Edited', true), { placeId: 'community' })
     );
     const db = memory.memoryDb.database();
     if (!db) throw new Error('database unavailable');
@@ -122,7 +122,7 @@ test('exporting a normalized record restores native message and reply IDs rather
           ...child,
           messageReply: { iface: 'synthetic', conversationId: 'room-a', messageId: 'native-parent' },
         },
-        { guildId: 'community' }
+        { placeId: 'community' }
       )
     );
     const data = { ...line('child-record', 'room-a', 'Child', 1), replyTo: 'native-parent' };
@@ -164,7 +164,7 @@ test('recording an observed deletion adopts its tombstone without inventing a re
           occurredAt: AT,
           observedAt: new Date(NOW).toISOString(),
         },
-        { guildId: 'community' }
+        { placeId: 'community' }
       )
     );
     const data = {
@@ -174,7 +174,7 @@ test('recording an observed deletion adopts its tombstone without inventing a re
       messageId: 'same-message',
       occurredAt: AT,
       recordedAt: new Date(NOW).toISOString(),
-      guildId: 'community',
+      placeId: 'community',
       scope: { channel: 'room-a' },
       origin: 'live',
     };

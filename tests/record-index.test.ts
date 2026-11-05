@@ -215,7 +215,7 @@ test('searchRecordIndex: a phrase, two terms or one rare term; scope, moment and
     'one common-enough term alone finds nothing'
   );
   assert.deepEqual([hits[0].terms, hits[0].phrases], [2, 0]);
-  const rare = searchRecordIndex(index, query, { rareTermDf: 3, allow: (doc) => doc.channelId !== 'hidden' });
+  const rare = searchRecordIndex(index, query, { rareTermDf: 3, allow: (doc) => doc.placeId !== 'hidden' });
   assert.deepEqual(
     rare.map((hit) => hit.messageId),
     ['d1', 'd6', 'd2'],
@@ -248,7 +248,7 @@ test('recordIndexOf: built once per record and guild, refreshed in the backgroun
   const lines = [line('a1', 1, 'first words')];
   const queries: Array<{ from?: string }> = [];
   const record = {
-    async *iterate(guildId: string, query: { from?: string } = {}) {
+    async *iterate(placeId: string, query: { from?: string } = {}) {
       queries.push(query);
       const from = query.from ? Date.parse(query.from) : -Infinity;
       for (const l of lines) if (Date.parse(l.occurredAt) >= from) yield l;
@@ -280,8 +280,8 @@ test('recordIndexOf: built once per record and guild, refreshed in the backgroun
   assert.equal(first.alive, 2, 'the new line folded in');
   const other = await recordIndexOf(record, 'g2', { now });
   assert.notEqual(other, first, 'one index per guild');
-  const owner = await recordIndexOf(record, 'g1', { privateUserId: 'u5', now });
-  assert.deepEqual(queries[queries.length - 1], { privateUserId: 'u5' }, "a private owner's record on its own");
+  // A private chat's record is its own place's, so it has an index of its own.
+  const owner = await recordIndexOf(record, 'dm-u5', { now });
   assert.notEqual(owner, first);
   clock += 61 * MIN;
   await recordIndexOf(record, 'g1', { now, refreshMs: 1000, rebuildMs: 60 * MIN });

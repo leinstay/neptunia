@@ -2,19 +2,14 @@
 // `intentions-archive.jsonl` the unit of the archived `intentions` rows (map/intentions.ts); both come back rebuilt
 // by the export. Pure functions over a read connection.
 
-import { communityKey } from '../storage-keys.ts';
-import { LEGACY_IFACE } from '../legacy-namespace.ts';
+import { personaKey } from '../storage-keys.ts';
 import { unitLines, unitValue } from './common.ts';
 import type { Db } from '../types.ts';
 
-/** The value of a guild's `intentions.json` (`{ found, value }`; not found: no file). */
-export const intentionsValue = (
-  db: Db,
-  guildId: string,
-  iface = LEGACY_IFACE
-): { found: true; value: unknown } | { found: false } =>
-  unitValue(db, communityKey('intentions', guildId, { iface, selector: { collection: 'active' } }));
+/** The persona's active intentions (`{ found, value }`; not found: no unit). */
+export const intentionsValue = (db: Db): { found: true; value: unknown } | { found: false } =>
+  unitValue(db, { ...personaKey('intentions'), selector: { collection: 'active' } });
 
-/** The lines (JSON text) of a guild's `intentions-archive.jsonl`, in file order. */
-export const intentionsArchiveLines = (db: Db, guildId: string, iface = LEGACY_IFACE): Array<string> =>
-  unitLines(db, communityKey('intentions', guildId, { iface, selector: { collection: 'archive' } }));
+/** The lines (JSON text) of the persona's archived intentions, in order. */
+export const intentionsArchiveLines = (db: Db): Array<string> =>
+  unitLines(db, { ...personaKey('intentions'), selector: { collection: 'archive' } });

@@ -60,7 +60,7 @@ function participationState() {
     episodes: [
       {
         id: 'p1',
-        channelId: 'c2',
+        placeId: 'c2',
         continues: null,
         messages: [
           stored('a1', NOW - 2 * HOUR - MINUTE, { text: 'πού είναι το βιβλίο;' }),
@@ -69,7 +69,7 @@ function participationState() {
       },
       {
         id: 'p2',
-        channelId: 'c3',
+        placeId: 'c3',
         continues: null,
         messages: [
           stored('b1', NOW - 30 * MINUTE, { self: true, authorId: 'self', name: 'Zoë', text: 'ωραία λουλούδια' }),
@@ -86,7 +86,7 @@ function line(
 ) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     authorId,
     authorName,
     ts,
@@ -140,7 +140,7 @@ test('participationEpisodeList: one numbered line per headline, oldest first, wi
   const headlines = [
     {
       id: 'p2',
-      channelId: 'c3',
+      placeId: 'c3',
       lastOwnAt: NOW - 30 * MINUTE,
       ageMs: 30 * MINUTE,
       memberLine: null,
@@ -150,7 +150,7 @@ test('participationEpisodeList: one numbered line per headline, oldest first, wi
     },
     {
       id: 'p1',
-      channelId: 'c2',
+      placeId: 'c2',
       lastOwnAt: NOW - 2 * HOUR,
       ageMs: 2 * HOUR,
       memberLine: 'πού είναι το βιβλίο;',
@@ -160,7 +160,7 @@ test('participationEpisodeList: one numbered line per headline, oldest first, wi
     },
     {
       id: 'p9',
-      channelId: 'c9',
+      placeId: 'c9',
       lastOwnAt: NOW - HOUR,
       ageMs: HOUR,
       memberLine: null,
@@ -288,7 +288,7 @@ function pickerScene({
     line('m3', { authorName: 'Nikos', content: 'θυμάσαι το βιβλίο;' }),
   ];
   const args = {
-    guildId: GUILD,
+    placeId: GUILD,
     channel,
     snapshot,
     history,
@@ -525,7 +525,7 @@ test('participation pick: the cached <episodes> part is byte-identical across ca
     };
     const offer = participationEpisodeOffer({
       store,
-      guildId: GUILD,
+      placeId: GUILD,
       // @ts-expect-error the channel record carries a `guild` of null, which the offer ignores
       channel: { id: 'c1', guild: null },
       audience: () => true,
@@ -551,7 +551,7 @@ test('participation pick: the cached <episodes> part is byte-identical across ca
   const grown = participationState();
   grown.episodes.push({
     id: 'p3',
-    channelId: 'c4',
+    placeId: 'c4',
     continues: null,
     messages: [stored('c1', NOW + 4 * MINUTE, { self: true, authorId: 'self', name: 'Zoë', text: 'νόστιμο' })],
   });

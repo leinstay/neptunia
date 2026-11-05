@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { observeWhilePaused } from '../src/behavior/core-pause.ts';
 import type { PausedDeps } from '../src/behavior/core-pause.ts';
 
-type Observed = { direct: boolean; where: { guildId?: string | null; privateUserId?: string } };
+type Observed = { direct: boolean; where: { placeId?: string | null; privateUserId?: string } };
 
 async function observe(
   event: object,
@@ -16,7 +16,10 @@ async function observe(
   const seen: Array<Observed> = [];
   const deps: PausedDeps = {
     hot: {},
-    getGuildId: () => home,
+    sharedPlaceOf: (conversation: never) => {
+      const { communityId, id } = conversation as { communityId: string | null; id: string };
+      return communityId ?? id;
+    },
     isServed: (id) => typeof id === 'string' && served.includes(id),
     selfIdOf: () => 'self',
     observeLine: (_event, direct, where) => {
@@ -42,20 +45,20 @@ test('the owner chat is observed while paused on a core with no community', asyn
   const seen = await observe(OWNER_CHAT, null);
   assert.equal(seen.length, 1);
   assert.equal(seen[0]?.direct, true);
-  assert.equal(seen[0]?.where.privateUserId, 'owner');
-  assert.equal(seen[0]?.where.guildId ?? null, null);
+  // A private chat is its own place.
+  assert.equal(seen[0]?.where.placeId, 'cli:dm:owner');
 });
 
 test('the owner chat while paused does not take the home community of an interface', async () => {
   // Bug: the owner's private line is recorded under a community the chat has nothing to do with.
   const seen = await observe(OWNER_CHAT, 'home-of-first');
   assert.equal(seen.length, 1);
-  assert.equal(seen[0]?.where.guildId ?? null, null);
+  assert.equal(seen[0]?.where.placeId, 'cli:dm:owner');
 });
 
 test('a group line of a served community is observed under it while the core has no home community', async () => {
   // Bug: a second interface's community is unobserved during a pause when no home community resolved.
   const group = line('other', { id: 'c1', kind: 'channel', communityId: 'g3' });
   const seen = await observe(group, null, ['g3']);
-  assert.deepEqual(seen, [{ direct: false, where: { guildId: 'g3' } }]);
+  assert.deepEqual(seen, [{ direct: false, where: { placeId: 'g3' } }]);
 });

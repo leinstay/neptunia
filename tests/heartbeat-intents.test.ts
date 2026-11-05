@@ -47,7 +47,7 @@ function rawMessage({
 }) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: authorId, bot: false, globalName: authorName, username: authorName },
     member: { displayName: authorName },
     cleanContent: content,
@@ -60,7 +60,7 @@ function rawMessage({
 
 function fakeStore() {
   return {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     getPrivate: () => null,
     listChannels: () => [],
@@ -154,7 +154,7 @@ const GRANTS = [
 /** A real intention service over a temp data dir (guild g1) and a clock fixed at NOW. */
 function intentionService(hot: Record<string, Untyped>) {
   const stores = createIntentionStores({ dataDir: tempDir('nep-hb-intents-'), now: () => NOW });
-  return createIntentionService({ stores, hot, getGuildId: () => 'g1', now: () => NOW, log: { info() {}, warn() {} } });
+  return createIntentionService({ stores, hot, now: () => NOW, log: { info() {}, warn() {} } });
 }
 
 /**
@@ -179,7 +179,7 @@ async function liveTurn({
   hot.config.intentions = { expiresDays: 14, maxOpen: 20, ...intentionsCfg };
   const intentions = intentionService(hot);
   seed?.(intentions);
-  const channel = world().channel({ id: 'c1', name: 'general', guildId: 'g1', historyMessages: history });
+  const channel = world().channel({ id: 'c1', name: 'general', placeId: 'g1', historyMessages: history });
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   const reads = world().adopt(port);
   const client = { user: { id: 'self-id', username: 'Bot' } };
@@ -190,7 +190,7 @@ async function liveTurn({
     hot,
     store,
     client,
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     port,
     reads,
     intentions,
@@ -214,10 +214,10 @@ async function liveTurn({
   });
   const inner = { wake, shadow: false, mayAct: () => true, currentChannel: null };
   const { result, logs } = await withCapturedLogs(() =>
-    turns.runTurn({ channel, guildId: 'g1', mode: 'inner', triggerKind: 'inner', inner })
+    turns.runTurn({ channel, placeId: 'g1', mode: 'inner', triggerKind: 'inner', inner })
   );
   const sends = port.calls.filter((call) => call.op === 'send');
-  return { result, logs, llm, sends, intentions, hot, list: () => intentions.list('g1', { all: true, closed: true }) };
+  return { result, logs, llm, sends, intentions, hot, list: () => intentions.list({ all: true, closed: true }) };
 }
 
 const THINK = '<think>STEP 4. So: write it.</think>';
@@ -291,11 +291,11 @@ test('heartbeat turn: the engine stamps origin heartbeat on what it creates; an 
   const run = await liveTurn({
     answers: (service: ReturnType<typeof intentionService>) => [
       toolAnswer(`${THINK}`, [
-        call('intention.update', { id: `${service.list('g1', { all: true })[0].id}`, text: `new words` }),
+        call('intention.update', { id: `${service.list({ all: true })[0].id}`, text: `new words` }),
       ]),
     ],
     seed: (service: ReturnType<typeof intentionService>) =>
-      service.set('g1', { purpose: 'her own earlier one', dueAt: NOW + 3_600_000 }),
+      service.set({ purpose: 'her own earlier one', dueAt: NOW + 3_600_000 }),
   });
   assert.deepEqual(actionsOf(run), ['intention.update:executed:ok']);
   assert.equal(run.list()[0].purpose, 'new words');
@@ -304,10 +304,10 @@ test('heartbeat turn: the engine stamps origin heartbeat on what it creates; an 
   assert.equal(made.list()[0].origin, 'heartbeat', 'stamped by the engine');
   const id = made.list()[0].id;
   assert.equal(
-    present(made.intentions.update('g1', id, { purpose: 'reworded', by: 'persona' }).intention).origin,
+    present(made.intentions.update(id, { purpose: 'reworded', by: 'persona' }).intention).origin,
     'heartbeat'
   );
-  assert.equal(present(made.intentions.update('g1', id, { dueAt: NOW + 7_200_000 }).intention).origin, 'heartbeat');
+  assert.equal(present(made.intentions.update(id, { dueAt: NOW + 7_200_000 }).intention).origin, 'heartbeat');
 });
 
 test('intention.set outside a heartbeat carries no origin and no heartbeat cap', async () => {
@@ -316,7 +316,7 @@ test('intention.set outside a heartbeat carries no origin and no heartbeat cap',
     answers: [SET('one'), '<skip/>'],
     seed: (service: ReturnType<typeof intentionService>) => {
       for (const n of [1, 2, 3])
-        service.set('g1', { purpose: `from a heartbeat ${n}`, dueAt: NOW + n * 3_600_000, origin: 'heartbeat' });
+        service.set({ purpose: `from a heartbeat ${n}`, dueAt: NOW + n * 3_600_000, origin: 'heartbeat' });
     },
   });
   assert.equal(run.list().length, 4);
@@ -326,7 +326,7 @@ test('intention.set outside a heartbeat carries no origin and no heartbeat cap',
 test('heartbeat caps: at maxOpen intention.set is refused heartbeat-cap and the result names the open ones; closing one frees the room', async () => {
   const seed = (service: ReturnType<typeof intentionService>) => {
     for (const n of [1, 2, 3])
-      service.set('g1', { purpose: `heartbeat thing ${n}`, dueAt: NOW + n * 3_600_000, origin: 'heartbeat' });
+      service.set({ purpose: `heartbeat thing ${n}`, dueAt: NOW + n * 3_600_000, origin: 'heartbeat' });
   };
   const run = await liveTurn({ answers: [SET('a fourth'), '<skip/>'], seed });
   assert.deepEqual(actionsOf(run), ['intention.set:executed:heartbeat-cap']);
@@ -339,8 +339,8 @@ test('heartbeat caps: at maxOpen intention.set is refused heartbeat-cap and the 
     answers: [SET('a fourth')],
     seed: (service: ReturnType<typeof intentionService>) => {
       seed(service);
-      const first = service.list('g1', { all: true })[0];
-      service.cancel('g1', first.id, { all: true });
+      const first = service.list({ all: true })[0];
+      service.cancel(first.id, { all: true });
     },
   });
   assert.deepEqual(actionsOf(freed), ['intention.set:executed:ok']);
@@ -348,13 +348,13 @@ test('heartbeat caps: at maxOpen intention.set is refused heartbeat-cap and the 
 
 test('heartbeat caps: one recurring at most, for a new one and for a one-off made recurring', async () => {
   const seed = (service: ReturnType<typeof intentionService>) => {
-    service.set('g1', {
+    service.set({
       purpose: 'regular thing',
       dueAt: NOW + 3_600_000,
       every: { period: 'day', at: null },
       origin: 'heartbeat',
     });
-    service.set('g1', { purpose: 'one-off', dueAt: NOW + 7_200_000, origin: 'heartbeat' });
+    service.set({ purpose: 'one-off', dueAt: NOW + 7_200_000, origin: 'heartbeat' });
   };
   const fresh = await liveTurn({ answers: [SET('another regular', { every: 'day' }), '<skip/>'], seed });
   assert.deepEqual(actionsOf(fresh), ['intention.set:executed:heartbeat-recurring-cap']);
@@ -364,7 +364,7 @@ test('heartbeat caps: one recurring at most, for a new one and for a one-off mad
     answers: (service: ReturnType<typeof intentionService>) => [
       toolAnswer(`${THINK}`, [
         call('intention.update', {
-          id: `${present(service.list('g1', { all: true }).find((r: Record<string, Untyped>) => r.purpose === 'one-off')).id}`,
+          id: `${present(service.list({ all: true }).find((r: Record<string, Untyped>) => r.purpose === 'one-off')).id}`,
           every: `day`,
         }),
       ]),
@@ -398,7 +398,6 @@ test('the heartbeat view marks an open intention a heartbeat made; the wake word
   });
   const view = async (settings: Record<string, Untyped>) =>
     buildHeartbeatFacts({
-      guildId: 'g1',
       now: NOW,
       since: NOW - 3_600_000,
       placeName: (id) => id,

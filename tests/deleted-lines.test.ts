@@ -13,7 +13,7 @@ const live = (id: string, ts: number, over = {}) => ({
   authorId: 'u1',
   authorName: 'Alice',
   content: 'hi',
-  channelId: 'c1',
+  placeId: 'c1',
   ...over,
 });
 const seen = (messageId: string, ts: number, by = 'u2') => ({
@@ -35,8 +35,8 @@ const deleted = (messageId: string, ts: number, by = 'u2') => ({
 function fakeRecord(lines: Untyped) {
   const record = {
     queries: [] as Array<Untyped>,
-    async *iterate(guildId: string, query: Untyped) {
-      record.queries.push({ guildId, ...query });
+    async *iterate(placeId: string, query: Untyped) {
+      record.queries.push({ placeId, ...query });
       for (const line of lines) yield line;
     },
   };
@@ -51,8 +51,8 @@ test('deletedLinesOf: a deleted message the history lacks becomes a placeholder 
     deleted('m1', T0 + 9500),
     { kind: 'said', messageId: 'x', occurredAt: iso(T0) },
   ]);
-  const found = await deletedLinesOf({ record, guildId: 'g1', channelId: 'c1', history });
-  assert.deepEqual(record.queries, [{ guildId: 'g1', from: iso(T0), channelIds: ['c1'] }]);
+  const found = await deletedLinesOf({ record, placeId: 'g1', conversationId: 'c1', history });
+  assert.deepEqual(record.queries, [{ placeId: 'g1', from: iso(T0), placeIds: ['c1'] }]);
   assert.deepEqual(
     found.placeholders.map((p) => [p.id, p.ts, p.authorName, p.deleted, p.content]),
     [['m2', T0 + 1000, 'Zoë', true, '']],
@@ -63,8 +63,8 @@ test('deletedLinesOf: a deleted message the history lacks becomes a placeholder 
   // Without a seen line the deleted line's own time is used (the message's, as the door writes it); the persona's own deleted line reads as hers.
   const own = await deletedLinesOf({
     record: fakeRecord([deleted('m9', T0 + 2000, 'self')]),
-    guildId: 'g1',
-    channelId: 'c1',
+    placeId: 'g1',
+    conversationId: 'c1',
     history,
     selfId: 'self',
     selfName: 'Nept',
@@ -78,7 +78,13 @@ test('deletedLinesOf: a deleted message the history lacks becomes a placeholder 
 test('deletedLinesOf: only the newest `max` placeholders stay, every id is still known; a failed read gives none', async () => {
   const history = [live('m1', T0)];
   const lines = [1, 2, 3, 4].flatMap((n) => [seen(`d${n}`, T0 + n * 1000), deleted(`d${n}`, T0 + 60_000)]);
-  const found = await deletedLinesOf({ record: fakeRecord(lines), guildId: 'g1', channelId: 'c1', history, max: 2 });
+  const found = await deletedLinesOf({
+    record: fakeRecord(lines),
+    placeId: 'g1',
+    conversationId: 'c1',
+    history,
+    max: 2,
+  });
   assert.deepEqual(
     found.placeholders.map((p) => p.id),
     ['d3', 'd4']
@@ -89,7 +95,7 @@ test('deletedLinesOf: only the newest `max` placeholders stay, every id is still
       throw new Error('disk');
     },
   };
-  const failed = await deletedLinesOf({ record: broken, guildId: 'g1', channelId: 'c1', history });
+  const failed = await deletedLinesOf({ record: broken, placeId: 'g1', conversationId: 'c1', history });
   assert.deepEqual([failed.placeholders, failed.deletedIds.size, failed.failed], [[], 0, true]);
 });
 

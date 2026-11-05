@@ -98,7 +98,7 @@ test('closes a post as succeeded when its own message is found by the text as wr
     turnId: 't-1',
     name: 'post',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     intent: { replyTo: 'm1', text: 'hi <@u1>, welcome' },
   });
   await op.started();
@@ -120,7 +120,7 @@ test("closes a post as unknown when the only message with its words is another p
     turnId: 't-1',
     name: 'post',
     by: 'persona',
-    channelId: 'c1',
+    placeId: 'c1',
     intent: { replyTo: 'm1', text: 'good morning' },
   });
   await op.started();

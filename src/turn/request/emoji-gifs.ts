@@ -36,7 +36,7 @@ export type Held<T> = { bucket: number; signature: string; value: T };
 
 /**
  * The `<emoji>` section's items: `labels.emoji.header` first, then one line
- * per custom emoji -- the top-ranked ids of `guild.emojiUsage` (see
+ * per custom emoji -- the top-ranked ids of `place.emojiUsage` (see
  * src/memory/emoji-usage.ts#rankEmojiUsage) that the index still has, topped
  * up with the rest of the index in its own order (a fresh install with no
  * ranking yet shows the first `max` of the index), at most `max` lines. The
@@ -49,7 +49,7 @@ export type Held<T> = { bucket: number; signature: string; value: T };
  * request's transcript (seenEmoji) not listed above that have a caption:
  * `seenInChat` as a sub-heading, one `entry` line each. `[]` when the index
  * is empty or the labels lack `header`/`entryNoText` (an older labels.json).
- * `index` is the emoji index's list (createEmojiIndex().list()), `usage` is `guild.emojiUsage`, `mediaCache` the
+ * `index` is the emoji index's list (createEmojiIndex().list()), `usage` is `place.emojiUsage`, `mediaCache` the
  * describer cache (store.getMediaCache, read only).
  */
 export function emojiItems(

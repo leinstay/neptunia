@@ -1,7 +1,7 @@
 // How a call that cannot be answered now is held: queued, or folded by the merge classifier (prompts/merge.md) into an
 // item its author already waits for in that channel, the parts of their message a chain has not reached yet
 // (turns.waitingParts) and their queued calls. createMessageHandler (src/behavior/pipeline.ts) builds it once with
-// createMerge; the live path, a private message and a routed call hold through holdCall.
+// createMerge; the live path and a private message hold through holdCall.
 
 import { SPAM_WINDOW_MS } from '../behavior/mention.ts';
 import { authorCalls, foldInto, parseMergeAnswer } from '../behavior/pending.ts';
@@ -36,23 +36,15 @@ export type MergeContext = {
   now: () => number;
   turns: PipelineTurns;
   tagHistory: { hit: (authorId: string, at: number, windowMs: number) => number };
-  getGuildId: () => string | null;
-  getSelfName: (guildId: string) => string;
+  getSelfName: (placeId: string) => string;
   pending: PendingQueue;
   itemText: PendingQueueOps['itemText'];
   enqueuePending: PendingQueueOps['enqueuePending'];
-  turnBlocked: (channelId: string, config: PipelineConfig) => boolean;
+  turnBlocked: (placeId: string, config: PipelineConfig) => boolean;
   drainPending: () => Promise<void>;
 };
 
-export type HoldCall = (
-  channel: Conv,
-  trigger: Line,
-  kind: PingKind,
-  destination?: Conv | null,
-  superseded?: Array<string>,
-  readOptions?: MessageReadOptions
-) => void;
+export type HoldCall = (channel: Conv, trigger: Line, kind: PingKind, readOptions?: MessageReadOptions) => void;
 
 export function createMerge({
   hot,
@@ -61,7 +53,6 @@ export function createMerge({
   now,
   turns,
   tagHistory,
-  getGuildId,
   getSelfName,
   pending,
   itemText,
@@ -71,7 +62,7 @@ export function createMerge({
 }: MergeContext): { holdCall: HoldCall } {
   /**
    * Hold a call that cannot be answered now (the live path and a private
-   * message alike). A routed call, or one whose author has nothing waiting
+   * message alike). A call whose author has nothing waiting
    * in that channel (no part of a chain not reached yet, no queued call), is
    * queued at once (enqueuePending). Otherwise the merge classifier is asked
    * (classifyMerge; the persona is busy, so this costs no reply time) whether
@@ -82,20 +73,12 @@ export function createMerge({
    * turn; `new`, no verdict, or an item that stopped waiting meanwhile, it is
    * queued with its arrival time. Paused meanwhile, it is dropped (`mention:
    * dropped`, `paused`). Once it is queued, a drain starts if nothing blocks
-   * it any more (drainPending). Never throws. `superseded` is a routed call's
-   * only: see answerCall.
+   * it any more (drainPending). Never throws.
    */
-  function holdCall(
-    channel: Conv,
-    trigger: Line,
-    kind: PingKind,
-    destination: Conv | null = null,
-    superseded: Array<string> = [],
-    readOptions?: MessageReadOptions
-  ): void {
-    const items = destination || readOptions?.memoryContext ? [] : waitingItems(channel.id, trigger.authorId);
+  function holdCall(channel: Conv, trigger: Line, kind: PingKind, readOptions?: MessageReadOptions): void {
+    const items = readOptions?.memoryContext ? [] : waitingItems(channel.id, trigger.authorId);
     if (items.length === 0) {
-      enqueuePending(channel, trigger, kind, destination, superseded, undefined, readOptions);
+      enqueuePending(channel, trigger, kind, undefined, readOptions);
       return;
     }
     const arrivedAt = now();
@@ -105,13 +88,13 @@ export function createMerge({
   }
 
   /**
-   * The items `authorId` waits for in `channelId`, in order: the parts of their
+   * The items `authorId` waits for in `placeId`, in order: the parts of their
    * message a chain there has not reached yet, then their queued calls.
    */
-  function waitingItems(channelId: string, authorId: string): Array<WaitingItem> {
+  function waitingItems(placeId: string, authorId: string): Array<WaitingItem> {
     let parts: Array<{ index: number; text: string }> = [];
     try {
-      const found = turns.waitingParts?.(channelId, authorId);
+      const found = turns.waitingParts?.(placeId, authorId);
       // A chain's waiting parts carry their index and text (src/behavior/turn.ts#waitingParts).
       parts = Array.isArray(found) ? (found as Array<{ index: number; text: string }>) : [];
     } catch {
@@ -120,7 +103,7 @@ export function createMerge({
     return [
       ...parts.map((part) => ({ kind: 'part' as const, index: part.index, text: itemText(part.text) })),
       // A deferred follow-up or overheard line is not one: it may still be dropped (window closed, answered).
-      ...(authorCalls(pending.list, channelId, authorId) as Array<Ping>)
+      ...(authorCalls(pending.list, placeId, authorId) as Array<Ping>)
         .filter((p) => !isDeferredFollowUp(p) && !p.readOptions?.memoryContext)
         .map((p) => ({ kind: 'call' as const, id: p.trigger.id, text: itemText(p.trigger.content) })),
     ];
@@ -161,7 +144,7 @@ export function createMerge({
         return;
       }
     }
-    enqueuePending(channel, trigger, kind, null, [], arrivedAt);
+    enqueuePending(channel, trigger, kind, arrivedAt);
     if (!turnBlocked(channel.id, hot.config)) {
       drainPending().catch((err: unknown) => log.error('mention: drain failed', { error: err }));
     }
@@ -179,16 +162,15 @@ export function createMerge({
    * HTTP status), `empty`, `unparsed`, `out-of-range`. Codes and counts only.
    */
   async function classifyMerge(channel: Conv, trigger: Line, items: Array<WaitingItem>): Promise<number | null> {
-    const channelId = channel.id;
+    const conversationId = channel.id;
     const prompt = hot.prompts?.merge;
     if (!prompt || !llm) {
-      log.info('merge: failed', { channel: channelId, reason: 'no-prompt', status: null });
+      log.info('merge: failed', { channel: conversationId, reason: 'no-prompt', status: null });
       return null;
     }
     const config = hot.config;
     const startedAt = now();
-    // The merge runs for a call of the served guild, whose id has resolved.
-    const guildId = (channel.communityId ?? getGuildId()) as string;
+    const placeId = String(channel.communityId ?? channel.id);
     const waiting = items.map((item, i) => `${i + 1}. ${item.text}`).join('\n');
     const user = [
       block('waiting', waiting),
@@ -198,7 +180,7 @@ export function createMerge({
     try {
       completion = await llm.complete(
         [
-          { role: 'system', content: fillPromptTemplate(prompt, { name: getSelfName(guildId) }) },
+          { role: 'system', content: fillPromptTemplate(prompt, { name: getSelfName(placeId) }) },
           { role: 'user', content: user },
         ],
         {
@@ -212,7 +194,7 @@ export function createMerge({
       );
     } catch (err) {
       log.warn('merge: failed', {
-        channel: channelId,
+        channel: conversationId,
         reason: railReason(err),
         status: (err as Thrown)?.statusCode ?? null,
       });
@@ -220,11 +202,11 @@ export function createMerge({
     }
     const { index, reason } = parseMergeAnswer(completion?.text, items.length);
     if (reason !== 'item' && reason !== 'new') {
-      log.warn('merge: failed', { channel: channelId, reason, status: null });
+      log.warn('merge: failed', { channel: conversationId, reason, status: null });
       return null;
     }
     log.info('merge: verdict', {
-      channel: channelId,
+      channel: conversationId,
       waiting: items.length,
       answer: index ? 'item' : 'new',
       ms: now() - startedAt,

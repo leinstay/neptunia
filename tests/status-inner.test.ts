@@ -60,9 +60,17 @@ function envOf({ status = STATUS, usage = null }: { status?: typeof STATUS; usag
   };
   const store = { state: { data: {}, markDirty() {} }, flush() {} };
   const seen: Array<string> = [];
-  const inner = { status: (guildId: string) => (seen.push(guildId), status) };
+  const inner = { status: (placeId: string) => (seen.push(placeId), status) };
   return {
-    env: createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', inner, usage }),
+    env: createOpsEnv({
+      discord: DISCORD,
+      hot,
+      store,
+      client: {},
+      isServedCommunity: (id: unknown) => id === 'g1',
+      inner,
+      usage,
+    }),
     seen,
   };
 }
@@ -72,10 +80,10 @@ type Field = { name: string; value: string };
 const fieldsOf = (result: { data: unknown }) => (result.data as { fields: Array<Field> }).fields;
 type Env = ReturnType<typeof envOf>['env'];
 const show = async (env: Env, args: Record<string, unknown>, userId: string) =>
-  fieldsOf(await runOp('status.show', args, { env, guildId: 'g1', userId, roleIds: [] }));
+  fieldsOf(await runOp('status.show', args, { env, placeId: 'g1', userId, roleIds: [] }));
 // PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 const showMember = async (env: Env, args: Record<string, unknown>) =>
-  fieldsOf(await runOp('status.show', args, { env, guildId: 'g1', userId: '7', roleIds: ['staff'] }));
+  fieldsOf(await runOp('status.show', args, { env, placeId: 'g1', userId: '7', roleIds: ['staff'] }));
 
 test("status inner: the owner reads the inner life's lines through the labels; field:inner shows it alone", async () => {
   const { env, seen } = envOf();
@@ -93,7 +101,8 @@ test("status inner: the owner reads the inner life's lines through the labels; f
     'open 2/1',
     'attention 1 open, wakes 5/4/1/3/1',
   ]);
-  assert.deepEqual(seen, ['g1']);
+  // The card's reads are the persona's: the inner field names no place.
+  assert.deepEqual(seen, [undefined]);
 });
 
 test("status inner: the core role's tokens today come from the usage accumulator; without a row the line is left out", async () => {
@@ -191,7 +200,7 @@ test('status.show part: her call defaults to the overview, a part holds its fiel
     fieldsOf(
       await runOp('status.show', args, {
         env,
-        guildId: 'g1',
+        placeId: 'g1',
         userId,
         roleIds: userId === '42' ? [] : ['staff'],
         actor: 'persona',
@@ -223,7 +232,7 @@ test('status.show part: her call defaults to the overview, a part holds its fiel
     ['memory']
   );
   assert.ok((await persona({ part: 'all' })).length > 8, 'all is the whole card');
-  const owner = fieldsOf(await runOp('status.show', {}, { env, guildId: 'g1', userId: '42', roleIds: [] }));
+  const owner = fieldsOf(await runOp('status.show', {}, { env, placeId: 'g1', userId: '42', roleIds: [] }));
   assert.ok(owner.length > 8, 'the owner command without a part keeps the whole card');
   assert.deepEqual(
     (await persona({ part: 'inner' }, '7')).map((f) => [f.name, f.value]),

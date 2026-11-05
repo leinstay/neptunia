@@ -3,6 +3,7 @@
 // a `deleted` line of the record. createMessageHandler (src/behavior/pipeline.js) builds it once with createEdits and
 // hands the two handlers to the interface's edit and deletion events.
 
+import { sharedPlaceOf } from '../memory/addresses.ts';
 import type { ObserveLine, DeleteLine } from './observe.ts';
 import { lineOf } from '../behavior/line-of.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -25,7 +26,7 @@ type MediaItem = { readonly id?: unknown };
 type MediaPart = { readonly attachments?: Array<MediaItem>; readonly links?: Array<MediaItem> };
 
 /** A normalized line (src/behavior/line-of.js#lineOf), as the edit handlers read it. */
-type Line = MediaPart & { readonly id: string; readonly channelId: string; readonly forwarded?: Array<MediaPart> };
+type Line = MediaPart & { readonly id: string; readonly placeId: string; readonly forwarded?: Array<MediaPart> };
 
 /** What the memory database answered an observation (src/memory/db/service.ts#observe). */
 export type Observed = { ok?: boolean; code?: unknown; revision?: unknown; sourceId?: unknown } | null;
@@ -35,7 +36,7 @@ type EditsConfig = Record<string, unknown>;
 
 /** The record (src/memory/record.ts#createRecord): its append and its newest revision. */
 type EditsRecord = {
-  append: (guildId: string, lines: Array<object>, options?: object) => Promise<unknown>;
+  append: (placeId: string, lines: Array<object>, options?: object) => Promise<unknown>;
   newestRevision?: (...args: Array<never>) => unknown;
 };
 
@@ -44,17 +45,16 @@ export type EditsContext = {
   hot: { readonly config: EditsConfig };
   store: {
     state?: { data?: { paused?: unknown } };
-    recordGifs: (guildId: string, messages: Array<object>, opts: unknown) => number;
+    recordGifs: (placeId: string, messages: Array<object>, opts: unknown) => number;
   } | null;
   reads: Reads;
-  getGuildId: () => string | null;
-  /** A community some connected interface serves; the one community of `getGuildId` when absent. */
-  isServedCommunity?: (communityId: string | null | undefined) => boolean;
+  /** A community some connected interface serves. */
+  isServedCommunity: (communityId: string | null | undefined) => boolean;
   selfIdOf: () => string;
   record: EditsRecord | null;
   now: () => number;
   /** The media prefill of an observed message (createMessageHandler's warmMediaCache), never awaited here. */
-  warmMediaCache: (guildId: string, message: object) => Promise<void> | null;
+  warmMediaCache: (placeId: string, message: object) => Promise<void> | null;
   /** The live observation of a line in the memory database (createMessageHandler's observeLine). */
   observeLine: ObserveLine;
   deleteLine?: DeleteLine;
@@ -104,7 +104,6 @@ const codeOf = (err: unknown): unknown => (err as { code?: unknown } | null | un
 export function createEdits({
   store,
   reads,
-  getGuildId,
   isServedCommunity,
   selfIdOf,
   record,
@@ -139,8 +138,9 @@ export function createEdits({
     await recordEdit(event as MessageEvent, options);
     try {
       if (store?.state?.data?.paused) return;
-      const guildId = event.conversation.communityId ?? null;
-      if (!guildId || !(isServedCommunity ? isServedCommunity(guildId) : guildId === getGuildId())) return;
+      const community = event.conversation.communityId ?? null;
+      if (!community || !isServedCommunity(community)) return;
+      const placeId = sharedPlaceOf(store, event.conversation, event.iface);
       let edited = event as MessageEvent;
       if (event.partial) {
         const fetched = await reads.fetchMessages({ iface: event.iface, conversationId: event.conversation.id }, [
@@ -166,14 +166,14 @@ export function createEdits({
         ...(part.links ?? []),
       ]).length;
       if (items === 0) return;
-      const fields = { channelId: normalized.channelId, messageId: normalized.id, items };
+      const fields = { placeId: normalized.placeId, messageId: normalized.id, items };
       if (!previous) {
         log.info('events: embeds late', fields);
         return;
       }
-      const gifs = store ? store.recordGifs(guildId, [late], gifOpts()) : 0;
+      const gifs = store ? store.recordGifs(placeId, [late], gifOpts()) : 0;
       // Fire-and-forget, as on arrival: the prefill never rejects.
-      void warmMediaCache(guildId, late);
+      void warmMediaCache(placeId, late);
       log.info('events: embeds folded', { ...fields, gifs });
     } catch (err) {
       log.error('events: update handler failed', { error: err });
@@ -186,8 +186,8 @@ export function createEdits({
    */
   function recordable(event: MessageReceived): boolean {
     if (!record) return false;
-    const guildId = event.conversation?.communityId ?? null;
-    if (!guildId || !(isServedCommunity ? isServedCommunity(guildId) : guildId === getGuildId())) return false;
+    const community = event.conversation?.communityId ?? null;
+    if (!community || !isServedCommunity(community)) return false;
     const message = event.message;
     if ('system' in message && message.system === true) return false;
     if (message?.author?.bot && message.author.self !== true) return false;
@@ -208,7 +208,7 @@ export function createEdits({
       if (event.partial || !recordable(event)) return;
       if (event.previous && sourceTextOf(event.previous) === sourceTextOf(event.message)) return;
       // recordable holds only for the served community.
-      const guildId = event.conversation.communityId!;
+      const placeId = sharedPlaceOf(store, event.conversation, event.iface);
       // lineOf gives the normalized line of a message event.
       const normalized = lineOf(event) as Line;
       const day = utcDay(now());
@@ -222,7 +222,7 @@ export function createEdits({
       const slim = slimMessage(normalized, false);
       // A normalized observation owns the source and revision. Record adoption keeps both unchanged.
       // Direct callers without a source result retain appendRevision's duplicate handling.
-      const observed = observeLine(event, false, { guildId }, options?.acceptedEvent);
+      const observed = observeLine(event, false, { placeId }, options?.acceptedEvent);
       let start = revision;
       if (observed) {
         const done = await observed;
@@ -230,7 +230,7 @@ export function createEdits({
         if (typeof done.sourceId === 'string') {
           // The descriptor names the record line by the line's own id, which is no message id.
           const line = toRecordLine(slim, { revision: done.revision, now }) as { id: string };
-          await record!.append(guildId, [line], {
+          await record!.append(placeId, [line], {
             messages: [
               {
                 lineId: line.id,
@@ -246,7 +246,7 @@ export function createEdits({
       // recordable holds only with a record.
       const landed = await appendRevision(
         record!,
-        guildId,
+        placeId,
         (next) => toRecordLine(slim, { revision: next, now }),
         start
       );
@@ -257,7 +257,7 @@ export function createEdits({
   }
 
   /**
-   * A message of the served guild deleted on the platform as a `deleted` line of
+   * A message of the served place deleted on the platform as a `deleted` line of
    * the record, dated by the message's own creation time (`createdTimestamp`, which a partial
    * message has too; now when missing) so a window can place it; the envelope's `recordedAt`
    * keeps the deletion time. The message's recorded text stays (a deletion is not a forget
@@ -271,22 +271,22 @@ export function createEdits({
       const id = message?.id;
       if (!id || !recordable(event)) return;
       // recordable holds only for the served community.
-      const guildId = event.conversation.communityId!;
+      const placeId = sharedPlaceOf(store, event.conversation, event.iface);
       const line = toRecordLine(
         {
           id: String(id),
-          channelId: event.conversation.id,
+          placeId: event.conversation.id,
           authorId: message.author?.id ?? null,
           ts: typeof message.at === 'number' && Number.isFinite(message.at) && message.at > 0 ? message.at : now(),
         },
         { kind: 'deleted', now }
       ) as { id: string };
       // recordable holds only with a record.
-      const observed = deleteLine?.(event, { guildId }, options?.acceptedEvent);
+      const observed = deleteLine?.(event, { placeId }, options?.acceptedEvent);
       const done = observed ? await observed : null;
       if (observed && done?.ok !== true) return;
       await record!.append(
-        guildId,
+        placeId,
         [line],
         typeof done?.sourceId === 'string'
           ? {

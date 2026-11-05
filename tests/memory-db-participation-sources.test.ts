@@ -63,7 +63,7 @@ async function evidence() {
         revision: 2,
         occurredAt: new Date(AT).toISOString(),
         recordedAt: new Date(NOW).toISOString(),
-        guildId: 'community',
+        placeId: 'community',
         scope: { channel: 'room-a' },
         by: 'member',
         text: 'Edited canonical evidence',
@@ -87,7 +87,7 @@ test('participation links the edited conversation source after observation and r
         {
           id: 'p1',
           itemId: 'episode-exact-source',
-          channelId: 'room-a',
+          placeId: 'room-a',
           startAt: AT,
           lastAt: AT,
           lastOwnAt: null,
@@ -205,7 +205,7 @@ test('an unchanged participation flush retains its captured source after a later
         {
           id: 'p1',
           itemId: 'episode-preserved-source',
-          channelId: 'room-a',
+          placeId: 'room-a',
           startAt: AT,
           lastAt: AT,
           lastOwnAt: null,

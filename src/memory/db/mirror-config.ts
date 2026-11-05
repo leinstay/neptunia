@@ -92,7 +92,7 @@ export function placeNamed(
 ): { ok: true; placeId: string } | { ok: false; code: 'unknown-place' | 'ambiguous-place' } {
   const rows = dbOf(handle)
     .prepare(
-      "SELECT id FROM places WHERE (id = ? OR native_id = ?) AND kind NOT IN ('guild', 'dm') AND scope_kind = 'group'"
+      "SELECT id FROM places WHERE (id = ? OR native_id = ?) AND kind NOT IN ('server', 'dm') AND scope_kind = 'group'"
     )
     .all(destination, destination);
   const exact = rows.find((row) => row.id === destination);

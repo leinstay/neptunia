@@ -67,7 +67,7 @@ const NOW = Date.UTC(2026, 9, 14, 12, 0, 0);
 function raw(overrides = {}) {
   return {
     id: 's-1',
-    channelId: HERE,
+    placeId: HERE,
     author: MEMBER,
     text: 'Μπορείς να προσθέσεις έναν κανόνα;',
     grants: [],
@@ -89,7 +89,7 @@ test('parseScenarios: the example file loads; omitted fields take their defaults
   const [scenario] = load([raw()]);
   assert.deepEqual(scenario, {
     id: 's-1',
-    channelId: HERE,
+    placeId: HERE,
     before: null,
     author: MEMBER,
     text: 'Μπορείς να προσθέσεις έναν κανόνα;',
@@ -120,7 +120,7 @@ test('parseScenarios: a malformed file or scenario is refused, naming the scenar
   const refused = [
     [{ ...raw(), extra: 1 }, /unknown field extra/],
     [raw({ id: 'ένα' }), /id must be/],
-    [raw({ channelId: '12' }), /channelId/],
+    [raw({ placeId: '12' }), /placeId/],
     [raw({ before: 'x' }), /before/],
     [raw({ author: '' }), /author/],
     [raw({ text: '   ' }), /text/],
@@ -229,7 +229,7 @@ function simulate(
     view: callViewOf({
       channel,
       snapshot: guildListing(channel),
-      guildId: 'g1',
+      placeId: 'g1',
       idByIndex: new Map(),
       lines: [],
       pulledIds: new Map(),
@@ -513,7 +513,7 @@ async function playSequence(
     nameTriggers = [],
   }: Record<string, Untyped> = {}
 ) {
-  const [scenario] = load([{ id: 'seq', channelId: HERE, steps: rawSteps, grants: [], result: 'SCENARIO_RESULT' }]);
+  const [scenario] = load([{ id: 'seq', placeId: HERE, steps: rawSteps, grants: [], result: 'SCENARIO_RESULT' }]);
   const config = sequenceConfig(grants, nameTriggers);
   const hot = {
     config,
@@ -526,14 +526,14 @@ async function playSequence(
     },
   };
   const store = {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     listChannels: () => [{ id: NEWS, name: 'νέα' }],
     listUserProfiles: () => [],
     getLore: () => [],
     state: { data: {} },
   };
-  const view = liveView({ hot, store, guildId: 'g1' });
+  const view = liveView({ hot, store, placeId: 'g1' });
   const channel = fakeChannel();
   const here = { id: HERE, name: 'γενικά' };
   const llm = scriptedLlm(texts);
@@ -586,7 +586,7 @@ async function playSequence(
             view: callViewOf({
               channel,
               snapshot: guildListing(channel),
-              guildId: 'g1',
+              placeId: 'g1',
               idByIndex,
               lines,
               pulledIds: new Map(),
@@ -636,7 +636,7 @@ test('parseScenarios: steps take the place of author and text; a burst adds mess
   const [scenario] = load([
     {
       id: 'seq',
-      channelId: HERE,
+      placeId: HERE,
       grants: [],
       steps: [
         { author: OWNER, text: 'α' },
@@ -652,7 +652,7 @@ test('parseScenarios: steps take the place of author and text; a burst adds mess
   ]);
   assert.deepEqual(scenario, {
     id: 'seq',
-    channelId: HERE,
+    placeId: HERE,
     before: null,
     grants: [],
     runs: 1,
@@ -682,20 +682,20 @@ test('parseScenarios: steps take the place of author and text; a burst adds mess
   });
   const step = (overrides: Record<string, unknown>) => ({
     id: 's',
-    channelId: HERE,
+    placeId: HERE,
     grants: [],
     steps: [{ author: OWNER, text: 'α', ...overrides }],
   });
   const refused = [
     [{ ...step({}), author: OWNER }, /steps replace author and text/],
-    [{ id: 's', channelId: HERE, grants: [], steps: [] }, /steps must be a list of 1\.\.20/],
+    [{ id: 's', placeId: HERE, grants: [], steps: [] }, /steps must be a list of 1\.\.20/],
     [
-      { id: 's', channelId: HERE, grants: [], steps: Array.from({ length: 21 }, () => ({ author: OWNER, text: 'α' })) },
+      { id: 's', placeId: HERE, grants: [], steps: Array.from({ length: 21 }, () => ({ author: OWNER, text: 'α' })) },
       /steps must be/,
     ],
     [step({ extra: 1 }), /step 1: unknown field extra/],
     [step({ author: 'x' }), /step 1: the message: author must be a member id/],
-    [{ id: 's', channelId: HERE, grants: [], steps: [{ gapMinutes: 2 }] }, /step 1: needs author and text, or a burst/],
+    [{ id: 's', placeId: HERE, grants: [], steps: [{ gapMinutes: 2 }] }, /step 1: needs author and text, or a burst/],
     [step({ burst: [] }), /burst must be a list of 1\.\.10/],
     [step({ burst: [{ author: OTHER, text: 'γ', gapMinutes: 1 }] }), /burst 1: unknown field gapMinutes/],
     [step({ burst: [{ author: 'x', text: 'γ' }] }), /burst 1: author/],
@@ -943,7 +943,7 @@ test('parseScenarios: a seeded line of hers -- a step { self } or a burst item {
   const [scenario] = load([
     {
       id: 'seq',
-      channelId: HERE,
+      placeId: HERE,
       grants: [],
       steps: [
         { author: OWNER, text: 'α' },
@@ -973,7 +973,7 @@ test('parseScenarios: a seeded line of hers -- a step { self } or a burst item {
       result: null,
     },
   ]);
-  const steps = (list: unknown) => ({ id: 's', channelId: HERE, grants: [], steps: list });
+  const steps = (list: unknown) => ({ id: 's', placeId: HERE, grants: [], steps: list });
   const refused = [
     [steps([{ author: OWNER, text: 'α' }, { self: '   ' }]), /step 2: self must be 1\.\.4000 characters/],
     [
@@ -1092,7 +1092,7 @@ test('replay --skills steps: a seeded line inside a burst gets no turn; the firs
   const [scenario] = load([
     {
       id: 'seq',
-      channelId: HERE,
+      placeId: HERE,
       grants: [],
       steps: [{ self: 'καλημέρα' }, { author: OWNER, text: 'γεια', gapMinutes: 3 }],
     },
@@ -1344,7 +1344,7 @@ test('skillRequestEstimate: up to two requests per decision -- a run, or every t
     raw({ id: 'one', runs: 3 }),
     {
       id: 'seq',
-      channelId: HERE,
+      placeId: HERE,
       grants: [],
       runs: 2,
       steps: [
@@ -1556,7 +1556,7 @@ test("renderPairReport: per scenario the decisions of A and B side by side, the 
     gapMinutes: 1,
     result: null,
   }));
-  const single = { id: 'one', channelId: HERE, author: MEMBER, text: 'Γεια | σου', discovery: 'inventory' };
+  const single = { id: 'one', placeId: HERE, author: MEMBER, text: 'Γεια | σου', discovery: 'inventory' };
   const oneA = [1, 2].map((run) => ({
     ...record('A', run, 1, run === 1 ? 'call' : 'no-call', `x${run}`),
     step: undefined,

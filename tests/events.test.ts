@@ -1,3 +1,5 @@
+// health: allow file-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
+import { placeOfCommunity } from '../src/memory/addresses.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -6,7 +8,6 @@ import { createTurnRunner } from '../src/behavior/turn.ts';
 import { userText } from '../src/behavior/prompt.ts';
 import { fill } from '../src/format.ts';
 import { FOLLOW_UP_MINUTES, FOLLOW_UP_NO_STREAK, createTagHistory } from '../src/behavior/mention.ts';
-import { pingStatus } from '../src/behavior/elsewhere.ts';
 import { MessageReferenceType, PermissionFlagsBits } from 'discord.js';
 import { deepMerge } from '../src/config.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
@@ -85,13 +86,13 @@ test('events: while paused, a burst of messages triggers no observe, no trigger,
 
   const guild = fakeGuild();
   const channel = fakeChannel('c1', guild);
-  await handler(fakeMessage({ id: 'm1', guild, channel, channelId: 'c1', cleanContent: 'plain chat' }));
+  await handler(fakeMessage({ id: 'm1', guild, channel, placeId: 'c1', cleanContent: 'plain chat' }));
   await handler(
     fakeMessage({
       id: 'm2',
       guild,
       channel,
-      channelId: 'c1',
+      placeId: 'c1',
       cleanContent: 'γεια',
       mentions: { users: new Map([['self1', { id: 'self1' }]]) },
     })
@@ -101,7 +102,7 @@ test('events: while paused, a burst of messages triggers no observe, no trigger,
       id: 'm3',
       guild,
       channel,
-      channelId: 'c1',
+      placeId: 'c1',
       author: { id: 'self1', bot: true, globalName: 'Neptunia', username: 'neptunia' },
     })
   );
@@ -217,7 +218,7 @@ test('events: a reply to its own message is detected as kind "reply"', async () 
   const message = fakeMessage({
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     cleanContent: 'έχεις δίκιο',
     reference: { messageId: 'm100' },
   });
@@ -243,7 +244,12 @@ test('events: a message from a guild other than the one this instance serves is 
   const memory = fakeMemory();
   const spontaneous = fakeSpontaneous();
   const turns = fakeTurns();
-  const handler = makeHandler({ memory, spontaneous, turns, getGuildId: () => 'the-served-guild' });
+  const handler = makeHandler({
+    memory,
+    spontaneous,
+    turns,
+    placeIdOfHome: () => 'the-served-guild',
+  });
 
   const message = fakeMessage({ guild: fakeGuild('some-other-guild'), cleanContent: 'just chatting' });
   await handler(message);
@@ -256,7 +262,7 @@ test('events: a message from a guild other than the one this instance serves is 
 test('events: a foreign-guild message is ignored even when the instance has not resolved a guild yet', async () => {
   const memory = fakeMemory();
   const spontaneous = fakeSpontaneous();
-  const handler = makeHandler({ memory, spontaneous, getGuildId: () => null });
+  const handler = makeHandler({ memory, spontaneous, placeIdOfHome: () => null });
 
   const message = fakeMessage();
   await handler(message);
@@ -347,8 +353,8 @@ function fakeVideoDescriber() {
   return {
     ...base,
     videoCalls,
-    describeVideos: async (guildId: string, items: Array<Record<string, Untyped>>) => {
-      videoCalls.push({ guildId, items });
+    describeVideos: async (placeId: string, items: Array<Record<string, Untyped>>) => {
+      videoCalls.push({ placeId, items });
       return { videos: new Map(), newCount: 0 };
     },
   };
@@ -379,7 +385,7 @@ test('events: a posted video is watched ahead, fire-and-forget', async () => {
   await handler(fakeMessage({ cleanContent: 'look', attachments: videoAttachments(1) }));
 
   assert.equal(describer.videoCalls.length, 1);
-  assert.equal(describer.videoCalls[0].guildId, 'g1');
+  assert.equal(describer.videoCalls[0].placeId, 'g1');
   assert.deepEqual(
     describer.videoCalls[0].items.map((item: Record<string, Untyped>) => item.itemId),
     ['v1']
@@ -526,7 +532,7 @@ test('events: a direct ping elsewhere becomes pending and is answered after the 
 
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  const message = directPingMessage({ guild, channel, channelId: 'c1' });
+  const message = directPingMessage({ guild, channel, placeId: 'c1' });
   await handler(message);
 
   assert.equal(seenArgs, null, 'must not run immediately while busy elsewhere');
@@ -561,7 +567,7 @@ for (const [roll, answered] of [[0.2, true]]) {
     const guild = fakeGuild();
     const channel = fakeChannelWithMessage('c1', guild, 'm1');
     const { logs } = await withCapturedLogs(async () => {
-      await handler(fakeMessage({ id: 'm1', guild, channel, channelId: 'c1', cleanContent: 'γεια νεπτούνια όμορφη' }));
+      await handler(fakeMessage({ id: 'm1', guild, channel, placeId: 'c1', cleanContent: 'γεια νεπτούνια όμορφη' }));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -614,7 +620,7 @@ function busyChannelTurns({ seen = [] }: { seen?: Array<Untyped> } = {}) {
       return { outcome: busy && args.conversation.conversationId === 'c1' ? 'busy' : 'spoke' };
     },
   });
-  turns.spokeAfterSeeing = (channelId: string, messageId: string) => channelId === 'c1' && seen.includes(messageId);
+  turns.spokeAfterSeeing = (placeId: string, messageId: string) => placeId === 'c1' && seen.includes(messageId);
   turns.calls = calls;
   turns.finish = () => {
     busy = false;
@@ -639,7 +645,7 @@ for (const oneAtATime of [true, false]) {
 
     const guild = fakeGuild();
     const channel = fakeChannelWithMessage('c1', guild, 'm1');
-    const { logs } = await withCapturedLogs(() => handler(directPingMessage({ guild, channel, channelId: 'c1' })));
+    const { logs } = await withCapturedLogs(() => handler(directPingMessage({ guild, channel, placeId: 'c1' })));
 
     assert.equal(turns.calls.length, 0, 'not run against the busy channel');
     assert.equal(tagHistory.hits, 0, 'counted at drain time, not on arrival');
@@ -666,7 +672,7 @@ test('events: a reply to the persona in the channel whose turn is running is def
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
   channel.messages.cache.set('m0', { author: { id: 'self1' } });
   await handler(
-    fakeMessage({ id: 'm1', guild, channel, channelId: 'c1', cleanContent: 'γεια', reference: { messageId: 'm0' } })
+    fakeMessage({ id: 'm1', guild, channel, placeId: 'c1', cleanContent: 'γεια', reference: { messageId: 'm0' } })
   );
   assert.equal(turns.calls.length, 0);
 
@@ -688,7 +694,7 @@ test('events: a name trigger in the channel whose turn is running is deferred an
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
   const { logs } = await withCapturedLogs(async () => {
-    await handler(fakeMessage({ id: 'm1', guild, channel, channelId: 'c1', cleanContent: 'γεια νεπτούνια' }));
+    await handler(fakeMessage({ id: 'm1', guild, channel, placeId: 'c1', cleanContent: 'γεια νεπτούνια' }));
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
@@ -731,7 +737,7 @@ test('events: a deferred ping the last speaking turn already had in view is not 
 
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
 
   turns.finish();
   const { logs } = await withCapturedLogs(() => handler.drainPending());
@@ -756,8 +762,8 @@ test('events: a newer direct ping in the same channel waits beside the older one
   const channel = fakeChannelWithMessage('c1', guild, 'm2');
   seedExisting(channel.id, 'm1');
 
-  await handler(directPingMessage({ id: 'm1', guild, channel, channelId: 'c1', cleanContent: 'first' }));
-  await handler(directPingMessage({ id: 'm2', guild, channel, channelId: 'c1', cleanContent: 'second' }));
+  await handler(directPingMessage({ id: 'm1', guild, channel, placeId: 'c1', cleanContent: 'first' }));
+  await handler(directPingMessage({ id: 'm2', guild, channel, placeId: 'c1', cleanContent: 'second' }));
   await new Promise((resolve) => setImmediate(resolve));
 
   await handler.drainPending();
@@ -781,7 +787,7 @@ test('events: mention.maxPending caps distinct pending channels, dropping the ol
   const guild = fakeGuild();
   for (const id of ['c1', 'c2', 'c3']) {
     const channel = fakeChannelWithMessage(id, guild, `m-${id}`);
-    await handler(directPingMessage({ id: `m-${id}`, guild, channel, channelId: id, cleanContent: id }));
+    await handler(directPingMessage({ id: `m-${id}`, guild, channel, placeId: id, cleanContent: id }));
   }
 
   await handler.drainPending();
@@ -797,10 +803,10 @@ test('events: a call evicted from a full pending queue is a pending-full missed 
   const guild = fakeGuild();
   for (const id of ['c1', 'c2', 'c3']) {
     const channel = fakeChannelWithMessage(id, guild, `m-${id}`);
-    await handler(directPingMessage({ id: `m-${id}`, guild, channel, channelId: id, cleanContent: id }));
+    await handler(directPingMessage({ id: `m-${id}`, guild, channel, placeId: id, cleanContent: id }));
   }
   assert.deepEqual(
-    missed.facts.map((fact) => [fact.reason, fact.message.id, fact.message.channelId]),
+    missed.facts.map((fact) => [fact.reason, fact.message.id, fact.message.placeId]),
     [['pending-full', 'm-c1', 'c1']]
   );
 });
@@ -813,7 +819,7 @@ test('events: a call that waited past mention.pendingMinutes is a pending-expire
   const handler = makeHandler({ config, turns, sleep: async () => {}, now: clock, rng: scripted([]), missed });
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
   clock.set(config.mention.pendingMinutes * 60_000 + 1);
   await handler.drainPending();
   assert.deepEqual(
@@ -837,7 +843,7 @@ test('events: clearPending empties the pending queue -- drainPending afterwards 
 
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  await handler(directPingMessage({ id: 'm1', guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ id: 'm1', guild, channel, placeId: 'c1' }));
 
   handler.clearPending();
   await handler.drainPending();
@@ -860,7 +866,7 @@ test('events: a pending ping whose message no longer exists is dropped with reas
   const guild = fakeGuild();
   // Default fakeChannel: empty cache, fetch resolves null -- the message is gone.
   const channel = fakeChannel('c1', guild);
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
 
   const { logs } = await withCapturedLogs(() => handler.drainPending());
 
@@ -894,7 +900,7 @@ test('events: a pending ping whose message fetch fails is dropped as fetch-faile
     const handler = makeHandler({ turns, sleep: async () => {}, rng: scripted([0.5]) });
     const guild = fakeGuild();
     const channel = fakeChannel('c1', guild);
-    await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+    await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
     breakLookup();
 
     const { logs } = await withCapturedLogs(() => handler.drainPending());
@@ -934,7 +940,7 @@ for (const { kind, extra } of [
     const channel = fakeChannelWithMessage('c1', guild, 'm1', { permissionsFor: () => ({ has: () => false }) });
     channel.messages.cache.set('m0', { author: { id: 'self1' } });
     const { logs } = await withCapturedLogs(async () => {
-      await handler(directPingMessage({ guild, channel, channelId: 'c1', ...extra }));
+      await handler(directPingMessage({ guild, channel, placeId: 'c1', ...extra }));
       await handler.drainPending();
     });
 
@@ -972,7 +978,7 @@ test('events: a pending ping whose channel lost send permission is dropped with 
 
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1', { permissionsFor: () => ({ has: () => canSendNow }) });
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
 
   canSendNow = false; // permission lost while the ping was pending
   syncStub(channel);
@@ -1014,7 +1020,7 @@ test('events: several pending pings drain oldest first, one at a time (never con
   const guild = fakeGuild();
   for (const id of ['c1', 'c2', 'c3']) {
     const channel = fakeChannelWithMessage(id, guild, `m-${id}`);
-    await handler(directPingMessage({ id: `m-${id}`, guild, channel, channelId: id, cleanContent: id }));
+    await handler(directPingMessage({ id: `m-${id}`, guild, channel, placeId: id, cleanContent: id }));
   }
 
   await handler.drainPending();
@@ -1039,7 +1045,7 @@ test('events: a hot change to mention.pendingMinutes is picked up (a shorter win
 
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
 
   config.mention.pendingMinutes = 1; // was 10
   clock.set(90_000); // 1.5 minutes later -- expired only under the new, shorter window
@@ -1087,7 +1093,7 @@ test('events: a drained ping whose turn finds another one running is re-queued a
 
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
   assert.equal(turns.calls.length, 0, 'deferred');
 
   turns.state.busy = false;
@@ -1120,7 +1126,7 @@ test('events: a re-queued ping keeps its original arrivedAt and expires mention.
 
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
 
   turns.state.busy = false;
   clock.set(5 * 60_000);
@@ -1145,13 +1151,13 @@ test('events: a newer ping queued in the same channel during the switch pause wa
     pauses += 1;
     if (pauses !== 1) return;
     turns.state.busy = true;
-    await handler(directPingMessage({ id: 'm2', guild, channel, channelId: 'c1', cleanContent: 'second' }));
+    await handler(directPingMessage({ id: 'm2', guild, channel, placeId: 'c1', cleanContent: 'second' }));
   };
   const tagHistory = countingTagHistory();
   // m1: pause, roll; m1 again: pause (already decided); m2: pause, roll.
   handler = makeHandler({ turns, tagHistory, sleep, rng: scripted([0.5, 0.99, 0.5, 0.5, 0.99]) });
 
-  await handler(directPingMessage({ guild, channel, channelId: 'c1', cleanContent: 'first' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1', cleanContent: 'first' }));
   turns.state.busy = false;
   const first = await withCapturedLogs(() => handler.drainPending());
   assert.equal(turns.calls.length, 1);
@@ -1183,7 +1189,7 @@ test('events: one busy result is one runTurn attempt per drain pass (no tight lo
 
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
 
   turns.state.busy = false;
   await handler.drainPending();
@@ -1209,7 +1215,7 @@ test('events: a busy result when nothing is busy any more continues the same pas
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
   // Queue it: busy elsewhere on arrival.
   turns.isAnyBusy = () => true;
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
   turns.isAnyBusy = () => false;
 
   await handler.drainPending();
@@ -1242,7 +1248,7 @@ test('events: an onIdle drain arriving while the busy drain is still finishing d
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
   state.busy = true;
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
   state.busy = true; // still busy while the drain's turn is refused
 
   await handler.drainPending();
@@ -1271,7 +1277,7 @@ test('follow-up: the classifier request is address.md as system and a <candidate
     id: 'm-candidate',
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     cleanContent: 'is this for you',
     createdTimestamp: t0 + 2000,
   });
@@ -1316,7 +1322,7 @@ test('follow-up: the address classifier timeout is llm.analyzerTimeoutMs, read a
 
   const ask = async (id: string, ts: Untyped) => {
     const p = handler(
-      fakeMessage({ id, guild, channel, channelId: 'c1', cleanContent: 'is this for you', createdTimestamp: ts })
+      fakeMessage({ id, guild, channel, placeId: 'c1', cleanContent: 'is this for you', createdTimestamp: ts })
     );
     await new Promise((resolve) => setTimeout(resolve, 0));
     llm.respond('no');
@@ -1369,7 +1375,7 @@ test('follow-up: the address classifier model is models.base.analyzer over the d
         id: 'm-candidate',
         guild,
         channel,
-        channelId: 'c1',
+        placeId: 'c1',
         cleanContent: 'is this for you',
         createdTimestamp: t0 + 2000,
       })
@@ -1428,7 +1434,7 @@ test('follow-up: five empty classifier answers in a row close the window, like f
         id: `m${i}`,
         guild,
         channel,
-        channelId: 'c1',
+        placeId: 'c1',
         cleanContent: `plain ${i}`,
         createdTimestamp: clock(),
       })
@@ -1438,7 +1444,7 @@ test('follow-up: five empty classifier answers in a row close the window, like f
     await p;
   }
   await handler(
-    fakeMessage({ id: 'm4', guild, channel, channelId: 'c1', cleanContent: 'plain 4', createdTimestamp: clock() })
+    fakeMessage({ id: 'm4', guild, channel, placeId: 'c1', cleanContent: 'plain 4', createdTimestamp: clock() })
   );
 
   assert.equal(llm.calls.length, FOLLOW_UP_NO_STREAK, 'the no-streak closed the window');
@@ -1458,7 +1464,7 @@ test('follow-up: the classifier system prompt carries the bare display name, no 
     id: 'm-candidate',
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     cleanContent: 'is this for you',
     createdTimestamp: t0 + 2000,
   });
@@ -1487,7 +1493,7 @@ test('follow-up: the window opens on send and expires after followUpMinutes', as
   const msg1 = fakeMessage({
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     cleanContent: 'plain follow-up',
     createdTimestamp: clock(),
   });
@@ -1501,7 +1507,7 @@ test('follow-up: the window opens on send and expires after followUpMinutes', as
   const msg2 = fakeMessage({
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     cleanContent: 'too late',
     createdTimestamp: clock(),
     author: { id: 'u2', bot: false, globalName: 'Bob', username: 'bob' },
@@ -1521,7 +1527,7 @@ test('follow-up: a reply carrying only the implicit reply ping reaches the class
   const msg = fakeMessage({
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     content: 'and what do you think',
     cleanContent: 'and what do you think',
     reference: { messageId: 'm-other' },
@@ -1546,7 +1552,7 @@ test('follow-up: a reply that also mentions a third member is "no" without consu
     fakeMessage({
       guild,
       channel,
-      channelId: 'c1',
+      placeId: 'c1',
       content: '<@u3> look at this',
       cleanContent: '@Carol look at this',
       reference: { messageId: 'm-other' },
@@ -1575,7 +1581,7 @@ test('follow-up: a mention of another member is "no" without consulting the mode
   const msg = fakeMessage({
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     cleanContent: '@Bob check this out',
     mentions: { users: new Map([['u2', { id: 'u2' }]]) },
   });
@@ -1600,7 +1606,7 @@ test('follow-up: a "yes" verdict runs a reply turn with the candidate as the tar
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
 
-  const msg = fakeMessage({ id: 'm-candidate', guild, channel, channelId: 'c1', cleanContent: 'so what do you think' });
+  const msg = fakeMessage({ id: 'm-candidate', guild, channel, placeId: 'c1', cleanContent: 'so what do you think' });
   const p = handler(msg);
   await new Promise((resolve) => setTimeout(resolve, 0));
   llm.respond('yes');
@@ -1629,7 +1635,7 @@ test('follow-up: five "no" verdicts in a row close the window', async () => {
       id: `m${i}`,
       guild,
       channel,
-      channelId: 'c1',
+      placeId: 'c1',
       cleanContent: `plain ${i}`,
       createdTimestamp: clock(),
     });
@@ -1645,7 +1651,7 @@ test('follow-up: five "no" verdicts in a row close the window', async () => {
     id: 'm4',
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     cleanContent: 'plain 4',
     createdTimestamp: clock(),
   });
@@ -1667,7 +1673,7 @@ test('follow-up: a missing prompts.address is a "no" without calling the model',
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
 
-  const msg = fakeMessage({ guild, channel, channelId: 'c1', cleanContent: 'plain follow-up' });
+  const msg = fakeMessage({ guild, channel, placeId: 'c1', cleanContent: 'plain follow-up' });
   await handler(msg);
 
   assert.equal(llm.calls.length, 0);
@@ -1691,7 +1697,7 @@ test('follow-up: a message that carries a trigger is never sent to the classifie
   const msg = fakeMessage({
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     cleanContent: 'γεια',
     mentions: { users: new Map([['self1', { id: 'self1' }]]) },
   });
@@ -1715,7 +1721,7 @@ test('follow-up: at most one classifier call in flight per channel', async () =>
     id: 'm1',
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     cleanContent: 'first',
     author: { id: 'u1', bot: false, globalName: 'Alice', username: 'alice' },
   });
@@ -1727,7 +1733,7 @@ test('follow-up: at most one classifier call in flight per channel', async () =>
     id: 'm2',
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     cleanContent: 'second',
     author: { id: 'u2', bot: false, globalName: 'Bob', username: 'bob' },
   });
@@ -1754,7 +1760,7 @@ function plainFollowUpMessage({
     id,
     guild,
     channel,
-    channelId: channel.id,
+    placeId: channel.id,
     cleanContent: content,
     createdTimestamp: ts,
     author: { id: authorId, bot: false, globalName: authorName, username: authorName.toLowerCase() },
@@ -2007,7 +2013,7 @@ test('follow-up persistence: an open window survives a re-created handler with t
   const msg = fakeMessage({
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     cleanContent: 'plain follow-up',
     createdTimestamp: clock(),
   });
@@ -2039,7 +2045,7 @@ test('follow-up persistence: an expired window is dropped on load', async () => 
   const guild = fakeGuild();
   const oldChannel = fakeChannelWithHistory('old', guild, []);
   await handler(
-    fakeMessage({ guild, channel: oldChannel, channelId: 'old', cleanContent: 'plain', createdTimestamp: clock() })
+    fakeMessage({ guild, channel: oldChannel, placeId: 'old', cleanContent: 'plain', createdTimestamp: clock() })
   );
   assert.equal(llm.calls.length, 0, 'the dropped window is not consulted');
 });
@@ -2059,7 +2065,7 @@ test('follow-up persistence: closing the window by the "no" streak removes its k
         id: `m${i}`,
         guild,
         channel,
-        channelId: 'c1',
+        placeId: 'c1',
         cleanContent: `plain ${i}`,
         createdTimestamp: clock(),
       })
@@ -2081,7 +2087,7 @@ test('follow-up persistence: an expired window is removed from state when next c
   await openFollowUpWindow(handler, { guild, channel, ts: clock() });
 
   clock.set((FOLLOW_UP_MINUTES + 1) * 60_000); // past the window
-  await handler(fakeMessage({ guild, channel, channelId: 'c1', cleanContent: 'too late', createdTimestamp: clock() }));
+  await handler(fakeMessage({ guild, channel, placeId: 'c1', cleanContent: 'too late', createdTimestamp: clock() }));
 
   assert.equal(Object.hasOwn(windowsOf(store), 'c1'), false);
 });
@@ -2095,7 +2101,7 @@ test('follow-up persistence: no message text ever reaches the state', async () =
   const channel = fakeChannelWithHistory('c1', guild, []);
   await openFollowUpWindow(handler, { guild, channel, ts: clock() });
   const p = handler(
-    fakeMessage({ guild, channel, channelId: 'c1', cleanContent: 'ένα μυστικό μήνυμα', createdTimestamp: clock() })
+    fakeMessage({ guild, channel, placeId: 'c1', cleanContent: 'ένα μυστικό μήνυμα', createdTimestamp: clock() })
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
   llm.respond('no');
@@ -2119,8 +2125,8 @@ function fakeLookup() {
   const readCalls: Array<Untyped> = [];
   return {
     readCalls,
-    readLinks: async (guildId: string, links: Array<Record<string, Untyped>>, options: Record<string, Untyped>) => {
-      readCalls.push({ guildId, links, options });
+    readLinks: async (placeId: string, links: Array<Record<string, Untyped>>, options: Record<string, Untyped>) => {
+      readCalls.push({ placeId, links, options });
       return { reads: new Map(), newCount: 0 };
     },
   };
@@ -2146,7 +2152,7 @@ test('events: web.links.prefill on reads the first readable link of a message, f
   await handler(fakeMessage({ id: 'm1', cleanContent: 'κοίτα', embeds: LINK_EMBEDS }));
 
   assert.equal(lookup.readCalls.length, 1);
-  assert.equal(lookup.readCalls[0].guildId, 'g1');
+  assert.equal(lookup.readCalls[0].placeId, 'g1');
   assert.deepEqual(
     lookup.readCalls[0].links.map((link: Record<string, Untyped>) => link.url),
     ['https://example.org/a'],
@@ -2159,8 +2165,8 @@ function attemptingLookup({ attempted = true }: { attempted?: boolean } = {}) {
   const readCalls: Array<Untyped> = [];
   return {
     readCalls,
-    readLinks: async (guildId: string, links: Array<Record<string, Untyped>>, options: Record<string, Untyped>) => {
-      readCalls.push({ guildId, links, options });
+    readLinks: async (placeId: string, links: Array<Record<string, Untyped>>, options: Record<string, Untyped>) => {
+      readCalls.push({ placeId, links, options });
       return { reads: new Map(), newCount: attempted ? Math.min(links.length, options?.maxNew ?? Infinity) : 0 };
     },
   };
@@ -2207,7 +2213,7 @@ test('events: a message with no readable link never calls readLinks; a lookup fa
 // ---------------------------------------------------------------------------
 // Private chat (features.privateMessages): a DM from a member of the served
 // guild runs through privateGate (src/behavior/private.ts) and, when it
-// passes, a reply turn with the pinned guildId. Limit notices: a triggered
+// passes, a reply turn with the pinned placeId. Limit notices: a triggered
 // turn refused by a rail gets one plain line naming the limit.
 
 const TODAY = '2026-09-29';
@@ -2249,7 +2255,7 @@ function fakeDmMessage(overrides: Record<string, Untyped> = {}) {
     guild: null,
     member: null,
     channel,
-    channelId: channel.id,
+    placeId: channel.id,
     cleanContent: 'γεια σου',
     ...overrides,
   });
@@ -2271,10 +2277,10 @@ function fakePrivateStore({
 }: { profiles?: Untyped; privates?: Record<string, Untyped> } = {}) {
   return {
     state: { data: {} },
-    getUser: (guildId: string, userId: string) => profiles[userId] ?? null,
-    getPrivate: (guildId: string, userId: string) => privates[userId] ?? null,
+    getUser: (userId: string) => profiles[userId] ?? null,
+    getPrivate: (userId: string) => privates[userId] ?? null,
     // PR 7d: memory is code, so the real turn reads these of the store.
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     listChannels: () => [],
     listUserProfiles: () => [],
     countUsers: () => Object.keys(profiles).length,
@@ -2410,7 +2416,7 @@ test('private: an owner below minAffinity is still answered (owners bypass the t
   assert.equal(turns.calls.length, 1);
 });
 
-test('private: a DM that passes is observed privately and answered with the pinned guildId', async () => {
+test('private: a DM that passes is observed privately and answered with the pinned placeId', async () => {
   const store = fakePrivateStore();
   const turns = recordingTurns();
   const memory = fakeMemory();
@@ -2422,13 +2428,15 @@ test('private: a DM that passes is observed privately and answered with the pinn
   await settle();
 
   assert.equal(memory.observeCalls.length, 1);
-  assert.equal(memory.observeCalls[0][0], 'g1');
+  // A DM has no community: it is observed under its own place.
+  assert.notEqual(memory.observeCalls[0][0], 'g1');
   assert.equal(memory.observeCalls[0][1].content, 'γεια σου');
   assert.deepEqual(memory.observeCalls[0][2], { direct: true, private: 'u1' });
   assert.equal(turns.calls.length, 1);
   const args = turns.calls[0];
   assert.deepEqual(args.conversation, refTo(channel));
-  assert.equal(args.guildId, 'g1');
+  // A private chat's turn names its conversation alone: no home place is pinned on it.
+  assert.equal('placeId' in args, false);
   assert.equal(args.mode, 'reply');
   assert.equal(args.triggerKind, 'private');
   assert.equal(args.trigger.id, 'dm-m1');
@@ -2448,7 +2456,7 @@ test('private: a DM refused by a rail posts the limit notice', async () => {
   assert.deepEqual(textsOf(handler, channel.id), ['limit reached (llm.maxRequestsPerDay, 800/800)']);
 });
 
-test('private: while busy elsewhere the DM is pending as "private"; the drain passes guildId', async () => {
+test('private: while busy elsewhere the DM is pending as "private"; the drain passes placeId', async () => {
   let busy = true;
   const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
   const store = fakePrivateStore();
@@ -2471,7 +2479,8 @@ test('private: while busy elsewhere the DM is pending as "private"; the drain pa
   await handler.drainPending();
 
   assert.equal(turns.calls.length, 1);
-  assert.equal(turns.calls[0].guildId, 'g1');
+  // A DM's turn names no community.
+  assert.equal('placeId' in turns.calls[0], false);
   assert.equal(turns.calls[0].triggerKind, 'private');
   assert.deepEqual(turns.calls[0].conversation, refTo(channel));
 });
@@ -2505,7 +2514,7 @@ test('private: a drained DM whose turn finds another one running is re-queued an
   await handler.drainPending();
   assert.equal(turns.calls.length, 2);
   assert.equal(turns.calls[1].trigger.id, 'dm-m1');
-  assert.equal(turns.calls[1].guildId, 'g1');
+  assert.equal('placeId' in turns.calls[1], false);
 });
 
 /** A DM queued while busy elsewhere; `change` runs before the drain. Returns what the drain did. */
@@ -2559,7 +2568,8 @@ test("private: the persona's own DM message is noted and observed privately unde
 
   assert.deepEqual(turns.notePostCalls, [['dm1', message.createdTimestamp]]);
   assert.equal(memory.observeCalls.length, 1);
-  assert.equal(memory.observeCalls[0][0], 'g1');
+  // A DM has no community: it is observed under its own place.
+  assert.equal(memory.observeCalls[0][0], 'dm1');
   assert.equal(memory.observeCalls[0][1].self, true);
   assert.deepEqual(memory.observeCalls[0][2], { private: 'u1' });
   assert.equal(turns.calls.length, 0);
@@ -2624,7 +2634,7 @@ test('limits: a mention refused by a rail posts the notice as a plain reply to t
   const guild = fakeGuild();
   const channel = sendingChannel('c1', guild);
   const handler = makeHandler({ turns, rng: scripted([0.99]), prompts: { labels } });
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
   await settle();
 
   assert.equal(turns.calls.length, 1);
@@ -2640,7 +2650,7 @@ test('limits: a pending mention refused at drain time posts the notice', async (
   const guild = fakeGuild();
   const channel = sendingChannel('c1', guild);
   const handler = makeHandler({ turns, rng: scripted([0.5, 0.99]), sleep: async () => {}, prompts: { labels } });
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
   busy = false;
   await handler.drainPending();
 
@@ -2653,7 +2663,7 @@ test('limits: a refusal with no limit, or another outcome, posts nothing', async
     const guild = fakeGuild();
     const channel = sendingChannel('c1', guild);
     const handler = makeHandler({ turns: recordingTurns(result), rng: scripted([0.99]), prompts: { labels } });
-    await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+    await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
     await settle();
     assert.deepEqual(noticesOf(handler, 'c1'), [], JSON.stringify(result));
   }
@@ -2668,7 +2678,7 @@ test('limits: a follow-up turn refused by a rail posts the notice', async () => 
   await openFollowUpWindow(handler, { guild, channel, ts: Date.now() });
 
   const p = handler(
-    fakeMessage({ id: 'm-candidate', guild, channel, channelId: 'c1', cleanContent: 'so what do you think' })
+    fakeMessage({ id: 'm-candidate', guild, channel, placeId: 'c1', cleanContent: 'so what do you think' })
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
   llm.respond('yes');
@@ -2694,13 +2704,13 @@ function fakeCachingDescriber(cached = new Map(), { gate }: { gate?: Untyped } =
   return {
     calls,
     cachedCalls,
-    describeMany: async (guildId: string, items: Array<Record<string, Untyped>>) => {
-      calls.push({ guildId, items });
+    describeMany: async (placeId: string, items: Array<Record<string, Untyped>>) => {
+      calls.push({ placeId, items });
       if (gate) await gate;
       return { descriptions: new Map(), newCount: 0 };
     },
-    cachedDescriptions: (guildId: string, items: Array<Record<string, Untyped>>) => {
-      cachedCalls.push({ guildId, items });
+    cachedDescriptions: (placeId: string, items: Array<Record<string, Untyped>>) => {
+      cachedCalls.push({ placeId, items });
       return new Map(
         items.filter((item) => cached.has(item.itemId)).map((item) => [item.itemId, cached.get(item.itemId)])
       );
@@ -2713,7 +2723,7 @@ function stickerOnlyMessage({ guild, channel, id = 'm-sticker' }: Record<string,
     id,
     guild,
     channel,
-    channelId: channel.id,
+    placeId: channel.id,
     cleanContent: '',
     stickers: new Map([['s1', { id: 's1', name: 'pingo', format: 1 }]]),
   });
@@ -2737,7 +2747,7 @@ test('follow-up: a sticker-only candidate with a cached caption reaches the clas
     /<candidate>\n[^\n]*\[sticker: pingo: a penguin waving hello\]\n<\/candidate>/
   );
   assert.equal(describer.cachedCalls.length, 1);
-  assert.equal(describer.cachedCalls[0].guildId, 'g1');
+  assert.equal(describer.cachedCalls[0].placeId, 'g1');
   assert.ok(describer.cachedCalls[0].items.some((item: Record<string, Untyped>) => item.itemId === 'sticker:s1'));
 
   llm.respond('no');
@@ -2840,7 +2850,7 @@ async function classifierUserMessage({
     id: 'm-candidate',
     guild,
     channel,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: authorId, bot: false, globalName: authorName, username: 'el' },
     member: { displayName: authorName },
     cleanContent: 'and you too',
@@ -2866,7 +2876,7 @@ test('follow-up author: the request carries an <author> block with the top-ranke
   const authorAt = user.indexOf('<author>');
   assert.ok(authorAt > user.indexOf('earlier message'), 'after the transcript');
   assert.ok(authorAt < user.indexOf('<candidate>'), 'before the candidate');
-  assert.deepEqual(store.getUserCalls, [['g1', 'u7']], 'the candidate author profile, read once');
+  assert.deepEqual(store.getUserCalls, [['u7']], 'the candidate author profile, read once');
 });
 
 test('follow-up author: ranking decays with memory.aliasHalfLifeDays, like the persona request', async () => {
@@ -2892,7 +2902,7 @@ test('follow-up author: a profile without aliases, or no stored profile, adds no
     const user = await classifierUserMessage({ store });
     assert.ok(!user.includes('<author>'), `${label}: no <author> block`);
     assert.ok(user.includes('<candidate>') && user.includes('and you too'), `${label}: the candidate is still sent`);
-    assert.deepEqual(store.getUserCalls, [['g1', 'u7']], `${label}: the candidate author's profile, read once`);
+    assert.deepEqual(store.getUserCalls, [['u7']], `${label}: the candidate author's profile, read once`);
   }
 });
 
@@ -2919,7 +2929,8 @@ test('follow-up author: reading the profile writes nothing', async () => {
   assert.ok(user.includes('<author>'));
   assert.deepEqual(profile, before, 'the stored profile is unchanged');
   assert.deepEqual(
-    touched.filter((key) => key !== 'state' && key !== 'then'),
+    // Naming the place and the account of a native id only reads.
+    touched.filter((key) => !['state', 'then', 'sharedPlaceOf', 'accountOf'].includes(key)),
     [],
     'no store method other than getUser'
   );
@@ -3233,7 +3244,7 @@ test('follow-up: a pre-filtered or prompt-less "no" logs answer no too', async (
       fakeMessage({
         guild,
         channel,
-        channelId: 'c1',
+        placeId: 'c1',
         cleanContent: '@Bob look',
         mentions: { users: new Map([['u2', { id: 'u2' }]]) },
       })
@@ -3450,7 +3461,7 @@ const WAITING_LINE_BLOCKERS = table([
         options: { channelOverrides: { permissionsFor } },
         block: () => {
           sendAllowed = false;
-          world().channel({ id: 'c1', guildId: 'g1', name: null, permissions: { send: false } }, { keep: true });
+          world().channel({ id: 'c1', placeId: 'g1', name: null, permissions: { send: false } }, { keep: true });
         },
       };
     },
@@ -3550,7 +3561,7 @@ test('events: drainPending does nothing while paused; the queued ping waits for 
   const handler = makeHandler({ turns, store, sleep: async () => {}, rng: scripted([0.5, 0.99]) });
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
 
   store.state.data.paused = true;
   busy = false;
@@ -3572,7 +3583,7 @@ test('events: a pause landing during the switch pause stops the drain before the
   const handler = makeHandler({ turns, store, sleep, rng: scripted([0.5, 0.99]) });
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
 
   busy = false;
   await handler.drainPending();
@@ -3627,9 +3638,9 @@ test("events: forwarding one of the persona's own messages is not a reply to it"
     fakeMessage({
       guild,
       channel,
-      channelId: 'c1',
+      placeId: 'c1',
       cleanContent: '',
-      reference: { messageId: 'm100', channelId: 'c1', type: MessageReferenceType.Forward },
+      reference: { messageId: 'm100', placeId: 'c1', type: MessageReferenceType.Forward },
     })
   );
   await settle();
@@ -3642,7 +3653,7 @@ test('events: a message that replies to nothing fetches no message; a reply targ
   const guild = fakeGuild();
   const channel = fakeChannel('c1', guild);
   world().seed('c1', [
-    rawHistoryMessage({ id: 'm0', authorId: 'self1', authorName: 'Neptunia', ts: Date.now() - 1000, channelId: 'c1' }),
+    rawHistoryMessage({ id: 'm0', authorId: 'self1', authorName: 'Neptunia', ts: Date.now() - 1000, placeId: 'c1' }),
   ]);
   world().tap('fetchMessages', ([ref, ids]: Array<Untyped>) => {
     if (ref.conversationId === 'c1') fetched.push(...ids);
@@ -3652,11 +3663,11 @@ test('events: a message that replies to nothing fetches no message; a reply targ
   const handler = makeHandler({ config, turns, rng: () => 0.99 });
 
   const { logs } = await withCapturedLogs(async () => {
-    await handler(fakeMessage({ id: 'm1', guild, channel, channelId: 'c1', cleanContent: 'καλημέρα' }));
+    await handler(fakeMessage({ id: 'm1', guild, channel, placeId: 'c1', cleanContent: 'καλημέρα' }));
     assert.deepEqual(fetched, [], 'no reply: nothing to look up, not even a page of the channel');
 
     await handler(
-      fakeMessage({ id: 'm2', guild, channel, channelId: 'c1', cleanContent: 'ναι', reference: { messageId: 'm0' } })
+      fakeMessage({ id: 'm2', guild, channel, placeId: 'c1', cleanContent: 'ναι', reference: { messageId: 'm0' } })
     );
     await settle();
     assert.deepEqual(fetched, ['m0'], 'the reply target is fetched by its id');
@@ -3668,7 +3679,7 @@ test('events: a message that replies to nothing fetches no message; a reply targ
     // A target that cannot be fetched is no reply to the persona, and nothing escapes the handler.
     world().failRead('fetchMessages', 'c1');
     await handler(
-      fakeMessage({ id: 'm3', guild, channel, channelId: 'c1', cleanContent: 'όχι', reference: { messageId: 'm9' } })
+      fakeMessage({ id: 'm3', guild, channel, placeId: 'c1', cleanContent: 'όχι', reference: { messageId: 'm9' } })
     );
     await settle();
   });
@@ -3895,7 +3906,7 @@ function recordingMissed() {
     facts,
     activity,
     noteFact: (fact: string) => facts.push(fact),
-    noteActivity: (channelId: string, at: Array<Record<string, Untyped>>) => activity.push([channelId, at]),
+    noteActivity: (placeId: string, at: Array<Record<string, Untyped>>) => activity.push([placeId, at]),
   };
 }
 
@@ -3907,7 +3918,7 @@ test('follow-up: a failed classifier is a missed-answer fact, gate-failopen when
     [['gate-failopen', 'm-candidate', 'classifier-failed']]
   );
   assert.ok(
-    kept.activity.some(([channelId]) => channelId === 'c1'),
+    kept.activity.some(([placeId]) => placeId === 'c1'),
     'the message is activity in its channel'
   );
 
@@ -3948,7 +3959,7 @@ test('events: a bot.channels deny key added while a mention waits is ignored at 
   const handler = makeHandler({ config, turns, sleep: async () => {}, rng: scripted([0.5, 0.99]) });
   const guild = fakeGuild();
   const channel = fakeChannelWithMessage('c1', guild, 'm1');
-  await handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+  await handler(directPingMessage({ guild, channel, placeId: 'c1' }));
 
   config.bot.channels = { allow: [], deny: ['c1'] };
   busy = false;
@@ -3957,8 +3968,11 @@ test('events: a bot.channels deny key added while a mention waits is ignored at 
 });
 
 // ---------------------------------------------------------------------------
-// Calls from a channel the persona can read but not write in (features.elsewhere): recorded in
-// the ring (state.json `elsewherePings`), answered in the main channel once the source settles.
+// Calls from a channel the persona can read but not write in. The routed call is gone by the owner's decision of
+// 2026-11-05 (no home place and no equivalent), and with it the fifty tests that pinned its settle wait
+// (src/pipeline/settle.ts), its route (`routeFor`, `usableDestination`), its queue entry (`destination`, `superseded`) and
+// its stamps on the ring from the pipeline. No other behaviour of the pipeline rested on them; the tests below state what
+// holds instead.
 
 const VIEW = PermissionFlagsBits.ViewChannel;
 const SEND = PermissionFlagsBits.SendMessages;
@@ -4053,7 +4067,7 @@ function routeChannel(
     groups: roles.filter((role: string) => role !== 'g1'),
   });
   const held = world().channel(
-    { id, guildId: guild.id, name: id, permissions: { send }, audience: audienceOf(viewers) },
+    { id, placeId: guild.id, name: id, permissions: { send }, audience: audienceOf(viewers) },
     { keep: true }
   );
   Object.defineProperty(channel, 'sent', { get: () => held.sent });
@@ -4093,9 +4107,7 @@ function routeScene({
   spontaneous?: Untyped;
 } = {}) {
   freshWorld();
-  const config = baseConfig(
-    deepMerge({ memory: { mainChannelIds: ['d1'] }, bot: { nameTriggers: ['νεπτούνια'] } }, overrides)
-  );
+  const config = baseConfig(deepMerge({ bot: { nameTriggers: ['νεπτούνια'] } }, overrides));
   const guild = routeGuild();
   const source = routeChannel(guild, 's1', { send: false, viewers: sourceViewers });
   const source2 = routeChannel(guild, 's2', { send: false });
@@ -4137,7 +4149,7 @@ function routeMessage(
     id,
     guild: channel.guild,
     channel,
-    channelId: channel.id,
+    placeId: channel.id,
     author: { id: authorId, bot: false, globalName: authorName, username: authorName },
     member: { displayName: authorName },
     cleanContent: content,
@@ -4161,1333 +4173,35 @@ async function routeSend(
   await scene.handler(message);
 }
 
-/** Move the clock to `seconds` after ROUTE_T0 and fire every live settle timer. */
-async function routeFire(scene: RouteScene, seconds: number) {
-  scene.clock.set(routeAt(seconds));
-  await scene.timers.fire();
-}
-
 const byMsg = (logs: Record<string, Untyped>, msg: string) =>
   logs.filter((entry: Record<string, Untyped>) => entry.msg === msg);
 
-test('events: a ping in a read-only channel waits for the settle, then runs a reply turn in the main channel with its source', async () => {
+test('events: a call where she cannot write starts no wait and no turn, keeps nothing and leaves a trace', async () => {
+  // Bug: a call from a read-only channel comes back later as words in a channel nobody chose.
   const scene = routeScene();
-  const { logs } = await withCapturedLogs(async () => {
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    assert.equal(scene.turns.calls.length, 0, 'nothing runs before the source settles');
-    assert.equal(scene.timers.live().length, 1, 'one settle timer for the source');
-    assert.equal(scene.timers.live()[0].ms, 90 * SECOND, 'elsewhere.settleSeconds after the call');
-    assert.equal(scene.timers.live()[0].unrefed, true, 'the timer never keeps the process alive');
-    await routeFire(scene, 90);
-  });
-
-  assert.equal(scene.turns.calls.length, 1);
-  const args = scene.turns.calls[0];
-  assert.deepEqual(args.conversation, refTo(scene.main), 'the turn posts in the main channel');
-  assert.equal(args.mode, 'reply');
-  assert.equal(args.triggerKind, 'mention');
-  assert.equal(args.trigger.id, 'm1');
-  assert.equal(args.trigger.channelId, 's1');
-  assert.deepEqual(args.source, { channelId: 's1', reason: 'routed' });
-
-  assert.deepEqual(
-    byMsg(logs, 'elsewhere: settling').map(({ source, kind, message, destination }: Record<string, Untyped>) => ({
-      source,
-      kind,
-      message,
-      destination,
-    })),
-    [{ source: 's1', kind: 'ping', message: 'm1', destination: 'd1' }]
-  );
-  const [settled] = byMsg(logs, 'elsewhere: settled');
-  assert.equal(settled.source, 's1');
-  assert.equal(settled.kind, 'ping');
-  assert.equal(settled.waitedMs, 90 * SECOND);
-  assert.equal(settled.moved, 0);
-  const [decided] = byMsg(logs, 'mention: decided');
-  assert.equal(decided.channel, 's1', 'the call is decided where it was written');
-  assert.equal(decided.destination, 'd1');
-  assert.equal(byMsg(logs, 'mention: dropped').length, 0);
-});
-
-test('events: each new message in the source moves the settle, never past settleMaxSeconds', async () => {
-  const scene = routeScene();
-  const { logs } = await withCapturedLogs(async () => {
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    for (const [seconds, id] of table([
-      [60, 'm2'],
-      [140, 'm3'],
-      [220, 'm4'],
-      [290, 'm5'],
-    ])) {
-      await routeSend(scene, scene.source, seconds, {
-        id,
-        mention: false,
-        authorId: 'u2',
-        authorName: 'Ίων',
-        content: 'σημείωση',
-      });
-    }
-    // 0 -> due 90; 60 -> 150; 140 -> 230; 220 -> min(310, 300) = 300; 290 -> still 300 (no new timer).
-    assert.deepEqual(
-      scene.timers.all.map((timer) => timer.ms),
-      [90, 90, 90, 80].map((s) => s * SECOND)
-    );
-    assert.deepEqual(
-      scene.timers.live().map((timer) => timer.ms),
-      [80 * SECOND]
-    );
-    await routeFire(scene, 300);
-  });
-
-  assert.equal(scene.turns.calls.length, 1);
-  assert.equal(scene.turns.calls[0].trigger.id, 'm1');
-  const [settled] = byMsg(logs, 'elsewhere: settled');
-  assert.equal(settled.waitedMs, 300 * SECOND, 'elsewhere.settleMaxSeconds after the first call');
-  assert.equal(settled.moved, 3, 'the last message no longer pushed the due time');
-});
-
-test('events: a newer call in the same source replaces the waiting one', async () => {
-  const scene = routeScene();
-  const { logs } = await withCapturedLogs(async () => {
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    await routeSend(scene, scene.source, 30, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
-    assert.deepEqual(
-      scene.timers.live().map((timer) => timer.ms),
-      [90 * SECOND],
-      'the burst settles 90 s after the newer call'
-    );
-    await routeFire(scene, 120);
-  });
-
-  const [replaced] = byMsg(logs, 'elsewhere: dropped');
-  assert.equal(replaced.source, 's1');
-  assert.equal(replaced.kind, 'ping');
-  assert.equal(replaced.reason, 'replaced');
-  assert.equal(replaced.message, 'm1');
-  assert.equal(byMsg(logs, 'elsewhere: settling').length, 1, 'one wait for the burst');
-  assert.deepEqual(
-    scene.turns.calls.map((args: Record<string, Untyped>) => args.trigger.id),
-    ['m2'],
-    'only the newer call is answered'
-  );
-  assert.deepEqual(
-    scene.store.state.data.elsewherePings.map((entry: Record<string, Untyped>) => entry.messageId),
-    ['m1', 'm2'],
-    'both stay in the ring'
-  );
-  assert.equal(byMsg(logs, 'elsewhere: settled')[0].waitedMs, 120 * SECOND);
-});
-
-test('events: a name call never replaces a waiting mention', async () => {
-  const scene = routeScene();
-  const { logs } = await withCapturedLogs(async () => {
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    await routeSend(scene, scene.source, 30, {
-      id: 'm2',
-      mention: false,
-      authorId: 'u2',
-      authorName: 'Ίων',
-      content: 'η νεπτούνια είναι αστεία',
-    });
-    assert.deepEqual(
-      scene.timers.live().map((timer) => timer.ms),
-      [90 * SECOND],
-      'the weaker call still moves the wait'
-    );
-    await routeFire(scene, 120);
-  });
-
-  const dropped = byMsg(logs, 'elsewhere: dropped');
-  assert.equal(dropped.length, 1);
-  assert.equal(dropped[0].source, 's1');
-  assert.equal(dropped[0].message, 'm2', 'the name call is the one dropped');
-  assert.equal(dropped[0].reason, 'outranked');
-  assert.deepEqual(
-    scene.turns.calls.map((args: Record<string, Untyped>) => [args.trigger.id, args.triggerKind]),
-    [['m1', 'mention']]
-  );
-  assert.deepEqual(
-    scene.store.state.data.elsewherePings.map((entry: Record<string, Untyped>) => entry.messageId),
-    ['m1', 'm2'],
-    'both stay in the ring'
-  );
-});
-
-test('events: a mention replaces a waiting name call', async () => {
-  const scene = routeScene();
-  const { logs } = await withCapturedLogs(async () => {
-    await routeSend(scene, scene.source, 0, { id: 'm1', mention: false, content: 'νεπτούνια, δες εδώ' });
-    await routeSend(scene, scene.source, 30, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
-    await routeFire(scene, 120);
-  });
-
-  const [replaced] = byMsg(logs, 'elsewhere: dropped');
-  assert.equal(replaced.message, 'm1');
-  assert.equal(replaced.reason, 'replaced');
-  assert.deepEqual(
-    scene.turns.calls.map((args: Record<string, Untyped>) => [args.trigger.id, args.triggerKind]),
-    [['m2', 'mention']]
-  );
-});
-
-test('events: settle waits are per source: a call in another read-only channel arms its own', async () => {
-  const scene = routeScene();
-  const { logs } = await withCapturedLogs(async () => {
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    await routeSend(scene, scene.source2, 30, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
-    await routeSend(scene, scene.source2, 60, {
-      id: 'm3',
-      mention: false,
-      authorId: 'u3',
-      authorName: 'Χλόη',
-      content: 'σημείωση',
-    });
-
-    const [s1Timer] = scene.timers.all;
-    assert.equal(scene.timers.all.length, 3, 's1 armed, s2 armed, s2 moved');
-    assert.equal(s1Timer.cleared, false, 'traffic in s2 never moves the wait of s1');
-    assert.equal(s1Timer.ms, 90 * SECOND);
-    assert.equal(scene.timers.live().length, 2);
-
-    scene.clock.set(routeAt(90));
-    await scene.timers.fireOne(s1Timer);
-    assert.deepEqual(
-      scene.turns.calls.map((args: Record<string, Untyped>) => [args.source.channelId, args.trigger.id]),
-      [['s1', 'm1']]
-    );
-    assert.deepEqual(
-      scene.timers.live().map((timer) => timer.ms),
-      [90 * SECOND],
-      's2 still waits, due 90 s after its last message'
-    );
-    await routeFire(scene, 150);
-  });
-
-  assert.deepEqual(
-    scene.turns.calls.map((args: Record<string, Untyped>) => [
-      args.conversation.conversationId,
-      args.source.channelId,
-      args.trigger.id,
-    ]),
-    [
-      ['d1', 's1', 'm1'],
-      ['d1', 's2', 'm2'],
-    ]
-  );
-  assert.deepEqual(
-    byMsg(logs, 'elsewhere: settling').map((entry: Record<string, Untyped>) => [entry.source, entry.message]),
-    [
-      ['s1', 'm1'],
-      ['s2', 'm2'],
-    ]
-  );
-  assert.equal(byMsg(logs, 'elsewhere: dropped').length, 0, 'nothing replaced across sources');
-  assert.deepEqual(
-    byMsg(logs, 'elsewhere: settled').map((entry: Record<string, Untyped>) => [entry.source, entry.waitedMs]),
-    [
-      ['s1', 90 * SECOND],
-      ['s2', 120 * SECOND],
-    ]
-  );
-});
-
-test('events: a call another turn already showed and answered is not answered again when the settle fires', async () => {
-  const spokeSaw = new Map();
-  const turns = recordingTurns();
-  turns.spokeAfterSeeing = (channelId: string, messageId: string) => spokeSaw.get(channelId)?.has(messageId) ?? false;
-  const scene = routeScene({ turns });
-  // Earlier calls in the ring: m0 in the source, x1 in another read-only channel.
-  scene.store.state.data.elsewherePings = [
-    { messageId: 'm0', channelId: 's1', ts: routeAt(-600), answeredAt: null, skippedAt: null },
-    { messageId: 'x1', channelId: 's2', ts: routeAt(-500), answeredAt: null, skippedAt: null },
-  ];
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  await routeSend(scene, scene.source, 5, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
-  // During the wait a turn in the main channel pulled s1, showed both calls of this settle
-  // (m2 took m1's place) and spoke -- m0 was not in its view; s2 was shown by another turn.
-  spokeSaw.set('s1', new Set(['n0', 'm1', 'm2']));
-  spokeSaw.set('s2', new Set(['x1']));
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 95));
-
-  assert.equal(turns.calls.length, 0);
-  const [answered] = byMsg(logs, 'mention: already answered');
-  assert.equal(answered.channel, 's1');
-  assert.equal(answered.kind, 'mention');
-  assert.equal(byMsg(logs, 'mention: decided').length, 0, 'never counted or rolled again');
-  // The call it had in hand and the one it replaced are no longer presented as waiting by a
-  // later pull; a call that turn never showed, or one of another channel, is left as it was.
-  assert.deepEqual(ringStates(scene), { m0: 'unanswered', x1: 'unanswered', m1: 'skipped', m2: 'skipped' });
-  const m1 = scene.store.state.data.elsewherePings.find((entry: Record<string, Untyped>) => entry.messageId === 'm1');
-  assert.deepEqual([m1.answeredAt, m1.skippedAt], [null, routeAt(95)]);
-  assert.deepEqual(
-    byMsg(logs, 'elsewhere: marked').map(({ source, message, status }: Record<string, Untyped>) => [
-      source,
-      message,
-      status,
-    ]),
-    [
-      ['s1', 'm2', 'skipped'],
-      ['s1', 'm1', 'skipped'],
-    ]
-  );
-
-  // A call that turn did not have in view is still answered.
-  await routeSend(scene, scene.source, 100, { id: 'm3', authorId: 'u3', authorName: 'Χλόη' });
-  await routeFire(scene, 190);
-  assert.deepEqual(
-    turns.calls.map((args: Record<string, Untyped>) => args.trigger.id),
-    ['m3']
-  );
-});
-
-test('events: a settled call the ring holds as answered starts no turn, though no turn remembers showing it', async () => {
-  // During the wait a turn in the main channel pulled s1 and answered the call (the turn stamps
-  // the ring: src/behavior/turn.ts#stampShownCalls); a later turn's view of s1 no longer holds it.
-  const turns = recordingTurns();
-  turns.spokeAfterSeeing = () => false;
-  const scene = routeScene({ turns });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  await routeSend(scene, scene.source, 5, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
-  scene.store.state.data.elsewherePings.find((entry: Record<string, Untyped>) => entry.messageId === 'm2').answeredAt =
-    routeAt(40);
-  const dirty = scene.store.dirtyCount;
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 95));
-
-  assert.equal(turns.calls.length, 0);
-  assert.deepEqual(
-    byMsg(logs, 'mention: already answered').map(({ channel, kind, reason }: Record<string, Untyped>) => [
-      channel,
-      kind,
-      reason,
-    ]),
-    [['s1', 'mention', 'ring']]
-  );
-  assert.equal(byMsg(logs, 'mention: decided').length, 0, 'never counted or rolled');
-  assert.equal(byMsg(logs, 'mention: dropped').length, 0);
-  // The turn that answered stamped what it showed; nothing is stamped here.
-  assert.deepEqual(ringStates(scene), { m1: 'unanswered', m2: 'answered' });
-  assert.equal(byMsg(logs, 'elsewhere: marked').length, 0);
-  assert.equal(scene.store.dirtyCount, dirty);
-
-  // Only an answer closes a settled call: one the ring holds as skipped (shown in passing) still gets its turn.
-  await routeSend(scene, scene.source, 100, { id: 'm3', authorId: 'u3', authorName: 'Χλόη' });
-  scene.store.state.data.elsewherePings.find((entry: Record<string, Untyped>) => entry.messageId === 'm3').skippedAt =
-    routeAt(120);
-  await routeFire(scene, 190);
-  assert.deepEqual(
-    turns.calls.map((args: Record<string, Untyped>) => args.trigger.id),
-    ['m3']
-  );
-});
-
-/** Replace the `fetchMessages` of `channel` with `answer` (null: gone, an object: there, a throw: fails), counted. */
-function countLookups(channel: Record<string, Untyped>, answer: Untyped) {
-  const lookups = { count: 0 };
-  world().intercept('fetchMessages', async ([ref, ids]: Array<Untyped>) => {
-    if (ref.conversationId !== channel.id) return undefined;
-    lookups.count += 1;
-    try {
-      const found = await answer();
-      if (found === null)
-        return {
-          status: 'ok',
-          messages: ids.map((messageId: string) => ({ messageId, missing: true })),
-        };
-      seedExisting(channel.id, ids[0]);
-    } catch {
-      return { status: 'failed', error: { code: 'http-503', retryable: true, retryAfterMs: null } };
-    }
-  });
-  return lookups;
-}
-
-// How the lookup of a call's message can come back empty-handed.
-const LOOKUP_MISSES = [
-  ['deleted', async () => null],
-  [
-    'the fetch fails',
-    async () => {
-      throw Object.assign(new Error('Service Unavailable'), { status: 503 });
-    },
-  ],
-];
-
-test('events: a settled call the ring holds as answered is logged as answered, never as gone or fetch-failed, and costs no lookup', async () => {
-  for (const [label, answer] of LOOKUP_MISSES) {
-    freshWorld();
-    const scene = routeScene();
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    // A turn in the main channel pulled s1, answered the call and stamped the ring; then the
-    // call's message left the cache (deleted, or swept) and cannot be looked up any more.
-    scene.store.state.data.elsewherePings[0].answeredAt = routeAt(40);
-    world().forget(scene.source.id, 'm1');
-    const lookups = countLookups(scene.source, answer);
-    const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-    assert.equal(scene.turns.calls.length, 0, wrongly(label));
-    assert.deepEqual(
-      byMsg(logs, 'mention: already answered').map(({ channel, kind, reason }: Record<string, Untyped>) => [
-        channel,
-        kind,
-        reason,
-      ]),
-      [['s1', 'mention', 'ring']],
-      wrongly(label)
-    );
-    assert.equal(byMsg(logs, 'mention: dropped').length, 0, `${label}: an answered call is not reported as lost`);
-    assert.equal(lookups.count, 0, `${label}: no lookup for a call already answered`);
-    assert.deepEqual(ringStates(scene), { m1: 'answered' }, wrongly(label));
-  }
-});
-
-test('events: a settled call answered while its message is looked up is not answered again', async () => {
-  for (const [label, answer] of table([['found', async () => ({ id: 'm1' })], ...LOOKUP_MISSES])) {
-    freshWorld();
-    const scene = routeScene();
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    // Swept from the cache, so the settle has to fetch it. While that fetch is in flight a turn
-    // in the main channel that showed the call speaks and stamps the ring.
-    world().forget(scene.source.id, 'm1');
-    const lookups = countLookups(scene.source, async () => {
-      scene.store.state.data.elsewherePings[0].answeredAt = routeAt(90);
-      return wrongly<() => Untyped>(answer)();
-    });
-    const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-    assert.equal(lookups.count, 1, wrongly(label));
-    assert.equal(scene.turns.calls.length, 0, wrongly(label));
-    assert.deepEqual(
-      byMsg(logs, 'mention: already answered').map(({ channel, kind, reason }: Record<string, Untyped>) => [
-        channel,
-        kind,
-        reason,
-      ]),
-      [['s1', 'mention', 'ring']],
-      wrongly(label)
-    );
-    assert.equal(byMsg(logs, 'mention: dropped').length, 0, wrongly(label));
-    assert.equal(byMsg(logs, 'mention: decided').length, 0, `${label}: never counted or rolled`);
-  }
-});
-
-test('events: a call deleted during the settle wait is dropped with reason gone', async () => {
-  const scene = routeScene();
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  world().forget(scene.source.id, 'm1');
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-  assert.equal(scene.turns.calls.length, 0);
-  assert.equal(byMsg(logs, 'mention: decided').length, 0, 'never counted or rolled');
-  assert.deepEqual(
-    byMsg(logs, 'mention: dropped').map(({ channel, kind, reason, destination }: Record<string, Untyped>) => [
-      channel,
-      kind,
-      reason,
-      destination,
-    ]),
-    [['s1', 'mention', 'gone', undefined]],
-    'dropped before a destination is resolved'
-  );
-  assert.equal(byMsg(logs, 'elsewhere: dropped').length, 0);
-});
-
-test('events: a settled call whose message fetch fails is dropped as fetch-failed and stays unanswered', async () => {
-  const scene = routeScene();
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  world().forget(scene.source.id, 'm1');
-  world().failRead('fetchMessages', scene.source.id);
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-  assert.equal(scene.turns.calls.length, 0);
-  assert.deepEqual(
-    byMsg(logs, 'mention: dropped').map(({ channel, kind, reason }: Record<string, Untyped>) => [
-      channel,
-      kind,
-      reason,
-    ]),
-    [['s1', 'mention', 'fetch-failed']]
-  );
-  assert.equal(byMsg(logs, 'mention: decided').length, 0);
-  assert.equal(byMsg(logs, 'elsewhere: settle failed').length, 0, 'a failed fetch is a drop, not a settle failure');
-  assert.deepEqual(ringStates(scene), { m1: 'unanswered' });
-});
-
-test('events: stop clears every settle wait, and a timer that fires late starts nothing', async () => {
-  const scene = routeScene();
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  await routeSend(scene, scene.source2, 10, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
-  assert.equal(scene.timers.live().length, 2);
-
-  scene.handler.stop();
-  assert.equal(scene.timers.live().length, 0, 'every timer cleared');
-  scene.clock.set(routeAt(90));
-  for (const timer of scene.timers.all) await scene.timers.fireOne(timer);
-  assert.equal(scene.turns.calls.length, 0);
-});
-
-test('events: a pause clears armed settle timers; nothing fires afterwards', async () => {
-  const scene = routeScene();
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  await routeSend(scene, scene.source2, 10, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
-  assert.equal(scene.timers.live().length, 2);
-
-  const { logs } = await withCapturedLogs(() => scene.handler.clearPending());
-  assert.equal(scene.timers.live().length, 0, 'every settle timer cleared');
-  assert.deepEqual(
-    byMsg(logs, 'elsewhere: dropped').map(({ source, kind, message, reason }: Record<string, Untyped>) => [
-      source,
-      kind,
-      message,
-      reason,
-    ]),
-    [
-      ['s1', 'ping', 'm1', 'paused'],
-      ['s2', 'ping', 'm2', 'paused'],
-    ]
-  );
-
-  // A timer that fires anyway starts nothing.
-  const late = await withCapturedLogs(async () => {
-    scene.clock.set(routeAt(120));
-    for (const timer of scene.timers.all) await scene.timers.fireOne(timer);
-    await scene.handler.drainPending();
-  });
-  assert.equal(scene.turns.calls.length, 0);
-  assert.equal(byMsg(late.logs, 'elsewhere: settled').length, 0);
-  assert.deepEqual(
-    scene.store.state.data.elsewherePings.map((entry: Record<string, Untyped>) => entry.answeredAt),
-    [null, null],
-    'both stay unanswered in the ring'
-  );
-
-  // A later message in the source arms nothing old; a new call there arms a wait of its own.
-  const armed = scene.timers.all.length;
-  await routeSend(scene, scene.source, 130, {
-    id: 'm3',
-    mention: false,
-    authorId: 'u3',
-    authorName: 'Χλόη',
-    content: 'σημείωση',
-  });
-  assert.equal(scene.timers.all.length, armed, 'nothing to move or re-arm');
-  const fresh = await withCapturedLogs(async () => {
-    await routeSend(scene, scene.source, 140, { id: 'm4', authorId: 'u3', authorName: 'Χλόη' });
-    await routeFire(scene, 230);
-  });
-  assert.deepEqual(
-    byMsg(fresh.logs, 'elsewhere: settling').map(({ source, message }: Record<string, Untyped>) => [source, message]),
-    [['s1', 'm4']]
-  );
-  assert.deepEqual(
-    scene.turns.calls.map((args: Record<string, Untyped>) => args.trigger.id),
-    ['m4'],
-    'only the new call is answered'
-  );
-});
-
-test('events: clearPending drops a queued routed ping with the rest of the queue', async () => {
-  let busy = true;
-  const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-  const scene = routeScene({ turns });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  const queued = await withCapturedLogs(() => routeFire(scene, 90));
-  assert.deepEqual(
-    byMsg(queued.logs, 'mention: deferred').map(({ channel, destination }: Record<string, Untyped>) => [
-      channel,
-      destination,
-    ]),
-    [['s1', 'd1']],
-    'the routed call waits in the queue, not dropped'
-  );
-  scene.handler.clearPending();
-  busy = false;
-  await scene.handler.drainPending();
-
-  assert.equal(turns.calls.length, 0);
-});
-
-test('events: the settle wait marks no turn busy: a call in the main channel meanwhile is answered at once', async () => {
-  const busy = new Set();
-  const turns = recordingTurns(
-    { outcome: 'spoke' },
-    { isBusy: (id: string) => busy.has(id), isAnyBusy: () => busy.size > 0 }
-  );
-  const scene = routeScene({ turns });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  assert.equal(turns.isAnyBusy(), false, 'waiting holds no attention');
-
-  await routeSend(scene, scene.main, 10, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
-  assert.equal(turns.calls.length, 1, 'the call in the main channel runs now');
-  assert.deepEqual(turns.calls[0].conversation, refTo(scene.main));
-  assert.equal('source' in turns.calls[0], false);
-  assert.equal(scene.timers.all.length, 1, 'a message in another channel does not move the settle');
-
-  await routeFire(scene, 90);
-  assert.equal(turns.calls.length, 2);
-  assert.deepEqual(turns.calls[1].source, { channelId: 's1', reason: 'routed' });
-});
-
-for (const [when, config, mainCanSend] of table([
-  ['memory.mainChannelIds is empty', { memory: { mainChannelIds: [] } }, true],
-  ['the main channel is the source itself', { memory: { mainChannelIds: ['s1'] } }, true],
-  ['the main channel is unknown', { memory: { mainChannelIds: ['d9'] } }, true],
-  ['the bot cannot send in the main channel', {}, false],
-])) {
-  test(`events: no usable main channel drops with route no-destination (${when})`, async () => {
-    const scene = routeScene({ config, mainCanSend });
-    const { logs } = await withCapturedLogs(() => routeSend(scene, scene.source, 0, { id: 'm1' }));
-
-    const dropped = byMsg(logs, 'mention: dropped');
-    assert.equal(dropped.length, 1);
-    assert.equal(dropped[0].reason, 'cannot-send');
-    assert.equal(dropped[0].route, 'no-destination');
-    assert.equal(scene.timers.all.length, 0);
-    assert.equal(scene.store.state.data.elsewherePings, undefined);
-  });
-}
-
-test('events: the audience rail drops a ping from a narrower channel with route audience', async () => {
-  // @everyone views the main channel; only one role views the source.
-  const scene = routeScene({ sourceViewers: ['r1'] });
   const { logs } = await withCapturedLogs(() => routeSend(scene, scene.source, 0, { id: 'm1' }));
 
   const dropped = byMsg(logs, 'mention: dropped');
   assert.equal(dropped.length, 1);
   assert.equal(dropped[0].reason, 'cannot-send');
-  assert.equal(dropped[0].route, 'audience');
   assert.equal(scene.timers.all.length, 0);
+  assert.equal(scene.turns.calls.length, 0);
   assert.equal(scene.store.state.data.elsewherePings, undefined);
 });
 
-test('events: context.pull.sameAudience false lets a ping from a narrower channel through', async () => {
-  const scene = routeScene({ sourceViewers: ['r1'], config: { context: { pull: { sameAudience: false } } } });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  await routeFire(scene, 90);
-  assert.equal(scene.turns.calls.length, 1);
-  assert.deepEqual(scene.turns.calls[0].conversation, refTo(scene.main));
-});
-
-test('events: a settle that fires while paused drops the call (paused)', async () => {
+test('events: a writable channel beside a read-only one takes none of its calls', async () => {
+  // Bug: the first writable place stands in as a home for the read-only channel's call.
   const scene = routeScene();
   await routeSend(scene, scene.source, 0, { id: 'm1' });
-  scene.store.state.data.paused = true;
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-  assert.equal(scene.turns.calls.length, 0);
-  const dropped = byMsg(logs, 'elsewhere: dropped');
-  assert.equal(dropped.length, 1);
-  assert.equal(dropped[0].source, 's1');
-  assert.equal(dropped[0].reason, 'paused');
-  assert.equal(byMsg(logs, 'mention: decided').length, 0, 'never counted or rolled');
-  assert.equal(scene.store.state.data.elsewherePings[0].answeredAt, null, 'the call stays unanswered in the ring');
-});
-
-for (const [reason, change] of table([
-  ['no-destination', (scene) => (scene.config.memory.mainChannelIds = [])],
-  // @everyone loses the source; the main channel stays visible to everyone.
-  [
-    'audience',
-    (scene: Record<string, Untyped>) =>
-      scene.source.setViewers(scene.sourceViewers.filter((role: string) => role !== 'g1')),
-  ],
-])) {
-  test(`events: the route is checked again when the settle fires (${reason})`, async () => {
-    const scene = routeScene();
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    change(scene);
-    const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-    assert.equal(scene.turns.calls.length, 0);
-    const dropped = byMsg(logs, 'elsewhere: dropped');
-    assert.equal(dropped.length, 1);
-    assert.equal(dropped[0].reason, reason);
-  });
-}
-
-/** Lets the bot keep viewing `channel` but no longer send there. */
-function revokeSend(scene: Record<string, Untyped>, channel: Record<string, Untyped>) {
-  channel.revokeSend();
-}
-
-test('events: a routed ping during a turn is queued under its source and drained into the destination', async () => {
-  let busy = false;
-  const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-  const scene = routeScene({ turns });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  busy = true;
-  const { logs } = await withCapturedLogs(async () => {
-    await routeFire(scene, 90);
-    assert.equal(turns.calls.length, 0, 'held while the attention is taken');
-    busy = false;
-    scene.clock.set(routeAt(120));
-    await scene.handler.drainPending();
-  });
-
-  const [deferred] = byMsg(logs, 'mention: deferred');
   assert.deepEqual(
-    [deferred.channel, deferred.kind, deferred.destination, deferred.sameChannel, deferred.pending],
-    ['s1', 'mention', 'd1', false, 1]
+    scene.turns.calls.map((args: Record<string, Untyped>) => args.conversation.conversationId),
+    []
   );
-  const [picked] = byMsg(logs, 'mention: picked up');
-  assert.deepEqual([picked.channel, picked.destination], ['s1', 'd1']);
-  const [decided] = byMsg(logs, 'mention: decided');
+  await routeSend(scene, scene.main, 1, { id: 'm2' });
   assert.deepEqual(
-    [decided.channel, decided.destination, decided.deferred],
-    ['s1', 'd1', true],
-    'counted and rolled at the drain'
+    scene.turns.calls.map((args: Record<string, Untyped>) => args.trigger.id),
+    ['m2']
   );
-  assert.equal(turns.calls.length, 1);
-  const args = turns.calls[0];
-  assert.deepEqual(args.conversation, refTo(scene.main), 'the drained turn posts in the main channel');
-  assert.deepEqual(args.source, { channelId: 's1', reason: 'routed' });
-  assert.deepEqual([args.mode, args.triggerKind, args.trigger.id], ['reply', 'mention', 'm1']);
-  assert.equal(byMsg(logs, 'mention: dropped').length, 0);
-  assert.equal(
-    scene.store.state.data.elsewherePings[0].answeredAt,
-    routeAt(120),
-    'answered once its drained turn spoke'
-  );
-});
-
-test("events: a routed ping at mention.maxPending evicts the oldest waiting call, the main channel's too, logged with counts", async () => {
-  let busy = false;
-  const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-  const scene = routeScene({ turns });
-  const [c2, c3] = ['c2', 'c3'].map((id) => routeChannel(scene.guild, id));
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  busy = true;
-  // Three calls in writable channels, the main channel's first, wait for the running turn (mention.maxPending is 3).
-  for (const [index, channel] of [scene.main, c2, c3].entries()) {
-    await routeSend(scene, channel, 10 + index, { id: `w${index + 1}`, authorId: `u${index + 2}`, authorName: 'Ίων' });
-  }
-  const { logs } = await withCapturedLogs(async () => {
-    await routeFire(scene, 90);
-    busy = false;
-    await scene.handler.drainPending();
-  });
-
-  const dropped = byMsg(logs, 'mention: dropped');
-  assert.equal(dropped.length, 1);
-  assert.deepEqual(
-    [dropped[0].channel, dropped[0].kind, dropped[0].reason, dropped[0].pending, dropped[0].maxPending],
-    ['d1', 'mention', 'full', 3, 3],
-    "the main channel's own call, the oldest, made room -- logged with the counts"
-  );
-  assert.equal('destination' in dropped[0], false, 'the evicted call was written in the main channel itself');
-  assert.equal(byMsg(logs, 'mention: deferred').at(-1).pending, 3);
-  assert.deepEqual(
-    turns.calls.map((args: Record<string, Untyped>) => [
-      args.conversation.conversationId,
-      args.trigger.id,
-      args.source?.channelId ?? null,
-    ]),
-    [
-      ['c2', 'w2', null],
-      ['c3', 'w3', null],
-      ['d1', 'm1', 's1'],
-    ],
-    'oldest first, the routed call into the main channel'
-  );
-});
-
-test("events: a queued routed ping never replaces the main channel's own pending ping", async () => {
-  let busy = true;
-  const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-  const scene = routeScene({ turns });
-  await routeSend(scene, scene.main, 0, { id: 'w1', authorId: 'u2', authorName: 'Ίων' });
-  await routeSend(scene, scene.source, 5, { id: 'm1' });
-  const { logs } = await withCapturedLogs(async () => {
-    await routeFire(scene, 95);
-    busy = false;
-    await scene.handler.drainPending();
-  });
-
-  assert.equal(byMsg(logs, 'mention: dropped').length, 0);
-  assert.deepEqual(
-    turns.calls.map((args: Record<string, Untyped>) => [
-      args.conversation.conversationId,
-      args.trigger.id,
-      args.source?.channelId ?? null,
-    ]),
-    [
-      ['d1', 'w1', null],
-      ['d1', 'm1', 's1'],
-    ]
-  );
-});
-
-test('events: a drained routed ping whose turn finds the attention taken is queued again with its destination', async () => {
-  // oneAtATime off: only a turn in the main channel holds the routed call back -- never one in its source.
-  const busyIds = new Set(['d1']);
-  const results = [{ outcome: 'busy' }, { outcome: 'spoke' }];
-  const calls: Array<Untyped> = [];
-  const turns = fakeTurns({
-    isBusy: (id: string) => busyIds.has(id),
-    isAnyBusy: () => busyIds.size > 0,
-    runTurn: async (args: Record<string, Untyped>) => {
-      calls.push(args);
-      // A turn starts in the main channel during the switch pause of the first attempt.
-      if (calls.length === 1) busyIds.add('d1');
-      return results.shift();
-    },
-  });
-  const scene = routeScene({ turns, config: { mention: { oneAtATime: false } } });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  await routeFire(scene, 90);
-  busyIds.clear();
-
-  const first = await withCapturedLogs(() => scene.handler.drainPending());
-  assert.equal(calls.length, 1, 'the pass stops while the main channel is busy');
-  const [again] = byMsg(first.logs, 'mention: deferred again');
-  assert.deepEqual([again.channel, again.destination, again.reason], ['s1', 'd1', 'busy']);
-
-  busyIds.clear();
-  const second = await withCapturedLogs(() => scene.handler.drainPending());
-  assert.equal(calls.length, 2);
-  assert.deepEqual(calls[1].conversation, refTo(scene.main));
-  assert.deepEqual(calls[1].source, { channelId: 's1', reason: 'routed' });
-  assert.equal(byMsg([...first.logs, ...second.logs], 'mention: decided').length, 1, 'decided once');
-  assert.equal(scene.store.state.data.elsewherePings[0].answeredAt, routeAt(90));
-});
-
-test('events: the drain drops a routed ping when the destination can no longer send', async () => {
-  let busy = true;
-  const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-  const scene = routeScene({ turns });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  await routeFire(scene, 90);
-  revokeSend(scene, scene.main);
-  busy = false;
-  const { logs } = await withCapturedLogs(() => scene.handler.drainPending());
-
-  assert.equal(turns.calls.length, 0);
-  const [dropped] = byMsg(logs, 'mention: dropped');
-  assert.deepEqual(
-    [dropped.channel, dropped.kind, dropped.reason, dropped.route, dropped.destination],
-    ['s1', 'mention', 'cannot-send', 'no-destination', 'd1'],
-    'no other main channel to take it: dropped by its route, with the code'
-  );
-  assert.equal(byMsg(logs, 'mention: decided').length, 0, 'never counted or rolled');
-  assert.equal(scene.store.state.data.elsewherePings[0].answeredAt, null);
-});
-
-test('events: a drained routed ping posts in the main channel resolved now, not the one it waited with', async () => {
-  for (const [label, mainBefore, change] of table([
-    ['the first main channel lost Send', ['d1', 'd2'], (scene) => revokeSend(scene, scene.main)],
-    ['the main channel list changed', ['d1'], (scene) => (scene.config.memory.mainChannelIds = ['d2'])],
-    [
-      'the list changed after the old main channel lost Send',
-      ['d1'],
-      (scene: Record<string, Untyped>) => {
-        revokeSend(scene, scene.main);
-        scene.config.memory.mainChannelIds = ['d2'];
-      },
-    ],
-  ])) {
-    let busy = true;
-    const turns = recordingTurns(wrongly({ outcome: 'spoke', mode: 'reply', delivered: true }), {
-      isAnyBusy: () => busy,
-    });
-    const scene = routeScene({ turns, config: { memory: { mainChannelIds: mainBefore } } });
-    const second = routeChannel(scene.guild, 'd2');
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    const { logs } = await withCapturedLogs(async () => {
-      await routeFire(scene, 90);
-      change(scene);
-      busy = false;
-      scene.clock.set(routeAt(120));
-      await scene.handler.drainPending();
-    });
-
-    assert.equal(byMsg(logs, 'mention: deferred')[0].destination, 'd1', `${label}: it waited with d1`);
-    assert.equal(byMsg(logs, 'mention: dropped').length, 0, wrongly(label));
-    assert.equal(turns.calls.length, 1, wrongly(label));
-    assert.deepEqual(turns.calls[0].conversation, refTo(second), `${label}: the turn posts in d2`);
-    assert.deepEqual(turns.calls[0].source, { channelId: 's1', reason: 'routed' }, wrongly(label));
-    const [decided] = byMsg(logs, 'mention: decided');
-    assert.deepEqual([decided.channel, decided.destination], ['s1', 'd2'], wrongly(label));
-    assert.equal(scene.store.state.data.elsewherePings[0].answeredAt, routeAt(120), wrongly(label));
-  }
-});
-
-for (const [reason, change] of table([
-  ['no-destination', (scene) => (scene.config.memory.mainChannelIds = [])],
-  // @everyone loses the source; the main channel stays visible to everyone.
-  [
-    'audience',
-    (scene: Record<string, Untyped>) =>
-      scene.source.setViewers(scene.sourceViewers.filter((role: string) => role !== 'g1')),
-  ],
-])) {
-  test(`events: the drain checks the route of a queued routed ping again (${reason})`, async () => {
-    let busy = true;
-    const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-    const scene = routeScene({ turns });
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    await routeFire(scene, 90);
-    change(scene);
-    busy = false;
-    const { logs } = await withCapturedLogs(() => scene.handler.drainPending());
-
-    assert.equal(turns.calls.length, 0);
-    const [dropped] = byMsg(logs, 'mention: dropped');
-    assert.deepEqual(
-      [dropped.channel, dropped.reason, dropped.route, dropped.destination],
-      ['s1', 'cannot-send', reason, 'd1']
-    );
-    assert.equal(byMsg(logs, 'mention: decided').length, 0);
-  });
-}
-
-test('events: a queued routed ping a turn already showed and answered is not answered again', async () => {
-  let busy = true;
-  let shown = false;
-  const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-  turns.spokeAfterSeeing = (channelId: string, messageId: Untyped) => shown && channelId === 's1' && messageId === 'm1';
-  const scene = routeScene({ turns });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  await routeFire(scene, 90);
-  // The running turn pulled s1, showed the queued call and spoke.
-  shown = true;
-  busy = false;
-  scene.clock.set(routeAt(100));
-  const { logs } = await withCapturedLogs(() => scene.handler.drainPending());
-
-  assert.equal(turns.calls.length, 0);
-  assert.deepEqual(
-    byMsg(logs, 'mention: already answered').map((entry: Record<string, Untyped>) => [
-      entry.channel,
-      entry.destination,
-    ]),
-    [['s1', 'd1']],
-    'traceable to the main channel like every drain line of a routed call'
-  );
-  assert.equal(byMsg(logs, 'mention: decided').length, 0);
-  // No later pull presents the call as waiting.
-  const [entry] = scene.store.state.data.elsewherePings;
-  assert.deepEqual([entry.answeredAt, entry.skippedAt], [null, routeAt(100)]);
-  assert.deepEqual(
-    byMsg(logs, 'elsewhere: marked').map(({ message, status }: Record<string, Untyped>) => [message, status]),
-    [['m1', 'skipped']]
-  );
-});
-
-test('events: a queued routed ping the ring holds as answered is not answered again, though no turn remembers showing it', async () => {
-  let busy = true;
-  const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-  turns.spokeAfterSeeing = () => false;
-  const scene = routeScene({ turns });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  await routeFire(scene, 90);
-  // The running turn pulled s1 and answered the queued call; it stamped the ring, and the
-  // view a later turn left in memory no longer holds the call.
-  scene.store.state.data.elsewherePings[0].answeredAt = routeAt(95);
-  busy = false;
-  scene.clock.set(routeAt(100));
-  const dirty = scene.store.dirtyCount;
-  const { logs } = await withCapturedLogs(() => scene.handler.drainPending());
-
-  assert.equal(turns.calls.length, 0);
-  assert.deepEqual(
-    byMsg(logs, 'mention: already answered').map(({ channel, kind, reason, destination }: Record<string, Untyped>) => [
-      channel,
-      kind,
-      reason,
-      destination,
-    ]),
-    [['s1', 'mention', 'ring', 'd1']]
-  );
-  assert.equal(byMsg(logs, 'mention: decided').length, 0, 'never counted or rolled');
-  assert.deepEqual(ringStates(scene), { m1: 'answered' });
-  assert.equal(byMsg(logs, 'elsewhere: marked').length, 0);
-  assert.equal(scene.store.dirtyCount, dirty);
-});
-
-/** A scene whose call `m1` of s1 settled while a turn was running: it waits in the queue. `release()` ends that turn. */
-async function queuedRouteScene() {
-  let busy = true;
-  const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-  turns.spokeAfterSeeing = () => false;
-  const scene = routeScene({ turns });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  await routeFire(scene, 90);
-  const release = () => {
-    busy = false;
-    scene.clock.set(routeAt(100));
-  };
-  return Object.assign(scene, { release });
-}
-
-test('events: a queued routed ping the ring holds as answered is logged as answered, never as gone or fetch-failed, and costs no lookup', async () => {
-  for (const [label, answer] of LOOKUP_MISSES) {
-    freshWorld();
-    const scene = await queuedRouteScene();
-    // The running turn pulled s1, answered the queued call and stamped the ring; then the call's
-    // message left the cache (deleted, or swept) and cannot be looked up any more.
-    scene.store.state.data.elsewherePings[0].answeredAt = routeAt(95);
-    world().forget(scene.source.id, 'm1');
-    const lookups = countLookups(scene.source, answer);
-    scene.release();
-    const { logs } = await withCapturedLogs(() => scene.handler.drainPending());
-
-    assert.equal(scene.turns.calls.length, 0, wrongly(label));
-    assert.deepEqual(
-      byMsg(logs, 'mention: already answered').map(
-        ({ channel, kind, reason, destination }: Record<string, Untyped>) => [channel, kind, reason, destination]
-      ),
-      [['s1', 'mention', 'ring', 'd1']],
-      wrongly(label)
-    );
-    assert.equal(byMsg(logs, 'mention: dropped').length, 0, `${label}: an answered call is not reported as lost`);
-    assert.equal(lookups.count, 0, `${label}: no lookup for a call already answered`);
-    assert.deepEqual(ringStates(scene), { m1: 'answered' }, wrongly(label));
-  }
-});
-
-test('events: a queued routed ping answered while its message is looked up is not answered again', async () => {
-  for (const [label, answer] of table([['found', async () => ({ id: 'm1' })], ...LOOKUP_MISSES])) {
-    freshWorld();
-    const scene = await queuedRouteScene();
-    // Swept from the cache, so the drain has to fetch it. While that fetch is in flight another
-    // turn that showed the call speaks and stamps the ring.
-    world().forget(scene.source.id, 'm1');
-    const lookups = countLookups(scene.source, async () => {
-      scene.store.state.data.elsewherePings[0].answeredAt = routeAt(100);
-      return wrongly<() => Untyped>(answer)();
-    });
-    scene.release();
-    const { logs } = await withCapturedLogs(() => scene.handler.drainPending());
-
-    assert.equal(lookups.count, 1, wrongly(label));
-    assert.equal(scene.turns.calls.length, 0, wrongly(label));
-    assert.deepEqual(
-      byMsg(logs, 'mention: already answered').map(
-        ({ channel, kind, reason, destination }: Record<string, Untyped>) => [channel, kind, reason, destination]
-      ),
-      [['s1', 'mention', 'ring', 'd1']],
-      wrongly(label)
-    );
-    assert.equal(byMsg(logs, 'mention: dropped').length, 0, wrongly(label));
-    assert.equal(byMsg(logs, 'mention: decided').length, 0, `${label}: never counted or rolled`);
-  }
-});
-
-test('events: queued routed pings a speaking turn already showed are each dropped as already answered, the ring stamped skipped', async () => {
-  let busy = true;
-  const seen = new Set();
-  const turns = recordingTurns({ outcome: 'spoke' }, { isAnyBusy: () => busy });
-  turns.spokeAfterSeeing = (channelId: string, messageId: string) => channelId === 's1' && seen.has(messageId);
-  const scene = routeScene({ turns });
-  // m1 waits in the queue; m2, a later call of the same source, waits beside it.
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  await routeFire(scene, 90);
-  await routeSend(scene, scene.source, 100, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
-  await routeFire(scene, 190);
-  // The running turn pulled s1, showed both calls and spoke.
-  for (const id of ['m1', 'm2']) seen.add(id);
-  busy = false;
-  scene.clock.set(routeAt(200));
-  const { logs } = await withCapturedLogs(() => scene.handler.drainPending());
-
-  assert.equal(turns.calls.length, 0);
-  assert.deepEqual(
-    byMsg(logs, 'mention: already answered').map((line: Record<string, Untyped>) => line.channel),
-    ['s1', 's1'],
-    'the seen rule still holds for routed calls'
-  );
-  assert.deepEqual(ringStates(scene), { m1: 'skipped', m2: 'skipped' });
-});
-
-test('events: a routed ping enters the ring and is marked answered when the turn spoke', async () => {
-  const scene = routeScene();
-  await routeSend(scene, scene.source, 0, { id: 'm1', ts: routeAt(-5) });
-  assert.deepEqual(scene.store.state.data.elsewherePings, [
-    { messageId: 'm1', channelId: 's1', ts: routeAt(-5), answeredAt: null, skippedAt: null },
-  ]);
-  const dirty = scene.store.dirtyCount;
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-  assert.deepEqual(scene.store.state.data.elsewherePings, [
-    { messageId: 'm1', channelId: 's1', ts: routeAt(-5), answeredAt: routeAt(90), skippedAt: null },
-  ]);
-  assert.ok(scene.store.dirtyCount > dirty, 'the ring is marked dirty');
-  assert.deepEqual(
-    byMsg(logs, 'elsewhere: marked').map(({ source, message, status }: Record<string, Untyped>) => ({
-      source,
-      message,
-      status,
-    })),
-    [{ source: 's1', message: 'm1', status: 'answered' }]
-  );
-});
-
-test('events: a routed call the persona let pass is marked skipped, one whose turn did not reach a decision stays unanswered', async () => {
-  for (const [result, status] of table([
-    [{ outcome: 'skip', mode: 'reply' }, 'skipped'],
-    // It chose to answer, but nothing reached the chat (its only reaction was dropped or refused).
-    [{ outcome: 'spoke', mode: 'reply', delivered: false }, 'skipped'],
-    [{ outcome: 'error' }, 'unanswered'],
-    [{ outcome: 'refused', limit: null }, 'unanswered'],
-    [{ outcome: 'paused' }, 'unanswered'],
-  ])) {
-    const scene = routeScene({ turns: recordingTurns(wrongly(result)) });
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-    const [entry] = scene.store.state.data.elsewherePings;
-    assert.equal(scene.turns.calls.length, 1, result.outcome);
-    assert.deepEqual(
-      [entry.answeredAt, entry.skippedAt],
-      status === 'skipped' ? [null, routeAt(90)] : [null, null],
-      result.outcome
-    );
-    assert.deepEqual(
-      byMsg(logs, 'elsewhere: marked').map((line: Record<string, Untyped>) => line.status),
-      status === 'skipped' ? ['skipped'] : [],
-      result.outcome
-    );
-  }
-});
-
-/** The state of each ring entry by message id: `answered`, `skipped` or `unanswered`. */
-function ringStates(scene: Record<string, Untyped>) {
-  return Object.fromEntries(
-    scene.store.state.data.elsewherePings.map((entry: Untyped) => [entry.messageId, pingStatus(entry)])
-  );
-}
-
-test("events: a routed turn's outcome stamps its own call only; the other calls it showed are the turn's to stamp", async () => {
-  // m1 and m2 in one settle: the newer m2 takes the wait. A real turn that showed m1 stamps it
-  // itself -- answered when its output answered m1, skipped otherwise (src/behavior/turn.ts,
-  // tests/turn.test.js); the fake turn here stamps nothing, so m1 shows what the caller does.
-  for (const [label, result, states, marked] of table([
-    [
-      'spoke',
-      { outcome: 'spoke', mode: 'reply', delivered: true },
-      { m1: 'unanswered', m2: 'answered' },
-      [['m2', 'answered']],
-    ],
-    ['skip', { outcome: 'skip', mode: 'reply' }, { m1: 'unanswered', m2: 'skipped' }, [['m2', 'skipped']]],
-    ['error', { outcome: 'error' }, { m1: 'unanswered', m2: 'unanswered' }, []],
-  ])) {
-    const scene = routeScene({ turns: recordingTurns(wrongly(result)) });
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    await routeSend(scene, scene.source, 20, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
-    const { logs } = await withCapturedLogs(() => routeFire(scene, 110));
-
-    assert.deepEqual(
-      scene.turns.calls.map((args: Record<string, Untyped>) => args.trigger.id),
-      ['m2'],
-      wrongly(label)
-    );
-    assert.deepEqual(ringStates(scene), states, wrongly(label));
-    assert.deepEqual(
-      byMsg(logs, 'elsewhere: marked').map(({ message, status }: Record<string, Untyped>) => [message, status]),
-      marked,
-      wrongly(label)
-    );
-  }
-
-  // Earlier stamps are kept and only what changed is logged; a call skipped during its wait (a
-  // turn that showed it chose silence) is answered when its own routed turn reaches the chat.
-  const scene = routeScene({ turns: recordingTurns(wrongly({ outcome: 'spoke', mode: 'reply', delivered: true })) });
-  scene.store.state.data.elsewherePings = [
-    { messageId: 'm0', channelId: 's1', ts: routeAt(-60), answeredAt: routeAt(-30), skippedAt: null },
-    { messageId: 'm1', channelId: 's1', ts: routeAt(-20), answeredAt: null, skippedAt: routeAt(-10) },
-  ];
-  await routeSend(scene, scene.source, 0, { id: 'm2' });
-  scene.store.state.data.elsewherePings.find((entry: Record<string, Untyped>) => entry.messageId === 'm2').skippedAt =
-    routeAt(30);
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-  assert.deepEqual(ringStates(scene), { m0: 'answered', m1: 'skipped', m2: 'answered' });
-  assert.deepEqual(
-    byMsg(logs, 'elsewhere: marked').map(({ message, status }: Record<string, Untyped>) => [message, status]),
-    [['m2', 'answered']],
-    'only what changed is logged'
-  );
-});
-
-test('events: a routed call queued after an older one from its source waits beside it; each gets its own turn', async () => {
-  let busy = false;
-  const turns = recordingTurns(wrongly({ outcome: 'spoke', mode: 'reply', delivered: true }), {
-    isAnyBusy: () => busy,
-  });
-  const scene = routeScene({ turns });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  busy = true;
-  const { logs } = await withCapturedLogs(async () => {
-    await routeFire(scene, 90);
-    await routeSend(scene, scene.source, 100, { id: 'm2', authorId: 'u2', authorName: 'Ίων' });
-    await routeFire(scene, 190);
-    busy = false;
-    await scene.handler.drainPending();
-  });
-
-  assert.deepEqual(
-    byMsg(logs, 'mention: deferred').map(({ channel, destination }: Record<string, Untyped>) => [channel, destination]),
-    [
-      ['s1', 'd1'],
-      ['s1', 'd1'],
-    ]
-  );
-  assert.deepEqual(byMsg(logs, 'mention: dropped'), [], 'no call leaves the queue');
-  assert.deepEqual(
-    turns.calls.map((args: Record<string, Untyped>) => args.trigger.id),
-    ['m1', 'm2']
-  );
-  assert.equal(
-    turns.calls.every((args: Record<string, Untyped>) => args.queued === null),
-    true,
-    'a routed call names no queued call'
-  );
-  // Each turn spoke: the caller stamps each call by its own turn.
-  assert.deepEqual(ringStates(scene), { m1: 'answered', m2: 'answered' });
-});
-
-test('events: a routed turn that ends while paused leaves the ring untouched', async () => {
-  const scene = routeScene({ turns: fakeTurns() });
-  scene.turns.runTurn = async () => {
-    // The owner pauses while the turn runs: nothing may mark the store dirty afterwards.
-    scene.store.state.data.paused = true;
-    return { outcome: 'spoke' };
-  };
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  const dirty = scene.store.dirtyCount;
-  await routeFire(scene, 90);
-
-  assert.equal(scene.store.state.data.elsewherePings[0].answeredAt, null);
-  assert.equal(scene.store.dirtyCount, dirty);
-});
-
-test('events: a routed name call while busy is held and answered in the main channel once the attention frees', async () => {
-  let busy = true;
-  const turns = recordingTurns(wrongly({ outcome: 'spoke', mode: 'reply', delivered: true }), {
-    isAnyBusy: () => busy,
-  });
-  // Exactly two values: the switch pause and the name-trigger roll at drain time.
-  const scene = routeScene({ turns, rng: scripted([0.5, 0.2]) });
-  await routeSend(scene, scene.source, 0, { id: 'm1', mention: false, content: 'νεπτούνια, δες εδώ' });
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-  assert.equal(turns.calls.length, 0, 'not run while the attention is taken');
-  assert.deepEqual(byMsg(logs, 'mention: dropped'), [], 'nothing dropped');
-  assert.equal(byMsg(logs, 'mention: decided').length, 0, 'not rolled on arrival');
-  assert.deepEqual(
-    byMsg(logs, 'mention: deferred').map(({ channel, kind, destination }: Record<string, Untyped>) => [
-      channel,
-      kind,
-      destination,
-    ]),
-    [['s1', 'name', 'd1']]
-  );
-
-  busy = false;
-  const drained = await withCapturedLogs(() => scene.handler.drainPending());
-  assert.deepEqual(
-    byMsg(drained.logs, 'mention: decided').map(({ kind, reason, channel, destination }: Record<string, Untyped>) => [
-      kind,
-      reason,
-      channel,
-      destination,
-    ]),
-    [['name', 'name', 's1', 'd1']]
-  );
-  assert.equal(turns.calls.length, 1);
-  assert.deepEqual(turns.calls[0].conversation, refTo(scene.main));
-  assert.equal(turns.calls[0].triggerKind, 'name');
-  assert.deepEqual(turns.calls[0].source, { channelId: 's1', reason: 'routed' });
-  assert.deepEqual(ringStates(scene), { m1: 'answered' });
-});
-
-test('events: a refused routed turn posts the notice in the destination, not as a reply', async () => {
-  const limit = { key: 'llm.maxRequestsPerDay', used: 800, cap: 800 };
-  // The live path and the drain of a queued call alike.
-  for (const queued of [false, true]) {
-    let busy = queued;
-    const turns = recordingTurns(wrongly({ outcome: 'refused', limit }), { isAnyBusy: () => busy });
-    const scene = routeScene({ turns, prompts: { labels } });
-    await routeSend(scene, scene.source, 0, { id: 'm1' });
-    const { logs } = await withCapturedLogs(async () => {
-      await routeFire(scene, 90);
-      busy = false;
-      if (queued) await scene.handler.drainPending();
-    });
-
-    assert.equal(turns.calls.length, 1, `queued ${queued}`);
-    assert.deepEqual(
-      noticesOf(scene.handler, 'd1'),
-      [lineOf('limit reached (llm.maxRequestsPerDay, 800/800)')],
-      `queued ${queued}: one plain line in the main channel, quoting nothing`
-    );
-    assert.deepEqual(noticesOf(scene.handler, 's1'), [], 'never in the channel it cannot write in');
-    assert.deepEqual(
-      byMsg(logs, 'limits: notice sent').map((entry: Record<string, Untyped>) => entry.channel),
-      ['d1']
-    );
-    assert.equal(scene.store.state.data.elsewherePings[0].answeredAt, null, 'a refusal answers nothing');
-  }
-});
-
-test('events: a settle whose turn throws is logged and never escapes the timer', async () => {
-  const turns = fakeTurns({
-    runTurn: () => {
-      throw new Error('boom');
-    },
-  });
-  const scene = routeScene({ turns });
-  await routeSend(scene, scene.source, 0, { id: 'm1' });
-  const { logs } = await withCapturedLogs(() => routeFire(scene, 90));
-
-  const [failed] = byMsg(logs, 'elsewhere: settle failed');
-  assert.equal(failed.source, 's1');
-});
-
-test('events: a restart during the settle wait loses the timer and leaves the ring entry unanswered', async () => {
-  const store = fakeStateStore();
-  const before = routeScene({ store });
-  await routeSend(before, before.source, 0, { id: 'm1' });
-  assert.equal(before.timers.live().length, 1);
-
-  // The process restarts: the old timer is gone with it, the state survives.
-  const after = routeScene({ store });
-  await routeFire(after, 300);
-  assert.equal(after.timers.all.length, 0, 'nothing re-arms a lost wait');
-  assert.equal(after.turns.calls.length, 0);
-  assert.equal(before.turns.calls.length, 0);
-  assert.deepEqual(store.state.data.elsewherePings, [
-    { messageId: 'm1', channelId: 's1', ts: routeAt(0), answeredAt: null, skippedAt: null },
-  ]);
-});
-
-test('events: a call answered before a restart is not answered again when the same message reaches the new process', async () => {
-  const store = fakeStateStore();
-  const before = routeScene({ store });
-  await routeSend(before, before.source, 0, { id: 'm1' });
-  await routeFire(before, 90);
-  assert.deepEqual(
-    before.turns.calls.map((args: Record<string, Untyped>) => args.trigger.id),
-    ['m1']
-  );
-  assert.deepEqual(ringStates(before), { m1: 'answered' });
-
-  // The process restarts: no turn in memory remembers that answer, the ring in state.json does.
-  // The gateway hands the same call over once more.
-  const after = routeScene({ store, rng: scripted([]) });
-  const { logs } = await withCapturedLogs(async () => {
-    await routeSend(after, after.source, 100, { id: 'm1', ts: routeAt(0) });
-    await routeFire(after, 190);
-  });
-
-  assert.equal(after.turns.calls.length, 0);
-  assert.deepEqual(
-    byMsg(logs, 'mention: already answered').map(({ channel, reason }: Record<string, Untyped>) => [channel, reason]),
-    [['s1', 'ring']]
-  );
-  assert.equal(byMsg(logs, 'mention: decided').length, 0, 'never counted or rolled again');
-  assert.deepEqual(store.state.data.elsewherePings, [
-    { messageId: 'm1', channelId: 's1', ts: routeAt(0), answeredAt: routeAt(90), skippedAt: null },
-  ]);
 });
 
 test('events: a call in a writable channel is untouched by routing', async () => {
@@ -5554,7 +4268,7 @@ function roomChannel(id = 'c1', guild = fakeGuild('g1', 'Neptunia')) {
       authorName: 'Ἀλέξης',
       ts: ROOM_T0 - 60000,
       content: 'earlier line',
-      channelId: id,
+      placeId: id,
     }),
   ];
   return fakeChannelWithHistory(id, guild, history);
@@ -5565,7 +4279,7 @@ function roomMessage(channel: Record<string, Untyped>, overrides: Record<string,
     id: 'm-room',
     guild: channel.guild,
     channel,
-    channelId: channel.id,
+    placeId: channel.id,
     author: { id: 'u7', bot: false, globalName: 'Ελένη', username: 'el' },
     member: { displayName: 'Ελένη' },
     cleanContent: 'ποιος θέλει καφέ;',
@@ -5719,7 +4433,7 @@ for (const { kind, extra } of PAUSED_CALLS) {
     const guild = fakeGuild();
     const channel = pausedChannel('c1', guild);
     const { logs } = await withCapturedLogs(async () => {
-      await scene.handler(directPingMessage({ guild, channel, channelId: 'c1', ...extra }));
+      await scene.handler(directPingMessage({ guild, channel, placeId: 'c1', ...extra }));
       await settle();
     });
     assert.deepEqual(noticesOf(scene.handler, 'c1'), [lineOf(labels.limits.paused, 'c1', 'm1')]);
@@ -5737,7 +4451,7 @@ test('pause notice: a line that is not a direct call stays silent', async () => 
     {
       label: 'ordinary line',
       message: (guild: Record<string, Untyped>, channel: Record<string, Untyped>) =>
-        fakeMessage({ id: 'm1', guild, channel, channelId: 'c1', cleanContent: 'καλημέρα' }),
+        fakeMessage({ id: 'm1', guild, channel, placeId: 'c1', cleanContent: 'καλημέρα' }),
     },
     {
       label: 'reply to someone else',
@@ -5746,7 +4460,7 @@ test('pause notice: a line that is not a direct call stays silent', async () => 
           id: 'm1',
           guild,
           channel,
-          channelId: 'c1',
+          placeId: 'c1',
           cleanContent: 'ναι',
           reference: { messageId: 'm-other' },
         }),
@@ -5757,7 +4471,7 @@ test('pause notice: a line that is not a direct call stays silent', async () => 
         directPingMessage({
           guild,
           channel,
-          channelId: 'c1',
+          placeId: 'c1',
           author: { id: 'b2', bot: true, globalName: 'Bot', username: 'bot' },
         }),
     },
@@ -5767,19 +4481,19 @@ test('pause notice: a line that is not a direct call stays silent', async () => 
         directPingMessage({
           guild,
           channel,
-          channelId: 'c1',
+          placeId: 'c1',
           author: { id: 'self1', bot: true, globalName: 'Self', username: 'self' },
         }),
     },
     {
       label: 'system message',
       message: (guild: Record<string, Untyped>, channel: Record<string, Untyped>) =>
-        directPingMessage({ guild, channel, channelId: 'c1', system: true }),
+        directPingMessage({ guild, channel, placeId: 'c1', system: true }),
     },
     {
       label: 'other guild',
       message: (guild: Record<string, Untyped>, channel: Record<string, Untyped>) =>
-        directPingMessage({ guild: fakeGuild('g2'), channel, channelId: 'c1' }),
+        directPingMessage({ guild: fakeGuild('g2'), channel, placeId: 'c1' }),
     },
   ];
   for (const { label, message } of cases) {
@@ -5802,7 +4516,7 @@ test('pause notice: a call where the bot may not answer stays silent', async () 
     const scene = pausedScene({ config });
     const guild = fakeGuild();
     const channel = pausedChannel('c1', guild, overrides);
-    await scene.handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+    await scene.handler(directPingMessage({ guild, channel, placeId: 'c1' }));
     await settle();
     assert.deepEqual(noticesOf(scene.handler, 'c1'), [], label);
     assertPausedQuiet(scene, label);
@@ -5815,17 +4529,17 @@ test('pause notice: a second call inside the interval posts nothing and logs not
   const channel = pausedChannel('c1', guild);
   const other = pausedChannel('c2', guild);
   const { logs } = await withCapturedLogs(async () => {
-    await scene.handler(directPingMessage({ id: 'm1', guild, channel, channelId: 'c1' }));
+    await scene.handler(directPingMessage({ id: 'm1', guild, channel, placeId: 'c1' }));
     scene.now.set(PAUSE_T0 + 9 * 60 * 1000);
-    await scene.handler(directPingMessage({ id: 'm2', guild, channel, channelId: 'c1' }));
-    await scene.handler(directPingMessage({ id: 'm3', guild, channel: other, channelId: 'c2' }));
+    await scene.handler(directPingMessage({ id: 'm2', guild, channel, placeId: 'c1' }));
+    await scene.handler(directPingMessage({ id: 'm3', guild, channel: other, placeId: 'c2' }));
   });
   assert.equal(noticesOf(scene.handler, 'c1').length, 1, 'inside the interval: nothing');
   assert.equal(noticesOf(scene.handler, 'c2').length, 1, 'the interval is per channel');
   assert.equal(logs.filter((l) => l.msg === 'limits: pause notice').length, 2);
 
   scene.now.set(PAUSE_T0 + 10 * 60 * 1000);
-  await scene.handler(directPingMessage({ id: 'm4', guild, channel, channelId: 'c1' }));
+  await scene.handler(directPingMessage({ id: 'm4', guild, channel, placeId: 'c1' }));
   assert.equal(noticesOf(scene.handler, 'c1').length, 2, 'after the interval: again');
   assert.equal(noticesOf(scene.handler, 'c1')[1]?.replyTo?.messageId, 'm4');
   assertPausedQuiet(scene, 'interval');
@@ -5849,7 +4563,7 @@ test('pause notice: a missing label posts nothing', async () => {
     const scene = pausedScene({ config, prompts });
     const guild = fakeGuild();
     const channel = pausedChannel('c1', guild);
-    await scene.handler(directPingMessage({ guild, channel, channelId: 'c1' }));
+    await scene.handler(directPingMessage({ guild, channel, placeId: 'c1' }));
     await settle();
     assert.deepEqual(noticesOf(scene.handler, 'c1'), [], label);
     assertPausedQuiet(scene, label);
@@ -6059,7 +4773,7 @@ function liveScene({
         spontaneous: fakeSpontaneous(),
         memory: fakeMemory(),
         tagHistory,
-        getGuildId: () => 'g1',
+        isServedCommunity: (id: unknown) => id === 'g1',
         llm,
         rng: () => 0.5,
         now,
@@ -6078,7 +4792,7 @@ function liveScene({
       id,
       guild,
       channel,
-      channelId: channel.id,
+      placeId: channel.id,
       author,
       member: dm ? null : { displayName: LIVE_NAMES[authorId] },
       cleanContent: content,
@@ -6529,7 +5243,7 @@ test('follow-up: a line the turn had in its history is dropped as answered', asy
   await busyCandidate(scene, 'm1', 'yes');
   // The running turn in c1 posts after the candidate, with the candidate in its history.
   await openFollowUpWindow(scene.handler, { guild: scene.guild, channel: scene.channel, ts: FOLLOW_UP_T0 + 5000 });
-  scene.turns.spokeAfterSeeing = (channelId: string, messageId: Untyped) => channelId === 'c1' && messageId === 'm1';
+  scene.turns.spokeAfterSeeing = (placeId: string, messageId: Untyped) => placeId === 'c1' && messageId === 'm1';
   const drain = await endTurnAndDrain(scene);
   assert.equal(scene.turns.calls.length, 0, 'not answered a second time');
   assert.deepEqual(followUpDropped(drain), [['m1', 'answered']]);
@@ -6572,7 +5286,7 @@ function tenorPost(overrides: Record<string, Untyped> = {}) {
     id: 'm1',
     guild,
     channel,
-    channelId: channel.id,
+    placeId: channel.id,
     cleanContent: TENOR_LINK,
     content: TENOR_LINK,
     embeds: [],
@@ -6591,7 +5305,7 @@ function updateScene({ config, describer }: { config?: Untyped; describer?: Unty
 }
 
 function gifEntries(store: Record<string, Untyped>) {
-  return Object.values(store.getGifs('g1').entries);
+  return Object.values(store.getGifs(placeOfCommunity(store, 'g1')).entries);
 }
 
 test('onMessageUpdate: a late gifv embed is counted into the library and prefilled', async () => {
@@ -6612,7 +5326,7 @@ test('onMessageUpdate: a late gifv embed is counted into the library and prefill
   // Changed with the contract: the log counts the late media items of the message (an event carries no embed count).
   assert.equal(folded[0].items, 1);
   assert.equal(folded[0].messageId, 'm1');
-  assert.equal(folded[0].channelId, 'c1');
+  assert.equal(folded[0].placeId, 'c1');
   assert.equal(describer.calls.length, 1, 'the late GIF is prefilled like one on arrival');
   assert.deepEqual(
     describer.calls[0].items.map((item: Record<string, Untyped>) => item.itemId),
@@ -6800,7 +5514,7 @@ test('follow-up: a pending overheard is replaced by a later direct mention in it
         id: 'm2',
         guild: scene.guild,
         channel: scene.channel,
-        channelId: 'c1',
+        placeId: 'c1',
         createdTimestamp: FOLLOW_UP_T0 + 5000,
       })
     )
@@ -6822,7 +5536,7 @@ test('follow-up: a waiting followUp stays beside a later direct mention with pen
         id: 'm2',
         guild: scene.guild,
         channel: scene.channel,
-        channelId: 'c1',
+        placeId: 'c1',
         createdTimestamp: FOLLOW_UP_T0 + 5000,
       })
     )
@@ -6846,7 +5560,7 @@ test('follow-up: a deferred overheard line is not shown to another turn of its c
         id: 'm0',
         guild: scene.guild,
         channel: scene.channel,
-        channelId: 'c1',
+        placeId: 'c1',
         createdTimestamp: FOLLOW_UP_T0 + 500,
       })
     )
@@ -6949,7 +5663,7 @@ function participationEventsStore(ownAt: number) {
     episodes: [
       {
         id: 'p1',
-        channelId: 'c1',
+        placeId: 'c1',
         continues: null,
         messages: [
           {
@@ -6977,8 +5691,8 @@ function participationEventsStore(ownAt: number) {
       reads.push(1);
       return structuredClone(value);
     },
-    setParticipation: (guildId: string, state: Untyped, opts: Record<string, Untyped>) => {
-      writes.push({ guildId, opts });
+    setParticipation: (placeId: string, state: Untyped, opts: Record<string, Untyped>) => {
+      writes.push({ placeId, opts });
       value = structuredClone(state);
     },
   };
@@ -7003,7 +5717,7 @@ test('onMessage: a member line soon after the persona spoke joins her participat
         id: 'f1',
         guild,
         channel,
-        channelId: 'c1',
+        placeId: 'c1',
         createdTimestamp: ownAt + 60_000,
         cleanContent: 'ευχαριστώ',
       })
@@ -7013,7 +5727,7 @@ test('onMessage: a member line soon after the persona spoke joins her participat
         id: 'f2',
         guild,
         channel,
-        channelId: 'c1',
+        placeId: 'c1',
         createdTimestamp: ownAt + 90_000,
         cleanContent: 'και κάτι ακόμα',
       })
@@ -7037,7 +5751,7 @@ test('onMessage: no recent own post, a bot or the diary channel never touch the 
   const guild = fakeGuild();
   const channel = fakeChannel('c1', guild);
   const line = (extra = {}) =>
-    fakeMessage({ id: 'f1', guild, channel, channelId: 'c1', createdTimestamp: ownAt + 60_000, ...extra });
+    fakeMessage({ id: 'f1', guild, channel, placeId: 'c1', createdTimestamp: ownAt + 60_000, ...extra });
 
   const stale = participationEventsStore(ownAt);
   await withCapturedLogs(() =>
@@ -7058,7 +5772,7 @@ test('onMessage: no recent own post, a bot or the diary channel never touch the 
     makeHandler({
       store: diary,
       turns: { ...fakeTurns(), lastPostAt: () => ownAt },
-      config: baseConfig({ selfreflection: { channelId: 'c1' } }),
+      config: baseConfig({ selfreflection: { placeId: 'c1' } }),
     })(line())
   );
   assert.equal(diary.writes.length, 0);
@@ -7070,8 +5784,8 @@ test('onMessage: no recent own post, a bot or the diary channel never touch the 
 test('events: a deleted message writes a deleted line and an edit writes revision 2', async () => {
   const appended: Array<Untyped> = [];
   const record = {
-    append: async (guildId: string, lines: Array<Record<string, Untyped>>, opts: Record<string, Untyped>) => {
-      appended.push({ guildId, lines, opts });
+    append: async (placeId: string, lines: Array<Record<string, Untyped>>, opts: Record<string, Untyped>) => {
+      appended.push({ placeId, lines, opts });
       return { written: lines.length, duplicates: 0 };
     },
   };
@@ -7090,7 +5804,7 @@ test('events: a deleted message writes a deleted line and an edit writes revisio
   await handler.onMessageDelete(created);
   assert.equal(appended.length, 1);
   const [deleted] = appended[0].lines;
-  assert.equal(appended[0].guildId, 'g1');
+  assert.equal(appended[0].placeId, 'g1');
   assert.equal(deleted.kind, 'deleted');
   assert.equal(deleted.messageId, 'm1');
   assert.equal(deleted.occurredAt, new Date(at - 60_000).toISOString(), 'dated by the message itself');

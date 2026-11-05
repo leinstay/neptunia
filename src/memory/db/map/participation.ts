@@ -21,7 +21,7 @@ import type { MapContext, Spec } from './common.ts';
 const SPEC: Array<Spec> = [
   {
     col: 'place_id',
-    key: 'channelId',
+    key: 'placeId',
     type: 'text',
     ok: (v: unknown) => nativeOf(channelPlaceId(LEGACY_IFACE, v)) === v,
     enc: (v: unknown, iface: string) => channelPlaceId(iface, v),
@@ -45,7 +45,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
       const itemId = typeof episode.itemId === 'string' && episode.itemId ? episode.itemId : null;
       const base =
         itemId ??
-        itemOrDerivedId(null, 'participation', episode.channelId ?? '', episode.startAt ?? '', episode.id ?? position);
+        itemOrDerivedId(null, 'participation', episode.placeId ?? '', episode.startAt ?? '', episode.id ?? position);
       const id = uniq(base);
       if (itemId && id === base) delete part.rest.itemId;
       else part.rest.$derived = true;

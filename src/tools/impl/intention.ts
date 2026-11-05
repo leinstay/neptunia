@@ -67,7 +67,7 @@ function callKeyOf(context: OpContext): string | null {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, resolvedGuildId, now = Date.now } = env;
+  const { hot, now = Date.now } = env;
 
   /** The intention service, or an Error naming what is missing. */
   function intentions() {
@@ -79,7 +79,7 @@ const handlers = perEnv((env) => {
   /** Whether the conversation the command runs in is a private chat. */
   function inPrivate(context: OpContext) {
     if (context?.privateChat === true) return true;
-    return context?.channelId ? env.directory.isPrivate(idText(context.channelId)) : false;
+    return context?.conversationId ? env.directory.isPrivate(idText(context.conversationId)) : false;
   }
 
   /** `args[key]` as a moment (parseWhen, the wall-clock forms in `bot.timezone`), undefined when not given; an `invalid` error when it does not parse. */
@@ -230,7 +230,7 @@ const handlers = perEnv((env) => {
     const owner = context?.actor !== 'persona' && isOwnerCaller(hot.config, context);
     return {
       all: owner,
-      privateChannelId: !owner && inPrivate(context) && context?.channelId ? idText(context.channelId) : null,
+      privateChannelId: !owner && inPrivate(context) && context?.conversationId ? idText(context.conversationId) : null,
     };
   }
 
@@ -241,7 +241,7 @@ const handlers = perEnv((env) => {
       by: persona ? 'persona' : isOwnerCaller(hot.config, context) ? 'owner' : 'member',
       turnId: persona && context?.turnId ? idText(context.turnId) : null,
       messageId: context?.sourceMessageId ? idText(context.sourceMessageId) : null,
-      channelId: context?.channelId ? idText(context.channelId) : null,
+      placeId: context?.conversationId ? idText(context.conversationId) : null,
       scope: inPrivate(context) ? 'dm' : 'group',
       participants: participantsOf(context),
       ...(context?.publicationBoundary ? { publicationBoundary: context.publicationBoundary } : {}),
@@ -258,7 +258,7 @@ const handlers = perEnv((env) => {
     const from = origin(context);
     const state = text(args, 'state');
     if (state !== undefined && state !== 'dropped') throw invalid('state must be dropped');
-    const result = intentions().set(resolvedGuildId(context), {
+    const result = intentions().set({
       purpose,
       callKey: callKeyOf(context),
       ...(state ? { state, reason: text(args, 'reason') ?? null } : {}),
@@ -267,7 +267,7 @@ const handlers = perEnv((env) => {
       every: every(args) ?? null,
       expiresAt: moment(args, 'expires') ?? null,
       ...(text(args, 'standing') === 'true' || args.standing === true ? { standing: true } : {}),
-      destination: text(args, 'channelId') ?? null,
+      destination: text(args, 'placeId') ?? null,
       completionCondition: text(args, 'condition') ?? null,
       chainId: text(args, 'chain') ?? null,
       errandId: text(args, 'errand') ?? null,
@@ -288,13 +288,13 @@ const handlers = perEnv((env) => {
     const due = moment(args, 'due');
     const recurrence = every(args);
     const attend = attendPatch(args);
-    const result = intentions().update(resolvedGuildId(context), id, {
+    const result = intentions().update(id, {
       ...(text(args, 'text') ? { purpose: text(args, 'text') } : {}),
       ...(due !== undefined ? { dueAt: due } : {}),
       ...(recurrence !== undefined ? { every: recurrence } : {}),
       ...(attend ? { attend } : {}),
       ...(moment(args, 'expires') !== undefined ? { expiresAt: moment(args, 'expires') } : {}),
-      ...(text(args, 'channelId') ? { destination: text(args, 'channelId') } : {}),
+      ...(text(args, 'placeId') ? { destination: text(args, 'placeId') } : {}),
       ...(text(args, 'condition') ? { completionCondition: text(args, 'condition') } : {}),
       ...(text(args, 'chain') ? { chainId: text(args, 'chain') } : {}),
       ...(text(args, 'errand') ? { errandId: text(args, 'errand') } : {}),
@@ -312,15 +312,12 @@ const handlers = perEnv((env) => {
   function cmdCancel(given: Obj, context: OpContext): Obj {
     const { id } = idOf(given);
     if (!id) throw invalid('an id is required');
-    return answer(
-      intentions().cancel(resolvedGuildId(context), id, { by: origin(context).by, ...whereOf(context) }),
-      'cancelled'
-    );
+    return answer(intentions().cancel(id, { by: origin(context).by, ...whereOf(context) }), 'cancelled');
   }
 
   /** `intention.list`: the open intentions, a private chat's own only in that chat (an owner's command sees all). */
   function cmdList(args: Obj, context: OpContext): Obj | string {
-    const records = intentions().list(resolvedGuildId(context), whereOf(context));
+    const records = intentions().list(whereOf(context));
     return records.length > 0 ? records.map(lineOf).join('\n') : 'no open intentions';
   }
 

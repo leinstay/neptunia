@@ -165,7 +165,7 @@ function opsEnv(rig: InspectionRig) {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     board: null,
     watcher: createReportReader(rig.reportsDir),
   });
@@ -175,8 +175,8 @@ async function watcherRead(rig: InspectionRig, args: Record<string, unknown>) {
   const { result } = await withCapturedLogs(() =>
     runOpPrechecked('watcher.read', args, {
       env: opsEnv(rig),
-      guildId: 'g1',
-      channelId: 'c1',
+      placeId: 'g1',
+      conversationId: 'c1',
       userId: null,
       roleIds: [],
       actor: 'persona',

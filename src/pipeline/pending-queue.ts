@@ -2,10 +2,7 @@
 // own channel (mention.pendingSameChannel) or, with one turn at a time (mention.oneAtATime), in another channel is
 // remembered here instead of dropped, and answered once the turn frees up -- every one of them, in arrival order
 // (src/behavior/pending.js), unless the turn that spoke there already had it in view (turns.spokeAfterSeeing; a turn
-// that named it as still waiting for its own turn does not count). A routed call (written where the persona cannot
-// write, answered in the main channel) is held the same way once its settle wait is over: under the channel it was
-// written in, carrying the `destination` its turn posts in; one the ring already holds as answered is not answered
-// again. A call whose author already has items waiting in that channel may be about one of them: the merge classifier
+// that named it as still waiting for its own turn does not count). A call whose author already has items waiting in that channel may be about one of them: the merge classifier
 // (src/pipeline/merge.ts) folds it into that item instead of queueing it, and the item's turn names it
 // (labels.task.added). A follow-up the address classifier said `yes` to that found the attention taken waits here too
 // (deferFollowUp, kind `followUp`), and so does an `overheard` one (kind `overheard`, mention.pendingOverheard): one of
@@ -18,7 +15,6 @@ import { addPending, authorCalls, followUpSlot, requeuePending } from '../behavi
 import { log } from '../log.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
 import { CODE } from '../tools/codes.ts';
-import { routedFields } from './call-outcome.ts';
 import type { FollowUpWindows } from './follow-up-window.ts';
 import type {
   Conv,
@@ -50,18 +46,16 @@ export type PendingQueueContext = {
 };
 
 export type PendingQueueOps = {
-  queuedCount: (channelId: string, authorId: string) => number;
+  queuedCount: (placeId: string, authorId: string) => number;
   itemText: (text: string | undefined) => string;
-  queuedFor: (channelId: string, trigger: Line | null | undefined, routed?: boolean) => TurnRequest['queued'];
-  noteUnanswered: (ping: Pick<Ping, 'kind' | 'channelId' | 'trigger' | 'destination'>, code: string) => void;
+  queuedFor: (placeId: string, trigger: Line | null | undefined) => TurnRequest['queued'];
+  noteUnanswered: (ping: Pick<Ping, 'kind' | 'placeId' | 'trigger'>, code: string) => void;
   logPending: (ping: Ping, event: string, fields?: object) => void;
   deferFollowUp: (channel: Conv, trigger: Line, kind?: 'followUp' | 'overheard') => void;
   enqueuePending: (
     channel: Conv,
     trigger: Line,
     kind: PingKind,
-    destination?: Conv | null,
-    superseded?: Array<string>,
     arrivedAt?: number,
     readOptions?: MessageReadOptions
   ) => void;
@@ -78,7 +72,7 @@ export function isDeferredFollowUp(ping: Pick<Ping, 'kind'>): boolean {
   return ping.kind === 'followUp' || ping.kind === 'overheard';
 }
 
-/** The kinds of call somebody waits on an answer for; an overheard line and a routed call are nobody's debt. */
+/** The kinds of call somebody waits on an answer for; an overheard line is nobody's debt. */
 const OWED_PING_KINDS = new Set<string | undefined>(['mention', 'reply', 'name', 'private', 'followUp']);
 
 export function createPendingQueue({
@@ -89,9 +83,9 @@ export function createPendingQueue({
   pending,
   followUpMuted,
 }: PendingQueueContext): PendingQueueOps {
-  /** How many calls `authorId` has waiting in `channelId` (authorCalls): the `queued` count of the pending logs. */
-  function queuedCount(channelId: string, authorId: string): number {
-    return authorCalls(pending.list, channelId, authorId).length;
+  /** How many calls `authorId` has waiting in `placeId` (authorCalls): the `queued` count of the pending logs. */
+  function queuedCount(placeId: string, authorId: string): number {
+    return authorCalls(pending.list, placeId, authorId).length;
   }
 
   /** A waiting item's or a candidate's text as the merge classifier and the task labels show it: one line, cut. */
@@ -102,18 +96,15 @@ export function createPendingQueue({
   /**
    * The `queued` input of a turn answering `trigger` (src/behavior/turn.js): a
    * function giving, when the turn builds its request, the other calls waiting
-   * in `channelId` (never a routed one, nor a deferred overheard line: talk
-   * about the persona is no call to it), arrival order: the trigger author's
-   * own as `{ id, text }`, another member's as `{ id, text, author }` (their
-   * display name). Null for a routed call: its turn is about another channel.
+   * in `placeId` (never a deferred overheard line: talk about the persona is
+   * no call to it), arrival order: the trigger author's own as `{ id, text }`,
+   * another member's as `{ id, text, author }` (their display name).
    */
-  function queuedFor(channelId: string, trigger: Line | null | undefined, routed = false): TurnRequest['queued'] {
-    if (routed || !trigger?.authorId) return null;
+  function queuedFor(placeId: string, trigger: Line | null | undefined): TurnRequest['queued'] {
+    if (!trigger?.authorId) return null;
     return () =>
       pending.list
-        .filter(
-          (p) => !p.destination && p.kind !== 'overheard' && p.channelId === channelId && p.trigger?.id !== trigger.id
-        )
+        .filter((p) => p.kind !== 'overheard' && p.placeId === placeId && p.trigger?.id !== trigger.id)
         .sort((a, b) => a.arrivedAt - b.arrivedAt)
         .map((p) => ({
           id: p.trigger.id,
@@ -124,8 +115,7 @@ export function createPendingQueue({
 
   /**
    * Log the ping addPending / requeuePending pushed out to stay within
-   * mention.maxPending (the oldest of any channel, a routed call's destination
-   * included), with the counts: how many wait now, and the cap.
+   * mention.maxPending (the oldest of any channel), with the counts: how many wait now, and the cap.
    */
   function logEvicted(evicted: Ping, maxPending: number): void {
     logPending(evicted, 'dropped', { reason: 'full', pending: pending.list.length, maxPending });
@@ -137,11 +127,11 @@ export function createPendingQueue({
    * a missed fact with that code (src/behavior/missed.js), so the missed-answer recovery owes it like
    * a turn that was dropped. A private message's stays in its chat. Never throws.
    */
-  function noteUnanswered(ping: Pick<Ping, 'kind' | 'channelId' | 'trigger' | 'destination'>, code: string): void {
-    if (!missed || !OWED_PING_KINDS.has(ping?.kind) || ping.destination || !ping.trigger?.id) return;
+  function noteUnanswered(ping: Pick<Ping, 'kind' | 'placeId' | 'trigger'>, code: string): void {
+    if (!missed || !OWED_PING_KINDS.has(ping?.kind) || !ping.trigger?.id) return;
     missed.noteFact({
       reason: code,
-      message: { ...ping.trigger, channelId: ping.trigger.channelId ?? ping.channelId },
+      message: { ...ping.trigger, placeId: ping.trigger.placeId ?? ping.placeId },
     });
   }
 
@@ -149,17 +139,15 @@ export function createPendingQueue({
    * One log line about a pending entry: `follow-up: <event>` for a deferred
    * follow-up or overheard line (its message id included, as every follow-up
    * line has it),
-   * `mention: <event>` for any other call; channel, kind, `fields`, and a
-   * routed call's destination.
+   * `mention: <event>` for any other call; channel, kind and `fields`.
    */
   function logPending(ping: Ping, event: string, fields: object = {}): void {
     const followUp = isDeferredFollowUp(ping);
     log.info(`${followUp ? 'follow-up' : 'mention'}: ${event}`, {
-      channel: ping.channelId,
+      channel: ping.placeId,
       kind: ping.kind,
       ...(followUp ? { message: ping.trigger.id } : {}),
       ...fields,
-      ...routedFields(ping),
     });
   }
 
@@ -181,29 +169,29 @@ export function createPendingQueue({
    */
   function deferFollowUp(channel: Conv, trigger: Line, kind: 'followUp' | 'overheard' = 'followUp'): void {
     const config = hot.config;
-    const channelId = channel.id;
-    const sameChannel = turns.isBusy(channelId);
+    const placeId = channel.id;
+    const sameChannel = turns.isBusy(placeId);
     const reason: string | null = followUpMuted();
     if (reason) {
-      log.info('follow-up: dropped', { channel: channelId, message: trigger.id, reason });
+      log.info('follow-up: dropped', { channel: placeId, message: trigger.id, reason });
       return;
     }
-    const slot = followUpSlot(pending.list, channelId, kind) as { admit: boolean; replaced: Ping | null };
+    const slot = followUpSlot(pending.list, placeId, kind) as { admit: boolean; replaced: Ping | null };
     if (!slot.admit) {
-      log.info('follow-up: dropped', { channel: channelId, message: trigger.id, reason: 'outranked' });
-      noteUnanswered({ kind, channelId, trigger }, CODE.PENDING_OUTRANKED);
+      log.info('follow-up: dropped', { channel: placeId, message: trigger.id, reason: 'outranked' });
+      noteUnanswered({ kind, placeId, trigger }, CODE.PENDING_OUTRANKED);
       return;
     }
     if (slot.replaced) dropReplaced(slot.replaced, trigger.id);
     const maxPending = config.mention.maxPending ?? 6;
-    const ping = { channelId, channel, trigger, kind, arrivedAt: now() };
+    const ping = { placeId, channel, trigger, kind, arrivedAt: now() };
     const { list, evicted } = addPending(pending.list, ping, maxPending) as Kept;
     pending.list = list;
     log.info('follow-up: deferred', {
-      channel: channelId,
+      channel: placeId,
       author: trigger.authorId,
       message: trigger.id,
-      runningIn: sameChannel ? channelId : (turns.busyChannels?.()[0] ?? null),
+      runningIn: sameChannel ? placeId : (turns.busyChannels?.()[0] ?? null),
       sameChannel,
       pending: pending.list.length,
       ...(kind === 'overheard' ? { kind } : {}),
@@ -218,51 +206,35 @@ export function createPendingQueue({
    */
   function dropReplaced(older: Ping, newerId: string | null = null): void {
     pending.list = pending.list.filter((p) => p !== older);
-    log.info('follow-up: dropped', { channel: older.channelId, message: older.trigger.id, reason: 'newer' });
+    log.info('follow-up: dropped', { channel: older.placeId, message: older.trigger.id, reason: 'newer' });
     if (older.kind === 'followUp')
       missed?.noteFact({ reason: 'replaced-deferred', message: older.trigger, replacedBy: newerId });
   }
 
   /**
-   * Remember a direct ping (mention/reply/name/private message) that arrived while
-   * a turn is running in its own channel or, with one turn at a time, elsewhere --
-   * or a routed call (`destination`: the channel its turn posts in) while a
-   * turn runs there or, with one turn at a time, anywhere. Every call waits, in
-   * arrival order (`arrivedAt`, default now): none replaces another, of its
-   * channel or of its author; a routed call carries the calls its settle wait
-   * took the place of (src/behavior/pending.js `superseded`). At most
-   * mention.maxPending entries; the oldest of any channel is evicted when full
-   * (logEvicted). A direct call (not a routed one) takes the place of an
-   * overheard line waiting in its channel (followUpSlot, `follow-up:
-   * dropped`, `newer`): its turn reads that line in the history.
-   * `sameChannel` is logged for the channel the turn would post in,
-   * `queued` is how many calls the author has waiting in that channel.
-   * `superseded` is a routed call's only: see answerCall.
+   * Remember a direct ping (mention/reply/name/private message) that arrived while a turn is running in its own channel
+   * or, with one turn at a time, elsewhere. Every call waits, in arrival order (`arrivedAt`, default now): none replaces
+   * another, of its channel or of its author. At most mention.maxPending entries; the oldest of any channel is evicted
+   * when full (logEvicted). A direct call takes the place of an overheard line waiting in its channel (followUpSlot,
+   * `follow-up: dropped`, `newer`): its turn reads that line in the history. `queued` is how many calls the author has
+   * waiting in that channel.
    */
   function enqueuePending(
     channel: Conv,
     trigger: Line,
     kind: PingKind,
-    destination: Conv | null = null,
-    superseded: Array<string> = [],
     arrivedAt: number = now(),
     readOptions?: MessageReadOptions
   ): void {
     const maxPending = hot.config.mention.maxPending ?? 6;
-    const routed = destination
-      ? { destination, ...(superseded.length > 0 ? { superseded: [...superseded] } : {}) }
-      : {};
-    if (!destination) {
-      const { replaced } = followUpSlot(pending.list, channel.id, kind) as { replaced: Ping | null };
-      if (replaced) dropReplaced(replaced, trigger.id);
-    }
+    const { replaced } = followUpSlot(pending.list, channel.id, kind) as { replaced: Ping | null };
+    if (replaced) dropReplaced(replaced, trigger.id);
     const ping: Ping = {
-      channelId: channel.id,
+      placeId: channel.id,
       channel,
       trigger,
       kind,
       arrivedAt,
-      ...routed,
       ...(readOptions ? { readOptions } : {}),
     };
     const { list, evicted } = addPending(pending.list, ping, maxPending) as Kept;
@@ -270,10 +242,9 @@ export function createPendingQueue({
     log.info('mention: deferred', {
       channel: channel.id,
       kind,
-      sameChannel: turns.isBusy((destination ?? channel).id),
+      sameChannel: turns.isBusy(channel.id),
       pending: pending.list.length,
       queued: queuedCount(channel.id, trigger.authorId),
-      ...routedFields(ping),
     });
     if (evicted) logEvicted(evicted, maxPending);
   }
@@ -284,8 +255,7 @@ export function createPendingQueue({
    * arrivedAt, ahead of every call that came after it (mention.maxPending
    * still applies). Synchronous on
    * purpose -- see drainPending. Returns whether a turn that blocks this ping
-   * is still running (its end calls drainPending again through onIdle): for a
-   * routed call, one that blocks its destination.
+   * is still running (its end calls drainPending again through onIdle).
    */
   function requeueBusy(ping: Ping): boolean {
     const mentionCfg = hot.config.mention;
@@ -295,7 +265,7 @@ export function createPendingQueue({
     logPending(ping, 'deferred again', {
       reason: 'busy',
       pending: pending.list.length,
-      queued: queuedCount(ping.channelId, ping.trigger.authorId),
+      queued: queuedCount(ping.placeId, ping.trigger.authorId),
     });
     if (evicted) logEvicted(evicted, maxPending);
     return turnBlocked(turns);

@@ -344,7 +344,7 @@ test("stretches: reply chain, neighbours and the followed conversation come with
     assert.deepEqual([...one.hitIds], ['s6']);
     assert.equal(one.overlapsChat, true);
     assert.ok(!one.messages.some((message) => message.id === 'later'), 'a long silence ends the followed conversation');
-    assert.equal(one.channelId, 'main');
+    assert.equal(one.placeId, 'main');
   } finally {
     env.done();
   }
@@ -563,7 +563,7 @@ test('quotes: windows become the stretches recall returns, with entries per line
     const found = run(env, ['σπιτι']);
     const quotes = quotesOf(found.windows, { render: { labels, timezone: 'UTC', selfName: 'Ζ' }, stretchChars: 1500 });
     assert.equal(quotes.length, 1);
-    assert.equal(quotes[0].channelId, 'main');
+    assert.equal(quotes[0].placeId, 'main');
     assert.equal(quotes[0].startTs, Date.parse('2026-10-20T10:00:00.000Z'));
     assert.deepEqual(
       quotes[0].entries.map((entry) => entry.id),
@@ -701,7 +701,7 @@ function runner(
     hot,
     llmCalls,
     args: {
-      guildId: 'g1',
+      placeId: 'g1',
       snapshot,
       channel,
       partnerId: null,
@@ -772,7 +772,7 @@ test('recall.run: stored group stretches follow memory scope without a live inte
     // Policy 2 also permits a named stored group independently of live pull permission.
     const named = await s.recaller.run({
       ...s.args,
-      server: { forms: ['σπιτι'], who: [], from: null, to: null, channelId: 'c4' },
+      server: { forms: ['σπιτι'], who: [], from: null, to: null, placeId: 'c4' },
       quotes: true,
     });
     assert.equal(named.outcome.kind, 'searched');
@@ -786,7 +786,7 @@ test('recall.run: stored group stretches follow memory scope without a live inte
       history: [
         {
           id: 'r1',
-          channelId: 'c1',
+          placeId: 'c1',
           ts: NOW,
           self: false,
           bot: false,
@@ -1036,7 +1036,7 @@ test("recall: the turn's execution context is used when it fits the read; a read
 
 test('memory.search: the hidden marker is one label line, with or without stretches; an anchor makes the call a window read', async () => {
   const quote = {
-    channelId: 'c1',
+    placeId: 'c1',
     channelName: 'general',
     startTs: Date.UTC(2026, 9, 20),
     lines: '[10:00] Αλίκη: γεια',
@@ -1070,7 +1070,7 @@ test('memory.search: the hidden marker is one label line, with or without stretc
     store: { listUserProfiles: () => [] },
     config: { ...SHIPPED, bot: { ...SHIPPED.bot, timezone: 'UTC' } },
     labels: withHidden,
-    guildId: 'g1',
+    placeId: 'g1',
     // Changed with the contract: the channel is the conversation's info (a community conversation has `communityId`).
     channel: { communityId: 'g1' },
     now: NOW,
@@ -1110,7 +1110,7 @@ test('recall-eval: the database is --db, else <data>/memory.db, and the file mus
       JSON.stringify([
         {
           id: 'q1',
-          channelId: '100000000000000001',
+          placeId: '100000000000000001',
           askerId: '200000000000000001',
           question: 'πού είναι το κουνέλι;',
           expected: ['300000000000000001'],
@@ -1815,7 +1815,7 @@ for (const reader of ['run', 'window', 'prefetch'] as const) {
           state: { data: {}, markDirty() {} },
           listUserProfiles: reject('profiles'),
           getLore: reject('lore'),
-          getGuild: reject('guild'),
+          getPlace: reject('guild'),
           getRecent: reject('recent'),
           getPrivate: reject('private'),
         },
@@ -1827,7 +1827,7 @@ for (const reader of ['run', 'window', 'prefetch'] as const) {
       });
       const args = {
         ...s.args,
-        guildId: null,
+        placeId: null,
         snapshot: null,
         channel: s.dm,
         memoryContext: issueContext({ kind: 'internal', newId: () => `ctx:null-guild-${reader}`, now: () => NOW }),
@@ -1889,7 +1889,7 @@ test('an internal window retains stored media without reading captions for a nul
     });
     const found = await recaller.window({
       ...s.args,
-      guildId: null,
+      placeId: null,
       snapshot: null,
       channel: s.dm,
       memoryContext: issueContext({ kind: 'internal', newId: () => 'ctx:media-window', now: () => NOW }),

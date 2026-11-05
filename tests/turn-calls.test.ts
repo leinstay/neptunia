@@ -10,7 +10,7 @@ const second = { sourceId: 'opaque-source-two', placeId: 'place-two', iface: 'fo
 
 function quote(stored: typeof first, text: string) {
   return {
-    channelId: 'same-room',
+    placeId: 'same-room',
     channelName: 'stored room',
     startTs: NOW,
     lines: text,

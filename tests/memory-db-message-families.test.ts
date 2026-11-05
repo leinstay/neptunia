@@ -460,7 +460,7 @@ for (const opaque of [false, true]) {
         revision: 1,
         occurredAt: new Date(NOW - 60000).toISOString(),
         recordedAt: new Date(NOW).toISOString(),
-        guildId: 'g1',
+        placeId: 'g1',
         scope: { channel: 'actual-historical-dm' },
         by: 'member',
         text: 'Historical record evidence',

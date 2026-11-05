@@ -261,7 +261,7 @@ const SHAPES_SHOWN_DEFAULT = 5;
 /** The addressee of the outbox rows that are hers. */
 const SELF = 'persona:self';
 
-type JournalSource = { read(guildId: string, query: { day: string; kind: string; n: number }): unknown } | null;
+type JournalSource = { read(query: { day: string; kind: string; n: number }): unknown } | null;
 
 /** The UTC days from the one of `from` through the one of `to`. */
 function daysBetween(from: number, to: number): Array<string> {
@@ -273,7 +273,6 @@ function daysBetween(from: number, to: number): Array<string> {
 /** The journal lines of `kinds` from `from` to `to`; a source that is missing or throws gives nothing for that read. */
 export async function readJournalLines(
   journal: JournalSource,
-  guildId: string,
   window: { from: number; to: number },
   kinds: ReadonlyArray<string>
 ): Promise<Array<unknown>> {
@@ -282,7 +281,7 @@ export async function readJournalLines(
   for (const day of daysBetween(window.from, window.to)) {
     for (const kind of kinds) {
       try {
-        out.push(...listOf(await journal.read(guildId, { day, kind, n: Number.MAX_SAFE_INTEGER })));
+        out.push(...listOf(await journal.read({ day, kind, n: Number.MAX_SAFE_INTEGER })));
       } catch {
         // A day the journal cannot read leaves its part of the view empty.
       }
@@ -308,7 +307,6 @@ const after = (row: Readonly<Record<string, unknown>>, since: number | null): bo
 
 /** The facts of one wake. Nothing here throws: a source that fails leaves its part empty. */
 export async function buildSelfimprovementFacts(input: {
-  guildId: string;
   now: number;
   since: number | null;
   days?: number;
@@ -323,7 +321,7 @@ export async function buildSelfimprovementFacts(input: {
 }): Promise<SelfimprovementFacts> {
   const days = input.days ?? DAYS_DEFAULT;
   const from = input.now - days * DAY_MS;
-  const lines = await readJournalLines(input.journal, input.guildId, { from, to: input.now }, ['action', 'inner']);
+  const lines = await readJournalLines(input.journal, { from, to: input.now }, ['action', 'inner']);
   const chains = chainsOfJournal(lines);
   const { shapes, more } = shapesOf(chains, { shown: input.shown ?? SHAPES_SHOWN_DEFAULT });
   const called = new Set(chains.flatMap((chain) => chain.calls.map((call) => call.tool)));

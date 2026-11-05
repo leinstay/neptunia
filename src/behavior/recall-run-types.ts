@@ -12,7 +12,7 @@ import type { Track } from '../loop-watch.ts';
  * rendered without `#n` indices (captions included, matched lines marked), cut to `recall.stretchChars` by whole
  * lines from its far ends, never a matched one.
  */
-export type RecallStretch = { channelId: string; channelName: string | null; startTs: number; lines: string };
+export type RecallStretch = { placeId: string; channelName: string | null; startTs: number; lines: string };
 
 export type EmptyStatsResult = {
   memory: number;
@@ -35,7 +35,7 @@ export type EmptyStatsResult = {
 
 export type NewTraceInput = {
   started: Untyped;
-  channelId: string;
+  placeId: string;
   candidate: Untyped;
   server: Untyped;
 };
@@ -43,7 +43,7 @@ export type NewTraceInput = {
 export type CreateRecallInput = {
   /** Live config + prompts; read at the moment of use. */
   hot: { config: Untyped; prompts: Untyped };
-  /** `state` (`data`, `markDirty`) and `listUserProfiles` (src/memory/store.js); read only, when present: `getLore`, `getGuild` (its `learned`), `getRecent`. Never `getPrivate`. */
+  /** `state` (`data`, `markDirty`) and `listUserProfiles` (src/memory/store.js); read only, when present: `getLore`, `getPlace` (its `learned`), `getRecent`. Never `getPrivate`. */
   store: Untyped;
   /** From createLlm(): `complete`, `capLeft`. */
   llm: Untyped;
@@ -95,7 +95,7 @@ export type CreateRecallResult = {
  * `stored` or `member-search`.
  */
 export type FindPeopleInput = {
-  guildId: string;
+  placeId: string;
   who: Array<string>;
   maxPeople: Untyped;
   selfId: string | null;
@@ -110,7 +110,7 @@ export type FindPeopleInput = {
  * no item. Read-only store calls, no request. The gates are the reply
  * prompt's: nothing with `features.memory` off; members' moments with
  * `features.episodes` on, lore with `features.lore` on, learned items with
- * memory on (all three guild-wide), recent lines by shownRecentLines. A
+ * memory on (all three place-wide), recent lines by shownRecentLines. A
  * private layer is never read. A store read that throws gives no item.
  * The archive (`deps.archive`): the entries recorded since the start of
  * the `when:` range, else over the last `recall.archiveMonths` months (0:
@@ -135,7 +135,7 @@ export type StoredMemoryInput = {
   config: Untyped;
   settings: RecallSettings;
   snapshot: Untyped;
-  guildId: string;
+  placeId: string;
   channel: Untyped;
   partnerId: Untyped;
   server: Untyped;
@@ -158,7 +158,7 @@ export type StoredMemoryInput = {
  * only locate the person, ranking below a topic match. Read
  * through `allowLine` (the audience and private-owner rule) before
  * matching; on a private turn the partner's private record is read after
- * the guild's. At most `recall.maxClusters` windows. A read that throws
+ * the place's. At most `recall.maxClusters` windows. A read that throws
  * logs `recall: record failed` and gives none. `meaning`: the record rows
  * the meaning search kept, best first, for matchRecord's `meaning` (read
  * and fused there; with `recall.recordDays` 0 they alone are read).
@@ -168,7 +168,7 @@ export type StoredMemoryInput = {
 export type RecordWindowsForInput = {
   settings: RecallSettings;
   snapshot: Untyped;
-  guildId: string;
+  placeId: string;
   server: Untyped;
   people: Untyped;
   recent: Untyped;
@@ -177,7 +177,7 @@ export type RecordWindowsForInput = {
   ownIds: Untyped;
   selfName: string;
   signal: AbortSignal;
-  channelId: string;
+  conversationId: string;
   meaning?: Array<Untyped>;
   locator?: Untyped;
 };
@@ -189,11 +189,11 @@ export type RecordWindowsForInput = {
  * One embedding of meaningQuery (the asker's message `candidate`, with
  * `recall.meaningWithReply` the line it replies to among `lines` before it),
  * then `vectors.search` within `server.from/to` (every month without a
- * range or with a `locator`), `recall.meaningCandidates` rows: the guild index, rows of a
+ * range or with a `locator`), `recall.meaningCandidates` rows: the place index, rows of a
  * channel `sourceOf` refuses or of the visible chat (`ownIds`) left out (an
  * archive row is judged by its entry later); on a private turn the
  * partner's private layer too. The rows deduplicated (dedupeRows), split
- * into `record` (`{ id, channelId, occurredAt, sourceIds }`) and `archive`
+ * into `record` (`{ id, placeId, occurredAt, sourceIds }`) and `archive`
  * (`{ id, occurredAt }`), best first. `trace` is the run's trace entry
  * (see traceLine). A failed embedding or search logs `recall: meaning
  * failed` (`stage` `embed` | `search`, counts and codes only) and gives no
@@ -202,7 +202,7 @@ export type RecordWindowsForInput = {
 export type MeaningSearchInput = {
   config: Untyped;
   settings: RecallSettings;
-  guildId: string;
+  placeId: string;
   channel: Untyped;
   candidate: Untyped;
   lines: Untyped;
@@ -215,8 +215,8 @@ export type MeaningSearchInput = {
 };
 
 export type WriteTraceInput = {
-  guildId: string | null;
-  channelId: string | null;
+  placeId: string | null;
+  conversationId: string | null;
   trace: RecallTrace;
   out: Untyped;
   maxLines: Untyped;
@@ -227,6 +227,7 @@ export type ScopeOfInput = {
   snapshot: Untyped;
   channel: Untyped;
   partnerId: Untyped;
+  placeId?: string | null;
 };
 
 /**
@@ -244,7 +245,7 @@ export type DbReaderInput = {
   db?: Untyped;
   config: Untyped;
   snapshot: Untyped;
-  guildId: string | null;
+  placeId: string | null;
   channel: Untyped;
   partnerId: Untyped;
   asker?: Untyped;
@@ -262,7 +263,7 @@ export type ReadContextInput = {
 export type DbQuotesInput = {
   config: Untyped;
   settings: RecallSettings;
-  guildId: string | null;
+  placeId: string | null;
   selfName: string;
   windows: Untyped;
   decorate: Untyped;
@@ -274,7 +275,7 @@ export type RunDbQuotesInput = {
   config: Untyped;
   settings: RecallSettings;
   snapshot: Untyped;
-  guildId: string | null;
+  placeId: string | null;
   channel: Untyped;
   partnerId: Untyped;
   selfName: string;
@@ -288,7 +289,7 @@ export type RunDbQuotesInput = {
 
 export type WindowInput = {
   historyRef?: ConversationRef;
-  guildId?: string | null;
+  placeId?: string | null;
   snapshot?: Untyped;
   channel: Untyped;
   partnerId?: string | null;
@@ -309,7 +310,7 @@ export type RecallWithInput = {
   settings: RecallSettings;
   prompt: string;
   snapshot: Untyped;
-  guildId: string;
+  placeId: string;
   channel: Untyped;
   partnerId: Untyped;
   selfId: string | null;
@@ -332,9 +333,9 @@ export type RecallWithInput = {
 /**
  * One server search for a turn. Per call, with `hot.config` / `hot.prompts`
  * read at that moment: nothing (no log) with `features.recall` off; `recall:
- * skipped` with `reason` `private-chat` (no guild, or a channel without a
- * guild and no `partner`: a private chat searches only on behalf of its
- * partner, the member of `guild` it talks to, keeping the
+ * skipped` with `reason` `private-chat` (no place, or a channel without a
+ * place and no `partner`: a private chat searches only on behalf of its
+ * partner, the member of `place` it talks to, keeping the
  * hits of channels that member can view and not bounded by its own chat),
  * `no-query` (no form, name form or range), `no-prompt` (no
  * `prompts['recall-summary']`) or `daily-cap` (`llm.capLeft()` spent), each before any request; later
@@ -370,7 +371,7 @@ export type RecallWithInput = {
  * as their captions. With `features.recallTrace` true every run with
  * `features.recall` on appends its trace record (store.appendRecallTrace;
  * see traceLine), one skipped by a gate above included, with the reason in
- * `skipped`; a private chat without a guild has nowhere to write it. `op` (optional, a journal operation: src/memory/journal.js#op,
+ * `skipped`; a private chat without a place has nowhere to write it. `op` (optional, a journal operation: src/memory/journal.js#op,
  * as the turn hands it) is started once the gates above passed, before the
  * first request, and closed with the run: `succeeded` with `status` (`ok`,
  * or `timeout` when the run ran out yet left its fallback stretch), `hits`
@@ -383,7 +384,7 @@ export type RecallWithInput = {
  * The result's `outcome` (optional) says what a run that found nothing did not do: `{ kind }`
  * `daily-cap` (the daily request cap spent: `llm.capLeft()`), `timeout`
  * (`recall.timeoutMs` ran out, no fallback), `error` (a throw) or, with `quotes`, `not-configured`,
- * `not-visible` (the `server.channelId` named is hidden by the pull rail) and `searched` (`degraded`, `failed`, `total`).
+ * `not-visible` (the `server.placeId` named is hidden by the pull rail) and `searched` (`degraded`, `failed`, `total`).
  * `decorate` (optional; the turn's call marks, src/behavior/turn.ts#linkCalls) takes each
  * window's messages once they are read and gives the ones rendered, so the persona's lines
  * there show what she called like her chat lines do. `memoryContext` (optional) is the turn's
@@ -392,7 +393,7 @@ export type RecallWithInput = {
  */
 export type RunInput = {
   historyRef?: ConversationRef;
-  guildId?: string | null;
+  placeId?: string | null;
   snapshot?: Untyped;
   channel: Untyped;
   partnerId?: string | null;
@@ -434,16 +435,16 @@ export type RunInput = {
  * now. `stats.stages`: the milliseconds of each stage that ran (embed, record, memory).
  * Resolves null for no lane or with features.recall off; else `{ status, basis, excerpts, ms,
  * stats }`: `status` `ok` (an excerpt), `none` (searched, nothing relevant), `timeout` (the
- * deadline passed before anything relevant settled) or `unavailable` (no guild to read on behalf
+ * deadline passed before anything relevant settled) or `unavailable` (no place to read on behalf
  * of, or every search failed); `basis` the lane kinds; each excerpt `{ source: 'history',
- * channelId, channelName, startTs, endTs, id, ids, hitIds, lines }` or `{ source: 'memory', kind,
+ * placeId, channelName, startTs, endTs, id, ids, hitIds, lines }` or `{ source: 'memory', kind,
  * date, memberId, who, id, lines }`; `partial` true when the deadline cut some searches. Logs
  * `recall: prefetched` (counts and codes only). Never rejects.
  */
 export type PrefetchInput = {
   historyRef?: ConversationRef;
-  guild?: Untyped;
-  guildId?: string | null;
+  place?: Untyped;
+  placeId?: string | null;
   snapshot?: Untyped;
   channel: Untyped;
   partner?: Untyped;
@@ -484,7 +485,7 @@ type TraceWhenRole = 'locator' | 'scope';
 
 export type RecallTrace = {
   at: string | null;
-  channelId: string | null;
+  placeId: string | null;
   triggerId: string | null;
   forms: Array<string>;
   who: Array<string>;

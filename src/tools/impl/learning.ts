@@ -1,5 +1,5 @@
 // Operations: `/nep learned add|remove`, and the owner's console read `/memory lessons list` (no operation, so no
-// tool of hers): the owner's side of the guild's list of things people taught the persona (store.js#applyLearnedOps).
+// tool of hers): the owner's side of the place's list of things people taught the persona (store.js#applyLearnedOps).
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -13,7 +13,7 @@ import type { Obj, OpContext, Untyped } from '../types.ts';
 import { MEMORY_LIMITS } from '../../memory/text-limits.ts';
 
 const handlers = perEnv((env) => {
-  const { hot, store, assertNotPaused, requireGuildId, tokenResolver } = env;
+  const { hot, store, assertNotPaused, requirePlaceId, tokenResolver } = env;
 
   /**
    * `/nep learned add`: an `add` op with no `from` that confirms the lesson at once, the same way
@@ -26,7 +26,7 @@ const handlers = perEnv((env) => {
    */
   function cmdLearnedAdd(args: Obj, context: OpContext): string {
     assertNotPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
     const text = textOf(args.text).trim();
     if (!text) throw invalid('text is required');
@@ -35,7 +35,7 @@ const handlers = perEnv((env) => {
     const target = confirmTarget(memoryCfg);
 
     const key = normalizeTopic(text);
-    const before = store.getGuild(guildId).learned ?? [];
+    const before = store.getPlace(placeId).learned ?? [];
     const beforeIds = new Set((before as Array<Untyped>).map((item) => item.id as number));
     const seenAt = Date.now();
     const seenIso = new Date(seenAt).toISOString();
@@ -49,39 +49,39 @@ const handlers = perEnv((env) => {
     const existing = (before as Array<Untyped>).find((it: Untyped) => normalizeTopic(it.text) === key);
     let item: Untyped;
     if (existing && existing.weight >= target) {
-      item = locate(store.applyLearnedOps(guildId, { add: [{ text }] }, { ...memoryCfg, seenAt }));
+      item = locate(store.applyLearnedOps(placeId, { add: [{ text }] }, { ...memoryCfg, seenAt }));
     } else {
       for (let i = 0; i < target; i += 1) {
         item = locate(
-          store.applyLearnedOps(guildId, { add: [{ text }] }, { ...memoryCfg, confirmGapHours: 0, seenAt })
+          store.applyLearnedOps(placeId, { add: [{ text }] }, { ...memoryCfg, confirmGapHours: 0, seenAt })
         );
         if (!item || item.weight >= target) break;
       }
     }
     if (!item) throw new Error('the item was not kept (the learned list is full)');
-    return learnedLine(item, tokenResolver(guildId).resolve);
+    return learnedLine(item, tokenResolver().resolve);
   }
 
   /** `/nep learned remove`: deletes one item by id; an id that is not stored is an error. */
   function cmdLearnedRemove(args: Obj, context: OpContext): string {
     assertNotPaused();
-    const guildId = requireGuildId(context);
+    const placeId = requirePlaceId(context);
 
     const id = args.id;
     if (typeof id !== 'number' || !Number.isInteger(id)) throw invalid('an item id is required');
-    const existing = (store.getGuild(guildId).learned ?? []).find((item: Untyped) => item.id === id);
+    const existing = (store.getPlace(placeId).learned ?? []).find((item: Untyped) => item.id === id);
     if (!existing) throw invalid(`no learned item #${id}`, CODE.NOT_FOUND);
 
-    store.applyLearnedOps(guildId, { remove: [id] }, { ...hot.config?.memory, ...MEMORY_LIMITS, seenAt: Date.now() });
-    return `Removed learned item #${id}: ${tokenResolver(guildId).resolve(existing.text)}`;
+    store.applyLearnedOps(placeId, { remove: [id] }, { ...hot.config?.memory, ...MEMORY_LIMITS, seenAt: Date.now() });
+    return `Removed learned item #${id}: ${tokenResolver().resolve(existing.text)}`;
   }
 
-  /** `/memory lessons list`: every lesson of the guild, one line each, as `add` answers one. */
+  /** `/memory lessons list`: every lesson of the place, one line each, as `add` answers one. */
   function cmdLearnedList(context: OpContext): string {
-    const guildId = requireGuildId(context);
-    const items = listOf(objOf(callMethod(store, 'getGuild', guildId)).learned);
+    const placeId = requirePlaceId(context);
+    const items = listOf(objOf(callMethod(store, 'getPlace', placeId)).learned);
     if (items.length === 0) return NONE;
-    const { resolve } = tokenResolver(guildId);
+    const { resolve } = tokenResolver();
     return items.map((item) => learnedLine(item, resolve)).join('\n');
   }
 

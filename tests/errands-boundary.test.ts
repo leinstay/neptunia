@@ -6,7 +6,7 @@
 // memory database service, the errand and intention stores and services, the inner life's scheduler and the call
 // normalizer; the turn runner and the errand runner's client are fakes. Synthetic data only.
 import { storageId } from '../src/memory/db/storage-keys.ts';
-import { legacyStorageKey, currentUnitPath } from '../src/memory/db/paths.ts';
+import { legacyStorageKey, currentUnitPath } from '../src/memory/migration/paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -62,7 +62,7 @@ const errand = (id: string, fields: Record<string, unknown>): Record13 => ({
   agent: 'scout',
   goal: `look into ${id}`,
   requester: { userId: '100', kind: 'member' },
-  origin: { channelId: 'c1', messageId: null },
+  origin: { placeId: 'c1', messageId: null },
   scope: 'group',
   state: 'queued',
   createdAt: NOW - 3 * HOUR,
@@ -102,7 +102,7 @@ const LINES = ERRANDS.map((item, index) => ({ ...item, at: NOW - (3 - index) * H
 const intention = (id: string, fields: Record<string, unknown>): Record13 => ({
   id,
   purpose: `purpose of ${id}`,
-  provenance: { kind: 'self', channelId: 'c1', scope: 'group' },
+  provenance: { kind: 'self', placeId: 'c1', scope: 'group' },
   status: 'pending',
   createdAt: NOW - 24 * HOUR,
   updatedAt: NOW - 2 * HOUR,
@@ -185,7 +185,7 @@ function seededDataDir(): string {
     intentionIds: ['i-wait'],
     chainId: 'intention:i-wait',
     dueAt: NOW - MINUTE,
-    channelId: 'c1',
+    placeId: 'c1',
     privateChat: false,
     taskId: 't0000000c',
   };
@@ -295,8 +295,8 @@ type ErrandStore = {
   fileOf(handle: string): { name: string; bytes: number } | null;
 };
 type IntentionApi = {
-  list(guildId: string, options: { all: boolean }): Array<Record13>;
-  reconcile(guildId: string): unknown;
+  list(options: { all: boolean }): Array<Record13>;
+  reconcile(): unknown;
 };
 type Called = Array<{ id: string; state: string }>;
 
@@ -314,11 +314,10 @@ async function start(dataDir: string) {
     client: {},
     stores,
     hot,
-    getGuildId: () => GUILD,
-    onFinished: (task: { id: string; state: string }, guildId: string) => {
+    onFinished: (task: { id: string; state: string }) => {
       finished.push({ id: task.id, state: task.state });
-      stores.get(guildId)?.markSeen(task.id);
-      stores.get(guildId)?.markRead(task.id);
+      stores.get()?.markSeen(task.id);
+      stores.get()?.markRead(task.id);
       return Promise.resolve(null);
     },
     defer: (fn: () => void) => queueMicrotask(fn),
@@ -330,7 +329,6 @@ async function start(dataDir: string) {
     stores: intentionStores,
     hot,
     errands,
-    getGuildId: () => GUILD,
     now: () => NOW,
     log: SILENT,
   });
@@ -349,7 +347,7 @@ async function start(dataDir: string) {
     stores,
     errands,
     intentions: intentions as IntentionApi,
-    storeOf: () => stores.get(GUILD) as ErrandStore,
+    storeOf: () => stores.get() as ErrandStore,
     finished,
     settle,
     stop,
@@ -379,7 +377,7 @@ test('the <errands> and <intentions> texts of the migrated records equal the tex
     const seeded = errandsBlockText([READ, UNREAD, RUNNING].slice().reverse(), SHIPPED_LABELS, { now: NOW });
     assert.equal(live, seeded);
     assert.equal(live.includes('t0000000b'), true, 'the unread result is listed');
-    const records = run.intentions.list(GUILD, { all: true });
+    const records = run.intentions.list({ all: true });
     const byId = new Map(records.map((record) => [record.id, record]));
     const order = ['i-wait', 'i-late', 'i-miss'];
     const text = intentionsBlockText(
@@ -398,11 +396,11 @@ test('the <errands> and <intentions> texts of the migrated records equal the tex
 test('a restart fails the running errand once and moves its waiting intention to pending with errand-failed', async () => {
   const dataDir = seededDataDir();
   const first = await start(dataDir);
-  first.errands.start(GUILD);
-  first.intentions.reconcile(GUILD);
+  first.errands.start();
+  first.intentions.reconcile();
   await first.settle();
   assert.equal(first.storeOf().get('t0000000c')?.state, 'failed');
-  const waited = first.intentions.list(GUILD, { all: true }).find((record) => record.id === 'i-wait');
+  const waited = first.intentions.list({ all: true }).find((record) => record.id === 'i-wait');
   assert.deepEqual(
     [waited?.status, waited?.note, (waited?.outcome as Settings | undefined)?.errandId],
     ['pending', 'errand-failed', 't0000000c']
@@ -412,8 +410,8 @@ test('a restart fails the running errand once and moves its waiting intention to
 
   const second = await start(dataDir);
   try {
-    second.errands.start(GUILD);
-    second.intentions.reconcile(GUILD);
+    second.errands.start();
+    second.intentions.reconcile();
     await second.settle();
     // PR 6d, errands on the board: the moves are the task's status events, board v3's import of the running line
     // and the one failure (they were `work_events` lines before).
@@ -430,7 +428,7 @@ test('a restart fails the running errand once and moves its waiting intention to
 test('the result turn that never ran is opened once, and a second start opens none', async () => {
   const dataDir = seededDataDir();
   const first = await start(dataDir);
-  first.errands.start(GUILD);
+  first.errands.start();
   await first.settle();
   assert.deepEqual(
     first.finished.map((entry) => entry.id).sort(),
@@ -440,7 +438,7 @@ test('the result turn that never ran is opened once, and a second start opens no
   await first.stop();
   const second = await start(dataDir);
   try {
-    second.errands.start(GUILD);
+    second.errands.start();
     await second.settle();
     assert.deepEqual(second.finished, []);
   } finally {
@@ -451,10 +449,10 @@ test('the result turn that never ran is opened once, and a second start opens no
 /** One tick of the inner life over the data directory, its turn runner a fake that keeps the calls. */
 async function tick(dataDir: string) {
   const run = await start(dataDir);
-  run.errands.start(GUILD);
-  run.intentions.reconcile(GUILD);
+  run.errands.start();
+  run.intentions.reconcile();
   await run.settle();
-  world().channel({ id: 'c1', name: 'chan-c1', guildId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
   const calls: Array<{ inner: { wake: { items: Array<Settings>; intentions: Array<Record13> } } }> = [];
   const turns = {
     isAnyBusy: () => false,
@@ -491,7 +489,6 @@ async function tick(dataDir: string) {
     conversationName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
-    getGuildId: () => GUILD,
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
     // The open imported inner.json's queue into the database (stage 4 cut, the lead's decision 1): the life reads it there.
     memoryDb: run.memory.memoryDb,
@@ -506,14 +503,14 @@ test('the imported errand_deadline wake retains its renamed errand evidence with
   const dataDir = seededDataDir();
   const { run, inner, calls } = await tick(dataDir);
   try {
-    const state = inner.state(GUILD) as { queue: Array<Settings> };
+    const state = inner.state() as { queue: Array<Settings> };
     const queued = state.queue[0];
     assert.equal(queued?.errandId, 't0000000c');
     assert.equal(Object.hasOwn(queued ?? {}, 'taskId'), false, 'the old field is dropped');
     await inner.tick();
     assert.equal(calls.length, 1, 'only a fresh due intention runs');
     // Imported queued actions retain their normalized evidence without authorizing another execution.
-    assert.equal(inner.state(GUILD).handled[String(queued?.id)]?.outcome, 'interrupted');
+    assert.equal(inner.state().handled[String(queued?.id)]?.outcome, 'interrupted');
     const wake = calls[0]?.inner.wake;
     assert.deepEqual(
       wake?.items.filter((item) => item.kind === 'errand_deadline').map((item) => [item.intentionIds, item.errandId]),

@@ -4,7 +4,7 @@
 // may not open is never searched, never counted and never read into a stretch. The caller's place rule (`allowPlace`)
 // is resolved once into a set of places and runs inside every stream's query, before any LIMIT, ranking or fusion.
 //
-// search(db, { ctx, plan, ... }) takes the plan `memorySearchPlan` builds (`forms`, `who`, `from`, `to`, `channelId`)
+// search(db, { ctx, plan, ... }) takes the plan `memorySearchPlan` builds (`forms`, `who`, `from`, `to`, `placeId`)
 // and runs four streams, each a ranked list of messages:
 //   words    the plan's forms as stems (the learned stemmer of src/memory/db/stems.ts, the same one that stamped
 //            `sources.stems`) through `sources_fts`: a one-word form is a word, a longer form a phrase; bm25;
@@ -111,7 +111,7 @@ export type StoredSourceRef = Readonly<{
 export type RecallMessage = {
   id: unknown;
   stored?: StoredSourceRef;
-  channelId: string;
+  placeId: string;
   authorId: string | null;
   authorName: string;
   self: boolean;
@@ -132,8 +132,8 @@ export type RecallMessage = {
 /** A window of messages around hits, in the shape the recall runner reads. */
 type RecallWindow = {
   source: string;
-  placeId: unknown;
-  channelId: string | null;
+  place: unknown;
+  placeId: string | null;
   channelName: string | null;
   messages: Array<RecallMessage>;
   hitIds: Array<unknown>;
@@ -156,7 +156,7 @@ export type RecallPlan = {
   who?: ReadonlyArray<string>;
   from?: number | null;
   to?: number | null;
-  channelId?: string;
+  placeId?: string;
 };
 /** A hit of a search: where the line is, how it scored and which streams found it. */
 export type RecallHit = {
@@ -261,7 +261,7 @@ function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | '
   return {
     id: row.native_id,
     stored: storedRefOf(row, extra),
-    channelId: channelOf(row, extra),
+    placeId: channelOf(row, extra),
     authorId: author.id,
     authorName:
       String(name ?? '')
@@ -837,11 +837,11 @@ function excludedSources(
 /** A window (the recall runner's shape) of source rows. */
 function windowOf(rows: ReadonlyArray<Row>, hitIds: Iterable<unknown>, read: Reader): RecallWindow {
   const messages = rows.filter((row) => !read.exclude.has(row.id)).map((row) => messageOf(row, read));
-  const channelId = messages[0]?.channelId ?? null;
+  const placeId = messages[0]?.placeId ?? null;
   return {
     source: 'db',
-    placeId: rows[0]?.place_id ?? null,
-    channelId,
+    place: rows[0]?.place_id ?? null,
+    placeId,
     channelName: read.channelNameOf(rows[0]?.place_id),
     messages,
     hitIds: [...hitIds].filter((id) => !read.exclude.has(id)),
@@ -917,7 +917,7 @@ export function search(
     allowPlace = null,
     model = null,
   }: {
-    ctx?: Context;
+    ctx?: unknown;
     plan?: RecallPlan;
     limit?: number;
     now?: number;
@@ -942,8 +942,7 @@ export function search(
   const scopeArgs: ScopeArgs = {
     from: isFiniteNumber(plan?.from) ? plan.from : null,
     to: isFiniteNumber(plan?.to) ? plan.to : null,
-    placeId:
-      typeof plan?.channelId === 'string' && plan.channelId ? channelPlaceId(ifaceOf(context), plan.channelId) : null,
+    placeId: typeof plan?.placeId === 'string' && plan.placeId ? channelPlaceId(ifaceOf(context), plan.placeId) : null,
     // The caller's place rule runs inside every stream's query (see placesAllowed).
     places: placesAllowed(db, context, allowPlace),
   };
@@ -1086,7 +1085,7 @@ export function search(
       hitIds: [...window.hitIds].map(
         (id) => built.flatMap((part) => part.messages).find((message) => message.stored?.sourceId === id)?.id ?? id
       ),
-      placeId: window.messages[0]?.stored?.placeId ?? null,
+      place: window.messages[0]?.stored?.placeId ?? null,
       messages: window.messages.map((message) => originalMessage(message, built)),
     }));
 
@@ -1245,7 +1244,7 @@ type RecallQuoteEntry = {
 };
 
 type RecallQuote = {
-  channelId: string | null;
+  placeId: string | null;
   channelName: string | null;
   startTs: number;
   lines: string;
@@ -1295,7 +1294,7 @@ export function quotesOf(
       };
     });
     out.push({
-      channelId: one.channelId,
+      placeId: one.placeId,
       channelName: one.channelName,
       startTs: lines[0].ts,
       lines: lines.map((line) => line.text).join('\n'),

@@ -346,21 +346,21 @@ export function indexedPlan(
 /**
  * The relevant record hits of one lane from every index searched (`lists`, each
  * src/memory/record-index.js#searchRecordIndex's, best first): merged by score (then the newer),
- * each message once, at most `limit`, as the rows matchRecord reads around (`{ id, channelId,
+ * each message once, at most `limit`, as the rows matchRecord reads around (`{ id, placeId,
  * occurredAt, sourceIds }`). Pure.
  */
 export function indexRows(
-  lists: Array<Array<{ messageId: string; channelId: string | null; occurredAt: string; ts: number; score: number }>>,
+  lists: Array<Array<{ messageId: string; placeId: string | null; occurredAt: string; ts: number; score: number }>>,
   limit: number
-): Array<{ id: string; channelId: string; occurredAt: string; sourceIds: Array<never> }> {
+): Array<{ id: string; placeId: string; occurredAt: string; sourceIds: Array<never> }> {
   const seen = new Set();
   const out = [];
   const all = (Array.isArray(lists) ? lists : []).flat().sort((a, b) => b.score - a.score || b.ts - a.ts);
   for (const hit of all) {
     if (out.length >= limit) break;
-    if (!hit?.messageId || !hit.channelId || seen.has(hit.messageId)) continue;
+    if (!hit?.messageId || !hit.placeId || seen.has(hit.messageId)) continue;
     seen.add(hit.messageId);
-    out.push({ id: hit.messageId, channelId: hit.channelId, occurredAt: hit.occurredAt, sourceIds: [] });
+    out.push({ id: hit.messageId, placeId: hit.placeId, occurredAt: hit.occurredAt, sourceIds: [] });
   }
   return out;
 }
@@ -401,7 +401,7 @@ export type PrefetchUnit =
 /**
  * The excerpts a prefetch offers, best first, from what each lane's searches found (`lanes`, in
  * lane order, each `{ windows, lexical, meaning, memory }`): `windows` the record windows its
- * searches built (`{ channelId, channelName, messages, hitIds }`), `lexical` its relevant word hits
+ * searches built (`{ placeId, channelName, messages, hitIds }`), `lexical` its relevant word hits
  * best first (message ids), `meaning` its meaning hits at or above the score floor, best first
  * (message ids), `memory` its relevant stored-memory items, best first. The ranked lists of every
  * lane and backend are fused by reciprocal rank (fuseRanks); the windows of all lanes are merged

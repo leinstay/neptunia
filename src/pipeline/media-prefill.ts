@@ -29,10 +29,10 @@ export type CachedMedia = Pick<Parameters<typeof formatTranscript>[1], 'descript
 
 /** The describer (src/memory/describe.ts#createDescriber), as the prefill calls it. */
 type Describer = {
-  describeMany: (guildId: string, items: Array<unknown>) => Promise<unknown>;
-  describeVideos?: (guildId: string, items: Array<unknown>) => Promise<unknown>;
-  cachedDescriptions?: (guildId: string, items: Array<unknown>) => CachedMedia['descriptions'];
-  cachedVideos?: (guildId: string, items: Array<unknown>) => Promise<CachedMedia['videos']>;
+  describeMany: (placeId: string, items: Array<unknown>) => Promise<unknown>;
+  describeVideos?: (placeId: string, items: Array<unknown>) => Promise<unknown>;
+  cachedDescriptions?: (placeId: string, items: Array<unknown>) => CachedMedia['descriptions'];
+  cachedVideos?: (placeId: string, items: Array<unknown>) => Promise<CachedMedia['videos']>;
 };
 
 /** What createMediaPrefill reads: the dependencies of createMessageHandler. */
@@ -41,7 +41,7 @@ export type MediaPrefillContext = {
   describer: Describer | null | undefined;
   lookup:
     | {
-        readLinks?: (guildId: string, links: Array<unknown>, options: { maxNew: number }) => Promise<unknown>;
+        readLinks?: (placeId: string, links: Array<unknown>, options: { maxNew: number }) => Promise<unknown>;
       }
     | null
     | undefined;
@@ -49,9 +49,9 @@ export type MediaPrefillContext = {
 };
 
 export type MediaPrefill = {
-  warmMediaCache: (guildId: string, normalized: MediaLine) => Promise<void> | null;
+  warmMediaCache: (placeId: string, normalized: MediaLine) => Promise<void> | null;
   cachedFollowUpMedia: (
-    guildId: string,
+    placeId: string,
     messages: Array<MediaLine>,
     config: PipelineHot['config'],
     ownPrefill: Promise<void> | null
@@ -67,15 +67,15 @@ export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillConte
    * only the address and room classifiers await it, so a sticker- or
    * picture-only line reaches them with its caption (see cachedFollowUpMedia).
    */
-  function warmMediaCache(guildId: string, normalized: MediaLine): Promise<void> | null {
-    warmLinkCache(guildId, normalized);
+  function warmMediaCache(placeId: string, normalized: MediaLine): Promise<void> | null {
+    warmLinkCache(placeId, normalized);
     if (!describer) return null;
-    warmVideoCache(guildId, normalized);
+    warmVideoCache(placeId, normalized);
     // Per real-time message, not per batch, so it stays small.
     const candidates: Array<unknown> = describableItems([normalized]).slice(0, PICTURES_PER_MESSAGE);
     if (candidates.length === 0) return null;
     return describer
-      .describeMany(guildId, candidates)
+      .describeMany(placeId, candidates)
       .then(() => {})
       .catch((err: unknown) => log.warn('events: media cache prefill failed', { error: err }));
   }
@@ -103,7 +103,7 @@ export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillConte
    * off (read now).
    */
   async function cachedFollowUpMedia(
-    guildId: string,
+    placeId: string,
     messages: Array<MediaLine>,
     config: PipelineHot['config'],
     ownPrefill: Promise<void> | null
@@ -112,18 +112,18 @@ export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillConte
     if (ownPrefill) await ownPrefill;
     const media: CachedMedia = {};
     if (typeof describer.cachedDescriptions === 'function') {
-      media.descriptions = describer.cachedDescriptions(guildId, describableItems(messages));
+      media.descriptions = describer.cachedDescriptions(placeId, describableItems(messages));
     }
     if (typeof describer.cachedVideos === 'function') {
       const sites = config.media?.video?.sites;
       const items = messages.flatMap((m): Array<unknown> => collectVideos(m, { videoSites: sites }));
-      if (items.length > 0) media.videos = await describer.cachedVideos(guildId, items);
+      if (items.length > 0) media.videos = await describer.cachedVideos(placeId, items);
     }
     return media;
   }
 
   /** Fire-and-forget like warmMediaCache: watch the message's first videos now, not when a turn needs it. */
-  function warmVideoCache(guildId: string, normalized: MediaLine): void {
+  function warmVideoCache(placeId: string, normalized: MediaLine): void {
     const config = hot.config;
     // warmMediaCache calls this only with a describer.
     const media = describer as Describer;
@@ -134,7 +134,7 @@ export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillConte
     );
     if (candidates.length === 0) return;
     media
-      .describeVideos(guildId, candidates)
+      .describeVideos(placeId, candidates)
       .catch((err: unknown) => log.warn('events: video cache prefill failed', { error: err }));
   }
 
@@ -142,14 +142,14 @@ export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillConte
    * Fire-and-forget like warmMediaCache: read the message's first readable
    * link now (src/web/lookup.ts), not when a turn needs it.
    */
-  function warmLinkCache(guildId: string, normalized: MediaLine): void {
+  function warmLinkCache(placeId: string, normalized: MediaLine): void {
     if (typeof lookup?.readLinks !== 'function') return;
     const links: Array<unknown> = collectReadableLinks(normalized, {
       videoSites: hot.config.media?.video?.sites ?? [],
     }).slice(0, MAX_WARM_LINKS_PER_MESSAGE);
     if (links.length === 0) return;
     Promise.resolve()
-      .then(() => lookup.readLinks?.(guildId, links, { maxNew: links.length }))
+      .then(() => lookup.readLinks?.(placeId, links, { maxNew: links.length }))
       .catch((err: unknown) => log.warn('events: link prefill failed', { error: err }));
   }
 

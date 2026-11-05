@@ -10,9 +10,9 @@ export const CHANNEL = { id: '500000000000000001', name: 'general', category: 'T
 
 /** A moment as normalized channel messages (interfaces/discord/collect.ts#normalizeMessage), oldest first:
  * one `[authorId, authorName, text, minutesBefore]` per line, the last one the trigger. */
-export function moment(lines: Array<[string, string, string, number]>): { history: Array<{ id: string; authorId: string; authorName: string; content: string; ts: number; channelId: string; channelName: string; channelCategory: string; channelTopic: null; self: boolean; bot: boolean; mentionedUserIds: Array<never>; replyToId: null; forwardedFrom: null; attachments: Array<never>; links: Array<never>; forwarded: Array<never>; stickers: Array<never>; emojis: Array<never>; reactions: Array<never>; }>; } {
+export function moment(lines: Array<[string, string, string, number]>): { history: Array<{ id: string; authorId: string; authorName: string; content: string; ts: number; placeId: string; channelName: string; channelCategory: string; channelTopic: null; self: boolean; bot: boolean; mentionedUserIds: Array<never>; replyToId: null; forwardedFrom: null; attachments: Array<never>; links: Array<never>; forwarded: Array<never>; stickers: Array<never>; emojis: Array<never>; reactions: Array<never>; }>; } {
   const base = {
-    channelId: CHANNEL.id,
+    placeId: CHANNEL.id,
     channelName: CHANNEL.name,
     channelCategory: CHANNEL.category,
     channelTopic: null,
@@ -40,7 +40,7 @@ export function moment(lines: Array<[string, string, string, number]>): { histor
   };
 }
 
-export function twoLines(): { history: Array<{ id: string; authorId: string; authorName: string; content: string; ts: number; channelId: string; channelName: string; channelCategory: string; channelTopic: null; self: boolean; bot: boolean; mentionedUserIds: Array<never>; replyToId: null; forwardedFrom: null; attachments: Array<never>; links: Array<never>; forwarded: Array<never>; stickers: Array<never>; emojis: Array<never>; reactions: Array<never>; }>; } {
+export function twoLines(): { history: Array<{ id: string; authorId: string; authorName: string; content: string; ts: number; placeId: string; channelName: string; channelCategory: string; channelTopic: null; self: boolean; bot: boolean; mentionedUserIds: Array<never>; replyToId: null; forwardedFrom: null; attachments: Array<never>; links: Array<never>; forwarded: Array<never>; stickers: Array<never>; emojis: Array<never>; reactions: Array<never>; }>; } {
   return moment([
     [BRUNO, 'Bruno', 'καλημέρα', 5],
     [ALICE, 'Alice', 'what do you think about chess?', 1],
@@ -94,33 +94,33 @@ export function fakeHot(featureOverrides: Record<string, unknown> = {}): {
 }
 
 export function fakeStore({
-  guildMemory = {},
+  placeMemory = {},
   userProfiles = {},
   channels = [],
   loreEntries = [],
 }: {
-  guildMemory?: Record<string, unknown>;
+  placeMemory?: Record<string, unknown>;
   userProfiles?: Record<string, unknown>;
   channels?: Array<unknown>;
   loreEntries?: Array<unknown>;
 } = {}): {
   writes: Array<string>;
-  getGuild: () => Record<string, unknown>;
-  getUser: (guildId: string, userId: string) => unknown;
+  getPlace: () => Record<string, unknown>;
+  getUser: (userId: string) => unknown;
   getPrivate: () => never;
   listChannels: () => Array<unknown>;
   listUserProfiles: () => Array<unknown>;
   getLore: () => Array<unknown>;
   applyProfileOps: () => number;
-  updateGuild: () => number;
+  updatePlace: () => number;
   state: { data: Record<string, unknown>; markDirty: () => number };
 } {
   const writes: Array<string> = [];
   const writer = (name: string) => () => writes.push(name);
   return {
     writes,
-    getGuild: () => guildMemory,
-    getUser: (guildId: string, userId: string) => userProfiles[userId] ?? null,
+    getPlace: () => placeMemory,
+    getUser: (userId: string) => userProfiles[userId] ?? null,
     getPrivate: () => {
       throw new Error('the private layer is out of bounds for the sandbox');
     },
@@ -128,7 +128,7 @@ export function fakeStore({
     listUserProfiles: () => Object.values(userProfiles),
     getLore: () => loreEntries,
     applyProfileOps: writer('applyProfileOps'),
-    updateGuild: writer('updateGuild'),
+    updatePlace: writer('updatePlace'),
     state: { data: {}, markDirty: writer('markDirty') },
   };
 }

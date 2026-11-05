@@ -49,7 +49,7 @@ function reader(routes: Record<string, Route>) {
       runWebRead({
         lookup: lookup as unknown as Parameters<typeof runWebRead>[0]['lookup'],
         labels,
-        guildId: 'g1',
+        placeId: 'g1',
         args: { url },
       }),
   };

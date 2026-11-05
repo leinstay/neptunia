@@ -127,13 +127,13 @@ export function diaryCounts(result: unknown): Record<string, unknown> {
   return counts;
 }
 
-/** The `index`th post a fake store's `appendDiaryPost` was given: `{ guildId, post, opts }`. */
+/** The `index`th post a fake store's `appendDiaryPost` was given: `{ placeId, post, opts }`. */
 export function appendedPost(
   store: { appended: Array<unknown> },
   index = 0
-): { guildId: unknown; post: Record<string, unknown>; opts: unknown } {
-  // The fake stores of the turn tests keep each call's arguments as `{ guildId, post, opts }`.
-  const call = store.appended[index] as { guildId: unknown; post: Record<string, unknown>; opts: unknown } | undefined;
+): { placeId: unknown; post: Record<string, unknown>; opts: unknown } {
+  // The fake stores of the turn tests keep each call's arguments as `{ placeId, post, opts }`.
+  const call = store.appended[index] as { placeId: unknown; post: Record<string, unknown>; opts: unknown } | undefined;
   assert.ok(call, `the store was given post ${index}`);
   return call;
 }

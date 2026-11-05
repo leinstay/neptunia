@@ -7,7 +7,7 @@ import { unitValue } from '../src/memory/db/readers/common.ts';
 import { unitRows } from '../src/memory/db/export.ts';
 import { listUnits } from '../src/memory/db/storage-units.ts';
 import type { StorageKey } from '../src/memory/db/storage-keys.ts';
-import { accountId, guildPlaceId, personId } from '../src/memory/db/ids.ts';
+import { accountId, personId } from '../src/memory/db/ids.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { a, profile } from './fixtures/memory-db/storage-ownership.ts';
 
@@ -17,7 +17,6 @@ test('fresh semantic units read and list independently for equal native account 
     const other: StorageKey = {
       ...a,
       subject: { type: 'account', id: accountId('other', 'u1') },
-      scopePlaceId: guildPlaceId('other', 'g1'),
     };
     applyUnitWrite(handle, { op: 'value', key: a, value: profile });
     applyUnitWrite(handle, {

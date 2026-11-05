@@ -13,7 +13,7 @@ const envelope = (kind: string, fields: unknown) => ({
   kind,
   occurredAt: '2026-10-13T10:00:00.000Z',
   recordedAt: '2026-10-13T10:00:00.000Z',
-  guildId: 'g1',
+  placeId: 'g1',
   scope: { channel: 'c1' },
   participants: [],
   sourceMessageIds: [],

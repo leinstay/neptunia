@@ -132,9 +132,9 @@ export async function linksOfCalls(
 }
 
 /** The message a pasted link names, from the view's `links` (the interface read it), or null. */
-function linkedMessage(view: CallView | undefined, text: string): { channelId: string; messageId: string } | null {
+function linkedMessage(view: CallView | undefined, text: string): { placeId: string; messageId: string } | null {
   const ref = view?.links instanceof Map ? (view.links.get(linkKey(text)) ?? null) : null;
-  return ref ? { channelId: idText(ref.conversationId), messageId: idText(ref.messageId) } : null;
+  return ref ? { placeId: idText(ref.conversationId), messageId: idText(ref.messageId) } : null;
 }
 
 /** Whether `option` of `skill` given as `text` names a message (a transcript number or a link). */
@@ -147,8 +147,8 @@ function namesMessage(skill: string, option: string, text: string, view: CallVie
 const MEDIA_OPTION = 'media';
 
 /** The core's own form of a message in a conversation, carrying the channel with the id (src/tools/impl/shared.ts#messageRefOf reads it). */
-function mediaRef(channelId: string, messageId: string): string {
-  return `ref:${channelId}/${messageId}`;
+function mediaRef(placeId: string, messageId: string): string {
+  return `ref:${placeId}/${messageId}`;
 }
 
 /** Whether the transcript line `line` is the persona's own (`self`, else its author is `selfId`). */
@@ -294,16 +294,16 @@ function memberOf(
   return refused(CODE.UNKNOWN_MEMBER, ids.size > 1 ? 'ambiguous' : 'name');
 }
 
-/** Whether `text` names the channel `channelId`: its mention `<#id>`, one of its handles, or its name (by its core: any case, accents, emoji) as a whole word. */
+/** Whether `text` names the channel `placeId`: its mention `<#id>`, one of its handles, or its name (by its core: any case, accents, emoji) as a whole word. */
 function namesChannel(
   text: unknown,
-  channelId: string,
+  placeId: string,
   names: ReadonlyArray<string>,
   handles: ReadonlyArray<string>
 ): boolean {
   const raw = argText(text);
   if (!raw.trim()) return false;
-  if (raw.includes(`<#${channelId}>`)) return true;
+  if (raw.includes(`<#${placeId}>`)) return true;
   const folded = foldText(raw);
   return (
     handles.some((handle) => occursAsWholeWord(folded, foldText(handle))) ||
@@ -312,22 +312,22 @@ function namesChannel(
 }
 
 /**
- * Whether a file of the errand `task` may be posted to `channelId`: the errand's origin channel
- * (`task.origin.channelId`; any channel when it has none), else a channel the errand's goal or the
+ * Whether a file of the errand `task` may be posted to `placeId`: the errand's origin channel
+ * (`task.origin.placeId`; any channel when it has none), else a channel the errand's goal or the
  * trigger message of the turn (`view.triggerText`) names by its mention, a handle of
  * `view.channelHandles` or a name of `view.conversations`.
  */
-function fileMayGo(task: Obj, channelId: string, view: CallView | undefined): boolean {
-  const origin = objOf(task.origin).channelId;
-  if (origin === undefined || origin === null || origin === '' || idText(origin) === channelId) return true;
+function fileMayGo(task: Obj, placeId: string, view: CallView | undefined): boolean {
+  const origin = objOf(task.origin).placeId;
+  if (origin === undefined || origin === null || origin === '' || idText(origin) === placeId) return true;
   const names = (view?.conversations ?? [])
-    .filter((c) => idText(c.id) === channelId && typeof c.name === 'string' && c.name)
+    .filter((c) => idText(c.id) === placeId && typeof c.name === 'string' && c.name)
     .map((c) => textOf(c.name));
   const handles =
     view?.channelHandles instanceof Map
-      ? [...view.channelHandles].filter(([, id]) => idText(id) === channelId).map(([handle]) => handle)
+      ? [...view.channelHandles].filter(([, id]) => idText(id) === placeId).map(([handle]) => handle)
       : [];
-  return [task.goal, view?.triggerText].some((text) => namesChannel(text, channelId, names, handles));
+  return [task.goal, view?.triggerText].some((text) => namesChannel(text, placeId, names, handles));
 }
 
 /** Select trusted memory identity or refuse an unroutable live reference. */
@@ -494,9 +494,9 @@ export function resolveCall(
             option,
             {
               id: link.messageId,
-              conversationId: link.channelId,
+              conversationId: link.placeId,
               native: view?.currentIface
-                ? { iface: view.currentIface, conversationId: link.channelId, messageId: link.messageId }
+                ? { iface: view.currentIface, conversationId: link.placeId, messageId: link.messageId }
                 : undefined,
             },
             view
@@ -504,10 +504,10 @@ export function resolveCall(
           if (!identity) return refused(CODE.UNKNOWN_MESSAGE, `args.${option}`);
           Object.assign(references, identity);
           if (option === MEDIA_OPTION) {
-            args[option] = mediaRef(link.channelId, link.messageId);
+            args[option] = mediaRef(link.placeId, link.messageId);
             break;
           }
-          linked[option] = link.channelId;
+          linked[option] = link.placeId;
           args[option] = link.messageId;
           break;
         }
@@ -651,14 +651,14 @@ function fromPort(answer: unknown): CallResult {
 /** What an in-turn tool is told about the call it answers: who asked, where, and the call's key. */
 function inTurnCallOf(deps: ExecuteDeps, resolved: Resolved): InTurnCall {
   const asked = deps.envelope?.requester ?? null;
-  const channelId = deps.opContext?.channelId;
+  const placeId = deps.opContext?.conversationId;
   return {
     ...(resolved.skill === 'memory.search' && resolved.memoryAnchor ? { memoryAnchor: resolved.memoryAnchor } : {}),
     ...((resolved.skill === 'web.read' || resolved.skill === 'media.look') && resolved.messageRef
       ? { messageRef: resolved.messageRef }
       : {}),
     requester: asked === null ? null : { id: asked.id ?? null, roleIds: [...(asked.roleIds ?? [])] },
-    conversationId: typeof channelId === 'string' ? channelId : null,
+    conversationId: typeof placeId === 'string' ? placeId : null,
     idempotencyKey: deps.envelope?.idempotencyKey ?? deps.envelope?.invocationId ?? null,
   };
 }
@@ -680,7 +680,10 @@ function callPublicationRefusal(
   )
     return null;
   const channel = resolved.args.channel;
-  return publicationRefusal(boundary, deps.refOf(typeof channel === 'string' ? channel : deps.opContext?.channelId));
+  return publicationRefusal(
+    boundary,
+    deps.refOf(typeof channel === 'string' ? channel : deps.opContext?.conversationId)
+  );
 }
 
 /** Post returned attachments through the turn's publication and hold checks. */
@@ -711,7 +714,7 @@ async function postReturnedFiles(
     return { name: argText(file.name ?? 'file'), data: file.attachment };
   });
   // A wake turn's post of them is held for its end (src/tools/send-hold.ts), under the call's key.
-  const destination = deps.refOf(deps.opContext?.channelId);
+  const destination = deps.refOf(deps.opContext?.conversationId);
   const refusal = publicationRefusal(boundary, destination);
   if (refusal) return refusal;
   const port = heldPort(bindPublicationPort(deps.port, boundary), {
@@ -737,7 +740,7 @@ async function postReturnedFiles(
  * `deps.runInitiativeOp` (src/admin.ts#runInitiativeSkillOp, the same for any operation) -- on
  * the call's envelope (`deps.envelope`, built by the turn, never by
  * the model: the requester's `userId` and `roleIds`, null with nobody; the invocation id) in the
- * turn's context (`deps.opContext`: `guildId`, `channelId`), the persona as the actor, the replied
+ * turn's context (`deps.opContext`: `placeId`, `placeId`), the persona as the actor, the replied
  * author for a reply's notification; not back within `deps.timeoutMs` (`tools.callTimeoutMs`)
  * it is `unknown` (`timeout`), never retried. Its answer is the call's `data.text`
  * whatever the status -- the reply text, a card's fields, or the error or refusal the owner would
@@ -1012,8 +1015,8 @@ export type ExecuteDeps = {
   runOwnOp?: RunOperation;
   runInitiativeOp?: RunOperation;
   config?: unknown;
-  opContext?: Obj & { channelId?: unknown; publicationBoundary?: PublicationBoundary };
+  opContext?: Obj & { placeId?: unknown; publicationBoundary?: PublicationBoundary };
   timeoutMs?: number;
   port: { send(ref: unknown, body: unknown): Promise<unknown> };
-  refOf(channelId: unknown): ConversationRef;
+  refOf(placeId: unknown): ConversationRef;
 };

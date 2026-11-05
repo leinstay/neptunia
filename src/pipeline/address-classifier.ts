@@ -23,7 +23,7 @@ export type AddressClassifierContext = {
   hot: PipelineHot;
   llm: PipelineLlm | null | undefined;
   now: () => number;
-  getSelfName: (guildId: string) => string;
+  getSelfName: (placeId: string) => string;
   missed: PipelineMissed | null;
   buildClassifierRequest: (params: ClassifierParams) => Promise<ClassifierRequest | null>;
   bumpFollowUpNoStreak: FollowUpWindows['bumpFollowUpNoStreak'];
@@ -105,7 +105,7 @@ export function createAddressClassifier({
     { config, state }: { config: PipelineConfig; state: FollowUpWindow },
     ownPrefill: Promise<void> | null = null
   ): Promise<AddressAnswer> {
-    const channelId = channel.id;
+    const placeId = channel.id;
     const mentionCfg = config.mention;
     const startedAt = now();
     // A served channel is in a community, so it has its id.
@@ -125,7 +125,7 @@ export function createAddressClassifier({
       });
     } catch (err) {
       buildFailed = true;
-      log.warn('follow-up: building the classifier request failed', { channel: channelId, error: err });
+      log.warn('follow-up: building the classifier request failed', { channel: placeId, error: err });
     }
 
     if (!request) {
@@ -137,13 +137,13 @@ export function createAddressClassifier({
       // A failed build is a failed gate (src/behavior/missed.ts); a missing prompt is the deployment's.
       if (buildFailed) missed?.noteFact({ reason: 'gate-failed', message: normalized, failure: 'build-failed' });
       log.info('follow-up: verdict', {
-        channel: channelId,
+        channel: placeId,
         author: normalized.authorId,
         verdict: 'no',
         answer: 'no',
         ms: now() - startedAt,
       });
-      bumpFollowUpNoStreak(channelId, state);
+      bumpFollowUpNoStreak(placeId, state);
       return 'no';
     }
 
@@ -181,12 +181,12 @@ export function createAddressClassifier({
         } else {
           // Nothing at all (typically a reasoning model that spent its whole
           // output cap thinking) is a failed call, not a silent "no".
-          log.warn('follow-up: classifier failed', { channel: channelId, reason: 'empty', model: model ?? null });
+          log.warn('follow-up: classifier failed', { channel: placeId, reason: 'empty', model: model ?? null });
           failure = 'empty';
         }
       } catch (err) {
         answer = 'no';
-        log.warn('follow-up: classifier failed', { channel: channelId, error: err });
+        log.warn('follow-up: classifier failed', { channel: placeId, error: err });
         failure = 'classifier-failed';
       }
     }
@@ -200,7 +200,7 @@ export function createAddressClassifier({
         { authorId: normalized.authorId, ts: normalized.ts ?? now() },
         FAIL_OPEN_MINUTES
       );
-      log.info('follow-up: fail-open', { channel: channelId, author: normalized.authorId, reason: failure, open });
+      log.info('follow-up: fail-open', { channel: placeId, author: normalized.authorId, reason: failure, open });
       if (open) answer = 'yes';
     }
     // A failed gate is a fact for the missed-answer registry (src/behavior/missed.ts), let through or not.
@@ -209,14 +209,14 @@ export function createAddressClassifier({
     // `verdict` is the two-way projection (overheard counts as yes), `answer` the word itself.
     const verdict = answer === 'no' ? 'no' : 'yes';
     log.info('follow-up: verdict', {
-      channel: channelId,
+      channel: placeId,
       author: normalized.authorId,
       verdict,
       answer,
       ms: now() - startedAt,
     });
     if (answer === 'no') missed?.noteNotAddressed?.(normalized);
-    if (answer === 'no') bumpFollowUpNoStreak(channelId, state);
+    if (answer === 'no') bumpFollowUpNoStreak(placeId, state);
     return answer;
   }
 

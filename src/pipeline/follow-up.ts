@@ -34,7 +34,7 @@ export type FollowUpContext = {
   currentOf: (channel: Conv) => Promise<Conv>;
   refOf: (channel: Conv) => ConversationRef;
   classifyFollowUp: ClassifyFollowUp;
-  turnBlocked: (channelId: string, config: PipelineConfig) => boolean;
+  turnBlocked: (placeId: string, config: PipelineConfig) => boolean;
   deferFollowUp: PendingQueueOps['deferFollowUp'];
   decideAndLog: Answer['decideAndLog'];
   drainPending: () => Promise<void>;
@@ -62,8 +62,8 @@ export function createFollowUp({
   drainPending,
   announceRefusal,
 }: FollowUpContext): { maybeFollowUp: MaybeFollowUp } {
-  const followUpInFlight = new Set<string>(); // channelIds with a classifier call running right now
-  const followUpHeld = new Map<string, Held>(); // channelId -> the latest message that arrived in flight
+  const followUpInFlight = new Set<string>(); // placeIds with a classifier call running right now
+  const followUpHeld = new Map<string, Held>(); // placeId -> the latest message that arrived in flight
 
   /**
    * Whether an untagged `normalized` message was fully handled by the address
@@ -97,39 +97,39 @@ export function createFollowUp({
     // so it waits instead: the held message is classified first
     // (settleFollowUp). The slot stays taken until the held messages are
     // worked off, one at a time.
-    const channelId = channel.id;
-    if (followUpInFlight.has(channelId)) {
-      const replaced = followUpHeld.has(channelId);
-      followUpHeld.set(channelId, { channel, normalized, selfId, ownPrefill });
+    const placeId = channel.id;
+    if (followUpInFlight.has(placeId)) {
+      const replaced = followUpHeld.has(placeId);
+      followUpHeld.set(placeId, { channel, normalized, selfId, ownPrefill });
       log.info('follow-up: held while a classifier call is in flight', {
-        channel: channelId,
+        channel: placeId,
         message: normalized.id,
         replaced,
       });
       return true;
     }
 
-    followUpInFlight.add(channelId);
+    followUpInFlight.add(placeId);
     let settled: Settled;
     try {
       const answer = await classifyFollowUp(channel, normalized, selfId, gate, ownPrefill);
-      settled = settleFollowUp(channelId, { channel, normalized }, answer);
+      settled = settleFollowUp(placeId, { channel, normalized }, answer);
     } catch (err) {
-      followUpHeld.delete(channelId);
-      followUpInFlight.delete(channelId);
+      followUpHeld.delete(placeId);
+      followUpInFlight.delete(placeId);
       throw err;
     }
     // Not awaited: this message is answered (or waits on a held one); a held
     // one is classified in the background, still holding the slot. With
     // nothing held the slot is released synchronously, before this returns.
-    classifyHeldFollowUps(channelId, settled).catch((err: unknown) =>
-      log.error('follow-up: classifying a held message failed', { channel: channelId, error: err })
+    classifyHeldFollowUps(placeId, settled).catch((err: unknown) =>
+      log.error('follow-up: classifying a held message failed', { channel: placeId, error: err })
     );
     return true;
   }
 
   /**
-   * Works off the messages held for `channelId` while its classifier slot was
+   * Works off the messages held for `placeId` while its classifier slot was
    * taken, one at a time, then frees the slot. `settled` is what the call
    * that just ended left (settleFollowUp): whether it started a turn, and the
    * overheard line still waiting on the held messages, if any. A waiting
@@ -137,16 +137,16 @@ export function createFollowUp({
    * (startWaitingLine: its turn is overheard, or followUp with the switch
    * turned off meanwhile) -- or dropped there.
    */
-  async function classifyHeldFollowUps(channelId: string, settled: Settled): Promise<void> {
+  async function classifyHeldFollowUps(placeId: string, settled: Settled): Promise<void> {
     try {
       let { started, waiting } = settled;
       for (;;) {
-        const held = followUpHeld.get(channelId);
+        const held = followUpHeld.get(placeId);
         if (!held) break;
-        followUpHeld.delete(channelId);
+        followUpHeld.delete(placeId);
         if (started) {
           log.info('follow-up: held message dropped', {
-            channel: channelId,
+            channel: placeId,
             message: held.normalized.id,
             reason: 'turn',
           });
@@ -161,7 +161,7 @@ export function createFollowUp({
           : followUpGate(here, held.normalized, held.selfId);
         if (gate.kind === 'skip') {
           log.info('follow-up: held message dropped', {
-            channel: channelId,
+            channel: placeId,
             message: held.normalized.id,
             reason: gate.reason,
           });
@@ -171,12 +171,12 @@ export function createFollowUp({
         }
         if (gate.kind === 'handled') break;
         const answer = await classifyFollowUp(here, held.normalized, held.selfId, gate, held.ownPrefill);
-        ({ started, waiting } = settleFollowUp(channelId, held, answer, waiting));
+        ({ started, waiting } = settleFollowUp(placeId, held, answer, waiting));
       }
-      if (waiting) await startWaitingLine(channelId, waiting);
+      if (waiting) await startWaitingLine(placeId, waiting);
     } finally {
-      followUpHeld.delete(channelId);
-      followUpInFlight.delete(channelId);
+      followUpHeld.delete(placeId);
+      followUpInFlight.delete(placeId);
     }
   }
 
@@ -191,17 +191,16 @@ export function createFollowUp({
    * channel history.
    */
   function settleFollowUp(
-    channelId: string,
+    placeId: string,
     candidate: Candidate,
     answer: AddressAnswer,
     waiting: Candidate | null = null
   ): Settled {
     if (answer === 'no') return { started: false, waiting };
-    if (waiting)
-      log.info('follow-up: dropped', { channel: channelId, message: waiting.normalized.id, reason: 'newer' });
+    if (waiting) log.info('follow-up: dropped', { channel: placeId, message: waiting.normalized.id, reason: 'newer' });
     // A "yes" or an "overheard" answer always has its kind.
     const triggerKind = followUpTriggerKind(answer) as FollowUpKind;
-    if (triggerKind === 'overheard' && followUpHeld.has(channelId)) return { started: false, waiting: candidate };
+    if (triggerKind === 'overheard' && followUpHeld.has(placeId)) return { started: false, waiting: candidate };
     return { started: startFollowUpTurn(candidate, triggerKind), waiting: null };
   }
 
@@ -215,14 +214,14 @@ export function createFollowUp({
    * meanwhile does not: the line was classified while it was open. The kind
    * is read now as well (followUpTriggerKind).
    */
-  async function startWaitingLine(channelId: string, waiting: Candidate): Promise<void> {
+  async function startWaitingLine(placeId: string, waiting: Candidate): Promise<void> {
     let reason: string | null = followUpMuted();
     if (!reason) {
       const here = await currentOf(waiting.channel);
       if (!here.permissions.send) reason = 'cannot-send';
     }
     if (reason) {
-      log.info('follow-up: dropped', { channel: channelId, message: waiting.normalized.id, reason });
+      log.info('follow-up: dropped', { channel: placeId, message: waiting.normalized.id, reason });
       return;
     }
     // An "overheard" answer always has its kind.
@@ -245,10 +244,10 @@ export function createFollowUp({
    * returns false, so a line held meanwhile is classified next.
    */
   function startFollowUpTurn({ channel, normalized }: Candidate, triggerKind: FollowUpKind): boolean {
-    const channelId = channel.id;
+    const placeId = channel.id;
     const config = hot.config;
     // A follow-up turn that finds the attention taken waits in the pending queue, an overheard one too.
-    if (turnBlocked(channelId, config)) {
+    if (turnBlocked(placeId, config)) {
       deferFollowUp(channel, normalized, triggerKind);
       return false;
     }
@@ -261,12 +260,12 @@ export function createFollowUp({
       .then((result) => {
         if (result?.outcome === 'busy') {
           deferFollowUp(channel, normalized, triggerKind);
-          if (!turnBlocked(channelId, hot.config)) return drainPending();
+          if (!turnBlocked(placeId, hot.config)) return drainPending();
           return undefined;
         }
         return announceRefusal(channel, normalized, result, triggerKind);
       })
-      .catch((err: unknown) => log.error('follow-up: reply turn failed', { channel: channelId, error: err }));
+      .catch((err: unknown) => log.error('follow-up: reply turn failed', { channel: placeId, error: err }));
     return true;
   }
 

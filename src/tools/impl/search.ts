@@ -39,25 +39,25 @@ function asOpResult(answer: unknown, what = 'search'): Obj {
 }
 
 const handlers = perEnv((env) => {
-  const { hot, store, resolvedGuildId, now = Date.now } = env;
+  const { hot, store, resolvedPlaceId, now = Date.now } = env;
   const { reads } = env;
 
   /** The interface's name for the conversation the command or call came from. */
-  const refOf = (context: { channelId?: string | null }): { iface: string; conversationId: string } => ({
+  const refOf = (context: { conversationId?: string | null }): { iface: string; conversationId: string } => ({
     iface: (env.port?.iface as string | undefined) ?? '',
-    conversationId: idText(context.channelId),
+    conversationId: idText(context.conversationId),
   });
 
   /** The whole `message.received` event of message `messageId` in the command's conversation, or null. */
-  async function eventOf(messageId: unknown, context: { channelId?: string | null }): Promise<Untyped> {
-    if (!context.channelId || !reads) return null;
+  async function eventOf(messageId: unknown, context: { conversationId?: string | null }): Promise<Untyped> {
+    if (!context.conversationId || !reads) return null;
     const found = await reads.fetchMessages(refOf(context), [idText(messageId)]);
     return found?.messages[0]?.event ?? null;
   }
 
   /** The conversation the command came from as the interface describes it, or null. */
   async function infoOf(context: OpContext) {
-    if (!context?.channelId || !reads) return null;
+    if (!context?.conversationId || !reads) return null;
     return (await reads.conversationInfo(refOf(context)))?.conversation ?? null;
   }
 
@@ -67,7 +67,7 @@ const handlers = perEnv((env) => {
       lookup: env.lookup ?? null,
       config: hot.config,
       labels: hot.prompts?.labels ?? {},
-      guildId: resolvedGuildId(context),
+      placeId: resolvedPlaceId(context),
       args,
     });
     return asOpResult(result);
@@ -94,7 +94,7 @@ const handlers = perEnv((env) => {
       lookup: env.lookup ?? null,
       config: hot.config,
       labels: hot.prompts?.labels ?? {},
-      guildId: resolvedGuildId(context),
+      placeId: resolvedPlaceId(context),
       args,
       linkOf: (messageId) => linkOfMessage(messageId, context),
     });
@@ -112,7 +112,7 @@ const handlers = perEnv((env) => {
     } catch {
       return null;
     }
-    const event = await eventOf(ref.messageId, ref.channelId ? { channelId: ref.channelId } : context);
+    const event = await eventOf(ref.messageId, ref.placeId ? { conversationId: ref.placeId } : context);
     return event ? lineOf(event) : null;
   }
 
@@ -122,7 +122,7 @@ const handlers = perEnv((env) => {
       describer: env.describer ?? null,
       config: hot.config,
       labels: hot.prompts?.labels ?? {},
-      guildId: resolvedGuildId(context),
+      placeId: resolvedPlaceId(context),
       args,
       mediaOf: (messageId) => normalizedMessage(messageId, context),
     });
@@ -132,18 +132,18 @@ const handlers = perEnv((env) => {
   /** `/nep memory search question [people] [channel] [when] [terms]`, in the channel it was typed in. */
   async function cmdMemorySearch(args: Obj, context: OpContext) {
     const channel = await infoOf(context);
-    const guildId = resolvedGuildId(context);
+    const placeId = resolvedPlaceId(context);
     const snapshot = channel?.communityId != null && reads ? await takeSnapshot(reads, channel.communityId, []) : null;
     const result = await runMemorySearch({
       recall: env.recall ?? null,
       store,
       config: hot.config,
       labels: hot.prompts?.labels ?? {},
-      guildId,
+      placeId,
       snapshot,
       channel,
       selfId: env.selfId() ?? null,
-      selfName: env.getSelfName(guildId),
+      selfName: env.getSelfName(placeId),
       args,
       now: now(),
     });
@@ -157,7 +157,7 @@ const handlers = perEnv((env) => {
         store,
         config: hot.config,
         labels: hot.prompts?.labels ?? {},
-        guildId: resolvedGuildId(context),
+        placeId: resolvedPlaceId(context),
         args,
       }),
       'find'
@@ -178,29 +178,29 @@ const handlers = perEnv((env) => {
     const snapshot = await takeSnapshot(reads, communityId, []);
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
-    const guildId = resolvedGuildId(context);
+    const placeId = resolvedPlaceId(context);
     const channelOf = (id: unknown): { name?: string | null } | null =>
       idText(id) === here.id ? here : (snapshot?.get(idText(id)) ?? null);
-    const selfName = env.getSelfName(guildId);
+    const selfName = env.getSelfName(placeId);
     const nameOf = (id: unknown): string | null => env.memberNameOf(communityId, idText(id));
     const timezone = config.bot?.timezone ?? 'UTC';
     const result = await runConversationRead({
       args,
       labels,
       config,
-      channelId: String(here.id),
+      placeId: String(here.id),
       channelNameOf: (id) => channelOf(id)?.name ?? null,
       allowed: (id) =>
         String(id) === String(here.id) ||
-        checkPull({ snapshot, channelId: String(id), destination: here, config, now: now() }).skip === null,
-      readRecord: ({ channelId, from }) =>
-        env.record && guildId
-          ? recordMessages(env.record, guildId, { channelId, from, nameOf, selfName })
+        checkPull({ snapshot, placeId: String(id), destination: here, config, now: now() }).skip === null,
+      readRecord: ({ placeId: conversationId, from }) =>
+        env.record && placeId
+          ? recordMessages(env.record, placeId, { placeId: conversationId, from, nameOf, selfName })
           : Promise.resolve([]),
       fetchLive: (request) =>
         fetchSpan(
           reads,
-          { iface: (env.port?.iface as string | undefined) ?? '', conversationId: request.channelId },
+          { iface: (env.port?.iface as string | undefined) ?? '', conversationId: request.placeId },
           {
             mode: request.mode,
             limit: request.limit,

@@ -60,8 +60,8 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'diary'>
   ownInitiative?: boolean;
   // The conversation as the interface described it when the attempt began.
   info?: ConversationInfo;
-  guildId?: string;
-  channelId?: string;
+  placeId?: string;
+  conversationId?: string;
   privateUserId?: string | null;
   /** A restriction this turn inherited from deferred work, read by `turnBoundary` (src/tools/publication.ts). */
   publicationBoundary?: unknown;
@@ -82,7 +82,7 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'diary'>
     messageIds: Array<string>;
     parents: Array<unknown>;
     parts: { filePreviews: Array<unknown> };
-    pulled: Array<{ channelId: string; messageIds: Array<string> }>;
+    pulled: Array<{ placeId: string; messageIds: Array<string> }>;
     [key: string]: unknown;
   } | null;
   participants?: Array<string>;

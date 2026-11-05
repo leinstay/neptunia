@@ -34,13 +34,6 @@ export const BOT: ReadonlyArray<SchemaEntry> = [
     'text': 'Extra trigger strings besides @mention',
   },
   {
-    'key': 'bot.guildId',
-    'types': ['string'],
-    'reader': 'src/core.ts',
-    'default': '',
-    'text': 'Server to lock to; auto-detected if in exactly one',
-  },
-  {
     'key': 'bot.access',
     'types': ['map'],
     'reader': 'src/behavior/sandbox.ts',

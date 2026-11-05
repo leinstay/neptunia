@@ -193,3 +193,25 @@ export function privateByPlace(db: Db, placeId: string, context: Context): Priva
   const person = partnerOf(db, place, context.internal === true);
   return { found: true, place: placeOf(place), person, records, counts: { records: records.length } };
 }
+
+/**
+ * What the person of `accountId` said in the DMs of their other linked accounts: the live claims about them under each
+ * DM's own audience. Only places whose partner account is this person's: a claim under a stranger's DM stays there.
+ */
+export function linkedPrivateClaims(db: Db, accountId: string): Array<{ text: string }> {
+  const person = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId)?.person_id;
+  if (typeof person !== 'string') return [];
+  const places = db
+    .prepare(
+      `SELECT p.id FROM places p JOIN accounts a ON a.id = p.partner_account
+       WHERE a.person_id = ? AND a.id <> ? AND (p.kind = 'dm' OR p.conversation = 'dm') AND p.retired_at IS NULL`
+    )
+    .all(person, accountId);
+  const claims = db.prepare(
+    `SELECT text FROM claims WHERE subject_kind = 'person' AND subject_id = ? AND audience_id = ? AND shown = 1
+     AND truth = 'current' AND retired_at IS NULL ORDER BY rowid`
+  );
+  return places.flatMap((place) =>
+    claims.all(person, dmAudienceId(place.id)).map((row) => ({ text: String(row.text) }))
+  );
+}

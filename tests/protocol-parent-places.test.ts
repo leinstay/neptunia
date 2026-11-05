@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ChannelType } from 'discord.js';
-import { conversationOfChannel } from '../interfaces/discord/collect.ts';
+import { conversationOfChannel } from './fixtures/sdk-shaped.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
@@ -135,7 +135,7 @@ test('the Discord adapter declares a category as a plain parent place and no com
   // Bug: the category is only a name, so the core cannot tell two categories apart, or a Discord object crosses the door.
   const inCategory = {
     id: 'c1',
-    guildId: 'g1',
+    placeId: 'g1',
     guild: { id: 'g1' },
     type: ChannelType.GuildText,
     name: 'general',

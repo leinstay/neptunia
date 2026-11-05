@@ -8,7 +8,7 @@ import { callMethod, objOf } from '../types.ts';
 import type { OpContext } from '../types.ts';
 
 const handlers = perEnv((env) => {
-  const { slash, resolvedGuildId, journalSystem } = env;
+  const { slash, resolvedPlaceId, journalSystem } = env;
 
   /**
    * Sets `paused`/`pausedAt` (and `pausedBy`, the caller) in state.json FIRST (so a crash or restart
@@ -67,7 +67,7 @@ const handlers = perEnv((env) => {
 
     log.info('admin: paused', { dropped });
 
-    await journalSystem(resolvedGuildId(context), { event: 'pause', by: 'owner' });
+    await journalSystem({ event: 'pause', by: 'owner' });
 
     return [
       'Paused. Memory is flushed to disk -- files under data/ can be edited safely now.',
@@ -81,7 +81,7 @@ const handlers = perEnv((env) => {
    * data/ fails to parse, naming the offending paths; else re-reads
    * state.json (the owner may have hand-edited data/ while paused) and clears
    * the pause flags, letting every other cache lazily re-populate from disk.
-   * Then the journal's `resume` record; nothing is posted to the chat. Then `pending.drain(guildId)` hands back
+   * Then the journal's `resume` record; nothing is posted to the chat. Then `pending.drain(placeId)` hands back
    * what the pause kept (the core's held messages and queued pings), never awaited. Last, the meaning index's
    * catch-up pass starts in the background (`embedQueue.catchUp`, never awaited; it does nothing
    * with the index switches off). With `only`, a pause of another reason stays (the core's own resumes).
@@ -114,21 +114,21 @@ const handlers = perEnv((env) => {
 
     log.info('admin: resumed', {});
 
-    const guildId = resolvedGuildId(context);
-    await journalSystem(guildId, { event: 'resume', by: 'owner' });
+    const placeId = resolvedPlaceId(context);
+    await journalSystem({ event: 'resume', by: 'owner' });
 
     // What the pause kept: the messages held for the resume, then the queued direct pings (src/core.ts). Never awaited.
     const drain = objOf(objOf(env).pending).drain;
     if (typeof drain === 'function') {
       Promise.resolve()
-        .then(() => Reflect.apply(drain, objOf(env).pending, [guildId]) as unknown)
+        .then(() => Reflect.apply(drain, objOf(env).pending, [placeId]) as unknown)
         .catch((err: unknown) => log.warn('admin: resume drain failed', { code: objOf(err).code ?? null }));
     }
 
-    if (guildId && typeof env.embedQueue?.catchUp === 'function') {
+    if (typeof env.embedQueue?.catchUp === 'function') {
       Promise.resolve()
-        .then(() => env.embedQueue.catchUp(guildId))
-        .catch((err: unknown) => log.warn('admin: embed catch-up failed', { code: objOf(err).code ?? null, guildId }));
+        .then(() => env.embedQueue.catchUp())
+        .catch((err: unknown) => log.warn('admin: embed catch-up failed', { code: objOf(err).code ?? null }));
     }
 
     return 'Resumed.';

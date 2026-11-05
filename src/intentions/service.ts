@@ -96,7 +96,7 @@ function selfProvenance(input: SetInput): Parameters<typeof createIntention>[0][
     kind: 'self',
     turnId: input.turnId ?? null,
     messageId: input.messageId ?? null,
-    channelId: input.channelId ?? null,
+    placeId: input.placeId ?? null,
     scope: input.scope,
     participants: input.participants,
     ...(input.publicationBoundary ? { publicationBoundary: input.publicationBoundary } : {}),
@@ -131,7 +131,7 @@ function visibleTo(record: Intention, { privateChannelId = null, all = false }: 
     record?.provenance?.scope !== 'dm' ||
     (privateChannelId !== null &&
       privateChannelId !== undefined &&
-      record.provenance?.channelId === String(privateChannelId))
+      record.provenance?.placeId === String(privateChannelId))
   );
 }
 
@@ -174,13 +174,12 @@ export function createIntentionService({
   stores,
   hot,
   errands = null,
-  getGuildId = () => null,
   now = Date.now,
   uuid = randomUUID,
   log = defaultLog,
 }: IntentionServiceOptions): IntentionService {
-  function storeOf(guildId?: unknown): IntentionStore | null {
-    return stores.get(idText(guildId) || getGuildId?.() || '');
+  function storeOf(): IntentionStore | null {
+    return stores.get();
   }
 
   function settings(): IntentionSettings {
@@ -192,39 +191,40 @@ export function createIntentionService({
     return hot.config?.bot?.timezone ?? 'UTC';
   }
 
-  /** The errand `id` of the guild's errand store, or null. */
-  function errandOf(guildId: unknown, id: unknown): ErrandLike | null {
-    const store = errands?.store?.(guildId) ?? null;
+  /** The errand `id` of the place's errand store, or null. */
+  function errandOf(id: unknown): ErrandLike | null {
+    const store = errands?.store?.() ?? null;
     const errand = id && store ? store.get(idText(id)) : null;
     return errand ?? null;
   }
 
-  /** The latest errand of turn `turnId` in the guild's errand store, or null. */
-  function errandOfTurn(guildId: unknown, turnId: unknown): ErrandLike | null {
-    const store = errands?.store?.(guildId) ?? null;
+  /** The latest errand of turn `turnId` in the place's errand store, or null. */
+  function errandOfTurn(turnId: unknown): ErrandLike | null {
+    const store = errands?.store?.() ?? null;
     if (!store || !turnId || typeof store.recent !== 'function') return null;
     return store.recent(50).find((errand) => errand.origin?.turnId === idText(turnId)) ?? null;
   }
 
   /** The wait `move` adds to a record: on errand `errandId` (checked) or the turn's errand, else requested. */
-  function waitPlan(
-    guildId: string,
-    {
-      errandId = null,
-      deadline = null,
-      turnId = null,
-    }: { errandId?: string | null; deadline?: number | null; turnId?: string | null }
-  ): WaitPlan {
+  function waitPlan({
+    errandId = null,
+    deadline = null,
+    turnId = null,
+  }: {
+    errandId?: string | null;
+    deadline?: number | null;
+    turnId?: string | null;
+  }): WaitPlan {
     const at = now();
     const until = isFiniteNumber(deadline) ? deadline : at + settings().waitHours * HOUR_MS;
     if (errandId) {
-      const errand = errandOf(guildId, errandId);
+      const errand = errandOf(errandId);
       if (!errand) return { ok: false, code: CODE.NO_ERRAND };
       if (!isOpenState(errand.state)) return { ok: false, code: CODE.ERRAND_ENDED };
       return { ok: true, errandId: errand.id, deadline: until };
     }
     if (!isFiniteNumber(deadline)) return { ok: true, none: true };
-    const same = errandOfTurn(guildId, turnId);
+    const same = errandOfTurn(turnId);
     if (same && isOpenState(same.state)) return { ok: true, errandId: same.id, deadline: until };
     if (!turnId) return { ok: false, code: CODE.WAIT_WITHOUT_ERRAND };
     return { ok: true, requested: { turnId: idText(turnId), deadline: until } };
@@ -232,14 +232,14 @@ export function createIntentionService({
 
   /**
    * A new intention of hers (or an owner's command), `pending`: `{ ok: true, intention }` or
-   * `{ ok: false, code }` (`no-guild`, `cap-open`, the model's codes, the wait's: `no-errand`,
+   * `{ ok: false, code }` (`no-place`, `cap-open`, the model's codes, the wait's: `no-errand`,
    * `errand-ended`, `wait-without-errand`, `bad-deadline`; `write-failed`).
    * `input.every` is parseEvery's shape (null or missing: a one-off); its wall-clock time is pinned from `dueAt`.
    * `input.attend` makes it an attention (model.js#normalizeAttend; its defaults `wakes.attention.*`, read now).
    */
-  function set(guildId: unknown, input: SetInput): ReturnType<IntentionService['set']> {
-    const store = storeOf(guildId);
-    if (!store) return { ok: false, code: CODE.NO_GUILD };
+  function set(input: SetInput): ReturnType<IntentionService['set']> {
+    const store = storeOf();
+    if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
     const limits = settings();
     if (activeCount(store.list()) >= limits.maxOpen) return { ok: false, code: CODE.CAP_OPEN };
     const by = input.by ?? 'persona';
@@ -250,7 +250,6 @@ export function createIntentionService({
       const refused = heartbeatCapRefusal(hot.config, store, { recurring: Boolean(input.every) });
       if (refused) {
         log.info('intentions: heartbeat cap', {
-          guildId: store.guildId,
           code: refused.code,
           open: refused.open.length,
         });
@@ -275,7 +274,7 @@ export function createIntentionService({
       by,
     });
     if (!created.ok) return created;
-    const plan = waitPlan(store.guildId, {
+    const plan = waitPlan({
       errandId: input.errandId ?? null,
       deadline: input.deadline ?? null,
       turnId: input.turnId ?? null,
@@ -286,7 +285,6 @@ export function createIntentionService({
     const added = store.add(waited.intention);
     if (added.ok)
       log.info('intentions: set', {
-        guildId: store.guildId,
         id: added.intention.id,
         status: added.intention.status,
         by,
@@ -313,8 +311,7 @@ export function createIntentionService({
     });
     if (!created.ok) return created;
     const added = store.add(created.intention);
-    if (added.ok)
-      log.info('intentions: set', { guildId: store.guildId, id: added.intention.id, status: 'dropped', by });
+    if (added.ok) log.info('intentions: set', { id: added.intention.id, status: 'dropped', by });
     return added;
   }
 
@@ -338,9 +335,9 @@ export function createIntentionService({
    * `bad-move`, the model's and the wait's codes). `patch.privateChannelId` / `patch.all`: where the
    * caller is (a private chat's intention is `not-found` anywhere else, see `list`).
    */
-  function update(guildId: unknown, id: unknown, patch: UpdatePatch = {}): Moved {
-    const store = storeOf(guildId);
-    if (!store) return { ok: false, code: CODE.NO_GUILD };
+  function update(id: unknown, patch: UpdatePatch = {}): Moved {
+    const store = storeOf();
+    if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
     const current = store.get(id);
     if (!current || !visibleTo(current, patch)) return { ok: false, code: CODE.NOT_FOUND };
     if (!isOpen(current.status)) return { ok: false, code: closedCode(current) };
@@ -356,7 +353,7 @@ export function createIntentionService({
     }
     const plan =
       !dropping && (patch.errandId || isFiniteNumber(patch.deadline))
-        ? waitPlan(store.guildId, {
+        ? waitPlan({
             errandId: patch.errandId ?? null,
             deadline: patch.deadline ?? null,
             turnId: patch.turnId ?? null,
@@ -437,7 +434,7 @@ export function createIntentionService({
       return { ok: true, intention: next, changed };
     });
     if (result.ok && result.changed)
-      log.info('intentions: updated', { guildId: store.guildId, id: idText(id), status: result.intention.status, by });
+      log.info('intentions: updated', { id: idText(id), status: result.intention.status, by });
     return result;
   }
 
@@ -446,26 +443,25 @@ export function createIntentionService({
    * `privateChannelId` / `all`: where the caller is, as in `update`.
    */
   function cancel(
-    guildId: unknown,
     id: unknown,
     { by = 'persona', privateChannelId = null, all = false }: { by?: string } & Where = {}
   ): Moved {
-    const store = storeOf(guildId);
-    if (!store) return { ok: false, code: CODE.NO_GUILD };
+    const store = storeOf();
+    if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
     const current = store.get(id);
     if (current && !visibleTo(current, { privateChannelId, all })) return { ok: false, code: CODE.NOT_FOUND };
     if (current && isFiniteNumber(current.sleptAt)) return { ok: false, code: CODE.SLEPT };
     const result = store.update(id, (record) => transition(record, 'cancelled', { now: now(), by, code: 'cancelled' }));
-    if (result.ok) log.info('intentions: cancelled', { guildId: store.guildId, id: idText(id), by });
+    if (result.ok) log.info('intentions: cancelled', { id: idText(id), by });
     return result;
   }
 
   /** Intention `id` whose wake slept (src/behavior/inner/recovery.ts), through model.ts#sleepIntention. */
-  function sleep(guildId: unknown, id: unknown): Moved {
-    const store = storeOf(guildId);
-    if (!store) return { ok: false, code: CODE.NO_GUILD };
+  function sleep(id: unknown): Moved {
+    const store = storeOf();
+    if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
     const result = store.update(id, (record) => sleepIntention(record, { now: now(), timezone: timezone() }));
-    if (result.ok && result.changed) log.info('intentions: slept', { guildId: store.guildId, id: idText(id) });
+    if (result.ok && result.changed) log.info('intentions: slept', { id: idText(id) });
     return result;
   }
 
@@ -478,20 +474,21 @@ export function createIntentionService({
       const result = store.update(record.id, (current) => expireAt(current, at));
       if (result.ok && result.changed) count += 1;
     }
-    if (count > 0) log.info('intentions: expired', { guildId: store.guildId, count });
+    if (count > 0) log.info('intentions: expired', { count });
     return count;
   }
 
   /**
-   * The guild's intentions, the expired ones swept first: open ones only unless `closed`, each
+   * The place's intentions, the expired ones swept first: open ones only unless `closed`, each
    * visible to the conversation (`privateChannelId`: a private chat's own only there), or every
    * one with `all` (an owner's list).
    */
-  function list(
-    guildId: unknown,
-    { closed = false, privateChannelId = null, all = false }: { closed?: boolean } & Where = {}
-  ): Array<Intention> {
-    const store = storeOf(guildId);
+  function list({
+    closed = false,
+    privateChannelId = null,
+    all = false,
+  }: { closed?: boolean } & Where = {}): Array<Intention> {
+    const store = storeOf();
     if (!store) return [];
     sweepExpired(store);
     return store
@@ -504,11 +501,8 @@ export function createIntentionService({
    * `waiting`, by due time then age). Empty with
    * `features.intentions` off.
    */
-  function view(
-    guildId: unknown,
-    { privateChannelId = null }: { privateChannelId?: string | null } = {}
-  ): Array<Intention> {
-    const open = list(guildId, { privateChannelId });
+  function view({ privateChannelId = null }: { privateChannelId?: string | null } = {}): Array<Intention> {
+    const open = list({ privateChannelId });
     const active = open.filter((record) => record.status === 'pending').sort(byDue);
     const waiting = open.filter((record) => record.status === 'waiting').sort(byDue);
     return [...active, ...waiting];
@@ -518,8 +512,8 @@ export function createIntentionService({
    * Errand `errandId`, just queued by turn `turnId`, linked to every `pending` intention of that turn
    * whose wait was asked before the errand existed (`waitRequested`). How many.
    */
-  function linkTurnErrand(guildId: unknown, { turnId, errandId }: { turnId: unknown; errandId: unknown }): number {
-    const store = storeOf(guildId);
+  function linkTurnErrand({ turnId, errandId }: { turnId: unknown; errandId: unknown }): number {
+    const store = storeOf();
     if (!store || !turnId || !errandId) return 0;
     let linked = 0;
     for (const record of store.list()) {
@@ -535,7 +529,7 @@ export function createIntentionService({
       );
       if (result.ok && result.changed) linked += 1;
     }
-    if (linked > 0) log.info('intentions: linked', { guildId: store.guildId, taskId: idText(errandId), count: linked });
+    if (linked > 0) log.info('intentions: linked', { taskId: idText(errandId), count: linked });
     return linked;
   }
 
@@ -544,9 +538,9 @@ export function createIntentionService({
    * to `pending` with its outcome. Idempotent: the same end twice moves nothing the second time.
    * Never throws; how many moved.
    */
-  function onErrandFinished(errand: ErrandRecord, guildId: unknown): number {
+  function onErrandFinished(errand: ErrandRecord): number {
     try {
-      const store = storeOf(guildId);
+      const store = storeOf();
       if (!store || !errand?.id) return 0;
       let moved = 0;
       for (const record of store.list()) {
@@ -557,7 +551,6 @@ export function createIntentionService({
       }
       if (moved > 0)
         log.info('intentions: errand arrived', {
-          guildId: store.guildId,
           taskId: String(errand.id),
           state: errand.state,
           count: moved,
@@ -575,15 +568,15 @@ export function createIntentionService({
    * wait deadline (`deadline`) moved to `pending` with a note; then every open one past its expiry
    * expired. Counts; never throws.
    */
-  function reconcile(guildId: unknown): ReconcileCounts {
+  function reconcile(): ReconcileCounts {
     const counts: ReconcileCounts = { arrived: 0, missing: 0, deadline: 0, expired: 0 };
     try {
-      const store = storeOf(guildId);
+      const store = storeOf();
       if (!store) return counts;
       for (const record of store.list()) {
         if (record.status !== 'waiting') continue;
         const result = store.update(record.id, (current) =>
-          reconcileWait(current, { errandOf: (id) => errandOf(store.guildId, id), now: now() })
+          reconcileWait(current, { errandOf: (id) => errandOf(id), now: now() })
         );
         if (!result.ok || !result.changed) continue;
         const note = result.intention.note;
@@ -594,8 +587,7 @@ export function createIntentionService({
         if (note !== 'wait-deadline') afterWait(store, result.intention);
       }
       counts.expired = sweepExpired(store);
-      if (counts.arrived + counts.missing + counts.deadline > 0)
-        log.info('intentions: reconciled', { guildId: store.guildId, ...counts });
+      if (counts.arrived + counts.missing + counts.deadline > 0) log.info('intentions: reconciled', { ...counts });
     } catch (err) {
       log.warn('intentions: reconcile failed', { error: err });
     }
@@ -610,13 +602,9 @@ export function createIntentionService({
    * occurrence runs on until the wait ends), an occurrence already advanced (her `state=done`, a new
    * due she set) and a closed record change nothing. Never throws; `{ ok, intention, changed }`.
    */
-  function advance(
-    guildId: unknown,
-    id: unknown,
-    { named = false, by = 'engine' }: { named?: boolean; by?: string } = {}
-  ): Advanced {
+  function advance(id: unknown, { named = false, by = 'engine' }: { named?: boolean; by?: string } = {}): Advanced {
     try {
-      const store = storeOf(guildId);
+      const store = storeOf();
       const current = store?.get(id) ?? null;
       const at = now();
       if (
@@ -632,7 +620,6 @@ export function createIntentionService({
       );
       if (result.ok && result.changed)
         log.info('intentions: recurred', {
-          guildId: store.guildId,
           id: idText(id),
           code,
           dueAt: result.intention.dueAt,
@@ -660,7 +647,6 @@ export function createIntentionService({
     );
     if (result.ok && result.changed)
       log.info('intentions: recurred', {
-        guildId: store.guildId,
         id: String(record.id),
         code: CODE.RECURRED,
         dueAt: result.intention.dueAt,
@@ -672,22 +658,22 @@ export function createIntentionService({
    * the scheduler calls it once the review turn that listed it ran. An unexpired, unknown or already
    * marked record changes nothing. `{ ok, intention, changed }` or `{ ok: false, code }`.
    */
-  function markExpiredShown(guildId: unknown, id: unknown): Moved {
-    const store = storeOf(guildId);
-    if (!store) return { ok: false, code: CODE.NO_GUILD };
+  function markExpiredShown(id: unknown): Moved {
+    const store = storeOf();
+    if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
     const result = store.update(id, (current) => markShown(current, now()));
-    if (result.ok && result.changed) log.info('intentions: expired shown', { guildId: store.guildId, id: idText(id) });
+    if (result.ok && result.changed) log.info('intentions: expired shown', { id: idText(id) });
     return result;
   }
 
-  /** The guild's open attentions (`pending` records with an `attend` place), the expired swept first. */
-  function attending(guildId: unknown): Array<Intention> {
-    return list(guildId, { all: true }).filter((record) => record.status === 'pending' && isAttend(record));
+  /** The place's open attentions (`pending` records with an `attend` place), the expired swept first. */
+  function attending(): Array<Intention> {
+    return list({ all: true }).filter((record) => record.status === 'pending' && isAttend(record));
   }
 
   /** The day's wake counter of attention `id` (model.js#attendCounter, today in `bot.timezone`), or null. */
-  function attendToday(guildId: unknown, id: unknown): { day: string; wakes: number } | null {
-    const record = storeOf(guildId)?.get(id) ?? null;
+  function attendToday(id: unknown): { day: string; wakes: number } | null {
+    const record = storeOf()?.get(id) ?? null;
     return isAttend(record) ? attendCounter(record, zonedDay(now(), timezone())) : null;
   }
 
@@ -695,14 +681,13 @@ export function createIntentionService({
    * One attend wake of attention `id` counted on today's counter (the scheduler, after the
    * wake's turn): `{ ok, intention, changed }` (`not-attend`, `not-found`, `write-failed`). Never throws.
    */
-  function countAttendWake(guildId: unknown, id: unknown): Moved {
+  function countAttendWake(id: unknown): Moved {
     try {
-      const store = storeOf(guildId);
-      if (!store) return { ok: false, code: CODE.NO_GUILD };
+      const store = storeOf();
+      if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
       const result = store.update(id, (record) => bumpAttend(record, zonedDay(now(), timezone())));
       if (result.ok && result.changed)
         log.info('intentions: attend wake counted', {
-          guildId: store.guildId,
           id: idText(id),
           wakes: result.intention.attend?.today?.wakes,
         });
@@ -713,16 +698,16 @@ export function createIntentionService({
     }
   }
 
-  /** What is due now (src/intentions/model.ts#dueList) for the guild, its expired swept first. */
-  function due(guildId: unknown): Array<Due> {
-    const store = storeOf(guildId);
+  /** What is due now (src/intentions/model.ts#dueList) for the place, its expired swept first. */
+  function due(): Array<Due> {
+    const store = storeOf();
     if (!store) return [];
     sweepExpired(store);
     return dueOf(store.list(), now(), dueJitterMinutes(hot.config));
   }
 
   return {
-    set: (guildId, input) => setOnce(storeOf(guildId), input, () => set(guildId, input)),
+    set: (input) => setOnce(storeOf(), input, () => set(input)),
     update,
     cancel,
     list,

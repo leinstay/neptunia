@@ -471,7 +471,7 @@ function importedAtV9() {
       revision: 1,
       occurredAt: '2026-10-22T09:00:00.000Z',
       recordedAt: '2026-10-22T09:00:01.000Z',
-      guildId: '300000000000000001',
+      placeId: '300000000000000001',
       scope: { channel: CHANNEL },
       text: `Ημερολόγιο ${n}`,
       participants: [],

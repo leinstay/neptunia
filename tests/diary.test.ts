@@ -680,27 +680,27 @@ const post = (n: Untyped) => ({
 
 test('store: getDiary returns the empty default', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  assert.deepEqual(store.getDiary('g1'), { posts: [], updatedAt: 0 });
+  assert.deepEqual(store.getDiary(), { posts: [], updatedAt: 0 });
 });
 
 test('store: appendDiaryPost keeps the newest max posts and stamps updatedAt', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  for (let n = 1; n <= 4; n += 1) store.appendDiaryPost('g1', post(n), { max: 3, now: 5000 + n });
-  const diary = store.getDiary('g1');
+  for (let n = 1; n <= 4; n += 1) store.appendDiaryPost(post(n), { max: 3, now: 5000 + n });
+  const diary = store.getDiary();
   assert.deepEqual(
     diary.posts.map((p) => p.gist),
     ['post 2', 'post 3', 'post 4']
   );
   assert.equal(diary.updatedAt, 5004);
   diary.posts.length = 0; // a copy: changing it changes nothing stored
-  assert.equal(store.getDiary('g1').posts.length, 3);
+  assert.equal(store.getDiary().posts.length, 3);
 });
 
 test('store: setDiaryPosts replaces the list and keeps the newest max', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  store.appendDiaryPost('g1', post(1), { max: 10, now: 1 });
-  store.setDiaryPosts('g1', [post(5), post(6), post(7)], { max: 2, now: 9 });
-  const diary = store.getDiary('g1');
+  store.appendDiaryPost(post(1), { max: 10, now: 1 });
+  store.setDiaryPosts([post(5), post(6), post(7)], { max: 2, now: 9 });
+  const diary = store.getDiary();
   assert.deepEqual(
     diary.posts.map((p) => p.gist),
     ['post 6', 'post 7']
@@ -712,12 +712,12 @@ test('store: diary survives flush and reload', async () => {
   const mem = await openTestMemory({ dataDir: tmpDataDir() });
   const { dataDir: dir, memoryDb } = mem;
   const store = createStore({ dataDir: dir, memoryDb, newId: () => 'one' });
-  store.appendDiaryPost('g1', { ...post(1), gist: 'Ελένη at the café' }, { max: 150, now: 42 });
+  store.appendDiaryPost({ ...post(1), gist: 'Ελένη at the café' }, { max: 150, now: 42 });
   store.flush();
   await store.flushSettled({});
   assert.ok(unitFile(memoryDb, 'guilds/g1/diary.json'), 'the diary is a unit of the database');
   const again = createStore({ dataDir: dir, memoryDb });
-  assert.deepEqual(again.getDiary('g1'), {
+  assert.deepEqual(again.getDiary(), {
     posts: [{ ...post(1), gist: 'Ελένη at the café', itemId: 'dy-one' }],
     updatedAt: 42,
   });
@@ -727,7 +727,7 @@ test('store: diary survives flush and reload', async () => {
 test('store: a malformed diary value reads as the empty default', async () => {
   const mem = await openTestMemory({ dataDir: tmpDataDir() });
   await mem.memoryDb.writeUnit({ op: 'value', owner: 'guilds/g1/diary.json', value: [1, 2] });
-  assert.deepEqual(createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb }).getDiary('g1'), {
+  assert.deepEqual(createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb }).getDiary(), {
     posts: [],
     updatedAt: 0,
   });
@@ -739,7 +739,8 @@ test('store: a malformed diary value reads as the empty default', async () => {
 
 type Rec = Record<string, Untyped>;
 // The plan the scheduler stored for guild g1 in the harness's state.
-const planOf = (h: { store: { state: { data: unknown } } }): Rec => (loose(h.store.state.data).diary as Rec).g1 as Rec;
+const planOf = (h: { store: { state: { data: unknown } } }): Rec =>
+  (loose(h.store.state.data).diary as Rec).persona as Rec;
 
 const D_NOW = Date.UTC(2026, 9, 6, 19, 0, 0); // 19:00 UTC, before the evening slot
 const SLOT = Date.UTC(2026, 9, 6, 21, 30, 0); // 18 + 0.5 * 7 h with rng 0.5
@@ -748,9 +749,9 @@ const SLOT = Date.UTC(2026, 9, 6, 21, 30, 0); // 18 + 0.5 * 7 h with rng 0.5
 function diaryChannelFake({
   send = true,
   attach = true,
-  guildId = 'g1',
-}: { send?: boolean; attach?: boolean; guildId?: string } = {}) {
-  return { send, attach, guildId };
+  placeId = 'g1',
+}: { send?: boolean; attach?: boolean; placeId?: string } = {}) {
+  return { send, attach, placeId };
 }
 
 /** The memory databases the harnesses opened, closed when the file is done. */
@@ -760,9 +761,9 @@ after(async () => {
 });
 
 /**
- * Stage 3 design, sections 3 and 5: the diary's place is its mirror in memory, no longer `diary.channelId`. The
+ * Stage 3 design, sections 3 and 5: the diary's place is its mirror in memory, no longer `diary.placeId`. The
  * harness's store reads a memory database holding an enabled `diary` mirror on `d1` of the fake interface (`mirror`),
- * or none; the config sets no `diary.channelId`.
+ * or none; the config sets no `diary.placeId`.
  */
 function diaryHarness({
   mirror = true,
@@ -788,7 +789,7 @@ function diaryHarness({
   let clock = D_NOW;
   /** The turns the scheduler asked for: the arguments, and the plan's done slots when it asked. */
   const turnCalls: Array<{
-    params: { mode?: unknown; conversation?: unknown; guildId?: unknown; diary?: unknown };
+    params: { mode?: unknown; conversation?: unknown; placeId?: unknown; diary?: unknown };
     done: Array<number>;
   }> = [];
   const hot = {
@@ -813,12 +814,12 @@ function diaryHarness({
     world().channel({
       id: 'd1',
       name: 'journal',
-      guildId: channel.guildId,
+      placeId: channel.placeId,
       permissions: { send: channel.send, attach: channel.attach },
     });
   const turns = {
     runTurn: async (params: Untyped) => {
-      turnCalls.push({ params, done: [...(loose(store.state.data).diary?.g1?.done ?? [])] });
+      turnCalls.push({ params, done: [...(loose(store.state.data).diary?.persona?.done ?? [])] });
       return (
         outcomes.shift() ?? { outcome: 'spoke', diary: { kind: 'status', picture: false, search: false, messages: 1 } }
       );
@@ -832,7 +833,7 @@ function diaryHarness({
     reads: world().reads,
     iface: () => 'fake',
     turns,
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     backfill,
     rng: () => 0.5,
     now: () => clock,
@@ -841,7 +842,7 @@ function diaryHarness({
   return { hot, store, turnCalls, diary: diaryFactory, setNow: (t: Untyped) => (clock = t) };
 }
 
-// Stage 3 design, section 3 item 1: `diary.channelId` no longer gates the tick, so the case without it is gone; the
+// Stage 3 design, section 3 item 1: `diary.placeId` no longer gates the tick, so the case without it is gone; the
 // tick with no channel and no mirror is "posts with zero mirrors" below.
 test('tick: no-op when paused', async () => {
   const cases: Array<[string, Parameters<typeof diaryHarness>[0]]> = [['paused', { data: { paused: true } }]];
@@ -862,7 +863,7 @@ test('tick: no-op when paused', async () => {
   }
 });
 
-test('tick: plans the day once and stores it in state.data.diary[guildId]', async () => {
+test('tick: plans the day once and stores it in state.data.diary.persona', async () => {
   const h = diaryHarness();
   await h.diary.tick();
   const plan = planOf(h);
@@ -896,7 +897,7 @@ test('tick: a new local day carries over the open slots of the last plan that sp
   const fired = Date.UTC(2026, 9, 6, 20, 0, 0);
   const h = diaryHarness({
     diary: { windows: [{ from: 12, to: 16, posts: [0, 0] }] },
-    data: { diary: { g1: { day: '2026-10-06', slots: [fired, missed, late], done: [fired], quiet: false } } },
+    data: { diary: { persona: { day: '2026-10-06', slots: [fired, missed, late], done: [fired], quiet: false } } },
   });
   h.setNow(Date.UTC(2026, 9, 7, 0, 5, 0));
   await h.diary.tick();
@@ -918,7 +919,8 @@ test('tick: fires the due slot through runTurn with mode diary and marks it done
   assert.equal(params.mode, 'diary');
   // Stage 3 design, section 3 item 2: the post is the selfreflection wake, with no conversation, for the served guild.
   assert.equal(params.conversation, undefined);
-  assert.equal(params.guildId, 'g1');
+  // The post names no conversation and no place: it is the persona's.
+  assert.equal('placeId' in params, false);
   assert.deepEqual(params.diary, { kind: null, forced: false });
   assert.deepEqual(done, [SLOT], 'marked before the turn ran');
   assert.ok(logs.some((l) => l.msg === 'diary: due'));
@@ -982,7 +984,15 @@ test('tick: a new day takes its hunger from the last plan and logs it', async ()
   const h = diaryHarness({
     data: {
       diary: {
-        g1: { day: '2026-10-05', slots: [fired], done: [fired], posted: [], quiet: false, hunger: [1], quietStreak: 0 },
+        persona: {
+          day: '2026-10-05',
+          slots: [fired],
+          done: [fired],
+          posted: [],
+          quiet: false,
+          hunger: [1],
+          quietStreak: 0,
+        },
       },
     },
   });
@@ -996,7 +1006,9 @@ test('tick: a new day takes its hunger from the last plan and logs it', async ()
 
   const quiet = diaryHarness({
     data: {
-      diary: { g1: { day: '2026-10-05', slots: [], done: [], posted: [], quiet: true, hunger: [1], quietStreak: 1 } },
+      diary: {
+        persona: { day: '2026-10-05', slots: [], done: [], posted: [], quiet: true, hunger: [1], quietStreak: 1 },
+      },
     },
   });
   await quiet.diary.tick();
@@ -1026,7 +1038,7 @@ test('tick: backfills an empty history before the first post', async () => {
   const { logs } = await withCapturedLogs(() => h.diary.tick());
   assert.equal(calls.length, 1);
   assert.equal(calls[0].turns, 0, 'before the post');
-  assert.equal(calls[0].args.guildId, 'g1');
+  assert.equal('placeId' in calls[0].args, false);
   // Changed with the contract: the backfill gets the conversation and the reads, not a channel object and her id.
   // Stage 3 design, section 5: that conversation is the place of the diary's mirror.
   assert.equal(calls[0].args.conversation.conversationId, 'd1');
@@ -1107,9 +1119,9 @@ test('stop: no tick after stop', async () => {
 test('status: the channel, the day plan and the history size', async () => {
   const h = diaryHarness({ posts: [{}, {}] });
   await h.diary.tick();
-  // Stage 3 design, section 5: `channelId` is the conversation of the diary's first mirror.
+  // Stage 3 design, section 5: `placeId` is the conversation of the diary's first mirror.
   assert.deepEqual(h.diary.status(), {
-    channelId: 'd1',
+    placeId: 'd1',
     day: '2026-10-06',
     slots: [SLOT],
     done: [],

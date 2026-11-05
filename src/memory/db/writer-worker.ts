@@ -19,7 +19,7 @@
 import { recoverRequestArchive } from './request-archive.ts';
 import { parentPort } from 'node:worker_threads';
 import process from 'node:process';
-import { importCoreJsonState } from './core-state-import.ts';
+import { importCoreJsonState } from '../migration/core-state-import.ts';
 import { openMemoryDb } from './open.ts';
 import { insertTurnReads, turnReadRows } from './service.ts';
 import { applyDiaryUpdate } from './diary-media.ts';
@@ -70,12 +70,12 @@ const handlers: Record<string, (message: Row) => unknown> = {
     }
     return {};
   },
-  turnReads({ turnId, step, guildId, reads, rows: given }) {
+  turnReads({ turnId, step, placeId, reads, rows: given }) {
     // The rows are resolved by the caller at assembly time; a caller that sends the raw reads gets them resolved here.
     const open = opened();
     const rows = Array.isArray(given)
       ? (given as Array<Row>)
-      : turnReadRows(dbOf(open), reads, { guildId: guildId as string | undefined });
+      : turnReadRows(dbOf(open), reads, { placeId: placeId as string | undefined });
     if (rows.length === 0) return { rows: 0 };
     insertTurnReads(open, turnId as string, step, rows);
     return { rows: rows.length };

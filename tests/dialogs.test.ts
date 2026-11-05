@@ -99,7 +99,7 @@ function desk(seen: { args: Array<Record<string, unknown>> }) {
     facts: () => {
       throw new Error('not used');
     },
-    guildId: () => null,
+    placeId: () => null,
     tasks: { command: () => Promise.reject(new Error('not used')) },
   } as unknown as CommandDeps;
   return createCommandDesk(deps);

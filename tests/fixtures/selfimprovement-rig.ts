@@ -160,13 +160,13 @@ export function herCalls(caller: BoardCaller) {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     board: caller,
     now: () => SELFIMPROVEMENT_T0,
   });
   return async (name: string, args: Record<string, unknown>): Promise<Result> => {
     const { result } = await withCapturedLogs(() =>
-      runOpPrechecked(name, args, { env, guildId: 'g1', channelId: 'c1', userId: null, roleIds: [], actor: 'persona' })
+      runOpPrechecked(name, args, { env, placeId: 'g1', conversationId: 'c1', userId: null, roleIds: [], actor: 'persona' })
     );
     return result;
   };

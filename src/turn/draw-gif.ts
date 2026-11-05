@@ -69,7 +69,7 @@ type GifEntry = {
   kind?: string;
   key?: string;
   messageId?: string;
-  channelId?: string;
+  placeId?: string;
   itemId?: string;
 };
 
@@ -82,10 +82,10 @@ export type ResolvedGif = GifCall & { entry: GifEntry };
 /** The memory store, as the pictures and GIFs read and write it. */
 export type DrawGifStore = {
   state: { data: object; markDirty: () => void };
-  findGif: (guildId: string, handle: string) => GifEntry | null | undefined;
-  getGifs?: (guildId: string) => unknown;
-  getMediaCache?: (guildId: string) => object | null | undefined;
-  recordOwnGif?: (guildId: string, key: string, at: number) => void;
+  findGif: (placeId: string, handle: string) => GifEntry | null | undefined;
+  getGifs?: (placeId: string) => unknown;
+  getMediaCache?: (placeId: string) => object | null | undefined;
+  recordOwnGif?: (placeId: string, key: string, at: number) => void;
 };
 
 /** The language model client (src/llm/openrouter.ts#createLlm), as the GIF picker uses it. */
@@ -144,8 +144,8 @@ export type DrawGifContext = {
   selfIdOf: () => string;
   clock: () => number;
   schedule: (run: () => void, ms: number) => () => void;
-  /** The guild's stable freeze (src/behavior/prompt.ts#freezePerBucket); each key holds one kind of value. */
-  stableFreezeOf: <TValue>(guildId: string) => Map<string, { bucket: number; signature: string; value: TValue }>;
+  /** The place's stable freeze (src/behavior/prompt.ts#freezePerBucket); each key holds one kind of value. */
+  stableFreezeOf: <TValue>(placeId: string) => Map<string, { bucket: number; signature: string; value: TValue }>;
   conversationOf: (channel: PostChannel) => ConversationRef;
   messageOf: (channel: PostChannel, messageId: string) => MessageRef;
   checkEffect: (skill: string, args: unknown, at: { channel: PostChannel; trigger?: unknown }) => EffectVerdict;
@@ -157,8 +157,8 @@ export type DrawGifContext = {
 type DrawTrigger = { id?: string; authorId?: string | null } | null;
 
 type PickArgs = {
-  channelId: string;
-  guildId: string;
+  placeId: string;
+  conversationId: string;
   messages: ReadonlyArray<{ text: string; replyTo?: number | null }>;
   gif: unknown;
   history: Array<{ id?: string } & object>;
@@ -169,10 +169,10 @@ type PickArgs = {
 
 export type DrawGif = {
   drawTool: (
-    args: { self?: unknown; text?: unknown; channelId?: unknown; replyTo?: unknown } | null | undefined,
+    args: { self?: unknown; text?: unknown; placeId?: unknown; replyTo?: unknown } | null | undefined,
     at: {
       channel: ConversationInfo;
-      guildId?: string | null;
+      placeId?: string | null;
       trigger?: DrawTrigger;
       triggerKind?: TriggerKind | null;
       selfName: string;
@@ -182,10 +182,10 @@ export type DrawGif = {
     },
     model?: string | null
   ) => Promise<DrawResult>;
-  resolveGif: (guildId: string, gif: GifCall | null | undefined, channelId: string) => ResolvedGif | null;
+  resolveGif: (placeId: string, gif: GifCall | null | undefined, conversationId: string) => ResolvedGif | null;
   postGif: (
     channel: PostChannel,
-    guildId: string,
+    placeId: string,
     gif: ResolvedGif,
     replyId: string | null,
     link: string | null,
@@ -197,7 +197,7 @@ export type DrawGif = {
   ) => Promise<{ message: ReturnType<typeof postedOf>; op: JournalOp | Readonly<JournalOp> } | null>;
   pickedInTime: (
     picking: Promise<ResolvedGif | null>,
-    at: { channelId: string; draft?: DrawDraft | null }
+    at: { placeId: string; draft?: DrawDraft | null }
   ) => Promise<ResolvedGif | null>;
   pickGifSafely: (args: PickArgs) => Promise<ResolvedGif | null>;
 };
@@ -241,7 +241,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     scene,
     self,
     selfName,
-    guildId = null,
+    placeId = null,
     userId = null,
     avatar = null,
     model = null,
@@ -249,7 +249,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     scene: string;
     self: boolean;
     selfName: string;
-    guildId?: string | null;
+    placeId?: string | null;
     userId?: string | null;
     avatar?: { reference?: string | null } | null;
     model?: string | null;
@@ -260,7 +260,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       hot,
       // The persona's large avatar, asked of the interface only when the picture needs the reference.
       avatarUrl: async () => {
-        const found = await ifaceReads.memberInfo({ communityId: guildId, memberId: selfIdOf() });
+        const found = await ifaceReads.memberInfo({ communityId: placeId, memberId: selfIdOf() });
         return found?.member?.avatar.largeUrl ?? null;
       },
       imageFetcher,
@@ -271,7 +271,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   }
 
   /**
-   * `draw.create` as an in-turn tool of hers (`args`: the operation's, `{ text, self, channelId?, replyTo? }`): the
+   * `draw.create` as an in-turn tool of hers (`args`: the operation's, `{ text, self, placeId?, replyTo? }`): the
    * picture through makePicture, the scene verbatim, with the local time, then one upload through the port. It posts
    * where `message.create` would: the channel she names, else the replied message's (a link names it; a channel and a
    * reply that disagree are refused `unknown-message`), else this one, checked before anything is generated, on `model`
@@ -290,7 +290,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     args: Parameters<DrawGif['drawTool']>[0],
     {
       channel,
-      guildId = null,
+      placeId = null,
       trigger = null,
       triggerKind = null,
       selfName,
@@ -323,25 +323,26 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
         return failed(refusalStatus(CODE.LOOP_CAP), CODE.LOOP_CAP, { reason: 'extra-call' });
     }
     try {
-      let channelId = String(channel.id);
+      let conversationId = String(channel.id);
       let replyId: string | null = null;
       if (!staging) {
         // A turn that quotes no chat line (a follow-up, an overheard line, a later part of a split message) posts its picture plain.
         const reply = args?.replyTo && !plain ? await messageRefOf(args.replyTo, ifaceReads) : null;
         // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's argument may be any JSON value, read as text
-        const given = args?.channelId ? String(args.channelId) : null;
-        if (given && reply?.channelId && given !== reply.channelId) return failed('invalid', CODE.UNKNOWN_MESSAGE);
-        channelId = await postingConversation({
+        const given = args?.placeId ? String(args.placeId) : null;
+        if (given && reply?.placeId && given !== reply.placeId) return failed('invalid', CODE.UNKNOWN_MESSAGE);
+        conversationId = await postingConversation({
           reads: ifaceReads,
+          store,
           iface: channel.iface,
-          guildId,
-          channelId: given ?? reply?.channelId ?? null,
-          context: { channelId: String(channel.id), publicationBoundary },
+          placeId,
+          conversationId: given ?? reply?.placeId ?? null,
+          context: { conversationId: String(channel.id), publicationBoundary },
           need: 'attach',
         });
         replyId = reply?.messageId ?? null;
         // The current channel: where no file can be posted nothing is generated (or paid for).
-        if (channelId === String(channel.id) && !channel.permissions.attach)
+        if (conversationId === String(channel.id) && !channel.permissions.attach)
           return failed('failed', CODE.CHANNEL_NO_PERMISSION);
       }
       // Nothing is paid for a picture its publication may not have.
@@ -357,7 +358,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
           scene,
           self,
           selfName,
-          guildId,
+          placeId,
           // askedFor is true only for a turn with a trigger.
           userId: asked ? (trigger!.authorId ?? null) : null,
           model,
@@ -391,7 +392,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       const after = checkEffect('message.create', sendArgs({ media: name, replyId }), { channel, trigger });
       // A refusal carries its gateway code.
       if (!after.ok) return failed(refusalStatus(after.code!), after.code, { reason: after.reason });
-      const target = channelId === String(channel.id) ? channel : { id: channelId };
+      const target = conversationId === String(channel.id) ? channel : { id: conversationId };
       const result = await port.send(conversationOf(target), {
         attachments: [{ name, data: picture.buffer, contentType: picture.mediaType }],
         ...(replyId ? { replyTo: messageOf(target, replyId) } : {}),
@@ -427,14 +428,14 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   }
 
   /**
-   * The persona's `<gif>` resolved against the guild's library: `{ id,
+   * The persona's `<gif>` resolved against the place's library: `{ id,
    * replyTo, entry }`, or null (logged with its reason, never a URL) when the handle is unknown.
    */
-  function resolveGif(guildId: string, gif: GifCall | null | undefined, channelId: string): ResolvedGif | null {
+  function resolveGif(placeId: string, gif: GifCall | null | undefined, conversationId: string): ResolvedGif | null {
     if (!gif) return null;
-    const entry: GifEntry | null | undefined = store.findGif(guildId, gif.id);
+    const entry: GifEntry | null | undefined = store.findGif(placeId, gif.id);
     if (!entry) {
-      log.info('turn: gif dropped', { channel: channelId, reason: 'unknown' });
+      log.info('turn: gif dropped', { channel: conversationId, reason: 'unknown' });
       return null;
     }
     return { ...gif, entry };
@@ -460,7 +461,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * when the GIF picker chose it): a link GIF as its stored
    * URL (the platform embeds tenor and giphy links), an attached one as a fresh URL of
    * its attachment, the stored one when that fails. Stamped once sent on its library entry of
-   * `guildId` (store.recordOwnGif: `ownLast`/`ownUses`, the `<gifs>` list's
+   * `placeId` (store.recordOwnGif: `ownLast`/`ownUses`, the `<gifs>` list's
    * own-post mark). Never throws; resolves `{ message, op }` once sent
    * (`message`: postedOf the port's answer; `op`: its journal operation),
    * else null. The post is a `message.create` with the URL as its text
@@ -473,7 +474,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    */
   async function postGif(
     channel: PostChannel,
-    guildId: string,
+    placeId: string,
     gif: ResolvedGif,
     replyId: string | null,
     link: string | null,
@@ -499,7 +500,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       }
       const message = postedOf(result);
       if (op.opId) await op.succeeded({ messageId: message.id });
-      if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(guildId, entry.key, clock());
+      if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(placeId, entry.key, clock());
       lastPostAt.set(channel.id, clock());
       log.info('turn: gif sent', {
         channel: channel.id,
@@ -519,7 +520,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   /**
    * The GIF picker (src/behavior/gif-pick.ts), on the turn's FIRST message as
    * the model wrote it (a picked GIF takes its place; the rest are posted as
-   * written): with prompts['gif-pick'] present, the guild's library readable
+   * written): with prompts['gif-pick'] present, the place's library readable
    * and pickCandidates saying yes (a first
    * message of at most `gifs.pick.maxChars` code points, no `<gif>` of the
    * turn's own -- the model's own GIF is never second-guessed --, at least one
@@ -529,7 +530,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * `<gifs>` (renderGifLibrary over the WHOLE captioned library in rank order, with no own-post
    * mark, `gifs.reactionChars` and `gifs.actionChars` read now: the stable bulk first, the part
    * tagged for the provider's prompt cache; with `features.promptCache` exactly true it is held
-   * per cache bucket in the guild's stable freeze, like the reply's `<gifs>`, see
+   * per cache bucket in the place's stable freeze, like the reply's `<gifs>`, see
    * src/behavior/prompt.ts#freezePerBucket, so a GIF post or a use that reranks the library
    * rewrites the cached prefix at most once per `llm.cache.ttl`), then the per-call tail:
    * `<gifs_recent>` (ownGifLines: the listed GIFs the persona posted within `gifs.ownMarkHours`,
@@ -548,8 +549,8 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   async function pickGif({
-    channelId,
-    guildId,
+    conversationId,
+    placeId,
     messages,
     gif,
     history,
@@ -569,16 +570,16 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     const at = clock();
     // The library as the first pick of this cache bucket rendered it (no clock in it); the
     // signature lets an edit of its labels or settings show at once.
-    const freeze = stableFreezeOf<{ library: Array<string>; handles: Array<string> }>(guildId);
+    const freeze = stableFreezeOf<{ library: Array<string>; handles: Array<string> }>(placeId);
     const { library, handles } = freezePerBucket<{ library: Array<string>; handles: Array<string> }>(
       freeze,
       'gif-pick',
       { now: at, bucketMs: cacheTtlMs(config), signature: JSON.stringify([labels?.gifs ?? null]) },
       () => {
-        const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(guildId) ?? null) : null;
+        const mediaCache = typeof store.getMediaCache === 'function' ? (store.getMediaCache(placeId) ?? null) : null;
         const listed = captionedEntries(
           // The check above found getGifs on the store.
-          rankGifs(store.getGifs!(guildId), GIF_HALF_LIFE_DAYS),
+          rankGifs(store.getGifs!(placeId), GIF_HALF_LIFE_DAYS),
           mediaCache,
           chars.actionChars
         );
@@ -612,7 +613,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     const replyBody = answersMark ? `${answersMark} ${first.text}` : first.text;
     // Which of the listed GIFs the persona posted lately, with how long ago: per call, in the tail.
     const recent = labels
-      ? ownGifLines(store.getGifs(guildId), handles, labels, { ownMarkHours: OWN_MARK_HOURS, now: at })
+      ? ownGifLines(store.getGifs(placeId), handles, labels, { ownMarkHours: OWN_MARK_HOURS, now: at })
       : [];
     let completion: unknown;
     try {
@@ -639,7 +640,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       );
     } catch (err) {
       log.warn('gifs: pick failed', {
-        channel: channelId,
+        channel: conversationId,
         reason: railReason(err),
         // A thrown value is anything; an HTTP error of the client carries its status.
         status: (err as { statusCode?: unknown } | null)?.statusCode ?? null,
@@ -647,9 +648,9 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       return null;
     }
     const handle = parseGifPick(textOf(completion), handles);
-    log.info('gifs: picked', { channel: channelId, handle: handle !== null, library: library.length });
+    log.info('gifs: picked', { channel: conversationId, handle: handle !== null, library: library.length });
     if (handle === null) return null;
-    return resolveGif(guildId, { id: handle, replyTo: first.replyTo ?? null }, channelId);
+    return resolveGif(placeId, { id: handle, replyTo: first.replyTo ?? null }, conversationId);
   }
 
   /**
@@ -660,7 +661,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    */
   async function pickedInTime(
     picking: Promise<ResolvedGif | null>,
-    { channelId, draft }: { channelId: string; draft?: DrawDraft | null }
+    { placeId, draft }: { placeId: string; draft?: DrawDraft | null }
   ): Promise<ResolvedGif | null> {
     const { graceMs } = gifPickSettings(hot.config);
     if (graceMs === null) return picking;
@@ -673,7 +674,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     // The executor of `timer` ran synchronously and set `cancel`.
     (cancel as (() => void) | null)?.();
     if (answer !== LATE) return answer.value;
-    log.info('gifs: pick late', { channel: channelId, graceMs });
+    log.info('gifs: pick late', { channel: placeId, graceMs });
     draft?.limits?.add({ kind: 'helper-timeout', where: 'gif-pick' });
     return null;
   }
@@ -681,7 +682,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   /** pickGif that never rejects: an unexpected failure (`gifs: pick failed`) posts the messages as written. */
   function pickGifSafely(args: PickArgs): Promise<ResolvedGif | null> {
     return pickGif(args).catch((err: unknown) => {
-      log.warn('gifs: pick failed', { channel: args.channelId, error: err });
+      log.warn('gifs: pick failed', { channel: args.placeId, error: err });
       return null;
     });
   }

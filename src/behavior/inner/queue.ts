@@ -7,7 +7,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { personaKey } from '../../memory/db/storage-keys.ts';
 
-import { guildPlaceId } from '../../memory/db/ids.ts';
 import { createReadSeam, unitValue } from '../../memory/db/readers/common.ts';
 import { writeJsonAtomic } from '../../memory/index.ts';
 import { DAY_MS } from '../../time.ts';
@@ -31,9 +30,8 @@ import type {
   WakeUpdate,
 } from './types.ts';
 
-/** The path of the guild's state file. */
-export const fileOf = (life: InnerContext, guildId: unknown): string =>
-  path.join(life.dataDir, 'guilds', String(guildId), 'inner.json');
+/** The path of the persona's state file. */
+export const fileOf = (life: InnerContext): string => path.join(life.dataDir, 'persona', 'inner.json');
 /** The persona's timezone (`bot.timezone`, read now), UTC when it is not set. */
 export const timezoneOf = (life: InnerContext): string => {
   const zone = objOf(objOf(life.hot.config).bot).timezone;
@@ -95,7 +93,7 @@ function inflightOf(value: unknown): Inflight | null {
     wakeIds,
     kind: typeof raw.kind === 'string' ? raw.kind : '',
     startedAt: raw.startedAt,
-    channelId: idOrNull(raw.channelId),
+    placeId: idOrNull(raw.placeId),
     privateChat: raw.privateChat === true,
     privateUserId: idOrNull(raw.privateUserId),
   };
@@ -185,20 +183,18 @@ export type DueIntention = {
   id: string;
   awaitingErrandId?: string | null;
   lastErrandId?: string | null;
-  provenance?: { scope?: unknown; channelId?: unknown } | null;
+  provenance?: { scope?: unknown; placeId?: unknown } | null;
   destination?: string | null;
   chainId?: string | null;
   every?: unknown;
 };
 
 /** Where an intention lands: its destination, else the conversation it came from; and whether that is a private chat. */
-function targetOf(intention: DueIntention): { channelId: string | null; privateChat: boolean } {
+function targetOf(intention: DueIntention): { placeId: string | null; privateChat: boolean } {
   const provenance = objOf(intention.provenance);
   const privateChat = provenance.scope === 'dm';
-  const channelId = privateChat
-    ? (provenance.channelId ?? null)
-    : (intention.destination ?? provenance.channelId ?? null);
-  return { channelId: channelId ? asText(channelId) : null, privateChat };
+  const placeId = privateChat ? (provenance.placeId ?? null) : (intention.destination ?? provenance.placeId ?? null);
+  return { placeId: placeId ? asText(placeId) : null, privateChat };
 }
 
 /**
@@ -211,7 +207,7 @@ export function wakeOfDue({ intention, reason, at }: { intention: DueIntention; 
   const deadline = reason === 'wait-deadline';
   const kind = deadline ? 'errand_deadline' : 'intention_due';
   const errandId = deadline ? (intention.awaitingErrandId ?? intention.lastErrandId ?? null) : null;
-  const { channelId, privateChat } = targetOf(intention);
+  const { placeId, privateChat } = targetOf(intention);
   return {
     id: deadline
       ? `inner.wake:errand_deadline:${intention.id}:${String(errandId)}`
@@ -225,7 +221,7 @@ export function wakeOfDue({ intention, reason, at }: { intention: DueIntention; 
         ? `intention:${intention.id}:${at}`
         : `intention:${intention.id}`,
     dueAt: at,
-    channelId,
+    placeId,
     privateChat,
     ...(errandId ? { errandId: String(errandId) } : {}),
   };
@@ -271,7 +267,7 @@ export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) =
     return feedback.filter(
       (wake) =>
         wake.scopePlaceId === first.scopePlaceId &&
-        wake.channelId === first.channelId &&
+        wake.placeId === first.placeId &&
         Boolean(wake.privateChat) === Boolean(first.privateChat) &&
         retryKey(wake) === retryKey(first)
     );
@@ -292,39 +288,35 @@ export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) =
   return same.filter((wake) =>
     wake.kind === 'review'
       ? !anchor.privateChat
-      : wake.channelId === anchor.channelId && Boolean(wake.privateChat) === Boolean(anchor.privateChat)
+      : wake.placeId === anchor.placeId && Boolean(wake.privateChat) === Boolean(anchor.privateChat)
   );
 }
 
 /** What tells retried wakes of one failed group from fresh ones: '' for a fresh wake. */
 const retryKey = (wake: Wake | undefined): string => (wake?.retry ? `${wake.retry}:${wake.firstFailedAt ?? ''}` : '');
 
-/** Capture the community and native conversation alongside inner evidence. */
-export function contextOf(
-  life: InnerContext,
-  guildId: string | null | undefined,
-  channelId?: unknown
-): Pick<Fact, 'scopePlaceId' | 'conversation'> {
+/** Capture the native conversation alongside inner evidence. */
+export function contextOf(life: InnerContext, conversationId?: unknown): Pick<Fact, 'scopePlaceId' | 'conversation'> {
   const iface = life.iface();
   return {
-    scopePlaceId: guildId ? guildPlaceId(iface, guildId) : null,
-    conversation: typeof channelId === 'string' && channelId ? { iface, conversationId: channelId } : null,
+    scopePlaceId: null,
+    conversation: typeof conversationId === 'string' && conversationId ? { iface, conversationId } : null,
   };
 }
 
-/** Only wakes captured in this community enter its drain. */
-export function inScope(life: InnerContext, guildId: string, wake: Wake): boolean {
-  return !wake.scopePlaceId || wake.scopePlaceId === contextOf(life, guildId).scopePlaceId;
+/** Whether a wake may enter the drain. */
+export function inScope(life: InnerContext, wake: Wake): boolean {
+  return !wake.scopePlaceId || wake.scopePlaceId === contextOf(life).scopePlaceId;
 }
 
 /** The persona state, read once from the ready database with a global wake view. */
-export function stateOf(life: InnerContext, guildId: unknown): InnerState {
+export function stateOf(life: InnerContext): InnerState {
   const { states } = life;
-  const key = String(guildId);
+  const key = 'persona';
   const known = states.get('persona');
   const keepSince = life.now() - CHAIN_KEEP_MS;
   if (known) {
-    loadView(life, key, known, keepSince);
+    loadView(life, known, keepSince);
     return known;
   }
   // Opened before the file is read: an in-memory queue's first open imports the file's queue fields (wake-store.ts).
@@ -336,7 +328,7 @@ export function stateOf(life: InnerContext, guildId: unknown): InnerState {
       const seam = stateSeam(life);
       const found = seam.run(() => unitValue(seam.db(), personaKey('inner')));
       raw = found.found ? found.value : null;
-    } else raw = JSON.parse(fs.readFileSync(fileOf(life, key), 'utf8'));
+    } else raw = JSON.parse(fs.readFileSync(fileOf(life), 'utf8'));
   } catch (err) {
     if (life.memoryDb) throw err;
     if (errorCode(err) !== 'ENOENT') lost = errorCode(err) ?? 'parse';
@@ -344,7 +336,7 @@ export function stateOf(life: InnerContext, guildId: unknown): InnerState {
   const state = normalizeState(raw);
   states.set('persona', state);
   if (lost !== null) loseState(life, key, state, lost);
-  loadView(life, key, state, keepSince);
+  loadView(life, state, keepSince);
   return state;
 }
 
@@ -356,37 +348,37 @@ export function stateOf(life: InnerContext, guildId: unknown): InnerState {
 export function loseState(life: InnerContext, key: string, state: InnerState, code: string): void {
   const { now, log } = life;
   const at = now();
-  const backup = `${fileOf(life, key)}.bad-${at}`;
+  const backup = `${fileOf(life)}.bad-${at}`;
   let kept = true;
   try {
-    fs.renameSync(fileOf(life, key), backup);
+    fs.renameSync(fileOf(life), backup);
   } catch (err) {
     kept = false;
-    log.warn('inner: unreadable state could not be moved aside', { guildId: key, code: errorCode(err) });
+    log.warn('inner: unreadable state could not be moved aside', { code: errorCode(err) });
   }
-  log.warn('inner: state unreadable, starting empty', { guildId: key, code, kept });
-  note(life, key, { event: 'stateLost', code, kept });
-  addFact(life, state, { at, kind: 'stateLost', code, channelId: null, privateChat: false });
+  log.warn('inner: state unreadable, starting empty', { code, kept });
+  note(life, { event: 'stateLost', code, kept });
+  addFact(life, state, { at, kind: 'stateLost', code, placeId: null, privateChat: false });
   // Written only when the old file is safe aside; if it could not be moved it stays where it is.
   if (!kept) return;
   try {
-    writeJsonAtomic(fileOf(life, key), fileStateOf(state));
+    writeJsonAtomic(fileOf(life), fileStateOf(state));
   } catch (err) {
-    log.warn('inner: state write failed', { guildId: key, code: errorCode(err) });
+    log.warn('inner: state write failed', { code: errorCode(err) });
   }
 }
 
 /** Prune the shared state in place and persist it before the current conversation queue changes. */
-export function save(life: InnerContext, guildId: unknown): InnerState {
+export function save(life: InnerContext): InnerState {
   const { hot, now } = life;
-  const key = String(guildId);
+  const key = 'persona';
   // Pruned in place: whoever holds the state object keeps seeing the one that is written.
   const next = Object.assign(
-    stateOf(life, key),
-    pruneState(stateOf(life, key), now(), { factsKeepMs: innerSettings(hot.config).factsKeepDays * DAY_MS })
+    stateOf(life),
+    pruneState(stateOf(life), now(), { factsKeepMs: innerSettings(hot.config).factsKeepDays * DAY_MS })
   );
   persistState(life, key, next);
-  syncQueue(life, key, next);
+  syncQueue(life, next);
   return next;
 }
 
@@ -401,7 +393,7 @@ function stateSeam(life: InnerContext) {
 
 /** State writes share the queue's chain, which release waits for. */
 function persistState(life: InnerContext, key: string, state: InnerState): void {
-  const failed = (err: unknown) => life.log.warn('inner: state write failed', { guildId: key, code: errorCode(err) });
+  const failed = (err: unknown) => life.log.warn('inner: state write failed', { code: errorCode(err) });
   const value = fileStateOf(state);
   if (life.memoryDb) {
     if (!life.memoryDb.writeUnit)
@@ -413,7 +405,7 @@ function persistState(life: InnerContext, key: string, state: InnerState): void 
     return;
   }
   try {
-    writeJsonAtomic(fileOf(life, key), value);
+    writeJsonAtomic(fileOf(life), value);
   } catch (err) {
     failed(err);
   }
@@ -443,12 +435,12 @@ export function wakeWrite(life: InnerContext, update: WakeUpdate): void {
 }
 
 /** One `inner` journal record (features.journal exactly true, read now); never throws. */
-export function note(life: InnerContext, guildId: string, fields: Obj): void {
+export function note(life: InnerContext, fields: Obj): void {
   const { journal, log } = life;
   if (typeof journal?.inner !== 'function') return;
   const write = journal.inner.bind(journal);
   Promise.resolve()
-    .then(() => write(guildId, fields))
+    .then(() => write(fields))
     .catch((err: unknown) => log.warn('inner: journal failed', { code: errorCode(err) }));
 }
 
@@ -462,22 +454,18 @@ export function paused(life: InnerContext): boolean {
   }
 }
 
-/** `fact` kept in `state.facts` (not told yet); the fact's `channelId` and `privateChat` say where it may be shown. */
+/** `fact` kept in `state.facts` (not told yet); the fact's `placeId` and `privateChat` say where it may be shown. */
 export function addFact(life: InnerContext, state: InnerState, fact: FactInput): Fact {
   const { now } = life;
   const at = isFiniteNumber(fact.at) ? fact.at : now();
-  return addFactTo(
-    state,
-    { ...contextOf(life, life.getGuildId(), fact.channelId), ...fact, at },
-    `f${at.toString(36)}-${++life.factSeq}`
-  );
+  return addFactTo(state, { ...contextOf(life, fact.placeId), ...fact, at }, `f${at.toString(36)}-${++life.factSeq}`);
 }
 
-/** The purpose of intention `id` in the guild's store ('' when unknown). Never throws. */
-export function purposeOf(life: InnerContext, guildId: string | null, id: string): string {
+/** The purpose of intention `id` in the place's store ('' when unknown). Never throws. */
+export function purposeOf(life: InnerContext, id: string): string {
   const { intentions } = life;
   try {
-    const purpose = guildId && id ? objOf(intentions?.store?.(guildId)?.get?.(id)).purpose : null;
+    const purpose = id ? objOf(intentions?.store?.()?.get?.(id)).purpose : null;
     return typeof purpose === 'string' ? purpose : '';
   } catch {
     return '';
@@ -485,25 +473,18 @@ export function purposeOf(life: InnerContext, guildId: string | null, id: string
 }
 
 /** The fact about `wake` (`wakeDropped` or `wakeHeld`) with its `code`, where it belongs and what `extra` adds. */
-export function wakeFact(
-  life: InnerContext,
-  guildId: string | null,
-  wake: Wake,
-  kind: string,
-  code: string,
-  extra: Obj = {}
-): FactInput {
+export function wakeFact(life: InnerContext, wake: Wake, kind: string, code: string, extra: Obj = {}): FactInput {
   const intentionId = listOf(wake.intentionIds).map(String)[0] ?? null;
   return {
-    ...contextOf(life, guildId, wake.channelId),
+    ...contextOf(life, wake.placeId),
     kind,
     wakeId: wake.id,
     wake: wake.kind,
     code,
     intentionId,
-    purpose: intentionId ? purposeOf(life, guildId, intentionId) : '',
+    purpose: intentionId ? purposeOf(life, intentionId) : '',
     ...extra,
-    channelId: wake.channelId ?? null,
+    placeId: wake.placeId ?? null,
     privateChat: wake.privateChat === true,
   };
 }
@@ -524,40 +505,29 @@ export function markHandled(
   wakes: ReadonlyArray<Wake>,
   outcome: string,
   at: number,
-  {
-    guildId = null,
-    named = null,
-    why = null,
-  }: { guildId?: string | null; named?: Set<string> | ReadonlyArray<unknown> | null; why?: DropWhy } = {}
+  { named = null, why = null }: { named?: Set<string> | ReadonlyArray<unknown> | null; why?: DropWhy } = {}
 ): void {
   const { intentions } = life;
   for (const wake of wakes) {
-    state.handled[wake.id] = { at, outcome, ...(wake.kind === 'attend' ? { place: wake.channelId ?? null } : {}) };
+    state.handled[wake.id] = { at, outcome, ...(wake.kind === 'attend' ? { place: wake.placeId ?? null } : {}) };
     if (DROP_OUTCOMES.has(outcome)) {
       const reason = typeof why === 'function' ? why(wake) : why;
       addFact(life, state, {
         at,
-        ...wakeFact(
-          life,
-          guildId,
-          wake,
-          'wakeDropped',
-          outcome,
-          typeof reason === 'string' && reason ? { why: reason } : {}
-        ),
+        ...wakeFact(life, wake, 'wakeDropped', outcome, typeof reason === 'string' && reason ? { why: reason } : {}),
       });
     }
   }
   const ids = new Set(wakes.map((wake) => wake.id));
   state.queue = state.queue.filter((wake) => !ids.has(wake.id));
-  if (!guildId || typeof intentions?.advance !== 'function') return;
+  if (typeof intentions?.advance !== 'function') return;
   const touched: ReadonlySet<string> =
     named instanceof Set ? named : new Set(Array.isArray(named) ? named.map(String) : []);
   for (const id of new Set(wakes.flatMap((wake) => (Array.isArray(wake.intentionIds) ? wake.intentionIds : [])))) {
-    const result = objOf(intentions.advance(guildId, id, { named: touched.has(String(id)) }));
+    const result = objOf(intentions.advance(id, { named: touched.has(String(id)) }));
     if (result.changed) {
       const intention = objOf(result.intention);
-      note(life, guildId, {
+      note(life, {
         event: 'recurred',
         intentionId: String(id),
         code: objOf(listOf(intention.history).at(-1)).code ?? null,
@@ -580,30 +550,28 @@ const isWakeKind = (value: unknown): boolean => WAKE_KINDS.some((kind) => kind =
  * and handled so it is never dropped unseen). Answers what happened.
  */
 export function onWake(life: InnerContext, event: unknown): WakeAnswer {
-  const { hot, getGuildId, now, log } = life;
+  const { hot, now, log } = life;
   const given = objOf(event);
-  const guildId = given.communityId ?? getGuildId();
   const wake = objOf(given.wake);
-  if (!guildId || !given.wake || !isWakeKind(wake.kind)) return { status: 'invalid' };
-  const state = stateOf(life, guildId);
+  if (!given.wake || !isWakeKind(wake.kind)) return { status: 'invalid' };
+  const state = stateOf(life);
   const id = String(given.id ?? wake.id);
   if (state.stopped) return { status: 'stopped' };
   if (state.handled[id] || state.queue.some((queued) => queued.id === id)) return { status: 'duplicate' };
   const at = now();
   // The wake is the scheduler's own record (enqueue), handed back by the door.
-  const queued = { ...contextOf(life, asText(guildId), wake.channelId), ...wake, id, queuedAt: at } as Wake;
-  const key = asText(guildId);
+  const queued = { ...contextOf(life, wake.placeId), ...wake, id, queuedAt: at } as Wake;
   if (state.queue.length >= innerSettings(hot.config).queueMax) {
-    markHandled(life, state, [queued], 'overflow', at, { guildId: key });
-    save(life, key);
-    log.warn('inner: queue overflow', { guildId: key, id, kind: queued.kind, queued: state.queue.length });
-    note(life, key, { event: 'overflow', wake: wakeFields(queued), queued: state.queue.length });
+    markHandled(life, state, [queued], 'overflow', at, {});
+    save(life);
+    log.warn('inner: queue overflow', { id, kind: queued.kind, queued: state.queue.length });
+    note(life, { event: 'overflow', wake: wakeFields(queued), queued: state.queue.length });
     return { status: 'overflow' };
   }
   state.queue.push(queued);
-  save(life, key);
-  log.info('inner: wake', { guildId: key, id, kind: queued.kind, dueAt: wake.dueAt ?? null });
-  note(life, key, { event: 'wake', wake: wakeFields(queued), channelId: wake.privateChat ? null : wake.channelId });
+  save(life);
+  log.info('inner: wake', { id, kind: queued.kind, dueAt: wake.dueAt ?? null });
+  note(life, { event: 'wake', wake: wakeFields(queued), placeId: wake.privateChat ? null : wake.placeId });
   return { status: 'queued' };
 }
 
@@ -626,14 +594,14 @@ export function wakeFields(wake: Wake): Obj {
 }
 
 /** `wake` handed to the door (or straight to onWake without one). */
-export async function enqueue(life: InnerContext, guildId: string, wake: Wake): Promise<unknown> {
+export async function enqueue(life: InnerContext, wake: Wake): Promise<unknown> {
   const { submit, now } = life;
-  const event: InnerWakeEvent = { kind: 'inner.wake', at: now(), id: wake.id, communityId: String(guildId), wake };
+  const event: InnerWakeEvent = { kind: 'inner.wake', at: now(), id: wake.id, wake };
   if (typeof submit === 'function') return submit(event);
   return { status: 'ok', result: onWake(life, event) };
 }
 
 /** Whether her actions may leave an inner turn now: the switch on, not stopped, not paused. */
-export function mayAct(life: InnerContext, guildId: unknown): boolean {
-  return !stateOf(life, guildId).stopped && !paused(life);
+export function mayAct(life: InnerContext): boolean {
+  return !stateOf(life).stopped && !paused(life);
 }

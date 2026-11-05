@@ -34,13 +34,13 @@ export function writeLines(file: string, lines: ReadonlyArray<unknown>): void {
 type Fields = Record<string, unknown>;
 
 export const envelope = (kind: string, extra: Fields = {}): Fields => ({
-  v: 1, id: `j-${kind}`, kind, occurredAt: '2026-10-20T10:00:00.000Z', recordedAt: '2026-10-20T10:00:01.000Z', guildId: GUILD,
+  v: 1, id: `j-${kind}`, kind, occurredAt: '2026-10-20T10:00:00.000Z', recordedAt: '2026-10-20T10:00:01.000Z', placeId: GUILD,
   scope: { channel: CHANNEL }, participants: [MEMBER], sourceMessageIds: ['400000000000000001'], origin: 'live', ...extra,
 });
 
 export const seen = (messageId: string, revision: number, text: string, extra: Fields = {}): Fields => ({
   v: 1, id: `r-${messageId}-${revision}`, kind: 'seen', messageId, revision, occurredAt: '2026-10-20T09:00:00.000Z',
-  recordedAt: '2026-10-20T09:00:01.000Z', guildId: GUILD, scope: { channel: CHANNEL }, by: MEMBER, replyTo: null, text,
+  recordedAt: '2026-10-20T09:00:01.000Z', placeId: GUILD, scope: { channel: CHANNEL }, by: MEMBER, replyTo: null, text,
   media: [], mentions: [], direct: false, participants: [MEMBER], sourceMessageIds: [messageId], origin: 'live', ...extra,
 });
 
@@ -58,13 +58,13 @@ export const archiveLine = (id: string, itemId: string, extra: Fields = {}): Fie
   v: 1, id, kind: 'archive', event: 'expired', itemKind: 'detail', itemId, revisionId: `rv-${id}`,
   scope: { user: MEMBER }, participants: [MEMBER], observedAt: { date: '2026-10-01', precision: 'day' }, lastSeen: null,
   text: { text: 'café at noon' }, weight: 0.5, origin: 'live', by: 'archive', occurredAt: '2026-10-01T00:00:00.000Z',
-  recordedAt: '2026-10-02T00:00:00.000Z', guildId: GUILD, ...extra,
+  recordedAt: '2026-10-02T00:00:00.000Z', placeId: GUILD, ...extra,
 });
 
 const DIMS = 4;
 export function vectorMonth(): { manifest: Fields; meta: string; i8: Buffer } {
   const lines = [0, 1].map((row) => ({
-    row, kind: 'record', id: `40000000000000000${row + 1}`, revision: 1, occurredAt: '2026-10-20T09:00:00.000Z', channelId: CHANNEL,
+    row, kind: 'record', id: `40000000000000000${row + 1}`, revision: 1, occurredAt: '2026-10-20T09:00:00.000Z', placeId: CHANNEL,
     by: MEMBER, participants: [MEMBER], sourceIds: [`40000000000000000${row + 1}`], scale: 0.01, norm: 0.99,
   }));
   const meta = lines.map((line) => `${JSON.stringify(line)}\n`).join('');
@@ -112,12 +112,12 @@ export function buildDataDir(root: string): string {
   writeJson(path.join(g, 'participation.json'), {
     nextId: 2,
     episodes: [{
-      id: 'p-1', channelId: CHANNEL, startAt: 1792000000000, lastAt: 1792000060000, lastOwnAt: 1792000050000, continues: null, itemId: 'ep-1',
+      id: 'p-1', placeId: CHANNEL, startAt: 1792000000000, lastAt: 1792000060000, lastOwnAt: 1792000050000, continues: null, itemId: 'ep-1',
       messages: [{ id: '400000000000000001', ts: 1792000000000, authorId: MEMBER, name: 'Ada', self: false, text: 'Καλημέρα', replyTo: null, caption: null }],
     }],
   });
   writeJson(path.join(g, 'recent.json'), {
-    nextId: 2, lines: [{ id: 1, at: 1792000000000, addedAt: '2026-10-20T10:00:00.000Z', channelId: CHANNEL, text: 'café', who: [MEMBER], weight: 0.5, itemId: 'rc-1' }],
+    nextId: 2, lines: [{ id: 1, at: 1792000000000, addedAt: '2026-10-20T10:00:00.000Z', placeId: CHANNEL, text: 'café', who: [MEMBER], weight: 0.5, itemId: 'rc-1' }],
   });
   writeJson(path.join(g, 'diary.json'), {
     updatedAt: 1792000000000, posts: [{ at: 1792000000000, kind: 'day', gist: 'a quiet day', picture: null, messageIds: ['500000000000000001'], search: null, itemId: 'd-1' }],
@@ -125,7 +125,7 @@ export function buildDataDir(root: string): string {
   writeJson(path.join(g, 'intentions.json'), {
     intentions: [{
       id: 'i1', purpose: 'ask about the trip', status: 'open', createdAt: 1792000000000, updatedAt: 1792000001000, dueAt: null,
-      provenance: { kind: 'self', turnId: 't-1', channelId: CHANNEL, scope: 'group' }, history: [],
+      provenance: { kind: 'self', turnId: 't-1', placeId: CHANNEL, scope: 'group' }, history: [],
     }],
   });
   writeLines(path.join(g, 'intentions-archive.jsonl'), []);
@@ -136,7 +136,7 @@ export function buildDataDir(root: string): string {
   writeJson(path.join(g, 'gifs.json'), { nextId: 2, entries: {} });
   writeJson(path.join(g, 'voice.json'), []);
   writeJson(path.join(g, 'inner.json'), { v: 1, stopped: false, queue: [] });
-  writeLines(path.join(g, 'recall-trace.jsonl'), [{ at: '2026-10-20T10:00:00.000Z', channelId: CHANNEL, hits: 0 }]);
+  writeLines(path.join(g, 'recall-trace.jsonl'), [{ at: '2026-10-20T10:00:00.000Z', placeId: CHANNEL, hits: 0 }]);
   return g;
 }
 

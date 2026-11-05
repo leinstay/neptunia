@@ -71,14 +71,14 @@ const LOOKUP: Array<[string, Array<string>]> = [
 /** A journal over `records`, read by UTC day and kind as the memory journal answers. */
 function fakeJournal(records: ReadonlyArray<Rec>) {
   return {
-    read: (_guildId: string, query: { day: string; kind: string; n: number }): Array<Rec> =>
+    read: (query: { day: string; kind: string; n: number }): Array<Rec> =>
       records.filter((r) => r.kind === query.kind && utcDay(Date.parse(String(r.occurredAt))) === query.day),
   };
 }
 
 const NO_SKILLS: Array<SkillUseRow> = [];
 const base = (records: ReadonlyArray<Rec>, extra: Partial<Parameters<typeof buildSelfimprovementFacts>[0]> = {}) => ({
-  guildId: 'g1',
+  placeId: 'g1',
   now: NOW,
   since: null,
   journal: fakeJournal(records),

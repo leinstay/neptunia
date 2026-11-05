@@ -110,7 +110,7 @@ for (const replacement of ['author', 'shorter'] as const) {
     const incomingText = 'delayed-followup-evidence';
     const incoming: Line = {
       id: 'late-followup',
-      channelId: 'c1',
+      placeId: 'c1',
       authorId: 'u1',
       authorName: 'Member',
       content: incomingText,
@@ -180,7 +180,6 @@ for (const replacement of ['author', 'shorter'] as const) {
       pending,
       llm: { complete: () => decision.promise },
       tagHistory: { hit: () => 1 },
-      getGuildId: () => 'g1',
       getSelfName: () => 'Persona',
       itemText: queue.itemText,
       enqueuePending: queue.enqueuePending,
@@ -270,7 +269,7 @@ test('a triggerless private inner turn writes its completed turn only to its par
     const channel = fakeTurnChannel({ id: 'private-room', dm: true, partnerId: 'u1' });
     const result = await turns.runTurn({
       channel,
-      guildId: 'g1',
+      placeId: 'g1',
       mode: 'inner',
       triggerKind: 'inner',
       inner: {
@@ -289,14 +288,16 @@ test('a triggerless private inner turn writes its completed turn only to its par
     });
     assert.equal(result.outcome, 'spoke');
     const day = new Date(NOW).toISOString().slice(0, 10);
-    const privateTurns = await journal.read('g1', { day, kind: 'turn', privateUserId: 'u1' });
+    // A private chat is its own place since places: its turn is journalled there and in no server's journal.
+    const privateTurns = await journal.read('private-room', { day, kind: 'turn' });
     const groupTurns = await journal.read('g1', { day, kind: 'turn' });
     assert.equal(groupTurns.length, 0);
     assert.equal(privateTurns.length, 1);
     const privateTurn = privateTurns[0];
     assert.ok('mode' in privateTurn && 'scope' in privateTurn);
     assert.equal(privateTurn.mode, 'inner');
-    assert.deepEqual(privateTurn.scope, { user: 'u1', private: true });
+    // Its place says it is private; the scope of a record is the conversation it happened in.
+    assert.deepEqual(privateTurn.scope, { channel: 'private-room' });
   } finally {
     await memory.close();
   }

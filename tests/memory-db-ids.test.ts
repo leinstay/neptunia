@@ -1,14 +1,13 @@
 // Tests for the memory ids (src/memory/db/ids.ts): the builders take the interface as an argument, so `discord` gives
 // the strings stored today and any other interface its own namespace, and the helpers that read the legacy Discord
 // spellings keep naming the legacy namespace (src/memory/db/legacy-namespace.ts).
+import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   accountId,
   channelPlaceId,
   dmPlaceId,
-  guildAuthorityOf,
-  guildPlaceId,
   legacyAccountIdOf,
   legacyNativeKind,
   legacyPlaceOf,
@@ -21,7 +20,7 @@ import { LEGACY_IFACE } from '../src/memory/db/legacy-namespace.ts';
 test('names a Discord person, account and places with the spellings the database stores today', () => {
   assert.equal(personId('discord', '100000000000000001'), 'person:discord:100000000000000001');
   assert.equal(accountId('discord', '100000000000000001'), 'discord:100000000000000001');
-  assert.equal(guildPlaceId('discord', '300000000000000001'), 'discord:guild:300000000000000001');
+  assert.equal(legacyServerPlaceId('discord', '300000000000000001'), 'discord:guild:300000000000000001');
   assert.equal(channelPlaceId('discord', '200000000000000001'), 'discord:channel:200000000000000001');
   assert.equal(dmPlaceId('discord', '100000000000000001'), 'discord:dm:100000000000000001');
 });
@@ -43,10 +42,7 @@ test('names a message source with its interface, message, revision and kind', ()
   assert.equal(messageSourceId('cli', 'm9', 1, 'said'), 'src:cli:m9:1:said');
 });
 
-test('names the community-local authority of a community on its interface', () => {
-  assert.equal(guildAuthorityOf('300000000000000001', 'discord'), 'discord/guild:300000000000000001');
-  assert.equal(guildAuthorityOf('g1', 'fake'), 'fake/guild:g1');
-});
+// The community-local authority `guildAuthorityOf` spelled is gone with the partition by community (plan task 5).
 
 test('keeps the legacy namespace as the stored discord spelling', () => {
   assert.equal(LEGACY_IFACE, 'discord');

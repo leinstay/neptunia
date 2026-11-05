@@ -27,12 +27,16 @@
 //
 // Pure: no I/O.
 
-import { accountId, guildPlaceId, channelPlaceId } from './ids.ts';
-import { LEGACY_IFACE } from './legacy-namespace.ts';
-import { classify } from './map/index.ts';
-import { operationalKindOf } from './map/verbatim.ts';
-import type { StorageKey, StorageKind, StorageSelector, StorageSubject } from './storage-keys.ts';
-import { asText } from './types.ts';
+import { accountId, channelPlaceId, dmPlaceId } from '../db/ids.ts';
+import { LEGACY_IFACE } from '../db/legacy-namespace.ts';
+import { operationalKindOf } from '../db/map/verbatim.ts';
+import type { StorageKey, StorageKind, StorageSelector, StorageSubject } from '../db/storage-keys.ts';
+import { asText } from '../db/types.ts';
+import { classify } from './classify.ts';
+
+/** The place id a shipped database gives a server. */
+export const legacyServerPlaceId = (iface: unknown, native: unknown): string =>
+  `${String(iface)}:guild:${String(native)}`;
 
 /** One pattern of the allowlist: the glob it documents and the expression that decides it. */
 type PathPattern = Readonly<{ glob: string; re: RegExp }>;
@@ -150,7 +154,8 @@ export function rootStateKind(owner: unknown): string | null {
 export function isCoreStatePath(owner: unknown): boolean {
   return (
     rootStateKind(owner) !== null ||
-    (typeof owner === 'string' && /^guilds\/[^/]+\/(?:inner|missed|participation|gifs|media)\.json$/.test(owner))
+    (typeof owner === 'string' &&
+      /^(?:guilds|places)\/[^/]+\/(?:inner|missed|participation|gifs|media)\.json$/.test(owner))
   );
 }
 
@@ -167,8 +172,9 @@ export function legacyStorageKey(owner: string, iface = LEGACY_IFACE, legacyKind
     historicalTaskUnit(canonical, legacyKind);
   if (!info || 'skipped' in info || !info.guildId)
     throw Object.assign(new Error('UNIT_UNMAPPED'), { code: 'UNIT_UNMAPPED' });
-  const scopePlaceId = guildPlaceId(iface, info.guildId);
-  const kind: StorageKind = info.kind === 'verbatim' ? (operationalKindOf(info.unit) as StorageKind) : info.kind;
+  const scopePlaceId = legacyServerPlaceId(iface, info.guildId);
+  const stored = info.kind === 'verbatim' ? operationalKindOf(info.unit) : info.kind;
+  const kind = stored as StorageKind;
   const rel = info.unit;
   const selector = legacySelector(kind, rel);
   const subject = legacySubject(kind, rel, iface, scopePlaceId, selector);
@@ -178,7 +184,7 @@ export function legacyStorageKey(owner: string, iface = LEGACY_IFACE, legacyKind
       : ['archive', 'vectors', 'record_ids', 'archive_ids'].includes(kind)
         ? /\d{4}-\d{2}/.exec(rel)?.[0]
         : undefined;
-  return { kind, subject, scopePlaceId, ...(partition ? { partition } : {}), ...(selector ? { selector } : {}) };
+  return { kind, subject, ...(partition ? { partition } : {}), ...(selector ? { selector } : {}) };
 }
 
 /** V14 deliberately preserves private task units; their explicit stored kind identifies that historical collection. */
@@ -194,7 +200,8 @@ function legacySelector(kind: StorageKind, rel: string): StorageSelector | undef
   if (kind === 'requests') return { requestId: /([^/]+)\.json$/.exec(rel)![1] };
   if (kind === 'versions') {
     const [, versionKind, itemId] = /^versions\/([^/]+)\/(.+)\.json$/.exec(rel)!;
-    return { versionKind: versionKind as NonNullable<StorageSelector['versionKind']>, itemId };
+    const named = versionKind === 'guild' ? 'place' : versionKind;
+    return { versionKind: named as NonNullable<StorageSelector['versionKind']>, itemId };
   }
   if (['backfill', 'forgetting', 'request_tools', 'archive_pending'].includes(kind))
     return {
@@ -214,11 +221,12 @@ function legacySubject(
   scope: string,
   selector?: StorageSelector
 ): StorageSubject {
+  if (['diary', 'intentions', 'errands', 'inner'].includes(kind)) return { type: 'persona', id: 'persona:local' };
   const itemId = /([^/]+)\.json$/.exec(rel)?.[1];
   if (kind === 'user' || kind === 'private') return { type: 'account', id: accountId(iface, itemId) };
   if (kind === 'channel') return { type: 'place', id: channelPlaceId(iface, itemId) };
   if (selector?.versionKind === 'users') return { type: 'account', id: accountId(iface, selector.itemId) };
   if (selector?.versionKind === 'channels') return { type: 'place', id: channelPlaceId(iface, selector.itemId) };
   const privateUser = /^private\/([^/]+)\//.exec(rel)?.[1];
-  return privateUser ? { type: 'account', id: accountId(iface, privateUser) } : { type: 'place', id: scope };
+  return privateUser ? { type: 'place', id: dmPlaceId(iface, privateUser) } : { type: 'place', id: scope };
 }

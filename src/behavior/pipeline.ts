@@ -6,7 +6,7 @@
 // for that a rail refused gets one plain limit notice (src/behavior/limits.ts);
 // a direct call while paused gets the pause notice the same way.
 // A call in a channel the persona can read but not write in is answered in
-// the main channel once that channel settles.
+// another conversation once that channel settles.
 // Owner commands are a separate pipeline entirely (the interface's command handler,
 // driven by a command, not a message). It reads the events an interface delivers
 // and nothing else: what it needs to know about a conversation (its permissions, its newest
@@ -31,7 +31,6 @@ import { createObserve } from '../pipeline/observe.ts';
 import { createPauseNotice } from '../pipeline/pause-notice.ts';
 import { createPendingQueue, turnBlocked as isTurnBlocked } from '../pipeline/pending-queue.ts';
 import { createPrivateGate } from '../pipeline/private-gate.ts';
-import { createSettles } from '../pipeline/settle.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { Adapter } from '../protocol/adapter.ts';
 import type { MessageReadOptions, PendingQueue, PipelineLlm, PipelineMissed } from '../pipeline/types.ts';
@@ -56,7 +55,6 @@ export type MessageHandler = ((event: MessageReceived, options?: MessageReadOpti
   onMessageDelete: ReturnType<typeof createEdits>['onMessageDelete'];
   clearPending: () => void;
   pendingCount: () => number;
-  stop: () => void;
 };
 
 /**
@@ -68,8 +66,7 @@ export type MessageHandler = ((event: MessageReceived, options?: MessageReadOpti
  *   classifier: a message with no trigger, arriving while a conversation window this instance opened by
  *   answering is still open, is checked here before ever running a turn. Absent -- an older/direct caller, or a test
  *   that never opens a window -- the follow-up never fires (nothing reaches this dependency otherwise).
- * @param deps.getGuildId  the single guild this instance serves, or null before it resolves
- * @param [deps.getSelfName]  The persona's display name in a guild
+ * @param [deps.getSelfName]  The persona's display name in a place
  *   (src/core.ts). Default: `bot`.
  * @param [deps.describer]  From createDescriber() (src/memory/describe.js), optional: when
  *   absent, no description request is ever made from this pipeline. When present, every observed human
@@ -91,14 +88,14 @@ export type MessageHandler = ((event: MessageReceived, options?: MessageReadOpti
  *   turn answering a person can wait until they stop writing (pace.settleMs). Absent: nothing noted.
  * @param [deps.record]  From src/memory/record.js#createRecord,
  *   optional: with features.record exactly true (read at each event), a deleted message of the
- *   served guild writes a `deleted` line (onMessageDelete) and an edited one a `seen` line with
+ *   served place writes a `deleted` line (onMessageDelete) and an edited one a `seen` line with
  *   the next revision (src/pipeline/edits.ts). Absent: nothing is recorded here.
  * @param [deps.memoryDb]  From
  *   src/memory/db/service.js#createMemoryDb, optional: every message memory observes and every edit
  *   the record writes is sent to the memory database as an observation
  *   (src/memory/db/observe-event.js#observationOf), through its writer; never a message's failure (a
  *   refusal is logged with its code at debug). The observation is the line's record: it names the
- *   line's record (`{ guildId, privateUserId }`) and the handler awaits its commit, at most
+ *   line's record (`{ placeId }`) and the handler awaits its commit, at most
  *   `memoryDb.observeTimeoutMs` (5000), before it goes on (a failed write waits in the service's queue
  *   for the next tick); an edit's record line then takes the revision the database counted. Absent:
  *   nothing is sent.
@@ -133,7 +130,6 @@ export function createMessageHandler({
   turns: turnRunner,
   memory,
   tagHistory,
-  getGuildId,
   isServedCommunity,
   communitiesOf,
   getSelfName = () => 'bot',
@@ -160,29 +156,27 @@ export function createMessageHandler({
   memory: ReturnType<typeof createMemoryUpdater>;
   tagHistory: ReturnType<typeof createTagHistory>;
   llm?: PipelineLlm;
-  getGuildId: () => string | null;
-  /** A community some connected interface serves; the one community of `getGuildId` when absent. */
-  isServedCommunity?: (communityId: string | null | undefined) => boolean;
+  /** A community some connected interface serves. */
+  isServedCommunity: (communityId: string | null | undefined) => boolean;
   /** Every community the interface `name` serves. */
   communitiesOf?: (name: string) => ReadonlyArray<string>;
-  getSelfName?: (guildId: string) => string;
+  getSelfName?: (placeId: string) => string;
   describer?: Untyped;
   lookup?: Untyped;
   rng?: () => number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   timers?: { set: (fn: () => void, ms: number) => Untyped; clear: (timer: Untyped) => void };
-  activity?: { note: (channelId: string, authorId: string, at: number) => void } | null;
+  activity?: { note: (placeId: string, authorId: string, at: number) => void } | null;
   record?: { append: (...args: Array<Untyped>) => Untyped } | null;
   memoryDb?: Parameters<typeof createObserve>[0]['memoryDb'];
   missed?: (PipelineMissed & { setPrivateRecovery?: (recovery: object) => void }) | null;
   port: Adapter;
 }): MessageHandler {
   const turns = turnRunner;
-  const { refOf, currentOf, turnPlaceOf, infoNow, routeOf, resolveReference } = createConversations({
+  const { refOf, currentOf, turnPlaceOf, infoNow, resolveReference } = createConversations({
     reads,
     memoryDb,
-    getGuildId,
   });
   const { observeLine, deleteLine } = createObserve({ hot, memoryDb, selfIdOf, timers });
   const turnBlocked = () => isTurnBlocked(turns);
@@ -203,11 +197,8 @@ export function createMessageHandler({
     turnBlocked,
   });
   const { buildClassifierRequest } = createClassifierRequest({ reads, store, refOf, cachedFollowUpMedia });
-  const { announceRefusal, afterCallTurn, passRoutedCall, skipSeenCalls, heldCallState } = createCallOutcome({
+  const { announceRefusal, afterCallTurn, heldCallState } = createCallOutcome({
     hot,
-    store,
-    now,
-    turns,
     reads,
     refOf,
     port,
@@ -228,7 +219,6 @@ export function createMessageHandler({
     now,
     turns,
     tagHistory,
-    getGuildId,
     getSelfName,
     pending,
     itemText,
@@ -248,7 +238,6 @@ export function createMessageHandler({
     holdCall,
     queuedFor,
     afterCallTurn,
-    passRoutedCall,
   });
 
   // The address classifier and the follow-up path.
@@ -279,13 +268,12 @@ export function createMessageHandler({
   // The private chat (src/pipeline/private-gate.ts): its gate, its drop and its count, and a direct message's path.
   // Each stage declares `memory.observe` for the lines it hands over; the updater types it as the protocol message
   // (src/memory/update.ts#NormalizedMessage), which is what those lines are.
-  const { afterPrivateTurn, checkPrivateGate, dmCommunityOf, dropPrivate, onPrivateMessage } = createPrivateGate({
+  const { afterPrivateTurn, checkPrivateGate, dropPrivate, onPrivateMessage } = createPrivateGate({
     ...(communitiesOf === undefined ? {} : { communitiesOf }),
     hot,
     store,
     reads,
     now,
-    getGuildId,
     selfIdOf,
     activity,
     turns,
@@ -308,7 +296,6 @@ export function createMessageHandler({
     rng,
     sleep,
     turns,
-    dmCommunityOf,
     pending,
     logPending,
     noteUnanswered,
@@ -317,11 +304,8 @@ export function createMessageHandler({
     requeueBusy,
     currentOf,
     refOf,
-    routeOf,
     heldCallState,
-    skipSeenCalls,
     afterCallTurn,
-    passRoutedCall,
     checkPrivateGate,
     dropPrivate,
     afterPrivateTurn,
@@ -329,24 +313,11 @@ export function createMessageHandler({
     decideAndLog,
   });
 
-  const { clearSettles, rememberCall, armSettle, touchSettle } = createSettles({
-    hot,
-    store,
-    now,
-    timers,
-    turns,
-    routeOf,
-    followUpMuted,
-    heldCallState,
-    skipSeenCalls,
-    answerCall,
-  });
   const { maybePauseNotice } = createPauseNotice({
-    ...(isServedCommunity === undefined ? {} : { isServedCommunity }),
+    isServedCommunity,
     hot,
     now,
     port,
-    getGuildId,
     selfIdOf,
     checkPrivateGate,
     infoNow,
@@ -357,39 +328,33 @@ export function createMessageHandler({
 
   // One new message (src/pipeline/handle-message.ts).
   const { onMessage, catchUpMessage } = createHandleMessage({
-    ...(isServedCommunity === undefined ? {} : { isServedCommunity }),
+    isServedCommunity,
     hot,
     store,
     turns,
     memory: memory as unknown as Parameters<typeof createHandleMessage>[0]['memory'],
     activity,
     missed,
-    getGuildId,
     selfIdOf,
     observeLine,
     maybePauseNotice,
     onPrivateMessage,
     resolveReference,
     turnPlaceOf,
-    routeOf,
     warmMediaCache,
     noteFollowUpSend,
     noteFollowingLine,
-    touchSettle,
     maybeFollowUp,
-    rememberCall,
-    armSettle,
     answerCall,
   });
 
   // An edit and a deletion of a message (src/pipeline/edits.ts).
   const { onMessageUpdate, onMessageDelete } = createEdits({
-    ...(isServedCommunity === undefined ? {} : { isServedCommunity }),
+    isServedCommunity,
     hot,
     // The edit handlers declare `recordGifs` with an `opts` of `unknown`; the store takes its own options object.
     store: store as EditsDeps['store'],
     reads,
-    getGuildId,
     selfIdOf,
     record,
     now,
@@ -406,17 +371,11 @@ export function createMessageHandler({
     onPrivate: (event: MessageReceived) => onPrivateMessage(event as HandledEvent, hot.config),
     onMessageUpdate,
     onMessageDelete,
-    // Every pending direct ping and every settle wait dropped unanswered: no timer fires afterwards. Each wait is
-    // logged as `elsewhere: dropped` (`paused`); its call stays unanswered in the ring.
+    // Every pending direct ping dropped unanswered.
     clearPending: () => {
       pending.list = [];
-      clearSettles('paused');
     },
     // How many direct pings wait for the attention (src/behavior/inner.ts lets people go first).
     pendingCount: () => pending.list.length,
-    // Clear every settle wait without answering its call (shutdown): none starts a turn on a client going down.
-    stop: () => {
-      clearSettles(null);
-    },
   });
 }

@@ -114,7 +114,7 @@ export function headSections(
   }
   // The memory-read collector: the offered items of three sections with the ids they carry (kept ones read at the end).
   const aboutIds: Array<string | null> = [];
-  const aboutOffered = aboutChatItems(given.guildMemory, labels, nameOf, learnedConfig(config), aboutIds);
+  const aboutOffered = aboutChatItems(given.placeMemory, labels, nameOf, learnedConfig(config), aboutIds);
   const loreIds: Array<string | null> = [];
   const loreOffered = loreOn
     ? loreItems(given.loreEntries, history, trigger, labels, LORE_LIMITS, nameOf, loreIds)
@@ -127,7 +127,7 @@ export function headSections(
         currentChannelId,
         // A pulled channel's note right after the current channel's, then the neighbours'
         // (each once). Fitted ahead of the pulled block, so it cannot hang on its cut.
-        [...pulledChannelIds, ...offeredNeighbors.map((n) => n.channelId).filter((id): id is string => Boolean(id))],
+        [...pulledChannelIds, ...offeredNeighbors.map((n) => n.placeId).filter((id): id is string => Boolean(id))],
         history,
         now,
         labels,
@@ -162,7 +162,7 @@ export function headSections(
       cap: caps.aboutChat,
       // As they were at the start of this cache bucket (frozen): a batch's new fact shows at the next edge.
       items: frozen('self', '', () =>
-        (given.guildMemory?.self ?? []).map((fact) => `- ${resolveChatText(fact, nameOf)}`)
+        (given.placeMemory?.self ?? []).map((fact) => `- ${resolveChatText(fact, nameOf)}`)
       ),
     },
     {
@@ -248,7 +248,7 @@ export function fitAll(
         name: 'emoji',
         cap: caps.emoji ?? 800,
         keep: 'first',
-        items: emojiItems(customEmoji, given.guildMemory?.emojiUsage, given.mediaCache ?? null, labels, {
+        items: emojiItems(customEmoji, given.placeMemory?.emojiUsage, given.mediaCache ?? null, labels, {
           seen: emojiOnce
             ? seenEmoji([
                 history,

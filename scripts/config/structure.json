@@ -584,7 +584,7 @@
       "path": "src/board/",
       "purpose": "The task board in the memory database: its tables, its state machine, the rights from clients.json, its operations from filing to review, and the reaper.",
       "layer": "public",
-      "imports": ["node:*", "src/board/**"],
+      "imports": ["node:*", "src/board/**", "src/memory/migration/board-archive-sql.ts"],
       "test": "required"
     },
     {
@@ -610,7 +610,7 @@
     },
     {
       "path": "src/board/errands.ts",
-      "purpose": "The errand store's side of the board: its one write inside the memory writer's transaction, its reads of a guild's errands and of the ends not yet delivered. Tested through the errand board and errand tools board tests.",
+      "purpose": "The errand store's side of the board: its one write inside the memory writer's transaction, its reads of the errands and of the ends not yet delivered. Tested through the errand board and errand tools board tests.",
       "layer": "public",
       "imports": ["node:*", "src/board/**"],
       "test": "none"
@@ -869,7 +869,7 @@
     },
     {
       "path": "src/turn/routing.ts",
-      "purpose": "The destination of words about a channel she cannot write in, the route of a routed call and the channel directory. Tested through the turn tests.",
+      "purpose": "The channel directory of a turn and whether a conversation belongs to a community. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1379,13 +1379,6 @@
       "test": "none"
     },
     {
-      "path": "src/pipeline/settle.ts",
-      "purpose": "The settle waits of calls and noticed comments from a channel the persona cannot write in, answered in the main channel once that channel is quiet. Tested through the events tests.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
       "path": "src/pipeline/types.ts",
       "purpose": "The shapes the pipeline modules share. Types only: nothing runs, so nothing is tested.",
       "layer": "public",
@@ -1477,6 +1470,13 @@
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
+    },
+    {
+      "path": "src/memory/migration/",
+      "purpose": "The offline conversion to places and the only decoders of the ids and paths a shipped database spells.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
     },
     {
       "path": "src/memory/",

@@ -26,7 +26,7 @@ const REPO = fileURLToPath(new URL('..', import.meta.url));
 const SELF_ID = 'self-id';
 const ANSWER = 'γεια σου, καλημέρα';
 const PRIVATE_CONFIG = {
-  bot: { timezone: 'UTC', owners: [], guildId: 'g1' },
+  bot: { timezone: 'UTC', owners: [], placeId: 'g1' },
   // No video role, so the start sends no canary probe to YouTube.
   models: { base: { video: false } },
   pace: { settleMs: 0, settleMaxMs: 0 },

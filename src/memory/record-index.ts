@@ -24,7 +24,7 @@
 //   first, then the newer. The caller checks the weaker ones by their cosine
 //   (src/behavior/prefetch.js#lexicalKeep).
 //
-// The cache (recordIndexOf) keeps one index per record object, guild and private owner: built whole
+// The cache (recordIndexOf) keeps one index per record object, place and private owner: built whole
 // on first use, then read again from `REFRESH_OVERLAP_MS` before its last check at most every
 // `refreshMs` and rebuilt whole every `rebuildMs`, in the background (a turn uses what is there).
 // The index decides only which messages to read: the caller reads them back through the record
@@ -214,7 +214,7 @@ export type QueryPhrase = { text: string; ids: Array<number>; df: number; weight
 /** A message the index offers for a query, with how many terms and phrases of the query it holds. */
 export type IndexHit = {
   messageId: string;
-  channelId: string | null;
+  placeId: string | null;
   occurredAt: string;
   ts: number;
   score: number;
@@ -236,7 +236,7 @@ export type IndexLine = {
 /** One indexed message: its key sequence and the fields a query filters on. */
 type IndexDoc = {
   messageId: string;
-  channelId: string | null;
+  placeId: string | null;
   scope: Untyped;
   occurredAt: string;
   ts: number;
@@ -293,7 +293,7 @@ function addDocument(index: RecordIndex, line: IndexLine, revision: number) {
   });
   index.docs.push({
     messageId: line.messageId,
-    channelId: typeof line.scope?.channel === 'string' ? line.scope.channel : null,
+    placeId: typeof line.scope?.channel === 'string' ? line.scope.channel : null,
     scope: line.scope ?? null,
     occurredAt: line.occurredAt,
     ts: Date.parse(line.occurredAt),
@@ -344,7 +344,7 @@ export function addRecordLines(index: RecordIndex, lines: Iterable<IndexLine>): 
 /**
  * The index of record lines (any order): the newest revision of each `seen` / `said` message (a
  * deleted message left out), the endings learned from their words (learnEndings), each message a
- * document `{ messageId, channelId, scope, occurredAt, ts, revision, seq, dead }` (`seq` its words'
+ * document `{ messageId, placeId, scope, occurredAt, ts, revision, seq, dead }` (`seq` its words'
  * key ids in order), a posting list (document positions) per key. Pure.
  */
 export function buildRecordIndex(lines: Iterable<IndexLine>): RecordIndex {
@@ -567,7 +567,7 @@ export function indexQuery(
  * `until`, not in `exclude`) and allowed (`allow(doc)`: the caller's scope) holding a phrase of the
  * query, at least two of its terms, or one of its terms that is rare (at most `rareTermDf`
  * documents). `score`: the weights of its terms and phrases summed. Best first,
- * then the newer; at most `limit`. Each `{ messageId, channelId, occurredAt, ts, score, terms,
+ * then the newer; at most `limit`. Each `{ messageId, placeId, occurredAt, ts, score, terms,
  * phrases }` (`terms` and `phrases` the counts matched). Pure.
  */
 export function searchRecordIndex(
@@ -620,7 +620,7 @@ export function searchRecordIndex(
     if (!(matchedPhrases > 0 || matchedTerms >= 2 || rare)) continue;
     hits.push({
       messageId: doc.messageId,
-      channelId: doc.channelId,
+      placeId: doc.placeId,
       occurredAt: doc.occurredAt,
       ts: doc.ts,
       score,
@@ -652,7 +652,7 @@ export function querySupport(
   return { terms, phrases };
 }
 
-/** The cached indexes, per record object: `${guildId}:${privateUserId ?? ''}` -> entry. */
+/** The cached indexes, per record object: `${placeId}` -> entry. */
 type CacheEntry = {
   index: RecordIndex | null;
   ready?: Promise<RecordIndex>;
@@ -662,16 +662,16 @@ type CacheEntry = {
 };
 const CACHE = new WeakMap<object, Map<string, CacheEntry>>();
 
-/** All lines of `iterate(guildId, query)`, collected. */
-async function collect(record: Pick<RecordStore, 'iterate'>, guildId: string, query: Untyped) {
+/** All lines of `iterate(placeId, query)`, collected. */
+async function collect(record: Pick<RecordStore, 'iterate'>, placeId: string, query: Untyped) {
   const lines: Array<IndexLine> = [];
-  for await (const line of asRecordLines(record.iterate(guildId, query))) lines.push(line);
+  for await (const line of asRecordLines(record.iterate(placeId, query))) lines.push(line);
   return lines;
 }
 
 /**
- * The record index of `record` (`iterate(guildId, query)`) for a guild (or a private owner's
- * record, `privateUserId`), cached per record object. The first call builds it whole from every
+ * The record index of `record` (`iterate(placeId, query)`) for a place (or a private owner's
+ * record,), cached per record object. The first call builds it whole from every
  * line (the returned promise resolves when it is built; a failed build is forgotten, the next call
  * tries again). Later calls resolve the index as it is at once and, in the background: when the last
  * check is `refreshMs` old, read the lines from REFRESH_OVERLAP_MS before it on and fold them in
@@ -680,23 +680,22 @@ async function collect(record: Pick<RecordStore, 'iterate'>, guildId: string, qu
  */
 export function recordIndexOf(
   record: Pick<RecordStore, 'iterate'>,
-  guildId: string,
+  placeId: string,
   {
-    privateUserId = null,
     now = Date.now,
     refreshMs = 30000,
     rebuildMs = 60 * 60 * 1000,
-  }: { privateUserId?: string | null; now?: () => number; refreshMs?: number; rebuildMs?: number } = {}
+  }: { now?: () => number; refreshMs?: number; rebuildMs?: number } = {}
 ): Promise<RecordIndex> {
   const entries = CACHE.get(record) ?? new Map<string, CacheEntry>();
   CACHE.set(record, entries);
-  const key = `${guildId}:${privateUserId ?? ''}`;
-  const query = privateUserId ? { privateUserId } : {};
+  const key = String(placeId);
+  const query = {};
   const entry = entries.get(key);
   if (!entry) {
     const started = now();
     const fresh: CacheEntry = { index: null, checkedAt: started, builtAt: started, busy: false };
-    const ready = collect(record, guildId, query).then(
+    const ready = collect(record, placeId, query).then(
       (lines) => {
         const built = buildRecordIndex(lines);
         fresh.index = built;
@@ -716,7 +715,7 @@ export function recordIndexOf(
   const at = now();
   if (!entry.busy && at - entry.builtAt >= rebuildMs) {
     entry.busy = true;
-    collect(record, guildId, query)
+    collect(record, placeId, query)
       .then((lines) => {
         entry.index = buildRecordIndex(lines);
         entry.builtAt = at;
@@ -729,7 +728,7 @@ export function recordIndexOf(
   } else if (!entry.busy && at - entry.checkedAt >= refreshMs) {
     entry.busy = true;
     const from = new Date(entry.checkedAt - REFRESH_OVERLAP_MS).toISOString();
-    collect(record, guildId, { ...query, from })
+    collect(record, placeId, { ...query, from })
       .then((lines) => {
         if (entry.index) addRecordLines(entry.index, lines);
         entry.checkedAt = at;

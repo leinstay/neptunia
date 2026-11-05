@@ -655,7 +655,7 @@ export function createIntention({
   const span = line(provenance.span, SPAN_CHARS);
   const participants = participantIds(provenance.participants);
   const messageId = idOrNull(provenance.messageId);
-  const channelId = idOrNull(provenance.channelId);
+  const placeId = idOrNull(provenance.placeId);
   const status = 'pending';
   const intention: Intention = {
     id,
@@ -664,7 +664,7 @@ export function createIntention({
       kind: provenance.kind,
       turnId: idOrNull(provenance.turnId),
       ...(messageId ? { messageId } : {}),
-      ...(channelId ? { channelId } : {}),
+      ...(placeId ? { placeId } : {}),
       ...(span ? { span } : {}),
       scope: provenance.scope === 'dm' ? 'dm' : 'group',
       ...(participants.length > 0 ? { participants } : {}),
@@ -718,7 +718,7 @@ function createDropped({
   const span = line(provenance.span, SPAN_CHARS);
   const participants = participantIds(provenance.participants);
   const messageId = idOrNull(provenance.messageId);
-  const channelId = idOrNull(provenance.channelId);
+  const placeId = idOrNull(provenance.placeId);
   const intention: Intention = {
     id,
     purpose: text,
@@ -726,7 +726,7 @@ function createDropped({
       kind: 'self',
       turnId: idOrNull(provenance.turnId),
       ...(messageId ? { messageId } : {}),
-      ...(channelId ? { channelId } : {}),
+      ...(placeId ? { placeId } : {}),
       ...(span ? { span } : {}),
       scope: provenance.scope === 'dm' ? 'dm' : 'group',
       ...(participants.length > 0 ? { participants } : {}),

@@ -17,6 +17,7 @@ import {
 } from '../interfaces/discord/index.ts';
 import { lineOf } from '../src/behavior/line-of.ts';
 import type { MessageEvent } from '../src/protocol/adapter.ts';
+import { present } from './fixtures/loose-types.ts';
 
 type Raw = Record<string, unknown>;
 type Channel = Parameters<typeof fetchHistory>[0];
@@ -251,11 +252,17 @@ test('lists text channels, threads and voice rooms of a community with its group
   );
 });
 
+/** A line of the adapter in the core's words: the SDK's channel is the core's place (src/behavior/line-of.ts). */
+const inCoreWords = (line: Awaited<ReturnType<typeof fetchHistory>>[number]) => {
+  const { channelId, ...rest } = line as typeof line & { channelId?: string };
+  return { ...rest, placeId: channelId };
+};
+
 test('reads the newest lines as events whose lines equal fetchHistory', async () => {
   const { adapter, channel } = world();
   const events = eventsOf(await adapter.history(CHANNEL, { limit: 3 }));
   const lines = await fetchHistory(asChannel(channel), { limit: 3, ...options });
-  assert.deepEqual(events.map(lineOf), lines);
+  assert.deepEqual(events.map(lineOf), lines.map(inCoreWords));
   assert.deepEqual(
     events.map((event) => event.message.id),
     ['1003', '1004', '1005']
@@ -266,7 +273,7 @@ test('reads the lines at or after a floor like fetchHistoryWindow', async () => 
   const { adapter, channel } = world();
   const events = eventsOf(await adapter.history(CHANNEL, { limit: 10, since: 3000 }));
   const lines = await fetchHistoryWindow(asChannel(channel), { limit: 10, minTs: 3000, ...options });
-  assert.deepEqual(events.map(lineOf), lines);
+  assert.deepEqual(events.map(lineOf), lines.map(inCoreWords));
   assert.deepEqual(
     events.map((event) => event.message.id),
     ['1003', '1004', '1005']
@@ -277,11 +284,11 @@ test('reads the lines before, after and around a message like the search helpers
   const { adapter, channel } = world();
   const stub = asChannel(channel);
   const before = eventsOf(await adapter.history(CHANNEL, { limit: 2, before: '1004' }));
-  assert.deepEqual(before.map(lineOf), await fetchBefore(stub, '1004', 2, options));
+  assert.deepEqual(before.map(lineOf), present(await fetchBefore(stub, '1004', 2, options)).map(inCoreWords));
   const after = eventsOf(await adapter.history(CHANNEL, { limit: 2, after: '1002' }));
-  assert.deepEqual(after.map(lineOf), await fetchAfter(stub, '1002', 2, options));
+  assert.deepEqual(after.map(lineOf), present(await fetchAfter(stub, '1002', 2, options)).map(inCoreWords));
   const around = eventsOf(await adapter.history(CHANNEL, { limit: 3, around: '1003' }));
-  assert.deepEqual(around.map(lineOf), await fetchAround(stub, '1003', 3, options));
+  assert.deepEqual(around.map(lineOf), present(await fetchAround(stub, '1003', 3, options)).map(inCoreWords));
 });
 
 test('fails the history of a channel whose messages cannot be fetched', async () => {

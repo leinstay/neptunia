@@ -53,8 +53,8 @@ type WebHit = { title?: unknown; url?: unknown; site?: unknown; snippet?: unknow
 
 /** The web client: search, read a page and the day's web slots. Every member is optional because the client may lack it. */
 export type WebLookup = {
-  searchResults?: (guildId: string | null, query: string) => Promise<unknown>;
-  readPage?: (guildId: string | null, url: string) => Promise<unknown>;
+  searchResults?: (placeId: string | null, query: string) => Promise<unknown>;
+  readPage?: (placeId: string | null, url: string) => Promise<unknown>;
   hasSearch?: () => boolean;
 };
 
@@ -71,7 +71,7 @@ export type ToolResult = {
 
 /** One stretch of the server's history that recall found. */
 export type Quote = {
-  channelId?: string | null;
+  placeId?: string | null;
   channelName?: string | null;
   startTs: number;
   lines: string;
@@ -97,9 +97,9 @@ export type RecallClient = {
 
 /** The describer's second look: one method per kind of media, and the day's slots. */
 export type LookDescriber = {
-  relookImage?: (guildId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
-  rewatchVideo?: (guildId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
-  rewatchGif?: (guildId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
+  relookImage?: (placeId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
+  rewatchVideo?: (placeId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
+  rewatchGif?: (placeId: string | null, item: Obj, question: string, options?: LookOptions) => Promise<unknown>;
 };
 
 /** The model a second look goes out on: the core model's id when it is routed there, else the role's own. */
@@ -272,11 +272,11 @@ export function webReadText(
   return lines.join('\n');
 }
 
-function quoteReference(entry: QuoteEntry & { n: number }, channelId: string | null | undefined): SearchRef {
+function quoteReference(entry: QuoteEntry & { n: number }, placeId: string | null | undefined): SearchRef {
   return {
     n: entry.n,
     id: plain(entry.id),
-    channelId: channelId ?? null,
+    placeId: placeId ?? null,
     authorId: entry.authorId == null ? null : plain(entry.authorId),
     self: entry.self === true,
     message: entry.message,
@@ -301,7 +301,7 @@ function quoteReference(entry: QuoteEntry & { n: number }, channelId: string | n
  * With `refs` (`{ next(): number, take(shown): void }`, the turn's handle registry) and a stretch's
  * `entries` (`{ id, text, authorId, self, message }` per line), each quoted line starts with a `#N`
  * handle numbered on from `refs.next()`, `.handles` follows the source line, and the lines that
- * stayed in the text after the cuts are handed to `refs.take` (`{ n, id, channelId, authorId, self,
+ * stayed in the text after the cuts are handed to `refs.take` (`{ n, id, placeId, authorId, self,
  * message }`); a line cut away is never registered. Otherwise pure.
  */
 export function memorySearchText(
@@ -359,7 +359,7 @@ export function memorySearchText(
       let remaining = quoted.text.split('\n').length;
       for (const entry of entries) {
         if (remaining <= 0) break;
-        stayed.push(quoteReference(entry, quote.channelId));
+        stayed.push(quoteReference(entry, quote.placeId));
         remaining -= entry.shown.split('\n').length;
       }
     }
@@ -427,13 +427,13 @@ export async function runWebSearch({
   lookup,
   config,
   labels,
-  guildId,
+  placeId,
   args,
 }: {
   lookup: WebLookup | null;
   config?: unknown;
   labels: unknown;
-  guildId: string | null;
+  placeId: string | null;
   args: unknown;
 }): Promise<ToolResult> {
   try {
@@ -446,7 +446,7 @@ export async function runWebSearch({
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature, reason: 'no-engine' } };
     if (searchCfg.enabled === false)
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature, reason: 'disabled' } };
-    const answer = await lookup.searchResults(guildId, query);
+    const answer = await lookup.searchResults(placeId, query);
     if (!isObj(answer)) return { status: 'failed', code: CODE.ERROR };
     const found = answer;
     // The lookup's own coded failure (src/web/lookup.ts#searchResults): said as it was.
@@ -527,14 +527,14 @@ function emptyRead(labels: unknown, url: string, maxChars: number): ToolResult {
 export async function runWebRead({
   lookup,
   labels,
-  guildId,
+  placeId,
   args,
   linkOf = null,
 }: {
   lookup: WebLookup | null;
   config?: unknown;
   labels: unknown;
-  guildId: string | null;
+  placeId: string | null;
   args: unknown;
   linkOf?: ((messageId: string) => string | null | Promise<string | null>) | null;
 }): Promise<ToolResult> {
@@ -549,7 +549,7 @@ export async function runWebRead({
       url = text(typeof linkOf === 'function' ? await linkOf(messageId) : null);
       if (!url) return { status: 'invalid', code: CODE.NO_LINK };
     }
-    const page = objOf(await lookup.readPage(guildId, url));
+    const page = objOf(await lookup.readPage(placeId, url));
     const maxChars = READ_CHARS;
     if (page.ok === true) return { status: 'ok', data: { text: webReadText(page, { labels, maxChars }) } };
     const reason = plain(page.reason ?? CODE.ERROR);
@@ -594,7 +594,7 @@ export async function runMemorySearch({
   store,
   config,
   labels,
-  guildId,
+  placeId,
   snapshot = null,
   channel,
   partnerId = null,
@@ -611,10 +611,10 @@ export async function runMemorySearch({
   historyRef,
 }: {
   recall: RecallClient | null;
-  store?: { listUserProfiles?: (guildId: string) => unknown } | null;
+  store?: { listUserProfiles: () => unknown } | null;
   config: unknown;
   labels: unknown;
-  guildId: string | null;
+  placeId: string | null;
   snapshot?: unknown;
   channel?: { communityId?: unknown } | null;
   partnerId?: string | null;
@@ -633,7 +633,7 @@ export async function runMemorySearch({
   try {
     if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available()))
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
-    if (!hasRecallContext({ guildId, channel, partnerId, memoryContext }))
+    if (!hasRecallContext({ channel, partnerId, memoryContext }))
       return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const settings = recallSettings(objOf(config));
     const timezone = memoryTimezone(config);
@@ -645,7 +645,7 @@ export async function runMemorySearch({
         Number.isInteger(value) && (value as number) > 0 ? (value as number) : null;
       const read = objOf(
         await recall.window({
-          guildId,
+          placeId,
           snapshot,
           channel,
           partnerId,
@@ -684,8 +684,8 @@ export async function runMemorySearch({
       people: text(given.people),
       terms: text(given.terms),
       when: text(given.when),
-      channelId: text(given.channelId) || null,
-      profiles: storedRecallProfiles(store, guildId),
+      placeId: text(given.placeId) || null,
+      profiles: storedRecallProfiles(store, placeId),
       selfId,
       selfName,
       maxForms: settings?.maxForms,
@@ -696,7 +696,7 @@ export async function runMemorySearch({
     const candidate = { id: null, content: text(given.question), authorId: asker };
     const found = objOf(
       await recall.run({
-        guildId,
+        placeId,
         snapshot,
         channel,
         partnerId,
@@ -744,11 +744,11 @@ export async function runMemorySearch({
 }
 
 function storedRecallProfiles(
-  store: { listUserProfiles?: (guildId: string) => unknown } | null | undefined,
-  guildId: string | null
+  store: { listUserProfiles: () => unknown } | null | undefined,
+  placeId: string | null
 ): Array<Obj> {
-  if (!guildId || typeof store?.listUserProfiles !== 'function') return [];
-  return listOf(store.listUserProfiles(guildId)).filter(isObj);
+  if (!placeId || typeof store?.listUserProfiles !== 'function') return [];
+  return listOf(store.listUserProfiles()).filter(isObj);
 }
 
 /** The most second looks one turn of hers may take. Production value, config cut of 2026-10-31. */
@@ -854,7 +854,7 @@ export async function runMediaLook({
   describer,
   config,
   labels,
-  guildId,
+  placeId,
   args,
   mediaOf,
   takeTurnSlot = null,
@@ -863,7 +863,7 @@ export async function runMediaLook({
   describer: LookDescriber | null;
   config: unknown;
   labels: unknown;
-  guildId: string | null;
+  placeId: string | null;
   args: unknown;
   mediaOf: (messageId: string) => unknown;
   takeTurnSlot?: (() => boolean) | null;
@@ -932,7 +932,7 @@ export async function runMediaLook({
     if (typeof describer?.[look.method] !== 'function') return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     if (typeof takeTurnSlot === 'function' && !takeTurnSlot()) return { status: 'failed', code: CODE.TURN_CAP };
     const looked = await lookOnRoute(onRoute, look.role, (model) =>
-      Promise.resolve(describer?.[look.method]?.(guildId, item, question, model ? { model } : {}))
+      Promise.resolve(describer?.[look.method]?.(placeId, item, question, model ? { model } : {}))
     );
     if (looked.route?.kind === 'unavailable') return abilityUnavailable(looked.route);
     const answer = objOf(looked.value);
@@ -1049,7 +1049,7 @@ export function mediaFindText(
 }
 
 /**
- * One media.find: her `args.query` (her words) against the descriptions of the guild's GIF library
+ * One media.find: her `args.query` (her words) against the descriptions of the place's GIF library
  * (src/memory/gifs.ts, the describer cache), `args.n` results (default 5, at most 10). Reads only; no
  * model request, no cap. `invalid` (`invalid-args`) without a query or one with no word in it;
  * `not_configured` without the store or while `features.gifs` is false (read now); else `ok` with
@@ -1059,13 +1059,13 @@ export function runMediaFind({
   store,
   config,
   labels,
-  guildId,
+  placeId,
   args,
 }: {
-  store: { getGifs?: (guildId: string) => unknown; getMediaCache?: (guildId: string) => unknown } | null;
+  store: { getGifs?: (placeId: string) => unknown; getMediaCache?: (placeId: string) => unknown } | null;
   config: unknown;
   labels: unknown;
-  guildId: string | null;
+  placeId: string | null;
   args: unknown;
 }): ToolResult {
   try {
@@ -1073,7 +1073,7 @@ export function runMediaFind({
     const query = text(asked.query);
     if (!query || wordsOf(query).length === 0)
       return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
-    if (!store || typeof store.getGifs !== 'function' || !guildId)
+    if (!store || typeof store.getGifs !== 'function' || !placeId)
       return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
     const given = asked.n;
     if (
@@ -1083,9 +1083,9 @@ export function runMediaFind({
       (!Number.isInteger(Number(given)) || Number(given) < 1 || Number(given) > FIND_MAX)
     )
       return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.n:range' };
-    const cache = typeof store.getMediaCache === 'function' ? store.getMediaCache(guildId) : null;
+    const cache = typeof store.getMediaCache === 'function' ? store.getMediaCache(placeId) : null;
     const mediaCache = isObj(cache) ? cache : null;
-    const found = findGifs(store.getGifs(guildId), mediaCache, query, { n: given });
+    const found = findGifs(store.getGifs(placeId), mediaCache, query, { n: given });
     return { status: 'ok', data: { text: mediaFindText(found, { query, labels, mediaCache, config }) } };
   } catch {
     return { status: 'failed', code: CODE.ERROR };

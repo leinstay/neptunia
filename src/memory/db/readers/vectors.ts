@@ -14,7 +14,7 @@ import { unitRows } from '../export.ts';
 import { MAPPERS } from '../map/index.ts';
 import type { Db, Row } from '../types.ts';
 
-/** The stored state of a month (`owner`: `guilds/<g>/vectors/<YYYY-MM>`): `{ value, evicted }` or null. */
+/** The stored state of a month (`owner`: a month's key): `{ value, evicted }` or null. */
 export function vectorMonthState(dbGiven: unknown, owner: StorageKey): { value: string; evicted: number } | null {
   const db = dbGiven as Db;
   const row = db

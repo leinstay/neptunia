@@ -228,7 +228,7 @@ function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
       return Promise.resolve({ status: 'ok', code: '', summary: '', data: null });
     },
     ownerReads: { lessons: () => '', aliases: () => '' },
-    guildId: () => 'g1',
+    places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },
     privateDir: dir,

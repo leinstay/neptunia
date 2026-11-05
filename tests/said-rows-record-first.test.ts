@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRecord, toRecordLine } from '../src/memory/record.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
+import { topPlaceSpelled } from '../src/memory/db/ids.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import type { Db, Row } from '../src/memory/db/types.ts';
 
@@ -11,6 +12,8 @@ const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const SENT = NOW - 60_000;
 const IFACE = 'synthetic';
 const COMMUNITY = 'community';
+// The place that holds the record of the conversation's tree, as the pipeline names it (src/memory/addresses.ts#sharedPlaceOf).
+const TOP = topPlaceSpelled(IFACE, COMMUNITY);
 const ROOM = 'room-a';
 const HER = 'her-account';
 const MEMBER = 'member-account';
@@ -42,7 +45,7 @@ async function observeLine(
   };
   const envelope = observationOf(event, { selfId: HER });
   if (!envelope) throw new Error('the synthetic event was refused');
-  const done = await memory.memoryDb.observeMessage(envelope, { guildId: COMMUNITY });
+  const done = await memory.memoryDb.observeMessage(envelope, { placeId: TOP });
   if (!done || !('sourceId' in done) || typeof done.sourceId !== 'string')
     throw new Error('the observation was refused');
   return done.sourceId;
@@ -50,10 +53,10 @@ async function observeLine(
 
 async function recordSent(memory: Memory): Promise<void> {
   const line = toRecordLine(
-    { id: 'sent-1', channelId: ROOM, content: WORDS, ts: SENT, replyToId: null, mentionedUserIds: [] },
+    { id: 'sent-1', placeId: ROOM, content: WORDS, ts: SENT, replyToId: null, mentionedUserIds: [] },
     { kind: 'said', now: () => NOW, turnId: 't-1', opId: 'op-1' }
   );
-  await createRecord({ ...memory, now: () => NOW }).append(COMMUNITY, [line], {});
+  await createRecord({ ...memory, now: () => NOW }).append(TOP, [line], {});
 }
 
 function database(memory: Memory): Db {
@@ -152,10 +155,10 @@ test('the echo of her line in a second room with the same message id stays its o
   // Bug: a lookup by the message id alone joins two conversations' lines of an interface with per-room ids.
   await withOrder('echo-first', async (memory, db) => {
     const line = toRecordLine(
-      { id: 'sent-1', channelId: 'room-b', content: WORDS, ts: SENT, replyToId: null, mentionedUserIds: [] },
+      { id: 'sent-1', placeId: 'room-b', content: WORDS, ts: SENT, replyToId: null, mentionedUserIds: [] },
       { kind: 'said', now: () => NOW, turnId: 't-2', opId: 'op-2' }
     );
-    await createRecord({ ...memory, now: () => NOW }).append(COMMUNITY, [line], {});
+    await createRecord({ ...memory, now: () => NOW }).append(TOP, [line], {});
     assert.deepEqual(
       saidRows(db)
         .map((row) => row.turn_id)
@@ -169,7 +172,7 @@ test('the revision of her line reads by its protocol id once it holds a family k
   // Bug: an edit asks the newest revision by the protocol id, finds none and writes revision 1 over her line's slot.
   await withOrder('echo-first', async (memory) => {
     const record = createRecord({ ...memory, now: () => NOW });
-    assert.equal(await record.newestRevision(COMMUNITY, 'sent-1', new Date(SENT).toISOString()), 1);
+    assert.equal(await record.newestRevision(TOP, 'sent-1', new Date(SENT).toISOString()), 1);
   });
 });
 

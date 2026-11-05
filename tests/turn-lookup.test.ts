@@ -13,7 +13,7 @@ for (const direction of ['ordinary-first', 'internal-first'] as const) {
     const contexts: Array<unknown> = [];
     const lookup = createLookup({
       hot: { prompts: { labels } },
-      store: {},
+      store: { listUserProfiles: () => [] },
       llm: {
         complete: () => Promise.reject(new Error('prefetch does not classify')),
       },
@@ -41,8 +41,8 @@ for (const direction of ['ordinary-first', 'internal-first'] as const) {
       const input: Parameters<Lookup['startPrefetch']>[0] = {
         config: config(),
         channel: { id: 'same-room', communityId: 'g1' },
-        guildId: 'g1',
-        guild: { id: 'g1' },
+        placeId: 'g1',
+        place: { id: 'g1' },
         trigger: { id: 'same-trigger', authorId: 'asker' },
         candidate: { content: 'θυμάσαι το κουνέλι στον κήπο', authorId: 'asker' },
         triggerKind: 'mention',
@@ -79,7 +79,7 @@ test('prefetch memoization retains qualified history identity as well as the iss
   const loaded: Array<unknown> = [];
   const lookup = createLookup({
     hot: { prompts: { labels } },
-    store: {},
+    store: { listUserProfiles: () => [] },
     llm: { complete: () => Promise.reject(new Error('prefetch does not classify')) },
     clock: () => NOW,
     recall: {
@@ -102,8 +102,8 @@ test('prefetch memoization retains qualified history identity as well as the iss
     const pending = lookup.startPrefetch({
       config: config(),
       channel: { id: 'same-room', communityId: 'g1' },
-      guildId: 'g1',
-      guild: { id: 'g1' },
+      placeId: 'g1',
+      place: { id: 'g1' },
       trigger: { id: 'same-trigger', authorId: 'asker' },
       candidate: { content: 'θυμάσαι το κουνέλι στον κήπο', authorId: 'asker' },
       triggerKind: 'mention',
@@ -133,7 +133,7 @@ test('the owner chat fetches no partner from the community', async () => {
   const asked: Array<unknown> = [];
   const lookup = createLookup({
     hot: { prompts: { labels } },
-    store: {},
+    store: { listUserProfiles: () => [] },
     llm: { complete: () => Promise.reject(new Error('no model here')) },
     clock: () => NOW,
     recall: null,
@@ -153,9 +153,9 @@ test('the owner chat fetches no partner from the community', async () => {
       throw new Error('no links here');
     },
   });
-  const partner = await lookup.privatePartner({ iface: 'cli', guildId: 'g1', userId: 'owner', config: {} });
+  const partner = await lookup.privatePartner({ iface: 'cli', placeId: 'g1', userId: 'owner', config: {} });
   assert.equal(partner, null);
   assert.deepEqual(asked, []);
-  await lookup.privatePartner({ iface: 'discord', guildId: 'g1', userId: 'u1', config: {} });
+  await lookup.privatePartner({ iface: 'discord', placeId: 'g1', userId: 'u1', config: {} });
   assert.equal(asked.length, 1);
 });

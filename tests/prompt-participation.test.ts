@@ -86,15 +86,13 @@ function stored(
 }
 
 /** p1 in #journal (c2, 2 h ago), p2 in #jardin (c3, 30 min ago). */
-function state(
-  extra: Array<{ id: string; channelId: string; continues: string | null; messages: Array<unknown> }> = []
-) {
+function state(extra: Array<{ id: string; placeId: string; continues: string | null; messages: Array<unknown> }> = []) {
   return {
     nextId: 10,
     episodes: [
       {
         id: 'p1',
-        channelId: 'c2',
+        placeId: 'c2',
         continues: null,
         messages: [
           stored('a1', NOW - 2 * HOUR - MIN, { text: 'πού είναι το βιβλίο;' }),
@@ -103,7 +101,7 @@ function state(
       },
       {
         id: 'p2',
-        channelId: 'c3',
+        placeId: 'c3',
         continues: null,
         messages: [stored('b1', NOW - 30 * MIN, { self: true, text: 'ωραία λουλούδια', caption: 'a red tulip' })],
       },
@@ -131,7 +129,7 @@ function input(overrides = {}) {
     neighbors: [],
     trigger,
     triggerKind: 'mention',
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     channels: CHANNELS,
@@ -178,14 +176,14 @@ test('participation block: right after <recent>, before <other_channels>, in the
       id: 1,
       at: NOW - HOUR,
       addedAt: new Date(NOW).toISOString(),
-      channelId: HERE,
+      placeId: HERE,
       text: 'σημείωση',
       who: [],
       weight: 2,
     },
   ];
   const neighbors = [
-    { channelId: 'c4', channelName: 'next', messages: [chatLine('n1', NOW - 2 * MIN, { channelId: 'c4' })] },
+    { placeId: 'c4', channelName: 'next', messages: [chatLine('n1', NOW - 2 * MIN, { placeId: 'c4' })] },
   ];
   const text = textOf(buildRequest(input({ recentLines, neighbors })));
   const recent = text.indexOf('<recent>');
@@ -253,7 +251,7 @@ test('participation block: a line shown in the chat, a neighbour or a pulled cha
   assert.equal(inChat.stats.participation.deduped, 1);
   // b1 (p2's only own line) is a neighbour's line: p2 goes whole.
   const neighbors = [
-    { channelId: 'c4', channelName: 'next', messages: [chatLine('b1', NOW - 30 * MIN, { channelId: 'c4' })] },
+    { placeId: 'c4', channelName: 'next', messages: [chatLine('b1', NOW - 30 * MIN, { placeId: 'c4' })] },
   ];
   const inNeighbor = buildRequest(input({ neighbors }));
   const neighborBody = blockOf(textOf(inNeighbor), 'participation');
@@ -262,9 +260,9 @@ test('participation block: a line shown in the chat, a neighbour or a pulled cha
   // a2 (p1's own line) in a pulled channel: p1 goes.
   const pulled = [
     {
-      channelId: 'c5',
+      placeId: 'c5',
       channelName: 'pulled',
-      messages: [chatLine('a2', NOW - 2 * HOUR, { channelId: 'c5' })],
+      messages: [chatLine('a2', NOW - 2 * HOUR, { placeId: 'c5' })],
       descriptions: new Map(),
       readOnly: false,
     },
@@ -296,7 +294,7 @@ test('participation block: context.caps.participation cuts whole episodes, the p
 test('participation block: a long episode is cut to episodeChars, keeping lines that share a word with the candidate', () => {
   const long = {
     id: 'p3',
-    channelId: 'c3',
+    placeId: 'c3',
     continues: null,
     messages: [
       stored('c1m', NOW - 50 * MIN, { text: 'αρχή της κουβέντας εδώ' }),
@@ -349,7 +347,7 @@ test('participation block: a channel with no stored name takes the live name, an
 function hereEpisode() {
   return {
     id: 'p7',
-    channelId: HERE,
+    placeId: HERE,
     continues: null,
     messages: [
       stored('e1', NOW - 40 * MIN, { text: 'θα το στείλεις στο άλλο κανάλι;' }),
@@ -455,7 +453,7 @@ test('earlier block: off without the label and in a private chat', () => {
 test('earlier block: the newest episodes win the cap, rendered oldest first with the gap label between them', () => {
   const older = {
     id: 'p6',
-    channelId: HERE,
+    placeId: HERE,
     continues: null,
     messages: [stored('o1', NOW - 90 * MIN, { self: true, text: 'παλιό' })],
   };

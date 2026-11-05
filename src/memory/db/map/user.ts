@@ -3,7 +3,7 @@
 //   people          the member (first/last seen, message count, real name, the affinity score, reason, decay stamp;
 //                   `affinity.moveId`, her session's last move the profile was read with, stays in `extra`)
 //   accounts        the platform account (id, display names, avatar)
-//   memberships     the guild membership, only when the file has `addressedAs`
+//   memberships     the membership, only when the file has `addressedAs`
 //   claims          details, interests, aliases (current) and closed items (truth historical)
 //   descriptions    character, style, relationship with their text as one legacy version
 //   episodes        the profile's episodes (kind profile)
@@ -15,10 +15,10 @@
 // writes only `accounts` and `memberships`: its names, avatar and address. Its `people` row, when it has one from before
 // the link, stays dormant under its own id until an unlink. A linked account's row keeps the link the database holds.
 //
-// toRows(rel, value, ctx) -> { people, accounts, ... }       ctx: { guildId? }
+// toRows(rel, value, ctx) -> { people, accounts, ... }       ctx: { subjectId? }
 // fromRows(rows, ctx) -> the file's value
 
-import { accountId, guildPlaceId, personId } from '../ids.ts';
+import { accountId, personId } from '../ids.ts';
 import { groupScope } from '../scope.ts';
 import { AFFINITY_SPEC, affinityFrom, profileFrom, profileRows } from './lists.ts';
 import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.ts';
@@ -51,12 +51,13 @@ function putAccount(
   rows: Rows,
   rel: string,
   value: Row,
-  { iface, userId, guildId, link }: { iface: string; userId: string; guildId: string | undefined; link: Row }
+  { iface, userId, ctx, link }: { iface: string; userId: string; ctx: MapContext; link: Row }
 ): Row {
   const account = split(value, ACCOUNT_SPEC);
   const left = account.rest;
+  const account_id = ctx.subjectId ?? accountId(iface, userId);
   put(rows, 'accounts', {
-    id: accountId(iface, userId),
+    id: account_id,
     iface,
     ...account.cols,
     ...link,
@@ -67,9 +68,9 @@ function putAccount(
     const membership = split({ addressedAs: left.addressedAs }, MEMBERSHIP_SPEC);
     delete left.addressedAs;
     put(rows, 'memberships', {
-      id: `mem:${accountId(iface, userId)}:${guildId ?? 'unknown'}`,
-      account_id: accountId(iface, userId),
-      place_id: guildPlaceId(iface, guildId ?? 'unknown'),
+      id: ctx.membership?.id ?? `mem:${account_id}`,
+      account_id,
+      place_id: ctx.membership?.placeId ?? null,
       nick: null,
       roles: null,
       pings_off: null,
@@ -90,7 +91,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const scope = groupScope(iface);
   const rows: Rows = {};
   if (ctx.accountOnly) {
-    putAccount(rows, rel, value, { iface, userId, guildId: ctx.guildId, link: accountLinkOf(ctx, person) });
+    putAccount(rows, rel, value, { iface, userId, ctx, link: accountLinkOf(ctx, person) });
     return rows;
   }
   const { rest, affinity } = profileRows(rows, value, {
@@ -112,7 +113,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const accountLeft = putAccount(rows, rel, left, {
     iface,
     userId,
-    guildId: ctx.guildId,
+    ctx,
     link: accountLinkOf(ctx, person),
   });
   put(rows, 'people', {

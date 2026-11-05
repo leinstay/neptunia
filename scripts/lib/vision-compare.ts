@@ -354,7 +354,7 @@ export async function describeOne({
   base,
   model,
   entry,
-  guildId,
+  placeId,
   llm,
   reasoning = null,
   imageFetcher,
@@ -366,7 +366,7 @@ export async function describeOne({
   base: { config: Rec; prompts: Rec };
   model: string;
   entry: { kind: string; item: Untyped };
-  guildId: string;
+  placeId: string;
   llm: { complete: (...args: Array<Untyped>) => Untyped };
   reasoning?: string | null;
   imageFetcher?: Rec;
@@ -448,8 +448,8 @@ export async function describeOne({
   let result: Untyped = null;
   let thrown = null;
   try {
-    if (entry.kind === 'video') result = await describer.describeVideo(guildId, item, { force: true });
-    else result = await describer.describe(guildId, item);
+    if (entry.kind === 'video') result = await describer.describeVideo(placeId, item, { force: true });
+    else result = await describer.describe(placeId, item);
   } catch (err: Untyped) {
     thrown = err?.name ?? 'Error';
   } finally {

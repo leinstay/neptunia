@@ -12,23 +12,21 @@ import { objOf } from '../tools/types.ts';
 
 /** Stored recall needs an ordinary conversation context or a trusted issued internal context. */
 export function hasRecallContext({
-  guildId,
   channel,
   partnerId,
   memoryContext,
 }: {
-  guildId: string | null;
   channel: unknown;
   partnerId?: string | null;
   memoryContext: unknown;
 }): boolean {
-  return isIssuedInternalContext(memoryContext) || Boolean(guildId && (inCommunity(channel) || partnerId));
+  return isIssuedInternalContext(memoryContext) || inCommunity(channel) || Boolean(partnerId);
 }
 
 /** A search hit as the clustering reads it; `queries` holds the keys of the queries that found it. */
 export type RecallHit = {
   id: string;
-  channelId: string;
+  placeId: string;
   ts: number;
   authorId: string | null;
   bot: boolean;
@@ -50,7 +48,7 @@ export type PlannedQuery = {
 export function hitFrom(hit: MessageHit): RecallHit {
   return {
     id: hit.ref.messageId,
-    channelId: hit.ref.conversationId,
+    placeId: hit.ref.conversationId,
     ts: hit.at,
     authorId: hit.author.id ?? null,
     bot: hit.author.bot,
@@ -139,7 +137,7 @@ function historyExclusion(value: unknown, ref: ConversationRef | null): Resolved
   }
   if (!ref || !locatorText(ref.iface) || !locatorText(line.id)) return null;
   if (line.iface !== undefined && line.iface !== ref.iface) return null;
-  const conversationId = line.channelId === undefined ? ref.conversationId : line.channelId;
+  const conversationId = line.placeId === undefined ? ref.conversationId : line.placeId;
   return locatorText(conversationId)
     ? { kind: 'native', locator: { iface: ref.iface, conversationId, messageId: line.id } }
     : null;
@@ -158,10 +156,10 @@ export function historyExclusions({
   channel: unknown;
 }): Array<ResolvedRecallAnchor> {
   const ctx = objOf(context);
-  const channelId = objOf(channel).id;
+  const placeId = objOf(channel).id;
   const ref =
     historyRef ??
-    (locatorText(ctx.iface) && locatorText(channelId) ? { iface: ctx.iface, conversationId: channelId } : null);
+    (locatorText(ctx.iface) && locatorText(placeId) ? { iface: ctx.iface, conversationId: placeId } : null);
   const exclusions: Array<ResolvedRecallAnchor> = [];
   if (!Array.isArray(history)) return exclusions;
   for (const value of history) {

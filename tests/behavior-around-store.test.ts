@@ -46,7 +46,7 @@ test('a join stamps joinedAt with the time of the event', () => {
   store.voiceChanged(voice('u1', 'v1', 1000));
   assert.deepEqual(store.view().voice.get('u1'), {
     memberId: 'u1',
-    channelId: 'v1',
+    placeId: 'v1',
     name: null,
     muted: false,
     deafened: false,
@@ -69,7 +69,7 @@ test('a move to another channel restamps joinedAt', () => {
   store.voiceChanged(voice('u1', 'v1', 1000));
   store.voiceChanged(voice('u1', 'v2', 3000));
   const record = store.view().voice.get('u1');
-  assert.deepEqual([record?.channelId, record?.joinedAt], ['v2', 3000]);
+  assert.deepEqual([record?.placeId, record?.joinedAt], ['v2', 3000]);
 });
 
 test('a leave removes the member and a later join stamps again', () => {
@@ -243,7 +243,7 @@ test('a guild builds one snapshot event with its voice states and presences and 
     voiceStates: {
       cache: new Map<string, object>([
         ['u1', { id: 'u1', guild: GUILD, channelId: 'v1', selfVideo: true }],
-        ['u2', { id: 'u2', guild: GUILD, channelId: null }],
+        ['u2', { id: 'u2', guild: GUILD, placeId: null }],
       ]),
     },
     presences: {

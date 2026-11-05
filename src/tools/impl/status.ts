@@ -21,7 +21,7 @@
 // field reads the limit of each API key of the core (one free GET per key; the errand agents' key
 // is left out: their spend is `costs.errands`) and the rolling 7/30-day sums per key; `costs.base`
 // reads today's per-role accumulator (src/tools/impl/usage.ts, drawing's row included); `costs.errands` the errand records' spend
-// per agent (src/errands/costs.ts through the guild's task store); `costs.development` the development agents'
+// per agent (src/errands/costs.ts through the place's task store); `costs.development` the development agents'
 // (thinker, dev) from the board's `costs.agents` by role (src/board/costs.ts, with the thinker's last-wave
 // context), both shown with no runs when the board does not answer. The owner's `inner`
 // field (only while features.wakes is on) is the inner life's own status (src/behavior/inner.ts#status,
@@ -372,11 +372,11 @@ const NETWORK_FIELDS = new Set(['keys.base']);
 /** `status` of an account read, null when it was read. */
 const statusOfRead = (read: AccountRead): number | null => (read.ok ? null : (read.status ?? null));
 
+// health: allow function-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 const handlers = perEnv((env) => {
   const {
     hot,
     store,
-    getGuildId,
     images,
     archive,
     journal,
@@ -398,7 +398,7 @@ const handlers = perEnv((env) => {
   } = env;
   // The card's clock (the coverage cache, the storage line): the environment's, else the wall clock.
   const clock = typeof env.now === 'function' ? env.now : Date.now;
-  // guildId -> { at, value }: the memory field, reused for COVERAGE_CACHE_MS.
+  // placeId -> { at, value }: the memory field, reused for COVERAGE_CACHE_MS.
   const coverageCache = new Map<string, { at: number; value: string }>();
 
   /** The connection field: when the interface's link to its platform last came back. */
@@ -407,15 +407,15 @@ const handlers = perEnv((env) => {
     return `last reconnect ${last ? utcMinute(last) : 'none'}`;
   }
 
-  /** What the archive's pending queue holds for `guildId` (0 without an archive or a guild). */
-  function archivePending(guildId: string | null): number {
-    const pending: unknown = guildId ? archive?.stats?.(guildId)?.pending : 0;
+  /** What the archive's pending queue holds (0 without an archive). */
+  function archivePending(): number {
+    const pending: unknown = archive?.stats?.()?.pending;
     return typeof pending === 'number' && Number.isFinite(pending) ? pending : 0;
   }
 
   /** The long-tasks field: the history backfills and the GIF recache running, and what the archive
    * drain still holds; `none` when nothing runs. */
-  function longTasksValue(guildId: string | null): string {
+  function longTasksValue(): string {
     const parts: Array<string> = [];
     for (const [job, name] of [
       [emojiBackfill, 'emoji backfill'],
@@ -424,16 +424,22 @@ const handlers = perEnv((env) => {
     ]) {
       if (job?.isRunning?.() === true) parts.push(`${name} running`);
     }
-    const pending = archivePending(guildId);
+    const pending = archivePending();
     if (pending > 0) parts.push(`archive drain: ${pending} pending`);
     return parts.length > 0 ? parts.join('\n') : 'none';
   }
 
-  /** When the journal was last written (today's lines, else yesterday's: the first hour after midnight), as epoch ms,
-   * or null (no journal, nothing written): the journal's own `stats`. */
-  async function journalLastWrite(guildId: string, nowMs: number): Promise<number | null> {
+  /** When a journal of `places` was last written (today's lines, else yesterday's: the first hour after midnight), as
+   * epoch ms, or null (no journal, nothing written): the journals' own `stats`. */
+  async function journalLastWrite(places: ReadonlyArray<string>, nowMs: number): Promise<number | null> {
     if (typeof journal?.stats !== 'function') return null;
-    return ((await journal.stats(guildId, { now: nowMs }))?.lastWriteMs as number | undefined) ?? null;
+    let last: number | null = null;
+    for (const placeId of places) {
+      const stats = (await journal.stats(placeId, { now: nowMs })) as { lastWriteMs?: number | null } | null;
+      const written = stats?.lastWriteMs;
+      if (typeof written === 'number' && (last === null || written > last)) last = written;
+    }
+    return last;
   }
 
   /**
@@ -442,14 +448,14 @@ const handlers = perEnv((env) => {
    * for over an hour while turns happen (features.journal exactly true, read now; a reply posted
    * in the last hour per the metrics; nothing is judged without them).
    */
-  async function storageLine(guildId: string | null): Promise<string> {
+  async function storageLine(places: ReadonlyArray<string>): Promise<string> {
     const problems: Array<string> = [];
     if (typeof journal?.stalled === 'function' && journal.stalled() === true) problems.push('append store stalled');
-    const pending = archivePending(guildId);
+    const pending = archivePending();
     if (pending > 0) problems.push(`${pending} archive copies pending`);
     const nowMs = clock();
-    if (guildId && typeof metrics?.summary === 'function' && metrics.summary('reply', 1).n > 0) {
-      const last = await journalLastWrite(guildId, nowMs);
+    if (places.length > 0 && typeof metrics?.summary === 'function' && metrics.summary('reply', 1).n > 0) {
+      const last = await journalLastWrite(places, nowMs);
       if (last === null) problems.push('journal not written today while turns happen');
       else if (nowMs - last > HOUR_MS) problems.push(`journal not written since ${utcMinute(last)} while turns happen`);
     }
@@ -699,11 +705,11 @@ const handlers = perEnv((env) => {
   }
 
   /** The owner's `costs.errands` field (src/tools/impl/usage.ts#agentCostsLines): each errand agent's
-   * runs, tokens and estimated dollars today and over the last 7 and 30 days, from the guild's
-   * task store (src/errands/store.ts#costs; none without the errands or a guild). An agent with
+   * runs, tokens and estimated dollars today and over the last 7 and 30 days, from the place's
+   * task store (src/errands/store.ts#costs; none without the errands or a place). An agent with
    * no figures shows no runs. `-` when the labels give no line. */
-  function errandCostsValue(guildId: string | null): string {
-    const tasks = guildId && typeof errands?.store === 'function' ? errands.store(guildId) : null;
+  function errandCostsValue(): string {
+    const tasks = typeof errands?.store === 'function' ? errands.store() : null;
     const totals = typeof tasks?.costs === 'function' ? tasks.costs(ERRAND_ROLES) : {};
     const lines = agentCostsLines({ agents: ERRAND_ROLES, totals, labels: hot.prompts?.labels });
     return lines.length > 0 ? lines.join('\n') : '-';
@@ -727,7 +733,7 @@ const handlers = perEnv((env) => {
   }
 
   /** The owner's `inner` field: the inner life's status (the same data as `/nep task inner status`); `-` without it. */
-  function innerValue(guildId: string | null): string {
+  function innerValue(): string {
     if (typeof env.inner?.status !== 'function') return '-';
     // The core role's tokens today (prompt, cached, completion), from the same accumulator costs.base reads.
     const row =
@@ -735,30 +741,30 @@ const handlers = perEnv((env) => {
     const tokens = row
       ? { prompt: row.promptTokens, cached: row.cachedTokens, completion: row.completionTokens }
       : null;
-    const lines = innerLines(env.inner.status(guildId ?? undefined), hot.prompts?.labels, { tokens });
+    const lines = innerLines(env.inner.status(), hot.prompts?.labels, { tokens });
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
   /** The record line: its messages (the distinct message ids), its first day to today, and the share of those days
    * with lines: the record's own `stats`. */
-  async function recordLine(guildId: string, today: string): Promise<string> {
+  async function recordLine(placeId: string, today: string): Promise<string> {
     if (typeof record?.stats !== 'function') return 'record: not available';
-    const { messages, days, first } = await record.stats(guildId);
+    const { messages, days, first } = await record.stats(placeId);
     if (first === null) return `record: ${messages} messages`;
     const since = Math.max(1, daysBetween(first, today));
     return `record: ${messages} messages · ${first}..${today} · ${percent(days, since)} of days have lines`;
   }
 
   /** The meaning index line: `off` unless features.meaningSearch and features.embedIndex are both
-   * exactly true; else its rows (the guild's and every private layer's), the share of the record
+   * exactly true; else its rows (the place's and every private layer's), the share of the record
    * messages of the last `CATCH_UP_HOURS` it holds and the day of the oldest one missing. */
-  async function indexLine(guildId: string): Promise<string> {
+  async function indexLine(placeId: string): Promise<string> {
     if (typeof embedQueue?.indexSummary !== 'function') return 'index: not available';
-    const { rows } = await embedQueue.indexSummary(guildId);
+    const { rows } = await embedQueue.indexSummary(placeId);
     const parts = [`index: ${rows} rows`];
     if (typeof embedQueue.coverage === 'function') {
       const hours = CATCH_UP_HOURS;
-      const found = await embedQueue.coverage(guildId, { hours });
+      const found = await embedQueue.coverage(placeId, { hours });
       parts.push(`${percent(found.indexed, found.messages)} of record messages indexed (last ${hours} h)`);
       parts.push(found.oldestMissing ? `oldest missing ${String(found.oldestMissing).slice(0, 10)}` : 'none missing');
     }
@@ -767,13 +773,13 @@ const handlers = perEnv((env) => {
 
   /** The archive line: its entries by event (ARCHIVE_EVENTS order), and the days the oldest and
    * the newest of them were observed. */
-  async function archiveLine(guildId: string): Promise<string> {
+  async function archiveLine(placeId: string): Promise<string> {
     if (typeof archive?.iterate !== 'function') return 'archive: not available';
     const byEvent = new Map<string, number>();
     let entries = 0;
     let oldest: string | null = null;
     let newest: string | null = null;
-    for await (const entry of archive.iterate(guildId)) {
+    for await (const entry of archive.iterate(placeId)) {
       entries += 1;
       const event = typeof entry?.event === 'string' ? entry.event : 'other';
       byEvent.set(event, (byEvent.get(event) ?? 0) + 1);
@@ -793,8 +799,8 @@ const handlers = perEnv((env) => {
 
   /** The profiles line: their count, the share with a portrait (`character`), their episodes
    * (total and per profile), details, aliases and real names set. */
-  function profilesLine(guildId: string): string {
-    const profiles = store.listUserProfiles(guildId) ?? [];
+  function profilesLine(): string {
+    const profiles = store.listUserProfiles() ?? [];
     let portraits = 0;
     let episodes = 0;
     let details = 0;
@@ -820,14 +826,14 @@ const handlers = perEnv((env) => {
   }
 
   /** The server notes line: lore entries, lessons (`learned`), self facts and in-jokes. */
-  function serverNotesLine(guildId: string): string {
-    const guild = store.getGuild(guildId) ?? {};
-    return `server notes: ${countOf(store.getLore(guildId))} lore entries · ${countOf(guild.learned)} lessons · ${countOf(guild.self)} self facts · ${countOf(guild.injokes)} in-jokes`;
+  function serverNotesLine(placeId: string): string {
+    const place = store.getPlace(placeId) ?? {};
+    return `server notes: ${countOf(store.getLore(placeId))} lore entries · ${countOf(place.learned)} lessons · ${countOf(place.self)} self facts · ${countOf(place.injokes)} in-jokes`;
   }
 
   /** The channels line: the channels with notes (a purpose, topics or a tone) of those seen. */
-  function channelsLine(guildId: string): string {
-    const channels = store.listChannels(guildId) ?? [];
+  function channelsLine(placeId: string): string {
+    const channels = store.listChannels(placeId) ?? [];
     const noted = (channels as Array<Untyped>).filter((channel) =>
       ['purpose', 'topics', 'tone'].some((key) => typeof channel?.[key] === 'string' && channel[key].trim())
     ).length;
@@ -836,14 +842,14 @@ const handlers = perEnv((env) => {
 
   /** The recent lines (from the oldest `at` to the newest) and the participation fragments (from
    * the first message of the oldest to the last message of the newest). */
-  function recentLine(guildId: string): string {
-    const lines: Array<Untyped> = store.getRecent?.(guildId)?.lines ?? [];
+  function recentLine(placeId: string): string {
+    const lines: Array<Untyped> = store.getRecent?.(placeId)?.lines ?? [];
     const at = lines.map((line: Untyped) => line?.at as unknown);
     return datedLine('recent lines', lines.length, at, at);
   }
 
-  function participationLine(guildId: string): string {
-    const episodes: Array<Untyped> = store.getParticipation?.(guildId)?.episodes ?? [];
+  function participationLine(placeId: string): string {
+    const episodes: Array<Untyped> = store.getParticipation?.(placeId)?.episodes ?? [];
     return datedLine(
       'participation fragments',
       episodes.length,
@@ -869,33 +875,33 @@ const handlers = perEnv((env) => {
   }
 
   /** The memory field (the coverage of every kind of memory), one line per kind. */
-  async function computeMemory(guildId: string): Promise<string> {
+  async function computeMemory(placeId: string): Promise<string> {
     const today = utcDay(clock());
     return [
-      await safeLine('record', () => recordLine(guildId, today)),
-      await safeLine('index', () => indexLine(guildId)),
-      await safeLine('archive', () => archiveLine(guildId)),
-      await safeLine('profiles', () => profilesLine(guildId)),
-      await safeLine('server notes', () => serverNotesLine(guildId)),
-      await safeLine('channels', () => channelsLine(guildId)),
-      await safeLine('recent lines', () => recentLine(guildId)),
-      await safeLine('participation fragments', () => participationLine(guildId)),
+      await safeLine('record', () => recordLine(placeId, today)),
+      await safeLine('index', () => indexLine(placeId)),
+      await safeLine('archive', () => archiveLine(placeId)),
+      await safeLine('profiles', () => profilesLine()),
+      await safeLine('server notes', () => serverNotesLine(placeId)),
+      await safeLine('channels', () => channelsLine(placeId)),
+      await safeLine('recent lines', () => recentLine(placeId)),
+      await safeLine('participation fragments', () => participationLine(placeId)),
       memoryDbLine(),
     ]
       .filter(Boolean)
       .join('\n');
   }
 
-  /** The guild's memory field, computed at most once per COVERAGE_CACHE_MS (the cached text in between). */
-  async function memoryValue(guildId: string): Promise<string> {
+  /** The place's memory field, computed at most once per COVERAGE_CACHE_MS (the cached text in between). */
+  async function memoryValue(placeId: string): Promise<string> {
     // The chat window is read live (a config edit shows at once), ahead of the cached coverage.
     const size = hot.config?.context?.channelMessages;
     const windowLine = Number.isFinite(size) ? `chat window: last ${size} messages in the active channel` : null;
     const withWindow = (value: string): string => [windowLine, value].filter(Boolean).join('\n');
-    const cached = coverageCache.get(guildId);
+    const cached = coverageCache.get(placeId);
     if (cached && clock() - cached.at < COVERAGE_CACHE_MS) return withWindow(cached.value);
-    const value = await computeMemory(guildId);
-    coverageCache.set(guildId, { at: clock(), value });
+    const value = await computeMemory(placeId);
+    coverageCache.set(placeId, { at: clock(), value });
     return withWindow(value);
   }
 
@@ -909,15 +915,35 @@ const handlers = perEnv((env) => {
     }).join('\n');
   }
 
+  const placeNameOf = (placeId: string): string => {
+    const name = (store as { getPlace(id: string): { name?: unknown } | null }).getPlace(placeId)?.name;
+    return typeof name === 'string' && name ? name : placeId;
+  };
+
+  /** The memory field: the one place's coverage as it is, every place's under its name when there are several. */
+  async function memoryOfPlaces(places: ReadonlyArray<string>): Promise<string> {
+    if (places.length === 0) return 'no place known yet';
+    const [only] = places;
+    if (places.length === 1 && only !== undefined) return memoryValue(only);
+    const parts = await Promise.all(
+      places.map(async (placeId) => `${placeNameOf(placeId)}\n${await memoryValue(placeId)}`)
+    );
+    return parts.join('\n\n');
+  }
+
   /**
    * The speed field's last line: today's missed-answer figures from the journal's `answer`
    * records (src/behavior/missed.js#missedCounts). Null -- no line -- without a journal that
-   * reads, without a guild, or with features.journal off; `missed: unreadable` when the read fails.
+   * reads, without a place, or with features.journal off; `missed: unreadable` when the read fails.
    */
-  async function missedLine(guildId: string | null): Promise<string | null> {
-    if (!guildId || typeof journal?.read !== 'function') return null;
+  async function missedLine(places: ReadonlyArray<string>): Promise<string | null> {
+    if (places.length === 0 || typeof journal?.read !== 'function') return null;
     try {
-      const records = await journal.read(guildId, { day: utcDay(clock()), kind: 'answer', n: Number.MAX_SAFE_INTEGER });
+      const records: Array<Untyped> = [];
+      for (const placeId of places)
+        records.push(
+          ...(await journal.read(placeId, { day: utcDay(clock()), kind: 'answer', n: Number.MAX_SAFE_INTEGER }))
+        );
       return missedStatusLine(missedCounts(records));
     } catch (err) {
       log.warn('status: missed unread', { code: objOf(err).code ?? null });
@@ -942,7 +968,8 @@ const handlers = perEnv((env) => {
   }: CardRequest): Promise<{ fields: Array<CardField> }> {
     freshenIfPaused();
     const cfg = hot.config;
-    const [data, guildId, unresolved] = [store.state.data ?? {}, getGuildId?.() ?? null, 'guild not resolved yet'];
+    const data = store.state.data ?? {};
+    const places: ReadonlyArray<string> = store.topPlaces?.() ?? [];
     const shownTo = (name: string): boolean => owner || !OWNER_FIELDS.has(name);
     const visible = STATUS_FIELDS.filter((name) => shownTo(name) && !(offline && NETWORK_FIELDS.has(name)));
     // Her own call may ask for a part (PART_FIELDS): the fields it holds that she may see, models named and never probed.
@@ -962,26 +989,26 @@ const handlers = perEnv((env) => {
       state: async () =>
         [
           stateValue(data),
-          owner ? await storageLine(guildId) : null,
+          owner ? await storageLine(places) : null,
           connectionValue(),
           `uptime ${span(process.uptime() * 1000)}`,
         ]
           .filter(Boolean)
           .join('\n'),
-      tasks: () => longTasksValue(guildId),
+      tasks: () => longTasksValue(),
       // The owner's card probes every model (the old ping); a member's, or one without an llm client, names them.
       'models.base': () =>
         owner && probe && typeof llm?.complete === 'function' ? probedModelsValue(cfg) : modelsValue(cfg),
       'keys.base': () => keyCostsValue(cfg),
       'costs.base': () => roleCostsValue(),
       'models.errands': () => agentModels(cfg, ERRAND_ROLES),
-      'costs.errands': () => errandCostsValue(guildId),
+      'costs.errands': () => errandCostsValue(),
       'models.development': () => agentModels(cfg, DEVELOPMENT_ROLES),
       'costs.development': () => developmentCostsValue(),
-      inner: () => innerValue(guildId),
+      inner: () => innerValue(),
       limits: () => limitsValue(cfg, data),
-      memory: () => (guildId ? memoryValue(guildId) : unresolved),
-      speed: async () => [speedValue(), await missedLine(guildId)].filter(Boolean).join('\n'),
+      memory: () => memoryOfPlaces(places),
+      speed: async () => [speedValue(), await missedLine(places)].filter(Boolean).join('\n'),
     };
     const values = await Promise.all(shown.map(async (name) => (await compute[name]?.()) ?? '-'));
     const fields = shown.map((name, i) => ({ name, value: fitField(values[i] || '-') }));

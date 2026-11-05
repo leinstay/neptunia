@@ -838,7 +838,7 @@ export function rareFormKeys(
 /**
  * Hits grouped into clusters: per channel, hits sorted by time; a hit less
  * than `gapMinutes` after the previous one joins its cluster. Each cluster:
- * `{ channelId, ids (oldest first), startTs, endTs, middleId, queries, forms, topic }`,
+ * `{ placeId, ids (oldest first), startTs, endTs, middleId, queries, forms, topic }`,
  * `middleId` the hit at the middle of its list, `queries` how many distinct
  * query keys (queryKey) its hits carry -- a hit found by two queries counts
  * both, a hit without `queries` counts none -- `forms` how many of them are
@@ -865,7 +865,7 @@ export function rareFormKeys(
  * each kept cluster marked `share` (`broad` | `dated`).
  */
 export function clusterHits(
-  hits: Array<{ id: string; channelId: string; ts: number; queries?: Iterable<string> }>,
+  hits: Array<{ id: string; placeId: string; ts: number; queries?: Iterable<string> }>,
   { gapMinutes, maxClusters, keepOldest, rareForms, locator = null }: ClusterHitsArg2 = {}
 ): Array<ClusterHitsResult> {
   const gapMs = numberAtLeast(gapMinutes, RECALL_DEFAULTS.clusterGapMinutes, 0) * MINUTE_MS;
@@ -877,7 +877,7 @@ export function clusterHits(
   const byChannel = new Map();
   const seen = new Map();
   for (const hit of Array.isArray(hits) ? hits : []) {
-    if (!hit?.id || !hit.channelId || !Number.isFinite(hit.ts)) continue;
+    if (!hit?.id || !hit.placeId || !Number.isFinite(hit.ts)) continue;
     const keys: Array<string> =
       typeof hit.queries === 'string' ? [] : [...(hit.queries ?? [])].filter((key) => typeof key === 'string' && key);
     if (seen.has(hit.id)) {
@@ -886,12 +886,12 @@ export function clusterHits(
     }
     const entry = { id: hit.id, ts: hit.ts, queries: new Set(keys) };
     seen.set(hit.id, entry);
-    if (!byChannel.has(hit.channelId)) byChannel.set(hit.channelId, []);
-    byChannel.get(hit.channelId).push(entry);
+    if (!byChannel.has(hit.placeId)) byChannel.set(hit.placeId, []);
+    byChannel.get(hit.placeId).push(entry);
   }
-  const clusters: Array<{ channelId: Untyped; ids: Array<string>; startTs: number; endTs: number; keys: Set<string> }> =
+  const clusters: Array<{ placeId: Untyped; ids: Array<string>; startTs: number; endTs: number; keys: Set<string> }> =
     [];
-  for (const [channelId, list] of byChannel) {
+  for (const [placeId, list] of byChannel) {
     list.sort((x: Untyped, y: Untyped) => x.ts - y.ts || (x.id < y.id ? -1 : 1));
     let current: (typeof clusters)[number] | null = null;
     for (const hit of list) {
@@ -901,7 +901,7 @@ export function clusterHits(
         for (const key of hit.queries) current.keys.add(key);
         continue;
       }
-      current = { channelId, ids: [hit.id], startTs: hit.ts, endTs: hit.ts, keys: new Set(hit.queries) };
+      current = { placeId, ids: [hit.id], startTs: hit.ts, endTs: hit.ts, keys: new Set(hit.queries) };
       clusters.push(current);
     }
   }
@@ -920,7 +920,7 @@ export function clusterHits(
 
 /** Newest first by `endTs`, channel id on a tie: the order kept clusters are returned in. */
 function newestFirst(x: Untyped, y: Untyped) {
-  return y.endTs - x.endTs || (x.channelId < y.channelId ? -1 : 1);
+  return y.endTs - x.endTs || (x.placeId < y.placeId ? -1 : 1);
 }
 
 /**
@@ -1077,10 +1077,10 @@ export function mergeWindows(windows: Array<MergeWindowsInput | null | undefined
     const messages = (window?.messages ?? []).filter((m: Untyped) => m?.id);
     if (messages.length === 0) continue;
     const ids = new Set(messages.map((m: Untyped) => m.id));
-    const into = out.find((w) => w.channelId === window.channelId && w.messages.some((m: Untyped) => ids.has(m.id)));
+    const into = out.find((w) => w.placeId === window.placeId && w.messages.some((m: Untyped) => ids.has(m.id)));
     if (!into) {
       out.push({
-        channelId: window.channelId,
+        placeId: window.placeId,
         channelName: window.channelName ?? null,
         messages: [...messages],
         hitIds: new Set(window.hitIds ?? []),
@@ -1193,7 +1193,7 @@ export function renderRecallWindows(
       if (hit) parts[at] = `${HIT_MARK}${parts[at]}`;
       return { id: item.id, ts: item.ts, text: parts.join('\n'), hit };
     });
-    out.push({ channelId: window.channelId, channelName: window.channelName ?? null, startTs: messages[0].ts, lines });
+    out.push({ placeId: window.placeId, channelName: window.channelName ?? null, startTs: messages[0].ts, lines });
   }
   return out;
 }
@@ -1817,7 +1817,7 @@ function meaningSpans(rows: Untyped) {
     .map((row: Untyped) => ({
       from: row.ts - MEANING_READ_BEFORE_MS,
       to: row.ts + MEANING_READ_AFTER_MS,
-      channels: new Set([row.channelId]),
+      channels: new Set([row.placeId]),
     }))
     .sort((a: Untyped, b: Untyped) => a.from - b.from);
   const merged = [];
@@ -1833,7 +1833,7 @@ function meaningSpans(rows: Untyped) {
   return merged;
 }
 
-/** The usable meaning rows of matchRecord's `meaning`, in their order: `{ id, channelId, ts, sourceIds }`. */
+/** The usable meaning rows of matchRecord's `meaning`, in their order: `{ id, placeId, ts, sourceIds }`. */
 function meaningRows(meaning: Untyped) {
   const out = [];
   const seen = new Set();
@@ -1843,15 +1843,15 @@ function meaningRows(meaning: Untyped) {
       typeof row?.id !== 'string' ||
       !row.id ||
       seen.has(row.id) ||
-      typeof row.channelId !== 'string' ||
-      !row.channelId ||
+      typeof row.placeId !== 'string' ||
+      !row.placeId ||
       !Number.isFinite(ts)
     )
       continue;
     seen.add(row.id);
     out.push({
       id: row.id,
-      channelId: row.channelId,
+      placeId: row.placeId,
       ts,
       sourceIds: Array.isArray(row.sourceIds) ? row.sourceIds.filter((id: Untyped) => typeof id === 'string') : [],
     });
@@ -1899,7 +1899,7 @@ export function recordMessage(
   const name = self ? oneLine(selfName ?? '') : by && typeof nameOf === 'function' ? oneLine(nameOf(by) ?? '') : '';
   return {
     id: line.messageId,
-    channelId: line.scope.channel,
+    placeId: line.scope.channel,
     authorId: by,
     authorName: name || NO_FIELD,
     self,
@@ -1948,11 +1948,11 @@ export function recordMessage(
  * its earliest hit among those with the best score (the origin of a phrase
  * repeated since), unless that window is kept anyway; a dated or recent
  * question has no such reservation. Returned newest first, each
- * `{ source: 'record', channelId, channelName, messages, hitIds, overlapsChat }`
+ * `{ source: 'record', placeId, channelName, messages, hitIds, overlapsChat }`
  * (`channelName` from `channelNameOf`; authors' names from `nameOf`, the
  * persona's own lines under `selfName`). Stops reading at an aborted `signal`.
  * `meaning`: the record rows the meaning search found, best first
- * (`{ id, channelId, occurredAt, sourceIds }`, any age). The record around
+ * (`{ id, placeId, occurredAt, sourceIds }`, any age). The record around
  * each row not read yet is read too (MEANING_READ_BEFORE_MS before its line,
  * MEANING_READ_AFTER_MS after, its channel only, through `allowLine`); a row
  * whose line is not found, is deleted or excluded, or one of whose
@@ -1979,7 +1979,7 @@ export function recordMessage(
  * reserved for the earliest hit. Without a locator there is no `share` key.
  */
 export async function matchRecord(
-  guildId: string,
+  placeId: string,
   {
     record,
     range = {},
@@ -2073,7 +2073,7 @@ export async function matchRecord(
     if (signal?.aborted) break;
     stretches.push(span);
     const query = { from: new Date(span.from).toISOString(), to: new Date(span.to).toISOString() };
-    for await (const line of record.iterate(guildId, query)) {
+    for await (const line of record.iterate(placeId, query)) {
       if (signal?.aborted) break;
       take(line, true);
     }
@@ -2084,9 +2084,9 @@ export async function matchRecord(
     const query = {
       from: new Date(span.from).toISOString(),
       to: new Date(span.to).toISOString(),
-      channelIds: [...span.channels],
+      placeIds: [...span.channels],
     };
-    for await (const line of record.iterate(guildId, query)) {
+    for await (const line of record.iterate(placeId, query)) {
       if (signal?.aborted) break;
       take(line, false);
     }
@@ -2103,8 +2103,8 @@ export async function matchRecord(
       message.authorId,
       ...(Array.isArray(entry.line.participants) ? entry.line.participants : []),
     ]);
-    if (!byChannel.has(message.channelId)) byChannel.set(message.channelId, []);
-    byChannel.get(message.channelId).push(message);
+    if (!byChannel.has(message.placeId)) byChannel.set(message.placeId, []);
+    byChannel.get(message.placeId).push(message);
   }
   const position = new Map();
   // Each line's run: the first and last index of the lines of its channel read in one stretch,
@@ -2195,14 +2195,14 @@ export async function matchRecord(
       if (!taken.has(hit.message.id)) chosenHits.push(hit);
   }
   const windows = chosenHits.map(({ message }) => {
-    const list = byChannel.get(message.channelId);
+    const list = byChannel.get(message.placeId);
     const at = position.get(message.id);
     const run = runOf.get(message.id);
     const chosen = new Map();
     let parentId = message.replyToId;
     for (let depth = 0; parentId && depth < REPLY_CHAIN_MAX; depth += 1) {
       const parent = byId.get(parentId);
-      if (!parent || parent.channelId !== message.channelId || chosen.has(parent.id)) break;
+      if (!parent || parent.placeId !== message.placeId || chosen.has(parent.id)) break;
       chosen.set(parent.id, parent);
       parentId = parent.replyToId;
     }
@@ -2224,8 +2224,8 @@ export async function matchRecord(
     const messages = all.filter((m) => !excluded.has(m.id)).sort((x, y) => x.ts - y.ts || (x.id < y.id ? -1 : 1));
     return {
       source: 'record' as const,
-      channelId: message.channelId,
-      channelName: typeof channelNameOf === 'function' ? (channelNameOf(message.channelId) ?? null) : null,
+      placeId: message.placeId,
+      channelName: typeof channelNameOf === 'function' ? (channelNameOf(message.placeId) ?? null) : null,
       messages,
       hitIds: messages.filter((m) => hitScore.has(m.id)).map((m) => m.id),
       overlapsChat: messages.length < all.length,
@@ -2338,7 +2338,7 @@ const TOOL_LIST_SPLIT_RE = /[,;\n]/;
  * a stored member's name or alias), her own first, at most `maxForms` each. `when` is read as
  * a `when:` value (`YYYY-MM-DD`, `YYYY-MM-DD HH:MM`, `A..B` with either side open, in
  * `timezone`; a future side cut to `now`): it bounds the search (never a mere locator). Her
- * `channel` (an id, resolved by the caller) is kept as `channelId`: the stretches of other
+ * `channel` (an id, resolved by the caller) is kept as `placeId`: the stretches of other
  * channels are left out (src/behavior/recall-run.ts `quotes`). Null when nothing is left to
  * search (no form, no name, no range). Pure.
  */
@@ -2347,7 +2347,7 @@ export function memorySearchPlan({
   people = '',
   terms = '',
   when = '',
-  channelId = null,
+  placeId = null,
   profiles = [],
   selfId = null,
   selfName = '',
@@ -2370,6 +2370,6 @@ export function memorySearchPlan({
     who,
     from: range?.from ?? null,
     to: range?.to ?? null,
-    ...(typeof channelId === 'string' && channelId ? { channelId } : {}),
+    ...(typeof placeId === 'string' && placeId ? { placeId } : {}),
   };
 }

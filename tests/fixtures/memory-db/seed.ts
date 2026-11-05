@@ -1,7 +1,7 @@
 // Fills a memory database from a data directory written the way the memory units are laid out (a fixture written
 // by datadir.ts, readers.ts or a test): every memory unit under `guilds/` goes in through the database's own writers
 // (src/memory/db/unit-write.ts), as the engine writes it, JSON units whole (op `value`), JSONL units line by line (op
-// `lines`), a month of vectors from its three files (op `vectors`). The operational files (src/memory/db/paths.ts)
+// `lines`), a month of vectors from its three files (op `vectors`). The operational files (src/memory/migration/paths.ts)
 // and the request dumps stay files: nothing reads them from the database; participation.json and media.json are both,
 // as the store writes them (the file, and its memory rows sent). The stems and the graph projection are
 // finished at the end, as the writers' projection job does. Synthetic fixtures only.
@@ -9,9 +9,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { FileFormat, MapperKind } from '../../../src/memory/db/map/index.ts';
 import type { Db, MemoryHandle } from '../../../src/memory/db/types.ts';
-import { classify } from '../../../src/memory/db/map/index.ts';
+import { classify } from '../../../src/memory/migration/classify.ts';
 import { applyUnitWrite } from '../../../src/memory/db/unit-write.ts';
-import { currentUnitPath, isOperational } from '../../../src/memory/db/paths.ts';
+import { currentUnitPath, isOperational } from '../../../src/memory/migration/paths.ts';
 import { fillStems } from '../../../src/memory/db/stems.ts';
 import { projectPending } from '../../../src/memory/db/graph.ts';
 

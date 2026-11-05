@@ -13,9 +13,10 @@ import {
   isMemoryPath,
   isOperational,
   pathClass,
-} from '../src/memory/db/paths.ts';
-import { legacyStorageKey } from '../src/memory/db/paths.ts';
-import { MAPPERS, classify } from '../src/memory/db/map/index.ts';
+} from '../src/memory/migration/paths.ts';
+import { legacyStorageKey } from '../src/memory/migration/paths.ts';
+import { MAPPERS } from '../src/memory/db/map/index.ts';
+import { classify } from '../src/memory/migration/classify.ts';
 import { operationalJsonPath } from '../src/memory/store.ts';
 import { GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
 
@@ -54,7 +55,7 @@ const MAPPED: Array<[string, string, ListName]> = [
   [`${G}/users/${MEMBER}.json`, 'user', 'memory'],
   [`${G}/private/${MEMBER}.json`, 'private', 'memory'],
   [`${G}/channels/200000000000000001.json`, 'channel', 'memory'],
-  [`${G}/guild.json`, 'guild', 'memory'],
+  [`${G}/guild.json`, 'place', 'memory'],
   [`${G}/lore.json`, 'lore', 'memory'],
   [`${G}/participation.json`, 'participation', 'memory'],
   [`${G}/recent.json`, 'recent', 'memory'],
@@ -195,7 +196,7 @@ test("allowlist: the store's operational JSON files (what /nep resume checks und
   const toolOutput = /^(?:guilds\/[^/]+\/)?(?:mentor|recall-eval|vision-compare)\//;
   for (const rel of json) {
     if (toolOutput.test(rel)) continue;
-    assert.equal(operationalJsonPath(rel), isOperational(rel), rel);
+    assert.equal(operationalJsonPath(rel.replace(/^guilds\//, 'places/')), isOperational(rel), rel);
   }
 });
 

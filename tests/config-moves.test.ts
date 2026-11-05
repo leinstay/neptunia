@@ -75,7 +75,7 @@ test('leaves every key it does not move exactly where it was', () => {
   const given = {
     bot: { owners: ['o1'] },
     features: { diary: true },
-    selfreflection: { channelId: 'c9' },
+    selfreflection: { placeId: 'c9' },
     recall: { maxPerDay: 3 },
   };
   const { config, moved, shadowed, dropped } = moveConfigKeys(given);
@@ -218,13 +218,13 @@ test('shows each move as `from -> to` on a dry run and changes no byte of the fi
 });
 
 test('writes the moved keys into the file on --apply and leaves everything else as it was', () => {
-  const file = localCopy({ skills: { safeMode: true }, bot: { owners: ['o1'] }, selfreflection: { channelId: 'c9' } });
+  const file = localCopy({ skills: { safeMode: true }, bot: { owners: ['o1'] }, selfreflection: { placeId: 'c9' } });
   const run = migrate(['--apply'], file);
   assert.equal(run.code, 0);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
     tools: { safeMode: true },
     bot: { owners: ['o1'] },
-    selfreflection: { channelId: 'c9' },
+    selfreflection: { placeId: 'c9' },
   });
 });
 
@@ -479,20 +479,20 @@ test('reads an old llm.helperTimeoutMs of the local file as the analyzer timeout
   assert.deepEqual(result.llm, { analyzerTimeoutMs: 4321 });
 });
 
-// ---- selfreflection.channelId, a seed of the diary's mirror (stage 3 design, section 5) ----------------------------------
+// ---- selfreflection.placeId, a seed of the diary's mirror (stage 3 design, section 5) ----------------------------------
 
-test('drops selfreflection.channelId and reports it moved to the database once the database has a diary mirror', () => {
+test('drops selfreflection.placeId and reports it moved to the database once the database has a diary mirror', () => {
   const { config, toDatabase } = moveConfigKeys(
-    { selfreflection: { channelId: 'c9', maxPerDay: 3 }, bot: { owners: ['o1'] } },
+    { selfreflection: { placeId: 'c9', maxPerDay: 3 }, bot: { owners: ['o1'] } },
     { diaryMirror: true }
   );
   assert.deepEqual(config, { selfreflection: { maxPerDay: 3 }, bot: { owners: ['o1'] } });
-  assert.deepEqual(toDatabase, ['selfreflection.channelId']);
+  assert.deepEqual(toDatabase, ['selfreflection.placeId']);
 });
 
-test('keeps selfreflection.channelId while the database has no diary mirror', () => {
-  const { config, toDatabase } = moveConfigKeys({ selfreflection: { channelId: 'c9' } }, { diaryMirror: false });
-  assert.deepEqual(config, { selfreflection: { channelId: 'c9' } });
+test('keeps selfreflection.placeId while the database has no diary mirror', () => {
+  const { config, toDatabase } = moveConfigKeys({ selfreflection: { placeId: 'c9' } }, { diaryMirror: false });
+  assert.deepEqual(config, { selfreflection: { placeId: 'c9' } });
   assert.deepEqual(toDatabase, []);
 });
 
@@ -532,23 +532,23 @@ function memoryFile({ mirror }: { mirror: boolean }): string {
 }
 
 // PR 7d: `diary.maxPerDay` is a daily cap the cut drops, so the key kept beside the channel is `quietDayChance`.
-test('config-migrate drops selfreflection.channelId on --apply when the database it is given has the diary mirror', () => {
-  const file = localCopy({ selfreflection: { channelId: 'c9', quietDayChance: 0.2 } });
+test('config-migrate drops selfreflection.placeId on --apply when the database it is given has the diary mirror', () => {
+  const file = localCopy({ selfreflection: { placeId: 'c9', quietDayChance: 0.2 } });
   const db = memoryFile({ mirror: true });
   const dry = migrate(['--dry-run', '--db', db], file);
   assert.equal(dry.code, 0);
-  assert.equal(dry.out.includes('selfreflection.channelId'), true, 'the dry run names the key');
+  assert.equal(dry.out.includes('selfreflection.placeId'), true, 'the dry run names the key');
   const applied = migrate(['--apply', '--db', db], file);
   assert.equal(applied.code, 0);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { selfreflection: { quietDayChance: 0.2 } });
 });
 
-test('config-migrate keeps selfreflection.channelId and says so in one line when the database has no diary mirror', () => {
-  const file = localCopy({ selfreflection: { channelId: 'c9' } });
+test('config-migrate keeps selfreflection.placeId and says so in one line when the database has no diary mirror', () => {
+  const file = localCopy({ selfreflection: { placeId: 'c9' } });
   const before = fs.readFileSync(file, 'utf8');
   const run = migrate(['--apply', '--db', memoryFile({ mirror: false })], file);
   assert.equal(fs.readFileSync(file, 'utf8'), before);
-  const lines = `${run.out}${run.err}`.split('\n').filter((line) => line.includes('selfreflection.channelId'));
+  const lines = `${run.out}${run.err}`.split('\n').filter((line) => line.includes('selfreflection.placeId'));
   assert.equal(lines.length, 1, `${run.out}${run.err}`);
 });
 

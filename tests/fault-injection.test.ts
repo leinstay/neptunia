@@ -19,6 +19,7 @@ import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createJournal } from '../src/memory/journal.ts';
+import { personaJournal } from '../src/behavior/inner/persona-sources.ts';
 import { createStore } from '../src/memory/store.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
@@ -140,7 +141,7 @@ function makeChat() {
   });
   for (const id of ['c1', 'c2', 'c3', 'd1']) port.seedConversation(wrongly(infoOf(id)));
 
-  const results: Array<Untyped> = []; // every turn that ended: { channelId, mode, result, failedSends }
+  const results: Array<Untyped> = []; // every turn that ended: { placeId, mode, result, failedSends }
   const requests: Array<{ audience: string | null; text: string }> = []; // every request a model call got: { audience, text }
   const completed: Array<Untyped> = []; // every model call that answered: { at, audience }
   const script: Array<Untyped> = []; // the next answers: a text, an Error, a function of the messages, or HANG
@@ -217,7 +218,7 @@ function makeChat() {
           addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
         });
       }
-      return { id, channelId: conversationId, cleanContent: text, createdTimestamp: at };
+      return { id, placeId: conversationId, cleanContent: text, createdTimestamp: at };
     },
     ownMessages(conversationId: string, n = 20) {
       return port
@@ -267,11 +268,11 @@ const intentionRecord = (
   id: string,
   {
     dueAt = NOW0 - MINUTE_MS,
-    channelId = 'c1',
+    placeId = 'c1',
     chainId = null,
     purpose = `purpose ${id}`,
     scope = 'group',
-  }: { dueAt?: Untyped; channelId?: string; chainId?: Untyped; purpose?: string; scope?: string } = {}
+  }: { dueAt?: Untyped; placeId?: string; chainId?: Untyped; purpose?: string; scope?: string } = {}
 ) => ({
   id,
   status: 'pending',
@@ -279,7 +280,7 @@ const intentionRecord = (
   dueAt,
   chainId,
   destination: null,
-  provenance: { kind: 'self', channelId, scope },
+  provenance: { kind: 'self', placeId, scope },
   createdAt: NOW0 - DAY_MS,
   updatedAt: NOW0 - DAY_MS,
   expiresAt: NOW0 + 7 * DAY_MS,
@@ -398,7 +399,7 @@ function hotWith({
 
 function fakeStore(gifs = null) {
   const store = {
-    getGuild: () => ({}),
+    getPlace: () => ({}),
     getUser: () => null,
     getPrivate: () => null,
     listChannels: () => [],
@@ -410,7 +411,7 @@ function fakeStore(gifs = null) {
   };
   if (gifs)
     Object.assign(store, {
-      findGif: (guildId: string, handle: string) => gifs[handle] ?? null,
+      findGif: (placeId: string, handle: string) => gifs[handle] ?? null,
       recordOwnGif: () => {},
     });
   return store;
@@ -463,7 +464,15 @@ function boot(
   const port = chat.port;
   chat.permit(unwritable);
   const reads = createReads(port, SILENT);
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => GUILD, port, reads });
+  const admin = createAdmin({
+    discord: DISCORD,
+    hot,
+    store,
+    client,
+    isServedCommunity: (id: unknown) => id === GUILD,
+    port,
+    reads,
+  });
   const runOp =
     failOps.length === 0
       ? admin.runSkillOp
@@ -484,9 +493,8 @@ function boot(
     },
     stores,
     hot,
-    getGuildId: () => GUILD,
     log: SILENT,
-    onFinished: (task, guildId) => (die ? null : taskTurns.onFinished(task, guildId)),
+    onFinished: (task) => (die ? null : taskTurns.onFinished(task)),
   });
 
   const turns = createTurnRunner({
@@ -520,7 +528,7 @@ function boot(
       const before = chat.sendAttempts;
       const result = await turns.runTurn(params);
       chat.results.push({
-        channelId: params.conversation?.conversationId ?? null,
+        placeId: params.conversation?.conversationId ?? null,
         mode: params.mode,
         result,
         failedSends: chat.injected.filter((f) => f.n > before && f.n <= chat.sendAttempts),
@@ -534,7 +542,6 @@ function boot(
     iface: () => 'fake',
     turns: recorded,
     errands,
-    getGuildId: () => GUILD,
     now: () => clock.t,
     setTimer: wrongly((fn: string, ms: Array<Record<string, Untyped>>) => timers.push({ fn, ms })),
     log: SILENT,
@@ -548,7 +555,7 @@ function boot(
     turns: recorded,
     intentions,
     record,
-    journal,
+    journal: journal ? personaJournal(wrongly(journal), () => [GUILD]) : null,
     reads,
     iface: () => 'fake',
     ...(ready ? { ready } : {}),
@@ -557,7 +564,6 @@ function boot(
       return door.submit(event);
     },
     store: { state: { data: {} } },
-    getGuildId: () => GUILD,
     meter: { run: async (fn) => ({ result: await fn(), usd: 0, requests: 1, voice: 1 }) },
     ...(innerMemory ? { memoryDb: innerMemory } : {}),
     rng: () => 0.5,
@@ -596,7 +602,7 @@ function boot(
         const raw = chat.say(conversationId, 'u1', text);
         const trigger = {
           id: raw.id,
-          channelId: raw.channelId,
+          placeId: raw.placeId,
           authorId: 'u1',
           authorName: 'Alice',
           self: false,
@@ -609,16 +615,16 @@ function boot(
         };
         return recorded.runTurn({
           conversation: { iface: 'fake', conversationId },
-          ...(dm ? { guildId: GUILD } : {}),
+          ...(dm ? { placeId: GUILD } : {}),
           mode: 'reply',
           trigger,
           triggerKind: 'mention',
         });
       }),
     quiet,
-    state: () => inner.state(GUILD),
+    state: () => inner.state(),
     factKinds: () =>
-      inner.state(GUILD).facts.map((fact: Record<string, Untyped>) => `${fact.kind}${fact.told ? ':told' : ''}`),
+      inner.state().facts.map((fact: Record<string, Untyped>) => `${fact.kind}${fact.told ? ':told' : ''}`),
   };
   return world;
 }
@@ -663,18 +669,18 @@ function assertNoSilentFailure(run: Record<string, Untyped>, options: Invariants
       `1: the accepted wake ${id} is neither queued nor handled`
     );
   }
-  const open = run.errands.store(GUILD)?.open() ?? [];
+  const open = run.errands.store()?.open() ?? [];
   assert.deepEqual(
     open.map((task: Record<string, Untyped>) => task.id),
     [],
     '1: an errand is left open with no process to run it'
   );
-  for (const { channelId, mode, result, failedSends } of chat.results) {
+  for (const { placeId, mode, result, failedSends } of chat.results) {
     if (failedSends.length === 0) continue;
     const callNotOk = (result?.inner?.actions ?? []).some((action: Record<string, Untyped>) => action.result !== 'ok');
     const readsAsSuccess =
       result?.outcome === 'spoke' && result.delivered === true && result.partial !== true && !callNotOk;
-    assert.equal(readsAsSuccess, false, `2: the ${mode} turn in ${channelId} lost a send but reads as a success`);
+    assert.equal(readsAsSuccess, false, `2: the ${mode} turn in ${placeId} lost a send but reads as a success`);
   }
   assertSaidOnce(chat);
   assertPrivateKept(chat, state, { privateChats, privateMarks });
@@ -706,7 +712,7 @@ function assertPrivateKept(
         `4: the fact ${fact.kind} is told but no model answer completed after it was born`
       );
     if (fact.privateChat)
-      assert.ok(privateChats.includes(fact.channelId), `5: a private fact belongs to ${fact.channelId}`);
+      assert.ok(privateChats.includes(fact.placeId), `5: a private fact belongs to ${fact.placeId}`);
   }
   for (const request of chat.requests) {
     if (request.audience !== null && privateChats.includes(request.audience)) continue;
@@ -811,7 +817,7 @@ test('row 2: the process dies after an inner turn sent a message and before the 
   assert.deepEqual(chat.textsFromSelf('c1'), ['καλημέρα']);
   const mark = wakeOf(present(innerMemory.readHandle()), wake.id);
   assert.deepEqual(
-    [present(mark).state, present(mark).kind, present(mark).payload.channelId, typeof present(mark).turnId],
+    [present(mark).state, present(mark).kind, present(mark).payload.placeId, typeof present(mark).turnId],
     ['running', 'intention_due', 'c1', 'string'],
     'the turn in flight is on disk'
   );
@@ -828,7 +834,7 @@ test('row 2: the process dies after an inner turn sent a message and before the 
   );
   const [fact] = after.state().facts;
   assert.deepEqual(
-    [fact.kind, fact.wake, fact.channelId, fact.privateChat, fact.told],
+    [fact.kind, fact.wake, fact.placeId, fact.privateChat, fact.told],
     ['interrupted', 'intention_due', 'c1', false, false]
   );
   const done = wrongly<Array<string>>(fact.done);
@@ -905,7 +911,7 @@ test("row 2: the process dies after an inner turn's tool call posted and before 
     ['interrupted', null, []]
   );
   const [fact] = after.state().facts;
-  assert.deepEqual([fact.kind, fact.wake, fact.channelId, fact.told], ['interrupted', 'intention_due', 'c1', false]);
+  assert.deepEqual([fact.kind, fact.wake, fact.placeId, fact.told], ['interrupted', 'intention_due', 'c1', false]);
   assertNoSilentFailure(after, { accepted: [wake.id] });
 });
 
@@ -947,30 +953,29 @@ test("row 3: the process dies after an errand's result was stored and before its
   });
   const before = boot(chat, { dataDir, die: true, runErrand });
   const submitted = before.errands.submit({
-    guildId: GUILD,
     agent: 'scout',
     goal: 'find the changelog',
     requester: { userId: 'u1', kind: 'member' },
-    origin: { channelId: 'c1', messageId: origin.id },
+    origin: { placeId: 'c1', messageId: origin.id },
     scope: 'group',
   });
   assert.equal(submitted.ok, true);
   await before.errands.idle();
   // The result is stored: its write reached the database before the process died.
-  await present(before.errands.store(GUILD)).flush();
+  await present(before.errands.store()).flush();
   const id = submitted.errand.id;
-  assert.equal(present(present(before.errands.store(GUILD)).get(id)).state, 'done');
+  assert.equal(present(present(before.errands.store()).get(id)).state, 'done');
   assert.equal(chat.llm.calls.length, 0, 'the result turn never ran');
 
   const after = boot(chat, { dataDir, runErrand });
   await withCapturedLogs(async () => {
-    after.errands.start(GUILD);
+    after.errands.start();
     for (let i = 0; i < 100 && chat.llm.calls.length === 0; i += 1) await flush(1);
     await flush();
   });
   assert.equal(chat.llm.calls.length, 1, 'the result turn is reopened after the reload');
   assert.ok(requestText(chat, 0).includes('<errand_result>'), 'with the result in front of her');
-  const task = present(after.errands.store(GUILD)).get(id);
+  const task = present(after.errands.store()).get(id);
   assert.ok(present(task).seen && present(task).readAt, 'a turn that completed marks the task seen and read');
 
   // errand.read pages through the whole text.
@@ -982,7 +987,7 @@ test("row 3: the process dies after an errand's result was stored and before its
     reads: after.reads,
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => GUILD,
+    isServedCommunity: (id: unknown) => id === GUILD,
     errands: after.errands,
   });
   let from = 0;
@@ -990,8 +995,8 @@ test("row 3: the process dies after an errand's result was stored and before its
   for (let page = 0; page < 10; page += 1) {
     const read = await runOp('errand.read', from > 0 ? { id, from } : { id }, {
       env,
-      guildId: GUILD,
-      channelId: 'c1',
+      placeId: GUILD,
+      conversationId: 'c1',
       userId: 'u1',
       roleIds: [],
     });
@@ -1008,7 +1013,7 @@ test("row 3: the process dies after an errand's result was stored and before its
   // A second restart does not open the same turn again.
   const third = boot(chat, { dataDir, runErrand });
   await withCapturedLogs(async () => {
-    third.errands.start(GUILD);
+    third.errands.start();
     await flush();
   });
   assert.equal(chat.llm.calls.length, 1);
@@ -1020,7 +1025,7 @@ test('row 4: the process dies before a fact was presented -- the fact is still u
   const chat = makeChat();
   // i9 lands in a channel she cannot reach: a wakeDropped fact; i1 is queued behind it.
   const records = [
-    intentionRecord('i9', { channelId: 'c9', dueAt: NOW0 - 2 * MINUTE_MS, purpose: 'announce the game night' }),
+    intentionRecord('i9', { placeId: 'c9', dueAt: NOW0 - 2 * MINUTE_MS, purpose: 'announce the game night' }),
     intentionRecord('i1'),
   ];
   const before = boot(chat, { dataDir, records });
@@ -1066,7 +1071,7 @@ test('row 5: a terminal call fails on the last loop step -- a callFailed fact sh
   assert.equal(chat.llm.calls.length, 2, 'nothing follows the terminal call');
   const failed = inner.state().facts.filter((fact: Record<string, Untyped>) => fact.kind === 'callFailed');
   assert.deepEqual(
-    failed.map((fact: Record<string, Untyped>) => [fact.skill, fact.status, fact.channelId, fact.told]),
+    failed.map((fact: Record<string, Untyped>) => [fact.skill, fact.status, fact.placeId, fact.told]),
     [['message.create', 'failed', 'c1', false]]
   );
   assert.equal(inner.state().queue[0]?.kind, 'feedback', 'a feedback wake carries it');
@@ -1136,8 +1141,8 @@ test('row 7: a chain-cap hold retains its fact after reload and midnight without
   const midnight = zonedEpoch('2026-10-20', 0, 0, 'Europe/Athens');
   assert.equal(midnight, Date.parse('2026-10-19T21:00:00Z'));
   const records = [
-    intentionRecord('i1', { chainId: 'k', channelId: 'c1', dueAt: NOW0 - 2 * MINUTE_MS }),
-    intentionRecord('i2', { chainId: 'k', channelId: 'c2', purpose: 'follow up later' }),
+    intentionRecord('i1', { chainId: 'k', placeId: 'c1', dueAt: NOW0 - 2 * MINUTE_MS }),
+    intentionRecord('i2', { chainId: 'k', placeId: 'c2', purpose: 'follow up later' }),
   ];
   const hot = hotWith({ timezone: 'Europe/Athens', wakes: { caps: { perChain: 1 } } });
   const first = boot(chat, { dataDir, records, hot });
@@ -1146,7 +1151,7 @@ test('row 7: a chain-cap hold retains its fact after reload and midnight without
   await first.tick(); // i2 is held
   const held = first.state().facts.filter((fact: Record<string, Untyped>) => fact.kind === 'wakeHeld');
   assert.deepEqual(
-    held.map((fact: Record<string, Untyped>) => [fact.code, fact.until, fact.channelId]),
+    held.map((fact: Record<string, Untyped>) => [fact.code, fact.until, fact.placeId]),
     [['per-chain', midnight, 'c2']],
     'a fact at the hold, with the moment it waits for'
   );
@@ -1179,8 +1184,8 @@ test('row 8: wakes of different chains meet one unwritable channel -- the writab
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const records = [
-    intentionRecord('i2', { channelId: 'c2', dueAt: NOW0 - 3 * MINUTE_MS, purpose: 'post in the locked channel' }),
-    intentionRecord('i1', { channelId: 'c1', dueAt: NOW0 - MINUTE_MS }),
+    intentionRecord('i2', { placeId: 'c2', dueAt: NOW0 - 3 * MINUTE_MS, purpose: 'post in the locked channel' }),
+    intentionRecord('i1', { placeId: 'c1', dueAt: NOW0 - MINUTE_MS }),
   ];
   const run = boot(chat, { dataDir, records, unwritable: ['c2'] });
   await run.tick();
@@ -1188,7 +1193,7 @@ test('row 8: wakes of different chains meet one unwritable channel -- the writab
   assert.equal(chat.llm.calls.length, 1, 'the writable wake ran');
   const dropped = run.state().facts.find((fact: Record<string, Untyped>) => fact.kind === 'wakeDropped');
   assert.deepEqual(
-    [present(dropped).code, present(dropped).why, present(dropped).channelId, present(dropped).intentionId],
+    [present(dropped).code, present(dropped).why, present(dropped).placeId, present(dropped).intentionId],
     ['no-channel', 'not-writable', 'c2', 'i2']
   );
   assert.ok(requestText(chat, 0).includes('not writable'), 'and the drop was shown in it');
@@ -1212,7 +1217,7 @@ test("row 8: the day's review rides with a wake whose channel is unwritable -- t
     },
   };
   const records = [
-    intentionRecord('i2', { channelId: 'c2', dueAt: NOW0 + 3 * HOUR_MS, purpose: 'post in the locked channel' }),
+    intentionRecord('i2', { placeId: 'c2', dueAt: NOW0 + 3 * HOUR_MS, purpose: 'post in the locked channel' }),
   ];
   const hot = hotWith({ wakes: { review: { enabled: true, historyDays: 14, expiredMax: 5 } } });
   const run = boot(chat, { dataDir, records, hot, unwritable: ['c2'], record });
@@ -1238,7 +1243,7 @@ test("row 8: the day's review rides with a wake whose channel is unwritable -- t
     .state()
     .facts.find((fact: Record<string, Untyped>) => fact.kind === 'wakeDropped' && fact.wake === 'intention_due');
   assert.deepEqual(
-    [dropped?.code, dropped?.why, dropped?.channelId],
+    [dropped?.code, dropped?.why, dropped?.placeId],
     ['no-channel', 'not-writable', 'c2'],
     'the unwritable wake is a fact'
   );
@@ -1342,11 +1347,10 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
   });
   chat.fallback = providerLimit();
   const submitted = run.errands.submit({
-    guildId: GUILD,
     agent: 'scout',
     goal: 'find the changelog',
     requester: { userId: 'u1', kind: 'member' },
-    origin: { channelId: 'c1', messageId: origin.id },
+    origin: { placeId: 'c1', messageId: origin.id },
     scope: 'group',
   });
   const id = present(submitted.errand).id;
@@ -1358,12 +1362,12 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
     }
   });
   assert.equal(chat.llm.calls.length, RESULT_ATTEMPTS, 'the turn was tried every time it could be');
-  const task = present(run.errands.store(GUILD)).get(id);
+  const task = present(run.errands.store()).get(id);
   assert.equal(present(task).state, 'done');
   assert.equal(present(task).resultTurnFailed, true, 'the task says its result turn never ran');
   assert.ok(!present(task).readAt, 'and it is unread');
   assert.deepEqual(
-    run.errands.view({ guildId: GUILD }).map((t) => t.id),
+    run.errands.view({}).map((t) => t.id),
     [id]
   );
 
@@ -1383,10 +1387,14 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
     reads: run.reads,
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => GUILD,
+    isServedCommunity: (id: unknown) => id === GUILD,
     errands: run.errands,
   });
-  const read = await runOp('errand.read', { id }, { env, guildId: GUILD, channelId: 'c1', userId: 'u1', roleIds: [] });
+  const read = await runOp(
+    'errand.read',
+    { id },
+    { env, placeId: GUILD, conversationId: 'c1', userId: 'u1', roleIds: [] }
+  );
   assert.equal(read.status, 'ok');
   assert.ok(read.summary.includes(text), 'errand.read returns the result');
   assertNoSilentFailure(run);
@@ -1398,15 +1406,15 @@ test('row 13: a fact born in a DM is not shown in a server channel, and is shown
   const mark = 'PRIVATE-ERRAND-MARK';
   // The DM intention cannot run (private chats are off): its drop is a fact of that chat.
   const dm = {
-    ...intentionRecord('i7', { channelId: 'd1', scope: 'dm', purpose: mark }),
-    provenance: { kind: 'self', channelId: 'd1', scope: 'dm' },
+    ...intentionRecord('i7', { placeId: 'd1', scope: 'dm', purpose: mark }),
+    provenance: { kind: 'self', placeId: 'd1', scope: 'dm' },
   };
   const records = [dm, intentionRecord('i1', { dueAt: NOW0 + MINUTE_MS })];
   const run = boot(chat, { dataDir, records });
   await run.tick();
   const [fact] = run.state().facts;
   assert.deepEqual(
-    [fact.kind, fact.code, fact.why, fact.channelId, fact.privateChat, fact.told],
+    [fact.kind, fact.code, fact.why, fact.placeId, fact.privateChat, fact.told],
     ['wakeDropped', 'no-channel', 'dm-off', 'd1', true, false]
   );
 
@@ -1431,7 +1439,7 @@ test('row 13: a fact born in a DM is not shown in a server channel, and is shown
 test('row 14: the inner state file is corrupt at start -- a backup is written and a stateLost fact is shown in the next turn', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
-  const file = path.join(dataDir, 'guilds', GUILD, 'inner.json');
+  const file = path.join(dataDir, 'persona', 'inner.json');
   // The errand database opens before corruption so this case exercises the standalone inner-file reader.
   memoryOf(dataDir);
   fs.mkdirSync(path.dirname(file), { recursive: true });

@@ -15,13 +15,13 @@
 // The memory is the memory database (`--db`, default `<data>/memory.db`), opened read only with no lock: it must be a
 // copy or a quiet file. Nothing is written to it.
 //
-// The questions file (default data/recall-eval/questions.json): `[{ id, channelId, askerId,
+// The questions file (default data/recall-eval/questions.json): `[{ id, placeId, askerId,
 // question, expected: [messageId...], kind: 'exact'|'fuzzy'|'none', note? }]`, checked by
 // scripts/lib/recall-eval.ts#parseQuestions; `none` means the answer is not in memory.
 //
 // Each question is asked as a live turn asks it (src/behavior/turn.ts#maybeLookup): the search
 // classifier (prompts.lookup, purpose `lookup`) reads the channel's last lines and the question
-// as a new message of `askerId` in `channelId`, now; its server part goes to the real recall
+// as a new message of `askerId` in `placeId`, now; its server part goes to the real recall
 // runner (src/behavior/recall-run.ts#createRecall `run`) as the persona's own memory.search does
 // (`quotes`: the stretches of src/memory/db/recall.ts, no summary request, so no `confident`
 // answer), wired as src/index.ts wires it: the memory database read only, the stored memory, the
@@ -98,6 +98,7 @@
 // days) with their three neighbours on each side, the raw material for writing questions.
 // The record holds no picture captions, so a picture without text is never a candidate.
 
+import { placeOfCommunity } from '../src/memory/addresses.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -262,9 +263,9 @@ const dbFileOf = (flags: Untyped, { cwd, dataDir }: Rec) =>
   flags['--db'] ? path.resolve(cwd, flags['--db']) : path.join(dataDir, 'memory.db');
 
 /** The stored members' first names by id. */
-function namesOf(store: Rec, guildId: Untyped) {
+function namesOf(store: Rec) {
   const names = new Map();
-  for (const profile of store.listUserProfiles(guildId) ?? []) {
+  for (const profile of store.listUserProfiles() ?? []) {
     if (profile?.id && typeof profile.names?.[0] === 'string' && profile.names[0])
       names.set(String(profile.id), profile.names[0]);
   }
@@ -272,11 +273,11 @@ function namesOf(store: Rec, guildId: Untyped) {
 }
 
 /** The record's messages from `from` on (latestLines), optionally of the given channels. */
-async function readRecord(record: Rec, guildId: Untyped, { from, channelIds = null }: Untyped) {
+async function readRecord(record: Rec, placeId: Untyped, { from, placeIds: conversationIds = null }: Untyped) {
   const lines = [];
-  for await (const line of record.iterate(guildId, {
+  for await (const line of record.iterate(placeId, {
     from: new Date(from).toISOString(),
-    ...(channelIds ? { channelIds } : {}),
+    ...(conversationIds ? { placeIds: conversationIds } : {}),
   }))
     lines.push(line);
   return latestLines(lines);
@@ -286,7 +287,7 @@ async function readRecord(record: Rec, guildId: Untyped, { from, channelIds = nu
  * A REST-only Discord connection (no login, no gateway): the guild, its channels, the bot's own
  * user and member. Every request but GET is refused. As scripts/replay.ts connects.
  */
-async function connectDiscord({ token, guildId }: Rec) {
+async function connectDiscord({ token, placeId }: Rec) {
   const discord = await import('discord.js');
   const { Client, Routes } = discord;
   const client = new Client({ intents: [] });
@@ -298,7 +299,7 @@ async function connectDiscord({ token, guildId }: Rec) {
     return restRequest(options);
   };
   try {
-    const guild = await client.guilds.fetch(guildId);
+    const guild = await client.guilds.fetch(placeId);
     await guild.channels.fetch();
     const me: Untyped = await client.rest.get(Routes.user());
     try {
@@ -321,20 +322,20 @@ async function connectDiscord({ token, guildId }: Rec) {
 }
 
 /** Where a subcommand runs: the data folder, the guild, the clock and the folder the flags' paths are read from. */
-type RunContext = { dataDir: string; guildId: string; now: () => number; cwd: string };
+type RunContext = { dataDir: string; placeId: string; now: () => number; cwd: string };
 
 /** The `sample` subcommand. */
-async function sample(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) {
+async function sample(flags: Flags, { dataDir, placeId, now, cwd }: RunContext) {
   const n = numberFlag(flags['--n'], DEFAULT_SAMPLE, { min: 1, max: 1000, integer: true });
   const days = numberFlag(flags['--days'], DEFAULT_SAMPLE_DAYS, { min: 3, max: 366, integer: true });
   const seed = numberFlag(flags['--seed'], now() % 2147483647, { min: 0, integer: true });
   const sources = await openSources(dataDir, dbFileOf(flags, { cwd, dataDir }));
   const { record, store } = sources;
-  const names = namesOf(store, guildId);
+  const names = namesOf(store);
   // One extra day back, so the oldest candidates have their neighbours too.
   let lines;
   try {
-    lines = await readRecord(record, guildId, { from: now() - (days + 1) * DAY_MS });
+    lines = await readRecord(record, placeId, { from: now() - (days + 1) * DAY_MS });
   } finally {
     sources.close();
   }
@@ -350,9 +351,9 @@ async function sample(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) 
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(
     file,
-    `${JSON.stringify({ at: new Date(now()).toISOString(), guildId, days, seed, candidates }, null, 2)}\n`
+    `${JSON.stringify({ at: new Date(now()).toISOString(), placeId, days, seed, candidates }, null, 2)}\n`
   );
-  const channels = new Set(candidates.map((c) => c.channelId)).size;
+  const channels = new Set(candidates.map((c) => c.placeId)).size;
   const dayCount = new Set(candidates.map((c) => c.occurredAt.slice(0, 10))).size;
   return `recall-eval: ${candidates.length} candidate(s) from ${lines.length} record message(s), ${channels} channel(s), ${dayCount} day(s), seed ${seed}\n${file}\n`;
 }
@@ -364,7 +365,7 @@ async function sample(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) 
 async function recallParts(
   guild: Untyped,
   channel: Untyped,
-  guildId: Untyped,
+  placeId: Untyped,
   config: () => unknown
 ): Promise<{ reads: Reads; scope: { channel: Untyped; snapshot: Untyped } }> {
   const found: {
@@ -372,16 +373,16 @@ async function recallParts(
     client?: unknown;
     channels: { cache: { get: (id: string) => { name?: string | null } | undefined } };
   } = guild;
-  const { id: channelId } = channel;
+  const { id: conversationId } = channel;
   if (found.local === true) {
     const channelNameOf = (id: string) => found.channels.cache.get(id)?.name ?? null;
     return {
-      reads: localReads({ guildId, channelNameOf }),
-      scope: localScope({ guildId, channelId: String(channelId), channelNameOf }),
+      reads: localReads({ placeId, channelNameOf }),
+      scope: localScope({ placeId, conversationId: String(conversationId), channelNameOf }),
     };
   }
   const { reads } = discordReads(found.client, config);
-  return { reads, scope: await recallScope(reads, channel, String(guildId)) };
+  return { reads, scope: await recallScope(reads, channel, String(placeId)) };
 }
 
 /** `config` with the prefetch's deadline lifted (`--no-deadline`): a copy, the live config untouched. */
@@ -397,7 +398,7 @@ function withoutDeadline(config: Untyped, lifted: Untyped) {
 type TraceLine = {
   at: string;
   triggerId: string;
-  channelId: string;
+  placeId: string;
   forms?: Array<string>;
   who?: Array<string>;
   summary?: { answer?: string } | null;
@@ -427,12 +428,12 @@ function traceLines(file: string): Array<TraceLine> {
 }
 
 /** The `traces` subcommand (see the header). */
-async function traces(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) {
+async function traces(flags: Flags, { dataDir, placeId, now, cwd }: RunContext) {
   const dry = flags['--dry'] === true;
   const noDeadline = flags['--no-deadline'] === true;
-  const file = flags._[1] ? path.resolve(cwd, flags._[1]) : path.join(dataDir, 'guilds', guildId, 'recall-trace.jsonl');
+  const file = flags._[1] ? path.resolve(cwd, flags._[1]) : path.join(dataDir, 'guilds', placeId, 'recall-trace.jsonl');
   const all = traceLines(file).filter(
-    (t) => typeof t.triggerId === 'string' && t.triggerId && typeof t.channelId === 'string'
+    (t) => typeof t.triggerId === 'string' && t.triggerId && typeof t.placeId === 'string'
   );
   const limit = numberFlag(flags['--limit'], all.length, { min: 1, integer: true });
   const runs = all.slice(-limit);
@@ -465,13 +466,13 @@ async function traces(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) 
     }
     sources = await openSources(dataDir, dbFileOf(flags, { cwd, dataDir }));
     const { record, archive, vectors, store, memoryDb } = sources;
-    const names = namesOf(store, guildId);
+    const names = namesOf(store);
     const nameOf = (id: string) => names.get(String(id)) ?? null;
     const channelNames = new Map(
-      (store.listChannels?.(guildId) ?? []).filter((c: Rec) => c?.id).map((c: Rec) => [String(c.id), c.name || null])
+      (store.listChannels?.(placeId) ?? []).filter((c: Rec) => c?.id).map((c: Rec) => [String(c.id), c.name || null])
     );
     const self = { id: flags['--self-id'] ?? null, name: flags['--self-name'] ?? null };
-    const guild = localGuild({ guildId, selfId: self.id, channelNameOf: (id) => channelNames.get(id) ?? null });
+    const guild = localGuild({ placeId, selfId: self.id, channelNameOf: (id) => channelNames.get(id) ?? null });
     const selfName = self.name ?? config.bot?.nameTriggers?.[0] ?? 'bot';
     const historyCount = Math.max(1, Math.floor(config.context?.channelMessages ?? 100));
     const llm = {
@@ -485,7 +486,7 @@ async function traces(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) 
       const base = {
         at: t.at ?? null,
         triggerId: t.triggerId,
-        channelId: t.channelId,
+        placeId: t.placeId,
         forms: [...(t.forms ?? []), ...(t.who ?? [])],
         answer: t.summary?.answer ?? null,
         skipped: t.skipped ?? null,
@@ -497,15 +498,15 @@ async function traces(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) 
         const query = {
           from: new Date(atMs - HISTORY_DAYS * DAY_MS).toISOString(),
           to: new Date(atMs + 60 * 60 * 1000).toISOString(),
-          channelIds: [t.channelId],
+          placeIds: [t.placeId],
         };
-        for await (const line of record.iterate(guildId, query)) lines.push(line);
+        for await (const line of record.iterate(placeId, query)) lines.push(line);
         const messages = latestLines(lines).map((line) => recordMessage(line, { nameOf, selfName }));
         const at = messages.findIndex((m) => m.id === t.triggerId);
         if (at === -1) throw Object.assign(new Error('no trigger'), { name: 'no-trigger-in-record' });
         const trigger = messages[at];
         const history = messages.slice(Math.max(0, at + 1 - historyCount), at + 1);
-        const channel = guild.channels.cache.get(t.channelId);
+        const channel = guild.channels.cache.get(t.placeId);
         const { lanes, skip } = prefetchLanes({
           trigger,
           history,
@@ -526,14 +527,14 @@ async function traces(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) 
           });
           continue;
         }
-        const parts = await recallParts(guild, channel, guildId, () => hot.config);
+        const parts = await recallParts(guild, channel, placeId, () => hot.config);
         const recall = createRecall({
           hot: evalHot,
           store: {
             state: { data: {}, markDirty() {} },
-            listUserProfiles: (id: string) => store.listUserProfiles(id),
+            listUserProfiles: () => store.listUserProfiles(),
             getLore: (id: string) => store.getLore(id),
-            getGuild: (id: string) => store.getGuild(id),
+            getPlace: (id: string) => store.getPlace(id),
             getRecent: (id: string) => store.getRecent(id),
           },
           llm,
@@ -546,7 +547,7 @@ async function traces(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) 
           now,
         });
         const found = await recall.prefetch({
-          guildId,
+          placeId,
           ...parts.scope,
           selfId: self.id,
           selfName,
@@ -579,7 +580,7 @@ async function traces(flags: Flags, { dataDir, guildId, now, cwd }: RunContext) 
     fs.mkdirSync(path.dirname(reportPath), { recursive: true });
     fs.writeFileSync(
       reportPath,
-      `${JSON.stringify({ at: new Date(now()).toISOString(), guildId, traceFile: file, mode: { dry, noDeadline }, settings: settings.prefetch, rows }, null, 2)}\n`
+      `${JSON.stringify({ at: new Date(now()).toISOString(), placeId, traceFile: file, mode: { dry, noDeadline }, settings: settings.prefetch, rows }, null, 2)}\n`
     );
     return renderTraceCompare(rows, { reportPath });
   } finally {
@@ -600,6 +601,7 @@ async function recallSettingsOf(config: Untyped) {
 type Opts = { cwd?: string; now?: () => number };
 
 /** The whole tool: the markdown summary on stdout (or the `sample` line). */
+// health: allow function-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 export async function main(argv: Array<string>, { cwd = process.cwd(), now = Date.now }: Opts = {}): Promise<string> {
   const flags = parseFlags(argv, {
     values: [
@@ -619,10 +621,10 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   });
   const dataDir = flags['--data'] ? path.resolve(cwd, flags['--data']) : defaultDataDir(ROOT);
   if (!fs.existsSync(path.join(dataDir, 'guilds'))) throw new CliError(`recall-eval: no guilds/ under ${dataDir}`);
-  const guildId = resolveGuildId(dataDir, flags['--guild']);
-  if (flags._[0] === 'sample') return sample(flags, { dataDir, guildId, now, cwd });
+  const placeId = resolveGuildId(dataDir, flags['--guild']);
+  if (flags._[0] === 'sample') return sample(flags, { dataDir, placeId, now, cwd });
   if (flags._.length > 2 || (flags._.length === 2 && flags._[0] !== 'traces')) throw new CliError(USAGE);
-  if (flags._[0] === 'traces') return traces(flags, { dataDir, guildId, now, cwd });
+  if (flags._[0] === 'traces') return traces(flags, { dataDir, placeId, now, cwd });
 
   const questionsFile = flags._[0] ? path.resolve(cwd, flags._[0]) : evalPath(dataDir, 'questions.json');
   let raw;
@@ -696,7 +698,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   }
   const sources = await openSources(dataDir, dbFile);
   const { record, archive, vectors, store, memoryDb } = sources;
-  const names = namesOf(store, guildId);
+  const names = namesOf(store);
   const nameOf = (id: Untyped) => names.get(String(id)) ?? null;
 
   // The model clients on throwaway counters; per-role keys are not looked up (env {}): the simulator key pays.
@@ -749,7 +751,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   if (useWeb) {
     const { createLookup, searches } = webParts;
     const { createPageFetcher } = await import('../src/web/fetch-page.ts');
-    const media = { ...(store.getMediaCache(guildId) ?? {}) };
+    const media = { ...(store.getMediaCache(placeOfCommunity(store, placeId)) ?? {}) };
     const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
     const pageFetcher = createPageFetcher();
     const keys = webSearchKeys(process.env);
@@ -763,7 +765,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
         searches,
         keys,
         now,
-      }).search(guildId, query);
+      }).search(placeId, query);
   }
 
   // The guild: Discord over REST, or the local one.
@@ -773,29 +775,32 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   if (useDiscord) {
     const token = interfaceCredential(hot.privateDir, 'discord');
     if (!token) throw new CliError('recall-eval: --discord needs data/interfaces/discord/credentials.json');
-    connection = await connectDiscord({ token, guildId });
+    connection = await connectDiscord({ token, placeId });
     guild = connection.guild;
     self = { id: self.id ?? connection.self.id, name: self.name ?? connection.self.name };
   } else {
     const channelNames = new Map(
-      (store.listChannels?.(guildId) ?? []).filter((c: Rec) => c?.id).map((c: Rec) => [String(c.id), c.name || null])
+      (store.listChannels?.(placeId) ?? []).filter((c: Rec) => c?.id).map((c: Rec) => [String(c.id), c.name || null])
     );
-    guild = localGuild({ guildId, selfId: self.id, channelNameOf: (id) => channelNames.get(id) ?? null });
+    guild = localGuild({ placeId, selfId: self.id, channelNameOf: (id) => channelNames.get(id) ?? null });
   }
   const selfName = self.name ?? config.bot?.nameTriggers?.[0] ?? 'bot';
   const historyCount = Math.max(1, Math.floor(config.context?.channelMessages ?? 100));
   const historyOf = new Map();
 
   /** The channel's last lines from the record, as the turn's chat. */
-  async function channelHistory(channelId: Untyped) {
-    if (!historyOf.has(channelId)) {
-      const lines = await readRecord(record, guildId, { from: now() - HISTORY_DAYS * DAY_MS, channelIds: [channelId] });
+  async function channelHistory(conversationId: Untyped) {
+    if (!historyOf.has(conversationId)) {
+      const lines = await readRecord(record, placeId, {
+        from: now() - HISTORY_DAYS * DAY_MS,
+        placeIds: [conversationId],
+      });
       historyOf.set(
-        channelId,
+        conversationId,
         lines.slice(-historyCount).map((line) => recordMessage(line, { nameOf, selfName }))
       );
     }
-    return historyOf.get(channelId);
+    return historyOf.get(conversationId);
   }
 
   /** The search classifier's server part for `trigger`, as maybeLookup asks it; `fallback` on a failed or empty answer. */
@@ -813,7 +818,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
       if (!dry && !settings.fallbackOnClassifierFailure) return { server: null, how: 'failed', reason };
       const plan = fallbackLookupPlan({
         text: triggerText,
-        profiles: store.listUserProfiles(guildId) ?? [],
+        profiles: store.listUserProfiles() ?? [],
         selfId: self.id,
         selfName,
         maxForms: settings.maxForms,
@@ -865,7 +870,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   /** The trigger a question is asked as: a new message of `askerId` in its channel, now. */
   const triggerOf = (q: Question, index: number) => ({
     id: `recall-eval-${index + 1}`,
-    channelId: q.channelId,
+    placeId: q.placeId,
     authorId: q.askerId,
     authorName: nameOf(q.askerId) ?? '-',
     content: q.question,
@@ -886,10 +891,10 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   async function askPrefetch(q: Question, index: number) {
     const started = now();
     try {
-      const channel = guild.channels.cache.get(q.channelId);
+      const channel = guild.channels.cache.get(q.placeId);
       if (!channel) return { status: 'error', error: 'no-channel', excerpts: 0, score: null, ms: 0 };
       const trigger = triggerOf(q, index);
-      const chat = await channelHistory(q.channelId);
+      const chat = await channelHistory(q.placeId);
       const history = [...chat, trigger];
       const { lanes, skip } = prefetchLanes({
         trigger,
@@ -907,7 +912,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
           score: scoreQuestion(q, { chatIds: chat.map((m: Rec) => m.id) }),
           ms: now() - started,
         };
-      const parts = await recallParts(guild, channel, guildId, () => hot.config);
+      const parts = await recallParts(guild, channel, placeId, () => hot.config);
       const recall = createRecall({
         hot: evalHot,
         store: readStore(),
@@ -920,7 +925,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
         memoryDb,
         now,
       });
-      const found = await recall.prefetch({ guildId, ...parts.scope, selfId: self.id, selfName, history, lanes });
+      const found = await recall.prefetch({ placeId, ...parts.scope, selfId: self.id, selfName, history, lanes });
       const { windows, matched } = prefetchWindows(found);
       return {
         status: found?.status ?? 'none-ran',
@@ -948,9 +953,9 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   function readStore(onTrace: Untyped = null) {
     return {
       state: { data: {}, markDirty() {} },
-      listUserProfiles: (id: string) => store.listUserProfiles(id),
+      listUserProfiles: () => store.listUserProfiles(),
       getLore: (id: string) => store.getLore(id),
-      getGuild: (id: string) => store.getGuild(id),
+      getPlace: (id: string) => store.getPlace(id),
       getRecent: (id: string) => store.getRecent(id),
       appendRecallTrace: (id: string, line: Untyped) => onTrace?.(line),
     };
@@ -963,7 +968,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
     const base = {
       id: q.id,
       kind: q.kind,
-      channelId: q.channelId,
+      placeId: q.placeId,
       question: q.question,
       expected: q.expected,
       ...(q.note ? { note: q.note } : {}),
@@ -974,10 +979,10 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
       return out;
     };
     try {
-      const channel = guild.channels.cache.get(q.channelId);
+      const channel = guild.channels.cache.get(q.placeId);
       if (!channel) return finish({ error: 'no-channel', score: null });
       const trigger = triggerOf(q, index);
-      const chat = await channelHistory(q.channelId);
+      const chat = await channelHistory(q.placeId);
       // The asking channel's visible chat: an expected line in it is answered by the chat.
       const chatIds = chat.map((m: Rec) => m.id);
       const history = [...chat, trigger];
@@ -1018,7 +1023,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
       const recallStore = readStore((line: Untyped) => {
         trace = line;
       });
-      const parts = await recallParts(guild, channel, guildId, () => hot.config);
+      const parts = await recallParts(guild, channel, placeId, () => hot.config);
       const recall: Untyped = createRecall({
         hot: evalHot,
         store: recallStore,
@@ -1033,7 +1038,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
       });
       const windows: Array<Untyped> = [];
       const found: Untyped = await recall.run({
-        guildId,
+        placeId,
         ...parts.scope,
         selfId: self.id,
         selfName,
@@ -1062,7 +1067,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
         windows: windows.map((w) =>
           w.map((m: Untyped) => ({
             id: m.id,
-            channelId: m.channelId ?? null,
+            placeId: m.placeId ?? null,
             authorId: m.authorId ?? null,
             ts: m.ts ?? null,
             self: m.self === true,
@@ -1100,7 +1105,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   const report = {
     at: new Date(now()).toISOString(),
-    guildId,
+    placeId,
     questionsFile,
     mode: { dry, discord: useDiscord, web: useWeb, prefetch: usePrefetch, noDeadline },
     stages,

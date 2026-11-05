@@ -159,8 +159,8 @@ test('metricsTap: the log events feed the speed metrics', () => {
   );
   tap(entry('turn: timings', { channel: 'c2', totalMs: 1000, stages: {} }, t0 + 40000));
   tap(entry('turn: sent', { channel: 'c2', secondsSinceTrigger: 1 }, t0 + 41000));
-  tap(entry('memory: update applied', { guildId: 'g1', ms: 40000 }, t0));
-  tap(entry('memory: private update applied', { guildId: 'g1', ms: 20000 }, t0));
+  tap(entry('memory: update applied', { placeId: 'g1', ms: 40000 }, t0));
+  tap(entry('memory: private update applied', { placeId: 'g1', ms: 20000 }, t0));
   tap(entry('embedder: flushed', { embedded: 64, dropped: 0, left: 0, ms: 1500 }, t0));
   tap(entry('embedder: flushed', { embedded: 0, dropped: 3, left: 0, ms: 2 }, t0));
   tap(entry('recall: summary', { channel: 'c1', ms: 0, answer: 'fallback', summary: 'skipped' }, t0));
@@ -195,7 +195,7 @@ test('metricsTap: subscribed to the log, it records what the log writes', async 
   const metrics = createMetrics({ dataDir: tmpDir(), now: clock() });
   const off = onLog(metricsTap(metrics));
   try {
-    await withCapturedLogs(() => log.info('memory: update applied', { guildId: 'g9', ms: 321 }));
+    await withCapturedLogs(() => log.info('memory: update applied', { placeId: 'g9', ms: 321 }));
   } finally {
     off();
   }

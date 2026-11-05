@@ -3,6 +3,8 @@
 // (src/memory/update.ts#observe), the <gif> tag (src/llm/parse.ts) and the
 // poster (src/behavior/turn.js).
 
+import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { existsRaw, memDataDir, readRaw, writeRaw } from './fixtures/store-kit.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -55,7 +57,7 @@ function gifAttachment(id: string, name = 'réaction.gif') {
 function msg(overrides = {}) {
   return {
     id: 'm1',
-    channelId: 'c1',
+    placeId: 'c1',
     channelName: 'general',
     authorId: '1',
     authorName: 'Zoé',
@@ -93,7 +95,7 @@ test("collectGifItems: gif embeds and gif attachments, the message's own then it
   const items = collectGifItems(
     msg({
       id: 'm7',
-      channelId: 'c3',
+      placeId: 'c3',
       attachments: [gifAttachment('a1'), { id: 'a2', kind: 'image', name: 'p.png', url: 'https://cdn/p.png' }],
       links: [
         gifLink('m7#e0'),
@@ -112,7 +114,7 @@ test("collectGifItems: gif embeds and gif attachments, the message's own then it
       name: 'réaction.gif',
       itemId: 'a1',
       messageId: 'm7',
-      channelId: 'c3',
+      placeId: 'c3',
     },
     {
       key: 'm7#e0',
@@ -122,7 +124,7 @@ test("collectGifItems: gif embeds and gif attachments, the message's own then it
       name: 'Chat qui danse',
       itemId: 'm7#e0',
       messageId: 'm7',
-      channelId: 'c3',
+      placeId: 'c3',
     },
     {
       key: 'fa1',
@@ -131,9 +133,9 @@ test("collectGifItems: gif embeds and gif attachments, the message's own then it
       name: 'ωμέγα.gif',
       itemId: 'fa1',
       messageId: 'm7',
-      channelId: 'c3',
+      placeId: 'c3',
     },
-    { key: 'fwd#e0', kind: 'link', url: GIPHY, site: 'Tenor', itemId: 'fwd#e0', messageId: 'm7', channelId: 'c3' },
+    { key: 'fwd#e0', kind: 'link', url: GIPHY, site: 'Tenor', itemId: 'fwd#e0', messageId: 'm7', placeId: 'c3' },
   ]);
 });
 
@@ -196,7 +198,7 @@ test('mergeGifs: handles are stable across merges; a reposted link counts on its
     msg({ id: 'm1', ts: T0, links: [gifLink('m1#e0')] }),
   ]).gifs;
   const second: Record<string, Untyped> = mergeGifs(first, [
-    msg({ id: 'm2', channelId: 'c2', ts: T0 + DAY, links: [gifLink('m2#e0')] }),
+    msg({ id: 'm2', placeId: 'c2', ts: T0 + DAY, links: [gifLink('m2#e0')] }),
     msg({ id: 'm3', ts: T0 + 2 * DAY, links: [gifLink('m3#e0', GIPHY)] }),
   ]).gifs;
   assert.deepEqual(Object.keys(second.entries).sort(), ['m1#e0', 'm3#e0']);
@@ -206,7 +208,7 @@ test('mergeGifs: handles are stable across merges; a reposted link counts on its
   assert.equal(tenor.last, T0 + DAY);
   assert.equal(tenor.firstSeen, T0);
   assert.equal(tenor.messageId, 'm2');
-  assert.equal(tenor.channelId, 'c2');
+  assert.equal(tenor.placeId, 'c2');
   assert.equal(second.entries['m3#e0'].id, 'g2');
   assert.equal(first.entries['m1#e0'].count, 1, 'the input is never mutated');
 });
@@ -283,14 +285,14 @@ test('mergeGifs: a reset entry seen again keeps its handle and counts afresh', (
     msg({ id: 'm2', ts: T0, attachments: [gifAttachment('a1')] }),
   ]).gifs;
   const { gifs, counted }: Record<string, Untyped> = mergeGifs(resetGifCounts(first), [
-    msg({ id: 'm7', channelId: 'c2', ts: T0 + DAY, attachments: [gifAttachment('a1')] }),
+    msg({ id: 'm7', placeId: 'c2', ts: T0 + DAY, attachments: [gifAttachment('a1')] }),
   ]);
   assert.equal(counted, 1);
   assert.equal(gifs.entries.a1.id, 'g1');
   assert.equal(gifs.entries.a1.count, 1);
   assert.equal(gifs.entries.a1.last, T0 + DAY);
   assert.equal(gifs.entries.a1.messageId, 'm7');
-  assert.equal(gifs.entries.a1.channelId, 'c2');
+  assert.equal(gifs.entries.a1.placeId, 'c2');
   assert.equal(gifs.nextId, 2, 'no new handle');
 });
 
@@ -399,37 +401,41 @@ test('normalizeGifs: garbage in -> the empty library; broken entries dropped; ba
 
 // --- storage -----------------------------------------------------------------
 
-test('store.recordGifs: persists gifs.json; getGifs/findGif read it back after a restart', () => {
-  withStore((store: ReturnType<typeof createStore>, dir: string) => {
-    assert.deepEqual(store.getGifs('g1'), { nextId: 1, entries: {}, backfill: null });
-    assert.equal(store.recordGifs('g1', [msg({ self: true, links: [gifLink('m1#e0')] })]), 0);
-    store.flush();
-    assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'gifs.json')), false, 'nothing counted, nothing written');
+test('store.recordGifs: persists its unit; getGifs/findGif read it back after a restart', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
+  const file = path.join(dir, 'guilds', 'g1', 'gifs.json');
+  const g1 = placeOfCommunity(store, 'g1');
+  assert.deepEqual(store.getGifs(g1), { nextId: 1, entries: {}, backfill: null });
+  assert.equal(store.recordGifs(g1, [msg({ self: true, links: [gifLink('m1#e0')] })], { storeMax: 300 }), 0);
+  store.flush();
+  await store.flushSettled({});
+  assert.equal(existsRaw(file), false, 'nothing counted, nothing written');
 
-    assert.equal(store.recordGifs('g1', [msg({ links: [gifLink('m1#e0')] })], { storeMax: 300 }), 1);
-    store.flush();
-    const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'guilds', 'g1', 'gifs.json'), 'utf8'));
-    assert.equal(onDisk.nextId, 2);
-    assert.equal(onDisk.entries['m1#e0'].id, 'g1');
+  assert.equal(store.recordGifs(g1, [msg({ links: [gifLink('m1#e0')] })], { storeMax: 300 }), 1);
+  store.flush();
+  await store.flushSettled({});
+  const onDisk = JSON.parse(readRaw(file));
+  assert.equal(onDisk.nextId, 2);
+  assert.equal(onDisk.entries['m1#e0'].id, 'g1');
 
-    const reopened = createStore({ dataDir: dir });
-    assert.equal(wrongly<Untyped>(present(reopened.findGif('g1', 'g1'))).url, TENOR);
-    assert.equal(reopened.findGif('g1', 'g2'), null);
-  });
+  const reopened = createStore({ dataDir: dir, memoryDb });
+  assert.equal(wrongly<Untyped>(present(reopened.findGif(g1, 'g1'))).url, TENOR);
+  assert.equal(reopened.findGif(g1, 'g2'), null);
 });
 
-test('store.getGifs: a hand-broken file is normalised on read, never wiped on disk by reading', () => {
-  withStore((store: ReturnType<typeof createStore>, dir: string) => {
-    const file = path.join(dir, 'guilds', 'g1', 'gifs.json');
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    const raw = { entries: { a: { kind: 'link', url: TENOR, count: 3, last: T0 } } };
-    fs.writeFileSync(file, JSON.stringify(raw));
-    const gifs = store.getGifs('g1');
-    assert.equal(wrongly<Record<string, { id: string }>>(gifs.entries).a.id, 'g1');
-    assert.equal(gifs.nextId, 2);
-    store.flush();
-    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), raw);
-  });
+test('store.getGifs: a hand-broken unit is normalised on read, never wiped by reading', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
+  const file = path.join(dir, 'guilds', 'g1', 'gifs.json');
+  const raw = { entries: { a: { kind: 'link', url: TENOR, count: 3, last: T0 } } };
+  await writeRaw(file, raw);
+  const gifs = store.getGifs(placeOfCommunity(store, 'g1'));
+  assert.equal(wrongly<Record<string, { id: string }>>(gifs.entries).a.id, 'g1');
+  assert.equal(gifs.nextId, 2);
+  store.flush();
+  await store.flushSettled({});
+  assert.deepEqual(JSON.parse(readRaw(file)), raw);
 });
 
 test('markOwnGif: stamps ownLast and counts ownUses on the entry; an unknown key changes nothing; never mutates', () => {
@@ -471,19 +477,21 @@ test("normalizeGifs: ownLast/ownUses survive a member's use and a recount; bad v
   assert.equal(fractional.entries.a.ownUses, 2);
 });
 
-test('store.recordOwnGif: persists the stamp; an unknown key writes nothing', () => {
-  withStore((store: ReturnType<typeof createStore>, dir: string) => {
-    assert.equal(store.recordOwnGif('g1', 'm1#e0', T0), false);
-    store.flush();
-    assert.equal(fs.existsSync(path.join(dir, 'guilds', 'g1', 'gifs.json')), false, 'nothing marked, nothing written');
-    store.recordGifs('g1', [msg({ links: [gifLink('m1#e0')] })]);
-    assert.equal(store.recordOwnGif('g1', 'm1#e0', T0 + DAY), true);
-    store.flush();
-    const reopened = createStore({ dataDir: dir });
-    const entry = reopened.findGif('g1', 'g1');
-    assert.equal(wrongly<Untyped>(present(entry)).ownLast, T0 + DAY);
-    assert.equal(wrongly<Untyped>(present(entry)).ownUses, 1);
-  });
+test('store.recordOwnGif: persists the stamp; an unknown key writes nothing', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
+  const g1 = placeOfCommunity(store, 'g1');
+  assert.equal(store.recordOwnGif(g1, 'm1#e0', T0), false);
+  store.flush();
+  await store.flushSettled({});
+  assert.equal(existsRaw(path.join(dir, 'guilds', 'g1', 'gifs.json')), false, 'nothing marked, nothing written');
+  store.recordGifs(g1, [msg({ links: [gifLink('m1#e0')] })]);
+  assert.equal(store.recordOwnGif(g1, 'm1#e0', T0 + DAY), true);
+  store.flush();
+  await store.flushSettled({});
+  const entry = createStore({ dataDir: dir, memoryDb }).findGif(g1, 'g1');
+  assert.equal(wrongly<Untyped>(present(entry)).ownLast, T0 + DAY);
+  assert.equal(wrongly<Untyped>(present(entry)).ownUses, 1);
 });
 
 // --- the live pipeline -------------------------------------------------------
@@ -496,8 +504,10 @@ function hotFor() {
 test("observe: a member's gif joins the library with its url", async () => {
   await withStore(async (store: Untyped) => {
     const updater = createMemoryUpdater({ hot: hotFor(), store });
-    const { logs } = await withCapturedLogs(() => updater.observe('g1', msg({ links: [gifLink('m1#e0')] })));
-    assert.equal(store.findGif('g1', 'g1').url, TENOR);
+    const { logs } = await withCapturedLogs(() =>
+      updater.observe(placeOfCommunity(updater, 'g1'), msg({ links: [gifLink('m1#e0')] }))
+    );
+    assert.equal(store.findGif(placeOfCommunity(store, 'g1'), 'g1').url, TENOR);
     const line = logs.find((l) => l.msg === 'memory: gifs recorded');
     assert.equal(present(line).gifs, 1);
     assert.equal(JSON.stringify(line).includes('tenor'), false);
@@ -507,11 +517,11 @@ test("observe: a member's gif joins the library with its url", async () => {
 test('observe: a private chat, the persona and paused never feed the library', () => {
   withStore((store: Untyped) => {
     const on = createMemoryUpdater({ hot: hotFor(), store });
-    on.observe('g1', msg({ id: 'm2', links: [gifLink('m2#e0')] }), { private: wrongly('1') });
-    on.observe('g1', msg({ id: 'm3', self: true, links: [gifLink('m3#e0')] }));
+    on.observe(placeOfCommunity(on, 'g1'), msg({ id: 'm2', links: [gifLink('m2#e0')] }), { private: wrongly('1') });
+    on.observe(placeOfCommunity(on, 'g1'), msg({ id: 'm3', self: true, links: [gifLink('m3#e0')] }));
     store.state.data.paused = true;
-    on.observe('g1', msg({ id: 'm4', links: [gifLink('m4#e0')] }));
-    assert.deepEqual(store.getGifs('g1').entries, {});
+    on.observe(placeOfCommunity(on, 'g1'), msg({ id: 'm4', links: [gifLink('m4#e0')] }));
+    assert.deepEqual(store.getGifs(placeOfCommunity(store, 'g1')).entries, {});
   });
 });
 
@@ -519,10 +529,13 @@ test('observe: a private chat, the persona and paused never feed the library', (
 test('observe: gifs.storeMax caps the library', () => {
   withStore((store: Untyped) => {
     const updater = createMemoryUpdater({ hot: hotFor(), store });
-    updater.observe('g1', msg({ id: 'm0', ts: T0, attachments: [gifAttachment('a0')] }));
+    updater.observe(placeOfCommunity(updater, 'g1'), msg({ id: 'm0', ts: T0, attachments: [gifAttachment('a0')] }));
     for (let n = 1; n <= GIF_STORE_MAX; n += 1)
-      updater.observe('g1', msg({ id: `m${n}`, ts: T0 + DAY + n, attachments: [gifAttachment(`a${n}`)] }));
-    const kept = Object.keys(store.getGifs('g1').entries);
+      updater.observe(
+        placeOfCommunity(updater, 'g1'),
+        msg({ id: `m${n}`, ts: T0 + DAY + n, attachments: [gifAttachment(`a${n}`)] })
+      );
+    const kept = Object.keys(store.getGifs(placeOfCommunity(store, 'g1')).entries);
     assert.deepEqual([kept.length, kept.includes('a0')], [GIF_STORE_MAX, false]);
   });
 });
@@ -558,7 +571,7 @@ function rawMessage(
 ) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     author: { id: 'u1', bot: false, globalName: 'Zoé', username: 'Zoé' },
     member: { displayName: 'Zoé' },
     cleanContent: 'hey',
@@ -573,7 +586,7 @@ function rawMessage(
 function trigger(raw: Record<string, Untyped>) {
   return {
     id: raw.id,
-    channelId: 'c1',
+    placeId: 'c1',
     authorId: 'u1',
     authorName: 'Zoé',
     self: false,
@@ -596,7 +609,7 @@ function fakeChannel({
   world().tap('fetchMessages', ([ref, ids]: Untyped) => {
     if (ref.conversationId === id) fetched.push(...ids);
   });
-  const channel = world().channel({ id, name: 'general', guildId: 'g1', historyMessages });
+  const channel = world().channel({ id, name: 'general', placeId: 'g1', historyMessages });
   if (fetchFails) world().failRead('fetchMessages', id);
   return Object.assign(channel, { fetched });
 }
@@ -632,9 +645,9 @@ function calibrator() {
 
 /** A real store seeded with one link gif (g1, from m-old in c1) and one attached gif (g2, from m-att in c2). */
 function seedLibrary(store: Record<string, Untyped>) {
-  store.recordGifs('g1', [
-    msg({ id: 'm-old', channelId: 'c1', ts: NOW - DAY, links: [gifLink('m-old#e0')] }),
-    msg({ id: 'm-att', channelId: 'c2', ts: NOW - DAY, attachments: [gifAttachment('att1')] }),
+  store.recordGifs(placeOfCommunity(store, 'g1'), [
+    msg({ id: 'm-old', placeId: 'c1', ts: NOW - DAY, links: [gifLink('m-old#e0')] }),
+    msg({ id: 'm-att', placeId: 'c2', ts: NOW - DAY, attachments: [gifAttachment('att1')] }),
   ]);
 }
 
@@ -659,7 +672,7 @@ async function runGifTurn({
     const { result, logs } = await withCapturedLogs(() =>
       turns.runTurn({ channel, mode: 'reply', trigger: trigger(raw), triggerKind })
     );
-    return { result, logs, channel, state: store.state.data, gifs: store.getGifs('g1') };
+    return { result, logs, channel, state: store.state.data, gifs: store.getGifs(placeOfCommunity(store, 'g1')) };
   });
 }
 
@@ -737,7 +750,7 @@ test('turn request: the library reaches the prompt as <gifs> with cached caption
   async function requestText() {
     return withStore(async (store: Record<string, Untyped>) => {
       seedLibrary(store);
-      store.getMediaCache('g1')['m-old#e0'] = { text: 'a cat dancing', ts: NOW };
+      store.getMediaCache(placeOfCommunity(store, 'g1'))['m-old#e0'] = { text: 'a cat dancing', ts: NOW };
       const raw = rawMessage('m1');
       const channel = fakeChannel({ historyMessages: [raw] });
       const seen: Array<Untyped> = [];

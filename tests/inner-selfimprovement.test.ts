@@ -62,7 +62,7 @@ test('a selfimprovement wake has its own chain, no place and an id by its time',
   assert.equal(wake.kind, 'selfimprovement');
   assert.equal(wake.reason, 'weekly');
   assert.equal(wake.chainId, `selfimprovement:${START}`);
-  assert.equal(wake.channelId, null);
+  assert.equal(wake.placeId, null);
   assert.equal(wake.dueAt, START);
 });
 
@@ -133,7 +133,7 @@ function failed(turnId: string, at: number): Array<Record_> {
 
 function setup() {
   const clock = { t: START };
-  world().channel({ id: 'c1', name: 'chan-c1', guildId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -155,7 +155,6 @@ function setup() {
   const service = createIntentionService({
     stores: createIntentionStores({ dataDir: tempDir('nep-selfimp-'), now: () => clock.t, log: SILENT }),
     hot,
-    getGuildId: () => GUILD,
     now: () => clock.t,
     log: SILENT,
   });
@@ -174,7 +173,7 @@ function setup() {
   const records: Array<Record_> = [];
   const journal = {
     inner: () => Promise.resolve(),
-    read: (_guildId: string, query: { day: string; kind: string }) =>
+    read: (query: { day: string; kind: string }) =>
       records.filter((r) => r.kind === query.kind && utcDay(Date.parse(String(r.occurredAt))) === query.day),
   };
   const acked: Array<Array<number>> = [];
@@ -191,7 +190,6 @@ function setup() {
     conversationName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
-    getGuildId: () => GUILD,
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
     selfimprovement: {
       granted: () => ['web.read'],
@@ -228,8 +226,8 @@ test('the first tick starts the selfimprovement clock and raises nothing', async
   const run = setup();
   const tick = await run.life.tick();
   assert.equal(tick.submitted, 0);
-  assert.equal(run.life.state(GUILD).selfimprovement?.lastAt, START);
-  assert.equal(run.life.state(GUILD).selfimprovement?.raisedAt, null);
+  assert.equal(run.life.state().selfimprovement?.lastAt, START);
+  assert.equal(run.life.state().selfimprovement?.raisedAt, null);
 });
 
 test('three failures of one shape in a day raise one wake with its cause and the view, and a fourth raises no second that day', async () => {
@@ -267,6 +265,6 @@ test('once the wake completed its time is the last one and the outbox rows it sh
   run.clock.t = START + 60_000;
   await run.life.tick();
   assert.deepEqual(run.acked, [[5]]);
-  assert.equal(run.life.state(GUILD).selfimprovement?.lastAt, START + 60_000);
-  assert.equal(run.life.state(GUILD).selfimprovement?.raisedAt, START + 60_000);
+  assert.equal(run.life.state().selfimprovement?.lastAt, START + 60_000);
+  assert.equal(run.life.state().selfimprovement?.raisedAt, START + 60_000);
 });

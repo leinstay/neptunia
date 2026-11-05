@@ -66,7 +66,7 @@ test('a context issued after an unbind stops reading that DM, and the one issued
   // Bug: a revoked link stays readable because the place list comes from a cached person.
   const service = worldService();
   const before = hersIn(service);
-  await service.personLink({ op: 'unbind', iface: 'discord', native: 'n2' });
+  await service.personLink({ op: 'unbind', accountId: 'account:a12' });
   const next = hersIn(service);
   assert.equal(allowedAudience({ audience_id: 'aud:dm:place:dm-a12' }, next), false);
   assert.equal(allowedAudience({ audience_id: 'aud:dm:place:dm-a21' }, next), true);
@@ -88,7 +88,7 @@ test('a context issued after a bind reads the DM the link brought', async () => 
     });
   });
   assert.equal(allowedAudience({ audience_id: 'aud:dm:place:dm-new' }, hersIn(service)), false);
-  await service.personLink({ op: 'bind', iface: 'matrix', native: 'n5', target: { iface: 'discord', native: 'n1' } });
+  await service.personLink({ op: 'bind', accountId: 'account:new', target: { accountId: 'account:a11' } });
   assert.equal(allowedAudience({ audience_id: 'aud:dm:place:dm-new' }, hersIn(service)), true);
 });
 

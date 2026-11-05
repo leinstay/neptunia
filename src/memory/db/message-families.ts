@@ -63,8 +63,9 @@ function placeCode(e: Envelope, c: MessageConversation): string | null {
     (!partner || partner.key !== c.partnerId || (partner.authority !== undefined && partner.authority !== e.authority))
   )
     return 'BAD_PLACE';
+  // A thread names the channel it sits in; what contains any other place is the tree's own business.
   const parent = c.chatType === 'thread' && c.parentId ? `channel:${c.parentId}` : null;
-  return (p.parent ?? null) === parent ? null : 'BAD_PLACE';
+  return parent === null || p.parent === parent ? null : 'BAD_PLACE';
 }
 
 function replyEnvelope(db: Db, e: Envelope, options: { newKey?: () => string }): Envelope {

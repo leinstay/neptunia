@@ -120,7 +120,7 @@ function isAskedAbout(
  * `otherProfiles` (the active participants, most relevant first) are checked
  * against the asked-about window first, in order; a match is promoted into
  * `askedAbout` (up to `maxAskedAbout`), everyone else lands in `participants`.
- * `candidateProfiles` (every known profile in the guild) are then checked for
+ * `candidateProfiles` (every known profile in the place) are then checked for
  * a SILENT member who is named/@mentioned but never spoke -- only ever added
  * to `askedAbout`, never to `participants` (a candidate who neither spoke nor
  * was asked about has no place in this request at all). `excludeId` (the

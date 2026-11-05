@@ -66,7 +66,7 @@ function input({ llm = {}, vision = {}, picture = false } = {}) {
     neighbors: [],
     trigger,
     triggerKind: 'mention',
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
   };
@@ -126,13 +126,13 @@ function pulledScene({
     line(`d${i + 1}`, NOW - (10 - i) * MIN, `chat ${i + 1} ${'mot '.repeat(30)}`, {
       authorId: 'a',
       authorName: 'Ana',
-      channelId: 'dest',
+      placeId: 'dest',
       channelName: 'général',
     })
   );
   const messages = Array.from({ length: lines }, (_, i) =>
     line(`p${i + 1}`, NOW - (lines + 30 - i) * MIN, `page ${i + 1} ${'σελίδα '.repeat(words)}`, {
-      channelId: 'src',
+      placeId: 'src',
       channelName: 'journal',
     })
   );
@@ -152,7 +152,7 @@ function pulledScene({
     currentChannelId: 'dest',
     pulled: [
       {
-        channelId: 'src',
+        placeId: 'src',
         channelName: 'journal',
         readOnly: true,
         canReact: true,
@@ -167,7 +167,7 @@ function pulledScene({
         newestTs: messages.at(-1)!.ts,
       },
     ],
-    source: routed ? { channelId: 'src', reason: 'routed' } : null,
+    source: routed ? { placeId: 'src', reason: 'routed' } : null,
     ...extra,
   };
 }
@@ -217,7 +217,7 @@ test('buildRequest: the pulled block is trimmed after the chat on an ordinary tu
   assert.ok(view!.includes('page 8 ') && !view!.includes('page 1 '), view!);
   assert.ok(view!.split('\n').includes(labels.pull.olderNotShown));
   const [kept] = tight.pulledKept;
-  assert.equal(kept.channelId, 'src');
+  assert.equal(kept.placeId, 'src');
   assert.equal(kept.newestId, 'p8');
   const firstTs = pulledScene().pulled[0].messages.find((m) => m.id === kept.ids[0])!.ts;
   assert.ok(view!.split('\n')[0].includes(`from ${moment(firstTs)} to`), 'the header starts at the first line kept');
@@ -387,7 +387,7 @@ test("buildRequest: two pulled channels share the block's room evenly, each keep
   const pages = journal.messages.map((message, i) => ({
     ...message,
     id: `q${i + 1}`,
-    channelId: 'src2',
+    placeId: 'src2',
     channelName: 'carnet',
     content: `feuille ${i + 1} ${'φύλλο '.repeat(20)}`,
   }));
@@ -395,7 +395,7 @@ test("buildRequest: two pulled channels share the block's room evenly, each keep
     journal,
     {
       ...journal,
-      channelId: 'src2',
+      placeId: 'src2',
       channelName: 'carnet',
       messages: pages,
       newestId: 'q8',
@@ -414,7 +414,7 @@ test("buildRequest: two pulled channels share the block's room evenly, each keep
   assert.ok(items[0].startsWith('channel #journal') && items[0].includes('page 8 '), items[0]);
   assert.ok(items[1].startsWith('channel #carnet') && items[1].includes('feuille 8 '), items[1]);
   assert.deepEqual(
-    tight.pulledKept.map((kept) => [kept.channelId, kept.newestId]),
+    tight.pulledKept.map((kept) => [kept.placeId, kept.newestId]),
     [
       ['src', 'p8'],
       ['src2', 'q8'],
@@ -434,9 +434,9 @@ test("buildRequest: two pulled channels share the block's room evenly, each keep
 test('buildRequest: a pulled channel cut by the budget stays among the neighbours', () => {
   const neighbors = [
     {
-      channelId: 'src',
+      placeId: 'src',
       channelName: 'journal',
-      messages: [line('n1', NOW - 31 * MIN, 'une ligne courte', { channelId: 'src' })],
+      messages: [line('n1', NOW - 31 * MIN, 'une ligne courte', { placeId: 'src' })],
     },
   ];
   const others = (request: Built) =>
@@ -455,7 +455,7 @@ test('buildRequest: a pulled channel cut by the budget stays among the neighbour
 test('buildRequest: the pulled block outranks other profiles and neighbours on an ordinary turn', () => {
   const extra = {
     otherProfiles: [{ id: 'w9', names: ['Ilse'], character: 'ç'.repeat(600) }],
-    neighbors: [{ channelId: 'n1', channelName: 'random', messages: [line('n', NOW - MIN, 'à côté '.repeat(40))] }],
+    neighbors: [{ placeId: 'n1', channelName: 'random', messages: [line('n', NOW - MIN, 'à côté '.repeat(40))] }],
   };
   const roomy = buildRequest(pulledScene({ extra }));
   assert.equal(roomy.stats.people.kept, 1);

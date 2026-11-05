@@ -59,21 +59,28 @@ export function holdIfPaused(event: unknown, context: unknown, store: unknown): 
 
 /** Where the pipeline is when a line arrives while paused. */
 type PausedPlace = {
-  guildId: string | null;
   selfId: string;
-  isServed?: (communityId: string | null | undefined) => boolean;
+  isServed: (communityId: string | null | undefined) => boolean;
+  sharedPlaceOf?: (conversation: never, iface: string) => string;
 };
+
+/** The place of a paused line's record, as the store names it; the native id with no store at hand. */
+function placeOf(place: PausedPlace, conversation: Record<string, unknown>, iface: unknown): string {
+  return place.sharedPlaceOf
+    ? place.sharedPlaceOf(conversation as never, String(iface))
+    : String(conversation.communityId ?? conversation.id);
+}
 
 /**
  * How a line that arrives while paused is observed: `direct` and the record it belongs to, or null for a line the live
- * path would not observe now. A line of the served guild outside threads is observed, hers or a
+ * path would not observe now. A line of the served place outside threads is observed, hers or a
  * member's, another bot's not. A direct chat is observed only from the owner's command line: any other waits for its
  * private-chat gate at the resume.
  */
 function pausedObservation(
   event: unknown,
   place: PausedPlace
-): { direct: boolean; where: { guildId?: string; privateUserId?: string } } | null {
+): { direct: boolean; where: { placeId?: string } } | null {
   const fields = looseOf(event);
   const message = looseOf(fields.message);
   const author = looseOf(message.author);
@@ -82,22 +89,22 @@ function pausedObservation(
   if (conversation.communityId === null || conversation.communityId === undefined) {
     if (fields.iface !== CLI_IFACE || author.self === true || typeof author.id !== 'string') return null;
     if (conversation.partnerId === undefined || conversation.partnerId === null) return null;
-    return { direct: true, where: { privateUserId: author.id } };
+    return { direct: true, where: { placeId: placeOf(place, conversation, fields.iface) } };
   }
-  const isServed = place.isServed ?? ((id: unknown) => id === place.guildId);
-  if (!isServed(conversation.communityId as string | null | undefined) || conversation.kind === 'thread') return null;
+  if (!place.isServed(conversation.communityId as string | null | undefined) || conversation.kind === 'thread')
+    return null;
   if (author.bot === true && author.id !== place.selfId) return null;
   return {
     direct: looseOf(fields.addressing).mentioned === true,
-    where: { guildId: conversation.communityId as string },
+    where: { placeId: placeOf(place, conversation, fields.iface) },
   };
 }
 
-/** What the pipeline observes a paused line with: the hot config, the served guild, her id and its observe path. */
+/** What the pipeline observes a paused line with: the hot config, the served place, her id and its observe path. */
 export type PausedDeps = {
   hot: unknown;
-  getGuildId: () => unknown;
-  isServed?: (communityId: string | null | undefined) => boolean;
+  isServed: (communityId: string | null | undefined) => boolean;
+  sharedPlaceOf?: (conversation: never, iface: string) => string;
   selfIdOf: () => unknown;
   observeLine: (
     event: never,
@@ -113,12 +120,11 @@ export async function observeWhilePaused(
   deps: PausedDeps,
   acceptedEvent?: AcceptedMessageEvent
 ): Promise<void> {
-  const guildId = deps.getGuildId();
   const selfId = deps.selfIdOf();
   const observed = pausedObservation(event, {
-    guildId: typeof guildId === 'string' ? guildId : null,
     selfId: typeof selfId === 'string' ? selfId : '',
-    ...(deps.isServed === undefined ? {} : { isServed: deps.isServed }),
+    isServed: deps.isServed,
+    ...(deps.sharedPlaceOf === undefined ? {} : { sharedPlaceOf: deps.sharedPlaceOf }),
   });
   // The pipeline's observe path takes the event the door validated.
   if (observed !== null) await deps.observeLine(event as never, observed.direct, observed.where, acceptedEvent);

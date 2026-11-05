@@ -77,7 +77,7 @@ function rig({
         lookup: lookup as unknown as Parameters<typeof runWebSearch>[0]['lookup'],
         config,
         labels,
-        guildId: 'g1',
+        placeId: 'g1',
         args: { query: QUERY },
       }),
   };

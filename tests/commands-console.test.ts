@@ -170,8 +170,8 @@ test('every read command of the table answers with exit 0 and asks no model', as
       '/config get pace.settleMs',
       '/model',
       '/routes',
-      '/memory recent',
-      '/memory lore list',
+      '/memory recent --place g1',
+      '/memory lore list --place g1',
       '/rules list',
       '/tools list',
       '/tools describe web.search',
@@ -390,9 +390,9 @@ test('/memory conversation prints a line of that conversation', async () => {
 test('/memory lore add stores an entry that /memory lore list then names', async () => {
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const added = await p(dirs, '/memory lore add Zetatower zetatower,spire The tower has seven floors');
+    const added = await p(dirs, '/memory lore add Zetatower zetatower,spire The tower has seven floors --place g1');
     assert.equal(added.code, 0, added.stdout + added.stderr.slice(-2000));
-    assert.ok((await p(dirs, '/memory lore list')).stdout.includes('Zetatower'));
+    assert.ok((await p(dirs, '/memory lore list --place g1')).stdout.includes('Zetatower'));
   });
 });
 
@@ -400,9 +400,9 @@ test('/memory lore add stores an entry that /memory lore list then names', async
 test('/memory lessons add stores a lesson that /memory lessons list then shows', async () => {
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const added = await p(dirs, '/memory lessons add zeta71 is spelled with a z');
+    const added = await p(dirs, '/memory lessons add zeta71 is spelled with a z --place g1');
     assert.equal(added.code, 0, added.stdout + added.stderr.slice(-2000));
-    assert.ok((await p(dirs, '/memory lessons list')).stdout.includes('zeta71 is spelled with a z'));
+    assert.ok((await p(dirs, '/memory lessons list --place g1')).stdout.includes('zeta71 is spelled with a z'));
   });
 });
 
@@ -568,6 +568,66 @@ function everyLine(): Array<string> {
 // The operations no grant opens to her (src/tools/access.ts#NOT_GRANTABLE_TO_PERSONA) have no way to run once `/nep`
 // is gone but a command of the chat: she cannot run them for the owner. `/doctor` with its scopes and `/logs` run no operation and
 // read the machine, so they are left out.
+/** A console over `places`, its operations refusing a command with no place as the core's do. */
+function placeConsole(places: Array<string>) {
+  const seen: Array<unknown> = [];
+  const dir = tempDir('nep-console-place-');
+  const desk = createConsole({
+    runOp: (_op, _args, context) => {
+      seen.push(context.placeId);
+      return Promise.resolve(
+        context.placeId === null
+          ? { status: 'failed', code: 'PLACE_REQUIRED', summary: 'no place resolved yet', data: null }
+          : { status: 'ok', code: '', summary: 'done', data: null }
+      );
+    },
+    ownerReads: { lessons: () => '', aliases: () => '' },
+    places: () => places,
+    selfId: () => 'self-1',
+    hot: { config: { bot: { owners: [] } } },
+    privateDir: dir,
+    dataDir: dir,
+    memoryDb: null,
+    usage: null,
+    metrics: null,
+    conversationLines: () => [],
+    now: () => T0,
+  });
+  const run = (line: string) => {
+    const parsed = parseCommandLine(line);
+    assert.ok(parsed.ok);
+    return desk.run(parsed.name, parsed.args, { id: 'owner-1' });
+  };
+  return { run, seen };
+}
+
+test('a command with no place named runs in the only place served', async () => {
+  // Bug: with one server the owner has to name it on every line.
+  const { run, seen } = placeConsole(['place:a']);
+  assert.equal((await run('/memory recent')).status, 'ok');
+  assert.deepEqual(seen, ['place:a']);
+});
+
+test('a command with no place named among several answers with the choices and picks none', async () => {
+  // Bug: the first place stands in as a home, and the owner edits the wrong server's memory.
+  const { run, seen } = placeConsole(['place:a', 'place:b']);
+  const answer = await run('/memory recent');
+  assert.notEqual(answer.status, 'ok');
+  assert.ok(answer.text.includes('place:a') && answer.text.includes('place:b'), answer.text);
+  assert.deepEqual(seen, [null]);
+});
+
+test('a command names its place with --place, the words before it kept', async () => {
+  // Bug: a lore text that holds "--" loses its words to the flag parser.
+  const { run, seen } = placeConsole(['place:a', 'place:b']);
+  assert.equal((await run('/memory recent --place place:b')).status, 'ok');
+  assert.deepEqual(seen, ['place:b']);
+  const parsed = parseCommandLine('/memory lessons add one -- two --place place:a');
+  assert.ok(parsed.ok);
+  assert.equal(parsed.args.place, 'place:a');
+  assert.equal(parsed.args.text, 'one -- two');
+});
+
 test('every operation no grant opens to her runs from a command of the chat', async () => {
   const ran = new Set<string>();
   const managerCalls: Array<string> = [];
@@ -578,7 +638,7 @@ test('every operation no grant opens to her runs from a command of the chat', as
       return Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null });
     },
     ownerReads: { lessons: () => '', aliases: () => '' },
-    guildId: () => 'g1',
+    places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },
     privateDir: dir,

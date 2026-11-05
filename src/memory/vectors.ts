@@ -3,8 +3,8 @@
 // to a model; a caller hands in vectors and gets rows back.
 //
 // The index lives in the memory database (src/memory/db/service.ts), one unit per month of a row's
-// `occurredAt`, `guilds/<g>/vectors/<YYYY-MM>` (a private chat's rows under
-// `private/<userId>/vectors/` instead, never in the guild index), holding what the three files of a
+// `occurredAt`, `places/<g>/vectors/<YYYY-MM>` (a private chat's rows under
+// `private/<userId>/vectors/` instead, never in the place index), holding what the three files of a
 // month held: the manifest `{ v, gen, rows, bytes, metaBytes, model, dims, checksum }`, the int8 rows
 // (`dims` bytes each) and one jsonl line per row (its provenance, scale and norm). Readers trust the
 // manifest only. `rewrite` writes a new generation whole. Every row is quantised with its own scale
@@ -21,7 +21,7 @@
 // `memoryDb.writeUnit` (op `vectors`): the `vectors` rows and the month's `operational` row as map/vectors.js maps
 // them. A vector the index policy evicted (src/memory/db/index-policy.ts) is left out of a month as it is read.
 //
-// Logs carry counts, months and guild ids, never a row's contents.
+// Logs carry counts, months and place ids, never a row's contents.
 
 import path from 'node:path';
 import type { Db } from './db/types.ts';
@@ -134,24 +134,24 @@ function validManifest(value: Untyped) {
 
 export type Vectors = {
   append(
-    guildId: string,
+    placeId: string,
     rows: Array<{ meta: object; vector: ArrayLike<number> }>,
-    opts?: { privateUserId?: string | null; model?: string | null }
+    opts?: { model?: string | null }
   ): Promise<{ written: number }>;
   rewrite(
-    guildId: string,
+    placeId: string,
     month: string,
     keep: (meta: object) => boolean,
-    opts?: { privateUserId?: string | null }
+    _opts?: object
   ): Promise<{ kept: number; dropped: number }>;
   replace(
-    guildId: string,
+    placeId: string,
     month: string,
     rows: Array<{ meta: object; vector: ArrayLike<number> }>,
-    opts?: { privateUserId?: string | null; model?: string | null; keep?: ((meta: object) => boolean) | null }
+    opts?: { model?: string | null; keep?: ((meta: object) => boolean) | null }
   ): Promise<{ written: number; kept: number; dropped: number }>;
   search(
-    guildId: string,
+    placeId: string,
     query: ArrayLike<number>,
     opts?: {
       months?: Array<string> | null;
@@ -159,14 +159,10 @@ export type Vectors = {
       to?: string | number | null;
       filter?: ((meta: object) => boolean) | null;
       k?: number;
-      privateUserId?: string | null;
     }
   ): Promise<Array<{ meta: object; score: number }>>;
-  stats(
-    guildId: string,
-    opts?: { privateUserId?: string | null }
-  ): Promise<{ months: number; rows: number; bytes: number }>;
-  has(guildId: string, month: string, opts?: { privateUserId?: string | null }): Promise<Set<string>>;
+  stats(placeId: string, _opts?: object): Promise<{ months: number; rows: number; bytes: number }>;
+  has(placeId: string, month: string, _opts?: object): Promise<Set<string>>;
 };
 
 type VectorSearchOptions = {
@@ -175,11 +171,9 @@ type VectorSearchOptions = {
   to?: string | number | null;
   filter?: ((meta: object) => boolean) | null;
   k?: number;
-  privateUserId?: string | null;
 };
 
 type VectorReplaceOptions = {
-  privateUserId?: string | null;
   model?: string | null;
   keep?: ((meta: object) => boolean) | null;
 };
@@ -244,7 +238,7 @@ function storedMeta(meta: Untyped, row: Untyped, iso: string, scale: Untyped, no
     id: typeof source.id === 'string' ? source.id : String(source.id ?? ''),
     revision: source.revision ?? null,
     occurredAt: iso,
-    channelId: typeof source.channelId === 'string' && source.channelId ? source.channelId : null,
+    placeId: typeof source.placeId === 'string' && source.placeId ? source.placeId : null,
     by: typeof source.by === 'string' && source.by ? source.by : null,
     participants: idList(source.participants),
     sourceIds: idList(source.sourceIds),
@@ -273,7 +267,7 @@ function shapeError(month: string) {
  *   read rejects with a code), and the writers write it (see the head of this file), rejecting with the writer's
  *   code when it fails.
  *   A row's `meta`: `kind` ('record' | 'archive'), `id` (message id or item id), `revision`,
- *   `occurredAt`, `channelId`, `by`, `participants` (the union over the chunk's lines),
+ *   `occurredAt`, `placeId`, `by`, `participants` (the union over the chunk's lines),
  *   `sourceIds` (the message ids of every chunk line); stored with `row`, `scale` and `norm`.
  *   `append` adds each row to the current generation of its month; every vector of one call has the same length, and a month
  *   already holding rows refuses another length or model (`code: 'vectors-shape'`). `rewrite`
@@ -313,7 +307,7 @@ export function createVectors({
     return run;
   }
 
-  const { baseDir, monthDir, vectorKey } = vectorAddresses(memoryDb);
+  const { baseDir, monthDir, vectorKey } = vectorAddresses();
 
   const genFile = (dir: string, gen: Untyped, ext: Untyped) => path.join(dir, `${gen}.${ext}`);
 
@@ -496,9 +490,9 @@ export function createVectors({
   }
 
   async function append(
-    guildId: string,
+    placeId: string,
     rows: Array<{ meta: Untyped; vector: ArrayLike<number> }>,
-    { privateUserId = null, model = null }: { privateUserId?: string | null; model?: string | null } = {}
+    { model = null }: { model?: string | null } = {}
   ) {
     // Outside the chain: a writer queued behind a held append would wait for itself.
     if (typeof writerGate === 'function') await writerGate();
@@ -514,12 +508,12 @@ export function createVectors({
         if (!byMonth.has(month)) byMonth.set(month, []);
         byMonth.get(month).push({ quantized: quantize(row.vector), meta: row.meta, iso });
       }
-      const base = baseDir(guildId, privateUserId);
+      const base = baseDir(placeId);
       const db = seam.db();
       for (const [month, items] of [...byMonth].sort(([a], [b]) => a.localeCompare(b))) {
         await appendMonth(base, month, items, dims, model, db);
       }
-      log.info('vectors: appended', { guildId: String(guildId), rows: list.length, months: byMonth.size });
+      log.info('vectors: appended', { placeId: String(placeId), rows: list.length, months: byMonth.size });
       return { written: list.length };
     });
   }
@@ -559,17 +553,12 @@ export function createVectors({
     return { kept: keptRows.length, dropped };
   }
 
-  async function rewrite(
-    guildId: string,
-    month: string,
-    keep: (meta: object) => boolean,
-    { privateUserId = null }: { privateUserId?: string | null } = {}
-  ) {
+  async function rewrite(placeId: string, month: string, keep: (meta: object) => boolean) {
     if (!MONTH_RE.test(String(month))) throw new TypeError('vectors: month must be YYYY-MM');
     if (typeof writerGate === 'function') await writerGate();
     return serial(async () => {
-      const result = await rewriteMonth(baseDir(guildId, privateUserId), String(month), keep, seam.db());
-      if (result.dropped > 0) log.info('vectors: rewritten', { guildId: String(guildId), month, ...result });
+      const result = await rewriteMonth(baseDir(placeId), String(month), keep, seam.db());
+      if (result.dropped > 0) log.info('vectors: rewritten', { placeId: String(placeId), month, ...result });
       return result;
     });
   }
@@ -633,10 +622,10 @@ export function createVectors({
   }
 
   async function replace(
-    guildId: string,
+    placeId: string,
     month: string,
     rows: Array<{ meta: Untyped; vector: ArrayLike<number> }>,
-    { privateUserId = null, model = null, keep = null }: VectorReplaceOptions = {}
+    { model = null, keep = null }: VectorReplaceOptions = {}
   ) {
     if (!MONTH_RE.test(String(month))) throw new TypeError('vectors: month must be YYYY-MM');
     if (typeof writerGate === 'function') await writerGate();
@@ -651,31 +640,16 @@ export function createVectors({
         if (rowMonth !== String(month)) throw new TypeError(`vectors: a row of ${rowMonth} in a replace of ${month}`);
         return { quantized: quantize(row.vector), meta: row.meta, iso };
       });
-      const result = await replaceMonth(
-        baseDir(guildId, privateUserId),
-        String(month),
-        items,
-        dims,
-        model,
-        keep,
-        seam.db()
-      );
-      log.info('vectors: replaced', { guildId: String(guildId), month: String(month), ...result });
+      const result = await replaceMonth(baseDir(placeId), String(month), items, dims, model, keep, seam.db());
+      log.info('vectors: replaced', { placeId: String(placeId), month: String(month), ...result });
       return result;
     });
   }
 
   async function search(
-    guildId: string,
+    placeId: string,
     query: ArrayLike<number>,
-    {
-      months: asked = null,
-      from = null,
-      to = null,
-      filter = null,
-      k = 10,
-      privateUserId = null,
-    }: VectorSearchOptions = {}
+    { months: asked = null, from = null, to = null, filter = null, k = 10 }: VectorSearchOptions = {}
   ) {
     const limit = isIntegerNumber(k) && k > 0 ? k : 0;
     if (!limit || !query?.length) return [];
@@ -690,7 +664,7 @@ export function createVectors({
     const fromMs = fromIso ? Date.parse(fromIso) : -Infinity;
     const toMs = toIso ? Date.parse(toIso) : Infinity;
     const wanted = Array.isArray(asked) ? new Set(asked) : null;
-    const base = baseDir(guildId, privateUserId);
+    const base = baseDir(placeId);
     const heap: Array<{ meta: Untyped; score: number }> = [];
     for (const month of months(base, db)) {
       if (wanted && !wanted.has(month)) continue;
@@ -719,9 +693,9 @@ export function createVectors({
     return heap.sort((a, b) => b.score - a.score);
   }
 
-  async function stats(guildId: string, { privateUserId = null }: { privateUserId?: string | null } = {}) {
+  async function stats(placeId: string) {
     const db = seam.db();
-    const base = baseDir(guildId, privateUserId);
+    const base = baseDir(placeId);
     let count = 0;
     let rows = 0;
     let bytes = 0;
@@ -771,9 +745,9 @@ export function createVectors({
     return keys;
   }
 
-  async function has(guildId: string, month: string, { privateUserId = null }: { privateUserId?: string | null } = {}) {
+  async function has(placeId: string, month: string) {
     if (!MONTH_RE.test(String(month))) throw new TypeError('vectors: month must be YYYY-MM');
-    return keysOf(baseDir(guildId, privateUserId), String(month), false, seam.db());
+    return keysOf(baseDir(placeId), String(month), false, seam.db());
   }
 
   return { append, rewrite, replace, search, stats, has };

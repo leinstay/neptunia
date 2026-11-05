@@ -80,11 +80,11 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/simulation/` | public | The simulation's switch and its one key reader, which the paid scripts call. | `node:*`, `src/**` | required |
 | `src/setup/` | public | `neptunia setup`: the unit templates rendered for the installing user, the nine steps, the writing of the units, and the questions for her subharness backends, her self-development repository, her three mechanics and the watcher. | `node:*`, `src/**` | required |
 | `src/setup/clients.ts` | public | The clients of the core and their tokens on disk, for `neptunia setup` and `scripts/client-token.ts`. Tested through `tests/client-token.test.ts` and `tests/development-unit-layout.test.ts`. | `node:*`, `src/**` | none |
-| `src/board/` | public | The task board in the memory database: its tables, its state machine, the rights from clients.json, its operations from filing to review, and the reaper. | `node:*`, `src/board/**` | required |
+| `src/board/` | public | The task board in the memory database: its tables, its state machine, the rights from clients.json, its operations from filing to review, and the reaper. | `node:*`, `src/board/**`, `src/memory/migration/board-archive-sql.ts` | required |
 | `src/board/approval-view.ts` | public | The owner's gates read and answered through the board's own operations. Tested through `tests/tools-approvals.test.ts` on a real board. | `node:*`, `src/board/**` | none |
 | `src/board/archive.ts` | public | Her errands as rows of the board's errand lane, board v3's move of them out of the work archive, and the archive's comparison with the board. Tested through the board v3 and verify-errands tests. | `node:*`, `src/board/**` | none |
 | `src/board/costs.ts` | public | The board's costs.agents: the agents' spend by principal over today, 7 and 30 days. Tested through the board tests. | `node:*`, `src/board/**` | none |
-| `src/board/errands.ts` | public | The errand store's side of the board: its one write inside the memory writer's transaction, its reads of a guild's errands and of the ends not yet delivered. Tested through the errand board and errand tools board tests. | `node:*`, `src/board/**` | none |
+| `src/board/errands.ts` | public | The errand store's side of the board: its one write inside the memory writer's transaction, its reads of the errands and of the ends not yet delivered. Tested through the errand board and errand tools board tests. | `node:*`, `src/board/**` | none |
 | `src/board/fields.ts` | public | The checks of a board operation's arguments and the auto-triage settings. Tested through the board tests. | `node:*`, `src/board/**` | none |
 | `src/board/text.ts` | public | The plain text of a board answer, as the ledger's command line printed it. Tested through the board commands tests. | `node:*`, `src/board/**` | none |
 | `src/board/writer.ts` | public | The board's writes as writes of the memory writer, and the core's board port over them. Tested through the core board socket tests. | `node:*`, `src/board/**` | none |
@@ -121,7 +121,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/turn/targets.ts` | public | Where a post or a reaction lands, the link a post carries, and a post's check arguments. Tested through the turn tests. | `node:*`, `src/**` | none |
 | `src/turn/media.ts` | public | The re-watch tokens and the media of a history a turn's preparation works on. Tested through the turn tests. | `node:*`, `src/**` | none |
 | `src/turn/history.ts` | public | The history a turn reads with its reply parents and continues after a skill call. Tested through the turn, prompt anchors and replay loop tests. | `node:*`, `src/**` | none |
-| `src/turn/routing.ts` | public | The destination of words about a channel she cannot write in, the route of a routed call and the channel directory. Tested through the turn tests. | `node:*`, `src/**` | none |
+| `src/turn/routing.ts` | public | The channel directory of a turn and whether a conversation belongs to a community. Tested through the turn tests. | `node:*`, `src/**` | none |
 | `src/turn/journal.ts` | public | The journal records of a turn: skip codes, operations, diagnostics, send hashes, usage and the turn record. Tested through the journal turn, skill result and failed-earlier tests. | `node:*`, `src/**` | none |
 | `src/turn/calls.ts` | public | Her skill calls as a turn makes them: the requester, the call view, the search handles, the envelope, the answer split and the reply request's options. Tested through the replay skill, replay loop and turn tests. | `node:*`, `src/**` | none |
 | `src/turn/task-input.ts` | public | The `tasks` input of a turn's request. Tested through the turn tests. | `node:*`, `src/**` | none |
@@ -194,7 +194,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/pipeline/observe.ts` | public | A line's observation, sent to the memory database and awaited at most `memoryDb.observeTimeoutMs`. Tested through the core slice test. | `node:*`, `src/**` | none |
 | `src/pipeline/pause-notice.ts` | public | The pause notice: a direct call that arrives while the persona is paused gets one plain line, at most once per channel per `PAUSE_NOTICE_MINUTES` (10) of `src/behavior/limits.ts`. Tested through the events tests. | `node:*`, `src/**` | none |
 | `src/pipeline/pending-queue.ts` | public | The pending queue of calls that found the attention taken: added, replaced, evicted and requeued, with their log lines and their missed facts. Tested through the events tests. | `node:*`, `src/**` | none |
-| `src/pipeline/settle.ts` | public | The settle waits of calls and noticed comments from a channel the persona cannot write in, answered in the main channel once that channel is quiet. Tested through the events tests. | `node:*`, `src/**` | none |
 | `src/pipeline/types.ts` | public | The shapes the pipeline modules share. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
 | `src/errands/` | public | The errand service: the store, the client to the runner and the turns that bring results back. | `node:*`, `src/**` | required |
 | `src/intentions/` | public | The persona intentions: model, store, sources and the service that wakes them. | `node:*`, `src/**` | required |
@@ -207,6 +206,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/llm/` | public | The language model calls: OpenRouter, roles, budgets, token counts, limits and output parsing. | `node:*`, `src/**` | required |
 | `src/llm/role-keys.ts` | public | How a request finds its key in `.env` and `llm.keyByRole`, while a deployment has no `keys.json`. Re-exported by `src/llm/openrouter.ts`; tested through the role key tests of the client. | `node:*`, `src/**` | none |
 | `src/media/` | public | Pictures, video, audio, GIFs and drawing on the core side. | `node:*`, `src/**` | required |
+| `src/memory/migration/` | public | The offline conversion to places and the only decoders of the ids and paths a shipped database spells. | `node:*`, `src/**` | none |
 | `src/memory/` | public | The memory modules above the database: records, lore, episodes, recall ranking, vectors and backfills. | `node:*`, `src/**` | required |
 | `src/memory/types.ts` | public | The types the memory modules share: untyped JSON, the settings handle, the logger and the memory database. Types and two small guards, tested through the modules that use them. | `node:*`, `src/**` | none |
 | `src/memory/db/` | public | The memory database: schema, the single writer, sessions, wakes and the read paths. | `node:*`, `src/**` | required |

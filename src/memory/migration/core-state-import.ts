@@ -1,15 +1,15 @@
-// Explicit legacy core-state import for migration tools. Existing unit writers map guild values in one transaction.
+// Explicit legacy core-state import for migration tools. Existing unit writers map server values in one transaction.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { hasStorageUnits, ensureUnit } from './storage-units.ts';
+import { hasStorageUnits, ensureUnit } from '../db/storage-units.ts';
 import { legacyStorageKey } from './paths.ts';
 
 import { errorFields } from '../../error-fields.ts';
-import { isPlainObject } from './map/common.ts';
-import { applyUnitWrite, noteUnit } from './unit-write.ts';
-import { dbOf } from './types.ts';
-import type { MemoryHandle, Row } from './types.ts';
+import { isPlainObject } from '../db/map/common.ts';
+import { applyUnitWrite, noteUnit } from '../db/unit-write.ts';
+import { dbOf } from '../db/types.ts';
+import type { MemoryHandle, Row } from '../db/types.ts';
 
 const ROOT_NAMES = ['state', 'usage', 'metrics'] as const;
 const GUILD_NAMES = ['inner', 'missed', 'participation', 'gifs', 'media'] as const;

@@ -6,7 +6,7 @@ The persona can take a turn without an incoming message. Heartbeat, selfimprovem
 
 Heartbeat supplies an opportunity to notice ongoing life and decide whether to act. Attention concerns a person or conversation worth revisiting. A review collects pending matters. These wakes pass through the same turn machinery as a conversation and can result in silence.
 
-State belongs to one persona. Individual records carry their place and audience, so a thought about one server does not create another independent persona for that server. The scheduler and its queues are in [src/behavior/inner/](../src/behavior/inner/).
+State belongs to one persona, with no home community: `createInnerLife` takes none, the wakes and the kill switch run on a core that has only DMs, and the stored state is a persona collection. Individual records carry an optional destination place and an audience, so a thought about one server does not create another independent persona for that server. `src/behavior/inner/persona-sources.ts` reads the record and the journal over every served place. The scheduler and its queues are in [src/behavior/inner/](../src/behavior/inner/).
 
 The core clears a `stopped` flag left in the stored state before each tick (`releaseStoredStop` in `src/behavior/inner/status.ts`), because no command releases one.
 

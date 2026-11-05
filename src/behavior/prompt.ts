@@ -218,7 +218,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   never listed in `<directory>`, and a reply parent that mentions it is addressed to her
  *   (`<earlier>`'s open requests). Omitted -> no profile is left out for being hers.
  * @param input.history         Normalized channel messages, oldest first.
- *   `channelId` (see src/behavior/neighbors.ts#fetchNeighbors) is how `<server>` tells which
+ *   `placeId` (see src/behavior/neighbors.ts#fetchNeighbors) is how `<server>` tells which
  *   stored channel note, if any, belongs to a neighbour that contributed to `<other_channels>` --
  *   omitted (an older/direct caller) simply means that neighbour never gets its note shown.
  * @param input.trigger      Normalized message the turn answers (reply mode): a call,
@@ -242,7 +242,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  * @param [input.privateProfile]  The DM partner's private layer
  *   (store.getPrivate); read only when `privateChat` is set.
  * @param input.otherProfiles   Profiles of other people in the transcript, most relevant first.
- * @param [input.candidateProfiles]  Every member profile known in the guild
+ * @param [input.candidateProfiles]  Every member profile known in the place
  *   (store.listUserProfiles), scanned to pull a silent member into `<people>` by a
  *   real mention/name/alias in the trigger or the last few messages (see `splitPeople`
  *   above); [] or omitted -> nobody is pulled in. Also the source of `<attitudes>` (see
@@ -262,7 +262,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   the stable part, before `<directory>`, never cut) and shown beside each channel a line mentions
  *   (`labels.transcript.channel`, src/format.ts#formatTranscript); the request's
  *   `channelHandles` maps each handle back to its channel id.
- * @param [input.loreEntries]   The guild's stored lorebook (store.getLore), [] when memory is off.
+ * @param [input.loreEntries]   The place's stored lorebook (store.getLore), [] when memory is off.
  * @param [input.currentChannelId]  Id of the channel this turn happens in.
  * @param [input.descriptions]  Item id -> describer caption (see
  *   src/behavior/turn.ts, src/memory/describe.js): the only way a picture reaches the persona.
@@ -296,9 +296,9 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  * @param [input.drawOn]  Whether this turn may draw (an image client and Attach Files);
  *   false or omitted -> no drawing line in `<senses>`.
  * @param [input.customEmoji]  The served
- *   guild's custom emoji (src/behavior/emoji-index.ts#createEmojiIndex's `list()`). With
+ *   place's custom emoji (src/behavior/emoji-index.ts#createEmojiIndex's `list()`). With
  *   `features.customEmoji` on (a missing key counts as on) and a non-empty list, `<emoji>`
- *   renders (ranked by `guildMemory.emojiUsage`, see `emojiItems`) and `<senses>` carries
+ *   renders (ranked by `placeMemory.emojiUsage`, see `emojiItems`) and `<senses>` carries
  *   `senses.customEmoji`. Omitted or [] -> neither. With `labels.emoji.seenInChat` (and
  *   `entry`) set, the transcript's lines keep a custom emoji as a bare `:name:` and `<emoji>`
  *   describes the described ones not in its top list once, under that sub-heading; without
@@ -307,7 +307,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   for the `emoji:<id>` captions of `<emoji>`, the GIF captions of `<gifs>` and the three
  *   caption fields of a library GIF in the transcript (`transcript.gifKnownFields`, see
  *   gifFieldsMap).
- * @param [input.gifs]  The guild's GIF library (store.getGifs). With `features.gifs`
+ * @param [input.gifs]  The place's GIF library (store.getGifs). With `features.gifs`
  *   on (a missing key counts as on) and at least one entry, `<gifs>` renders (see `gifItems`;
  *   held per cache bucket with `stableFreeze`), the tail's `<gifs_recent>` names the listed GIFs
  *   the persona posted within `gifs.ownMarkHours` (ownGifLines, after `<emoji>`, paid from what
@@ -352,7 +352,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   pulled channels whose record says `readOnly`. A private chat ignores `pulled`, `source`,
  *   `elsewhereDestination` and `readOnlyIds`; with none of them given the request is
  *   the one built before pulled channels existed, save `senses.channels` on a server turn.
- * @param [input.recentLines]  The guild's recent lines (store.getRecent(guildId).lines;
+ * @param [input.recentLines]  The place's recent lines (store.getRecent(placeId).lines;
  *   an empty array for a store that holds none). With it an array, `features.recent` on (a
  *   missing key counts as on) and `labels.recent.header` and `labels.recent.line` present,
  *   `<recent>` renders after `<self_facts>` whenever the last `memory.recentHours` (72 when
@@ -375,7 +375,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   audiences). Omitted -> only the lines of `currentChannelId`.
  * @param [input.participation]  The
  *   persona's own exchanges on other channels, rendered as `<participation>` right after
- *   `<recent>` (see `participationView`): `state` is the guild's participation store
+ *   `<recent>` (see `participationView`): `state` is the place's participation store
  *   (store.getParticipation), `pickedIds` the pick classifier's episode ids
  *   (src/behavior/participation-pick.ts; [] or omitted: the newest are shown), `audience` the
  *   channels this turn may show them from (the `<recent>` and neighbour rule:
@@ -463,7 +463,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   previous think (src/behavior/previous-think.ts, chosen by the turn under features.previousThink): in
  *   the tail right after `<places>`, paid for with the fixed part and never cut; null leaves it out.
  * @param [input.stableFreeze]  The caller's long-lived holder of what
- *   the stable part shows from memory (src/behavior/turn.ts keeps one per guild): with
+ *   the stable part shows from memory (src/behavior/turn.ts keeps one per place): with
  *   `features.promptCache` exactly true, `<self_facts>` (and `<gifs>`) render as they were at the
  *   first request of the current time bucket, one bucket being the cache TTL
  *   (src/llm/openrouter.js#cacheTtlMs: an hour for `llm.cache.ttl` `'1h'`), see freezePerBucket;
@@ -484,7 +484,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   with features.mentionHandles off (src/behavior/turn.ts#resolveMentions). `handles` maps
  *   every mention handle of the request to its member id (src/behavior/turn.ts#renderPost): with
  *   features.mentionHandles on (a missing key counts as on) each member of `candidateProfiles`
- *   (the stored profiles of the served guild, never `selfId`'s) that has a name or an open
+ *   (the stored profiles of the served place, never `selfId`'s) that has a name or an open
  *   alias gets one and is listed in `<directory>` -- `labels.directory.lead`, then one
  *   `labels.directory.line` / `lineAliases` per member (src/behavior/handles.ts#renderDirectory),
  *   last in the stable part and never cut -- and every other author of the chat, the pulled
@@ -505,7 +505,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   budget's cut) and `deduped` (lines left out as already shown elsewhere in the request).
  *   `memoryReads` lists what the request carried from memory, `{ kind, id, block, ord }` each once, in the memory's own identity
  *   (an item's `itemId`, a channel id, a lore entry's id, a message id; see `noteItems`): the profile items shown,
- *   the channels, guild notes and lore kept, the lines and moments of `<recent>`, the `<participation>` episodes and
+ *   the channels, place notes and lore kept, the lines and moments of `<recent>`, the `<participation>` episodes and
  *   what the prefetch offered. The per-turn record (src/memory/db/service.js) writes it; no text depends on it.
  *   `seen` (seenOf) names what of the chat window went in: the kept lines' ids, the reply
  *   parents among them and the messages whose text attachments were previewed -- for the
@@ -531,7 +531,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     trigger: input.trigger,
     triggerKind: input.triggerKind,
     taggedCall: input.taggedCall,
-    guildMemory: input.guildMemory,
+    placeMemory: input.placeMemory,
     interlocutor: input.interlocutor,
     privateChat: input.privateChat,
     privateProfile: input.privateProfile,
@@ -689,7 +689,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     pulledKept,
     // pulledKeptOf (src/turn/request/pulled.ts) types a line's hash as possibly missing; the consumers need one.
     pulledViews: pulledViews as Array<{
-      channelId: string;
+      placeId: string;
       hashes: Map<string, string>;
       oldestTs: number;
       oldestId: string | number;
@@ -768,9 +768,7 @@ export function buildDiaryPlanRequest(input: BuildDiaryPlanRequestInput): {
       focusIds: [],
       excludeEpisodeKeys: new Set(),
       isShown:
-        typeof input.recentAudience === 'function'
-          ? input.recentAudience
-          : (channelId) => channelId === currentChannelId,
+        typeof input.recentAudience === 'function' ? input.recentAudience : (placeId) => placeId === currentChannelId,
       perMember: RECENT_EPISODES_PER_MEMBER,
     });
     const { entries } = recentEntries(view.items, {
@@ -783,7 +781,7 @@ export function buildDiaryPlanRequest(input: BuildDiaryPlanRequestInput): {
     if (entries.length > 0) recentBuilt = { header: fill(recentLabels.header, { hours: recentCfg.hours }), entries };
   }
 
-  const channelIds = channels.map((channel) => channel?.id).filter(Boolean);
+  const placeIds = channels.map((channel) => channel?.id).filter(Boolean);
   const { kept, stats, used } = fitSections(
     [
       {
@@ -796,7 +794,7 @@ export function buildDiaryPlanRequest(input: BuildDiaryPlanRequestInput): {
       {
         name: 'aboutChat',
         cap: caps.aboutChat,
-        items: aboutChatItems(input.guildMemory, labels, nameOf, learnedConfig(config)),
+        items: aboutChatItems(input.placeMemory, labels, nameOf, learnedConfig(config)),
       },
       {
         name: 'server',
@@ -805,7 +803,7 @@ export function buildDiaryPlanRequest(input: BuildDiaryPlanRequestInput): {
         items: serverItems(
           channels,
           currentChannelId,
-          channelIds,
+          placeIds,
           history,
           now,
           labels,

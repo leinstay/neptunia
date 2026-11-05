@@ -3,6 +3,7 @@
 // pulled channels, a diary post's plan, the drawing quota and the `<recent>` lines. The request phase
 // (src/turn/phases/request.ts) runs it after the wait.
 
+import { accountOf } from '../../../memory/addresses.ts';
 import { DELETED_LINES_MAX, deletedLinesOf, withDeletedLines } from '../../../behavior/deleted-lines.ts';
 import { DEFAULT_SET_KINDS, isSetKind } from '../../../behavior/diary.ts';
 import type { Neighbor } from '../../../behavior/neighbors.ts';
@@ -14,7 +15,6 @@ import type { Draft } from '../../draft.ts';
 import { describableCandidates } from '../../media.ts';
 import type { Participation } from '../../participation.ts';
 import type { VideoState } from '../../rewatch.ts';
-import { usableDestination } from '../../routing.ts';
 import { NO_RECENT } from '../../history.ts';
 import type { HistoryLine, PhaseContext, PhaseParams, PhasePrompts } from '../context.ts';
 import type { Opened } from '../preflight.ts';
@@ -42,7 +42,6 @@ export type Gathered = {
   neighborDescriptions: Map<string, unknown> | undefined;
   drawOn: boolean;
   readOnlyIds: Set<string>;
-  destination: { name?: string | null } | null;
   recent: ReturnType<Participation['recentInput']>;
   prompts: PhasePrompts;
 };
@@ -60,8 +59,8 @@ export async function gatherRequest(
   looked: Looked,
   waited: Waited
 ): Promise<Gathered> {
-  const { hot, store, clock, record, describer, images, recentInput } = ctx;
-  const { channel, guildId, isPrivate, prep } = opened;
+  const { hot, store, clock, record, describer, images, recentOfPlaces } = ctx;
+  const { channel, placeId, reading, isPrivate, prep } = opened;
   const { config, memoryOn, selfId, selfName, snapshot, now, prefetching, diaryPending } = setup;
   const { beforeBar } = setup;
   const { previewed, captions, captionCandidates, videoStage, videoCandidates } = staged;
@@ -79,12 +78,12 @@ export async function gatherRequest(
   if (!isPrivate && record && typeof record.iterate === 'function') {
     const found = await deletedLinesOf({
       record: record as Parameters<typeof deletedLinesOf>[0]['record'],
-      guildId,
-      channelId: channel.id,
+      placeId,
+      conversationId: channel.id,
       history,
       selfId,
       selfName,
-      nameOf: memoryOn ? (id) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
+      nameOf: memoryOn ? (id) => store.getUser(accountOf(store, id, channel.iface))?.names?.[0] ?? null : null,
       max: DELETED_LINES_MAX,
       clock,
     });
@@ -166,7 +165,7 @@ export async function gatherRequest(
   const neighborDescriptions =
     typeof describer?.cachedDescriptions === 'function' && neighbors.length > 0
       ? describer.cachedDescriptions(
-          guildId,
+          placeId,
           neighbors.flatMap((neighbor) => describableCandidates(neighbor.messages))
         )
       : undefined;
@@ -176,12 +175,10 @@ export async function gatherRequest(
   // record carries its own mark). A pulled channel whose block is shown is left out of the
   // neighbours by buildRequest itself.
   const readOnlyIds = new Set(
-    neighbors.filter((neighbor) => neighbor.readOnly === true).map((neighbor) => neighbor.channelId)
+    neighbors.filter((neighbor) => neighbor.readOnly === true).map((neighbor) => neighbor.placeId)
   );
-  // Where a call from a read-only channel is answered, for `<senses>`.
-  const destination = isPrivate ? null : usableDestination(snapshot, config).channel;
-  // `<recent>`: the guild's live recent lines (none: an empty list) and the channels this turn may show them from.
-  const recent = memoryOn ? recentInput({ channel, snapshot, guildId, isPrivate, config, now }) : NO_RECENT;
+  // `<recent>`: the place's live recent lines (none: an empty list) and the channels this turn may show them from.
+  const recent = memoryOn ? recentOfPlaces(reading, { channel, snapshot, isPrivate, config, now }) : NO_RECENT;
   // The prompts this request is built from, read once: the task labels below decide what it names.
   const prompts = hot.prompts;
   return {
@@ -199,7 +196,6 @@ export async function gatherRequest(
     neighborDescriptions,
     drawOn,
     readOnlyIds,
-    destination,
     recent,
     prompts,
   };

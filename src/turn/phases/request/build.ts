@@ -2,6 +2,7 @@
 // built (twice for a heartbeat whose handles follow the request's own lines), the record of the memory rows it carried
 // and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it last.
 
+import { accountOf } from '../../../memory/addresses.ts';
 import { buildRequest } from '../../../behavior/prompt.ts';
 import { NO_PLACES, diaryConversationIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
 import { turnRequestInput } from '../../../behavior/turn-input.ts';
@@ -28,6 +29,19 @@ import type { Told } from './facts.ts';
 import type { Waited } from './wait.ts';
 
 /** The request as buildRequest builds it. */
+/** A partner's private layer with what they said in their other linked DMs; null with neither. */
+function privateProfileOf(store: PhaseContext['store'], accountId: string): object | null {
+  const own = store.getPrivate(accountId) ?? null;
+  const linked = Reflect.get(Object(store), 'linkedPrivateOf')
+    ? (Reflect.get(Object(store), 'linkedPrivateOf') as (id: string) => Array<object>)(accountId)
+    : [];
+  if (linked.length === 0) return own;
+  const details = Array.isArray(Reflect.get(own ?? {}, 'details'))
+    ? (Reflect.get(own ?? {}, 'details') as Array<object>)
+    : [];
+  return { ...(own ?? {}), details: [...details, ...linked] };
+}
+
 export type BuiltRequest = ReturnType<typeof buildRequest>;
 
 /** The budget's line of a request: one entry per section (src/llm/budget.ts). */
@@ -61,15 +75,15 @@ export function buildTurnRequest(
   const { trigger = null, triggerKind = null, forced = false, source = null } = params;
   const { taskResult = null } = params;
   const diaryParams = params.diary ?? null;
-  const { channel, guildId, isPrivate } = opened;
+  const { channel, placeId, reading: holders, libraryPlace, isPrivate } = opened;
   const { config, transport, memoryOn, selfId, selfName, now, snapshot } = setup;
   const { serverOn } = planned;
   const { finalMode } = pulled;
   const { participationShown, participationStage, participationAudienceOf } = waited;
   const { history, neighbors, descriptions, neighborDescriptions, videos, imageAnswers, reads } = gathered;
   const { prefetchResult, drawOn, diaryPrep, pulled: pulledList, readOnlyIds } = gathered;
-  const { destination, recent, prompts } = gathered;
-  const { factsText, tasks, guildMemory, taggedCall, offPeriods, skillIndex } = told;
+  const { recent, prompts } = gathered;
+  const { factsText, tasks, placeMemory, taggedCall, offPeriods, skillIndex } = told;
   const pulled2 = pulledList;
   // Her tools, pinned for this turn (a grant removed meanwhile is still caught at each call): the skills granted to her
   // and the carried-over ones, as native tool definitions (or `<tools>` text), within a wake's own set
@@ -114,18 +128,19 @@ export function buildTurnRequest(
     trigger,
     triggerKind,
     taggedCall,
-    guildMemory: guildMemory ?? {},
-    interlocutor: memoryOn && trigger ? (store.getUser(guildId, trigger.authorId) ?? null) : null,
+    placeMemory: placeMemory ?? {},
+    interlocutor: memoryOn && trigger ? (store.getUser(accountOf(store, trigger.authorId)) ?? null) : null,
     // A private chat: the partner's private layer joins their public profile (only there).
     privateChat: isPrivate ? { userId: trigger?.authorId ?? null } : null,
-    privateProfile: isPrivate && memoryOn && trigger ? (store.getPrivate(guildId, trigger.authorId) ?? null) : null,
-    otherProfiles: memoryOn ? pickOtherProfiles(store, guildId, history, trigger?.authorId) : [],
-    candidateProfiles: memoryOn ? store.listUserProfiles(guildId) : [],
-    nameOf: memoryOn ? (id: string) => store.getUser(guildId, id)?.names?.[0] ?? null : null,
-    channels: memoryOn ? store.listChannels(guildId) : [],
+    privateProfile:
+      isPrivate && memoryOn && trigger ? privateProfileOf(store, accountOf(store, trigger.authorId)) : null,
+    otherProfiles: memoryOn ? pickOtherProfiles(store, placeId, history, trigger?.authorId) : [],
+    candidateProfiles: memoryOn ? store.listUserProfiles() : [],
+    nameOf: memoryOn ? (id: string) => store.getUser(accountOf(store, id))?.names?.[0] ?? null : null,
+    channels: memoryOn ? holders.flatMap((holder) => store.listChannels(holder) as Array<object>) : [],
     // `<channel_directory>`: every text channel the persona can read, with its handle (none in a private chat).
     channelDirectory: channelDirectoryOf(isPrivate ? null : snapshot),
-    loreEntries: memoryOn ? store.getLore(guildId) : [],
+    loreEntries: memoryOn ? holders.flatMap((holder) => store.getLore(holder) as Array<object>) : [],
     currentChannelId: channel.id,
     diaryChannelIds: diaryConversationIds(store),
     descriptions: descriptions ?? null,
@@ -141,12 +156,12 @@ export function buildTurnRequest(
     // The search of the server's own history: the value the lookup stage used.
     recallAvailable: serverOn,
     drawOn,
-    // The `<emoji>` block: the index's emoji (ranked by guildMemory.emojiUsage) and their cached captions.
+    // The `<emoji>` block: the index's emoji (ranked by placeMemory.emojiUsage) and their cached captions.
     customEmoji: emoji ? (emoji.list() ?? []) : [],
-    // The `<gifs>` block and the transcript's GIF handles: the guild's library.
-    gifs: typeof store.getGifs === 'function' ? (store.getGifs(guildId) ?? null) : null,
+    // The `<gifs>` block and the transcript's GIF handles: the place's library.
+    gifs: typeof store.getGifs === 'function' ? (store.getGifs(libraryPlace) ?? null) : null,
     // The cached captions of both lists.
-    mediaCache: emoji || typeof store.getGifs === 'function' ? (store.getMediaCache(guildId) ?? null) : null,
+    mediaCache: emoji || typeof store.getGifs === 'function' ? (store.getMediaCache(libraryPlace) ?? null) : null,
     // `<channel_view>`: the channels pulled into this turn (each with the last view of it
     // shown in this channel, when one is within context.pull.seenTtlMinutes), the one it is
     // about, the chat line put to the room, where a call from a read-only channel is answered.
@@ -161,7 +176,7 @@ export function buildTurnRequest(
               messages: linkCalls(linkTriggers(entry.messages), {
                 channel,
                 snapshot,
-                guildId,
+                placeId,
               }) as typeof entry.messages,
             }
           : entry
@@ -170,8 +185,8 @@ export function buildTurnRequest(
       now
     ),
     source,
+    elsewhereDestination: null,
     tasks: tasks.input,
-    elsewhereDestination: destination?.name ? { name: destination.name } : null,
     readOnlyIds,
     // `<recent>`: the last hours, its live lines and the members' moments (no block without the store).
     recentLines: recent.lines ?? null,
@@ -179,7 +194,7 @@ export function buildTurnRequest(
     // `<participation>`: the store read now, the classifier's picks when they came in time.
     participation: participationShown
       ? {
-          state: store.getParticipation(guildId),
+          state: store.getParticipation(placeId),
           pickedIds:
             participationStage?.done && Array.isArray(participationStage.value) ? participationStage.value : [],
           audience: participationAudienceOf,
@@ -187,7 +202,7 @@ export function buildTurnRequest(
         }
       : null,
     // `<senses>`: where the persona keeps its diary, when one is set.
-    diaryChannel: diaryChannelName(guildId, config, snapshot, finalMode === 'diary' ? channel : null),
+    diaryChannel: diaryChannelName(placeId, config, snapshot, finalMode === 'diary' ? channel : null),
     // A diary post: its past posts, its plan and what its search found.
     diary: diaryPrep
       ? {
@@ -214,12 +229,12 @@ export function buildTurnRequest(
     errands:
       finalMode === 'diary'
         ? null
-        : errandsInputFor({ guildId, channel, isPrivate, taskResult, config, labels: prompts?.labels, now }),
+        : errandsInputFor({ placeId, channel, isPrivate, taskResult, config, labels: prompts?.labels, now }),
     // `<intentions>`: hers and the proposed ones (features.intentions; none on a diary post).
     intentions:
       finalMode === 'diary'
         ? ''
-        : intentionsInputFor({ guildId, channel, snapshot, isPrivate, config, labels: prompts?.labels, now }),
+        : intentionsInputFor({ placeId, channel, snapshot, isPrivate, config, labels: prompts?.labels, now }),
     // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.ts); none on any other turn.
     wake: draft.inner ? wakeTextOf(heartbeatHandleBase) : factsText || null,
     // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
@@ -227,12 +242,12 @@ export function buildTurnRequest(
     // `<places>`: the places page on an addressed server turn, only with `context.places` exactly true (an inner turn has it in `<wake>`).
     places:
       !draft.inner && !isPrivate && finalMode !== 'diary'
-        ? placesInputFor({ guildId, config, labels: prompts?.labels })
+        ? placesInputFor({ placeId, config, labels: prompts?.labels })
         : null,
     // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).
-    previousThink: earlierThinkFor({ channel, guildId, isPrivate, draft, mode: finalMode }),
+    previousThink: earlierThinkFor({ channel, placeId, isPrivate, draft, mode: finalMode }),
     // `<self_facts>` and `<gifs>` held per cache bucket, so a memory batch rewrites the cache once at most.
-    stableFreeze: stableFreezeOf(guildId),
+    stableFreeze: stableFreezeOf(placeId),
   });
   let request = requestOf(requestInput);
   if (heartbeatRefs.length > 0) {
@@ -260,7 +275,7 @@ export function buildTurnRequest(
       memoryReads({
         turnId: draft.started.turnId,
         step: 's0',
-        guildId,
+        placeId,
         reads: request.memoryReads,
         ...(readContext?.id ? { contextId: readContext.id } : {}),
       });
@@ -271,8 +286,8 @@ export function buildTurnRequest(
   // The journal: what of the window went in, whose lines they were, what the budget dropped.
   if (draft.started && request.seen) {
     // The lines of the pulled channels whose block the request kept count as seen too, by channel.
-    const pulledSeen = (request.pulledKept ?? []).map(({ channelId, ids }) => ({
-      channelId,
+    const pulledSeen = (request.pulledKept ?? []).map(({ placeId: conversationId, ids }) => ({
+      placeId: conversationId,
       messageIds: [...ids],
     }));
     const pulledIdsSeen = pulledSeen.flatMap((entry) => entry.messageIds);
@@ -283,7 +298,7 @@ export function buildTurnRequest(
     };
     const keptIds = new Set(draft.seen.messageIds);
     const pulledLines = pulledSeen.flatMap(
-      ({ channelId }) => pulled2.find((entry) => entry.channelId === channelId)?.messages ?? []
+      ({ placeId: conversationId }) => pulled2.find((entry) => entry.placeId === conversationId)?.messages ?? []
     );
     const authors = [...history, ...pulledLines]
       .filter((message) => keptIds.has(message.id) && !message.self)

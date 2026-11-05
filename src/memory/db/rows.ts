@@ -34,7 +34,6 @@ import {
   LEGACY_AUTHORITY,
   dmPartnerOfPlace,
   externalTargetKey,
-  guildAuthorityOf,
   legacyAccountNative,
   legacyNativeKind,
   legacyPersonNative,
@@ -54,7 +53,7 @@ import type { Db, Log, Row, Rows } from './types.ts';
 const quote = (name: string): string => `"${String(name).replace(/"/g, '""')}"`;
 const bind = (value: unknown): unknown => (value === undefined ? null : value);
 const SELF_KINDS = new Set(SELF_SOURCE_KINDS);
-const CONTAINERS = new Set(['guild', 'server', 'workspace', 'category']);
+const CONTAINERS = new Set(['server', 'workspace', 'category']);
 
 const columnCache = new WeakMap<Db, Map<string, Set<unknown>>>();
 /** The columns a table has on this connection (an empty set for a table that does not exist). */
@@ -272,15 +271,6 @@ export function deriveRow(
   } else if (table === 'places' && have.has('authority_id') && Object.hasOwn(out, 'id')) {
     ensureInterface(db, out.iface);
     Object.assign(out, placeColumns(out));
-    if (
-      out.kind === 'guild' &&
-      typeof out.iface === 'string' &&
-      out.iface &&
-      out.native_id !== null &&
-      out.native_id !== undefined
-    ) {
-      ensureAuthority(db, guildAuthorityOf(out.native_id, out.iface), out.iface, `guild:${asText(out.native_id)}`);
-    }
   } else if (table === 'sources' && have.has('authority_id')) {
     if (Object.hasOwn(out, 'iface') && !own) out.authority_id = nativeAuthorityOf(out.iface);
     if (Object.hasOwn(out, 'kind') && !Object.hasOwn(row, 'author_kind')) {

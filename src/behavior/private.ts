@@ -34,7 +34,7 @@ function maxIso(a: Untyped, b: Untyped) {
 
 /**
  * Whether a DM from this author is answered. Checked in order: the switch
- * (`private.enabled === true`), membership in the served guild, a stored
+ * (`private.enabled === true`), membership in the served place, a stored
  * public profile, and the public `affinity.score >= private.minAffinity`
  * (owners skip this one check). A missing `private.minAffinity` fails closed
  * (no threshold passes).

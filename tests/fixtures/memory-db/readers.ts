@@ -7,6 +7,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Log, MemoryHandle } from '../../../src/memory/db/types.ts';
+import { dmPlaceId } from '../../../src/memory/db/ids.ts';
+import { legacyServerPlaceId } from '../../../src/memory/migration/paths.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { createVectors } from '../../../src/memory/vectors.ts';
 import { openTestMemory } from './service.ts';
@@ -15,6 +17,21 @@ import { BOARD_MIGRATIONS } from '../../../src/board/schema.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir, buildSecondGuild, envelope, guildDir, seen, writeJson, writeLines } from './datadir.ts';
 
 export { CHANNEL, GUILD, MEMBER };
+
+/** The place a synthetic guild's memory is held under. */
+export const placeOfGuild = (guild: string): string => legacyServerPlaceId('discord', guild);
+
+/**
+ * The place a read of `guild` asks, and the rest of its query: a private layer is the member's DM place, so a query that
+ * names one reads that place.
+ */
+export function readAt<Query extends { privateUserId?: string | null }>(
+  guild: string,
+  query: Query
+): { placeId: string; rest: Omit<Query, 'privateUserId'> } {
+  const { privateUserId, ...rest } = query;
+  return { placeId: privateUserId ? dmPlaceId('discord', privateUserId) : placeOfGuild(guild), rest };
+}
 export { GUILD_2 } from './datadir.ts';
 /** A third member, named by a few lines. */
 export const HIDDEN = '100000000000000003';
@@ -32,12 +49,12 @@ function addExtra(data: string): void {
     seen('400000000000000013', 1, 'a word of the hidden one', { occurredAt: '2026-10-21T08:06:00.000Z', recordedAt: '2026-10-21T08:06:01.000Z', by: HIDDEN, participants: [HIDDEN] }),
     {
       v: 1, id: 'r-said-1', kind: 'said', messageId: '400000000000000014', revision: 1, occurredAt: '2026-10-21T08:07:00.000Z',
-      recordedAt: '2026-10-21T08:07:01.000Z', guildId: GUILD, scope: { channel: CHANNEL }, replyTo: '400000000000000011', text: 'Ναι, of course',
+      recordedAt: '2026-10-21T08:07:01.000Z', placeId: GUILD, scope: { channel: CHANNEL }, replyTo: '400000000000000011', text: 'Ναι, of course',
       media: [], mentions: [], turnId: 'turn-2', opId: 'op-2', participants: [MEMBER], sourceMessageIds: ['400000000000000014'], origin: 'live',
     },
     {
       v: 1, id: 'r-del-1', kind: 'deleted', messageId: '400000000000000012', occurredAt: '2026-10-21T08:09:00.000Z', recordedAt: '2026-10-21T08:09:01.000Z',
-      guildId: GUILD, scope: { channel: CHANNEL_B }, participants: [OTHER], sourceMessageIds: ['400000000000000012'], origin: 'live',
+      placeId: GUILD, scope: { channel: CHANNEL_B }, participants: [OTHER], sourceMessageIds: ['400000000000000012'], origin: 'live',
     },
     seen('400000000000000011', 2, 'Χαίρετε, a second day (edited)', { occurredAt: '2026-10-21T08:00:00.000Z', recordedAt: '2026-10-21T08:10:01.000Z' }),
   ]);
@@ -61,32 +78,32 @@ function addExtra(data: string): void {
     v: 1, id: 'arp-1', kind: 'archive', event: 'expired', itemKind: 'detail', itemId: 'gone-item', revisionId: 'rv-arp-1',
     scope: { user: MEMBER, private: true }, participants: [MEMBER], observedAt: { date: '2026-10-03', precision: 'day' }, lastSeen: null,
     text: { text: 'a private café note' }, weight: 0.4, origin: 'live', by: 'archive', occurredAt: '2026-10-03T00:00:00.000Z',
-    recordedAt: '2026-10-01T00:00:00.000Z', guildId: GUILD,
+    recordedAt: '2026-10-01T00:00:00.000Z', placeId: GUILD,
   }]);
   writeJson(path.join(g, 'intentions.json'), {
     intentions: [
       {
         id: 'i2', purpose: 'ask how the café went', status: 'pending', createdAt: 1792000000000, updatedAt: 1792000001000, dueAt: 1792100000000,
-        expiresAt: 1793000000000, provenance: { kind: 'self', turnId: 't-2', channelId: CHANNEL, scope: 'group', participants: [MEMBER] }, history: [],
+        expiresAt: 1793000000000, provenance: { kind: 'self', turnId: 't-2', placeId: CHANNEL, scope: 'group', participants: [MEMBER] }, history: [],
       },
       {
         id: 'i3', purpose: 'a private reminder', status: 'pending', createdAt: 1792000002000, updatedAt: 1792000003000, dueAt: null,
-        expiresAt: 1793000000000, provenance: { kind: 'self', turnId: 't-3', channelId: null, scope: 'dm', participants: [MEMBER] }, history: [],
+        expiresAt: 1793000000000, provenance: { kind: 'self', turnId: 't-3', placeId: null, scope: 'dm', participants: [MEMBER] }, history: [],
       },
     ],
   });
   writeLines(path.join(g, 'intentions-archive.jsonl'), [{
     id: 'i0', purpose: 'an old plan', status: 'done', createdAt: 1791000000000, updatedAt: 1791000001000, dueAt: null,
-    provenance: { kind: 'self', turnId: 't-0', channelId: CHANNEL, scope: 'group' }, history: [],
+    provenance: { kind: 'self', turnId: 't-0', placeId: CHANNEL, scope: 'group' }, history: [],
   }]);
 }
 
 /** Vector months written by the engine itself: a private layer's, and a second guild month. */
 async function addVectors(data: string, memoryDb: Parameters<typeof createVectors>[0]['memoryDb']): Promise<void> {
   const vectors = createVectors({ dataDir: data, log: silent, memoryDb });
-  const row = (id: string, occurredAt: string, vector: Array<number>, extra: Record<string, unknown> = {}) => ({ meta: { kind: 'record', id, revision: 1, occurredAt, channelId: CHANNEL, by: MEMBER, participants: [MEMBER], sourceIds: [id], ...extra }, vector });
-  await vectors.append(GUILD, [row('400000000000000005', '2026-10-20T09:00:00.000Z', [0.5, -0.2, 0.1, 0.9])], { privateUserId: MEMBER, model: 'test/embedder' });
-  await vectors.append(GUILD, [
+  const row = (id: string, occurredAt: string, vector: Array<number>, extra: Record<string, unknown> = {}) => ({ meta: { kind: 'record', id, revision: 1, occurredAt, placeId: CHANNEL, by: MEMBER, participants: [MEMBER], sourceIds: [id], ...extra }, vector });
+  await vectors.append(dmPlaceId('discord', MEMBER), [row('400000000000000005', '2026-10-20T09:00:00.000Z', [0.5, -0.2, 0.1, 0.9])], { model: 'test/embedder' });
+  await vectors.append(placeOfGuild(GUILD), [
     row('400000000000000021', '2026-09-10T09:00:00.000Z', [0.1, 0.2, 0.3, 0.4]),
     row('400000000000000022', '2026-09-11T09:00:00.000Z', [-0.4, 0.3, 0.2, 0.1]),
     row('400000000000000023', '2026-09-12T09:00:00.000Z', [0.9, 0.1, -0.3, 0.2], { by: HIDDEN, participants: [HIDDEN] }),
@@ -115,7 +132,10 @@ export async function readerEnv({ archived = false }: { archived?: boolean } = {
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  buildSecondGuild(data);
+  const second = buildSecondGuild(data);
+  // Intentions, tasks and the diary are the persona's: one copy of each, the first guild's.
+  for (const name of ['intentions.json', 'intentions-archive.jsonl', 'tasks.json', 'tasks.jsonl', 'diary.json'])
+    fs.rmSync(path.join(second, name), { force: true });
   addExtra(data);
   const dbFile = path.join(data, 'memory.db');
   if (archived) {

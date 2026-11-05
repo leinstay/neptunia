@@ -24,12 +24,12 @@ export type HiddenLaterResult = {
 };
 
 /**
- * A view over the live state of one guild: prompts and config are getters
+ * A view over the live state of one place: prompts and config are getters
  * that read `hot` at call time, memory accessors read the store at call time.
  * Nothing is copied. `calibrator` measures tokens the way a real turn does
  * (the live ratio, read at call time) and never feeds the live calibrator;
  * without a live `calibrator` it is the identity one (ratio 1).
- * `memory.getRecent` is the guild's recent store (src/memory/store.js#getRecent),
+ * `memory.getRecent` is the place's recent store (src/memory/store.js#getRecent),
  * null for a store that keeps none. A view passed instead must offer the same
  * shape (a missing `calibrator` counts as the identity one, a missing
  * `memory.getRecent` as no recent store).
@@ -37,7 +37,7 @@ export type HiddenLaterResult = {
 export type LiveViewInput = {
   hot: { prompts: Untyped; config: Untyped };
   store: Untyped;
-  guildId: string;
+  placeId: string;
   calibrator?: { ratio: number; apply: (n: number) => number };
 };
 
@@ -50,7 +50,7 @@ export type LiveViewResult = {
     observe: (rawEstimate?: number, actualTokens?: number) => number;
   };
   memory: {
-    getGuild: () => Untyped;
+    getPlace: () => Untyped;
     getUser: (id: string | undefined) => Untyped;
     listUserProfiles: () => Array<Untyped>;
     listChannels: () => Array<Untyped>;
@@ -132,12 +132,12 @@ export type SandboxToolsetResult = {
  * @param [input.onUsage]  Called after every completion.
  * @param [input.descriptions]  Item id -> caption, rendered as the live transcript does.
  * @param [input.videos]  Item id -> video state (`{ state: 'watched', text }`), likewise.
- * @param [input.customEmoji]  The served guild's
+ * @param [input.customEmoji]  The served place's
  *   custom emoji (src/behavior/emoji-index.ts#createEmojiIndex `list()`); omitted, no `<emoji>`.
- * @param [input.gifs]  The guild's GIF library (store.getGifs); omitted, no `<gifs>` and no `<gif>` kept.
+ * @param [input.gifs]  The place's GIF library (store.getGifs); omitted, no `<gifs>` and no `<gif>` kept.
  * @param [input.mediaCache]  The describer cache (store.getMediaCache), read only, for both lists' captions.
- * @param [input.elsewhereDestination]  Where a call from a read-only channel is
- *   answered, as a live turn resolves it (src/behavior/turn.ts#usableDestination); omitted, no such line.
+ * @param [input.elsewhereDestination]  The channel `<senses>` names for a call from a read-only channel; omitted, no
+ *   such line.
  * @param [input.searchAvailable]  Whether a web search key is configured (the lookup's
  *   `hasSearch()`); only `true` adds the search line (with `features.webLookup` on). No search is run.
  */
@@ -239,7 +239,7 @@ export type SkillScenarioRequestResult = {
 
 export type CallMarkOfInput = {
   outcome: Untyped;
-  channelId: string;
+  placeId: string;
   at: number;
   postedId: Untyped;
   posted: Untyped;
@@ -354,7 +354,7 @@ export type StepRecord = {
 
 /** The memory a sandbox view reads: the live store's accessors or a moment's. */
 export type SandboxMemory = {
-  getGuild: () => Untyped;
+  getPlace: () => Untyped;
   getUser: (id: string | undefined) => Untyped;
   listUserProfiles: () => Array<Untyped>;
   listChannels: () => Array<Untyped>;

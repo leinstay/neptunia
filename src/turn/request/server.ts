@@ -25,8 +25,8 @@ export type StoredChannel = {
   readonly topWriters?: Array<{ id: string; count: number }>;
 };
 
-/** What the guild's memory holds about the server (store.getGuild), as `<about_chat>` and `<self_facts>` read it. */
-export type GuildMemory = {
+/** What the place's memory holds about the server (store.getPlace), as `<about_chat>` and `<self_facts>` read it. */
+export type PlaceMemory = {
   readonly patterns?: string;
   readonly starters?: string;
   readonly injokes?: Array<string>;
@@ -38,7 +38,7 @@ export type GuildMemory = {
 /** `learnedText`'s settings from the live config. */
 export type LearnedConfig = { max: number; halfLifeDays: number; confirmAfter: number | undefined };
 
-/** One thing people taught the persona (`guild.learned`). */
+/** One thing people taught the persona (`place.learned`). */
 type LearnedItem = Claim & { readonly text?: string; readonly from?: unknown };
 
 /** One stored lorebook entry. */
@@ -61,7 +61,7 @@ export function currentChannelFallback(
   if (!currentChannelId) return null;
   const source = [...history]
     .reverse()
-    .find((m): m is Message & { channelName: string } => m.channelId === currentChannelId && Boolean(m.channelName));
+    .find((m): m is Message & { channelName: string } => m.placeId === currentChannelId && Boolean(m.channelName));
   if (!source) return null;
   return {
     id: currentChannelId,
@@ -158,7 +158,7 @@ export const learnedConfig: (config?: Pick<RequestConfig, 'memory'>) => LearnedC
 
 /**
  * The `labels.aboutChat.learned` line's `{text}`: the top `learnedCfg.max`
- * stored guild items (`{ id, text, from?, weight, firstSeen, lastSeen }`, the
+ * stored place items (`{ id, text, from?, weight, firstSeen, lastSeen }`, the
  * same atomic items as a member's details) by RANK (decayed with
  * `learnedCfg.halfLifeDays`), in rank order, joined with `'; '`. Each item is
  * `aboutChat.learnedItem` (`{text}`/`{who}`) when its `from` resolves through
@@ -166,7 +166,7 @@ export const learnedConfig: (config?: Pick<RequestConfig, 'memory'>) => LearnedC
  * item label falls back to the next simpler form, then to the bare text. An
  * item below `learnedCfg.confirmAfter` gets `aboutChat.unsureMark` appended
  * when that label exists. `''` when there is nothing to show.
- * `learned` is `guild.learned`, `a` is `labels.aboutChat`, `learnedCfg` see `learnedConfig`.
+ * `learned` is `place.learned`, `a` is `labels.aboutChat`, `learnedCfg` see `learnedConfig`.
  */
 export function learnedText(
   learned: unknown,
@@ -192,7 +192,7 @@ export function learnedText(
 /**
  * The `<about_chat>` lines: how this server talks (`patterns`), how people
  * start conversations (`starters`), the in-jokes, then what people taught the
- * persona (`guild.learned`, see `learnedText` above) -- the last one only when
+ * persona (`place.learned`, see `learnedText` above) -- the last one only when
  * `labels.aboutChat.learned` exists, so an older labels.json simply never
  * renders it. Every stored text is token-resolved via `nameOf`.
  * `learnedCfg` carries `max`/`halfLifeDays`/`confirmAfter`, read by the
@@ -200,7 +200,7 @@ export function learnedText(
  * `memory.confirmAfter` at the moment of use.
  */
 export function aboutChatItems(
-  guildMemory: GuildMemory | null | undefined,
+  placeMemory: PlaceMemory | null | undefined,
   labels: Labels,
   nameOf: NameOf,
   learnedCfg: Partial<LearnedConfig> = {},
@@ -208,20 +208,20 @@ export function aboutChatItems(
 ): Array<string> {
   const a = labels.aboutChat;
   const items: Array<string> = [];
-  // The collector: the two prose notes of the guild are rows of their own; the lists have no stable item ids.
+  // The collector: the two prose notes of the place are rows of their own; the lists have no stable item ids.
   const push = (text: string, id: string | null = null) => {
     items.push(text);
     if (Array.isArray(ids)) ids.push(id);
   };
-  if (guildMemory?.patterns)
-    push(fill(a.patterns, { text: resolveChatText(guildMemory.patterns, nameOf) }), 'patterns');
-  if (guildMemory?.starters)
-    push(fill(a.starters, { text: resolveChatText(guildMemory.starters, nameOf) }), 'starters');
-  if (guildMemory?.injokes?.length) {
-    push(fill(a.injokes, { text: guildMemory.injokes.map((text) => resolveChatText(text, nameOf)).join('; ') }));
+  if (placeMemory?.patterns)
+    push(fill(a.patterns, { text: resolveChatText(placeMemory.patterns, nameOf) }), 'patterns');
+  if (placeMemory?.starters)
+    push(fill(a.starters, { text: resolveChatText(placeMemory.starters, nameOf) }), 'starters');
+  if (placeMemory?.injokes?.length) {
+    push(fill(a.injokes, { text: placeMemory.injokes.map((text) => resolveChatText(text, nameOf)).join('; ') }));
   }
   if (a?.learned) {
-    const text = learnedText(guildMemory?.learned, a, learnedCfg, nameOf);
+    const text = learnedText(placeMemory?.learned, a, learnedCfg, nameOf);
     if (text) push(fill(a.learned, { text }));
   }
   return items;

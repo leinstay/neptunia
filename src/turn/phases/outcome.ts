@@ -47,7 +47,7 @@ function isQuietInner(draft: Draft, stepped: Rounded['stepped']): boolean {
 export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, rounded: Rounded): AttemptResult {
   const { hot, store, noteSpokeSaw, stampShownCalls, recordSkillUses } = ctx;
   const { opened, setup, pulled: pulledStep, gathered, told, stepped, serverShown, ownCallId } = rounded;
-  const { channel, guildId } = opened;
+  const { channel } = opened;
   const { now } = setup;
   const { finalMode } = pulledStep;
   const { history, pulled, diaryPrep } = gathered;
@@ -77,7 +77,6 @@ export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draf
             audience: audienceOfTurn(store, draft),
             store,
             config: hot.config,
-            guildId,
             now,
             plan: diaryPrep.plan,
             held: {

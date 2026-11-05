@@ -55,12 +55,12 @@ async function community({ enabled = true }: { enabled?: boolean } = {}) {
   OPEN.push(memory);
   seedMirror(memory.memoryDb, { iface: 'fake', conversationId: MIRROR, name: 'journal', enabled, at: NOW });
   freshWorld();
-  const line = (channelId: string) => ({
-    ...rawMessage({ id: `m-${channelId}`, ts: NOW - 30_000, content: 'γεια' }),
-    channelId,
+  const line = (placeId: string) => ({
+    ...rawMessage({ id: `m-${placeId}`, ts: NOW - 30_000, content: 'γεια' }),
+    placeId,
   });
-  world().channel({ id: 'c1', name: 'general', guildId: GUILD, historyMessages: [line('c1')] });
-  world().channel({ id: MIRROR, name: 'journal', guildId: GUILD, historyMessages: [line(MIRROR)] });
+  world().channel({ id: 'c1', name: 'general', placeId: GUILD, historyMessages: [line('c1')] });
+  world().channel({ id: MIRROR, name: 'journal', placeId: GUILD, historyMessages: [line(MIRROR)] });
   const adapter: Fake = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   const reads = world().adopt(adapter);
   const port = guardMirrorPort(adapter, { memoryDb: memory.memoryDb });
@@ -111,7 +111,7 @@ async function turnIn(
     hot,
     store,
     client,
-    getGuildId: () => GUILD,
+    isServedCommunity: (id: unknown) => id === GUILD,
     port: core.port,
     reads: core.reads,
     images,
@@ -146,7 +146,7 @@ async function turnIn(
     wake
       ? turns.runTurn({
           conversation,
-          guildId: GUILD,
+          placeId: GUILD,
           mode: 'inner',
           triggerKind: 'inner',
           inner: { wake, shadow: false, mayAct: () => true },
@@ -157,7 +157,7 @@ async function turnIn(
           triggerKind: 'mention',
           trigger: {
             id: `m-${here}`,
-            channelId: here,
+            placeId: here,
             authorId: 'u1',
             authorName: 'Alice',
             self: false,
@@ -189,8 +189,8 @@ const namesTheCode = (logs: Array<Record<string, unknown>>) => JSON.stringify(lo
 const intentionWake = {
   kind: 'intention_due',
   items: [{ kind: 'intention_due', reason: 'due', intentionIds: ['i1'], errandId: null }],
-  intentions: [{ id: 'i1', purpose: 'πες καλημέρα', dueAt: NOW - 60_000, channelId: MIRROR }],
-  channelId: MIRROR,
+  intentions: [{ id: 'i1', purpose: 'πες καλημέρα', dueAt: NOW - 60_000, placeId: MIRROR }],
+  placeId: MIRROR,
   now: NOW,
   timezone: 'UTC',
   channels: [],
@@ -273,6 +273,7 @@ function handlerOver(core: Community) {
     reads: core.reads,
     selfId: () => 'self-id',
     getSelfName: () => 'Bot',
+    isServedCommunity: (id: unknown) => id === GUILD,
     turns: {
       ...runner,
       runTurn: (params) => {
@@ -282,7 +283,6 @@ function handlerOver(core: Community) {
     },
     memory: createMemoryUpdater({ hot, store }),
     tagHistory: createTagHistory(),
-    getGuildId: () => GUILD,
     memoryDb: core.memory.memoryDb,
     port: core.port,
     rng: () => 0.5,

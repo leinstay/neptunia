@@ -35,7 +35,7 @@ const WAKE = {
   intentionIds: ['i1'],
   chainId: 'intention:i1',
   dueAt: T - MINUTE,
-  channelId: 'c1',
+  placeId: 'c1',
   privateChat: false,
 };
 // The effect keys of her turn: `<turnId>:<effectIndex>:<target>`.

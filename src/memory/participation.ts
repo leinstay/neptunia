@@ -5,14 +5,14 @@
 // each of hers, the message she answered when it is older, and a line or so
 // after. Code records it deterministically from the messages themselves (no
 // model decides what is kept); src/memory/store.ts keeps it in
-// data/guilds/<id>/participation.json and runs every write through
+// data/places/<id>/participation.json and runs every write through
 // `expireEpisodes`.
 //
 // Life of an episode: it lives `participation.hours` after her newest line in
 // it (`lastOwnAt`) and is dropped at the next write past that, never on read;
 // the storage cap (`participation.maxStored`) drops the oldest by `lastOwnAt`.
 // Besides that only a forget of a member (`purgeParticipationFor`: their lines
-// go, an episode left without a line of hers goes too) and a wipe of the guild
+// go, an episode left without a line of hers goes too) and a wipe of the place
 // (src/memory/store.ts) remove anything. Private chats are never recorded: an
 // episode always names its channel, and `recordOwnLine` refuses a line without
 // one.
@@ -66,7 +66,7 @@ export type ParticipationMessage = {
 /** A stretch of a channel around the persona's own lines: its messages, its times and the episode it continues. */
 export type Episode = {
   id: string;
-  channelId: string;
+  placeId: string;
   startAt: number;
   lastAt: number;
   lastOwnAt: number | null;
@@ -129,7 +129,7 @@ export function participationSettings(config: StoredRecord): ParticipationSettin
 }
 
 /**
- * The store of a guild nothing was recorded for yet.
+ * The store of a place nothing was recorded for yet.
  */
 export function emptyParticipation(): ParticipationState {
   return { episodes: [], nextId: 1 };
@@ -198,14 +198,14 @@ function messageOf(
 /** An episode with `messages` (sorted by `ts`), its times recomputed from them; its optional
  * `itemId` (a non-empty string) rides along, none is added. */
 function withMessages(
-  episode: { id: string; channelId: string; continues?: string | null; itemId?: unknown },
+  episode: { id: string; placeId: string; continues?: string | null; itemId?: unknown },
   messages: Array<ParticipationMessage>
 ): Episode {
   const sorted = [...messages].sort((a, b) => a.ts - b.ts);
   const own = sorted.filter((m) => m.self);
   const out: Episode = {
     id: episode.id,
-    channelId: episode.channelId,
+    placeId: episode.placeId,
     startAt: sorted[0].ts,
     lastAt: sorted[sorted.length - 1].ts,
     lastOwnAt: own.length ? own[own.length - 1].ts : null,
@@ -233,8 +233,8 @@ export function normalizeParticipation(value: unknown): ParticipationState {
   for (const raw of Array.isArray(source.episodes) ? source.episodes : []) {
     if (!isRecord(raw)) continue;
     const number = episodeNumber(raw.id);
-    const channelId = idOf(raw.channelId);
-    if (number === null || channelId === null || seenIds.has(raw.id)) continue;
+    const placeId = idOf(raw.placeId);
+    if (number === null || placeId === null || seenIds.has(raw.id)) continue;
     const messages: Array<ParticipationMessage> = [];
     const seenMessages = new Set<string>();
     for (const rawMessage of Array.isArray(raw.messages) ? raw.messages : []) {
@@ -247,18 +247,18 @@ export function normalizeParticipation(value: unknown): ParticipationState {
     seenIds.add(raw.id);
     highest = Math.max(highest, number);
     const continues = episodeNumber(raw.continues) === null ? null : raw.continues;
-    episodes.push(withMessages({ id: raw.id, channelId, continues, itemId: raw.itemId }, messages));
+    episodes.push(withMessages({ id: raw.id, placeId, continues, itemId: raw.itemId }, messages));
   }
   const storedNext = isIntegerNumber(source.nextId) && source.nextId >= 1 ? source.nextId : 1;
   return { episodes, nextId: Math.max(storedNext, highest + 1) };
 }
 
-/** The index of the newest episode of `channelId` in `episodes` (by `lastAt`, then position), or -1. */
-function newestOfChannel(episodes: Array<Episode>, channelId: string, key: 'lastAt' | 'lastOwnAt' = 'lastAt') {
+/** The index of the newest episode of `placeId` in `episodes` (by `lastAt`, then position), or -1. */
+function newestOfChannel(episodes: Array<Episode>, placeId: string, key: 'lastAt' | 'lastOwnAt' = 'lastAt') {
   let best = -1;
   for (let i = 0; i < episodes.length; i += 1) {
     const ep = episodes[i];
-    if (ep.channelId !== channelId) continue;
+    if (ep.placeId !== placeId) continue;
     if (best === -1 || (ep[key] ?? ep.lastAt) >= (episodes[best][key] ?? episodes[best].lastAt)) best = i;
   }
   return best;
@@ -291,7 +291,7 @@ function chainIds(episodes: Array<Episode>, episode: Episode) {
  * new messages that do not fit (the newest ones) start a new episode whose
  * `continues` names the full one. Texts are kept on one line and cut to
  * `maxTextChars` at a word boundary. The state comes back unchanged (the same
- * reference) when the line has no `channelId`, `own` is not a message (an id and
+ * reference) when the line has no `placeId`, `own` is not a message (an id and
  * a finite `ts`), her line is already past `hours` before `now`, or nothing new
  * would be added. Pure: no input is mutated.
  * @param [settings]  `participationSettings`'s shape; missing keys read as the defaults.
@@ -299,18 +299,18 @@ function chainIds(episodes: Array<Episode>, episode: Episode) {
 export function recordOwnLine(
   state: unknown,
   {
-    channelId,
+    placeId,
     own,
     before = [],
     parent = null,
-  }: { channelId: string; own: Untyped; before?: Array<Untyped>; parent?: Untyped },
+  }: { placeId: string; own: Untyped; before?: Array<Untyped>; parent?: Untyped },
   settings: Partial<ParticipationSettings> | undefined,
   now: number
 ): ParticipationState {
   const s = settingsOf(settings);
   // The caller's own stored state, handed back as it came when nothing changes.
   const unchanged = state as ParticipationState;
-  const channel = idOf(channelId);
+  const channel = idOf(placeId);
   const ownLine = messageOf(own, { maxTextChars: s.maxTextChars, self: true });
   if (channel === null || !ownLine) return unchanged;
   if (ownLine.ts < nowOf(now) - s.hours * HOUR_MS) return unchanged;
@@ -354,7 +354,7 @@ export function recordOwnLine(
     const part = fresh.slice(0, max);
     fresh = fresh.slice(max);
     const episode = withMessages(
-      { id: `p${nextId}`, channelId: channel, continues: previous ? previous.id : null },
+      { id: `p${nextId}`, placeId: channel, continues: previous ? previous.id : null },
       part
     );
     nextId += 1;
@@ -375,14 +375,14 @@ export function recordOwnLine(
  */
 export function recordFollowing(
   state: unknown,
-  { channelId, message }: { channelId: string; message: Untyped },
+  { placeId, message }: { placeId: string; message: Untyped },
   settings: Partial<ParticipationSettings> | undefined,
   now: number
 ): ParticipationState {
   const s = settingsOf(settings);
   // The caller's own stored state, handed back as it came when nothing changes.
   const unchanged = state as ParticipationState;
-  const channel = idOf(channelId);
+  const channel = idOf(placeId);
   const line = messageOf(message, { maxTextChars: s.maxTextChars });
   if (channel === null || !line || line.self) return unchanged;
   if (line.ts < nowOf(now) - s.hours * HOUR_MS) return unchanged;
@@ -457,16 +457,14 @@ function visibleEpisodes(
     excludeChannelId,
     audience,
     now,
-  }: { excludeChannelId?: string | null; audience?: (channelId: string) => boolean; now: number },
+  }: { excludeChannelId?: string | null; audience?: (placeId: string) => boolean; now: number },
   s: ParticipationSettings
 ) {
   const base = normalizeParticipation(state);
   const cutoff = nowOf(now) - s.hours * HOUR_MS;
   const exclude = idOf(excludeChannelId);
   const shows = typeof audience === 'function' ? audience : () => false;
-  return base.episodes.filter(
-    (ep) => Number(ep.lastOwnAt) >= cutoff && ep.channelId !== exclude && shows(ep.channelId)
-  );
+  return base.episodes.filter((ep) => Number(ep.lastOwnAt) >= cutoff && ep.placeId !== exclude && shows(ep.placeId));
 }
 
 /** A message's readable text for a headline: its text, else its caption, cut at a word boundary. */
@@ -485,7 +483,7 @@ function headlineColumn(messages: Array<ParticipationMessage>, cap: number): str
 /**
  * One headline per live episode, for the classifier that picks which ones a turn
  * shows, newest `lastOwnAt` first. The current channel (`excludeChannelId`) and
- * every channel `audience(channelId)` refuses are skipped; without an `audience`
+ * every channel `audience(placeId)` refuses are skipped; without an `audience`
  * predicate nothing is offered. `memberLine`: the first line not the persona's
  * (null when there is none), `selfLine`: her first line; each its text (or the
  * caption when the text is empty) cut to 120 characters at a word boundary.
@@ -500,11 +498,11 @@ export function episodeHeadlines(
     excludeChannelId,
     audience,
     now,
-  }: { excludeChannelId?: string | null; audience?: (channelId: string) => boolean; now: number },
+  }: { excludeChannelId?: string | null; audience?: (placeId: string) => boolean; now: number },
   settings?: StoredRecord
 ): Array<{
   id: string;
-  channelId: string;
+  placeId: string;
   lastOwnAt: number | null;
   ageMs: number;
   memberLine: string | null;
@@ -522,7 +520,7 @@ export function episodeHeadlines(
       const self = ep.messages.find((m) => m.self) as ParticipationMessage;
       return {
         id: ep.id,
-        channelId: ep.channelId,
+        placeId: ep.placeId,
         lastOwnAt: ep.lastOwnAt,
         ageMs: clock - Number(ep.lastOwnAt),
         memberLine: member ? headlineText(member) : null,
@@ -559,11 +557,11 @@ export function selectEpisodes(
   }: {
     pickedIds?: Array<string>;
     excludeChannelId?: string | null;
-    audience?: (channelId: string) => boolean;
+    audience?: (placeId: string) => boolean;
     now: number;
   },
   settings?: StoredRecord
-): Array<{ channelId: string; episodes: Array<Episode> }> {
+): Array<{ placeId: string; episodes: Array<Episode> }> {
   const s = settingsOf(settings);
   const visible = visibleEpisodes(state, { excludeChannelId, audience, now }, s);
   const byId = new Map(visible.map((ep) => [ep.id, ep]));
@@ -577,25 +575,25 @@ export function selectEpisodes(
   for (const ep of [...picked, ...newestFirst]) {
     if (chosen.length >= s.shown) break;
     if (chosen.includes(ep)) continue;
-    const count = perChannel.get(ep.channelId) ?? 0;
+    const count = perChannel.get(ep.placeId) ?? 0;
     if (count >= s.perChannel) continue;
-    perChannel.set(ep.channelId, count + 1);
+    perChannel.set(ep.placeId, count + 1);
     chosen.push(ep);
   }
 
   const groups = new Map();
   for (const ep of chosen) {
-    if (!groups.has(ep.channelId)) groups.set(ep.channelId, []);
-    groups.get(ep.channelId).push(ep);
+    if (!groups.has(ep.placeId)) groups.set(ep.placeId, []);
+    groups.get(ep.placeId).push(ep);
   }
   return [...groups.entries()]
-    .map(([channelId, episodes]) => ({ channelId, episodes: [...episodes].sort((a, b) => a.lastOwnAt - b.lastOwnAt) }))
+    .map(([placeId, episodes]) => ({ placeId, episodes: [...episodes].sort((a, b) => a.lastOwnAt - b.lastOwnAt) }))
     .sort((a, b) => b.episodes[b.episodes.length - 1].lastOwnAt - a.episodes[a.episodes.length - 1].lastOwnAt);
 }
 
 /**
  * The current channel's stretch the chat window no longer holds: the episodes of
- * `channelId` cut down to their lines older than `before` (the window's first
+ * `placeId` cut down to their lines older than `before` (the window's first
  * line) and no older than `earlierHours` before `now`; an episode left with no
  * line goes. The `earlierShown` episodes with the newest kept line are returned,
  * oldest first, each with its times recomputed from the kept lines (`lastOwnAt`
@@ -605,17 +603,17 @@ export function selectEpisodes(
  */
 export function earlierEpisodes(
   state: unknown,
-  { channelId, before, now }: { channelId: string; before: number; now: number },
+  { placeId, before, now }: { placeId: string; before: number; now: number },
   settings?: StoredRecord
 ): Array<Episode> {
   const s = settingsOf(settings);
-  const channel = idOf(channelId);
+  const channel = idOf(placeId);
   const shown = Math.floor(s.earlierShown);
   if (channel === null || !isFiniteNumber(before) || s.earlierHours <= 0 || shown <= 0) return [];
   const from = nowOf(now) - s.earlierHours * HOUR_MS;
   const out: Array<Episode> = [];
   for (const ep of normalizeParticipation(state).episodes) {
-    if (ep.channelId !== channel) continue;
+    if (ep.placeId !== channel) continue;
     const messages = ep.messages.filter((m) => m.ts < before && m.ts >= from);
     if (messages.length > 0) out.push(withMessages(ep, messages));
   }

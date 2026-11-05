@@ -3,7 +3,7 @@
 // without colour shows: selection and message kinds have to carry a shape or text of their own.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { KEY, chatEnv, pause, withChat } from './fixtures/chat-rig.ts';
+import { KEY, chatEnv, pause, until, withChat } from './fixtures/chat-rig.ts';
 import type { Rig } from './fixtures/chat-rig.ts';
 
 /** Cells of a fixture line: hiragana is the only wide script the fixtures use. */
@@ -26,11 +26,11 @@ test('Backspace over a family emoji in the input removes it whole', async () => 
   const { env, sent } = chatEnv();
   await withChat(env, async (rig) => {
     rig.type('a👨‍👩‍👧');
-    await pause();
+    await until(() => rig.screen().join('').includes('👨‍👩‍👧'));
     rig.type(KEY.backspace);
-    await pause();
+    await until(() => !rig.screen().join('').includes('👨'));
     rig.type(KEY.enter);
-    await pause();
+    await until(() => sent.length === 1);
   });
   assert.deepEqual(sent, ['a']);
 });
@@ -42,7 +42,7 @@ test('wide glyphs in a narrow terminal stay inside the frame, all of them shown'
     env,
     async (rig) => {
       rig.type('あ'.repeat(30));
-      await pause();
+      await until(() => rig.screen().join('').split('あ').length - 1 === 30);
       assertFits(rig, 14, 24);
       assert.equal(rig.screen().join('').split('あ').length - 1, 30);
     },
@@ -57,7 +57,7 @@ test('a near-minimum terminal keeps the input and fits its frame', async () => {
     env,
     async (rig) => {
       rig.type('typed-here');
-      await pause();
+      await until(() => /typed-here/.test(rig.screen().join('\n')));
       assertFits(rig, 20, 6);
       assert.match(rig.screen().join('\n'), /typed-here/);
     },
@@ -70,10 +70,10 @@ test('a tall draft stops growing, keeps its last typed row and leaves the newest
   const { env, entry } = chatEnv();
   await withChat(env, async (rig) => {
     entry({ who: 'her', text: 'the-newest-answer' });
-    await pause();
+    await until(() => rig.screen().join('\n').includes('the-newest-answer'));
     for (let line = 0; line < 40; line += 1) rig.type(`draft-${line}${KEY.ctrlJ}`);
     rig.type('draft-last');
-    await pause(100);
+    await until(() => rig.screen().join('\n').includes('draft-last'));
     assertFits(rig, 80, 24);
     const shown = rig.screen().join('\n');
     assert.match(shown, /draft-last/);
@@ -87,13 +87,13 @@ test('the transcript gives rows back when the composer shrinks, with no stale ro
   const { env, entry } = chatEnv();
   await withChat(env, async (rig) => {
     for (let index = 0; index < 60; index += 1) entry({ who: 'her', text: `entry-${index}` });
-    await pause(100);
+    await until(() => lineNumbers(rig, 'entry-').includes(59));
     const full = lineNumbers(rig, 'entry-').length;
     rig.type(`stale-row${KEY.ctrlJ}${KEY.ctrlJ}${KEY.ctrlJ}${KEY.ctrlJ}`);
-    await pause();
+    await until(() => lineNumbers(rig, 'entry-').length < full);
     assert.ok(lineNumbers(rig, 'entry-').length < full, 'the taller composer took rows from the transcript');
     for (let index = 0; index < 'stale-row'.length + 4; index += 1) rig.type(KEY.backspace);
-    await pause();
+    await until(() => lineNumbers(rig, 'entry-').length === full && !rig.screen().join('\n').includes('stale-row'));
     assert.equal(lineNumbers(rig, 'entry-').length, full);
     assert.equal(rig.screen().join('\n').includes('stale-row'), false);
     assertFits(rig, 80, 24);
@@ -105,15 +105,15 @@ test('a long session draws no more rows than fit, and Page Up reaches its first 
   const { env, entry } = chatEnv();
   await withChat(env, async (rig) => {
     for (let index = 0; index < 500; index += 1) entry({ who: 'her', text: `entry-${index}` });
-    await pause(150);
+    await until(() => lineNumbers(rig, 'entry-').includes(499));
     assertFits(rig, 80, 24);
     assert.ok(lineNumbers(rig, 'entry-').includes(499));
     assert.equal(lineNumbers(rig, 'entry-').includes(0), false);
     for (let page = 0; page < 80; page += 1) rig.type(KEY.pageUp);
-    await pause(150);
+    await until(() => lineNumbers(rig, 'entry-').includes(0));
     assert.ok(lineNumbers(rig, 'entry-').includes(0));
     for (let page = 0; page < 80; page += 1) rig.type(KEY.pageDown);
-    await pause(150);
+    await until(() => lineNumbers(rig, 'entry-').includes(499));
     assert.ok(lineNumbers(rig, 'entry-').includes(499));
   });
 });
@@ -123,16 +123,17 @@ test('an answer arriving while the reader is scrolled up leaves the screen where
   const { env, entry } = chatEnv();
   await withChat(env, async (rig) => {
     for (let index = 0; index < 100; index += 1) entry({ who: 'her', text: `entry-${index}` });
-    await pause(100);
+    await until(() => lineNumbers(rig, 'entry-').includes(99));
     rig.type(KEY.pageUp);
-    await pause();
+    await until(() => !lineNumbers(rig, 'entry-').includes(99));
     const reading = lineNumbers(rig, 'entry-');
     entry({ who: 'her', text: 'entry-100' });
+    // Nothing is expected to change here, so there is no condition to poll for: a fixed wait lets a wrong redraw show.
     await pause();
     assert.deepEqual(lineNumbers(rig, 'entry-'), reading);
     rig.type(KEY.pageDown);
     rig.type(KEY.pageDown);
-    await pause();
+    await until(() => lineNumbers(rig, 'entry-').includes(100));
     assert.ok(lineNumbers(rig, 'entry-').includes(100));
   });
 });
@@ -142,18 +143,18 @@ test('a resize while scrolled up keeps the anchor entry in view and the draft un
   const { env, entry, sent } = chatEnv();
   await withChat(env, async (rig) => {
     for (let index = 0; index < 100; index += 1) entry({ who: 'her', text: `entry-${index}` });
-    await pause(100);
+    await until(() => lineNumbers(rig, 'entry-').includes(99));
     rig.type('keep-draft');
-    await pause();
+    await until(() => rig.screen().join('\n').includes('keep-draft'));
     rig.type(KEY.pageUp);
-    await pause();
+    await until(() => !lineNumbers(rig, 'entry-').includes(99));
     const anchor = lineNumbers(rig, 'entry-')[0];
     rig.resize(40, 18);
-    await pause();
+    await until(() => rig.screen().length <= 18 && rig.screen().every((line) => cells(line) <= 40));
     assert.ok(lineNumbers(rig, 'entry-').includes(Number(anchor)));
     assertFits(rig, 40, 18);
     rig.type(KEY.enter);
-    await pause();
+    await until(() => sent.length === 1);
   });
   assert.deepEqual(sent, ['keep-draft']);
 });
@@ -165,7 +166,7 @@ test('a reply, a command result and the owner line differ without colour', async
     entry({ who: 'owner', text: 'same-words' });
     entry({ who: 'her', text: 'same-words' });
     entry({ who: 'system', text: 'same-words' });
-    await pause();
+    await until(() => rig.screen().filter((line) => line.includes('same-words')).length === 3);
     const rows = rig.screen().filter((line) => line.includes('same-words'));
     assert.equal(rows.length, 3);
     assert.equal(new Set(rows).size, 3);
@@ -177,7 +178,7 @@ test('the selected row of a menu has a mark of its own, and the mark moves', asy
   const { env } = chatEnv();
   await withChat(env, async (rig) => {
     rig.type('/');
-    await pause();
+    await until(() => rig.screen().some((line) => line.includes('/help')));
     const markOf = (name: string): string => {
       const line = rig.screen().find((one) => one.includes(`/${name}`)) ?? '';
       return line.slice(0, line.indexOf('/'));
@@ -185,7 +186,7 @@ test('the selected row of a menu has a mark of its own, and the mark moves', asy
     assert.notEqual(markOf('status'), markOf('help'));
     const selected = markOf('status');
     rig.type(KEY.down);
-    await pause();
+    await until(() => markOf('status') !== selected);
     assert.equal(markOf('help'), selected);
   });
 });
@@ -195,7 +196,7 @@ test('a control character in an answer is shown as text, never sent raw and neve
   const { env, entry } = chatEnv();
   await withChat(env, async (rig) => {
     entry({ who: 'her', text: 'before\u001b]52;c;QUJD\u0007after' });
-    await pause();
+    await until(() => /before.+after/.test(rig.screen().join('\n')));
     assert.equal(rig.frames().includes('\u001b]52'), false);
     assert.match(rig.screen().join('\n'), /before.+after/);
   });
@@ -208,7 +209,7 @@ test('the linear mode draws a plain column in reading order, with no borders and
     entry({ who: 'her', text: 'first-answer' });
     entry({ who: 'her', text: 'second-answer' });
     rig.type('my-draft');
-    await pause();
+    await until(() => rig.screen().join('\n').includes('my-draft'));
     const shown = rig.screen().join('\n');
     assert.equal(/[╭╮╰╯│─]/.test(shown), false);
     assert.equal(/@/.test(shown), false, 'no galaxy');

@@ -110,7 +110,7 @@ type Call = {
 
 function setup(start: number, watcher?: (now: number) => WatcherNews | null) {
   const clock = { t: start };
-  world().channel({ id: 'c1', name: 'chan-c1', guildId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -131,7 +131,6 @@ function setup(start: number, watcher?: (now: number) => WatcherNews | null) {
   const service = createIntentionService({
     stores: createIntentionStores({ dataDir: tempDir('nep-daily-'), now: () => clock.t, log: SILENT }),
     hot,
-    getGuildId: () => GUILD,
     now: () => clock.t,
     log: SILENT,
   });
@@ -161,7 +160,6 @@ function setup(start: number, watcher?: (now: number) => WatcherNews | null) {
     conversationName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
-    getGuildId: () => GUILD,
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
     selfimprovement: {
       granted: () => [],

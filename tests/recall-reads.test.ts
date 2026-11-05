@@ -30,7 +30,7 @@ test('reads a hit as a line of the clustering with no query yet attached', () =>
     { ...read, queries: [...read.queries] },
     {
       id: 'm7',
-      channelId: 'c1',
+      placeId: 'c1',
       ts: 5000,
       authorId: 'u1',
       bot: true,

@@ -36,8 +36,8 @@ test('a second attempt of a turn whose first attempt failed before its send carr
   world().channel({
     id: 'c1',
     name: 'general',
-    guildId: GUILD,
-    historyMessages: [{ ...rawMessage({ id: 'm1', ts: NOW - 30_000, content: 'γεια' }), channelId: 'c1' }],
+    placeId: GUILD,
+    historyMessages: [{ ...rawMessage({ id: 'm1', ts: NOW - 30_000, content: 'γεια' }), placeId: 'c1' }],
   });
   const adapter: Fake = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   const reads = world().adopt(adapter);
@@ -56,7 +56,15 @@ test('a second attempt of a turn whose first attempt failed before its send carr
   });
   const store = fakeStore();
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, getGuildId: () => GUILD, port, reads });
+  const admin = createAdmin({
+    discord: DISCORD,
+    hot,
+    store,
+    client,
+    isServedCommunity: (id: unknown) => id === GUILD,
+    port,
+    reads,
+  });
   // The key of each `message.create` call, as the turn hands it to the admin (her own operations or a member's).
   const callKeys: Array<string | null> = [];
   type RunOp = typeof admin.runSkillOp;
@@ -103,7 +111,7 @@ test('a second attempt of a turn whose first attempt failed before its send carr
       journalTurn: { turnId: TURN, attemptId },
       trigger: {
         id: 'm1',
-        channelId: 'c1',
+        placeId: 'c1',
         authorId: 'u1',
         authorName: 'Alice',
         self: false,

@@ -1,3 +1,4 @@
+import { placeOfCommunity } from '../src/memory/addresses.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { observe } from '../src/memory/db/observe.ts';
@@ -57,20 +58,20 @@ const DM = 'c-dm';
 const { ViewChannel, SendMessages, ReadMessageHistory, AddReactions } = PermissionFlagsBits;
 
 /**
- * A text channel the client knows: of the served guild g1 (`guildId` another, or a DM without a
+ * A text channel the client knows: of the served guild g1 (`placeId` another, or a DM without a
  * guild), the bot holding the permissions in `allowed` (every one when null).
  */
 function textChannel(
   id: string,
   {
-    guildId = 'g1',
+    placeId = 'g1',
     dm = false,
     allowed = null,
-  }: { guildId?: string; dm?: boolean; allowed?: Array<unknown> | null } = {}
+  }: { placeId?: string; dm?: boolean; allowed?: Array<unknown> | null } = {}
 ) {
   return {
     id,
-    guild: dm ? null : { id: guildId, members: { me: { id: SELF } } },
+    guild: dm ? null : { id: placeId, members: { me: { id: SELF } } },
     viewable: allowed === null || allowed.includes(ViewChannel),
     isTextBased: () => true,
     isDMBased: () => dm,
@@ -87,7 +88,7 @@ function clientChannels() {
     [ELSEWHERE, textChannel(ELSEWHERE, { allowed: [ViewChannel, ReadMessageHistory, AddReactions] })],
     [READ_ONLY, textChannel(READ_ONLY, { allowed: [ViewChannel, SendMessages, ReadMessageHistory] })],
     [NO_FILES, textChannel(NO_FILES, { allowed: [ViewChannel, SendMessages, ReadMessageHistory, AddReactions] })],
-    [OTHER_GUILD, textChannel(OTHER_GUILD, { guildId: 'g2' })],
+    [OTHER_GUILD, textChannel(OTHER_GUILD, { placeId: 'g2' })],
     [DM, textChannel(DM, { dm: true })],
   ]);
 }
@@ -103,7 +104,7 @@ function config({
     features: { tools: true, diary: true, ...features },
     tools: { safeMode: false, ...tools },
     bot: { owners: [OWNER], access },
-    selfreflection: { channelId: '', kinds: { photos: 1, thought: 1 }, ...diary },
+    selfreflection: { placeId: '', kinds: { photos: 1, thought: 1 }, ...diary },
   };
 }
 
@@ -312,8 +313,8 @@ function makeAdmin({
   const store = {
     state: { data: {}, markDirty() {} },
     getUser: () => null,
-    getGuild: () => ({}),
-    isPingsOff: (guildId: string, userId: string) => userId === '8',
+    getPlace: () => ({}),
+    isPingsOff: (placeId: string, userId: string) => userId === '8',
   };
   // What the interface says of each channel: its community and what she may do there.
   freshWorld();
@@ -329,7 +330,7 @@ function makeAdmin({
     hot,
     store,
     client: { user: { id: SELF }, channels: { cache: channels } },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     // What the persona and the members posted through the port is read back from it, as a platform does.
     reads: world().adopt(port, { sendsInHistory: true }),
     port,
@@ -357,16 +358,16 @@ function deps(
     }),
     runOp: admin.runSkillOp,
     runOwnOp: admin.runOwnSkillOp,
-    opContext: { guildId: 'g1', channelId: HERE },
+    opContext: { placeId: 'g1', conversationId: HERE },
     ...over,
   };
 }
 
 test("runOwnSkillOp: only her own expressive operations, without the requester's right", async () => {
   const { admin } = makeAdmin();
-  const other = await admin.runOwnSkillOp('lore.list', {}, { guildId: 'g1', userId: MEMBER });
+  const other = await admin.runOwnSkillOp('lore.list', {}, { placeId: 'g1', userId: MEMBER });
   assert.deepEqual([other.status, other.code], ['denied', 'not-self-owned']);
-  const own = await admin.runOwnSkillOp('intention.list', {}, { guildId: 'g1', userId: MEMBER, actor: 'persona' });
+  const own = await admin.runOwnSkillOp('intention.list', {}, { placeId: 'g1', userId: MEMBER, actor: 'persona' });
   assert.notEqual(own.code, 'not-self-owned', 'her own operation, for her, whoever asked');
 });
 
@@ -501,8 +502,8 @@ function gifLibrary(over = {}) {
   return {
     stamped,
     patch: (store: Untyped) => {
-      store.findGif = (guildId: string, handle: string) => entries[handle] ?? null;
-      store.recordOwnGif = (guildId: string, key: string, ts: number) => stamped.push(key);
+      store.findGif = (placeId: string, handle: string) => entries[handle] ?? null;
+      store.recordOwnGif = (placeId: string, key: string, ts: number) => stamped.push(key);
       Object.assign(store.state, { markDirty() {} });
     },
     ...over,
@@ -561,9 +562,9 @@ test('message.create gif=: an attached GIF posts a fresh URL of its attachment; 
     ]),
   });
   library.patch(store);
-  const entry = store.findGif('g1', 'g2');
-  Object.assign(entry, { messageId: 'm-src', channelId: HERE, itemId: 'item-2' });
-  store.findGif = (guildId: string, handle: string) => (handle === 'g2' ? entry : null);
+  const entry = store.findGif(placeOfCommunity(store, 'g1'), 'g2');
+  Object.assign(entry, { messageId: 'm-src', placeId: HERE, itemId: 'item-2' });
+  store.findGif = (placeId: string, handle: string) => (handle === 'g2' ? entry : null);
   const result = await executeCall(resolve('message.create', { gif: 'g2' }), deps(admin, port));
   assert.equal(result.status, 'ok');
   assert.equal(
@@ -632,7 +633,7 @@ test('resolveCall and executeCall: a file handle of one of her errands attaches 
 
 test("resolveCall: an errand's file goes to the channel the errand was asked in, elsewhere only to a channel its goal or the trigger names", async () => {
   const handle = 'file:tab2/meme.png';
-  const task = (goal: string) => ({ id: 'tab2', goal, origin: { channelId: HERE, messageId: '1001' } });
+  const task = (goal: string) => ({ id: 'tab2', goal, origin: { placeId: HERE, messageId: '1001' } });
   const fileOf = (goal: string) => (given: unknown) =>
     given === handle ? { name: 'meme.png', errand: task(goal) } : null;
   const here = { fileOf: fileOf('φέρε μια εικόνα εδώ') };
@@ -753,7 +754,7 @@ test("executeCall: a person who runs message.create gives her a turn; her own ca
   const person = await admin.runSkillOp(
     'message.create',
     { text: 'πες αυτό' },
-    { guildId: 'g1', channelId: HERE, userId: OWNER, roleIds: [] }
+    { placeId: 'g1', conversationId: HERE, userId: OWNER, roleIds: [] }
   );
   assert.equal(person.status, 'ok');
   assert.deepEqual(forced, [[HERE, null, { requester: { id: OWNER, roleIds: [] } }]]);
@@ -1017,13 +1018,13 @@ test('executeCall: an operation that does not answer in time is unknown, never r
       seen.push(args);
       return { status: 'ok', summary: 'none' };
     },
-    opContext: { guildId: 'g1', channelId: HERE },
+    opContext: { placeId: 'g1', conversationId: HERE },
   });
   assert.deepEqual(seen, [
     [
       'lore.list',
       { query: undefined },
-      { guildId: 'g1', channelId: HERE, userId: MEMBER, roleIds: ['r1'], actor: 'persona', invocationId: 'inv-9' },
+      { placeId: 'g1', conversationId: HERE, userId: MEMBER, roleIds: ['r1'], actor: 'persona', invocationId: 'inv-9' },
     ],
   ]);
 });
@@ -1151,7 +1152,7 @@ test("executeCall: an in-turn tool runs in place of the command, on the operatio
   );
   assert.deepEqual(result, { status: 'ok', data: { text: 'βρέθηκαν' } });
   assert.deepEqual(seen, [
-    { question: 'τι είπε η Ana', people: undefined, channelId: NEWS, when: undefined, terms: 'λαγός' },
+    { question: 'τι είπε η Ana', people: undefined, placeId: NEWS, when: undefined, terms: 'λαγός' },
   ]);
   // A result without a known status is a failure; one not back in time is unknown, never retried.
   const odd = await executeCall(
@@ -1433,11 +1434,11 @@ function pingsStore(off: Array<string> = []) {
     keys,
     state: { data: {}, markDirty() {} },
     getUser: () => null,
-    getGuild: () => ({}),
-    isPingsOff: (guildId: string, userId: string) => keys.has(`${guildId}:${userId}`),
-    setPingsOff(guildId: string, userId: string, value: unknown) {
-      if (value) keys.add(`${guildId}:${userId}`);
-      else keys.delete(`${guildId}:${userId}`);
+    getPlace: () => ({}),
+    isPingsOff: (placeId: string, userId: string) => keys.has(`${placeId}:${userId}`),
+    setPingsOff(placeId: string, userId: string, value: unknown) {
+      if (value) keys.add(`${placeId}:${userId}`);
+      else keys.delete(`${placeId}:${userId}`);
       return value;
     },
   };
@@ -1556,7 +1557,7 @@ test('stored memory handles carry exact source identity through execution into t
                 recall: recaller,
                 config: hot.config,
                 labels,
-                guildId: 'g1',
+                placeId: 'g1',
                 channel: current,
                 args,
                 now,

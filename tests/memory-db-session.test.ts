@@ -173,7 +173,8 @@ test('the request: the her-turn system text then the session prompt; blocks in t
     assert.match(people, /\[c\d+\] interest: likes café mornings/);
     assert.match(userText, /\[e1\] 2026-10-10 Ada: Ada helped with the move \(warm\)/);
     assert.match(userText, /open|pending: ask Ada about the move|pending: ask Ada/);
-    assert.match(userText, /<place>\nscope: group\n\[p1\] channel: general - chat\n\[p2\] guild: Server/);
+    // The intended request difference of this slice: the top of the tree is named `server:` in `prompts/memory-session.md`.
+    assert.match(userText, /<place>\nscope: group\n\[p1\] channel: general - chat\n\[p2\] server: Server/);
     assert.deepEqual(
       [...built.maps.places.entries()],
       [
@@ -830,10 +831,12 @@ test('the people block renders a stored profile the way her turns do, from the d
       selfName: 'Nep',
       now: NOW,
     });
-    // A unit that left the disk is a tombstone (`gone_at`): its profile is not rendered.
+    // A retired unit is a tombstone (`storage_units.retired_at`): its profile is not rendered.
     dbOf(handle)
-      .prepare("UPDATE files SET gone_at = '2026-10-24T00:00:00.000Z' WHERE path LIKE ?")
-      .run(`guilds/%/users/${MEMBER}.json`);
+      .prepare(
+        "UPDATE storage_units SET retired_at = '2026-10-24T00:00:00.000Z' WHERE kind = 'user' AND subject_id LIKE ?"
+      )
+      .run(`%${MEMBER}`);
     const withoutFile = buildSessionRequest({
       db: dbOf(handle),
       scope,
@@ -847,7 +850,9 @@ test('the people block renders a stored profile the way her turns do, from the d
       textOf(withoutFile.messages[1].content).length < textOf(built.messages[1].content).length,
       'the profile of a file that is gone is left out'
     );
-    dbOf(handle).prepare('UPDATE files SET gone_at = NULL WHERE path LIKE ?').run(`guilds/%/users/${MEMBER}.json`);
+    dbOf(handle)
+      .prepare("UPDATE storage_units SET retired_at = NULL WHERE kind = 'user' AND subject_id LIKE ?")
+      .run(`%${MEMBER}`);
     const people = textOf(built.messages[1].content);
     const stored = JSON.parse(
       fs.readFileSync(path.join(data, 'guilds', '300000000000000001', 'users', `${MEMBER}.json`), 'utf8')
@@ -1489,7 +1494,7 @@ test('batches are read in event time and each line names its place; the cursor s
     assert.match(lines[4], /^#3 \[2026-10-24 11:10\] \[p2\] Ada: later line/);
     assert.match(
       textOf(built.messages[1].content),
-      /\[p1\] channel: second\n\[p2\] channel: general - chat\n\[p3\] guild: Server/
+      /\[p1\] channel: second\n\[p2\] channel: general - chat\n\[p3\] server: Server/
     );
     const result = await sweep(ctxOf(env, { llm: fakeLlm(memoryBlock({})) }));
     assert.equal(result.runs[0].outcome, 'ok');

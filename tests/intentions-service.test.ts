@@ -121,7 +121,7 @@ function makeEnv({
     runTurn: async ({ taskResult }: Record<string, Untyped>) => {
       turnSaw.push({
         taskId: taskResult.id,
-        intentions: intentions.list('g1', { closed: true, all: true }).map((r) => ({ id: r.id, status: r.status })),
+        intentions: intentions.list({ closed: true, all: true }).map((r) => ({ id: r.id, status: r.status })),
       });
       return { outcome: 'spoke' };
     },
@@ -131,15 +131,13 @@ function makeEnv({
     client,
     stores,
     hot,
-    getGuildId: () => 'g1',
     now,
-    onFinished: (task, guildId) => door.submit(errandDoneEvent(task, guildId, now)),
+    onFinished: (task) => door.submit(errandDoneEvent(task, now)),
   });
   intentions = createIntentionService({
     stores: intentionStores,
     hot,
     errands,
-    getGuildId: () => 'g1',
     now,
   });
   const taskTurns = createErrandTurns({
@@ -149,7 +147,6 @@ function makeEnv({
     turns,
     errands,
     intentions,
-    getGuildId: () => 'g1',
     now,
     setTimer: wrongly(() => null),
   });
@@ -162,7 +159,7 @@ function makeEnv({
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     errands,
     intentions,
     now,
@@ -173,8 +170,8 @@ function makeEnv({
 /** Her own call's context in turn `turnId` (an owner asked). */
 const hers = (env: Env, turnId: string, extra = {}) => ({
   env,
-  guildId: 'g1',
-  channelId: 'c1',
+  placeId: 'g1',
+  conversationId: 'c1',
   userId: OWNER,
   roleIds: [],
   actor: 'persona',
@@ -183,10 +180,10 @@ const hers = (env: Env, turnId: string, extra = {}) => ({
   ...extra,
 });
 /** An owner's command. */
-const owner = (env: Env) => ({ env, guildId: 'g1', channelId: 'c1', userId: OWNER, roleIds: [] });
+const owner = (env: Env) => ({ env, placeId: 'g1', conversationId: 'c1', userId: OWNER, roleIds: [] });
 
 function onlyIntention(intentions: IntentionService) {
-  const list = intentions.list('g1');
+  const list = intentions.list();
   assert.equal(list.length, 1);
   return list[0];
 }
@@ -215,11 +212,11 @@ test('intention.set: her own intention is pending with its provenance, written t
       kind: 'self',
       turnId: 'T1',
       messageId: 'm1',
-      channelId: 'c1',
+      placeId: 'c1',
       scope: 'group',
       participants: [OWNER],
     });
-    await present(intentionStores.get('g1')).flush();
+    await present(intentionStores.get()).flush();
     const file = JSON.parse(wrongly(unitFile(memoryOf(dataDir), 'guilds/g1/intentions.json')));
     assert.deepEqual(
       file.intentions.map((r: Record<string, Untyped>) => r.id),
@@ -240,7 +237,7 @@ test('reliable waiting: a wait asked before a launch that fails leaves no waitin
     assert.equal(record.status, 'pending');
     assert.equal(record.awaitingErrandId, null);
     assert.equal(client.runs.length, 0);
-    assert.deepEqual(intentions.reconcile('g1'), { arrived: 0, missing: 0, deadline: 0, expired: 0 });
+    assert.deepEqual(intentions.reconcile(), { arrived: 0, missing: 0, deadline: 0, expired: 0 });
     // A wait on an errand the store does not hold is refused, never recorded.
     assert.equal(
       (await runOp('intention.update', { id: record.id, errand: 'tnothere' }, hers(env, 'T1'))).code,
@@ -274,11 +271,8 @@ test('reliable waiting: the errand of the same turn is linked, intention first; 
     assert.deepEqual(turnSaw, [{ taskId, intentions: [{ id: record.id, status: 'pending' }] }]);
     const before = JSON.stringify(record);
     // The same end delivered again changes nothing: the door drops the repeat, the service moves nothing.
-    assert.equal(
-      (await door.submit(errandDoneEvent(wrongly({ id: taskId, state: 'done' }), 'g1'))).status,
-      'duplicate'
-    );
-    assert.equal(intentions.onErrandFinished(wrongly({ id: taskId, state: 'done' }), 'g1'), 0);
+    assert.equal((await door.submit(errandDoneEvent(wrongly({ id: taskId, state: 'done' })))).status, 'duplicate');
+    assert.equal(intentions.onErrandFinished(wrongly({ id: taskId, state: 'done' })), 0);
     assert.equal(JSON.stringify(onlyIntention(intentions)), before);
     assert.equal(turnSaw.length, 1);
   });
@@ -305,13 +299,13 @@ test('reconciliation: an end that never arrived, a gone errand and a passed dead
       .intention.id;
     const ib = (await runOp('intention.set', { text: 'περιμένω το b', errand: b, deadline: '1h' }, owner(env))).data
       .intention.id;
-    assert.equal(intentions.list('g1').filter((r) => r.status === 'waiting').length, 2);
+    assert.equal(intentions.list().filter((r) => r.status === 'waiting').length, 2);
     // Errand a ends in the store with no completion event reaching the intentions.
-    present(stores.get('g1')).finish(a, { status: 'done', result: { text: 'x' } });
+    present(stores.get()).finish(a, { status: 'done', result: { text: 'x' } });
     clock.t = T0 + 2 * HOUR;
-    const counts = intentions.reconcile('g1');
+    const counts = intentions.reconcile();
     assert.deepEqual(counts, { arrived: 1, missing: 0, deadline: 1, expired: 0 });
-    const byId = Object.fromEntries(intentions.list('g1').map((r: Record<string, Untyped>) => [r.id, r]));
+    const byId = Object.fromEntries(intentions.list().map((r: Record<string, Untyped>) => [r.id, r]));
     assert.equal(byId[ia].status, 'pending');
     assert.equal(byId[ia].outcome.state, 'done');
     assert.equal(byId[ib].note, 'wait-deadline');
@@ -319,11 +313,11 @@ test('reconciliation: an end that never arrived, a gone errand and a passed dead
     const c = (await runOp('errand.run', { agent: 'scout', goal: 'c' }, owner(env))).data.task.id;
     const ic = (await runOp('intention.update', { id: ib, errand: c, deadline: '1h' }, owner(env))).data.intention.id;
     // The store no longer holds the errand.
-    const held = stores.get('g1');
+    const held = stores.get();
     const holds = present(held).get;
     present(held).get = (id) => (id === c ? null : holds(id));
-    assert.equal(intentions.reconcile('g1').missing, 1);
-    assert.equal(present(intentions.list('g1').find((r) => r.id === ic)).note, 'errand-missing');
+    assert.equal(intentions.reconcile().missing, 1);
+    assert.equal(present(intentions.list().find((r) => r.id === ic)).note, 'errand-missing');
   });
 });
 
@@ -335,13 +329,13 @@ test('intention.cancel: a cancelled intention is final; a restart reads every in
     assert.equal((await runOp('intention.cancel', { id: second }, owner(env))).status, 'ok');
     assert.equal((await runOp('intention.update', { id: second, state: 'pending' }, owner(env))).code, 'terminal');
     assert.equal((await runOp('intention.cancel', { id: second }, owner(env))).code, 'terminal');
-    const before = intentions.list('g1', { closed: true });
-    await present(intentionStores.get('g1')).flush();
+    const before = intentions.list({ closed: true });
+    await present(intentionStores.get()).flush();
     const again = makeEnv({ rootDir, clock });
-    assert.deepEqual(again.intentions.list('g1', { closed: true }), before);
+    assert.deepEqual(again.intentions.list({ closed: true }), before);
     assert.equal(
       again.intentions
-        .list('g1')
+        .list()
         .map((r) => r.id)
         .join(),
       first
@@ -359,7 +353,7 @@ test('intention.update / intention.cancel: the id alone in the body counts as th
     const done = await runOp('intention.update', { text: `${id}`, state: 'done' }, hers(env, 'T2'));
     assert.equal(done.status, 'ok', done.summary);
     assert.equal(done.data.intention.id, id);
-    const record = intentions.list('g1', { closed: true, all: true }).find((r) => r.id === id);
+    const record = intentions.list({ closed: true, all: true }).find((r) => r.id === id);
     assert.equal(present(record).status, 'done');
     assert.equal(present(record).purpose, 'ένα', 'the body was the id, not a new purpose');
     // A body that is not one bare id is the purpose as before; without an id the call is invalid.
@@ -371,7 +365,7 @@ test('intention.update / intention.cancel: the id alone in the body counts as th
     );
     const renamed = await runOp('intention.update', { id: other, text: 'τρία' }, hers(env, 'T3'));
     assert.equal(renamed.status, 'ok');
-    assert.equal(present(intentions.list('g1').find((r) => r.id === other)).purpose, 'τρία');
+    assert.equal(present(intentions.list().find((r) => r.id === other)).purpose, 'τρία');
     // An explicit id wins over a body that looks like one.
     const third = (await runOp('intention.set', { text: 'τέσσερα' }, hers(env, 'T4'))).data.intention.id;
     assert.equal(
@@ -390,53 +384,53 @@ test('intentions: markExpiredShown marks an expired intention once; an open one,
   const { intentions, clock } = makeEnv();
   const own = present(
     wrongly<Created>(
-      intentions.set('g1', {
+      intentions.set({
         purpose: 'soon gone',
         expiresAt: T0 + HOUR,
-        channelId: 'c1',
+        placeId: 'c1',
         scope: 'group',
       })
     ).intention
   );
   assert.deepEqual(
-    intentions.markExpiredShown('g1', own.id),
+    intentions.markExpiredShown(own.id),
     { ok: true, intention: own, changed: false },
     'still open: nothing to mark'
   );
   clock.t = T0 + HOUR;
-  assert.equal(intentions.list('g1', { closed: true })[0].status, 'expired', 'the sweep expired it');
+  assert.equal(intentions.list({ closed: true })[0].status, 'expired', 'the sweep expired it');
   clock.t = T0 + 2 * HOUR;
-  const marked = intentions.markExpiredShown('g1', own.id);
+  const marked = intentions.markExpiredShown(own.id);
   assert.equal(marked.changed, true);
   assert.equal(marked.intention.expiredShownAt, T0 + 2 * HOUR);
-  assert.equal(present(present(intentions.store('g1')).get(own.id)).expiredShownAt, T0 + 2 * HOUR, 'written');
-  assert.equal(intentions.markExpiredShown('g1', own.id).changed, false, 'once');
-  assert.deepEqual(intentions.markExpiredShown('g1', 'i00000000'), { ok: false, code: 'not-found' });
-  assert.equal(intentions.markExpiredShown(null, own.id).changed, false, 'the default guild is the same store');
+  assert.equal(present(present(intentions.store()).get(own.id)).expiredShownAt, T0 + 2 * HOUR, 'written');
+  assert.equal(intentions.markExpiredShown(own.id).changed, false, 'once');
+  assert.deepEqual(intentions.markExpiredShown('i00000000'), { ok: false, code: 'not-found' });
+  assert.equal(intentions.markExpiredShown(own.id).changed, false, 'the default guild is the same store');
 });
 
 test("private chats: her intention in a DM is the DM's own -- never in a server turn, not movable from a server channel, gone with a forget of the member", async () => {
   const { env, intentions } = makeEnv();
-  const dm = (extra = {}) => hers(env, 'T1', { channelId: 'dm1', privateChat: true, ...extra });
+  const dm = (extra = {}) => hers(env, 'T1', { conversationId: 'dm1', privateChat: true, ...extra });
   await withCapturedLogs(async () => {
     const set = await runOp('intention.set', { text: 'ρώτα την για τις εξετάσεις' }, dm());
     assert.equal(set.status, 'ok', set.summary);
     const id = set.data.intention.id;
-    const record = present(intentions.store('g1')).get(id);
+    const record = present(intentions.store()).get(id);
     assert.equal(present(record).provenance.scope, 'dm');
     assert.deepEqual(present(record).provenance.participants, [OWNER], 'the member of the private chat');
     assert.deepEqual(
-      intentions.view('g1').map((r) => r.id),
+      intentions.view().map((r) => r.id),
       [],
       'a server turn never sees it'
     );
     assert.deepEqual(
-      intentions.view('g1', { privateChannelId: 'dm2' }).map((r) => r.id),
+      intentions.view({ privateChannelId: 'dm2' }).map((r) => r.id),
       [],
       'nor another private chat'
     );
     assert.deepEqual(
-      intentions.view('g1', { privateChannelId: 'dm1' }).map((r) => r.id),
+      intentions.view({ privateChannelId: 'dm1' }).map((r) => r.id),
       [id]
     );
     // Her call from a server channel cannot reach it, even by its id.
@@ -480,22 +474,22 @@ test('intention.set / intention.update: every= makes a recurring intention with 
       hers(env, 'T1')
     );
     assert.equal(weekly.status, 'ok', weekly.summary);
-    const weeklyRecord = present(intentions.store('g1')).get(weekly.data.intention.id);
+    const weeklyRecord = present(intentions.store()).get(weekly.data.intention.id);
     assert.deepEqual(present(weeklyRecord).every, { period: 'week', at: '20:00' });
     assert.equal(present(weeklyRecord).dueAt, Date.parse('2026-10-19T17:00:00Z'));
     const cleared = await runOp('intention.update', { id: present(weeklyRecord).id, every: 'none' }, hers(env, 'T2'));
     assert.equal(cleared.status, 'ok', cleared.summary);
-    assert.equal(present(present(intentions.store('g1')).get(present(weeklyRecord).id)).every, null);
+    assert.equal(present(present(intentions.store()).get(present(weeklyRecord).id)).every, null);
     assert.doesNotMatch(cleared.summary, /every/);
     // An interval on an existing one-off; a new due re-pins a daily one.
     const twelve = await runOp('intention.update', { id: present(weeklyRecord).id, every: '12h' }, hers(env, 'T2'));
-    assert.deepEqual(present(present(intentions.store('g1')).get(present(weeklyRecord).id)).every, {
+    assert.deepEqual(present(present(intentions.store()).get(present(weeklyRecord).id)).every, {
       period: '12h',
       at: null,
     });
     assert.match(twelve.summary, /every 12h/);
     await runOp('intention.update', { id: record.id, due: '22:30' }, hers(env, 'T2'));
-    assert.deepEqual(present(present(intentions.store('g1')).get(record.id)).every, { period: 'day', at: '22:30' });
+    assert.deepEqual(present(present(intentions.store()).get(record.id)).every, { period: 'day', at: '22:30' });
     const noDue = (await runOp('intention.set', { text: 'y' }, hers(env, 'T3'))).data.intention.id;
     assert.equal(
       (await runOp('intention.update', { id: noDue, every: 'day' }, hers(env, 'T3'))).code,
@@ -511,38 +505,35 @@ test('intentions: state=done on a recurring one closes the occurrence only; adva
       .intention.id;
     clock.t = T0 + HOUR + 5 * 60_000;
     assert.deepEqual(
-      intentions.due('g1').map((d) => d.intention.id),
+      intentions.due().map((d) => d.intention.id),
       [id]
     );
     const done = await runOp('intention.update', { id, state: 'done' }, hers(env, 'T2'));
     assert.equal(done.status, 'ok', done.summary);
-    let record = present(intentions.store('g1')).get(id);
+    let record = present(intentions.store()).get(id);
     assert.equal(present(record).status, 'pending', 'never done');
     assert.equal(present(record).dueAt, T0 + HOUR + DAY);
     assert.equal(present(present(record).history.at(-1)).code, 'done-occurrence');
-    assert.deepEqual(intentions.due('g1'), [], 'the next occurrence is not due yet');
+    assert.deepEqual(intentions.due(), [], 'the next occurrence is not due yet');
     // The disposition's advance on an already advanced record changes nothing.
-    assert.equal(intentions.advance('g1', id, { named: true }).changed, false);
+    assert.equal(intentions.advance(id, { named: true }).changed, false);
     // The next occurrence, left alone: missed; touched by a call of hers: recurred.
     clock.t = T0 + HOUR + DAY + 60_000;
-    assert.equal(intentions.due('g1').length, 1);
-    assert.equal(intentions.advance('g1', id, { named: false }).changed, true);
-    record = present(intentions.store('g1')).get(id);
+    assert.equal(intentions.due().length, 1);
+    assert.equal(intentions.advance(id, { named: false }).changed, true);
+    record = present(intentions.store()).get(id);
     assert.equal(present(present(record).history.at(-1)).code, 'missed');
     assert.equal(present(present(record).history.at(-1)).by, 'engine');
     assert.equal(present(record).dueAt, T0 + HOUR + 2 * DAY);
-    assert.deepEqual(intentions.due('g1'), []);
+    assert.deepEqual(intentions.due(), []);
     clock.t = T0 + HOUR + 2 * DAY + 60_000;
-    assert.equal(
-      present(present(intentions.advance('g1', id, { named: true }).intention).history.at(-1)).code,
-      'recurred'
-    );
+    assert.equal(present(present(intentions.advance(id, { named: true }).intention).history.at(-1)).code, 'recurred');
     // A one-off is not advanced; a cancel ends a recurring one for good.
     const once = (await runOp('intention.set', { text: 'μία φορά', due: '1m' }, hers(env, 'T3'))).data.intention.id;
     clock.t += 2 * 60_000;
-    assert.equal(intentions.advance('g1', once, { named: false }).changed, false);
+    assert.equal(intentions.advance(once, { named: false }).changed, false);
     assert.equal((await runOp('intention.cancel', { id }, hers(env, 'T4'))).data.intention.status, 'cancelled');
-    assert.equal(intentions.advance('g1', id, { named: false }).changed, false);
+    assert.equal(intentions.advance(id, { named: false }).changed, false);
   });
 });
 
@@ -555,15 +546,15 @@ test("intentions: a recurring wait ends per occurrence -- the errand's end retur
     const taskId = launched.data.task.id;
     const waited = await runOp('intention.update', { id, errand: taskId, deadline: '2h' }, hers(env, 'T1'));
     assert.equal(waited.status, 'ok', waited.summary);
-    assert.equal(present(present(intentions.store('g1')).get(id)).status, 'waiting');
+    assert.equal(present(present(intentions.store()).get(id)).status, 'waiting');
     // The occurrence stays open while the wait runs: the disposition's advance leaves a waiting one alone.
-    assert.equal(intentions.advance('g1', id, { named: true }).changed, false);
+    assert.equal(intentions.advance(id, { named: true }).changed, false);
     await new Promise((r) => setImmediate(r));
     // The errand ends once the occurrence is due: the wait's end closes it and the outcome stays on the record.
     clock.t = T0 + 5 * 60_000;
     client.end(taskId);
     await errands.idle();
-    const record = present(intentions.store('g1')).get(id);
+    const record = present(intentions.store()).get(id);
     assert.equal(present(record).status, 'pending');
     assert.equal(present(record).dueAt, T0 + 60_000 + DAY, 'the next occurrence');
     assert.deepEqual(present(record).outcome, { errandId: taskId, state: 'done', at: clock.t });
@@ -592,7 +583,7 @@ test('intention.set attend=: an attention of hers with the defaults from wakes.a
     hers(env, 'T2')
   );
   assert.equal(own.status, 'ok', own.code);
-  const mine = intentions.list('g1').find((r) => r.purpose === 'follow the garden talk');
+  const mine = intentions.list().find((r) => r.purpose === 'follow the garden talk');
   assert.deepEqual(present(mine).attend, {
     place: 'c-garden',
     people: ['7', '8', '9'],
@@ -623,7 +614,7 @@ test('intention.set attend=: an attention of hers with the defaults from wakes.a
     (await runOp('intention.set', { attend: 'c-garden', perday: 'many' }, hers(env, 'T3'))).code,
     'bad-attend'
   );
-  assert.equal(intentions.list('g1').length, 2);
+  assert.equal(intentions.list().length, 2);
 });
 
 test('intention.update on an attention changes settle, perDay, people and expires; a due time or a recurrence is refused; cancel ends it; the day counter lives on the record', async () => {
@@ -636,7 +627,7 @@ test('intention.update on an attention changes settle, perDay, people and expire
     hers(env, 'T2')
   );
   assert.equal(updated.status, 'ok', updated.code);
-  const after = present(intentions.store('g1')).get(record.id);
+  const after = present(intentions.store()).get(record.id);
   assert.deepEqual(present(after).attend, {
     place: 'c-garden',
     people: ['7', '8'],
@@ -660,30 +651,30 @@ test('intention.update on an attention changes settle, perDay, people and expire
   assert.equal((await runOp('intention.update', { id: record.id, perday: 0 }, hers(env, 'T2'))).code, 'bad-attend');
   // A plain intention takes no attention arguments.
   await runOp('intention.set', { text: 'plain one' }, hers(env, 'T3'));
-  const plain = intentions.list('g1').find((r) => r.purpose === 'plain one');
+  const plain = intentions.list().find((r) => r.purpose === 'plain one');
   assert.equal(
     (await runOp('intention.update', { id: present(plain).id, settle: 5 }, hers(env, 'T3'))).code,
     'not-attend'
   );
   // The counter: the scheduler counts a wake; a new local day starts at zero; the service reads it.
-  assert.deepEqual(intentions.attendToday('g1', record.id), { day: '2026-10-18', wakes: 0 });
-  assert.equal(present(present(present(intentions.countAttendWake('g1', record.id).intention).attend).today).wakes, 1);
-  assert.equal(present(present(present(intentions.countAttendWake('g1', record.id).intention).attend).today).wakes, 2);
-  assert.deepEqual(intentions.attendToday('g1', record.id), { day: '2026-10-18', wakes: 2 });
+  assert.deepEqual(intentions.attendToday(record.id), { day: '2026-10-18', wakes: 0 });
+  assert.equal(present(present(present(intentions.countAttendWake(record.id).intention).attend).today).wakes, 1);
+  assert.equal(present(present(present(intentions.countAttendWake(record.id).intention).attend).today).wakes, 2);
+  assert.deepEqual(intentions.attendToday(record.id), { day: '2026-10-18', wakes: 2 });
   assert.deepEqual(
-    intentions.attending('g1').map((r) => r.id),
+    intentions.attending().map((r) => r.id),
     [record.id],
     'the open attentions, the plain one not among them'
   );
   clock.t = T0 + 24 * HOUR;
-  assert.deepEqual(intentions.attendToday('g1', record.id), { day: '2026-10-19', wakes: 0 }, 'the day changed');
-  assert.equal(present(present(present(intentions.countAttendWake('g1', record.id).intention).attend).today).wakes, 1);
-  assert.equal(intentions.countAttendWake('g1', present(plain).id).code, 'not-attend');
-  assert.equal(intentions.attendToday('g1', present(plain).id), null);
+  assert.deepEqual(intentions.attendToday(record.id), { day: '2026-10-19', wakes: 0 }, 'the day changed');
+  assert.equal(present(present(present(intentions.countAttendWake(record.id).intention).attend).today).wakes, 1);
+  assert.equal(intentions.countAttendWake(present(plain).id).code, 'not-attend');
+  assert.equal(intentions.attendToday(present(plain).id), null);
   // Cancel ends it; nothing reseeds it.
   assert.equal((await runOp('intention.cancel', { id: record.id }, hers(env, 'T4'))).status, 'ok');
-  assert.equal(present(present(intentions.store('g1')).get(record.id)).status, 'cancelled');
-  assert.deepEqual(intentions.attending('g1'), []);
+  assert.equal(present(present(intentions.store()).get(record.id)).status, 'cancelled');
+  assert.deepEqual(intentions.attending(), []);
   assert.equal((await runOp('intention.update', { id: record.id, settle: 1 }, hers(env, 'T4'))).code, 'terminal');
 });
 
@@ -713,11 +704,11 @@ test('intent dropped: set born dropped and update on an open one need a reason; 
     assert.match(dropped.data.text, /dropped, reason no longer needed/);
     assert.equal((await runOp('intention.update', { id, state: 'pending' }, hers(env, 'T2'))).code, 'terminal');
     assert.equal((await runOp('intention.cancel', { id }, hers(env, 'T2'))).code, 'terminal');
-    assert.deepEqual(intentions.list('g1'), []);
+    assert.deepEqual(intentions.list(), []);
     clock.t = T0 + 2 * HOUR;
-    assert.deepEqual(intentions.due('g1'), [], 'never wakes');
-    assert.equal(intentions.view('g1').length, 0);
-    const closed = intentions.list('g1', { closed: true, all: true }).map((r) => [r.id, r.status, r.reason]);
+    assert.deepEqual(intentions.due(), [], 'never wakes');
+    assert.equal(intentions.view().length, 0);
+    const closed = intentions.list({ closed: true, all: true }).map((r) => [r.id, r.status, r.reason]);
     assert.deepEqual(
       closed.sort(),
       [
@@ -726,7 +717,7 @@ test('intent dropped: set born dropped and update on an open one need a reason; 
       ].sort()
     );
     clock.t = T0 + 30 * 24 * HOUR;
-    assert.equal(intentions.list('g1', { closed: true, all: true }).length, 2, 'nothing prunes a dropped one');
+    assert.equal(intentions.list({ closed: true, all: true }).length, 2, 'nothing prunes a dropped one');
     assert.equal(wrongly<{ dropped?: unknown }>(intentions).dropped, undefined);
   });
 });
@@ -740,22 +731,22 @@ test("intent dropped: a drop from a recurring or waiting one ends it; a private 
       (await runOp('intention.update', { id, state: 'dropped', reason: 'boring' }, hers(env, 'T2'))).status,
       'ok'
     );
-    assert.equal(present(present(intentions.store('g1')).get(id)).status, 'dropped');
-    const dm = (extra = {}) => hers(env, 'T3', { channelId: 'dm1', privateChat: true, ...extra });
+    assert.equal(present(present(intentions.store()).get(id)).status, 'dropped');
+    const dm = (extra = {}) => hers(env, 'T3', { conversationId: 'dm1', privateChat: true, ...extra });
     const priv = await runOp('intention.set', { text: 'ρώτα την', state: 'dropped', reason: 'private matter' }, dm());
     assert.equal(priv.status, 'ok');
     assert.deepEqual(
-      intentions.list('g1', { closed: true }).map((r) => r.reason),
+      intentions.list({ closed: true }).map((r) => r.reason),
       ['boring']
     );
     assert.deepEqual(
       intentions
-        .list('g1', { closed: true, privateChannelId: 'dm1' })
+        .list({ closed: true, privateChannelId: 'dm1' })
         .map((r) => r.reason)
         .sort(),
       ['boring', 'private matter']
     );
-    assert.equal(intentions.list('g1', { closed: true, all: true }).length, 2);
+    assert.equal(intentions.list({ closed: true, all: true }).length, 2);
   });
 });
 
@@ -765,7 +756,7 @@ test('store: a closed record beyond KEEP_CLOSED moves to the archive, never lost
   const MEMBER = '987654321';
   const dataDir = tempDir('intent-archive');
   const stores = createIntentionStores({ memoryDb: memoryOf(dataDir), now: () => T0 });
-  const store = stores.get('g1');
+  const store = stores.get();
   const make = (i: number, participants: Untyped) => {
     const made = createIntention({
       purpose: `want ${i}`,
@@ -794,7 +785,7 @@ test('store: a closed record beyond KEEP_CLOSED moves to the archive, never lost
     .split('\n');
   assert.equal(lines.length, 3);
   assert.deepEqual(
-    present(createIntentionStores({ memoryDb: memoryOf(dataDir), now: () => T0 }).get('g1'))
+    present(createIntentionStores({ memoryDb: memoryOf(dataDir), now: () => T0 }).get())
       .archived()
       .map((r) => r.id),
     ['i0', 'i1', 'i2'],

@@ -7,7 +7,7 @@
 // Usage (from the checkout):
 //   node scripts/inner-week.ts --all [--out <dir>]
 //   node scripts/inner-week.ts --fixture <name|file> [--fixture ...] [--out <dir>] [--keep]
-//   node scripts/inner-week.ts --fixture <name|file> --live --days <2,4-5> --channel <channelId>
+//   node scripts/inner-week.ts --fixture <name|file> --live --days <2,4-5> --channel <placeId>
 //        [--data <dir>] [--spend <usd>] [--out <dir>]
 //
 // `--fixture`: a file, or the name of one under scripts/fixtures/ (`ordinary-talk`).
@@ -33,6 +33,7 @@
 // steps) at ~0.15 USD; refused (exit 2) without `--spend` covering it. Once what the provider
 // reports spent would pass `--spend`, the stub answers the rest of the week.
 
+import { accountOf } from '../src/memory/addresses.ts';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -82,7 +83,7 @@ export const USD_PER_ANSWER = 0.15;
 const USAGE =
   'usage: node scripts/inner-week.ts --all [--out <dir>] [--keep]\n' +
   '       node scripts/inner-week.ts --fixture <name|file> [--fixture ...] [--out <dir>] [--keep]\n' +
-  '       node scripts/inner-week.ts --fixture <name|file> --live --days <2,4-5> --channel <channelId> [--data <dir>] [--spend <usd>] [--out <dir>]';
+  '       node scripts/inner-week.ts --fixture <name|file> --live --days <2,4-5> --channel <placeId> [--data <dir>] [--spend <usd>] [--out <dir>]';
 
 /** The options of one run of the tool. */
 type InnerWeekArgs = {
@@ -191,16 +192,16 @@ export function liveChannelMap(fixture: Fixture, channel: Rec): { [k: string]: U
 }
 
 /**
- * The fixture's people (`name -> id`) as members of `guildId` in `store`'s cache, each with its
+ * The fixture's people (`name -> id`) as members of `placeId` in `store`'s cache, each with its
  * name, so her `<directory>` lists them as the scripted lines show them; one already there is
  * left alone. Called on the unflushed copy of the live store: nothing reaches the disk. Returns
  * the ids added.
  */
-export function addFixturePeople(store: Rec, guildId: Untyped, people: Untyped, at: Untyped): Array<string> {
+export function addFixturePeople(store: Rec, placeId: Untyped, people: Untyped, at: Untyped): Array<string> {
   const added = [];
   for (const [name, id] of Object.entries(people ?? {})) {
-    if (typeof id !== 'string' || !id || store.getUser(guildId, id)) continue;
-    store.touchUser(guildId, id, name, at);
+    if (typeof id !== 'string' || !id || store.getUser(accountOf(store, id))) continue;
+    store.touchUser(accountOf(store, id), name, at);
     added.push(id);
   }
   return added;
@@ -221,7 +222,7 @@ export function scriptedHistory(lines: Untyped, { channel, selfId, selfName, now
     .slice(-limit)
     .map((line: Untyped, i: number) => ({
       id: snowflakeOf(line.ts, i + 1),
-      channelId: String(channel.id),
+      placeId: String(channel.id),
       channelName: channel.name ?? null,
       channelCategory: null,
       channelTopic: null,
@@ -247,7 +248,7 @@ export function scriptedHistory(lines: Untyped, { channel, selfId, selfName, now
 
 /**
  * The real voice in shadow, wired as `replay.ts --inner` wires it (see the header), the
- * fixture's people in her copied directory. Resolves `{ voice, guildId, channel, close }`
+ * fixture's people in her copied directory. Resolves `{ voice, placeId, channel, close }`
  * (`channel`: the real channel's id and name); `voice.runTurn` answers null once the spend is used up.
  */
 async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
@@ -287,12 +288,12 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
     const connection = await replay.connectDiscord({
       discord,
       token,
-      configuredGuildId: hot.config.bot?.guildId || '',
+      configuredGuildId: hot.config.bot?.placeId || '',
       resolveGuild: mods.resolveGuild,
       log,
     });
     client = connection.client;
-    const { guildId, self } = connection;
+    const { placeId, self } = connection;
     const queueRequest = client.rest.queueRequest.bind(client.rest);
     client.rest.queueRequest = (request: Rec) => {
       const method = String(request?.method ?? 'GET').toUpperCase();
@@ -300,14 +301,14 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
       return queueRequest(request);
     };
     const channel = await client.channels.fetch(args.channel).catch(() => null);
-    if (!channel || String(channel.guildId ?? channel.guild?.id ?? '') !== String(guildId))
+    if (!channel || String(channel.placeId ?? channel.guild?.id ?? '') !== String(placeId))
       throw new CliError('inner-week: --channel is not a channel of the served guild');
     const refuse = (name: string) => async () => {
       throw new Error(`inner-week: channel.${name} refused (read-only tool)`);
     };
     channel.send = refuse('send');
     channel.sendTyping = refuse('sendTyping');
-    addFixturePeople(store, guildId, fixture.people, fixture.startMs);
+    addFixturePeople(store, placeId, fixture.people, fixture.startMs);
 
     // The turn's history: the fixture's chat of the conversation the scheduler picked.
     let scripted: { lines: Array<Untyped>; name: string | null } = { lines: [], name: null };
@@ -351,7 +352,6 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
       port,
       intentions,
       errands,
-      getGuildId: () => guildId,
       dataDir: null,
     });
     const turns = replay.diaryTurnRunner(mods, {
@@ -360,7 +360,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
       llm,
       calibrator,
       client,
-      guildId,
+      placeId,
       self,
       images: null,
       state,
@@ -394,7 +394,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
         try {
           result = await turns.runTurn({
             conversation: replay.conversationRef(channel),
-            guildId,
+            placeId,
             mode: 'inner',
             triggerKind: 'inner',
             inner: { ...params.inner, shadow: true },
@@ -416,7 +416,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
     };
     return {
       voice,
-      guildId,
+      placeId,
       channel: { id: String(channel.id), name: channel.name ?? null },
       spent,
       close: async () => {
@@ -489,7 +489,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd() }: { cwd?:
         voice: live.voice,
         liveDays,
         mode: 'shadow',
-        guildId: live.guildId,
+        placeId: live.placeId,
         subscribeLog: onLog,
         onReady: ({ clock, intentions }) => {
           clockBox.now = clock.now;

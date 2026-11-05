@@ -40,7 +40,7 @@ async function turnReads(from: Running, other: Running, id: string): Promise<{ o
 for (const [first, second] of ORDERS) {
   test(`a turn on the first interface to connect reads its own shared community, ${first} before ${second}`, async () => {
     // Bug: the last hello overwrites the route of a native id, so the first interface's turn asks the second.
-    await withFakes({ guildId: 'home', names: NAMES }, async ({ connect }) => {
+    await withFakes({ names: NAMES }, async ({ connect }) => {
       const earlier = await connect(first, SHARED);
       const later = await connect(second, SHARED);
       const reads = await turnReads(earlier, later, 'm1');
@@ -52,7 +52,7 @@ for (const [first, second] of ORDERS) {
 
 test('a DM gate on the first interface asks membership of its own shared community', async () => {
   // Bug: the community leaves the first interface's list when the second says hello, so its member is refused as a stranger.
-  await withFakes({ guildId: 'home', owners: ['u1'], names: NAMES }, async ({ connect }) => {
+  await withFakes({ owners: ['u1'], names: NAMES }, async ({ connect }) => {
     const earlier = await connect('one', SHARED);
     const later = await connect('two', SHARED);
     seedRoom(earlier, 'r1', 'shared');
@@ -69,7 +69,7 @@ test('a DM gate on the first interface asks membership of its own shared communi
 
 test('disconnecting one interface keeps the route of the other that shares its community id', async () => {
   // Bug: the route still names the closed link, so the remaining interface's reads answer nothing.
-  await withFakes({ guildId: 'home', names: NAMES }, async ({ connect }) => {
+  await withFakes({ names: NAMES }, async ({ connect }) => {
     const staying = await connect('one', SHARED);
     const leaving = await connect('two', SHARED);
     await leaving.stop();
@@ -80,7 +80,7 @@ test('disconnecting one interface keeps the route of the other that shares its c
 
 test('a reconnect of one interface does not take the shared community from the other', async () => {
   // Bug: a reconnect says hello again, and the route of the shared id goes to whoever greeted last.
-  await withFakes({ guildId: 'home', names: NAMES }, async ({ connect }) => {
+  await withFakes({ names: NAMES }, async ({ connect }) => {
     const steady = await connect('two', SHARED);
     const returning = await connect('one', SHARED);
     await steady.reconnect();
@@ -93,7 +93,7 @@ test('a reconnect of one interface does not take the shared community from the o
 
 test('after a reconnect the returning interface reads its own community again', async () => {
   // Bug: the qualified origin is taken from the first hello only, so the new link serves no route.
-  await withFakes({ guildId: 'home', names: NAMES }, async ({ connect }) => {
+  await withFakes({ names: NAMES }, async ({ connect }) => {
     const returning = await connect('one', SHARED);
     const steady = await connect('two', SHARED);
     await returning.reconnect();

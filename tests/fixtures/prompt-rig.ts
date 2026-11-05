@@ -89,7 +89,7 @@ export function baseInput(overrides: Record<string, unknown> = {}): RequestInput
     neighbors: [],
     trigger: null,
     triggerKind: null,
-    guildMemory: {},
+    placeMemory: {},
     interlocutor: null,
     otherProfiles: [],
     ...overrides,

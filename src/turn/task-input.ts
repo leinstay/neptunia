@@ -51,7 +51,7 @@ export function taskInput({
   missed = null,
   failedEarlier = null,
   labels,
-  channelId,
+  placeId,
 }: {
   part?: object | null;
   queued?: (() => unknown) | null;
@@ -59,7 +59,7 @@ export function taskInput({
   missed?: ReadonlyArray<{ author?: unknown; text?: unknown } | null> | null;
   failedEarlier?: ReadonlyArray<FailedTurn | null> | null;
   labels?: { task?: { part?: unknown; queued?: unknown; queuedOthers?: unknown; failedEarlier?: unknown } } | null;
-  channelId?: string | null;
+  placeId?: string | null;
 }): { input: TaskInput | null; deferred: Set<string> } {
   let waiting: Array<QueuedCall> = [];
   if (typeof queued === 'function') {
@@ -69,7 +69,7 @@ export function taskInput({
         ? list.filter((call): call is QueuedCall => isObj(call) && typeof call.text === 'string' && Boolean(call.text))
         : [];
     } catch (err) {
-      log.warn('turn: queued failed', { channel: channelId, error: err });
+      log.warn('turn: queued failed', { channel: placeId, error: err });
     }
   }
   const own = waiting.filter((call) => typeof call.author !== 'string');

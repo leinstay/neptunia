@@ -34,19 +34,19 @@ function fakeLookup({
   hasSearch = true,
   page = { ok: true, url: 'https://example.com/p', title: 'Σελίδα', text: 'Το κείμενο της σελίδας.', cut: false },
 } = {}) {
-  const searches: Array<{ guildId: Untyped; query: Untyped }> = [];
-  const reads: Array<{ guildId: Untyped; url: Untyped }> = [];
+  const searches: Array<{ placeId: Untyped; query: Untyped }> = [];
+  const reads: Array<{ placeId: Untyped; url: Untyped }> = [];
   return {
     searches,
     reads,
     hasSearch: () => hasSearch,
     webCapLeft: () => capLeft,
-    searchResults: async (guildId: string, query: unknown) => {
-      searches.push({ guildId, query });
+    searchResults: async (placeId: string, query: unknown) => {
+      searches.push({ placeId, query });
       return found ? { ...found, query } : null;
     },
-    readPage: async (guildId: string, url: string) => {
-      reads.push({ guildId, url });
+    readPage: async (placeId: string, url: string) => {
+      reads.push({ placeId, url });
       return page;
     },
   };
@@ -206,11 +206,11 @@ test('runWebSearch: her query goes to the raw search as written, the results are
     lookup,
     config: WEB_ON,
     labels,
-    guildId: 'g1',
+    placeId: 'g1',
     args: { query: '  τελικός 2026 ', goal: 'ποιος' },
   } as unknown as Parameters<typeof runWebSearch>[0]);
   assert.equal(ok.status, 'ok');
-  assert.deepEqual(lookup.searches, [{ guildId: 'g1', query: 'τελικός 2026' }]);
+  assert.deepEqual(lookup.searches, [{ placeId: 'g1', query: 'τελικός 2026' }]);
   assert.ok(
     ok.data?.text.startsWith(fill(labels.tools.tools.web.source, { query: 'τελικός 2026' })),
     ok.data?.text ?? ''
@@ -221,7 +221,7 @@ test('runWebSearch: her query goes to the raw search as written, the results are
       lookup: fakeLookup(overrides.lookup),
       config: overrides.config ?? WEB_ON,
       labels,
-      guildId: 'g1',
+      placeId: 'g1',
       args: overrides.args ?? { query: 'x' },
     } as unknown as Parameters<typeof runWebSearch>[0]);
     return [result.status, result.code];
@@ -233,7 +233,7 @@ test('runWebSearch: her query goes to the raw search as written, the results are
   ]);
   assert.deepEqual(await status({ lookup: { found: null } }), ['failed', 'error']);
   assert.deepEqual(
-    (await runWebSearch({ lookup: null, config: WEB_ON, labels, guildId: 'g1', args: { query: 'x' } })).status,
+    (await runWebSearch({ lookup: null, config: WEB_ON, labels, placeId: 'g1', args: { query: 'x' } })).status,
     'not_configured'
   );
 });
@@ -244,11 +244,11 @@ test('runWebRead: a link, or the link of a message, goes to the page reader; the
     lookup,
     config: WEB_ON,
     labels,
-    guildId: 'g1',
+    placeId: 'g1',
     args: { url: ' https://example.com/p ' },
   } as unknown as Parameters<typeof runWebRead>[0]);
   assert.equal(ok.status, 'ok');
-  assert.deepEqual(lookup.reads, [{ guildId: 'g1', url: 'https://example.com/p' }]);
+  assert.deepEqual(lookup.reads, [{ placeId: 'g1', url: 'https://example.com/p' }]);
   assert.equal(
     ok.data?.text,
     [
@@ -264,7 +264,7 @@ test('runWebRead: a link, or the link of a message, goes to the page reader; the
     lookup: byMessage,
     config: WEB_ON,
     labels,
-    guildId: 'g1',
+    placeId: 'g1',
     args: { message: 'm7' },
     linkOf: async (id: string) => (asked.push(id), 'https://exemple.fr/x'),
   } as unknown as Parameters<typeof runWebRead>[0]);
@@ -280,7 +280,7 @@ test('runWebRead: a link, or the link of a message, goes to the page reader; the
       lookup: over === null ? null : fakeLookup(over),
       config,
       labels,
-      guildId: 'g1',
+      placeId: 'g1',
       args,
       linkOf,
     } as unknown as Parameters<typeof runWebRead>[0]);
@@ -295,7 +295,7 @@ test('runWebRead: a link, or the link of a message, goes to the page reader; the
     lookup: fakeLookup({ page: { ok: false, reason: 'empty' } } as unknown as Parameters<typeof fakeLookup>[0]),
     config: WEB_ON,
     labels,
-    guildId: 'g1',
+    placeId: 'g1',
     args: { url: 'https://example.com/e' },
   } as unknown as Parameters<typeof runWebRead>[0]);
   assert.equal(empty.status, 'ok');
@@ -330,13 +330,13 @@ test('runMemorySearch: her arguments become the server part (no helper), recall 
     labels,
     // @ts-expect-error: the scene passes a guild key the options type does not name
     guild,
-    guildId: 'g1',
+    placeId: 'g1',
     channel,
     selfId: 'self',
     selfName: 'Zoë',
     history,
     decorate,
-    args: { question: 'τι είπε η Éloïse για το κουνέλι;', terms: 'λαγός', channelId: 'c2' },
+    args: { question: 'τι είπε η Éloïse για το κουνέλι;', terms: 'λαγός', placeId: 'c2' },
     now: NOW,
   });
   assert.equal(result.status, 'ok');
@@ -344,7 +344,7 @@ test('runMemorySearch: her arguments become the server part (no helper), recall 
   assert.equal(runs.length, 1);
   const [run] = runs;
   assert.equal(run.quotes, true);
-  assert.deepEqual(run.server, { forms: ['λαγός', 'κουνέλι'], who: ['éloïse'], from: null, to: null, channelId: 'c2' });
+  assert.deepEqual(run.server, { forms: ['λαγός', 'κουνέλι'], who: ['éloïse'], from: null, to: null, placeId: 'c2' });
   assert.deepEqual(
     [run.history, run.decorate, run.candidate.content],
     [history, decorate, 'τι είπε η Éloïse για το κουνέλι;']
@@ -357,7 +357,7 @@ test('runMemorySearch: her arguments become the server part (no helper), recall 
       labels,
       // @ts-expect-error: the scene passes a guild key the options type does not name
       guild,
-      guildId: 'g1',
+      placeId: 'g1',
       channel,
       args: { question: 'τι;' },
       now: NOW,
@@ -423,9 +423,9 @@ function mediaMessage() {
 }
 
 function fakeDescriber({ answer = 'ένα κόκκινο ποδήλατο', caps = null }: Record<string, Untyped> = {}) {
-  const calls: Array<{ method: Untyped; guildId: Untyped; itemId: Untyped; question: Untyped }> = [];
-  const second = (method: string) => async (guildId: string, item: Untyped, question: unknown) => {
-    calls.push({ method, guildId, itemId: item.itemId, question });
+  const calls: Array<{ method: Untyped; placeId: Untyped; itemId: Untyped; question: Untyped }> = [];
+  const second = (method: string) => async (placeId: string, item: Untyped, question: unknown) => {
+    calls.push({ method, placeId, itemId: item.itemId, question });
     return answer ? { question, text: answer } : null;
   };
   return {
@@ -482,12 +482,12 @@ test('runMediaLook: her question goes to the second look of the item she names, 
     describer,
     config: LOOK_ON,
     labels,
-    guildId: 'g1',
+    placeId: 'g1',
     args: { message: 'm7', question: ' τι κρατά; ' },
     mediaOf,
   } as unknown as Parameters<typeof runMediaLook>[0]);
   assert.equal(first.status, 'ok');
-  assert.deepEqual(describer.calls, [{ method: 'relookImage', guildId: 'g1', itemId: 'pa', question: 'τι κρατά;' }]);
+  assert.deepEqual(describer.calls, [{ method: 'relookImage', placeId: 'g1', itemId: 'pa', question: 'τι κρατά;' }]);
   assert.equal(
     first.data?.text,
     mediaLookText({ kind: 'image', name: 'a.png', question: 'τι κρατά;', text: 'ένα κόκκινο ποδήλατο' }, { labels })
@@ -502,7 +502,7 @@ test('runMediaLook: her question goes to the second look of the item she names, 
       describer: one,
       config: LOOK_ON,
       labels,
-      guildId: 'g1',
+      placeId: 'g1',
       args: { message: 'm7', question: 'τι;', item },
       mediaOf,
     } as unknown as Parameters<typeof runMediaLook>[0]);
@@ -527,7 +527,7 @@ test('runMediaLook: the statuses -- arguments, message, media, the turn cap and 
       describer,
       config,
       labels,
-      guildId: 'g1',
+      placeId: 'g1',
       args,
       mediaOf: () => message,
       ...(takeTurnSlot ? { takeTurnSlot } : {}),
@@ -571,7 +571,7 @@ test('runMediaLook url: a video link of a listed site goes to the video second l
     describer,
     config,
     labels,
-    guildId: 'g1',
+    placeId: 'g1',
     args: { url, question: ' τι ακούγεται; ' },
     mediaOf: () => {
       throw new Error('no message is read');
@@ -579,7 +579,7 @@ test('runMediaLook url: a video link of a listed site goes to the video second l
   } as unknown as Parameters<typeof runMediaLook>[0]);
   assert.equal(result.status, 'ok');
   assert.deepEqual(describer.calls, [
-    { method: 'rewatchVideo', guildId: 'g1', itemId: videoUrlCacheKey(url), question: 'τι ακούγεται;' },
+    { method: 'rewatchVideo', placeId: 'g1', itemId: videoUrlCacheKey(url), question: 'τι ακούγεται;' },
   ]);
   assert.equal(
     result.data?.text,
@@ -587,7 +587,7 @@ test('runMediaLook url: a video link of a listed site goes to the video second l
   );
   let seen = null;
   const spy = {
-    rewatchVideo: async (guildId: string, item: unknown, question: unknown) => {
+    rewatchVideo: async (placeId: string, item: unknown, question: unknown) => {
       seen = item;
       return { question, text: 'x' };
     },
@@ -596,7 +596,7 @@ test('runMediaLook url: a video link of a listed site goes to the video second l
     describer: spy,
     config,
     labels,
-    guildId: 'g1',
+    placeId: 'g1',
     args: { url, question: 'q' },
     mediaOf: null,
   } as unknown as Parameters<typeof runMediaLook>[0]);
@@ -619,7 +619,7 @@ test('runMediaLook url: a link off the site list is refused as not-video-site an
     describer,
     config,
     labels,
-    guildId: 'g1',
+    placeId: 'g1',
     args: { url: 'https://example.com/clip.mp4', question: 'τι;' },
     mediaOf: null,
   } as unknown as Parameters<typeof runMediaLook>[0]);
@@ -634,7 +634,7 @@ test('runMediaLook url: exactly one of message and url; an unparseable or non-ht
       describer: fakeDescriber(),
       config: LOOK_ON,
       labels,
-      guildId: 'g1',
+      placeId: 'g1',
       args,
       mediaOf: () => mediaMessage(),
     } as unknown as Parameters<typeof runMediaLook>[0]).then((r) => [r.status, r.code, r.reason]);
@@ -669,7 +669,7 @@ test('runMediaLook url: a video link has the turn cap the message looks have, th
       describer,
       config,
       labels,
-      guildId: 'g1',
+      placeId: 'g1',
       args,
       mediaOf: () => mediaMessage(),
       ...(takeTurnSlot ? { takeTurnSlot } : {}),
@@ -691,7 +691,7 @@ test('runMediaLook: a placeholder of a deleted message is refused as unknown-mes
     describer: {},
     config: LOOK_ON,
     labels,
-    guildId: 'g1',
+    placeId: 'g1',
     args: { message: 'm7', question: 'τι;' },
     mediaOf: () => ({ id: 'm7', deleted: true, attachments: [] }),
   });
@@ -706,7 +706,7 @@ test("runWebSearch: the lookup's coded failures reach her as what they are; an e
       lookup: fakeLookup({ found: { failed } } as unknown as Parameters<typeof fakeLookup>[0]),
       config: WEB_ON,
       labels,
-      guildId: 'g1',
+      placeId: 'g1',
       args: { query: 'q' },
     } as unknown as Parameters<typeof runWebSearch>[0]);
   assert.deepEqual(await via({ code: 'provider', status: 503 }), {
@@ -730,7 +730,7 @@ test("runWebSearch: the lookup's coded failures reach her as what they are; an e
     lookup: fakeLookup({ found: { results: [] } } as unknown as Parameters<typeof fakeLookup>[0]),
     config: WEB_ON,
     labels,
-    guildId: 'g1',
+    placeId: 'g1',
     args: { query: 'q' },
   } as unknown as Parameters<typeof runWebSearch>[0]);
   assert.equal(none.status, 'ok');
@@ -778,7 +778,7 @@ async function memoryWith(answer: unknown, args = { question: 'τι είπε η 
     config: { bot: { timezone: 'UTC' }, features: { recall: true }, recall: { maxForms: 4 } },
     labels,
     guild,
-    guildId: 'g1',
+    placeId: 'g1',
     channel: { id: 'c1', communityId: 'g1', guild },
     args,
     now: NOW,
@@ -832,14 +832,14 @@ test('memorySearchText: with a registry each quoted line carries a #N handle num
   const entry = (id: string, text: string) => ({ id, text, authorId: `u${id}`, self: id === 'm2', message: { id } });
   const quotes = [
     {
-      channelId: 'c1',
+      placeId: 'c1',
       channelName: 'jardin',
       startTs: Date.UTC(2026, 8, 30, 9),
       lines: 'x',
       entries: [entry('m1', '[09:00] Éloïse: ένα κουνέλι'), entry('m2', '[09:01] Ana: ωραίο')],
     },
     {
-      channelId: 'c2',
+      placeId: 'c2',
       channelName: 'general',
       startTs: Date.UTC(2026, 9, 1, 18),
       lines: 'y',
@@ -861,7 +861,7 @@ test('memorySearchText: with a registry each quoted line carries a #N handle num
     ].join('\n')
   );
   assert.deepEqual(
-    taken.map((ref) => [ref.n, ref.id, ref.channelId, ref.authorId, ref.self]),
+    taken.map((ref) => [ref.n, ref.id, ref.placeId, ref.authorId, ref.self]),
     [
       [85, 'm1', 'c1', 'um1', false],
       [86, 'm2', 'c1', 'um2', true],

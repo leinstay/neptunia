@@ -17,6 +17,12 @@ const INTERFACES = path.join(ROOT, 'interfaces');
 type Allowed = { file: string; pattern: RegExp; why: string };
 
 const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
+  { file: 'src/memory/migration/convert.ts', pattern: /discord/i, why: 'the one deployment it converts' },
+  {
+    file: 'src/memory/migration/convert-config.ts',
+    pattern: /discord/i,
+    why: 'the settings file of the one deployment it converts',
+  },
   { file: 'src/memory/db/schema.ts', pattern: /discord/i, why: 'frozen migrations and their notes' },
   { file: 'src/memory/db/legacy-namespace.ts', pattern: /discord/i, why: 'the legacy namespace' },
   { file: 'src/memory/db/ids.ts', pattern: /`[^`]*discord[^`]*`/, why: 'stored legacy ids and the stored iface value' },

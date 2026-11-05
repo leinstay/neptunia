@@ -103,7 +103,7 @@ export function explicitChannelIds(messages: Array<Record<string, Untyped> | nul
 }
 
 /** One channel a turn pulls. `reason` is the source's own reason, `mention` for an explicit `<#id>`, `route` for a route hook id. */
-export type PullTarget = { channelId: string; reason: 'routed' | 'noticed' | 'mention' | 'route' | 'kept' };
+export type PullTarget = { placeId: string; reason: 'routed' | 'noticed' | 'mention' | 'route' | 'kept' };
 
 /**
  * The channels a turn pulls, in priority order:
@@ -126,7 +126,7 @@ export type PullTarget = { channelId: string; reason: 'routed' | 'noticed' | 'me
  * Mentions and route ids fill the slots the source leaves, up to
  * `maxChannels`, skipping the current channel, duplicates and ids for which
  * `isPullable(id)` is false. `isPullable` carries the caller's checks: same
- * guild, text based, not a thread, and every check fetchPull
+ * place, text based, not a thread, and every check fetchPull
  * (src/behavior/pull-fetch.ts) can make before its fetch (readable, the
  * audience rail), so a slot goes only to a channel the
  * fetch can serve and a refused newer mention never crowds out an older
@@ -155,7 +155,7 @@ export function pullTargets({
   isPullable,
   channelPull = true,
 }: {
-  source?: { channelId: string; reason: 'routed' | 'noticed' } | null;
+  source?: { placeId: string; reason: 'routed' | 'noticed' } | null;
   history?: Array<Record<string, Untyped>>;
   trigger?: Record<string, Untyped> | null;
   extra?: Array<string>;
@@ -163,7 +163,7 @@ export function pullTargets({
   currentChannelId?: string | null;
   scanMessages?: number;
   maxChannels?: number;
-  isPullable?: (channelId: string) => boolean;
+  isPullable?: (placeId: string) => boolean;
   channelPull?: boolean;
 } = {}): Array<PullTarget> {
   const limit = intAtLeast(maxChannels, PULL_DEFAULTS.maxChannels, 0);
@@ -172,9 +172,9 @@ export function pullTargets({
   // Every id already decided, kept or refused: isPullable is asked once per id.
   const judged = new Set();
 
-  const sourceId = source?.channelId;
+  const sourceId = source?.placeId;
   if (typeof sourceId === 'string' && sourceId && sourceId !== currentChannelId) {
-    out.push({ channelId: sourceId, reason: source.reason });
+    out.push({ placeId: sourceId, reason: source.reason });
     judged.add(sourceId);
   }
   if (!channelPull || typeof isPullable !== 'function') return out;
@@ -183,7 +183,7 @@ export function pullTargets({
     if (out.length >= limit) return;
     if (typeof id !== 'string' || !id || id === currentChannelId || judged.has(id)) return;
     judged.add(id);
-    if (isPullable(id)) out.push({ channelId: id, reason });
+    if (isPullable(id)) out.push({ placeId: id, reason });
   };
 
   const past = (Array.isArray(history) ? history : []).filter((m) => m && !(trigger && m.id === trigger.id));

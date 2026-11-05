@@ -1,10 +1,11 @@
 // Durable media histories outlive the bounded active cache and keep successful refreshes.
+import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeCollection } from '../src/memory/db/storage-keys.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDescriber } from '../src/memory/describe.ts';
 import { createStore } from '../src/memory/store.ts';
 import { mediaDescriptionVersions } from '../src/memory/db/export.ts';
-import { communityKey } from '../src/memory/db/storage-keys.ts';
 import { hashedKey, MEDIA_CACHE_ENTRIES } from '../src/web/cache.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { fakeImageFetcher, fakeLlm, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
@@ -44,8 +45,7 @@ async function fixture(responses: Parameters<typeof fakeLlm>[0]) {
       const handle = memory.memoryDb.readHandle();
       assert.ok(handle);
       return mediaDescriptionVersions(handle, {
-        key: communityKey('versions', 'g1', {
-          iface: 'synthetic',
+        key: placeCollection('versions', placeOfCommunity(store, 'g1'), {
           selector: { versionKind: 'media', itemId: cacheKey },
         }),
       });
@@ -65,19 +65,25 @@ async function fixture(responses: Parameters<typeof fakeLlm>[0]) {
 test('an evicted description survives database reopen without another download or model request', async () => {
   const run = await fixture([{ text: 'a grey cat' }, { text: 'a red boat' }]);
   try {
-    assert.equal(textOf(await run.describer().describe('g1', picture('a1'))), 'a grey cat');
-    const cache = run.store.getMediaCache('g1');
+    assert.equal(
+      textOf(await run.describer().describe(placeOfCommunity(run.store, 'g1'), picture('a1'))),
+      'a grey cat'
+    );
+    const cache = run.store.getMediaCache(placeOfCommunity(run.store, 'g1'));
     for (let n = 0; Object.keys(cache).length < MEDIA_CACHE_ENTRIES; n += 1)
       cache[`web:${n}`] = { text: 'ordinary cached page', ts: 1 };
     run.clock.at += 1000;
-    await run.describer().describe('g1', picture('a2'));
+    await run.describer().describe(placeOfCommunity(run.store, 'g1'), picture('a2'));
     assert.deepEqual([Object.keys(cache).length, Object.hasOwn(cache, 'a1')], [MEDIA_CACHE_ENTRIES, false]);
     await run.reopen();
-    assert.equal(Object.hasOwn(run.store.getMediaCache('g1'), 'a1'), false);
-    assert.equal(textOf(await run.describer().describe('g1', picture('a1'))), 'a grey cat');
+    assert.equal(Object.hasOwn(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')), 'a1'), false);
+    assert.equal(
+      textOf(await run.describer().describe(placeOfCommunity(run.store, 'g1'), picture('a1'))),
+      'a grey cat'
+    );
     assert.equal(run.llm.calls.length, 2);
     assert.equal(run.imageFetcher.calls.length, 2);
-    assert.equal(Object.keys(run.store.getMediaCache('g1')).length, MEDIA_CACHE_ENTRIES);
+    assert.equal(Object.keys(run.store.getMediaCache(placeOfCommunity(run.store, 'g1'))).length, MEDIA_CACHE_ENTRIES);
     assert.deepEqual(
       run.history('a1').map(({ version, entry }) => [version, entry.text]),
       [[1, 'a grey cat']]
@@ -93,13 +99,25 @@ test('explicit video rewatch preserves successive answers and its base summary a
   const question = 'Quelle couleur ?';
   const key = hashedKey('video:v1:q', 'quelle couleur ?');
   try {
-    assert.equal(textOf(await run.describer().describeVideo('g1', video)), 'someone dances');
-    assert.equal(textOf(await run.describer().rewatchVideo('g1', video, question)), 'rouge');
+    assert.equal(
+      textOf(await run.describer().describeVideo(placeOfCommunity(run.store, 'g1'), video)),
+      'someone dances'
+    );
+    assert.equal(
+      textOf(await run.describer().rewatchVideo(placeOfCommunity(run.store, 'g1'), video, question)),
+      'rouge'
+    );
     run.clock.at += 59 * 60_000;
-    assert.equal(textOf(await run.describer().rewatchVideo('g1', video, '  quelle   COULEUR ? ')), 'rouge');
+    assert.equal(
+      textOf(await run.describer().rewatchVideo(placeOfCommunity(run.store, 'g1'), video, '  quelle   COULEUR ? ')),
+      'rouge'
+    );
     assert.equal(run.llm.calls.length, 2, 'the existing question TTL still makes this answer free');
     run.clock.at += 2 * 60_000;
-    assert.equal(textOf(await run.describer().rewatchVideo('g1', video, question)), 'bleu');
+    assert.equal(
+      textOf(await run.describer().rewatchVideo(placeOfCommunity(run.store, 'g1'), video, question)),
+      'bleu'
+    );
     assert.equal(run.llm.calls.length, 3, 'an explicit rewatch after the TTL asks again');
     assert.equal(run.videoFetcher.calls.length, 3);
     await run.reopen();
@@ -114,8 +132,11 @@ test('explicit video rewatch preserves successive answers and its base summary a
       run.history('video:v1').map(({ version, entry }) => [version, entry.text, entry.describedAt, entry.model]),
       [[1, 'someone dances', T, 'fake/video']]
     );
-    assert.equal(run.store.getMediaDescription('g1', key)?.answer, 'bleu');
-    assert.equal(textOf(await run.describer().describeVideo('g1', video)), 'someone dances');
+    assert.equal(run.store.getMediaDescription(placeOfCommunity(run.store, 'g1'), key)?.answer, 'bleu');
+    assert.equal(
+      textOf(await run.describer().describeVideo(placeOfCommunity(run.store, 'g1'), video)),
+      'someone dances'
+    );
     assert.equal(run.llm.calls.length, 3, 'a base-summary lookup is independent of question refreshes');
   } finally {
     await run.close();
@@ -130,23 +151,35 @@ test('failed stale refresh retains its success and cooldown across reopen before
     { text: 'a fresh caption' },
   ]);
   try {
-    assert.equal(textOf(await run.describer().describe('g1', picture('a1'))), 'an old caption');
+    assert.equal(
+      textOf(await run.describer().describe(placeOfCommunity(run.store, 'g1'), picture('a1'))),
+      'an old caption'
+    );
     run.hot.config.media.recacheBefore = new Date(T + 1).toISOString();
     run.clock.at += 2 * HOUR;
     const failedAt = run.clock.at;
-    assert.equal(textOf(await run.describer().describe('g1', picture('a1'))), 'an old caption');
+    assert.equal(
+      textOf(await run.describer().describe(placeOfCommunity(run.store, 'g1'), picture('a1'))),
+      'an old caption'
+    );
     await run.reopen();
-    const retained = run.store.getMediaDescription('g1', 'a1');
+    const retained = run.store.getMediaDescription(placeOfCommunity(run.store, 'g1'), 'a1');
     assert.deepEqual(
       [retained?.text, retained?.describedAt, retained?.model, retained?.refreshFailedAt],
       ['an old caption', T, 'fake/vision', failedAt]
     );
     assert.equal(run.history('a1').length, 1, 'a failed attempt creates no successful version');
     run.clock.at += 30 * 60_000;
-    assert.equal(textOf(await run.describer().describe('g1', picture('a1'))), 'an old caption');
+    assert.equal(
+      textOf(await run.describer().describe(placeOfCommunity(run.store, 'g1'), picture('a1'))),
+      'an old caption'
+    );
     assert.equal(run.llm.calls.length, 2, 'the persisted failure stamp still suppresses retry within the hour');
     run.clock.at += 31 * 60_000;
-    assert.equal(textOf(await run.describer().describe('g1', picture('a1'))), 'a fresh caption');
+    assert.equal(
+      textOf(await run.describer().describe(placeOfCommunity(run.store, 'g1'), picture('a1'))),
+      'a fresh caption'
+    );
     assert.equal(run.llm.calls.length, 3);
     await run.reopen();
     assert.deepEqual(

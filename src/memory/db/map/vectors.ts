@@ -7,7 +7,7 @@
 //                `norm`, `item_id` (the line's id), `occurred_at` are columns, `model` and `dims` come from the
 //                manifest, `chunk_key` is the engine's `<kind>:<id>:<revision>` (prefixed `private:<user>:` in a
 //                private layer, suffixed `#2`... if a month repeats one), and `context` holds the other fields of
-//                the line (row, kind, revision, channelId, by, participants, sourceIds, unknown ones), plus `$keys`
+//                the line (row, kind, revision, placeId, by, participants, sourceIds, unknown ones), plus `$keys`
 //                when the line's key order is not the engine's own. `source_rowid` is left NULL: sync links it.
 //   operational  kind vectors: `{ manifest, gen, tailI8?, raw? }`. `tailI8` is the bytes (base64) after the last
 //                row's, which the manifest does not count; `raw` is set (and no vectors rows are made) when the jsonl is
@@ -21,10 +21,9 @@ import { personId, uniqueIds } from '../ids.ts';
 import { LEGACY_IFACE } from '../legacy-namespace.ts';
 import { dmScope, groupScope } from '../scope.ts';
 import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.ts';
-import { privateUserOf } from './scope-parts.ts';
+import { dmPlaceScope, privateUserOf } from './scope-parts.ts';
 import { asText } from '../types.ts';
 import type { Row, Rows } from '../types.ts';
-import type { Scope } from '../scope.ts';
 import type { MapContext, Spec } from './common.ts';
 
 const SPEC: Array<Spec> = [
@@ -41,7 +40,7 @@ const CANONICAL = [
   'id',
   'revision',
   'occurredAt',
-  'channelId',
+  'placeId',
   'by',
   'participants',
   'sourceIds',
@@ -62,7 +61,7 @@ type MonthContext = {
   i8: Buffer;
   prefix: string;
   unique: (id: string) => string;
-  scope: Scope;
+  scope: Row;
 };
 
 /** The operational value a month leaves beside its rows. */
@@ -131,16 +130,19 @@ function monthContext(
   i8: Buffer,
   unique: (id: string) => string,
   iface: string,
-  privateUser: string | null | undefined = undefined
+  privateUser: string | null | undefined = undefined,
+  dmPlace: MapContext['dmPlace'] = null
 ): MonthContext {
   const user = privateUser ?? privateUserOf(dir);
+  const dm = (user: string): Row =>
+    dmPlace ? dmPlaceScope(personId(iface, user), iface, dmPlace) : dmScope(personId(iface, user), iface);
   return {
     manifest,
     i8,
     unique,
     dims: manifest.dims as number, // the caller checked that the manifest has a positive `dims`
     prefix: user ? `private:${user}:` : '',
-    scope: user ? dmScope(personId(iface, user), iface) : groupScope(iface),
+    scope: user ? dm(user) : groupScope(iface),
   };
 }
 
@@ -161,7 +163,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   if (lines === null || dims === null) {
     operational.raw = { meta, i8: i8.toString('base64') };
   } else {
-    const month = monthContext(dir, manifest, i8, uniqueIds(), iface, ctx.privateUserId);
+    const month = monthContext(dir, manifest, i8, uniqueIds(), iface, ctx.privateUserId, ctx.dmPlace);
     lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, month)));
     const used = lines.length * dims;
     if (i8.length > used) operational.tailI8 = i8.subarray(used).toString('base64');
@@ -186,7 +188,14 @@ export function appendRows(
     keys,
     iface = LEGACY_IFACE,
     privateUserId,
-  }: { previous: Stored; keys: Iterable<string>; iface?: string; privateUserId?: string | null }
+    dmPlace = null,
+  }: {
+    previous: Stored;
+    keys: Iterable<string>;
+    iface?: string;
+    privateUserId?: string | null;
+    dmPlace?: MapContext['dmPlace'];
+  }
 ): Rows | null {
   const dir = monthDirOf(rel);
   const manifest = delta.manifest;
@@ -216,7 +225,7 @@ export function appendRows(
     seen.add(out);
     return out;
   };
-  const month = monthContext(dir, manifest, i8, unique, iface, privateUserId);
+  const month = monthContext(dir, manifest, i8, unique, iface, privateUserId, dmPlace);
   const rows: Rows = {};
   lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, month)));
   const next: Stored = { manifest, gen: manifest.gen ?? null };

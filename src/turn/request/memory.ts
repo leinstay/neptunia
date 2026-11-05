@@ -69,8 +69,8 @@ type StoredEpisode = {
 export type ParticipationInput = {
   readonly state: unknown;
   readonly pickedIds?: Array<string>;
-  readonly audience?: (channelId: string) => boolean;
-  readonly channelName?: (channelId: string) => string | null;
+  readonly audience?: (placeId: string) => boolean;
+  readonly channelName?: (placeId: string) => string | null;
 };
 
 /** One item of src/memory/recent.ts#recentView. */
@@ -78,7 +78,7 @@ export type RecentItem =
   | {
       kind: 'line';
       at: number;
-      line: { readonly text?: string; readonly channelId?: string | null; readonly itemId?: unknown };
+      line: { readonly text?: string; readonly placeId?: string | null; readonly itemId?: unknown };
     }
   | { kind: 'episode'; at: number; profileId: string; name: string | null; episode: Episode };
 
@@ -89,7 +89,7 @@ export type RecentEntry = { kind: 'line' | 'episode'; at: number; text: string; 
 export type ParticipationEpisode = {
   id: string;
   itemId: string | null;
-  channelId: string;
+  placeId: string;
   channelLine: string;
   text: string;
   budgetText: string;
@@ -173,8 +173,7 @@ export function recentEntries(
       const date = formatDate(item.at, timezone, labels.locale);
       const text = resolveChatText(item.line.text, nameOf);
       const time = formatClock(item.at, timezone, labels.locale);
-      const channel =
-        item.line.channelId !== currentChannelId ? channelNames.get(item.line.channelId ?? '') : undefined;
+      const channel = item.line.placeId !== currentChannelId ? channelNames.get(item.line.placeId ?? '') : undefined;
       const rendered =
         channel && r.lineIn ? fill(r.lineIn, { date, time, channel, text }) : fill(r.line, { date, time, text });
       entries.push({
@@ -326,7 +325,7 @@ export function participationView(
     participation.state,
     { pickedIds, excludeChannelId: currentChannelId, audience: participation.audience, now },
     settings
-  ) as Array<{ channelId: string; episodes: Array<StoredEpisode> }>;
+  ) as Array<{ placeId: string; episodes: Array<StoredEpisode> }>;
   const stored = new Map(
     (Array.isArray(channels) ? channels : [])
       .filter((channel): channel is { id: string; name?: string; purpose?: string } => Boolean(channel?.id))
@@ -341,8 +340,8 @@ export function participationView(
   let rank = 0;
   for (const group of groups) {
     offered += group.episodes.length;
-    const note = stored.get(group.channelId);
-    const name = oneLine(note?.name ?? '') || oneLine(liveName(group.channelId) ?? '');
+    const note = stored.get(group.placeId);
+    const name = oneLine(note?.name ?? '') || oneLine(liveName(group.placeId) ?? '');
     if (!name) continue;
     const purpose = oneLine(note?.purpose ?? '');
     const channelLine =
@@ -371,7 +370,7 @@ export function participationView(
       episodes.push({
         id: episode.id,
         itemId: typeof episode.itemId === 'string' && episode.itemId ? episode.itemId : null,
-        channelId: group.channelId,
+        placeId: group.placeId,
         channelLine,
         text,
         budgetText: [channelLine, text].filter(Boolean).join('\n'),
@@ -398,10 +397,10 @@ export function participationView(
 export function participationText(view: ParticipationView, keptEpisodes: Array<ParticipationEpisode>): string {
   if (keptEpisodes.length === 0) return '';
   const lines = [view.header];
-  let channelId: string | null = null;
+  let placeId: string | null = null;
   for (const episode of [...keptEpisodes].sort((a, b) => a.rank - b.rank)) {
-    if (episode.channelId !== channelId && episode.channelLine) lines.push(episode.channelLine);
-    channelId = episode.channelId;
+    if (episode.placeId !== placeId && episode.channelLine) lines.push(episode.channelLine);
+    placeId = episode.placeId;
     lines.push(episode.text);
   }
   return lines.join('\n');
@@ -484,7 +483,7 @@ export function anchorsView(
   // earlierEpisodes cuts the stored episodes, which it returns as plain objects.
   const episodes = (
     state && starts.length > 0
-      ? earlierEpisodes(state, { channelId: currentChannelId ?? '', before: Math.min(...starts), now }, settings)
+      ? earlierEpisodes(state, { placeId: currentChannelId ?? '', before: Math.min(...starts), now }, settings)
       : []
   ) as Array<StoredEpisode>;
 
@@ -704,8 +703,8 @@ export function recentOf(given: RequestInput & Base & Room & InterlocutorBlocks 
   const recentAudience =
     typeof given.recentAudience === 'function'
       ? // The turn's rule of which channels' lines this turn may show.
-        (given.recentAudience as (channelId: string | null) => boolean)
-      : (channelId: string | null) => channelId === currentChannelId;
+        (given.recentAudience as (placeId: string | null) => boolean)
+      : (placeId: string | null) => placeId === currentChannelId;
   const recentProfiles: Array<unknown> =
     recentOn && !privateChat && episodesOn && labels.recent?.episode && Array.isArray(given.candidateProfiles)
       ? (given.candidateProfiles as Array<unknown>)

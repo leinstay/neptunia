@@ -19,7 +19,7 @@ const envelope = (kind: string, extra: Record<string, Untyped> = {}): Record<str
   kind,
   occurredAt: '2026-10-20T10:00:00.000Z',
   recordedAt: '2026-10-20T10:00:01.000Z',
-  guildId: '300000000000000001',
+  placeId: '300000000000000001',
   scope: { channel: CHANNEL },
   participants: ['100000000000000001'],
   sourceMessageIds: ['400000000000000001'],

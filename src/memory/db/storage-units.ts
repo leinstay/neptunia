@@ -1,6 +1,6 @@
 // The catalog supplies storage ownership, collection lifecycle and append positions to live readers and writers.
 
-import { legacyStorageKey } from './paths.ts';
+import { legacyStorageKey } from '../migration/paths.ts';
 import { keyText, storageId } from './storage-keys.ts';
 import type { StorageKey, StorageKind, StorageSelector, StorageSubject } from './storage-keys.ts';
 import type { Db, Row } from './types.ts';
@@ -13,7 +13,7 @@ export type StorageUnit = Readonly<{
   retiredAt: string | null;
 }>;
 export type UnitQuery = {
-  kind?: StorageKind;
+  kind?: StorageKind | (string & {});
   subject?: StorageSubject;
   scopePlaceId?: string;
   partition?: string;

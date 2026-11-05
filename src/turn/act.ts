@@ -53,7 +53,7 @@ type EffectVerdict = { ok: boolean };
 /** What createAct reads: the dependencies and the functions of the other topic modules it calls. */
 export type ActContext = {
   hot: { readonly config: ActConfig };
-  store: { isPingsOff?: (guildId: string, userId: string | null | undefined) => boolean };
+  store: { isPingsOff?: (placeId: string, userId: string | null | undefined) => boolean };
   rng: () => number;
   clock: () => number;
   selfIdOf: () => string;
@@ -106,7 +106,7 @@ type ActDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
 type OwnLine = {
   id: string | null;
   ts: number;
-  channelId: string;
+  placeId: string;
   self: true;
   authorId: string;
   content: string;
@@ -115,7 +115,7 @@ type OwnLine = {
 
 export type ActArgs = {
   channel: ConversationInfo;
-  guildId: string;
+  placeId: string;
   privateChat: boolean;
   parsed: ActParsed;
   idByIndex: ReadonlyMap<number, string>;
@@ -161,9 +161,9 @@ export type ActOutcome = {
 /** A diary set's picture as the turn staged it, with what its generation logged. */
 type HeldPicture = EntryPicture & { text: string; seconds?: unknown; cost?: unknown; self?: unknown };
 
-export type HoldArgs = Omit<RenderArgs, 'channel' | 'snapshot' | 'guildId' | 'privateChat' | 'link'> & {
+export type HoldArgs = Omit<RenderArgs, 'channel' | 'snapshot' | 'placeId' | 'privateChat' | 'link'> & {
   channel: ConversationInfo;
-  guildId: string;
+  placeId: string;
   privateChat: boolean;
   parsed: { messages: ReadonlyArray<{ text: string }> };
   set: { pictures: Array<HeldPicture> } | null;
@@ -214,11 +214,11 @@ export function createAct(ctx: ActContext): Act {
    * A diary post's speech held where act would send it: her messages as written and as renderPost renders them (pings
    * off left out) and the staged pictures; the turn records the entry (diary-turn.ts#recordEntry), its mirrors post it.
    */
-  function holdSpeech({ channel, guildId, privateChat, parsed, set, draft = null, ...routing }: HoldArgs): HeldSpeech {
-    const options = { channel, snapshot: snapshotOfDraft(draft), guildId, privateChat, ...routing, link: null };
+  function holdSpeech({ channel, placeId, privateChat, parsed, set, draft = null, ...routing }: HoldArgs): HeldSpeech {
+    const options = { channel, snapshot: snapshotOfDraft(draft), placeId, privateChat, ...routing, link: null };
     const rendered = parsed.messages.map((message) => {
       const { text, userIds } = renderPost(message.text, options);
-      return { text, userIds: userIds.filter((id) => !store.isPingsOff?.(guildId, id)) };
+      return { text, userIds: userIds.filter((id) => !store.isPingsOff?.(placeId, id)) };
     });
     const texts = parsed.messages.map((message) => message.text);
     const staged = set?.pictures ?? [];
@@ -295,7 +295,7 @@ export function createAct(ctx: ActContext): Act {
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   async function act({
     channel,
-    guildId,
+    placeId,
     privateChat,
     parsed,
     idByIndex,
@@ -401,8 +401,8 @@ export function createAct(ctx: ActContext): Act {
     const picking = (
       gifPick
         ? pickGifSafely({
-            channelId: channel.id,
-            guildId,
+            placeId,
+            conversationId: channel.id,
             messages: parsed.messages,
             gif: parsed.gif,
             history,
@@ -426,7 +426,7 @@ export function createAct(ctx: ActContext): Act {
       const { spoken: first, text: firstText } = renderPost(head.text, {
         channel,
         snapshot: snapshotOfDraft(draft),
-        guildId,
+        placeId,
         privateChat,
         idByIndex,
         pulledIds,
@@ -445,9 +445,7 @@ export function createAct(ctx: ActContext): Act {
     }
     // Once that typing is over, a picker still out gets `gifs.pick.graceMs` more at most (pickedInTime).
     const picked =
-      gifPick && firstTyped && !pickDone
-        ? await pickedInTime(picking, { channelId: channel.id, draft })
-        : await picking;
+      gifPick && firstTyped && !pickDone ? await pickedInTime(picking, { placeId: channel.id, draft }) : await picking;
     // One GIF post (the turn's own or the picked one), recorded like a message.
     const sendGif = async (gif: ResolvedGif): Promise<ReturnType<typeof postedOf> | null> => {
       const { replyId, pulledId } = replyTarget(gif.replyTo, { plain, idByIndex, pulledIds });
@@ -456,7 +454,7 @@ export function createAct(ctx: ActContext): Act {
           input: { gif: gif.entry?.id ?? null },
           sourceMessageIds: replyId ? [replyId] : [],
         });
-      const sent = await postGif(channel, guildId, gif, replyId, linkFor(pulledId), {
+      const sent = await postGif(channel, placeId, gif, replyId, linkFor(pulledId), {
         openOp,
         trigger,
         publicationBoundary,
@@ -480,7 +478,7 @@ export function createAct(ctx: ActContext): Act {
     // each send: their `<@id>` stays in the text but notifies nobody, and a reply to their line
     // does not ping them (server channels only).
     const pingsOff = (userId: string | null | undefined): boolean =>
-      !privateChat && Boolean(userId) && typeof store.isPingsOff === 'function' && store.isPingsOff(guildId, userId);
+      !privateChat && Boolean(userId) && typeof store.isPingsOff === 'function' && store.isPingsOff(placeId, userId);
     // A message that did not go out ends the posting; the turn then ends `partial` with a `sendFailed` fact (its code, how many of how many went out).
     // A send whose answer never came (`unknown`: a timeout, a network error) may have gone out: it keeps the hash of its text, and her next turn here looks for it before telling.
     const failSend = (code: unknown, { unknown = false, text: sentText = '' } = {}): void => {
@@ -505,7 +503,7 @@ export function createAct(ctx: ActContext): Act {
       const { text, spoken, userIds } = renderPost(message.text, {
         channel,
         snapshot: snapshotOfDraft(draft),
-        guildId,
+        placeId,
         privateChat,
         idByIndex,
         pulledIds,
@@ -564,7 +562,7 @@ export function createAct(ctx: ActContext): Act {
       const posted = postedOf(result);
       if (op.opId) await op.succeeded({ messageId: posted.id });
       recordSaid({
-        guildId,
+        placeId,
         channel,
         privateChat,
         trigger,
@@ -585,7 +583,7 @@ export function createAct(ctx: ActContext): Act {
         id: posted?.id ?? null,
         // Number.isFinite is true only for a number.
         ts: Number.isFinite(posted?.createdTimestamp) ? (posted.createdTimestamp as number) : clock(),
-        channelId: channel.id,
+        placeId: channel.id,
         self: true,
         authorId: selfIdOf(),
         content: message.text,
@@ -595,7 +593,7 @@ export function createAct(ctx: ActContext): Act {
       if (participation && !privateChat) {
         recordOwnParticipation({
           channel,
-          guildId,
+          placeId,
           history,
           earlier: ownPosted,
           own: ownLine,

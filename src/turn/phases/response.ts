@@ -58,7 +58,7 @@ export async function responsePhase(
   const { emojiLookup, resolveGif, noteThink, markPulledSeen, stampShownCalls, journalOn } = ctx;
   const { trigger = null, triggerKind = null, source = null } = params;
   const { opened, setup, pulled: pulledStep, waited, gathered, request } = prepared;
-  const { channel, guildId, isPrivate, settledMs, life } = opened;
+  const { channel, placeId, isPrivate, settledMs, life } = opened;
   const { transport, startedAt, now, bar, beforeBar, replyOptions, cancel } = setup;
   const { finalMode } = pulledStep;
   const { prepareMs, late, timings } = waited;
@@ -107,7 +107,7 @@ export async function responsePhase(
   bar.close();
   life.stopTyping();
   // Her request is answered, so a refused audience it showed has reached her.
-  markRefusalsTold(store, guildId, diaryPrep?.posts ?? []);
+  markRefusalsTold(store, diaryPrep?.posts ?? []);
 
   // The model's output as it is acted on: the feature switches drop parts of it first. The same
   // for the answer to every request after her calls.
@@ -178,7 +178,7 @@ export async function responsePhase(
     );
     noteDiagnostics(draft, shaped, answered);
     noteThink(draft, shaped);
-    const resolved: Parsed = Object.assign(shaped, { gif: resolveGif(guildId, shaped.gif, channel.id) });
+    const resolved: Parsed = Object.assign(shaped, { gif: resolveGif(placeId, shaped.gif, channel.id) });
     // Counted, never refused: the answer is acted on all the same.
     if (thinkMissing(split.rawText)) {
       draft.format.thinkMissing += 1;
@@ -206,7 +206,7 @@ export async function responsePhase(
     mode: finalMode,
     trigger: triggerKind ?? null,
     // Only on a turn about another channel or with channels pulled.
-    ...(source ? { source: source.channelId ?? null } : {}),
+    ...(source ? { source: source.placeId ?? null } : {}),
     ...(pulled.length > 0 ? { pulled: pulled.length } : {}),
     // Active neighbours the audience rail left out.
     ...(neighborsHidden > 0 ? { neighborsHidden } : {}),
@@ -240,7 +240,7 @@ export async function responsePhase(
   const ownCallId = source?.reason === 'routed' ? (trigger?.id ?? null) : null;
 
   // Cut off at the output cap before any complete action: a lost answer, not her silence.
-  const cutOff = cutOffOf(completion, parsed, { channelId: channel.id, empty: silent, followUp: false });
+  const cutOff = cutOffOf(completion, parsed, { placeId: channel.id, empty: silent, followUp: false });
   if (cutOff && !cutOff.kept && first.calls.length === 0) {
     draft.reason = 'cut-off';
     return { ended: { outcome: 'error', mode: finalMode, reason: 'cut-off' } };

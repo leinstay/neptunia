@@ -3,6 +3,8 @@
 // inputs. createTurnRunner (src/behavior/turn.ts) builds it once per runner with createOutcome over its attempt
 // (runTurnOnce); the runner's facade hands out runTurn and the chain and idle functions.
 
+import { sharedPlaceOf } from '../memory/addresses.ts';
+import { PERSONA_ID } from '../memory/db/storage-keys.ts';
 import type { PublicationBoundary } from '../tools/publication.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { FactInput } from '../behavior/inner.ts';
@@ -30,7 +32,7 @@ type EndChannel = { id: string; communityId?: string | null };
 type EndTrigger = {
   id?: string | null;
   authorId?: string | null;
-  channelId?: string | null;
+  placeId?: string | null;
   ts?: number | null;
   content?: string;
   [key: string]: unknown;
@@ -42,7 +44,7 @@ export type TurnParams = {
   /** A restriction inherited from deferred work: the turn may publish only to its origin. */
   publicationBoundary?: PublicationBoundary;
   conversation?: ConversationRef;
-  guildId?: string | null;
+  placeId?: string | null;
   mode?: string | null;
   trigger?: EndTrigger;
   triggerKind?: TriggerKind | null;
@@ -74,15 +76,15 @@ type Ends = {
 
 /** How a turn ended, as the end hook hears it (src/behavior/missed.ts). */
 export type TurnEnd = {
-  guildId: string | null;
-  channelId: string | null;
+  placeId: string | null;
+  conversationId: string | null;
   privateChat: boolean;
   routed: boolean;
   mode: string | null;
   trigger: {
     id: string | null;
     authorId: string | null;
-    channelId: string | null;
+    placeId: string | null;
     ts: number | null;
     content: string;
   } | null;
@@ -121,9 +123,9 @@ export type OutcomeContext = {
   iface: unknown;
   ifaceReads: Reads;
   selfIdOf: () => string;
-  getSelfName: (guildId: string) => string;
+  getSelfName: (placeId: string) => string;
   clock: () => number;
-  busy: { size: number; delete: (channelId: string) => unknown };
+  busy: { size: number; delete: (placeId: string) => unknown };
   facts: Facts['facts'];
   factsOfKind: JournalNotes['factsOfKind'];
   keepFact: JournalNotes['keepFact'];
@@ -133,19 +135,19 @@ export type OutcomeContext = {
 
 export type Outcome = {
   runTurn: (params: TurnParams) => Promise<TurnResult>;
-  recordTurnFacts: (args: { guildId?: string | null }, draft: FactsDraft) => void;
+  recordTurnFacts: (args: { placeId?: string | null }, draft: FactsDraft) => void;
   notifyIdle: () => void;
   /**
-   * The parts of the chain running in `channelId` not started yet, when its message is
+   * The parts of the chain running in `placeId` not started yet, when its message is
    * `authorId`'s: `{ index, text }` in order (1-based indices). Empty otherwise. Read only.
    */
-  waitingParts: (channelId: unknown, authorId: unknown) => Array<{ index: number; text: string }>;
+  waitingParts: (placeId: unknown, authorId: unknown) => Array<{ index: number; text: string }>;
   /**
-   * Fold `message` (`{ id, text, ts }`) into part `index` of `authorId`'s chain in `channelId`,
+   * Fold `message` (`{ id, text, ts }`) into part `index` of `authorId`'s chain in `placeId`,
    * so that part's request names it (`labels.task.added`). False -- nothing changed -- when no
    * such chain runs or the part has started.
    */
-  addToPart: (channelId: unknown, authorId: unknown, index: unknown, message: PartMessage) => boolean;
+  addToPart: (placeId: unknown, authorId: unknown, index: unknown, message: PartMessage) => boolean;
   /**
    * Resolves once no turn is in flight anywhere -- immediately if that is
    * already true. Used by admin.js's `/nep pause` to wait out a turn
@@ -180,7 +182,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     runTurnOnce,
   } = ctx;
 
-  // channelId -> the chain of parts running there (runChain): its author, its parts, the part
+  // placeId -> the chain of parts running there (runChain): its author, its parts, the part
   // in progress (`next`, 1-based; 0 before the first) and the messages folded into a later part.
   const chains = new Map<string, Chain>();
   let onIdle: (() => unknown) | null = null; // set via setOnIdle(); see the finally block of runTurn below
@@ -191,7 +193,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * @param {object} params
    * @param {import('../protocol/adapter.ts').ConversationRef} [params.conversation]  absent for the selfreflection wake
    * @param {{ turnId: string, attemptId?: number }|null} [params.journalTurn]  The journal's turn and attempt (runTurn passes them on).
-   * @param {string} [params.guildId]  The community of a private chat; a server channel uses its own; a private chat with neither has none.
+   * @param {string} [params.placeId]  The community of a private chat; a server channel uses its own; a private chat with neither has none.
    * @param {'reply'|'interject'|'initiate'|'auto'|'diary'|'inner'} params.mode  'auto' lets `chooseMode` pick
    *   between interject/initiate/nothing once the history is known (spontaneous turns); 'inner'
    *   is an inner turn (with `params.inner`).
@@ -221,7 +223,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * @param {(history: object[], now: number, context: { pulled: object[] }) => string|null} [params.chooseMode]
    *   Called with this channel's history and the channels already pulled for the turn (the
    *   PulledChannel records of the pull, the source first).
-   * @param {{ channelId: string, reason: 'routed'|'noticed' }|null} [params.source]  The channel
+   * @param {{ placeId: string, reason: 'routed'|'noticed' }|null} [params.source]  The channel
    *   this turn is about when it is not `channel` (a call from a channel the bot cannot write in,
    *   a noticed comment): pulled before anything else and shown in `<channel_view>`. When it
    *   cannot be pulled a routed turn ends in `error` (`turn: source unavailable`), a noticed one
@@ -269,10 +271,10 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   'set-short' }`). Its outcome carries `diary: { kind, picture, search, messages, pictures }` and the entry
    *   (`diary.entry`) the mirrors publish (src/behavior/mirror.ts).
    *
-   * A private chat (`channel` without a guild) works like a server turn on behalf of its partner
-   * (the trigger's author, fetched as a member of the served guild: privatePartner) with
+   * A private chat (`channel` without a place) works like a server turn on behalf of its partner
+   * (the trigger's author, fetched as a member of the served place: privatePartner) with
    * features.privateLikeServer on (a missing key counts as on): the explicit `<#id>` mentions and
-   * the route hook's ids are pulled from the served guild when the partner has View Channel on
+   * the route hook's ids are pulled from the served place when the partner has View Channel on
    * them (checkPull), and the search classifier may ask for the server search (recall), its hits
    * judged by the same rule. It has neither neighbours nor a source, and the channels it
    * shows move no seen mark, stamp no call of the ring and count for no pending ping there: the
@@ -310,7 +312,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     const attempts: Array<unknown> = [];
     // What every attempt posted in reply to and why it ended (runTurnOnce), for the end hook.
     const ends: Ends = { replyTargets: [], reasons: [], factsShown: null, info: null };
-    const wake = params?.mode === 'diary' && !params.conversation ? await selfreflectionOf(params) : {};
+    const wake = params?.mode === 'diary' && !params.conversation ? await selfreflectionOf() : {};
     const tracked = { ...params, ...wake, journalAttempts: attempts, turnEnds: ends };
     let result: TurnResult | undefined;
     let thrown: unknown = null;
@@ -335,18 +337,17 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * The `selfreflection` wake (a diary turn with no conversation): the conversation, channel and history memory holds of
    * her diary's place (diary-turn.ts#wakeInputs). Only it is awaited before a turn takes its attention.
    */
-  async function selfreflectionOf({
-    guildId,
-  }: TurnParams): Promise<{ conversation: ConversationRef; standIn: unknown; reuseHistory: unknown }> {
-    // A diary turn names the guild it posts for.
-    const served = guildId as string;
+  async function selfreflectionOf(): Promise<{
+    conversation: ConversationRef;
+    standIn: unknown;
+    reuseHistory: unknown;
+  }> {
     const { conversation, channel, history } = await wakeInputs({
       store,
       conversationInfo: (ref) => ifaceReads.conversationInfo(ref, { audience: true, viewers: [] }),
       iface: portIface(iface),
-      guildId: served,
       selfId: selfIdOf(),
-      selfName: getSelfName(served),
+      selfName: getSelfName(PERSONA_ID),
       config: hot.config,
     });
     return { conversation, standIn: channel, reuseHistory: history };
@@ -364,16 +365,16 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
       const { trigger = null, triggerKind = null, mode = null } = params ?? {};
       const channel = ends.info;
       if (!channel || mode !== 'reply' || !askedFor(trigger, triggerKind) || !trigger?.id) return;
-      const guildId = params.guildId ?? channel.communityId ?? null;
-      const scope = { channelId: String(channel.id), privateChat: !inCommunity(channel) };
+      const placeId = params.placeId ?? channel.communityId ?? null;
+      const scope = { placeId: String(channel.id), privateChat: !inCommunity(channel) };
       const at = clock();
       const outcome = result?.outcome ?? 'error';
       if (outcome !== 'error' && outcome !== 'busy' && outcome !== 'paused' && outcome !== 'cancelled') {
-        const own = factsOfKind(guildId, scope, 'failedTurn', at)
+        const own = factsOfKind(placeId, scope, 'failedTurn', at)
           .filter((fact) => fact.messageId === String(trigger.id))
           .map((fact) => fact.id);
         const told = [...(ends.factsShown ?? []), ...own];
-        if (told.length > 0) facts().markTold(guildId, told);
+        if (told.length > 0) facts().markTold(told);
       }
       if (outcome !== 'error' && outcome !== 'refused') return;
       const code =
@@ -385,7 +386,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
               ? 'too-slow'
               : ((outcome === 'refused' ? ends.reasons.at(-1) : null) ?? outcome);
       keepFact(
-        guildId,
+        placeId,
         scope,
         'failedTurn',
         { messageId: String(trigger.id), authorId: trigger.authorId ?? null, code },
@@ -401,7 +402,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * not go out (`sendFailed`), calls the loop dropped (`loopCut`) and failed calls she never read the
    * result of (`callFailed`). Never throws.
    */
-  function recordTurnFacts(args: { guildId?: string | null }, draft: FactsDraft): void {
+  function recordTurnFacts(args: { placeId?: string | null }, draft: FactsDraft): void {
     try {
       const channel = draft.info;
       if (!channel) return;
@@ -419,10 +420,9 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
       for (const { kind, ...rest } of untoldDiagnostics(draft))
         entries.push({ kind: 'diagnostic', diagnostic: kind, ...rest });
       if (entries.length === 0) return;
-      const guildId = args.guildId ?? channel.communityId ?? null;
       const at = clock();
       for (const entry of entries)
-        facts().add(guildId, { ...entry, channelId: String(channel.id), privateChat: !inCommunity(channel), at });
+        facts().add({ ...entry, placeId: String(channel.id), privateChat: !inCommunity(channel), at });
     } catch (err) {
       log.warn('turn: facts not kept', { error: err });
     }
@@ -430,8 +430,8 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
 
   /**
    * Tell the end hook (setOnTurnEnd; src/behavior/missed.ts) how a turn ended, never awaited
-   * and never thrown into the turn: its channel and guild, whether it was a private chat or
-   * about another channel (`routed`), its trigger (`{ id, authorId, channelId, ts, content }`,
+   * and never thrown into the turn: its channel and place, whether it was a private chat or
+   * about another channel (`routed`), its trigger (`{ id, authorId, placeId, ts, content }`,
    * in process only) and kind, its outcome (`error` when it threw), its reason (the result's,
    * or `too-slow` for one dropped at its bar), the messages its posts replied to, whether it
    * was a rehearsal and its journal id.
@@ -440,7 +440,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     if (typeof onTurnEnd !== 'function') return;
     const { trigger = null, triggerKind = null, mode = null, source = null } = params ?? {};
     const channel = ends.info;
-    const channelId = channel?.id ?? params?.conversation?.conversationId ?? null;
+    const placeId = channel?.id ?? params?.conversation?.conversationId ?? null;
     const outcome = result?.outcome ?? 'error';
     const reason =
       typeof result?.reason === 'string'
@@ -449,8 +449,8 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
           ? 'too-slow'
           : null;
     const end: TurnEnd = {
-      guildId: channel?.communityId ?? params?.guildId ?? null,
-      channelId,
+      placeId: channel ? sharedPlaceOf(store, channel) : null,
+      conversationId: placeId,
       privateChat: channel ? !inCommunity(channel) : false,
       routed: Boolean(source),
       mode,
@@ -458,7 +458,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
         ? {
             id: trigger.id ?? null,
             authorId: trigger.authorId ?? null,
-            channelId: trigger.channelId ?? channelId,
+            placeId: trigger.placeId ?? placeId,
             ts: trigger.ts ?? null,
             content: trigger.content ?? '',
           }
@@ -599,15 +599,15 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     runTurn,
     recordTurnFacts,
     notifyIdle,
-    waitingParts: (channelId, authorId) => {
+    waitingParts: (placeId, authorId) => {
       // A Map answers undefined for a key of another type.
-      const chain = chains.get(channelId as string);
+      const chain = chains.get(placeId as string);
       if (!chain || chain.memoryContext || chain.authorId !== authorId) return [];
       return chain.parts.map((text, i) => ({ index: i + 1, text })).filter(({ index }) => index > chain.next);
     },
-    addToPart: (channelId, authorId, given, message) => {
+    addToPart: (placeId, authorId, given, message) => {
       // A Map answers undefined for a key of another type, and a part's index compares as a number.
-      const chain = chains.get(channelId as string);
+      const chain = chains.get(placeId as string);
       const index = given as number;
       if (
         !chain ||

@@ -1,6 +1,6 @@
 // The recent store, pure: short dated lines about the last few days that fit
 // no long-term kind of memory (an episode, lore, a self fact, a lesson) yet
-// matter for the next days. src/memory/store.ts keeps them in data/guilds/<id>/recent.json and runs every
+// matter for the next days. src/memory/store.ts keeps them in data/places/<id>/recent.json and runs every
 // write through `mergeRecent`. The clock is passed in (`now`); only a missing
 // one falls back to the wall clock.
 //
@@ -13,10 +13,10 @@
 // line leaves only through the storage cap (`memory.maxRecentStored`: when a
 // write adds lines, the lightest, then the oldest go), an explicit remove of its
 // id (the analyzer takes back a line that is wrong), a forget of a member it
-// names (`purgeRecentFor`) or a wipe of the guild (src/memory/store.ts). A line
+// names (`purgeRecentFor`) or a wipe of the place (src/memory/store.ts). A line
 // is never promoted: nothing here copies or moves it into another store.
 //
-// Every line records the channel it comes from (`channelId`): a later view
+// Every line records the channel it comes from (`placeId`): a later view
 // shows a line only where that channel's audience allows it, so a line without
 // one is never stored (counted `noChannel`). `who` (the member ids its `<@id>`
 // tokens name) is computed from the text here, never taken from the model.
@@ -102,7 +102,7 @@ export type RecentLine = {
   id: number;
   at: number;
   addedAt: string | null;
-  channelId: string;
+  placeId: string;
   text: string;
   who: Array<string>;
   weight: number;
@@ -110,7 +110,7 @@ export type RecentLine = {
 };
 
 /**
- * The store of a guild nothing was written to yet.
+ * The store of a place nothing was written to yet.
  */
 export function emptyRecent(): { nextId: number; lines: Array<RecentLine> } {
   return { nextId: 1, lines: [] };
@@ -168,7 +168,7 @@ function lineIdOf(raw: Untyped) {
  * A stored value (untrusted: possibly hand-edited while paused, or from an
  * older version) as the store holds it. A line that is not an object, or lacks
  * a positive integer `id`, a finite `at`, a non-empty `text` or a non-empty
- * string `channelId`, is dropped. A line whose id an earlier line already holds
+ * string `placeId`, is dropped. A line whose id an earlier line already holds
  * gets a fresh id: the stored `nextId` or the one after the highest id,
  * whichever is larger, so a healed line never takes an id a gone line once held.
  * `text` is kept on one line, `weight` clamped (see `mergeRecent`), `who`
@@ -184,13 +184,13 @@ export function normalizeRecent(value: unknown): { nextId: number; lines: Array<
     if (!isRecord(raw)) continue;
     const id = isIntegerNumber(raw.id) && raw.id >= 1 ? raw.id : null;
     const text = typeof raw.text === 'string' ? oneLine(raw.text) : '';
-    const channelId = channelIdOf(raw.channelId);
-    if (id === null || !isFiniteNumber(raw.at) || !text || channelId === null) continue;
+    const placeId = channelIdOf(raw.placeId);
+    if (id === null || !isFiniteNumber(raw.at) || !text || placeId === null) continue;
     const line: RecentLine = {
       id,
       at: raw.at,
       addedAt: typeof raw.addedAt === 'string' ? raw.addedAt : null,
-      channelId,
+      placeId,
       text,
       who: tokenIds(text),
       weight: weightOf(raw.weight),
@@ -224,7 +224,7 @@ function evictionOrder(a: { id: number; at: number; weight: number }, b: { id: n
  *   1. lines whose moment is older than `now - hours` are dropped (`expired`);
  *   2. the stored lines whose ids `removeIds` lists are dropped (`removed`; an id
  *      not stored, or given to a line by this same call, removes nothing);
- *   3. each incoming item `{ text, at, channelId, weight }` is sanitized:
+ *   3. each incoming item `{ text, at, placeId, weight }` is sanitized:
  *      `text` without its links (src/memory/clamp.ts#stripUrls), kept on one line and cut to `chars` at a clean boundary
  *      (src/memory/clamp.ts#clampText with `clampTolerance`), `weight` an integer
  *      clamped to 1..3 (else 2), `at` a finite number (else `now`). An item that
@@ -301,19 +301,19 @@ export function mergeRecent(
 
   const items = Array.isArray(incoming) ? incoming : [];
   const held = new Set(kept.map((line) => foldText(line.text)));
-  const fresh: Array<{ at: number; channelId: string; text: string; weight: number }> = [];
+  const fresh: Array<{ at: number; placeId: string; text: string; weight: number }> = [];
   const why = { invalid: 0, noChannel: 0, stale: 0, duplicate: 0, overCap: 0 };
   for (const raw of items) {
     const text =
       isRecord(raw) && typeof raw.text === 'string'
         ? clampText(oneLine(stripUrls(raw.text)), chars, { tolerance: options.clampTolerance })
         : '';
-    const channelId = isRecord(raw) ? channelIdOf(raw.channelId) : null;
+    const placeId = isRecord(raw) ? channelIdOf(raw.placeId) : null;
     const at = isRecord(raw) && isFiniteNumber(raw.at) ? raw.at : now;
     const key = foldText(text);
     const reason = !text
       ? 'invalid'
-      : channelId === null
+      : placeId === null
         ? 'noChannel'
         : at < cutoff
           ? 'stale'
@@ -322,13 +322,13 @@ export function mergeRecent(
             : fresh.length >= maxNew
               ? 'overCap'
               : null;
-    // `reason` is "noChannel" for a missing channel, so `channelId` is a string when the line is kept.
+    // `reason` is "noChannel" for a missing channel, so `placeId` is a string when the line is kept.
     if (reason) {
       why[reason] += 1;
       continue;
     }
     held.add(key);
-    fresh.push({ at, channelId: channelId as string, text, weight: weightOf(raw.weight) });
+    fresh.push({ at, placeId: placeId as string, text, weight: weightOf(raw.weight) });
   }
 
   // The storage cap ranks a kept item by a provisional id from `base.nextId` on, above every stored
@@ -337,7 +337,7 @@ export function mergeRecent(
   let survivors: Array<{
     id: number;
     at: number;
-    channelId: string;
+    placeId: string;
     text: string;
     weight: number;
     addedAt?: string | null;
@@ -372,7 +372,7 @@ export function mergeRecent(
       id,
       at: line.at,
       addedAt,
-      channelId: line.channelId,
+      placeId: line.placeId,
       text: line.text,
       who: tokenIds(line.text),
       weight: line.weight,
@@ -527,7 +527,7 @@ export function recentView({
   hours?: number;
   focusIds?: Iterable<string>;
   excludeEpisodeKeys?: Set<string>;
-  isShown?: (channelId: string | null) => boolean;
+  isShown?: (placeId: string | null) => boolean;
   perMember?: number;
 } = {}): {
   items: Array<RecentLineItem | RecentMoment>;
@@ -545,7 +545,7 @@ export function recentView({
   const shownLines: Array<RecentLineItem> = [];
   for (const line of liveRecent(lines, { now: clock, hours })) {
     if (typeof line.text !== 'string' || !line.text) continue;
-    if (!shows(line.channelId ?? null)) {
+    if (!shows(line.placeId ?? null)) {
       hidden += 1;
       continue;
     }

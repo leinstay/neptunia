@@ -243,7 +243,7 @@ function line(
 ) {
   return {
     id,
-    channelId: 'c1',
+    placeId: 'c1',
     authorId,
     authorName,
     ts,
@@ -303,10 +303,10 @@ test('routeContext: the last contextMessages before the candidate, and the candi
 
 /** The conversations of the community: #general (c1, the turn's), #journal (c2), #jardin (c3) and #secret (c4, hidden from the bot). */
 function fakeGuild() {
-  const channel = world().channel({ id: 'c1', name: 'general', guildId: GUILD });
-  world().channel({ id: 'c2', name: 'journal', guildId: GUILD });
-  world().channel({ id: 'c3', name: 'jardin', guildId: GUILD });
-  world().channel({ id: 'c4', name: 'secret', guildId: GUILD, permissions: { read: false } });
+  const channel = world().channel({ id: 'c1', name: 'general', placeId: GUILD });
+  world().channel({ id: 'c2', name: 'journal', placeId: GUILD });
+  world().channel({ id: 'c3', name: 'jardin', placeId: GUILD });
+  world().channel({ id: 'c4', name: 'secret', placeId: GUILD, permissions: { read: false } });
   return { channel };
 }
 
@@ -334,7 +334,7 @@ const STORED_CHANNELS = [
 function fakeStore(channels = STORED_CHANNELS) {
   return {
     listChannels: () => channels,
-    getUser: (guildId: string, id: string) =>
+    getUser: (id: string) =>
       id === 'u3'
         ? {
             names: ['Éloïse'],
@@ -376,7 +376,7 @@ async function routerScene({
     line('m2', { authorName: 'Nikos', content: 'στο ημερολόγιο' }),
   ];
   const args = {
-    guildId: GUILD,
+    placeId: GUILD,
     channel: channel.info,
     snapshot,
     history,
@@ -494,9 +494,9 @@ test('createChannelRouter: a private chat with its partner lists the server chan
   const dm = world().channel({ id: 'dm1', dm: true, partnerId: 'u9' }).info;
   const partner = { id: 'u9' };
   // The partner cannot view #jardin; the listing says so for the viewer it is asked about.
-  world().channel({ id: 'c3', name: 'jardin', guildId: GUILD, viewers: { u9: false } });
+  world().channel({ id: 'c3', name: 'jardin', placeId: GUILD, viewers: { u9: false } });
   const snapshot = await takeSnapshot(world().reads, GUILD, ['u9']);
-  const history = args.history.map((m) => ({ ...m, channelId: 'dm1' }));
+  const history = args.history.map((m) => ({ ...m, placeId: 'dm1' }));
   const turn = { ...args, channel: dm, snapshot, partner, history, trigger: history[1], triggerKind: 'private' };
   const { result, logs } = await withCapturedLogs(() => router(turn));
   assert.deepEqual(result, ['c2']);

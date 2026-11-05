@@ -81,15 +81,15 @@ function setUp(t: { after: (fn: () => void) => void }): {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     board,
     now: () => NOW,
   });
   // Her own call on an inner turn: nobody asks, the actor is the persona.
   const context = (extra: Record<string, unknown> = {}) => ({
     env,
-    guildId: 'g1',
-    channelId: 'c1',
+    placeId: 'g1',
+    conversationId: 'c1',
     userId: null,
     roleIds: [],
     actor: 'persona',
@@ -269,11 +269,11 @@ test('board.propose answers failed board-unavailable when the core has no board'
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     board: null,
   });
   const { result } = await withCapturedLogs(() =>
-    runOp('board.propose', { title: 'x', evidence: 'y' }, { env, guildId: 'g1', userId: null, actor: 'persona' })
+    runOp('board.propose', { title: 'x', evidence: 'y' }, { env, placeId: 'g1', userId: null, actor: 'persona' })
   );
   const answer = result as Result;
   assert.equal(answer.status, 'failed');

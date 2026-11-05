@@ -100,7 +100,7 @@ function lastUseOf(entry: Untyped) {
  * described at or after `cutoffMs` (media.recacheBefore, when not null) and
  * the ones whose `model` is the current one for their kind (`models.video`
  * for a watched GIF, else `models.vision`). Pure.
- * @param cache  The guild's media cache.
+ * @param cache  The place's media cache.
  */
 export function pickStaleDescriptions(
   cache: StoredRecord,
@@ -199,7 +199,7 @@ export function gifCaptionState(entry: StoredRecord): 'watched' | 'failed' | 'on
  * How many library entries stand where (see gifCaptionState), by their
  * `itemId` in the media cache.
  * @param gifs   A stored library (normalised here).
- * @param cache   The guild's media cache.
+ * @param cache   The place's media cache.
  */
 export function gifCaptionCounts(
   gifs: unknown,
@@ -225,7 +225,7 @@ function watchedOldFormat(entry: StoredRecord): boolean {
  * field, `oldFormat` watched without one (the recache re-describes them),
  * `unwatched` everything else (one-frame, failed watch, no caption).
  * @param gifs   A stored library (normalised here).
- * @param cache   The guild's media cache.
+ * @param cache   The place's media cache.
  */
 export function gifFormatCounts(
   gifs: unknown,
@@ -249,7 +249,7 @@ export function gifFormatCounts(
  * an entry with no cache entry at all comes first -- ties in library order,
  * at most `limit` of them.
  * @param gifs   A stored library (normalised here).
- * @param cache   The guild's media cache.
+ * @param cache   The place's media cache.
  */
 export function recacheQueue(gifs: unknown, cache: StoredRecord, limit: number): Array<object> {
   const describedAt = (entry: Untyped) => {
@@ -274,7 +274,7 @@ export function recacheQueue(gifs: unknown, cache: StoredRecord, limit: number):
  * (`<message>#e<n>`: only gif embeds are described under such an id). An
  * attached GIF captioned before the marker existed cannot be told from a
  * picture, so it is left alone. Video entries (`video:`) are never touched.
- * @param cache   The guild's media cache.
+ * @param cache   The place's media cache.
  * @param gifs   A stored library (normalised here).
  */
 export function oneFrameGifKeys(cache: StoredRecord, gifs: unknown): Array<string> {
@@ -321,11 +321,11 @@ function buildGifRecache({
   let running: Untyped = null;
 
   /** One message read again through the interface, as a line; null when it is gone or the read fails. */
-  async function readMessage(channelId: string, messageId: string) {
-    const found = await reads.fetchMessages({ iface: iface(), conversationId: String(channelId) }, [messageId]);
+  async function readMessage(placeId: string, messageId: string) {
+    const found = await reads.fetchMessages({ iface: iface(), conversationId: String(placeId) }, [messageId]);
     const event = found?.messages[0]?.event;
     if (!event) {
-      log.warn('gif-recache: message read failed', { channelId });
+      log.warn('gif-recache: message read failed', { placeId });
       return null;
     }
     return lineOf(event);
@@ -339,8 +339,8 @@ function buildGifRecache({
    * message or the GIF in it is gone, or the read fails.
    */
   async function pictureOf(entry: Untyped) {
-    if (!entry.messageId || !entry.channelId) return null;
-    const normalized = await readMessage(entry.channelId, entry.messageId);
+    if (!entry.messageId || !entry.placeId) return null;
+    const normalized = await readMessage(entry.placeId, entry.messageId);
     if (!normalized) return null;
     const gifs = collectGifItems(normalized);
     const found =
@@ -352,7 +352,7 @@ function buildGifRecache({
   }
 
   /** Watch every queued entry in turn; stops on pause or a spent rail. */
-  async function work(guildId: string, queue: Untyped) {
+  async function work(placeId: string, queue: Untyped) {
     const counts = { watched: 0, failed: 0 };
     let stopped = null;
     for (const entry of queue) {
@@ -361,7 +361,7 @@ function buildGifRecache({
         break;
       }
       const item = (await pictureOf(entry)) ?? { itemId: entry.itemId, kind: 'gif' };
-      const outcome = await describer.watchGif(guildId, item);
+      const outcome = await describer.watchGif(placeId, item);
       if (outcome.state === 'watched') counts.watched += 1;
       else if (outcome.state === 'failed') counts.failed += 1;
       else {
@@ -374,7 +374,7 @@ function buildGifRecache({
   }
 
   /**
-   * Start one run for `guildId`: drops the one-frame captions outside the
+   * Start one run for `placeId`: drops the one-frame captions outside the
    * library (oneFrameGifKeys) at once, then watches up to
    * `gifs.recachePerRun` library entries (recacheQueue) in the background.
    * Resolves at once, never throws for a skip: `{ ok: false, reason }` --
@@ -382,23 +382,23 @@ function buildGifRecache({
    * are not watched (`off`, `no-prompt`) -- else `{ ok: true,
    * dropped, queued }`.
    */
-  function start(guildId: string) {
+  function start(placeId: string) {
     if (running) return { ok: false, reason: 'running' };
     if (store.state?.data?.paused) return { ok: false, reason: 'paused' };
     if (typeof describer?.watchGif !== 'function') return { ok: false, reason: 'unavailable' };
     const blocker = typeof describer.gifWatchBlocker === 'function' ? describer.gifWatchBlocker() : null;
     if (blocker) return { ok: false, reason: blocker };
 
-    const cache = store.getMediaCache(guildId);
-    const gifs = store.getGifs(guildId);
+    const cache = store.getMediaCache(placeId);
+    const gifs = store.getGifs(placeId);
     const dropped = oneFrameGifKeys(cache, gifs);
     for (const key of dropped) delete cache[key];
-    if (dropped.length > 0) store.markMediaCacheDirty(guildId);
+    if (dropped.length > 0) store.markMediaCacheDirty(placeId);
 
     const queue = recacheQueue(gifs, cache, DEFAULT_PER_RUN);
     log.info('gif-recache: started', { dropped: dropped.length, queued: queue.length });
 
-    running = work(guildId, queue)
+    running = work(placeId, queue)
       .catch((err) => log.error('gif-recache: failed', { error: err }))
       .finally(() => {
         running = null;
@@ -417,7 +417,7 @@ function buildGifRecache({
   }
 
   /** Re-describe the picked keys: emoji, then library GIFs, then the rest through the record; see startMedia. */
-  async function workMedia(guildId: string, keys: Untyped, sinceMs: Untyped) {
+  async function workMedia(placeId: string, keys: Untyped, sinceMs: Untyped) {
     const counts = { done: 0, failed: 0 };
     const wanted = new Set<string>(keys);
     let stopped = null;
@@ -432,7 +432,7 @@ function buildGifRecache({
         if (wait > 0) await sleep(wait);
       }
       lastAt = now();
-      const outcome = await describer.redescribe(guildId, item);
+      const outcome = await describer.redescribe(placeId, item);
       if (outcome.state === 'done') counts.done += 1;
       else if (outcome.state === 'failed') counts.failed += 1;
       else {
@@ -453,7 +453,7 @@ function buildGifRecache({
         if (!(await one({ source: 'emoji', itemId: key, kind: 'emoji', url }))) return;
       }
       // A library GIF from its library entry's message.
-      for (const entry of Object.values(normalizeGifs(store.getGifs(guildId)).entries)) {
+      for (const entry of Object.values(normalizeGifs(store.getGifs(placeId)).entries)) {
         if (!wanted.has(entry.itemId)) continue;
         stopped = stopReason();
         if (stopped) return;
@@ -467,13 +467,13 @@ function buildGifRecache({
       const finder = recordFinder(wanted, sinceMs);
       const messages = new Map();
       for await (const line of asRecordLines(
-        record.iterate(guildId, { from: new Date(finder.fromMs).toISOString() })
+        record.iterate(placeId, { from: new Date(finder.fromMs).toISOString() })
       )) {
         if (!finder.matches(line)) continue;
         const at = Date.parse(line.occurredAt);
         messages.set(line.messageId, {
           messageId: line.messageId,
-          channelId: line.scope.channel,
+          placeId: line.scope.channel,
           at: isFiniteNumber(at) ? at : 0,
         });
       }
@@ -481,7 +481,7 @@ function buildGifRecache({
         if (wanted.size === 0) return;
         stopped = stopReason();
         if (stopped) return;
-        const normalized = await readMessage(ref.channelId, ref.messageId);
+        const normalized = await readMessage(ref.placeId, ref.messageId);
         if (!normalized) continue;
         for (const item of collectPictures(normalized)) {
           if (!wanted.has(item.itemId)) continue;
@@ -497,7 +497,7 @@ function buildGifRecache({
   }
 
   /**
-   * Start one media recache run for `guildId` (see the header): picks the
+   * Start one media recache run for `placeId` (see the header): picks the
    * keys at once (pickStaleDescriptions, under the live media.recacheBefore
    * and the current vision and video models), then re-describes them in the
    * background. Resolves at once, never throws for a skip: `{ ok: false,
@@ -506,7 +506,7 @@ function buildGifRecache({
    * (`no-prompt`) -- else `{ ok: true, picked, days }`.
    * @param [options]  Whole days back, RECACHE_DAYS (out of bounds -> clamped).
    */
-  function startMedia(guildId: string, { days = RECACHE_DAYS.default }: { days?: number } = {}) {
+  function startMedia(placeId: string, { days = RECACHE_DAYS.default }: { days?: number } = {}) {
     if (running) return { ok: false, reason: 'running' };
     if (store.state?.data?.paused) return { ok: false, reason: 'paused' };
     if (typeof describer?.redescribe !== 'function') return { ok: false, reason: 'unavailable' };
@@ -517,7 +517,7 @@ function buildGifRecache({
       ? Math.min(RECACHE_DAYS.max, Math.max(RECACHE_DAYS.min, days))
       : RECACHE_DAYS.default;
     const nowMs = now();
-    const keys = pickStaleDescriptions(store.getMediaCache(guildId), {
+    const keys = pickStaleDescriptions(store.getMediaCache(placeId), {
       nowMs,
       days: span,
       cutoffMs: recacheCutoffMs(hot.config),
@@ -525,7 +525,7 @@ function buildGifRecache({
     });
     log.info('media: recaching', { picked: keys.length, days: span });
 
-    running = workMedia(guildId, keys, nowMs - span * DAY_MS)
+    running = workMedia(placeId, keys, nowMs - span * DAY_MS)
       .catch((err) => log.error('media: recache failed', { error: err }))
       .finally(() => {
         running = null;
@@ -549,7 +549,7 @@ function buildGifRecache({
 export type GifRecache = ReturnType<typeof buildGifRecache>;
 
 /**
- * The GIF recache for the served guild, and the media recache (startMedia).
+ * The GIF recache for the served place, and the media recache (startMedia).
  * @param deps.hot        src/hot.js view; `config.gifs.recachePerRun`, `config.media.embedTextChars`,
  *   `config.media.recacheBefore`, `config.media.recacheIntervalMs` and the roles read at use.
  * @param deps.store      src/memory/store.ts.

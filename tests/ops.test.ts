@@ -139,7 +139,7 @@ function makeEnv({
     state: { data: {}, markDirty() {} },
     flush() {},
     getUser: () => null,
-    getGuild: () => ({ emojiUsage: {} }),
+    getPlace: () => ({ emojiUsage: {} }),
   };
   return createOpsEnv({
     discord: DISCORD,
@@ -148,7 +148,7 @@ function makeEnv({
     client: {},
     spontaneous: {},
     calibrator: { ratio: 1 },
-    getGuildId: () => 'g1',
+    isServedCommunity: (id: unknown) => id === 'g1',
     emojiBackfill,
   });
 }
@@ -175,25 +175,25 @@ test('ops: runOp denies a non-owner on an owner-only op with a code, even under 
     const result = await runOp(
       name,
       { userId: '7', confirm: 'g1' },
-      { env, guildId: 'g1', userId: '999', roleIds: [] }
+      { env, placeId: 'g1', userId: '999', roleIds: [] }
     );
     assert.equal(result.status, 'denied', name);
     assert.equal(result.code, 'owner-only', name);
     assert.equal(typeof result.summary, 'string');
   }
   // a grant on the operation's own name does open a grantable read
-  const open = await runOp('rule.list', {}, { env, guildId: 'g1', userId: '999', roleIds: [] });
+  const open = await runOp('rule.list', {}, { env, placeId: 'g1', userId: '999', roleIds: [] });
   assert.equal(open.status, 'ok');
   // no grant at all: denied, with its own code
   const bare = makeEnv();
-  const refused = await runOp('rule.list', {}, { env: bare, guildId: 'g1', userId: '999', roleIds: [] });
+  const refused = await runOp('rule.list', {}, { env: bare, placeId: 'g1', userId: '999', roleIds: [] });
   assert.equal(refused.status, 'denied');
   assert.equal(refused.code, 'not-granted');
 });
 
 test('ops: runOp returns invalid with a human summary for missing args', async () => {
   const env = makeEnv();
-  const owner = { env, guildId: 'g1', userId: '42' };
+  const owner = { env, placeId: 'g1', userId: '42' };
   const result = await runOp('rule.add', {}, owner);
   assert.equal(result.status, 'invalid');
   assert.equal(typeof result.code, 'string');
@@ -214,7 +214,7 @@ test('ops: an exception becomes failed with its code', async () => {
     },
   };
   const env = makeEnv({ emojiBackfill });
-  const result = await runOp('media.rescan', { kind: 'emoji' }, { env, guildId: 'g1', userId: '42' });
+  const result = await runOp('media.rescan', { kind: 'emoji' }, { env, placeId: 'g1', userId: '42' });
   assert.deepEqual(result, { status: 'failed', code: 'EIO', summary: 'disk unreadable', data: null });
 
   const plain = makeEnv({
@@ -224,7 +224,7 @@ test('ops: an exception becomes failed with its code', async () => {
       },
     },
   });
-  const other = await runOp('media.rescan', { kind: 'emoji' }, { env: plain, guildId: 'g1', userId: '42' });
+  const other = await runOp('media.rescan', { kind: 'emoji' }, { env: plain, placeId: 'g1', userId: '42' });
   assert.equal(other.status, 'failed');
   assert.equal(other.code, 'error');
 });
@@ -249,7 +249,7 @@ test('ops: a stored grant on a command or group that runs no operation any more 
 test('status.show answers the card as its fields, with no embed', async () => {
   const env = makeEnv();
   // PR 7d: the `features` field went with the switches; `limits` is the one field asked here.
-  const result = await runOp('status.show', { field: 'limits' }, { env, guildId: 'g1', userId: '42', roleIds: [] });
+  const result = await runOp('status.show', { field: 'limits' }, { env, placeId: 'g1', userId: '42', roleIds: [] });
   assert.equal(result.status, 'ok');
   const data = result.data as { fields?: Array<{ name: string }> };
   assert.deepEqual(
@@ -297,14 +297,14 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
     hot,
     store,
     client: {},
-    getGuildId: () => null,
+    isServedCommunity: (id: unknown) => id === null,
     llm,
     simKey: 'sim-test-key',
     managementKey: 'mgmt-test',
   });
   assert.equal(env.simKey, 'sim-test-key');
   assert.equal(env.managementKey, 'mgmt-test');
-  const result = await runOp('status.show', { field: 'keys.base' }, { env, guildId: null, userId: '42', roleIds: [] });
+  const result = await runOp('status.show', { field: 'keys.base' }, { env, placeId: null, userId: '42', roleIds: [] });
   assert.deepEqual(
     fieldsOf(result).map((field) => field.name),
     ['keys.base']
@@ -363,11 +363,11 @@ test('status keys: a role on the simulator key (here the vision role) is shown o
     hot,
     store,
     client: {},
-    getGuildId: () => null,
+    isServedCommunity: (id: unknown) => id === null,
     llm,
     simKey: 'sim-test-key',
   });
-  const result = await runOp('status.show', { field: 'keys.base' }, { env, guildId: null, userId: '42', roleIds: [] });
+  const result = await runOp('status.show', { field: 'keys.base' }, { env, placeId: null, userId: '42', roleIds: [] });
   const value = fieldsOf(result)[0].value;
   assert.deepEqual(
     value.split('\n'),
@@ -375,11 +375,18 @@ test('status keys: a role on the simulator key (here the vision role) is shown o
     'no line for the vision role: the simulator line is its line'
   );
   assert.deepEqual(reads.sort(), ['dev', 'main', 'sim-test-key'], 'the simulator key is read once');
-  const noSim = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => null, llm });
+  const noSim = createOpsEnv({
+    discord: DISCORD,
+    hot,
+    store,
+    client: {},
+    isServedCommunity: (id: unknown) => id === null,
+    llm,
+  });
   const without = await runOp(
     'status.show',
     { field: 'keys.base' },
-    { env: noSim, guildId: null, userId: '42', roleIds: [] }
+    { env: noSim, placeId: null, userId: '42', roleIds: [] }
   );
   assert.ok(
     fieldsOf(without)[0].value.split('\n').includes('vision key 0.00/200.00'),
@@ -428,7 +435,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
   const tasks = createErrandStore({
     // @ts-expect-error the store takes no dataDir; the test passes one and the store ignores it
     dataDir: tempDir('nep-ops-data-'),
-    guildId: 'g1',
+    placeId: 'g1',
     now: () => clock.t,
     config: () => config,
   });
@@ -449,10 +456,18 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
     run('scout', { input: 12_400, output: 3_100, usd: 0.12 });
     run('server', { input: 1_000, output: 100, usd: 0.01 });
   });
-  const errands = { store: (guildId: string) => (guildId === 'g1' ? tasks : null) };
-  const env = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm, errands });
+  const errands = { store: () => tasks };
+  const env = createOpsEnv({
+    discord: DISCORD,
+    hot,
+    store,
+    client: {},
+    isServedCommunity: (id: unknown) => id === 'g1',
+    llm,
+    errands,
+  });
   const card = async (field: string) =>
-    fieldsOf(await runOp('status.show', { field }, { env, guildId: 'g1', userId: '42', roleIds: [] }));
+    fieldsOf(await runOp('status.show', { field }, { env, placeId: 'g1', userId: '42', roleIds: [] }));
 
   const [keys] = await card('keys.base');
   assert.deepEqual(
@@ -475,9 +490,16 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
     'the scout cap reads the same today'
   );
 
-  const noErrands = createOpsEnv({ discord: DISCORD, hot, store, client: {}, getGuildId: () => 'g1', llm });
+  const noErrands = createOpsEnv({
+    discord: DISCORD,
+    hot,
+    store,
+    client: {},
+    isServedCommunity: (id: unknown) => id === 'g1',
+    llm,
+  });
   const [empty] = fieldsOf(
-    await runOp('status.show', { field: 'costs.errands' }, { env: noErrands, guildId: 'g1', userId: '42', roleIds: [] })
+    await runOp('status.show', { field: 'costs.errands' }, { env: noErrands, placeId: 'g1', userId: '42', roleIds: [] })
   );
   assert.deepEqual(
     empty.value.split('\n'),
@@ -536,14 +558,14 @@ async function developmentField(seed: (db: BoardDb) => void): Promise<Array<stri
       hot,
       store,
       client: {},
-      getGuildId: () => 'g1',
+      isServedCommunity: (id: unknown) => id === 'g1',
       board,
       now: () => now,
     });
     const answer = await runOp(
       'status.show',
       { field: 'costs.development' },
-      { env, guildId: 'g1', userId: '42', roleIds: [] }
+      { env, placeId: 'g1', userId: '42', roleIds: [] }
     );
     const value = fieldsOf(answer)[0]?.value;
     return String(value).split('\n');
@@ -595,11 +617,11 @@ test('ops: /nep task inner stops, starts and reports the inner life for an owner
     }),
   };
   const env = { ...makeEnv(), inner };
-  const owner = { env, userId: '42', guildId: 'g1' };
+  const owner = { env, userId: '42', placeId: 'g1' };
   const status = await runOp('inner.status', {}, owner);
   assert.match(status.summary, /mode shadow, running/);
   assert.match(status.summary, /queue: 1 \(review/);
-  const member = await runOp('inner.status', {}, { env, userId: '7', guildId: 'g1' });
+  const member = await runOp('inner.status', {}, { env, userId: '7', placeId: 'g1' });
   assert.equal(member.status, 'denied');
   assert.equal(member.code, 'owner-only');
 });

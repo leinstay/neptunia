@@ -121,13 +121,12 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
   const service = createIntentionService({
     stores: createIntentionStores({ dataDir, now: () => clock.t, log: SILENT }),
     hot,
-    getGuildId: () => 'g1',
     now: () => clock.t,
     log: SILENT,
     uuid: () => 'fixed-jitter-id',
   });
   const due = T0 + 6 * HOUR_MS;
-  const set = service.set('g1', {
+  const set = service.set({
     purpose: 'look at the thread',
     dueAt: due,
     destination: 'c1',
@@ -135,7 +134,7 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
   });
   assert.equal(set.ok, true, wrongly(set.code));
   const id = set.intention.id;
-  const at = wakeTimeOf(wrongly(service.list('g1').find((record) => record.id === id)), J);
+  const at = wakeTimeOf(wrongly(service.list().find((record) => record.id === id)), J);
   assert.notEqual(at, due);
   const calls: Array<Untyped> = [];
   const turns = {
@@ -148,7 +147,7 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
   };
   let inner: ReturnType<typeof createInnerLife>;
   const door = createEventDoor({ handlers: { 'inner.wake': (event) => inner.onWake(event) }, log: SILENT });
-  world().channel({ id: 'c1', name: 'chan', guildId: 'g1' });
+  world().channel({ id: 'c1', name: 'chan', placeId: 'g1' });
   inner = createInnerLife({
     hot,
     dataDir,
@@ -160,7 +159,6 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
     iface: () => 'fake',
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
-    getGuildId: () => 'g1',
     peopleWaiting: () => false,
     meter: { run: async (fn) => ({ result: await fn(), usd: 0.1, requests: 1, voice: 1 }) },
     rng: () => 0.5,
@@ -169,7 +167,7 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
   });
   clock.t = at - 1;
   assert.equal((await inner.tick()).submitted ?? 0, 0);
-  assert.equal(present(inner.status('g1').next).at, at);
+  assert.equal(present(inner.status().next).at, at);
   clock.t = at;
   assert.equal((await inner.tick()).submitted, 1);
   assert.equal((await inner.tick()).submitted ?? 0, 0);
@@ -177,7 +175,7 @@ test('the scheduler wakes a shifted heartbeat intention at its shifted time and 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].inner.wake.kind, 'intention_due');
   assert.equal(
-    present(service.list('g1').find((record) => record.id === id)).dueAt,
+    present(service.list().find((record) => record.id === id)).dueAt,
     due,
     'what she sees keeps the time she chose'
   );
@@ -202,13 +200,12 @@ test('a recurring heartbeat intention woken early still advances to the next occ
   const service = createIntentionService({
     stores: createIntentionStores({ dataDir: tempDir('nep-due-jitter-'), now: () => clock.t, log: SILENT }),
     hot,
-    getGuildId: () => 'g1',
     now: () => clock.t,
     log: SILENT,
     uuid: () => 'early-id',
   });
   const due = T0 + 6 * HOUR_MS;
-  const set = service.set('g1', {
+  const set = service.set({
     purpose: 'look at the thread',
     dueAt: due,
     every: { period: 'day', at: null },
@@ -216,14 +213,14 @@ test('a recurring heartbeat intention woken early still advances to the next occ
     origin: HEARTBEAT_ORIGIN,
   });
   assert.equal(set.ok, true, wrongly(set.code));
-  const record = service.list('g1')[0];
+  const record = service.list()[0];
   const at = wakeTimeOf(record, J);
   clock.t = at - 1;
-  assert.equal(service.due('g1').length, 0);
-  assert.equal(service.advance('g1', record.id).changed, false);
+  assert.equal(service.due().length, 0);
+  assert.equal(service.advance(record.id).changed, false);
   clock.t = at;
-  assert.equal(service.due('g1').length, 1);
-  const advanced = service.advance('g1', record.id);
+  assert.equal(service.due().length, 1);
+  const advanced = service.advance(record.id);
   assert.equal(advanced.changed, true);
   assert.equal(present(advanced.intention).dueAt, due + 24 * HOUR_MS);
 });

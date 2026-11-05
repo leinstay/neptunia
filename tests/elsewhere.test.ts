@@ -10,11 +10,9 @@ import {
   markPingSkipped,
   markSeen,
   messageLink,
-  pickDestinationId,
   pingStatus,
   pingsIn,
   recordPing,
-  resolveDestination,
   settleDueAt,
   stampPings,
 } from '../src/behavior/elsewhere.ts';
@@ -98,20 +96,20 @@ test('settleDueAt: a missing lastAt counts from firstAt', () => {
 
 test('recordPing: a new entry is unanswered and unskipped, the stored ring is not mutated', () => {
   const ring: Array<Untyped> = [];
-  const next = recordPing(ring, { messageId: 'm1', channelId: 'src', ts: NOW - MIN }, RING_OPTS);
+  const next = recordPing(ring, { messageId: 'm1', placeId: 'src', ts: NOW - MIN }, RING_OPTS);
   assert.deepEqual(ring, []);
-  assert.deepEqual(next, [{ messageId: 'm1', channelId: 'src', ts: NOW - MIN, answeredAt: null, skippedAt: null }]);
+  assert.deepEqual(next, [{ messageId: 'm1', placeId: 'src', ts: NOW - MIN, answeredAt: null, skippedAt: null }]);
   assert.equal(pingStatus(next[0]), 'unanswered');
 });
 
 test('recordPing: keeps the newest cap entries and drops expired ones', () => {
   let ring: ReturnType<typeof recordPing> = [
-    { messageId: 'old', channelId: 'src', ts: NOW - 8 * DAY, answeredAt: null, skippedAt: null },
+    { messageId: 'old', placeId: 'src', ts: NOW - 8 * DAY, answeredAt: null, skippedAt: null },
   ];
   for (let i = 1; i <= 4; i += 1) {
     ring = recordPing(
       ring,
-      { messageId: `m${i}`, channelId: 'src', ts: NOW - (10 - i) * MIN },
+      { messageId: `m${i}`, placeId: 'src', ts: NOW - (10 - i) * MIN },
       { cap: 3, maxAgeMs: 7 * DAY, now: NOW }
     );
   }
@@ -120,11 +118,11 @@ test('recordPing: keeps the newest cap entries and drops expired ones', () => {
     ['m2', 'm3', 'm4'],
     'oldest first, the expired one and the oldest beyond the cap gone'
   );
-  const tooOld = recordPing([], { messageId: 'x', channelId: 'src', ts: NOW - 8 * DAY }, RING_OPTS);
+  const tooOld = recordPing([], { messageId: 'x', placeId: 'src', ts: NOW - 8 * DAY }, RING_OPTS);
   assert.deepEqual(tooOld, [], 'a call already past its lifetime is never recorded');
   const older = recordPing(
     ring,
-    { messageId: 'early', channelId: 'src', ts: NOW - 60 * MIN },
+    { messageId: 'early', placeId: 'src', ts: NOW - 60 * MIN },
     { cap: 3, maxAgeMs: 7 * DAY, now: NOW }
   );
   assert.deepEqual(
@@ -133,23 +131,23 @@ test('recordPing: keeps the newest cap entries and drops expired ones', () => {
     'an older call than the whole full ring does not push out a newer one'
   );
   assert.deepEqual(
-    recordPing(ring, { messageId: 'm5', channelId: 'src', ts: NOW }, { cap: 0, maxAgeMs: 7 * DAY, now: NOW }),
+    recordPing(ring, { messageId: 'm5', placeId: 'src', ts: NOW }, { cap: 0, maxAgeMs: 7 * DAY, now: NOW }),
     [],
     'a cap of 0 keeps nothing'
   );
 });
 
 test('recordPing: an expired stored entry is dropped in a ring below its cap', () => {
-  const stale = { messageId: 'old', channelId: 'src', ts: NOW - 8 * DAY, answeredAt: null, skippedAt: null };
-  const ring = recordPing([stale], { messageId: 'm1', channelId: 'src', ts: NOW }, RING_OPTS);
+  const stale = { messageId: 'old', placeId: 'src', ts: NOW - 8 * DAY, answeredAt: null, skippedAt: null };
+  const ring = recordPing([stale], { messageId: 'm1', placeId: 'src', ts: NOW }, RING_OPTS);
   assert.deepEqual(
     ring.map((p) => p.messageId),
     ['m1'],
     'only the lifetime removes it: the cap of 20 is far away'
   );
-  const edge = { messageId: 'edge', channelId: 'src', ts: NOW - 7 * DAY, answeredAt: null, skippedAt: null };
+  const edge = { messageId: 'edge', placeId: 'src', ts: NOW - 7 * DAY, answeredAt: null, skippedAt: null };
   assert.deepEqual(
-    recordPing([edge], { messageId: 'm1', channelId: 'src', ts: NOW }, RING_OPTS).map((p) => p.messageId),
+    recordPing([edge], { messageId: 'm1', placeId: 'src', ts: NOW }, RING_OPTS).map((p) => p.messageId),
     ['edge', 'm1'],
     'a call exactly pingMaxAgeDays old is kept'
   );
@@ -157,8 +155,8 @@ test('recordPing: an expired stored entry is dropped in a ring below its cap', (
 
 test('recordPing: a pingMaxAgeDays of 0 keeps calls of any age', () => {
   const ring = recordPing(
-    [{ messageId: 'old', channelId: 'src', ts: NOW - 400 * DAY, answeredAt: null, skippedAt: null }],
-    { messageId: 'm1', channelId: 'src', ts: NOW },
+    [{ messageId: 'old', placeId: 'src', ts: NOW - 400 * DAY, answeredAt: null, skippedAt: null }],
+    { messageId: 'm1', placeId: 'src', ts: NOW },
     { cap: 20, maxAgeMs: 0, now: NOW }
   );
   assert.deepEqual(
@@ -168,9 +166,9 @@ test('recordPing: a pingMaxAgeDays of 0 keeps calls of any age', () => {
 });
 
 test('recordPing: one entry per message id, the first record and its state kept', () => {
-  let ring = recordPing([], { messageId: 'm1', channelId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
+  let ring = recordPing([], { messageId: 'm1', placeId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
   ring = markPingAnswered(ring, 'm1', NOW - MIN);
-  ring = recordPing(ring, { messageId: 'm1', channelId: 'src', ts: NOW - MIN }, RING_OPTS);
+  ring = recordPing(ring, { messageId: 'm1', placeId: 'src', ts: NOW - MIN }, RING_OPTS);
   assert.equal(ring.length, 1);
   assert.equal(ring[0].ts, NOW - 2 * MIN);
   assert.equal(ring[0].answeredAt, NOW - MIN);
@@ -181,25 +179,25 @@ test('recordPing: garbage in the stored ring or the new call is dropped, never t
     null,
     'm0',
     { messageId: 'm1' },
-    { messageId: 'm2', channelId: 'src', ts: NOW - MIN, answeredAt: 'yes', skippedAt: null },
-    { messageId: 'm4', channelId: 'src', ts: NOW - MIN, answeredAt: null, skippedAt: 'yes' },
+    { messageId: 'm2', placeId: 'src', ts: NOW - MIN, answeredAt: 'yes', skippedAt: null },
+    { messageId: 'm4', placeId: 'src', ts: NOW - MIN, answeredAt: null, skippedAt: 'yes' },
   ];
-  const ring = recordPing(stored, { messageId: '', channelId: 'src', ts: NOW }, RING_OPTS);
+  const ring = recordPing(stored, { messageId: '', placeId: 'src', ts: NOW }, RING_OPTS);
   assert.deepEqual(ring, [
-    { messageId: 'm2', channelId: 'src', ts: NOW - MIN, answeredAt: null, skippedAt: null },
-    { messageId: 'm4', channelId: 'src', ts: NOW - MIN, answeredAt: null, skippedAt: null },
+    { messageId: 'm2', placeId: 'src', ts: NOW - MIN, answeredAt: null, skippedAt: null },
+    { messageId: 'm4', placeId: 'src', ts: NOW - MIN, answeredAt: null, skippedAt: null },
   ]);
   assert.equal(pingStatus(ring[1]), 'unanswered', 'a garbage skip stamp is no skip');
   assert.deepEqual(
-    recordPing(undefined, { messageId: 'm3', channelId: 'src', ts: NOW }, RING_OPTS).map((p) => p.messageId),
+    recordPing(undefined, { messageId: 'm3', placeId: 'src', ts: NOW }, RING_OPTS).map((p) => p.messageId),
     ['m3']
   );
 });
 
 test('markPingAnswered: stamps that entry only and keeps the first stamp', () => {
   let ring: Array<Untyped> = [];
-  ring = recordPing(ring, { messageId: 'm1', channelId: 'src', ts: NOW - 3 * MIN }, RING_OPTS);
-  ring = recordPing(ring, { messageId: 'm2', channelId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
+  ring = recordPing(ring, { messageId: 'm1', placeId: 'src', ts: NOW - 3 * MIN }, RING_OPTS);
+  ring = recordPing(ring, { messageId: 'm2', placeId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
   const before = ring;
   ring = markPingAnswered(ring, 'm2', NOW - MIN);
   assert.equal(before[1].answeredAt, null, 'the input ring is not mutated');
@@ -211,7 +209,7 @@ test('markPingAnswered: stamps that entry only and keeps the first stamp', () =>
 });
 
 test('markPingSkipped: a call the persona chose to skip is skipped, not unanswered', () => {
-  let ring = recordPing([], { messageId: 'm1', channelId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
+  let ring = recordPing([], { messageId: 'm1', placeId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
   ring = markPingSkipped(ring, 'm1', NOW - MIN);
   assert.equal(ring[0].skippedAt, NOW - MIN);
   assert.equal(pingStatus(ring[0]), 'skipped');
@@ -220,11 +218,11 @@ test('markPingSkipped: a call the persona chose to skip is skipped, not unanswer
 });
 
 test('markPingSkipped: an answered call stays answered; a later answer wins over a skip', () => {
-  let answered = recordPing([], { messageId: 'm1', channelId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
+  let answered = recordPing([], { messageId: 'm1', placeId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
   answered = markPingSkipped(markPingAnswered(answered, 'm1', NOW - MIN), 'm1', NOW);
   assert.equal(answered[0].skippedAt, null);
   assert.equal(pingStatus(answered[0]), 'answered');
-  let skipped = recordPing([], { messageId: 'm2', channelId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
+  let skipped = recordPing([], { messageId: 'm2', placeId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
   skipped = markPingAnswered(markPingSkipped(skipped, 'm2', NOW - MIN), 'm2', NOW);
   assert.equal(pingStatus(skipped[0]), 'answered');
 });
@@ -232,7 +230,7 @@ test('markPingSkipped: an answered call stays answered; a later answer wins over
 test('stampPings: stamps each call in order and reports only the ones whose state changed', () => {
   let ring: Array<Untyped> = [];
   for (const id of ['a', 's', 'u', 'w'])
-    ring = recordPing(ring, { messageId: id, channelId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
+    ring = recordPing(ring, { messageId: id, placeId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
   ring = markPingSkipped(markPingAnswered(ring, 'a', NOW - MIN), 's', NOW - MIN);
   const before = ring;
 
@@ -253,10 +251,10 @@ test('stampPings: stamps each call in order and reports only the ones whose stat
   assert.deepEqual(
     marked,
     [
-      { messageId: 's', channelId: 'src', status: 'answered' },
-      { messageId: 'u', channelId: 'src', status: 'skipped' },
-      { messageId: 'u', channelId: 'src', status: 'answered' },
-      { messageId: 'w', channelId: 'src', status: 'skipped' },
+      { messageId: 's', placeId: 'src', status: 'answered' },
+      { messageId: 'u', placeId: 'src', status: 'skipped' },
+      { messageId: 'u', placeId: 'src', status: 'answered' },
+      { messageId: 'w', placeId: 'src', status: 'skipped' },
     ],
     'an answered call is never skipped, an answer wins over a skip, a repeat changes nothing, an unknown id is passed over'
   );
@@ -278,7 +276,7 @@ test('stampPings: stamps each call in order and reports only the ones whose stat
 });
 
 test('stampPings: no stamp, an unknown status or garbage changes nothing and never throws', () => {
-  const ring = recordPing([], { messageId: 'm1', channelId: 'src', ts: NOW - MIN }, RING_OPTS);
+  const ring = recordPing([], { messageId: 'm1', placeId: 'src', ts: NOW - MIN }, RING_OPTS);
   assert.deepEqual(stampPings(ring, [], NOW), { ring, marked: [] });
   assert.deepEqual(
     stampPings(ring, [{ messageId: 'm1', status: 'seen' }, null, { status: 'skipped' }], NOW).marked,
@@ -290,10 +288,10 @@ test('stampPings: no stamp, an unknown status or garbage changes nothing and nev
 
 test('pingsIn: only this channel, only unexpired, oldest first', () => {
   const ring = [
-    { messageId: 'b', channelId: 'src', ts: NOW - 2 * MIN, answeredAt: null, skippedAt: null },
-    { messageId: 'a', channelId: 'src', ts: NOW - 5 * MIN, answeredAt: NOW - MIN, skippedAt: null },
-    { messageId: 'x', channelId: 'other', ts: NOW - 3 * MIN, answeredAt: null, skippedAt: null },
-    { messageId: 'gone', channelId: 'src', ts: NOW - 8 * DAY, answeredAt: null, skippedAt: null },
+    { messageId: 'b', placeId: 'src', ts: NOW - 2 * MIN, answeredAt: null, skippedAt: null },
+    { messageId: 'a', placeId: 'src', ts: NOW - 5 * MIN, answeredAt: NOW - MIN, skippedAt: null },
+    { messageId: 'x', placeId: 'other', ts: NOW - 3 * MIN, answeredAt: null, skippedAt: null },
+    { messageId: 'gone', placeId: 'src', ts: NOW - 8 * DAY, answeredAt: null, skippedAt: null },
   ];
   assert.deepEqual(
     pingsIn(ring, 'src', { now: NOW, maxAgeMs: 7 * DAY }).map((p) => p.messageId),
@@ -665,51 +663,7 @@ test('audienceCovers: a missing or malformed audience never covers', () => {
 
 // ---- the destination ---------------------------------------------------------------------
 
-test('pickDestinationId: the first usable id, null when none', () => {
-  const usable = new Set(['222', '333']);
-  assert.equal(
-    pickDestinationId(['111', 222, '333'], (id) => usable.has(id)),
-    '222'
-  );
-  assert.equal(
-    pickDestinationId(['111'], (id) => usable.has(id)),
-    null
-  );
-  assert.equal(
-    pickDestinationId([], () => true),
-    null
-  );
-  assert.equal(
-    pickDestinationId(undefined, () => true),
-    null
-  );
-  assert.equal(
-    pickDestinationId('222', () => true),
-    null,
-    'a non-array list is empty'
-  );
-});
-
-test('resolveDestination: the first usable memory.mainChannelIds entry', () => {
-  const isUsable = (id: string) => id === '222';
-  assert.deepEqual(resolveDestination({ memory: { mainChannelIds: ['111', '222'] } }, isUsable), {
-    destinationId: '222',
-    reason: null,
-  });
-});
-
-test('resolveDestination: inert without a usable memory.mainChannelIds entry', () => {
-  assert.deepEqual(
-    resolveDestination({ memory: { mainChannelIds: ['111'] } }, () => false),
-    { destinationId: null, reason: 'no-destination' }
-  );
-  assert.deepEqual(
-    resolveDestination({}, () => true),
-    { destinationId: null, reason: 'no-destination' }
-  );
-});
-
-// ---- the jump link -------------------------------------------------------------------------
+// The tests of `resolveDestination` and `pickDestinationId` went with the main channel (owner, 2026-11-05).
 
 test('messageLink: the url the adapter put on the reference, and nothing built by the core', () => {
   const ref = { iface: 'discord', conversationId: '200', messageId: '300', url: 'https://chat.example/200/300' };

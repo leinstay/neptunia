@@ -48,7 +48,7 @@ test('a stranger on an interface with no community is not answered, while the ow
 
 test('a DM on an interface with no community asks nothing of the interface that has one', async () => {
   // Bug: the DM borrows the first interface's home community for its gate and its reads.
-  await withFakes({ guildId: 'g1', owners: ['u1'], names: ['first', 'second'] }, async ({ connect, rows }) => {
+  await withFakes({ owners: ['u1'], names: ['first', 'second'] }, async ({ connect, rows }) => {
     // The DM's interface says hello first: it is the home interface, where `bot.owners` names the owner.
     const second = await connect('second', []);
     const first = await connect('first', [{ id: 'g1', name: 'Alpha' }]);
@@ -66,7 +66,7 @@ test('a DM on an interface with no community asks nothing of the interface that 
 });
 
 test('a group of the community an interface declares is answered and kept with no configured home community', async () => {
-  // Bug: the core refuses to start without `bot.guildId`, or a group line loses its community beside a DM-only interface.
+  // Bug: the core refuses to start without `bot.placeId`, or a group line loses its community beside a DM-only interface.
   await withFakes({ owners: [], names: ['first', 'second'] }, async ({ connect, rows }) => {
     const first = await connect('first', [{ id: 'g1', name: 'Alpha' }]);
     const second = await connect('second', []);

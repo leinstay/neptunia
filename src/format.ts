@@ -38,7 +38,7 @@ export const MAX_MESSAGE_CHARS = 2000;
 // from general chatter. See docs/prompt-contract.md, "The analyzer".
 const DIRECT_MARKER = '→ '; // "→ "
 
-// A value no real channelId can equal, so the very first message of a memory
+// A value no real placeId can equal, so the very first message of a memory
 // transcript always opens with a channel heading (see formatTranscript).
 const NO_CHANNEL = Symbol('no-channel');
 
@@ -512,8 +512,8 @@ function withoutCallFields(message: Untyped) {
 /**
  * The persona's own lines with the skill calls she made (src/behavior/turn.ts keeps them, seeded
  * from src/memory/journal.js#callMarksOf at start), so a later turn sees what she called and how it
- * went. `marks.calls`: `{ channelId, at, skill, status, target: { messageId, channelId }, postedId,
- * posted }` each -- `channelId` the channel of the turn that made the call, `at` when its result
+ * went. `marks.calls`: `{ placeId, at, skill, status, target: { messageId, placeId }, postedId,
+ * posted }` each -- `placeId` the channel of the turn that made the call, `at` when its result
  * came back, `target` what it aimed at (a message and its channel; null fields when unknown; a
  * missing channel is the call's own), `postedId` the message the call itself posted (null when
  * none; in the target channel), `posted` every message id that turn posted, and optionally
@@ -525,7 +525,7 @@ function withoutCallFields(message: Untyped) {
  * channel, marks nothing. `marks.postedFrom` (a Map, or a function, posted message id -> the
  * channel of the turn that posted it): her line posted from another channel's turn carries that
  * channel's name (`postedFrom`). Each mark holds `{ skill, status, targetId, targetLink,
- * targetChannel, postedLink, ts }`: `nameOf(channelId)` gives a channel's name, `linkOf(channelId,
+ * targetChannel, postedLink, ts }`: `nameOf(placeId)` gives a channel's name, `linkOf(placeId,
  * messageId)` a message's link (each null when unknown). formatTranscript renders them. Lines
  * marked before lose those marks first; every untouched line is returned as it is; not a list: [].
  * Pure.
@@ -541,8 +541,8 @@ export function withCalls(
     nameOf = () => null,
     linkOf = () => null,
   }: {
-    nameOf?: (channelId: string) => string | null;
-    linkOf?: (channelId: string, messageId: string) => string | null;
+    nameOf?: (placeId: string) => string | null;
+    linkOf?: (placeId: string, messageId: string) => string | null;
   } = {}
 ): Array<Record<string, Untyped>> {
   if (!Array.isArray(messages)) return [];
@@ -552,22 +552,22 @@ export function withCalls(
   if (!marks) return out;
   const text = (value: Untyped) => (typeof value === 'string' && value ? value : null);
   const name = (id: Untyped) => (text(id) ? text(nameOf(id)) : null);
-  const link = (channelId: string, messageId: Untyped) =>
-    text(channelId) && text(messageId) ? text(linkOf(channelId, messageId)) : null;
+  const link = (placeId: string, messageId: Untyped) =>
+    text(placeId) && text(messageId) ? text(linkOf(placeId, messageId)) : null;
   const add = (i: Untyped, field: Untyped, mark: Untyped) => {
     out[i] = { ...out[i], [field]: [...(out[i][field] ?? []), mark] };
   };
   const calls = (Array.isArray(marks.calls) ? marks.calls : []).filter(
-    (call) => text(call?.channelId) && text(call?.skill)
+    (call) => text(call?.placeId) && text(call?.skill)
   );
   for (const call of [...calls].sort((a, b) => (a.at ?? 0) - (b.at ?? 0))) {
     const here: Array<Untyped> = [];
     out.forEach((message, i) => {
-      if (message?.channelId === call.channelId) here.push(i);
+      if (message?.placeId === call.placeId) here.push(i);
     });
     if (here.length === 0) continue;
     const targetId = text(call.target?.messageId);
-    const targetChannelId = text(call.target?.channelId) ?? call.channelId;
+    const targetChannelId = text(call.target?.placeId) ?? call.placeId;
     const postedId = text(call.postedId);
     const mark = {
       skill: call.skill,
@@ -601,7 +601,7 @@ export function withCalls(
     out.forEach((message, i) => {
       if (!message?.self || !text(message.id)) return;
       const origin = text(originOf(message.id));
-      const channel = origin && origin !== message.channelId ? name(origin) : null;
+      const channel = origin && origin !== message.placeId ? name(origin) : null;
       if (channel) out[i] = { ...message, postedFrom: channel };
     });
   }
@@ -949,7 +949,7 @@ type MediaContext = Pick<
  * In `mode: 'memory'`, messages come from possibly several channels (see
  * docs/prompt-contract.md, "The analyzer"): whenever the channel
  * changes between two consecutive messages — including before the very first
- * one — the item opens with a `## #channel-name (id:channelId)` heading, and
+ * one — the item opens with a `## #channel-name (id:placeId)` heading, and
  * the gap/date marker is computed against the previous message of the SAME
  * channel run, never across a channel switch.
  */
@@ -1076,9 +1076,9 @@ export function formatTranscript(
     const index = indexById.get(message.id) as number; // every message of the list is in `indexById`
     const parts = [];
 
-    const channelChanged = mode === 'memory' && message.channelId !== previousChannelId;
+    const channelChanged = mode === 'memory' && message.placeId !== previousChannelId;
     if (channelChanged) {
-      parts.push(`## #${message.channelName} (id:${message.channelId})`);
+      parts.push(`## #${message.channelName} (id:${message.placeId})`);
     }
 
     const gapPrevious = channelChanged ? null : previous;
@@ -1120,7 +1120,7 @@ export function formatTranscript(
       parts.push(`${head} ${who}: ${typeof gone === 'string' ? fill(gone, { author: name }) : ''}`.trimEnd());
       items.push({ id: message.id, index, ts: message.ts, text: parts.join('\n') });
       previous = message;
-      previousChannelId = message.channelId;
+      previousChannelId = message.placeId;
       continue;
     }
     const mentionedIds = Array.isArray(message.mentionedUserIds) ? message.mentionedUserIds : [];
@@ -1182,7 +1182,7 @@ export function formatTranscript(
     }
     items.push({ id: message.id, index, ts: message.ts, text: parts.join('\n') });
     previous = message;
-    previousChannelId = message.channelId;
+    previousChannelId = message.placeId;
   }
 
   return items;

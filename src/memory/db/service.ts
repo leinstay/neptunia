@@ -48,7 +48,7 @@
 //     store's cache, the module stores, participation, the diary, the vectors) through the writer; resolves once the
 //     worker committed, rejects with a code (`DB_CLOSED` while the database is not open). Each tick also finishes the
 //     graph projection and the stems a migration left (one slice a tick). The opener's migration context is the live
-//     `selfreflection.channelId`'s place (the seed of schema v12's and v15's data steps); a diary write's destination is the
+//     `selfreflection.placeId`'s place (the seed of schema v12's and v15's data steps); a diary write's destination is the
 //     place of the diary's first enabled mirror. The durable intent of a write that failed (spec
 //     2026-10-24-memory-authority, section 6 item 3): `keepPending(update)` (at shutdown, from unit-outbox.ts#keep)
 //     writes it to `data/memory-pending/<sha1 of the owner>.json` (`{ owner, op, value | lines, at }`; the lines of one
@@ -97,13 +97,13 @@ import { Worker } from 'node:worker_threads';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { communityKey, keyText } from './storage-keys.ts';
+import { keyText, placeCollection } from './storage-keys.ts';
 
 import type { StorageKey } from './storage-keys.ts';
 
-import { importCoreJsonState } from './core-state-import.ts';
+import { importCoreJsonState } from '../migration/core-state-import.ts';
 import { lockPathOf, openMemoryDb } from './open.ts';
-import { NO_COMMUNITY, channelPlaceId, guildPlaceId, nativeAuthorityOf } from './ids.ts';
+import { channelPlaceId, nativeAuthorityOf } from './ids.ts';
 import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
 import { contextRow, issueContext as issuePureContext } from './scope.ts';
 import { linkedDmScopes } from './person-links.ts';
@@ -171,7 +171,7 @@ const silent: Log = { info: noop, warn: noop, error: noop, debug: noop };
 export function turnReadRows(
   db: Db,
   reads: unknown,
-  { guildId = null, iface = LEGACY_IFACE }: { guildId?: string | null; iface?: string } = {}
+  { placeId = null, iface = LEGACY_IFACE }: { placeId?: string | null; iface?: string } = {}
 ): Array<Row> {
   const authority = nativeAuthorityOf(iface);
   const rows = new Map<string, Row>();
@@ -227,8 +227,8 @@ export function turnReadRows(
       case 'channel':
         put('places', channelPlaceId(iface, id), read);
         break;
-      case 'guild_note':
-        if (guildId) put('descriptions', `desc:${guildPlaceId(iface, guildId)}:${id}`, read);
+      case 'place_note':
+        if (placeId) put('descriptions', `desc:${placeId}:${id}`, read);
         break;
       case 'item':
         if (hasRow('claims', id)) put('claims', id, read);
@@ -388,26 +388,18 @@ function startWorker({
 
 /** What a migration needs from the opener (open.ts#migrate): the diary channel as a place, and the data directory. */
 function openContextOf(config: Config, dataDir: string): { diaryPlaceId: string | null; dataDir: string } {
-  const channel = config?.selfreflection?.channelId;
+  const channel = config?.selfreflection?.placeId;
   return {
     diaryPlaceId: typeof channel === 'string' && channel ? channelPlaceId(LEGACY_IFACE, channel) : null,
     dataDir,
   };
 }
 
-/** The record unit of an observed line (record.js#dayFile's day: the UTC day of the line), or null. */
+/** The record unit of an observed line: its place's day (the UTC day of the line), or null with no place. */
 function recordUnitOf(envelope: Row, where: Row | null): string | null {
-  // A private line with no community is kept under the scope its turn reads (ids.ts#NO_COMMUNITY).
-  const guildId = where?.guildId ?? (typeof where?.privateUserId === 'string' ? NO_COMMUNITY : null);
   const day = /^\d{4}-\d{2}-\d{2}/.exec(asText(envelope?.occurredAt ?? ''))?.[0];
-  if (typeof guildId !== 'string' || !guildId || !day) return null;
-  return keyText(
-    communityKey('record', guildId, {
-      iface: typeof envelope.iface === 'string' ? envelope.iface : LEGACY_IFACE,
-      privateUserId: typeof where?.privateUserId === 'string' ? where.privateUserId : null,
-      partition: day,
-    })
-  );
+  if (typeof where?.placeId !== 'string' || !where.placeId || !day) return null;
+  return keyText(placeCollection('record', where.placeId, { partition: day }));
 }
 
 /** The pending files: [{ file, update }] (a file that does not parse is skipped and counted). */
@@ -574,7 +566,7 @@ export type MemoryDbService = {
   recordTurnReads(args: {
     turnId: string;
     step?: unknown;
-    guildId?: string | null;
+    placeId?: string | null;
     reads: unknown;
     contextId?: unknown;
     readerKind?: unknown;
@@ -838,7 +830,7 @@ export function createMemoryDb({
       (stamped.op === 'diary' ||
         (stamped.op === 'value' &&
           ((stamped.key as StorageKey | undefined)?.kind === 'diary' ||
-            /^guilds\/[^/]+\/diary\.json$/.test(asText(stamped.owner ?? ''))))) &&
+            /\/diary\.json$/.test(asText(stamped.owner ?? ''))))) &&
       stamped.destination === undefined
     ) {
       stamped.destination = readMirrors({ readHandle }, mirrorPlaces, [])[0]?.placeId ?? null;
@@ -944,7 +936,7 @@ export function createMemoryDb({
    * One observation of the live message path (observe.ts#observe) through the writer: resolves the observe result
    * (`{ ok, ... }` or `{ ok: false, code }`) while the database is open, else null (the observation waits in the queue
    * below). A failed write is logged with a code and resolves null: never a turn's failure. `where`
-   * (`{ guildId, privateUserId }`) names the record the line belongs to: the observation is the record of the line (its
+   * (`{ placeId }`) names the record the line belongs to: the observation is the record of the line (its
    * record unit is passed to observe.ts), and a write that failed (not a refusal) stays in the queue below and is tried
    * again at the next tick, up to OBSERVE_ATTEMPTS times (then dropped, a warning).
    */
@@ -1504,14 +1496,14 @@ export function createMemoryDb({
   function recordTurnReads({
     turnId,
     step = 's0',
-    guildId = null,
+    placeId = null,
     reads: carried,
     contextId = null,
     readerKind = 'turn',
   }: {
     turnId: string;
     step?: unknown;
-    guildId?: string | null;
+    placeId?: string | null;
     reads: unknown;
     contextId?: unknown;
     readerKind?: unknown;
@@ -1520,7 +1512,7 @@ export function createMemoryDb({
     // Resolved now, from the rows as they are when the request is assembled; only the write waits for a quiet loop.
     let rows: Array<Row>;
     try {
-      rows = turnReadRows(dbOf(handle), carried, { guildId, iface: liveIface(iface) ?? LEGACY_IFACE });
+      rows = turnReadRows(dbOf(handle), carried, { placeId, iface: liveIface(iface) ?? LEGACY_IFACE });
     } catch (error) {
       log.warn('memory db: turn reads failed', { code: codeOf(error) });
       return;

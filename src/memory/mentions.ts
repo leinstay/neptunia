@@ -413,7 +413,7 @@ function coreAt(
  * and the one after the name is not a word character either (or the end). An
  * existing `<#id>` link and a `#` inside a URL (outsideUrls) are left alone;
  * text without `#` comes back unchanged.
- * `channels` are the served guild's text channels, `handles` the request's channel handle (without `#`) -> channel id.
+ * `channels` are the served place's text channels, `handles` the request's channel handle (without `#`) -> channel id.
  */
 export function linkChannels(
   text: string,

@@ -3,7 +3,7 @@
 // the memory migrations in a transaction of its own, so a failing board migration leaves her memory open and the
 // board down. The tables are internal-only: no graph projection, recall, export or sync reads them.
 
-import { MOVE_ARCHIVE_SQL } from './archive.ts';
+import { MOVE_ARCHIVE_SQL } from '../memory/migration/board-archive-sql.ts';
 
 // The connection the board needs: node:sqlite's DatabaseSync has every method named here.
 export type BoardDb = {

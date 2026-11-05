@@ -4,13 +4,14 @@
 // way her turns read it (`store.getUser`, export.js#exportOne). What the session wrote must survive the flush and be
 // in the profile. Two suspects of the same shape close the file: the diary's fetched text and an observation's update
 // of an account. Synthetic data only (Greek or accented Latin for non-ASCII); the ids are made up.
+import { accountOf, placeOfConversation } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { exportOne } from '../src/memory/db/export.ts';
+import { exportOne } from '../src/memory/migration/export-one.ts';
 import { applyDiaryUpdate } from '../src/memory/db/diary-media.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { createStore } from '../src/memory/store.ts';
@@ -192,13 +193,14 @@ async function flush(store: ReturnType<typeof createStore>): Promise<void> {
 /** The member's profile as a store that caches nothing yet reads it: the database's view, as the next start sees it. */
 function freshProfile(data: string, service: Service, userId = MEMBER): Profile {
   // store.js is untyped JS; `getUser` returns the user file's value, whose shape is the user mapper's (map/user.js).
-  return createStore({ dataDir: data, memoryDb: service }).getUser(GUILD, userId) as Profile;
+  const store = createStore({ dataDir: data, memoryDb: service });
+  return store.getUser(accountOf(store, userId)) as Profile;
 }
 
 /** The member's profile as the store her turns use holds it, its cache included. */
 function liveProfile(store: ReturnType<typeof createStore>, userId: string): Profile {
   // store.js is untyped JS; `getUser` returns the user file's value, whose shape is the user mapper's (map/user.js).
-  return store.getUser(GUILD, userId) as Profile;
+  return store.getUser(accountOf(store, userId)) as Profile;
 }
 
 /** One JSON unit rebuilt from the database alone (export.js#exportOne). */
@@ -243,8 +245,8 @@ const texts = (items: Array<Item> | undefined, key: 'text' | 'topic' | 'what'): 
 test("F1: her session's attitude moves end the profile's history after a flush, so the moves can be shown and counted", async () => {
   const env = await scene();
   try {
-    assert.ok(env.store.getUser(GUILD, MEMBER), 'the profile is cached');
-    env.store.touchUser(GUILD, MEMBER, 'Ada', NOW);
+    assert.ok(env.store.getUser(accountOf(env.store, MEMBER)), 'the profile is cached');
+    env.store.touchUser(accountOf(env.store, MEMBER), 'Ada', NOW);
     const groupLine = env.sourceOf(GROUP_LINE);
     const first = await sessionApply(env.service, {
       affinity: [{ personId: PERSON, delta: 3, reason: 'helped with the boat', sources: [groupLine] }],
@@ -300,7 +302,7 @@ test('F3: a description review is the profile text after a flush, and the review
   const reviewId = `${descriptionId}:review-1`;
   const reviewed = 'Calm, answers slowly, and laughs at her own jokes.';
   try {
-    assert.ok(env.store.getUser(GUILD, MEMBER), 'the profile is cached');
+    assert.ok(env.store.getUser(accountOf(env.store, MEMBER)), 'the profile is cached');
     await env.service.memoryWrite({
       kind: 'description',
       mode: 'apply',
@@ -310,7 +312,7 @@ test('F3: a description review is the profile text after a flush, and the review
       expectCurrent: `${descriptionId}:legacy`,
       now: NOW,
     });
-    env.store.touchUser(GUILD, MEMBER, 'Ada', NOW);
+    env.store.touchUser(accountOf(env.store, MEMBER), 'Ada', NOW);
     await flush(env.store);
 
     assert.equal(freshProfile(env.data, env.service).character, reviewed, 'a fresh store reads the review');
@@ -329,7 +331,7 @@ test("F4: a revise and a confirm of the file's claims keep the new text and the 
   const env = await scene();
   const revised = 'drinks a freddo café at ten';
   try {
-    assert.ok(env.store.getUser(GUILD, MEMBER), 'the profile is cached');
+    assert.ok(env.store.getUser(accountOf(env.store, MEMBER)), 'the profile is cached');
     const groupLine = env.sourceOf(GROUP_LINE);
     const counts = await sessionApply(env.service, {
       claims: [
@@ -345,7 +347,7 @@ test("F4: a revise and a confirm of the file's claims keep the new text and the 
       ],
     });
     assert.deepEqual([counts.revised, counts.confirmed], [1, 1], 'both claim ops were applied');
-    env.store.touchUser(GUILD, MEMBER, 'Ada', NOW);
+    env.store.touchUser(accountOf(env.store, MEMBER), 'Ada', NOW);
     await flush(env.store);
 
     for (const [name, profile] of [
@@ -403,8 +405,8 @@ test('F5: claims and an episode her session added are in the profile of their sc
       DM
     );
     assert.deepEqual([group.added, group.episodes, dm.added], [1, 1, 1], 'every op was applied');
-    env.store.touchUser(GUILD, MEMBER, 'Ada', NOW);
-    env.store.touchPrivateSeen(GUILD, MEMBER, NOW);
+    env.store.touchUser(accountOf(env.store, MEMBER), 'Ada', NOW);
+    env.store.touchPrivateSeen(accountOf(env.store, MEMBER), NOW);
     await flush(env.store);
 
     for (const [name, profile] of [
@@ -436,13 +438,13 @@ test('F6: a move for a person spelled in another interface keeps its score and r
   const member = '100000000000000077';
   const person = `person:nebula:${member}`;
   try {
-    env.store.touchUser(GUILD, member, 'Νόρα', NOW - 3_600_000);
+    env.store.touchUser(accountOf(env.store, member), 'Νόρα', NOW - 3_600_000);
     await flush(env.store);
     assert.ok(
       env.db().prepare('SELECT 1 AS ok FROM people WHERE id = ?').get(person),
       'the profile is stored under its interface'
     );
-    env.store.touchUser(GUILD, member, 'Νόρα', NOW);
+    env.store.touchUser(accountOf(env.store, member), 'Νόρα', NOW);
     const counts = await sessionApply(env.service, {
       affinity: [{ personId: person, delta: 3, reason: 'brought pastries', sources: [env.sourceOf(GROUP_LINE)] }],
     });
@@ -468,8 +470,8 @@ test('F6: a move for a person spelled in another interface keeps its score and r
 test("F6: a move keeps its reason through the flush of a changed profile in the store's own spelling", async () => {
   const env = await scene();
   try {
-    assert.ok(env.store.getUser(GUILD, MEMBER), 'the profile is cached');
-    env.store.touchUser(GUILD, MEMBER, 'Ada', NOW);
+    assert.ok(env.store.getUser(accountOf(env.store, MEMBER)), 'the profile is cached');
+    env.store.touchUser(accountOf(env.store, MEMBER), 'Ada', NOW);
     const counts = await sessionApply(env.service, {
       affinity: [{ personId: PERSON, delta: 2, reason: 'fixed the net with me', sources: [env.sourceOf(GROUP_LINE)] }],
     });
@@ -504,7 +506,6 @@ test("the diary's fetched text survives a flush of the diary file", async () => 
   try {
     const store = createStore({ dataDir: data, memoryDb: service });
     store.appendDiaryPost(
-      GUILD,
       { at: NOW, kind: 'day', gist: 'a windy day', picture: null, messageIds: [], search: '', itemId: 'd-2' },
       { max: 10, now: NOW }
     );
@@ -547,8 +548,8 @@ test("an observation's account kind and place times survive a flush of the membe
   const service = await openService(data);
   try {
     const store = createStore({ dataDir: data, memoryDb: service });
-    store.touchUser(GUILD, MEMBER, 'Ada', NOW);
-    store.touchChannel(GUILD, CHANNEL, { name: 'γενικά' }, NOW, MEMBER);
+    store.touchUser(accountOf(store, MEMBER), 'Ada', NOW);
+    store.touchChannel(placeOfConversation(store, { id: CHANNEL }), { name: 'γενικά' }, NOW, MEMBER);
     await flush(store);
     const db = dbOf(service.readHandle());
     assert.equal(db.prepare('SELECT kind FROM accounts WHERE id = ?').get(`discord:${MEMBER}`)?.kind, 'bot');

@@ -1,6 +1,6 @@
 // What one vector of the meaning index holds (src/memory/vectors.ts): the text sent to the
 // embedding model and the row's provenance. A record message is embedded with the lines before it
-// in the same channel and the same layer (the guild record, or one member's private record), so a
+// in the same channel and the same layer (the place record, or one member's private record), so a
 // short answer carries what it answers; an archive item (an episode, a lesson, an evicted item) is
 // embedded alone. Pure: names are resolved by the caller's `nameOf`, nothing is read or written.
 //
@@ -8,7 +8,7 @@
 // member's name, cut to `CHUNK_LINE_CHARS`, then the title and description of each link preview
 // the line carries (its `links`, src/memory/record.ts#recordLinks), cut to the same length, so a
 // link post is found by what it shows; the persona's own lines carry `selfName`. Row meta:
-// `{ kind, id, revision, occurredAt, channelId, by, participants, sourceIds }`, where
+// `{ kind, id, revision, occurredAt, placeId, by, participants, sourceIds }`, where
 // `participants` is the union over every line of the chunk and `sourceIds` the message ids of
 // those lines, so a forget reaches a row through any line it holds.
 
@@ -82,18 +82,18 @@ export function embeddableLine(line: RecordLine | null | undefined): boolean {
 }
 
 /**
- * The key of a channel's lines in one layer: the guild record (`privateUserId` null or empty) or
+ * The key of a channel's lines in one layer: the place record (`privateUserId` null or empty) or
  * a member's private record, then the channel.
  */
-export function layerChannelKey(privateUserId: string | null, channelId: string | null): string {
-  return `${typeof privateUserId === 'string' ? privateUserId : ''}|${channelId ?? ''}`;
+export function layerChannelKey(privateUserId: string | null, placeId: string | null): string {
+  return `${typeof privateUserId === 'string' ? privateUserId : ''}|${placeId ?? ''}`;
 }
 
 /** The channel of a record line, or null. */
 const channelOf = (line: Pick<RecordLine, 'scope'>) =>
   typeof line?.scope?.channel === 'string' && line.scope.channel ? line.scope.channel : null;
 
-/** The layer of a record line: its private member, or '' for the guild. */
+/** The layer of a record line: its private member, or '' for the place. */
 const layerOf = (line: Pick<RecordLine, 'scope'>) =>
   line?.scope?.private === true && typeof line.scope.user === 'string' ? line.scope.user : '';
 
@@ -164,7 +164,7 @@ export function recordChunk(
       id: line.messageId,
       revision: revisionOf(line),
       occurredAt: isoOf(line.occurredAt),
-      channelId: channelOf(line),
+      placeId: channelOf(line),
       by: typeof line.by === 'string' && line.by ? line.by : null,
       // The line's own members first, then its context's.
       participants: idList(...[line, ...lines.slice(0, -1)].map((item) => idList(item.participants, item.by))),
@@ -255,7 +255,7 @@ export function archiveChunk(
       id: entry.itemId,
       revision: typeof entry.revisionId === 'string' ? entry.revisionId : null,
       occurredAt: isoOf(entry.observedAt?.date) ?? isoOf(entry.recordedAt),
-      channelId: null,
+      placeId: null,
       by: null,
       participants: idList(entry.participants, entry.scope?.user),
       sourceIds: idList(

@@ -44,7 +44,7 @@ const L = {
 function message(id: string, hoursAgo: number, text: string, extra: Record<string, unknown> = {}) {
   return {
     id,
-    channelId: 'c2',
+    placeId: 'c2',
     authorId: 'u7',
     authorName: 'Éloïse',
     self: false,
@@ -71,7 +71,7 @@ function render() {
 }
 
 function registry() {
-  const taken: Array<{ n: number; id: string; channelId: string }> = [];
+  const taken: Array<{ n: number; id: string; placeId: string }> = [];
   return { taken, next: () => 40 + taken.length, take: (shown: typeof taken) => taken.push(...shown) };
 }
 
@@ -83,7 +83,7 @@ function runner(overrides = {}) {
   const deps = {
     labels: L,
     config: { bot: { timezone: 'UTC' } },
-    channelId: 'c1',
+    placeId: 'c1',
     channelNameOf: (id: string) => (id === 'c2' ? 'jardin' : 'general'),
     allowed: () => true,
     readRecord: async (request: Untyped) => (calls.record.push(request), CHAT.filter((m) => m.ts >= request.from)),
@@ -180,10 +180,10 @@ function fakeRecord(lines: Array<{ scope: { channel: string }; occurredAt: strin
   const reads: Array<Untyped> = [];
   return {
     reads,
-    iterate: async function* iterate(guildId: string, query: { channelIds?: Array<string>; from?: string }) {
+    iterate: async function* iterate(placeId: string, query: { placeIds?: Array<string>; from?: string }) {
       reads.push(query);
       for (const entry of lines) {
-        if (query.channelIds && !query.channelIds.includes(entry.scope.channel)) continue;
+        if (query.placeIds && !query.placeIds.includes(entry.scope.channel)) continue;
         if (query.from && Date.parse(entry.occurredAt) < Date.parse(query.from)) continue;
         yield entry;
       }
@@ -209,7 +209,7 @@ test('recordMessages: the newest revision stands with the edited stamp, a delete
     { ...line('z', 1, 'elsewhere'), scope: { channel: 'c9' } },
   ]);
   const found = await recordMessages(record, 'g1', {
-    channelId: 'c2',
+    placeId: 'c2',
     from: NOW - 6 * HOUR,
     nameOf: (id) => (id === 'u7' ? 'Éloïse' : null),
     selfName: 'Bot',
@@ -234,7 +234,7 @@ test('recordMessages: the newest revision stands with the edited stamp, a delete
         },
       },
       'g1',
-      { channelId: 'c2', from: 0 }
+      { placeId: 'c2', from: 0 }
     ),
     [],
     'a failed read gives none'
@@ -256,7 +256,7 @@ test('last: the newest lines from the record with their handles, the paging line
   assert.equal(lines[5], 'earlier: before=#40');
   assert.equal(lines.length, 6, 'the newest lines have nothing later');
   assert.deepEqual(
-    refs.taken.map((ref) => [ref.n, ref.id, ref.channelId]),
+    refs.taken.map((ref) => [ref.n, ref.id, ref.placeId]),
     [
       [40, 'm27', 'c1'],
       [41, 'm28', 'c1'],
@@ -268,7 +268,7 @@ test('last: the newest lines from the record with their handles, the paging line
 test('around: the lines each side of the message, both ways to read on', async () => {
   const refs = registry();
   const { run } = runner({ refs });
-  const result = await run({ channelId: 'c2', around: 'm10', before: '2', after: '1' });
+  const result = await run({ placeId: 'c2', around: 'm10', before: '2', after: '1' });
   const text = textOf(result);
   assert.ok(text.startsWith('from conversation.read #jardin\n'));
   assert.deepEqual(
@@ -278,7 +278,7 @@ test('around: the lines each side of the message, both ways to read on', async (
   assert.ok(text.includes('earlier: before=#40'), text);
   assert.ok(text.endsWith('later: after=#43'), text);
   assert.deepEqual(
-    refs.taken.map((ref) => ref.channelId),
+    refs.taken.map((ref) => ref.placeId),
     ['c2', 'c2', 'c2', 'c2'],
     'handles name the channel that was read'
   );
@@ -326,9 +326,9 @@ test('the record lacks the span: the history is asked and joins, the answer come
     readRecord: async () => [],
     fetchLive: async (request: Untyped) => (calls.live.push(request), live),
   });
-  const result = await run({ channelId: 'c2', last: 2 });
+  const result = await run({ placeId: 'c2', last: 2 });
   assert.equal(calls.live.length, 1);
-  assert.deepEqual(calls.live[0], { channelId: 'c2', mode: 'last', anchor: null, limit: 2, minTs: 0 });
+  assert.deepEqual(calls.live[0], { placeId: 'c2', mode: 'last', anchor: null, limit: 2, minTs: 0 });
   assert.ok(textOf(result).includes('από το ιστορικό') && textOf(result).includes('και άλλη μία'));
 });
 
@@ -352,6 +352,6 @@ test('an empty span says so; arguments that do not fit are invalid; a hidden cha
     reason: 'args:exclusive',
   });
   const hidden = runner({ allowed: (id: string) => id !== 'c9' });
-  assert.deepEqual(await hidden.run({ channelId: 'c9' }), { status: 'denied', code: 'channel-not-visible' });
+  assert.deepEqual(await hidden.run({ placeId: 'c9' }), { status: 'denied', code: 'channel-not-visible' });
   assert.equal(hidden.calls.record.length + hidden.calls.live.length, 0, 'nothing was read');
 });

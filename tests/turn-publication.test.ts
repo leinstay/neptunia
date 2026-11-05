@@ -24,7 +24,7 @@ test('an explicit person message operation starts an ordinary destination turn w
       world().seed('c2', [
         {
           ...rawMessage({ id: 'destination-trigger', content: 'θυμάσαι το κουνέλι από την παλιά συζήτηση;', ts: NOW }),
-          channelId: 'c2',
+          placeId: 'c2',
         },
       ]),
     runner: {
@@ -52,11 +52,11 @@ test('an explicit person message operation starts an ordinary destination turn w
   await result.admin.run(
     'message.create',
     {
-      channelId: 'c2',
+      placeId: 'c2',
       replyTo: 'destination-trigger',
       text: 'private draft must not transfer',
     },
-    { actor: 'owner', asOwner: true, userId: 'u1', channelId: 'cli:dm:owner' }
+    { actor: 'owner', asOwner: true, userId: 'u1', placeId: 'cli:dm:owner' }
   );
   assert.ok(contexts.length > 0, 'destination turn must perform prefetch');
   for (const context of contexts) {
@@ -127,7 +127,7 @@ test('an internal turn hands its restriction to the errand and the intention it 
     id: 'i1',
     purpose: 'write it up',
     now: NOW,
-    provenance: { kind: 'self', turnId: 't', scope: 'dm', channelId: 'dm-owner', publicationBoundary: boundary },
+    provenance: { kind: 'self', turnId: 't', scope: 'dm', placeId: 'dm-owner', publicationBoundary: boundary },
   } as never);
   if (!made.ok) throw new Error(made.code);
   const reloaded = JSON.parse(JSON.stringify(made.intention)) as typeof made.intention;

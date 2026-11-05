@@ -39,7 +39,6 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  * `spontaneous` — the spontaneous scheduler: `force(conversation, mode)` and `status()`, the conversation as a
  *   reference `{ iface, conversationId }`.
  * `calibrator` — token calibrator (src/llm/tokens.ts), read for `.ratio`.
- * `getGuildId` — the single guild this instance serves, or null before it resolves.
  * `turns` — from createTurnRunner() (src/behavior/turn.ts), optional: `waitIdle()`, used by
  *   `bot.pause` to wait out a turn already in flight. Absent -> the wait is simply skipped.
  * `pending` — `{ clear() }`, optional: clears src/behavior/pipeline.ts's pending-ping queue on pause.
@@ -72,8 +71,8 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  * `embedder` — from createEmbedder() (src/llm/embed.ts), optional: `embed()`, the one-input
  *   embedding request the owner's status card probes the `embedding` role with.
  *   Absent -> that role is shown unchecked.
- * `embedQueue` — from src/memory/embedder.js#createEmbedder, optional: `catchUp(guildId)`, the
- *   meaning index's catch-up pass `bot.resume` starts (never awaited), and `indexSummary(guildId)`,
+ * `embedQueue` — from src/memory/embedder.js#createEmbedder, optional: `catchUp(placeId)`, the
+ *   meaning index's catch-up pass `bot.resume` starts (never awaited), and `indexSummary(placeId)`,
  *   the owner card's index line. Absent -> no pass on resume and no index line.
  * `record` — from createRecord() (src/memory/record.js), optional: `dayFile`, where the owner's
  *   status card finds the record's month indexes for its memory coverage. Absent -> the
@@ -117,7 +116,7 @@ export type Admin = {
   runSkillOp: (op: Untyped, args?: Untyped, context?: Untyped) => Promise<SkillOpResult>;
   runOwnSkillOp: (op: Untyped, args?: Untyped, context?: Untyped) => Promise<SkillOpResult>;
   runInitiativeSkillOp: (op: Untyped, args?: Untyped, context?: Untyped) => Promise<SkillOpResult>;
-  migrateAccess: (guildId: string) => Promise<{ migrated: boolean; note?: string }>;
+  migrateAccess: (placeId: string) => Promise<{ migrated: boolean; note?: string }>;
   ownerReads: { lessons: (context?: Untyped) => string; aliases: (args?: Untyped, context?: Untyped) => string };
 };
 
@@ -190,11 +189,11 @@ export function createAdmin(deps: OpsDeps): Admin {
     aliases: (args = {}, context = {}) => listAliases(env, args, { ...context, env }),
   };
 
-  /** Once per guild at start: the stored grants re-expanded under the operation names
+  /** Once per place at start: the stored grants re-expanded under the operation names
    * (src/tools/impl/access.ts#migrateStoredGrants). */
-  function migrateAccess(guildId: string) {
+  function migrateAccess(placeId: string) {
     const everyOp = listOps().map((op) => op.name);
-    return migrateStoredGrants(env, guildId, (key) => legacyGrantOps(key, everyOp));
+    return migrateStoredGrants(env, placeId, (key) => legacyGrantOps(key, everyOp));
   }
 
   return {
