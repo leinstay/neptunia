@@ -31,7 +31,7 @@ import { backendOfAgent, modeOf } from './control.ts';
 import type { AgentMode } from './control.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { hasExtraKey, readKeys } from '../keys/file.ts';
-import { helpOfInstalled, isInstalled } from './place.ts';
+import { helpOfInstalled, isInstalled, modelOfBackend } from './place.ts';
 import { recordSession } from './sessions.ts';
 
 /** One agent run. */
@@ -218,7 +218,10 @@ function mapped(run: AgentRun, deps: RunDeps, name: BackendName, sessionId: stri
     });
     return true;
   } catch (error) {
-    log.warn('subharness: the session map could not be written', { agent: run.agent, code: (error as Error).name });
+    log.warn('subharness: the session map could not be written', {
+      agent: run.agent,
+      code: (error as NodeJS.ErrnoException).code ?? (error as Error).name,
+    });
     return false;
   }
 }
@@ -238,7 +241,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     timeoutMs: run.timeoutMs,
     sandbox: sandboxOfMode(mode),
     env: name === 'opencode' && run.maxSteps !== undefined ? { ...env, ...opencodeSteps(run.maxSteps) } : env,
-    ...(model === null ? {} : { model }),
+    ...(model === null ? {} : { model: modelOfBackend(name, model) }),
     ...(effort === null ? {} : { effort }),
     ...(run.maxSteps === undefined ? {} : { maxSteps: run.maxSteps }),
     ...(run.maxOutputTokens === undefined ? {} : { maxOutputTokens: run.maxOutputTokens }),

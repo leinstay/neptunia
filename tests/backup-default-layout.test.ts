@@ -22,8 +22,9 @@ test('git ignores the backups folder of a default install', () => {
   assert.equal(answer.status, 0, 'git check-ignore: 0 is ignored, 1 is not');
 });
 
-test('the default backup folder keeps keys.json at 600 in a folder of 700, even from a looser source', () => {
+test('the default backup folder is 700 and holds no keys.json, even from a looser source', () => {
   // Bug: a keys.json left at 644 by hand is copied as it is, and every daily backup repeats the leak for a week.
+  // The owner's word of 2026-11-05: a backup holds no secret at all, so the key file is left out, not kept at 600.
   const install = tempDir('nep-backup-layout-');
   const data = path.join(install, 'data');
   fs.mkdirSync(data);
@@ -35,5 +36,5 @@ test('the default backup folder keeps keys.json at 600 in a folder of 700, even 
   backupDatabase({ db, data, to, now: () => Date.UTC(2026, 10, 5, 3) });
   assert.equal(modeOf(to), 0o700);
   assert.equal(modeOf(path.dirname(to)), 0o700);
-  assert.equal(modeOf(path.join(to, 'keys.json')), 0o600);
+  assert.equal(fs.existsSync(path.join(to, 'keys.json')), false);
 });

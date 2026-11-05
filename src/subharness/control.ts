@@ -13,6 +13,7 @@ import { EFFORT_LEVELS, isEffortLevel, isListedEffort } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { SUBHARNESS_AGENTS, readKeys, writeKeys } from '../keys/file.ts';
 import type { KeyStore, SubharnessAgent } from '../keys/file.ts';
+import { modelOfBackend } from './place.ts';
 import { checkedSelection, listsEffort } from './selection.ts';
 import { sourceState } from './sources.ts';
 import type { SourceState } from './sources.ts';
@@ -117,7 +118,7 @@ const routeText = (store: KeyStore, agent: string): string => {
 export async function setAgentModel(
   deps: EnableDeps,
   agent: string,
-  model: string,
+  typed: string,
   effort?: string,
   via?: string
 ): Promise<SubharnessResult> {
@@ -137,6 +138,7 @@ export async function setAgentModel(
     return refused('subharness-off', `${agent} has no source yet: /model set ${agent} <model> --via <backend>`);
   const { key } = store.subharness;
   const value = key === null ? '' : (store.extra[key] ?? '');
+  const model = modelOfBackend(backend, typed);
   return checkedSelection(
     deps,
     { claim: agent, backend, keyValue: value, model, ...(level === undefined ? {} : { effort: level }) },

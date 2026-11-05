@@ -43,10 +43,20 @@ export function subharnessPlace(privateDir: string, backend: BackendName): Subha
         env: {
           XDG_CONFIG_HOME: path.join(home, 'config'),
           XDG_DATA_HOME: path.join(home, 'data'),
+          XDG_CACHE_HOME: path.join(home, 'cache'),
+          XDG_STATE_HOME: path.join(home, 'state'),
           OPENCODE_DISABLE_AUTOUPDATE: '1',
         },
       };
   }
+}
+
+/**
+ * The model id opencode is started with: opencode names a model by its provider and the one provider it has is
+ * OpenRouter, so an id that does not start with `openrouter/` gets it once. The other backends take the id as it is.
+ */
+export function modelOfBackend(backend: BackendName, model: string): string {
+  return backend === 'opencode' && !model.startsWith('openrouter/') ? `openrouter/${model}` : model;
 }
 
 /** True when the binary of `backend` is a file (a link to one counts) this process may execute. */
