@@ -9,7 +9,6 @@
 // privately narrows every fact that names it, so a public fact about it needs a separate entity and an equivalence.
 // Session-level entry points (`writeSessionEntity`, `writeSessionAssertion`) run inside the session write's transaction.
 
-import { randomUUID } from 'node:crypto';
 import { projectRow } from './graph.ts';
 import { ensureAudience, newestClaimVersion } from './rows.ts';
 import {
@@ -674,13 +673,4 @@ export function writeSessionAssertion(
   if (!checked.ok) return checked;
   const result = writeResolved(db, checked.resolved, session);
   return 'ok' in result ? result : { ok: true, result };
-}
-
-/** The writer's message `{ kind: 'semantic', resolved, now, uuid?, runId? }`: a resolved write from another thread. */
-export function applySemanticMessage(handle: MemoryHandle, update: Row): SemanticWriteResult | SemanticRejection {
-  const now = typeof update.now === 'number' ? update.now : Date.now();
-  return applySemanticWrite(handle, update.resolved, {
-    now: () => now,
-    uuid: typeof update.uuid === 'function' ? (update.uuid as () => string) : randomUUID,
-  });
 }

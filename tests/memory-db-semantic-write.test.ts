@@ -4,7 +4,6 @@
 // writers are in memory-db-semantic-session.test.ts. Synthetic content only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { applySemanticWrite, validateSemanticCandidate } from '../src/memory/db/semantic-write.ts';
 import type { SemanticCandidate, SemanticReadSet } from '../src/memory/db/semantic-types.ts';
 import {
@@ -527,26 +526,28 @@ test('a failure inside the write leaves no claim, version, argument or evidence'
   world.handle.close();
 });
 
-test('a forged resolved write is refused by the writer message and stores nothing', () => {
-  // Bug: the writer's message path trusts what it is handed and skips the checks of the function path.
+test('a forged resolved write is refused by the writer and stores nothing', () => {
+  // Bug: the write trusts what it is handed and skips the checks of the validation.
+  // The `semantic` writer message had no production caller and is gone, so this drives applySemanticWrite directly.
   const world = semanticWorld();
   const source = addSource(world, 'public', 'one');
   const before = count(world, 'semantic_entities');
   assert.throws(
     () =>
-      applyMemoryWrite(world.handle, {
-        kind: 'semantic',
-        resolved: { forged: true, kind: 'entity', entityKind: 'project', source },
-        now: 1,
-      }),
-    /BAD_UPDATE|BAD_SEMANTIC/
+      applySemanticWrite(
+        world.handle,
+        { forged: true, kind: 'entity', entityKind: 'project', source },
+        { now: () => 1, uuid: world.uuid }
+      ),
+    /BAD_SEMANTIC/
   );
   assert.equal(count(world, 'semantic_entities'), before);
   world.handle.close();
 });
 
-test('a resolved write crosses the writer message as plain data', () => {
-  // Bug: the resolved form holds a function or a Map, so the worker thread cannot receive it.
+test('a resolved write survives a copy as plain data', () => {
+  // Bug: the resolved form holds a function or a Map, so it cannot cross to another thread.
+  // The `semantic` writer message had no production caller and is gone, so this drives applySemanticWrite directly.
   const world = semanticWorld();
   const source = addSource(world, 'public', 'one');
   const checked = validateSemanticCandidate(
@@ -558,13 +559,7 @@ test('a resolved write crosses the writer message as plain data', () => {
   assert.equal(checked.ok, true);
   if (!checked.ok) return;
   const copied = structuredClone(checked.resolved);
-  const result = applyMemoryWrite(world.handle, {
-    kind: 'semantic',
-    resolved: copied,
-    now: world.now(),
-    runId: 'run:msg',
-    uuid: world.uuid,
-  }) as { entityId: string };
+  const result = applySemanticWrite(world.handle, copied, { now: world.now, uuid: world.uuid }) as { entityId: string };
   assert.equal(world.db.prepare('SELECT COUNT(*) AS n FROM semantic_entities WHERE id = ?').get(result.entityId)?.n, 1);
   world.handle.close();
 });
