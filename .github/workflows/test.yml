@@ -97,7 +97,7 @@ jobs:
           if [ -n "$files" ]; then printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 npx prettier --check; fi
 
   tests:
-    # Two shards run the whole suite with node:test (tests/**). Every test runs on fakes.
+    # Three shards run the whole suite with node:test (tests/**). Every test runs on fakes.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
