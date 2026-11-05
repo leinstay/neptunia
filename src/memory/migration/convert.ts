@@ -7,11 +7,15 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { unitRows } from '../db/export.ts';
+import { MAPPERS } from '../db/map/index.ts';
 import { MIGRATIONS, lockPathOf, openMemoryDb, schemaVersion } from '../db/open.ts';
+import { manifestOfFiles } from '../db/readers/vectors.ts';
 import { keyText, storageId } from '../db/storage-keys.ts';
 import { ensureUnit } from '../db/storage-units.ts';
 import type { StorageKey } from '../db/storage-keys.ts';
-import { dbOf } from '../db/types.ts';
+import { asText, dbOf } from '../db/types.ts';
+import { monthChecksum } from '../vectors.ts';
 import { convertConfig } from './convert-config.ts';
 import type { ConfigReport } from './convert-config.ts';
 import { neutralJson, neutralKey, neutralScope, personaDayPlan } from './convert-map.ts';
@@ -422,6 +426,40 @@ function settleRepair(target: Db, repair: DmRepair, tables: Record<string, Count
   }
 }
 
+/**
+ * The manifest of every month of vectors counted again. The conversion renames keys inside the stored lines, which changes
+ * a month's bytes, and a reader trusts its manifest for them. A month with an evicted row is counted by its reader, and one
+ * kept raw or with a tail holds bytes the rows do not.
+ */
+function settleVectorManifests(target: Db, tables: Record<string, Counts>): void {
+  const months = target
+    .prepare("SELECT id, key_json FROM storage_units WHERE kind = 'vectors' AND retired_at IS NULL")
+    .all() as Array<Row>;
+  const update = target.prepare("UPDATE operational SET value = ? WHERE kind = 'vectors' AND owner_key = ?");
+  for (const month of months) {
+    const rows = unitRows(target, JSON.parse(String(month.key_json)) as StorageKey);
+    const stored = JSON.parse(asText(rows.operational[0]?.value ?? '{}')) as {
+      manifest?: Row;
+      raw?: unknown;
+      tailI8?: unknown;
+    };
+    if (!stored.manifest || stored.raw || stored.tailI8) continue;
+    if (rows.vectors.some((row) => row.bytes === null)) continue;
+    const files = MAPPERS.vectors.fromRows(rows) as { meta: string; i8: Buffer };
+    const manifest = manifestOfFiles(
+      stored.manifest,
+      rows.vectors.length,
+      files.i8,
+      Buffer.from(files.meta, 'utf8'),
+      monthChecksum
+    );
+    if (JSON.stringify(manifest) === JSON.stringify(stored.manifest)) continue;
+    update.run(JSON.stringify({ ...stored, manifest }), String(month.id));
+    tables.operational.preserved -= 1;
+    tables.operational.transformed += 1;
+  }
+}
+
 /** A unit row of `key` in the target; whether it was missing. */
 function ensuredUnit(target: Db, id: string, key: StorageKey): boolean {
   if (target.prepare('SELECT 1 FROM storage_units WHERE id = ?').get(id)) return false;
@@ -648,6 +686,7 @@ function run(options: ConversionOptions, manifest: ConversionManifest, work: str
     const repair = planDmRepair(source);
     manifest.tables = copyRows(source, db, plan, repair, failures);
     settleRepair(db, repair, manifest.tables);
+    settleVectorManifests(db, manifest.tables);
     manifest.movedToDm = repair.counts;
     addCurrentVersions(source, db, manifest.tables);
     db.exec('COMMIT');

@@ -4,6 +4,7 @@
 // startup recovery creates no action. Logs carry counts and codes.
 
 import { reconcileUnknown } from '../../interface/reconcile.ts';
+import { withIface } from '../../memory/db/current-iface.ts';
 import { toRecordLine } from '../../memory/record.ts';
 import { wakeOf, deliveriesIn, deliveryFiles, deliveryOf } from '../../memory/db/wake-queue.ts';
 import type { Delivery, DeliveryInput, DeliveryState } from '../../memory/db/wake-queue.ts';
@@ -289,7 +290,7 @@ export async function sendDeliveries(life: InnerContext, keys: ReadonlyArray<str
   for (const key of keys) {
     const read = backendOf(life).read();
     const delivery = read ? deliveryOf(read, key) : null;
-    if (delivery?.state === 'queued') await sendOne(life, delivery);
+    if (delivery?.state === 'queued') await withIface(conversationOf(delivery)?.iface, () => sendOne(life, delivery));
   }
 }
 
@@ -330,13 +331,12 @@ export async function resumeDeliveries(life: InnerContext): Promise<void> {
     const to = found.status === 'ok' ? 'sent' : 'failed';
     await move(life, delivery.key, ['unknown'], to, to === 'failed' ? { code: 'not-sent' } : receiptOf(found));
     const parent = wakeOf(read, delivery.wakeId);
-    if (to === 'sent' && parent)
-      recordSaid(life, delivery, {
-        messageId: found.ref?.messageId ?? null,
-        at: found.at,
-        opId: null,
-        partner: await partnerOfDelivery(life, conversation),
-      });
+    if (to === 'sent' && parent) {
+      const partner = await partnerOfDelivery(life, conversation);
+      withIface(conversation?.iface, () =>
+        recordSaid(life, delivery, { messageId: found.ref?.messageId ?? null, at: found.at, opId: null, partner })
+      );
+    }
   }
   const queued = deliveriesIn(backendOf(life).read() ?? read, 'queued');
   for (const delivery of queued) {

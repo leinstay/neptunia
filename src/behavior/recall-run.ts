@@ -219,22 +219,22 @@ function asksServer(server: Untyped, retrieval: Untyped = null) {
   return some(server.forms) || some(server.who) || Number.isFinite(server.from) || Number.isFinite(server.to) || named;
 }
 
+/** What a sample's place rule reads: the turn's live view and its conversation. */
+type SamplePlaceInput = {
+  snapshot: { get: (id: string) => ConversationInfo | undefined } | null;
+  channel: ConversationInfo;
+  partnerId: string | null;
+  config: object;
+};
+
 /**
  * Which places a sample of the persona's own search may read: a sample hands her a stretch of a channel with no word of
  * hers behind it, so it keeps to the conversations the turn's live view allows (readable, the audience rule of
  * `context.pull.sameAudience`). A stored place the view does not hold, her DM among them, stays with the read context.
  */
-function samplePlaceRule({
-  snapshot,
-  channel,
-  partnerId,
-  config,
-}: {
-  snapshot: { get: (id: string) => ConversationInfo | undefined } | null;
-  channel: ConversationInfo;
-  partnerId: string | null;
-  config: object;
-}) {
+function samplePlaceRule(given: Record<keyof SamplePlaceInput, unknown>) {
+  // The runner's inputs are untyped; these are the shapes `run` is given.
+  const { snapshot, channel, partnerId, config } = given as SamplePlaceInput;
   return (placeId: unknown): boolean => {
     const entry = snapshot?.get(nativeOf(placeId) ?? '') ?? null;
     return entry === null || (isReadable(entry) && audienceAllows(channel, entry, config, { partnerId }));
@@ -1124,7 +1124,8 @@ export function createRecall({
         channelNameOf: reader.channelNameOf,
         allowPlace: reader.allowPlace,
         model: reader.model,
-        sampleTime: samplePlaceRule({ snapshot, channel, partnerId, config }),
+        sampleTime: true,
+        samplePlace: samplePlaceRule({ snapshot, channel, partnerId, config }),
       },
       controller.signal
     );
@@ -1166,7 +1167,7 @@ export function createRecall({
       windows: found.windows.length,
       quoted: quotes.length,
       hidden: found.hidden,
-      sampled: found.sampled,
+      sampled: found.sampled === true,
       totalMs: now() - started,
     });
     // `hitIds`: the messages the search matched (scripts/recall-eval.ts scores them); the persona's tool ignores it.

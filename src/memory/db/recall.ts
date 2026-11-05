@@ -262,14 +262,14 @@ function storedRefOf(row: Row, extra: Row): StoredSourceRef {
   };
 }
 
-/** A name as a line shows it: one line, `-` when nothing is left. */
-const shownName = (name: string | null): string => (name ?? '').replace(/\s+/g, ' ').trim() || '-';
-
 /** The native id of the `at`-th attachment, kept on the row by the observation, as a field of the attachment. */
 function attachmentIdAt(extra: Row, at: number): { attachmentId?: string } {
   const id = sourceAttachmentIds(extra)[at];
   return typeof id === 'string' ? { attachmentId: id } : {};
 }
+
+/** A name as a line shows it: one line, `-` when nothing is left. */
+const shownName = (name: string | null): string => (name ?? '').replace(/\s+/g, ' ').trim() || '-';
 
 /** One source row as a normalized chat message (the shape renderRecallWindows reads). */
 function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | 'selfName'>): RecallMessage {
@@ -654,6 +654,28 @@ function peopleRows(
     .all(...accounts, ...filter.params, limit);
 }
 
+/** The places a sample may read, as a stream's `places`: the list a reader was given, or the sample's rule over the caller's. */
+function samplingPlaces(
+  db: Db,
+  ctx: Context,
+  {
+    samplePlace,
+    sampledPlaces,
+    placeShown,
+    places,
+  }: {
+    samplePlace: unknown;
+    sampledPlaces?: ReadonlyArray<string | null>;
+    placeShown: (placeId: unknown) => boolean;
+    places: string | null;
+  }
+): string | null {
+  if (sampledPlaces) return JSON.stringify(sampledPlaces);
+  if (typeof samplePlace !== 'function') return places;
+  const rule = samplePlace as (placeId: unknown) => boolean;
+  return placesAllowed(db, ctx, (placeId: unknown) => placeShown(placeId) && rule(placeId));
+}
+
 /**
  * The time stream: at most `limit` lines of the scope, spread over its span (see the head of this file). Nothing unless
  * the caller asked for it (`wanted`) and the plan names a place or a side of a range. A scope of no more lines than the
@@ -667,26 +689,14 @@ function timeRows(
   {
     wanted,
     found,
-    placeShown,
+    places,
     skip,
     limit,
-  }: {
-    wanted: unknown;
-    found: number;
-    placeShown: (place: unknown) => boolean;
-    skip: ReadonlySet<unknown>;
-    limit: number;
-  }
+  }: { wanted: unknown; found: number; places: () => string | null; skip: ReadonlySet<unknown>; limit: number }
 ): Array<Row> {
   const { from, to, placeId } = scopeArgs;
-  if (!wanted || found > 0 || (from === null && to === null && placeId === null)) return [];
-  const sampleRule = Array.isArray(wanted)
-    ? (place: unknown) => wanted.includes(place)
-    : typeof wanted === 'function'
-      ? (wanted as (place: unknown) => boolean)
-      : () => true;
-  const places = placesAllowed(db, ctx, (place: unknown) => placeShown(place) && sampleRule(place));
-  const filter = filters(ctx, { ...scopeArgs, places });
+  if (wanted !== true || found > 0 || (from === null && to === null && placeId === null)) return [];
+  const filter = filters(ctx, { ...scopeArgs, places: places() });
   const left = JSON.stringify([...skip]);
   const rows = (tail: string, ...more: Array<string | number>): Array<Row> =>
     db
@@ -1030,14 +1040,14 @@ export type SearchInput = {
   allowPlace?: unknown;
   allowedPlaces?: ReadonlyArray<string | null>;
   model?: unknown;
-  /**
-   * Whether a plan the four streams found nothing for is answered by the time stream. A function or a list also says
-   * which places a sample may read, on top of the caller's place rule; a reader is given the list.
-   */
-  sampleTime?: boolean | ((placeId: unknown) => boolean) | ReadonlyArray<string | null>;
+  /** Whether a plan the four streams found nothing for is answered by the time stream. */
+  sampleTime?: boolean;
+  /** Which places a sample may read, on top of `allowPlace`. `sampledPlaces` (a list a reader was given) stands in for it. */
+  samplePlace?: unknown;
+  sampledPlaces?: ReadonlyArray<string | null>;
 };
 
-/** What a search answers: the windows, the hits, whether a DM holds better, the counts per stream. */
+/** What a search answers: the windows, the hits, whether a DM holds better, whether it is a sample, the counts per stream. */
 export type SearchResult = {
   windows: Array<RecallWindow>;
   hits: Array<RecallHit>;
@@ -1108,6 +1118,8 @@ export function search(
     allowedPlaces,
     model = null,
     sampleTime,
+    samplePlace,
+    sampledPlaces,
   }: SearchInput = {},
   marks: NameMarks | null = null
 ): SearchResult {
@@ -1184,7 +1196,7 @@ export function search(
   const timed = timeRows(db, context, scopeArgs, {
     wanted: sampleTime,
     found: rowsOf.size,
-    placeShown,
+    places: () => samplingPlaces(db, context, { samplePlace, sampledPlaces, placeShown, places: scopeArgs.places }),
     skip,
     limit: keep,
   });

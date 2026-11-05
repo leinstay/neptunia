@@ -197,28 +197,16 @@ export function createReaderClient({
   }
 
   async function search(input: SearchInput, signal?: AbortSignal): Promise<SearchResult> {
-    const { nameOf, channelNameOf, allowPlace, sampleTime, ...data } = input;
-    // `allowPlace` is typed `unknown` in `SearchInput`, as `search` reads it; a function of a place is its one use.
+    const { nameOf, channelNameOf, allowPlace, samplePlace, ...data } = input;
+    // Both rules are typed `unknown` in `SearchInput`, as `search` reads them; a function of a place is their one use.
     const allows = typeof allowPlace === 'function' ? (allowPlace as (place: string | null) => unknown) : null;
-    const allowedPlaces = allows
-      ? (await call<Array<string | null>>('places', { ctx: input.ctx }, signal)).filter((place) =>
-          Boolean(allows(place))
-        )
-      : undefined;
-    // A sample rule crosses the thread as the list of places it allows, like `allowPlace`.
-    const sample = typeof sampleTime === 'function' ? sampleTime : null;
-    const sampledPlaces = sample
-      ? (await call<Array<string | null>>('places', { ctx: input.ctx }, signal)).filter((place) => sample(place))
-      : sampleTime;
+    const samples = typeof samplePlace === 'function' ? (samplePlace as (place: string | null) => unknown) : null;
+    const visible = allows || samples ? await call<Array<string | null>>('places', { ctx: input.ctx }, signal) : null;
+    const allowedPlaces = allows ? visible?.filter((place) => Boolean(allows(place))) : undefined;
+    const sampledPlaces = samples ? (allowedPlaces ?? visible)?.filter((place) => Boolean(samples(place))) : undefined;
     const marked = await call<Parameters<typeof namedResult>[0]>(
       'search',
-      {
-        input: {
-          ...data,
-          ...(allowedPlaces ? { allowedPlaces } : {}),
-          ...(sampledPlaces === undefined ? {} : { sampleTime: sampledPlaces }),
-        },
-      },
+      { input: { ...data, ...(allowedPlaces ? { allowedPlaces } : {}), ...(sampledPlaces ? { sampledPlaces } : {}) } },
       signal
     );
     return namedResult(marked, { nameOf, channelNameOf });
