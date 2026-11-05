@@ -50,7 +50,8 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Link a person's accounts | `/memory bind`, `/memory accounts`, `/memory unbind` |
 | Choose where the diary is published | `/mirror` |
 | Review and activate a skill | `/skills` |
-| Configure agent execution | `/subharness` |
+| Show the sources of the agents and log them in or out | `/subharness status`, `/subharness <backend> login`, `/subharness <backend> status`, `/subharness <backend> logout` |
+| Set what an agent may do | `/agent mode <agent> [<mode>]` |
 | Schedule, switch and inspect the four scheduled mechanics | `/service` |
 | Read a watcher report | `/service watcher report` |
 
@@ -98,6 +99,8 @@ printf '%s\n' "$TOKEN" | neptunia interface token set discord --secret-stdin
 
 On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys extra add`, `keys service set` and `interface token set` exit `2` for a word past their name, in the chat and in both shell forms, so a secret never reaches the process list, the core or the logs.
 
+`neptunia subharness <backend> login`, `status` and `logout` run with no core. [Setup](setup.md#subharness-backends) describes them and their exit codes. `/subharness use`, `model`, `mode`, `enable` and `disable` are refused with exit `2`, and the refusal names the command that replaced each: `/model set` for the first two, `/agent mode` for `mode`, and `/subharness <backend> login` and `logout` for the last two.
+
 ## Scheduled services
 
 `neptunia service <name> setup|enable|disable|status` controls `heartbeat`, `selfreflection`, `selfimprovement` and `watcher`. `/service <name> <action>` and `neptunia -p "/service ..."` reach the same handler, `src/service/commands.ts`. Selfreflection is the diary wake and selfimprovement is the persona's development wake, which stays apart from the development worker. The handler works with no core, so a mechanic can be switched and read while the core is down. `/wakes stop` and `/wakes start` stay separate: they pause the whole inner life.
@@ -113,7 +116,7 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 | `service` | The mechanic |
 | `enabled` | The saved flag |
 | `running` | Whether a run is going, as the manager says for the watcher. `unknown` for a wake with no core, and for the watcher with no `systemctl` |
-| `readiness` | `ready`, or `not ready` and what is missing: the core, a subharness backend or the repository |
+| `readiness` | `ready`, or `not ready` and what is missing: the core, a role's subharness source or the repository |
 | `schedule` | The schedule, with the heartbeat's jitter. `windows` for a diary with no `selfreflection.schedule` |
 | `next due` | The next time, `none` when disabled, `unknown` for a diary drawing from windows with no core |
 | `last result` | The newest report of the watcher, the core's last wake of the others, `unknown` with no core |

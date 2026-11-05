@@ -127,7 +127,10 @@ test('a mode change takes effect on the next run without a restart', async () =>
 
 test('an agent the table does not list runs in read', async () => {
   // Bug: an unlisted agent falls through to an unsandboxed or writable mode.
-  const { deps, seen } = rig({ backend: 'codex' });
+  // Changed: no first backend stands in for an agent nobody assigned, so the stranger's source is seeded.
+  const { deps, privateDir, seen } = rig({ backend: 'codex' });
+  const stored = readKeysFile(privateDir);
+  writeKeysFile(privateDir, { ...stored, subharness: { ...stored.subharness, uses: { stranger: 'codex' } } });
   await runAgent(request('stranger'), deps);
   assert.equal(seen[0]?.options.sandbox, 'read-only');
 });
@@ -302,12 +305,4 @@ test('an agent with no backend named runs through the first connected one', asyn
   const { deps, seen } = listRig(['claude', 'codex'], { watcher: 'codex' });
   await runAgent(request('scout'), deps);
   assert.equal(seen[0]?.name, 'claude');
-});
-
-test('an agent whose named backend is not connected is refused subharness-off and no backend is made', async () => {
-  // Catches: the run falls back to another connected backend, so an agent runs on a login the owner did not choose.
-  const { deps, seen } = listRig(['codex'], { watcher: 'claude' });
-  const result = await runAgent(request('watcher'), deps);
-  assert.equal(result.error, 'subharness-off');
-  assert.equal(seen.length, 0);
 });

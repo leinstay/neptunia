@@ -8,7 +8,6 @@
 
 import type { BackendResult } from '../agent-runner/backend.ts';
 import { checkRole } from '../keys/check.ts';
-import { readKeys } from '../keys/file.ts';
 import type { PauseControl } from '../keys/commands.ts';
 import { log } from '../log.ts';
 import { MEMORY_ROLE } from '../llm/roles.ts';
@@ -58,8 +57,6 @@ async function probeOnce(deps: MemoryProbeDeps, at: number): Promise<ProbeResult
     });
     return result.ok ? { ok: true, at } : { ok: false, code: 'model-failed', at };
   }
-  if (!readKeys(deps.privateDir).subharness.backends.includes(path.backend))
-    return { ok: false, code: 'subharness-off', at };
   const outcome = await deps.runBackend(path.backend, PROBE_BRIEF, path.model, path.effort ?? undefined);
   if (outcome.ok && outcome.text.trim() !== '') return { ok: true, at };
   return { ok: false, code: outcome.error ?? 'no-reply', at };

@@ -51,7 +51,7 @@ import { callMethod, listOf, objOf } from '../../tools/types.ts';
 import type { Counters, DaysSum, RoleRow } from '../../tools/impl/usage.ts';
 
 /** One command's answer: the text the owner reads and its outcome. */
-export type Answer = { text: string; status: string };
+export type Answer = { text: string; status: string; code?: string };
 
 /** An operation's result as src/tools/impl/index.ts#runOp answers it. */
 type OpResult = { status: string; code: string; summary: string; data: unknown };
@@ -93,9 +93,8 @@ export type ConsoleDeps = {
     run(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer>;
   } | null;
   /**
-   * What `/subharness enable` checks with (src/subharness/control.ts): one run of codex or claude, `fetch` for the key
-   * of opencode, and `applyMode`, which puts a mode into the agent's unit. Absent, `enable` answers `failed` and starts
-   * nothing.
+   * What a model selection checks with (src/subharness/selection.ts): one run of codex or claude, `fetch` for opencode,
+   * and `applyMode`, which puts a mode into the agent's unit. Absent, a selection answers `failed` and saves nothing.
    */
   subharness?: ConsoleSubharness;
   /** The diary's mirrors (src/behavior/mirror-desk.ts); `/mirror` fails while there is none. */
@@ -207,6 +206,7 @@ const SERVICE_PREFIX = 'service.';
 const KEYS_PREFIX = 'keys.';
 /** The prefixes of `/subharness` and `/simulation`, which `subharnessCommand` and `simulationCommand` answer. */
 const SUBHARNESS_PREFIX = 'subharness.';
+const isSubharnessCommand = (name: string): boolean => name.startsWith(SUBHARNESS_PREFIX) || name === 'agent.mode';
 const SIMULATION_PREFIX = 'simulation.';
 
 /** How many stored lines `/memory conversation` prints. */
@@ -323,26 +323,28 @@ function typed(name: string, args: Readonly<Record<string, unknown>>): string {
 function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Promise<Answer> | null {
   const typedLine = `/model set ${text(args.role)}`;
   const refuse = (why: string): Promise<Answer> => Promise.resolve({ text: `${typedLine}: ${why}`, status: 'invalid' });
+  const isAgent = SUBHARNESS_AGENTS.some((agent) => agent === args.role);
+  const flags = args.effort === undefined ? {} : { effort: args.effort };
   if (text(args.via) !== '') {
-    if (args.role !== 'memory')
-      return refuse('only memory takes --via; an agent names its backend with /subharness use');
-    if (text(args.provider) !== '') return refuse('a memory writer through a subharness takes no --provider');
-    if (text(args.model) === '') return refuse('name the model: /model set memory --via <backend> <model>');
-    const given = {
-      backend: args.via,
-      model: args.model,
-      ...(args.effort === undefined ? {} : { effort: args.effort }),
-    };
+    if (!isAgent && args.role !== 'memory')
+      return Promise.resolve({
+        text: `${typedLine}: ${text(args.role)} has no subharness path; only an agent or memory takes --via`,
+        status: 'invalid',
+        code: 'role-unsupported',
+      });
+    if (text(args.provider) !== '') return refuse('a role on a subharness takes no --provider');
+    if (text(args.model) === '') return refuse(`name the model: /model set ${text(args.role)} <model> --via <backend>`);
+    if (isAgent) {
+      const given = { agent: args.role, model: args.model, via: args.via, ...flags };
+      return subharnessCommand(subharnessDeps(deps), 'subharness.model', given);
+    }
+    const given = { backend: args.via, model: args.model, ...flags };
     return subharnessCommand(subharnessDeps(deps), 'subharness.memory', given);
   }
-  if (SUBHARNESS_AGENTS.some((agent) => agent === args.role)) {
+  if (isAgent) {
     if (text(args.provider) !== '') return refuse('an agent takes no --provider');
     if (text(args.model) === '') return refuse('name the model: /model set <agent> <model>');
-    const given = {
-      agent: args.role,
-      model: args.model,
-      ...(args.effort === undefined ? {} : { effort: args.effort }),
-    };
+    const given = { agent: args.role, model: args.model, ...flags };
     return subharnessCommand(subharnessDeps(deps), 'subharness.model', given);
   }
   const hasFlags = text(args.provider) !== '' || text(args.effort) !== '';
@@ -651,7 +653,7 @@ export function createConsole(deps: ConsoleDeps): {
     }
   }
 
-  // `/skills`, `/subharness`, `/simulation` and `/interface token set` have a module of their own; every other
+  // `/skills`, `/subharness`, `/agent mode`, `/simulation` and `/interface token set` have a module of their own; every other
   // command is answered above.
   return {
     run: (name, args, requester, dialog = null) => {
@@ -664,7 +666,7 @@ export function createConsole(deps: ConsoleDeps): {
       if (owned !== null) return owned;
       if (name.startsWith(SERVICE_PREFIX)) return serviceRun(deps, config, name, args);
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
-      if (name.startsWith(SUBHARNESS_PREFIX)) return subharnessCommand(subharnessDeps(deps), name, args, dialog);
+      if (isSubharnessCommand(name)) return subharnessCommand(subharnessDeps(deps), name, args);
       if (name.startsWith(SIMULATION_PREFIX)) return simulationCommand(deps.privateDir, name, args);
       if (name === 'interface.token.set')
         return setInterfaceToken({ privateDir: deps.privateDir, iface: text(args.name), dialog });

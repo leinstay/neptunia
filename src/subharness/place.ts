@@ -2,7 +2,7 @@
 // persona's agents run on her own install and her own login, never on the installing user's CLI or its `~/.codex`.
 // `npm install --prefix` puts the binary of `claude` and `codex` under `node_modules/.bin/`, and `opencode` is one
 // executable under `bin/`. The home goes to every run (src/agent-runner/backend.ts, `createInstalledBackend`) and to
-// the login the owner types (`neptunia setup subharness`), as the variable each CLI reads its home from. The paths are
+// the owner's login (src/subharness/account.ts), as the variable each CLI reads its home from. The paths are
 // computed; `isInstalled` is the one look at the disk, and `helpOfInstalled` the one run of the binary outside an agent
 // run, which reads its `--help` so the effort flag is offered only to a binary that takes it.
 
@@ -58,6 +58,23 @@ export function isInstalled(privateDir: string, backend: BackendName): boolean {
   }
 }
 
+/** The host variables a vendor CLI inherits. */
+const VENDOR_ENV = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE'] as const;
+
+/** The environment of a vendor command outside an agent run: the plain host variables, then the backend's home. */
+export function vendorEnv(
+  privateDir: string,
+  backend: BackendName,
+  host: Readonly<Record<string, string | undefined>> = process.env
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const name of VENDOR_ENV) {
+    const value = host[name];
+    if (value !== undefined) env[name] = value;
+  }
+  return { ...env, ...subharnessPlace(privateDir, backend).env };
+}
+
 /** The login the owner runs at the terminal: her binary, with her home in the environment. */
 export type LoginCommand = {
   command: string;
@@ -99,18 +116,18 @@ function commandsOf(help: string): Array<string> {
   return words;
 }
 
-/** The login arguments the installed claude's `help` names; throws for a help that names none. */
+/** The login arguments of whichever of `auth` and `login` the installed claude's `help` lists first; throws for neither. */
 function claudeLoginArgs(help: string): ReadonlyArray<string> {
-  const commands = commandsOf(help);
-  if (commands.includes('login')) return ['login'];
-  if (commands.includes('auth')) return ['auth', 'login'];
+  const listed = commandsOf(help).find((word) => word === 'auth' || word === 'login');
+  if (listed === 'auth') return ['auth', 'login'];
+  if (listed === 'login') return ['login'];
   // On a release without the command, `claude login` is a prompt to the model: it spends a turn and logs nobody in.
   throw new Error('claude --help names neither auth nor login; read its help to find how this release logs in');
 }
 
 /**
  * The login of `backend` in `privateDir`, or null for opencode, which takes a key. `help` is the installed claude's
- * `--help`, and the login is the one it lists: `login`, else `auth login`. A help that lists neither throws.
+ * `--help`, and the login is the one it lists first: `auth login` or `login`. A help that lists neither throws.
  */
 export function loginCommand(privateDir: string, backend: BackendName, help?: string): LoginCommand | null {
   const args = backend === 'claude' && help !== undefined ? claudeLoginArgs(help) : LOGIN_ARGS[backend];

@@ -36,28 +36,40 @@ function fits(entry: unknown, fit: Fit): boolean {
   return (fit.input === undefined || lists(input, fit.input)) && lists(output, fit.output);
 }
 
-/** The ids of OpenRouter's `/models` on the key `value` that fit `role`, in the listing's order; [] when unreadable. */
-export async function listRoleModels(
+/** What reading the listing came to: the ids that fit, or that the provider refused it or did not answer. */
+export type RoleModelListing = { ok: true; models: Array<string> } | { ok: false };
+
+/** OpenRouter's `/models` on the key `value`, the ids that fit `role`, in the listing's order. */
+export async function roleModelListing(
   input: { fetch: typeof fetch; baseUrl: string; value: string },
   role: string
-): Promise<Array<string>> {
+): Promise<RoleModelListing> {
   const fit = Object.hasOwn(ROLE_FITS, role) ? ROLE_FITS[role] : undefined;
-  if (fit === undefined) return [];
+  if (fit === undefined) return { ok: true, models: [] };
   try {
     const response = await input.fetch(apiUrl(input.baseUrl, 'models'), {
       headers: openRouterHeaders(input.value),
       signal: AbortSignal.timeout(LIST_TIMEOUT_MS),
     });
-    if (!response.ok) return [];
+    if (!response.ok) return { ok: false };
     const body: unknown = await response.json();
     const data = isRecord(body) ? body.data : null;
-    if (!Array.isArray(data)) return [];
-    return data
+    if (!Array.isArray(data)) return { ok: false };
+    const models = data
       .filter((entry) => fits(entry, fit))
       .map((entry: unknown) => (isRecord(entry) ? entry.id : null))
       .filter((id): id is string => typeof id === 'string');
+    return { ok: true, models };
   } catch {
-    // an unreachable provider leaves the owner to type the model
-    return [];
+    return { ok: false };
   }
+}
+
+/** The ids of the listing on the key `value` that fit `role`; [] when unreadable, which leaves the owner to type the model. */
+export async function listRoleModels(
+  input: { fetch: typeof fetch; baseUrl: string; value: string },
+  role: string
+): Promise<Array<string>> {
+  const reading = await roleModelListing(input, role);
+  return reading.ok ? reading.models : [];
 }

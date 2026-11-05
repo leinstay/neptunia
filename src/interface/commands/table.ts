@@ -67,8 +67,8 @@ const ROUTE_CHOICES: ReadonlyArray<string> = ['any', ...ROUTE_ROLES];
 /** The roles a key can be bound to or checked for: the base model roles, her memory session included. */
 const KEY_ROLES: ReadonlyArray<string> = [...BASE_ROLES, MEMORY_ROLE, SEARCH_ROLE];
 
-/** The roles `/model set` names: the model roles, her memory session and the watcher, whose model is its subharness's. */
-const MODEL_SET_CHOICES: ReadonlyArray<string> = [...MODEL_SET_ROLES, MEMORY_ROLE, 'watcher'];
+/** The roles `/model set` names: the model roles, her memory session and the agents, whose models are their subharnesses'. */
+const MODEL_SET_CHOICES: ReadonlyArray<string> = [...new Set([...MODEL_SET_ROLES, MEMORY_ROLE, ...SUBHARNESS_AGENTS])];
 
 /** A yes or no argument. */
 const FLAGS: ReadonlyArray<string> = ['true', 'false'];
@@ -102,6 +102,17 @@ const moduleSubcommands = (kind: string): ReadonlyArray<Subcommand> => [
   sub('clear', `Clear a ${kind} setting`, [arg('name'), arg('key')]),
   sub('add', `Add an item to a ${kind} list setting`, [arg('name'), arg('key'), arg('value')]),
   sub('remove', `Remove an item from a ${kind} list setting`, [arg('name'), arg('key'), arg('value')]),
+];
+
+/** The account commands of one subharness: opencode's login names the extra key it runs on, the others have a vendor's. */
+const accountSubcommands = (backend: string): ReadonlyArray<Subcommand> => [
+  sub(
+    `${backend}.login`,
+    `Log ${backend} in, offering to install it first`,
+    backend === 'opencode' ? [flagArg('key', false)] : []
+  ),
+  sub(`${backend}.status`, `Show whether ${backend} is installed and logged in, with no model request`),
+  sub(`${backend}.logout`, `Log ${backend} out; a role that chose it stays on it, unavailable`),
 ];
 
 /** The words `/logs` takes after the command: `errors`, `follow` and `since <value>`. */
@@ -155,6 +166,15 @@ const RETIRED_COMMANDS: Readonly<Record<string, string>> = {
   heartbeat: 'service heartbeat',
   selfreflection: 'service selfreflection',
   selfimprovement: 'service selfimprovement',
+};
+
+/** What replaced each retired word of the `subharness` family; `next` is the word after it on the line. */
+const RETIRED_SUBHARNESS: Readonly<Record<string, (next: string | undefined) => string>> = {
+  use: () => '/model set <agent> <model> --via <backend>',
+  model: () => '/model set <agent> <model> [--via <backend>] [--effort <effort>]',
+  mode: () => '/agent mode <agent> [<mode>]',
+  enable: (next) => `/subharness ${next ?? '<backend>'} login`,
+  disable: (next) => `/subharness ${next ?? '<backend>'} logout`,
 };
 
 /** Whether `word` is a command the `service` family replaced. */
@@ -277,7 +297,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
     defaultSubcommand: 'show',
     subcommands: [
       sub('show', 'Show model of every model role'),
-      sub('set', 'Choose a role’s model, test it with one reply and optionally set provider, effort or runtime', [
+      sub('set', 'Choose a role’s model and source, test it with one reply and optionally set provider or effort', [
         arg('role', true, MODEL_SET_CHOICES),
         arg('model', false),
         flagArg('provider', false),
@@ -497,24 +517,17 @@ export const COMMANDS: ReadonlyArray<Command> = [
     subcommands: [
       sub(
         'status',
-        'Show connected backends, the key of opencode by name, and the mode, backend, model and effort of every agent'
+        'Show every source, the key of opencode by name, and the mode, source, model and effort of every role'
       ),
-      sub('enable', 'Connect one backend after a check; opencode needs --key, the name of an extra key', [
-        arg('backend', true, BACKEND_NAMES),
-        flagArg('key', false),
-      ]),
-      sub('disable', 'Disconnect one backend; with none left every agent task is refused', [
-        arg('backend', true, BACKEND_NAMES),
-      ]),
-      sub('use', 'Name the connected backend an agent runs through: use <agent> <backend>', [
-        arg('agent'),
-        arg('backend', true, BACKEND_NAMES),
-      ]),
-      sub('model', 'Set the model and effort of an agent after one reply from it: model <agent> <model>', [
-        arg('agent', true, SUBHARNESS_AGENTS),
-        arg('model'),
-        flagArg('effort', false),
-      ]),
+      ...BACKEND_NAMES.flatMap((backend) => accountSubcommands(backend)),
+    ],
+  },
+  {
+    name: 'agent',
+    help: 'Set what each agent may do',
+    args: [],
+    needsSubcommand: true,
+    subcommands: [
       sub('mode', "Show or set an agent's mode: read, write, full or sudo", [
         arg('agent', true, SUBHARNESS_AGENTS),
         arg('mode', false, AGENT_MODES),
@@ -648,12 +661,20 @@ const unknownWord = (word: string): string =>
     ? `/${word} is retired: use neptunia ${RETIRED_COMMANDS[word] ?? 'service'}`
     : `unknown command /${word}; type /help`;
 
+/** Why the words after `subharness` are refused when they start with a retired word, naming its replacement; else null. */
+function retiredSubharness(first: string, [word, next]: ReadonlyArray<string>): string | null {
+  if (first !== 'subharness' || word === undefined || !Object.hasOwn(RETIRED_SUBHARNESS, word)) return null;
+  return `/subharness ${word} is retired: use ${RETIRED_SUBHARNESS[word]?.(next) ?? '/help'}`;
+}
+
 /** One command as words, none of them joined or split: its dotted name and arguments, or why it is refused. */
 export function parseCommandWords(words: ReadonlyArray<string>): Parsed {
   const [first, ...rest] = words;
   if (first === undefined) return refuse('an empty line is no command; type /help');
   const command = COMMANDS.find((one) => one.name === first);
   if (command === undefined) return refuse(unknownWord(first));
+  const retired = retiredSubharness(first, rest);
+  if (retired !== null) return refuse(retired);
   let name = command.name;
   let args = command.args;
   let tail: ReadonlyArray<string> = rest;

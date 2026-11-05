@@ -39,10 +39,3 @@ test('an agent has no route while nothing is connected', () => {
   writeKeysFile(dir, { subharness: { backends: [], key: null, modes: {} } });
   assert.equal(control.routeOfAgent(dir, 'scout'), null);
 });
-
-test('an agent has no route while its named backend is not connected', () => {
-  // Catches: a route to a disconnected backend, which runs an agent on a login the owner just cut off.
-  const dir = tempDir('nep-route-');
-  writeKeysFile(dir, { subharness: { backends: ['codex'], key: null, modes: {}, uses: { scout: 'claude' } } });
-  assert.equal(control.routeOfAgent(dir, 'scout'), null);
-});
