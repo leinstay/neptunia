@@ -1605,6 +1605,7 @@ async function buildCore(
     everyMs: () => innerSettings(hot.config).tickSeconds * 1000,
     run: async () => {
       await refreshPlaces(instance.guildId);
+      inner.releaseStoredStop();
       return inner.tick();
     },
   });

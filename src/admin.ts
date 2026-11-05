@@ -99,8 +99,8 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  *   operations submit to and read. Absent -> those report they are not available.
  * `intentions` — from createIntentionService() (src/intentions/service.ts), optional: what the
  *   `intention.*` operations change and read. Absent -> those report they are not available.
- * `inner` — from createInnerLife() (src/behavior/inner.ts), optional: what `inner.stop`,
- *   `inner.start` and `inner.status` change and report. Absent -> those report it is not running.
+ * `inner` — from createInnerLife() (src/behavior/inner.ts), optional: what `inner.status` reports.
+ *   Absent -> it reports the inner life is not running.
  * `now` — the clock of the status card's coverage cache (default `Date.now`).
  * `dataDir` — the data directory `memory.snapshot` copies: src/index.ts passes the one it
  *   resolved (src/paths.ts, `NEPTUNIA_DATA_DIR`); default `<hot.rootDir>/data`.

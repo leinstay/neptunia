@@ -64,5 +64,6 @@ test('the committed table holds a row per tool of the registry and a verdict per
   // PR 7e: two more, skill.read and skill.disable (the committed table gained their rows).
   // The tool watcher.read of the daily watcher is the 72nd, and skill.run of the executable skills the 73rd.
   // `board.unblock` joined the registry with the task-started development run.
-  assert.equal(committed.tools.length, 77);
+  // `inner.stop` and `inner.start` left with `/wakes`.
+  assert.equal(committed.tools.length, 75);
 });

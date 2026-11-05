@@ -589,9 +589,8 @@ test('every operation no grant opens to her runs from a command of the chat', as
       continue;
     await desk.run(parsed.name, parsed.args, { id: 'owner-1' });
   }
-  // Changed: `/wakes stop` and `/wakes start` are retired, so these two operations have no command of the chat.
   assert.deepEqual(
-    NOT_GRANTABLE_TO_PERSONA.filter((op) => !ran.has(op) && op !== 'inner.stop' && op !== 'inner.start'),
+    NOT_GRANTABLE_TO_PERSONA.filter((op) => !ran.has(op)),
     []
   );
   assert.ok(

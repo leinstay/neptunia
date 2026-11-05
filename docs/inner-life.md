@@ -8,6 +8,8 @@ Heartbeat supplies an opportunity to notice ongoing life and decide whether to a
 
 State belongs to one persona. Individual records carry their place and audience, so a thought about one server does not create another independent persona for that server. The scheduler and its queues are in [src/behavior/inner/](../src/behavior/inner/).
 
+The core clears a `stopped` flag left in the stored state before each tick (`releaseStoredStop` in `src/behavior/inner/status.ts`), because no command releases one.
+
 ## Intentions
 
 An intention records something the persona wants to do, where it belongs and any schedule or waiting condition. Ordinary intentions can expire. Standing recurring intentions persist until cancelled. Their schedule determines opportunities to consider the work; it does not force a particular outward action.

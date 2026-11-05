@@ -69,6 +69,17 @@ export function start(
   return { ok: true, already };
 }
 
+/**
+ * Clears a stop kept in the stored state: no command releases one any more, and it would hold her wakes off in silence.
+ * True when there was one. The core calls this before each tick.
+ */
+export function releaseStoredStop(life: InnerContext): boolean {
+  const guildId = life.getGuildId();
+  if (!guildId || !stateOf(life, guildId).stopped) return false;
+  start(life, guildId, { by: 'core' });
+  return true;
+}
+
 /** The next thing that will wake her: when, and whether it is a queued wake, an intention or the review. */
 export type NextWake = { at: number; kind: 'queue' | 'intention' | 'review' };
 

@@ -102,8 +102,6 @@ const AGREED = new Set([
   'places.list',
   'tools.describe',
   'conversation.read',
-  'inner.stop',
-  'inner.start',
   'inner.status',
 ]);
 
@@ -117,8 +115,6 @@ const OWNER_ONLY = [
   'memory.snapshot',
   'memory.archive.read',
   'memory.restore',
-  'inner.stop',
-  'inner.start',
   'inner.status',
 ];
 
@@ -587,16 +583,7 @@ test('status costs.development: thinker and dev show no runs over an empty board
 });
 
 test('ops: /nep task inner stops, starts and reports the inner life for an owner only', async () => {
-  const calls: Array<Array<unknown>> = [];
   const inner = {
-    stop: (guildId: string, { by }: { by: string }) => (
-      calls.push(['stop', guildId, by]),
-      { ok: true, already: false, dropped: 2 }
-    ),
-    start: (guildId: string, { by }: { by: string }) => (
-      calls.push(['start', guildId, by]),
-      { ok: true, already: false }
-    ),
     status: () => ({
       on: true,
       mode: 'shadow',
@@ -609,18 +596,10 @@ test('ops: /nep task inner stops, starts and reports the inner life for an owner
   };
   const env = { ...makeEnv(), inner };
   const owner = { env, userId: '42', guildId: 'g1' };
-  const stopped = await runOp('inner.stop', {}, owner);
-  assert.equal(stopped.status, 'ok');
-  assert.match(stopped.summary, /stopped; 2 queued wakes dropped/);
-  assert.equal((await runOp('inner.start', {}, owner)).status, 'ok');
   const status = await runOp('inner.status', {}, owner);
   assert.match(status.summary, /mode shadow, running/);
   assert.match(status.summary, /queue: 1 \(review/);
-  assert.deepEqual(
-    calls.map((call) => call[0]),
-    ['stop', 'start']
-  );
-  const member = await runOp('inner.stop', {}, { env, userId: '7', guildId: 'g1' });
+  const member = await runOp('inner.status', {}, { env, userId: '7', guildId: 'g1' });
   assert.equal(member.status, 'denied');
   assert.equal(member.code, 'owner-only');
 });

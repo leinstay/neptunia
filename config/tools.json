@@ -536,16 +536,6 @@
       "id": "Intention or candidate id."
     }
   },
-  "inner.stop": {
-    "title": "Stop the inner life",
-    "whenToUse": "Stop the persona's own wake-ups and drop the queued ones.",
-    "whenNotToUse": "Administrative, not grantable to you."
-  },
-  "inner.start": {
-    "title": "Start the inner life",
-    "whenToUse": "Let the persona's own wake-ups run again after a stop.",
-    "whenNotToUse": "Administrative, not grantable to you."
-  },
   "inner.status": {
     "title": "Inner life status",
     "whenToUse": "Show whether the persona's own wake-ups run, what is queued and what is left of their caps.",

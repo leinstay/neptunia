@@ -419,8 +419,6 @@ test('skills access: the irreversible and administrative operations are never op
     'bot.resume',
     'config.set',
     'config.unset',
-    'inner.start',
-    'inner.stop',
     'memory.restore',
     'model.set',
     'route.remove',

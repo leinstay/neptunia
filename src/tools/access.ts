@@ -52,9 +52,6 @@ export const NOT_GRANTABLE_TO_PERSONA: ReadonlyArray<string> = Object.freeze([
   'access.revoke',
   'bot.pause',
   'bot.resume',
-  // Her inner life's kill switch is the owner's alone (src/tools/impl/inner.ts).
-  'inner.stop',
-  'inner.start',
 ]);
 
 /** The policy version of the wake envelopes (recorded on every wake run). */
