@@ -184,9 +184,6 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `terminal` | invalid | - | `tools.result.reasons.terminal` |
 | `slept` | invalid | - | `tools.result.reasons.slept` |
 | `duplicate-id` | invalid | - | `tools.result.reasons.duplicate-id` |
-| `candidate-external` | denied | - | `tools.result.reasons.candidate-external` |
-| `candidate-same-turn` | denied | - | `tools.result.reasons.candidate-same-turn` |
-| `candidate-same-chain` | denied | - | `tools.result.reasons.candidate-same-chain` |
 | `empty-query` | invalid | - | `tools.result.reasons.empty-query` |
 | `no-query` | invalid | - | `tools.result.reasons.no-query` |
 | `no-link` | invalid | - | `tools.result.reasons.no-link` |

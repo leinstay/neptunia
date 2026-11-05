@@ -7,7 +7,7 @@ import type { Untyped } from '../tools/types.ts';
 import type { ErrandRecord, ErrandScope, FlushCounts, Logger } from '../errands/types.ts';
 
 /** Every status an intention may have. */
-export type IntentionStatus = 'proposed' | 'pending' | 'waiting' | 'done' | 'cancelled' | 'expired' | 'dropped';
+export type IntentionStatus = 'pending' | 'waiting' | 'done' | 'cancelled' | 'expired' | 'dropped';
 
 /** A recurrence: `period` is `day`, `week`, `<n>h` or `<n>d`, `at` the pinned wall clock `HH:MM` of `day` and `week`. */
 export type Every = { period: string; at: string | null };
@@ -38,14 +38,13 @@ export type IntentionSettings = {
   expiresDays: number;
   recurringExpiresDays: number;
   maxOpen: number;
-  maxCandidates: number;
-  candidateExpiresHours: number;
   waitHours: number;
   expiryNoticeDays: number;
 };
 
 /** Where an intention came from. */
 export type Provenance = {
+  /** `candidate` only on a closed record of a path that is gone, kept out of what she is shown as hers. */
   kind: 'self' | 'candidate';
   turnId: string | null;
   messageId?: string;
@@ -54,11 +53,6 @@ export type Provenance = {
   scope: ErrandScope;
   participants?: Array<string>;
   publicationBoundary?: PublicationBoundary;
-  /** A candidate's origin: `external` when its words came from outside material. */
-  origin?: 'own' | 'external';
-  originReason?: string;
-  bornInner?: boolean;
-  innerChainId?: string;
   /** The key of the call that set it: a restarted turn's same call answers with this record. */
   callKey?: string;
 };
@@ -121,7 +115,7 @@ export type Advanced =
 export type CreateInput = {
   purpose: string;
   provenance: {
-    kind: 'self' | 'candidate';
+    kind: 'self';
     turnId?: string | null;
     messageId?: string | null;
     channelId?: string | null;
@@ -129,10 +123,6 @@ export type CreateInput = {
     scope?: ErrandScope;
     participants?: Array<string>;
     publicationBoundary?: PublicationBoundary;
-    origin?: string;
-    originReason?: string;
-    bornInner?: boolean;
-    innerChainId?: string | null;
     callKey?: string;
   };
   dueAt?: number | null;
@@ -153,40 +143,8 @@ export type CreateInput = {
   by?: string;
 };
 
-/** A candidate the analyzer proposed from one of her own lines, anchored to that line. */
-export type Candidate = {
-  purpose: string;
-  span: string;
-  messageId: string;
-  channelId: string | null;
-  ts: number | null;
-  participants?: Array<string>;
-  publicationBoundary?: PublicationBoundary;
-  origin: 'own' | 'external';
-  originReason?: string;
-  turnId: string | null;
-  bornInner?: boolean;
-  innerChainId?: string;
-};
-
 /** Why an intention is due. */
 export type Due = { intention: Intention; reason: 'due' | 'wait-deadline'; at: number };
-
-/** The note of where one line of hers came from (src/intentions/sources.ts#lineSourcesOf). */
-export type LineNote = {
-  turnId: string | null;
-  read?: boolean;
-  inner?: boolean;
-  chainId?: string;
-  overlap?: Array<string>;
-};
-
-/** The notes of her recent lines by message id (src/intentions/sources.ts#createLineSources). */
-export type LineSources = {
-  note: (messageId: string, sources: LineNote) => void;
-  get: (messageId: string) => LineNote | null;
-  readonly size: number;
-};
 
 /** The intentions of one guild, in the memory database (src/intentions/store.ts#createIntentionStore). */
 export type IntentionStore = {
@@ -253,22 +211,10 @@ export type UpdatePatch = {
   /** Where the caller is: a private chat's own intentions only there, or every one with `all`. */
   privateChannelId?: string | null;
   all?: boolean;
-  /** An inner turn's call and its chain: which candidates it may accept. */
-  initiative?: boolean;
-  callerChain?: string | null;
 };
 
 /** Who may see a record: where the caller is. */
 export type Where = { privateChannelId?: string | null; all?: boolean };
-
-/** What one analyzer batch added. */
-export type CandidateCounts = {
-  added: number;
-  external: number;
-  duplicate: number;
-  capped: number;
-  dropped: { invalid: number; unanchored: number; quoted: number; over: number };
-};
 
 /** The counts of a reconciliation. */
 export type ReconcileCounts = { arrived: number; missing: number; deadline: number; expired: number };
@@ -280,8 +226,6 @@ export type IntentionService = {
   cancel: (guildId: unknown, id: unknown, options?: { by?: string } & Where) => Moved;
   list: (guildId: unknown, options?: { closed?: boolean } & Where) => Array<Intention>;
   view: (guildId: unknown, options?: { privateChannelId?: string | null }) => Array<Intention>;
-  noteLine: (messageId: unknown, sources: LineNote) => void;
-  lineSources: (messageId: unknown) => LineNote | null;
   linkTurnErrand: (guildId: unknown, link: { turnId: unknown; errandId: unknown }) => number;
   onErrandFinished: (errand: ErrandRecord, guildId: unknown) => number;
   reconcile: (guildId: unknown) => ReconcileCounts;
@@ -292,12 +236,10 @@ export type IntentionService = {
   attendToday: (guildId: unknown, id: unknown) => { day: string; wakes: number } | null;
   countAttendWake: (guildId: unknown, id: unknown) => Moved;
   markExpiredShown: (guildId: unknown, id: unknown) => Moved;
-  addCandidates: (guildId: unknown, raw: unknown, messages: Array<Untyped>) => Promise<CandidateCounts>;
   store: (guildId?: unknown) => IntentionStore | null;
 };
 
-/** What `createIntentionService` is given. `errands` is the errand service a wait is checked against, `journal` is where a
- * candidate's turn is looked up, `lineSources` holds the notes of where her lines came from. */
+/** What `createIntentionService` is given. `errands` is the errand service a wait is checked against. */
 /** The part of an errand a wait reads: its id, state, end, error and the turn that queued it. */
 export type ErrandLike = {
   id: string;
@@ -318,8 +260,6 @@ export type IntentionServiceOptions = {
   stores: IntentionStores;
   hot: Untyped;
   errands?: ErrandsPort | null;
-  journal?: Untyped;
-  lineSources?: LineSources | null;
   getGuildId?: () => string | null;
   now?: () => number;
   uuid?: () => string;

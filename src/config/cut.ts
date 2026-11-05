@@ -446,6 +446,8 @@ const GONE: Readonly<Record<string, unknown>> = {
   plugins: null,
   // Quick search runs one chosen engine and nothing answers in its place.
   'web.search.fallback': [],
+  // Nothing proposes an intention any more, so no candidate waits to expire.
+  'intentions.candidateExpiresHours': 48,
   // The subharness (src/subharness/) holds the agent backend now; scripts/config-migrate.ts says how to set it.
   'errands.backend': 'codex',
   'features.dryRun': false,
@@ -612,10 +614,27 @@ function stable(value: unknown): string {
 
 const REMOVED: ReadonlyArray<CutFate> = ['constant', 'code', 'gone', 'cap'];
 
+/**
+ * The model of the `openrouter` engine a layer got from the built-in default of `web.search.model` while it still set
+ * `web.search.fallback`. A layer that chose that engine then keeps searching on it after the default left. A layer
+ * written since has no `fallback`, chooses its model itself and gets nothing from here.
+ */
+const OPENROUTER_MODEL_OF_OLD_LAYER = 'openai/gpt-6.1-sol';
+
+/** The model `web.search.model` keeps for a layer written before quick search lost its default, or null. */
+function keptSearchModel(config: Tree): string | null {
+  const web = config.web;
+  const search = isTree(web) ? web.search : null;
+  if (!isTree(search) || !Object.hasOwn(search, 'fallback') || search.engine !== 'openrouter') return null;
+  return typeof search.model === 'string' && search.model !== '' ? null : OPENROUTER_MODEL_OF_OLD_LAYER;
+}
+
 /** Pure; the argument is not changed. An emptied section goes. A second run returns empty lists and `interfaces: {}`. */
 export function cutConfigKeys(config: Record<string, unknown>): CutConfig {
   const next = structuredClone(config);
   const report: CutConfig = { config: next, cut: [], differs: [], renamed: [], interfaces: {} };
+  const keptModel = keptSearchModel(next);
+  if (keptModel !== null) ((next.web as Tree).search as Tree).model = keptModel;
   for (const row of CUT_KEYS) {
     if (!has(next, row.key)) continue;
     if (REMOVED.includes(row.becomes)) {

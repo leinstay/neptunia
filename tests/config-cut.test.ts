@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cutConfigKeys } from '../src/config/cut.ts';
+import { searchModel } from '../src/llm/roles.ts';
 import { CUT, PRODUCTION_LAYER } from './fixtures/config-cut.ts';
 
 type Tree = Record<string, unknown>;
@@ -91,4 +92,23 @@ test('does not change the layer it is given', () => {
   const copy = structuredClone(PRODUCTION_LAYER);
   cutConfigKeys(PRODUCTION_LAYER);
   assert.deepEqual(PRODUCTION_LAYER, copy);
+});
+
+test('a layer that set engine openrouter and the empty fallback keeps its engine and searches on its old model', () => {
+  // Bug: a deployed layer read the removed built-in model, so quick search goes off at the upgrade with nobody asked.
+  const { config, cut, differs } = cutConfigKeys({ web: { search: { fallback: [], engine: 'openrouter' } } });
+  assert.deepEqual(at(config, 'web.search'), { engine: 'openrouter', model: 'openai/gpt-6.1-sol' });
+  assert.deepEqual(cut, ['web.search.fallback']);
+  assert.deepEqual(differs, []);
+  assert.equal(searchModel(config), 'openai/gpt-6.1-sol');
+});
+
+test('a model the old layer names stays, and a layer without the old key gets none', () => {
+  // Bug: the migration overwrites the owner's model, or brings the removed default back for a new install.
+  const named = cutConfigKeys({ web: { search: { fallback: [], engine: 'openrouter', model: 'x/own' } } });
+  assert.equal(searchModel(named.config), 'x/own');
+  const fresh = cutConfigKeys({ web: { search: { engine: 'openrouter' } } });
+  assert.equal(searchModel(fresh.config), undefined);
+  const brave = cutConfigKeys({ web: { search: { fallback: [], engine: 'brave' } } });
+  assert.equal(searchModel(brave.config), undefined);
 });

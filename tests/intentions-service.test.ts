@@ -7,7 +7,6 @@
 // everything. Candidates from her lines are anchored, de-duplicated, capped and expire.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import path from 'node:path';
 
 import { runOp as runOperation } from '../src/tools/impl/index.ts';
@@ -83,14 +82,12 @@ function makeEnv({
   intentions: settings = {},
   rootDir = tempDir('nep-intent-'),
   clock = { t: T0 },
-  journal = null,
 }: {
   errandSettings?: Record<string, Untyped>;
   agents?: Record<string, Untyped>;
   intentions?: Record<string, Untyped>;
   rootDir?: string;
   clock?: { t: number };
-  journal?: Untyped;
 } = {}) {
   const hot = {
     config: {
@@ -100,7 +97,6 @@ function makeEnv({
       intentions: {
         expiresDays: 14,
         maxOpen: 20,
-        candidateExpiresHours: 48,
         ...settings,
       },
     },
@@ -143,7 +139,6 @@ function makeEnv({
     stores: intentionStores,
     hot,
     errands,
-    journal,
     getGuildId: () => 'g1',
     now,
   });
@@ -391,106 +386,6 @@ test('intention.update / intention.cancel: the id alone in the body counts as th
   });
 });
 
-test('candidates: anchored to her own lines, turn looked up, de-duplicated, capped, accepted or rejected, expired when untouched', async () => {
-  const journal = {
-    findTurn: async (guildId: string, { messageId }: Record<string, Untyped>) =>
-      messageId === 'm2' ? { turn: { turnId: 'T9' } } : null,
-  };
-  // PR 7d: `intentions.maxCandidates` is the constant 5, so five candidates are open before the one capped.
-  const { env, intentions, clock } = makeEnv({ intentions: { maxOpen: 1 }, journal });
-  const lines = [
-    { id: 'm1', channelId: 'c1', self: false, content: 'θα έρθεις αύριο;', ts: T0 - 2000 },
-    {
-      id: 'm2',
-      channelId: 'c1',
-      self: true,
-      content: 'Ναι, και θα φέρω το παιχνίδι',
-      ts: T0 - 1000,
-      sources: { turnId: null },
-    },
-    {
-      id: 'm3',
-      channelId: 'c1',
-      self: true,
-      content: 'θα σου στείλω τον σύνδεσμο αργότερα',
-      ts: T0 - 500,
-      sources: { turnId: null },
-    },
-    ...['θα γράψω το σχέδιο', 'θα ρωτήσω τον Νίκο', 'θα στήσω το τραπέζι'].map((content, n) => ({
-      id: `m${n + 4}`,
-      channelId: 'c1',
-      self: true,
-      content,
-      ts: T0 - 400 + n,
-      sources: { turnId: null },
-    })),
-  ];
-  await withCapturedLogs(async () => {
-    const raw = [
-      { span: 'θα φέρω το παιχνίδι', purpose: 'bring the game tomorrow' },
-      { span: 'θα έρθεις αύριο', purpose: 'not hers' },
-    ];
-    const out = await intentions.addCandidates('g1', raw, lines);
-    assert.equal(out.added, 1);
-    assert.equal(out.dropped.quoted + out.dropped.unanchored, 1);
-    const [candidate] = intentions.list('g1');
-    assert.equal(candidate.status, 'proposed');
-    assert.deepEqual(candidate.provenance, {
-      kind: 'candidate',
-      turnId: 'T9',
-      messageId: 'm2',
-      channelId: 'c1',
-      span: 'θα φέρω το παιχνίδι',
-      scope: 'group',
-      origin: 'own',
-    });
-    assert.equal(
-      (await intentions.addCandidates('g1', raw.slice(0, 1), lines)).duplicate,
-      1,
-      'the same line again is a duplicate'
-    );
-    await intentions.addCandidates('g1', [{ span: 'θα σου στείλω τον σύνδεσμο', purpose: 'send the link' }], lines);
-    for (const [span, purpose] of [
-      ['θα γράψω το σχέδιο', 'write the plan'],
-      ['θα ρωτήσω τον Νίκο', 'ask Nikos'],
-      ['θα στήσω το τραπέζι', 'set the table'],
-    ])
-      await intentions.addCandidates('g1', [{ span, purpose }], lines);
-    assert.equal(
-      (await intentions.addCandidates('g1', [{ span: 'αργότερα', purpose: 'later' }], lines)).capped,
-      1,
-      'maxCandidates open at once'
-    );
-    // Accepted: pending. A second acceptance hits maxOpen; rejected: cancelled.
-    assert.equal(
-      (await runOp('intention.update', { id: candidate.id, state: 'pending' }, hers(env, 'T10'))).data.intention.status,
-      'pending'
-    );
-    assert.equal(
-      present(present(intentions.store('g1')).get(candidate.id)).expiresAt,
-      T0 + 14 * 24 * HOUR,
-      'accepted, it lives as long as her own'
-    );
-    const other = intentions.list('g1').find((r) => r.status === 'proposed');
-    assert.equal(
-      (await runOp('intention.update', { id: present(other).id, state: 'pending' }, hers(env, 'T10'))).code,
-      'cap-open'
-    );
-    assert.equal(
-      (await runOp('intention.cancel', { id: present(other).id }, hers(env, 'T10'))).data.intention.status,
-      'cancelled'
-    );
-    // An untouched candidate expires after candidateExpiresHours: the three still proposed and the one added now.
-    await intentions.addCandidates('g1', [{ span: 'αργότερα', purpose: 'later' }], lines);
-    clock.t = T0 + 48 * HOUR;
-    assert.equal(
-      intentions.list('g1').some((r) => r.status === 'proposed'),
-      false
-    );
-    assert.equal(intentions.list('g1', { closed: true }).filter((r) => r.status === 'expired').length, 4);
-  });
-});
-
 test('intentions: markExpiredShown marks an expired intention once; an open one, an unknown id and a second call change nothing', async () => {
   const { intentions, clock } = makeEnv();
   const own = present(
@@ -549,99 +444,6 @@ test("private chats: her intention in a DM is the DM's own -- never in a server 
     assert.equal((await runOp('intention.cancel', { id }, hers(env, 'T2'))).code, 'not-found');
     assert.equal((await runOp('intention.list', {}, hers(env, 'T2'))).summary, 'no open intentions');
     assert.equal((await runOp('intention.update', { id, due: '2h' }, dm())).status, 'ok', 'in its own chat it moves');
-  });
-});
-
-test("candidates: the other authors of the line's channel are its participants", async () => {
-  const { intentions } = makeEnv();
-  const lines = [
-    { id: 'm1', channelId: 'c1', authorId: 'u3', self: false, content: 'θα έρθεις;', ts: T0 - 2000 },
-    { id: 'm2', channelId: 'c1', authorId: 'bot', self: true, content: 'θα έρθω το βράδυ', ts: T0 - 1000 },
-  ];
-  await withCapturedLogs(async () => {
-    assert.equal(
-      (await intentions.addCandidates('g1', [{ span: 'θα έρθω το βράδυ', purpose: 'come tonight' }], lines)).added,
-      1
-    );
-  });
-  assert.deepEqual(onlyIntention(intentions).provenance.participants, ['u3']);
-});
-
-test('candidates: external ones need her accept in a later ordinary turn; an inner turn takes neither those nor one born in its own chain', async () => {
-  const { env, intentions } = makeEnv();
-  // Her lines as the memory buffer holds them: m2 noted by her turn (via the service's registry), m3 never noted.
-  intentions.noteLine('m2', { turnId: 'T5' });
-  intentions.noteLine('m4', { turnId: 'T6', read: true });
-  intentions.noteLine('m5', { turnId: 'T7', inner: true, chainId: 'chain:k' });
-  const lines = [
-    { id: 'm2', channelId: 'c1', self: true, content: 'θα φέρω το παιχνίδι', ts: T0 - 4000 },
-    { id: 'm3', channelId: 'c1', self: true, content: 'θα στείλω τον σύνδεσμο', ts: T0 - 3000 },
-    { id: 'm4', channelId: 'c1', self: true, content: 'θα θυμίζω την κλήρωση κάθε μέρα', ts: T0 - 2000 },
-    { id: 'm5', channelId: 'c1', self: true, content: 'θα ξανακοιτάξω το νήμα αύριο', ts: T0 - 1000 },
-  ];
-  // An inner turn's call context (src/tools/executors.ts#executeCall adds ownInitiative and the chain).
-  const inner = (turnId: string, chainId: Untyped) => hers(env, turnId, { ownInitiative: true, chainId });
-  await withCapturedLogs(async () => {
-    const out = await intentions.addCandidates(
-      'g1',
-      [
-        { span: 'θα φέρω το παιχνίδι', purpose: 'bring the game' },
-        { span: 'θα στείλω τον σύνδεσμο', purpose: 'send the link' },
-        { span: 'θα θυμίζω την κλήρωση κάθε μέρα', purpose: 'remind about the raffle daily' },
-        { span: 'θα ξανακοιτάξω το νήμα αύριο', purpose: 'look at the thread again tomorrow' },
-      ],
-      lines
-    );
-    assert.deepEqual([out.added, out.external], [4, 2]);
-    const byMessage = Object.fromEntries(intentions.list('g1').map((r) => [r.provenance.messageId, r]));
-    assert.deepEqual(
-      Object.values(byMessage).map(
-        (r: Untyped) => `${r.provenance.messageId}:${r.provenance.origin}:${r.provenance.turnId}`
-      ),
-      ['m2:own:T5', 'm3:external:null', 'm4:external:T6', 'm5:own:T7']
-    );
-    // An inner turn: her own candidate yes; an external one, or one born in its own chain, no.
-    assert.equal(
-      (await runOp('intention.update', { id: byMessage.m2.id, state: 'pending' }, inner('T20', 'review:2026-10-18')))
-        .data.intention.status,
-      'pending'
-    );
-    assert.equal(
-      (await runOp('intention.update', { id: byMessage.m4.id, state: 'pending' }, inner('T20', 'review:2026-10-18')))
-        .code,
-      'candidate-external'
-    );
-    assert.equal(
-      (await runOp('intention.update', { id: byMessage.m3.id, state: 'pending' }, inner('T20', 'review:2026-10-18')))
-        .code,
-      'candidate-external',
-      'a line with no note counts as external'
-    );
-    assert.equal(
-      (await runOp('intention.update', { id: byMessage.m5.id, state: 'pending' }, inner('T21', 'chain:k'))).code,
-      'candidate-same-chain'
-    );
-    assert.equal(
-      present(present(intentions.store('g1')).get(byMessage.m5.id)).chainId,
-      null,
-      "the caller's chain never becomes the intention's"
-    );
-    // Her ordinary turn: never the one that wrote the line, a later one may.
-    assert.equal(
-      (await runOp('intention.update', { id: byMessage.m4.id, state: 'pending' }, hers(env, 'T6'))).code,
-      'candidate-same-turn'
-    );
-    assert.equal(
-      (await runOp('intention.update', { id: byMessage.m4.id, state: 'pending' }, hers(env, 'T30'))).data.intention
-        .status,
-      'pending'
-    );
-    assert.equal(
-      (await runOp('intention.update', { id: byMessage.m5.id, state: 'pending' }, inner('T22', 'review:2026-10-18')))
-        .data.intention.status,
-      'pending',
-      'another chain may'
-    );
   });
 });
 

@@ -451,7 +451,6 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 | `intentions.expiresDays` | number | `14` | Days before an intention expires | `src/behavior/inner/queue.ts` |
 | `intentions.recurringExpiresDays` | number | `30` | Days before a recurring intention expires | `src/intentions/model.ts` |
 | `intentions.maxOpen` | number | `20` | Max intentions open at once | `src/intentions/service.ts` |
-| `intentions.candidateExpiresHours` | number | `48` | Hours before an unhandled candidate expires | `src/intentions/model.ts` |
 
 ## wakes
 

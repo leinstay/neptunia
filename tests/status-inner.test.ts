@@ -29,7 +29,7 @@ const LABELS = {
   lastNone: 'last: none',
   lastErrorLine: 'error {code} at {at}',
   outcomeUnknown: '?',
-  intentionsLine: 'open {pending}/{waiting}/{proposed}',
+  intentionsLine: 'open {pending}/{waiting}',
   attentionLine: 'attention {open} open, wakes {listed}/{run}/{spoken}/{skipped}/{waiting}',
   tokensLine: 'core tokens {prompt} ({cached}) + {completion}',
 };
@@ -42,7 +42,7 @@ const STATUS = {
   turnsToday: 3,
   chains: 2,
   spentUsd: 0.6,
-  intentions: { pending: 2, waiting: 1, proposed: 4 },
+  intentions: { pending: 2, waiting: 1 },
   attention: { open: 1, listed: 5, run: 4, spoken: 1, skipped: 3, waiting: 1 },
   next: { at: AT + 3600000, kind: 'review' },
   lastTurn: { at: AT, outcome: 'skip' },
@@ -90,7 +90,7 @@ test("status inner: the owner reads the inner life's lines through the labels; f
     'usd 0.60',
     'next 2026-10-19 13:30 UTC (review)',
     'last skip at 2026-10-19 12:30 UTC',
-    'open 2/1/4',
+    'open 2/1',
     'attention 1 open, wakes 5/4/1/3/1',
   ]);
   assert.deepEqual(seen, ['g1']);

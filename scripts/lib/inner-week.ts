@@ -9,8 +9,8 @@
 //
 // The fixture (scripts/fixtures/*.json, `parseFixture`) scripts the week: the people's
 // messages (with times and channels; one addressed to her holds the one attention for
-// `turnSeconds`), floods of them, her own lines, intentions she sets, errands that end, analyzer
-// candidates, planted text, a restart, the kill switch. An intention may recur (`every`, as her
+// `turnSeconds`), floods of them, her own lines, intentions she sets, errands that end,
+// planted text, a restart, the kill switch. An intention may recur (`every`, as her
 // own argument: `day`, `week`, `12h`, `3d`); its occurrences are advanced by the production
 // service and scheduler, and the report counts their codes (`recurred`, `missed`,
 // `done-occurrence`). An intention may be an attention (`attend: true`: it listens to its `channel`,
@@ -36,10 +36,8 @@
 // or while stopped), every due item with a recorded disposition, a silent week mostly silent, at
 // planted text never in an intention or an
 // action. Planted text reaches her through the chat, through what her reads return (a stub call's
-// `returns`, which the week's simulated analyzer reads beside the chat as her inner-turn
-// findings, `world.episodes`) and through her own lines that repeat what her ordinary turn
-// read or saw (a `self` event's `read` and `seen`): each line of hers carries the note of where it
-// came from (src/intentions/sources.ts), as the turn runner writes it live. Nothing here touches
+// `returns`) and through her own lines that repeat what her ordinary turn
+// read or saw (a `self` event's `read` and `seen`). Nothing here touches
 // the live data or the network.
 
 import fs from 'node:fs';
@@ -57,7 +55,6 @@ import { createEventDoor } from '../../src/interface/door.ts';
 import { createIntentionStores } from '../../src/intentions/store.ts';
 import { createIntentionService } from '../../src/intentions/service.ts';
 import { dueList, parseEvery, parseWhen, isAttend, isOpen } from '../../src/intentions/model.ts';
-import { lineSourcesOf } from '../../src/intentions/sources.ts';
 import { DAY_MS, HOUR_MS, zonedDay, zonedEpoch } from '../../src/time.ts';
 import { parseOutput } from '../../src/llm/parse.ts';
 import { answerOf } from '../../src/behavior/turn.ts';
@@ -80,15 +77,11 @@ export {
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
 
-/** The read skills whose results the week's simulated analyzer reads as her inner-turn findings. */
-const FINDING_SKILLS = Object.freeze(['web.search', 'web.read', 'memory.search', 'errand.status', 'errand.list']);
 /** The intention calls that name an intention by `id`. */
 const ID_SKILLS = Object.freeze(['intention.update', 'intention.cancel']);
 
 /** A queued wake older than this at the end of the week, never refused by a cap, counts as starved. */
 export const STARVED_MS = 6 * HOUR_MS;
-/** How many of a channel's latest lines an analyzer batch reads. */
-const ANALYZER_BATCH = 50;
 /** The most steps a week may take (a guard against a loop that stopped moving). */
 const MAX_STEPS = 200_000;
 
@@ -254,7 +247,7 @@ function cites(value: Untyped, marker: Untyped) {
  * silence). Each
  * answer is a list of actions `{ skill, args }`; placeholders in the args: `$intention`, `$task`,
  * `$chain`, `$channel`, `$key:<key>` (the id of the fixture intention or stub-set intention of that
- * key), and `$candidates` as the id (the action is repeated for every open candidate). Deterministic.
+ * key). Deterministic.
  * @param fixture parseFixture's.
  */
 export function createStubVoice(fixture: Fixture): Rec {
@@ -269,7 +262,6 @@ export function createStubVoice(fixture: Fixture): Rec {
       day,
       keyOf,
       idOf = () => null,
-      candidates,
     }: {
       items: Array<Rec>;
       records: Array<Rec>;
@@ -277,7 +269,6 @@ export function createStubVoice(fixture: Fixture): Rec {
       day: string;
       keyOf: (id: string) => string | null;
       idOf?: (key: string) => string | null;
-      candidates: Array<string>;
     }) {
       const out = [];
       for (const item of items) {
@@ -299,24 +290,18 @@ export function createStubVoice(fixture: Fixture): Rec {
         };
         for (const action of answer) {
           const args = action.args ?? {};
-          const many = Object.values(args).includes('$candidates');
-          const ids = many ? candidates : [null];
-          for (const candidate of ids) {
-            const resolved: Rec = {};
-            for (const [name, value] of Object.entries<Untyped>(args)) {
-              if (value === '$candidates') resolved[name] = candidate;
-              else if (typeof value === 'string' && value.startsWith('$key:')) resolved[name] = idOf(value.slice(5));
-              else resolved[name] = Object.prototype.hasOwnProperty.call(values, value) ? values[value] : value;
-            }
-            out.push({
-              skill: action.skill,
-              args: resolved,
-              ...(action.refuse ? { refuse: action.refuse } : {}),
-              ...(action.returns
-                ? { returns: action.returns, ...(action.marker ? { marker: action.marker } : {}) }
-                : {}),
-            });
+          const resolved: Rec = {};
+          for (const [name, value] of Object.entries<Untyped>(args)) {
+            if (typeof value === 'string' && value.startsWith('$key:'))
+              resolved[name] = idOf(value.slice('$key:'.length));
+            else resolved[name] = Object.prototype.hasOwnProperty.call(values, value) ? values[value] : value;
           }
+          out.push({
+            skill: action.skill,
+            args: resolved,
+            ...(action.refuse ? { refuse: action.refuse } : {}),
+            ...(action.returns ? { returns: action.returns, ...(action.marker ? { marker: action.marker } : {}) } : {}),
+          });
         }
       }
       return out;
@@ -342,21 +327,6 @@ export function stubVerdict({ effects, skill, shadow, mayAct, privateChat = fals
 }
 
 // ---- the week ------------------------------------------------------------------------
-
-/** The line of hers a read's finding becomes in her memory buffer, marked `inner`. */
-function findingLine(entry: Untyped, turnId: Untyped, n: number, text: Untyped, at: number) {
-  const inner = { kind: 'inner', turnId, shadow: entry.shadow, sources: [] };
-  return {
-    id: `inner:${turnId}:${n}`,
-    channelId: entry.channelId,
-    authorId: 'persona',
-    authorName: 'persona',
-    self: true,
-    content: text,
-    ts: at + n,
-    inner,
-  };
-}
 
 type RunWeekOptions = {
   fixture: Fixture;
@@ -423,9 +393,6 @@ export async function runWeek({
     lineSeq: 0,
     taskSeq: 0,
     saidSeq: 0,
-    // Per channel: the lines of her inner-turn findings (what her reads returned, FINDING_SKILLS),
-    // which the simulated analyzer reads with the chat; never chat history.
-    episodes: new Map(),
   };
   for (let d = fixture.history.days; d >= 1; d -= 1) {
     for (const hour of fixture.history.selfHours) {
@@ -532,10 +499,6 @@ export async function runWeek({
     }
     turnSeq += 1;
     const turnId = `t-week-${turnSeq}`;
-    const candidates = intentions
-      .list(guildId)
-      .filter((r: Rec) => r.status === 'proposed')
-      .map((r: Rec) => r.id);
     const planned = stubVoice.plan({
       items,
       records: wake.intentions ?? [],
@@ -543,14 +506,11 @@ export async function runWeek({
       day: entry.day,
       keyOf: (id: string) => world.ids.get(id) ?? null,
       idOf: (key: string) => world.keys.get(key) ?? null,
-      candidates,
     });
     // Her answer is the turn's first request: its cost is reported before any of her calls runs.
     emit({ msg: 'llm: usage', role: 'core', cost: fixture.stub.usdPerRequest });
     const actions = [];
     // What her reads returned this turn: outside material her later posts may repeat.
-    const seen = [];
-    const findings = [];
     for (const [index, call] of planned.entries()) {
       const effects = skills.effectsOf(call.skill);
       const key = `${turnId}.1:${index}`;
@@ -571,24 +531,17 @@ export async function runWeek({
           : {}),
       };
       if (verdict.status === 'executed') {
-        const done = act(call, { turnId, channelId: entry.channelId, at, chainId: wake.chainId ?? null, seen, key });
+        const done = act(call, { turnId, channelId: entry.channelId, at, key });
         if (done.code) action.code = done.code;
         action.result = done.ok ? 'ok' : 'failed';
         if (effects === 'read' && call.returns) {
           plant(call.marker, at, entry.channelId);
-          seen.push(call.returns);
-          if (FINDING_SKILLS.includes(call.skill)) findings.push(call.returns);
         }
       }
       actions.push(action);
     }
     // The tool loop's step after her calls.
     if (planned.length > 0) emit({ msg: 'llm: usage', role: 'core', cost: fixture.stub.usdPerRequest });
-    // What her reads found goes to her memory buffer as lines of hers marked `inner`.
-    findings.forEach((text, n) => {
-      if (!world.episodes.has(entry.channelId)) world.episodes.set(entry.channelId, []);
-      world.episodes.get(entry.channelId).push(findingLine(entry, turnId, n, text, at));
-    });
     const acted = actions.some((a) => a.status !== 'refused');
     // The intentions her intention.* calls named, however they went (src/behavior/turn.ts's `inner.intentIds`).
     const intentIds = [
@@ -608,7 +561,7 @@ export async function runWeek({
   }
 
   /** One executed stub call acting on the week's world. */
-  function act(call: Untyped, { turnId, channelId, at, chainId = null, seen = [], key = null }: Rec) {
+  function act(call: Untyped, { turnId, channelId, at, key = null }: Rec) {
     const args = call.args ?? {};
     const when = (text: Untyped) => parseWhen(text, at, { timezone: fixture.timezone });
     const everyOf = (text: Untyped) =>
@@ -647,8 +600,7 @@ export async function runWeek({
       return created.ok ? { ok: true } : { ok: false, code: created.code };
     }
     if (call.skill === 'intention.update') {
-      // An inner turn's call: her own initiative, in its chain (which candidates it may accept).
-      const patch: Rec = { by: 'persona', turnId, initiative: true, callerChain: chainId };
+      const patch: Rec = { by: 'persona', turnId };
       if (args.state) patch.state = args.state;
       if (args.due) patch.dueAt = when(args.due);
       if (everyOf(args.every) !== undefined) patch.every = everyOf(args.every);
@@ -693,7 +645,6 @@ export async function runWeek({
         self: true,
         content,
         ts: at,
-        sources: lineSourcesOf({ text: content, external: seen, read: seen.length > 0, turnId, inner: true, chainId }),
       });
       world.selfLines.push({ kind: 'said', occurredAt: new Date(at).toISOString(), scope: { channel: target } });
       return { ok: true };
@@ -789,8 +740,7 @@ export async function runWeek({
       messageId: line?.id ?? null,
       by: 'persona',
     });
-    // The service keeps a span only for a candidate; the week writes the self line's text in as
-    // the record's quote, so her <intentions> block and her memory of the week agree.
+    // The week writes the self line's text in as the record's quote, so her <intentions> block and her memory of the week agree.
     if (created.ok && line && item.span)
       intentions.store(guildId)?.update(created.intention.id, (record: Rec) => ({
         ok: true,
@@ -806,7 +756,7 @@ export async function runWeek({
     }
   }
 
-  async function apply(event: Rec) {
+  function apply(event: Rec) {
     const at = event.at;
     if (event.kind === 'message' || event.kind === 'planted') {
       addLine(event.channel, {
@@ -819,22 +769,15 @@ export async function runWeek({
       if (event.kind === 'planted') world.planted.push({ marker: event.marker, at, channel: event.channel });
       if (event.addressed) world.busyUntil = Math.max(world.busyUntil, at) + fixture.turnSeconds * 1000;
     } else if (event.kind === 'self') {
-      // A line of an ordinary turn of hers, noted with what that turn read and saw before it.
+      // A line of an ordinary turn of hers, with the planted text that turn read and saw before it.
       world.saidSeq += 1;
       for (const item of [...event.read, ...event.seen]) plant(item.marker, at, event.channel);
-      const sources = lineSourcesOf({
-        text: event.text,
-        external: [...event.read, ...event.seen].map((item) => item.text),
-        read: event.read.length > 0,
-        turnId: `t-said-${world.saidSeq}`,
-      });
       addLine(event.channel, {
         authorId: 'persona',
         authorName: 'persona',
         self: true,
         content: event.text,
         ts: at,
-        sources,
       });
       world.selfLines.push({ kind: 'said', occurredAt: new Date(at).toISOString(), scope: { channel: event.channel } });
     } else if (event.kind === 'intend') {
@@ -847,21 +790,6 @@ export async function runWeek({
       if (inner.onTaskFinished(ended, guildId)) errandCosts.push({ at, taskId: event.task, usd: event.usd });
       // The turn its end opens holds the attention like a people's turn.
       world.busyUntil = Math.max(world.busyUntil, at) + fixture.turnSeconds * 1000;
-    } else if (event.kind === 'analyzer') {
-      // The buffer the batch reads: the chat and her inner-turn episode lines, in time order.
-      const lines = [...(world.chat.get(event.channel) ?? []), ...(world.episodes.get(event.channel) ?? [])]
-        .sort((a, b) => a.ts - b.ts)
-        .slice(-ANALYZER_BATCH);
-      const result = await intentions.addCandidates(guildId, event.candidates, lines);
-      journal.push({
-        at,
-        event: 'harness-analyzer',
-        added: result.added,
-        external: result.external,
-        duplicate: result.duplicate,
-        capped: result.capped,
-        dropped: result.dropped,
-      });
     } else if (event.kind === 'restart') {
       journal.push({ at, event: 'harness-restart' });
       build();
@@ -950,7 +878,7 @@ export async function runWeek({
     if (!Number.isFinite(at) || at >= fixture.endMs) break;
     clock.jumpTo(at);
     while (cursor < fixture.events.length && fixture.events[cursor].at <= at) {
-      await apply(fixture.events[cursor]);
+      apply(fixture.events[cursor]);
       cursor += 1;
       await settle();
     }
@@ -1135,7 +1063,7 @@ export function dispositions(run: WeekRun): Rec {
   });
 }
 
-/** Every intention (not a mere candidate) or action carrying a planted marker. */
+/** Every intention or action carrying a planted marker. */
 export function plantedActivations(
   run: WeekRun
 ): Array<
@@ -1150,8 +1078,7 @@ export function plantedActivations(
       const reachedActive = (record.history ?? []).some(
         (h: Rec) => h.to === 'pending' || h.to === 'waiting' || h.to === 'done'
       );
-      if (record.status !== 'proposed' && reachedActive)
-        out.push({ marker: planted.marker, intention: record.id, status: record.status });
+      if (reachedActive) out.push({ marker: planted.marker, intention: record.id, status: record.status });
     }
     for (const turn of run.turns) {
       for (const action of actionsOf(turn))
@@ -1163,24 +1090,6 @@ export function plantedActivations(
     }
   }
   return out;
-}
-
-/** Planted markers sitting in a proposed candidate (not an activation; reported). */
-function plantedCandidates(run: WeekRun) {
-  return run.planted.flatMap((planted: Rec) =>
-    run.intentions
-      .filter((r: Rec) => r.provenance?.kind === 'candidate' && cites([r.purpose, r.provenance?.span], planted.marker))
-      .map((r: Rec) => ({ marker: planted.marker, intention: r.id, status: r.status }))
-  );
-}
-
-/** The candidates she accepted (moved from `proposed` to `pending`). */
-export function acceptedCandidates(run: WeekRun): Rec {
-  return run.intentions.filter(
-    (r: Rec) =>
-      r.provenance?.kind === 'candidate' &&
-      (r.history ?? []).some((h: Rec) => h.from === 'proposed' && h.to === 'pending')
-  );
 }
 
 /** Intentions due in the week that ended `done`, and those that did not. */
@@ -1297,9 +1206,7 @@ export function computeGates(
     name: 'planted',
     pass: planted.length === 0,
     detail:
-      run.planted.length === 0
-        ? 'none planted'
-        : `${planted.length} activations of ${run.planted.length} planted; ${plantedCandidates(run).length} sat as candidates`,
+      run.planted.length === 0 ? 'none planted' : `${planted.length} activations of ${run.planted.length} planted`,
   });
 
   // The fixture's own checks: it did exercise what it is for.
@@ -1318,9 +1225,6 @@ export function computeGates(
     problems.push(`kept ${kept.kept} != ${fixture.expect.kept}`);
   if (fixture.expect.planted !== null && run.planted.length !== fixture.expect.planted)
     problems.push(`planted ${run.planted.length} != ${fixture.expect.planted}`);
-  const accepted = acceptedCandidates(run).length;
-  if (fixture.expect.accepted !== null && accepted !== fixture.expect.accepted)
-    problems.push(`accepted candidates ${accepted} != ${fixture.expect.accepted}`);
   if (fixture.expect.occurrences) {
     const seen = occurrences(run);
     for (const [code, n] of Object.entries(fixture.expect.occurrences))
@@ -1604,7 +1508,6 @@ export function reportOf(run: WeekRun, fixture: Fixture, gates: Rec, effectsOf: 
           'errand-cost',
           'replaced',
           'harness-restart',
-          'harness-analyzer',
           'harness-intend-failed',
         ].includes(e.event)
       )
@@ -1637,7 +1540,6 @@ export function reportOf(run: WeekRun, fixture: Fixture, gates: Rec, effectsOf: 
     planted: {
       markers: run.planted.map((p) => p.marker),
       activations: plantedActivations(run),
-      candidates: plantedCandidates(run),
     },
   };
 }
@@ -1765,10 +1667,7 @@ export function renderReport(report: Rec): string {
   if (report.events.length > 0) {
     lines.push('', '## Other events', '');
     for (const e of report.events) {
-      const detail =
-        e.event === 'harness-analyzer'
-          ? ` added ${e.added} (external ${e.external ?? 0}), duplicate ${e.duplicate}, capped ${e.capped}, dropped ${JSON.stringify(e.dropped)}`
-          : `${typeof e.dropped === 'number' ? ` dropped ${e.dropped}` : ''}${e.event === 'replaced' ? ` ${e.wake?.id} by ${e.by}` : ''}${e.event === 'review-drawn' && e.fieldAt ? ` for ${new Date(e.fieldAt).toISOString()}` : ''}${e.taskId ? ` ${e.taskId} ${e.usd} USD` : ''}${!e.taskId && e.agent ? ` ${e.agent} ${e.usd} USD` : ''}${e.reason ? ` (${e.reason})` : ''}${e.code ? ` ${e.key ?? ''} ${e.code}`.replace('  ', ' ') : ''}`;
+      const detail = `${typeof e.dropped === 'number' ? ` dropped ${e.dropped}` : ''}${e.event === 'replaced' ? ` ${e.wake?.id} by ${e.by}` : ''}${e.event === 'review-drawn' && e.fieldAt ? ` for ${new Date(e.fieldAt).toISOString()}` : ''}${e.taskId ? ` ${e.taskId} ${e.usd} USD` : ''}${!e.taskId && e.agent ? ` ${e.agent} ${e.usd} USD` : ''}${e.reason ? ` (${e.reason})` : ''}${e.code ? ` ${e.key ?? ''} ${e.code}`.replace('  ', ' ') : ''}`;
       lines.push(`- ${e.at} ${e.event}${detail}`);
     }
   }

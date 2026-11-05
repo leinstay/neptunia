@@ -900,10 +900,10 @@ async function buildCore(
     onFinished: (task, guildId) => submitErrandEnd(task, guildId),
   });
   // The persona's intentions: data/guilds/<id>/intentions.json, her own
-  // `intent.*` calls, the analyzer's candidates from her lines, and the waits on her errands.
+  // `intent.*` calls and the waits on her errands.
   // Both stores send their writes to the database; `flush` is their retry and shutdown step.
   const intentionStores = createIntentionStores({ log, memoryDb });
-  const intentions = createIntentionService({ stores: intentionStores, hot, errands, journal, getGuildId, log });
+  const intentions = createIntentionService({ stores: intentionStores, hot, errands, getGuildId, log });
   // The conversations the interface reported (`conversation.changed`) and the direct chats it showed in messages:
   // their names for the inner life and the turn, the direct chat of a member for a memory session failure.
   const directory = createConversationDirectory();
@@ -953,7 +953,7 @@ async function buildCore(
     runInitiativeOp: (op: Untyped, args: Untyped, context: Untyped) => admin.runInitiativeSkillOp(op, args, context),
     // `<errands>`: her open and newly finished errands; an errand's caps are its skill's budget.
     errands,
-    // `<intentions>`: her open intentions and the candidates from her lines.
+    // `<intentions>`: her open intentions.
     intentions,
     // `<places>` on an addressed turn (context.places): the inner life's places view, read at call time.
     places: (guildId: string, options: Untyped) => inner.places(guildId, options),

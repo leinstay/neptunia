@@ -8,7 +8,6 @@ import { messageLinkOf } from '../behavior/elsewhere.ts';
 import type { FactInput, FactsApi, Fact } from '../behavior/inner.ts';
 import { placeKey } from '../behavior/previous-think.ts';
 import { withCalls, withTriggers } from '../format.ts';
-import { SOURCE_CHARS_MAX, lineSourcesOf, textsOf } from '../intentions/sources.ts';
 import { log } from '../log.ts';
 import { toRecordLine } from '../memory/record.ts';
 import { outcomeDetail } from '../tools/executors.ts';
@@ -37,9 +36,6 @@ export type NotesJournal = {
 export type NotesRecord = {
   append: (guildId: string, lines: Array<object>, options: { privateUserId?: string }) => unknown;
 };
-
-/** The intention service's note of where her lines came from (src/intentions/service.ts#noteLine). */
-export type NotesIntentions = { noteLine?: (postedId: string, note: ReturnType<typeof lineSourcesOf>) => void } | null;
 
 /** What her previous think store (src/behavior/previous-think.js#createThinkStore) answers. */
 type ThinkPick =
@@ -80,9 +76,6 @@ export type NotesDraft = TurnIds & {
   guildId?: string;
   channelId?: string;
   privateUserId?: string | null;
-  seenChars?: number;
-  seenTexts?: Array<string>;
-  seenRead?: boolean;
   inner?: { wake?: { chainId?: string | null } | null } | null;
   info?: { id: string; communityId?: string | null } | null;
   deliveredIn?: Iterable<string> | null;
@@ -114,7 +107,6 @@ export type JournalNotesContext = {
   clock: () => number;
   journal: NotesJournal | null;
   record: NotesRecord | null;
-  intentions: NotesIntentions;
   iface: unknown;
   /** The facts store of the moment: the inner life's when it is on, else the runner's own. */
   facts: () => FactsApi;
@@ -140,8 +132,6 @@ export type JournalNotes = {
     payload: Record<string, unknown>,
     at: number
   ) => void;
-  noteSeen: (draft: NotesDraft | null | undefined, value: unknown, options?: { read?: boolean }) => void;
-  noteLineSources: (draft: NotesDraft | null | undefined, postedId: unknown, text: string) => void;
   noteTrigger: (postedId: unknown, triggerId: unknown) => void;
   linkTriggers: (lines: Array<object>) => Array<object>;
   earlierThinkFor: (args: {
@@ -190,7 +180,6 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     clock,
     journal,
     record,
-    intentions,
     iface,
     facts,
     triggerLinks,
@@ -230,45 +219,6 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     const live = factsOfKind(guildId, scope, kind, at);
     const over = live.slice(0, Math.max(0, live.length - kept)).map((fact) => fact.id);
     if (over.length > 0) store.markTold(guildId, over);
-  }
-
-  /**
-   * Outside text the attempt `draft` has seen (src/intentions/sources.ts): someone's message, the
-   * retrieved memory, a read's result; `read` marks outside material (a read, a page, a lookup, an
-   * errand's result). At most SOURCE_CHARS_MAX characters in all.
-   */
-  function noteSeen(draft: NotesDraft | null | undefined, value: unknown, { read = false } = {}): void {
-    if (!draft) return;
-    const left = SOURCE_CHARS_MAX - (draft.seenChars ?? 0);
-    const texts = left > 0 ? textsOf(value, left) : [];
-    if (texts.length === 0) return;
-    (draft.seenTexts ??= []).push(...texts);
-    draft.seenChars = (draft.seenChars ?? 0) + texts.reduce((sum, text) => sum + text.length, 0);
-    if (read) draft.seenRead = true;
-  }
-
-  /**
-   * Where her line `postedId` (its `text` as she wrote it) came from, noted with the intention
-   * service for the candidates the analyzer may find in it (src/intentions/sources.ts#lineSourcesOf:
-   * what the turn had seen before it went out, its turn, an inner turn's chain). Never throws.
-   */
-  function noteLineSources(draft: NotesDraft | null | undefined, postedId: unknown, text: string): void {
-    if (typeof intentions?.noteLine !== 'function' || typeof postedId !== 'string' || !postedId) return;
-    try {
-      intentions.noteLine(
-        postedId,
-        lineSourcesOf({
-          text,
-          external: draft?.seenTexts ?? [],
-          read: draft?.seenRead === true,
-          turnId: draft?.started?.turnId ?? draft?.turnKey?.turnId ?? null,
-          inner: Boolean(draft?.inner),
-          chainId: draft?.inner?.wake?.chainId ?? null,
-        })
-      );
-    } catch (err) {
-      log.warn('turn: line sources not noted', { error: err });
-    }
   }
 
   /** Remember that `postedId` was posted by the turn `triggerId` started (a newer link wins). */
@@ -571,8 +521,6 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   return {
     factsOfKind,
     keepFact,
-    noteSeen,
-    noteLineSources,
     noteTrigger,
     linkTriggers,
     earlierThinkFor,

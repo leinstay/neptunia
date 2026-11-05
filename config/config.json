@@ -413,8 +413,7 @@
   "intentions": {
     "expiresDays": 14,
     "recurringExpiresDays": 30,
-    "maxOpen": 20,
-    "candidateExpiresHours": 48
+    "maxOpen": 20
   },
   "wakes": {
     "mode": "shadow",

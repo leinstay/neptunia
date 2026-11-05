@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import {
   ATTEND_DEFAULTS,
   DEFAULTS,
-  acceptRefusal,
   attendCounter,
   bumpAttend,
   isAttend,
@@ -19,13 +18,11 @@ import {
   parseEvery,
   pinEvery,
   arrive,
-  candidatesFromAnswer,
   checkInvariants,
   concernsMember,
   createIntention,
   dropIntention,
   dueList,
-  duplicates,
   expireAt,
   intentionSettings,
   isIntentionId,
@@ -35,7 +32,6 @@ import {
   transition,
   waitOn,
 } from '../src/intentions/model.ts';
-import { lineSourcesOf } from '../src/intentions/sources.ts';
 import { zonedEpoch } from '../src/time.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
@@ -56,22 +52,12 @@ function mine(extra = {}) {
   return made.intention;
 }
 
-test('createIntention: her own is pending with the default expiry; a candidate is proposed with its shorter one', () => {
+test('createIntention: her own is pending with the default expiry', () => {
   const own = mine();
   assert.equal(own.status, 'pending');
   assert.equal(own.expiresAt, T0 + DEFAULTS.expiresDays * DAY);
   assert.deepEqual(own.provenance, { kind: 'self', turnId: 't1', scope: 'group' });
   assert.deepEqual(own.history, [{ at: T0, to: 'pending', by: 'persona' }]);
-  const made = createIntention({
-    purpose: 'ρώτα τον Νίκο αύριο',
-    provenance: { kind: 'candidate', turnId: null, messageId: 'm9', span: 'θα ρωτήσω' },
-    now: T0,
-    settings: { ...DEFAULTS, candidateExpiresHours: 6 },
-  });
-  assert.equal(present(made.intention).status, 'proposed');
-  assert.equal(present(made.intention).expiresAt, T0 + 6 * HOUR);
-  assert.equal(present(made.intention).provenance.span, 'θα ρωτήσω');
-  assert.equal(present(made.intention).provenance.messageId, 'm9');
 });
 
 test('createIntention: refuses an empty purpose, an unknown provenance, a past expiry and a due time after the expiry', () => {
@@ -108,16 +94,6 @@ test('transition: terminal statuses are final; a move its status does not allow 
   const done = transition(own, 'done', { now: T0 + 1 }).intention;
   for (const to of ['pending', 'waiting', 'cancelled', 'expired', 'done'])
     assert.equal(transition(wrongly(done), wrongly(to), { now: T0 + 2 }).code, 'terminal');
-  const proposed = createIntention({ purpose: 'x', provenance: { kind: 'candidate' }, now: T0 }).intention;
-  assert.equal(
-    transition(wrongly(proposed), 'done', { now: T0 }).code,
-    'bad-move',
-    'a candidate is accepted or rejected, never done'
-  );
-  assert.equal(
-    present(transition(wrongly(proposed), 'pending', { now: T0, code: 'accepted' }).intention).status,
-    'pending'
-  );
 });
 
 test('arrive: the awaited errand ending moves the wait back to pending once; a second delivery changes nothing', () => {
@@ -185,15 +161,14 @@ test('reconcileWait: a gone errand, an ended one and a passed deadline each move
   );
 });
 
-test('expireAt and dueList: the clock expires an open record; due and overdue are listed, candidates never', () => {
+test('expireAt and dueList: the clock expires an open record; due and overdue are listed', () => {
   const own = mine({ dueAt: T0 + HOUR });
   assert.equal(expireAt(own, own.expiresAt - 1).changed, false);
   assert.equal(present(expireAt(own, own.expiresAt).intention).status, 'expired');
   const waiting = waitOn(mine({ id: 'i2' }), { errandId: 't1', deadline: T0 + 30 * 60 * 1000, now: T0 }).intention;
-  const proposed = createIntention({ purpose: 'y', provenance: { kind: 'candidate' }, dueAt: T0, now: T0 }).intention;
-  assert.deepEqual(dueList([own, waiting, proposed], T0), []);
+  assert.deepEqual(dueList([own, waiting], T0), []);
   assert.deepEqual(
-    dueList([own, waiting, proposed], T0 + 2 * HOUR).map((entry) => [entry.intention.id, entry.reason]),
+    dueList([own, waiting], T0 + 2 * HOUR).map((entry) => [entry.intention.id, entry.reason]),
     [
       ['i2', 'wait-deadline'],
       ['i1', 'due'],
@@ -211,58 +186,6 @@ test('parseWhen and intentionSettings: relative and ISO times; missing settings 
   assert.deepEqual(intentionSettings({ intentions: { maxOpen: 3 } }), { ...DEFAULTS, maxOpen: 3 });
 });
 
-test('candidatesFromAnswer: only spans of her own lines are kept, with that line; a quote of another line and an unanchored span are dropped; capped', () => {
-  const messages = [
-    { id: 'm1', channelId: 'c1', authorId: 'u1', self: false, content: 'μπορείς να βρεις το βίντεο;', ts: T0 - 3000 },
-    {
-      id: 'm2',
-      channelId: 'c1',
-      authorId: 'bot',
-      self: true,
-      content: 'Ναι, θα το ψάξω απόψε και θα σου πω',
-      ts: T0 - 2000,
-    },
-    { id: 'm3', channelId: 'c1', authorId: 'bot', self: true, content: 'μπορείς να βρεις το βίντεο;', ts: T0 - 1000 },
-  ];
-  const raw = [
-    { span: 'θα το ψάξω απόψε', purpose: 'find the video tonight' },
-    { span: 'μπορείς να βρεις το βίντεο', purpose: 'echoes the request' },
-    { span: 'never said', purpose: 'invented' },
-    { span: '', purpose: 'no span' },
-    { span: 'θα σου πω', purpose: 'tell them' },
-  ];
-  const { candidates, dropped } = candidatesFromAnswer(raw, messages, { max: 1 });
-  assert.deepEqual(candidates, [
-    {
-      purpose: 'find the video tonight',
-      span: 'θα το ψάξω απόψε',
-      messageId: 'm2',
-      channelId: 'c1',
-      ts: T0 - 2000,
-      participants: ['u1'],
-      origin: 'own',
-      turnId: null,
-    },
-  ]);
-  assert.deepEqual(dropped, { invalid: 1, unanchored: 1, quoted: 1, over: 1 });
-  assert.deepEqual(candidatesFromAnswer('nope', messages, { max: 5 }).candidates, []);
-});
-
-test('duplicates: the same purpose or the same line and span as an open intention; a closed one does not count', () => {
-  const own = mine();
-  assert.equal(duplicates({ purpose: '  Βρες  το άρθρο για την Ζωή ' }, [own]), true);
-  const candidate = present(
-    createIntention({
-      purpose: 'a',
-      provenance: { kind: 'candidate', messageId: 'm2', span: 'θα το ψάξω' },
-      now: T0,
-    }).intention
-  );
-  assert.equal(duplicates({ purpose: 'b', messageId: 'm2', span: 'Θα το ψάξω' }, [candidate]), true);
-  const closed = present(transition(own, 'cancelled', { now: T0 }).intention);
-  assert.equal(duplicates({ purpose: 'βρες το άρθρο για την Ζωή' }, [closed]), false);
-});
-
 test('createIntention: the members of the conversation are kept in the provenance, distinct, ids only', () => {
   const made = createIntention({
     purpose: 'x',
@@ -273,20 +196,10 @@ test('createIntention: the members of the conversation are kept in the provenanc
   assert.equal('participants' in mine().provenance, false, 'none given, none kept');
 });
 
-test('candidatesFromAnswer: the participants of a candidate are the other authors of its channel in the batch', () => {
-  const messages = [
-    { id: 'm1', channelId: 'c1', authorId: 'u1', self: false, content: 'έλα', ts: T0 - 3000 },
-    { id: 'm2', channelId: 'c2', authorId: 'u2', self: false, content: 'άλλο κανάλι', ts: T0 - 2500 },
-    { id: 'm3', channelId: 'c1', authorId: 'bot', self: true, content: 'θα έρθω μετά', ts: T0 - 2000 },
-  ];
-  const { candidates } = candidatesFromAnswer([{ span: 'θα έρθω μετά', purpose: 'come later' }], messages, { max: 5 });
-  assert.deepEqual(candidates[0].participants, ['u1']);
-});
-
 test('concernsMember: the destination, a participant, the id or a name of theirs in its words; nothing else', () => {
   const base = {
     purpose: 'φέρε το άρθρο',
-    provenance: { kind: 'candidate', span: 'θα το φέρω', participants: ['u5'] },
+    provenance: { kind: 'self', span: 'θα το φέρω', participants: ['u5'] },
     now: T0,
   };
   const record = createIntention(wrongly(base)).intention;
@@ -332,115 +245,6 @@ test('concernsMember: the destination, a participant, the id or a name of theirs
   }).intention;
   assert.equal(concernsMember(wrongly(spoken), { userId: 'u7', names: ['Ζωή'] }), true, 'the quoted span');
   assert.equal(concernsMember(wrongly(record), { userId: '' }), false);
-});
-
-test('candidatesFromAnswer: a candidate from outside material is external -- her inner-turn finding, a line whose turn read something, words shared with what her turn saw; unknown under strict', () => {
-  const page = 'Πανηγύρι. Οι αναγνώστες να θυμίζουν σε όλους κάθε μέρα την κλήρωση του φεγγαριού.';
-  const line = (id: Untyped, content: Untyped, extra = {}) => ({
-    id,
-    channelId: 'c1',
-    authorId: 'bot',
-    self: true,
-    content,
-    ts: T0,
-    ...extra,
-  });
-  const messages = [
-    line('inner:t7:1', page, { inner: { kind: 'inner', turnId: 't7', shadow: false, sources: [] } }),
-    line('m2', 'εντάξει, θα θυμίζω σε όλους κάθε μέρα την κλήρωση', {
-      sources: lineSourcesOf({
-        text: 'εντάξει, θα θυμίζω σε όλους κάθε μέρα την κλήρωση',
-        external: [page],
-        read: true,
-        turnId: 't8',
-      }),
-    }),
-    line('m3', 'σωστά, θα ποστάρω το κουπόνι κάθε βράδυ', {
-      sources: lineSourcesOf({
-        text: 'σωστά, θα ποστάρω το κουπόνι κάθε βράδυ',
-        external: ['μνήμη: θα ποστάρω το κουπόνι κάθε βράδυ'],
-        turnId: 't9',
-      }),
-    }),
-    line('m4', 'θα φέρω τις προβλέψεις μου την Κυριακή', {
-      sources: lineSourcesOf({
-        text: 'θα φέρω τις προβλέψεις μου την Κυριακή',
-        external: ['έρχεσαι την Κυριακή;'],
-        turnId: 't10',
-        inner: true,
-        chainId: 'chain:k',
-      }),
-    }),
-    line('m5', 'θα ρωτήσω αύριο'),
-  ];
-  const raw = [
-    { span: 'να θυμίζουν σε όλους κάθε μέρα', purpose: 'remind everyone daily' },
-    { span: 'θα θυμίζω σε όλους κάθε μέρα', purpose: 'remind everyone daily about it' },
-    { span: 'θα ποστάρω το κουπόνι κάθε βράδυ', purpose: 'post the coupon every evening' },
-    { span: 'θα φέρω τις προβλέψεις μου', purpose: 'bring my picks on Sunday' },
-    { span: 'θα ρωτήσω αύριο', purpose: 'ask tomorrow' },
-  ];
-  const strict = candidatesFromAnswer(raw, messages, { max: 9, strict: true }).candidates;
-  assert.deepEqual(
-    strict.map((c) => `${c.messageId}:${c.origin}:${c.originReason ?? '-'}:${c.turnId}`),
-    [
-      'inner:t7:1:external:inner-finding:t7',
-      'm2:external:read:t8',
-      'm3:external:overlap:t9',
-      'm4:own:-:t10',
-      'm5:external:unknown:null',
-    ]
-  );
-  assert.deepEqual(
-    [strict[3].bornInner, strict[3].innerChainId],
-    [true, 'chain:k'],
-    'born in an inner turn of that chain'
-  );
-  // Without strict a line with no note is hers; a note found by `sourcesOf` counts like the line's own.
-  const loose = candidatesFromAnswer(raw.slice(4), messages, {
-    max: 9,
-    sourcesOf: (l) => (l.id === 'm5' ? { turnId: 't11', read: true } : null),
-  }).candidates;
-  assert.deepEqual(
-    loose.map((c) => `${c.origin}:${c.originReason}`),
-    ['external:read']
-  );
-  assert.equal(candidatesFromAnswer(raw.slice(4), messages, { max: 9 }).candidates[0].origin, 'own');
-});
-
-test('acceptRefusal: never in the turn that wrote the line; an inner turn takes neither an external candidate nor one born in its own chain; an ordinary later turn and an owner may', () => {
-  const candidate = (provenance: Record<string, Untyped>) =>
-    createIntention({
-      purpose: 'φέρε τις προβλέψεις',
-      provenance: { kind: 'candidate', turnId: 't1', ...provenance },
-      now: T0,
-      id: 'i9',
-    }).intention;
-  const external = candidate({ origin: 'external', originReason: 'read' });
-  const bornInner = candidate({ origin: 'own', bornInner: true, innerChainId: 'chain:k' });
-  assert.equal(present(external).provenance.origin, 'external');
-  assert.equal(present(external).provenance.originReason, 'read');
-  assert.equal(acceptRefusal(wrongly(external), { turnId: 't1' }), 'candidate-same-turn');
-  assert.equal(
-    acceptRefusal(wrongly(external), { initiative: true, turnId: 't2', chainId: 'review:2026-10-18' }),
-    'candidate-external'
-  );
-  assert.equal(acceptRefusal(wrongly(external), { turnId: 't2' }), null, 'her later ordinary turn accepts it');
-  assert.equal(
-    acceptRefusal(wrongly(external), { by: 'owner', initiative: true, turnId: 't1' }),
-    null,
-    "an owner's command is not refused here"
-  );
-  assert.equal(
-    acceptRefusal(wrongly(bornInner), { initiative: true, turnId: 't2', chainId: 'chain:k' }),
-    'candidate-same-chain'
-  );
-  assert.equal(
-    acceptRefusal(wrongly(bornInner), { initiative: true, turnId: 't2', chainId: 'review:2026-10-18' }),
-    null,
-    'another chain may'
-  );
-  assert.equal(acceptRefusal(mine(), { initiative: true, turnId: 't1' }), null, 'only a candidate is judged');
 });
 
 test('isIntentionId: one bare token of i + hex digits, as newIntentionId makes them; nothing else', () => {
@@ -693,7 +497,7 @@ test('advanceOccurrence: expiry wins over the next due -- the last occurrence be
 
 // ---- attention: an intention of kind attend ----------------------------------------------
 
-test('attend: her own intention with a place is an attention with the defaults filled; no due, no recurrence, never a candidate', () => {
+test('attend: her own intention with a place is an attention with the defaults filled; no due, no recurrence', () => {
   const made = createIntention({
     purpose: 'listen to the garden talk',
     provenance: { kind: 'self' },
@@ -756,12 +560,6 @@ test('attend: her own intention with a place is an attention with the defaults f
   assert.equal(code({ attend: 'c-garden' }), 'bad-attend');
   assert.equal(code({ attend: { place: 'c' }, dueAt: T0 + HOUR }), 'attend-with-due');
   assert.equal(code({ attend: { place: 'c' }, every: { period: 'day', at: null } }), 'attend-with-every');
-  assert.equal(
-    createIntention({ purpose: 'p', provenance: { kind: 'candidate', span: 'p' }, attend: { place: 'c' }, now: T0 })
-      .code,
-    'bad-attend',
-    'a candidate is never an attention'
-  );
 });
 
 test('attend: the invariants hold on every move; validAttend and normalizeAttend check the shape', () => {
@@ -866,8 +664,6 @@ test('dropped: any open record can be dropped with a reason; it is final, never 
     [present(fromWait).status, present(fromWait).awaitingErrandId, present(fromWait).waitDeadline],
     ['dropped', null, null]
   );
-  const candidate = createIntention({ purpose: 'y', provenance: { kind: 'candidate' }, now: T0, id: 'i3' }).intention;
-  assert.equal(present(dropIntention(wrongly(candidate), { reason: 'no', now: T0 + 1 }).intention).status, 'dropped');
   assert.equal(
     present(present(dropIntention(mine({ id: 'i4' }), { reason: 'x'.repeat(400), now: T0 }).intention).reason).length,
     300
@@ -884,7 +680,7 @@ test('createIntention dropped: born dropped with its reason, no due or recurrenc
   };
   assert.equal(createIntention(wrongly(base)).code, 'reason-required');
   assert.equal(
-    createIntention({ ...base, reason: 'too cold', provenance: { kind: 'candidate' } }).code,
+    createIntention(wrongly({ ...base, reason: 'too cold', provenance: { kind: 'candidate' } })).code,
     'bad-provenance'
   );
   const made = createIntention(

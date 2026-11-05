@@ -176,9 +176,12 @@ function mergeConfigFiles(rootDir: Untyped, privateDir: Untyped) {
   return deepMerge(base, movedLocal(local));
 }
 
+/** What this process has already said about the old keys of a settings layer. */
+const toldOldKeys = new Set<string>();
+
 /**
  * The local file with its keys of an earlier name written under their new one (src/config-moves.ts), then the keys the
- * config cut took out of the settings removed (src/config/cut.ts), with one warning line per load when either changed
+ * config cut took out of the settings removed (src/config/cut.ts), with one warning line per process when either changed
  * anything. The file itself is untouched: `scripts/config-migrate.ts` writes the same moves and the same cut into it.
  */
 function movedLocal(local: unknown): unknown {
@@ -187,7 +190,11 @@ function movedLocal(local: unknown): unknown {
   const after = cutConfigKeys(config);
   const interfaces = Object.keys(after.interfaces).length;
   const counts = [moved, shadowed, dropped, after.cut, after.renamed].map((list) => list.length);
-  if (counts.some((n) => n > 0) || interfaces > 0)
+  if (counts.every((n) => n === 0) && interfaces === 0) return after.config;
+  // Each read of an old layer comes to the same answer, so it is said once per process and per answer.
+  const told = JSON.stringify([counts, after.differs.length, interfaces]);
+  if (!toldOldKeys.has(told)) {
+    toldOldKeys.add(told);
     log.warn('config: keys of an old name read under the new one, or cut from the settings', {
       moved: moved.length,
       shadowed: shadowed.length,
@@ -198,6 +205,7 @@ function movedLocal(local: unknown): unknown {
       interfaces,
       migrate: 'scripts/config-migrate.ts',
     });
+  }
   return after.config;
 }
 

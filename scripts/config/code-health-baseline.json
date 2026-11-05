@@ -7,7 +7,7 @@
     "tests/admin.test.ts": 3698,
     "tests/describe.test.ts": 3098,
     "tests/events.test.ts": 7129,
-    "tests/inner.test.ts": 2394,
+    "tests/inner.test.ts": 2389,
     "tests/openrouter.test.ts": 3557,
     "tests/prompt.test.ts": 6595,
     "tests/recall.test.ts": 2419,
@@ -22,11 +22,11 @@
     },
     "scripts/lib/inner-week-fixture.ts": {
       "parseFixture": {
-        "complexity": 57,
-        "function-length": 316
+        "complexity": 56,
+        "function-length": 308
       },
       "parseFixture><anonymous>#5": {
-        "complexity": 37
+        "complexity": 34
       },
       "parseFixture>intentionOf": {
         "complexity": 32
@@ -34,23 +34,23 @@
     },
     "scripts/lib/inner-week.ts": {
       "computeGates": {
-        "complexity": 61
+        "complexity": 59
       },
       "createStubVoice>plan": {
-        "complexity": 25
+        "complexity": 22
       },
       "renderReport": {
-        "complexity": 49
+        "complexity": 47
       },
       "runWeek": {
         "complexity": 23,
-        "function-length": 622
+        "function-length": 580
       },
       "runWeek>act": {
         "complexity": 39
       },
       "runWeek>runTurn": {
-        "complexity": 31
+        "complexity": 29
       },
       "runWeek>tickCandidates": {
         "complexity": 22
@@ -304,7 +304,7 @@
     },
     "src/behavior/turn.ts": {
       "createTurnRunner": {
-        "function-length": 448
+        "function-length": 441
       }
     },
     "src/behavior/wake.ts": {
@@ -350,28 +350,25 @@
       }
     },
     "src/intentions/model.ts": {
-      "candidatesFromAnswer": {
-        "complexity": 23
-      },
       "checkInvariants": {
         "complexity": 22
       },
       "createIntention": {
-        "complexity": 49
+        "complexity": 38
       }
     },
     "src/intentions/service.ts": {
       "createIntentionService": {
-        "function-length": 709
+        "function-length": 570
       },
       "createIntentionService>set": {
         "complexity": 24
       },
       "createIntentionService>update": {
-        "complexity": 31
+        "complexity": 23
       },
       "createIntentionService>update><anonymous>#3": {
-        "complexity": 49
+        "complexity": 46
       }
     },
     "src/llm/embed.ts": {
@@ -633,11 +630,6 @@
         "complexity": 26
       }
     },
-    "src/tools/impl/intention.ts": {
-      "<anonymous>>cmdUpdate": {
-        "complexity": 21
-      }
-    },
     "src/tools/impl/memory.ts": {
       "<anonymous>": {
         "function-length": 462
@@ -764,7 +756,6 @@
       "src/errands/turns.ts",
       "src/handles-text.ts",
       "src/intentions/blocks.ts",
-      "src/intentions/sources.ts",
       "src/interface/fake.ts",
       "src/interface/port.ts",
       "src/log.ts",

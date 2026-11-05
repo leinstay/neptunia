@@ -13,6 +13,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { ROOT } from './fixtures/private-layer.ts';
 import { resolvePaths } from '../src/paths.ts';
 import { readConfig } from '../src/config.ts';
+import { searchModel } from '../src/llm/roles.ts';
 import { applyPersonaLayers } from '../src/setup/persona-migration.ts';
 import { createKeyStore } from '../src/keys/store.ts';
 import { profileOf } from '../src/agent-runner/profiles.ts';
@@ -402,4 +403,24 @@ test('conflicting root selections and mixed personal layouts refuse before a con
     }
   }, /persona-files-move/);
   assert.equal(fs.readFileSync(path.join(dataDir, 'config/config.json'), 'utf8'), before);
+});
+
+test('an old layer with the retired search keys loads, says so once, and keeps its engine and model', async () => {
+  // Bug: every read of the settings warns again about `web.search.fallback`, and the journal fills with one line.
+  const root = checkout();
+  const privateDir = tempDir('nep-cfgdir-retired-');
+  write(privateDir, 'config/config.json', {
+    plugins: { echo: true },
+    intentions: { candidateExpiresHours: 48 },
+    web: { search: { fallback: [], engine: 'openrouter' } },
+  });
+  const { result, logs } = await withCapturedLogs(() =>
+    Promise.resolve([readConfig(root, { privateDir }), readConfig(root, { privateDir })])
+  );
+  const warned = logs.filter((line) => String(line.msg).startsWith('config: keys of an old name'));
+  assert.equal(warned.length, 1);
+  const search = (result[1]?.web as Tree).search as Tree;
+  assert.equal(search.engine, 'openrouter');
+  assert.equal(Object.hasOwn(search, 'fallback'), false);
+  assert.equal(searchModel(result[1]), 'openai/gpt-6.1-sol');
 });

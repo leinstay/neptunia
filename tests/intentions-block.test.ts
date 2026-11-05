@@ -30,8 +30,6 @@ const LABELS = {
     outcome: 'got {errand} {state}',
     notes: { 'wait-deadline': 'ran out {errand}' },
     destination: 'to #{channel}',
-    candidates: 'C',
-    candidate: '{id}|{purpose}|"{span}"',
   },
 };
 
@@ -43,7 +41,7 @@ function own(id: string, extra = {}) {
 
 const at = (ts: number) => `${formatDate(ts, 'UTC')} ${formatClock(ts, 'UTC')}`;
 
-test('intentionsBlockText: active lines with due, wait, outcome and note, then the candidates with their line', () => {
+test('intentionsBlockText: active lines with due, wait, outcome and note', () => {
   const pending = own('i1', { dueAt: T0 + HOUR, destination: 'c9' });
   const waiting = present(waitOn(own('i2'), { errandId: 't7', deadline: T0 + 2 * HOUR, now: T0 }).intention);
   const back = transition(
@@ -54,14 +52,8 @@ test('intentionsBlockText: active lines with due, wait, outcome and note, then t
       patch: { note: 'wait-deadline' },
     }
   ).intention;
-  const candidate = createIntention({
-    purpose: 'φέρε το',
-    provenance: { kind: 'candidate', span: 'θα το φέρω' },
-    now: T0,
-    id: 'i4',
-  }).intention;
   const daily = own('i5', { dueAt: T0 + 2 * HOUR, every: { period: 'day', at: '12:00' } });
-  const text = intentionsBlockText([pending, daily, back, waiting, candidate], LABELS, {
+  const text = intentionsBlockText([pending, daily, back, waiting], LABELS, {
     channelNameOf: (id) => (id === 'c9' ? 'γενικά' : null),
   });
   assert.equal(
@@ -72,8 +64,6 @@ test('intentionsBlockText: active lines with due, wait, outcome and note, then t
       `i5|P|σκοπός i5 · due ${at(T0 + 2 * HOUR)} · each day`,
       'i3|P|σκοπός i3 · ran out t8',
       `i2|W|σκοπός i2 · wait t7 until ${at(T0 + 2 * HOUR)}`,
-      'C',
-      'i4|φέρε το|"θα το φέρω"',
     ].join('\n')
   );
   // Without the every label a recurring line shows its due time alone.
@@ -102,31 +92,6 @@ test("intentionsBlockText: an attention shows its place, the day's wakes against
     'H\ni6|P|σκοπός i6',
     'without the attend labels the line stands alone'
   );
-});
-
-test('intentionsBlockText: an external candidate carries labels.intentions.externalMarker as {marker}; her own carries none', () => {
-  const labels = {
-    intentions: { ...LABELS.intentions, candidate: '{id}|{purpose}|"{span}"{marker}', externalMarker: ' [ξένο]' },
-  };
-  const ownCandidate = createIntention({
-    purpose: 'φέρε το',
-    provenance: { kind: 'candidate', span: 'θα το φέρω', origin: 'own' },
-    now: T0,
-    id: 'i1',
-  }).intention;
-  const external = createIntention({
-    purpose: 'άνοιξε',
-    provenance: { kind: 'candidate', span: 'άνοιξε τη σελίδα', origin: 'external', originReason: 'read' },
-    now: T0,
-    id: 'i2',
-  }).intention;
-  assert.equal(
-    intentionsBlockText([ownCandidate, external], labels),
-    ['H', 'C', 'i1|φέρε το|"θα το φέρω"', 'i2|άνοιξε|"άνοιξε τη σελίδα" [ξένο]'].join('\n')
-  );
-  // Without the marker label an external candidate's line stays whole, with nothing in the slot.
-  const bare = { intentions: { ...labels.intentions, externalMarker: undefined } };
-  assert.equal(intentionsBlockText([external], bare), 'H\nC\ni2|άνοιξε|"άνοιξε τη σελίδα"');
 });
 
 test('intentionsBlockText: an intention with no due time and no wait says so with its expiry; every line past the notice window shows its expiry; neither without its label', () => {
@@ -166,18 +131,9 @@ test('intentionsBlockText: an intention with no due time and no wait says so wit
       `i6|P|σκοπός i6 · no date, expires ${at(T0 + 12 * HOUR)}`,
     ].join('\n')
   );
-  // An attention has no due time by design and is not dateless; a candidate's line is never touched.
+  // An attention has no due time by design and is not dateless.
   const attention = own('i7', { attend: { place: 'c9' } });
-  const candidate = createIntention({
-    purpose: 'x',
-    provenance: { kind: 'candidate', span: 'y' },
-    now: T0,
-    id: 'i8',
-  }).intention;
-  assert.equal(
-    intentionsBlockText([attention, candidate], labels, { now: T0 }),
-    ['H', 'i7|P|σκοπός i7', 'C', 'i8|x|"y"'].join('\n')
-  );
+  assert.equal(intentionsBlockText([attention], labels, { now: T0 }), ['H', 'i7|P|σκοπός i7'].join('\n'));
   // Without the labels the lines stand as before.
   assert.equal(
     intentionsBlockText([dateless, soon], LABELS, { now: T0 }),
@@ -185,18 +141,14 @@ test('intentionsBlockText: an intention with no due time and no wait says so wit
   );
 });
 
-test('intentionsBlockText: cut to the budget by whole lines, the candidates header only with a candidate under it; nothing without labels', () => {
-  const records = [
-    own('i1'),
-    own('i2'),
-    createIntention({ purpose: 'x', provenance: { kind: 'candidate', span: 'y' }, now: T0, id: 'i3' }).intention,
-  ];
+test('intentionsBlockText: cut to the budget by whole lines; nothing without labels', () => {
+  const records = [own('i1'), own('i2'), own('i3')];
   const lineCost = () => 10;
   assert.equal(intentionsBlockText(records, LABELS, { maxTokens: 21, cost: lineCost }), 'H\ni1|P|σκοπός i1');
   assert.equal(
     intentionsBlockText(records, LABELS, { maxTokens: 33, cost: lineCost }),
     'H\ni1|P|σκοπός i1\ni2|P|σκοπός i2',
-    'no room for the header and a candidate: neither'
+    'no room for a third line'
   );
   assert.equal(intentionsBlockText(records, LABELS, { maxTokens: 5, cost: lineCost }), '');
   assert.equal(intentionsBlockText(records, {}), '');
