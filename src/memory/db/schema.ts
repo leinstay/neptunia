@@ -1450,6 +1450,9 @@ export const MIGRATIONS: Array<Migration> = [
   refuseUnconverted,
   renameStoredKeys,
   migrateSemanticMemory,
+  // Version 32: one GIF library for every place. Its data step writes through the unit mappers, which this module
+  // cannot import, so the opener runs it (src/memory/db/open.ts, src/memory/db/gif-library-merge.ts).
+  '-- the shared GIF library',
 ];
 
 /** Every table schema v8 adds. */

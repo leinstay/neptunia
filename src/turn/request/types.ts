@@ -296,6 +296,7 @@ export type RequestInput = {
   readonly recallAvailable?: unknown;
   readonly drawOn?: boolean;
   readonly customEmoji?: unknown;
+  readonly mediaPickText?: string | null;
   readonly mediaCache?: MediaCache | null;
   readonly gifs?: unknown;
   readonly pulled?: unknown;

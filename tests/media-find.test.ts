@@ -1,14 +1,15 @@
 // Tests for media.find (src/tools/tools.ts#findGifs, #runMediaFind): the persona's search of her GIF
 // library by the stored descriptions, ranked by words, returning the library's own handles.
-import { placeOfCommunity } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { findGif, normalizeGifs } from '../src/memory/gifs.ts';
-import { renderGifLibrary } from '../src/behavior/gif-pick.ts';
+import { gifLine } from '../src/behavior/prompt.ts';
 import { findGifs, mediaFindText, runMediaFind } from '../src/tools/tools.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present } from './fixtures/loose-types.ts';
+
+type GifEntryLine = Parameters<typeof gifLine>[0];
 
 const labels = {
   gifs: { entry: '{id}: {text}', entryNoText: '{id}', entryFields: '{id}: {reaction} / {action} / {text}' },
@@ -47,7 +48,7 @@ function storeOf({ gifs, cache }: Record<string, Untyped>) {
   return {
     getGifs: () => gifs,
     getMediaCache: () => cache,
-    findGif: (_guild: Untyped, handle: Untyped) => findGif(gifs, handle),
+    findGif: (handle: string) => findGif(gifs, handle),
   };
 }
 
@@ -129,7 +130,7 @@ test('findGifs: n defaults to 5, is capped at 10 and floored at 1', () => {
   assert.equal(findGifs(lib.gifs, lib.cache, 'cat', { n: 0 }).length, 5);
 });
 
-test('runMediaFind: handles in the result are the library handles message.create gif= and <gif> resolve, written as the <gifs> block writes them', () => {
+test('runMediaFind: handles in the result are the library handles message.create gif= and <gif> resolve, written as a library line', () => {
   const lib = fixture(LIBRARY);
   const store = storeOf(lib);
   const result = runMediaFind({ store, config: {}, labels, placeId: 'G', args: { query: 'cat laughs' } });
@@ -138,15 +139,12 @@ test('runMediaFind: handles in the result are the library handles message.create
   assert.equal(lines[0], 'Source: media.find "cat laughs", 2 found.');
   const handles = lines.slice(1).map((line) => line.split(':')[0]);
   assert.equal(handles.length, 2);
-  for (const handle of handles)
-    assert.ok(store.findGif(placeOfCommunity(store, 'G'), handle), `${handle} resolves in the library`);
-  const block = renderGifLibrary(lib.gifs && Object.values(lib.gifs.entries), lib.cache, labels, {
-    now: 0,
-    ownMarkHours: 0,
-    reactionChars: 40,
-    actionChars: 70,
-  });
-  for (const line of lines.slice(1)) assert.ok(block.includes(line), 'the same line the <gifs> block shows');
+  for (const handle of handles) assert.ok(store.findGif(handle), `${handle} resolves in the library`);
+  // B7: the `<gifs>` block left the turn; the line of an entry is gifLine's, which media.find keeps writing.
+  const block = Object.values<Untyped>(lib.gifs.entries).map((entry) =>
+    gifLine(entry as GifEntryLine, lib.cache, labels, { now: 0, ownMarkHours: 0, reactionChars: 40, actionChars: 70 })
+  );
+  for (const line of lines.slice(1)) assert.ok(block.includes(line), 'the same line the entry always had');
 });
 
 test('runMediaFind: nothing found is an ok with the none label; bad arguments and no library are refused', () => {

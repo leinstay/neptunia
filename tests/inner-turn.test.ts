@@ -2,7 +2,7 @@
 // is fabricated, the request carries `<wake>` and the inner task, her reads run; in shadow mode
 // nothing else does (proposed, journalled as shadow, no call mark), live her calls run through
 // the gateway on her own grants, the kill switch is asked right before an action, the public post
-// cap refuses, her output tags (<msg>, <gif>, <draw>, <react to>) are lowered into the calls they
+// cap refuses, her output tags (<msg>, <draw>, <react to>) are lowered into the calls they
 // stand for in the current channel (a refusal when there is none or a reaction names no line),
 // and an ordinary turn's request is unchanged by
 // the switch; a refusal in shadow reaches her within the turn. The loop's inner rules: the loop runs under wakes.loop's
@@ -269,7 +269,7 @@ async function innerTurn({
   const store = fakeStore();
   if (gifs)
     Object.assign(store, {
-      findGif: (placeId: string, handle: string) => gifs[handle] ?? null,
+      findGif: (handle: string) => gifs[handle] ?? null,
       recordOwnGif: () => {},
     });
   // A real errand service over a temp task store, its runner a fake whose runs never end.
@@ -355,7 +355,8 @@ test('inner turn: no message is fabricated; the request carries <wake>, the inne
   assert.equal(run.result.reason, 'nothing-to-do');
 });
 
-test('inner turn, live: her <msg> and <gif> are public actions in the current channel, run through the gate like message.create calls', async () => {
+// B7: `<gif>` is retired, so it runs nothing and tells a diagnostic; message.create gif= stays her way to post one.
+test('inner turn, live: her <msg> is a public action in the current channel, run through the gate like a message.create call, and a <gif> runs nothing', async () => {
   const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
   const run = await innerTurn({
     answers: ['<msg>γεια σας</msg><gif>g1</gif>', '<skip/>'],
@@ -364,11 +365,11 @@ test('inner turn, live: her <msg> and <gif> are public actions in the current ch
   });
   assert.deepEqual(
     run.sends.map((send) => send.text),
-    ['γεια σας', 'https://tenor.example/cat']
+    ['γεια σας']
   );
   assert.deepEqual(
     run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.result}`),
-    ['message.create:executed:ok', 'message.create:executed:ok']
+    ['message.create:executed:ok']
   );
   assert.equal(run.result.outcome, 'spoke');
   assert.equal(run.result.delivered, true);
@@ -404,7 +405,7 @@ test('inner turn, shadow: the tags are only proposed, as a message.create call i
   );
 });
 
-test('inner turn: with no current channel a <msg>, <gif> or a draw.create without a channel is refused destination-required before any side effect; message.create with a channel goes', async () => {
+test('inner turn: with no current channel a <msg> or a draw.create without a channel is refused destination-required before any side effect; message.create with a channel goes', async () => {
   const gifs = { g1: { key: 'k1', id: 'g1', kind: 'link', url: 'https://tenor.example/cat' } };
   const run = await innerTurn({
     answers: [
@@ -441,7 +442,8 @@ test('inner turn: with no current channel a <msg>, <gif> or a draw.create withou
   });
   assert.deepEqual(
     tags.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`),
-    ['message.create:refused:destination-required', 'message.create:refused:destination-required']
+    // B7: the `<gif>` beside the `<msg>` is retired, so it is no call to refuse.
+    ['message.create:refused:destination-required']
   );
   assert.deepEqual(tags.sends, []);
 });
@@ -1186,7 +1188,8 @@ test('inner turn, last step: her tags run beside the one terminal call, after it
   });
   assert.deepEqual(
     run.sends.map((send) => send.text),
-    ['τρίτο', 'πρώτο', 'https://tenor.example/cat']
+    // B7: the `<gif>` written beside them is retired.
+    ['τρίτο', 'πρώτο']
   );
   assert.equal(
     run.logs.find((l) => l.msg === 'skills: loop cap'),

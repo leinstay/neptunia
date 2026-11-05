@@ -135,12 +135,13 @@ test('an unclosed <msg> before a reaction delivers the words and acts on the rea
 });
 
 test('an unclosed <msg> before a GIF delivers the words and posts the GIF, no tag in the text', () => {
+  // B7: `<gif>` is retired, cut out before the boundary is read, so the open message takes the text around it.
   const parsed = parseOutput('<msg>cut off<gif>g12</gif>');
   assert.deepEqual(
     parsed.messages.map((message) => message.text),
     ['cut off']
   );
-  assert.deepEqual(parsed.gif, { id: 'g12', replyTo: null });
+  assert.equal('gif' in parsed, false);
 });
 
 // Green before the fix, and it must stay: an answer cut at the output cap (`cutOff`, finish reason `length`) ends in a

@@ -1,11 +1,11 @@
 // The GIF library history backfill: members' GIFs are recorded as they arrive
-// (src/memory/update.ts), so on a server with a long history the `<gifs>`
-// block would stay empty until enough GIFs are posted again. This reads the
+// (src/memory/update.ts), so on a server with a long history the media pick
+// would find nothing until enough GIFs are posted again. This reads the
 // last `BACKFILL_MESSAGES` messages of every readable channel over the
 // interface's history reads -- no LLM for the counting, no token budget -- and counts them
-// into gifs.json at once (src/memory/gifs.ts), starting from counts reset to
+// into the library at once (src/memory/gifs.ts), starting from counts reset to
 // 0 (entries and handles kept, so a GIF keeps its handle across a recount),
-// then stamps `backfill: { at, channels, messages }` so it never
+// then stamps `{ at, channels, messages }` for this place so it never
 // counts the same history twice. The top `BACKFILL_DESCRIBE` GIFs without
 // a cached caption are then sent to the media describer (real requests,
 // counted against the daily cap), so the list the persona picks from says
@@ -20,6 +20,7 @@ import type { Reads } from '../interface/reads.ts';
 import type { StoreView } from './store.ts';
 import type { Log, StoredRecord } from './types.ts';
 import type { Describer, MediaItem } from './describe.ts';
+import type { GifKeeper } from './gif-keeper.ts';
 
 /** How many messages one `store.recordGifs` call takes. */
 const CHUNK = 500;
@@ -35,12 +36,14 @@ function buildGifBackfill({
   reads,
   iface,
   describer = null,
+  keeper = null,
   log = defaultLog,
 }: {
   store: StoreView;
   reads: Reads;
   iface: () => string;
   describer?: Pick<Describer, 'describeMany'> | null;
+  keeper?: Pick<GifKeeper, 'keepPictures'> | null;
   log?: Log;
 }) {
   let running = false;
@@ -62,7 +65,7 @@ function buildGifBackfill({
     if (!describer || typeof describer.describeMany !== 'function' || limit <= 0) return 0;
     const cache = store.getMediaCache(placeId);
     const items: Array<MediaItem> = [];
-    for (const entry of rankGifs(store.getGifs(placeId), GIF_HALF_LIFE_DAYS)) {
+    for (const entry of rankGifs(store.getGifs(), GIF_HALF_LIFE_DAYS)) {
       if (items.length >= limit) break;
       const cached = cache?.[entry.itemId];
       if (cached && !cached.miss && typeof cached.text === 'string' && cached.text.trim()) continue;
@@ -101,7 +104,7 @@ function buildGifBackfill({
   > {
     if (running) return skipped('running');
     if (store.state?.data?.paused) return skipped('paused');
-    const stamp: StoredRecord | null = store.getGifs(placeId).backfill;
+    const stamp: StoredRecord | null = store.getGifs().backfills[placeId] ?? null;
     if (!force && stamp?.at) return skipped('done');
 
     running = true;
@@ -119,8 +122,9 @@ function buildGifBackfill({
       const members = collected.sort((a, b) => a.ts - b.ts);
       const opts = gifOpts();
 
-      // Always from zero counts: the window already holds what was recorded on arrival.
-      store.resetGifCounts(placeId);
+      // Always from zero counts: the window already holds what was recorded on arrival. Each message counts on the
+      // place it was in, so those are the counters the recount starts over.
+      for (const place of new Set(members.map((member) => String(member.placeId)))) store.resetGifCounts(place);
       let gifs = 0;
       for (let i = 0; i < members.length; i += CHUNK) {
         gifs += store.recordGifs(placeId, members.slice(i, i + CHUNK), opts);
@@ -139,6 +143,8 @@ function buildGifBackfill({
       }
       const described = store.state?.data?.paused ? 0 : await describeTop(placeId, pictures, BACKFILL_DESCRIBE);
       if (described > 0) store.flush();
+      // Their captions and files go on the entries in the background: the owner's run does not wait for the downloads.
+      void keeper?.keepPictures(placeId, [...pictures.values()]);
 
       const counts = { channels, messages: members.length, gifs, described };
       log.info('gif-backfill: done', counts);

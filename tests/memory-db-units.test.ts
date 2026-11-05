@@ -839,7 +839,7 @@ test('root state and participation, GIF and media caches persist through the wri
       1
     );
     const participation = run.store.getParticipation(placeOfCommunity(run.store, GUILD));
-    const gifs = structuredClone(run.store.getGifs(placeOfCommunity(run.store, GUILD)));
+    const gifs = structuredClone(run.store.getGifs());
     await run.store.flushSettled({ final: true });
     assert.deepEqual(
       files.filter((file) => fs.existsSync(file)),
@@ -857,7 +857,7 @@ test('root state and participation, GIF and media caches persist through the wri
     assert.equal(run.store.state.data.paused, true);
     assert.equal(run.store.state.data.afterReload, 'persisted after reload');
     assert.deepEqual(run.store.getParticipation(placeOfCommunity(run.store, GUILD)), participation);
-    assert.deepEqual(run.store.getGifs(placeOfCommunity(run.store, GUILD)), gifs);
+    assert.deepEqual(run.store.getGifs(), gifs);
     assert.deepEqual(run.store.getMediaCache(placeOfCommunity(run.store, GUILD)).photo, {
       text: 'a café terrace',
       ts: NOW,

@@ -3,7 +3,6 @@
 // builders of src/turn/request/ fill them, and buildRequest (src/behavior/prompt.ts) has the budget fit them.
 
 import { fitSections } from '../../llm/budget.ts';
-import { emojiCaption, emojiItems, seenEmoji } from './emoji-gifs.ts';
 import { lookupCandidates, prefetchText } from './recall.ts';
 import { aboutChatItems, learnedConfig, loreItems, serverItems } from './server.ts';
 import { sensesWhole } from './senses.ts';
@@ -227,11 +226,11 @@ export function fitAll(
     PulledView &
     DiaryParts &
     Placed &
-    PeopleOffered & { neighborItems: Array<string>; attitudesText: string; gifList: { items: Array<string> } }
+    PeopleOffered & { neighborItems: Array<string>; attitudesText: string }
 ): Fit {
-  const { config, history, descriptions, labels, customEmoji, emojiOnce, caps, cost, limit } = given;
-  const { pulledChannels, offeredNeighbors, worldItem, diaryLines, aheadOfPeople, peopleSection, voiceRows } = given;
-  const { neighborItems, attitudesText, gifList } = given;
+  const { config, caps, cost, limit } = given;
+  const { worldItem, diaryLines, aheadOfPeople, peopleSection, voiceRows } = given;
+  const { neighborItems, attitudesText } = given;
   const aroundMax = config.context.around?.maxTokens;
   const budgetFit = fitSections(
     [
@@ -243,34 +242,6 @@ export function fitAll(
       { name: 'world', items: [worldItem].filter(Boolean) },
       { name: 'diary', keep: 'newest', items: diaryLines },
       { name: 'neighbors', cap: caps.neighbors, items: neighborItems },
-      // Lowest priority: a list to pick from, trimmed from the bottom (least used last).
-      {
-        name: 'emoji',
-        cap: caps.emoji ?? 800,
-        keep: 'first',
-        items: emojiItems(customEmoji, given.placeMemory?.emojiUsage, given.mediaCache ?? null, labels, {
-          seen: emojiOnce
-            ? seenEmoji([
-                history,
-                ...pulledChannels.map((channel) => channel.messages),
-                ...offeredNeighbors.map((neighbor) => neighbor.messages),
-              ])
-            : [],
-          describe: (id) =>
-            emojiCaption(`emoji:${id}`, [
-              descriptions,
-              given.neighborDescriptions,
-              ...pulledChannels.map((channel) => channel.entry.descriptions),
-            ]),
-        }),
-      },
-      // Below even the emoji: the GIF library, trimmed the same way (least used last).
-      {
-        name: 'gifs',
-        cap: caps.gifs ?? 900,
-        keep: 'first',
-        items: [...gifList.items],
-      },
       // Last of all: the people in voice the request has no profile for, by name.
       { name: 'around', cap: Number.isFinite(aroundMax) ? aroundMax : 400, keep: 'first', items: voiceRows },
     ],

@@ -152,13 +152,13 @@ async function errandFile(
 }
 
 /**
- * The library entry of a post's `gif` handle in `placeId`, or null without a handle: unknown
+ * The library entry of a post's `gif` handle, or null without a handle: unknown
  * here (or `features.gifs` off) is `invalid` with `unknown-gif`, checked before anything is posted.
  */
-function gifEntry(env: Env, args: Obj, placeId: string | null): Untyped {
+function gifEntry(env: Env, args: Obj): Untyped {
   const handle = textOf(args.gif).trim();
   if (!handle) return null;
-  const entry = typeof env.store?.findGif !== 'function' ? null : env.store.findGif(placeId, handle);
+  const entry = typeof env.store?.findGif !== 'function' ? null : env.store.findGif(handle);
   if (!entry) throw invalid(`no GIF ${handle} in the library`, CODE.UNKNOWN_GIF);
   return entry;
 }
@@ -170,7 +170,7 @@ function pingsOff(env: Env, { context, accountId }: { context: OpContext; accoun
 }
 
 const handlers = perEnv((env) => {
-  const { store, spontaneous, turns, assertNotPaused, resolvedPlaceId } = env;
+  const { store, spontaneous, turns, assertNotPaused } = env;
   const { reads } = env;
   const port = env.port as Adapter | null | undefined;
   const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
@@ -252,8 +252,7 @@ const handlers = perEnv((env) => {
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const conversationId = await postTarget(env, p, context, given ?? reply?.placeId ?? null, reply !== null);
     const repliedUser = Boolean(reply) && !pingsOff(env, { context, accountId: context?.repliedAuthorId });
-    const placeId = resolvedPlaceId(context);
-    const entry = gifEntry(env, args, placeId);
+    const entry = gifEntry(env, args);
     const attachment = (await errandFile(env, args, context, conversationId, p)) ?? (await mediaFile(args, context, p));
     const to = { iface: p.iface, conversationId };
     const content: Content = {
@@ -272,7 +271,7 @@ const handlers = perEnv((env) => {
           `sent in ${conversationId} (message ${result?.ref?.messageId ?? '?'})`
         );
     }
-    const sent = await postGif(p, to, entry, placeId, text || attachment ? null : content);
+    const sent = await postGif(p, to, entry, text || attachment ? null : content);
     if (sent?.status !== 'ok')
       return text || attachment
         ? {
@@ -299,13 +298,7 @@ const handlers = perEnv((env) => {
    * attachment. Counted once sent and stamped on its entry. A GIF-only post carries the reply
    * and mentions (`lead`); one after a text carries none.
    */
-  async function postGif(
-    p: Adapter,
-    to: ConversationRef,
-    entry: Untyped,
-    placeId: string | null,
-    lead: Content | null
-  ): Promise<Untyped> {
+  async function postGif(p: Adapter, to: ConversationRef, entry: Untyped, lead: Content | null): Promise<Untyped> {
     const fresh =
       entry.kind === 'attachment'
         ? await freshAttachmentUrl({
@@ -319,7 +312,8 @@ const handlers = perEnv((env) => {
       : { text: gifPostUrl(entry as { url: string }, fresh), mentions: { users: [], repliedUser: false } };
     const sent = await p.send(to, content);
     if (sent?.status === 'ok') {
-      if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(placeId, entry.key, clock());
+      if (entry.key && typeof store.recordOwnGif === 'function')
+        store.recordOwnGif(to.conversationId, entry.key, clock());
     }
     return sent;
   }

@@ -449,7 +449,7 @@
   },
   "media.find": {
     "title": "Find a GIF",
-    "whenToUse": "Search GIF library. Handles for <gif> or message.create.",
+    "whenToUse": "Search GIF library. Handles for message.create.",
     "whenNotToUse": "Your library only.",
     "args": {
       "n": "Results (1 to 10)."

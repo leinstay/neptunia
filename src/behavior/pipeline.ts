@@ -129,6 +129,7 @@ export function createMessageHandler({
   selfId: selfIdOf = () => '',
   turns: turnRunner,
   memory,
+  gifKeeper = null,
   tagHistory,
   isServedCommunity,
   communitiesOf,
@@ -154,6 +155,7 @@ export function createMessageHandler({
   selfId?: () => string;
   turns: ReturnType<typeof createTurnRunner>;
   memory: ReturnType<typeof createMemoryUpdater>;
+  gifKeeper?: EditsDeps['gifKeeper'];
   tagHistory: ReturnType<typeof createTagHistory>;
   llm?: PipelineLlm;
   /** A community some connected interface serves. */
@@ -359,6 +361,7 @@ export function createMessageHandler({
     record,
     now,
     warmMediaCache,
+    gifKeeper,
     observeLine,
     deleteLine,
   });
