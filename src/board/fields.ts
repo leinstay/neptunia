@@ -2,6 +2,7 @@
 // their aliases, and the auto-triage entries of the settings. src/board/board.ts calls them; each refusal is a
 // BoardError 'invalid' that names the field.
 
+import type { Handoff, HandoffTest } from './board.ts';
 import { BoardError, OPEN } from './machine.ts';
 import type { BoardDb } from './schema.ts';
 
@@ -9,6 +10,14 @@ export type SqlValue = string | number | null;
 export type Args = Readonly<Record<string, unknown>>;
 
 export const invalid = (message: string): BoardError => new BoardError('invalid', message);
+
+/** The name the persona files under. A development task's question to her and its block reach her outbox here. */
+export const SELF = 'persona:self';
+
+const HANDOFF_LISTS = ['evidence', 'artifacts', 'open_issues'] as const;
+const HANDOFF_KEYS: ReadonlyArray<string> = ['result', ...HANDOFF_LISTS, 'tests'];
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
 
 // The short names the CLI and the settings use for three task fields.
 const FIELD_ALIASES: Readonly<Record<string, string>> = {
@@ -217,4 +226,46 @@ export function refuseOpenTwin(db: BoardDb, requester: string, title: string): v
     .all(requester, ...OPEN);
   const twin = rows.find((row) => titleKey(String(row.title)) === titleKey(title));
   if (twin !== undefined) throw new BoardError('duplicate', String(twin.id));
+}
+
+function stringList(value: unknown, name: string): Array<string> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw invalid(`handoff.${name} must be a list of strings`);
+  }
+  return [...(value as Array<string>)];
+}
+
+function handoffTests(value: unknown): Array<HandoffTest> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw invalid('handoff.tests must be a list');
+  return value.map((entry: unknown) => {
+    const count = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0;
+    if (
+      !isObject(entry) ||
+      Object.keys(entry).some((key) => !['command', 'passed', 'failed'].includes(key)) ||
+      typeof entry.command !== 'string' ||
+      entry.command.trim() === '' ||
+      !count(entry.passed) ||
+      !count(entry.failed)
+    ) {
+      throw invalid('each handoff test needs a command and its passed and failed counts');
+    }
+    return { command: entry.command, passed: entry.passed, failed: entry.failed };
+  });
+}
+
+/** The handoff of a submit, every list filled; throws BoardError 'invalid' for a missing result or a stray key. */
+export function parseHandoff(value: unknown): Handoff {
+  if (!isObject(value)) throw invalid('handoff is required');
+  const stray = Object.keys(value).filter((key) => !HANDOFF_KEYS.includes(key));
+  if (stray.length) throw invalid(`handoff has unknown fields: ${stray.join(', ')}`);
+  if (typeof value.result !== 'string' || value.result.trim() === '') throw invalid('handoff.result is required');
+  return {
+    result: value.result,
+    evidence: stringList(value.evidence, 'evidence'),
+    artifacts: stringList(value.artifacts, 'artifacts'),
+    tests: handoffTests(value.tests),
+    open_issues: stringList(value.open_issues, 'open_issues'),
+  };
 }

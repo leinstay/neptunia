@@ -1,21 +1,52 @@
-// The watcher's brief: the prompt file, the day of the run and the last seven reports it wrote before that day, oldest
-// first. Only the structure is added here (the tags below); what the watcher is asked is in `<watcher dir>/prompt.md`,
-// which src/watcher/run.ts reads. docs/watcher.md names the tags.
+// The watcher's brief: the prompt file, the day of the run, its observation interval, the facts of the running install and
+// the last seven reports it wrote before this run, oldest first: the newest report of each earlier day, then every kept
+// report of the run's own day. Only the structure is added here (the tags below); what the watcher is asked is in
+// `<watcher dir>/prompt.md`, which src/watcher/inspection.ts reads. docs/prompt-contract.md names the tags.
 
-import { reportDays, reportText } from './read.ts';
+import type { InstallFacts } from './install.ts';
+import { readReportRun, reportDays, reportText, reportVersions } from './read.ts';
 
 /** How many earlier reports the brief carries. */
 const EARLIER_REPORTS = 7;
 
-/** The prompt, `<day>` and one `<report day="...">` per earlier report. */
-export function buildBrief({ prompt, day, reportsDir }: { prompt: string; day: string; reportsDir: string }): string {
-  const earlier = reportDays(reportsDir)
-    .filter((one) => one < day)
-    .slice(-EARLIER_REPORTS);
-  const parts = [prompt.trim(), `<day>${day}</day>`];
-  for (const one of earlier) {
+const iso = (at: number): string => new Date(at).toISOString();
+
+/**
+ * The prompt, `<day>`, `<observation from to day-from>` and `<install>` when the run has them, and one `<report day="...">`
+ * per earlier report, with `run="..."` on those of the run's day.
+ */
+export function buildBrief({
+  prompt,
+  day,
+  reportsDir,
+  observation,
+  install,
+}: {
+  prompt: string;
+  day: string;
+  reportsDir: string;
+  observation?: { from: number; to: number; dayFrom: number };
+  install?: InstallFacts;
+}): string {
+  const earlier: Array<string> = [];
+  for (const one of reportDays(reportsDir).filter((other) => other < day)) {
     const text = reportText(reportsDir, one);
-    if (text !== null) parts.push(`<report day="${one}">\n${text.trim()}\n</report>`);
+    if (text !== null) earlier.push(`<report day="${one}">\n${text.trim()}\n</report>`);
   }
+  for (const { runId } of reportVersions(reportsDir, day)) {
+    const read = readReportRun(reportsDir, runId);
+    if (read.ok) earlier.push(`<report day="${day}" run="${runId}">\n${read.report.text.trim()}\n</report>`);
+  }
+  const parts = [
+    prompt.trim(),
+    `<day>${day}</day>`,
+    ...(observation === undefined
+      ? []
+      : [
+          `<observation from="${iso(observation.from)}" to="${iso(observation.to)}" day-from="${iso(observation.dayFrom)}"/>`,
+        ]),
+    ...(install === undefined ? [] : [`<install>\n${JSON.stringify(install, null, 2)}\n</install>`]),
+    ...earlier.slice(-EARLIER_REPORTS),
+  ];
   return `${parts.join('\n\n')}\n`;
 }

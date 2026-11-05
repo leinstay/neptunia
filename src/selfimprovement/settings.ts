@@ -1,4 +1,4 @@
-// The settings of her self-improvement's hands (docs/selfimprovement.md): `selfimprovement.enabled`,
+// The settings of the development run her self-improvement files for (docs/selfimprovement.md): `selfimprovement.enabled`,
 // `selfimprovement.mode`, `selfimprovement.base`, `selfimprovement.checkout` and `selfimprovement.repository`, read
 // from a config at the moment of use. The wake's own keys (`at`, `failuresPerShape`) are read by
 // src/behavior/inner/settings.ts.
@@ -8,11 +8,11 @@ import path from 'node:path';
 /** `approve`: every pull request waits for the owner's merge. `auto`: the engine merges when CI is green. */
 export type SelfimprovementMode = 'approve' | 'auto';
 export type SelfimprovementSettings = {
-  /** false only when `selfimprovement.enabled` says so: the beat then does nothing */
+  /** false only when `selfimprovement.enabled` says so: her wake then falls due no more */
   enabled: boolean;
   mode: SelfimprovementMode;
   base: string;
-  /** the dev checkout `neptunia setup` renders the selfimprovement units over; null renders none */
+  /** the dev checkout the development worker works on; null renders no development unit */
   checkout: string | null;
   /** `owner/name`, the repository her pull requests open against; null while unset */
   repository: string | null;
@@ -33,7 +33,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 /**
  * `selfimprovement.enabled` (anything but `false` is on), `selfimprovement.mode` (anything but `auto` is `approve`),
  * `selfimprovement.base` (default `main`), `selfimprovement.checkout` (an absolute path, else null: systemd refuses a
- * relative `WorkingDirectory`) and `selfimprovement.repository` (`owner/name`, else null).
+ * relative `ReadWritePaths`) and `selfimprovement.repository` (`owner/name`, else null).
  */
 export function selfimprovementSettings(config: unknown): SelfimprovementSettings {
   const section = isRecord(config) && isRecord(config.selfimprovement) ? config.selfimprovement : {};

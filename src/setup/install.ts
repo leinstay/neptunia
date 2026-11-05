@@ -16,7 +16,7 @@ import { modeOf } from '../subharness/control.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
 import { isInstalled } from '../subharness/place.ts';
 import { watcherSettings } from '../watcher/settings.ts';
-import { SELFIMPROVEMENT_UNIT_FILES, UNIT_AGENTS, renderUnit } from './units.ts';
+import { UNIT_AGENTS, renderUnit } from './units.ts';
 import type { UnitVars } from './units.ts';
 
 /** What a command gave back. */
@@ -36,8 +36,8 @@ export type UnitTarget = {
   xdgConfigHome?: string;
   /** the unit folder, instead of the default of the scope */
   unitDir?: string;
-  /** the dev checkout the selfimprovement units run in (`selfimprovement.checkout`); the other units run in `rootDir` */
-  selfimprovementCheckout?: string | null;
+  /** the dev checkout the development unit may write (`selfimprovement.checkout`); every unit runs in `rootDir` */
+  developmentCheckout?: string | null;
 };
 
 /** The unit folder of the scope: `/etc/systemd/system`, or the user manager's folder under the config home. */
@@ -78,8 +78,6 @@ export function unitText(target: UnitTarget, template: string, file: string): st
   const schedule = watcherSchedule(target);
   if (schedule !== null) vars.watcherSchedule = schedule;
   if (agent !== undefined) vars.mode = modeOf(subharness.modes, agent);
-  if (SELFIMPROVEMENT_UNIT_FILES.includes(file) && target.selfimprovementCheckout)
-    vars.rootDir = target.selfimprovementCheckout;
   return renderUnit(template, target.system ? 'system' : 'user', vars);
 }
 

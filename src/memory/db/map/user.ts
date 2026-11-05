@@ -11,6 +11,10 @@
 //
 // Every other field (counters, portrait stamps, detailsSeq, `updatedAt`, ...) is in `people.extra`.
 //
+// An account linked to a person whose profile another unit holds (`ctx.accountOnly`, person-links.ts#linkedProfileUnit)
+// writes only `accounts` and `memberships`: its names, avatar and address. Its `people` row, when it has one from before
+// the link, stays dormant under its own id until an unlink. A linked account's row keeps the link the database holds.
+//
 // toRows(rel, value, ctx) -> { people, accounts, ... }       ctx: { guildId? }
 // fromRows(rows, ctx) -> the file's value
 
@@ -39,59 +43,33 @@ const FIELDS = ['character', 'style', 'relationship'];
 /** The member id in `users/<id>.json`. */
 export const userIdOf = (rel: string): string => /([^/]+)\.json$/.exec(String(rel))?.[1] ?? String(rel);
 
-export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
-  const iface = ifaceOf(ctx);
-  const userId = ctx.subjectNativeId ?? userIdOf(rel);
-  const person = ctx.subjectPersonId ?? personId(iface, userId);
-  const scope = groupScope(iface);
-  const rows: Rows = {};
-  const { rest, affinity } = profileRows(rows, value, {
-    rel,
-    person,
-    owner: person,
-    tag: '',
-    scope,
-    descFields: FIELDS,
-  });
-  const people = split(rest, PEOPLE_SPEC);
-  const account = split(people.rest, ACCOUNT_SPEC);
+const accountLinkOf = (ctx: MapContext, person: string): Row =>
+  ctx.accountLink ?? { person_id: person, link: 'verified', linked_by: null, linked_at: null };
+
+/** The rows of what belongs to the account itself; returns the fields of `value` that are not. */
+function putAccount(
+  rows: Rows,
+  rel: string,
+  value: Row,
+  { iface, userId, guildId, link }: { iface: string; userId: string; guildId: string | undefined; link: Row }
+): Row {
+  const account = split(value, ACCOUNT_SPEC);
   const left = account.rest;
-  let affinityCols: Row = { affinity: null, affinity_reason: null, affinity_decayed_at: null };
-  if (affinity) {
-    const part = split(affinity, AFFINITY_SPEC);
-    affinityCols = part.cols;
-    if (Object.keys(part.rest).length) left.affinity = part.rest;
-  }
-  let membership = null;
-  if (Object.hasOwn(left, 'addressedAs')) {
-    membership = split({ addressedAs: left.addressedAs }, MEMBERSHIP_SPEC);
-    delete left.addressedAs;
-  }
-  put(rows, 'people', {
-    id: person,
-    kind: 'member',
-    ...people.cols,
-    ...affinityCols,
-    extra: extraText(left),
-    retired_at: null,
-    owner_file: rel,
-  });
   put(rows, 'accounts', {
     id: accountId(iface, userId),
     iface,
     ...account.cols,
-    person_id: person,
-    link: 'verified',
-    linked_by: null,
-    linked_at: null,
+    ...link,
     extra: null,
     owner_file: rel,
   });
-  if (membership) {
+  if (Object.hasOwn(left, 'addressedAs')) {
+    const membership = split({ addressedAs: left.addressedAs }, MEMBERSHIP_SPEC);
+    delete left.addressedAs;
     put(rows, 'memberships', {
-      id: `mem:${accountId(iface, userId)}:${ctx.guildId ?? 'unknown'}`,
+      id: `mem:${accountId(iface, userId)}:${guildId ?? 'unknown'}`,
       account_id: accountId(iface, userId),
-      place_id: guildPlaceId(iface, ctx.guildId ?? 'unknown'),
+      place_id: guildPlaceId(iface, guildId ?? 'unknown'),
       nick: null,
       roles: null,
       pings_off: null,
@@ -102,21 +80,72 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
       owner_file: rel,
     });
   }
+  return left;
+}
+
+export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
+  const iface = ifaceOf(ctx);
+  const userId = ctx.subjectNativeId ?? userIdOf(rel);
+  const person = ctx.subjectPersonId ?? personId(iface, userId);
+  const scope = groupScope(iface);
+  const rows: Rows = {};
+  if (ctx.accountOnly) {
+    putAccount(rows, rel, value, { iface, userId, guildId: ctx.guildId, link: accountLinkOf(ctx, person) });
+    return rows;
+  }
+  const { rest, affinity } = profileRows(rows, value, {
+    rel,
+    person,
+    owner: person,
+    tag: '',
+    scope,
+    descFields: FIELDS,
+  });
+  const people = split(rest, PEOPLE_SPEC);
+  const left = people.rest;
+  let affinityCols: Row = { affinity: null, affinity_reason: null, affinity_decayed_at: null };
+  if (affinity) {
+    const part = split(affinity, AFFINITY_SPEC);
+    affinityCols = part.cols;
+    if (Object.keys(part.rest).length) left.affinity = part.rest;
+  }
+  const accountLeft = putAccount(rows, rel, left, {
+    iface,
+    userId,
+    guildId: ctx.guildId,
+    link: accountLinkOf(ctx, person),
+  });
+  put(rows, 'people', {
+    id: person,
+    kind: 'member',
+    ...people.cols,
+    ...affinityCols,
+    extra: extraText(accountLeft),
+    retired_at: null,
+    owner_file: rel,
+  });
   return rows;
+}
+
+/** `obj` with what belongs to the account itself. A unit that holds a person but lost its account row reads without. */
+function accountFrom(rows: Rows, obj: Row): Row {
+  const accountRow = rowsOf(rows, 'accounts')[0];
+  if (accountRow) Object.assign(obj, join(accountRow, accountRow.extra, ACCOUNT_SPEC));
+  const membership = rowsOf(rows, 'memberships')[0];
+  if (membership) Object.assign(obj, join(membership, membership.extra, MEMBERSHIP_SPEC));
+  return obj;
 }
 
 export function fromRows(rows: Rows): Row {
   const personRow = rows.people[0];
+  if (personRow === undefined) return accountFrom(rows, {});
   const rest = parseExtra(personRow.extra);
   const has = Array.isArray(rest.$has) ? rest.$has : [];
   delete rest.$has;
   const affinityLeft = has.includes('affinity') && isPlainObject(rest.affinity) ? rest.affinity : {};
   if (has.includes('affinity')) delete rest.affinity;
   const obj = join(personRow, rest, PEOPLE_SPEC);
-  const accountRow = rowsOf(rows, 'accounts')[0];
-  Object.assign(obj, join(accountRow, accountRow.extra, ACCOUNT_SPEC));
-  const membership = rowsOf(rows, 'memberships')[0];
-  if (membership) Object.assign(obj, join(membership, membership.extra, MEMBERSHIP_SPEC));
+  accountFrom(rows, obj);
   Object.assign(obj, profileFrom(rows, has));
   if (has.includes('affinity')) obj.affinity = affinityFrom(rows, personRow, affinityLeft, has);
   return obj;

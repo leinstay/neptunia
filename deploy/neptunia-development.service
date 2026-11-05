@@ -1,0 +1,44 @@
+# systemd unit for the development worker (src/development/, docs/selfimprovement.md): `neptunia worker development`
+# stays up, wakes on the board's events over the core's socket as the client `development`, and runs one thinker per
+# filed task and one dev per scoped step, each in the task's own branch and worktree under
+# /opt/neptunia/checkout/.worktrees/.
+#
+# The worker's code comes from the install, the WorkingDirectory below, so a dev run never edits the code that is running.
+# Its working repository is the dev checkout `selfimprovement.checkout` names, /opt/neptunia/checkout below. `neptunia
+# setup` renders this unit only when that setting names another checkout, and it makes the client `development` with its
+# token. The private and data folders stay the deployment's.
+#
+# `neptunia setup` renders this service for the installing user (deploy/README.md) and neither enables nor starts it.
+# Enabling it is the owner's step: `systemctl enable --now neptunia-development.service` (`--user` for a user unit). The
+# first start writes `development.startedAt`; a task approved before that moment waits for the owner
+# (`neptunia worker development held` lists them).
+#
+# An agent on the claude backend has no sandbox of its own, so these write paths are all that hold it. The default
+# KillMode=control-group takes every agent with the worker, and the lease of its task lapses into a resume.
+# Logs:    journalctl -u neptunia-development
+
+[Unit]
+Description=neptunia development worker
+After=network-online.target neptunia-core.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=neptunia
+WorkingDirectory=/opt/neptunia/app
+ExecStart=/opt/node/bin/node bin/neptunia.ts worker development
+Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/data
+Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
+# git, gh and the agent backend's binary are found by name: the user's own tools and node's folder go on the PATH.
+Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+# The checkout with its worktrees and git folder, her skills, the backends' homes, the core's socket and the one setting
+# the worker writes. Each leading `-` lets the unit start before setup made the folder.
+ReadWritePaths=-/opt/neptunia/checkout -/opt/neptunia/data/skills -/opt/neptunia/data/subharness -/opt/neptunia/data/run -/opt/neptunia/data/config
+
+[Install]
+WantedBy=multi-user.target

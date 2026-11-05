@@ -1,6 +1,6 @@
 // The service manager as the watcher's commands reach it: which scope this installation uses, the argv of each call, the
-// reads of `status`, and the render of the one timer. The watcher's worker unit is never started or stopped here: enable
-// and disable move its timer, and status reads the worker with `is-active`. Every command goes through the injected
+// reads of `status`, and the render of the one timer. Enable and disable move the timer, status reads the worker with
+// `is-active`, and only `trigger` starts the worker, without waiting for its run. Every command goes through the injected
 // `run`, so no test touches systemd.
 
 import fs from 'node:fs';
@@ -21,6 +21,10 @@ export type RunManager = (command: string, args: ReadonlyArray<string>) => Promi
 /** Where the user manager's units live. */
 const userUnitDir = (env: Environment): string =>
   path.join(env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'systemd', 'user');
+
+/** The folder of the units of the scope in force. */
+export const unitFolder = (env: Environment): string =>
+  unitScope(env) === 'user' ? userUnitDir(env) : '/etc/systemd/system';
 
 /** `NEPTUNIA_UNIT_SCOPE` when it says, else the user manager when the watcher's timer is installed under it. */
 export function unitScope(env: Environment): 'user' | 'system' {
@@ -54,6 +58,13 @@ export async function workerRunning(run: RunManager, env: Environment): Promise<
 export async function timerState(run: RunManager, env: Environment): Promise<string> {
   const word = await managerWord(run, env, 'is-enabled', WATCHER_TIMER);
   return word === '' ? 'unknown' : word;
+}
+
+/** Starts the worker without waiting for it, since a oneshot's start lasts its whole run; the reason when refused. */
+export async function startWorker(run: RunManager, env: Environment): Promise<string | null> {
+  const [command, args] = managerCall(env, 'start', '--no-block', WATCHER_WORKER);
+  const done = await run(command, args);
+  return done.code === 0 ? null : whyFailed(done);
 }
 
 /** Enables or disables the timer; the reason when the manager refused. */

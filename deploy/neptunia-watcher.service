@@ -1,17 +1,17 @@
 # systemd unit for the watcher (src/watcher/, docs/watcher.md): one run, one report.
 #
-# `neptunia worker watcher` asks the watcher agent once, checks its answer, files the tasks it asks for on the board as the
-# client `watcher` and writes `<watcher.dir>/reports/<UTC date>.md`. neptunia-watcher.timer starts it on `watcher.schedule`.
-# A start that finds a report for the day does nothing. The unit is a oneshot, so the timer skips a day whose run is
-# still going, and it never restarts itself after a failed run.
+# `neptunia worker watcher` claims one run, asks the watcher agent once, checks its answer, files the tasks it asks for on the
+# board as the client `watcher` and commits one report per run under `data/agents/watcher/reports/`.
+# neptunia-watcher.timer starts it on `watcher.schedule`, and `neptunia service watcher trigger` starts it at once. The unit
+# is a oneshot, so a start during a run does nothing, and it never restarts itself after a failed run.
 #
-# The user is an agent user, never the core's: it reads the checkout, the private layer, the data folder and the logs,
-# writes only the watcher folder and the board through the socket, and runs the agent backend from its folder in the
-# private layer, where the backend's login is.
+# The file system is read-only for this unit but for the watcher folder, which holds its reports and run records, and the
+# backends' folders, which hold their sessions and logins. The checkout and the memory stay readable. What this does and does
+# not enforce is in docs/watcher.md. It reaches the board through the core's socket and runs the agent backend from its
+# folder in the private layer.
 #
-# `neptunia setup` renders this service and its timer for the installing user (deploy/README.md) and does not start
-# them. The client token of the watcher is made once with scripts/client-token.ts (`add watcher --kind agent --roles
-# watcher`), and `neptunia service watcher enable` enables the timer.
+# `neptunia setup` renders this service and its timer for the installing user (deploy/README.md), makes the client
+# `watcher` with its token and does not start them. `neptunia service watcher enable` enables the timer.
 # Logs:    journalctl -u neptunia-watcher
 
 [Unit]
@@ -30,7 +30,10 @@ Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 Environment=NEPTUNIA_TASK_CLIENT=watcher
 # The agent backend is started by its path in the private layer; node's folder and the user's tools go on the PATH.
 Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
-# A run takes what it takes.
-TimeoutStartSec=infinity
+# The agent's own limit is WATCHER_RUN_TIMEOUT_MS (src/watcher/lifecycle.ts), 60 minutes. This leaves ten for filing and the
+# commit, and ends a worker that hung past them.
+TimeoutStartSec=70min
 NoNewPrivileges=yes
 PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=-/opt/neptunia/data/agents/watcher -/opt/neptunia/data/subharness

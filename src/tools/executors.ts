@@ -583,13 +583,15 @@ export function resolveCall(
   };
 }
 
-/** The calls where the message's own channel wins over a `channel` that does not hold it. */
+/**
+ * The calls where the message's own channel wins over a `channel` that does not hold it: they act on that
+ * message, so their channel only locates it. `message.create` is not one of them, its channel is where the post goes.
+ */
 const OWN_CHANNEL_SKILLS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'message.react.add': ['message'],
   'message.react.remove': ['message'],
   'message.edit': ['message'],
   'message.delete': ['message'],
-  'message.create': ['reply'],
 });
 
 /** Whether, for `skill`, the channel of the message in `option` wins over the one the call gave. */

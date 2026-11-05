@@ -557,6 +557,27 @@ function partnerOf(db: Db, envelope: ObservationPlaceInput, at: string): { accou
   return { account: account.id, person: linkedPersonOf(db, account.id) };
 }
 
+/**
+ * The place that contains an envelope's place, created when a `<kind>:<id>` key names one no line was seen in yet, so
+ * the chain of parents holds whatever order they are seen in. A parent key of another shape resolves or stays a note.
+ */
+function parentPlaceOf(db: Db, envelope: ObservationPlaceInput, at: string): string | null {
+  const { authority, parent } = envelope.place;
+  if (!filled(parent)) return null;
+  const found = nodeOf(db, authority, 'place', parent, null, envelope.occurredAt, at);
+  const kind = /^([a-z_]+):./.exec(parent)?.[1];
+  if (found || kind === undefined) return found;
+  const place = { authority, key: parent, kind } as ObservationPlaceInput['place'];
+  return placeOf(db, { ...envelope, place }, at).id;
+}
+
+/** A place first made as someone's parent has no title until a line of its own names it. */
+function fillTitle(db: Db, existing: Row, title: unknown, at: string): void {
+  if (existing.name || !filled(title)) return;
+  db.prepare('UPDATE places SET name = ? WHERE id = ?').run(title, existing.id);
+  projectRow(db, 'places', { id: existing.id }, { at });
+}
+
 /** The place of an envelope, created when missing; its conversation filled or checked. Returns its row. */
 function placeOf(
   db: Db,
@@ -573,7 +594,7 @@ function placeOf(
         )
         .get(id)
     : null;
-  const parent = filled(p.parent) ? nodeOf(db, p.authority, 'place', p.parent, null, envelope.occurredAt, at) : null;
+  const parent = parentPlaceOf(db, envelope, at);
   if (existing) {
     if (declared && existing.conversation && existing.conversation !== declared)
       throw refusal(OBSERVE_CODES.CONVERSATION_CONFLICT);
@@ -592,6 +613,7 @@ function placeOf(
     const partnerPerson = existing.partner_person ?? partner?.person ?? null;
     const partnerAccount = existing.partner_account ?? partner?.account ?? null;
     const parentId = existing.parent_id ?? parent ?? null;
+    fillTitle(db, existing, p.title, at);
     if (
       conversation !== existing.conversation ||
       from !== existing.seen_from_at ||

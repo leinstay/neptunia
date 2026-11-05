@@ -129,7 +129,7 @@ const HELP_MS = 10_000;
 export function helpOfInstalled(privateDir: string, backend: BackendName): Promise<string> {
   const place = subharnessPlace(privateDir, backend);
   return new Promise((resolve, reject) => {
-    execFile(
+    const child = execFile(
       place.binary,
       ['--help'],
       { timeout: HELP_MS, encoding: 'utf8', env: { PATH: process.env.PATH ?? '', ...place.env } },
@@ -138,5 +138,6 @@ export function helpOfInstalled(privateDir: string, backend: BackendName): Promi
         else reject(new Error(`${backend} --help did not run`));
       }
     );
+    child.stdin?.end();
   });
 }

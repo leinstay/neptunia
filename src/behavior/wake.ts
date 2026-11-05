@@ -61,7 +61,7 @@ export const WAKE_PURPOSE_CHARS = 200;
 /**
  * One diagnostic of the parser (src/llm/parse.ts: what it dropped, cut or joined in her output) as a
  * line: `labels.tools.diagnostics.<kind>` filled -- `{tag}` (`retiredTag`), `{chars}` (`messageCut`),
- * `{count}` (`messagesMerged`). `kind` is the diagnostic's own (`retiredTag`, ...), or `diagnostic` of a
+ * `{count}` (`messagesMerged`, the sum of its three counts for `msgMalformed`). `kind` is the diagnostic's own (`retiredTag`, ...), or `diagnostic` of a
  * kept fact, whose own is `fact.diagnostic`. '' without the kind's label. `labels` is the whole labels object.
  */
 export function diagnosticText(diagnostic: unknown, labels: unknown): string {
@@ -79,13 +79,14 @@ export function diagnosticText(diagnostic: unknown, labels: unknown): string {
         ? reasons[given.reason]
         : given.reason
       : '';
-  const count = (value: unknown) => String(isFiniteNumber(value) ? value : 0);
+  const number = (value: unknown) => (isFiniteNumber(value) ? value : 0);
+  const count = (value: unknown) => String(number(value));
   return fill(template, {
     reason,
     skill: asText(given.skill ?? ''),
     tag: asText(given.tag ?? ''),
     chars: count(given.chars),
-    count: count(given.count),
+    count: count(given.count ?? number(given.nested) + number(given.unclosed) + number(given.stray)),
   })
     .replace(/\s+/g, ' ')
     .trim();

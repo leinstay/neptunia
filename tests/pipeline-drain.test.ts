@@ -54,7 +54,7 @@ for (const privileged of [true, false]) {
       rng: () => 0,
       sleep: () => Promise.resolve(),
       turns,
-      getGuildId: () => 'g1',
+      dmCommunityOf: () => 'g1',
       pending,
       logPending() {},
       noteUnanswered() {},

@@ -7,7 +7,9 @@
 // `clients.json` grants the roles. Her principal `persona` is a builtin with the board role `persona` alone, and the
 // errand store's principal `core` (src/board/errands.ts) one with `errand-runner` and `scheduler`.
 // `createBoardPort` is the core's side: the commands, the calls (a refusal comes back as the BoardError it was) and the
-// reap over one `write` function. Nothing here logs.
+// reap over one `write` function. Its `task.wait { from, wait_ms }` answers the events after `from`: at once when there
+// are some, else when a write through this port makes some, else with nothing after `wait_ms` (no `wait_ms`: never by
+// the clock). Only a write ends a wait, so the reads of the worker it wakes cannot wake it again. Nothing here logs.
 
 import { openBoard } from './board.ts';
 import type { Board, BoardBuiltins, BoardOp, BoardResults, BoardSettings } from './board.ts';
@@ -19,15 +21,13 @@ import type { BoardDb } from './schema.ts';
 
 /**
  * The principals the core itself calls the board as: her tools run as `persona`, which may file and read only; her
- * errand store as `core`, which runs the errand lane; the self-development service (src/selfimprovement/) as `selfimprovement`, which
- * triages and reviews her fix proposals and works them as the holder, and never owns anything.
+ * errand store as `core`, which runs the errand lane; the development worker (src/development/) as `development`, which
+ * triages and reviews her fix proposals and works tasks as the holder, and never owns anything.
  */
 export const CORE_BUILTINS: BoardBuiltins = Object.freeze({
   persona: Object.freeze(['persona'] as const),
   core: Object.freeze(['errand-runner', 'scheduler'] as const),
-  selfimprovement: Object.freeze(['reviewer', 'worker'] as const),
-  // The same service under the client name of a deployment set up before the rename (bin/selfimprovement.ts).
-  selfdev: Object.freeze(['reviewer', 'worker'] as const),
+  development: Object.freeze(['reviewer', 'worker'] as const),
 });
 
 /** What every board write carries from the core. */
@@ -62,6 +62,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const WRITE_KINDS: ReadonlyArray<unknown> = ['command', 'call', 'reap'];
+/** The calls and commands that change nothing on the board. */
+const READS: ReadonlySet<string> = new Set([
+  'task.list',
+  'task.show',
+  'task.orient',
+  'costs.agents',
+  'task.costs.agents',
+  'task.events',
+]);
+const isRead = (name: string): boolean => READS.has(name);
 
 /**
  * Runs one `board` write of the memory writer (src/memory/db/session-write.ts#applyMemoryWrite) on its handle's
@@ -130,28 +140,79 @@ export function createBoardPort(deps: {
   context: () => Context;
   briefWaitMs: () => number;
 }): BoardPort {
+  const waiting = new Set<() => void>();
+  const wrote = (): void => {
+    for (const wake of [...waiting]) wake();
+  };
+
+  /** The `task.wait` of the head of this file; a refusal of `task.events` is its answer. */
+  async function waitForEvents(principal: string, args: Record<string, unknown>): Promise<TaskAnswer> {
+    const limit = args.wait_ms;
+    if (limit != null && (typeof limit !== 'number' || !Number.isFinite(limit) || limit < 0)) {
+      return { status: 'invalid', text: 'wait_ms must be a number of milliseconds', data: null };
+    }
+    let isOver = false;
+    let endWait: () => void = () => undefined;
+    const timer =
+      typeof limit === 'number'
+        ? setTimeout(() => {
+            isOver = true;
+            endWait();
+          }, limit)
+        : null;
+    try {
+      for (;;) {
+        // Registered before the read: a write between the read and the wait still ends the wait.
+        const written = new Promise<void>((resolve) => {
+          endWait = resolve;
+          waiting.add(resolve);
+        });
+        const answer = await runCommand(principal, 'task.events', {
+          from: args.from,
+          ...(args.json === true ? { json: true } : {}),
+        });
+        const hasEvents = Array.isArray(answer.data) && answer.data.length > 0;
+        if (answer.status !== 'ok' || hasEvents || isOver) {
+          waiting.delete(endWait);
+          return answer;
+        }
+        await written;
+        waiting.delete(endWait);
+      }
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+    }
+  }
+
+  async function runCommand(principal: string, name: string, args: Record<string, unknown>): Promise<TaskAnswer> {
+    let answer: unknown;
+    try {
+      answer = await deps.write({
+        ...deps.context(),
+        kind: 'command',
+        principal,
+        name,
+        args,
+        briefWaitMs: deps.briefWaitMs(),
+      });
+    } catch (error) {
+      // A write the memory writer refused (its code: the database is not open, its worker stopped) leaves the board
+      // unreachable; any other throw is a failure of the command itself, such as a broken `board.*` setting.
+      const code = codeOf(error);
+      if (code !== null)
+        return { status: 'board-unavailable', text: `the task board is not open (${code})`, data: null };
+      return { status: 'error', text: error instanceof Error ? error.message : String(error), data: null };
+    }
+    // applyBoardWrite answers a command with its TaskAnswer.
+    return answer as TaskAnswer;
+  }
+
   return {
     async command(principal, name, args) {
-      let answer: unknown;
-      try {
-        answer = await deps.write({
-          ...deps.context(),
-          kind: 'command',
-          principal,
-          name,
-          args,
-          briefWaitMs: deps.briefWaitMs(),
-        });
-      } catch (error) {
-        // A write the memory writer refused (its code: the database is not open, its worker stopped) leaves the board
-        // unreachable; any other throw is a failure of the command itself, such as a broken `board.*` setting.
-        const code = codeOf(error);
-        if (code !== null)
-          return { status: 'board-unavailable', text: `the task board is not open (${code})`, data: null };
-        return { status: 'error', text: error instanceof Error ? error.message : String(error), data: null };
-      }
-      // applyBoardWrite answers a command with its TaskAnswer.
-      return answer as TaskAnswer;
+      if (name === 'task.wait') return await waitForEvents(principal, args);
+      const answer = await runCommand(principal, name, args);
+      if (answer.status === 'ok' && !isRead(name)) wrote();
+      return answer;
     },
     async call(principal, op, args = {}, idempotency = null) {
       const answer = await deps.write({
@@ -166,6 +227,7 @@ export function createBoardPort(deps: {
       if (answer.ok !== true) {
         throw new BoardError(isCode(answer.code) ? answer.code : 'board-unavailable', String(answer.message));
       }
+      if (!isRead(op)) wrote();
       // A call's result is the answer of its op (BoardResults[op]), as Board.call returned it in the writer.
       return answer.result as BoardResults[typeof op];
     },
@@ -178,7 +240,9 @@ export function createBoardPort(deps: {
         if (codeOf(error) === 'DB_CLOSED') return [];
         throw error;
       }
-      return Array.isArray(ids) ? ids.map(String) : [];
+      const reaped = Array.isArray(ids) ? ids.map(String) : [];
+      if (reaped.length > 0) wrote();
+      return reaped;
     },
   };
 }

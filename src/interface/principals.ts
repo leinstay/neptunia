@@ -4,8 +4,9 @@
 // board its `boardRoles` (src/board/board.ts reads those). scripts/client-token.ts writes both. An agent's principal has
 // no `iface`: it says hello under `agent` (src/interface/link.ts). The link resolves the token of every envelope
 // through `principalOfToken`, which reads the files at each call, so a rotated or revoked token stops at the next
-// envelope. With no `clients.json` the core's boot principal, made at start for its one in-process interface, is the
-// only one. A `clients.json` that cannot be read makes every token no one. Logs nothing and never throws.
+// envelope. The core's boot principal, made at start for its one in-process interface, holds whatever `clients.json`
+// says: its token is random per boot and only the core has it, and `neptunia setup units` writes that file under a running
+// interface. A `clients.json` that cannot be read makes every client's token no one. Logs nothing and never throws.
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
@@ -32,7 +33,7 @@ export type AuthenticatedSender = Readonly<Pick<Principal, 'name' | 'kind'>>;
 /** One entry of `clients.json`: the principal and the file its token is in. */
 export type ClientEntry = Principal & { tokenFile: string };
 
-/** The principal the core makes at start when no `clients.json` exists, with its token. */
+/** The principal the core makes at start for its in-process interface, with its token. */
 export type BootPrincipal = { token: string; principal: Principal };
 
 /** The file of the clients under the private directory. */
@@ -110,20 +111,18 @@ const principalOf = (entry: ClientEntry): Principal => ({
 });
 
 /**
- * The principal `token` stands for, or null for no one: an empty token, a token no client holds, or any token while
- * `clients.json` cannot be read. `boot` counts only while `clients.json` does not exist.
+ * The principal `token` stands for, or null for no one: an empty token, a token neither the boot principal nor a client
+ * holds, or a client's token while `clients.json` cannot be read. Only `boot`'s own token stands for the boot principal.
  */
 export function principalOfToken(
   token: string,
   options: { privateDir: string; boot: BootPrincipal | null }
 ): Principal | null {
   if (token === '') return null;
+  const { boot } = options;
+  if (boot !== null && boot.token !== '' && sameToken(token, boot.token)) return boot.principal;
   const clients = readClients(options.privateDir);
-  if (clients === 'broken') return null;
-  if (clients === null) {
-    const { boot } = options;
-    return boot !== null && boot.token !== '' && sameToken(token, boot.token) ? boot.principal : null;
-  }
+  if (clients === 'broken' || clients === null) return null;
   for (const entry of clients) {
     const known = tokenOfEntry(options.privateDir, entry);
     if (known !== null && known !== '' && sameToken(token, known)) return principalOf(entry);

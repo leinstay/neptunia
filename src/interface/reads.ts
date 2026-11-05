@@ -2,8 +2,10 @@
 // an `ok` answer or null. A read the adapter does not declare in `capabilities().reads` is null without a round trip.
 // An `unsupported`, `forbidden` or `failed` answer is null as well, logged once per read and code (names and codes, never
 // content). A caller leaves out whatever block the read feeds when it gets null: no other channels, no channel view,
-// no recall hits, no reactor names, no custom emoji. Nothing here throws.
+// no recall hits, no reactor names, no custom emoji. A read that names no community (`NO_COMMUNITY`, a direct chat with
+// none to belong to) is null without a round trip. Nothing here throws.
 
+import { NO_COMMUNITY } from '../memory/db/ids.ts';
 import type { Adapter } from '../protocol/adapter.ts';
 import type { Logger } from '../protocol/serve.ts';
 
@@ -55,6 +57,9 @@ export function createReads(adapter: Adapter, log: Logger): Reads {
   function wrap<K extends ReadName>(name: K): Wrapped<K> {
     return (async (...args: Array<unknown>) => {
       if (!offers(WIRE[name])) return null;
+      const scope: unknown = args[0];
+      if (scope === NO_COMMUNITY || (scope as { communityId?: unknown } | null)?.communityId === NO_COMMUNITY)
+        return null;
       let answer: Answer;
       try {
         const method = (adapter as unknown as Record<string, unknown>)[name];

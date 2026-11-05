@@ -56,6 +56,7 @@ function statusLines(mirror: MirrorStatus): Array<string> {
     lines.push(`  failed ${one.entryId}: ${one.code ?? 'no code'}${one.retryable ? ' (retries by itself)' : ''}`);
   for (const one of mirror.incomplete) lines.push(`  incomplete ${one.entryId}: ${one.code ?? 'no code'}`);
   for (const one of mirror.uncertain) lines.push(`  uncertain ${one.entryId}: reconcile it, or say --absent`);
+  for (const one of mirror.audienceBlocked) lines.push(`  blocked ${one.entryId}: ${one.code} (${one.reason})`);
   for (const one of mirror.deliveredOutsideAudience) lines.push(`  delivered outside its audience ${one.entryId}`);
   if (backfill.enabled || backfill.highWater !== null)
     lines.push(

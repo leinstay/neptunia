@@ -35,6 +35,10 @@ export type MapContext = {
   subjectId?: string;
   subjectNativeId?: string;
   subjectPersonId?: string;
+  /** The link columns an account row keeps: the database's once the account has a person. */
+  accountLink?: Row;
+  /** A linked account whose person's profile is another unit's: its unit holds only what is the account's own. */
+  accountOnly?: boolean;
   scopePlaceId?: string;
   privateUserId?: string | null;
   collection?: string;

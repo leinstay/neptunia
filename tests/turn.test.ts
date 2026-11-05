@@ -1818,7 +1818,8 @@ test('runTurn: a guild turn never carries the private prompt or the private sens
   assert.ok(user.includes(labels.senses.privateAware));
 });
 
-test('runTurn: a channel without a guild and no guildId param throws a clear error and leaves nothing busy', async () => {
+// Changed: a DM needs no community (plan section 3), so the throw this test pinned is the bug that dropped such a DM.
+test('runTurn: a channel without a guild and no guildId param runs a turn with no community and leaves nothing busy', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [raw] });
   const llm = fakeLlm('<msg>hi</msg>');
@@ -1832,11 +1833,8 @@ test('runTurn: a channel without a guild and no guildId param throws a clear err
     client: fakeClient(),
   });
 
-  await assert.rejects(
-    turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' }),
-    /guildId/
-  );
-  assert.equal(llm.calls.length, 0);
+  await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'private' });
+  assert.equal(llm.calls.length, 1);
   assert.equal(turns.isAnyBusy(), false);
 });
 
@@ -7997,7 +7995,7 @@ test('skill call: a call alone is no skip; here it needs no grant and replies to
     here.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions.repliedUser]),
     [['c1', 'ναι', 'm1', true]]
   );
-  // A reply target outside the channel she named: the line's own channel wins, the call posts there, never refused.
+  // A reply target outside the channel she named. Contract change: message.create no longer takes the reply's channel over a destination she named. That substitution posted a reply in another channel than the one she chose. A mismatch is refused unknown-message (conversation), nothing sent; react, edit and delete keep the rule because their channel only locates the message they act on.
   const across = await callTurn({
     answers: [
       toolAnswer('', [call('message.create', { channel: '#νέα', reply: '#2', text: 'ναι' })]),
@@ -8007,7 +8005,7 @@ test('skill call: a call alone is no skip; here it needs no grant and replies to
   });
   assert.deepEqual(
     across.sends.map((send) => [send.to, send.text]),
-    [['c1', 'ναι']]
+    [['c1', 'όχι τελικά']]
   );
 });
 

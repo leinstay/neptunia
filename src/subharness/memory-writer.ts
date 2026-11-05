@@ -169,14 +169,15 @@ export async function runMemoryWriter(
     });
     if (outcome.error !== undefined) throw refusal(outcome.error);
     if (outcome.exitCode !== 0) throw refusal(`exit-${outcome.exitCode ?? 'signal'}`);
-    if (!codex) return claudeCompletion(outcome.stdout);
+    const ran = { model: path.model, backend: path.backend, source: 'subprocess' };
+    if (!codex) return { ...claudeCompletion(outcome.stdout), ...ran };
     let final = '';
     try {
       final = fs.readFileSync(outFile, 'utf8');
     } catch {
       // no final message: the answer is empty
     }
-    return codexCompletion(final, outcome);
+    return { ...codexCompletion(final, outcome), ...ran };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

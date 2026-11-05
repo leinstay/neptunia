@@ -32,6 +32,7 @@ const SHOWN: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'board.cancel': ['id', 'reason'],
   'board.comment': ['id'],
   'board.answer': ['id'],
+  'board.unblock': ['id'],
   'intention.set': ['id', 'text', 'due', 'every', 'channel'],
   'intention.update': ['id', 'text', 'due', 'every', 'channel'],
   'intention.cancel': ['id'],

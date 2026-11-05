@@ -95,8 +95,8 @@ function segmentsOfReceipts(row: Row): PublicationState['segments'] {
   return [{ segment: 0, status: 'sent', messageIds: keysOf(false), attachmentIds: keysOf(true) }];
 }
 
-/** A publication row as its state. `outsideAudience` is false until an entry carries an audience. */
-export function stateOfRow(row: Row): PublicationState {
+/** A publication row as its state. `outsideAudience` says a delivered copy now falls outside the entry's audience. */
+export function stateOfRow(row: Row, outsideAudience = false): PublicationState {
   const stored = deliveryOf(row).segments;
   return {
     status: (row.status === 'unknown' ? 'uncertain' : row.status) as PublicationState['status'],
@@ -111,7 +111,7 @@ export function stateOfRow(row: Row): PublicationState {
           }))
         : segmentsOfReceipts(row),
     reconciledBy: typeof row.reconciled_by === 'string' ? row.reconciled_by : null,
-    outsideAudience: false,
+    outsideAudience,
   };
 }
 

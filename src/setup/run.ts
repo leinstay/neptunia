@@ -11,13 +11,14 @@
 //                    (src/setup/interfaces.ts, src/setup/modules.ts)
 //   services         the optional YouTube Data API key, with the link that says how to get one (src/setup/services.ts)
 //   subharness       the backends her agents run through, installed and connected (src/setup/subharness.ts)
-//   selfimprovement  the repository her pull requests go to, checked through her gh login
+//   selfimprovement  the repository her pull requests go to, checked through the system's gh login
 //                    (src/setup/selfimprovement.ts); skipped while `selfimprovement.checkout` is unset
 //   mechanics        heartbeat, selfreflection and selfimprovement on or off, and `selfimprovement.schedule`
 //                    (src/setup/mechanics.ts)
 //   watcher          the watcher on or off, `watcher.schedule`, its backend and its model (src/setup/watcher.ts)
 //   units            the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ; the
-//                    selfimprovement units too when `selfimprovement.checkout` names a checkout other than this one
+//                    development unit too when `selfimprovement.checkout` names a checkout other than this one; and the
+//                    clients of the units that need one, with their tokens (src/setup/clients.ts)
 //   linger           `loginctl enable-linger` for the user, so the user units run without a login (user units only)
 //   core             `enable --now neptunia-core.service`, the one unit setup starts
 //
@@ -35,6 +36,7 @@ import { assertPersonaLayout } from '../config/files.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { emptyKeys, writeKeys } from '../keys/file.ts';
 import type { GhRunner } from '../selfimprovement/repository.ts';
+import { provisionClients } from './clients.ts';
 import { interfacesStep } from './interfaces.ts';
 import { servicesStep } from './services.ts';
 import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
@@ -45,7 +47,7 @@ import { subharnessStep } from './subharness.ts';
 import type { SubharnessStepDeps } from './subharness.ts';
 import { watcherStep } from './watcher.ts';
 import type { InstallRun } from '../subharness/install.ts';
-import { SELFIMPROVEMENT_UNIT_FILES, UNIT_FILES } from './units.ts';
+import { DEVELOPMENT_UNIT_FILES, UNIT_FILES } from './units.ts';
 
 export type { RunResult };
 
@@ -77,7 +79,7 @@ export type SetupDeps = {
   report?(report: SetupReport): void;
   /** Asks the owner at the terminal; absent when no terminal is there, and the steps that ask are skipped. */
   ask?: (question: string, offered: string | null, options?: { secret: boolean }) => Promise<string>;
-  /** gh under her own gh home, for the push-right check of the self-development and mechanics steps. */
+  /** The system's gh, for the push-right check of the self-development and mechanics steps. */
   gh?: GhRunner;
   /** npm for the subharness step's install (src/subharness/install.ts); without it that step is skipped. */
   install?: InstallRun;
@@ -202,31 +204,49 @@ function keysFileStep(options: SetupOptions): Outcome {
 }
 
 /**
- * The dev checkout the selfimprovement units run in, or why there are none: `selfimprovement.checkout` unset, or naming this checkout,
- * where a beat would edit and push the code that is running.
+ * The dev checkout the development worker works on, or why there is none: `selfimprovement.checkout` unset, or naming this
+ * checkout, where the worker would edit and push the code that is running.
  */
-function selfimprovementCheckoutOf(options: SetupOptions): { checkout: string } | { why: string } {
+function developmentCheckoutOf(options: SetupOptions): { checkout: string } | { why: string } {
   const { checkout } = selfimprovementSettings(readConfig(options.rootDir, { privateDir: options.privateDir }));
-  if (checkout === null) return { why: 'no selfimprovement units: selfimprovement.checkout is unset' };
+  if (checkout === null) return { why: 'no development unit: selfimprovement.checkout is unset' };
   if (path.resolve(checkout) === path.resolve(options.rootDir))
     return {
-      why: 'no selfimprovement units: selfimprovement.checkout is the deployed checkout, and the beat works on a dev checkout',
+      why: 'no development unit: selfimprovement.checkout is the deployed checkout, and the worker works on a dev checkout',
     };
   return { checkout };
 }
 
+/** The clients of the watcher's and the development worker's units, with their board roles. */
+const WATCHER_CLIENT = { name: 'watcher', boardRoles: ['watcher'] };
+const DEVELOPMENT_CLIENT = { name: 'development', boardRoles: ['reviewer', 'worker'] };
+
 async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
-  const selfimprovement = selfimprovementCheckoutOf(options);
-  const files = 'checkout' in selfimprovement ? [...UNIT_FILES, ...SELFIMPROVEMENT_UNIT_FILES] : UNIT_FILES;
-  const target =
-    'checkout' in selfimprovement ? { ...options, selfimprovementCheckout: selfimprovement.checkout } : options;
+  const development = developmentCheckoutOf(options);
+  const hasDevelopment = 'checkout' in development;
+  let clients: ReturnType<typeof provisionClients>;
+  try {
+    clients = provisionClients(
+      options.privateDir,
+      hasDevelopment ? [DEVELOPMENT_CLIENT, WATCHER_CLIENT] : [WATCHER_CLIENT]
+    );
+  } catch (err) {
+    return failed(`the clients cannot be written: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`);
+  }
+  const files = hasDevelopment ? [...UNIT_FILES, ...DEVELOPMENT_UNIT_FILES] : UNIT_FILES;
+  const target = hasDevelopment ? { ...options, developmentCheckout: development.checkout } : options;
   const result = await installUnits(target, (command, args) => deps.run(command, args), files);
   if (!result.ok) return failed(result.reason);
   const where = unitDirOf(options);
-  const note = 'why' in selfimprovement ? `; ${selfimprovement.why}` : '';
-  return result.written.length === 0
-    ? already(`${files.length} units are in ${where}${note}`)
-    : done(`${result.written.length} units written to ${where}${note}`);
+  const note = 'why' in development ? `; ${development.why}` : '';
+  const made = clients.made.length === 0 ? '' : `; tokens written for ${clients.made.join(', ')}`;
+  const there = clients.there.length === 0 ? '' : `; clients in place: ${clients.there.join(', ')}`;
+  const units =
+    result.written.length === 0
+      ? `${files.length} units are in ${where}`
+      : `${result.written.length} units written to ${where}`;
+  const detail = `${units}${note}${made}${there}`;
+  return result.written.length === 0 && clients.made.length === 0 ? already(detail) : done(detail);
 }
 
 async function lingerStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {

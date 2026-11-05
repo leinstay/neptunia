@@ -21,6 +21,7 @@ import { createAudienceWarmer } from './audience-warm.ts';
 import { connectionEvent, presenceEvent, presenceSnapshotEvent, voiceEvent } from './around.ts';
 import {
   canRead,
+  conversationOfChannel,
   isReadableChannel,
   normalizeOptions,
   reactionClearAllEvent,
@@ -64,22 +65,6 @@ const obj = (value: unknown): Obj => (value !== null && typeof value === 'object
 // Whether a discord.js channel is a thread. Called on the channel itself: discord.js reads `this`.
 const isThreadChannel = (channel: Obj): boolean =>
   typeof channel.isThread === 'function' && (channel as { isThread(): boolean }).isThread();
-
-// A channel as the protocol's conversation: a thread names the channel it sits in.
-function conversationOfChannel(channel: Obj, guildId: string): Obj {
-  const isThread = isThreadChannel(channel);
-  const parentName = text(obj(channel.parent).name);
-  return {
-    id: String(channel.id),
-    kind: isThread ? 'thread' : 'channel',
-    communityId: guildId,
-    name: text(channel.name),
-    topic: text(channel.topic),
-    category: parentName,
-    chatType: isThread ? 'thread' : 'channel',
-    ...(isThread ? { parentId: text(channel.parentId) } : {}),
-  };
-}
 
 function conversationChangedEvent(
   change: 'created' | 'updated' | 'deleted',

@@ -15,6 +15,7 @@ import {
   AUTO_TRIAGE_FIELDS,
   BUDGET_FIELDS,
   RETRY_FIELDS,
+  SELF,
   UPDATABLE,
   aliased,
   applyFields,
@@ -25,6 +26,7 @@ import {
   normalizeAutoTriage,
   normalizeField,
   num,
+  parseHandoff,
   pickFields,
   refuseOpenTwin,
   str,
@@ -33,6 +35,7 @@ import {
 import type { Args, SqlValue, TriageFields } from './fields.ts';
 import { APPROVAL_TARGETS, BOARD_ROLES, BoardError, CLOSED, NOTIFY, STATUSES, authorize } from './machine.ts';
 import type { BoardRole, Condition, Role, Rule, Status, Via } from './machine.ts';
+import { assessRisk, climbRisk, hasRiskRecord, refuseLowering, tellHeld } from './risk.ts';
 import { BOARD_MIGRATIONS, boardVersion } from './schema.ts';
 import type { BoardDb } from './schema.ts';
 
@@ -178,6 +181,8 @@ export type TaskView = {
   approvals: Array<Row>;
   results: Array<Row>;
   handoff: Handoff | null;
+  /** Whether a `task.risk` event names the task, however old. */
+  assessed: boolean;
   comments: Array<CommentRow>;
   events: Array<EventRow>;
 };
@@ -186,6 +191,8 @@ export type BoardResults = {
   'task.list': Array<TaskRecord>;
   'task.show': TaskView;
   'task.update': TaskRecord;
+  'task.risk': TaskRecord;
+  'task.risk.held': TaskRecord;
   'task.transition': TaskRecord;
   'task.claim': TaskRecord;
   'task.heartbeat': TaskRecord;
@@ -214,7 +221,7 @@ export type BoardResults = {
 export type BoardOp = keyof BoardResults;
 
 // A board_tasks row as stored: the record with its metadata still JSON text.
-type TaskRow = Omit<TaskRecord, 'metadata'> & { metadata: string | null };
+export type TaskRow = Omit<TaskRecord, 'metadata'> & { metadata: string | null };
 
 // The columns of board_tasks are the TaskRow fields (board v2), so a row read from it is one.
 const asTask = (row: Record<string, unknown>): TaskRow => row as unknown as TaskRow;
@@ -275,8 +282,6 @@ const RUN_END_INTEGERS: ReadonlyArray<string> = [
 ];
 
 const READ_OPS: ReadonlySet<string> = new Set(['task.list', 'task.show', 'task.orient', 'costs.agents']);
-const HANDOFF_LISTS = ['evidence', 'artifacts', 'open_issues'] as const;
-const HANDOFF_KEYS: ReadonlyArray<string> = ['result', ...HANDOFF_LISTS, 'tests'];
 const HANDOFF_MAX = 2000000;
 
 // ---------- rights ----------
@@ -373,6 +378,7 @@ function viewOf(db: BoardDb, task: TaskRow, nowIso: string): TaskView {
     approvals: all('SELECT * FROM board_reviews WHERE task_id = ? ORDER BY created_at, rowid'),
     results: all('SELECT * FROM board_results WHERE task_id = ? ORDER BY created_at, rowid'),
     handoff: latestHandoff(db, task.id),
+    assessed: hasRiskRecord(db, task.id),
     // The rows of board_comments and board_events have exactly the CommentRow and EventRow columns (schema v1).
     comments: all('SELECT * FROM board_comments WHERE task_id = ? ORDER BY created_at, rowid') as Array<CommentRow>,
     events: all(
@@ -671,6 +677,10 @@ export class Board {
     if (task.project !== null && this.context.settings.projects[task.project]?.ci === false) out.add('no-ci');
     if (meta?.tests === 'pass') out.add('tests-pass');
     if (isObject(meta?.merged)) out.add('merged');
+    const parent = this.db
+      .prepare("SELECT 1 FROM board_dependencies WHERE task_id = ? AND type = 'parent-child' LIMIT 1")
+      .get(task.id);
+    if (parent !== undefined) out.add('child');
     return out;
   }
 
@@ -982,7 +992,10 @@ function addTask(board: Board, principal: string, args: Args): TaskRecord {
     );
   board.event(id, principal, 'task.created', null, { title: row.title, lane, requester });
   board.event(id, principal, 'status', null, 'proposed');
-  if (parent !== null) linkParent(board, principal, id, parent);
+  if (parent !== null) {
+    linkParent(board, principal, id, parent);
+    climbRisk(board, principal, board.getTask(id));
+  }
   if (!args.auto) return parseTask(board.getTask(id));
   // Triage and approval in the same transaction, through the machine's own rules: a caller who may not approve this
   // task is refused and nothing is added.
@@ -1018,9 +1031,11 @@ function updateTask(board: Board, principal: string, args: Args): TaskRecord {
   }
   const fields = applyFields(task.metadata, picked);
   if (!Object.keys(fields).length) throw invalid('nothing to update');
+  refuseLowering(board, principal, task, fields);
   const old = Object.fromEntries(Object.keys(fields).map((k) => [k, (task as Record<string, unknown>)[k]]));
   const updated = board.write(task, fields);
   board.event(task.id, principal, 'task.updated', old, fields);
+  climbRisk(board, principal, updated);
   return parseTask(updated);
 }
 
@@ -1040,10 +1055,12 @@ function transitionTask(board: Board, principal: string, args: Args): TaskRecord
     board.requireEditor(principal, task);
     const fields = applyFields(task.metadata, pickFields(args.set, UPDATABLE));
     if (Object.keys(fields).length) {
+      refuseLowering(board, principal, task, fields);
       const old = Object.fromEntries(Object.keys(fields).map((k) => [k, (task as Record<string, unknown>)[k]]));
       // The field change and the move share one revision step: write without a bump, then move.
       task = board.write(task, fields, { bump: false });
       board.event(task.id, principal, 'task.updated', old, fields);
+      climbRisk(board, principal, task);
     }
   }
   return parseTask(board.transitionTo(principal, task, status, 'transition', args));
@@ -1144,6 +1161,7 @@ function dependTask(board: Board, principal: string, args: Args): TaskRecord {
   board.write(task, {});
   board.event(task.id, principal, 'dependency.added', null, { on, type });
   board.refreshBlocked(task.id, principal);
+  climbRisk(board, principal, board.getTask(task.id));
   return parseTask(board.getTask(task.id));
 }
 
@@ -1178,6 +1196,10 @@ function askTask(board: Board, principal: string, args: Args): { question: Row; 
     .run(id, task.id, str(args.attempt_id, 'attempt_id'), principal, text, toWhom, board.now());
   board.event(task.id, principal, 'question.asked', null, { id, to_whom: toWhom, text });
   const updated = board.move(task, 'needs_answer', principal);
+  // A question to the persona reaches her whoever subscribed: her wake reads only the rows addressed to her.
+  if (toWhom === SELF && updated.subscriber !== SELF) {
+    board.notify(task.id, SELF, 'needs_answer', { task: task.id, title: task.title, status: 'needs_answer', text });
+  }
   return { question: board.row('SELECT * FROM board_questions WHERE id = ?', id), task: parseTask(updated) };
 }
 
@@ -1548,10 +1570,14 @@ function blockTask(board: Board, principal: string, args: Args): TaskRecord {
   const reason = str(args.reason, 'reason', { required: true, max: 2000 });
   const unblocks = str(args.unblocks, 'unblocks', { required: true, max: 2000 });
   board.event(task.id, principal, 'task.blocked', { owner: task.lease_owner }, { reason, unblocks });
-  return parseTask(board.move(task, 'blocked', principal, { blocked_reason: reason, unblocks }));
+  const updated = board.move(task, 'blocked', principal, { blocked_reason: reason, unblocks });
+  if (task.lane === 'dev') {
+    board.notify(task.id, SELF, 'blocked', { task: task.id, title: task.title, status: 'blocked', reason, unblocks });
+  }
+  return parseTask(updated);
 }
 
-// The owner or a reviewer returns a blocked task to approved; the note says what changed and becomes a comment.
+// The owner, a reviewer or its requester returns a blocked task to approved; the note says what changed and becomes a comment.
 function unblockTask(board: Board, principal: string, args: Args): TaskRecord {
   const task = board.getTask(args.id);
   board.checkRevision(task, args.revision, false);
@@ -1559,48 +1585,6 @@ function unblockTask(board: Board, principal: string, args: Args): TaskRecord {
   const note = str(args.note, 'note', { required: true }) ?? '';
   board.addComment(principal, task, note);
   return parseTask(board.move(task, 'approved', principal, { blocked_reason: null, unblocks: null }));
-}
-
-function stringList(value: unknown, name: string): Array<string> {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
-    throw invalid(`handoff.${name} must be a list of strings`);
-  }
-  return [...(value as Array<string>)];
-}
-
-function handoffTests(value: unknown): Array<HandoffTest> {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw invalid('handoff.tests must be a list');
-  return value.map((entry: unknown) => {
-    const count = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0;
-    if (
-      !isObject(entry) ||
-      Object.keys(entry).some((key) => !['command', 'passed', 'failed'].includes(key)) ||
-      typeof entry.command !== 'string' ||
-      entry.command.trim() === '' ||
-      !count(entry.passed) ||
-      !count(entry.failed)
-    ) {
-      throw invalid('each handoff test needs a command and its passed and failed counts');
-    }
-    return { command: entry.command, passed: entry.passed, failed: entry.failed };
-  });
-}
-
-/** The handoff of a submit, every list filled; throws BoardError 'invalid' for a missing result or a stray key. */
-function parseHandoff(value: unknown): Handoff {
-  if (!isObject(value)) throw invalid('handoff is required');
-  const stray = Object.keys(value).filter((key) => !HANDOFF_KEYS.includes(key));
-  if (stray.length) throw invalid(`handoff has unknown fields: ${stray.join(', ')}`);
-  if (typeof value.result !== 'string' || value.result.trim() === '') throw invalid('handoff.result is required');
-  return {
-    result: value.result,
-    evidence: stringList(value.evidence, 'evidence'),
-    artifacts: stringList(value.artifacts, 'artifacts'),
-    tests: handoffTests(value.tests),
-    open_issues: stringList(value.open_issues, 'open_issues'),
-  };
 }
 
 // The holder hands the work over for review: one handoff row, then needs_validation.
@@ -1681,6 +1665,8 @@ const OPS: Readonly<Record<BoardOp, Handler>> = {
     listTasks(board.db, args, board.now()).filter((task) => board.sees(principal, task)),
   'task.show': (board, principal, args) => viewOf(board.db, visibleTask(board, principal, args.id), board.now()),
   'task.update': updateTask,
+  'task.risk': (board, principal, args) => parseTask(assessRisk(board, principal, args)),
+  'task.risk.held': (board, principal, args) => parseTask(tellHeld(board, principal, args)),
   'task.transition': transitionTask,
   'task.claim': claimTask,
   'task.heartbeat': heartbeatTask,

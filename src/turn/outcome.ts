@@ -8,7 +8,7 @@ import type { Context } from '../memory/db/scope.ts';
 import type { FactInput } from '../behavior/inner.ts';
 import { wakeInputs } from '../behavior/diary-turn.ts';
 import { portIface } from '../interface/capabilities.ts';
-import { withRequestMeta } from '../llm/archive.ts';
+import { currentRequestMeta, turnOutcome, turnService, withRequestMeta } from '../llm/archive.ts';
 import { withIface } from '../memory/db/current-iface.ts';
 import type { Reads } from '../interface/reads.ts';
 import { errorCodeOf } from '../llm/openrouter.ts';
@@ -191,7 +191,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * @param {object} params
    * @param {import('../protocol/adapter.ts').ConversationRef} [params.conversation]  absent for the selfreflection wake
    * @param {{ turnId: string, attemptId?: number }|null} [params.journalTurn]  The journal's turn and attempt (runTurn passes them on).
-   * @param {string} [params.guildId]  The guild of a private chat; a server channel uses its own; with neither it throws.
+   * @param {string} [params.guildId]  The community of a private chat; a server channel uses its own; a private chat with neither has none.
    * @param {'reply'|'interject'|'initiate'|'auto'|'diary'|'inner'} params.mode  'auto' lets `chooseMode` pick
    *   between interject/initiate/nothing once the history is known (spontaneous turns); 'inner'
    *   is an inner turn (with `params.inner`).
@@ -296,7 +296,13 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    */
   function runTurn(params: TurnParams): Promise<TurnResult> {
     // A turn taken from a queue runs under the interface of its own conversation, whatever event woke the queue.
-    return withIface(params?.conversation?.iface, () => withRequestMeta(() => runTurnHere(params)));
+    return withIface(params?.conversation?.iface, () =>
+      withRequestMeta(() => {
+        const wake = (params?.inner as { wake?: { kind?: unknown } } | undefined)?.wake;
+        Object.assign(currentRequestMeta() ?? {}, { service: turnService(params?.mode, wake?.kind) });
+        return runTurnHere(params);
+      })
+    );
   }
 
   async function runTurnHere(params: TurnParams): Promise<TurnResult> {
@@ -318,6 +324,9 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     } finally {
       noteFailedTurn(params, result, ends, thrown);
       if (attempts.length > 0) await writeTurnRecords(attempts);
+      const request = currentRequestMeta();
+      const outcome = turnOutcome(result, request?.turnId ?? null);
+      if (outcome !== null) await request?.noteOutcome?.(outcome);
       noteTurnEnd(params, result, ends);
     }
   }

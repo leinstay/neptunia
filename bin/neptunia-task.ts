@@ -9,8 +9,9 @@
 // client says hello under the agents' namespace `agent`, so its token must stand for an `agent` principal of
 // clients.json, and the board's roles of that client decide what it may do.
 //
-// `openBoardCaller` gives the watcher run (`neptunia worker watcher`) the same link as a `BoardCaller`, so its filer calls
-// the board as the client of the token. The board decides what that client may do.
+// `openBoardCaller` gives the watcher run (`neptunia worker watcher`) and the development worker
+// (`neptunia worker development`) the same link as a `BoardCaller`, so they call the board as the client of the token, and
+// the worker its `task.wait` and `skill.pending` through `command`. The board decides what that client may do.
 //
 // Exit codes: 0 when the core answers `ok`; 1 for any other answer, with `<status>: <text>` on stderr, and when no
 // token is set or no core listens, with `unavailable: ...`; 2 for a usage error (an unknown command, a missing id, a
@@ -19,6 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { BoardRefusal } from '../src/board/machine.ts';
 import { answerText } from '../src/board/text.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
 import { resolvePaths } from '../src/paths.ts';
@@ -41,6 +43,7 @@ export const TASK_USAGE = `usage: neptunia task <command> [options]   (--socket 
   task update T-xxxxxx [--title ..] [--priority N] [--risk ..] [--role ..] [--budget N] [--steps N]
            [--estimate N] [--defer ISO|none] [--description -] [--acceptance -] [--meta key=value]...
            # a closed task: only --budget, --steps, --estimate (the owner, a reviewer)
+  task risk T-xxxxxx <low|normal|high> --reason "..."   # recorded; only the owner lowers, never below a dev task
   task triage T-xxxxxx --role implementer --estimate 40 --budget 3 [--steps 60]
   task approve T-xxxxxx [--scope plan|merge|deploy] [--note "..."] [--reject]
   task reject T-xxxxxx --reason "..."
@@ -301,6 +304,12 @@ const COMMANDS: Readonly<Record<string, Command>> = {
     const set = fieldsFrom(flags, stdin);
     if (!Object.keys(set).length) throw new UsageError('nothing to update');
     return fetchTask(ask, id).then((task) => ({ name: 'task.update', args: { id, revision: task.revision, set } }));
+  },
+  risk: ({ flags, positionals }) => {
+    const id = needId(positionals, 'T');
+    const risk = positionals[1];
+    if (!risk) throw new UsageError('a risk level is required');
+    return { name: 'task.risk', args: { id, risk, reason: needFlag(flags, 'reason') } };
   },
   triage: ({ ask, flags, positionals, stdin }) => {
     const id = needId(positionals, 'T');
@@ -670,14 +679,20 @@ export async function runTask(argv: ReadonlyArray<string>, env: NodeJS.ProcessEn
   }
 }
 
+/** The board over one link: its calls, any other command of the link, and the close. */
+export type BoardLink = {
+  board: BoardCaller;
+  /** One command as it is, answered with its status and its text; a lost link answers `unavailable`. */
+  command(name: string, args: Readonly<Record<string, unknown>>): Promise<{ status: string; text: string }>;
+  close(): void;
+};
+
 /**
  * The board over the core's socket as the client of `env`'s token (`NEPTUNIA_TASK_TOKEN`, else the token file of
- * `NEPTUNIA_TASK_CLIENT`), or the reason it cannot be reached. A refusal of the board rejects the call with
- * `<status>: <text>`.
+ * `NEPTUNIA_TASK_CLIENT`), or the reason it cannot be reached. A refusal of the board rejects the call with a
+ * `BoardRefusal` saying `<status>: <text>`, and a link that closed with a plain error of the same words.
  */
-export async function openBoardCaller(
-  env: NodeJS.ProcessEnv = process.env
-): Promise<{ board: BoardCaller; close(): void } | string> {
+export async function openBoardCaller(env: NodeJS.ProcessEnv = process.env): Promise<BoardLink | string> {
   const where = resolvePaths({ rootDir: ROOT_DIR });
   const held = tokenOf(env, where.privateDir);
   if (typeof held === 'string') return held;
@@ -690,11 +705,22 @@ export async function openBoardCaller(
   }
   const board: BoardCaller = {
     // The answer is the JSON of the board's own result for the op, which the caller's generic type names.
-    call: (async (_principal: string, op: string, args: Readonly<Record<string, unknown>> = {}) => {
-      const answer = await link.ask({ name: op, args: { ...args, json: true } });
-      if (answer.status !== 'ok') throw new Error(`${answer.status}: ${answer.text}`);
+    call: (async (
+      _principal: string,
+      op: string,
+      args: Readonly<Record<string, unknown>> = {},
+      idempotency: string | null = null
+    ) => {
+      const key = idempotency === null ? {} : { idempotency };
+      const answer = await link.ask({ name: op, args: { ...args, ...key, json: true } });
+      if (answer.status === 'unavailable') throw new Error(`${answer.status}: ${answer.text}`);
+      if (answer.status !== 'ok') throw new BoardRefusal(`${answer.status}: ${answer.text}`);
       return JSON.parse(answer.text) as unknown;
     }) as BoardCaller['call'],
   };
-  return { board, close: () => link.close() };
+  return {
+    board,
+    command: (name, args) => link.ask({ name, args: { ...args } }),
+    close: () => link.close(),
+  };
 }

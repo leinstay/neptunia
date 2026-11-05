@@ -319,7 +319,7 @@ export type SelfimprovementSources = {
   ackOutbox?(seqs: ReadonlyArray<number>): Promise<void>;
   /** The fixes that merged and were not told to her yet (src/selfimprovement/landed.ts). */
   landed?(): Promise<ReadonlyArray<Landed>>;
-  /** The newest watcher report of the past day at `now` (src/watcher/news.ts), null when there is none. */
+  /** What the newest watcher report of the past day filed at `now` (src/watcher/news.ts), null when nothing. */
   watcher?(now: number): WatcherNews | null;
 };
 

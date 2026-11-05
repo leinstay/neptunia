@@ -19,10 +19,10 @@ Agent prompts use `agents/<name>/` and `data/agents/<name>/`. They are not loade
 | Turn context blocks | [request builders](../src/turn/request/) |
 | Heartbeat wake | [heartbeat prompt](../prompts/heartbeat.md), `<wake>` from [src/behavior/wake.ts](../src/behavior/wake.ts), its calls in [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) |
 | Selfimprovement wake | [wake prompt](../prompts/selfimprovement.md) as `prompts.selfimprovement`, `<wake>` from [src/behavior/selfimprovement-text.ts](../src/behavior/selfimprovement-text.ts) with `labels.wake.selfimprovement`, its calls in [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) |
-| Executor brief | [brief](../prompts/executor-brief.md) as `prompts['executor-brief']`, filled by `briefFrom` in [src/selfimprovement/service.ts](../src/selfimprovement/service.ts) |
+| Development brief | [brief](../prompts/executor-brief.md) as `prompts['executor-brief']`, filled by `briefFrom` in [src/development/brief.ts](../src/development/brief.ts), after the agent's `agents/<name>/prompt.md` in [bin/development.ts](../bin/development.ts) |
 | Agent instructions | [profile loader](../src/agent-runner/profiles.ts) |
 
-The heartbeat and selfimprovement prompts are addressed to the persona and fill no placeholder. The executor brief is addressed to a coding agent and fills `{{id}}`, `{{title}}`, `{{evidence}}`, `{{examples}}`, `{{counterexamples}}`, `{{benefit}}`, `{{evaluation}}` and `{{acceptance}}`. A local `data/prompts/selfdev.md` loads as `executor-brief`.
+The heartbeat and selfimprovement prompts are addressed to the persona and fill no placeholder. The development brief is addressed to a thinker or a dev and fills `{{id}}`, `{{title}}`, `{{branch}}`, `{{generation}}`, `{{evidence}}`, `{{examples}}`, `{{counterexamples}}`, `{{benefit}}`, `{{evaluation}}`, `{{acceptance}}`, `{{answers}}` and `{{children}}`. It carries no output tag: an agent acts on the task through the board. A local `data/prompts/selfdev.md` loads as `executor-brief`.
 
 Read the actual template before editing it. A placeholder is an input supplied by its caller, not free prose. Preserve its spelling and inspect the caller when changing what it means. Model-facing phrases belong in the relevant prompt or label file rather than being embedded in runtime code.
 
@@ -36,11 +36,58 @@ The active skill index contains descriptions; `skill.read` retrieves the procedu
 
 The conversation parser recognizes `<think>`, `<msg>`, `<react>`, `<gif>` and `<skip/>`. A message can name a reply target, and a reaction names its target message. Native tool calls arrive separately; textual tool calls are extracted before the conversation parser runs.
 
+`parseOutput` in `src/llm/parse.ts` reads the `<msg>` tags outside inline code and fences, so a tag example in code stays literal text. An opening `<msg>` while a message is open ends that message there. A last `<msg>` that is never closed ends at the first `<react>`, `<gif>` or `<skip/>` after it, or with the output. Its words go out when the answer stopped on its own. The caller passes `cutOff` for an answer cut at the output cap, as `src/turn/phases/response.ts` does for the finish reason `length`, and that last message is dropped. A `</msg>` with no open message is never sent.
+
+An output with such a breach yields one `{ kind: 'msgMalformed', nested, unclosed, stray }` diagnostic, placed before any `messagesMerged`. It holds counts and no contents, and a message dropped by `cutOff` is not counted. The persona reads it through `labels.tools.diagnostics.msgMalformed`, whose `{count}` is the sum of the three counts.
+
 Think text is private planning, not a public chat message. An unfinished think block produces silence rather than publishing its contents. The request archive retains available response text and parsed think text for later inspection.
+
+### Diary audience
+
+A diary writer request carries `<publication_places>` after `<plan>` and `<seeds>`, and the block is never cut. Its first line is `diary.publicationPlaces` from `config/labels.json`, which states the output contract, followed by one `interface:<iface>` line per interface and one `place:<place id> <name>` line per group place, indented under its parent. The block is absent when memory knows no place.
+
+The answer may add `<audience>unrestricted | interface:x | place:y</audience>`, one of the three, with the token alone. `takeAudience` in `src/llm/parse.ts` removes the tag from a diary answer before the conversation parser runs and leaves a think block and code alone. `audienceChoice` in `src/tools/publication.ts` reads the bodies into `result.diary.audience`, which is `{ ok: true, audience }` or `{ ok: false, code }` with `audience-unknown-place`, `audience-unknown-interface` or `audience-malformed`. No other mode reads the tag.
+
+A diary writer request after a refusal also carries `<audience_refused>`, right after `<publication_places>` and never cut, with one `diary.audienceRefused` line per post she has not heard of. The line fills `{date}`, `{gist}` and `{reason}`, and `{reason}` is the code's entry in `diary.audienceReasons`.
+
+The contract lives in the label because a nonempty `data/prompts/diary.md` replaces `prompts/diary.md` whole. A deployment with its own `diary.md` needs no change for the tag to work, and its `data/config/labels.json` may reword `diary.publicationPlaces`. [The diary](diary.md#audience) describes what the stored audience does.
 
 ### Mention handles
 
 People, channels and messages in the request have handles supplied by the formatters. The model must reuse these handles rather than inventing native IDs. The interface resolves outgoing references for its platform.
+
+## Watcher answer
+
+`agents/watcher/prompt.md` asks for one report in the exact template `checkTemplate` of [src/watcher/report.ts](../src/watcher/report.ts) enforces, and a text outside it fails the run with the code below.
+
+The report opens with the title `# Watcher report <day>`, then the metadata rows, each `- <label>: <value>`, in this order: `Observation interval`, `Run id`, `Selected backend`, `Model`, `Effort`, `Effective account`, `Available sources`, `Risk`, `New findings`. `Risk` is `none`, `critical`, `high`, `medium` or `low`, and `New findings` reads `<n>, repeats: <n>`. No other row may say `none`. The engine replaces the interval, run id, backend, model, effort, risk and counts with what it knows. It stamps `observation` and `backend` of the coverage block with the same facts.
+
+The sections of `REPORT_HEADINGS` follow at level two, in order, each once: `Her day`, `Service runs`, `Memory`, `Errors`, `Misunderstandings`, `Project`, `Modules and structure`, `Trash`, `The server`, `Wishes`, `Tasks filed`, `For the owner`. Each holds the subheadings of `REPORT_SUBHEADINGS` at level three, in order: `Observed defects`, `Suspicious evidence`, `Inspected without a finding`, `Unavailable checks`. An empty subsection says exactly `none`. A line under `Observed defects` or `Suspicious evidence` is `- [critical|high|medium|low] <finding-key>: <text>`, except under `Tasks filed`, where the engine writes its filing lines. `findingsOf` and `applyRiskRules` of [src/watcher/risk.ts](../src/watcher/risk.ts) read these lines, and a repeat is saved as `- [low] <finding-key>: <text> (repeat <n>, first <day>)`.
+
+The last thing in the report is one fenced `coverage` block, a JSON object that `checkCoverage` reads: `observation` with `from` and `to`, `backend`, `account`, `sources`, which is not empty, and the lists `defects`, `suspicious`, `inspected` and `unavailable`, which share no item.
+
+| Code | What the text did |
+|---|---|
+| `secret` | Holds a string shaped like a key |
+| `preamble` | Has text before the title |
+| `bad-title` | Has no title with a real date |
+| `bad-metadata` | Has a row missing, out of order, blank or with a value its row does not take |
+| `stray-text` | Has text after the metadata or before a section's first subheading |
+| `extra-heading` | Has a heading outside the template, or one twice |
+| `missing-heading` | Lacks a section or a subheading |
+| `heading-order` | Has its headings out of order |
+| `heading-level` | Has a heading at the wrong level, or below level three |
+| `empty-subsection` | Has nothing under a subheading |
+| `empty-word` | Says nothing in a word other than `none`, or writes `none` beside a finding |
+| `coverage-missing` | Has no coverage block |
+| `coverage-misplaced` | Has the block inside a section, or a second block |
+| `coverage-invalid` | Has a block that does not parse, or lacks a field, or names one item in two lists |
+| `trailing-content` | Has something after the block |
+| `bad-risk` | Has a finding line with no level and key, or a level on a line that takes none |
+
+One optional fenced `tasks` block may follow the report and is cut from it before the check. The block is a JSON array of objects with the keys `kind`, `title`, `evidence`, `done` and `finding`. `kind` is `fix` or `chore`, and `title`, `evidence` and `done` are nonblank strings. `finding` is the stable key [src/watcher/filing.ts](../src/watcher/filing.ts) compares across runs. It is an optional string, and a missing or blank one falls back to the draft's evidence. `splitAnswer` in [src/watcher/tasks.ts](../src/watcher/tasks.ts) parses the block and fails the run with `bad-tasks` on anything else.
+
+The brief carries `<day>`, `<observation from="..." to="..." day-from="..."/>`, `<install>` with the JSON of `installFacts` from [src/watcher/install.ts](../src/watcher/install.ts), and `<report day="...">`, with `run="..."` on an earlier report of the same day. The selfimprovement wake's labels `watcher`, `watcherFinding` and `watcherTask` take `{day}` and `{findings}`, `{title}`, `{state}` and `{task}`, and `{task}`, and nothing else of a report goes into them.
 
 ## Labels
 

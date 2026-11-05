@@ -1,22 +1,25 @@
-// The watcher's report (src/watcher/report.ts): exactly the seven headings in order, each with a line, no key or
-// token anywhere, and the file `<day>.md` written only when the text passes. A refused text leaves no file.
+// The watcher's report (src/watcher/report.ts): exactly the twelve headings in order, each with a line, no key or
+// token anywhere, and a report committed only when the text passes. A refused text leaves no file.
+// Changed: `writeReport` had no caller left, so its cases now hold `commitReport`, which every report goes through. The lines
+// under "Tasks filed" are asserted through an inspection in tests/watcher-filing-board.test.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPORT_HEADINGS, checkReport, insertFiled, writeReport } from '../src/watcher/report.ts';
-import { HEADINGS, PLANTED_KEY, reportText, watcherDirs } from './fixtures/watcher-rig.ts';
+import { readReport, readReportRun } from '../src/watcher/read.ts';
+import { REPORT_HEADINGS, checkReport, commitReport } from '../src/watcher/report.ts';
+import { HEADINGS, PLANTED_KEY, putReport, reportText, watcherDirs } from './fixtures/watcher-rig.ts';
 
 const codeOf = (text: string): string | null => {
   const checked = checkReport(text);
   return checked.ok ? null : checked.code;
 };
 
-test('the report headings are the seven of the design, in order', () => {
+test('the report headings are the twelve of the design, in order', () => {
   assert.deepEqual([...REPORT_HEADINGS], [...HEADINGS]);
 });
 
-test('a report with the seven headings, each saying nothing found, is accepted: a quiet day is a good day', () => {
+test('a report with the twelve headings, each saying nothing found, is accepted: a quiet day is a good day', () => {
   assert.equal(checkReport(reportText()).ok, true);
 });
 
@@ -50,7 +53,7 @@ test('text before the first heading is refused, so a chatty opener never reaches
 });
 
 test('a heading-looking line inside a code fence is not a heading', () => {
-  const text = reportText({ 'The project': 'The prose check printed:\n\n```\n## Summary\n```' });
+  const text = reportText({ 'Project': 'The prose check printed:\n\n```\n## Summary\n```' });
   assert.equal(checkReport(text).ok, true);
 });
 
@@ -69,46 +72,48 @@ test('a GitHub token, an AWS key id and a bearer header are refused too', () => 
 
 test('ordinary hyphenated words and the bare prefix of a key are not taken for a secret', () => {
   const text = reportText({
-    'The project': 'task-runner-sweep drifted; the key prefix sk-or-v1- is logged by name only.',
+    'Project': 'task-runner-sweep drifted; the key prefix sk-or-v1- is logged by name only.',
   });
   assert.equal(checkReport(text).ok, true);
 });
 
-test('writeReport writes <day>.md with the text and creates the reports folder when it is missing', () => {
-  const dirs = watcherDirs();
-  const reportsDir = path.join(dirs.watcherDir, 'fresh', 'reports');
-  const written = writeReport(reportsDir, '2026-11-02', reportText());
-  assert.equal(written.ok, true);
+const COMMIT = { day: '2026-11-02', runId: 'run-1', at: 1_000 };
+const versionsIn = (reportsDir: string): Array<string> =>
+  fs.existsSync(path.join(reportsDir, 'runs')) ? fs.readdirSync(path.join(reportsDir, 'runs')) : [];
+
+test('commitReport makes the reports folder when it is missing, and the day reads the text', () => {
+  // Bug: the first inspection of a fresh install has a checked answer and nowhere to put it.
+  const reportsDir = path.join(watcherDirs().watcherDir, 'fresh', 'reports');
+  const committed = commitReport({ ...COMMIT, reportsDir, text: reportText() });
+  assert.equal(committed.ok, true);
   assert.equal(fs.readFileSync(path.join(reportsDir, '2026-11-02.md'), 'utf8'), reportText());
 });
 
-test('writeReport of a refused text writes no file and does not echo the key in its detail', () => {
-  const dirs = watcherDirs();
-  const written = writeReport(dirs.reportsDir, '2026-11-02', reportText({ Memory: PLANTED_KEY }));
-  assert.equal(written.ok, false);
-  assert.equal(fs.existsSync(path.join(dirs.reportsDir, '2026-11-02.md')), false);
-  assert.equal(JSON.stringify(written).includes(PLANTED_KEY), false);
+test('commitReport of a refused text writes no file and does not echo the key in its detail', () => {
+  // Bug: the check runs after the write, or its refusal quotes the line it refused.
+  const { reportsDir } = watcherDirs();
+  const committed = commitReport({ ...COMMIT, reportsDir, text: reportText({ Memory: PLANTED_KEY }) });
+  assert.equal(committed.ok, false);
+  assert.equal(fs.existsSync(path.join(reportsDir, '2026-11-02.md')), false);
+  assert.deepEqual(versionsIn(reportsDir), []);
+  assert.equal(JSON.stringify(committed).includes(PLANTED_KEY), false);
 });
 
-test('writeReport refuses a day that is no date, so the agent cannot name a file outside the folder', () => {
+test('commitReport refuses a day that is no date, so no file is named outside the folder', () => {
+  // Bug: the day goes into the view's path unchecked.
   const dirs = watcherDirs();
-  const written = writeReport(dirs.reportsDir, '../../escape', reportText());
-  assert.equal(written.ok, false);
+  const committed = commitReport({ ...COMMIT, reportsDir: dirs.reportsDir, day: '../../escape', text: reportText() });
+  assert.equal(committed.ok, false);
   assert.equal(fs.existsSync(path.join(dirs.watcherDir, '..', 'escape.md')), false);
 });
 
-test('insertFiled puts one line per filed task right under the Tasks filed heading and keeps the report valid', () => {
-  const text = insertFiled(reportText({ 'Tasks filed': 'AGENT-LINE' }), [
-    { id: 'T-aaa111', kind: 'fix', title: 'Silent turns skip the log' },
-    { id: 'T-bbb222', kind: 'chore', title: 'Drop the unused setting' },
-  ]);
-  assert.equal(checkReport(text).ok, true);
-  const section = text.split('## Tasks filed')[1]?.split('## For the owner')[0] ?? '';
-  assert.ok(section.includes('T-aaa111') && section.includes('Silent turns skip the log'));
-  assert.ok(section.includes('T-bbb222') && section.includes('chore'));
-  assert.ok(section.indexOf('T-aaa111') < section.indexOf('AGENT-LINE'), 'the engine lines come before the agent text');
-});
-
-test('insertFiled with nothing filed leaves the text as it was', () => {
-  assert.equal(insertFiled(reportText(), []), reportText());
+test('commitReport over a plain day file from before versions keeps that report under a run of its own', () => {
+  // Bug: the first inspection after the update replaces the day's older report, the one thing it may compare with.
+  const dirs = watcherDirs();
+  putReport(dirs, '2026-11-02', 'OLD-REPORT\n');
+  commitReport({ ...COMMIT, reportsDir: dirs.reportsDir, text: reportText() });
+  const kept = readReportRun(dirs.reportsDir, 'legacy-2026-11-02');
+  assert.equal(kept.ok && kept.report.text, 'OLD-REPORT\n');
+  const day = readReport(dirs.reportsDir, '2026-11-02');
+  assert.equal(day.ok && day.report.runId, 'run-1');
 });

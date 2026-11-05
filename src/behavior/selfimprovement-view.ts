@@ -10,6 +10,7 @@
 import { DAY_MS, utcDay } from '../time.ts';
 import type { Landed } from '../selfimprovement/landed.ts';
 import type { WatcherNews } from '../watcher/news.ts';
+import type { TaskRecord } from '../board/board.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
 import type { UseCounts } from '../memory/db/skills.ts';
@@ -237,12 +238,20 @@ export type SelfimprovementFacts = {
   news: {
     questions: Array<{ taskId: string; questionId: string; text: string; answered: boolean }>;
     reviews: Array<{ taskId: string; decision: string; scope: string | null; note: string | null }>;
-    outbox: Array<{ seq: number; taskId: string; kind: string; status: string | null; closeReason: string | null }>;
+    outbox: Array<{
+      seq: number;
+      taskId: string;
+      kind: string;
+      status: string | null;
+      closeReason: string | null;
+      /** Why the task stopped, on a row of kind `blocked`, or the code of why it waits, on a row of kind `risk`. */
+      blockedReason?: string;
+    }>;
     /** Fixes that merged: the pull request's title and paths (src/selfimprovement/landed.ts), each shown once. */
     landed: Array<Landed>;
   };
   outboxSeqs: Array<number>;
-  /** The watcher's newest report of the past day (src/watcher/news.ts), null when there is none. */
+  /** What the watcher's newest report of the past day filed (src/watcher/news.ts), null when nothing. */
   watcher?: WatcherNews | null;
 };
 
@@ -331,6 +340,7 @@ export async function buildSelfimprovementFacts(input: {
       kind: asText(row.kind),
       status: typeof payload.status === 'string' ? payload.status : null,
       closeReason: typeof payload.close_reason === 'string' ? payload.close_reason : null,
+      ...(typeof payload.reason === 'string' ? { blockedReason: payload.reason } : {}),
     };
   });
   return {
@@ -385,7 +395,21 @@ export async function buildSelfimprovementFacts(input: {
   };
 }
 
-/** The tasks she filed, each with its questions and reviews, and her undelivered outbox rows, read as `persona`. */
+/** The fields of a board task an entry carries. */
+const entryTask = (task: TaskRecord): ProposalEntry['task'] => ({
+  id: task.id,
+  status: task.status,
+  title: task.title,
+  close_reason: task.close_reason ?? null,
+  metadata: isObj(task.metadata) ? task.metadata : null,
+  blocked_reason: task.blocked_reason,
+  unblocks: task.unblocks,
+});
+
+/**
+ * The tasks she filed, each with its questions and reviews, the other tasks that wait on a question addressed to her,
+ * with those questions only, and her undelivered outbox rows, read as `persona`.
+ */
 export async function proposalsOf(
   board: BoardCaller
 ): Promise<{ entries: Array<ProposalEntry>; outbox: Array<OutboxRow> }> {
@@ -394,18 +418,23 @@ export async function proposalsOf(
   for (const task of tasks) {
     const view = await board.call('persona', 'task.show', { id: task.id });
     entries.push({
-      task: {
-        id: view.task.id,
-        status: view.task.status,
-        title: view.task.title,
-        close_reason: view.task.close_reason ?? null,
-        metadata: isObj(view.task.metadata) ? view.task.metadata : null,
-        blocked_reason: view.task.blocked_reason,
-        unblocks: view.task.unblocks,
-      },
+      task: entryTask(view.task),
       questions: view.questions,
       reviews: view.approvals,
     });
+  }
+  const mine = new Set(entries.map((entry) => entry.task.id));
+  const { questions } = await board.call('persona', 'task.orient', {});
+  for (const question of listOf(questions).filter(isObj)) {
+    const taskId = asText(question.task_id);
+    if (question.to_whom !== SELF || mine.has(taskId)) continue;
+    const entry = entries.find((one) => one.task.id === taskId);
+    if (entry !== undefined) {
+      entry.questions = [...entry.questions, question];
+      continue;
+    }
+    const view = await board.call('persona', 'task.show', { id: taskId });
+    entries.push({ task: entryTask(view.task), questions: [question], reviews: [] });
   }
   const outbox = await board.call('persona', 'outbox.pull', { to_whom: SELF });
   return { entries, outbox };

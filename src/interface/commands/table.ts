@@ -142,6 +142,10 @@ const SERVICE_SUBCOMMANDS: ReadonlyArray<Subcommand> = [
   sub('watcher.trigger', 'Run one watcher inspection now'),
   sub('watcher.cancel', 'Cancel the active watcher inspection, leaving the schedule as it is'),
   sub('watcher.report', 'Read the latest watcher report, or the report of a date', [arg('target', false)]),
+  sub('watcher.evidence', 'Read the recorded requests and transcripts of the observation window as JSON', [
+    flagArg('from', false),
+    flagArg('cursor', false),
+  ]),
 ];
 
 /** The commands the family replaced: the line each is refused with names the command to type instead. */

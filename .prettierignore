@@ -8,6 +8,7 @@ node_modules
 data
 .agents
 .claude
+.worktrees
 .opencode
 references
 prompts.local

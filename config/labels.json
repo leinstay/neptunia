@@ -313,7 +313,14 @@
       "plan": "Plan for this post:",
       "found": "What the search found. Retell it in your own words; no links, no quoting.",
       "seeds": "Random seeds (place; setting; detail; activity; subject; twist):",
-      "topic": "The owner asked for this subject:"
+      "topic": "The owner asked for this subject:",
+      "publicationPlaces": "Who may read this post. With no <audience> tag it goes to every mirror of your diary, mirrors added later included. To hold it back, add one <audience> tag beside your messages: the one tag a diary post adds to your output. Its body is the word unrestricted, or one token from this list without the name after it. An interface token covers everything on that interface. A place token covers that place and everything under it. A token that is not listed keeps the post in your diary and publishes it nowhere. Material from a private source stays restricted whatever you choose.",
+      "audienceRefused": "Your post of {date} ({gist}) stays in your diary and went to no mirror, because its audience tag could not be read: {reason}.",
+      "audienceReasons": {
+        "audience-unknown-place": "the place it named is not in your publication places",
+        "audience-unknown-interface": "the interface it named is not in your publication places",
+        "audience-malformed": "it held something other than one listed token, or two different ones"
+      }
     },
     "memory": {
       "privateChannel": "private chat",
@@ -573,7 +580,9 @@
         "review": "A review of {task}: {decision} {scope}{note}",
         "reviewNote": ": {note}",
         "board": "The board's word on {task}: {kind} {status}{reason}",
-        "watcher": "The watcher's report of {day}. What it wrote for the owner:\n{forOwner}\nThe tasks it filed:\n{tasksFiled}"
+        "watcher": "What the watcher filed in its report of {day}:\n{findings}",
+        "watcherFinding": "{title} ({state}{task})",
+        "watcherTask": ", task {task}"
       }
     },
     "journal": {
@@ -829,6 +838,7 @@
       "diagnostics": {
         "retiredTag": "A {tag} tag in your answer was cut out. That tag is no longer in use; call the tool directly.",
         "messageCut": "Your message was too long and lost its last {chars} characters",
+        "msgMalformed": "Message tags out of place in your answer: {count}. Your text was split or ended at those tags, and none of them was posted. Close each <msg> before you open the next.",
         "messagesMerged": "{count} of your messages were merged into the last one",
         "thinkUnclosed": "Your thinking was never closed, so nothing was posted"
       },
@@ -980,10 +990,11 @@
     "selfimprovement": {
       "check": {
         "gh-missing": "Self-development needs the GitHub CLI, and there is no gh on her PATH. Install gh and run setup again.",
-        "gh-logged-out": "gh is not logged in under her own gh home, subharness/gh in the private folder. Run gh auth login with GH_CONFIG_DIR set to that folder, then run setup again.",
-        "no-push": "Her gh login cannot push to {repository}. Fork it, name the fork in selfimprovement.repository and run setup again.",
+        "gh-logged-out": "gh is not logged in on this system. Run gh auth login as the user the units run as, then run setup again.",
+        "no-push": "The system's gh login cannot push to {repository}. Fork it, name the fork in selfimprovement.repository and run setup again.",
         "repository-unset": "selfimprovement.repository names no repository as owner/name, so her pull requests have nowhere to go. Run setup to name one.",
-        "failed": "gh gave no usable answer about {repository}. Check the name and that GitHub is reachable, then try again."
+        "failed": "gh gave no usable answer about {repository}. Check the name and that GitHub is reachable, then try again.",
+        "no-modules": "The development checkout has no node_modules, so the tests of a task cannot run. Run npm install in selfimprovement.checkout, then unblock the task."
       }
     }
   }

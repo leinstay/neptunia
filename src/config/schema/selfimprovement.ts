@@ -8,7 +8,8 @@ export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
     'types': ['boolean'],
     'reader': 'src/selfimprovement/settings.ts',
     'default': true,
-    'text': 'Whether the selfimprovement wake falls due and the beat of the executor works. Off, neither starts',
+    'text':
+      'Whether the selfimprovement wake falls due. A task already filed goes on, because the development worker depends on the board alone',
   },
   {
     'key': 'selfimprovement.mode',
@@ -31,7 +32,7 @@ export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/setup/run.ts',
     'default': null,
     'text':
-      'The absolute path of the dev checkout that `neptunia setup` renders `neptunia-selfimprovement.service` and its timer over, so the beat works there. Setup renders no selfimprovement units while it is unset, relative or the deployed checkout itself',
+      "The absolute path of the dev checkout the development worker works on: its working repository, with one worktree per task under `.worktrees/`. The worker's own code runs from the install. Setup renders no development unit while it is unset, relative or the deployed checkout itself",
   },
   {
     'key': 'selfimprovement.repository',
@@ -39,7 +40,7 @@ export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/selfimprovement/settings.ts',
     'default': null,
     'text':
-      'The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there. While it is unset every selfimprovement beat pauses',
+      "The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when the system's gh login can push there, so someone else's installation names a fork. While it is unset a filed task blocks with that reason",
   },
   {
     'key': 'selfimprovement.schedule',

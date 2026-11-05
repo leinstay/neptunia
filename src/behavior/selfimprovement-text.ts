@@ -142,15 +142,28 @@ function newsLines(facts: SelfimprovementFacts, l: Obj): Array<string> {
         task: row.taskId,
         kind: row.kind,
         status: row.status ?? '',
-        reason: reasonOf(l, row.closeReason),
+        reason: reasonOf(l, row.closeReason ?? row.blockedReason ?? null),
       })
     ),
   ];
 }
 
+/** The watcher's block: the titles of what it filed, each with the state of its receipt. */
+function watcherLine(facts: SelfimprovementFacts, l: Obj): string {
+  if (!facts.watcher) return '';
+  const findings = facts.watcher.findings.map((one) =>
+    word(l, 'watcherFinding', {
+      title: oneLine(one.title),
+      state: one.state,
+      task: one.taskId === null ? '' : word(l, 'watcherTask', { task: one.taskId }),
+    })
+  );
+  return word(l, 'watcher', { day: facts.watcher.day, findings: findings.join('\n') });
+}
+
 /**
  * The lines of the facts: the cause, the window, the shapes, the repeated needs and failed calls, the tools never called, the skills, the proposals, the
- * news and the watcher's newest report (one block under `watcher`, left out without the report or the label).
+ * news and what the watcher's newest report filed (one block under `watcher`, left out without findings or the label).
  */
 export function selfimprovementLines(
   facts: SelfimprovementFacts | null | undefined,
@@ -170,7 +183,7 @@ export function selfimprovementLines(
     ...skillLines(facts, l),
     ...proposalLines(facts, l),
     ...newsLines(facts, l),
-    facts.watcher ? word(l, 'watcher', { ...facts.watcher }) : '',
+    watcherLine(facts, l),
   ].filter((line) => line !== '');
 }
 
