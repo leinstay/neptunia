@@ -62,6 +62,16 @@ The authenticated owner CLI has a separate internal view across stored memory. T
 
 [Scope resolution](../src/memory/db/scope.ts) controls visibility. [Recall](../src/memory/db/recall.ts) applies scope and place filters before ranking, limits and surrounding message windows.
 
+## Searches and backups off the main thread
+
+`searchRecord` in `src/memory/db/service.ts` runs a search of the record on the reader thread (`src/memory/db/reader-worker.ts`) and answers what `search` in `src/memory/db/recall.ts` answers over the same rows. The thread holds one read-only connection, takes no lock and refuses every message but `open`, `places`, `search` and `close`. The caller's callbacks stay on the main thread: `allowPlace` judges the list `visiblePlaces` gives before the search, and `nameOf` and `channelNameOf` fill in the names `searchMarked` marked once the answer is back. A service without a worker searches on its own connection.
+
+Searches wait in `src/memory/db/reader-client.ts`, and one runs at a time. An aborted signal rejects a search with `SEARCH_ABANDONED`. When the abandoned search is the one running, its thread is terminated and a new one opens, so the searches behind it are still answered. A thread that dies rejects its search with `WORKER_EXIT` and logs `memory db: reader exited`, and the next search starts a new thread. A closed database rejects with `DB_CLOSED`. The core opens the reader with the database and closes it before the writer, because a read-only connection that closes last leaves the WAL behind.
+
+The memory prefetch searches under `recall.prefetch.deadlineMs` and the persona's own search under `recall.timeoutMs`. Each aborts its signal at that deadline and goes on with what it has. A failure logs `recall: prefetch failed` or `recall: failed` with its `code`. A memory that offers only `database()` is searched synchronously.
+
+The daily backup runs on the writer thread, and `pruneBackups` in `src/memory/db/backup.ts` deletes old backups through the asynchronous `fs`. The owner's `/memory backup` runs `backupInWorker`, which opens a read-only connection on a thread of its own (`src/memory/db/backup-worker.ts`).
+
 ## Learning and remembering
 
 Source messages are the evidence. A memory session reads a window and proposes claims, episodes and affinity changes. The writer validates references and applies accepted changes transactionally. A claim records what was learned and the sources supporting it; its versions preserve changes over time.

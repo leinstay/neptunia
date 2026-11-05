@@ -97,7 +97,7 @@ import type {
  * `trivial` and `deictic` are matching data (folded phrases and words), never wording she reads.
  */
 export const PREFETCH_DEFAULTS = Object.freeze({
-  deadlineMs: 1000,
+  deadlineMs: 15000,
   candidates: 20,
   maxExcerpts: 5,
   maxTokens: 1500,
