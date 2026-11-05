@@ -78,7 +78,7 @@ test('an old task the owner admits runs', async (t) => {
 test('a proposal of hers filed before the boundary is not approved by the worker', async (t) => {
   // Catches: the intake turns an old fix of hers into new approved work the boundary then calls fresh.
   const world = developmentWorld(t);
-  const answer = await herCalls(world.caller)('board.propose', { ...FIX_REQUEST, kind: 'fix' });
+  const answer = await herCalls(world.caller)('task.propose', { ...FIX_REQUEST, kind: 'fix' });
   const id = String((answer.data as { task: { id: string } }).task.id);
   world.advance(MINUTE);
   bounded(world, T0 + MINUTE);
@@ -170,7 +170,7 @@ test('a dev task whose work will not merge fails with that, and the thinker stil
 test('past the most thinker turns the task blocks with the reason to her, and her unblock gives new turns', async (t) => {
   // Catches: a thinker that files a task every turn spends for ever.
   const world = developmentWorld(t);
-  const answer = await herCalls(world.caller)('board.propose', { ...FIX_REQUEST, kind: 'fix' });
+  const answer = await herCalls(world.caller)('task.propose', { ...FIX_REQUEST, kind: 'fix' });
   const id = String((answer.data as { task: { id: string } }).task.id);
   world.deps.settings = () => ({ mode: world.mode, base: world.base, repository: world.repository, thinkerTurns: 2 });
   let filed = 0;
@@ -185,7 +185,7 @@ test('past the most thinker turns the task blocks with the reason to her, and he
   assert.match(world.show(id).task.blocked_reason ?? '', /thinker-turns/);
   const rows = world.board.call('persona', 'outbox.pull', { to_whom: 'persona:self' });
   assert.ok(rows.some((row) => row.kind === 'blocked' && row.task_id === id));
-  await herCalls(world.caller)('board.unblock', { id, note: 'One more try.' });
+  await herCalls(world.caller)('task.unblock', { id, note: 'One more try.' });
   await settle(worker);
   assert.equal(world.runsOf('thinker').length, 3);
   assert.equal(statusOf(world, id), 'needs_validation');

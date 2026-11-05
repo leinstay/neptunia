@@ -299,7 +299,7 @@ export async function readJournalLines(
 
 const asText = (value: unknown): string => (typeof value === 'string' ? value : '');
 
-/** The kind of a proposal, from the metadata `board.propose` wrote. */
+/** The kind of a proposal, from the metadata `task.propose` wrote. */
 function kindOf(task: ProposalEntry['task']): 'skill' | 'fix' | null {
   const kind = task.metadata?.kind;
   return kind === 'skill' || kind === 'fix' ? kind : null;

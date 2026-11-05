@@ -249,12 +249,12 @@ test('refuses to run without --dry-run or --apply, and touches nothing', () => {
 
 // ---- the errand and intention names ---------------------------------------------------------------------------
 
+// `task.status` and `task.cancel` are not listed: those names now belong to the board tools (tests/tools-task-rename.test.ts),
+// and production moved the old errand grants under them to `errand.*` before the rename.
 const TOOL_GRANT_MOVES: Array<[string, string]> = [
   ['task.run', 'errand.run'],
-  ['task.status', 'errand.status'],
   ['task.read', 'errand.read'],
   ['task.resolve', 'errand.resolve'],
-  ['task.cancel', 'errand.cancel'],
   ['task.list', 'errand.list'],
   ['intent.set', 'intention.set'],
   ['intent.update', 'intention.update'],
@@ -692,10 +692,10 @@ test('moves the whole diary section to selfreflection, diary.set with it, and dr
 test('moves selfdev and innerLife.wakes.selfimprovement into selfimprovement, the wake limits with them', () => {
   const { config } = moveConfigKeys({
     selfdev: { mode: 'auto', repository: 'me/fork' },
-    innerLife: { wakes: { selfimprovement: { everyDays: 3, tools: ['board.propose'] }, review: { maxActs: 1 } } },
+    innerLife: { wakes: { selfimprovement: { everyDays: 3, tools: ['task.propose'] }, review: { maxActs: 1 } } },
   });
   assert.deepEqual(config, {
-    selfimprovement: { mode: 'auto', repository: 'me/fork', everyDays: 3, tools: ['board.propose'] },
+    selfimprovement: { mode: 'auto', repository: 'me/fork', everyDays: 3, tools: ['task.propose'] },
     wakes: { kinds: { review: { maxActs: 1 } } },
   });
 });
@@ -745,11 +745,11 @@ test('cuts an old diary.set and innerLife.heartbeat.people of the local file at 
 });
 
 test('reads an old innerLife.wakes.selfimprovement.tools of the local file as selfimprovement.tools at load', async () => {
-  const root = deployment({ innerLife: { wakes: { selfimprovement: { tools: ['board.propose'] } } } });
+  const root = deployment({ innerLife: { wakes: { selfimprovement: { tools: ['task.propose'] } } } });
   const { result } = await withCapturedLogs(
     () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
   );
-  assert.deepEqual(result.selfimprovement, { tools: ['board.propose'] });
+  assert.deepEqual(result.selfimprovement, { tools: ['task.propose'] });
 });
 
 test('moves the rest of innerLife to wakes, the wake engine every kind shares, a cut key with it', () => {

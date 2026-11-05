@@ -1,5 +1,5 @@
-// Her task tools (src/tools/impl/board.ts): `board.propose` files a dev task on the board as `proposed`, with her
-// evidence as its description and `persona:self` as its requester, and `board.status` reads back the tasks filed for
+// Her task tools (src/tools/impl/board.ts): `task.propose` files a dev task on the board as `proposed`, with her
+// evidence as its description and `persona:self` as its requester, and `task.status` reads back the tasks filed for
 // her with their questions and reviews. The core's board runs her calls as the builtin principal `persona`, whose
 // only board role is `persona` whatever clients.json says, so she never approves, reviews or merges. Neither tool is
 // granted to her in the tracked config. A memory database in memory, a fake clock, the operations' environment with a
@@ -98,8 +98,8 @@ function setUp(t: { after: (fn: () => void) => void }): {
   return {
     board,
     propose: async (args, extra = {}) =>
-      (await withCapturedLogs(() => runOp('board.propose', args, context(extra)))).result,
-    status: async () => (await withCapturedLogs(() => runOp('board.status', {}, context()))).result,
+      (await withCapturedLogs(() => runOp('task.propose', args, context(extra)))).result,
+    status: async () => (await withCapturedLogs(() => runOp('task.status', {}, context()))).result,
   };
 }
 
@@ -119,7 +119,7 @@ function statusEntries(
 ): Array<{ task: TaskRecord; questions: Array<unknown>; reviews: Array<unknown> }> {
   assert.equal(result.status, 'ok', result.summary ?? '');
   assert.ok(isRecord(result.data) && Array.isArray(result.data.tasks), 'the data lists tasks');
-  // board.status answers one entry per task filed for her, each with the board's TaskRecord and its rows.
+  // task.status answers one entry per task filed for her, each with the board's TaskRecord and its rows.
   return result.data.tasks as Array<{ task: TaskRecord; questions: Array<unknown>; reviews: Array<unknown> }>;
 }
 
@@ -133,7 +133,7 @@ function codeOf(fn: () => unknown): string {
   }
 }
 
-test('board.propose files a proposed dev task with her as requester and her evidence as its description', async (t) => {
+test('task.propose files a proposed dev task with her as requester and her evidence as its description', async (t) => {
   const { board, propose } = setUp(t);
   const id = proposedId(
     await propose({ title: 'Read the new tag', evidence: 'Three replies today dropped the tag the owner asked for.' })
@@ -146,7 +146,7 @@ test('board.propose files a proposed dev task with her as requester and her evid
   assert.equal(task.description, 'Three replies today dropped the tag the owner asked for.');
 });
 
-test('board.propose without evidence is invalid and files nothing beside the proposal that had it', async (t) => {
+test('task.propose without evidence is invalid and files nothing beside the proposal that had it', async (t) => {
   const { board, propose } = setUp(t);
   const filed = proposedId(await propose({ title: 'With evidence', evidence: 'Dropped three times.' }));
   assert.equal((await propose({ title: 'Read the new tag' })).status, 'invalid');
@@ -156,7 +156,7 @@ test('board.propose without evidence is invalid and files nothing beside the pro
   );
 });
 
-test('board.propose retried under the idempotency key of her call files one task', async (t) => {
+test('task.propose retried under the idempotency key of her call files one task', async (t) => {
   const { board, propose } = setUp(t);
   const args = { title: 'Read the new tag', evidence: 'Dropped three times.' };
   const first = proposedId(await propose(args, { idempotencyKey: 'turn-7:0' }));
@@ -165,7 +165,7 @@ test('board.propose retried under the idempotency key of her call files one task
   assert.equal(board.call('boss', 'task.list', {}).length, 1);
 });
 
-test('board.status lists only the tasks filed for her, with the review that rejected one and its note', async (t) => {
+test('task.status lists only the tasks filed for her, with the review that rejected one and its note', async (t) => {
   const { board, propose, status } = setUp(t);
   const mine = proposedId(await propose({ title: 'Read the new tag', evidence: 'Dropped three times.' }));
   board.call('boss', 'task.add', { title: "the owner's own", lane: 'dev', project: 'core' });
@@ -182,7 +182,7 @@ test('board.status lists only the tasks filed for her, with the review that reje
   assert.equal(review.note, 'Not this week.');
 });
 
-test('board.status shows a question a worker addressed to her on her task', async (t) => {
+test('task.status shows a question a worker addressed to her on her task', async (t) => {
   const { board, propose, status } = setUp(t);
   const mine = proposedId(await propose({ title: 'Read the new tag', evidence: 'Dropped three times.' }));
   const proposed = board.call('boss', 'task.show', { id: mine }).task;
@@ -206,7 +206,7 @@ test('board.status shows a question a worker addressed to her on her task', asyn
   assert.equal(question.answered_at, null);
 });
 
-test('board.status answers an empty list when she has filed nothing', async (t) => {
+test('task.status answers an empty list when she has filed nothing', async (t) => {
   const { status } = setUp(t);
   assert.deepEqual(statusEntries(await status()), []);
 });
@@ -247,15 +247,15 @@ test('her board principal never approves, reviews or merges, even when clients.j
 
 test('her task tools exist and the tracked config grants neither to her', () => {
   const names = SKILL_DEFINITIONS.map((definition) => definition.name);
-  assert.ok(names.includes('board.propose'));
-  assert.ok(names.includes('board.status'));
+  assert.ok(names.includes('task.propose'));
+  assert.ok(names.includes('task.status'));
   // PR 7c: the shipped settings live in config/config.json.
   const tracked: unknown = JSON.parse(fs.readFileSync(path.join(REPO, 'config', 'config.json'), 'utf8'));
-  assert.equal(grantedToPersona(tracked, SELF_ID, 'board.propose'), false);
-  assert.equal(grantedToPersona(tracked, SELF_ID, 'board.status'), false);
+  assert.equal(grantedToPersona(tracked, SELF_ID, 'task.propose'), false);
+  assert.equal(grantedToPersona(tracked, SELF_ID, 'task.status'), false);
 });
 
-test('board.propose answers failed board-unavailable when the core has no board', async () => {
+test('task.propose answers failed board-unavailable when the core has no board', async () => {
   const hot = {
     config: { bot: { owners: ['42'], access: {} }, features: {} },
     prompts: { labels: {} },
@@ -273,14 +273,14 @@ test('board.propose answers failed board-unavailable when the core has no board'
     board: null,
   });
   const { result } = await withCapturedLogs(() =>
-    runOp('board.propose', { title: 'x', evidence: 'y' }, { env, placeId: 'g1', accountId: null, actor: 'persona' })
+    runOp('task.propose', { title: 'x', evidence: 'y' }, { env, placeId: 'g1', accountId: null, actor: 'persona' })
   );
   const answer = result as Result;
   assert.equal(answer.status, 'failed');
   assert.equal(answer.code, 'board-unavailable');
 });
 
-test('board.propose of kind skill keeps the examples, counterexamples, benefit and evaluation case in the task', async (t) => {
+test('task.propose of kind skill keeps the examples, counterexamples, benefit and evaluation case in the task', async (t) => {
   const { board, propose } = setUp(t);
   const id = proposedId(
     await propose({
@@ -303,7 +303,7 @@ test('board.propose of kind skill keeps the examples, counterexamples, benefit a
   });
 });
 
-test('board.propose of kind fix with no counterexamples stores an empty list', async (t) => {
+test('task.propose of kind fix with no counterexamples stores an empty list', async (t) => {
   const { board, propose } = setUp(t);
   const id = proposedId(
     await propose({
@@ -318,7 +318,7 @@ test('board.propose of kind fix with no counterexamples stores an empty list', a
   assert.deepEqual(board.call('boss', 'task.show', { id }).task.metadata?.counterexamples, []);
 });
 
-test('board.propose with a kind but no examples, no benefit or no evaluation case is invalid and files nothing', async (t) => {
+test('task.propose with a kind but no examples, no benefit or no evaluation case is invalid and files nothing', async (t) => {
   const { board, propose } = setUp(t);
   const whole = { title: 'x', evidence: 'y', kind: 'skill', examples: ['t-1'], benefit: 'b', evaluation: 'e' };
   for (const missing of ['examples', 'benefit', 'evaluation']) {
@@ -330,7 +330,7 @@ test('board.propose with a kind but no examples, no benefit or no evaluation cas
   assert.deepEqual(board.call('boss', 'task.list', {}), []);
 });
 
-test('board.propose with a kind outside skill and fix, or with the extra fields and no kind, is invalid', async (t) => {
+test('task.propose with a kind outside skill and fix, or with the extra fields and no kind, is invalid', async (t) => {
   const { propose } = setUp(t);
   const base = { title: 'x', evidence: 'y' };
   assert.equal(

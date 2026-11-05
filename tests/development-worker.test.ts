@@ -40,9 +40,9 @@ const statusOf = (world: DevelopmentWorld, id: string): TaskRecord['status'] => 
 const hasGitCall = (world: DevelopmentWorld, ...words: ReadonlyArray<string>): boolean =>
   world.git.some((call) => words.every((word) => call.args.includes(word)));
 
-/** Her `board.propose` of a kind, through her tool; the task id. */
+/** Her `task.propose` of a kind, through her tool; the task id. */
 async function herProposal(world: DevelopmentWorld, kind: 'fix' | 'skill'): Promise<string> {
-  const answer = await herCalls(world.caller)('board.propose', { ...FIX_REQUEST, kind });
+  const answer = await herCalls(world.caller)('task.propose', { ...FIX_REQUEST, kind });
   assert.equal(answer.status, 'ok', answer.summary ?? '');
   return String((answer.data as { task: { id: string } }).task.id);
 }
@@ -302,7 +302,7 @@ test('her answer resumes the task: the thinker runs again on its branch and read
   const worker = world.worker();
   await settle(worker);
   const questionId = String(world.show(id).questions[0]?.id);
-  const answer = await herCalls(world.caller)('board.answer', { question_id: questionId, text: 'Fifteen seconds.' });
+  const answer = await herCalls(world.caller)('task.answer', { question_id: questionId, text: 'Fifteen seconds.' });
   assert.equal(answer.status, 'ok', answer.summary ?? '');
   await settle(worker);
   const [first, second] = world.runsOf('thinker');
@@ -321,7 +321,7 @@ test('an answer resumes exactly once when two workers wake on it', async (t) => 
   };
   const [one, two] = [world.worker(), world.worker()];
   await settle(one);
-  await herCalls(world.caller)('board.answer', {
+  await herCalls(world.caller)('task.answer', {
     question_id: String(world.show(id).questions[0]?.id),
     text: 'Fifteen seconds.',
   });
@@ -352,7 +352,7 @@ test('a block by the thinker keeps its reason, and her unblock runs the thinker 
   assert.equal(world.show(id).task.blocked_reason, 'The fixture is missing.');
   assert.equal(world.created, 0);
   const { branch } = persisted(world, id);
-  const answer = await herCalls(world.caller)('board.unblock', { id, note: 'The fixture is in tests/fixtures.' });
+  const answer = await herCalls(world.caller)('task.unblock', { id, note: 'The fixture is in tests/fixtures.' });
   assert.equal(answer.status, 'ok', answer.summary ?? '');
   await settle(worker);
   const [first, second] = world.runsOf('thinker');
@@ -670,7 +670,7 @@ test('her filed fix starts development at the next board event, and a proposal w
   // Catches: filed work waits for her wake or a timer; a loose idea of hers runs as development.
   const world = developmentWorld(t);
   const fix = await herProposal(world, 'fix');
-  const answer = await herCalls(world.caller)('board.propose', { title: 'An idea', evidence: 'Something I noticed.' });
+  const answer = await herCalls(world.caller)('task.propose', { title: 'An idea', evidence: 'Something I noticed.' });
   const idea = String((answer.data as { task: { id: string } }).task.id);
   await settle(world.worker());
   assert.equal(world.runsOf('thinker').length, 1);

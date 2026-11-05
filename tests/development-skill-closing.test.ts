@@ -13,7 +13,7 @@ const TASK = { id: 'T-1' } as TaskRecord;
 const BINDING = { skill: 'say-it', versionId: 'skillver:say-it:abc' };
 
 async function herSkillTask(world: DevelopmentWorld): Promise<string> {
-  const answer = await herCalls(world.caller)('board.propose', { ...FIX_REQUEST, kind: 'skill' });
+  const answer = await herCalls(world.caller)('task.propose', { ...FIX_REQUEST, kind: 'skill' });
   assert.equal(answer.status, 'ok', answer.summary ?? '');
   return String((answer.data as { task: { id: string } }).task.id);
 }

@@ -4,9 +4,9 @@
 // task that needs her answer shows once per new question. A real board; her tools as the operations run them.
 //
 // The signatures these tests hold the code to, in src/tools/impl/board.ts, src/tools/definitions.ts and config/tools.json:
-// - `board.cancel { id, reason }`: `task.transition` to `cancelled`, as `persona`, at the task's current revision.
-// - `board.comment { id, text }`: `task.comment`, as `persona`.
-// - `board.answer { id, text }`: `id` is the task, as the wake text names it; it answers the open question addressed to
+// - `task.cancel { id, reason }`: `task.transition` to `cancelled`, as `persona`, at the task's current revision.
+// - `task.comment { id, text }`: `task.comment`, as `persona`.
+// - `task.answer { id, text }`: `id` is the task, as the wake text names it; it answers the open question addressed to
 //   `persona:self` on that task through `task.answer`, as `persona`, and is refused `not-found` when there is none.
 // - The wake's clock: `state.selfimprovement.lastAt` moves to the moment the wake's view was read, so a question made
 //   after the wake fell due and before its turn ran shows in that turn only.
@@ -81,22 +81,22 @@ test('guard: as persona the board refuses to approve, review or unblock', async 
 
 test('her tools for the three answers are registered', () => {
   // Bug: the board allows it and no tool reaches it, so the wake shows a question she cannot answer.
-  for (const name of ['board.cancel', 'board.comment', 'board.answer']) assert.ok(skillRegistry().has(name), name);
+  for (const name of ['task.cancel', 'task.comment', 'task.answer']) assert.ok(skillRegistry().has(name), name);
 });
 
-test('board.cancel cancels her task with her reason', async (t) => {
+test('task.cancel cancels her task with her reason', async (t) => {
   // Bug: the tool needs a revision she has no way to know, so every cancel comes back stale.
   const world = selfimprovementWorld(t);
   const one = await filed(world);
   await world.caller.call('persona', 'task.comment', { id: one.id, text: 'A revision moved.' });
-  const answer = await herCalls(world.caller)('board.cancel', { id: one.id, reason: 'I no longer need it.' });
+  const answer = await herCalls(world.caller)('task.cancel', { id: one.id, reason: 'I no longer need it.' });
   assert.equal(answer.status, 'ok', answer.summary ?? '');
   const { task } = await show(world, one.id);
   assert.equal(task.status, 'cancelled');
   assert.equal(task.close_reason, 'I no longer need it.');
 });
 
-test('board.cancel leaves a task that is not hers alone', async (t) => {
+test('task.cancel leaves a task that is not hers alone', async (t) => {
   // Bug: acting for `persona:self` reaches another requester's task through the shared board role.
   const world = selfimprovementWorld(t);
   const other = await world.caller.call('selfimprovement', 'task.add', {
@@ -104,16 +104,16 @@ test('board.cancel leaves a task that is not hers alone', async (t) => {
     title: 'Not hers',
     description: 'e',
   });
-  const answer = await herCalls(world.caller)('board.cancel', { id: other.id, reason: 'mine now' });
+  const answer = await herCalls(world.caller)('task.cancel', { id: other.id, reason: 'mine now' });
   assert.equal(answer.status, 'denied');
   assert.notEqual((await show(world, other.id)).task.status, 'cancelled');
 });
 
-test('board.comment writes her comment and leaves the status', async (t) => {
+test('task.comment writes her comment and leaves the status', async (t) => {
   // Bug: a comment moves the task or is recorded under another principal.
   const world = selfimprovementWorld(t);
   const { id } = await asked(world);
-  const answer = await herCalls(world.caller)('board.comment', { id, text: 'Use the smaller plan.' });
+  const answer = await herCalls(world.caller)('task.comment', { id, text: 'Use the smaller plan.' });
   assert.equal(answer.status, 'ok', answer.summary ?? '');
   const view = await show(world, id);
   assert.equal(view.task.status, 'needs_answer');
@@ -121,11 +121,11 @@ test('board.comment writes her comment and leaves the status', async (t) => {
   assert.equal(view.comments.at(-1)?.author, 'persona');
 });
 
-test('board.answer accepts the proposal: the question is answered and the holder goes on', async (t) => {
+test('task.answer accepts the proposal: the question is answered and the holder goes on', async (t) => {
   // Bug: the wake text names the task and the tool wants a question id she never sees.
   const world = selfimprovementWorld(t);
   const { id } = await asked(world);
-  const answer = await herCalls(world.caller)('board.answer', { id, text: 'Accepted.' });
+  const answer = await herCalls(world.caller)('task.answer', { id, text: 'Accepted.' });
   assert.equal(answer.status, 'ok', answer.summary ?? '');
   const view = await show(world, id);
   assert.equal(view.task.status, 'in_progress');
@@ -133,14 +133,14 @@ test('board.answer accepts the proposal: the question is answered and the holder
   assert.equal(view.questions[0]?.answered_by, 'persona');
 });
 
-test('board.answer on a task with no question for her is refused, and a question for the owner stays his', async (t) => {
+test('task.answer on a task with no question for her is refused, and a question for the owner stays his', async (t) => {
   // Bug: she answers for the owner, or an answer on a task nobody asked about moves it.
   const world = selfimprovementWorld(t);
   const quiet = await filed(world);
   const her = herCalls(world.caller);
-  assert.equal((await her('board.answer', { id: quiet.id, text: 'yes' })).status, 'failed');
+  assert.equal((await her('task.answer', { id: quiet.id, text: 'yes' })).status, 'failed');
   const { id } = await asked(world, 'owner');
-  const refused = await her('board.answer', { id, text: 'yes' });
+  const refused = await her('task.answer', { id, text: 'yes' });
   assert.notEqual(refused.status, 'ok');
   assert.equal((await show(world, id)).task.status, 'needs_answer');
 });

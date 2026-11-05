@@ -48,11 +48,11 @@ const GRANTED = [
   'skill.read',
   'skill.run',
   'skill.disable',
-  'board.propose',
-  'board.status',
-  'board.cancel',
-  'board.comment',
-  'board.answer',
+  'task.propose',
+  'task.status',
+  'task.cancel',
+  'task.comment',
+  'task.answer',
 ];
 
 export type WakeTurn = {
