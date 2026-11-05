@@ -410,8 +410,13 @@ export class ChatController {
     } else if (turn.state !== 'queued' && turn.state !== 'accepted') {
       this.update({ entries: this.model.entries.filter((one) => one.id !== liveId) });
     }
-    if (event.type === 'failed') this.say(`Her turn over this line failed (${turn.code ?? 'unknown'}).`);
-    if (event.type === 'cancelled') this.say('Her turn over this line was cancelled.');
+    if (event.type === 'failed')
+      this.say(
+        turn.code === 'no-own-turn'
+          ? 'No turn of its own followed this line: she read it with the others, or the core left it.'
+          : `Her turn over this line failed (${turn.code ?? 'unknown'}).`
+      );
+    if (event.type === 'cancelled') this.say('Her turn over this line was cancelled. The line stays said.');
   }
 
   /** The transcript of a resumed or branched conversation. The draft stays as it is. */

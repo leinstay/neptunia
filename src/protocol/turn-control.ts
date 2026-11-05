@@ -43,7 +43,6 @@ export type TurnEvent = {
 export type TurnAction =
   | { kind: 'turn.cancel'; turnId: string }
   | { kind: 'turn.remove'; turnId: string }
-  | { kind: 'turn.edit'; turnId: string; text: string }
   | { kind: 'turn.replay'; after: number }
   | { kind: 'turn.queue' };
 
@@ -68,16 +67,13 @@ export function readTurnEvent(value: unknown): TurnEventReading {
 /** The action in `value`, or why it is none. A chat action reaches the turns alone, never an errand or the watcher. */
 export function readTurnAction(value: unknown): TurnActionReading {
   if (!isObject(value)) return { ok: false, reason: 'action:type' };
-  const { kind, turnId, text, after } = value;
+  const { kind, turnId, after } = value;
   if (kind === 'turn.queue') return { ok: true, action: { kind } };
   if (kind === 'turn.replay') {
     if (typeof after !== 'number' || !Number.isInteger(after)) return { ok: false, reason: 'after:required' };
     return { ok: true, action: { kind, after } };
   }
-  if (kind !== 'turn.cancel' && kind !== 'turn.remove' && kind !== 'turn.edit')
-    return { ok: false, reason: 'kind:unknown' };
+  if (kind !== 'turn.cancel' && kind !== 'turn.remove') return { ok: false, reason: 'kind:unknown' };
   if (!isFilled(turnId)) return { ok: false, reason: 'turnId:required' };
-  if (kind !== 'turn.edit') return { ok: true, action: { kind, turnId } };
-  if (typeof text !== 'string') return { ok: false, reason: 'text:required' };
-  return { ok: true, action: { kind, turnId, text } };
+  return { ok: true, action: { kind, turnId } };
 }

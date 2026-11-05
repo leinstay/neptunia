@@ -26,9 +26,8 @@
 // as the text. A line taken while the core is paused has no turn yet, so it is answered `paused` at once. A client
 // waiting for no such result ignores it.
 //
-// Every line of the command line goes through the chat's turn control (src/interface/chat-turns.ts), so a second line waits
-// for the end of the first and can be edited or cancelled until then. The `turn.*` commands of the `cli` principal reach it,
-// and a `chatCommands` dependency answers the chat's other reads (sessions, approvals, checkpoints).
+// Every line of the command line goes through the door when it arrives, and src/interface/chat-turns.ts tracks the state of its
+// turn for the client. The `turn.*` commands of the `cli` principal reach it, and a `chatCommands` dependency answers the chat's other reads (sessions, approvals, checkpoints).
 
 import fs from 'node:fs';
 import { roleModel } from '../llm/roles.ts';
@@ -387,9 +386,6 @@ const KEPT_LINES = 64;
 /** The prefix of the commands that reach the turn control. */
 const TURN_PREFIX = 'turn.';
 
-/** The queue without a setting: the default of `cli.queue.capacity`. */
-const DEFAULT_QUEUE = 8;
-
 /** The turn outcomes that are an answer to the line: she spoke, or chose silence. */
 const ANSWERED: ReadonlySet<string> = new Set(['spoke', 'skip']);
 
@@ -399,8 +395,8 @@ export function createCommandIntake(deps: {
   desk(): Desk | null;
   /** Whether the core holds a new line instead of starting a turn over it; absent, it never does. */
   linesHeld?(): boolean;
-  /** How many lines wait behind a running turn (`cli.queue.capacity`), read at each line. */
-  queueCapacity?(): number;
+  /** Whether a turn runs anywhere now; absent, none does. */
+  isAnyTurnRunning?(): boolean;
   /** The chat's other reads (src/interface/commands/chat-state.ts): an answer, or null for a name it does not own. */
   chatCommands?(name: string, args: Record<string, unknown>): Promise<Answer> | null;
   log: Logger;
@@ -420,7 +416,7 @@ export function createCommandIntake(deps: {
   const turns = createChatTurns({
     door: deps.door,
     linesHeld: () => deps.linesHeld?.() === true,
-    capacity: () => deps.queueCapacity?.() ?? DEFAULT_QUEUE,
+    isAnyTurnRunning: () => deps.isAnyTurnRunning?.() === true,
     log: deps.log,
   });
   let chatLink: AdapterLink | null = null;
@@ -445,7 +441,7 @@ export function createCommandIntake(deps: {
       lines.delete(oldest);
     }
     const message = looseOf(body.message);
-    // The door refuses what it refuses at once: a malformed line never takes a place in the queue.
+    // A malformed line goes to the door alone, which refuses it: it has no turn to track.
     if (!validateEvent(body).ok) return deps.door.receive(value, from);
     return turns.take({
       id,
@@ -453,6 +449,7 @@ export function createCommandIntake(deps: {
       message,
       ...(from === undefined ? {} : { from }),
       onHeld: () => answerLine(id, 'paused', 'the core is paused: the line waits for /resume'),
+      onNoTurn: () => answerLine(id, 'failed', 'no turn of its own followed this line'),
     });
   }
 

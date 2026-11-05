@@ -631,7 +631,7 @@ async function runInkChat(
       { name: 'attach', help: 'Attach an image file from this machine to the next message' },
       { name: 'attach open', help: 'Open the newest image she sent' },
       { name: 'attach save', help: 'Save the newest image she sent to a file' },
-      { name: 'queue', help: 'Edit or remove the lines waiting behind her running turn' },
+      { name: 'queue', help: 'Cancel the turn over a line that still waits' },
       { name: 'sessions', help: 'List stored conversations and resume one' },
       { name: 'branch', help: 'Continue this conversation from an earlier line' },
       { name: 'checkpoints', help: "Preview and restore a development task's files" },

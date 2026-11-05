@@ -217,7 +217,10 @@ function modelPicker(run: Run): PickerEnv {
   };
 }
 
-/** The lines that wait behind her running turn: a row edits its line, and an empty line takes it out. */
+/**
+ * The lines that wait for their turns. Each one is already said and in memory, so a row takes back its turn and leaves the
+ * line. Its text cannot be edited: she may read it in the next turn's history whatever a row says.
+ */
 async function queuePanel(run: Run): Promise<Panel> {
   const answer = await run({ name: 'turn.queue', args: {} });
   if (answer.status !== 'ok') return { title: 'Queue', lines: [answer.text] };
@@ -225,14 +228,10 @@ async function queuePanel(run: Run): Promise<Panel> {
   const rows = queued.map((one, index): PanelRow => ({
     id: one.turnId,
     label: `${index + 1}. ${one.text.split('\n')[0] ?? ''}`,
-    detail: 'Enter edits this line before its turn starts. An empty line takes it out of the queue.',
+    detail: 'Enter cancels the turn over this line. The line stays said: memory holds it, and she can read it.',
     group: 'Queue',
     value: one.text,
-    edit: { kind: 'text', value: one.text },
-    apply: (next) =>
-      next.trim() === ''
-        ? run({ name: 'turn.remove', args: { turnId: one.turnId } })
-        : run({ name: 'turn.edit', args: { turnId: one.turnId, text: next } }),
+    apply: () => run({ name: 'turn.remove', args: { turnId: one.turnId } }),
   }));
   return { title: 'Queue', lines: rows.length === 0 ? ['No line waits.'] : [], rows };
 }

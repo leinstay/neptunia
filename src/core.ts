@@ -703,10 +703,7 @@ async function buildCore(
     ready: () => doorReady.promise,
     desk: () => commandDesk,
     linesHeld: () => isPausedIn(store),
-    queueCapacity: () => {
-      const capacity = objOf(objOf(objOf(hot.config).cli).queue).capacity;
-      return typeof capacity === 'number' ? capacity : 0;
-    },
+    isAnyTurnRunning: () => turns.isAnyBusy(),
     chatCommands: (name: string, args: Record<string, unknown>) => chatState?.command(name, args) ?? null,
     log,
   });
