@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readKeys } from '../keys/file.ts';
+import { auditMemory } from '../memory/db/audit.ts';
 import { openMemoryDb } from '../memory/db/open.ts';
 import { dbOf } from '../memory/db/types.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
@@ -37,6 +38,7 @@ import {
   readRecordedRuns,
   selfreflectionFacts,
   taskOutcomes,
+  standardFacts,
 } from '../watcher/requests.ts';
 import type { RecordedRunPage } from '../watcher/requests.ts';
 import { watcherSettings } from '../watcher/settings.ts';
@@ -161,11 +163,13 @@ function readMemory<TResult>(deps: ServiceDeps, read: (db: ReturnType<typeof dbO
 }
 
 /** What only the first page of a walk carries, read once per walk: the leftovers, the diary's facts and the CI of `main`. */
-async function firstPageFacts(deps: ServiceDeps) {
+async function firstPageFacts(deps: ServiceDeps, window: { from: number; to: number }) {
   return {
     trash: await trashOf(deps),
     mirrors: readMemory(deps, mirrorFacts),
     selfreflection: readMemory(deps, selfreflectionFacts),
+    standards: readMemory(deps, (db) => standardFacts(db, window)),
+    audit: readMemory(deps, auditMemory),
     ci: await mainCi(deps.run),
   };
 }
@@ -225,7 +229,7 @@ function joinPages(
  * `evidence [--from <iso>] [--cursor <c>]`: the recorded requests, then the Claude transcripts, of the window from the last
  * successful inspection (or `--from`) to now, under `WATCHER_EVIDENCE_MAX_CHARS`, as JSON. The cursor pins the end of the window,
  * so a walk over pages reads one fixed set of runs. The inspection in progress and its session are left out. The first page,
- * the one with no cursor, also carries `trash`, `mirrors`, `selfreflection` and `ci`.
+ * the one with no cursor, also carries `trash`, `mirrors`, `selfreflection`, `standards`, `audit` and `ci`.
  */
 export async function watcherEvidence(
   deps: ServiceDeps,
@@ -254,7 +258,7 @@ export async function watcherEvidence(
     outcome: (session) => recorded.tasks(agents.get(session)?.runId ?? ''),
   });
   const page = joinPages(window, recorded.page, transcripts, flags.sessions);
-  const first = flags.to === null ? await firstPageFacts(deps) : {};
+  const first = flags.to === null ? await firstPageFacts(deps, window) : {};
   return { text: JSON.stringify({ ...page, ...first }), status: 'ok' };
 }
 
