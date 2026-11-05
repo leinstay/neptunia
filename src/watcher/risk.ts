@@ -4,13 +4,14 @@
 // it comes back. A level is the model's opinion, the repeat is a fact. Pure: src/watcher/inspection.ts brings the history.
 
 import { findingLines } from './report.ts';
-import type { FindingLevel } from './report.ts';
+import type { FindingLevel, OpenCounts } from './report.ts';
 
 export type RiskLevel = FindingLevel;
 export type ReportRisk = RiskLevel | 'none';
 export type RiskHistoryEntry = {
   day: string;
-  findings: ReadonlyArray<{ key: string; text: string }>;
+  /** `level` as the report saved it: the level a finding came in at, on its first sighting. */
+  findings: ReadonlyArray<{ key: string; text: string; level?: RiskLevel }>;
   /** Keys resolved by this moment: what was seen before it no longer counts. */
   resolved?: ReadonlyArray<string>;
 };
@@ -20,7 +21,7 @@ export type RatedFinding = {
   level: RiskLevel;
   modelLevel: RiskLevel;
   text: string;
-  repeat: { count: number; firstDay: string } | null;
+  repeat: { count: number; firstDay: string; cameInAt?: RiskLevel } | null;
 };
 export type RiskResult = { findings: Array<RatedFinding>; risk: ReportRisk; newFindings: number; repeats: number };
 
@@ -61,7 +62,7 @@ export function evidenceFingerprint(text: string): string {
   return [...tokens].sort().join(' ');
 }
 
-type Sighting = { key: string; fingerprint: string; day: string };
+type Sighting = { key: string; fingerprint: string; day: string; level?: RiskLevel };
 
 /** Every sighting that still counts, in order: a resolution clears its key and whatever evidence that key had. */
 function sightingsOf(history: ReadonlyArray<RiskHistoryEntry>): Array<Sighting> {
@@ -73,8 +74,13 @@ function sightingsOf(history: ReadonlyArray<RiskHistoryEntry>): Array<Sighting> 
       );
       sightings = sightings.filter((one) => one.key !== key && !evidence.has(one.fingerprint));
     }
-    for (const { key, text } of entry.findings) {
-      sightings.push({ key, fingerprint: evidenceFingerprint(text), day: entry.day });
+    for (const { key, text, level } of entry.findings) {
+      sightings.push({
+        key,
+        fingerprint: evidenceFingerprint(text),
+        day: entry.day,
+        ...(level === undefined ? {} : { level }),
+      });
     }
   }
   return sightings;
@@ -103,7 +109,9 @@ export function applyRiskRules(
     const earlier = repeatsOf(key, evidenceFingerprint(text), sightings);
     const first = earlier[0];
     if (first === undefined) return { key, level, modelLevel: level, text, repeat: null };
-    return { key, level: 'low', modelLevel: level, text, repeat: { count: earlier.length + 1, firstDay: first.day } };
+    const cameInAt = first.level === undefined ? {} : { cameInAt: first.level };
+    const repeat = { count: earlier.length + 1, firstDay: first.day, ...cameInAt };
+    return { key, level: 'low', modelLevel: level, text, repeat };
   });
   const fresh = rated.filter((one) => one.repeat === null);
   return {
@@ -112,6 +120,16 @@ export function applyRiskRules(
     newFindings: fresh.length,
     repeats: rated.length - fresh.length,
   };
+}
+
+/**
+ * What this report holds open, per level. A new finding counts at its level and a repeat at the level of its first sighting,
+ * which is the one saved before the rules lowered it. A finding the report omits is closed.
+ */
+export function openCounts(rated: ReadonlyArray<RatedFinding>): OpenCounts {
+  const counts: OpenCounts = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const one of rated) counts[one.repeat?.cameInAt ?? (one.repeat === null ? one.level : one.modelLevel)] += 1;
+  return counts;
 }
 
 /** The findings of a report's two risk subsections, without a mark and without "Tasks filed". */

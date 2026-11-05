@@ -30,6 +30,13 @@ export const REPORT_SUBHEADINGS = [
   'Unavailable checks',
 ] as const;
 
+/** What only `For the owner` holds, ahead of the shared four: the actions the owner has to take. */
+export const OWNER_SUBHEADINGS = ['Decisions needed', ...REPORT_SUBHEADINGS] as const;
+const OWNER_SECTION = 'For the owner';
+/** The section whose lines cite the turn they speak of, so nothing retells a chat. */
+const TURN_SECTION = 'Misunderstandings';
+const TURN_ID = /(?<![\w-])t-[0-9a-f]{6,}(?![\w-])/;
+
 /** The two subsections whose every line is a finding with its risk. */
 const FINDING_SUBHEADINGS: ReadonlyArray<string> = ['Observed defects', 'Suspicious evidence'];
 /** The section the engine writes its filing lines into, which carry no risk. */
@@ -44,6 +51,7 @@ const LEVEL_LINE = /^\s*- \[(?:critical|high|medium|low)\]/;
 const OTHER_EMPTY = /^(?:none\.?|nothing(?: found)?\.?|n\/a\.?|nil\.?|no findings?\.?)$/i;
 const TITLE = /^# Watcher report (\d{4}-\d{2}-\d{2})$/;
 const COUNTS = /^(\d+), repeats: (\d+)$/;
+const OPEN = /^critical (\d+), high (\d+), medium (\d+), low (\d+)$/;
 const RISKS: ReadonlyArray<string> = ['none', ...FINDING_LEVELS];
 
 /** The rows of the metadata block in their fixed order, each with its name in the check's answer. */
@@ -57,7 +65,11 @@ const METADATA_ROWS = [
   ['Available sources', 'sources'],
   ['Risk', 'risk'],
   ['New findings', 'counts'],
+  ['Open findings', 'open'],
 ] as const;
+
+/** The findings standing in a report, per level: a repeat at the level it came in at. */
+export type OpenCounts = Record<FindingLevel, number>;
 
 export type ReportMetadata = {
   observationInterval: string;
@@ -70,6 +82,7 @@ export type ReportMetadata = {
   risk: string;
   newFindings: number;
   repeats: number;
+  open: OpenCounts;
 };
 
 export type ReportCode =
@@ -90,7 +103,8 @@ export type TemplateCode =
   | 'coverage-missing'
   | 'coverage-misplaced'
   | 'trailing-content'
-  | 'bad-risk';
+  | 'bad-risk'
+  | 'missing-turn-ref';
 export type TemplateCheck =
   { ok: true; day: string; metadata: ReportMetadata } | { ok: false; code: TemplateCode; detail: string };
 export type Coverage = {
@@ -167,12 +181,12 @@ function scan(text: string): { headings: Array<Heading>; preamble: boolean; sect
 }
 
 const isSubheading = (heading: Heading): boolean =>
-  heading.level === 3 && (REPORT_SUBHEADINGS as ReadonlyArray<string>).includes(heading.name);
+  heading.level === 3 && (OWNER_SUBHEADINGS as ReadonlyArray<string>).includes(heading.name);
 const isTitle = (heading: Heading, index: number): boolean =>
   index === 0 && heading.level === 1 && TITLE.test(`# ${heading.name}`);
 
 /**
- * Whether `text` holds the eleven sections of `REPORT_HEADINGS`, each once, in order, each with something in it, and no
+ * Whether `text` holds the sections of `REPORT_HEADINGS`, each once, in order, each with something in it, and no
  * key. The commit's last guard: the exact layout is `checkTemplate`'s, so a title and the four subheadings pass here.
  */
 export function checkReport(text: string): ReportCheck {
@@ -241,24 +255,28 @@ function partsOf(lines: ReadonlyArray<string>, start: number): Array<Part> {
 
 type Heads = { kind: 'heading'; level: number; name: string; at: number };
 
+/** The subheadings of a section, in order. */
+const subheadingsOf = (section: string): ReadonlyArray<string> =>
+  section === OWNER_SECTION ? OWNER_SUBHEADINGS : REPORT_SUBHEADINGS;
+
 /** A heading no template level allows, or a known word at the other level. */
 function atWrongLevel(head: Heads): boolean {
   if (head.level === 1 || head.level > 3) return true;
-  const words: ReadonlyArray<string> = head.level === 3 ? REPORT_HEADINGS : REPORT_SUBHEADINGS;
+  const words: ReadonlyArray<string> = head.level === 3 ? REPORT_HEADINGS : OWNER_SUBHEADINGS;
   return words.includes(head.name);
 }
 
 /** The first refusal the headings earn: a known word at the wrong level, then an unknown or second one, then a gap, then the order. */
 function checkHeadings(heads: ReadonlyArray<Heads>): TemplateRefusal | null {
   const sectionNames: ReadonlyArray<string> = REPORT_HEADINGS;
-  const subNames: ReadonlyArray<string> = REPORT_SUBHEADINGS;
   const misplaced = heads.find((head) => atWrongLevel(head));
   if (misplaced !== undefined)
     return refuse('heading-level', `a heading at the wrong level on line ${misplaced.at + 1}`);
   const sections: Array<{ name: string; subs: Array<string> }> = [];
   for (const head of heads) {
     const current = sections.at(-1);
-    const known = head.level === 2 ? sectionNames.includes(head.name) : subNames.includes(head.name);
+    const known =
+      head.level === 2 ? sectionNames.includes(head.name) : subheadingsOf(current?.name ?? '').includes(head.name);
     const again =
       head.level === 2 ? sections.some((one) => one.name === head.name) : current?.subs.includes(head.name) === true;
     if (!known || again || (head.level === 3 && current === undefined)) {
@@ -275,12 +293,12 @@ function checkComplete(sections: ReadonlyArray<{ name: string; subs: ReadonlyArr
   const missing = REPORT_HEADINGS.find((name) => !sections.some((one) => one.name === name));
   if (missing !== undefined) return refuse('missing-heading', `missing the section ${missing}`);
   for (const { name, subs } of sections) {
-    const gap = REPORT_SUBHEADINGS.find((sub) => !subs.includes(sub));
+    const gap = subheadingsOf(name).find((sub) => !subs.includes(sub));
     if (gap !== undefined) return refuse('missing-heading', `${name} is missing ${gap}`);
   }
   const wrongOrder =
     sections.some((one, i) => one.name !== REPORT_HEADINGS[i]) ||
-    sections.some((one) => one.subs.some((sub, i) => sub !== REPORT_SUBHEADINGS[i]));
+    sections.some((one) => one.subs.some((sub, i) => sub !== subheadingsOf(one.name)[i]));
   return wrongOrder ? refuse('heading-order', 'the headings are out of order') : null;
 }
 
@@ -295,14 +313,29 @@ function checkBody(section: string, sub: string, body: ReadonlyArray<Part>): Tem
   if (texts.some((text) => text === EMPTY_WORD || OTHER_EMPTY.test(text))) {
     return refuse('empty-word', `${where} says nothing in a word other than ${EMPTY_WORD}, or beside a finding`);
   }
-  const findings = FINDING_SUBHEADINGS.includes(sub);
-  if (findings && section !== FILING_SECTION) {
-    if (texts.some((text) => !FINDING_LINE.test(text)))
-      return refuse('bad-risk', `a line of ${where} has no level and key`);
-  } else if (!findings && texts.some((text) => LEVEL_LINE.test(text))) {
-    return refuse('bad-risk', `a finding under ${where}`);
+  return checkLevels(section, sub, texts) ?? checkTurnRefs(section, sub, texts);
+}
+
+/** Lines that must carry a level and a key, or must not. */
+function checkLevels(section: string, sub: string, texts: ReadonlyArray<string>): TemplateRefusal | null {
+  const where = `${section}, ${sub}`;
+  const levelled = FINDING_SUBHEADINGS.includes(sub) || sub === 'Decisions needed';
+  if (levelled && section !== FILING_SECTION) {
+    return texts.some((text) => !FINDING_LINE.test(text))
+      ? refuse('bad-risk', `a line of ${where} has no level and key`)
+      : null;
   }
-  return null;
+  return !levelled && texts.some((text) => LEVEL_LINE.test(text))
+    ? refuse('bad-risk', `a finding under ${where}`)
+    : null;
+}
+
+/** Every line of `Misunderstandings` cites its turn, but for what could not be read. */
+function checkTurnRefs(section: string, sub: string, texts: ReadonlyArray<string>): TemplateRefusal | null {
+  if (section !== TURN_SECTION || sub === 'Unavailable checks') return null;
+  return texts.every((text) => TURN_ID.test(text))
+    ? null
+    : refuse('missing-turn-ref', `a line of ${section}, ${sub} cites no turn`);
 }
 
 /** The body checks, walking the parts between the headings. */
@@ -347,10 +380,18 @@ function readMetadata(
   }
   if ((lines[at] ?? '').trim() !== '') return refuse('bad-metadata', 'a row after the last of the metadata');
   if (!RISKS.includes(values.risk ?? '')) return refuse('bad-metadata', 'the row Risk is no level');
-  const { counts: written, ...rows } = values;
+  const { counts: written, open: standing, ...rows } = values;
   const counts = COUNTS.exec(written ?? '');
   if (counts === null) return refuse('bad-metadata', 'the row New findings is no count with its repeats');
-  const metadata = { ...rows, newFindings: Number(counts[1]), repeats: Number(counts[2]) } as ReportMetadata;
+  const levels = OPEN.exec(standing ?? '');
+  if (levels === null) return refuse('bad-metadata', 'the row Open findings is no count per level');
+  const open = {
+    critical: Number(levels[1]),
+    high: Number(levels[2]),
+    medium: Number(levels[3]),
+    low: Number(levels[4]),
+  };
+  const metadata = { ...rows, newFindings: Number(counts[1]), repeats: Number(counts[2]), open } as ReportMetadata;
   return { metadata, end: at };
 }
 
@@ -362,7 +403,7 @@ function checkBlock(parts: ReadonlyArray<Part>): { before: ReadonlyArray<Part> }
   if (blocks.length > 1) return refuse('coverage-misplaced', 'more than one coverage block');
   const index = parts.findIndex(isBlock);
   const after = parts.slice(index + 1);
-  const names: ReadonlyArray<string> = [...REPORT_HEADINGS, ...REPORT_SUBHEADINGS];
+  const names: ReadonlyArray<string> = [...REPORT_HEADINGS, ...OWNER_SUBHEADINGS];
   if (after.some((part) => part.kind === 'heading' && names.includes(part.name))) {
     return refuse('coverage-misplaced', 'the coverage block is inside a section');
   }

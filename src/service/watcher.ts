@@ -29,10 +29,13 @@ import type { RunRecord } from '../watcher/lifecycle.ts';
 import { isDay, readReport, readReportRun, reportsDirOf, runLines, watcherDir } from '../watcher/read.ts';
 import {
   WATCHER_EVIDENCE_MAX_CHARS,
+  mainCi,
+  mirrorFacts,
   observationInterval,
   openTaskIds,
   readArchiveGaps,
   readRecordedRuns,
+  selfreflectionFacts,
   taskOutcomes,
 } from '../watcher/requests.ts';
 import type { RecordedRunPage } from '../watcher/requests.ts';
@@ -142,19 +145,29 @@ function recordedPage(
   }
 }
 
-/** The ids of the open board tasks; null when the database or the board cannot be read. */
-function openTasks(deps: ServiceDeps): Array<string> | null {
+/** What `read` makes of a read-only connection; null when the database or what it asks for cannot be read. */
+function readMemory<TResult>(deps: ServiceDeps, read: (db: ReturnType<typeof dbOf>) => TResult): TResult | null {
   const file = path.join(deps.dataDir, 'memory.db');
   if (!fs.existsSync(file)) return null;
   let handle: ReturnType<typeof openMemoryDb> | null = null;
   try {
     handle = openMemoryDb(file, { readOnly: true });
-    return openTaskIds(dbOf(handle));
+    return read(dbOf(handle));
   } catch {
     return null;
   } finally {
     handle?.close();
   }
+}
+
+/** What only the first page of a walk carries, read once per walk: the leftovers, the diary's facts and the CI of `main`. */
+async function firstPageFacts(deps: ServiceDeps) {
+  return {
+    trash: await trashOf(deps),
+    mirrors: readMemory(deps, mirrorFacts),
+    selfreflection: readMemory(deps, selfreflectionFacts),
+    ci: await mainCi(deps.run),
+  };
 }
 
 /** The leftovers of the install and of the development checkout the settings name, if they name one. */
@@ -166,7 +179,7 @@ function trashOf(deps: ServiceDeps): Promise<Trash> {
     env: { ...deps.env, NEPTUNIA_PRIVATE_DIR: deps.privateDir, NEPTUNIA_UNIT_SCOPE: unitScope(deps.env) },
     run: deps.run,
     now: () => deps.now(),
-    tasks: () => openTasks(deps),
+    tasks: () => readMemory(deps, openTaskIds),
   });
 }
 
@@ -212,7 +225,7 @@ function joinPages(
  * `evidence [--from <iso>] [--cursor <c>]`: the recorded requests, then the Claude transcripts, of the window from the last
  * successful inspection (or `--from`) to now, under `WATCHER_EVIDENCE_MAX_CHARS`, as JSON. The cursor pins the end of the window,
  * so a walk over pages reads one fixed set of runs. The inspection in progress and its session are left out. The first page,
- * the one with no cursor, also carries `trash`, read once per walk.
+ * the one with no cursor, also carries `trash`, `mirrors`, `selfreflection` and `ci`.
  */
 export async function watcherEvidence(
   deps: ServiceDeps,
@@ -241,8 +254,8 @@ export async function watcherEvidence(
     outcome: (session) => recorded.tasks(agents.get(session)?.runId ?? ''),
   });
   const page = joinPages(window, recorded.page, transcripts, flags.sessions);
-  const trash = flags.to === null ? { trash: await trashOf(deps) } : {};
-  return { text: JSON.stringify({ ...page, ...trash }), status: 'ok' };
+  const first = flags.to === null ? await firstPageFacts(deps) : {};
+  return { text: JSON.stringify({ ...page, ...first }), status: 'ok' };
 }
 
 /** The backend, model and effort the watcher runs on, `default` for what the backend picks, `unknown` with no backend. */
