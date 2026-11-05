@@ -1437,7 +1437,7 @@ async function runSetupCommand(argv: ReadonlyArray<string>): Promise<void> {
       ...(process.stdin.isTTY === true
         ? {
             ask: askAtTerminal,
-            gh: spawnGh(where.privateDir, process.env),
+            gh: spawnGh(process.env),
             install: installRun,
             runBackend: replyCheck(where.privateDir),
             fetch,

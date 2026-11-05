@@ -16,7 +16,7 @@ import { modeOf } from '../subharness/control.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
 import { isInstalled } from '../subharness/place.ts';
 import { watcherSettings } from '../watcher/settings.ts';
-import { DEVELOPMENT_UNIT_FILES, UNIT_AGENTS, renderUnit } from './units.ts';
+import { UNIT_AGENTS, renderUnit } from './units.ts';
 import type { UnitVars } from './units.ts';
 
 /** What a command gave back. */
@@ -36,7 +36,7 @@ export type UnitTarget = {
   xdgConfigHome?: string;
   /** the unit folder, instead of the default of the scope */
   unitDir?: string;
-  /** the dev checkout the development unit runs in (`selfimprovement.checkout`); the other units run in `rootDir` */
+  /** the dev checkout the development unit may write (`selfimprovement.checkout`); every unit runs in `rootDir` */
   developmentCheckout?: string | null;
 };
 
@@ -78,7 +78,6 @@ export function unitText(target: UnitTarget, template: string, file: string): st
   const schedule = watcherSchedule(target);
   if (schedule !== null) vars.watcherSchedule = schedule;
   if (agent !== undefined) vars.mode = modeOf(subharness.modes, agent);
-  if (DEVELOPMENT_UNIT_FILES.includes(file) && target.developmentCheckout) vars.rootDir = target.developmentCheckout;
   return renderUnit(template, target.system ? 'system' : 'user', vars);
 }
 

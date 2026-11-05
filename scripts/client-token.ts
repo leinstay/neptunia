@@ -18,12 +18,12 @@
 // The tool never prints a token: it says which file holds it. The unit user of the client is the one that must read
 // the file (`chown` it after `add` and `rotate`).
 
-import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BOARD_ROLES } from '../src/board/machine.ts';
-import { CLIENTS_FILE, PRINCIPAL_KINDS } from '../src/interface/principals.ts';
+import { PRINCIPAL_KINDS } from '../src/interface/principals.ts';
+import { ClientsError, addClient, readClients, writeClients, writeToken } from '../src/setup/clients.ts';
 import { CliError, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
 
 const USAGE = [
@@ -36,15 +36,6 @@ const USAGE = [
 const NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** One entry of `clients.json` as the tool writes it. */
-type Entry = {
-  kind: string;
-  iface?: string;
-  tokenFile: string;
-  permissions: Array<string>;
-  boardRoles?: Array<string>;
-};
-
 /** The flags the tool takes. */
 type Flags = {
   _: Array<string>;
@@ -53,38 +44,6 @@ type Flags = {
   '--roles'?: string;
   '--permission'?: Array<string>;
 };
-
-/** Writes `text` to `file` through a temporary file of mode 0600 renamed into place. */
-function writePrivate(file: string, text: string) {
-  const temporary = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temporary, text, { mode: 0o600 });
-  fs.chmodSync(temporary, 0o600);
-  fs.renameSync(temporary, file);
-}
-
-/** The entries of `clients.json`, an empty map when there is none. */
-function readClients(privateDir: string): Record<string, Entry> {
-  const file = path.join(privateDir, CLIENTS_FILE);
-  if (!fs.existsSync(file)) return {};
-  try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, Entry>;
-  } catch {
-    // Reported below, the same way as a file that is not an object.
-  }
-  throw new CliError(`client-token: ${CLIENTS_FILE} is not a JSON object; fix it by hand first`);
-}
-
-const writeClients = (privateDir: string, clients: Record<string, Entry>) =>
-  writePrivate(path.join(privateDir, CLIENTS_FILE), `${JSON.stringify(clients, null, 2)}\n`);
-
-/** Writes a fresh token to the client's file; 32 random bytes as hex. */
-function writeToken(privateDir: string, tokenFile: string) {
-  const folder = path.join(privateDir, path.dirname(tokenFile));
-  fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
-  fs.chmodSync(folder, 0o700);
-  writePrivate(path.join(privateDir, tokenFile), `${randomBytes(32).toString('hex')}\n`);
-}
 
 /** The board roles of `--roles`, null when the flag is absent. Throws a CliError naming a role outside BOARD_ROLES. */
 function rolesOf(given?: string): Array<string> | null {
@@ -108,19 +67,12 @@ function add(privateDir: string, name: string, flags: Flags) {
   const iface = flags['--iface'] ?? null;
   if (kind === 'interface' && !iface)
     throw new CliError('client-token: an interface needs --iface, the namespace of its events');
-  const roles = rolesOf(flags['--roles']);
-  const clients = readClients(privateDir);
-  if (clients[name] !== undefined) throw new CliError(`client-token: ${name} exists; rotate or revoke it`);
-  const tokenFile = `clients/${name}.token`;
-  writeToken(privateDir, tokenFile);
-  const entry = {
+  const tokenFile = addClient(privateDir, name, {
     kind,
-    ...(iface ? { iface } : {}),
-    tokenFile,
+    iface,
     permissions: flags['--permission'] ?? [],
-    ...(roles === null ? {} : { boardRoles: roles }),
-  };
-  writeClients(privateDir, { ...clients, [name]: entry });
+    boardRoles: rolesOf(flags['--roles']),
+  });
   return `added ${name} (${kind}${iface ? `, iface ${iface}` : ''}): its token is in ${tokenFile}\n`;
 }
 
@@ -152,15 +104,20 @@ function run(argv: Array<string>): string {
   const privateDir = privateDirOf(ROOT);
   if (!fs.existsSync(privateDir))
     throw new CliError(`client-token: the private directory ${privateDir} does not exist`);
-  switch (command) {
-    case 'add':
-      return add(privateDir, name, flags);
-    case 'rotate':
-      return rotate(privateDir, name);
-    case 'revoke':
-      return revoke(privateDir, name);
-    default:
-      throw new CliError(USAGE);
+  try {
+    switch (command) {
+      case 'add':
+        return add(privateDir, name, flags);
+      case 'rotate':
+        return rotate(privateDir, name);
+      case 'revoke':
+        return revoke(privateDir, name);
+      default:
+        throw new CliError(USAGE);
+    }
+  } catch (error) {
+    if (error instanceof ClientsError) throw new CliError(`client-token: ${error.message}`);
+    throw error;
   }
 }
 

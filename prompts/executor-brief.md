@@ -26,4 +26,4 @@ Answers and comments on this task so far:
 Dev tasks under this task and how they ended:
 {{children}}
 
-Do not touch `AGENTS.md`, `CLAUDE.md`, `STYLEGUIDE.md`, `WRITING.md`, `.env`, `config.local/`, `prompts.local/` or `data/`, unless the task is a skill, whose package lives under `data/skills/`. Run the tests of every module you touched with `node --test --test-reporter=dot tests/<module>.test.ts` and leave them green, and do not run the whole suite. What you leave uncommitted in this worktree is committed for you when your run ends. The engine then runs the tests itself, and it alone opens and merges the pull request.
+Do not touch `AGENTS.md`, `CLAUDE.md`, `STYLEGUIDE.md`, `WRITING.md`, `.env`, `config.local/`, `prompts.local/` or `data/`, unless the task is a skill, whose package lives under `$NEPTUNIA_DATA_DIR/skills/`. Run the tests of every module you touched with `node --test --test-reporter=dot tests/<module>.test.ts` and leave them green, and do not run the whole suite. What you leave uncommitted in this worktree is committed for you when your run ends. The engine then runs the tests itself, and it alone opens and merges the pull request.

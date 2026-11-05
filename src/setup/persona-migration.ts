@@ -220,7 +220,7 @@ const SERVICES: ReadonlyArray<[string, string]> = [
 /** Material classification uses the declared persona directories, including complete native backend homes. */
 function copiedFolder(source: string): string | null {
   if (source === 'skills.local') return 'skills';
-  if (['agents', 'interfaces', 'clients', 'cli', 'subharness/gh'].includes(source)) return source;
+  if (['agents', 'interfaces', 'clients', 'cli'].includes(source)) return source;
   return /^subharness\/(?:codex|claude|opencode)\/home$/.test(source) ? source : null;
 }
 

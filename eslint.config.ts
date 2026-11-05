@@ -23,6 +23,7 @@ export default tseslint.config(
       'prompts.local/**',
       'scripts/fixtures/**',
       '.claude/**',
+      '.worktrees/**',
       '.opencode/**',
     ],
   },

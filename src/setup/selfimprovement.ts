@@ -1,7 +1,7 @@
 // The self-development step of `neptunia setup` (src/setup/run.ts, docs/setup.md): the repository her pull requests go
 // to. While `selfimprovement.checkout` is unset the step is skipped and asks nothing. A stored `selfimprovement.repository` that still
 // passes the push-right check (src/selfimprovement/repository.ts) is `already`. Otherwise the owner is asked at the terminal,
-// with the `owner/name` of the dev checkout's `origin` offered, and the answer is checked through her gh login. A
+// with the `owner/name` of the dev checkout's `origin` offered, and the answer is checked through the system's gh login. A
 // repository she can push to is written into `<private>/config.local/config.json`, every other key kept. A refused one
 // writes nothing, and the step's detail is the check's line.
 

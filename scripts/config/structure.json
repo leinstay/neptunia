@@ -563,6 +563,13 @@
       "test": "required"
     },
     {
+      "path": "src/setup/clients.ts",
+      "purpose": "The clients of the core and their tokens on disk, for `neptunia setup` and `scripts/client-token.ts`. Tested through `tests/client-token.test.ts` and `tests/development-unit-layout.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/board/",
       "purpose": "The task board in the memory database: its tables, its state machine, the rights from clients.json, its operations from filing to review, and the reaper.",
       "layer": "public",

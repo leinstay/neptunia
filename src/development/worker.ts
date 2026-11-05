@@ -30,7 +30,7 @@
 import type { BoardOp, BoardResults, HandoffTest, TaskRecord, TaskView } from '../board/board.ts';
 import { CLOSED } from '../board/machine.ts';
 import type { BackendResult } from '../agent-runner/backend.ts';
-import type { RepositoryCheck } from '../selfimprovement/repository.ts';
+import type { DevelopmentCheck } from '../selfimprovement/repository.ts';
 import type { SelfimprovementSettings } from '../selfimprovement/settings.ts';
 import type { AgentRun } from '../subharness/run.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
@@ -93,8 +93,8 @@ export type DevelopmentDeps = {
   gh: Exec;
   tests: Exec;
   settings(): DevelopmentWorkerSettings;
-  /** the push-right check before a top-level task claims any work */
-  check(): Promise<RepositoryCheck>;
+  /** the check of the checkout and the push right, before a top-level task claims any work */
+  check(): Promise<DevelopmentCheck>;
   /** `boardSettings(config).autoTriage` */
   triage(): { role: string; budget: number; steps: number; estimate: number };
   /** the seam of a skill task; the worker knows no more of a package than this answer */
@@ -737,7 +737,7 @@ class Worker {
 
   async startReady(started: WakeReport['started'], heldBack: Array<string>): Promise<void> {
     const ready = await this.call('task.list', { lane: 'dev', ready: true });
-    let access: RepositoryCheck | null = null;
+    let access: DevelopmentCheck | null = null;
     for (const { id } of ready) {
       const view = await this.show(id);
       const parent = parentOf(view);
@@ -749,7 +749,7 @@ class Worker {
         heldBack.push(id);
         continue;
       }
-      access ??= await this.deps.check().catch((): RepositoryCheck => ({ code: 'failed', line: 'failed' }));
+      access ??= await this.deps.check().catch((): DevelopmentCheck => ({ code: 'failed', line: 'failed' }));
       const claimed = await this.claim(id);
       if (claimed === null) continue;
       if (access.code !== 'ok') {

@@ -12,7 +12,7 @@ export type SelfimprovementSettings = {
   enabled: boolean;
   mode: SelfimprovementMode;
   base: string;
-  /** the dev checkout `neptunia setup` renders the development unit over; null renders none */
+  /** the dev checkout the development worker works on; null renders no development unit */
   checkout: string | null;
   /** `owner/name`, the repository her pull requests open against; null while unset */
   repository: string | null;
@@ -33,7 +33,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 /**
  * `selfimprovement.enabled` (anything but `false` is on), `selfimprovement.mode` (anything but `auto` is `approve`),
  * `selfimprovement.base` (default `main`), `selfimprovement.checkout` (an absolute path, else null: systemd refuses a
- * relative `WorkingDirectory`) and `selfimprovement.repository` (`owner/name`, else null).
+ * relative `ReadWritePaths`) and `selfimprovement.repository` (`owner/name`, else null).
  */
 export function selfimprovementSettings(config: unknown): SelfimprovementSettings {
   const section = isRecord(config) && isRecord(config.selfimprovement) ? config.selfimprovement : {};
