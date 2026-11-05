@@ -75,6 +75,7 @@ import { coreKeyBalances } from './llm/key-grants.ts';
 import { createDiary } from './behavior/diary.ts';
 import { createMirrors, guardMirrorPort } from './behavior/mirror.ts';
 import { createImageFetcher } from './media/fetch-image.ts';
+import { openImageStaging } from './media/staging.ts';
 import { createVideoFetcher } from './media/fetch-video.ts';
 import { createPageFetcher } from './web/fetch-page.ts';
 import { createBraveSearch } from './web/brave.ts';
@@ -545,8 +546,11 @@ async function buildCore(
 
   // Shared so a picture attached on consecutive turns, or described more than
   // once, is only ever downloaded once within the fetcher's LRU window.
-  const imageFetcher = createImageFetcher();
-  const videoFetcher = createVideoFetcher();
+  // An image from the owner's terminal waits in the staging folder, and these readers open its reference like any address.
+  const imageStaging = openImageStaging(paths.dataDir);
+  void imageStaging.sweep();
+  const imageFetcher = createImageFetcher({ fetchImpl: imageStaging.fetch });
+  const videoFetcher = createVideoFetcher({ fetchImpl: imageStaging.fetch });
   // state: the daily video counter lives next to the LLM client's daily counter.
   // Its vision and video requests tell the role health how they went.
   const describerLlm = reportingLlm(llm, { health: roleHealth, hot, roles: ['vision', 'video'] });

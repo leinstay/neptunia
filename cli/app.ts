@@ -14,6 +14,7 @@ import { Box, Text, useApp, useInput, usePaste, useStdout } from 'ink';
 import {
   DEFAULT_PASTE_LIMITS,
   assembleDraft,
+  attachToDraft,
   backspaceInDraft,
   chipBeforeCaret,
   deleteInDraft,
@@ -30,6 +31,9 @@ import {
 import type { ChatAttachment, Draft, DraftPart, PasteLimits } from './composer.ts';
 import { graphemes } from './layout.ts';
 import { galaxyFrame } from './galaxy.ts';
+import { alternativeText } from './attachment-actions.ts';
+import type { AttachmentActions } from './attachment-actions.ts';
+import type { ClipboardResult } from './clipboard.ts';
 import { ModelPicker } from './model-picker.ts';
 import { PanelView } from './panel-view.ts';
 import type { Panel } from './panel.ts';
@@ -38,7 +42,20 @@ import { ChoiceSelector } from './selector.ts';
 import { backspace, browse, emptyInput, foldedText, insert, menuOf, moveCursor, statusLine, submit } from './state.ts';
 import type { InputState, MenuCommand, StatusBrief } from './state.ts';
 
-export type ChatEntry = { who: 'owner' | 'her' | 'system'; text: string };
+export type ChatEntry = {
+  who: 'owner' | 'her' | 'system';
+  text: string;
+  attachments?: ReadonlyArray<ChatAttachment>;
+};
+/** Why an image was not staged, for the line the owner reads. */
+export type StageResult = { ok: true; staged: ChatAttachment } | { ok: false; code: string };
+/** Acquiring and staging an image on this machine. Nothing reaches the core until the draft is sent. */
+export type ChatImages = {
+  clipboard: () => Promise<ClipboardResult>;
+  stageBytes: (bytes: Uint8Array, details: { name: string }) => Promise<StageResult>;
+  stageFile: (file: string) => Promise<StageResult>;
+  release: (id: string) => Promise<void>;
+};
 export type Question = {
   question: string;
   secret: boolean;
@@ -51,8 +68,8 @@ export type ChatEnv = {
   commands: ReadonlyArray<MenuCommand>;
   history: ReadonlyArray<string>;
   still: boolean;
-  /** One line typed: a command or a chat line. The answer, when it is text for the chat, comes through `onEntry`. */
-  send: (line: string) => void;
+  /** One line typed: a command or a chat line, with its staged images. The answer, when it is text for the chat, comes through `onEntry`. */
+  send: (line: string, attachments?: ReadonlyArray<ChatAttachment>) => void;
   /** The text of a panel a command opens, or null when this line opens none. */
   panelOf: (line: string) => Promise<Panel | null>;
   /** Registers the listeners of what arrives from the core. */
@@ -75,12 +92,22 @@ export type ChatEnv = {
   composer?: PasteLimits;
   /** The images of the history's drafts, by the text of the draft. */
   recalled?: ReadonlyMap<string, ReadonlyArray<ChatAttachment>>;
+  /** The clipboard and staging; without them Ctrl+V and `/attach` say so. */
+  images?: ChatImages;
+  /** What `/attach open` and `/attach save` run on the newest received image. */
+  received?: AttachmentActions;
 };
 
 const GALAXY_MS = 200;
 const POLL_MS = 15_000;
 /** The rows a question's selector draws at most; the input it replaces stays out of the way of the panel above it. */
 const QUESTION_ROWS = 8;
+const STAGE_REFUSALS: Readonly<Record<string, string>> = {
+  'invalid-image': 'it is not a PNG, JPEG, GIF or WebP image',
+  'too-large': 'it is larger than the image reader takes',
+  vanished: 'the file cannot be read',
+  failed: 'it could not be kept in the staging folder',
+};
 /**
  * How long Enter does nothing after a question closed and gave the draft back, counted again from each swallowed Enter. A
  * held key repeats only after its delay of up to 500 ms, so the window outlasts that delay; decided 2026-11-05.
@@ -141,8 +168,14 @@ function Header({ env, line }: { env: ChatEnv; line: string }) {
   );
 }
 
+/** An entry's text and a row for each of its images, so a terminal that cannot draw one still says what it was. */
+function entryText(entry: ChatEntry): string {
+  const images = (entry.attachments ?? []).map((one) => `[image] ${alternativeText(one)}`);
+  return (entry.text === '' ? images : [entry.text, ...images]).join('\n');
+}
+
 function Entry({ entry, expanded }: { entry: ChatEntry; expanded: boolean }) {
-  const folded = foldedText(entry.text, expanded);
+  const folded = foldedText(entryText(entry), expanded);
   const mark = entry.who === 'owner' ? '> ' : '';
   return h(
     Box,
@@ -288,35 +321,120 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       return;
     }
     const line = assembled.text;
-    update({ draft: draftFromText(nextId('d'), '', 0), selected: 0, browsing: null, held: null, notice: null });
-    if (line.trim() === '') return;
-    const history = submit(insert(emptyInput(now.history), line), { secret: false }).next.history;
-    recalled.current.set(line, assembled.attachments);
-    update({ history });
-    env.saveHistory(history, { text: line, attachments: assembled.attachments });
+    const { attachments } = assembled;
+    const isCommand = line.trim().startsWith('/');
+    // A slash line goes alone: the images stay in the input for the message that follows it.
+    const kept = isCommand
+      ? attachments.reduce(attachToDraft, draftFromText(nextId('d'), '', 0))
+      : draftFromText(nextId('d'), '', 0);
+    update({ draft: kept, selected: 0, browsing: null, held: null, notice: null });
+    if (line.trim() === '' && attachments.length === 0) return;
+    if (/^\/attach(\s|$)/.test(line.trim())) {
+      runAttach(line.trim().slice('/attach'.length).trim());
+      return;
+    }
+    const sent = isCommand ? [] : attachments;
+    if (line.trim() !== '') {
+      const history = submit(insert(emptyInput(now.history), line), { secret: false }).next.history;
+      recalled.current.set(line, sent);
+      update({ history });
+      env.saveHistory(history, { text: line, attachments: sent });
+    }
     if (line.trim() === '/clear') {
       update({ entries: [] });
       return;
     }
-    update({ entries: [...model.current.entries, { who: 'owner', text: line }] });
+    update({ entries: [...model.current.entries, { who: 'owner', text: line, attachments: sent }] });
     // A chat line replaces no overlay; a command does, and the older request's answer is dropped whatever it is.
-    if (line.trim().startsWith('/')) panelRequest.current += 1;
+    if (isCommand) panelRequest.current += 1;
     const request = panelRequest.current;
-    void env
-      .panelOf(line.trim())
+    void (line.trim() === '' ? Promise.resolve(null) : env.panelOf(line.trim()))
       .then((opened) => {
         if (request !== panelRequest.current) return;
-        if (opened === null) env.send(line);
+        if (opened === null) env.send(line, sent);
         else update({ panel: opened });
       })
-      .catch((error: unknown) =>
-        update({
-          entries: [
-            ...model.current.entries,
-            { who: 'system', text: error instanceof Error ? error.message : 'The command failed.' },
-          ],
-        })
-      );
+      .catch((error: unknown) => say(error instanceof Error ? error.message : 'The command failed.'));
+  }
+
+  const say = (text: string): void => update({ entries: [...model.current.entries, { who: 'system', text }] });
+
+  /** A staged image for the draft it was asked for: a draft sent or cleared meanwhile gets nothing, and the staging is freed. */
+  function attachStaged(draftId: string, result: StageResult, source: string): void {
+    if (!result.ok) {
+      update({ notice: `${source} was not attached: ${STAGE_REFUSALS[result.code] ?? result.code}.` });
+      return;
+    }
+    if (model.current.draft.id !== draftId) {
+      void env.images?.release(result.staged.id);
+      return;
+    }
+    update({ draft: attachToDraft(model.current.draft, result.staged), notice: null });
+  }
+
+  /** `/attach <file>`, `/attach open`, `/attach save <file>`: handled here, so a path never reaches the core as text. */
+  function runAttach(argument: string): void {
+    if (argument === 'open' || argument === 'save' || argument.startsWith('save ')) {
+      runReceived(argument);
+      return;
+    }
+    const { images } = env;
+    if (images === undefined || argument === '') {
+      update({ notice: images === undefined ? 'Images are not available in this chat.' : 'Usage: /attach <file>' });
+      return;
+    }
+    const file = argument.replace(/^(['"])(.*)\1$/, '$2');
+    const draftId = model.current.draft.id;
+    void images
+      .stageFile(file)
+      .then((result) => attachStaged(draftId, result, file))
+      .catch(() => update({ notice: `${file} was not attached.` }));
+  }
+
+  /** Open or save the newest image she sent. A failed save says so, and the same command tries again. */
+  function runReceived(argument: string): void {
+    const image = model.current.entries.flatMap((one) => (one.who === 'her' ? (one.attachments ?? []) : [])).at(-1);
+    const { received } = env;
+    if (received === undefined || image === undefined) {
+      update({ notice: 'No received image to act on.' });
+      return;
+    }
+    const destination = argument.slice('save'.length).trim();
+    if (argument.startsWith('save') && destination === '') {
+      update({ notice: 'Usage: /attach save <file>' });
+      return;
+    }
+    const outcome = argument === 'open' ? received.open(image) : received.save(image, destination);
+    void outcome.then((done) => {
+      if (done.status === 'failed') update({ notice: `${image.name}: ${done.reason}.` });
+      else
+        update({ notice: done.status === 'saved' ? `Saved ${image.name} to ${done.file}.` : `Opened ${image.name}.` });
+    });
+  }
+
+  /** Ctrl+V: a picture from this machine's clipboard. A read that ends after the draft changed hands attaches nothing. */
+  function pasteImage(): void {
+    const { images } = env;
+    if (images === undefined) {
+      update({ notice: 'Images are not available in this chat.' });
+      return;
+    }
+    const draftId = model.current.draft.id;
+    void images
+      .clipboard()
+      .then(async (read) => {
+        if (model.current.draft.id !== draftId) return;
+        if (read.status === 'image')
+          attachStaged(draftId, await images.stageBytes(read.bytes, { name: 'clipboard.png' }), 'The clipboard image');
+        else if (read.status === 'empty') update({ notice: 'The clipboard holds no image.' });
+        else update({ notice: `No clipboard image: ${read.reason}. /attach <file> takes a file.` });
+      })
+      .catch(() => update({ notice: 'The clipboard could not be read. /attach <file> takes a file.' }));
+  }
+
+  /** A chip Backspace or Delete took: an image's staged bytes go with it. */
+  function afterRemoval(removed: DraftPart | null): void {
+    if (removed?.kind === 'attachment') void env.images?.release(removed.attachment.id);
   }
 
   /** Up and Down over the history. Past the newest row the draft that browsing set aside comes back. */
@@ -376,6 +494,7 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       }
       // The panel still on its way opens nothing now.
       panelRequest.current += 1;
+      for (const part of now.draft.parts) afterRemoval(part);
       update({ draft: draftFromText(nextId('d'), '', 0), browsing: null, held: null, selected: 0 });
     } else if (key.upArrow) {
       if (items.length > 0) moveMenu(-1, items.length);
@@ -391,10 +510,20 @@ export function ChatApp({ env }: { env: ChatEnv }): ReactElement {
       else update({ draft: moveInDraft(now.draft, 1) });
     } else if (key.backspace) {
       if (now.question !== null) update({ answer: backspace(now.answer) });
-      else editDraft(backspaceInDraft(now.draft).draft);
+      else {
+        const edit = backspaceInDraft(now.draft);
+        editDraft(edit.draft);
+        afterRemoval(edit.removed);
+      }
     } else if (key.delete) {
       if (now.question !== null) update({ answer: backspace(now.answer) });
-      else editDraft(deleteInDraft(now.draft).draft);
+      else {
+        const edit = deleteInDraft(now.draft);
+        editDraft(edit.draft);
+        afterRemoval(edit.removed);
+      }
+    } else if (key.ctrl && text === 'v') {
+      if (now.question === null) pasteImage();
     } else if (text !== '' && !key.ctrl && !key.meta) typed(text);
   }
 

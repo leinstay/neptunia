@@ -16,6 +16,8 @@ import type {
 import { serveAdapter } from '../src/protocol/serve.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';
 import type { Transport } from '../src/protocol/wire.ts';
+import { classifyAttachment } from '../src/media/classify.ts';
+import type { Attachment } from '../src/protocol/actions.ts';
 import { UnansweredQuestion, unansweredText } from './neptunia-request.ts';
 
 /** The owner's command line: its client, its namespace and its one conversation. */
@@ -41,12 +43,16 @@ export type LinkAnswers = {
   ask(question: string, secret: boolean, choices: ReadonlyArray<string> | null): Promise<string>;
 };
 
-/** What the command line declares to the core: it sends text and answers who its one conversation is. */
+/** A staged image going with a line: `reference` is what the core's readers open (src/media/staging.ts). */
+export type LineImage = { id: string; name: string; contentType: string; reference: string; size?: number };
+
+/** What the command line declares to the core: it sends text, keeps images and answers who its one conversation is. */
 const CLI_CAPABILITIES: Capabilities = {
   operations: ['message.send', 'conversation.typing'],
   maxChars: 100_000,
-  maxFiles: 0,
-  maxFileBytes: 0,
+  maxFiles: 10,
+  // One file of the socket's frame, as src/protocol/wire.ts sizes it.
+  maxFileBytes: 10 * 1024 * 1024,
   edit: { ownOnly: true, windowMs: null },
   history: false,
   threads: false,
@@ -68,7 +74,7 @@ const CHAT_CONVERSATION = { id: CHAT_ID, kind: 'dm', communityId: null, name: OW
 const CHAT_INFO: ConversationInfo = {
   ...CHAT_CONVERSATION,
   iface: CLI_IFACE,
-  permissions: { read: true, send: true, attach: false, react: false },
+  permissions: { read: true, send: true, attach: true, react: false },
   owner: null,
   lastMessageAt: null,
   voice: false,
@@ -82,21 +88,28 @@ const unsupported = (): Promise<{
 }> => Promise.resolve({ status: 'unsupported', error: { code: 'unsupported', retryable: false, retryAfterMs: null } });
 
 /**
- * The command line's adapter: a send of the chat prints its text with `print` (none when the client takes no
- * replies, as `-p`), the conversation it answers is the chat, and the chat's history is `transcript`, the lines of
- * this session. Everything else is unsupported.
+ * The command line's adapter: a send of the chat prints its text with `print` and hands its files to `deliver` (none
+ * when the client takes no replies), the conversation it answers is the chat, and the chat's history is `transcript`, the
+ * lines of this session. Everything else is unsupported.
  */
-function cliAdapter(print: ((text: string) => void) | null, transcript: Array<MessageEvent>): Adapter {
+function cliAdapter(
+  print: ((text: string) => void) | null,
+  deliver: ((file: Attachment) => Promise<void>) | null,
+  transcript: Array<MessageEvent>
+): Adapter {
   const inChat = (conversation: { conversationId: string }): boolean => conversation.conversationId === CHAT_ID;
   const effectRefused = { status: 'unsupported' as const, error: { code: 'unsupported', retryable: false } };
   return {
     iface: CLI_IFACE,
     capabilities: () => CLI_CAPABILITIES,
-    send(conversation, content, options = {}): Promise<Delivery> {
+    async send(conversation, content, options = {}): Promise<Delivery> {
       const idempotencyKey = options.idempotencyKey ?? randomUUID();
-      if (print === null || conversation.conversationId !== CHAT_ID) {
+      const files = (
+        isObject(content) && Array.isArray(content.attachments) ? content.attachments : []
+      ) as Array<Attachment>;
+      if (print === null || conversation.conversationId !== CHAT_ID || (files.length > 0 && deliver === null)) {
         const error = { code: 'unsupported', retryable: false, retryAfterMs: null };
-        return Promise.resolve({ status: 'unsupported', ref: null, parts: [], at: null, idempotencyKey, error });
+        return { status: 'unsupported', ref: null, parts: [], at: null, idempotencyKey, error };
       }
       const text: unknown = isObject(content) ? content.text : null;
       const ref = { iface: CLI_IFACE, conversationId: CHAT_ID, messageId: randomUUID() };
@@ -105,7 +118,8 @@ function cliAdapter(print: ((text: string) => void) | null, transcript: Array<Me
         print(text);
         keep(transcript, lineEvent(text, at, { id: ref.messageId, self: true }));
       }
-      return Promise.resolve({ status: 'ok', ref, parts: [ref], at, idempotencyKey, error: null });
+      for (const file of files) await deliver?.(file);
+      return { status: 'ok', ref, parts: [ref], at, idempotencyKey, error: null };
     },
     edit: () => Promise.resolve(effectRefused),
     delete: () => Promise.resolve(effectRefused),
@@ -154,7 +168,11 @@ function historyOf(transcript: ReadonlyArray<MessageEvent>, query: HistoryQuery)
 }
 
 /** A line of the chat as a `message.received` event: the owner's, or with `self` the persona's reply. */
-function lineEvent(text: string, at: number, options: { id?: string; self?: boolean } = {}): MessageEvent {
+function lineEvent(
+  text: string,
+  at: number,
+  options: { id?: string; self?: boolean; images?: ReadonlyArray<LineImage> } = {}
+): MessageEvent {
   const id = options.id ?? randomUUID();
   const self = options.self === true;
   return {
@@ -175,7 +193,18 @@ function lineEvent(text: string, at: number, options: { id?: string; self?: bool
       replyToId: null,
       replyPingUserId: null,
       forwardedFrom: null,
-      attachments: [],
+      // The fields the media collectors read (src/media/classify.ts), as an interface normalizes a platform's file.
+      attachments: (options.images ?? []).map((image) => ({
+        id: image.id,
+        kind: classifyAttachment({ contentType: image.contentType, name: image.name }),
+        url: image.reference,
+        name: image.name,
+        contentType: image.contentType,
+        size: image.size ?? null,
+        width: null,
+        height: null,
+        durationSec: null,
+      })),
       links: [],
       forwarded: [],
       stickers: [],
@@ -211,19 +240,27 @@ const quiet: Logger = { info() {}, warn() {}, error() {} };
 
 /** The command line's link to the core: its events, and the answers of its commands by their `replyRef`. */
 export type CliLink = {
-  say(text: string): Promise<string>;
+  say(text: string, images?: ReadonlyArray<LineImage>): Promise<string>;
   /** Sends a line and waits for the end of the turn over it. */
-  turn(text: string): Promise<Answer>;
+  turn(text: string, images?: ReadonlyArray<LineImage>): Promise<Answer>;
   /** Sends a command; a question it asks goes to `answers`, and without them the command is refused. */
   ask(command: Command, answers?: LinkAnswers): Promise<Answer>;
   closed: Promise<void>;
   close(): void;
 };
 
-/** The `cli` client on `transport`. `print` takes her replies, null for none. */
+/** The `cli` client on `transport`. `print` takes her replies and `deliver` her files, null or absent for none. */
 export function openLinkOver(
   transport: Transport,
-  { token, print }: { token: string; print: ((text: string) => void) | null }
+  {
+    token,
+    print,
+    deliver = null,
+  }: {
+    token: string;
+    print: ((text: string) => void) | null;
+    deliver?: ((file: Attachment) => Promise<void>) | null;
+  }
 ): CliLink {
   const transcript: Array<MessageEvent> = [];
   const waiting = new Map<string, (result: Reply) => void>();
@@ -245,7 +282,7 @@ export function openLinkOver(
       resume: null,
     },
     token,
-    adapter: cliAdapter(print, transcript),
+    adapter: cliAdapter(print, deliver, transcript),
     log: quiet,
     onCommandResult: (result: CommandResult) => {
       const resolveAnswer = waiting.get(result.replyRef);
@@ -259,13 +296,13 @@ export function openLinkOver(
     },
   });
   return {
-    say(text) {
-      const event = lineEvent(text, Date.now());
+    say(text, images = []) {
+      const event = lineEvent(text, Date.now(), { images });
       keep(transcript, event);
       return served.emit(event);
     },
-    async turn(text) {
-      const event = lineEvent(text, Date.now());
+    async turn(text, images = []) {
+      const event = lineEvent(text, Date.now(), { images });
       keep(transcript, event);
       const replyRef = event.message.id;
       const ended = new Promise<Reply>((resolve) => waiting.set(replyRef, resolve));

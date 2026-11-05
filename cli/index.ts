@@ -7,7 +7,7 @@ import { ChatApp } from './app.ts';
 import type { ChatEnv } from './app.ts';
 
 export { reducedMotion } from './galaxy.ts';
-export type { ChatEntry, ChatEnv, Panel, Question } from './app.ts';
+export type { ChatEntry, ChatEnv, ChatImages, Panel, Question, StageResult } from './app.ts';
 export type { ChatAttachment, DraftPart, PasteLimits } from './composer.ts';
 export type { StatusBrief } from './state.ts';
 

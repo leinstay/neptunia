@@ -6,7 +6,7 @@
 //   neptunia                                     the chat, at a terminal
 //   neptunia <command> [args]                    one command of the chat's table, its words kept as argv gives them
 //   neptunia -p "/<command> [args]"              one command as a typed line
-//   neptunia -p "<text>"                         one turn with the persona; her reply on stdout
+//   neptunia -p "<text>" [--attach <file>]...    one turn with the persona, with images; her reply on stdout
 //   neptunia doctor [live] [--live] [--json]     the checks of the installation, with the core up or down
 //   neptunia doctor server|core|memory           one read of the running core, which answers it
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
@@ -130,7 +130,7 @@ import { cutConfigKeys } from '../src/config/cut.ts';
 import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { COMMANDS, isRetiredCommand, parseCommandLine } from '../src/interface/commands/table.ts';
-import type { PasteLimits, Question, StatusBrief } from '../cli/index.ts';
+import type { ChatAttachment, ChatEntry, PasteLimits, Question, StatusBrief } from '../cli/index.ts';
 import { chatPanel } from './chat-panels.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
@@ -140,10 +140,11 @@ import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../src/llm/openrouter.ts';
 import { log, logToStderr } from '../src/log.ts';
 import { resolvePaths } from '../src/paths.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
+import { chatImages, keepReceived, receivedActions, stageForPrompt } from './chat-images.ts';
 import { addToHistory, readHistory, writeHistory } from './cli-history.ts';
 import type { HistoryRecord } from './cli-history.ts';
 import { CLI_CLIENT, openLinkOver } from './cli-link.ts';
-import type { Answer, CliLink, Command, LinkAnswers } from './cli-link.ts';
+import type { Answer, CliLink, Command, LineImage, LinkAnswers } from './cli-link.ts';
 import { runDevelopment } from './development.ts';
 import { runTask } from './neptunia-task.ts';
 import { runWatcherWorker } from './neptunia-watcher.ts';
@@ -169,12 +170,14 @@ import { createAnswers, mutableOutput } from './secret-prompt.ts';
 import type { Answers } from './secret-prompt.ts';
 import { MAX_FRAME_BYTES, connectSocket } from '../src/protocol/wire.ts';
 import type { Transport } from '../src/protocol/wire.ts';
+import type { Attachment } from '../src/protocol/actions.ts';
+import { stagingDir } from '../src/media/staging.ts';
 
 const USAGE = [
   'usage: neptunia                      the chat, at a terminal',
   '       neptunia <command> [args]     one command, its answer on stdout',
   '       neptunia -p "/<command> [args]"   the same as a typed line',
-  '       neptunia -p "<text>"          one turn with the persona, her reply on stdout',
+  '       neptunia -p "<text>" [--attach <file>]...   one turn with the persona, her reply on stdout',
   '       neptunia doctor [live] [--live] [--json]',
   '       neptunia doctor server|core|memory',
   '       neptunia errand-runner --profile <name>',
@@ -253,11 +256,28 @@ function readObject(file: string): Settings | null {
 // ---------------------------------------------------------------------------------------------------------------
 
 /** Connects as the `cli` client; rejects when no core listens. `print` takes her replies, null for none. */
-async function openCliLink(print: ((text: string) => void) | null): Promise<CliLink> {
+async function openCliLink(
+  print: ((text: string) => void) | null,
+  deliver?: (file: Attachment) => Promise<void>
+): Promise<CliLink> {
   const where = paths();
   const token = readToken(where.privateDir, CLI_CLIENT);
   const transport = await connectSocket({ path: coreSocketPath(where.dataDir), maxFrameBytes: MAX_FRAME_BYTES });
-  return openLinkOver(transport, { token, print });
+  return openLinkOver(transport, { token, print, deliver: deliver ?? printedFile(print) });
+}
+
+/** A file she sends to a chat with no screen of its own: kept in the staging folder, and one printed line says where. */
+function printedFile(print: ((text: string) => void) | null): ((file: Attachment) => Promise<void>) | null {
+  if (print === null) return null;
+  const { dataDir } = paths();
+  return async (file) => {
+    const kept = await keepReceived(dataDir, file);
+    print(
+      'note' in kept
+        ? kept.note
+        : `[image ${kept.attachment.name}] ${path.join(stagingDir(dataDir), kept.attachment.id)}`
+    );
+  };
 }
 
 /** The commands the command line runs itself: the doctor, the journal, the saved reports, the screen and the service family. */
@@ -396,7 +416,7 @@ async function runAccount(
 const TURN_WAIT_MS = 15 * 60 * 1000;
 
 /** `-p` with text: one line in the chat, her reply on stdout once the turn over it ended. Silence is an empty reply. */
-async function runPrompt(text: string): Promise<never> {
+async function runPrompt(text: string, images: ReadonlyArray<LineImage>): Promise<never> {
   const said: Array<string> = [];
   const link = await requireCliLink((part) => said.push(part));
   const late = new Promise<Answer>((resolve) => {
@@ -405,17 +425,36 @@ async function runPrompt(text: string): Promise<never> {
       TURN_WAIT_MS
     );
   });
-  const answer = await Promise.race([link.turn(text), late]);
+  const answer = await Promise.race([link.turn(text, images), late]);
   link.close();
   return finish(answer.status === 'ok' ? { text: said.join('\n'), status: 'ok' } : answer);
 }
 
-/** `-p "<text>"`: a leading slash is a command, anything else is one turn with her. */
-async function runPrint(argv: ReadonlyArray<string>): Promise<never> {
+/** The words after `-p`: the text first, then each `--attach <file>`. Null for anything else. */
+function parsePrint(argv: ReadonlyArray<string>): { text: string; files: Array<string> } | null {
   const [text, ...rest] = argv;
-  if (text === undefined || rest.length > 0 || text.trim() === '') return usage();
+  if (text === undefined || text.trim() === '' || rest.length % 2 !== 0) return null;
+  const files: Array<string> = [];
+  for (let at = 0; at < rest.length; at += 2) {
+    const file = rest[at + 1];
+    if (rest[at] !== '--attach' || file === undefined) return null;
+    files.push(file);
+  }
+  return { text, files };
+}
+
+/** `-p "<text>"`: a leading slash is a command, anything else is one turn with her. An image is staged before any connection. */
+async function runPrint(argv: ReadonlyArray<string>): Promise<never> {
+  const parsed = parsePrint(argv);
+  if (parsed === null) return usage();
+  const { text, files } = parsed;
   const line = text.trim();
-  if (!line.startsWith('/')) return runPrompt(text);
+  if (!line.startsWith('/')) {
+    const staged = await stageForPrompt(paths().dataDir, files);
+    if (!staged.ok) return die(staged.reason);
+    return runPrompt(text, staged.staged);
+  }
+  if (files.length > 0) return usage();
   if (line === '/setup') return refuseSyntax(panelRefusal('/setup'));
   if (line === '/clear' && process.stdout.isTTY !== true) return refuseSyntax(panelRefusal('/clear'));
   return runCommand(parseLineRequest(line));
@@ -460,6 +499,10 @@ function saveLines(file: string, lines: ReadonlyArray<string>, now: number): voi
   );
 }
 
+/** A history record's images as draft parts. They hold no staging of their own to free: a new id belongs to no staged file. */
+const recalledImages = (record: HistoryRecord): Array<ChatAttachment> =>
+  record.attachments.map((one, index) => ({ ...one, id: `history-${record.at}-${index}` }));
+
 /** The settings of the chat's input, read when they are used. */
 function pasteLimits(where: { rootDir: string; privateDir: string }): PasteLimits {
   const config = readConfig(where.rootDir, { privateDir: where.privateDir }) as {
@@ -489,15 +532,23 @@ function interfaceNames(dataDir: string): Array<string> {
   return [...names].sort();
 }
 
-async function runInkChat(where: { rootDir: string; privateDir: string }, firstLine = ''): Promise<void> {
+async function runInkChat(
+  where: { rootDir: string; privateDir: string; dataDir: string },
+  firstLine = ''
+): Promise<void> {
   const { runInteractive, reducedMotion } = await import('../cli/index.ts');
-  let entry: (one: { who: 'owner' | 'her' | 'system'; text: string }) => void = () => {};
+  let entry: (one: ChatEntry) => void = () => {};
   let question: (asked: Question) => void = () => {};
   let linked: (connected: boolean) => void = () => {};
   const say = (text: string): void => entry({ who: 'her', text });
   let link: CliLink;
   try {
-    link = await openCliLink(say);
+    link = await openCliLink(say, async (file) => {
+      const kept = await keepReceived(where.dataDir, file);
+      entry(
+        'note' in kept ? { who: 'system', text: kept.note } : { who: 'her', text: '', attachments: [kept.attachment] }
+      );
+    });
   } catch (err) {
     die(`no core listens (${(err as NodeJS.ErrnoException).code ?? 'error'}); start it with neptunia services start`);
   }
@@ -517,6 +568,9 @@ async function runInkChat(where: { rootDir: string; privateDir: string }, firstL
     initialInput: firstLine,
     commands: [
       { name: 'setup', help: 'Connect services, interfaces and skills' },
+      { name: 'attach', help: 'Attach an image file from this machine to the next message' },
+      { name: 'attach open', help: 'Open the newest image she sent' },
+      { name: 'attach save', help: 'Save the newest image she sent to a file' },
       ...COMMANDS.flatMap((command) => [
         { name: command.name, help: command.help },
         ...command.subcommands.map((sub) => ({
@@ -526,6 +580,9 @@ async function runInkChat(where: { rootDir: string; privateDir: string }, firstL
       ]),
     ],
     history: records.map((one) => one.text),
+    recalled: new Map(records.map((one) => [one.text, recalledImages(one)])),
+    images: chatImages(where.dataDir),
+    received: receivedActions(where.dataDir),
     get composer() {
       return pasteLimits(where);
     },
@@ -550,10 +607,10 @@ async function runInkChat(where: { rootDir: string; privateDir: string }, firstL
       return answer.status === 'ok' ? (JSON.parse(answer.text) as StatusBrief | null) : null;
     },
     panelOf: (line) => chatPanel(line, run, interfaceNames(where.privateDir)),
-    send(line) {
+    send(line, attachments = []) {
       const text = line.trim();
       if (!text.startsWith('/')) {
-        void link.say(line).then((status) => {
+        void link.say(line, attachments).then((status) => {
           if (status !== 'ok') entry({ who: 'system', text: `the core did not take the line (${status})` });
         });
         return;

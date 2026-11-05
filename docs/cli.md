@@ -25,6 +25,7 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 | Tab | Complete the selected command |
 | Esc | Close a panel, cancel a panel still loading, cancel a question or clear the input |
 | Ctrl+O | Expand folded answers, or show the text behind the chip before the caret |
+| Ctrl+V | Attach an image from the clipboard of this machine |
 | Ctrl+C | Exit the CLI |
 
 The Project Neptunia header shows separate lines for the core, memory and enabled interfaces. Missing reports show a check in progress, and old reports are marked outdated. A lost core connection leaves memory and interface states unknown. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation.
@@ -34,6 +35,14 @@ The Project Neptunia header shows separate lines for the core, memory and enable
 `cli/composer.ts` keeps the draft as ordered parts with their own ids: text, pastes and attachments. A bracketed paste reaches the owner of the keys through Ink's `usePaste`, and nothing is sent until an explicit Enter. A paste of more lines than `cli.paste.collapseLines` (default `10`) or more characters than `cli.paste.collapseChars` (default `2000`) draws as one chip such as `[pasted 40 lines]`. A paste at either limit stays text in the input. The turn gets the exact text of every paste in its place, with newlines, tabs and trailing spaces. Backspace after a chip removes that paste alone, and Ctrl+O shows its text. A draft whose paste text is gone stays in the input with a message and is not sent until Backspace removes the chip.
 
 `bin/cli-history.ts` keeps `data/cli/history` as one record per draft, so Up recalls a multiline draft whole, its text collapsed by the same limits. Up sets the unfinished draft aside, and Down past the newest row brings it back. A file in the older format, one draft per line, is read as it is and rewritten as records on the next send. Each write goes through a temporary file and a rename, and the file is private to the owner.
+
+## Images
+
+Ctrl+V reads the clipboard of the machine the chat runs on, with `wl-paste`, `xclip` or `pngpaste` as literal arguments (`cli/clipboard.ts`). Over SSH that machine is the server, so the chat says the clipboard is out of reach, starts no process and keeps the draft. `/attach <file>` takes a file on this machine in every session, and its path never reaches the core as text. `neptunia -p "<text>" --attach <file>` does the same for one turn, and a refused file exits `1` with nothing sent. The flag repeats for several images.
+
+An image is staged before it joins the draft, as a chip such as `[image chart.png]`. `src/media/staging.ts` copies its bytes to `data/staging/images/`, private to the user, and takes the content type from the bytes. Only PNG, JPEG, GIF and WebP up to the vision reader's limit of 1,500,000 bytes pass. Enter sends the caption and its images as one message with a `neptunia-staged:` reference, which the core's image fetcher opens like any address, so the file may be deleted afterwards. The core and the chat must run as the same user. Backspace on the chip frees the image at once. Any other staged image goes one week after it was staged, so a line waiting for `/resume` keeps its image. A draft recalled after that week still sends, and the describer logs a failed download for its image.
+
+An image the persona sends is kept the same way, up to 10 MiB, and the transcript shows its name and text alternative. `/attach open` opens the newest one with `xdg-open` or `open`, and `/attach save <file>` writes it to a file. A failure says why, and the same command tries again. The plain chat and `-p` print `[image <name>]` and the path of the kept file.
 
 ## Overlays and questions
 
