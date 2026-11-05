@@ -41,7 +41,7 @@ function rig() {
 test('an agent with no unit of its own is left alone', async () => {
   // Bug: dev gets a unit file written that nothing starts.
   const { target, run, calls } = rig();
-  assert.equal(await applyModeToUnit(target, run, 'dev'), null);
+  assert.equal(await applyModeToUnit(target, run, 'nobody'), null);
   assert.deepEqual(calls, []);
 });
 
@@ -97,7 +97,11 @@ test('inside the core a mode change names neptunia setup units for an agent with
 
 test('inside the core an agent with no unit, or no agent, gets no unit line', () => {
   // Catches: dev, which runs in no unit of its own, is told to re-render a unit that does not exist.
-  assert.equal(deferModeToUnit('dev'), null);
+  // dev now has a unit of its own, so a mode change names it.
+  assert.equal(
+    deferModeToUnit('dev'),
+    'neptunia-development.service takes the mode when you run "neptunia setup units" in a shell'
+  );
   assert.equal(deferModeToUnit('nobody'), null);
 });
 

@@ -53,6 +53,7 @@ test('a report in the template passes, and the check gives back its day and meta
     risk: 'none',
     newFindings: 0,
     repeats: 0,
+    open: { critical: 0, high: 0, medium: 0, low: 0 },
   });
 });
 
@@ -332,6 +333,7 @@ test('the engine writes the facts it knows into the metadata, whatever the agent
       ['Available sources', 'model_requests'],
       ['Risk', 'critical'],
       ['New findings', '9, repeats: 9'],
+      ['Open findings', 'critical 9, high 9, medium 9, low 9'],
     ],
   });
   const result = await runInspection(
