@@ -1,7 +1,6 @@
-// The fake embedder of the media memory tests and the embedding queue over it. One axis per concept, an English word and its
-// Russian word on one axis, so a Russian query reaches an English retelling by meaning and by nothing else.
-import { recordChunk } from '../../src/memory/chunks.ts';
-import { applyMediaEmbed, embedMediaLines } from '../../src/memory/db/media-backfill.ts';
+// The fake embedder of the media memory tests and the embedding queue of media rows over it. One axis per concept, an English
+// word and its Russian word on one axis, so a Russian query reaches an English text form by meaning and by nothing else.
+import { applyMediaEmbed, embedMedia } from '../../src/memory/db/media-store.ts';
 import { quantize } from '../../src/memory/vectors.ts';
 import { KINDS, NOW, SETTINGS } from './media-memory.ts';
 import type { Env } from './media-memory.ts';
@@ -19,12 +18,12 @@ export const embedWords = (text: string): Float32Array => {
   return vector;
 };
 
-/** One run of the embedding queue over the fake embedder: what it did and the chunks it asked for. */
+/** One run of the embedding queue over the fake embedder: what it did and the texts it asked for. */
 export async function embedLines(
   env: Env
 ): Promise<{ embedded: number; written: number; skipped: number; asked: Array<string> }> {
   const asked: Array<string> = [];
-  const done = await embedMediaLines({
+  const done = await embedMedia({
     db: env.db,
     write: (update) => Promise.resolve(applyMediaEmbed(env.handle, update)),
     embed: (texts) => {
@@ -35,7 +34,6 @@ export async function embedLines(
     now: NOW,
     quantize,
     model: MODEL,
-    chunkOf: (line, context) => recordChunk(line, context, { selfName: 'Self' }).text,
     limit: 50,
   });
   return { ...done, asked };

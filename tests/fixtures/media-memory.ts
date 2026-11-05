@@ -1,5 +1,5 @@
 // The media kinds of the media memory tests, each with a line as an interface reports it and a text form told through the one
-// writer into `source_media` (src/memory/db/source-media.ts): fully present, partly present or absent. A Russian word stands
+// writer into `media` (src/memory/db/media-store.ts): fully present, partly present or absent. A Russian word stands
 // for each English retelling, which only the fake embedder's concepts can bridge. `shape` gives a kind's items the native
 // references of another interface. Synthetic content on a temp database; no model, no network.
 import assert from 'node:assert/strict';
@@ -14,8 +14,8 @@ import { observe } from '../../src/memory/db/observe.ts';
 import { dbSettings } from '../../src/memory/db/recall.ts';
 import { insertRows } from '../../src/memory/db/rows.ts';
 import { dmScope, groupContext, groupScope } from '../../src/memory/db/scope.ts';
-import { tellSourceMedia } from '../../src/memory/db/source-media.ts';
-import type { MediaTextOrigin } from '../../src/memory/db/source-media.ts';
+import { tellMedia } from '../../src/memory/db/media-store.ts';
+import type { MediaOrigin } from '../../src/memory/db/media-store.ts';
 import { runMemorySearch } from '../../src/tools/tools.ts';
 import { fillEnvAudiences } from './memory-db/audiences.ts';
 import { fixture } from './memory-db-recall.ts';
@@ -50,7 +50,7 @@ export const SETTINGS = { ...dbSettings({})!, candidates: 40, minMeaning: 0.5, r
  * so. `voiceDescribed`, `audioDescribed`, `fileUnreadable` and `stickerUnreadable` are the transcript keys this
  * specification adds to the labels contract.
  */
-export const UNREADABLE = 'no model can read this kind yet';
+export const UNREADABLE = 'not readable';
 export const LABELS = {
   ...labels,
   transcript: {
@@ -68,12 +68,12 @@ export const LABELS = {
     audioDescribed: '<audio {name}: {text}>',
     sticker: '<sticker {name}>',
     stickerDescribed: '<sticker {name}: {text}>',
-    stickerUnreadable: `<sticker {name}: ${UNREADABLE}>`,
+    stickerUnreadable: `[sticker: {name}, ${UNREADABLE}]`,
     link: '<link {title}>',
     linkText: '<link {title}: {text}>',
     file: '<file {name}>',
     filePreview: '<file {name}: {text}>',
-    fileUnreadable: `<file {name}: ${UNREADABLE}>`,
+    fileUnreadable: `[file: {name}, ${UNREADABLE}]`,
     emojiDescribed: '<emoji {name}: {text}>',
   },
 };
@@ -94,7 +94,7 @@ export type Kind = {
   second: { word: string };
   self?: boolean;
   /** The origin of its text form; null for one the interface's event already brings. */
-  origin: MediaTextOrigin | null;
+  origin: MediaOrigin | null;
   /** The message fields of a line, given the two items and whether each is told. */
   message(items: [Item, Item], told: [boolean, boolean]): Row;
 };
@@ -113,7 +113,7 @@ function attachmentKind(
   name: string,
   stored: string,
   marker: string,
-  origin: MediaTextOrigin,
+  origin: MediaOrigin,
   file: (item: Item) => Row,
   words: { word: string; fragment: string; query: string; second: string }
 ): Kind {
@@ -214,7 +214,7 @@ export const KINDS: ReadonlyArray<Kind> = [
       })),
     }),
   },
-  attachmentKind('text file', 'file', '<file', 'preview', attachment('text', 'notes.txt'), {
+  attachmentKind('text file', 'text', '<file', 'preview', attachment('text', 'notes.txt'), {
     word: 'marzipan',
     fragment: 'arzipa',
     query: 'марципан',
@@ -281,14 +281,9 @@ export function eventOf(
 }
 
 /** Tells a line's item its text form, as the describer's write and the voice operation do. */
-export function tell(
-  env: Env,
-  kind: Kind,
-  item: Item,
-  { scope = GROUP_SCOPE, iface = 'discord' }: { scope?: Scope; iface?: string } = {}
-): void {
+export function tell(env: Env, kind: Kind, item: Item, iface = 'discord'): void {
   if (kind.origin === null) return;
-  tellSourceMedia(env.handle, { iface, nativeRef: item.id, text: item.told, origin: kind.origin, scope });
+  tellMedia(env.handle, { iface, nativeRef: item.id, description: item.told, origin: kind.origin });
 }
 
 /** One observed line of `kind` and its text forms: both told (`full`), the first (`part`), none (`absent`). */
@@ -303,8 +298,7 @@ export function observeLine(
     shape = SAME,
     conversation,
     author,
-    scope = GROUP_SCOPE,
-  }: { native?: string; at?: number; iface?: string; shape?: Shape; conversation?: Row; author?: Row; scope?: Scope } = {}
+  }: { native?: string; at?: number; iface?: string; shape?: Shape; conversation?: Row; author?: Row } = {}
 ): string {
   const told: [boolean, boolean] = [presence !== 'absent', presence === 'full' && !kind.self];
   const event = eventOf(kind, native, told, {
@@ -319,38 +313,42 @@ export function observeLine(
   const written = observe(env.handle, envelope, { now: () => at });
   assert.equal(written.ok, true);
   itemsOf(kind, native, shape).forEach((item, i) => {
-    if (told[i]) tell(env, kind, item, { scope, iface });
+    if (told[i]) tell(env, kind, item, iface);
   });
   const row = env.db.prepare('SELECT id FROM sources WHERE native_id = ? ORDER BY rowid LIMIT 1').get(native);
   assert.ok(row);
   return String(row.id);
 }
 
-/** A DM line of Bob's, with its text forms under the DM's audience. */
+/** A DM line of Bob's, under the audience of Bob as a person, which a `dmContext` of him reads. */
 export function observeDmLine(env: Env, kind: Kind, presence: Presence = 'full', native = 'secret'): string {
-  return observeLine(env, kind, presence, {
+  const source = observeLine(env, kind, presence, {
     native,
-    scope: BOB_SCOPE,
     author: kind.self ? { id: HER, self: true, name: 'Self' } : { id: BOB, name: 'Bob' },
     conversation: { id: 'dm-bob', kind: 'dm', chatType: 'dm', partnerId: BOB },
   });
+  env.db.prepare('UPDATE sources SET scope_dm = ?, audience_id = NULL WHERE id = ?').run(BOB_PERSON, source);
+  fillEnvAudiences(env);
+  return source;
 }
 
-/** A description in the describer's cache: the `media` row a held retelling is. */
-export function storeDescription(env: Env, key: string, text: string, scope: Scope = GROUP_SCOPE): void {
+/** A media row nothing links yet, its description held: what the describer's cache is after the migration. */
+export function heldItem(env: Env, nativeRef: string, description: string, kind = 'image'): void {
   env.db
     .prepare(
-      `INSERT INTO media (id, kind, native_ref, description, scope_kind, scope_iface, scope_dm)
-       VALUES (?, 'attachment', ?, ?, ?, ?, ?)`
+      `INSERT INTO media (id, kind, native_ref, description, described_at, availability, scope_kind, scope_iface)
+       VALUES (?, ?, ?, ?, ?, 'present', 'group', 'discord')`
     )
-    .run(`media:attachment:${key}`, key, text, scope.scope_kind, scope.scope_iface, scope.scope_dm);
+    .run(`media:held:${nativeRef}`, kind, nativeRef, description, new Date(AT).toISOString());
 }
 
-/** What a read gives of a line's media, without the three things that name the line or belong to its interface. */
+/** What a read gives of a line's media, without what names the row or belongs to its interface. */
 export const neutralRows = (rows: ReadonlyArray<Row>): Array<Row> =>
-  rows.map((row) =>
-    Object.fromEntries(Object.entries(row).filter(([key]) => !['sourceId', 'nativeRef', 'url'].includes(key)))
-  );
+  rows.map((row) => {
+    const { url: _url, ...extra } = (row.extra ?? {}) as Row;
+    const kept = Object.entries(row).filter(([key]) => !['mediaId', 'nativeRef', 'extra'].includes(key));
+    return { ...Object.fromEntries(kept), extra: { ...extra, url: _url === undefined ? undefined : 'x' } };
+  });
 
 /** How many times `part` stands in `text`. */
 export const countOf = (text: string, part: string): number => text.split(part).length - 1;
@@ -432,7 +430,7 @@ export function recallRig(env: Env): RecallRig {
       history: [],
       now: NOW,
       args: question,
-    } as unknown as Parameters<typeof runMemorySearch>[0]);
+    });
     return (result as { data?: { text?: string } }).data?.text ?? '';
   };
   return { recall, args, ask };
