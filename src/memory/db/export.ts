@@ -124,7 +124,8 @@ export function unitRows(db: Db, key: StorageKey | string): Rows {
       .map((row) => ({ ...row }));
   }
   const classified = semantic ? { kind: semantic.kind } : classify(owner);
-  addSessionRows(db, classified && 'kind' in classified ? classified.kind : undefined, rows);
+  const account = semantic?.subject.type === 'account' ? semantic.subject.id : null;
+  addSessionRows(db, classified && 'kind' in classified ? classified.kind : undefined, rows, account);
   return rows;
 }
 
