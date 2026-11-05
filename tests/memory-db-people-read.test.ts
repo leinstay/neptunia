@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import type { Page } from '../src/memory/db/inspection.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { listPeople, personDetail } from '../src/memory/db/people-read.ts';
-import type { PersonDetail, PersonListing } from '../src/memory/db/people-read.ts';
+import type { PersonDetail, PersonFilters, PersonListing } from '../src/memory/db/people-read.ts';
 import { dmContext, groupContext, internalContext } from '../src/memory/db/scope.ts';
 import type { Context } from '../src/memory/db/scope.ts';
 import { dbOf } from '../src/memory/db/types.ts';
@@ -88,7 +88,7 @@ function withWorld(body: (db: Db) => void): void {
   }
 }
 
-const NO_FILTERS = { name: null, interfaceId: null, authorityId: null };
+const NO_FILTERS: PersonFilters = { name: null, interfaceId: null, authorityId: null };
 
 function everyEntry(db: Db, context: Context, filters = NO_FILTERS, limit = 2): Array<PersonListing> {
   const items: Array<PersonListing> = [];
