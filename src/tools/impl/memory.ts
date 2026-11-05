@@ -121,8 +121,11 @@ function privateView(env: { memoryDb?: unknown }, args: Obj): string {
 }
 
 /** Where a restored line goes: the DM place of a private item, the place of a place item, else the persona. */
-function archiveHolderOf(store: Untyped, scope: Untyped): string | null {
-  if (scope?.private === true) return store.dmHomeOf?.(scope.user) ?? null;
+function archiveHolderOf(
+  store: { dmHomeOf?: (accountId: string) => string | null },
+  scope: { private?: boolean; user?: string; place?: string } | null | undefined
+): string | null {
+  if (scope?.private === true) return (scope.user ? store.dmHomeOf?.(scope.user) : null) ?? null;
   return scope?.place ?? null;
 }
 
@@ -386,7 +389,7 @@ const handlers = perEnv((env) => {
       participants: latest.participants,
     });
     try {
-      await archive.append(archiveHolderOf(store, latest.scope), [line]);
+      await archive.append(archiveHolderOf(store as never, latest.scope as never), [line]);
     } catch (error) {
       return `restored ${latest.itemKind} ${itemId}; the archive line failed (${idText(objOf(error).code) || 'error'})`;
     }
@@ -489,7 +492,7 @@ const handlers = perEnv((env) => {
    * divider: in a DM the private items are ranked together with the public
    * ones. No private layer -> a plain answer, not an error.
    */
-  function cmdPrivateShow(args: Obj, context: OpContext) {
+  function cmdPrivateShow(args: Obj) {
     freshenIfPaused();
     if (args.person !== undefined || args.place !== undefined) return privateView(env, args);
     const userId = idText(args.userId);
@@ -628,5 +631,5 @@ defineOp({
 defineOp({
   name: 'memory.private.read',
   rights: { kind: 'read', ownerOnly: true },
-  run: (args, ctx) => handlers(ctx.env).cmdPrivateShow(args, ctx),
+  run: (args, ctx) => handlers(ctx.env).cmdPrivateShow(args),
 });
