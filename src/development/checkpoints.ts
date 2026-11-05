@@ -1,12 +1,13 @@
 // File checkpoints of one explicit development worktree: a copy of its tracked work kept outside it, a preview of what a
 // restore would change, and a restore that needs its confirmation and the revision the preview showed. Every restore first
 // takes a checkpoint of the state it replaces, so it can be undone, and a partial failure is reported with that undo. The
-// local layer, credentials, live data and git are never captured or restored (EXCLUDED), and a symlink that leads out of the
+// local layer, credentials, live data and git are never captured or restored (EXCLUDED and secret-files.ts), and a symlink that leads out of the
 // worktree stops the restore. A worktree the task authority does not allow has no capability. A conversation's rewind is
 // src/conversation/sessions.ts and touches no file. src/development/checkpoint-desk.ts opens one of these per task.
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { secretClassOfPath } from '../memory/db/secret-files.ts';
 
 export type CheckpointCapability = { restore: true } | { restore: false; reason: string };
 export type CheckpointChange = { path: string; change: 'added' | 'modified' | 'removed' };
@@ -55,6 +56,7 @@ function walk(root: string, relative = ''): Array<string> {
   for (const entry of fs.readdirSync(path.join(root, relative), { withFileTypes: true })) {
     if (isExcluded(entry.name)) continue;
     const child = path.join(relative, entry.name);
+    if (secretClassOfPath(child) !== null) continue;
     if (entry.isDirectory()) found.push(...walk(root, child));
     else if (entry.isFile() || entry.isSymbolicLink()) found.push(child);
   }
