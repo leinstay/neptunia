@@ -1037,7 +1037,7 @@ async function buildCore(
     // The names of the conversations the interface reported (`conversation.changed`), for the places she is shown.
     conversationName: (conversationId) => directory.nameOf(conversationId),
     nameOf: (memberId: string) => firstName(store.getUser(accountOf(store, memberId))) ?? null,
-    journal: personaJournal(journal, servedPlaces),
+    journal: personaJournal(journal, servedPlaces, store),
     reads,
     iface: () => identity.iface,
     store,

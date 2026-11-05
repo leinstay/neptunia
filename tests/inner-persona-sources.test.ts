@@ -36,3 +36,16 @@ test('her own journal lines go to the persona, and a cut-off turn is looked for 
   assert.deepEqual(written, ['persona:local']);
   assert.deepEqual(await source.turnOperations?.({ turnId: 't', days: [], privateUserId: null }), ['op']);
 });
+
+test('a cut-off private turn is looked for in the place of its direct message', async () => {
+  // Bug: a DM's place is no server, so a restart found nothing of the DM turn it cut off and told her nothing it did.
+  const journal = wrongly<Journal>({
+    turnOperations: (placeId: string) => Promise.resolve(placeId === 'dm:u1' ? ['op'] : []),
+  });
+  const store = {
+    placeOfConversation: (conversation: { partnerId?: string }) => `dm:${conversation.partnerId}`,
+  };
+  const source = personaJournal(journal, () => ['p1'], store);
+  assert.deepEqual(await source.turnOperations?.({ turnId: 't', days: [], privateUserId: 'u1' }), ['op']);
+  assert.deepEqual(await source.turnOperations?.({ turnId: 't', days: [], privateUserId: null }), []);
+});

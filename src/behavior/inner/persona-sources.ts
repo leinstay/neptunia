@@ -11,7 +11,10 @@ type PlaceRecord = {
   iterate(placeId: string, query?: { from?: string }): AsyncIterable<object>;
   append(placeId: string, lines: ReadonlyArray<unknown>): unknown;
 };
-type PlaceStore = { rootPlaceOf?(placeId: string): string | null };
+type PlaceStore = {
+  rootPlaceOf?(placeId: string): string | null;
+  placeOfConversation?(conversation: { kind: string; partnerId: string }): string;
+};
 
 /** The record over every place `places` names; a line goes to its conversation's tree, a private one to its DM. */
 export function personaRecord(record: PlaceRecord, store: PlaceStore, places: () => Array<string>): RecordSource {
@@ -32,14 +35,16 @@ export function personaRecord(record: PlaceRecord, store: PlaceStore, places: ()
   };
 }
 
-/** The journal of her own writes under the persona; a cut-off turn's operations from every place. */
-export function personaJournal(journal: Journal, places: () => Array<string>): InnerJournal {
+/** The journal of her own writes under the persona; a cut-off turn's operations from every place and its own DM. */
+export function personaJournal(journal: Journal, places: () => Array<string>, store?: PlaceStore): InnerJournal {
   return {
     inner: (fields) => journal.inner(PERSONA_ID, fields),
     read: (query) => journal.read(PERSONA_ID, query),
     op: (base) => journal.op(PERSONA_ID, base),
     async turnOperations(query) {
-      const holders = [...places(), PERSONA_ID];
+      const partner = query.privateUserId;
+      const dm = partner ? placeOfConversation(store, { kind: 'dm', partnerId: partner }) : null;
+      const holders = new Set([...places(), PERSONA_ID, ...(dm ? [dm] : [])]);
       const found: Array<unknown> = [];
       for (const placeId of holders) {
         const read = await journal.turnOperations(placeId, { turnId: query.turnId, days: query.days });

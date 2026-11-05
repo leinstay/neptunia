@@ -19,6 +19,7 @@ import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createJournal } from '../src/memory/journal.ts';
+import { personaJournal } from '../src/behavior/inner/persona-sources.ts';
 import { createStore } from '../src/memory/store.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
@@ -555,7 +556,7 @@ function boot(
     turns: recorded,
     intentions,
     record,
-    journal,
+    journal: journal ? personaJournal(journal, () => [GUILD]) : journal,
     reads,
     iface: () => 'fake',
     ...(ready ? { ready } : {}),
@@ -669,7 +670,7 @@ function assertNoSilentFailure(run: Record<string, Untyped>, options: Invariants
       `1: the accepted wake ${id} is neither queued nor handled`
     );
   }
-  const open = run.errands.store(GUILD)?.open() ?? [];
+  const open = run.errands.store()?.open() ?? [];
   assert.deepEqual(
     open.map((task: Record<string, Untyped>) => task.id),
     [],
