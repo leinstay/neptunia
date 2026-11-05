@@ -226,8 +226,6 @@
       ],
       "ytdlpPath": "yt-dlp",
       "ffmpegPath": "ffmpeg",
-      "proxy": "",
-      "proxySites": ["youtube.com", "youtu.be"],
       "proxyRetryMinutes": 10,
       "errorRetryMinutes": 60,
       "rewatch": {
@@ -251,6 +249,15 @@
       "classifierMaxOutputTokens": 2000,
       "cacheHours": 24,
       "timeoutMs": 10000
+    }
+  },
+  "proxy": {
+    "enabled": false,
+    "health": {
+      "everySeconds": 60,
+      "failures": 3,
+      "recoveries": 2,
+      "timeoutMs": 8000
     }
   },
   "elsewhere": {

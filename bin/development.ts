@@ -21,6 +21,8 @@ import { createDevelopmentWorker, listHeldBack, serveDevelopment } from '../src/
 import type { DevelopmentDeps, SkillPackageAnswer } from '../src/development/worker.ts';
 import { listAgents, promptFilesOf } from '../src/agent-runner/profiles.ts';
 import { createHot } from '../src/hot.ts';
+import { serviceCredential } from '../src/keys/file.ts';
+import { proxyForRun } from '../src/net/proxy.ts';
 import { log } from '../src/log.ts';
 import { resolvePaths } from '../src/paths.ts';
 import { selfimprovementSettings } from '../src/selfimprovement/settings.ts';
@@ -125,9 +127,10 @@ export async function runDevelopment(argv: ReadonlyArray<string>): Promise<numbe
       git: edges.git,
       gh: edges.gh,
       tests: edges.tests,
-      runAgent: (run) => {
+      runAgent: async (run) => {
         const tools = profileTools(run.agent, where);
-        return edges.runAgent(tools === undefined ? run : { ...run, tools });
+        const proxy = await proxyForRun({ url: serviceCredential(where.dataDir, 'proxy'), config: hot.config });
+        return edges.runAgent({ ...run, ...(tools === undefined ? {} : { tools }), proxy });
       },
       brief: (request) => {
         const template: unknown = hot.prompts['executor-brief'];

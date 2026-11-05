@@ -278,7 +278,7 @@
     },
     "src/behavior/wake.ts": {
       "feedbackFactText": {
-        "complexity": 43
+        "complexity": 36
       },
       "wakeBlockText": {
         "complexity": 67

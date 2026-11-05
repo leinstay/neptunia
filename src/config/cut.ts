@@ -495,6 +495,10 @@ const GONE: Readonly<Record<string, unknown>> = {
   // whole think.
   'journal.keepRequests': 3,
   'journal.thinkChars': 4000,
+  // The engine proxy (src/net/proxy.ts) carries every connection, yt-dlp's for every site included, and its URL is the
+  // `proxy` service of keys.json.
+  'media.video.proxy': '${env:MEDIA_VIDEO_PROXY}',
+  'media.video.proxySites': ['youtube.com', 'youtu.be'],
 };
 
 /** The daily caps of plan section 4.5, gone with their counters. */
@@ -625,6 +629,9 @@ function stable(value: unknown): string {
 
 const REMOVED: ReadonlyArray<CutFate> = ['constant', 'code', 'gone', 'cap'];
 
+/** The keys whose live value is never reported, since it may hold a login: scripts/config-migrate.ts prints `differs`. */
+const UNREPORTED: ReadonlyArray<string> = ['media.video.proxy'];
+
 /** Pure; the argument is not changed. An emptied section goes. A second run returns empty lists and `interfaces: {}`. */
 export function cutConfigKeys(config: Record<string, unknown>): CutConfig {
   const next = structuredClone(config);
@@ -634,7 +641,7 @@ export function cutConfigKeys(config: Record<string, unknown>): CutConfig {
     if (REMOVED.includes(row.becomes)) {
       const live = take(next, row.key);
       report.cut.push(row.key);
-      if (row.becomes !== 'cap' && stable(live) !== stable(row.value))
+      if (row.becomes !== 'cap' && !UNREPORTED.includes(row.key) && stable(live) !== stable(row.value))
         report.differs.push({ key: row.key, live, constant: row.value });
     } else if (row.becomes === 'rename' && row.to !== undefined) {
       put(next, row.to, take(next, row.key));

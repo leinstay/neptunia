@@ -29,7 +29,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 
 /** A tool receives one named service credential from the original selected persona. */
 export function serviceKey(
-  name: 'youtube' | 'brave' | 'exa' | 'videoProxy',
+  name: 'youtube' | 'brave' | 'exa' | 'proxy',
   { env = process.env, dataDir }: { env?: Record<string, string | undefined>; dataDir?: string } = {}
 ): string | null {
   return serviceCredential(dataDir ?? privateDirOf(ROOT, env), name);

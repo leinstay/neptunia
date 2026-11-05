@@ -1,6 +1,6 @@
 // Configuration combines engine defaults with the canonical persona data/config layer. Targeted writes and hot
 // reload use the same paths. Environment parsing remains available to explicit migration and tooling callers;
-// runtime service credentials stay in keys.json. Proxy credential references reach only the video consumer.
+// runtime service credentials stay in keys.json.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -158,11 +158,7 @@ export function readConfig(
 ): Record<string, unknown> {
   assertPersonaLayout(privateDir, rootDir);
   // The merged files are a plain object; resolveEnvRefs hands back the shape it was given.
-  return resolveEnvRefs(
-    mergeConfigFiles(rootDir, privateDir),
-    { ...process.env, MEDIA_VIDEO_PROXY: '${env:MEDIA_VIDEO_PROXY}' },
-    warnUnsetEnvRef
-  ) as Record<string, unknown>;
+  return resolveEnvRefs(mergeConfigFiles(rootDir, privateDir), process.env, warnUnsetEnvRef) as Record<string, unknown>;
 }
 
 /** `<rootDir>/config/config.json` deep-merged with the private settings file, env references unresolved. */

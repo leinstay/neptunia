@@ -9,7 +9,6 @@
 // nothing written under data/; never logs the URL or the key.
 
 import { log as defaultLog } from '../log.ts';
-import { proxyFor } from '../media/video-sites.ts';
 import type { Hot, Log, Obj } from './types.ts';
 import { isFiniteNumber } from './types.ts';
 
@@ -32,13 +31,14 @@ function hasDuration(result: Probe): result is { ok: true; durationSec: number }
  * @param deps.hot  Live config; read at the moment of use.
  * @param deps.videoFetcher  From createVideoFetcher(): `probeSite`, `probeYoutube`.
  * @param [deps.youtubeApiKey]  Optional YOUTUBE_API_KEY; never logged or returned.
+ * @param [deps.proxy]  The engine proxy in force now, read at each check; null goes direct.
  *   Never rejects. `detail` is a short operator-facing note (a duration or the probes' reasons).
  */
 export function createYoutubeCheck({
   hot,
   videoFetcher,
   youtubeApiKey = null,
-  videoProxy = null,
+  proxy = () => null,
 }: {
   hot: Hot;
   videoFetcher: {
@@ -46,7 +46,7 @@ export function createYoutubeCheck({
     probeYoutube: (url: string, options: Obj) => Promise<Probe>;
   };
   youtubeApiKey?: string | null;
-  videoProxy?: string | null;
+  proxy?: () => string | null;
 }): () => Promise<{ status: 'ytdlp' | 'api' | 'page' | 'blocked'; detail: string; keySet: boolean }> {
   return async function checkYoutube() {
     const keySet = typeof youtubeApiKey === 'string' && youtubeApiKey !== '';
@@ -58,7 +58,7 @@ export function createYoutubeCheck({
       const site = await videoFetcher.probeSite(url, {
         ytdlpPath: videoCfg.ytdlpPath,
         toolTimeoutMs: videoCfg.toolTimeoutMs,
-        proxy: proxyFor(url, videoCfg, videoProxy),
+        proxy: proxy(),
         proxyRetryMinutes: videoCfg.proxyRetryMinutes,
       });
       if (hasDuration(site)) return { status: 'ytdlp', detail: `duration ${site.durationSec}s`, keySet };

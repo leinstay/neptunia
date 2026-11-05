@@ -51,6 +51,7 @@ import {
 } from './lib/vision-compare.ts';
 import type { Picked } from './lib/vision-compare.ts';
 import type { Hot } from '../src/hot.ts';
+import { proxySettings } from '../src/net/proxy.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 /** An object read by key whose values are not typed yet. */
@@ -308,7 +309,7 @@ export async function main(
           imageFetcher,
           videoFetcher,
           youtubeApiKey,
-          videoProxy: serviceKey('videoProxy'),
+          proxy: () => (proxySettings(hot.config).enabled ? serviceKey('proxy') : null),
           now,
         }),
       onCell: (entry, cell, index) =>

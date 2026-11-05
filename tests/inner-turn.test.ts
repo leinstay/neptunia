@@ -1712,6 +1712,15 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
   }
 });
 
+test('feedbackFactText: a proxySwitched fact words its switch by the code label, so she learns the proxy went down or came back', () => {
+  // Catches: the engine proxy's fallback is added as a fact no label words, and she never hears of it (No silent failure).
+  for (const change of ['proxy-down', 'proxy-back'] as const)
+    assert.equal(
+      feedbackFactText({ kind: 'proxySwitched', code: change, why: change }, labels.wake),
+      fill(labels.wake.feedback.proxySwitched, { why: labels.wake.feedback.codes[change] })
+    );
+});
+
 test('feedbackFactText: a memoryFailed fact names the code and how many lines wait, an interrupted fact the turn and what it did; without their labels, nothing', () => {
   assert.equal(
     feedbackFactText({ kind: 'memoryFailed', code: 'apply-error', waiting: 20 }, labels.wake),

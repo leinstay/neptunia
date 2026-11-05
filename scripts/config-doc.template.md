@@ -102,6 +102,10 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 <!-- settings: web -->
 
+## proxy
+
+<!-- settings: proxy -->
+
 ## recall
 
 <!-- settings: recall -->

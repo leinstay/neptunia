@@ -561,6 +561,7 @@ import { MAX_MESSAGE_CHARS } from '../src/format.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { ReplayArgs } from './lib/replay-args.ts';
 import type { Hot } from '../src/hot.ts';
+import { proxySettings } from '../src/net/proxy.ts';
 import { parseArgs, MAX_BEFORE, SNOWFLAKE } from './lib/replay-args.ts';
 
 /** An object read by key whose values are not typed yet. */
@@ -1941,7 +1942,7 @@ export function selfreflectionTurnRunner(
     videoFetcher: mods.createVideoFetcher(),
     state,
     youtubeApiKey: serviceKey('youtube'),
-    videoProxy: serviceKey('videoProxy'),
+    proxy: () => (proxySettings(hot.config).enabled ? serviceKey('proxy') : null),
   });
   const lookup = mods.createLookup({
     hot,

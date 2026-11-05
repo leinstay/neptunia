@@ -8,6 +8,8 @@
 import path from 'node:path';
 import { listAgents, promptFilesOf } from '../src/agent-runner/profiles.ts';
 import { readConfig } from '../src/config.ts';
+import { serviceCredential } from '../src/keys/file.ts';
+import { proxyForRun } from '../src/net/proxy.ts';
 import { readKeys } from '../src/keys/file.ts';
 import { readMemoryAt } from '../src/service/watcher.ts';
 import { unitScope } from '../src/service/manager.ts';
@@ -106,9 +108,10 @@ export async function runWatcherWorker(where: Where): Promise<number> {
       install: () => installFacts({ rootDir: where.rootDir, dataDir: where.dataDir }),
       memory: () => watcherMemory({ dataDir: where.dataDir, config }),
       development: developmentOf(where, config),
-      runAgent: (brief, { signal, timeoutMs, runId }) =>
+      runAgent: async (brief, { signal, timeoutMs, runId }) =>
         runAgent(
           {
+            proxy: await proxyForRun({ url: serviceCredential(where.dataDir, 'proxy'), config }),
             agent: 'watcher',
             brief,
             cwd: where.rootDir,

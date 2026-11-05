@@ -29,8 +29,8 @@ const isRec = (value: unknown): value is Rec => isPlainObject(value);
 /** The context of a `run`: its `scope`, its latest `recent` lines, and whatever else the core sends. */
 export type RunContext = { scope?: unknown; recent?: Array<{ author: string; text: string }>; [key: string]: unknown };
 
-/** The secrets a `run` carries. */
-export type RunSecrets = { openrouterKey: string; proxy?: string; searchKey?: string };
+/** The secrets a `run` carries: at least one of them. */
+export type RunSecrets = { openrouterKey?: string; proxy?: string; searchKey?: string };
 
 /** The path the core decided for a task: the backend, model, effort and mode it runs in. Null model and effort mean the backend's own default. */
 export type TaskRoute = {
@@ -126,7 +126,7 @@ const MAX_NOTE_CHARS = 200;
 /** The most withheld paths a result lists (each cut to MAX_NOTE_CHARS). */
 const MAX_WITHHELD = 50;
 const MAX_NAME_CHARS = 64;
-/** The secrets a `run` may carry: `openrouterKey` always, `proxy` and `searchKey` when set. */
+/** The secrets a `run` may carry, each when set: a run with a claude or codex route carries no `openrouterKey`. */
 export const SECRET_KEYS = Object.freeze(['openrouterKey', 'proxy', 'searchKey']);
 /** The longest secret value (characters). */
 const MAX_SECRET_CHARS = 2048;
@@ -190,25 +190,8 @@ function isSecret(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_SECRET_CHARS && !/\s/.test(value);
 }
 
-/**
- * The http form of a proxy URL for HTTPS_PROXY / HTTP_PROXY: a `socks5h://` URL becomes the
- * `http://` one with the same credentials, host and port (the residential proxy serves both on
- * one port), an `http://` or `https://` URL stays as it is; anything else, or a blank value, is
- * null. Pure; never logs the URL (it may carry credentials).
- */
-export function httpProxyForm(url: unknown): string | null {
-  if (typeof url !== 'string' || !url.trim()) return null;
-  let parsed: URL;
-  try {
-    parsed = new URL(url.trim());
-  } catch {
-    return null;
-  }
-  if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return url.trim();
-  if (parsed.protocol !== 'socks5h:' || !parsed.hostname || !parsed.port) return null;
-  const auth = parsed.username ? `${parsed.username}${parsed.password ? `:${parsed.password}` : ''}@` : '';
-  return `http://${auth}${parsed.host}`;
-}
+/** The http form of a proxy URL, `proxy` of the secrets (src/net/proxy.ts). */
+export { httpProxyForm } from '../net/proxy.ts';
 
 /** `{ ok: false, error }`. */
 function refuse(error: string): { ok: false; error: string } {
@@ -281,10 +264,10 @@ function validateRun(msg: Rec, id: string): Checked {
   if (msg.secrets !== undefined) {
     // Only the code on a refusal: a secret never travels back in an error.
     const s = msg.secrets;
-    if (!isRec(s) || !isSecret(s.openrouterKey)) return refuse('bad-secrets');
+    if (!isRec(s) || Object.keys(s).length === 0) return refuse('bad-secrets');
     if (!Object.keys(s).every((key) => SECRET_KEYS.includes(key))) return refuse('bad-secrets');
-    const secrets: RunSecrets = { openrouterKey: s.openrouterKey };
-    for (const key of ['proxy', 'searchKey'] as const) {
+    const secrets: RunSecrets = {};
+    for (const key of ['openrouterKey', 'proxy', 'searchKey'] as const) {
       const value = s[key];
       if (value === undefined) continue;
       if (!isSecret(value)) return refuse('bad-secrets');
@@ -310,8 +293,8 @@ function validateRun(msg: Rec, id: string): Checked {
  * other key of a line dropped; a malformed one refuses `bad-recent`), `limits` (only LIMIT_KEYS, each a positive number), `tools` (a
  * non-empty list of names), `model` (an OpenCode model id), `cost`
  * (`{ input, output }` in USD per million tokens), `searchProvider` (an
- * OpenCode web search provider id) and `secrets` (`{ openrouterKey, proxy?,
- * searchKey? }`, each a non-empty string without whitespace, no other key;
+ * OpenCode web search provider id) and `secrets` (`{ openrouterKey?, proxy?,
+ * searchKey? }`, at least one, each a non-empty string without whitespace, no other key;
  * `proxy` in the http form, see httpProxyForm) and `preamble` (the deployment's
  * shared text that opens the agent's system instructions: a string of any
  * length, trimmed, else `bad-preamble`; a blank one is dropped) and `route` (`{ backend, model, effort, mode }` and `provider` when pinned, see parseRoute, else `bad-route`). A refusal carries its code

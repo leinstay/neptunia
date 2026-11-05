@@ -507,6 +507,9 @@ export const CUT: ReadonlyArray<CutRow> = [
   { key: 'journal.thinkChars', group: 'memory', becomes: 'gone', production: 4000 },
   { key: 'journal.keepRequests', group: 'memory', becomes: 'gone', production: 3 },
   { key: 'journal.offWindowHours', group: 'memory', becomes: 'constant', production: 24 },
+  // Stage Z: the video proxy and its site list left with the engine proxy (src/net/proxy.ts).
+  { key: 'media.video.proxy', group: 'media and diary', becomes: 'gone', production: '${env:MEDIA_VIDEO_PROXY}' },
+  { key: 'media.video.proxySites', group: 'media and diary', becomes: 'gone', production: ['youtube.com', 'youtu.be'] },
 ];
 
 /** The schema keys after the cut that are neither in `CUT` nor added by it: every one of them stays. */
@@ -627,8 +630,7 @@ export const KEPT: ReadonlyArray<string> = [
   'media.video.sites',
   'media.video.ytdlpPath',
   'media.video.ffmpegPath',
-  'media.video.proxy',
-  'media.video.proxySites',
+  // Stage Z: media.video.proxy and media.video.proxySites left with the engine proxy (src/net/proxy.ts).
   'media.video.proxyRetryMinutes',
   'media.video.errorRetryMinutes',
   'media.video.rewatch.maxOutputTokens',

@@ -308,6 +308,8 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `unavailable` | failed | - | `wake.feedback.codes.unavailable` |
 | `no-review-channel` | failed | - | `wake.feedback.codes.no-review-channel` |
 | `keys-exhausted` | failed | - | `wake.feedback.codes.keys-exhausted` |
+| `proxy-down` | failed | - | `wake.feedback.codes.proxy-down` |
+| `proxy-back` | ok | - | `wake.feedback.codes.proxy-back` |
 | `pending-full` | failed | - | none (internal) |
 | `pending-expired` | failed | - | none (internal) |
 | `pending-outranked` | failed | - | none (internal) |

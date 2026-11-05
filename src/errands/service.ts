@@ -8,13 +8,13 @@
 // that brings it back to the persona (src/errands/turns.ts); an errand cancelled meanwhile ends
 // without one. At start the errands a restart left open are failed (`restarted`): the runner sends
 // an errand's end on the connection that brought it, which is gone. Every run carries the errand's
-// secrets (`secrets` of src/agent-runner/protocol.ts), since every key lives in the core's .env
-// and the runner cannot read it: the key of the agent's model role (`scout`, `server`)
-// as the bot resolves a role's key (src/llm/openrouter.ts#roleApiKey over `llm.keyByRole`; never
-// the persona's main key), and for `scout` the residential proxy of the video fetches
-// (MEDIA_VIDEO_PROXY, the same proxy serving http too, so a `socks5h://` URL is sent in its http
-// form) and the search key (OPENCODE_WEBSEARCH_KEY) when set. Without the role's key no secrets
-// are sent (the runner falls back to its own environment). Settings are read at the moment of
+// secrets (`secrets` of src/agent-runner/protocol.ts), since every key lives in the core and the
+// runner cannot read it: the key of the agent's model role (`scout`, `server`) as the bot resolves
+// a role's key (src/llm/openrouter.ts#roleApiKey over `llm.keyByRole`; never the persona's main
+// key), or the extra key of an opencode route; the engine proxy of the moment (`proxy`, the core's
+// monitor, src/net/proxy.ts) in its http form for every agent, so no harness child goes out from
+// the server's own address while the proxy is on; and for `scout` the search key
+// (OPENCODE_WEBSEARCH_KEY) when set. A run with none of them carries no secrets. Settings are read at the moment of
 // use; logs carry ids and codes, never a goal, a result or a secret. The context also carries
 // `recent`: the last `DEFAULT_RECENT_LINES` lines of the origin channel as `[{ author, text }]`
 // (display names and text on one line, cut to RECENT_CHARS), read from the memory's buffer
@@ -35,7 +35,8 @@ import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { roleApiKey } from '../llm/openrouter.ts';
 import { hasExtraKey, readKeys } from '../keys/file.ts';
 import { routeOfAgent } from '../subharness/control.ts';
-import { MAX_RECENT_ENTRIES, RECENT_CHARS, httpProxyForm } from '../agent-runner/protocol.ts';
+import { MAX_RECENT_ENTRIES, RECENT_CHARS } from '../agent-runner/protocol.ts';
+import { httpProxyForm } from '../net/proxy.ts';
 import type { TaskRoute } from '../agent-runner/protocol.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
 import { isOpenState } from './store.ts';
@@ -85,33 +86,38 @@ function limitsFor(agent: string, config: Untyped, agentPaths?: AgentPaths): Lim
 }
 
 /**
- * The secrets an errand of `agent` carries to its runner: `{ openrouterKey, proxy?, searchKey? }`,
- * or null when the agent's role has no key of its own (never the main key: none is passed). `keyOverride`
- * replaces the role's key: a route spends the extra key keys.json names, not the role's, and a run with a route but no
- * such key carries none (a claude or codex agent brings its own login).
+ * The secrets an errand of `agent` carries to its runner: `{ openrouterKey?, proxy?, searchKey? }`, or null when it has
+ * none. The key is the agent's role key (never the main key: none is passed); `keyOverride` replaces it, since a route
+ * spends the extra key keys.json names, and a run with a route but no such key carries none (a claude or codex agent
+ * brings its own login). `proxy` is the engine proxy in force now, null on the direct path.
  */
 function secretsFor(
   agent: string,
   config: Untyped,
   env: Record<string, string | undefined>,
-  agentPaths?: AgentPaths,
-  keyOverride: string | null = null,
-  routed = false
+  { agentPaths, keyOverride = null, routed = false, proxy = null }: SecretsOptions
 ): RunSecrets | null {
   const profile = objOf(profileOf(agent, agentPaths));
   // The main key is never passed (an empty one: a role without a key of its own gets none).
   const openrouterKey =
     keyOverride ?? (!routed && profile.modelRole ? roleApiKey(config, env, profile.modelRole, '') : null);
-  if (typeof openrouterKey !== 'string' || !openrouterKey) return null;
-  const secrets: RunSecrets = { openrouterKey };
+  const secrets: RunSecrets = {};
+  if (typeof openrouterKey === 'string' && openrouterKey) secrets.openrouterKey = openrouterKey;
+  const form = httpProxyForm(proxy);
+  if (form !== null) secrets.proxy = form;
   if (profile.name === 'scout') {
-    const proxy = httpProxyForm(env?.MEDIA_VIDEO_PROXY);
-    if (proxy) secrets.proxy = proxy;
     const searchKey = typeof env?.OPENCODE_WEBSEARCH_KEY === 'string' ? env.OPENCODE_WEBSEARCH_KEY.trim() : '';
-    if (searchKey) secrets.searchKey = searchKey;
+    if (searchKey && secrets.openrouterKey !== undefined) secrets.searchKey = searchKey;
   }
-  return secrets;
+  return Object.keys(secrets).length > 0 ? secrets : null;
 }
+
+type SecretsOptions = {
+  agentPaths?: AgentPaths;
+  keyOverride?: string | null;
+  routed?: boolean;
+  proxy?: string | null;
+};
 
 /** What the core decides for one errand at dispatch: its route, the key an opencode route spends, or why it cannot go. */
 type Dispatch = { route: TaskRoute | null; key: string | null; error?: string };
@@ -225,8 +231,8 @@ function runRequestOf(
 }
 
 /**
- * `hot` holds the live config. `env` is the parsed environment (src/config.ts#env): the keys and the proxy a run
- * carries. `memory` gives the channel's newest lines, oldest first (src/index.ts reads them from the memory
+ * `hot` holds the live config. `env` is the parsed environment (src/config.ts#env): the keys a run carries. `proxy`
+ * is the engine proxy in force, read as each errand is sent. `memory` gives the channel's newest lines, oldest first (src/index.ts reads them from the memory
  * database): an errand's `context.recent`. `defer` is how
  * the background run starts (setImmediate by default). `now` is the clock of the runner rechecks.
  */
@@ -243,6 +249,7 @@ export function createErrandService({
   log = defaultLog,
   defer = (fn) => setImmediate(fn),
   now = Date.now,
+  proxy = () => null,
 }: ErrandServiceOptions): ErrandService {
   // errand id -> the promise of its run, while it runs (tests and the shutdown wait on them).
   const running = new Map<string, Promise<ErrandRecord | null>>();
@@ -315,7 +322,12 @@ export function createErrandService({
     let outcome: FinishOutcome;
     try {
       const { route, key, error } = dispatchOf(privateDir, errand.agent, log);
-      const secrets = secretsFor(errand.agent, hot.config, env, agentPaths, key, route !== null);
+      const secrets = secretsFor(errand.agent, hot.config, env, {
+        agentPaths,
+        keyOverride: key,
+        routed: route !== null,
+        proxy: proxy(),
+      });
       outcome =
         error !== undefined
           ? { status: 'failed', error }

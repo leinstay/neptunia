@@ -203,7 +203,7 @@ export type RunContext = {
 };
 /** The retrieval an errand reads through. */
 export type RetrieveForErrand = (input: RetrievalInput) => Promise<MemoryPage | null>;
-export type RunSecrets = { openrouterKey: string; proxy?: string; searchKey?: string };
+export type RunSecrets = { openrouterKey?: string; proxy?: string; searchKey?: string };
 export type RunRequest = {
   agent: string;
   id: string;
@@ -296,4 +296,6 @@ export type ErrandServiceOptions = {
   log?: Logger;
   defer?: (fn: () => unknown) => unknown;
   now?: () => number;
+  /** The engine proxy in force now (src/net/proxy.ts#ProxyMonitor.current), null on the direct path. */
+  proxy?: () => string | null;
 };

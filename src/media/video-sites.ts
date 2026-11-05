@@ -2,8 +2,7 @@
 // site, a stable cache key for a video URL (so a repost of the same video
 // shares one cache entry), the exact yt-dlp / ffmpeg argument arrays the
 // fetcher (src/media/fetch-video.ts) runs (a GIF's conversion to a short
-// mp4 included), which links go through the optional yt-dlp proxy
-// (proxyFor), and the parsers behind the
+// mp4 included), and the parsers behind the
 // YouTube duration probe that works without yt-dlp (the watch page, the
 // optional Data API). No I/O here -- the child processes and requests live at
 // the edge, these functions only decide what to run and read what came back.
@@ -157,22 +156,6 @@ export function videoUrlCacheKey(url: string): string {
   return `video:url:${createHash('sha1').update(base).digest('hex').slice(0, 16)}`;
 }
 
-/**
- * The proxy yt-dlp should use for `url`: `videoCfg.proxy` when it is a
- * non-empty string and `url` belongs to one of `videoCfg.proxySites` (same
- * matching rule as videoSiteFor), else null -- an empty proxy or an empty
- * list turns it off. The value may carry credentials: never log it.
- */
-export function proxyFor(
-  url: string,
-  videoCfg?: { proxy?: string; proxySites?: Array<string> },
-  credential?: string | null
-): string | null {
-  const proxy = videoCfg?.proxy === '${env:MEDIA_VIDEO_PROXY}' ? credential : videoCfg?.proxy;
-  if (typeof proxy !== 'string' || !proxy) return null;
-  return videoSiteFor(url, videoCfg?.proxySites) !== null ? proxy : null;
-}
-
 /** `['--proxy', proxy]` for a non-empty string, else nothing. */
 function proxyArgs(proxy: unknown): Array<string> {
   return typeof proxy === 'string' && proxy ? ['--proxy', proxy] : [];
@@ -180,7 +163,7 @@ function proxyArgs(proxy: unknown): Array<string> {
 
 /**
  * A metadata-only yt-dlp run (duration, title), no download. A non-empty
- * `proxy` (see proxyFor) is passed verbatim as `--proxy`.
+ * `proxy` (the engine proxy in force, src/net/proxy.ts) is passed verbatim as `--proxy`.
  */
 export function ytdlpProbeArgs(
   url: string,

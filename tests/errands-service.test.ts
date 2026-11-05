@@ -1,8 +1,9 @@
 // Tests for src/errands/service.ts: the secrets every run carries to its agent runner. Over a real
 // task store (a temp data/ directory) with a FAKE journal, a FAKE errand client and a FAKE log:
 // a run carries the key of its agent's model role as the bot resolves a role's key
-// (`llm.keyByRole`), never the persona's main key; the scout agent also gets the proxy in its http
-// form and the search key, the server agent neither; without the role's key no secrets go out;
+// (`llm.keyByRole`), never the persona's main key; the engine proxy in force goes in its http form
+// (stage Z: from the core's monitor, not MEDIA_VIDEO_PROXY); the scout agent also gets the search
+// key, the server agent not; without the role's key or a proxy no secrets go out;
 // and no secret reaches a log call, a journal line or the store's files. The runner's health flag
 // (over a real errand client and a fake runner socket): a runner known unreachable refuses a new
 // task at once with `runner-down`, and a ping that succeeds flips the flag back.
@@ -73,7 +74,8 @@ function fakeLog() {
   return { calls, info: record('info'), warn: record('warn'), error: record('error') };
 }
 
-function makeService(env: Untyped, { keyByRole }: { keyByRole?: Untyped } = {}) {
+// Stage Z: the proxy comes from the core's monitor (`proxy`), never from the environment.
+function makeService(env: Untyped, { keyByRole, proxy = null }: { keyByRole?: Untyped; proxy?: string | null } = {}) {
   const rootDir = tempDir('nep-errands-service-');
   const hot = {
     config: {
@@ -106,6 +108,7 @@ function makeService(env: Untyped, { keyByRole }: { keyByRole?: Untyped } = {}) 
     env,
     log,
     defer: (fn) => fn(),
+    proxy: () => proxy,
   });
   const cleanup = () => fs.rmSync(rootDir, { recursive: true, force: true });
   return { errands, client, log, journalLines, rootDir, cleanup };
@@ -137,7 +140,8 @@ const ENV = {
 };
 
 test("errands service: a scout run carries its role's key, the proxy in its http form and the search key; no secret in a log, a journal line or a file", async () => {
-  const { errands, client, log, journalLines, rootDir, cleanup } = makeService(ENV);
+  // Stage Z: the proxy is the engine proxy in force, handed by the core, in place of MEDIA_VIDEO_PROXY.
+  const { errands, client, log, journalLines, rootDir, cleanup } = makeService(ENV, { proxy: ENV.MEDIA_VIDEO_PROXY });
   try {
     const { logs } = await withCapturedLogs(async () => {
       assert.equal(errands.submit(ask('scout')).ok, true);
@@ -178,7 +182,11 @@ test('errands service: the key follows llm.keyByRole read now; an http proxy is 
     MEDIA_VIDEO_PROXY: 'http://proxy.example:8000',
     OPENCODE_WEBSEARCH_KEY: '',
   };
-  const { errands, client, cleanup } = makeService(env, { keyByRole: { scout: 'OPENROUTER_WEB_ONLY' } });
+  // Stage Z: the proxy is the engine proxy in force, handed by the core, in place of MEDIA_VIDEO_PROXY.
+  const { errands, client, cleanup } = makeService(env, {
+    keyByRole: { scout: 'OPENROUTER_WEB_ONLY' },
+    proxy: env.MEDIA_VIDEO_PROXY,
+  });
   try {
     await withCapturedLogs(async () => {
       errands.submit(ask('scout'));
