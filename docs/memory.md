@@ -78,6 +78,8 @@ Source messages are the evidence. A memory session reads a window and proposes c
 
 Recall combines word search, partial word matching, stored vectors and person matches. It ranks hits and returns surrounding conversation so a matching phrase keeps its context. Prefetch brings likely relevant material into a turn; `memory.search` lets the persona ask a more specific question.
 
+`src/memory/vectors.ts` keeps one month of vectors per place, with a manifest of its rows, bytes and checksum. `search` skips a month whose rows disagree with its manifest and logs it. `has` answers from the rows themselves, so the catch-up in `src/memory/embedder.ts` never embeds a record again while its month holds it. A vector row stays in the month of its own place: when another place's month holds its chunk key, the writer in `src/memory/db/unit-write.ts` gives the row that key with a `#<n>` suffix. `scripts/memory-repair-dm-vectors.ts` rebuilds a month that disagrees with its manifest while the core is stopped.
+
 An old source does not become unreachable merely because it is outside the recent-context window. Prompt budgets bound what is shown, not the age of everything stored. Review the relevant `memoryDb`, `recall` and `context` settings in [configuration](configuration.md).
 
 ## Entities and assertions
