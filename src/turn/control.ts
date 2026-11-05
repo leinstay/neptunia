@@ -1,5 +1,5 @@
 // The states of the turns one owner's conversation asks for: accepted, queued, running and the three ends. One runs at a
-// time, the rest wait in order under a capacity, and a queued one can be edited, removed or cancelled before it starts. A
+// time, the rest wait in order under a capacity, and a queued one can be removed or cancelled before it starts. A
 // cancel of the running one aborts its signal and waits: only the run says how it ended, so a reply that went out despite the
 // cancel ends committed. Every event goes to `emit` with one rising `seq` and stays for `replay`. The control knows nothing of
 // a watcher, an errand or another conversation, and calls no model. src/interface/chat-turns.ts holds the one of the owner's
@@ -28,7 +28,6 @@ export type Submitted = { status: 'accepted'; turnId: string } | { status: 'refu
 export type TurnControl = {
   /** Takes a line. The same `requestId` again is the same turn, run once. */
   submit(line: { requestId: string; text: string; attachments: ReadonlyArray<TurnAttachment> }): Submitted;
-  edit(turnId: string, text: string): { status: 'ok' | 'too-late' | 'unknown' };
   remove(turnId: string): { status: 'ok' | 'too-late' | 'unknown' };
   cancel(turnId: string): { status: 'cancelled' | 'cancelling' | 'finished' | 'unknown' };
   queued(): ReadonlyArray<TurnRun>;
@@ -53,7 +52,7 @@ export function createTurnControl({
   run,
   isStreaming = () => false,
 }: {
-  capacity: number | (() => number);
+  capacity: number;
   newId: () => string;
   now: () => number;
   emit: (event: TurnEvent) => void;
@@ -114,8 +113,6 @@ export function createTurnControl({
       });
   }
 
-  const limit = (): number => (typeof capacity === 'function' ? capacity() : capacity);
-
   /** A queued turn out of the queue, with its end told. */
   function dropQueued(turnId: string): void {
     queue = queue.filter((turn) => turn.turnId !== turnId);
@@ -127,7 +124,7 @@ export function createTurnControl({
     submit({ requestId, text, attachments }) {
       const known = byRequest.get(requestId);
       if (known !== undefined) return { status: 'accepted', turnId: known };
-      if (active !== null && queue.length >= limit()) return { status: 'refused', code: 'queue-full' };
+      if (active !== null && queue.length >= capacity) return { status: 'refused', code: 'queue-full' };
       const turnId = newId();
       byRequest.set(requestId, turnId);
       phases.set(turnId, 'queued');
@@ -137,14 +134,6 @@ export function createTurnControl({
       if (mustWait) say(turnId, 'queued');
       else startNext();
       return { status: 'accepted', turnId };
-    },
-    edit(turnId, text) {
-      const phase = phases.get(turnId);
-      if (phase === undefined) return { status: 'unknown' };
-      if (phase !== 'queued') return { status: 'too-late' };
-      queue = queue.map((turn) => (turn.turnId === turnId ? { ...turn, text } : turn));
-      say(turnId, 'edited', { text });
-      return { status: 'ok' };
     },
     remove(turnId) {
       const phase = phases.get(turnId);

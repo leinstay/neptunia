@@ -17,13 +17,7 @@ export type RestoreAnswer =
   | { status: 'refused'; code: string }
   | { status: 'failed'; code: string; undoId: string; undoRevision: number };
 
-/**
- * A flat answer rather than a union: tests/development-checkpoints.test.ts reads `.code` after asserting `.ok`, which only
- * compiles over a plain boolean. `checkpoint` is NO_CHECKPOINT when `ok` is false, and `code` is empty when it is true.
- */
-export type TakeAnswer = { ok: boolean; checkpoint: Checkpoint; code: string };
-
-const NO_CHECKPOINT: Checkpoint = { id: '', revision: 0, at: 0 };
+export type TakeAnswer = { ok: true; checkpoint: Checkpoint } | { ok: false; code: string };
 
 export type FileCheckpoints = {
   capability(): CheckpointCapability;
@@ -209,8 +203,8 @@ export function createFileCheckpoints({
     capability: () =>
       isAllowed() ? { restore: true } : { restore: false, reason: 'this worktree is outside the task authority' },
     take({ revision }) {
-      if (!isAllowed()) return { ok: false, checkpoint: NO_CHECKPOINT, code: 'unavailable' };
-      return { ok: true, checkpoint: capture(revision), code: '' };
+      if (!isAllowed()) return { ok: false, code: 'unavailable' };
+      return { ok: true, checkpoint: capture(revision) };
     },
     list() {
       if (!isAllowed() || !fs.existsSync(storeDir)) return [];

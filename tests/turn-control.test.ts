@@ -95,23 +95,21 @@ test('the same request id resubmitted after a reconnect is the same turn, run on
   assert.equal(runs.length, 1);
 });
 
-test('a queued turn can be edited and removed before dispatch, and not after', async () => {
-  // Bug: an edit arrives after dispatch and the owner believes the new text was sent.
+test('a queued turn can be removed before dispatch, and not after', async () => {
+  // Bug: a removal arrives after dispatch and the owner believes the turn was taken back.
   const { control, runs } = rig();
   const running = accepted(control.submit({ requestId: 'r1', text: 'one', attachments: [] }));
-  const edited = accepted(control.submit({ requestId: 'r2', text: 'two', attachments: [] }));
+  accepted(control.submit({ requestId: 'r2', text: 'two', attachments: [] }));
   const removed = accepted(control.submit({ requestId: 'r3', text: 'three', attachments: [] }));
   await tick();
-  assert.equal(control.edit(edited, 'two edited').status, 'ok');
   assert.equal(control.remove(removed).status, 'ok');
-  assert.equal(control.edit(running, 'late').status, 'too-late');
   assert.equal(control.remove(running).status, 'too-late');
-  assert.equal(control.edit('unknown', 'x').status, 'unknown');
+  assert.equal(control.remove('unknown').status, 'unknown');
   runs[0]?.finish({ status: 'committed', responseId: 'x' });
   await tick();
   assert.deepEqual(
     runs.map((run) => run.turn.text),
-    ['one', 'two edited']
+    ['one', 'two']
   );
 });
 

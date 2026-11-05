@@ -29,7 +29,6 @@ function rig(over: { allowed?: boolean; writeFile?: (file: string, data: Buffer)
 
 const taken = (checkpoints: ReturnType<typeof rig>['checkpoints'], revision = 1) => {
   const answer = checkpoints.take({ revision });
-  assert.equal(answer.ok, true);
   if (!answer.ok) throw new Error(answer.code);
   return answer.checkpoint;
 };

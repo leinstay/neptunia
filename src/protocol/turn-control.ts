@@ -7,22 +7,12 @@
 /** The status of a `command.result` that carries a turn event. */
 export const TURN_EVENT_STATUS = 'turn';
 
-const EVENT_TYPES = [
-  'accepted',
-  'queued',
-  'edited',
-  'running',
-  'text',
-  'progress',
-  'committed',
-  'cancelled',
-  'failed',
-] as const;
+const EVENT_TYPES = ['accepted', 'queued', 'running', 'text', 'progress', 'committed', 'cancelled', 'failed'] as const;
 export type TurnEventType = (typeof EVENT_TYPES)[number];
 
 /**
  * One event of a turn. `seq` rises by one over everything the core's control emits. The optional fields belong to their
- * types: `text` to `accepted`, `edited` and `text`, `streaming` to `running`, `kind`, `name` and `detail` to `progress`,
+ * types: `text` to `accepted` and `text`, `streaming` to `running`, `kind`, `name` and `detail` to `progress`,
  * `responseId` to `committed` and `code` to `failed`.
  */
 export type TurnEvent = {

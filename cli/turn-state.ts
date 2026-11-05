@@ -6,7 +6,7 @@ export type TurnProgress = { kind: 'tool' | 'task'; name: string; detail: string
 
 /** One event as the core sends it (src/protocol/turn-control.ts). This package imports nothing of the engine. */
 export type ClientTurnEvent = {
-  type: 'accepted' | 'queued' | 'edited' | 'running' | 'text' | 'progress' | 'committed' | 'cancelled' | 'failed';
+  type: 'accepted' | 'queued' | 'running' | 'text' | 'progress' | 'committed' | 'cancelled' | 'failed';
   turnId: string;
   seq: number;
   at: number;
@@ -74,8 +74,6 @@ function nextTurn(turn: ClientTurn, event: ClientTurnEvent): ClientTurn {
       return { ...moved, state: 'accepted', line: event.text ?? turn.line };
     case 'queued':
       return { ...moved, state: 'queued' };
-    case 'edited':
-      return { ...moved, line: event.text ?? turn.line };
     case 'running':
       return { ...moved, state: 'running', streaming: event.streaming === true };
     case 'text':
