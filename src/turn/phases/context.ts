@@ -104,7 +104,7 @@ export type PhaseContext = {
   describer: PhaseDescriber | null | undefined;
   fetchImpl: typeof fetch;
   lookup: PhaseWebLookup | null | undefined;
-  images: { quota: (args: { userId: string | null }) => unknown } | null | undefined;
+  images: { quota: (args: { accountId: string | null }) => unknown } | null | undefined;
   emoji:
     | (NonNullable<Parameters<typeof refreshEmojiIfOn>[0]> & { list: () => Array<unknown> | null | undefined })
     | null
@@ -192,8 +192,8 @@ export type TurnTrigger = {
   content: string;
   ts: number;
   replyToId?: string | null;
-  mentionedUserIds?: Array<string>;
-  replyPingUserId?: string | null;
+  mentionedAccountIds?: Array<string>;
+  replyPingAccountId?: string | null;
   [key: string]: unknown;
 };
 

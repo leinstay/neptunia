@@ -58,7 +58,7 @@ export function hitFrom(hit: MessageHit): RecallHit {
 }
 
 /** Whether the conversation belongs to a community (a private chat does not). */
-export const inCommunity = (channel: unknown): boolean => objOf(channel).communityId != null;
+export const inCommunity = (channel: unknown): boolean => objOf(channel).rootId != null;
 
 /** A search plan entry as the interface's message search takes it. */
 export function searchQueryOf(planned: unknown): Parameters<Reads['searchMessages']>[1] {

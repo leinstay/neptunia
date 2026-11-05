@@ -336,7 +336,7 @@
 // at most `--max-pictures` pictures (default 2; past it a picture is refused as
 // an image cap refuses it), each written to `<out>/pictures/`. Every
 // `generate()` call is recorded at the client's boundary: `{ prompt, reference,
-// userId }`, the reference as its media type, size and hash, never its bytes.
+// accountId }`, the reference as its media type, size and hash, never its bytes.
 // The spend gate: the plan is made first (no request), then the estimate --
 // 2 requests per slot (the plan and the compose) at ~USD_PER_ANSWER, plus with
 // `--draw live` `--max-pictures` pictures at ~0.025 USD -- and the refusal
@@ -346,7 +346,7 @@
 // exists and is not empty), rewritten after each slot: `report.json` (`{ date,
 // timezone, seed, draw, quiet, plan: { slots, hunger }, slots: [{ n, at, local,
 // outcome, reason, plan, diary, messages, attachments, draws: [{ prompt,
-// reference, userId, result, file }], requests, cost }], usage, stopped }`) and
+// reference, accountId, result, file }], requests, cost }], usage, stopped }`) and
 // `report.md`. stdout: the paths, the slot outcomes and the usage. Exit code 1
 // when a slot ended in `error` or the run was stopped.
 //
@@ -1501,7 +1501,7 @@ async function readableChannel({ client, guild, placeId, placeId: conversationId
 /**
  * The last `limit` messages of `channel` up to and including `anchorId` (the newest ones when
  * it is null), oldest first, normalized as a live history is: the authors and mentioned members
- * (and the ids of `memberIds`) put into the member cache first, so their display names resolve.
+ * (and the ids of `accountIds`) put into the member cache first, so their display names resolve.
  */
 async function fetchWindow({
   guild,
@@ -1512,7 +1512,7 @@ async function fetchWindow({
   config,
   fetchHistoryWindow,
   log,
-  memberIds = [],
+  accountIds = [],
 }: Rec) {
   const windowOptions = {
     anchorId: anchorId ?? undefined,
@@ -1524,10 +1524,10 @@ async function fetchWindow({
   };
   // Pass 1 learns who wrote and who is mentioned; their members are cached; pass 2 normalizes with their display names.
   const first = limit > 0 ? await fetchHistoryWindow(channel, windowOptions) : [];
-  const ids = new Set(memberIds.filter((id: string) => id !== self.id));
+  const ids = new Set(accountIds.filter((id: string) => id !== self.id));
   for (const message of first) {
     if (message.authorId !== self.id) ids.add(message.authorId);
-    for (const id of message.mentionedUserIds ?? []) if (id !== self.id) ids.add(id);
+    for (const id of message.mentionedAccountIds ?? []) if (id !== self.id) ids.add(id);
   }
   const members = await cacheMembers(guild, ids);
   // The audience rail's view of bots: the members named in per-member channel overwrites,
@@ -1915,7 +1915,6 @@ export function diaryTurnRunner(
     llm,
     calibrator,
     client,
-    placeId,
     self,
     images,
     state,
@@ -1960,7 +1959,7 @@ export function diaryTurnRunner(
     lookup,
     images,
     recall: mods.createRecall({ hot, store, llm, reads, describer }),
-    emoji: mods.createEmojiIndex({ reads, communityId: () => placeId, now: Date.now }),
+    emoji: mods.createEmojiIndex({ reads, now: Date.now }),
     getSelfName: /** @returns {unknown} */ (): unknown => self.name,
     selfId: () => self.id,
     reads,
@@ -2716,7 +2715,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
               return { id: entry.id, name: entry.name, writable };
             });
           }, hide),
-          nameOf: (id: string, memberId: string) => store.getUser(accountOf(store, memberId))?.names?.[0] ?? null,
+          nameOf: (id: string, accountId: string) => store.getUser(accountOf(store, accountId))?.names?.[0] ?? null,
           reads,
           iface: () => discordPort.iface,
           store: schedulerStore,
@@ -2806,7 +2805,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       llm,
       calibrator,
       client,
-      placeId,
       self,
       images: null,
       state,
@@ -3141,7 +3139,6 @@ async function runDiaryDay({ args, root, load, hot: liveHot, log, signal }: Mode
       llm,
       calibrator,
       client,
-      placeId,
       self,
       images,
       state,
@@ -3556,7 +3553,7 @@ export function scenarioDiscovery(scenario: Scenario, names: Untyped): Untyped {
 /**
  * The invented message of a scenario as a normalized history line (interfaces/discord/collect.ts#normalizeMessage's
  * shape): by `authorId` / `authorName` in `channel` at `at`, the text as given, tagging the
- * persona (`mentionedUserIds`: `selfId`) unless `tagged` is false -- a burst's message, which
+ * persona (`mentionedAccountIds`: `selfId`) unless `tagged` is false -- a burst's message, which
  * tags her only when its text holds her tag `<@selfId>` --, replying to nothing, without media.
  * Its id is the snowflake of its moment, so it sorts after every line before it. Pure.
  */
@@ -3590,10 +3587,10 @@ export function scenarioTrigger({
     bot: false,
     content: text,
     ts: at,
-    mentionedUserIds: tags ? [String(selfId)] : [],
+    mentionedAccountIds: tags ? [String(selfId)] : [],
     mentionedChannelIds: [],
     replyToId: null,
-    replyPingUserId: null,
+    replyPingAccountId: null,
     forwardedFrom: null,
     attachments: [],
     links: [],
@@ -3640,7 +3637,7 @@ export function scenarioTask(
     id: scenarioTaskId(scenario.id),
     agent: errand.agent,
     goal: errand.goal,
-    requester: { userId: errand.asker, kind: 'member' },
+    requester: { accountId: errand.asker, kind: 'member' },
     origin: { placeId: String(scenario.placeId), messageId: null },
     scope: 'group',
     state: errand.state,
@@ -5188,7 +5185,7 @@ async function runSkills({
         config: hot.config,
         fetchHistoryWindow,
         log,
-        memberIds: authors,
+        accountIds: authors,
       });
       if (scenario.before && history[history.length - 1]?.id !== scenario.before)
         throw new CliError('replay-cli: the anchor message was not found in that channel');
@@ -5354,7 +5351,7 @@ async function runSkills({
       // One decision's request inputs: the requester's catalogue (the trigger's author), the media of the channel so far.
       const turnInput = (turnMoment: Untyped, turnAt: Untyped, turnTrigger: Untyped) => {
         // An errand's end: who asked for it, as src/errands/turns.ts hands them in (no roles: src/behavior/turn.js#callEnvelope).
-        const requester = task ? { id: task.requester.userId, roleIds: [] } : requesterOf(turnTrigger, channel);
+        const requester = task ? { id: task.requester.accountId, roleIds: [] } : requesterOf(turnTrigger, channel);
         // With features.coreTools on no search classifier runs before her reply, so none names her skills: no <skills> (as live).
         const inventory = coreOn
           ? null

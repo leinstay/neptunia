@@ -514,8 +514,8 @@ async function buildCore(
     embed: (texts, opts) => embedder.embed(texts, opts),
     record: recordWriter,
     log,
-    nameOf: (placeId, userId) =>
-      firstName(store.getUser(accountOf(store, userId))) ?? members.nameOf(nativeOfPlace(placeId), userId),
+    nameOf: (placeId, accountId) =>
+      firstName(store.getUser(accountOf(store, accountId))) ?? members.nameOf(nativeOfPlace(placeId), accountId),
     selfName: (placeId) => getSelfName(placeId),
     // No catch-up pass while paused (the owner may be editing data/); /nep resume runs one.
     paused: () => store.state.data.paused === true,
@@ -678,12 +678,12 @@ async function buildCore(
   }
   /** True for a community some connected interface serves, and the configured one before any said hello. */
   /** The native id of a community, from the place the core holds it by. */
-  const nativeOfPlace = (id: string): string => store.nativeCommunityOf(id) ?? id;
+  const nativeOfPlace = (id: string): string => store.nativeCommunityOf(store.rootPlaceOf(id) ?? id) ?? id;
   const isServedCommunity = (id: string | null | undefined): boolean =>
-    typeof id === 'string' && communityRoutes.isServed(id);
+    typeof id === 'string' && communityRoutes.isServed(nativeOfPlace(id));
   /** The canonical place of every community the connected interfaces serve. */
   const servedPlaces = (): Array<string> =>
-    communityRoutes.servedList().map(({ iface: name, communityId }) => store.placeOfCommunity(communityId, name));
+    communityRoutes.servedList().map(({ iface: name, nativeId }) => store.placeOfCommunity(nativeId, name));
   /** The served interface's hello: who the persona is on it. */
   function greet(greeting: Hello) {
     identity.iface = greeting.iface;
@@ -809,8 +809,8 @@ async function buildCore(
     (name) => (name === CLI_IFACE ? (intake.chat() ?? closedAdapter()) : (linksByName.get(name)?.adapter ?? null)),
     () =>
       [intake.chat(), ...[...linksByName.values()].map((link) => link.adapter)].filter((adapter) => adapter !== null),
-    (communityId) => {
-      const name = communityRoutes.ifaceOf(communityId, (one) => linksByName.get(one)?.current().isClosed() === false);
+    (nativeId) => {
+      const name = communityRoutes.ifaceOf(nativeId, (one) => linksByName.get(one)?.current().isClosed() === false);
       return name === null ? null : (linksByName.get(name)?.adapter ?? null);
     }
   );
@@ -824,12 +824,13 @@ async function buildCore(
   const mirrors = createMirrors({ memoryDb, port: mirrorPort, now: Date.now, dataDir, config: () => hot.config });
 
   // The core's reads of the interface: each answers its body or null, and a block that needs one is left out when it is null.
-  const reads = createReads(iface, log, (id) => (id === PERSONA_ID ? null : store.nativeCommunityOf(id)));
-  // The custom emoji of the served community, read from the interface and kept 60 seconds: the turn lists them to her
+  const reads = createReads(iface, log, (id) =>
+    id === PERSONA_ID ? null : store.nativeCommunityOf(store.rootPlaceOf(id) ?? id)
+  );
+  // The custom emoji of the turn's place, read from the interface and kept 60 seconds: the turn lists them to her
   // and turns her `:name:` into the platform's markup through it.
   const emoji = createEmojiIndex({
     reads,
-    communityId: () => communityRoutes.inScope(),
     now: Date.now,
   });
   // What each profiled member's avatar looks like (features.avatars, off by default): a throttled
@@ -849,7 +850,7 @@ async function buildCore(
   const avatars = createAvatarQueue({
     ...avatarOptions,
     isServedCommunity,
-    servedCommunity: () => communityRoutes.inScope(),
+    servedPlaces,
   });
   // Who reacted to her messages, fed by `reaction.changed` (the door below) and by the `reactors` read.
   const reactors = createReactorStore();
@@ -863,7 +864,7 @@ async function buildCore(
     store,
     llm,
     reads,
-    memberName: (placeId, memberId) => members.nameOf(nativeOfPlace(placeId), memberId),
+    memberName: (placeId, accountId) => members.nameOf(nativeOfPlace(placeId), accountId),
     describer,
     archive,
     record,
@@ -964,7 +965,7 @@ async function buildCore(
     getSelfName,
     selfId: () => identity.selfId,
     reads,
-    memberOf: (placeId: string, memberId: string) => members.infoOf(nativeOfPlace(placeId), memberId),
+    memberOf: (placeId: string, accountId: string) => members.infoOf(nativeOfPlace(placeId), accountId),
     membersOf: (placeId: string) => members.list(nativeOfPlace(placeId)),
     conversationName: (conversationId: string) => directory.nameOf(conversationId),
     routeChannels,
@@ -1009,12 +1010,11 @@ async function buildCore(
   // whether she can write there. The view is read synchronously, so the last listing of each community is kept here,
   // read again when a conversation changes and before each beat of the inner life.
   const placeListings: Map<string, Array<{ id: string; name: string; writable: boolean }>> = new Map();
-  async function refreshPlaces(communityId: Untyped) {
-    if (!communityId) return;
-    const snapshot = await takeSnapshot(reads, String(communityId));
+  async function refreshPlaces(placeId: string) {
+    const snapshot = await takeSnapshot(reads, placeId);
     if (snapshot === null) return;
     placeListings.set(
-      String(communityId),
+      placeId,
       snapshot.conversations
         .filter((entry) => isReadable(entry))
         .map((entry) => ({ id: entry.id, name: entry.name ?? entry.id, writable: entry.permissions.send }))
@@ -1022,7 +1022,7 @@ async function buildCore(
   }
   const placesOf = () => [...placeListings.values()].flat();
   async function refreshAllPlaces() {
-    for (const { communityId } of communityRoutes.servedList()) await refreshPlaces(communityId);
+    for (const placeId of servedPlaces()) await refreshPlaces(placeId);
   }
   // The persona's inner life (features.wakes, off by default; docs/inner-life.md): a scheduler
   // that lists what is due for her (her intentions, waits past their deadline, one daily review, the lines of the places she attends),
@@ -1045,7 +1045,7 @@ async function buildCore(
     places: placesOf,
     // The names of the conversations the interface reported (`conversation.changed`), for the places she is shown.
     conversationName: (conversationId) => directory.nameOf(conversationId),
-    nameOf: (memberId: string) => firstName(store.getUser(accountOf(store, memberId))) ?? null,
+    nameOf: (accountId: string) => firstName(store.getUser(accountOf(store, accountId))) ?? null,
     journal: personaJournal(journal, servedPlaces, store),
     reads,
     iface: () => identity.iface,
@@ -1109,8 +1109,8 @@ async function buildCore(
     try {
       if (inner.facts?.enabled?.() !== true) return;
       const privateChat = scopeKind === 'dm';
-      const userId = privateChat ? String(partner ?? '').replace(/^person:[^:]+:/, '') : null;
-      const conversationId = userId !== null ? directory.dmConversationOf(userId) : null;
+      const accountId = privateChat ? String(partner ?? '').replace(/^person:[^:]+:/, '') : null;
+      const conversationId = accountId !== null ? directory.dmConversationOf(accountId) : null;
       inner.facts.add({
         kind: 'memoryFailed',
         code,
@@ -1212,7 +1212,7 @@ async function buildCore(
     // Who the persona is, and the names of members and conversations the interface reported.
     selfId: () => identity.selfId,
     getSelfName,
-    memberNameOf: (placeId, memberId) => members.nameOf(nativeOfPlace(placeId), memberId),
+    memberNameOf: (placeId, accountId) => members.nameOf(nativeOfPlace(placeId), accountId),
     directory,
     // /nep status: when the interface's link to its platform last came back.
     connection,
@@ -1274,7 +1274,7 @@ async function buildCore(
   });
   // The key commands: the checks go to the provider with the global `fetch` of the moment, a model is saved through the
   // `model.set` operation, and the last core key's removal pauses her with the reason `no-core-key`.
-  const asOwner = { userId: '', roleIds: [], actor: 'owner', asOwner: true };
+  const asOwner = { accountId: '', roleIds: [], actor: 'owner', asOwner: true };
   const ownerOp = async (op: string, args: Record<string, unknown>): Promise<string> => {
     const result = await admin.runSkillOp(op, args, asOwner);
     if (result.status !== 'ok') throw new Error(result.summary || result.code);
@@ -1697,11 +1697,11 @@ async function buildCore(
    * member is of the served place. The offer is synchronous and never throws.
    */
   function offerAvatar(
-    communityId: string | null | undefined,
+    rootId: string | null | undefined,
     member: { id: string; bot?: boolean; avatar?: { hash: string | null; url: string | null } } | undefined
   ) {
-    if (!isServedCommunity(communityId) || !member?.avatar) return;
-    avatars.offer(String(communityId), {
+    if (!isServedCommunity(rootId) || !member?.avatar) return;
+    avatars.offer(store.placeOfCommunity(String(rootId)), {
       id: member.id,
       bot: member.bot === true,
       hash: member.avatar.hash,
@@ -1722,14 +1722,14 @@ async function buildCore(
         store,
         onMessage,
         observeDirectory: (event) => directory.observe(event),
-        offerAvatar: (event) => offerAvatar(event.conversation?.communityId, event.message?.author),
+        offerAvatar: (event) => offerAvatar(event.conversation?.rootId, event.message?.author),
         issueInternalContext: () => memoryDb.issueContext({ kind: 'internal' }),
       }),
       // The reactor store follows the reactions on the persona's messages in the served place, whatever
       // features.reactionNames says (a cheap map update; a switch turned on later finds it current).
       'reaction.changed': (event: ReactionChanged) => {
         try {
-          applyReactionChanged(reactors, event, { communityId: communityRoutes.inScope(), selfId: identity.selfId });
+          applyReactionChanged(reactors, event, { isServed: isServedCommunity, selfId: identity.selfId });
         } catch (err) {
           log.warn('reactors: event failed', { kind: event?.kind ?? null, code: objOf(err).code ?? null });
         }
@@ -1760,7 +1760,7 @@ async function buildCore(
       },
       'membership.changed': (event: MembershipChanged) => {
         members.apply(event);
-        offerAvatar(event.communityId, event.member);
+        offerAvatar(event.placeId, event.member);
       },
     },
     log,

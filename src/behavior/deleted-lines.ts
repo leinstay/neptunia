@@ -43,7 +43,7 @@ export type Placeholder = {
   content: '';
   ts: number;
   deleted: true;
-  mentionedUserIds: Array<string>;
+  mentionedAccountIds: Array<string>;
   mentionedChannelIds: Array<string>;
   replyToId: null;
   attachments: Array<never>;
@@ -129,7 +129,7 @@ export async function deletedLinesOf({
       content: '',
       ts,
       deleted: true,
-      mentionedUserIds: [],
+      mentionedAccountIds: [],
       mentionedChannelIds: [],
       replyToId: null,
       attachments: [],

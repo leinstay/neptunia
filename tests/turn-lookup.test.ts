@@ -40,7 +40,7 @@ for (const direction of ['ordinary-first', 'internal-first'] as const) {
     const start = (memoryContext: Context) => {
       const input: Parameters<Lookup['startPrefetch']>[0] = {
         config: config(),
-        channel: { id: 'same-room', communityId: 'g1' },
+        channel: { id: 'same-room', rootId: 'g1' },
         placeId: 'g1',
         place: { id: 'g1' },
         trigger: { id: 'same-trigger', authorId: 'asker' },
@@ -101,7 +101,7 @@ test('prefetch memoization retains qualified history identity as well as the iss
   const start = (historyRef: { iface: string; conversationId: string }) => {
     const pending = lookup.startPrefetch({
       config: config(),
-      channel: { id: 'same-room', communityId: 'g1' },
+      channel: { id: 'same-room', rootId: 'g1' },
       placeId: 'g1',
       place: { id: 'g1' },
       trigger: { id: 'same-trigger', authorId: 'asker' },
@@ -153,9 +153,9 @@ test('the owner chat fetches no partner from the community', async () => {
       throw new Error('no links here');
     },
   });
-  const partner = await lookup.privatePartner({ iface: 'cli', placeId: 'g1', userId: 'owner', config: {} });
+  const partner = await lookup.privatePartner({ iface: 'cli', placeId: 'g1', accountId: 'owner', config: {} });
   assert.equal(partner, null);
   assert.deepEqual(asked, []);
-  await lookup.privatePartner({ iface: 'discord', placeId: 'g1', userId: 'u1', config: {} });
+  await lookup.privatePartner({ iface: 'discord', placeId: 'g1', accountId: 'u1', config: {} });
   assert.equal(asked.length, 1);
 });

@@ -59,7 +59,7 @@ function innerState(): Record<string, unknown> {
       startedAt: STARTED,
       placeId: 'c1',
       privateChat: false,
-      privateUserId: null,
+      privateAccountId: null,
     },
   };
 }

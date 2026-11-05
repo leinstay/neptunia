@@ -201,8 +201,8 @@ test('searches each form over the whole community, one after another and in orde
   assert.deepEqual(
     s.searches().map(([scope, query]) => [scope, query.text]),
     [
-      [{ communityId: COMMUNITY }, 'κουνέλι'],
-      [{ communityId: COMMUNITY }, 'κουνελιού'],
+      [{ placeId: COMMUNITY }, 'κουνέλι'],
+      [{ placeId: COMMUNITY }, 'κουνελιού'],
     ]
   );
   assert.equal(
@@ -275,7 +275,7 @@ test('finds a person by a Latin name form through the member search and then sea
   const { result } = await s.run({ server: { forms: [], who: ['kitezu'], from: null, to: null } });
   assert.deepEqual(
     s.fake.calls.filter((call) => call.op === 'searchMembers').map((call) => call.args),
-    [[{ communityId: COMMUNITY }, { prefix: 'kitezu', limit: RECALL.maxPeople }]]
+    [[{ placeId: COMMUNITY }, { prefix: 'kitezu', limit: RECALL.maxPeople }]]
   );
   assert.deepEqual(
     s.searches().map(([, query]) => query.text ?? query.authorId),
@@ -315,7 +315,7 @@ test('bounds a date range alone by the times asked and no text or author', async
 
 test('searches nothing in a private chat that has no partner', async () => {
   const s = await scene();
-  const dm = channel('dm1', { kind: 'dm', communityId: null, chatType: 'dm', audience: null });
+  const dm = channel('dm1', { kind: 'dm', rootId: null, chatType: 'dm', audience: null });
   await s.run({ channel: dm, partnerId: null });
   assert.deepEqual(s.searches(), []);
 });
@@ -325,7 +325,7 @@ test('in a private chat searches the community and keeps only what the partner c
   s.fake.seedConversation(
     channel('c4', { public: false, viewers: { u5: false }, audience: privateChannel('c4', ['u9']).audience ?? null })
   );
-  const dm = channel('dm1', { kind: 'dm', communityId: null, chatType: 'dm', partnerId: 'u5', audience: null });
+  const dm = channel('dm1', { kind: 'dm', rootId: null, chatType: 'dm', partnerId: 'u5', audience: null });
   const snapshot = await takeSnapshot(s.reads, COMMUNITY, ['u5']);
   await s.run({ channel: dm, partnerId: 'u5', snapshot });
   assert.equal(s.searches().length > 0, true);
@@ -348,7 +348,7 @@ test('returns nothing when hits are found but the interface cannot read their wi
 });
 
 test('plans each query over a range as times: after the start, before the instant past the end', () => {
-  const plan = searchPlan({ forms: ['κουνέλι'], memberIds: ['u7'], from: 1000, to: 1999, maxForms: 8 });
+  const plan = searchPlan({ forms: ['κουνέλι'], accountIds: ['u7'], from: 1000, to: 1999, maxForms: 8 });
   assert.deepEqual(plan, [
     { kind: 'form', content: 'κουνέλι', after: 1000, before: 2000 },
     { kind: 'author', authorId: 'u7', after: 1000, before: 2000 },

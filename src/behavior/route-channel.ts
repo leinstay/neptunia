@@ -79,7 +79,7 @@ export function routeChannelOffer({
     channels: store.listChannels(placeId) as Array<StoredChannel>,
     exclude: [channel?.id ?? null, candidate?.placeId ?? null].filter((id): id is string => Boolean(id)),
     check,
-    profileOf: (userId) => store.getUser(accountOf(store, userId)),
+    profileOf: (accountId) => store.getUser(accountOf(store, accountId)),
     max: settings.maxChannels,
     aliasHalfLifeDays: MEMORY_LIMITS.aliasHalfLifeDays,
   });
@@ -145,7 +145,7 @@ export function createChannelRouter({
       const settings = routeSettings(config);
       if (!settings) return [];
       const allowed =
-        channel?.communityId != null
+        channel?.rootId != null
           ? routeAllowed({ triggerKind })
           : Boolean(snapshot && partner) && triggerKind === 'private';
       if (!allowed) return [];

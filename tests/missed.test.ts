@@ -79,7 +79,7 @@ function msg({
     content,
     ts,
     replyToId,
-    mentionedUserIds: [],
+    mentionedAccountIds: [],
     mentionedChannelIds: [],
     attachments: [],
     links: [],
@@ -97,7 +97,7 @@ function eventOfLine(line: ReturnType<typeof msg>) {
     iface: 'fake',
     at: line.ts,
     id: `fake:message:${line.id}`,
-    conversation: { id: line.placeId, kind: 'channel', communityId: 'g1', name: line.placeId },
+    conversation: { id: line.placeId, kind: 'channel', rootId: 'g1', name: line.placeId },
     message: {
       id: line.id,
       author: { id: line.authorId, name: line.authorName, self: line.self, bot: line.bot },
@@ -106,7 +106,7 @@ function eventOfLine(line: ReturnType<typeof msg>) {
       system: false,
       at: line.ts,
       replyToId: line.replyToId,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -115,7 +115,7 @@ function eventOfLine(line: ReturnType<typeof msg>) {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
   };
 }
 

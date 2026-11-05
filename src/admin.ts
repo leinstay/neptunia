@@ -182,7 +182,7 @@ export function createAdmin(deps: OpsDeps): Admin {
 
   /**
    * The owner's console reads that are no operation, so no tool of hers (src/interface/commands/console.ts):
-   * `lessons(context)` and `aliases({ userId }, context)`, each the reply text or a thrown operator-facing `Error`.
+   * `lessons(context)` and `aliases({ accountId }, context)`, each the reply text or a thrown operator-facing `Error`.
    */
   const ownerReads = {
     lessons: (context = {}) => listLessons(env, { ...context, env }),

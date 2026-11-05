@@ -307,9 +307,9 @@ test('sends the cached members of the served guild as membership.changed events 
   try {
     await h.link.hello;
     running.open();
-    await until(() => h.events('membership.changed').some((event) => event.userId === 'u5'));
-    const event = h.events('membership.changed').find((entry) => entry.userId === 'u5') ?? {};
-    assert.equal(event.communityId, 'g1');
+    await until(() => h.events('membership.changed').some((event) => event.accountId === 'u5'));
+    const event = h.events('membership.changed').find((entry) => entry.accountId === 'u5') ?? {};
+    assert.equal(event.placeId, 'g1');
     assert.equal(asFake(event.member).name, 'Μαρία');
     assert.deepEqual(validateEvent(event), { ok: true });
   } finally {
@@ -393,7 +393,7 @@ test('turns MessageReactionAdd into a reaction.changed that was added', async ()
     const event = h.events('reaction.changed')[0] ?? {};
     assert.equal(event.added, true);
     assert.equal(event.messageId, 'm6');
-    assert.equal(event.userId, 'u2');
+    assert.equal(event.accountId, 'u2');
     assert.equal(asFake(event.emoji).name, '🔥');
   });
 });
@@ -401,18 +401,18 @@ test('turns MessageReactionAdd into a reaction.changed that was added', async ()
 test('gives no voice.changed for a voice state of another guild', async () => {
   await withSession({}, async (h, running) => {
     running.open();
-    const state = (guildId: string, userId: string): Fake => ({
-      id: userId,
+    const state = (guildId: string, accountId: string): Fake => ({
+      id: accountId,
       guild: { id: guildId },
       channelId: 'v1',
-      member: { id: userId, displayName: 'Zoe' },
+      member: { id: accountId, displayName: 'Zoe' },
     });
     h.client.emit(Events.VoiceStateUpdate, { channelId: null }, state('g9', 'u8'));
     h.client.emit(Events.VoiceStateUpdate, { channelId: null }, state('g1', 'u5'));
     await until(() => h.events('voice.changed').length >= 1);
     await flush();
     assert.deepEqual(
-      h.events('voice.changed').map((event) => [event.communityId, event.userId]),
+      h.events('voice.changed').map((event) => [event.placeId, event.accountId]),
       [['g1', 'u5']]
     );
   });
@@ -443,8 +443,8 @@ test('turns GuildMemberUpdate into a membership.changed with the avatar hash and
     await until(() => h.events('membership.changed').length === 1);
     const event = h.events('membership.changed')[0] ?? {};
     assert.equal(event.change, 'updated');
-    assert.equal(event.communityId, 'g1');
-    assert.equal(event.userId, 'u3');
+    assert.equal(event.placeId, 'g1');
+    assert.equal(event.accountId, 'u3');
     assert.deepEqual(asFake(event.member).avatar, { hash: 'h3', url: 'https://cdn.example/u3/h3.png?size=256' });
   });
 });
@@ -464,7 +464,7 @@ test('turns UserUpdate into a membership.changed for a member the guild cache ho
     h.client.emit(Events.UserUpdate, {}, { id: 'u4' });
     await until(() => h.events('membership.changed').length === 1);
     const event = h.events('membership.changed')[0] ?? {};
-    assert.equal(event.userId, 'u4');
+    assert.equal(event.accountId, 'u4');
     assert.equal(asFake(asFake(event.member).avatar).hash, 'h4');
   });
 });

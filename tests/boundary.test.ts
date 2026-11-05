@@ -265,7 +265,7 @@ describe('a replay after a reconnect', () => {
       content: text,
       at: START,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -274,7 +274,7 @@ describe('a replay after a reconnect', () => {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: true, replyToSelf: false, mentionedUserIds: ['self-id'], mentionedConversationIds: [] },
+    addressing: { mentioned: true, replyToSelf: false, mentionedAccountIds: ['self-id'], mentionedConversationIds: [] },
     origin: {
       chatType: 'channel',
       place: 'c1',
@@ -337,7 +337,7 @@ describe('an adapter that claims the owner', () => {
           const { name, args, requester } = event as { name: string; args: object; requester: { id: string } };
           ran.push(name);
           // PR 7b: the command key map is gone, so the door runs the operation by its name; the link refuses first.
-          return admin.runSkillOp('bot.pause', args, { placeId: GUILD, userId: requester.id });
+          return admin.runSkillOp('bot.pause', args, { placeId: GUILD, accountId: requester.id });
         },
       },
       log: SILENT,

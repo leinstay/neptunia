@@ -72,7 +72,7 @@ export type InputsContext = {
 /** What an attempt's draft holds that the inputs read and write. */
 type InputsDraft = {
   memoryContext?: unknown;
-  privateUserId?: string | null;
+  privateAccountId?: string | null;
   requesterGroups?: Array<string>;
 };
 
@@ -81,7 +81,7 @@ type EffectVerdict = ReturnType<typeof checkReplyEffect>;
 
 type InputArgs = {
   placeId: string;
-  channel: { id: string; communityId?: string | null };
+  channel: { id: string; rootId?: string | null };
   isPrivate: boolean;
   config: InputsConfig;
   labels: InputsLabels;
@@ -91,7 +91,7 @@ type InputArgs = {
 export type Inputs = {
   turnContextOf: (
     draft: InputsDraft | null | undefined,
-    channel: { id?: string; communityId?: string | null } | null | undefined
+    channel: { id?: string; rootId?: string | null } | null | undefined
   ) => unknown;
   stableFreezeOf: (placeId: string | null | undefined) => Map<string, unknown>;
   conversationOf: (channel: { id: string }) => ConversationRef;
@@ -115,7 +115,7 @@ export function createInputs(ctx: InputsContext): Inputs {
    */
   function turnContextOf(
     draft: InputsDraft | null | undefined,
-    channel: { id?: string; communityId?: string | null } | null | undefined
+    channel: { id?: string; rootId?: string | null } | null | undefined
   ): unknown {
     if (!draft) return null;
     if (draft.memoryContext !== undefined) return draft.memoryContext;
@@ -124,7 +124,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     try {
       const isPrivate = !inCommunity(channel);
       const channelIface = portIface(channel) || portIface(iface);
-      const partner = isPrivate ? (draft.privateUserId ?? null) : null;
+      const partner = isPrivate ? (draft.privateAccountId ?? null) : null;
       if (!isPrivate || partner) {
         ctx =
           memoryContext(

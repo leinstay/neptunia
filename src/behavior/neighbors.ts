@@ -27,7 +27,7 @@ export async function fetchNeighbors(
   now: number = Date.now(),
   { accept }: { accept?: (other: ConversationInfo) => boolean } = {}
 ): Promise<Array<Neighbor>> {
-  if (here.communityId === null) return [];
+  if (here.rootId === null) return [];
   const minTs = now - NEIGHBOR_MAX_AGE_MINUTES * MINUTE_MS;
   const lastAt = (entry: ConversationInfo): number => entry.lastMessageAt ?? 0;
 

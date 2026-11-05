@@ -8,20 +8,20 @@ import { CORE_KINDS, EVENT_KINDS, validateEvent } from '../src/protocol/index.ts
 
 type Json = Record<string, unknown>;
 
-const conversation = { id: 'c1', kind: 'channel', communityId: 'g1', name: 'general', topic: null, category: null };
+const conversation = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general', topic: null, category: null };
 
 const activity = { kind: 'playing', name: 'Chess', details: 'Endgame', state: 'Winning' };
 
 const presence = {
-  userId: 'u1',
+  accountId: 'u1',
   name: 'Eleni',
   status: 'online',
   activities: [activity],
 };
 
 const voice = {
-  communityId: 'g1',
-  userId: 'u1',
+  placeId: 'g1',
+  accountId: 'u1',
   name: 'Eleni',
   conversationId: 'v1',
   previousId: null,
@@ -99,12 +99,12 @@ test('accepts every presence status and every activity kind', () => {
 });
 
 test('refuses a presence.changed event missing a required field, naming the field', () => {
-  for (const key of ['iface', 'id', 'userId', 'name', 'status', 'activities'])
+  for (const key of ['iface', 'id', 'accountId', 'name', 'status', 'activities'])
     assert.deepEqual(validateEvent(without(presenceChanged, key)), refusal(`${key}:required`), key);
 });
 
 test('refuses a presence.changed event with an empty user id or a non-string name', () => {
-  assert.deepEqual(validateEvent({ ...presenceChanged, userId: '' }), refusal('userId:type'));
+  assert.deepEqual(validateEvent({ ...presenceChanged, accountId: '' }), refusal('accountId:type'));
   assert.deepEqual(validateEvent({ ...presenceChanged, name: 5 }), refusal('name:type'));
 });
 
@@ -169,8 +169,8 @@ test('refuses a snapshot presence entry with an unknown activity kind', () => {
 
 test('refuses a snapshot voice entry missing its user, with its index', () => {
   assert.deepEqual(
-    validateEvent({ ...presenceSnapshot, voice: [voice, without(voice, 'userId')] }),
-    refusal('voice.1.userId:required')
+    validateEvent({ ...presenceSnapshot, voice: [voice, without(voice, 'accountId')] }),
+    refusal('voice.1.accountId:required')
   );
 });
 
@@ -220,8 +220,8 @@ const voiceChanged: Json = {
   iface: 'discord',
   at: 1000,
   id: 'discord:voice:g1:u1:1000',
-  communityId: 'g1',
-  userId: 'u1',
+  placeId: 'g1',
+  accountId: 'u1',
   conversationId: 'v1',
   previousId: null,
 };
@@ -252,7 +252,7 @@ function messageWithAuthor(extra: Json): Json {
       content: 'hello',
       at: 1000,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -261,7 +261,7 @@ function messageWithAuthor(extra: Json): Json {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
   };
 }
 
@@ -293,8 +293,8 @@ const membershipChanged: Json = {
   iface: 'discord',
   at: 1000,
   id: 'discord:member:g1:u1:joined:1000',
-  communityId: 'g1',
-  userId: 'u1',
+  placeId: 'g1',
+  accountId: 'u1',
   change: 'joined',
   member: { id: 'u1', name: 'Eleni', bot: false },
 };

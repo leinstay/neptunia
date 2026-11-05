@@ -34,9 +34,9 @@ export type OpsDeps = {
   /** The persona's own member id, null before the interface has said it. */
   selfId?: () => string | null;
   /** The name the persona goes by in a community. */
-  getSelfName?: (communityId: string | null) => string;
+  getSelfName?: (placeId: string | null) => string;
   /** A member's name in the member directory. */
-  memberNameOf?: (communityId: string, memberId: string) => string | null;
+  memberNameOf?: (placeId: string, accountId: string) => string | null;
   /** The conversations the interface reported. */
   directory?: { isPrivate: (conversationId: string) => boolean };
   /** When the interface's link to its platform last came back (the core fills it from `connection.changed`). */
@@ -225,11 +225,11 @@ function buildEnv({
     return local.found ? local.value : ownValueAt(hot.config, parts).value;
   }
 
-  /** The stored profile of `userId`, or an Error `no profile for <id>`: a write command never
+  /** The stored profile of `accountId`, or an Error `no profile for <id>`: a write command never
    * creates a profile for a member the persona has not met. */
-  function requireProfile(placeId: string, userId: string): Untyped {
-    const profile = store.getUser(accountOf(store, userId));
-    if (!profile) throw invalid(`no profile for ${userId}`, CODE.NOT_FOUND);
+  function requireProfile(placeId: string, accountId: string): Untyped {
+    const profile = store.getUser(accountOf(store, accountId));
+    if (!profile) throw invalid(`no profile for ${accountId}`, CODE.NOT_FOUND);
     return profile;
   }
 

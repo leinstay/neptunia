@@ -175,7 +175,7 @@ function dispatchContext(errand: ErrandRecord, recent: RunContext['recent']): Ru
   return {
     scope: errand.scope,
     channel: errand.origin?.placeId ?? null,
-    asker: errand.requester?.userId ?? null,
+    asker: errand.requester?.accountId ?? null,
     recent: errand.scope === 'dm' ? [] : recent,
   };
 }

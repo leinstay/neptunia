@@ -33,7 +33,7 @@ test('journal db reader: read answers every day, kind, limit and layer, the turn
       { n: 2 },
       { kind: 'action', n: 1000 },
       { kind: 'turn' },
-      { privateUserId: MEMBER, n: 1000 },
+      { privateAccountId: MEMBER, n: 1000 },
     ];
     const none = [[], [], [], [], []];
     const day20 = (suffix: string, privateIds: Array<string>) => [
@@ -61,7 +61,7 @@ test('journal db reader: read answers every day, kind, limit and layer, the turn
       for (const day of DAYS) {
         for (const [index, query] of queries.entries()) {
           // A DM place has no guild: the private queries run once, under the first guild.
-          if (placeId === GUILD_2 && 'privateUserId' in query) continue;
+          if (placeId === GUILD_2 && 'privateAccountId' in query) continue;
           const { placeId: holder, rest } = readAt(placeId, query);
           const ids = (await journal.read(holder, { day, ...rest })).map((record) => rec(record)?.id);
           assert.deepEqual(ids, expected[placeId][day][index], `${placeId} ${day} ${JSON.stringify(query)}`);
@@ -119,7 +119,10 @@ test('journal db reader: findTurn, turnOperations, pending, triggerLinks, callMa
     );
     assert.deepEqual(
       (
-        await journal.turnOperations(readAt(GUILD, { privateUserId: MEMBER }).placeId, { turnId: 'turn-p', days: DAYS })
+        await journal.turnOperations(readAt(GUILD, { privateAccountId: MEMBER }).placeId, {
+          turnId: 'turn-p',
+          days: DAYS,
+        })
       ).map((op) => [op.phase, op.skill]),
       [['failed', 'msg']]
     );

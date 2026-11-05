@@ -39,7 +39,7 @@ export type SendsContext = {
 };
 
 /** What a channel a post is rendered for holds. */
-type PostChannel = { id: string; communityId?: string | null };
+type PostChannel = { id: string; rootId?: string | null };
 
 /** How a post's `#n` numbers and mentions are resolved. */
 type RenderArgs = {
@@ -59,7 +59,7 @@ type RenderArgs = {
 };
 
 /** A post as it is sent: its text, the text before any link, and the members it mentions. */
-export type RenderedPost = { text: string; spoken: string; userIds: Array<string | undefined> };
+export type RenderedPost = { text: string; spoken: string; accountIds: Array<string | undefined> };
 
 export type Sends = {
   emojiLookup: () => ((name: string) => IndexedEmoji | null) | null;
@@ -146,7 +146,7 @@ export function createSends(ctx: SendsContext): Sends {
    * links (withMessageLinks), channel names into channel links (withChannelLinks), then `link`
    * joined (withLink). Resolves
    * `text` (as sent), `spoken` (before any link: what the typing time is taken from) and
-   * `userIds` (the members it mentions: the only ones a send may notify, allowedMentions).
+   * `accountIds` (the members it mentions: the only ones a send may notify, allowedMentions).
    */
   function renderPost(
     written: string,
@@ -165,7 +165,7 @@ export function createSends(ctx: SendsContext): Sends {
       quiet = false,
     }: RenderArgs
   ): RenderedPost {
-    let mentioned: { text: string; userIds: Array<string | undefined>; unknown?: number };
+    let mentioned: { text: string; accountIds: Array<string | undefined>; unknown?: number };
     if (handles instanceof Map) {
       const resolved = resolveHandles(written, handles);
       mentioned = resolved;
@@ -180,7 +180,7 @@ export function createSends(ctx: SendsContext): Sends {
       withChannelLinks(
         channel,
         withMessageLinks(spoken, {
-          placeId: channel.communityId ?? null,
+          placeId: channel.rootId ?? null,
           conversationId: channel.id,
           privateChat,
           idByIndex,
@@ -192,7 +192,7 @@ export function createSends(ctx: SendsContext): Sends {
       link,
       hot.prompts?.labels
     );
-    return { text, spoken, userIds: mentioned.userIds };
+    return { text, spoken, accountIds: mentioned.accountIds };
   }
 
   /**

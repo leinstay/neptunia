@@ -167,7 +167,7 @@ export function channelInfo(id: string, extra: Partial<ConversationInfo> = {}): 
   return {
     id,
     kind: 'channel',
-    communityId: COMMUNITY.id,
+    rootId: COMMUNITY.id,
     name: `room-${id}`,
     topic: null,
     category: null,
@@ -215,7 +215,7 @@ export function lineEvent(options: LineOptions): MessageEvent {
     conversation: {
       id: options.conversationId ?? 'c1',
       kind: 'channel',
-      communityId: COMMUNITY.id,
+      rootId: COMMUNITY.id,
       name: `room-${options.conversationId ?? 'c1'}`,
     },
     message: {
@@ -226,7 +226,7 @@ export function lineEvent(options: LineOptions): MessageEvent {
       system: options.system ?? false,
       at: options.at,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -238,7 +238,7 @@ export function lineEvent(options: LineOptions): MessageEvent {
     addressing: {
       mentioned: options.mention === true,
       replyToSelf: false,
-      mentionedUserIds: options.mention === true ? [SELF.id] : [],
+      mentionedAccountIds: options.mention === true ? [SELF.id] : [],
       mentionedConversationIds: [],
     },
   };

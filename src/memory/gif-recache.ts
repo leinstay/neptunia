@@ -311,7 +311,7 @@ function buildGifRecache({
   store: StoreView;
   reads: Reads;
   iface: () => string;
-  emoji: { refresh: () => Promise<void>; urlOf: (id: string) => string | null };
+  emoji: { refresh: (placeId: string | null) => Promise<void>; urlOf: (id: string) => string | null };
   describer?: Untyped;
   record?: Pick<RecordStore, 'iterate'> | null;
   now?: () => number;
@@ -444,7 +444,7 @@ function buildGifRecache({
 
     const run = async () => {
       // A custom emoji's picture comes from the emoji index; one the community no longer lists cannot be fetched.
-      await emoji.refresh();
+      await emoji.refresh(placeId);
       for (const key of keys) {
         if (!key.startsWith('emoji:')) continue;
         const url = emoji.urlOf(key.slice('emoji:'.length));

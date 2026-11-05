@@ -209,7 +209,7 @@ function mention(conversationId: string): MessageReceived {
     conversation: {
       id: conversationId,
       kind: 'channel',
-      communityId: GUILD,
+      rootId: GUILD,
       name: conversationId,
       topic: null,
       category: null,
@@ -220,7 +220,7 @@ function mention(conversationId: string): MessageReceived {
       content: 'καλημέρα, τι γράφεις;',
       at: NOW,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -229,7 +229,7 @@ function mention(conversationId: string): MessageReceived {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: true, replyToSelf: false, mentionedUserIds: ['self-id'], mentionedConversationIds: [] },
+    addressing: { mentioned: true, replyToSelf: false, mentionedAccountIds: ['self-id'], mentionedConversationIds: [] },
     origin: {
       chatType: 'channel',
       place: conversationId,

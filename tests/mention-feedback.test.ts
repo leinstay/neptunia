@@ -109,16 +109,20 @@ const line = (over: Record<string, unknown>) => ({
   attachments: [],
   stickers: [],
   replyToId: null,
-  mentionedUserIds: [],
+  mentionedAccountIds: [],
   ...over,
 });
 
 test("formatTranscript: a mention in a line reads as the member's handle, with the handles off nothing changes", () => {
-  const message = line({ content: 'ping @Yob', mentionedUserIds: [YOB], mentionedUsers: [{ id: YOB, name: 'Yob' }] });
+  const message = line({
+    content: 'ping @Yob',
+    mentionedAccountIds: [YOB],
+    mentionedUsers: [{ id: YOB, name: 'Yob' }],
+  });
   assert.ok(formatTranscript([message], base)[0].text.endsWith('ping @uq03j'));
   assert.ok(formatTranscript([message], { ...base, handles: undefined })[0].text.endsWith('ping @Yob'));
   assert.ok(formatTranscript([message], { ...base, mode: 'memory' })[0].text.endsWith('ping @Yob'));
-  const own = line({ self: true, authorId: SELF, content: '@Yob there', mentionedUserIds: [YOB] });
+  const own = line({ self: true, authorId: SELF, content: '@Yob there', mentionedAccountIds: [YOB] });
   assert.ok(
     formatTranscript([own], base)[0].text.endsWith('@uq03j there'),
     'her own line too, the name from the request when the line has none'
@@ -126,7 +130,7 @@ test("formatTranscript: a mention in a line reads as the member's handle, with t
 });
 
 test("formatTranscript: her line with an untagged @name ends with the mark; nobody else's line, nor a real mention", () => {
-  const own = line({ self: true, authorId: SELF, content: 'hello @Norti and @Yob', mentionedUserIds: [YOB] });
+  const own = line({ self: true, authorId: SELF, content: 'hello @Norti and @Yob', mentionedAccountIds: [YOB] });
   assert.ok(
     formatTranscript([own], base)[0].text.endsWith('hello @Norti and @uq03j (@Norti tagged nobody)'),
     formatTranscript([own], base)[0].text
@@ -134,7 +138,7 @@ test("formatTranscript: her line with an untagged @name ends with the mark; nobo
   const theirs = line({ content: 'hello @Norti' });
   assert.ok(formatTranscript([theirs], base)[0].text.endsWith('hello @Norti'));
   assert.ok(
-    formatTranscript([{ ...own, mentionedUserIds: [YOB, NORTY] }], base)[0].text.endsWith('hello @ueyi7 and @uq03j')
+    formatTranscript([{ ...own, mentionedAccountIds: [YOB, NORTY] }], base)[0].text.endsWith('hello @ueyi7 and @uq03j')
   );
   assert.ok(
     formatTranscript([own], { ...base, handles: undefined })[0].text.endsWith('hello @Norti and @Yob'),

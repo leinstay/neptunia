@@ -79,7 +79,7 @@ test('returns the id of the conversation it runs in without asking the interface
 
 test('refuses a conversation of another community even with every permission', async () => {
   const { reads, fake } = rig();
-  fake.seedConversation(channel('c2', { communityId: 'g2' }));
+  fake.seedConversation(channel('c2', { rootId: 'g2' }));
   await assert.rejects(
     postingConversation({
       reads,
@@ -96,7 +96,7 @@ test('refuses a conversation of another community even with every permission', a
 
 test('refuses a private chat even with every permission', async () => {
   const { reads, fake } = rig();
-  fake.seedConversation(channel('dm2', { kind: 'dm', communityId: COMMUNITY, chatType: 'dm', partnerId: 'u9' }));
+  fake.seedConversation(channel('dm2', { kind: 'dm', rootId: COMMUNITY, chatType: 'dm', partnerId: 'u9' }));
   await assert.rejects(
     postingConversation({
       reads,

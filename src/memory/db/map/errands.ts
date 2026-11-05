@@ -34,7 +34,7 @@ function workRow(rel: string, errand: Row, position: number) {
     updated_ms: num(errand.endedAt) ?? num(errand.startedAt) ?? num(errand.createdAt),
     outcome: text(errand.error),
     seen: typeof errand.seen === 'boolean' ? (errand.seen ? 1 : 0) : null,
-    ...stringScope(errand.scope, [(errand.requester as { userId?: unknown } | undefined)?.userId]),
+    ...stringScope(errand.scope, [(errand.requester as { accountId?: unknown } | undefined)?.accountId]),
     owner_file: rel,
     position,
   };

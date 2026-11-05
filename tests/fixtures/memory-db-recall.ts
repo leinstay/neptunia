@@ -77,10 +77,10 @@ function makeFixture() {
         VALUES (?, 'deleted', 'discord', ?, ?, ?, 'group', 'discord')`
       ).run(`src:discord:${native}:none:deleted:x`, String(native), MAIN, new Date(at).toISOString());
     },
-    account(userId: string, names: Array<string>) {
+    account(accountId: string, names: Array<string>) {
       db.prepare(
         "INSERT INTO accounts (id, iface, native_id, person_id, link, names) VALUES (?, 'discord', ?, ?, 'verified', ?)"
-      ).run(`discord:${userId}`, userId, personId('discord', userId), JSON.stringify(names));
+      ).run(`discord:${accountId}`, accountId, personId('discord', accountId), JSON.stringify(names));
     },
     /** A vector row for a source (by native id): the vector is stored as int8 the way the engine stores it. */
     vector(

@@ -57,7 +57,7 @@ const run = <T>(fn: () => Promise<T>) => withCapturedLogs(fn);
 
 test('settles the grants of an old name in the file when a command writes another grant, and her grants survive the reload', async () => {
   const world = deployment({ bot: { access: { 'task.run': grant, 'task.status': grant } } });
-  await run(() => world.admin.run('access.grant', { command: 'status.show', userId: 'u9' }, {}));
+  await run(() => world.admin.run('access.grant', { command: 'status.show', accountId: 'u9' }, {}));
   const access = accessOf(world.written());
   assert.deepEqual(Object.keys(access).sort(), ['errand.run', 'errand.status', 'status.show']);
   assert.deepEqual(access['errand.run'], grant);
@@ -67,7 +67,7 @@ test('settles the grants of an old name in the file when a command writes anothe
 
 test('grants errand.run to her over a file that holds the grant as task.run, and no old key is left behind', async () => {
   const world = deployment({ bot: { access: { 'task.run': grant, 'task.read': grant } } });
-  await run(() => world.admin.run('access.grant', { command: 'errand.run', userId: SELF }, {}));
+  await run(() => world.admin.run('access.grant', { command: 'errand.run', accountId: SELF }, {}));
   const access = accessOf(world.written());
   assert.deepEqual(Object.keys(access).sort(), ['errand.read', 'errand.run']);
   assert.equal(grantedToPersona(world.hot.config, SELF, 'errand.read'), true);
@@ -75,7 +75,7 @@ test('grants errand.run to her over a file that holds the grant as task.run, and
 
 test('revokes errand.run from her when the file holds her grant as task.run', async () => {
   const world = deployment({ bot: { access: { 'task.run': grant, 'task.read': grant } } });
-  const reply = await run(() => world.admin.run('access.revoke', { command: 'errand.run', userId: SELF }, {}));
+  const reply = await run(() => world.admin.run('access.revoke', { command: 'errand.run', accountId: SELF }, {}));
   assert.equal(String(reply.result).startsWith('Revoked errand.run'), true);
   assert.equal(grantedToPersona(world.hot.config, SELF, 'errand.run'), false);
   assert.equal(grantedToPersona(world.hot.config, SELF, 'errand.read'), true, 'the other grant stays');
@@ -91,6 +91,6 @@ test('sets errands.maxOpen over a file that still holds agents.maxOpen, and the 
 
 test('writes nothing different to a file that holds no old key', async () => {
   const world = deployment({ bot: { access: { 'message.edit': grant } } });
-  await run(() => world.admin.run('access.grant', { command: 'status.show', userId: 'u9' }, {}));
+  await run(() => world.admin.run('access.grant', { command: 'status.show', accountId: 'u9' }, {}));
   assert.deepEqual(Object.keys(accessOf(world.written())).sort(), ['message.edit', 'status.show']);
 });

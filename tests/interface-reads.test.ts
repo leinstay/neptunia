@@ -25,7 +25,7 @@ function fakeWith(reads?: ReadonlyArray<string>) {
   fake.seedConversation({
     id: 'c1',
     kind: 'channel',
-    communityId: 'g1',
+    rootId: 'g1',
     name: 'general',
     topic: null,
     category: null,

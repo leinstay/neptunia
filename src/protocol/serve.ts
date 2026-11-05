@@ -100,18 +100,18 @@ const pick = (body: Record<string, unknown>, keys: ReadonlyArray<string>): Recor
 
 // The arguments a read action carries, in the argument order of the adapter's method.
 function readArguments(body: Record<string, unknown>): Array<unknown> {
-  const community = pick(body, ['communityId']);
+  const community = pick(body, ['placeId']);
   switch (body.action) {
     case 'conversation.info':
       return [body.conversation, pick(body, ['audience', 'viewers'])];
     case 'conversations.list':
-      return [pick(body, ['communityId', 'audience', 'viewers'])];
+      return [pick(body, ['placeId', 'audience', 'viewers'])];
     case MESSAGES_FETCH:
       return [body.conversation, body.messageIds, pick(body, ['idempotencyKey'])];
     case 'messages.history':
       return [body.conversation, pick(body, ['limit', 'before', 'after', 'around', 'since'])];
     case 'member.info':
-      return [pick(body, ['communityId', 'memberId'])];
+      return [pick(body, ['placeId', 'accountId'])];
     case 'messages.search':
       return [community, pick(body, ['text', 'authorId', 'after', 'before', 'offset'])];
     case 'members.search':

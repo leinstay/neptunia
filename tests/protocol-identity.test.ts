@@ -51,7 +51,7 @@ test('an account key differs when only the interface, the authority, the native 
 test('an event with no declared authority is addressed under the authority the memory stores', () => {
   // Bug: the protocol and the memory spell one place differently, so a route never matches its stored place.
   for (const iface of ['other', 'cli']) {
-    const address = conversationAddressOf({ iface, conversation: { id: 'c1', kind: 'channel', communityId: 'g1' } });
+    const address = conversationAddressOf({ iface, conversation: { id: 'c1', kind: 'channel', rootId: 'g1' } });
     assert.deepEqual(address, { interfaceId: iface, authorityId: nativeAuthorityOf(iface), placeId: 'c1' });
   }
 });
@@ -68,7 +68,7 @@ test('a DM is addressed without any community', () => {
   // Bug: an address built from the home community names a place the DM has nothing to do with.
   const address = conversationAddressOf({
     iface: 'other',
-    conversation: { id: 'd1', kind: 'dm', communityId: null, partnerId: 'u1' },
+    conversation: { id: 'd1', kind: 'dm', rootId: null, partnerId: 'u1' },
   });
   assert.deepEqual(address, { interfaceId: 'other', authorityId: 'other/global', placeId: 'd1' });
 });

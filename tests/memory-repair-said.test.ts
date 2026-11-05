@@ -24,12 +24,18 @@ const LIVE_ID = 'src:synthetic:sent-1:1:said';
 
 type Rig = { handle: MemoryHandle; db: Db; file: string; dataDir: string; kept: string };
 
-function lineEvent(id: string, author: string, at: number, replyToId?: string, mentionedUserIds: Array<string> = []) {
+function lineEvent(
+  id: string,
+  author: string,
+  at: number,
+  replyToId?: string,
+  mentionedAccountIds: Array<string> = []
+) {
   return {
     iface: IFACE,
     at,
-    conversation: { id: ROOM, kind: 'channel', chatType: 'channel', communityId: COMMUNITY },
-    addressing: { mentionedUserIds },
+    conversation: { id: ROOM, kind: 'channel', chatType: 'channel', rootId: COMMUNITY },
+    addressing: { mentionedAccountIds },
     message: {
       id,
       at,

@@ -14,10 +14,10 @@
 import { idText, isObj, listOf, objOf } from '../types.ts';
 import type { Access, GrantEntry, GrantTarget, Obj, OpInfo } from '../types.ts';
 
-/** True when `owners` (ids, numbers or strings) lists `userId`; ids compared as strings. */
-function listsOwner(owners: unknown, userId: unknown): boolean {
-  if (userId === undefined || userId === null) return false;
-  return listOf(owners).map(idText).includes(idText(userId));
+/** True when `owners` (ids, numbers or strings) lists `accountId`; ids compared as strings. */
+function listsOwner(owners: unknown, accountId: unknown): boolean {
+  if (accountId === undefined || accountId === null) return false;
+  return listOf(owners).map(idText).includes(idText(accountId));
 }
 
 /** What the owner check reads about the caller's account, on the interface of the current event or turn. */
@@ -47,12 +47,12 @@ export function useOwnerAccounts(accounts: OwnerAccounts): () => void {
  * Before that, `bot.owners` lists native ids of the home interface. No user, no owner. `config` is the live merged
  * config (hot.config).
  */
-export function isOwnerId(config: unknown, userId: unknown): boolean {
-  if (idText(userId) === '') return false;
+export function isOwnerId(config: unknown, accountId: unknown): boolean {
+  if (idText(accountId) === '') return false;
   const bot = objOf(objOf(config).bot);
   const person = idText(bot.ownerPerson);
-  if (person !== '') return ownerAccounts?.isBoundTo(person, idText(userId)) === true;
-  return listsOwner(bot.owners, userId) && (ownerAccounts?.onHomeInterface() ?? true);
+  if (person !== '') return ownerAccounts?.isBoundTo(person, idText(accountId)) === true;
+  return listsOwner(bot.owners, accountId) && (ownerAccounts?.onHomeInterface() ?? true);
 }
 
 /**
@@ -62,9 +62,9 @@ export function isOwnerId(config: unknown, userId: unknown): boolean {
  */
 export function isOwnerCaller(
   config: unknown,
-  context: { userId?: unknown; asOwner?: unknown } | null | undefined
+  context: { accountId?: unknown; asOwner?: unknown } | null | undefined
 ): boolean {
-  return context?.asOwner === true || isOwnerId(config, context?.userId);
+  return context?.asOwner === true || isOwnerId(config, context?.accountId);
 }
 
 /**
@@ -88,12 +88,12 @@ export function isAllowed({
   owners,
 }: {
   op: Partial<OpInfo> | null | undefined;
-  member?: { userId?: unknown; roleIds?: ReadonlyArray<unknown> };
+  member?: { accountId?: unknown; roleIds?: ReadonlyArray<unknown> };
   access?: unknown;
   owners?: unknown;
 }): boolean {
-  const userId = member?.userId;
-  if (listsOwner(owners, userId)) return true;
+  const accountId = member?.accountId;
+  if (listsOwner(owners, accountId)) return true;
 
   const rights = op?.rights;
   if (rights === undefined || typeof op?.name !== 'string') return false;
@@ -105,7 +105,7 @@ export function isAllowed({
   const entry = access[op.name];
   if (!isObj(entry)) return false;
   if (entry.everyone === true) return true;
-  if (Array.isArray(entry.users) && entry.users.map(idText).includes(idText(userId))) return true;
+  if (Array.isArray(entry.users) && entry.users.map(idText).includes(idText(accountId))) return true;
   const roleSet = new Set(listOf(member?.roleIds).map(idText));
   return Array.isArray(entry.roles) && entry.roles.some((roleId) => roleSet.has(idText(roleId)));
 }
@@ -136,10 +136,10 @@ export function expandGrant(
 }
 
 /** The `via` key of one grant target: `everyone`, `role:<id>` or `user:<id>`; null for none. */
-function targetKey({ everyone, roleId, userId }: GrantTarget = {}): string | null {
+function targetKey({ everyone, roleId, accountId }: GrantTarget = {}): string | null {
   if (everyone) return 'everyone';
   if (roleId != null) return `role:${roleId}`;
-  if (userId != null) return `user:${userId}`;
+  if (accountId != null) return `user:${accountId}`;
   return null;
 }
 
@@ -161,16 +161,16 @@ function stored(entry: GrantEntry): Obj {
 }
 
 /** True when `entry` already holds the target `what` names. */
-function holds(entry: GrantEntry, { everyone, roleId, userId }: GrantTarget = {}): boolean {
+function holds(entry: GrantEntry, { everyone, roleId, accountId }: GrantTarget = {}): boolean {
   if (everyone) return entry.everyone;
   if (roleId != null) return entry.roles.map(idText).includes(idText(roleId));
-  if (userId != null) return entry.users.map(idText).includes(idText(userId));
+  if (accountId != null) return entry.users.map(idText).includes(idText(accountId));
   return false;
 }
 
 /**
  * `access` with `key`'s grant widened by exactly one of `{ everyone: true }`, `{ roleId }` or
- * `{ userId }` -- never mutates `access`. Adding a target already present is a no-op, except
+ * `{ accountId }` -- never mutates `access`. Adding a target already present is a no-op, except
  * that a direct grant (no `from`) of a target that came from a group or `*` makes it direct.
  * `from` (the group or `*` this grant was expanded from) is kept for `describeGrants`; it never
  * replaces a direct grant. `key` is used as given (see `expandGrant`).
@@ -189,8 +189,8 @@ export function grant(
   } else if (what.roleId != null) {
     const id = idText(what.roleId);
     if (!next.roles.map(idText).includes(id)) next.roles.push(id);
-  } else if (what.userId != null) {
-    const id = idText(what.userId);
+  } else if (what.accountId != null) {
+    const id = idText(what.accountId);
     if (!next.users.map(idText).includes(id)) next.users.push(id);
   }
   if (target) {
@@ -201,7 +201,7 @@ export function grant(
 }
 
 /**
- * `access` with exactly one of `{ everyone: true }`, `{ roleId }` or `{ userId }` removed from
+ * `access` with exactly one of `{ everyone: true }`, `{ roleId }` or `{ accountId }` removed from
  * `key`'s grant, its source with it -- never mutates `access`. An entry left with nothing set is
  * deleted outright. Revoking something not present, or from a key with no entry, is a no-op.
  */
@@ -214,8 +214,8 @@ export function revoke(access: unknown, key: string, what: GrantTarget = {}): Ac
   } else if (what.roleId != null) {
     const id = idText(what.roleId);
     next.roles = next.roles.filter((r) => idText(r) !== id);
-  } else if (what.userId != null) {
-    const id = idText(what.userId);
+  } else if (what.accountId != null) {
+    const id = idText(what.accountId);
     next.users = next.users.filter((u) => idText(u) !== id);
   }
   const target = targetKey(what);
@@ -232,7 +232,7 @@ export function revoke(access: unknown, key: string, what: GrantTarget = {}): Ac
 
 /**
  * True when `key`'s grant holds the one thing `what` names (`{ everyone: true }`, `{ roleId }`
- * or `{ userId }`, ids compared as strings) -- whether `revoke` with the same arguments would
+ * or `{ accountId }`, ids compared as strings) -- whether `revoke` with the same arguments would
  * change anything.
  */
 export function hasGrant(access: unknown, key: string, what: GrantTarget = {}): boolean {
@@ -245,7 +245,7 @@ function targetsOf(entry: GrantEntry): Array<GrantTarget> {
   const out: Array<GrantTarget> = [];
   if (entry.everyone) out.push({ everyone: true });
   for (const roleId of entry.roles) out.push({ roleId: idText(roleId) });
-  for (const userId of entry.users) out.push({ userId: idText(userId) });
+  for (const accountId of entry.users) out.push({ accountId: idText(accountId) });
   return out;
 }
 
@@ -347,7 +347,7 @@ export function describeGrants(
       const parts: Array<string> = [];
       if (entry.everyone) parts.push(label('everyone', { everyone: true }));
       for (const id of entry.roles) parts.push(label(`role id:${idText(id)}`, { roleId: idText(id) }));
-      for (const id of entry.users) parts.push(label(`user id:${idText(id)}`, { userId: idText(id) }));
+      for (const id of entry.users) parts.push(label(`user id:${idText(id)}`, { accountId: idText(id) }));
       return `${key}: ${parts.join(', ')}`;
     });
 }

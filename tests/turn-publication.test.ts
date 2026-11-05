@@ -56,7 +56,7 @@ test('an explicit person message operation starts an ordinary destination turn w
       replyTo: 'destination-trigger',
       text: 'private draft must not transfer',
     },
-    { actor: 'owner', asOwner: true, userId: 'u1', placeId: 'cli:dm:owner' }
+    { actor: 'owner', asOwner: true, accountId: 'u1', placeId: 'cli:dm:owner' }
   );
   assert.ok(contexts.length > 0, 'destination turn must perform prefetch');
   for (const context of contexts) {

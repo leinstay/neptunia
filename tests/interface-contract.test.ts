@@ -354,7 +354,7 @@ test('discord adapter: a channel the caller holds is used before the client', as
   const result = await port.send({ iface: 'discord', conversationId: 'c9' }, { text: 'ναι' });
   // A send answers a Delivery (it also carries `parts` and an idempotency key), so the fields that matter are read.
   assert.equal(result.status, 'ok');
-  assert.deepEqual(result.ref, { iface: 'discord', conversationId: 'c9', messageId: 'x1', memberId: SELF });
+  assert.deepEqual(result.ref, { iface: 'discord', conversationId: 'c9', messageId: 'x1', accountId: SELF });
   assert.equal(result.at, 42);
   assert.deepEqual(result.parts, [result.ref]);
   assert.equal(sent.length, 1);
@@ -425,7 +425,7 @@ test('createDiscordInterface: the port is the Discord adapter over the given cli
   assert.equal(built.port.iface, 'discord');
   const result = await built.port.send({ iface: 'discord', conversationId: 'c9' }, { text: 'ναι' });
   assert.equal(result.status, 'ok');
-  assert.deepEqual(result.ref, { iface: 'discord', conversationId: 'c9', messageId: 'x1', memberId: SELF });
+  assert.deepEqual(result.ref, { iface: 'discord', conversationId: 'c9', messageId: 'x1', accountId: SELF });
   assert.deepEqual(sent, [{ content: 'ναι', reply: undefined, allowedMentions: { parse: [] } }]);
 });
 

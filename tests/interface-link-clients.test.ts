@@ -67,7 +67,7 @@ function reaction(id: string, conversationId = 'c1', iface = 'fake'): Record<str
     conversation: { id: conversationId, kind: 'channel' },
     messageId: 'm1',
     emoji: { name: 'x' },
-    userId: 'u1',
+    accountId: 'u1',
     added: true,
   };
 }
@@ -402,7 +402,7 @@ test("an agent principal's message event is refused and never reaches the door",
       system: false,
       at: 1,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -411,7 +411,7 @@ test("an agent principal's message event is refused and never reaches the door",
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
   };
   rig.client.send(envelope('event', message, { id: 'm1' }));
   assert.equal((await answered(rig, 'm1')).status, 'invalid');
@@ -432,7 +432,7 @@ function ordinaryMessage(id: string, iface = 'cli'): Record<string, unknown> {
       content: 'an ordinary message',
       at: 1,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -441,7 +441,7 @@ function ordinaryMessage(id: string, iface = 'cli'): Record<string, unknown> {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
   };
 }
 

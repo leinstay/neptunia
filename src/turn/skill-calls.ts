@@ -144,7 +144,7 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
   };
 
 /** The channel a call is made from. */
-type CallChannel = { id: string; communityId?: string | null; name?: unknown };
+type CallChannel = { id: string; rootId?: string | null; name?: unknown };
 
 type ViewArgs = Parameters<typeof callViewOf>[0];
 
@@ -329,7 +329,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         ...(speech ? { speech } : {}),
         // An errand's caps are its budget (src/errands/service.ts#budget), in the turn's place.
         ...(errands
-          ? { tasks: { budget: (agent: unknown) => errands.budget({ placeId: channel.communityId ?? null, agent }) } }
+          ? { tasks: { budget: (agent: unknown) => errands.budget({ placeId: channel.rootId ?? null, agent }) } }
           : {}),
       },
     });
@@ -489,7 +489,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
             // A resolved `reply` is a message id (src/tools/executors.ts#resolveCall).
             replyId: typeof args.reply === 'string' ? args.reply : null,
             repliedAuthorId: typeof resolved.repliedAuthorId === 'string' ? resolved.repliedAuthorId : null,
-            userIds: (rendered?.userIds ?? []).filter((id): id is string => typeof id === 'string' && id !== ''),
+            accountIds: (rendered?.accountIds ?? []).filter((id): id is string => typeof id === 'string' && id !== ''),
           }
         : null;
     return { skill, privateChat, said };
@@ -721,7 +721,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
           replyId: (args.reply as string | null | undefined) ?? null,
           repliedAuthorId: plan.resolved?.repliedAuthorId ?? null,
           // renderText sets it while the call runs; the compiler sees only its first value.
-          userIds: (rendered as RenderedPost | null)?.userIds ?? [],
+          accountIds: (rendered as RenderedPost | null)?.accountIds ?? [],
         });
       }
     }
@@ -766,7 +766,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
               handles,
               memberNames,
               // untaggedNote reads the ids as text, as renderPost hands them on.
-              mentionedIds: ((rendered as RenderedPost | null)?.userIds ?? []) as Array<string>,
+              mentionedIds: ((rendered as RenderedPost | null)?.accountIds ?? []) as Array<string>,
             },
             hot.prompts?.labels
           )

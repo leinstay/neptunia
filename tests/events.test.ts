@@ -2277,8 +2277,8 @@ function fakePrivateStore({
 }: { profiles?: Untyped; privates?: Record<string, Untyped> } = {}) {
   return {
     state: { data: {} },
-    getUser: (userId: string) => profiles[userId] ?? null,
-    getPrivate: (userId: string) => privates[userId] ?? null,
+    getUser: (accountId: string) => profiles[accountId] ?? null,
+    getPrivate: (accountId: string) => privates[accountId] ?? null,
     // PR 7d: memory is code, so the real turn reads these of the store.
     getPlace: () => ({}),
     listChannels: () => [],

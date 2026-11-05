@@ -172,7 +172,7 @@ const hers = (env: Env, turnId: string, extra = {}) => ({
   env,
   placeId: 'g1',
   conversationId: 'c1',
-  userId: OWNER,
+  accountId: OWNER,
   roleIds: [],
   actor: 'persona',
   turnId,
@@ -180,7 +180,7 @@ const hers = (env: Env, turnId: string, extra = {}) => ({
   ...extra,
 });
 /** An owner's command. */
-const owner = (env: Env) => ({ env, placeId: 'g1', conversationId: 'c1', userId: OWNER, roleIds: [] });
+const owner = (env: Env) => ({ env, placeId: 'g1', conversationId: 'c1', accountId: OWNER, roleIds: [] });
 
 function onlyIntention(intentions: IntentionService) {
   const list = intentions.list();

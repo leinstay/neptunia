@@ -231,7 +231,7 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
     self: false,
     bot: false,
     content: 'Καλημέρα, café?',
-    mentionedUserIds: [],
+    mentionedAccountIds: [],
   });
   for (const [id, minutes] of [
     ['600000000000000001', 0],
@@ -290,7 +290,7 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
   const task = tasks.add({
     agent: 'scout',
     goal: 'find the café hours',
-    requester: { userId: MEMBER, kind: 'member' },
+    requester: { accountId: MEMBER, kind: 'member' },
     origin: { placeId: CHANNEL, messageId: '600000000000000001' },
     scope: 'group',
   });
@@ -509,7 +509,7 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
     const task = m.tasks().add({
       agent: 'scout',
       goal: 'the pier',
-      requester: { userId: MEMBER, kind: 'member' },
+      requester: { accountId: MEMBER, kind: 'member' },
       origin: { placeId: CHANNEL, messageId: null },
       scope: 'group',
     });
@@ -645,7 +645,7 @@ test('a task transition or an intention whose write committed and whose answer w
       const added = tasks.add({
         agent: 'scout',
         goal: 'the pier',
-        requester: { userId: MEMBER, kind: 'member' },
+        requester: { accountId: MEMBER, kind: 'member' },
         origin: { placeId: CHANNEL, messageId: null },
         scope: 'group',
       });

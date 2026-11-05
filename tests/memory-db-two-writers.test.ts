@@ -191,16 +191,16 @@ async function flush(store: ReturnType<typeof createStore>): Promise<void> {
 }
 
 /** The member's profile as a store that caches nothing yet reads it: the database's view, as the next start sees it. */
-function freshProfile(data: string, service: Service, userId = MEMBER): Profile {
+function freshProfile(data: string, service: Service, accountId = MEMBER): Profile {
   // store.js is untyped JS; `getUser` returns the user file's value, whose shape is the user mapper's (map/user.js).
   const store = createStore({ dataDir: data, memoryDb: service });
-  return store.getUser(accountOf(store, userId)) as Profile;
+  return store.getUser(accountOf(store, accountId)) as Profile;
 }
 
 /** The member's profile as the store her turns use holds it, its cache included. */
-function liveProfile(store: ReturnType<typeof createStore>, userId: string): Profile {
+function liveProfile(store: ReturnType<typeof createStore>, accountId: string): Profile {
   // store.js is untyped JS; `getUser` returns the user file's value, whose shape is the user mapper's (map/user.js).
-  return store.getUser(accountOf(store, userId)) as Profile;
+  return store.getUser(accountOf(store, accountId)) as Profile;
 }
 
 /** One JSON unit rebuilt from the database alone (export.js#exportOne). */

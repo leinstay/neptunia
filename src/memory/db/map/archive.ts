@@ -59,8 +59,8 @@ export function claimStub(rel: string, entry: Row, ctx: MapContext = {}): Row {
     from_person: null,
     truth: 'historical',
     shown: 0,
-    ...(ctx.dmPlace && ctx.privateUserId
-      ? dmPlaceScope(personId(ifaceOf(ctx), ctx.privateUserId), ifaceOf(ctx), ctx.dmPlace)
+    ...(ctx.dmPlace && ctx.privateAccountId
+      ? dmPlaceScope(personId(ifaceOf(ctx), ctx.privateAccountId), ifaceOf(ctx), ctx.dmPlace)
       : scopeColumns(entry.scope, { privateUser: privateUserOf(rel) })),
     created_at: null,
     retired_at: typeof entry.recordedAt === 'string' ? entry.recordedAt : null,

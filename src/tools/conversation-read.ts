@@ -250,7 +250,7 @@ export async function recordMessages(
       content: str(line.text),
       ts,
       replyToId: str(line.replyTo) || null,
-      mentionedUserIds: listOf(line.mentions),
+      mentionedAccountIds: listOf(line.mentions),
       mentionedChannelIds: [],
       attachments: listOf(line.media)
         .filter((kind): kind is string => typeof kind === 'string' && kind !== '')
@@ -295,7 +295,7 @@ export async function recordMessages(
       content: '',
       ts: Date.parse(str(line.occurredAt)),
       deleted: true,
-      mentionedUserIds: [],
+      mentionedAccountIds: [],
       mentionedChannelIds: [],
       replyToId: null,
       attachments: [],

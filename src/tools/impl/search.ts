@@ -133,7 +133,7 @@ const handlers = perEnv((env) => {
   async function cmdMemorySearch(args: Obj, context: OpContext) {
     const channel = await infoOf(context);
     const placeId = resolvedPlaceId(context);
-    const snapshot = channel?.communityId != null && reads ? await takeSnapshot(reads, channel.communityId, []) : null;
+    const snapshot = channel?.rootId != null && reads ? await takeSnapshot(reads, channel.rootId, []) : null;
     const result = await runMemorySearch({
       recall: env.recall ?? null,
       store,
@@ -172,17 +172,17 @@ const handlers = perEnv((env) => {
    */
   async function cmdConversationRead(args: Obj, context: OpContext) {
     const here = await infoOf(context);
-    if (!here || here.communityId == null || !reads)
+    if (!here || here.rootId == null || !reads)
       return asOpResult({ status: 'not_configured', code: CODE.NOT_CONFIGURED }, 'conversation');
-    const communityId = here.communityId;
-    const snapshot = await takeSnapshot(reads, communityId, []);
+    const rootId = here.rootId;
+    const snapshot = await takeSnapshot(reads, rootId, []);
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
     const placeId = resolvedPlaceId(context);
     const channelOf = (id: unknown): { name?: string | null } | null =>
       idText(id) === here.id ? here : (snapshot?.get(idText(id)) ?? null);
     const selfName = env.getSelfName(placeId);
-    const nameOf = (id: unknown): string | null => env.memberNameOf(communityId, idText(id));
+    const nameOf = (id: unknown): string | null => env.memberNameOf(rootId, idText(id));
     const timezone = config.bot?.timezone ?? 'UTC';
     const result = await runConversationRead({
       args,

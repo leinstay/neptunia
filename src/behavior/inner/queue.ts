@@ -95,7 +95,7 @@ function inflightOf(value: unknown): Inflight | null {
     startedAt: raw.startedAt,
     placeId: idOrNull(raw.placeId),
     privateChat: raw.privateChat === true,
-    privateUserId: idOrNull(raw.privateUserId),
+    privateAccountId: idOrNull(raw.privateAccountId),
   };
 }
 

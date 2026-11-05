@@ -118,7 +118,7 @@ function imageFetcher() {
 
 /** The image client boundary: every generate() call's arguments, as given. */
 /** What the draw call hands the image client: the prompt, the reference picture and the member it is charged to. */
-type ImageCall = { prompt: string; reference: unknown; userId?: string };
+type ImageCall = { prompt: string; reference: unknown; accountId?: string };
 
 function recordingImages() {
   const calls: Array<ImageCall> = [];
@@ -257,7 +257,7 @@ test('/nep draw: one picture for the owner', async () => {
       imageFetcher: imageFetcher(),
       now: () => NOW,
     });
-  const ctx = { placeId: 'g1', userId: '42' };
+  const ctx = { placeId: 'g1', accountId: '42' };
   const { result } = await withCapturedLogs(() =>
     admin(hotValue).run('draw.create', { text: 'me reading by the window', self: true }, ctx)
   );
@@ -306,7 +306,7 @@ test("draw.create from a member's mention: the picture is charged to the member"
   const called = logs.find((l) => l.msg === 'skills: called' && l.skill === 'draw.create');
   assert.ok(called, JSON.stringify(logs.filter((l) => /skill/.test(String(l.msg)))));
   assert.equal(called.code ?? 'ok', 'ok');
-  assert.equal(images.calls[0].userId, 'u1');
+  assert.equal(images.calls[0].accountId, 'u1');
   assert.ok(
     target.sent.some((payload) => payload.files?.length === 1),
     'the picture was posted'
@@ -333,7 +333,7 @@ test("draw.create operation quotes the message it replies to, in that message's 
     now: () => NOW,
     port,
   });
-  const ctx = { placeId: 'g1', conversationId: 'c1', userId: '42', roleIds: [], actor: 'owner' };
+  const ctx = { placeId: 'g1', conversationId: 'c1', accountId: '42', roleIds: [], actor: 'owner' };
   const quoted = (
     await withCapturedLogs(() => admin.runSkillOp('draw.create', { text: 'a lighthouse', replyTo: 'm9' }, ctx))
   ).result;
@@ -401,13 +401,13 @@ test('drawPicture: her scene goes into the draw prompt verbatim, with the appear
   const images = fakeImages();
   const { picture, referenceMissing } = await drawPicture({
     ...deps(images),
-    input: { scene: SCENE, selfName: 'Bot', self: true, withTime: true, userId: 'u1' },
+    input: { scene: SCENE, selfName: 'Bot', self: true, withTime: true, accountId: 'u1' },
   });
   assert.deepEqual(images.calls, [
     {
       prompt: `DRAW by Bot.\n\nBot has a green scarf.\n\n${WHEN}\n\nScene: ${SCENE}`,
       reference: AVATAR,
-      userId: 'u1',
+      accountId: 'u1',
     },
   ]);
   assert.equal(picture.model, 'm/img');

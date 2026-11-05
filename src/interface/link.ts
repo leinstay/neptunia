@@ -581,7 +581,7 @@ export function createIfaceRouter(
   served: Adapter,
   routeOf: (iface: string) => Adapter | null,
   routed: () => ReadonlyArray<Adapter>,
-  routeOfCommunity: (communityId: string) => Adapter | null = () => null
+  routeOfCommunity: (placeId: string) => Adapter | null = () => null
 ): Adapter {
   const by = (ref: { iface?: unknown } | null | undefined): Adapter => {
     const iface = ref?.iface;
@@ -590,7 +590,7 @@ export function createIfaceRouter(
   };
   // A read of a community has no reference to route by, only the community's id. Its first argument names it.
   const byCommunity = (scope: unknown): Adapter => {
-    const id = typeof scope === 'string' ? scope : (scope as { communityId?: unknown } | null)?.communityId;
+    const id = typeof scope === 'string' ? scope : (scope as { placeId?: unknown } | null)?.placeId;
     return typeof id === 'string' ? (routeOfCommunity(id) ?? served) : served;
   };
   return {

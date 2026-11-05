@@ -34,7 +34,7 @@ test('a whole file is one operational row whose kind says which file it is', () 
       'missed',
     ],
     ['forgotten.json', { ids: ['1'] }, 'forgotten'],
-    ['forgetting/100000000000000001.json', { userId: '100000000000000001', at: 'x', step: 'vectors' }, 'forgetting'],
+    ['forgetting/100000000000000001.json', { accountId: '100000000000000001', at: 'x', step: 'vectors' }, 'forgetting'],
     ['record/2026-10/ids.json', ['400000000000000001:1'], 'record_ids'],
     [
       'record/backfill.json',

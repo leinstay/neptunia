@@ -23,7 +23,7 @@ const COMMUNITY = { id: 'g1', name: 'Alpha' };
 
 type Request =
   | { id: number; op: 'seed-conversation'; info: ConversationInfo }
-  | { id: number; op: 'seed-member'; communityId: string; member: MemberInfo }
+  | { id: number; op: 'seed-member'; rootId: string; member: MemberInfo }
   | { id: number; op: 'emit'; event: MessageEvent }
   | { id: number; op: 'posted'; conversationId: string }
   | { id: number; op: 'hold' }
@@ -67,7 +67,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
         tell({ id: request.id, op: 'done' });
         return;
       case 'seed-member':
-        fake.seedMember(request.communityId, request.member);
+        fake.seedMember(request.rootId, request.member);
         tell({ id: request.id, op: 'done' });
         return;
       case 'emit': {

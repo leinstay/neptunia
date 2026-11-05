@@ -279,7 +279,7 @@ function pickerScene({
   // The conversations the interface lists: #jardin is named there, #journal only in the stored channel map.
   // @ts-expect-error the listed conversation carries only the id and the name the picker reads
   const snapshot = snapshotOf(GUILD, { conversations: [{ id: 'c3', name: 'jardin' }], groups: [] });
-  const channel = { id: 'c1', name: 'general', communityId: GUILD };
+  const channel = { id: 'c1', name: 'general', rootId: GUILD };
   let t = NOW;
   const picker = createParticipationPicker({ hot, store, llm, now: () => (t += 5), ...(schedule ? { schedule } : {}) });
   const history = [

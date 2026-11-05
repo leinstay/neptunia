@@ -343,7 +343,7 @@ test('hiddenReads: history and the listing lose the hidden channels and messages
   );
   assert.deepEqual((await wrapped.history(ref('c9'), { limit: 10 }))?.events, [], 'a hidden channel gives no history');
   assert.deepEqual(
-    (await wrapped.conversations({ communityId: 'g1' }))?.conversations.map((entry) => entry.id),
+    (await wrapped.conversations({ placeId: 'g1' }))?.conversations.map((entry) => entry.id),
     ['c1', 'c3'],
     'the neighbours and the pulls never see a hidden channel'
   );

@@ -61,7 +61,7 @@ const errand = (id: string, fields: Record<string, unknown>): Record13 => ({
   id,
   agent: 'scout',
   goal: `look into ${id}`,
-  requester: { userId: '100', kind: 'member' },
+  requester: { accountId: '100', kind: 'member' },
   origin: { placeId: 'c1', messageId: null },
   scope: 'group',
   state: 'queued',

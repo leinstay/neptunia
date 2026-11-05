@@ -79,11 +79,11 @@ function envOf({ status = STATUS, usage = null }: { status?: typeof STATUS; usag
 type Field = { name: string; value: string };
 const fieldsOf = (result: { data: unknown }) => (result.data as { fields: Array<Field> }).fields;
 type Env = ReturnType<typeof envOf>['env'];
-const show = async (env: Env, args: Record<string, unknown>, userId: string) =>
-  fieldsOf(await runOp('status.show', args, { env, placeId: 'g1', userId, roleIds: [] }));
+const show = async (env: Env, args: Record<string, unknown>, accountId: string) =>
+  fieldsOf(await runOp('status.show', args, { env, placeId: 'g1', accountId, roleIds: [] }));
 // PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 const showMember = async (env: Env, args: Record<string, unknown>) =>
-  fieldsOf(await runOp('status.show', args, { env, placeId: 'g1', userId: '7', roleIds: ['staff'] }));
+  fieldsOf(await runOp('status.show', args, { env, placeId: 'g1', accountId: '7', roleIds: ['staff'] }));
 
 test("status inner: the owner reads the inner life's lines through the labels; field:inner shows it alone", async () => {
   const { env, seen } = envOf();
@@ -196,13 +196,13 @@ test('status inner: the next heartbeat has its own line; off says so; a status w
 // PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 test('status.show part: her call defaults to the overview, a part holds its fields, models are named and never probed, a member sees only what a member may', async () => {
   const { env } = envOf();
-  const persona = async (args: Record<string, unknown>, userId = '42') =>
+  const persona = async (args: Record<string, unknown>, accountId = '42') =>
     fieldsOf(
       await runOp('status.show', args, {
         env,
         placeId: 'g1',
-        userId,
-        roleIds: userId === '42' ? [] : ['staff'],
+        accountId,
+        roleIds: accountId === '42' ? [] : ['staff'],
         actor: 'persona',
       })
     );
@@ -232,7 +232,7 @@ test('status.show part: her call defaults to the overview, a part holds its fiel
     ['memory']
   );
   assert.ok((await persona({ part: 'all' })).length > 8, 'all is the whole card');
-  const owner = fieldsOf(await runOp('status.show', {}, { env, placeId: 'g1', userId: '42', roleIds: [] }));
+  const owner = fieldsOf(await runOp('status.show', {}, { env, placeId: 'g1', accountId: '42', roleIds: [] }));
   assert.ok(owner.length > 8, 'the owner command without a part keeps the whole card');
   assert.deepEqual(
     (await persona({ part: 'inner' }, '7')).map((f) => [f.name, f.value]),

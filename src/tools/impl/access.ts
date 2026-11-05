@@ -69,7 +69,7 @@ export function renameGrants(access: unknown, renames: Readonly<Record<string, s
         ? (entry.roles as Array<unknown>).map((roleId) => ({ roleId: idText(roleId) }))
         : []),
       ...(Array.isArray(entry.users)
-        ? (entry.users as Array<unknown>).map((userId) => ({ userId: idText(userId) }))
+        ? (entry.users as Array<unknown>).map((accountId) => ({ accountId: idText(accountId) }))
         : []),
     ];
     delete next[key];
@@ -121,7 +121,7 @@ const handlers = perEnv((env) => {
   /** True when `what` (accessTargetArgs') targets the persona herself. */
   function targetsPersona(what: GrantTarget | null | undefined): boolean {
     const id = personaId();
-    return id !== null && what?.userId != null && idText(what.userId) === id;
+    return id !== null && what?.accountId != null && idText(what.accountId) === id;
   }
 
   /** The ids of the groups the persona holds in the served community (the interface's member info), [] when unknown. */
@@ -129,7 +129,7 @@ const handlers = perEnv((env) => {
     const placeId = env.resolvedPlaceId(context);
     const self = personaId();
     if (!reads || !placeId || self === null) return [];
-    const found = await reads.memberInfo({ communityId: placeId, memberId: self });
+    const found = await reads.memberInfo({ placeId, accountId: self });
     return found?.member?.groupIds ?? [];
   }
 
@@ -168,10 +168,10 @@ const handlers = perEnv((env) => {
    * would show as raw markup). */
   function accessTargetArgs(args: Obj): { what: GrantTarget; label: string } {
     const roleId = idText(args.roleId);
-    const userId = idText(args.userId);
-    if (roleId && userId) throw invalid('give a role or a user, not both');
+    const accountId = idText(args.accountId);
+    if (roleId && accountId) throw invalid('give a role or a user, not both');
     if (roleId) return { what: { roleId }, label: `role id:${roleId}` };
-    if (userId) return { what: { userId }, label: `user id:${userId}` };
+    if (accountId) return { what: { accountId }, label: `user id:${accountId}` };
     return { what: { everyone: true }, label: 'everyone' };
   }
 

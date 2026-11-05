@@ -22,7 +22,7 @@ function message(conversation: Conversation, id = 'm1'): MessageReceived {
       system: false,
       at: 1,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -31,7 +31,7 @@ function message(conversation: Conversation, id = 'm1'): MessageReceived {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
   };
 }
 
@@ -46,7 +46,7 @@ function changed(change: ConversationChanged['change'], conversation: Conversati
   };
 }
 
-const DM: Conversation = { id: 'd1', kind: 'dm', communityId: null, name: null, chatType: 'dm', partnerId: 'u1' };
+const DM: Conversation = { id: 'd1', kind: 'dm', rootId: null, name: null, chatType: 'dm', partnerId: 'u1' };
 
 test('learns the direct chat of a member from a message in it', () => {
   const directory = createConversationDirectory();
@@ -68,7 +68,7 @@ test('does not take a group chat for the direct chat of its first member', () =>
 
 test('does not learn a direct chat from a message in a channel', () => {
   const directory = createConversationDirectory();
-  directory.observe(message({ id: 'c1', kind: 'channel', communityId: 'g1', name: 'general' }));
+  directory.observe(message({ id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' }));
   assert.equal(directory.dmConversationOf('u1'), null);
 });
 
@@ -91,7 +91,7 @@ test('keeps the whole record a conversation change carried', () => {
   const record: Conversation = {
     id: 'c1',
     kind: 'channel',
-    communityId: 'g1',
+    rootId: 'g1',
     name: 'general',
     topic: 'daily talk',
     category: 'main',

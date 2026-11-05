@@ -38,7 +38,7 @@ export async function withReplyParents(
 
 /** The list fields of a normalized message (src/protocol/events.ts#Message), empty on a line built here. */
 const EMPTY_LINE_LISTS = Object.freeze([
-  'mentionedUserIds',
+  'mentionedAccountIds',
   'mentionedChannelIds',
   'attachments',
   'links',
@@ -85,7 +85,7 @@ export function continuationHistory({
       authorName: selfName ?? '',
       bot: false,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       ...line,
       self: true,
