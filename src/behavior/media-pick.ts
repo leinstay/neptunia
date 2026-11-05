@@ -83,6 +83,11 @@ export function mediaPickSettings(config: Record<string, Untyped>): MediaPickSet
   };
 }
 
+/** The embedding model of the pick's query and of the captions it is compared with: one model, or no comparing. */
+export function gifVectorModel(config: unknown): string | null {
+  return roleModel(config, 'embedding', 'media-pick') ?? null;
+}
+
 /** What a request offered, which an answer must stay inside. */
 export type MediaPickOffer = {
   gifs: ReadonlyArray<string>;
@@ -265,6 +270,7 @@ function recentGifLines(
 /** The store as the pick reads it. */
 type PickStore = {
   getGifs?: () => unknown;
+  getGifVectors?: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
   getEmojiRails?: (placeId: string) => unknown;
   setEmojiRails?: (placeId: string, state: EmojiRails) => unknown;
 };
@@ -394,6 +400,7 @@ export function createMediaPick({
       words: query,
       vector: await queryVector(query, args.conversationId),
       cap: settings.candidates,
+      vectors: store.getGifVectors?.(gifVectorModel(hot.config)) ?? null,
       accept: (entry) => gifPostForm(entry, forms) !== null,
     });
     return { library, candidates: found.map(({ entry }) => entry) };

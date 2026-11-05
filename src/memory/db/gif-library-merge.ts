@@ -1,5 +1,6 @@
-// The per-place GIF libraries of a database from before the shared one, carried over at the open that follows schema
-// version 32 or the offline conversion (src/memory/db/open.ts#migrate). Each place's rows are read through its
+// The GIF rows of a database from before the shared library, carried over at the open that follows schema version 32 or
+// the offline conversion (src/memory/db/open.ts#migrate). A link an old row holds in `path` moves to `extra.url`, retired
+// rows included, because `path` is null or a file under `media/` on every media row. Each place's rows are read through its
 // mapper and merged (src/memory/gifs.ts#mergePlaceLibraries, with the captions of that place's media cache); the old
 // units are retired with their rows, and the one library is written under the persona. A database with no such unit
 // stays as it is, so a second run does nothing.
@@ -24,8 +25,17 @@ function writeOver(db: Db, key: StorageKey, value: unknown): void {
   retireAbsent(db, id, mapping, MERGED_AT);
 }
 
+/** The old rows' links in `extra.url`. A row that already names a url keeps it. */
+function moveLinksToExtra(db: Db): void {
+  db.exec(`UPDATE media
+    SET extra = json_set(COALESCE(NULLIF(extra, ''), '{}'), '$.url', COALESCE(json_extract(NULLIF(extra, ''), '$.url'), path)),
+        path = NULL
+    WHERE kind = 'gif' AND path IS NOT NULL AND path NOT LIKE 'media/%'`);
+}
+
 /** Merges every per-place library of `db` into the persona's one. Answers how many places it merged. */
 export function mergeGifLibraries(db: Db): number {
+  moveLinksToExtra(db);
   const units = listUnits(db, { kind: 'gifs' }).filter((unit) => unit.key.subject.type === 'place');
   if (units.length === 0) return 0;
   const libraries: Record<string, unknown> = {};

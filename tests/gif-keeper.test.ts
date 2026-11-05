@@ -68,9 +68,15 @@ test('a counted GIF gets its caption, its vector and its file, and the search th
   assert.deepEqual(embedded, ['μια γάτα χορεύει']);
   const [entry] = Object.values(store.getGifs().entries);
   assert.equal(entry.caption, 'μια γάτα χορεύει');
-  assert.deepEqual(entry.vector, [0.6, 0.8]);
+  const vector = store.getGifVectors().get(entry.itemId);
+  assert.ok(vector && Math.abs(vector[0] - 0.6) < 0.01);
   assert.ok(fs.existsSync(path.join(dir, String(entry.file))));
   assert.equal(searchGifs(store.getGifs(), { words: 'γάτα', vector: null, cap: 5 }).length, 1);
+  assert.equal(
+    searchGifs(store.getGifs(), { words: 'χαρά', vector: [0.6, 0.8], cap: 5, vectors: store.getGifVectors() }).length,
+    1,
+    'the search finds it by the vector kept apart'
+  );
 });
 
 test('a failed download and a failed embedding leave the caption the search can read', async () => {

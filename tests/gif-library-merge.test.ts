@@ -29,6 +29,10 @@ test('a converted v28 database opens with its GIFs in the shared library, the ol
   assert.equal(schemaVersion(db), MIGRATIONS.length);
   const placeUnits = listUnits(db, { kind: 'gifs' }).filter((unit) => unit.key.subject.type === 'place');
   assert.deepEqual(placeUnits, [], 'no library of a place is left');
+  // The owner's structure: `path` is null or a file under `media/`, so the link of the old row moved to `extra`.
+  const row = db.prepare("SELECT path, extra FROM media WHERE id = 'media:gif:a1'").get();
+  assert.equal(row?.path, null);
+  assert.equal((JSON.parse(String(row?.extra)) as { url: string }).url, 'https://example.org/a.gif');
   handle.close();
 
   const dataDir = path.dirname(where.output);

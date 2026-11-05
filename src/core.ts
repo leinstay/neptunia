@@ -62,6 +62,7 @@ import { createGifFetcher } from './media/gif-files.ts';
 import { createImageGen } from './llm/images.ts';
 import { createSpeech } from './speech/index.ts';
 import { ffmpegAvailable } from './speech/convert.ts';
+import { gifVectorModel } from './behavior/media-pick.ts';
 import { createTurnRunner } from './behavior/turn.ts';
 import { createActivity } from './behavior/activity.ts';
 import { createMissed } from './behavior/missed.ts';
@@ -954,7 +955,8 @@ async function buildCore(
     store,
     dataDir,
     fetchBytes: createGifFetcher({ fetchImpl: imageStaging.fetch }),
-    embed: embedOne('gif-caption'),
+    embed: embedOne('media-pick'),
+    embedModel: () => gifVectorModel(hot.config),
     describer,
     log,
   });

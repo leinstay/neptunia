@@ -9,7 +9,7 @@
 // of the latest use) drives the decay. A history recount of one place sets that place's counter to 0 and counts again
 // (resetGifCounts), so handles survive it; an entry left at 0 everywhere ranks below every used one. The persona's own
 // posts are kept apart (markOwnGif: `ownLast`, `ownUses`, per place and in total), never counted into `count` and never
-// reset. `caption` is the describer's text and `vector` its embedding, which the candidate search (searchGifs) reads;
+// reset. `caption` is the describer's text, which the candidate search (searchGifs) reads with its vector, kept apart;
 // `file` is the cached file under the data folder (src/media/gif-files.ts), because an attachment's link expires.
 //
 // Shape: `{ nextId, entries: { [key]: GifEntry }, backfill, backfills }`. `messageId`/`placeId` point at the latest
@@ -758,11 +758,14 @@ export function searchGifs(
     words,
     vector,
     cap,
+    vectors = null,
     accept = () => true,
   }: {
     words: string;
     vector: ArrayLike<number> | null;
     cap: number;
+    /** The captions' vectors by item id, kept outside the library's JSON (src/memory/db/gif-vectors.ts). */
+    vectors?: ReadonlyMap<string, ArrayLike<number>> | null;
     accept?: (entry: GifEntry & { key: string }) => boolean;
   }
 ): Array<{ entry: GifEntry & { key: string }; score: number }> {
@@ -775,7 +778,7 @@ export function searchGifs(
     const caption = wordsOf(entry.caption);
     const shared = wanted.filter((word) => caption.has(word)).length;
     const wordScore = wanted.length > 0 ? shared / wanted.length : 0;
-    const close = similarity(vector, entry.vector) ?? 0;
+    const close = similarity(vector, vectors?.get(entry.itemId) ?? entry.vector) ?? 0;
     const score = wordScore + (close >= MIN_SIMILARITY ? close : 0);
     if (score > 0) found.push({ entry: { key, ...entry }, score });
   }

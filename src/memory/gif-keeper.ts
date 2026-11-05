@@ -16,16 +16,16 @@ import type { MediaItem } from './describe.ts';
 /** The most GIFs a start's `settle` works on, so a start with a long library spends a little of the day's rails. */
 const SETTLE_PER_RUN = 50;
 
-/** A vector kept in the library, as short as a search needs it. */
-const rounded = (vector: ArrayLike<number>): Array<number> =>
-  Array.from(vector, (value) => Math.round(value * 10_000) / 10_000);
-
 /** The store as the keeper reads and writes it. */
 type KeeperStore = {
   state?: { data?: { paused?: unknown } };
   getGifs: () => unknown;
+  getGifVectors: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
   getMediaCache: (placeId: string) => Record<string, unknown> | null | undefined;
-  setGifCaption: (key: string, described: { caption: string; vector: ArrayLike<number> | null }) => void;
+  setGifCaption: (
+    key: string,
+    described: { caption: string; vector: ArrayLike<number> | null; model?: string | null }
+  ) => void;
   setGifFile: (key: string, file: { hash: string; file: string }) => void;
 };
 
@@ -43,6 +43,7 @@ export function createGifKeeper({
   dataDir,
   fetchBytes,
   embed = null,
+  embedModel = () => null,
   describer = null,
   log = defaultLog,
 }: {
@@ -51,6 +52,8 @@ export function createGifKeeper({
   fetchBytes: (url: string) => Promise<GifBytes>;
   /** The embedder of a caption; null, or a failure: the search reads the caption's words alone. */
   embed?: ((text: string) => Promise<ArrayLike<number> | null>) | null;
+  /** The model `embed` answers with now, which a stored vector must match. */
+  embedModel?: () => string | null;
   describer?: { describeMany: (placeId: string, items: Array<MediaItem>, options: object) => Promise<unknown> } | null;
   log?: Log;
 }): GifKeeper {
@@ -72,8 +75,7 @@ export function createGifKeeper({
   async function vectorOf(caption: string): Promise<ArrayLike<number> | null> {
     if (!embed) return null;
     try {
-      const vector = await embed(caption);
-      return vector ? rounded(vector) : null;
+      return await embed(caption);
     } catch (err) {
       log.info('gif-keeper: no vector', { error: err });
       return null;
@@ -85,8 +87,9 @@ export function createGifKeeper({
     const entry = entryOf(itemId);
     if (!entry) return;
     const caption = captionOfCached(store.getMediaCache(placeId)?.[itemId]);
-    if (!caption || (entry.caption === caption && (entry.vector || !embed))) return;
-    store.setGifCaption(itemId, { caption, vector: await vectorOf(caption) });
+    const hasVector = store.getGifVectors(embedModel()).has(entry.itemId);
+    if (!caption || (entry.caption === caption && (hasVector || !embed))) return;
+    store.setGifCaption(itemId, { caption, vector: await vectorOf(caption), model: embedModel() });
   }
 
   async function fileEntry(itemId: string, urls: ReadonlyArray<string | undefined>): Promise<void> {
@@ -127,7 +130,7 @@ export function createGifKeeper({
         let worked = 0;
         for (const entry of rankGifs(store.getGifs())) {
           if (paused() || worked >= SETTLE_PER_RUN) break;
-          if (entry.caption && entry.vector && entry.file) continue;
+          if (entry.caption && store.getGifVectors(embedModel()).has(entry.itemId) && entry.file) continue;
           worked += 1;
           await describeEntry(placeId, entry.itemId);
           await fileEntry(entry.itemId, [entry.url]);
