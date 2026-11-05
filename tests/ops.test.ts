@@ -27,13 +27,13 @@ const DISCORD = createDiscordInterface().capabilities;
 
 /** The operation names the commands-cleanup plan agreed on (its wildcards spelled out), `/nep talk` since merged into `message.create`. */
 const AGREED = new Set([
-  'board.propose',
-  'board.status',
+  'task.propose',
+  'task.status',
   // Her answers on a waiting task, from the selfimprovement wake.
-  'board.cancel',
-  'board.comment',
-  'board.answer',
-  'board.unblock',
+  'task.cancel',
+  'task.comment',
+  'task.answer',
+  'task.unblock',
   'skill.read',
   'skill.disable',
   'skill.run',

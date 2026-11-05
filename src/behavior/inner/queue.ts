@@ -96,6 +96,7 @@ function inflightOf(value: unknown): Inflight | null {
     placeId: idOrNull(raw.placeId),
     privateChat: raw.privateChat === true,
     privateAccountId: idOrNull(raw.privateAccountId),
+    ...(typeof raw.iface === 'string' && raw.iface ? { iface: raw.iface } : {}),
   };
 }
 

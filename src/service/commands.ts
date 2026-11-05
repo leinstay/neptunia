@@ -11,6 +11,7 @@ import { readKeys } from '../keys/file.ts';
 import { backendOfAgent } from '../subharness/control.ts';
 import { sourceProblem, sourceState } from '../subharness/sources.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
+import { nextWindowStart } from '../behavior/diary.ts';
 import { innerSettings } from '../behavior/inner/settings.ts';
 import { setPath } from '../tools/impl/shared.ts';
 import { objOf } from '../tools/types.ts';
@@ -217,6 +218,15 @@ function nextDue(
   const now = deps.now();
   if (clock?.nextAt != null && clock.nextAt > now) return iso(clock.nextAt);
   const schedule = scheduleOf(name, config);
+  if (schedule === null && name === 'selfreflection') {
+    const zone = objOf(objOf(config).bot).timezone;
+    const start = nextWindowStart(
+      objOf(objOf(config).selfreflection).windows,
+      now,
+      typeof zone === 'string' ? zone : undefined
+    );
+    return start === null ? 'none' : iso(start);
+  }
   if (schedule === null) return 'unknown';
   const [next] =
     name === 'selfreflection'

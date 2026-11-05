@@ -145,7 +145,7 @@ test("a skill task's package is all it leaves in the persona folder, under skill
     fs.mkdirSync(path.join(on.dataDir, 'skills', 'web-read'), { recursive: true });
     fs.writeFileSync(path.join(on.dataDir, 'skills', 'web-read', 'SKILL.md'), '# package\n');
   };
-  const answer = await herCalls(world.caller)('board.propose', { ...FIX_REQUEST, kind: 'skill' });
+  const answer = await herCalls(world.caller)('task.propose', { ...FIX_REQUEST, kind: 'skill' });
   const id = String((answer.data as { task: { id: string } }).task.id);
   await settle(world.worker());
   assert.equal(world.show(id).task.status, 'needs_validation');

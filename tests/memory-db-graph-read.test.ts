@@ -736,7 +736,7 @@ test('pages through the snapshot service see every node of one moment exactly on
     const port = createInspectionPort({ dbPath: file, now: () => 0, engineRevision: 'rev' });
     const handle = port.openInspection({
       ownerId: 'owner',
-      bounds: { pageRows: 100, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300 },
+      bounds: { pageRows: 100, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300, maxSnapshots: 8 },
     });
     try {
       const read = (cursor: string | null): Page<GraphNodeRecord> =>

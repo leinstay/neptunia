@@ -34,6 +34,8 @@ export type TurnMark = {
   placeId: string | null;
   privateChat: boolean;
   privateAccountId: string | null;
+  /** The interface of the turn's conversation; absent in a mark written before it was recorded. */
+  iface?: string;
 };
 
 /** One wake row as the store reads it back. */
@@ -161,6 +163,7 @@ function turnMarkOf(value: unknown): TurnMark | null {
     placeId: textOrNull(mark.placeId),
     privateChat: mark.privateChat === true,
     privateAccountId: textOrNull(mark.privateAccountId),
+    ...(textOrNull(mark.iface) === null ? {} : { iface: String(mark.iface) }),
   };
 }
 

@@ -101,19 +101,27 @@ function renameKey(config: Config, at: string, from: string, to: string, report:
   place(section, section, { from, to }, { from: `${at}.${from}`, to: `${at}.${to}` }, report);
 }
 
-/** The grants of `bot.access` that moved with their tool: the old key, a dotted tool name, and the new one. */
+/**
+ * The grants of `bot.access` that moved with their tool: the old key, a dotted tool name, and the new one. The errand
+ * tools once held `task.status` and `task.cancel`; those names belong to the board tools, so a file still holding them
+ * is not moved (production moved them to `errand.*` before the rename).
+ */
 export const GRANT_MOVES: ReadonlyArray<[string, string]> = [
   ['skills.describe', 'tools.describe'],
   ['task.run', 'errand.run'],
-  ['task.status', 'errand.status'],
   ['task.read', 'errand.read'],
   ['task.resolve', 'errand.resolve'],
-  ['task.cancel', 'errand.cancel'],
   ['task.list', 'errand.list'],
   ['intent.set', 'intention.set'],
   ['intent.update', 'intention.update'],
   ['intent.cancel', 'intention.cancel'],
   ['intent.list', 'intention.list'],
+  ['board.propose', 'task.propose'],
+  ['board.status', 'task.status'],
+  ['board.cancel', 'task.cancel'],
+  ['board.comment', 'task.comment'],
+  ['board.answer', 'task.answer'],
+  ['board.unblock', 'task.unblock'],
 ];
 
 /** Grants of tools that no longer exist, keys of `bot.access`. */

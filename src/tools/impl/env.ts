@@ -299,7 +299,7 @@ function buildEnv({
     // The persona's inner life (src/behavior/inner.ts): `/nep task inner`.
     inner,
     // The diary's publisher (src/behavior/mirror.ts): what she writes to her diary with message.create is held there.
-    // The task board (src/tools/impl/board.ts): `board.propose` and `board.status`, and the status card's agent costs.
+    // The task board (src/tools/impl/board.ts): `task.propose` and `task.status`, and the status card's agent costs.
     board,
     // Her skills (src/tools/impl/skill.ts): `skill.read` and `skill.disable`.
     skills,

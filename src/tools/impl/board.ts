@@ -1,7 +1,7 @@
-// Operations `board.propose`, `board.status`, `board.cancel`, `board.comment`, `board.answer` and `board.unblock`: her side of the task
-// board (src/board/). `board.propose` files a `dev` task in `proposed` with her evidence as its description,
+// Operations `task.propose`, `task.status`, `task.cancel`, `task.comment`, `task.answer` and `task.unblock`: her side of the task
+// board (src/board/). `task.propose` files a `dev` task in `proposed` with her evidence as its description,
 // `persona:self` as its requester and subscriber, so the owner or a reviewer decides whether it is done, and refuses a
-// title she already has open (`duplicate-task`, naming that task); `board.status` reads back every task filed for her
+// title she already has open (`duplicate-task`, naming that task); `task.status` reads back every task filed for her
 // with its questions and its reviews. The others act on a task of hers: cancel it, comment on it, answer the open
 // question addressed to her, lift its block. A question addressed to her is hers to answer whoever filed its task. All run against the board the core gives the operations' environment (`env.board`,
 // src/board/writer.ts#createBoardPort) as the builtin principal `persona`, whose only board role is `persona`: she
@@ -34,7 +34,7 @@ const SELF = 'persona:self';
 /** The title of a task in an answer line (characters). */
 const TITLE_LINE_CHARS = 80;
 
-/** One task filed for her, as `board.status` answers it. */
+/** One task filed for her, as `task.status` answers it. */
 export type BoardStatusEntry = { task: TaskRecord; questions: Array<Row>; reviews: Array<Row> };
 
 /** A board refusal as an operation's result: the status by its kind, the board's code where the catalogue has it. */
@@ -111,7 +111,7 @@ const handlers = perEnv((env) => {
     }
   }
 
-  /** `board.propose { title, evidence, acceptance?, kind?, ... }`: a proposed dev task filed for her. */
+  /** `task.propose { title, evidence, acceptance?, kind?, ... }`: a proposed dev task filed for her. */
   function cmdPropose(args: Obj, context: OpContext) {
     const title = textOf(args.title).trim();
     const evidence = textOf(args.evidence).trim();
@@ -140,7 +140,7 @@ const handlers = perEnv((env) => {
     });
   }
 
-  /** `board.status`: every task filed for her, in the board's order, with its questions and reviews. */
+  /** `task.status`: every task filed for her, in the board's order, with its questions and reviews. */
   function cmdStatus() {
     return guarded(async (board) => {
       const tasks = await board.call(PERSONA, 'task.list', { requester: SELF });
@@ -176,7 +176,7 @@ const handlers = perEnv((env) => {
     return value;
   }
 
-  /** `board.cancel { id, reason }`: her task cancelled with her reason, at its current revision. */
+  /** `task.cancel { id, reason }`: her task cancelled with her reason, at its current revision. */
   function cmdCancel(args: Obj) {
     const id = required(args, 'id');
     const reason = required(args, 'reason');
@@ -193,7 +193,7 @@ const handlers = perEnv((env) => {
     });
   }
 
-  /** `board.comment { id, text }`: her comment on her task; the status stays. */
+  /** `task.comment { id, text }`: her comment on her task; the status stays. */
   function cmdComment(args: Obj) {
     const id = required(args, 'id');
     const text = required(args, 'text');
@@ -213,7 +213,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `board.answer { id, text }` or `board.answer { question_id, text }`: her answer to the open question addressed to
+   * `task.answer { id, text }` or `task.answer { question_id, text }`: her answer to the open question addressed to
    * her on task `id`, or to that question, so its holder goes on. The board refuses a question addressed to anyone else.
    */
   function cmdAnswer(args: Obj) {
@@ -227,7 +227,7 @@ const handlers = perEnv((env) => {
     });
   }
 
-  /** `board.unblock { id, note }`: her task back to approved, with what she decided as a comment for whoever goes on. */
+  /** `task.unblock { id, note }`: her task back to approved, with what she decided as a comment for whoever goes on. */
   function cmdUnblock(args: Obj) {
     const id = required(args, 'id');
     const note = required(args, 'note');
@@ -242,32 +242,32 @@ const handlers = perEnv((env) => {
 });
 
 defineOp({
-  name: 'board.propose',
+  name: 'task.propose',
   rights: { kind: 'write', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdPropose(args, ctx),
 });
 defineOp({
-  name: 'board.status',
+  name: 'task.status',
   rights: { kind: 'read', member: true },
   run: (_args, ctx) => handlers(ctx.env).cmdStatus(),
 });
 defineOp({
-  name: 'board.cancel',
+  name: 'task.cancel',
   rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdCancel(args),
 });
 defineOp({
-  name: 'board.comment',
+  name: 'task.comment',
   rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdComment(args),
 });
 defineOp({
-  name: 'board.answer',
+  name: 'task.answer',
   rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdAnswer(args),
 });
 defineOp({
-  name: 'board.unblock',
+  name: 'task.unblock',
   rights: { kind: 'write' },
   run: (args, ctx) => handlers(ctx.env).cmdUnblock(args),
 });

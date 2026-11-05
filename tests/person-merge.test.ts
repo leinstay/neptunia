@@ -356,7 +356,10 @@ function consoleRig(): {
     selfId: () => null,
     hot: {
       config: {
-        memoryDb: { file: 'memory.db', inspection: { pageRows: 50, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300 } },
+        memoryDb: {
+          file: 'memory.db',
+          inspection: { pageRows: 50, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300, maxSnapshots: 8 },
+        },
       },
     },
     privateDir: dir,

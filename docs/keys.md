@@ -10,6 +10,8 @@ Use `/keys` to inspect the available commands, `/keys bind` to select an extra k
 
 [`checkRole`](../src/keys/check.ts) sends one minimal request for the role on the role's key. Chat roles get a short completion, `embedding` a short embedding, and `speech` a synthesis of two characters on the speech endpoint with `speech.voice`. A failed check means the provider or the network said no. `drawing` has no probe, because one request bills a whole picture, so `/keys check drawing` answers `unsupported` and sends nothing, and `/model set drawing` saves the model unverified. A role that is off answers `not_configured`. Neither answer says anything about the key.
 
+`/keys check memory` checks the path the memory writer runs on, which `src/subharness/memory-path.ts` reads from `keys.json`. On the direct path it is the request on the memory key, and the answer ends with `(direct path)`. While the writer runs through `claude` or `codex`, it is the probe of `src/subharness/memory-probe.ts` through that backend, the answer names the backend and model, and no request goes out on the OpenRouter key, so the check needs no core key.
+
 The base conversation roles, the memory writer and the delegated agents are distinct routes. `/model set core` and `/keys check core` record their check for [chat readiness](setup.md#chat-readiness), so a launch sends no model request of its own. A subscription login for an agent backend does not replace the OpenRouter keys used by the core. See [setup](setup.md#subharness-backends) for those logins.
 
 ## Model sources

@@ -118,6 +118,14 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
     'text': 'How long an inspection snapshot stays open at most, so it cannot hold the write-ahead log back',
   },
   {
+    'key': 'memoryDb.inspection.maxSnapshots',
+    'types': ['number'],
+    'reader': 'src/interface/commands/memory.ts',
+    'default': 4,
+    'text':
+      'How many inspection snapshots may be open at once. Each holds a read transaction that keeps the write-ahead log from resetting, and the next open is refused with INSPECTION_TOO_MANY',
+  },
+  {
     'key': 'memoryDb.backup.enabled',
     'types': ['boolean'],
     'reader': 'src/memory/db/backup.ts',

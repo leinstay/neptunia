@@ -53,7 +53,7 @@ test('an export line keeps the exact bytes', () => {
   try {
     const handle = port.openInspection({
       ownerId: 'owner',
-      bounds: { pageRows: 10, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300 },
+      bounds: { pageRows: 10, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300, maxSnapshots: 8 },
     });
     const record = Array.from(port.exportRecords(handle)).find((one) => one.kind === 'row' && one.table === 'raw');
     assert.ok(record?.kind === 'row');

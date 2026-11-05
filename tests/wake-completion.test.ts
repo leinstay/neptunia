@@ -5,10 +5,10 @@
 //
 // The signatures these tests hold the code to:
 // - `CODE.SELFIMPROVEMENT_ONLY` is `selfimprovement-only` (src/tools/codes.ts, labels and docs/prompt-contract.md): the
-//   refusal of a call outside the wake's set, and of a second `board.propose` of one wake.
-// - The set a selfimprovement wake accepts: the memory reads of `HEARTBEAT_READ_SKILLS`, `board.status`, `board.cancel`,
-//   `board.comment`, `board.answer` and one `board.propose`. Only an ok `board.propose` ends the turn.
-// - `board.propose` of one wake carries one idempotency key built from the wake's `chainId`, so a restarted turn of the
+//   refusal of a call outside the wake's set, and of a second `task.propose` of one wake.
+// - The set a selfimprovement wake accepts: the memory reads of `HEARTBEAT_READ_SKILLS`, `task.status`, `task.cancel`,
+//   `task.comment`, `task.answer` and one `task.propose`. Only an ok `task.propose` ends the turn.
+// - `task.propose` of one wake carries one idempotency key built from the wake's `chainId`, so a restarted turn of the
 //   same wake answers with the task it already filed.
 // - The tools offered to the model follow the same sets on both wakes, for the names these tests read.
 import { test } from 'node:test';
@@ -26,7 +26,7 @@ const THINK = '<think>I looked at it.</think>';
 const IMPROVE = wakeOfKind('selfimprovement', 'selfimprovement:1');
 const BEAT = wakeOfKind('heartbeat', 'heartbeat:1');
 const TASK = { title: 'A skill for the weekly digest', evidence: 'I repeated the same five calls in t1, t2 and t3.' };
-const PROPOSE = toolAnswer(THINK, [call('board.propose', TASK)]);
+const PROPOSE = toolAnswer(THINK, [call('task.propose', TASK)]);
 const SET = toolAnswer(THINK, [call('intention.set', { due: '1h', text: 'ask how the move went' })]);
 
 async function herTasks(world: SelfimprovementWorld) {
@@ -35,15 +35,15 @@ async function herTasks(world: SelfimprovementWorld) {
 
 const nameOf = (skill: string): string => apiNameOf(skill) ?? skill;
 
-test('selfimprovement wake: an ok board.propose ends the turn even when a read in the same step left a fresh result', async (t) => {
+test('selfimprovement wake: an ok task.propose ends the turn even when a read in the same step left a fresh result', async (t) => {
   // Bug: the fresh read earns another request after the filing, so the deciding wake goes on and may file or act again.
   const world = selfimprovementWorld(t);
   const run = await wakeTurn({
     wake: IMPROVE,
-    answers: [toolAnswer(THINK, [call('lore.list'), call('board.propose', TASK)]), PROPOSE],
+    answers: [toolAnswer(THINK, [call('lore.list'), call('task.propose', TASK)]), PROPOSE],
     board: world.caller,
   });
-  assert.deepEqual(run.actions, ['lore.list:executed:ok', 'board.propose:executed:ok']);
+  assert.deepEqual(run.actions, ['lore.list:executed:ok', 'task.propose:executed:ok']);
   assert.equal(run.requests.length, 1);
   assert.equal((await herTasks(world)).length, 1);
 });
@@ -64,7 +64,7 @@ test('guard: selfimprovement wake: a recall that finds something comes first, sh
     board: world.caller,
     lore: [{ id: 'l1', title: 'the digest ritual', text: 'every week', keys: ['digest'], always: false }],
   });
-  assert.deepEqual(run.actions, ['lore.list:executed:ok', 'board.propose:executed:ok']);
+  assert.deepEqual(run.actions, ['lore.list:executed:ok', 'task.propose:executed:ok']);
   assert.equal(run.requests.length, 2);
   assert.ok(requestText(run.requests[1] ?? []).includes('the digest ritual'));
   assert.equal((await herTasks(world)).length, 1);
@@ -86,13 +86,13 @@ test('guard: selfimprovement wake: a rejected filing does not end the turn, she 
   const world = selfimprovementWorld(t);
   const run = await wakeTurn({
     wake: IMPROVE,
-    answers: [toolAnswer(THINK, [call('board.propose', { ...TASK, kind: 'fix' })]), PROPOSE],
+    answers: [toolAnswer(THINK, [call('task.propose', { ...TASK, kind: 'fix' })]), PROPOSE],
     board: world.caller,
   });
   assert.equal(run.requests.length, 2);
   assert.equal((await herTasks(world)).length, 1);
-  assert.equal(run.actions.at(-1), 'board.propose:executed:ok');
-  assert.notEqual(run.actions[0], 'board.propose:executed:ok');
+  assert.equal(run.actions.at(-1), 'task.propose:executed:ok');
+  assert.notEqual(run.actions[0], 'task.propose:executed:ok');
 });
 
 test('selfimprovement wake: a second filing in one step is refused and only one task exists', async (t) => {
@@ -102,13 +102,13 @@ test('selfimprovement wake: a second filing in one step is refused and only one 
     wake: IMPROVE,
     answers: [
       toolAnswer(THINK, [
-        call('board.propose', TASK),
-        call('board.propose', { title: 'Another', evidence: 'Another need.' }),
+        call('task.propose', TASK),
+        call('task.propose', { title: 'Another', evidence: 'Another need.' }),
       ]),
     ],
     board: world.caller,
   });
-  assert.deepEqual(run.actions, ['board.propose:executed:ok', 'board.propose:refused:selfimprovement-only']);
+  assert.deepEqual(run.actions, ['task.propose:executed:ok', 'task.propose:refused:selfimprovement-only']);
   assert.equal((await herTasks(world)).length, 1);
 });
 
@@ -118,7 +118,7 @@ test('selfimprovement wake: a restarted turn of the same wake files nothing new'
   await wakeTurn({ wake: IMPROVE, answers: [PROPOSE], board: world.caller });
   const again = await wakeTurn({
     wake: IMPROVE,
-    answers: [toolAnswer(THINK, [call('board.propose', { ...TASK, title: 'Reworded on the second try' })])],
+    answers: [toolAnswer(THINK, [call('task.propose', { ...TASK, title: 'Reworded on the second try' })])],
     board: world.caller,
   });
   assert.equal(again.requests.length, 1);
@@ -128,7 +128,7 @@ test('selfimprovement wake: a restarted turn of the same wake files nothing new'
 test('selfimprovement wake: the same tool call delivered twice leaves one task', async (t) => {
   // Bug: the provider repeats a tool call id in one answer, and the repeat files a second time.
   const world = selfimprovementWorld(t);
-  const once = call('board.propose', TASK, { id: 'call-1' });
+  const once = call('task.propose', TASK, { id: 'call-1' });
   const run = await wakeTurn({ wake: IMPROVE, answers: [toolAnswer(THINK, [once, once])], board: world.caller });
   assert.equal(run.requests.length, 1);
   assert.equal((await herTasks(world)).length, 1);
@@ -175,7 +175,7 @@ test('selfimprovement wake: a memory search and an answer on a task are accepted
     answers: [
       toolAnswer(THINK, [
         call('memory.search', { question: 'digest' }),
-        call('board.comment', { id: filed.id, text: 'Keep it small.' }),
+        call('task.comment', { id: filed.id, text: 'Keep it small.' }),
       ]),
       PROPOSE,
     ],
@@ -183,15 +183,15 @@ test('selfimprovement wake: a memory search and an answer on a task are accepted
   });
   assert.equal(run.requests.length, 2);
   assert.ok(!run.actions.some((one) => one.startsWith('memory.search:refused')), run.actions.join(' '));
-  assert.ok(run.actions.includes('board.comment:executed:ok'), run.actions.join(' '));
-  assert.equal(run.actions.at(-1), 'board.propose:executed:ok');
+  assert.ok(run.actions.includes('task.comment:executed:ok'), run.actions.join(' '));
+  assert.equal(run.actions.at(-1), 'task.propose:executed:ok');
 });
 
 test('selfimprovement wake: the request offers her task operations and memory reads, and no way to act outward', async (t) => {
   // Bug: she is offered tools every call of which is refused, and spends the wake on them.
   const world = selfimprovementWorld(t);
   const run = await wakeTurn({ wake: IMPROVE, answers: ['<skip/>'], board: world.caller });
-  for (const name of ['board.propose', 'board.status', 'board.cancel', 'board.comment', 'board.answer', 'lore.list'])
+  for (const name of ['task.propose', 'task.status', 'task.cancel', 'task.comment', 'task.answer', 'lore.list'])
     assert.ok(run.offered.includes(nameOf(name)), `${name} is offered`);
   for (const name of ['message.create', 'intention.set', 'web.search', 'errand.run', 'skill.run', 'skill.disable'])
     assert.ok(!run.offered.includes(nameOf(name)), `${name} is not offered`);
@@ -201,7 +201,7 @@ test('heartbeat: the request offers no skill or task route and carries no diary 
   // Bug: heartbeat turns back into the wake that files skills and writes the diary.
   const world = selfimprovementWorld(t);
   const run = await wakeTurn({ wake: BEAT, answers: ['<skip/>'], board: world.caller });
-  for (const name of ['board.propose', 'board.cancel', 'board.comment', 'board.answer', 'skill.run', 'skill.disable'])
+  for (const name of ['task.propose', 'task.cancel', 'task.comment', 'task.answer', 'skill.run', 'skill.disable'])
     assert.ok(!run.offered.includes(nameOf(name)), `${name} is not offered`);
   assert.ok(!run.offered.some((name) => name.startsWith('diary')));
   assert.ok(!requestText(run.requests[0] ?? []).includes(PROMPT_MARK.diary));
@@ -211,11 +211,11 @@ test('guard: heartbeat: a filing or a skill run is refused, and an intention end
   const world = selfimprovementWorld(t);
   const run = await wakeTurn({
     wake: BEAT,
-    answers: [toolAnswer(THINK, [call('board.propose', TASK), call('skill.run', { name: 'x', script: 'y' })]), SET],
+    answers: [toolAnswer(THINK, [call('task.propose', TASK), call('skill.run', { name: 'x', script: 'y' })]), SET],
     board: world.caller,
   });
   assert.deepEqual(run.actions, [
-    'board.propose:refused:heartbeat-only',
+    'task.propose:refused:heartbeat-only',
     'skill.run:refused:heartbeat-only',
     'intention.set:executed:ok',
   ]);
@@ -254,21 +254,21 @@ test('heartbeat: a restarted turn of the same wake records no second intention',
   assert.equal(again.intentions.length, 1);
 });
 
-test('board.propose: the same title while her task is open is refused and names the open task', async (t) => {
+test('task.propose: the same title while her task is open is refused and names the open task', async (t) => {
   // Bug: wake after wake she files the same need, and the executor builds it several times.
   const world = selfimprovementWorld(t);
   const first = await wakeTurn({ wake: IMPROVE, answers: [PROPOSE], board: world.caller });
-  assert.deepEqual(first.actions, ['board.propose:executed:ok']);
+  assert.deepEqual(first.actions, ['task.propose:executed:ok']);
   const [open] = await herTasks(world);
   const second = await wakeTurn({
     wake: wakeOfKind('selfimprovement', 'selfimprovement:2'),
     answers: [
-      toolAnswer(THINK, [call('board.propose', { ...TASK, title: `  ${TASK.title.toUpperCase()} ` })]),
+      toolAnswer(THINK, [call('task.propose', { ...TASK, title: `  ${TASK.title.toUpperCase()} ` })]),
       '<skip/>',
     ],
     board: world.caller,
   });
-  assert.equal(second.actions[0], 'board.propose:executed:duplicate-task');
+  assert.equal(second.actions[0], 'task.propose:executed:duplicate-task');
   assert.equal(second.requests.length, 2);
   assert.ok(requestText(second.requests[1] ?? []).includes(String(open?.id)));
   assert.equal((await herTasks(world)).length, 1);

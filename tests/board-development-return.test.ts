@@ -158,12 +158,12 @@ test('her wake shows why a task is blocked', async (t) => {
   assert.equal(view.news.outbox.find((row) => row.taskId === id)?.blockedReason, 'No push right.');
 });
 
-test('board.answer answers her question and resumes the task under its asker', async (t) => {
+test('task.answer answers her question and resumes the task under its asker', async (t) => {
   // Catches: she has the wake but no tool to answer in it.
   const { board, held, her } = rig(t);
   const { id, generation } = held('persona');
   const { question } = board.call(WORKER, 'task.ask', { id, generation, text: 'Which timeout?', to_whom: SELF });
-  const answer = await her('board.answer', { question_id: question.id, text: 'Fifteen seconds.' });
+  const answer = await her('task.answer', { question_id: question.id, text: 'Fifteen seconds.' });
   assert.equal(answer.status, 'ok', answer.summary ?? '');
   const { task, questions } = board.call('boss', 'task.show', { id });
   assert.equal(task.status, 'in_progress');
@@ -171,17 +171,17 @@ test('board.answer answers her question and resumes the task under its asker', a
   assert.equal(questions[0]?.answered_by, 'persona');
 });
 
-test('board.answer refuses a question addressed to someone else', async (t) => {
+test('task.answer refuses a question addressed to someone else', async (t) => {
   // Catches: a tool that lets her answer for the owner.
   const { board, held, her } = rig(t);
   const { id, generation } = held('persona');
   const { question } = board.call(WORKER, 'task.ask', { id, generation, text: 'A deploy?', to_whom: 'owner' });
-  const answer = await her('board.answer', { question_id: question.id, text: 'Yes.' });
+  const answer = await her('task.answer', { question_id: question.id, text: 'Yes.' });
   assert.equal(answer.status, 'denied');
   assert.equal(board.call('boss', 'task.show', { id }).task.status, 'needs_answer');
 });
 
-test('board.unblock returns a blocked task she filed to approved, and refuses one she did not', async (t) => {
+test('task.unblock returns a blocked task she filed to approved, and refuses one she did not', async (t) => {
   // Catches: a block only the owner can lift, against the owner's scheme; or her lifting the watcher's.
   const { board, held, her } = rig(t);
   const mine = held('persona');
@@ -189,21 +189,21 @@ test('board.unblock returns a blocked task she filed to approved, and refuses on
   for (const { id, generation } of [mine, other]) {
     board.call(WORKER, 'task.block', { id, generation, reason: 'Stuck.', unblocks: 'A decision.' });
   }
-  assert.equal((await her('board.unblock', { id: mine.id, note: 'Use the first way.' })).status, 'ok');
+  assert.equal((await her('task.unblock', { id: mine.id, note: 'Use the first way.' })).status, 'ok');
   assert.equal(board.call('boss', 'task.show', { id: mine.id }).task.status, 'approved');
-  assert.equal((await her('board.unblock', { id: other.id, note: 'Use the first way.' })).status, 'denied');
+  assert.equal((await her('task.unblock', { id: other.id, note: 'Use the first way.' })).status, 'denied');
   assert.equal(board.call('boss', 'task.show', { id: other.id }).task.status, 'blocked');
 });
 
-test('board.cancel cancels her own task with the reason and refuses one she did not file', async (t) => {
+test('task.cancel cancels her own task with the reason and refuses one she did not file', async (t) => {
   // Catches: a proposal she declines keeps running; or her stopping the owner's work.
   const { board, held, her } = rig(t);
   const mine = held('persona');
   const other = held('watcher');
-  assert.equal((await her('board.cancel', { id: mine.id, reason: 'Not this way.' })).status, 'ok');
+  assert.equal((await her('task.cancel', { id: mine.id, reason: 'Not this way.' })).status, 'ok');
   const { task } = board.call('boss', 'task.show', { id: mine.id });
   assert.deepEqual([task.status, task.close_reason], ['cancelled', 'Not this way.']);
-  assert.equal((await her('board.cancel', { id: other.id, reason: 'Not this way.' })).status, 'denied');
+  assert.equal((await her('task.cancel', { id: other.id, reason: 'Not this way.' })).status, 'denied');
 });
 
 test('she still never approves, reviews or merges through the board', (t) => {

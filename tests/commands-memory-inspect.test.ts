@@ -43,7 +43,7 @@ import type { TestMemory } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const T0 = Date.parse('2026-11-05T12:00:00.000Z');
-const BOUNDS = { pageRows: 25, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300 };
+const BOUNDS = { pageRows: 25, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300, maxSnapshots: 8 };
 const BIG = 'ζ'.repeat(3 * 1024 * 1024);
 
 type Rig = {

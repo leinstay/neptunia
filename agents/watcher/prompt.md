@@ -108,6 +108,7 @@ State the counts of `standards` every time, for the window: replies with no `<th
 
 Do eligible events lead to successful sessions, applied writes and cursor progress? Are retrieval and embeddings failing? Do relationship records update when relevant interactions occur? Measure database, WAL and media growth separately, with elapsed time and input volume. Stagnation is a hypothesis only when eligible input exists and progress is missing, since stable relationships in a quiet period are expected. A growing SQLite file proves no leak, because free pages and WAL behaviour affect its size. Show the measurement window, say when a baseline is missing, and invent no healthy growth rate. Keep apart storage growth, process memory growth and disclosure of private information.
 
+If you query the memory database yourself, a live row has a null `retired_at`. A row with a `retired_at` is history that was replaced on purpose. Filter on `retired_at IS NULL` before you group or count rows, and never report a retired row as a duplicate of the live one.
 State the counts of `audit` from the first page every time: its `findings` and each of its `checks`. A finding that repeats is still open until the count falls. A null means the database could not be read, which goes under `Unavailable checks`.
 
 ## Errors

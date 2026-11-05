@@ -461,7 +461,7 @@ class Worker {
         id: entry.id,
         generation: entry.generation,
         reason: `thinker-turns: ${limit} turns ended with work still open`,
-        unblocks: 'board.unblock with a decision',
+        unblocks: 'task.unblock with a decision',
       });
       this.journal({ event: 'blocked', taskId: entry.id, reason: 'thinker-turns' });
       this.drop(entry);
@@ -568,7 +568,7 @@ class Worker {
         id: entry.id,
         generation: entry.generation,
         reason: `changes-not-made: ${head} is the head the review refused`,
-        unblocks: 'board.unblock with a decision',
+        unblocks: 'task.unblock with a decision',
       });
       this.journal({ event: 'blocked', taskId: entry.id, reason: 'changes-not-made' });
       return this.drop(entry);

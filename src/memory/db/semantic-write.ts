@@ -1,13 +1,16 @@
 // The persona memory writer for structured facts. `validateSemanticCandidate` resolves one entity or assertion against the
 // typed tables, the issued context and what the run was shown, or refuses it with a stable code and writes nothing.
-// `applySemanticWrite` runs a resolved write in one transaction on the writer connection: the claim, its version, the
-// evidence, the arguments and premises, then the seal, the projections and the graph. The meaning is hers: code checks
-// references, roles, evidence and compare-and-set, and her text is stored as she wrote it.
+// The session's operations (`writeSessionEntity`, `writeSessionAssertion`) run a resolved write inside the session write's
+// transaction: the claim, its version, the evidence, the arguments and premises, then the seal, the projections and the
+// graph. The meaning is hers: code checks references, roles, evidence and compare-and-set, and her text is stored as she
+// wrote it.
 //
 // The audience of a write is the meet of the issued context, the evidence, the premises and the endpoints, on audience ids.
 // When it is narrower than the base claim's, the write forks a new claim and the base stays as it was. An entity known only
 // privately narrows every fact that names it, so a public fact about it needs a separate entity and an equivalence.
-// Session-level entry points (`writeSessionEntity`, `writeSessionAssertion`) run inside the session write's transaction.
+// An `assertions` op may carry `claimId` with `baseVersionId` (a successor of that claim) and a full `evidence` list. The
+// parser of the model's answer (src/memory/db/semantic-answer.ts) never sets them, so a session only creates; the writer
+// itself revises, retires and forks, and the tests drive that through these fields.
 
 import { projectRow } from './graph.ts';
 import { ensureAudience, newestClaimVersion } from './rows.ts';
@@ -35,8 +38,7 @@ import {
 import { entityWitnesses, projectSealedVersion, visibleMerges } from './semantic-rows.ts';
 import { writeSearchDocument } from './semantic-search.ts';
 import { takeOverClaim } from './session-rows.ts';
-import { dbOf } from './types.ts';
-import type { Db, MemoryHandle, Row } from './types.ts';
+import type { Db, Row } from './types.ts';
 import type {
   ResolvedAssertion,
   ResolvedEntity,
@@ -579,16 +581,6 @@ function writeResolved(db: Db, resolved: unknown, deps: WriteDeps): SemanticWrit
   return { kind: 'assertion', ...writeAssertion(db, resolved, deps) };
 }
 
-/** Writes one resolved candidate in one transaction. `now` is read once. */
-export function applySemanticWrite(
-  handle: MemoryHandle,
-  resolved: unknown,
-  deps: { now: () => number; uuid: () => string; runId?: string }
-): SemanticWriteResult | SemanticRejection {
-  const at = new Date(deps.now()).toISOString();
-  return handle.transaction(() => writeResolved(dbOf(handle), resolved, { at, uuid: deps.uuid }));
-}
-
 // ---------- the session's operations ----------
 
 /** What a session's operations share: the context, what the request showed, the handles of this answer's new entities. */
@@ -654,13 +646,13 @@ export function writeSessionAssertion(
     db,
     session.ctx,
     {
-      claimId: null,
-      baseVersionId: null,
+      claimId: (op.claimId ?? null) as string | null,
+      baseVersionId: (op.baseVersionId ?? null) as string | null,
       assertionKind: op.assertionKind as SemanticCandidate['assertionKind'],
       predicate: op.predicate as SemanticCandidate['predicate'],
       text: op.text as string,
       arguments: given as Array<SemanticArgument>,
-      evidence: supporting(op.sources),
+      evidence: (op.evidence ?? supporting(op.sources)) as Array<SemanticEvidence>,
       dependencies: (op.dependencies ?? []) as Array<SemanticDependency>,
       polarity: op.polarity as SemanticCandidate['polarity'],
       state: op.state as SemanticCandidate['state'],

@@ -355,7 +355,7 @@ function boardRig(t: { after: (fn: () => void) => void }): { board: Board; clock
   return { board, clock };
 }
 
-/** Files a proposal as `board.propose` does: a dev task for her with her as requester and subscriber. */
+/** Files a proposal as `task.propose` does: a dev task for her with her as requester and subscriber. */
 function propose(board: Board, title: string, kind: 'skill' | 'fix' | null): string {
   const task = board.call('persona', 'task.add', {
     lane: 'dev',

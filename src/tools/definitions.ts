@@ -238,12 +238,12 @@ export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
   'errand.list': 'errand_list',
   'errand.read': 'errand_read',
   'errand.resolve': 'errand_resolve',
-  'board.propose': 'board_propose',
-  'board.status': 'board_status',
-  'board.cancel': 'board_cancel',
-  'board.comment': 'board_comment',
-  'board.answer': 'board_answer',
-  'board.unblock': 'board_unblock',
+  'task.propose': 'task_propose',
+  'task.status': 'task_status',
+  'task.cancel': 'task_cancel',
+  'task.comment': 'task_comment',
+  'task.answer': 'task_answer',
+  'task.unblock': 'task_unblock',
   'skill.read': 'skill_read',
   'skill.disable': 'skill_disable',
   'skill.run': 'skill_run',
@@ -664,7 +664,7 @@ const ENTRIES: Array<Definition> = [
     toArgs: taskStatusArgs('read'),
   }),
   def('errand.resolve', { params: obj({ id: str() }, ['id']), effects: 'write', toArgs: taskStatusArgs('resolve') }),
-  def('board.propose', {
+  def('task.propose', {
     params: obj(
       {
         title: str(200),
@@ -692,25 +692,25 @@ const ENTRIES: Array<Definition> = [
       ),
     }),
   }),
-  def('board.status', { params: EMPTY(), effects: 'read', toArgs: none }),
-  def('board.cancel', {
+  def('task.status', { params: EMPTY(), effects: 'read', toArgs: none }),
+  def('task.cancel', {
     params: obj({ id: str(), reason: str(600) }, ['id', 'reason']),
     effects: 'write',
     toArgs: (a) => ({ id: val(a, 'id'), reason: val(a, 'reason') }),
   }),
-  def('board.comment', {
+  def('task.comment', {
     params: obj({ id: str(), text: str(2000) }, ['id', 'text']),
     body: 'text',
     effects: 'write',
     toArgs: (a) => ({ id: val(a, 'id'), text: val(a, 'text') }),
   }),
-  def('board.answer', {
+  def('task.answer', {
     params: obj({ id: str(), text: str(2000) }, ['id', 'text']),
     body: 'text',
     effects: 'write',
     toArgs: (a) => ({ id: val(a, 'id'), text: val(a, 'text') }),
   }),
-  def('board.unblock', {
+  def('task.unblock', {
     params: obj({ id: str(), note: str(2000) }, ['id', 'note']),
     body: 'note',
     effects: 'write',

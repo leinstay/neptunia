@@ -109,7 +109,7 @@ test('a thinker run that fails closes the task with the error, and nothing is pu
 test('her task keeps her cases, and the thinker reads her evidence', async (t) => {
   // Catches: the intake rewrites her filing, or the brief drops the only reason for the work.
   const world = developmentWorld(t);
-  const answer = await herCalls(world.caller)('board.propose', { ...FIX_REQUEST, kind: 'fix' });
+  const answer = await herCalls(world.caller)('task.propose', { ...FIX_REQUEST, kind: 'fix' });
   const id = String((answer.data as { task: { id: string } }).task.id);
   await settle(world.worker());
   assert.deepEqual(world.show(id).task.metadata?.examples, FIX_REQUEST.examples);

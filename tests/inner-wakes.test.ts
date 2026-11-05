@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createInnerLife, emptyState } from '../src/behavior/inner.ts';
-import type { InnerTurnParams } from '../src/behavior/inner/types.ts';
+import type { InnerJournal, InnerTurnParams } from '../src/behavior/inner/types.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
@@ -74,7 +74,7 @@ function hotOf() {
  * keeps across a restart (the clock, the intentions, the store's pause flags). `restart()` closes the database and
  * opens a new one and a new inner life over the same directory, as a new process would.
  */
-async function core(dataDir = tempDir('nep-inner-wakes-')) {
+async function core(dataDir = tempDir('nep-inner-wakes-'), journal: InnerJournal | null = null) {
   world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
   const clock = { t: T };
   const hot = hotOf();
@@ -114,6 +114,7 @@ async function core(dataDir = tempDir('nep-inner-wakes-')) {
       store,
       meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
       memoryDb: memory.memoryDb,
+      journal,
       rng: () => 0.5,
       now: () => clock.t,
       log: SILENT,
@@ -237,6 +238,54 @@ test('a wake cut off by a restart is interrupted without another model call', as
     assert.equal(kept?.outcome, 'interrupted');
     assert.equal(kept?.turnId, ids[0], 'the original turn identity remains evidence');
     assert.deepEqual(run.service.list({ all: true }), unfinished, 'restart retains unfinished work exactly');
+  } finally {
+    await run.close();
+  }
+});
+
+test('the turn mark of a running wake records the interface of its conversation', async () => {
+  // Catches: a restart cannot tell on which interface a DM turn ran, so it looks in the wrong DM place.
+  const run = await core();
+  try {
+    const { wakeId } = dueIntention(run, T - MINUTE);
+    let marked: unknown = null;
+    run.turns.answer = () => {
+      marked = wakeOf(readHandleOf(run.memory), wakeId)?.turn?.iface;
+      return skipped();
+    };
+    await run.life.tick();
+    assert.equal(marked, 'fake');
+  } finally {
+    await run.close();
+  }
+});
+
+test('the recovery of a cut-off turn asks the journal for the operations under the interface of that turn', async () => {
+  // Catches: the interface is recorded in the mark and never handed to the journal lookup of the restart.
+  const asked: Array<unknown> = [];
+  const journal: InnerJournal = {
+    turnOperations: (query) => {
+      asked.push(query);
+      return [];
+    },
+  };
+  const dir = tempDir('nep-inner-wakes-');
+  const run = await core(dir, journal);
+  try {
+    dueIntention(run, T - MINUTE);
+    let started: () => void = () => {};
+    const inTurn = new Promise<void>((resolve) => (started = resolve));
+    run.turns.answer = () => {
+      started();
+      return new Promise<unknown>(() => {});
+    };
+    void run.life.tick();
+    await inTurn;
+    await run.restart();
+    run.clock.t = T + 10 * MINUTE;
+    await run.life.tick();
+    assert.equal(asked.length, 1);
+    assert.equal(Reflect.get(asked[0] as object, 'iface'), 'fake');
   } finally {
     await run.close();
   }
