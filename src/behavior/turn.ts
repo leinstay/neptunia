@@ -67,6 +67,7 @@ import type { Untyped } from '../tools/types.ts';
 import type { Draft } from '../turn/draft.ts';
 import type { TurnParams } from '../turn/outcome.ts';
 import type { Reads } from '../interface/reads.ts';
+import { untracked } from '../loop-watch.ts';
 import type { CreateTurnRunnerInput, TrackedParams, TurnRunner } from './turn-types.ts';
 
 // A set's pictures are split and named as the diary's mirrors send them (src/behavior/mirror.ts).
@@ -293,6 +294,7 @@ function draftOf(args: TurnParams): Draft {
   return { limits: createLimits(), memoryContext, publicationBoundary } as Draft;
 }
 
+// health: allow function-length until 2027-04-01 -- the closure holds its whole operation, grown by the one dependency that names the loop watch
 export function createTurnRunner({
   hot,
   store,
@@ -338,6 +340,7 @@ export function createTurnRunner({
   // Her attention, one turn at a time (src/behavior/attention.ts mirrors it as leases; a plain set without them), the model roles that are down (src/llm/role-health.ts, her tool roles route on it); null: none.
   attention = new Set(),
   roleHealth = null,
+  track = untracked,
 }: CreateTurnRunnerInput): TurnRunner {
   const ifaceReads: Reads = readsDep;
   const busy = attention;
@@ -610,6 +613,7 @@ export function createTurnRunner({
     pickParticipation,
     notifyIdle,
     facts,
+    track,
     participationOn,
     participationAudience,
     aroundInputFor,

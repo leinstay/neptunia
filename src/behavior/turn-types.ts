@@ -1,5 +1,6 @@
 // The types of the signatures in ./turn.ts: the inputs and results that are too long to read inline.
 
+import type { Track } from '../loop-watch.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { createEmojiIndex } from './emoji-index.ts';
 import type { scheduleTimer } from '../turn/timers.ts';
@@ -10,6 +11,8 @@ import type { FactsApi } from './inner.ts';
 import type { ReportedTurn } from './turn.ts';
 
 export type CreateTurnRunnerInput = {
+  /** The event loop watch's `track` (src/loop-watch.ts); the stages of the request phase are named operations. */
+  track?: Track;
   // The live config and prompts; a test hands in a stand-in that holds what it reads.
   hot: { config: Untyped; prompts: Untyped };
   store: Untyped;

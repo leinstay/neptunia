@@ -191,3 +191,7 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 ## archive
 
 <!-- settings: archive -->
+
+## diagnostics
+
+<!-- settings: diagnostics -->

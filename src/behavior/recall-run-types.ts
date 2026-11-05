@@ -5,6 +5,7 @@ import type { ResolvedRecallAnchor } from '../memory/db/recall.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { recallSettings } from './recall.ts';
 import type { Reads } from '../interface/reads.ts';
+import type { Track } from '../loop-watch.ts';
 
 /**
  * One stretch of a channel the recall found. `startTs` is the time of its first kept line. `lines` is the window
@@ -65,6 +66,8 @@ export type CreateRecallInput = {
   /** The interface the persona's ids belong to (`hello.iface`); the legacy namespace without one. */
   iface?: string;
   now?: () => number;
+  /** The event loop watch's `track` (src/loop-watch.ts); runs and prefetches are named operations. */
+  track?: Track;
   /** setTimeout / clearTimeout (tests inject fakes). `prefetch`: the automatic memory prefetch of a turn of the tool loop (see there); `window`: a window read over the memory database. */
   timers?: { set: (...args: Array<Untyped>) => Untyped; clear: (...args: Array<Untyped>) => Untyped };
 };

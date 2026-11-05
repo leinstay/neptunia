@@ -65,6 +65,7 @@
 // (`features.recallTrace`, data/guilds/<id>/recall-trace.jsonl, see traceLine):
 // it is memory about real people, kept under data/ only.
 
+// health: allow file-length until 2027-04-01 -- one runner over the recall sources, grown by the one dependency that names the loop watch
 import { log } from '../log.ts';
 import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
@@ -121,6 +122,7 @@ import {
   untilAborted,
 } from './recall-reads.ts';
 import { isFiniteNumber, objOf } from '../tools/types.ts';
+import { untracked } from '../loop-watch.ts';
 import type { Untyped } from '../tools/types.ts';
 import type {
   EmptyStatsResult,
@@ -394,6 +396,7 @@ export type { RecallStretch } from './recall-run-types.ts';
 /**
  * The recall runner for the turn (task R2 wires it beside the web search).
  */
+// health: allow function-length until 2027-04-01 -- the closure holds its whole operation, grown by the one dependency that names the loop watch
 export function createRecall({
   hot,
   store,
@@ -409,6 +412,7 @@ export function createRecall({
   iface = LEGACY_IFACE,
   now = Date.now,
   timers = DEFAULT_TIMERS,
+  track = untracked,
 }: CreateRecallInput): CreateRecallResult {
   /** Whether `llm.maxRequestsPerDay` is spent today: the summary would be refused. */
   function capSpent() {
@@ -2096,5 +2100,10 @@ export function createRecall({
     }
   }
 
-  return { run, available, prefetch, window };
+  return {
+    run: (args) => track('recall.run', () => run(args)),
+    available,
+    prefetch: (args) => track('recall.prefetch', () => prefetch(args)),
+    window,
+  };
 }
