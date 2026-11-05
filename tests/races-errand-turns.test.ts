@@ -79,7 +79,7 @@ function rig({ busy = () => false }: { busy?: () => boolean } = {}) {
       for (const finish of held.splice(0)) finish();
     },
     /** Moves the clock and fires every timer due by then. */
-    async advance(ms: number): Promise<void> {
+    advance: async (ms: number): Promise<void> => {
       now += ms;
       for (const timer of timers.filter((one) => one.live && one.at <= now)) {
         timer.live = false;

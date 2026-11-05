@@ -12,14 +12,14 @@
 // asked?, note? }`.
 //
 // Each row and engine runs src/web/lookup.ts#createLookup(...).search() under the live config and
-// prompts with `web.search.engine` forced to that engine and `web.search.fallback` to [] (through
+// prompts with `web.search.engine` forced to that engine (through
 // a config view of this process only; `features.webLookup` and `web.search.enabled` forced on,
 // `web.maxPerDay` forced to 1 over a fresh counter), with the real clients: src/web/brave.ts
-// (BRAVE_SEARCH_API_KEY), src/web/exa.ts (keyless; EXA_API_KEY when set), and the summary on the
+// (the `brave` service key), src/web/exa.ts (the `exa` service key), and the summary on the
 // quick search's own role as production sends it. The cache is bypassed: every search gets a fresh lookup over a
 // fresh in-memory state and a store stub whose media cache is a new empty object, so the cache key
 // (`search:<sha1 of the normalized query>`) never hits and nothing is kept. An engine the lookup
-// cannot run (Brave without its key) is `skipped` for every row. The tool never retries beyond
+// cannot run (Brave or Exa without its key, any engine without `web.search.model`) is `skipped` for every row. The tool never retries beyond
 // what the clients do.
 //
 // Timings: the engine's own call (the Brave or Exa client's `search`, or, for `openrouter`, the one
@@ -110,7 +110,7 @@ function enginesOf(value: Untyped, known: Untyped) {
 function forcedConfig(live: Rec, engine: string) {
   const web = (live?.web ?? {}) as Rec;
   const search = (web.search ?? {}) as Rec;
-  return { ...live, web: { ...web, maxPerDay: 1, search: { ...search, enabled: true, engine, fallback: [] } } };
+  return { ...live, web: { ...web, maxPerDay: 1, search: { ...search, enabled: true, engine } } };
 }
 
 /** The shape of one model request: model, options (plugins included) and the messages' roles and sizes. */

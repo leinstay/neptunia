@@ -25,7 +25,8 @@ const ROWS = [
   { id: 'q1', query: 'weather in Lisboa today', asked: 'what is the weather in Lisboa today?' },
   { id: 'q2', query: 'café hours Porto' },
 ];
-const ENV = { brave: 'brave-test-key' };
+// Changed: Exa has no keyless path left, so the run names its key as it names Brave's.
+const ENV = { brave: 'brave-test-key', exa: 'exa-test-key' };
 
 function hotFixture() {
   return {
@@ -37,7 +38,6 @@ function hotFixture() {
         search: {
           model: 'test/search',
           engine: 'brave',
-          fallback: ['exa'],
           results: 5,
           summaryChars: 900,
           maxOutputTokens: 400,

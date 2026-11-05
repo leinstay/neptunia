@@ -28,7 +28,7 @@ Native backend sessions belong to `data/subharness/<backend>/`. A task's final a
 
 One finished errand opens one result turn. [src/errands/turns.ts](../src/errands/turns.ts) runs one attempt at a time and arms one retry at a time for an errand, whichever of the service's restart, the door's replay of `errand.done` and the retry timer reaches it, and each attempt reads `readAt` from the store first.
 
-A personal `profile.json` or `prompt.md` under `data/agents/<id>/` is opened once without following a link and read from that descriptor, so a link placed after the check fails the run with `no-prompt` or the profile's error.
+A personal `profile.json` or `prompt.md` under `data/agents/<id>/` is opened without following a link in the same call that reads it, so a link placed after the check fails the run with `no-prompt` or the profile's error.
 
 ## Step and output limits
 

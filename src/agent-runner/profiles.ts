@@ -1247,16 +1247,11 @@ function checkPersonalPaths(dataDir: string, agent: string, prompt?: string | nu
 }
 
 /**
- * The text of `file` read through one descriptor opened without following a link, so a link placed after any earlier
- * check fails with `ELOOP` and what is read is what was opened.
+ * The text of `file`, opened without following a link: the check and the open are one call, so a link placed after any
+ * earlier check fails with `ELOOP`, and every other read error reaches the caller as it came.
  */
 export function readWithoutLinks(file: string): string {
-  const descriptor = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
-  try {
-    return fs.readFileSync(descriptor, 'utf8');
-  } finally {
-    fs.closeSync(descriptor);
-  }
+  return fs.readFileSync(file, { encoding: 'utf8', flag: fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW });
 }
 
 /** Reads JSON without exposing its contents in an error. A missing personal profile inherits the shared one. */
