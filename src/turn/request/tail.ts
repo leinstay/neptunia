@@ -63,14 +63,12 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
  * `<senses>` lines, `<tools>` (`tools`: her tools described in text, the text
  * transport only, changing only with a grant or a tool text), `<skills>` (`skillIndex`: the index of her active
  * skills, changing only when one is activated or disabled), `<self_facts>`, `<about_chat>`,
- * `<gifs>`, `<channel_directory>` (`channelDirectory`: the channels with their handles, changing
+ * `<channel_directory>` (`channelDirectory`: the channels with their handles, changing
  * only when a channel is added, removed or renamed), `<directory>` (`directory`: the people
  * directory, changing only with a member's names or aliases); the profiles
  * (`cacheSegment: 'profiles'`: `<people>` with the interlocutor alone), then
  * the tail (no segment) with everything that changes from turn to turn -- a
- * second `<people>` with the other members first, `<emoji>` among it, its
- * ranking moves with use several times a day, `<gifs_recent>` (the listed GIFs
- * the persona posted lately, with their ages), `<tool_catalogue>` (the catalogue, on
+ * second `<people>` with the other members first, `<tool_catalogue>` (the catalogue, on
  * a question about what the persona can do) and `<people_now>` (what is current about each
  * person: status, voice, activity, attitude) right before `<chat>` -- `<now>`, the per-turn
  * `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
@@ -132,8 +130,6 @@ export function assembleUser({
     block('skills', skillIndex),
     block('self_facts', kept.self.join('\n')),
     block('about_chat', kept.aboutChat.join('\n')),
-    // Held per cache bucket; which of them the persona posted lately is in the tail (`<gifs_recent>`).
-    block('gifs', (kept.gifs ?? []).join('\n')),
     // Which channel has which handle: changes only when a channel is added, removed or renamed.
     block('channel_directory', channelDirectory),
     // Who can be mentioned and by which handle: changes only when a member's names or aliases do.
@@ -146,9 +142,6 @@ export function assembleUser({
     // moves with every turn, so they open the tail, right where the one block stood.
     block('people', kept.people.join('\n\n')),
     block('server', kept.server.join('\n\n')),
-    block('emoji', (kept.emoji ?? []).join('\n')),
-    // The GIFs of the cached `<gifs>` list the persona posted lately, with their ages: per turn.
-    block('gifs_recent', (kept.gifsRecent ?? []).join('\n')),
     block('lore', kept.lore.join('\n\n')),
     // The last hours: one item, the header with the kept lines and moments, oldest first.
     block('recent', (kept.recent ?? []).join('\n')),

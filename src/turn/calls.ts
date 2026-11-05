@@ -388,13 +388,12 @@ export function answerOf(
   };
 }
 
-/** How many things her speech holds that a step may post or hold: messages, reactions, the GIF, the picture, an inner turn's lowered calls. */
+/** How many things her speech holds that a step may post or hold: messages, reactions, the picture, an inner turn's lowered calls. */
 export function speechItemsOf(
   parsed:
     | {
         messages?: ReadonlyArray<unknown> | null;
         reactions?: ReadonlyArray<unknown> | null;
-        gif?: unknown;
         draw?: unknown;
         loweredCalls?: ReadonlyArray<unknown> | null;
       }
@@ -404,7 +403,6 @@ export function speechItemsOf(
   return (
     (parsed?.messages?.length ?? 0) +
     (parsed?.reactions?.length ?? 0) +
-    (parsed?.gif ? 1 : 0) +
     (parsed?.draw ? 1 : 0) +
     (parsed?.loweredCalls?.length ?? 0)
   );

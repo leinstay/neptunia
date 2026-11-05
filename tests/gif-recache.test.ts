@@ -37,10 +37,11 @@ const TENOR = (n: number) => `https://tenor.com/view/danse-${n}`;
 /** The store with the library typed as it is kept: `getGifs` answers entries of the library, not bare objects. */
 type GifStore = Omit<Store, 'getGifs' | 'getMediaCache'> & {
   getMediaCache(placeId: string): Record<string, Untyped>;
-  getGifs(placeId: string): {
+  getGifs(): {
     nextId: number;
     entries: Record<string, GifEntry>;
     backfill: { at: string; channels: number; messages: number } | null;
+    backfills: Record<string, { at: string; channels: number; messages: number }>;
   };
 };
 
@@ -316,7 +317,7 @@ function silentLog() {
 
 function seed(store: GifStore, entries: Array<Record<string, Untyped>>, cache = {}) {
   store.recordGifs(placeOfCommunity(store, 'g1'), []);
-  const gifs = store.getGifs(placeOfCommunity(store, 'g1'));
+  const gifs = store.getGifs();
   Object.assign(gifs, library(entries));
   Object.assign(store.getMediaCache(placeOfCommunity(store, 'g1')), cache);
 }
@@ -385,18 +386,12 @@ test('gif recache: a second run skips what the first watched and continues with 
       describer.calls.map((c) => c.item.itemId),
       ids.map((n) => `m${n}#e0`)
     );
-    assert.deepEqual(
-      gifCaptionCounts(
-        store.getGifs(placeOfCommunity(store, 'g1')),
-        store.getMediaCache(placeOfCommunity(store, 'g1'))
-      ),
-      {
-        watched: 51,
-        'one-frame': 0,
-        failed: 0,
-        none: 0,
-      }
-    );
+    assert.deepEqual(gifCaptionCounts(store.getGifs(), store.getMediaCache(placeOfCommunity(store, 'g1'))), {
+      watched: 51,
+      'one-frame': 0,
+      failed: 0,
+      none: 0,
+    });
     assert.deepEqual(recache.start('g1'), { ok: true, dropped: 0, queued: 0 });
     await recache.waitIdle();
   });

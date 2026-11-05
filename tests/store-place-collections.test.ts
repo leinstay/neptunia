@@ -4,7 +4,7 @@
 // Contract, plan 2026-11-04-cli-and-memory task 5:
 //   store.getPlace(placeId), store.updatePlace(placeId, fields, opts?)
 //   store.getLore(placeId), store.setLore(placeId, incoming, opts)
-//   store.getGifs(placeId), store.getMediaCache(placeId), store.getRecent(placeId), store.getParticipation(placeId)
+//   store.getMediaCache(placeId), store.getRecent(placeId), store.getParticipation(placeId)
 //   store.listChildren(placeId): the stored child places of a place, one level of `places.parent_id` down
 //   store.rootPlaceOf(placeId): the top of its tree, the place itself when it has no parent, null for an unknown id
 // A function takes `placeId` alone: there is no `guildId` and no `rootPlaceId` argument. A whole-server operation passes
@@ -119,7 +119,7 @@ test('a place with nothing stored answers empty and writes no collection', () =>
   // Bug: a read of an empty place fabricates a unit, and the browser lists places nobody wrote about.
   const { store, read } = rig();
   assert.deepEqual(store.getLore(A), []);
-  assert.deepEqual(store.getGifs(A).entries, {});
+  assert.deepEqual(store.getGifs().entries, {});
   assert.deepEqual(store.getRecent(A).lines, []);
   assert.deepEqual(store.getParticipation(A).episodes, []);
   store.flush();

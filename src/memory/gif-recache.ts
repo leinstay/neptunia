@@ -390,7 +390,7 @@ function buildGifRecache({
     if (blocker) return { ok: false, reason: blocker };
 
     const cache = store.getMediaCache(placeId);
-    const gifs = store.getGifs(placeId);
+    const gifs = store.getGifs();
     const dropped = oneFrameGifKeys(cache, gifs);
     for (const key of dropped) delete cache[key];
     if (dropped.length > 0) store.markMediaCacheDirty(placeId);
@@ -453,7 +453,7 @@ function buildGifRecache({
         if (!(await one({ source: 'emoji', itemId: key, kind: 'emoji', url }))) return;
       }
       // A library GIF from its library entry's message.
-      for (const entry of Object.values(normalizeGifs(store.getGifs(placeId)).entries)) {
+      for (const entry of Object.values(normalizeGifs(store.getGifs()).entries)) {
         if (!wanted.has(entry.itemId)) continue;
         stopped = stopReason();
         if (stopped) return;

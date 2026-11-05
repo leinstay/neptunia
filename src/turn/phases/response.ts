@@ -29,8 +29,8 @@ type RawParsed = ReturnType<typeof parseOutput>;
 /** Her answer shaped by the feature switches, an inner turn's tags lowered into the calls they stand for. */
 type Shaped = RawParsed & { loweredCalls: Array<PlannedCall> };
 
-/** Her answer as the act reads it: shaped, with the turn's `<gif>` resolved against the library. */
-export type Parsed = Omit<Shaped, 'gif'> & { gif: ReturnType<PhaseContext['resolveGif']> };
+/** Her answer as the act reads it. */
+export type Parsed = Shaped;
 
 /** One answer of hers read, with the completion it came in. */
 type ReadAnswer = StepAnswer & { completion: StepCompletion; parsed: Parsed };
@@ -55,10 +55,10 @@ export async function responsePhase(
   prepared: Prepared
 ): Promise<Ended | Answered> {
   const { hot, store, llm, calibrator, clock, skills, pullViews } = ctx;
-  const { emojiLookup, resolveGif, noteThink, markPulledSeen, stampShownCalls, journalOn } = ctx;
+  const { emojiLookup, noteThink, markPulledSeen, stampShownCalls, journalOn } = ctx;
   const { trigger = null, triggerKind = null, source = null } = params;
   const { opened, setup, pulled: pulledStep, waited, gathered, request } = prepared;
-  const { channel, placeId, isPrivate, settledMs, life } = opened;
+  const { channel, isPrivate, settledMs, life } = opened;
   const { transport, startedAt, now, bar, beforeBar, replyOptions, cancel } = setup;
   const { finalMode } = pulledStep;
   const { prepareMs, late, timings } = waited;
@@ -120,7 +120,7 @@ export async function responsePhase(
       .map((reaction) => ({ ...reaction, emoji: resolveReactionEmoji(reaction.emoji, lookupEmoji) }))
       .filter((reaction): reaction is { to: number; emoji: string } => Boolean(reaction.emoji));
     // format.stripDashes (a missing key counts as on): no em/en dash in a <msg> text; a message
-    // left empty is not posted. Hyphens, <react>, <gif> and reply ids are untouched.
+    // left empty is not posted. Hyphens, <react> and reply ids are untouched.
     if (hot.config.format?.stripDashes !== false) {
       const dashes = parsed.messages.reduce((sum, message) => sum + countDashes(message.text), 0);
       if (dashes > 0) {
@@ -146,12 +146,10 @@ export async function responsePhase(
       parsed.messages = [];
       parsed.reactions = [];
       parsed.untargetedReactions = [];
-      parsed.gif = null;
     }
     if (diaryPrep) {
-      // A diary post: no reaction, no GIF, nothing posted as a reply, no link, at most selfreflection.maxMessages.
+      // A diary post: no reaction, nothing posted as a reply, no link, at most selfreflection.maxMessages.
       parsed.reactions = [];
-      parsed.gif = null;
       parsed.messages = parsed.messages
         .map((message) => ({ ...message, replyTo: null, text: stripUrls(message.text) }))
         .filter((message) => message.text !== '')
@@ -178,21 +176,16 @@ export async function responsePhase(
     );
     noteDiagnostics(draft, shaped, answered);
     noteThink(draft, shaped);
-    const resolved: Parsed = Object.assign(shaped, { gif: resolveGif(placeId, shaped.gif) });
     // Counted, never refused: the answer is acted on all the same.
     if (thinkMissing(split.rawText)) {
       draft.format.thinkMissing += 1;
       log.info('turn: think missing', { channel: channel.id, step: number - 1 });
     }
-    return { completion: answered, ...split, parsed: resolved };
+    return { completion: answered, ...split, parsed: shaped };
   };
   const first = readAnswer(completion, 1);
   const parsed = first.parsed;
-  const nothingToDo =
-    parsed.messages.length === 0 &&
-    parsed.reactions.length === 0 &&
-    parsed.gif === null &&
-    parsed.loweredCalls.length === 0;
+  const nothingToDo = parsed.messages.length === 0 && parsed.reactions.length === 0 && parsed.loweredCalls.length === 0;
   // Nothing to post and nothing to call: silence (her calls run all the same when she wrote any).
   const silent = (parsed.skip || nothingToDo) && first.calls.length === 0;
   // The journal keeps the think; the log then carries its length only.
@@ -222,7 +215,6 @@ export async function responsePhase(
     skip: parsed.skip || nothingToDo,
     messages: parsed.messages.length,
     reactions: parsed.reactions.length,
-    gif: Boolean(parsed.gif),
     ...(first.calls.length > 0 ? { calls: first.calls.length } : {}),
   });
   // The pulled channels whose block was in the request sent (a skip included):
