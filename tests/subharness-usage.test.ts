@@ -44,18 +44,17 @@ const metric = (name: string, over: Partial<UsageMetric> = {}): UsageMetric => (
   state: 'observed',
   ...over,
 });
-const subscription = (over: Partial<BackendUsage> = {}): BackendUsage =>
-  ({
-    variant: 'subscription',
-    source: 'codex',
-    account: { label: 'one@example.test' },
-    observedAt: T0,
-    availability: 'available',
-    metrics: [metric('primary.usedPercent')],
-    errors: [],
-    handoff: null,
-    ...over,
-  }) as BackendUsage;
+const subscription = (over: Partial<BackendUsage> = {}): BackendUsage => ({
+  variant: 'subscription',
+  source: 'codex',
+  account: { label: 'one@example.test' },
+  observedAt: T0,
+  availability: 'available',
+  metrics: [metric('primary.usedPercent')],
+  errors: [],
+  handoff: null,
+  ...over,
+});
 
 test('a request reads the source it names and no other', async () => {
   // Catches: one `/usage` of OpenRouter starting every vendor CLI.

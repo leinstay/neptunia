@@ -80,7 +80,8 @@ test('Main lists the eight roles and Voice persists as speech under models.base'
     main.some((one) => one.role === 'voice'),
     false
   );
-  assert.ok(roleConfigKeys('speech')?.includes('models.base.speech'));
+  // roleConfigKeys answers the path as parts, as tests/roles.test.ts pins, so the spec's includes of a dotted string could never hold.
+  assert.equal(roleConfigKeys('speech')?.join('.'), 'models.base.speech');
 });
 
 test('Errand and Development come from the registry, thinker included, and watcher is marked apart', () => {

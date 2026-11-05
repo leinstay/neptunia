@@ -231,7 +231,7 @@ function drawn(state: SelectorState, height = 10): string {
     { columns: 80, rows: 24 }
   );
   const app = render(createElement(SelectorView, { state, height }), {
-    stdout: stdout as never,
+    stdout,
     debug: true,
     exitOnCtrlC: false,
     patchConsole: false,

@@ -130,7 +130,8 @@ test('Main, Voice, API, the route and a model commit the speech role, whose key 
   assert.deepEqual(committed(saved.effects), [
     { name: 'model.set', args: { role: 'speech', model: 'vendor/voice-1' } },
   ]);
-  assert.ok(roleConfigKeys(committed(saved.effects)[0]?.args.role)?.includes('models.base.speech'));
+  // roleConfigKeys answers the path as parts, as tests/roles.test.ts pins, so the spec's includes of a dotted string could never hold.
+  assert.equal(roleConfigKeys(committed(saved.effects)[0]?.args.role)?.join('.'), 'models.base.speech');
 });
 
 test('nothing commits before the confirmation, and a double confirmation commits once', () => {
@@ -174,6 +175,7 @@ test('the three kinds of evidence are told apart on the rows and in the review',
 test('the review names what will be saved', () => {
   // Catches: a confirmation that hides the actual route behind a friendly name.
   const at = play(atRole('errand', 'scout', [CODEX]), choose('subharness', 'backend:codex', 'suggested-1', 'keep'));
+  // The whole shape is the point: the review names every field that will be saved.
   assert.deepEqual(pickerReview(at.state), {
     group: 'errand',
     role: 'scout',
@@ -218,7 +220,8 @@ test('a role-unsupported combination stays visible as a disabled provider or sou
     rows.map((one) => one.id),
     ['api', 'subharness']
   );
-  assert.equal(typeof rows.find((one) => one.id === 'subharness')?.disabled, 'string');
+  // A disabled row must say why, and the type alone would accept an empty reason.
+  assert.equal((rows.find((one) => one.id === 'subharness')?.disabled ?? '').length > 0, true);
   const pressed = play(at, choose('subharness'));
   assert.equal(pressed.state.step, 'providerType');
 });
@@ -451,8 +454,8 @@ function drawPicker(over: {
       },
     }),
     {
-      stdin: rig.stdin as never,
-      stdout: rig.stdout as never,
+      stdin: rig.stdin,
+      stdout: rig.stdout,
       exitOnCtrlC: false,
       interactive: true,
       patchConsole: false,
