@@ -14,6 +14,7 @@ import { migrateMessageFamilies } from './message-family-catalog.ts';
 import { assignDiaryDestination, deriveAllMirrorPublications } from './publish.ts';
 import { pastEntries } from './diary-past.ts';
 import { repairSessionRows } from './session-repair.ts';
+import { migrateSemanticMemory } from './semantic-schema.ts';
 import { importWakeQueues } from '../migration/wake-import.ts';
 import type { Db, Row } from './types.ts';
 
@@ -1403,6 +1404,7 @@ export const MIGRATIONS: Array<Migration> = [
   V27,
   V_REQUEST_LINKS,
   refuseUnconverted,
+  migrateSemanticMemory,
 ];
 
 /** Every table schema v8 adds. */

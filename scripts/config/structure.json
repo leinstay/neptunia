@@ -1556,6 +1556,13 @@
       "test": "none"
     },
     {
+      "path": "src/memory/db/semantic-types.ts",
+      "purpose": "The shapes of semantic memory: references, arguments, candidates, resolved writes and the retrieval page. Types only: nothing runs, so nothing is tested.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/map/",
       "purpose": "The mapping of memory rows to records and back.",
       "layer": "public",
