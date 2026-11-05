@@ -41,7 +41,16 @@ test('opencode lives in <private>/subharness/opencode with its config and data h
   assert.equal(place.dir, path.join(PRIVATE, 'subharness', 'opencode'));
   assert.ok(inside(place.binary, place.dir));
   // Changed: the opencode run also carries the control that keeps the pinned version from updating itself.
-  assert.deepEqual(Object.keys(place.env).sort(), ['OPENCODE_DISABLE_AUTOUPDATE', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME']);
+  // Changed again: the cache and state homes are set too, because under a read-only home opencode fails on ~/.cache.
+  assert.deepEqual(Object.keys(place.env).sort(), [
+    'OPENCODE_DISABLE_AUTOUPDATE',
+    'XDG_CACHE_HOME',
+    'XDG_CONFIG_HOME',
+    'XDG_DATA_HOME',
+    'XDG_STATE_HOME',
+  ]);
+  assert.ok(inside(place.env.XDG_CACHE_HOME ?? '', place.dir));
+  assert.ok(inside(place.env.XDG_STATE_HOME ?? '', place.dir));
   assert.ok(inside(place.env.XDG_CONFIG_HOME ?? '', place.dir));
   assert.ok(inside(place.env.XDG_DATA_HOME ?? '', place.dir));
   assert.notEqual(place.env.XDG_CONFIG_HOME, place.env.XDG_DATA_HOME);
