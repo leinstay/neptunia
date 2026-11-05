@@ -14,6 +14,21 @@ Inspect its conflicts and held files. Add `--apply` to copy accepted material. E
 
 The runtime refuses ambiguous legacy and canonical layouts. `NEPTUNIA_PRIVATE_DIR`, when supplied, must name the same directory as `NEPTUNIA_DATA_DIR`. Remove old launch overrides only after verifying the staged persona no longer depends on them.
 
+## Convert the database to places
+
+`scripts/memory-convert-places.ts` is the one offline rebuild of a schema 28 database into neutral places, with its config. Stop every writer first. It reads a private copy of the input, builds an empty database of the current schema and carries every row over, so the input stays as it was:
+
+```bash
+node scripts/memory-convert-places.ts --input <memory.db> --output <new memory.db> \
+  --config-in <config.local> --config-out <new config.local> --report <report.json> --now <iso time>
+```
+
+Exit code `0` means converted, `1` means refused with `failures` in the report and no output, and `2` is a usage error. The refusals are `DATABASE_OPEN` (a live lock or frames in the write-ahead log), `TARGET_EXISTS`, `UNSUPPORTED_SCHEMA`, `BAD_UNIT_KEY`, `ORPHAN_OWNER` and `NO_DM_PLACE`, with `MERGE_CONFLICT`, `INTEGRITY`, `FOREIGN_KEY` and `NO_PLACE_ROW` from its own checks.
+
+The report holds `tables`, one row of `input`, `preserved`, `transformed`, `merged`, `removed`, `added` and `output` per table, and `contradictions`, the descriptions that came from two partitions of one account and disagree. Both stay. `contentHash` is the same for every run over the same input, and converting the output changes nothing. A community partition becomes the account, the DM place or the persona its collection belongs to, `bot.guildId` moves to `interfaces/discord.json#servers`, and the retired channel fallback setting goes. Ids, audiences, `model_requests` and `sources.text` stay byte for byte.
+
+An engine at this schema refuses an unconverted database with `MEMORY_NEEDS_CONVERSION` when it opens one. Keep the old database, code and config together for a rollback before message handling resumes, and read [verify and recover](#verify-and-recover) before a rollback after it.
+
 ## Backup and restore
 
 With `memoryDb.backup.enabled`, the core saves one backup per UTC day after `memoryDb.backup.hour` (default 03:00 UTC). `memoryDb.backup.keep` retains the latest seven completed backups by default. Files live in `memoryDb.backup.dir`, resolved against `data/`; the default is `../backups/memory`, which lands in `backups/memory` inside a default checkout, and `.gitignore` covers `/backups/`.

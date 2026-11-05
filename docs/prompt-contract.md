@@ -198,7 +198,10 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `truncated-call` | invalid | - | `tools.result.reasons.truncated-call` |
 | `not-configured` | not_configured | {feature} | `tools.result.reasons.not-configured` |
 | `unsupported` | not_configured | - | `tools.result.reasons.unsupported` |
-| `no-guild` | not_configured | - | `tools.result.reasons.no-guild` |
+| `no-place` | not_configured | - | `tools.result.reasons.no-place` |
+| `PLACE_REQUIRED` | not_configured | - | `tools.result.reasons.PLACE_REQUIRED` |
+| `PERSON_NOT_FOUND` | invalid | - | `tools.result.reasons.PERSON_NOT_FOUND` |
+| `PLACE_NOT_FOUND` | invalid | - | `tools.result.reasons.PLACE_NOT_FOUND` |
 | `error` | failed | - | `tools.result.reasons.error` |
 | `timeout` | unknown | {what} | `tools.result.reasons.timeout` |
 | `cap` | failed | {what} | `tools.result.reasons.cap` |

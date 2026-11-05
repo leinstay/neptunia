@@ -1,6 +1,6 @@
 # Core
 
-The core is the process that owns one persona's turns, memory and work. Interfaces translate platform activity into its protocol. The owner CLI and agent clients connect to the same Unix socket with separate authenticated identities.
+The core is the process that owns one persona's turns, memory and work. Interfaces translate platform activity into its protocol, and a platform's own words stop there: a core function takes a `placeId`, never a server beside it, and the core serves whatever communities its interfaces say hello with, or none. The owner CLI and agent clients connect to the same Unix socket with separate authenticated identities.
 
 ```mermaid
 flowchart LR

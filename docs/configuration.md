@@ -23,7 +23,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `bot.owners` | array | `[]` | Native ids of the home interface that count as owners until `bot.ownerPerson` is set; the input of that migration | `src/behavior/core-pause.ts` |
 | `bot.ownerPerson` | string | `""` | The person whose bound accounts are the owner, written by `/memory bind <iface> <account> owner`. See [One person, several accounts](memory.md#one-person-several-accounts) | `src/tools/impl/grants.ts` |
 | `bot.nameTriggers` | array | `[]` | Extra trigger strings besides @mention | `src/behavior/sandbox.ts` |
-| `bot.guildId` | string | `""` | Server to lock to; auto-detected if in exactly one | `src/core.ts` |
 | `bot.access` | map | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
 
 ## models.base
@@ -224,7 +223,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `memory.vaultDir` | string | `"vault"` | Directory under `data/` that an older install may have used for copies of deleted memory. Nothing in the engine writes here now; the setting tells `memory.snapshot` where to find it so the vault is skipped when copying | `src/memory/root.ts` |
-| `memory.mainChannelIds` | array | `[]` | Channels where people talk to each other; used for character/style portraits and as the destination for calls from read-only channels. Empty means every channel counts | `src/behavior/elsewhere.ts` |
 | `memory.probeMinutes` | number | `30` | Minutes between two probes of the memory writer's path, one minimal request on the memory key or one one-word reply through the subharness. The probe also runs at core start and right after a refused writer run. A failed probe pauses her with the reason `memory-down`, and the next passing one resumes her. A value that is no positive number counts as 30 | `src/subharness/memory-probe.ts` |
 
 ## media
@@ -381,7 +379,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 |---|---|---|---|---|
 | `selfreflection.enabled` | boolean | `true` | Whether her diary posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs | `src/behavior/diary.ts` |
 | `selfreflection.schedule` | string, null | `null` | Exact UTC slots of the diary, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day | `src/behavior/diary.ts` |
-| `selfreflection.channelId` | string | `""` | The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it | `src/memory/db/service.ts` |
+| `selfreflection.placeId` | string | `""` | The seed of the diary's first mirror: schema v15 makes this channel's place a `diary` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it | `src/memory/db/service.ts` |
 | `selfreflection.world` | boolean | `false` | Include `prompts/world.md` as a `<world>` block in diary requests | `src/behavior/prompt.ts` |
 | `selfreflection.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/diary.ts` |
 | `selfreflection.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/diary.ts` |
@@ -410,7 +408,7 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `private.enabled` | boolean | `false` | Answer direct messages from guild members. Needs a stored public profile and `affinity.score >= private.minAffinity` | `src/behavior/private.ts` |
+| `private.enabled` | boolean | `false` | Answer direct messages from place members. Needs a stored public profile and `affinity.score >= private.minAffinity` | `src/behavior/private.ts` |
 | `private.likeServer` | boolean | `true` | A private chat works like a server channel: route classifier, channel pull, server search, asked-about episodes. `false`: a private chat has none of them | `src/turn/lookup.ts` |
 | `private.minAffinity` | number | `5` | Minimum public attitude score to answer a DM; owners bypass this | `src/behavior/private.ts` |
 
