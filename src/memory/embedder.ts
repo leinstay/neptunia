@@ -246,7 +246,6 @@ export function createEmbedder({
     };
   }
 
-  // One ring per record and the channel of its lines (`scope.channel`), a cache key.
   const ringKey = (placeId: string, channel: string | null) => `${placeId}|${channel ?? ''}`;
   const channelOf = (line: RecordLine) =>
     typeof line?.scope?.channel === 'string' && line.scope.channel ? line.scope.channel : null;
