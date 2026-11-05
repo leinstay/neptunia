@@ -14,6 +14,8 @@ Keep platform SDK imports in the interface package. The interface imports only t
 
 Every account and conversation belongs to an interface namespace. Preserve native IDs as identifiers, not display names. Supply community, conversation, author, timestamps and visibility information in the event shape. A direct conversation is private even when its participant also belongs to a server.
 
+A community id is native to its interface, so two interfaces may name the same one. [Community routes](../src/core-routing.ts) keep each interface's communities as its `hello` declares them. A read inside an event or a turn goes to that event's interface when it serves the community, and any other read goes to the first interface serving it whose link is up. Hello order, a reconnect and another interface's disconnect leave a route in place.
+
 Account linking is performed by the owner's [memory commands](memory.md#one-person-several-accounts). An interface must not infer that matching names or native IDs on another platform refer to the same person.
 
 Delivery reports distinguish success, failure and unknown outcome. Preserve the idempotency key across split messages. After a connection loss, an uncertain delivery must not become an unconditional retry days later.

@@ -114,6 +114,7 @@ import { boardSettings, boardTimings } from './board/board.ts';
 import { createBoardPort } from './board/writer.ts';
 import { createReactorStore, applyReactionChanged } from './behavior/reactor-store.ts';
 import { currentIface, withIface } from './memory/db/current-iface.ts';
+import { createCommunityRoutes } from './core-routing.ts';
 import { createOwnerAccounts } from './memory/db/person-links.ts';
 import { createReads } from './interface/reads.ts';
 import { createIntentionStores } from './intentions/store.ts';
@@ -639,19 +640,18 @@ async function buildCore(
   // Every connected interface by name, and which of them serves each community. One persona across all of them: the
   // served interface above keeps the core's identity and capabilities, and an effect goes by the reference's `iface`.
   const linksByName = new Map<string, ReturnType<typeof createLinkSwitch>>();
-  const servingName = new Map<string, string>();
+  const communityRoutes = createCommunityRoutes({ current: currentIface });
   function connectInterface(name: string, greeting: Hello, link: ReturnType<typeof openAdapterLink>) {
     const known = linksByName.get(greeting.iface);
     if (known === undefined) linksByName.set(greeting.iface, createLinkSwitch(link));
     else known.attach(link);
-    for (const community of [greeting.community, ...(greeting.communities ?? [])]) {
-      if (community !== null) servingName.set(community.id, greeting.iface);
-    }
-    log.info('index: interface connected', { principal: name, iface: greeting.iface, communities: servingName.size });
+    const communities = [greeting.community, ...(greeting.communities ?? [])].flatMap((one) => (one ? [one.id] : []));
+    communityRoutes.note(greeting.iface, communities);
+    log.info('index: interface connected', { principal: name, iface: greeting.iface, communities: communities.length });
   }
   /** True for a community some connected interface serves, and the configured one before any said hello. */
   const isServedCommunity = (id: string | null | undefined): boolean =>
-    typeof id === 'string' && (servingName.has(id) || id === instance.guildId);
+    typeof id === 'string' && (communityRoutes.isServed(id) || id === instance.guildId);
   /** The served interface's hello: who the persona is on it. */
   function greet(greeting: Hello) {
     identity.iface = greeting.iface;
@@ -767,8 +767,8 @@ async function buildCore(
     () =>
       [intake.chat(), ...[...linksByName.values()].map((link) => link.adapter)].filter((adapter) => adapter !== null),
     (communityId) => {
-      const name = servingName.get(communityId);
-      return name === undefined ? null : (linksByName.get(name)?.adapter ?? null);
+      const name = communityRoutes.ifaceOf(communityId, (one) => linksByName.get(one)?.current().isClosed() === false);
+      return name === null ? null : (linksByName.get(name)?.adapter ?? null);
     }
   );
   const iface = guardMirrorPort(routed, { memoryDb });
@@ -1118,7 +1118,7 @@ async function buildCore(
 
   const onMessage = createMessageHandler({
     isServedCommunity,
-    communitiesOf: (name: string) => [...servingName].filter(([, one]) => one === name).map(([id]) => id),
+    communitiesOf: (name: string) => communityRoutes.communitiesOf(name),
     hot,
     store,
     // The core's reads of the interface: the conversation a message is in, its history, a message by id, a member.
