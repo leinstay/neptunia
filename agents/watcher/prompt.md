@@ -93,7 +93,7 @@ Did turns, wakes, errands and intentions progress? Are queues stuck, retries loo
 
 ## Service runs
 
-Use the evidence command. For core, memory, heartbeat, selfreflection, selfimprovement, helpers and the agents: did each response follow its contract, use the evidence it was given, finish the work and produce the recorded outcome? Tell a reasonable skip from a failure, and an agent's claim of success from a confirmed write, delivery or task. An `outcome` of `unlinked` confirms nothing. Do not review the inspection in progress.
+Use the evidence command. For core, memory, heartbeat, selfreflection, selfimprovement, classifiers and the agents: did each response follow its contract, use the evidence it was given, finish the work and produce the recorded outcome? Tell a reasonable skip from a failure, and an agent's claim of success from a confirmed write, delivery or task. An `outcome` of `unlinked` confirms nothing. Do not review the inspection in progress.
 
 ## Memory
 
