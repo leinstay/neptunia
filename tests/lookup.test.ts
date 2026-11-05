@@ -601,7 +601,8 @@ test('search: engine openrouter -- one analyzer request with the Exa web plugin;
   const { messages, options } = llm.calls[0];
   assert.equal(messages[0].content, 'The query: Qui a gagné ?. Up to 900 characters.', 'the same system prompt');
   assert.equal(messages[1].content, 'Qui a gagné ?', 'the user content is the question');
-  assert.deepEqual(options.plugins, [{ id: 'web', engine: 'auto', max_results: 5 }]);
+  // OpenRouter refuses `auto`, measured 2026-11-05
+  assert.deepEqual(options.plugins, [{ id: 'web', max_results: 5 }]);
   // Changed: quick search has its own model setting and key binding, apart from the analyzer.
   assert.equal(options.model, 'x/search');
   assert.equal(options.role, 'search');
@@ -755,7 +756,8 @@ test('searchResults: engine openrouter -- one analyzer request (purpose quick-se
   assert.equal(braveSearch.calls.length + exaSearch.calls.length, 0);
   const [{ messages, options }] = llm.calls;
   assert.deepEqual(messages, [{ role: 'user', content: 'Qui a gagné ?' }], 'no prompt: only her query');
-  assert.deepEqual(options.plugins, [{ id: 'web', engine: 'auto', max_results: 5 }]);
+  // OpenRouter refuses `auto`, measured 2026-11-05
+  assert.deepEqual(options.plugins, [{ id: 'web', max_results: 5 }]);
   assert.deepEqual(
     [
       options.model,
