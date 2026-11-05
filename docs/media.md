@@ -16,7 +16,13 @@ The turn's senses report which abilities are available. A configured credential 
 
 ## Search
 
-Quick search returns search results through OpenRouter, Brave or Exa. Deep search delegates research to the scout. Page reading is another capability. These have separate availability: disabling quick search does not by itself disable the scout or page reading.
+Three paths reach the web, and each has its own availability. Turning quick search off changes neither of the other two.
+
+Quick search is the core's `web.search`, in [src/web/lookup.ts](../src/web/lookup.ts). It runs on the one engine in `web.search.engine`, which is `openrouter`, `brave` or `exa`. No engine is built in, so it stays off until `neptunia setup` or `/search engine` chooses one. The tool result says why it is off: `no-engine`, `no-model` for `openrouter` without `web.search.model`, `no-key` for an engine without its key, or `disabled` by `web.search.enabled`. When the chosen engine fails, the result names the engine and the cause, `timeout`, `rate-limited` or `credentials` among them, and no other engine answers in its place. The `openrouter` engine sends one request with the web plugin set to `engine: auto`, under the purpose `quick-search`.
+
+Page reading is `web.read`, with no model request. [src/web/fetch-page.ts](../src/web/fetch-page.ts) checks the address of the link and of every redirect against private ranges, caps the size and refuses unsupported content. The text she reads names the address the page ended at, on an empty page too, and a user name or password written into a link reaches neither that text nor the cache.
+
+Deep search is an errand for the scout. Its `web-search` command in [src/web/web-search.ts](../src/web/web-search.ts) sends one OpenRouter request with the same plugin on the agent's key, whatever `web.search.engine` says. Its model is `web.search.model` when the child's environment passes one, otherwise the fixed `SCOUT_SEARCH_MODEL`.
 
 When only deep search is available, the persona can use it directly. When both are available, the model chooses the appropriate tool and can follow an unhelpful quick result with deeper work. See [keys](keys.md#quick-search) for routing and [errands](errands.md) for the scout.
 

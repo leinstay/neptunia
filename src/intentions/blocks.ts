@@ -7,10 +7,8 @@
 // errand's outcome or the reason the wait ended; an attention (`attend`) with its place, the
 // people whose lines count and the day's wakes against her own bound (`labels.intentions.attend`,
 // `attendPeople`); a line whose expiry is within `intentions.expiryNoticeDays` ends with it
-// (`labels.intentions.expiresSoon`, unless the no-date part already says it); then the candidates the analyzer proposed from her own lines, under their own
-// header, each with the line it came from (and a marker on one whose words came from outside
-// material, which only an ordinary turn of hers may accept). Cut to a token budget (`context.caps.intentions`):
-// whole lines only, in order, the candidates' header only with a candidate under it. Pure: every
+// (`labels.intentions.expiresSoon`, unless the no-date part already says it). Cut to a token budget (`context.caps.intentions`):
+// whole lines only, in order. Pure: every
 // word comes from `labels.intentions` (prompts/labels.json); without its header or line label
 // the block is left out (''). Ids, codes and times are data, not wording.
 
@@ -102,25 +100,9 @@ function activeLine(
 }
 
 /**
- * One candidate's line; `{marker}` is `labels.intentions.externalMarker` for a candidate whose
- * words came from outside material (`provenance.origin` `external`: only an ordinary turn of hers
- * may accept it), empty for her own.
- */
-function candidateLine(record: Intention, l: Untyped): string {
-  const external = record.provenance?.origin === 'external';
-  const marker = external && typeof l.externalMarker === 'string' ? l.externalMarker : '';
-  return part(l, 'candidate', {
-    id: record.id,
-    purpose: clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS),
-    span: clampWithEllipsis(oneLine(record.provenance?.span ?? ''), SPAN_LINE_CHARS),
-    marker,
-  });
-}
-
-/**
  * The `<intentions>` block's body for `records` (src/intentions/service.ts#view's order), within
  * `maxTokens` (`cost` the estimate; whole lines, in order): `labels.intentions.header`, a line per
- * active one, then `candidates` and a `candidate` line per proposed one. '' when nothing fits or
+ * active one. '' when nothing fits or
  * the labels are missing.
  * `channelNameOf(id)` names a destination or attended channel (its id when it gives nothing);
  * `nameOf(id)` names an attended person (the id when it gives nothing). `now` (epoch ms) and
@@ -162,22 +144,10 @@ export function intentionsBlockText(
   };
   const noticeMs =
     (isFiniteNumber(expiryNoticeDays) && expiryNoticeDays >= 0 ? expiryNoticeDays : DEFAULTS.expiryNoticeDays) * DAY_MS;
-  for (const record of list.filter((r) => r.status !== 'proposed')) {
+  for (const record of list) {
     const text = activeLine(record, l, { timezone, locale, channelNameOf, nameOf, now, noticeMs });
     if (!fits(text)) break;
     take(text);
-  }
-  const proposed = list.filter((r) => r.status === 'proposed');
-  if (proposed.length > 0 && typeof l.candidates === 'string' && typeof l.candidate === 'string') {
-    const first = candidateLine(proposed[0], l);
-    if (fits(`${l.candidates}\n${first}`)) {
-      take(l.candidates);
-      for (const record of proposed) {
-        const text = candidateLine(record, l);
-        if (!fits(text)) break;
-        take(text);
-      }
-    }
   }
   return out.length > 1 ? out.join('\n') : '';
 }

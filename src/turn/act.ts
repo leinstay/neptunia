@@ -18,7 +18,7 @@ import { CODE } from '../tools/codes.ts';
 import type { DrawGif, ResolvedGif } from './draw-gif.ts';
 import { closeResult, portError, postedOf, sendHash } from './journal.ts';
 import type { JournalOp, PortResult } from './journal.ts';
-import type { JournalNotes } from './journal-notes.ts';
+import type { JournalNotes, NotesDraft } from './journal-notes.ts';
 import type { Participation } from './participation.ts';
 import { snapshotOfDraft } from './routing.ts';
 import type { Sends } from './sends.ts';
@@ -64,7 +64,6 @@ export type ActContext = {
   checkEffect: (skill: string, args: unknown, at: { channel: ConversationInfo; trigger: unknown }) => EffectVerdict;
   lastPostAt: Map<string, number>;
   noteTrigger: JournalNotes['noteTrigger'];
-  noteLineSources: JournalNotes['noteLineSources'];
   recordSaid: JournalNotes['recordSaid'];
   journalOp: JournalNotes['journalOp'];
   renderPost: Sends['renderPost'];
@@ -92,7 +91,7 @@ type ActTrigger = { id?: string; authorId?: string | null } | null;
 
 /** What an attempt's draft holds that the act reads and writes. */
 type ActDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
-  NonNullable<Parameters<JournalNotes['noteLineSources']>[0]> & {
+  NotesDraft & {
     memoryContext?: Context;
     snapshot?: Snapshot | null;
     ownPosts?: Array<string>;
@@ -202,7 +201,6 @@ export function createAct(ctx: ActContext): Act {
     checkEffect,
     lastPostAt,
     noteTrigger,
-    noteLineSources,
     recordSaid,
     journalOp,
     renderPost,
@@ -578,7 +576,6 @@ export function createAct(ctx: ActContext): Act {
         repliedAuthorId,
         userIds,
       });
-      noteLineSources(draft, posted?.id, message.text);
       delivered = true;
       if (pulledId) answered.add(pulledId);
       lastPostAt.set(channel.id, clock());

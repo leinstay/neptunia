@@ -74,7 +74,7 @@ export type StatusFacts = {
   /** The model roles that are down or still failing, each with why. */
   failingRoles: ReadonlyArray<{ role: string; reason: string }>;
   next: { kind: string; at: number } | null;
-  intentions: { pending: number; waiting: number; proposed: number } | null;
+  intentions: { pending: number; waiting: number } | null;
   errands: { open: number; latest: ReadonlyArray<{ id: string; state: string; agent: string }> };
   slept: number;
 };
@@ -138,7 +138,7 @@ export function statusText(facts: StatusFacts): string {
     `next wake: ${facts.next === null ? 'none' : `${facts.next.kind} at ${clock(facts.next.at)}`}`,
     intentions === null
       ? 'intentions: off'
-      : `intentions: ${intentions.pending} pending, ${intentions.waiting} waiting, ${intentions.proposed} proposed`,
+      : `intentions: ${intentions.pending} pending, ${intentions.waiting} waiting`,
     `errands: ${facts.errands.open} open${latest === '' ? '' : `; latest ${latest}`}`,
     `slept wakes since the start: ${facts.slept}`,
   ].join('\n');
@@ -303,7 +303,6 @@ export function statusFactsOf(sources: FactSources): StatusFacts {
         : {
             pending: numberOf(intentions.pending),
             waiting: numberOf(intentions.waiting),
-            proposed: numberOf(intentions.proposed),
           },
     errands: {
       open: open.length,

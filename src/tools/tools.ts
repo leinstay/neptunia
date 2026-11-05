@@ -441,10 +441,11 @@ export async function runWebSearch({
     const query = text(given.query);
     if (!query) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
     const searchCfg = objOf(objOf(objOf(config).web).search);
-    if (!lookup || typeof lookup.searchResults !== 'function' || searchCfg.enabled === false)
-      return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
-    if (typeof lookup.hasSearch === 'function' && !lookup.hasSearch())
-      return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature: FEATURE.web } };
+    const feature = FEATURE.quickSearch;
+    if (!lookup || typeof lookup.searchResults !== 'function')
+      return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature, reason: 'no-engine' } };
+    if (searchCfg.enabled === false)
+      return { status: 'not_configured', code: CODE.NOT_CONFIGURED, values: { feature, reason: 'disabled' } };
     const answer = await lookup.searchResults(guildId, query);
     if (!isObj(answer)) return { status: 'failed', code: CODE.ERROR };
     const found = answer;
@@ -452,9 +453,20 @@ export async function runWebSearch({
     if (found.failed) {
       const failure = objOf(found.failed);
       const code = plain(failure.code);
-      if (code === CODE.NOT_CONFIGURED) return { status: 'not_configured', code, values: { feature: FEATURE.web } };
+      const named = {
+        feature,
+        reason: plain(failure.reason),
+        ...(failure.engine === undefined ? {} : { engine: plain(failure.engine) }),
+      };
+      if (code === CODE.NOT_CONFIGURED) return { status: 'not_configured', code, values: named };
       if (code === CODE.EMPTY_QUERY) return { status: 'invalid', code };
-      if (code === CODE.PROVIDER) return { status: 'failed', code, values: { status: plain(failure.status) } };
+      if (code === CODE.PROVIDER)
+        return {
+          status: 'failed',
+          code,
+          // The wording names `{status}`: an engine that gave none, on a timeout say, is named there instead.
+          values: { ...named, status: plain(failure.status ?? failure.engine) },
+        };
       return code === CODE.CAP
         ? { status: 'failed', code: CODE.CAP, values: { what: WHAT.search } }
         : { status: 'failed', code: CODE.ERROR };
@@ -488,6 +500,19 @@ export function firstLinkIn(value: unknown): string | null {
 
 /** The page codes of src/web/lookup.ts#readPage that mean the call itself was not right. */
 const READ_INVALID = new Set(['scheme']);
+
+/** The answer for a page with no text: its source line under the address it ended at, then the `none` label. */
+function emptyRead(labels: unknown, url: string, maxChars: number): ToolResult {
+  const l = toolLabels(labels, 'read');
+  return {
+    status: 'ok',
+    data: {
+      text: [l.source ? fill(l.source, { url, maxChars: String(maxChars) }) : '', l.none ?? '']
+        .filter(Boolean)
+        .join('\n'),
+    },
+  };
+}
 
 /**
  * One web.read: the page at `args.url`, or the first link of the message `args.message` names
@@ -528,17 +553,7 @@ export async function runWebRead({
     const maxChars = READ_CHARS;
     if (page.ok === true) return { status: 'ok', data: { text: webReadText(page, { labels, maxChars }) } };
     const reason = plain(page.reason ?? CODE.ERROR);
-    if (reason === 'empty') {
-      const l = toolLabels(labels, 'read');
-      return {
-        status: 'ok',
-        data: {
-          text: [l.source ? fill(l.source, { url, maxChars: String(maxChars) }) : '', l.none ?? '']
-            .filter(Boolean)
-            .join('\n'),
-        },
-      };
-    }
+    if (reason === 'empty') return emptyRead(labels, text(page.url) || url, maxChars);
     if (reason === CODE.NOT_CONFIGURED)
       return { status: 'not_configured', code: reason, values: { feature: FEATURE.web } };
     // A page code the catalogue knows is told as it is (an HTTP status rides along); any other is `error`.

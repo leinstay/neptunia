@@ -26,11 +26,6 @@ import type { Staged } from './stages.ts';
 import type { Waited } from './wait.ts';
 import { VIDEOS_PER_TURN } from './stages.ts';
 
-/** The excerpts the memory prefetch retrieved, if its result holds any. */
-function excerptsOf(result: unknown): unknown {
-  return (result as { excerpts?: unknown } | null)?.excerpts;
-}
-
 /** What the gather step took for the request: the history as shown, and every input from the preparation. */
 export type Gathered = {
   history: Array<HistoryLine>;
@@ -65,8 +60,7 @@ export async function gatherRequest(
   looked: Looked,
   waited: Waited
 ): Promise<Gathered> {
-  const { hot, store, clock, record, describer, images, noteSeen, recentInput } = ctx;
-  const { trigger = null, taskResult = null } = params;
+  const { hot, store, clock, record, describer, images, recentInput } = ctx;
   const { channel, guildId, isPrivate, prep } = opened;
   const { config, memoryOn, selfId, selfName, snapshot, now, prefetching, diaryPending } = setup;
   const { beforeBar } = setup;
@@ -145,12 +139,6 @@ export async function gatherRequest(
       : { status: 'timeout', basis: prefetching.lanes.map((lane) => lane.kind), excerpts: [] }
     : null;
   prep.take('prefetch', prefetchResult !== null);
-  // What the turn has in front of it from outside, for where her lines came from (noteSeen):
-  // someone's message she answers, the retrieved memory, pages read, an errand's result.
-  if (trigger && String(trigger.authorId ?? '') !== String(selfId)) noteSeen(draft, trigger.content);
-  noteSeen(draft, excerptsOf(prefetchResult));
-  noteSeen(draft, reads, { read: true });
-  noteSeen(draft, taskResult?.result, { read: true });
   // The journal: which preparation steps reached the request (the rest close as not delivered).
   prep.take('captions', Boolean(captions?.done), { hold: Boolean(captions) });
   prep.take('videos', Boolean(videoStage?.done), { hold: Boolean(videoStage) });

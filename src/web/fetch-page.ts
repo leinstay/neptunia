@@ -273,6 +273,18 @@ function decode(bytes: Buffer, charset: string): string {
 }
 
 /** @param deps.requestImpl One GET to `url` connected to `lookupAddress`; response headers as a plain object with lowercase keys. */
+/** `url` with any user name and password written into it taken out: what a reader may see or keep of a link. */
+export function withoutCredentials(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.href;
+  } catch {
+    return url;
+  }
+}
+
 export function createPageFetcher({
   requestImpl = nodeRequest,
   lookup = dns.promises.lookup,
@@ -430,7 +442,7 @@ export function createPageFetcher({
           title: isHtml ? pageTitle(source) : null,
           contentType,
           bytes,
-          finalUrl: parsed.href,
+          finalUrl: withoutCredentials(parsed.href),
         };
       }
     } catch {

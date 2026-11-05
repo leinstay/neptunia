@@ -2,7 +2,6 @@
 // task's brief, the process-group kill, and the files an agent leaves in its working directory with the check that
 // drops what carries a secret. The OpenCode binary's default path lives here too.
 
-import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { ChildProcess, spawn } from 'node:child_process';
@@ -12,6 +11,7 @@ import { errorFields } from '../error-fields.ts';
 import { objOf, scalarText } from '../tools/types.ts';
 import { containsSecret, isFiltered } from './policy.ts';
 import type { RunnerTask, RunOutcome } from './protocol.ts';
+import { readWithoutLinks } from './profiles.ts';
 import type { Profile } from './profiles.ts';
 
 /** The OpenCode binary by default. */
@@ -52,7 +52,7 @@ const warnedUnreadable = new Set<string>();
  */
 export function readPromptFile(
   paths: Array<string>,
-  { read = (file: string) => fs.readFileSync(file, 'utf8') }: { read?: (file: string) => string } = {}
+  { read = readWithoutLinks }: { read?: (file: string) => string } = {}
 ): string {
   const list = (Array.isArray(paths) ? paths : [paths]).filter((p) => typeof p === 'string' && p);
   for (const [index, file] of list.entries()) {

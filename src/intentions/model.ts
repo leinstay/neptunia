@@ -1,13 +1,10 @@
 // The persona's intentions as data (docs/inner-life.md): what she means to do later, set by her
-// own call (`intention.set`, provenance `self`, born `pending`) or proposed by the memory analyzer
-// from one of her own lines (provenance `candidate`, born `proposed`, never active until she
-// accepts it). Pure: every function takes the record and the clock (`now`, epoch ms) and answers
+// own call (`intention.set`, provenance `self`, born `pending`). Pure: every function takes the record and the clock (`now`, epoch ms) and answers
 // a new record, never mutating its input; the store (src/intentions/store.ts) persists them.
 //
-// Statuses: `proposed` -> `pending` (accepted) | `cancelled` (rejected) | `expired`;
-// `pending` -> `waiting` | `done` | `cancelled` | `expired`; `waiting` -> `pending` (the awaited
+// Statuses: `pending` -> `waiting` | `done` | `cancelled` | `expired`; `waiting` -> `pending` (the awaited
 // errand ended, or its wait deadline passed, or the errand is gone) | `done` | `cancelled` |
-// `expired`; any open one (`proposed`, `pending`, `waiting`) -> `dropped`, a desire she considered
+// `expired`; any open one (`pending`, `waiting`) -> `dropped`, a desire she considered
 // and let go, with a required `reason` (REASON_CHARS) and its moment `droppedAt`; a record may also
 // be born `dropped` (createIntention with `dropped: true`: no due time, no recurrence, no
 // attention). `done`, `cancelled`, `expired` and `dropped` are terminal: nothing moves out of them
@@ -42,14 +39,12 @@ import { DAY_MS, HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../time.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
 import { isWordChar, occursAsWholeWord } from '../memory/mentions.ts';
 import { foldText as foldName } from '../memory/recent.ts';
-import { externalOrigin } from './sources.ts';
 import { CODE } from '../tools/codes.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type {
   Attend,
   AttentionSettings,
-  Candidate,
   CreateInput,
   Created,
   Due,
@@ -65,7 +60,6 @@ import type {
 
 /** Every status an intention may have. */
 export const STATUSES: ReadonlyArray<IntentionStatus> = Object.freeze([
-  'proposed',
   'pending',
   'waiting',
   'done',
@@ -76,16 +70,15 @@ export const STATUSES: ReadonlyArray<IntentionStatus> = Object.freeze([
 /** The statuses nothing moves out of. */
 export const TERMINAL: ReadonlyArray<string> = Object.freeze(['done', 'cancelled', 'expired', 'dropped'] as const);
 /** The statuses of an intention still open. */
-export const OPEN: ReadonlyArray<string> = Object.freeze(['proposed', 'pending', 'waiting'] as const);
+export const OPEN: ReadonlyArray<string> = Object.freeze(['pending', 'waiting'] as const);
 /** Where an intention came from. */
-export const PROVENANCE_KINDS: ReadonlyArray<string> = Object.freeze(['self', 'candidate'] as const);
+export const PROVENANCE_KINDS: ReadonlyArray<string> = Object.freeze(['self'] as const);
 
 /** The statuses as values to test an unchecked record against. */
 const STATUS_VALUES: ReadonlyArray<unknown> = STATUSES;
 
 /** The moves each status allows. */
 const MOVES: Readonly<Record<IntentionStatus, ReadonlyArray<IntentionStatus>>> = Object.freeze({
-  proposed: ['pending', 'cancelled', 'expired', 'dropped'],
   pending: ['waiting', 'done', 'cancelled', 'expired', 'dropped'],
   waiting: ['pending', 'done', 'cancelled', 'expired', 'dropped'],
   done: [],
@@ -95,15 +88,13 @@ const MOVES: Readonly<Record<IntentionStatus, ReadonlyArray<IntentionStatus>>> =
 } as const);
 
 /**
- * The intentions' measures: production values of the config cut of 2026-10-31 (`maxCandidates`, `waitHours`,
+ * The intentions' measures: production values of the config cut of 2026-10-31 (`waitHours`,
  * `expiryNoticeDays`), and the fallbacks of the keys the live config holds.
  */
 export const DEFAULTS: Readonly<IntentionSettings> = Object.freeze({
   expiresDays: 14,
   recurringExpiresDays: 30,
   maxOpen: 20,
-  maxCandidates: 5,
-  candidateExpiresHours: 48,
   waitHours: 2,
   expiryNoticeDays: 2,
 });
@@ -209,8 +200,8 @@ export function openFromHeartbeat(records: unknown): Array<Intention> {
 }
 
 /**
- * The `intentions` settings: DEFAULTS, with `expiresDays`, `recurringExpiresDays`, `maxOpen` and
- * `candidateExpiresHours` read from the live config now (each a finite number >= 0, else its default).
+ * The `intentions` settings: DEFAULTS, with `expiresDays`, `recurringExpiresDays` and `maxOpen`
+ * read from the live config now (each a finite number >= 0, else its default).
  */
 export function intentionSettings(config: Untyped): IntentionSettings {
   const set = objOf(config?.intentions);
@@ -222,8 +213,6 @@ export function intentionSettings(config: Untyped): IntentionSettings {
     expiresDays: pick('expiresDays'),
     recurringExpiresDays: pick('recurringExpiresDays'),
     maxOpen: pick('maxOpen'),
-    maxCandidates: DEFAULTS.maxCandidates,
-    candidateExpiresHours: pick('candidateExpiresHours'),
     waitHours: DEFAULTS.waitHours,
     expiryNoticeDays: DEFAULTS.expiryNoticeDays,
   };
@@ -650,16 +639,15 @@ export function createIntention({
   if (!text) return { ok: false, code: CODE.NO_PURPOSE };
   if (!PROVENANCE_KINDS.includes(provenance?.kind)) return { ok: false, code: CODE.BAD_PROVENANCE };
   if (dropped) return createDropped({ text, provenance, reason, now, id, by });
-  const candidate = provenance.kind === 'candidate';
   const attention = attend === null || attend === undefined ? null : normalizeAttend(attend, settings.attention);
-  if (attend !== null && attend !== undefined && (!attention || candidate)) return { ok: false, code: CODE.BAD_ATTEND };
+  if (attend !== null && attend !== undefined && !attention) return { ok: false, code: CODE.BAD_ATTEND };
   if (attention && dueAt !== null && dueAt !== undefined) return { ok: false, code: CODE.ATTEND_WITH_DUE };
   if (attention && every) return { ok: false, code: CODE.ATTEND_WITH_EVERY };
   if (dueAt !== null && !Number.isFinite(dueAt)) return { ok: false, code: CODE.BAD_DUE };
   if (!validEvery(every)) return { ok: false, code: CODE.BAD_EVERY };
   if (every && dueAt === null) return { ok: false, code: CODE.EVERY_WITHOUT_DUE };
   const ownDays = every ? (settings.recurringExpiresDays ?? DEFAULTS.recurringExpiresDays) : settings.expiresDays;
-  const defaultExpiry = candidate ? now + settings.candidateExpiresHours * HOUR_MS : now + ownDays * DAY_MS;
+  const defaultExpiry = now + ownDays * DAY_MS;
   if (standing === true && !every) return { ok: false, code: CODE.BAD_EVERY };
   const expires = expiryOf(standing, expiresAt, defaultExpiry);
   if (!Number.isFinite(expires) || expires <= now) return { ok: false, code: CODE.BAD_EXPIRY };
@@ -668,8 +656,7 @@ export function createIntention({
   const participants = participantIds(provenance.participants);
   const messageId = idOrNull(provenance.messageId);
   const channelId = idOrNull(provenance.channelId);
-  const bornOrigin: Provenance['origin'] = provenance.origin === 'external' ? 'external' : 'own';
-  const status = candidate ? 'proposed' : 'pending';
+  const status = 'pending';
   const intention: Intention = {
     id,
     purpose: text,
@@ -684,20 +671,6 @@ export function createIntention({
       // A restriction from the internal turn that set it, kept through updates and recurrence.
       ...boundaryOf(provenance),
       ...callKeyOf(provenance),
-      // A candidate's origin (candidatesFromAnswer): `external` when its words came from outside
-      // material, which only her explicit accept in a later ordinary turn activates (acceptRefusal).
-      ...(candidate ? { origin: bornOrigin } : {}),
-      ...(candidate && provenance.origin === 'external' && typeof provenance.originReason === 'string'
-        ? { originReason: provenance.originReason }
-        : {}),
-      ...(candidate && provenance.bornInner === true
-        ? {
-            bornInner: true,
-            ...(line(provenance.innerChainId, CHAIN_CHARS + 16)
-              ? { innerChainId: line(provenance.innerChainId, CHAIN_CHARS + 16) }
-              : {}),
-          }
-        : {}),
     },
     status,
     createdAt: now,
@@ -790,33 +763,6 @@ export function dropIntention(
   const why = line(reason, REASON_CHARS);
   if (!why) return { ok: false, code: CODE.REASON_REQUIRED };
   return transition(record, 'dropped', { now, by, code: CODE.DROPPED, patch: { reason: why, droppedAt: now } });
-}
-
-/**
- * Why the persona may not accept candidate `record` (move it `proposed` -> `pending`) from where her
- * call comes, or null: `candidate-same-turn` (the turn that wrote the line it came from: an accept
- * comes in a later turn), and from an inner turn (`initiative`) `candidate-external` (its words came
- * from outside material: only an ordinary turn of hers accepts it) and `candidate-same-chain` (it
- * was born in an inner turn of the very chain asking). An owner's command (`by` not `persona`) is
- * never refused here. Pure.
- */
-export function acceptRefusal(
-  record: Intention,
-  {
-    by = 'persona',
-    initiative = false,
-    chainId = null,
-    turnId = null,
-  }: { by?: string; initiative?: boolean; chainId?: string | null; turnId?: string | null } = {}
-): 'candidate-same-turn' | 'candidate-external' | 'candidate-same-chain' | null {
-  if (record?.status !== 'proposed' || by !== 'persona') return null;
-  const provenance: Partial<Provenance> = record.provenance ?? {};
-  if (turnId && provenance.turnId && String(provenance.turnId) === String(turnId)) return 'candidate-same-turn';
-  if (!initiative) return null;
-  if (provenance.origin === 'external') return 'candidate-external';
-  if (provenance.bornInner === true && chainId && provenance.innerChainId === String(chainId))
-    return 'candidate-same-chain';
-  return null;
 }
 
 /**
@@ -1066,125 +1012,6 @@ export function dueList(records: unknown, now: number, jitterMinutes = 0): Array
       out.push({ intention: record, reason: 'due', at: record.dueAt });
   }
   return out.sort((a, b) => a.at - b.at);
-}
-
-/** Lower-cased, whitespace folded: how two texts are compared. */
-export function foldText(text: string | null | undefined): string {
-  return oneLine(String(text ?? '')).toLowerCase();
-}
-
-/**
- * Whether candidate `candidate` (`{ purpose, messageId, span }`) repeats one of `records`' open
- * intentions: the same message and span, or the same purpose (folded).
- */
-export function duplicates(
-  candidate: { purpose?: string; messageId?: string; span?: string } | null | undefined,
-  records: Array<Intention> | null | undefined
-): boolean {
-  const purpose = foldText(candidate?.purpose);
-  const span = foldText(candidate?.span);
-  const messageId = candidate?.messageId;
-  return (Array.isArray(records) ? records : []).some((record) => {
-    if (!isOpen(record?.status)) return false;
-    if (purpose && foldText(record.purpose) === purpose) return true;
-    return (
-      Boolean(messageId) &&
-      record.provenance?.messageId === messageId &&
-      span &&
-      foldText(record.provenance?.span) === span
-    );
-  });
-}
-
-/**
- * The intention candidates of one analyzer answer (`raw`: its `intentions` field, an array of
- * `{ span, purpose }`), anchored to the persona's own lines of the batch (`messages`, slim, `self`
- * true marking hers): a candidate whose `span` occurs (folded) in exactly her line is kept with
- * that line's id, channel and time, and the other authors of that channel in the batch
- * (`participants`, left out when none); a span found in none of her lines is dropped (`unanchored`),
- * and one that also occurs in another author's line of the batch is dropped as a quote of
- * someone else (`quoted`). At most `max` are kept (`over`). Each kept one carries its `origin`
- * (src/intentions/sources.ts#externalOrigin over the line and its note, `sourcesOf(line)`, the
- * line's own `sources` by default; `strict`: a line of hers with no note counts as external):
- * `external` with its `originReason`, else `own`; and the turn that wrote the line (`turnId`), and
- * whether it was an inner turn of which chain (`bornInner`, `innerChainId`). Never throws.
- */
-export function candidatesFromAnswer(
-  raw: unknown,
-  messages: Array<Untyped> | null | undefined,
-  {
-    max,
-    sourcesOf = null,
-    strict = false,
-  }: { max: number; sourcesOf?: ((line: Untyped) => Untyped) | null; strict?: boolean }
-): {
-  candidates: Array<Candidate>;
-  dropped: { invalid: number; unanchored: number; quoted: number; over: number };
-} {
-  const dropped = { invalid: 0, unanchored: 0, quoted: 0, over: 0 };
-  const candidates: Array<Candidate> = [];
-  const list: Array<Untyped> = Array.isArray(raw) ? raw : [];
-  const lines = Array.isArray(messages) ? messages.filter((m) => m && typeof m.content === 'string') : [];
-  const hers = lines.filter((m) => m.self === true);
-  const others = lines.filter((m) => m.self !== true);
-  // The members of a line's conversation: the other authors of its channel in the batch.
-  const membersOf = (own: Untyped): Array<string> =>
-    participantIds(
-      others
-        .filter(
-          (m) =>
-            String(m.channelId ?? '') === String(own.channelId ?? '') && m.authorId !== undefined && m.authorId !== null
-        )
-        .map((m) => String(m.authorId))
-    );
-  for (const item of list) {
-    const span = line(item?.span, SPAN_CHARS);
-    const purpose = line(item?.purpose, PURPOSE_CHARS);
-    if (!span || !purpose) {
-      dropped.invalid += 1;
-      continue;
-    }
-    const folded = foldText(span);
-    const own = [...hers].reverse().find((m) => foldText(m.content).includes(folded));
-    if (!own) {
-      dropped.unanchored += 1;
-      continue;
-    }
-    if (others.some((m) => foldText(m.content).includes(folded))) {
-      dropped.quoted += 1;
-      continue;
-    }
-    if (candidates.some((kept) => kept.messageId === String(own.id) && foldText(kept.span) === folded)) continue;
-    if (candidates.length >= max) {
-      dropped.over += 1;
-      continue;
-    }
-    const participants = membersOf(own);
-    let sources: Untyped = null;
-    try {
-      sources = (typeof sourcesOf === 'function' ? sourcesOf(own) : null) ?? own.sources ?? null;
-    } catch {
-      sources = null;
-    }
-    const reason = externalOrigin({ span, purpose }, own, sources, { strict });
-    const turnId = idOrNull(sources?.turnId) ?? idOrNull(own.inner?.turnId);
-    const chainId = idOrNull(sources?.chainId);
-    candidates.push({
-      purpose,
-      span,
-      messageId: String(own.id),
-      channelId: own.channelId ? String(own.channelId) : null,
-      ts: isFiniteNumber(own.ts) ? own.ts : null,
-      ...(participants.length > 0 ? { participants } : {}),
-      origin: reason ? 'external' : 'own',
-      ...(reason ? { originReason: reason } : {}),
-      turnId,
-      ...(sources?.inner === true || own.inner
-        ? { bornInner: true, ...(chainId ? { innerChainId: chainId } : {}) }
-        : {}),
-    });
-  }
-  return { candidates, dropped };
 }
 
 /**

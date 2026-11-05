@@ -193,13 +193,13 @@ test('every read command of the table answers with exit 0 and asks no model', as
 });
 
 // The parse error path of `-p`: the line never becomes a command.
-test('/search status names the engine the shipped settings choose when the persona sets none', async () => {
-  // Bug: the console read only the persona's settings and answered `engine unset` over a shipped default.
+test('/search status says off and unset while the persona chose no engine, as the shipped settings choose none', async () => {
+  // Changed: quick search has no shipped engine, so `engine unset` is the true answer.
   await withRig({}, async ({ dirs, llm, cores }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
     const run = await p(dirs, '/search');
     assert.equal(run.code, 0, run.stderr.slice(-2000));
-    assert.doesNotMatch(run.stdout, /engine unset/);
+    assert.match(run.stdout, /quick search is off, engine unset/);
   });
 });
 

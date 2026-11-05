@@ -230,8 +230,7 @@ export function createInputs(ctx: InputsContext): Inputs {
 
   /**
    * The request's `<intentions>` body (features.intentions exactly true, read now): her open
-   * intentions and the candidates proposed from her lines (`intentions.view`: a private chat's
-   * own only in that chat), cut to `context.caps.intentions` tokens (src/intentions/blocks.ts).
+   * intentions (`intentions.view`: a private chat's own only in that chat), cut to `context.caps.intentions` tokens (src/intentions/blocks.ts).
    * '' with the switch off, without the service, or with nothing to show.
    */
   function intentionsInputFor({

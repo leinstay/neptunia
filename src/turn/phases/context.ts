@@ -135,10 +135,7 @@ export type PhaseContext = {
     Inputs,
     'conversationOf' | 'turnContextOf' | 'stableFreezeOf' | 'errandsInputFor' | 'intentionsInputFor' | 'placesInputFor'
   > &
-  Pick<
-    JournalNotes,
-    'noteSeen' | 'linkTriggers' | 'linkCalls' | 'earlierThinkFor' | 'journalOn' | 'offPeriodsFor' | 'journalOp'
-  > &
+  Pick<JournalNotes, 'linkTriggers' | 'linkCalls' | 'earlierThinkFor' | 'journalOn' | 'offPeriodsFor' | 'journalOp'> &
   Pick<Diary, 'prepareDiary' | 'diaryPictureGate'> &
   Pick<DrawGif, 'resolveGif'> &
   Pick<Sends, 'emojiLookup' | 'settleAuthor' | 'diaryChannelName'> &

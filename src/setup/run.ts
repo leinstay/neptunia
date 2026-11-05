@@ -9,7 +9,8 @@
 //   keys-file        an empty `keys.json` at mode 0600; one that exists keeps its content and is made 0600
 //   interfaces       each interface package with a `setup.json`: asked whether to use it, then its own questions
 //                    (src/setup/interfaces.ts, src/setup/modules.ts)
-//   services         the optional YouTube Data API key, with the link that says how to get one (src/setup/services.ts)
+//   services         the optional YouTube Data API key, with the link that says how to get one, and optional quick
+//                    search, declined by default (src/setup/services.ts)
 //   subharness       the backends her agents may run through, installed and logged in (src/setup/subharness.ts)
 //   selfimprovement  the repository her pull requests go to, checked through the system's gh login
 //                    (src/setup/selfimprovement.ts); skipped while `selfimprovement.checkout` is unset

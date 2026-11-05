@@ -20,7 +20,9 @@
 // the end reaches the persona's intentions waiting on that errand (`intentions.onErrandFinished`,
 // src/intentions/service.ts), so the turn already shows them back to pending with the outcome. An `errand.done` for an
 // errand whose result she has read already (`readAt` set, in the event's errand or in the store), as a second delivery
-// of the same end after a restart brings it, opens no second result turn.
+// of the same end after a restart brings it, opens no second result turn. One end has one attempt at a time and one
+// retry armed at a time: the service reopening an unseen end, the door replaying it and a retry timer all pass through
+// `deliver`, which asks the store again, so a timer that fires after she read the result opens nothing.
 
 import { log as defaultLog } from '../log.ts';
 import { lineOf } from '../behavior/line-of.ts';
@@ -120,6 +122,8 @@ export function createErrandTurns({
   const lastAt = new Map<string, number>();
   // errand id -> pending timer, while a result waits for its turn
   const waiting = new Map<string, TimerHandle>();
+  // errand ids with an attempt running now
+  const delivering = new Set<string>();
 
   function seconds(key: string, fallback: number): number {
     const value = hot.config?.errands?.[key];
@@ -143,6 +147,7 @@ export function createErrandTurns({
       }
       return;
     }
+    if (waiting.has(errand.id)) return;
     const timer = setTimer(
       () => {
         waiting.delete(errand.id);
@@ -165,8 +170,28 @@ export function createErrandTurns({
     return event === undefined ? null : lineOf(event);
   }
 
-  /** One attempt at the result turn of `errand`. */
+  /** Whether her turn has had this end's result in front of it, by the errand held or the store now. */
+  function isRead(errand: ErrandRecord, guildId: string | null): boolean {
+    return Boolean(errand.readAt || errands?.store?.(guildId)?.get?.(errand.id)?.readAt);
+  }
+
+  /** One attempt at the result turn of `errand`, unless another is running or she has read the result since. */
   async function deliver(errand: ErrandRecord, guildId: string | null, attempt = 0): Promise<TurnResult> {
+    if (delivering.has(errand.id)) return null;
+    if (isRead(errand, guildId)) {
+      log.info('errands: result already read', { id: errand.id });
+      return null;
+    }
+    delivering.add(errand.id);
+    try {
+      return await attemptTurn(errand, guildId, attempt);
+    } finally {
+      delivering.delete(errand.id);
+    }
+  }
+
+  /** The result turn of `errand`, or the retry when the conversation's cooldown or the attention holds it back. */
+  async function attemptTurn(errand: ErrandRecord, guildId: string | null, attempt: number): Promise<TurnResult> {
     const channelId = errand.origin?.channelId;
     if (!channelId) {
       log.info('errands: result without a conversation', { id: errand.id });
@@ -226,8 +251,9 @@ export function createErrandTurns({
     return result;
   }
 
-  /** The service's `onFinished`: the result turn of `errand` (never throws). */
+  /** The service's `onFinished`: the result turn of `errand`, unless its retry is already armed (never throws). */
   function onFinished(errand: ErrandRecord, guildId: string | null): Promise<TurnResult> {
+    if (waiting.has(errand.id)) return Promise.resolve(null);
     return deliver(errand, guildId, 0).catch((err) => {
       log.warn('errands: result turn failed', { id: errand?.id, error: err });
       return null;
@@ -250,10 +276,6 @@ export function createErrandTurns({
       intentions?.onErrandFinished?.(errand, guildId);
     } catch (err) {
       log.warn('errands: intentions not reached', { id: errand.id, error: err });
-    }
-    if (errand.readAt || stored?.readAt) {
-      log.info('errands: result already read', { id: errand.id });
-      return Promise.resolve(null);
     }
     return onFinished(errand, guildId);
   }

@@ -18,7 +18,6 @@ export const EVENT_KINDS = Object.freeze([
   'self',
   'intend',
   'errand_end',
-  'analyzer',
   'planted',
   'restart',
   'stop',
@@ -133,7 +132,6 @@ export type FixtureExpect = {
   journal: Rec;
   kept: number | null;
   planted: number | null;
-  accepted: number | null;
   occurrences: Rec | null;
   feedback: { wakes: number | null; facts: Array<string>; code: string | null; intention: string | null } | null;
   attention: {
@@ -194,7 +192,6 @@ export type WeekRun = {
   timezone: string;
 };
 
-const candidateOf = (c: Rec) => ({ span: String(c?.span ?? ''), purpose: String(c?.purpose ?? '') });
 const attentionTurnOf = (t: Rec) => ({ day: Number(t?.day), lines: Number(t?.lines) });
 
 /**
@@ -415,13 +412,6 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
         state: event.state ?? 'done',
         usd: Number.isFinite(event.usd) ? event.usd : 0,
       });
-    } else if (event.kind === 'analyzer') {
-      need(Array.isArray(event.candidates) && event.candidates.length > 0, id, `${where} needs candidates`);
-      events.push({
-        ...base,
-        channel: channel(event.channel ?? channels[0].id, `${where}.channel`),
-        candidates: event.candidates.map(candidateOf),
-      });
     } else {
       events.push({ ...base, by: typeof event.by === 'string' ? event.by : 'owner' });
     }
@@ -483,7 +473,6 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
       journal: isObject(expect.journal) ? expect.journal : {},
       kept: Number.isInteger(expect.kept) ? expect.kept : null,
       planted: Number.isInteger(expect.planted) ? expect.planted : null,
-      accepted: Number.isInteger(expect.accepted) ? expect.accepted : null,
       // Occurrence codes of recurring intentions, each an exact count over the week (src/intentions/model.ts#OCCURRENCE_CODES).
       occurrences: isObject(expect.occurrences)
         ? Object.fromEntries(

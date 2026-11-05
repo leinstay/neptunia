@@ -14,12 +14,14 @@
 // the agent and the mode and never the brief, so the log shows who worked without a sandbox. A claude whose `--help` lists
 // `--session-id` gets a fresh one on each run, and src/subharness/sessions.ts maps it to the agent and the run, so the
 // watcher can tell whose transcript it reads. A map that cannot be written is a gap on the result, never a stopped run.
+// A step or output cap asked of a backend with no control for it (`backendLimits`: codex) is a gap too, so nobody reads
+// the cap as enforced where only the timeout ends a run.
 
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createInstalledBackend } from '../agent-runner/backend.ts';
+import { backendLimits, createInstalledBackend } from '../agent-runner/backend.ts';
 import type { Backend, BackendResult, BackendRunOptions } from '../agent-runner/backend.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { parseRoute } from '../agent-runner/protocol.ts';
@@ -41,6 +43,8 @@ export type AgentRun = {
   timeoutMs: number;
   /** The most model steps the run may take, where the backend has a control for it. */
   maxSteps?: number;
+  /** The most output tokens per model answer, where the backend has a control for it. */
+  maxOutputTokens?: number;
   /** codex: live web search */
   search?: boolean;
   /** The profile's OpenCode tool names; claude turns them into its own tool list. Absent for an agent with no profile tools. */
@@ -84,6 +88,23 @@ export function sandboxOfMode(mode: AgentMode): 'read-only' | 'workspace-write' 
 
 /** The gap on a run whose session id reached no map. */
 export const SESSION_MAP_GAP = 'session-map-write-failed';
+/** The gap on a run that asked for a step cap its backend cannot enforce. */
+const STEP_LIMIT_GAP = 'step-limit-not-enforced';
+/** The gap on a run that asked for an output cap its backend cannot enforce. */
+const OUTPUT_LIMIT_GAP = 'output-limit-not-enforced';
+
+/** The caps `run` asked for that the backend `name` has no control for. */
+function limitGaps(name: BackendName, run: AgentRun): Array<string> {
+  const limits = backendLimits(name);
+  return [
+    ...(run.maxSteps !== undefined && !limits.steps.enforced ? [STEP_LIMIT_GAP] : []),
+    ...(run.maxOutputTokens !== undefined && !limits.output.enforced ? [OUTPUT_LIMIT_GAP] : []),
+  ];
+}
+
+/** `result` with `gaps` added, unchanged when there are none. */
+const withGaps = (result: BackendResult, gaps: ReadonlyArray<string>): BackendResult =>
+  gaps.length === 0 ? result : { ...result, gaps: [...(result.gaps ?? []), ...gaps] };
 
 const SUDO_STAND_IN =
   '#!/bin/sh\necho "sudo: refused, this agent runs without sudo (the owner sets it: agent mode)" >&2\nexit 1\n';
@@ -219,6 +240,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
     ...(model === null ? {} : { model }),
     ...(effort === null ? {} : { effort }),
     ...(run.maxSteps === undefined ? {} : { maxSteps: run.maxSteps }),
+    ...(run.maxOutputTokens === undefined ? {} : { maxOutputTokens: run.maxOutputTokens }),
     ...(run.search === undefined ? {} : { search: run.search }),
     ...(run.tools === undefined ? {} : { tools: run.tools }),
     ...(run.images === undefined ? {} : { images: run.images }),
@@ -226,8 +248,11 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
   };
   const backend = deps.backendFactory?.(name) ?? createInstalledBackend(name, deps.privateDir);
   const sessionId = await sessionIdOf(name, deps);
-  if (sessionId === undefined) return backend.run(run.brief, options);
+  const gaps = limitGaps(name, run);
+  if (gaps.length > 0)
+    log.info('subharness: a cap has no control on this backend', { agent: run.agent, backend: name, gaps });
+  if (sessionId === undefined) return withGaps(await backend.run(run.brief, options), gaps);
   const onMap = mapped(run, deps, name, sessionId);
   const done = await backend.run(run.brief, { ...options, sessionId });
-  return { ...done, sessionId, ...(onMap ? {} : { gaps: [...(done.gaps ?? []), SESSION_MAP_GAP] }) };
+  return withGaps({ ...done, sessionId }, onMap ? gaps : [SESSION_MAP_GAP, ...gaps]);
 }

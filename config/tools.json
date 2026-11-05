@@ -508,8 +508,8 @@
   },
   "intention.update": {
     "title": "Update an intention",
-    "whenToUse": "Change an intention. done: one occurrence. dropped+reason: let go. Accept candidate: state pending. intention.cancel ends repeating.",
-    "whenNotToUse": "Reject a candidate or an intention: intention.cancel.",
+    "whenToUse": "Change an intention. done: one occurrence. dropped+reason: let go. intention.cancel ends repeating.",
+    "whenNotToUse": "End one for good: intention.cancel.",
     "args": {
       "state": "pending, done, or dropped.",
       "reason": "Required with dropped.",
@@ -530,10 +530,10 @@
   },
   "intention.cancel": {
     "title": "Cancel an intention",
-    "whenToUse": "Drop one you reject or no longer need. Rejects a proposed candidate.",
+    "whenToUse": "Drop one you no longer need.",
     "whenNotToUse": "Finished: intention.update state=done.",
     "args": {
-      "id": "Intention or candidate id."
+      "id": "Intention id."
     }
   },
   "inner.stop": {

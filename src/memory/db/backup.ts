@@ -2,6 +2,8 @@
 // Runtime files under run/ and the database's WAL, SHM and writer lock are excluded.
 // The manifest records checksums and table counts; restoration verifies them before copying.
 // The scheduler keeps the configured number of finished backups and retries failed writes.
+// A backup holds the persona's keys and memory: every folder it creates is 700 and every file 600, whatever the source's
+// mode. The manifest keeps each file's mode for the restore, with `keys.json` at 600 even from a looser source.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,7 +16,8 @@ import { dbOf, asText, isWholeNumber } from './types.ts';
 export type BackupManifest = {
   v: number;
   schemaVersion: number;
-  files: Array<{ path: string; size: number; sha256: string }>;
+  /** `mode`: what a restore gives the file back; the backup's own copy is always 600. */
+  files: Array<{ path: string; size: number; sha256: string; mode?: number }>;
   rows?: Record<string, number>;
   [key: string]: unknown;
 };
@@ -26,6 +29,8 @@ export const BACKUP_DEFAULTS = Object.freeze({ enabled: false, hour: 3, dir: '..
 /** A finished backup's folder name. */
 const NAME_RE = /^\d{4}-\d{2}-\d{2}-\d{6}-memory$/;
 const PARTIAL = '.partial';
+/** The persona's key file: never looser than 600, in a backup or after a restore. */
+const KEYS_FILE = 'keys.json';
 
 const sha256File = (file: string): string => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
@@ -112,12 +117,15 @@ export function writeBackup(
   fs.chmodSync(path.join(to, 'memory.db'), 0o600);
   const databaseFiles = new Set(['', '-wal', '-shm', '.lock'].map((suffix) => path.resolve(handle.path + suffix)));
   const files = ['memory.db'];
+  const modes = new Map<string, number>();
   for (const rel of filesUnder(dataDir)) {
     const source = path.join(dataDir, rel);
     if (rel.split(path.sep)[0] === 'run' || databaseFiles.has(path.resolve(source))) continue;
     const out = path.join(to, rel);
     fs.mkdirSync(path.dirname(out), { recursive: true, mode: 0o700 });
     fs.copyFileSync(source, out);
+    fs.chmodSync(out, 0o600);
+    modes.set(rel, rel === KEYS_FILE ? 0o600 : fs.statSync(source).mode & 0o777);
     files.push(rel);
   }
   const manifest = {
@@ -131,6 +139,7 @@ export function writeBackup(
       path: rel.split(path.sep).join('/'),
       size: fs.statSync(path.join(to, rel)).size,
       sha256: sha256File(path.join(to, rel)),
+      ...(modes.has(rel) ? { mode: modes.get(rel) } : {}),
     })),
     rows: rowCounts(dbOf(handle)),
   };
@@ -206,6 +215,7 @@ export function restoreDatabase({
     const out = path.join(data, ...String(file.path).split('/'));
     fs.mkdirSync(path.dirname(out), { recursive: true, mode: 0o700 });
     fs.copyFileSync(path.join(from, ...String(file.path).split('/')), out, fs.constants.COPYFILE_EXCL);
+    if (typeof file.mode === 'number') fs.chmodSync(out, file.mode);
   }
   const handle = openMemoryDb(dbPath, { readOnly: true });
   try {
