@@ -168,6 +168,11 @@ export type EdgeSeed = {
   retiredAt?: string | null;
 };
 
+/** Empties the graph a migrated database starts with (its interfaces, authorities and self), so a test's inventory is exact. */
+export function clearGraph(db: Db): void {
+  db.exec('DELETE FROM node_access; DELETE FROM graph_edges; DELETE FROM graph_nodes;');
+}
+
 /** One graph node, its kind read from the node-id rule `<kind>:<row id>`, with no witness. */
 export function addNode(db: Db, id: string): void {
   const kind = id.slice(0, id.indexOf(':'));
