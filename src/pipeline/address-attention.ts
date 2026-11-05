@@ -5,7 +5,7 @@
 // restart does not make her deaf to the talk she just joined. createMessageHandler (src/behavior/pipeline.ts) builds it
 // once.
 
-import { followUpPreFilter, inAttention } from '../behavior/mention.ts';
+import { cardAliases, followUpPreFilter, inAttention, namesAlias } from '../behavior/mention.ts';
 import { log } from '../log.ts';
 import { MINUTE_MS } from '../time.ts';
 import type { Conv, Line, Ping, PipelineConfig, PipelineHot, PipelineState } from './types.ts';
@@ -19,6 +19,8 @@ export type AddressAttentionContext = {
   hot: PipelineHot;
   store: { state?: PipelineState } | null | undefined;
   now: () => number;
+  /** The memory's learned stemmer, read at the moment of use; null without one. */
+  stemmer: () => { stem: (word: string) => string } | null;
 };
 
 export type AddressAttention = {
@@ -31,7 +33,7 @@ export type AddressAttention = {
 /** One place's key: two interfaces may share a native id. */
 const keyOf = (iface: string, placeId: string): string => JSON.stringify([iface, placeId]);
 
-export function createAddressAttention({ hot, store, now }: AddressAttentionContext): AddressAttention {
+export function createAddressAttention({ hot, store, now, stemmer }: AddressAttentionContext): AddressAttention {
   const lastPosts = new Map<string, number>();
   const minutes = (): number => hot.config.address?.attentionMinutes ?? 0;
 
@@ -70,13 +72,18 @@ export function createAddressAttention({ hot, store, now }: AddressAttentionCont
 
   /**
    * The checks in front of the classifier for an unflagged line, read from the hot config now: `skip` outside attention
-   * or where she cannot send, `handled` when the pre-filter already gave a `no` (logged), `classify` when the model
+   * unless the line names one of the card's aliases (the alias gate, logged `address: gate` with `gate: 'alias'`), or
+   * where she cannot send, `handled` when the pre-filter already gave a `no` (logged), `classify` when the model
    * must be asked.
    */
   function addressGate(channel: Conv, normalized: Line, selfId: string): AddressGate {
     const placeId = channel.id;
-    if (!inAttention(lastPosts.get(keyOf(channel.iface, placeId)), now(), minutes()))
-      return { kind: 'skip', reason: 'closed' };
+    if (!inAttention(lastPosts.get(keyOf(channel.iface, placeId)), now(), minutes())) {
+      const aliases = cardAliases(hot.prompts?.['character-card']);
+      if (aliases.length === 0 || !namesAlias(normalized.content, aliases, stemmer()))
+        return { kind: 'skip', reason: 'closed' };
+      log.info('address: gate', { channel: placeId, author: normalized.authorId, gate: 'alias' });
+    }
     // A turn that blocks this one does not stop the classifier: its "yes" waits in the pending queue.
     if (!channel.permissions.send) return { kind: 'skip', reason: 'cannot-send' };
     if (followUpPreFilter(normalized, selfId)) {

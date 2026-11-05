@@ -143,6 +143,7 @@ export function createMessageHandler({
   record = null,
   missed = null,
   memoryDb = null,
+  stemmer = null,
   port,
 }: {
   // The live config and prompts. A test hands in a stand-in whose config holds only what it reads, so the modules
@@ -170,6 +171,8 @@ export function createMessageHandler({
   record?: { append: (...args: Array<Untyped>) => Untyped } | null;
   memoryDb?: Parameters<typeof createObserve>[0]['memoryDb'];
   missed?: (PipelineMissed & { setPrivateRecovery?: (recovery: object) => void }) | null;
+  /** The memory's learned stemmer for the alias gate, read at each line; null or absent leaves whole-word matching. */
+  stemmer?: (() => { stem: (word: string) => string } | null) | null;
   port: Adapter;
 }): MessageHandler {
   const turns = turnRunner;
@@ -188,7 +191,12 @@ export function createMessageHandler({
   });
 
   // Attention loads its saved times back here, before anything else is built.
-  const { noteAttention, followUpMuted, addressGate, followUpStale } = createAddressAttention({ hot, store, now });
+  const { noteAttention, followUpMuted, addressGate, followUpStale } = createAddressAttention({
+    hot,
+    store,
+    now,
+    stemmer: () => stemmer?.() ?? null,
+  });
   const { buildClassifierRequest } = createClassifierRequest({ reads, store, refOf, cachedFollowUpMedia });
   const { announceRefusal, afterCallTurn, heldCallState } = createCallOutcome({
     hot,

@@ -80,6 +80,34 @@ export function decideTurn({ turns, limit, neverIgnore }: { turns: number; limit
   return limit > 0 && turns >= limit ? { respond: false, reason: 'refused' } : { respond: true, reason: 'respond' };
 }
 
+/** The words of a text, case-folded: runs of letters and digits. */
+const wordsOf = (text: unknown): Array<string> =>
+  String(text ?? '')
+    .normalize('NFC')
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+
+/**
+ * Whether `text` names one of `aliases`: its words, each through `stemmer` when there is one, hold the words of an alias
+ * in a row. Without a stemmer a word must equal the alias's word, so a short alias never matches inside a longer word.
+ */
+export function namesAlias(
+  text: unknown,
+  aliases: ReadonlyArray<string>,
+  stemmer: { stem: (word: string) => string } | null
+): boolean {
+  const key = (word: string): string => (stemmer ? stemmer.stem(word) : word);
+  const words = wordsOf(text).map(key);
+  return aliases.some((alias) => {
+    const wanted = wordsOf(alias).map(key);
+    if (wanted.length === 0) return false;
+    for (let i = 0; i + wanted.length <= words.length; i += 1)
+      if (wanted.every((word, j) => words[i + j] === word)) return true;
+    return false;
+  });
+}
+
 /** Whether her post at `lastPostAt` still holds attention at `now`: the window excludes its own edge. */
 export function inAttention(lastPostAt: number | undefined, now: number, minutes: number): boolean {
   return lastPostAt !== undefined && now - lastPostAt < minutes * MINUTE_MS;

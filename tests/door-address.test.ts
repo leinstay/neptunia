@@ -179,7 +179,8 @@ function door(options: DoorOptions = {}) {
       iface: shape.iface,
       at: clock.at,
       id: `${shape.iface}:message:${id}`,
-      conversation: { id: shape.place.id, kind: 'channel', name: shape.place.id, ...shape.place },
+      // Type fix (plan B1 amendment, approved): the place carries its own `id`, so it is not written twice.
+      conversation: { kind: 'channel', name: shape.place.id, ...shape.place },
       message: {
         id,
         author: { id: author, name: author === SELF ? 'Nova' : 'Eleni', self: author === SELF, bot: false },

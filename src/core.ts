@@ -62,6 +62,7 @@ import { createSpeech } from './speech/index.ts';
 import { ffmpegAvailable } from './speech/convert.ts';
 import { createTurnRunner } from './behavior/turn.ts';
 import { createActivity } from './behavior/activity.ts';
+import { loadStemmer } from './memory/db/stems.ts';
 import { createMissed } from './behavior/missed.ts';
 import { createEmojiIndex } from './behavior/emoji-index.ts';
 import { ownMessagesOf } from './behavior/own-messages.ts';
@@ -1179,6 +1180,11 @@ async function buildCore(
     turns,
     memory,
     tagHistory,
+    // The alias gate reads the memory's learned stemmer; while the database is closed it matches whole words.
+    stemmer: () => {
+      const handle = memoryDb.readHandle();
+      return handle ? loadStemmer(handle.db as Parameters<typeof loadStemmer>[0]) : null;
+    },
     getSelfName,
     describer,
     // features.followUp: the address classifier's own, separate LLM call.

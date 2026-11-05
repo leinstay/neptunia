@@ -50,7 +50,8 @@ function eventOf(spot: Spot, line: ReturnType<typeof memberLine>) {
     iface: spot.iface,
     at: line.ts,
     id: `${spot.iface}:message:${line.id}`,
-    conversation: { id: spot.place.id, kind: 'channel', name: spot.place.id, ...spot.place },
+    // Type fix (plan B1 amendment, approved): the place carries its own `id`, so it is not written twice.
+    conversation: { kind: 'channel', name: spot.place.id, ...spot.place },
     message: {
       id: line.id,
       author: { id: line.authorId, name: line.authorName, self: false, bot: false },

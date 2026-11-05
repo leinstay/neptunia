@@ -48,7 +48,9 @@ async function secondTurn(pick: string): Promise<{ asked: Array<Asked>; reply: s
       },
     ],
     llm: {
-      complete: (messages: unknown, options: { purpose?: unknown }) => {
+      // Type fix (plan B3, approved): the core types a request's options `unknown`, so the purpose is read through a cast.
+      complete: (messages: unknown, given: unknown) => {
+        const options = given as { purpose?: unknown } | undefined;
         asked.push({ purpose: options?.purpose, text: JSON.stringify(messages) });
         const text =
           options?.purpose === 'address' ? 'yes' : options?.purpose === 'elsewhere-pick' ? pick : '<msg>καλημέρα</msg>';

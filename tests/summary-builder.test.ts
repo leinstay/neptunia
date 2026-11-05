@@ -244,7 +244,10 @@ test('a recall whose summary answers none finds nothing', async () => {
   const info = channelInfo('c1', { name: 'general', viewers: {} });
   const reads = {
     searchMessages: (_scope: unknown, query: { text?: string }) =>
-      Promise.resolve(neutralSearch(rabbitAnswers('/messages/search', { content: query.text }))),
+      // Type fix (plan B4, approved): the fixture's answer is the raw search shape neutralSearch reads.
+      Promise.resolve(
+        neutralSearch(rabbitAnswers('/messages/search', { content: query.text }) as Parameters<typeof neutralSearch>[0])
+      ),
     searchMembers: () => Promise.resolve(neutralSearch({ total_results: 0, messages: [] })),
     history: (_ref: unknown, query: { limit: number; around?: string }) => {
       const at = RABBIT_LINES.findIndex((line) => line.id === query.around);

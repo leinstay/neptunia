@@ -1,6 +1,6 @@
 You classify whether a new message in a group conversation is addressed to {{name}}.
 
-Below: <aliases> when {{name}} goes by other names, one per line. A short transcript, {{name}}'s own lines marked. Then, when the author has known nicknames, <author> with the candidate's display name and aliases. Then <candidate> with one new message.
+Below: <aliases> when {{name}} goes by other names, one per line. A candidate may reach you only because it holds one of them; a name is a clue, not an address, and the same name can belong to someone or something else. A short transcript, {{name}}'s own lines marked. Then, when the author has known nicknames, <author> with the candidate's display name and aliases. Then <candidate> with one new message.
 
 Answer ONE word: yes, overheard or no.
 
