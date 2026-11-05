@@ -81,8 +81,8 @@ export function decideTurn({ turns, limit, neverIgnore }: { turns: number; limit
 }
 
 /** The words of a text, case-folded: runs of letters and digits. */
-const wordsOf = (text: unknown): Array<string> =>
-  String(text ?? '')
+const wordsOf = (text: string | null | undefined): Array<string> =>
+  (text ?? '')
     .normalize('NFC')
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
@@ -93,7 +93,7 @@ const wordsOf = (text: unknown): Array<string> =>
  * in a row. Without a stemmer a word must equal the alias's word, so a short alias never matches inside a longer word.
  */
 export function namesAlias(
-  text: unknown,
+  text: string | null | undefined,
   aliases: ReadonlyArray<string>,
   stemmer: { stem: (word: string) => string } | null
 ): boolean {
@@ -111,22 +111,6 @@ export function namesAlias(
 /** Whether her post at `lastPostAt` still holds attention at `now`: the window excludes its own edge. */
 export function inAttention(lastPostAt: number | undefined, now: number, minutes: number): boolean {
   return lastPostAt !== undefined && now - lastPostAt < minutes * MINUTE_MS;
-}
-
-/**
- * The names of the `## Aliases` section of the character card, one per line, a list bullet dropped. Empty for a card
- * without the section, whose heading ends at the next `## ` heading.
- */
-export function cardAliases(card: unknown): Array<string> {
-  if (typeof card !== 'string') return [];
-  const found = /^## Aliases[ \t]*$/m.exec(card);
-  if (!found) return [];
-  const rest = card.slice(found.index + found[0].length);
-  const next = /^## /m.exec(rest);
-  return (next ? rest.slice(0, next.index) : rest)
-    .split('\n')
-    .map((line) => line.replace(/^\s*[-*]\s+/, '').trim())
-    .filter(Boolean);
 }
 
 /**

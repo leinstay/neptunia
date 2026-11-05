@@ -99,7 +99,6 @@
 // The record holds no picture captions, so a picture without text is never a candidate.
 
 import { placeOfCommunity } from '../src/memory/addresses.ts';
-import { cardAliases } from '../src/behavior/mention.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -474,7 +473,7 @@ async function traces(flags: Flags, { dataDir, placeId, now, cwd }: RunContext) 
     );
     const self = { id: flags['--self-id'] ?? null, name: flags['--self-name'] ?? null };
     const guild = localGuild({ placeId, selfId: self.id, channelNameOf: (id) => channelNames.get(id) ?? null });
-    const selfName = self.name ?? cardAliases(hot.prompts?.['character-card'])[0] ?? 'bot';
+    const selfName = self.name ?? 'bot';
     const historyCount = Math.max(1, Math.floor(config.context?.channelMessages ?? 100));
     const llm = {
       capLeft: () => Infinity,
@@ -514,7 +513,7 @@ async function traces(flags: Flags, { dataDir, placeId, now, cwd }: RunContext) 
           settings: settings.prefetch,
           selfId: self.id,
           selfName,
-          selfNames: cardAliases(hot.prompts?.['character-card']),
+          selfNames: [],
           nameOf,
         });
         if (skip) {
@@ -785,7 +784,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
     );
     guild = localGuild({ placeId, selfId: self.id, channelNameOf: (id) => channelNames.get(id) ?? null });
   }
-  const selfName = self.name ?? cardAliases(hot.prompts?.['character-card'])[0] ?? 'bot';
+  const selfName = self.name ?? 'bot';
   const historyCount = Math.max(1, Math.floor(config.context?.channelMessages ?? 100));
   const historyOf = new Map();
 
@@ -903,7 +902,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
         settings: settings.prefetch,
         selfId: self.id,
         selfName,
-        selfNames: cardAliases(hot.prompts?.['character-card']),
+        selfNames: [],
         nameOf,
       });
       if (skip)

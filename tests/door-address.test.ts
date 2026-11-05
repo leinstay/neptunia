@@ -7,8 +7,8 @@
 //   `mention`, `reply` or `followUp` by what the line carried, `overheard` an overheard turn, `no` nothing
 //   past `address.maxTurnsPerAuthor` started turns of one author in one place within `address.attentionMinutes`, a
 //   `yes` starts no turn and logs `address: refused` with `{ turns, limit }`
-//   the names come from the `## Aliases` section of `prompts['character-card']`, one per line, and reach the request as
-//   an `<aliases>` block; `bot.nameTriggers` opens nothing
+//   the names come from her person record (`selfNames`, the names the owner gave `person:self`) and reach the request
+//   as an `<aliases>` block; `bot.nameTriggers` opens nothing
 //   `missed.noteFact` carries `iface`
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -57,6 +57,7 @@ type DoorOptions = {
   rng?: () => number;
   storeState?: { data: Record<string, unknown>; markDirty(): void };
   nameTriggers?: Array<string>;
+  selfNames?: Array<string>;
 };
 
 /** One handler over a fake adapter per interface, a fake model and a fake turn runner. */
@@ -158,6 +159,7 @@ function door(options: DoorOptions = {}) {
         noteActivity() {},
         noteNotAddressed() {},
       },
+      selfNames: () => options.selfNames ?? [],
       port: adapterOf(shapes[0].iface),
     })
   );
@@ -449,18 +451,18 @@ test('a failed classifier call on a flagged line leaves a fact that names its in
   assert.equal(scene.facts[0]?.iface, ROOT_GROUP.iface);
 });
 
-test('the names of the character card reach the classifier as an aliases block', async () => {
+// The owner moved aliases to her person record: they come from `selfNames`, the names he gave `person:self`.
+test('the names of her person record reach the classifier as an aliases block', async () => {
   // Bug: the engine still holds its own list, so a nickname from the card is unknown to the verdict.
-  const card = '## Who {{name}} is\n\nA regular.\n\n## Aliases\n\n- Νόβα\n- Novita\n\n## Voice\n\nDry.\n';
-  const scene = door({ prompts: { 'character-card': card }, nameTriggers: ['Ενγκίνε'] });
+  const scene = door({ selfNames: ['Νόβα', 'Novita'], nameTriggers: ['Ενγκίνε'] });
   await scene.say(CHANNEL, { mentioned: true });
   const aliases = /<aliases>\n([\s\S]*?)\n<\/aliases>/.exec(JSON.parse(scene.calls[0]?.user ?? '""') as string)?.[1];
   assert.deepEqual(aliases?.split('\n'), ['Νόβα', 'Novita']);
 });
 
-test('a card without an aliases section adds no block, and no configured trigger stands in for it', async () => {
+test('a person record with no names adds no block, and no configured trigger stands in for it', async () => {
   // Bug: `bot.nameTriggers` keeps feeding the request as a hidden name list.
-  const scene = door({ prompts: { 'character-card': '## Voice\n\nDry.\n' }, nameTriggers: ['Ενγκίνε'] });
+  const scene = door({ selfNames: [], nameTriggers: ['Ενγκίνε'] });
   await scene.say(CHANNEL, { mentioned: true });
   const user = scene.calls[0]?.user ?? '';
   assert.equal(user.includes('<aliases>'), false);

@@ -65,6 +65,7 @@ import { ffmpegAvailable } from './speech/convert.ts';
 import { gifVectorModel } from './behavior/media-pick.ts';
 import { createTurnRunner } from './behavior/turn.ts';
 import { createActivity } from './behavior/activity.ts';
+import { ownerNamesOf } from './memory/db/people-read.ts';
 import { loadStemmer } from './memory/db/stems.ts';
 import { createMissed } from './behavior/missed.ts';
 import { createEmojiIndex } from './behavior/emoji-index.ts';
@@ -90,7 +91,7 @@ import { createErrandStores } from './errands/store.ts';
 import { groupsContext } from './memory/db/scope.ts';
 import type { RetrievalInput } from './memory/retrieval-input.ts';
 import { createErrandService } from './errands/service.ts';
-import { channelPlaceId } from './memory/db/ids.ts';
+import { SELF_PERSON, channelPlaceId } from './memory/db/ids.ts';
 import { createMemberDirectory } from './interface/members.ts';
 import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.ts';
@@ -1211,6 +1212,11 @@ async function buildCore(
     stemmer: () => {
       const handle = memoryDb.readHandle();
       return handle ? loadStemmer(handle.db as Parameters<typeof loadStemmer>[0]) : null;
+    },
+    // Her aliases: the names the owner gave her own person record, `/memory users names add person:self <name>`.
+    selfNames: () => {
+      const handle = memoryDb.readHandle();
+      return handle ? ownerNamesOf(handle.db as Parameters<typeof ownerNamesOf>[0], SELF_PERSON) : [];
     },
     getSelfName,
     describer,

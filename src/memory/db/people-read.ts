@@ -152,7 +152,21 @@ function namesOfJson(value: unknown): Array<string> {
   }
 }
 
-/** The names on record for a person: their verified accounts' and the one the owner stored. */
+/**
+ * The names the owner gave a person with `/memory users names add`: `alias` claims whose `author` is `owner`. A name her
+ * memory session or the analyzer wrote is never one of them.
+ */
+export function ownerNamesOf(db: Db, personId: string): Array<string> {
+  return db
+    .prepare(
+      "SELECT text FROM claims WHERE subject_id = ? AND kind = 'alias' AND author = 'owner' AND retired_at IS NULL ORDER BY created_at, id"
+    )
+    .all(personId)
+    .map((row) => String(row.text))
+    .filter(Boolean);
+}
+
+/** The names on record for a person: their verified accounts', the real name stored, and the ones the owner gave. */
 function namesOfPerson(db: Db, ids: ReadonlyArray<string>): Array<string> {
   const marks = ids.map(() => '?').join(', ');
   const names = new Set<string>();
@@ -162,6 +176,7 @@ function namesOfPerson(db: Db, ids: ReadonlyArray<string>): Array<string> {
     .prepare(`SELECT names FROM accounts WHERE person_id IN (${marks}) AND link = 'verified' ORDER BY id`)
     .all(...ids))
     for (const name of namesOfJson(row.names)) names.add(name);
+  for (const id of ids) for (const name of ownerNamesOf(db, id)) names.add(name);
   return [...names];
 }
 

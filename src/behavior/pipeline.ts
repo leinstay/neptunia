@@ -145,6 +145,7 @@ export function createMessageHandler({
   missed = null,
   memoryDb = null,
   stemmer = null,
+  selfNames = null,
   port,
 }: {
   // The live config and prompts. A test hands in a stand-in whose config holds only what it reads, so the modules
@@ -175,6 +176,8 @@ export function createMessageHandler({
   missed?: (PipelineMissed & { setPrivateRecovery?: (recovery: object) => void }) | null;
   /** The memory's learned stemmer for the alias gate, read at each line; null or absent leaves whole-word matching. */
   stemmer?: (() => { stem: (word: string) => string } | null) | null;
+  /** Her aliases, the names the owner gave her own person record (`person:self`); absent: none. */
+  selfNames?: (() => ReadonlyArray<string>) | null;
   port: Adapter;
 }): MessageHandler {
   const turns = turnRunner;
@@ -198,8 +201,15 @@ export function createMessageHandler({
     store,
     now,
     stemmer: () => stemmer?.() ?? null,
+    selfNames: () => selfNames?.() ?? [],
   });
-  const { buildClassifierRequest } = createClassifierRequest({ reads, store, refOf, cachedFollowUpMedia });
+  const { buildClassifierRequest } = createClassifierRequest({
+    reads,
+    store,
+    refOf,
+    cachedFollowUpMedia,
+    selfNames: () => selfNames?.() ?? [],
+  });
   const { announceRefusal, afterCallTurn, heldCallState } = createCallOutcome({
     hot,
     reads,

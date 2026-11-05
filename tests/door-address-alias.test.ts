@@ -1,8 +1,8 @@
 // The alias gate of the door: a line that names the persona by one of the card's aliases, with no ping, goes to the
 // address classifier, and only its verdict starts a turn. The engine holds no name list.
 // Contract, the owner's amendment to plan 2026-11-04-cli-and-memory B1:
-//   a third gate beside the flags and attention: the line's text holds an alias of the `## Aliases` section of
-//   `prompts['character-card']`, one per line
+//   a third gate beside the flags and attention: the line's text holds one of her aliases, the names the owner gave her
+//   person record (`selfNames`, read at the moment of use)
 //   a word matches when its stem equals an alias's stem under `stemmer()` (createMessageHandler's dependency, the
 //   memory's learned stemmer, read at the moment of use), else by a case-folded whole-word match
 //   the gate that sent a line is logged as `gate: 'alias'`, with no text of the line
@@ -21,7 +21,8 @@ import { channel as channelOf } from './fixtures/reads-rig.ts';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 const SELF = 'self-id';
-const CARD = '## Who {{name}} is\n\nA regular.\n\n## Aliases\n\n- Ζεφύρα\n- Zefira\n- Ilo\n\n## Voice\n\nDry.\n';
+// The owner moved aliases to her person record: they come from `selfNames`, the names he gave `person:self`.
+const NAMES = ['Ζεφύρα', 'Zefira', 'Ilo'];
 /** A stemmer that drops a few Greek endings, as a learned one would. */
 const GREEK_STEMS = { stem: (word: string) => word.toLowerCase().replace(/(ας|ου|α|ς)$/u, '') };
 
@@ -32,7 +33,7 @@ const DM: Spot = { iface: 'alpha', place: { id: 'd1', kind: 'dm', chatType: 'dm'
 function door(
   options: {
     answer?: string;
-    card?: string;
+    names?: Array<string>;
     stemmer?: { stem: (word: string) => string } | null;
     maxTurnsPerAuthor?: number;
   } = {}
@@ -50,7 +51,7 @@ function door(
           private: { enabled: true, minAffinity: 0 },
           address: { attentionMinutes: 30, maxTurnsPerAuthor: options.maxTurnsPerAuthor ?? 100 },
         }),
-        prompts: { address: 'Is it said to {{name}}?', labels, 'character-card': options.card ?? CARD },
+        prompts: { address: 'Is it said to {{name}}?', labels },
       },
       store: { state: { data: {}, markDirty() {} }, getUser: () => ({ names: ['Member'], affinity: { score: 0 } }) },
       reads,
@@ -78,6 +79,7 @@ function door(
         },
       },
       stemmer: () => (options.stemmer === undefined ? GREEK_STEMS : options.stemmer),
+      selfNames: () => options.names ?? NAMES,
       rng: () => {
         throw new Error('the door rolls no chance');
       },
@@ -177,9 +179,9 @@ for (const stemmer of [GREEK_STEMS, null]) {
   });
 }
 
-test('a card without an aliases section adds no gate', async () => {
+test('a person record with no names adds no gate', async () => {
   // Bug: a fallback name list stands in when the card has none.
-  const scene = door({ card: '## Voice\n\nDry.\n' });
+  const scene = door({ names: [] });
   await scene.say(GROUP, 'Zefira, are you there?');
   assert.equal(scene.calls.length, 0);
 });

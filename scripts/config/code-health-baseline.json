@@ -87,13 +87,13 @@
     },
     "scripts/recall-eval.ts": {
       "main": {
-        "complexity": 42
+        "complexity": 41
       },
       "main>askClassifier": {
         "complexity": 24
       },
       "traces": {
-        "complexity": 30
+        "complexity": 29
       }
     },
     "scripts/replay.ts": {
@@ -153,7 +153,7 @@
     },
     "scripts/search-policy-eval.ts": {
       "main": {
-        "complexity": 23
+        "complexity": 22
       }
     },
     "scripts/vision-compare.ts": {

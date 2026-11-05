@@ -8,7 +8,6 @@ import {
   createTagHistory,
   decideTurn,
   inAttention,
-  cardAliases,
   followUpPreFilter,
   deprecatedModelKeys,
   parseFollowUpVerdict,
@@ -84,14 +83,7 @@ test('decideTurn: a limit of zero turns the rail off', () => {
   assert.equal(decideTurn({ turns: 1000, limit: 0, neverIgnore: false }).respond, true);
 });
 
-test('cardAliases: a section with bullets and plain lines stops at the next heading', () => {
-  assert.deepEqual(cardAliases('## Aliases\n- Nova\nNovita\n\n## Voice\nDry'), ['Nova', 'Novita']);
-});
-
-test('cardAliases: a card without the section, and no card, have none', () => {
-  assert.deepEqual(cardAliases('## Voice\nAliases are fine'), []);
-  assert.deepEqual(cardAliases(undefined), []);
-});
+// The owner moved aliases to her person record, so the card's `## Aliases` reader and its tests went.
 
 test('isTaggedCall: a typed tag counts, the reply ping alone does not', () => {
   assert.equal(isTaggedCall({ mentionedAccountIds: ['s1'], replyPingAccountId: null }, 's1'), true);

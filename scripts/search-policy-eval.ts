@@ -17,7 +17,7 @@
 // `author`, else `-`), under the live config and labels; the system prompt is prompts['query-builder']
 // (tracked, or the deployment's data/prompts/query-builder.md through the usual loader, src/hot.ts)
 // with `{{today}}` = today in `bot.timezone`, `{{name}}` = the persona's name (`--self-name`,
-// else the first name of the card's `## Aliases`) and `{{skills}}` = the skills index when discovery
+// else `bot`) and `{{skills}}` = the skills index when discovery
 // is on (src/tools/discovery.ts), as the turn fills them. One completion on the `analyzer` role
 // (roleModel for purpose `query-builder`; `--model` pins another for this run only), with the turn's
 // helper options (roleRequestOptions: its temperature, timeout and hedge), the answer capped at
@@ -45,7 +45,6 @@
 // Logs carry ids and decisions only.
 
 import fs from 'node:fs';
-import { cardAliases } from '../src/behavior/mention.ts';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CliError, defaultDataDir, parseFlags, privateDirOf, runCli, simKey } from './lib/cli.ts';
@@ -171,7 +170,7 @@ export async function main(
   try {
     if (!hot.prompts?.['query-builder']) throw new CliError('search-policy-eval: prompts.query-builder is missing');
     if (!hot.prompts?.labels) throw new CliError('search-policy-eval: prompts.labels is missing');
-    const selfName = flags['--self-name'] ?? cardAliases(hot.prompts?.['character-card'])[0] ?? 'bot';
+    const selfName = flags['--self-name'] ?? 'bot';
 
     /** One row's request, as maybeLookup builds it, read now. */
     const requestOf = (row: SheetRow) => {

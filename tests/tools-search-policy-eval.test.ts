@@ -67,7 +67,6 @@ function hotFixture(overrides = {}) {
     },
     prompts: {
       'query-builder': 'Today is {{today}}. You are {{name}}.{{skills}}',
-      'character-card': '## Aliases\n\nPersona\n',
       labels,
     },
   };
@@ -108,8 +107,10 @@ async function quietly<TResult>(fn: () => Promise<TResult>): Promise<TResult> {
   }
 }
 
-function run(argv: Untyped, { dir, llmClient, hot = hotFixture() }: Untyped) {
-  return quietly(() => main(argv, { cwd: dir, rootDir: dir, now: () => NOW, hot, llmClient, env: {} }));
+// Plan 2026-11-04-cli-and-memory B1: no configured name stands in for hers, so the runs name her with --self-name.
+function run(argv: Array<string>, { dir, llmClient, hot = hotFixture() }: Untyped) {
+  const named = argv.includes('--self-name') ? argv : [...argv, '--self-name', 'Persona'];
+  return quietly(() => main(named, { cwd: dir, rootDir: dir, now: () => NOW, hot, llmClient, env: {} }));
 }
 
 test('search-policy-eval: three rows -> decisions, results.jsonl, the confusion matrix and the disagreement', async () => {

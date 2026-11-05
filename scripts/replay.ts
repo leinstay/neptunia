@@ -512,7 +512,6 @@
 // issue or a chat. It never prints a token. Exit code 0 on success, 1 on any
 // error (the message on stderr). Ctrl-C once stops the sampling; twice exits.
 
-import { cardAliases } from '../src/behavior/mention.ts';
 import { accountOf, placeOfCommunity } from '../src/memory/addresses.ts';
 import fs from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
@@ -3996,7 +3995,7 @@ export function createReplayTools({
         settings,
         selfId,
         selfName,
-        selfNames: cardAliases(hot.prompts?.['character-card']),
+        selfNames: [],
         nameOf,
       });
       if (skip) return null;
