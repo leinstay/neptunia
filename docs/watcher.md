@@ -96,12 +96,15 @@ Duplicates are found by the draft's `finding` key, so a reworded repeat files no
 | `SupplementaryGroups=systemd-journal` | The unit reads the journal of the other units. Only a system unit carries it, because a user manager refuses the line |
 | `NoNewPrivileges=yes` | No child gains privileges through a setuid binary |
 | `PrivateTmp=yes` | The unit has its own `/tmp` |
+| `InaccessiblePaths=-<path>` | One entry per other client's `clients/<name>.token` and per interface's `interfaces/<name>/credentials.json`, so a child of the unit cannot connect to the core as the owner or read the Discord token. The unit's own token stays readable. The leading `-` lets the unit start before a file exists |
 
-The mode `full` drops the first two and `sudo` also drops the third, as for the [agent units](errands.md#modes).
+The mode `full` drops `ProtectSystem=`, `ReadWritePaths=` and `InaccessiblePaths=`, and `sudo` also drops `NoNewPrivileges=`, as for the [agent units](errands.md#modes).
 
 Other limits are promises of a program, and the kernel does not hold them:
 
-- The unit runs as the installing user, the same user as the core. It can read everything that user reads, `keys.json`, `clients/` and the memory database among them.
+- The unit runs as the installing user, the same user as the core. It can read what that user reads, the memory database and `keys.json` among them, except the paths in `InaccessiblePaths=`.
+- `keys.json` stays readable because the worker reads the agent's route (backend, model, effort) from it at each run. The core's own keys in that file are reachable for the same reason.
+- A client made after the unit was rendered is not hidden until `neptunia setup` renders the unit again.
 - The network is open. The unit has no address rules.
 - The agent can write inside the two writable folders: earlier reports, run records, a local `prompt.md` and the backends' binaries and logins. "Immutable" for a report means no code path changes it.
 - The right to only add tasks is the board's, checked by the core for the client `watcher`.
