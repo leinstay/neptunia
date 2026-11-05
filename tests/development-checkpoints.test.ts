@@ -14,17 +14,18 @@ function rig(over: { allowed?: boolean; writeFile?: (file: string, data: Buffer)
   };
   write('src/a.ts', 'a one\n');
   write('src/b.ts', 'b one\n');
+  const storeDir = tempDir('nep-checkpoint-store-');
   let serial = 0;
   const checkpoints = createFileCheckpoints({
     worktree,
-    storeDir: tempDir('nep-checkpoint-store-'),
+    storeDir,
     authority: { allowsWorktree: () => over.allowed !== false },
     now: () => 1000,
     newId: () => `c${(serial += 1)}`,
     ...(over.writeFile === undefined ? {} : { io: { writeFile: over.writeFile } }),
   });
   const read = (name: string): string => fs.readFileSync(path.join(worktree, name), 'utf8');
-  return { worktree, checkpoints, write, read };
+  return { worktree, storeDir, checkpoints, write, read };
 }
 
 const taken = (checkpoints: ReturnType<typeof rig>['checkpoints'], revision = 1) => {
@@ -109,6 +110,26 @@ test('a local layer, credentials, live data and git are neither captured nor res
   assert.equal(read('prompts.local/card.md'), 'two');
   assert.equal(read('.git/HEAD'), 'ref two');
   assert.ok(fs.existsSync(worktree));
+});
+
+test('a key file, a login and a client token are neither captured nor restored', () => {
+  // Bug: a checkpoint store keeps a copy of a credential that lives in a worktree.
+  const { checkpoints, write, read, storeDir } = rig();
+  write('keys.json', '{"k":"one"}');
+  write('interfaces/x/credentials.json', '{"t":"one"}');
+  write('clients/a.token', 'one');
+  const point = taken(checkpoints);
+  const stored = fs.readdirSync(storeDir, { recursive: true, encoding: 'utf8' });
+  assert.ok(stored.some((name) => name.endsWith('a.ts')));
+  assert.equal(
+    stored.some((name) => /keys\.json|credentials\.json|a\.token/.test(name)),
+    false
+  );
+  write('keys.json', '{"k":"two"}');
+  write('clients/a.token', 'two');
+  assert.equal(checkpoints.restore(point.id, { confirm: true, revision: 1 }).status, 'restored');
+  assert.equal(read('keys.json'), '{"k":"two"}');
+  assert.equal(read('clients/a.token'), 'two');
 });
 
 test('a symlink that leads out of the worktree stops the restore, and the outside file stays', () => {

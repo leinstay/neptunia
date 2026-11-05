@@ -61,7 +61,10 @@ const VALUES = [
   GOOGLE,
 ];
 
-type Made = { files: Array<{ path: string; mode?: number }>; leftOut?: Record<string, number> };
+type Made = {
+  files: Array<{ path: string; size?: number; sha256?: string; mode?: number }>;
+  leftOut?: Record<string, number>;
+};
 
 const put = (root: string, files: Record<string, string>): void => {
   for (const [rel, text] of Object.entries(files)) {

@@ -35,19 +35,21 @@ An engine at this schema refuses an unconverted database with `MEMORY_NEEDS_CONV
 
 With `memoryDb.backup.enabled`, the core saves one backup per UTC day after `memoryDb.backup.hour` (default 03:00 UTC). `memoryDb.backup.keep` retains the latest seven completed backups by default. Files live in `memoryDb.backup.dir`, resolved against `data/`; the default is `../backups/memory`, which lands in `backups/memory` inside a default checkout, and `.gitignore` covers `/backups/`.
 
-Each backup includes a consistent SQLite snapshot and the regular files throughout `data/`: prompts, configuration, credentials, media, skills, interface state, agent overrides and subharness files. Every folder a backup creates is mode 700 and every file in it mode 600. The manifest records each file's mode and a restore gives it back, so executable and private file permissions survive, with `keys.json` at 600 even from a looser source. Runtime sockets, `run/`, and the main database's WAL, SHM and lock files are omitted. A backup destination inside `data/` is refused.
+Each backup includes a consistent SQLite snapshot and the regular files throughout `data/`: prompts, configuration, media, skills, interface state, agent overrides and subharness files. It holds no credential. `src/memory/db/secret-files.ts` names what stays out: `keys.json`, every `credentials.json` and `.credentials.json`, the `auth.json` of a subharness login, `clients.json` and the `clients/` folder, `.env` and `*.env` files, the `backups/` folder, and any file whose text holds an OpenRouter, Anthropic or Google key. The manifest counts the files left out per class in `leftOut` and never names a value. A restore never writes a secret file, and skips one that an older manifest lists. Every folder a backup creates is mode 700 and every file in it mode 600. The manifest records each file's mode and a restore gives it back, so executable permissions survive. Runtime sockets, `run/`, and the main database's WAL, SHM and lock files are omitted. A backup destination inside `data/` is refused.
+
+Restoring a persona on a new host therefore means entering its keys and logins again with `neptunia keys` and the interface and backend login commands. File checkpoints of a development worktree (`src/development/checkpoints.ts`) leave the same files out.
 
 The database snapshot is consistent; files are copied during the run and are not an atomic filesystem snapshot. Stop services for a migration checkpoint that must represent one exact moment. `scripts/memory-db.ts restore` restores all manifest files and checks database row counts. Older database-and-selfreflection backups remain readable but do not contain a complete persona.
 
 Stop the core and all services or timers that can write to or restart this persona before making a whole-directory copy. For an online database snapshot, use SQLite's backup facilities; copying a live `.db` file alone can omit committed WAL data.
 
 1. Save the complete persona outside the installation, together with engine revision and service definitions. Keep credentials and private conversations inaccessible to other users.
-2. Verify extraction into an isolated location. Check database integrity, referenced media, prompts, settings, keys, skills and retained sessions.
+2. Verify extraction into an isolated location. Check database integrity, referenced media, prompts, settings, skills and retained sessions.
 3. Install the compatible engine and dependencies at the destination. Restore `data/` before any setup step that starts the core.
 4. Recreate host-specific service paths and permissions. Do not restore stale sockets or process locks as running state.
 5. Start exactly one core, then its configured interfaces. Check CLI status, memory readiness and actual connections.
 
-Private Git is useful for prompt and configuration history, but it does not replace a backup of the database, media and excluded credentials. Reinstall recorded backend versions when necessary while preserving their homes.
+Private Git is useful for prompt and configuration history, but it does not replace a backup of the database and media. Credentials are in neither, so keep them where the owner keeps them. Reinstall recorded backend versions when necessary while preserving their homes.
 
 ## Verify and recover
 
