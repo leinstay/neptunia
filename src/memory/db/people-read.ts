@@ -3,6 +3,7 @@
 // keeps its history. The context decides before anything is counted. Reading writes nothing. Private views are
 // private-read.ts's. src/interface/commands/memory.ts answers `/memory users`.
 
+import { versionsNaming } from './entities-read.ts';
 import { personMembers } from './person-links.ts';
 import { placeVisibleWhere } from './places-read.ts';
 import { privateByPerson } from './private-read.ts';
@@ -77,13 +78,20 @@ const SUBJECT_TABLES = [
   { table: 'affinity_events', where: 't.person_id' },
 ] as const;
 
+/** A semantic version it may read that names the person `p` in a role. */
+const SEMANTIC_RECORD = `EXISTS (SELECT 1 FROM semantic_arguments g
+  JOIN semantic_assertion_versions t ON t.version_id = g.version_id WHERE g.ref_kind = 'person' AND g.ref_id = p.id AND `;
+
 /** The SQL that says a context may know of the person `p`: a record of theirs it may read exists. */
 function personVisible(context: Context): { sql: string; params: Array<string> } {
   if (context.internal === true) return { sql: '1 = 1', params: [] };
   const audience = audienceWhere(context, 't');
+  const subjects = SUBJECT_TABLES.map(
+    ({ table, where }) => `EXISTS (SELECT 1 FROM ${table} t WHERE ${where} = p.id AND ${audience.sql})`
+  );
   return {
-    sql: `(${SUBJECT_TABLES.map(({ table, where }) => `EXISTS (SELECT 1 FROM ${table} t WHERE ${where} = p.id AND ${audience.sql})`).join(' OR ')})`,
-    params: SUBJECT_TABLES.flatMap(() => audience.params),
+    sql: `(${[...subjects, `${SEMANTIC_RECORD}${audience.sql})`].join(' OR ')})`,
+    params: [...SUBJECT_TABLES.flatMap(() => audience.params), ...audience.params],
   };
 }
 
@@ -240,7 +248,13 @@ export function listPeople(
 function recordsOf(db: Db, context: Context, ids: ReadonlyArray<string>): Array<PersonRecord> {
   const audience = audienceWhere(context, 't');
   const marks = ids.map(() => '?').join(', ');
-  return SUBJECT_TABLES.flatMap(({ table, where }) =>
+  const semantic = versionsNaming(db, context, { kind: 'person', ids }).map(({ versionId, audienceId }) => ({
+    table: 'semantic_assertion_versions',
+    id: versionId,
+    audienceId,
+    retiredAt: null,
+  }));
+  const subjects = SUBJECT_TABLES.flatMap(({ table, where }) =>
     db
       .prepare(
         `SELECT t.id, t.audience_id, t.retired_at FROM ${table} t WHERE ${where} IN (${marks}) AND ${audience.sql}`
@@ -253,6 +267,7 @@ function recordsOf(db: Db, context: Context, ids: ReadonlyArray<string>): Array<
         retiredAt: textOrNull(row.retired_at),
       }))
   );
+  return [...subjects, ...semantic];
 }
 
 function affinityOf(

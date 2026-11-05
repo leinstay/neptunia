@@ -402,10 +402,21 @@ const placeRow = (item: Record<string, unknown>): PanelRow => {
   );
 };
 
+const entityRow = (item: Record<string, unknown>): PanelRow => {
+  const id = asText(item.id);
+  const names = Array.isArray(item.names)
+    ? item.names.map((one: unknown) =>
+        one !== null && typeof one === 'object' && 'text' in one ? asText(one.text) : ''
+      )
+    : [];
+  return memoryRow(id, id, `${asText(item.kind)}: ${names.join(', ')}`, `/memory entities show ${id}`);
+};
+
 /** The bare memory browsers: one panel over the reads a script gets, each row prefilling the command that opens it. */
 const MEMORY_PANELS: Readonly<Record<string, (run: Run) => Promise<Panel>>> = {
   '/memory users': (run) => memoryPagePanel(run, 'People', 'memory.users.list', {}, userRow),
   '/memory places': (run) => memoryPagePanel(run, 'Places', 'memory.places.list', { roots: 'true' }, placeRow),
+  '/memory entities': (run) => memoryPagePanel(run, 'Entities', 'memory.entities.list', {}, entityRow),
   '/memory graph': async (run) => {
     const answer = await run({ name: 'memory.graph.kinds', args: {} });
     if (answer.status !== 'ok') return { title: 'Graph', lines: [answer.text] };
