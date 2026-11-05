@@ -13,14 +13,15 @@
 //   services         the optional YouTube Data API key, with the link that says how to get one, and optional quick
 //                    search, declined by default (src/setup/services.ts)
 //   subharness       the backends her agents may run through, installed and logged in (src/setup/subharness.ts)
-//   selfimprovement  the repository her pull requests go to, checked through the system's gh login
-//                    (src/setup/selfimprovement.ts); skipped while `selfimprovement.checkout` is unset
+//   selfimprovement  development, optional: gh, the repository her pull requests go to with the push right checked, and
+//                    the development checkout, cloned when its folder is empty (src/setup/development.ts)
 //   mechanics        heartbeat, selfreflection and selfimprovement on or off, and `selfimprovement.schedule`
 //                    (src/setup/mechanics.ts)
 //   watcher          the watcher on or off, `watcher.schedule`, its backend and its model (src/setup/watcher.ts)
 //   units            the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ; the
 //                    development unit too when `selfimprovement.checkout` names a checkout other than this one; and the
-//                    clients of the owner's command line and of the units that need one, with their tokens
+//                    clients of the owner's command line, of the owner on the task board and of the units that need
+//                    one, with their tokens
 //                    (src/setup/clients.ts), which need no core socket
 //   linger           `loginctl enable-linger` for the user, so the user units run without a login (user units only)
 //   core             `enable --now neptunia-core.service`, the one unit setup starts
@@ -39,13 +40,14 @@ import { assertPersonaLayout } from '../config/files.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { emptyKeys, writeKeys } from '../keys/file.ts';
 import type { GhRunner } from '../selfimprovement/repository.ts';
-import { CLI_CLIENT, provisionClients } from './clients.ts';
+import { CLI_CLIENT, OWNER_CLIENT, provisionClients } from './clients.ts';
+import { offerDevelopment } from './development.ts';
+import type { GhInstall } from './development.ts';
 import { interfacesStep } from './interfaces.ts';
 import { servicesStep } from './services.ts';
 import { installUnits, systemctlOf, unitDirOf, whyFailed } from './install.ts';
 import type { RunResult, UnitTarget } from './install.ts';
 import { mechanicsStep } from './mechanics.ts';
-import { selfimprovementStep } from './selfimprovement.ts';
 import { subharnessStep } from './subharness.ts';
 import { watcherStep } from './watcher.ts';
 import type { InstallRun } from '../subharness/install.ts';
@@ -74,7 +76,7 @@ export type SetupOptions = UnitTarget & { only?: SetupStep };
 
 /** What `setup` reaches outside the files: commands, and the owner's chat. */
 export type SetupDeps = {
-  run(command: string, args: ReadonlyArray<string>): Promise<RunResult>;
+  run(command: string, args: ReadonlyArray<string>, options?: { cwd?: string; timeoutMs?: number }): Promise<RunResult>;
   /** Opens the owner's chat with `firstLine` typed. Called once, last, after a full run. */
   openChat(firstLine: string): Promise<void>;
   /** Called once with the report, before the chat opens or when the run ends without it. */
@@ -83,6 +85,8 @@ export type SetupDeps = {
   ask?: (question: string, offered: string | null, options?: { secret: boolean }) => Promise<string>;
   /** The system's gh, for the push-right check of the self-development and mechanics steps. */
   gh?: GhRunner;
+  /** Installs gh when the development step finds none; without it that step says what to install. */
+  installGh?: () => Promise<GhInstall>;
   /** npm for the subharness step's install (src/subharness/install.ts); without it that step is skipped. */
   install?: InstallRun;
   /** The environment npm is started with; `process.env` by default. */
@@ -225,7 +229,9 @@ async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcom
   try {
     clients = provisionClients(
       options.privateDir,
-      hasDevelopment ? [CLI_CLIENT, DEVELOPMENT_CLIENT, WATCHER_CLIENT] : [CLI_CLIENT, WATCHER_CLIENT]
+      hasDevelopment
+        ? [CLI_CLIENT, OWNER_CLIENT, DEVELOPMENT_CLIENT, WATCHER_CLIENT]
+        : [CLI_CLIENT, OWNER_CLIENT, WATCHER_CLIENT]
     );
   } catch (err) {
     return failed(`the clients cannot be written: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`);
@@ -263,12 +269,22 @@ export async function coreStep(options: SetupOptions, deps: Pick<SetupDeps, 'run
   return started.code === 0 ? done('the core is enabled and running') : failed(`enable --now: ${whyFailed(started)}`);
 }
 
+const GH_BY_HAND: GhInstall = {
+  code: 'manual',
+  what: 'Install the GitHub CLI from https://cli.github.com and run neptunia setup again.',
+};
+
 const NOT_AT_TERMINAL: Outcome = { state: 'skipped', detail: 'not at a terminal' };
 
 async function selfimprovementSetupStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
   const { ask, gh } = deps;
   if (ask === undefined || gh === undefined) return NOT_AT_TERMINAL;
-  const outcome = await selfimprovementStep(options, { run: (command, args) => deps.run(command, args), ask, gh });
+  const outcome = await offerDevelopment(options, {
+    run: (command, args, given) => deps.run(command, args, given),
+    ask,
+    gh,
+    installGh: deps.installGh ?? (() => Promise.resolve(GH_BY_HAND)),
+  });
   return { state: outcome.state, detail: outcome.detail };
 }
 

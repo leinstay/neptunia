@@ -97,6 +97,9 @@ export function addClient(
 /** The owner's command line, the client a chat and a direct command connect as (bin/neptunia.ts). */
 export const CLI_CLIENT = { name: 'cli', kind: 'cli', boardRoles: null };
 
+/** The owner on the task board from a shell: `neptunia tasks` with no client named connects as it (bin/neptunia-task.ts). */
+export const OWNER_CLIENT = { name: 'owner', kind: 'agent', boardRoles: ['owner'] };
+
 /**
  * The clients `wanted` in place, agents unless they say another kind, every other client kept. A client with its entry and its token is left as it is,
  * because a new token would close the link of a running unit. A missing token is written, and a missing entry added.

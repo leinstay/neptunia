@@ -15,10 +15,10 @@ Interactive setup uses a keyboard selector for `on` or `off` and `yes` or `no` q
 | `interfaces` | Ask the installed interfaces' setup questions, register each chosen interface's client with its token, and start its unit |
 | `services` | Offer the optional YouTube metadata key and optional quick search |
 | `subharness` | Install the chosen agent backends and run their logins |
-| `selfimprovement` | Select and check the development repository |
+| `selfimprovement` | Offer development: install `gh`, check the repository and set up the folder of the development checkout, as in [self-development](selfimprovement.md#configure) |
 | `mechanics` | Switch heartbeat and reflection, switch and schedule the development wake |
 | `watcher` | Switch the watcher, choose its schedule, backend and model |
-| `units` | Render service and timer files, and make the clients `cli`, `watcher` and `development` with their tokens |
+| `units` | Render service and timer files, and make the clients `cli`, `owner`, `watcher` and `development` with their tokens |
 | `linger` | Let user services continue without an interactive login |
 | `core` | Enable and start the core service |
 

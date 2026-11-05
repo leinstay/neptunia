@@ -103,6 +103,7 @@ import { startSweeper } from '../src/agent-runner/sweep.ts';
 import { spawnGh } from '../src/selfimprovement/repository.ts';
 import { spawnRun } from '../src/setup/install.ts';
 import type { RunResult } from '../src/setup/install.ts';
+import { installGhOfficially } from '../src/setup/development.ts';
 import { runSetupFlow, setupFlowSteps } from '../src/setup/flow.ts';
 import { decideLaunch, evaluateReadiness, gatherHealth, readinessText } from '../src/setup/readiness.ts';
 import type { HealthLink, ReadinessHealth } from '../src/setup/readiness.ts';
@@ -1469,7 +1470,15 @@ function setupDeps(): SetupDeps {
     run: spawnRun,
     openChat: (firstLine) => (terminal ? runChat(firstLine) : Promise.resolve()),
     report: printSetup,
-    ...(terminal ? { ask: askAtTerminal, gh: spawnGh(process.env), install: installRun, hostEnv: process.env } : {}),
+    ...(terminal
+      ? {
+          ask: askAtTerminal,
+          gh: spawnGh(process.env),
+          install: installRun,
+          hostEnv: process.env,
+          installGh: () => installGhOfficially(spawnRun, process.getuid?.() === 0),
+        }
+      : {}),
   };
 }
 

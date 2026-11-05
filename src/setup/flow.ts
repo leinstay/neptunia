@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createKeyStore } from '../keys/store.ts';
-import { CLI_CLIENT, provisionClients } from './clients.ts';
+import { CLI_CLIENT, OWNER_CLIENT, provisionClients } from './clients.ts';
 import type { Ask } from './mechanics.ts';
 import { REPAIRS, REQUIREMENTS, evaluateReadiness } from './readiness.ts';
 import type { LinkAsk, ReadinessHealth, Requirement } from './readiness.ts';
@@ -123,7 +123,7 @@ export function setupFlowSteps(
 ): Readonly<Record<Requirement, FlowStep>> {
   return {
     'cli-identity': () => {
-      provisionClients(options.privateDir, [CLI_CLIENT]);
+      provisionClients(options.privateDir, [CLI_CLIENT, OWNER_CLIENT]);
       return Promise.resolve('done');
     },
     'local-config': failedWith(REPAIRS['config-invalid']),
