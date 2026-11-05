@@ -160,8 +160,8 @@ async function innerTurn({
   const journal = createJournal({
     memoryDb: {
       ...memory.memoryDb,
-      writeUnit: (update: { lines?: ReadonlyArray<{ outcome?: unknown }> }) => {
-        for (const line of update.lines ?? []) lines.push(line);
+      writeUnit: (update: unknown) => {
+        for (const line of (update as { lines?: ReadonlyArray<{ outcome?: unknown }> }).lines ?? []) lines.push(line);
         return memory.memoryDb.writeUnit(update);
       },
     },
