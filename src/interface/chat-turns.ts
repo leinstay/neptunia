@@ -155,7 +155,11 @@ export function createChatTurns({
         lines.delete(id);
         return ackOf(value, 'invalid', answer.code);
       }
-      return line.ack ?? ackOf(value, 'ok');
+      if (line.ack !== null) return line.ack;
+      if (control.queued().some((turn) => turn.requestId === id)) return ackOf(value, 'ok');
+      // The control knows this request from a turn that ended: nothing will run it again.
+      lines.delete(id);
+      return ackOf(value, 'duplicate');
     },
     turnEnded(end) {
       const id = end.trigger?.id;

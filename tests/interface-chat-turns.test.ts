@@ -178,6 +178,18 @@ test('a resent line id is a duplicate and runs once', async () => {
   assert.deepEqual(received, ['one']);
 });
 
+test('a line resent after its turn ended is a duplicate too, and holds nothing', async () => {
+  // Bug: a resend after the end is acknowledged as new, and the owner waits for a turn that never comes.
+  const { take, ended, received } = rig();
+  await take('m1', 'one');
+  ended('m1', 'spoke');
+  await tick();
+  assert.equal(statusOf(await take('m1', 'one')), 'duplicate');
+  assert.deepEqual(received, ['one']);
+  await take('m2', 'two');
+  assert.deepEqual(received, ['one', 'two'], 'the resend took no place in the conversation');
+});
+
 test('a subscribed link gets the events and a replay of what it missed; an unknown action is refused', async () => {
   // Bug: a client that reconnects loses the state, or a malformed action reads as the cancel of the running turn.
   const { take, turns, link, events } = rig();
