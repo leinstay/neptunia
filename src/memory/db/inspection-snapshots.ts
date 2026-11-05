@@ -2,7 +2,8 @@
 // pages, its full values and its export hold still while the writer goes on. Each is a deferred read transaction pinned by a
 // read at the open, so it takes no lock from the writer, opens no write path and moves no row, `node_access` included. A
 // snapshot ends by its close, by `closeOwner`, or by its bounds (`memoryDb.inspection`, given at the open): idle seconds since
-// its last read, and seconds since its open. An expired one refuses and is never read in part; `sweepExpired`, at the memory
+// its last read, and seconds since its open. At most `maxSnapshots` are open at once; the next open is refused with
+// `INSPECTION_TOO_MANY` before a connection is made. An expired one refuses and is never read in part; `sweepExpired`, at the memory
 // service's tick, closes the connection of one nobody asks about again. Logs carry names and counts, never a value.
 
 import { randomUUID } from 'node:crypto';
@@ -26,7 +27,13 @@ import { boardVersion } from '../../board/schema.ts';
 
 export type { InspectionValueChunk } from './inspection.ts';
 
-export type InspectionBounds = { pageRows: number; snapshotIdleSeconds: number; snapshotMaxSeconds: number };
+export type InspectionBounds = {
+  pageRows: number;
+  snapshotIdleSeconds: number;
+  snapshotMaxSeconds: number;
+  /** How many snapshots may be open at once: each pins a read transaction, so each holds the write-ahead log back. */
+  maxSnapshots: number;
+};
 
 /**
  * A snapshot as the port hands it out. `revision` is the engine revision, and the port's handles also name the schema
@@ -135,8 +142,19 @@ export function createInspectionPort(deps: InspectionPortDeps): InspectionPort {
     return snapshot;
   }
 
+  function sweepExpired(): void {
+    const at = deps.now();
+    for (const snapshot of [...live.values()]) if (at >= expiresAtOf(snapshot)) expire(snapshot);
+  }
+
   function openInspection({ ownerId, bounds }: { ownerId: string; bounds: InspectionBounds }): SnapshotHandle {
     if (typeof ownerId !== 'string' || ownerId === '') throw coded('INSPECTION_DENIED', 'inspection is the owner’s');
+    sweepExpired();
+    if (live.size >= bounds.maxSnapshots)
+      throw coded(
+        'INSPECTION_TOO_MANY',
+        `${bounds.maxSnapshots} snapshots are open, the most memoryDb.inspection.maxSnapshots allows; close one with /memory inspect close`
+      );
     const memory = open(deps.dbPath, { readOnly: true });
     const db = dbOf(memory);
     const at = deps.now();
@@ -241,10 +259,7 @@ export function createInspectionPort(deps: InspectionPortDeps): InspectionPort {
     closeOwner(ownerId) {
       for (const snapshot of [...live.values()]) if (snapshot.ownerId === ownerId) release(snapshot);
     },
-    sweepExpired() {
-      const at = deps.now();
-      for (const snapshot of [...live.values()]) if (at >= expiresAtOf(snapshot)) expire(snapshot);
-    },
+    sweepExpired,
     closeAll() {
       for (const snapshot of [...live.values()]) release(snapshot);
     },

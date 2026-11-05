@@ -21,7 +21,7 @@ import { ANNA, BORIS, addAccount, seedOpaqueWorld } from './fixtures/memory-db/o
 import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
-const BOUNDS = { pageRows: 50, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300 };
+const BOUNDS = { pageRows: 50, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300, maxSnapshots: 8 };
 
 type Rig = {
   db: Db;

@@ -12,7 +12,7 @@ import { dbOf } from '../src/memory/db/types.ts';
 import { cell } from './fixtures/memory-db/browser-world.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
-const BOUNDS = { pageRows: 10, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300 };
+const BOUNDS = { pageRows: 10, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300, maxSnapshots: 8 };
 
 test('an infinite real is the word that names it, and binds back to the number', () => {
   // Bug: `{ kind: 'real', value: Infinity }` serializes to `{ "value": null }`, and the export loses the value.
