@@ -63,7 +63,14 @@ import { appendStep, cutToFit, roomLeft, segments, stepNote, stepVerdict, thinkM
 import { diagnosticText } from './wake.ts';
 import { callReason, MAX_MESSAGE_CHARS, withCalls } from '../format.ts';
 import { grant as accessGrant, revoke as accessRevoke } from '../tools/impl/grants.ts';
-import { collectEmojiItems, collectPictures, collectVideos, isDescribable, watchedLengths } from '../media/classify.ts';
+import {
+  collectAudio,
+  collectEmojiItems,
+  collectPictures,
+  collectVideos,
+  isDescribable,
+  watchedLengths,
+} from '../media/classify.ts';
 import { REPLY_REQUEST, cacheTtlFor } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
 import { parseOutput } from '../llm/parse.ts';
@@ -289,7 +296,7 @@ function seenText(entry: Untyped, { watched, before }: { watched: Untyped; befor
  * #collectEmojiItems, describable ones) and videos (#collectVideos over `sites`).
  */
 function mediaItemsOf(message: Line, sites: unknown) {
-  const pictures = [...collectPictures(message), ...collectEmojiItems(message)]
+  const pictures = [...collectPictures(message), ...collectAudio(message), ...collectEmojiItems(message)]
     .filter(isDescribable)
     .map((item) => item.itemId);
   const videos = collectVideos(message, { videoSites: Array.isArray(sites) ? sites : [] }).map((item) => item.itemId);

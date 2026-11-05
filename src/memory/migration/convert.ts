@@ -9,6 +9,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { unitRows } from '../db/export.ts';
 import { MAPPERS } from '../db/map/index.ts';
+import { migrateMediaStore } from '../db/media-store.ts';
 import { MIGRATIONS, lockPathOf, openMemoryDb, schemaVersion } from '../db/open.ts';
 import { manifestOfFiles } from '../db/readers/vectors.ts';
 import { keyText, storageId } from '../db/storage-keys.ts';
@@ -103,7 +104,7 @@ function tablesOf(db: Db): Array<string> {
   return (db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table'").all() as Array<Row>)
     .filter(
       (row) =>
-        !/^(sqlite_|sources_(fts|tri)_|semantic_search_fts_)/.test(String(row.name)) &&
+        !/^(sqlite_|sources_(fts|tri)_|media_(fts|tri)_|semantic_search_fts_)/.test(String(row.name)) &&
         !/VIRTUAL/i.test(String(row.sql))
     )
     .map((row) => String(row.name))
@@ -675,6 +676,10 @@ function run(options: ConversionOptions, manifest: ConversionManifest, work: str
     const version = schemaVersion(source);
     manifest.input.schemaVersion = version;
     if (version !== SOURCE_VERSION && version !== MIGRATIONS.length) return refused([{ code: 'UNSUPPORTED_SCHEMA' }]);
+    // The output is at the current schema, so the working copy goes to the one media store first: its rows then fit.
+    source.exec('BEGIN');
+    migrateMediaStore(source);
+    source.exec('COMMIT');
     const plan = planUnits(source);
     const failures = [...plan.failures, ...orphanOwners(source)];
     if (failures.length > 0) return refused(failures);

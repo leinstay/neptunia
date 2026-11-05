@@ -15,6 +15,8 @@ import { assignDiaryDestination, deriveAllMirrorPublications } from './publish.t
 import { pastEntries } from './diary-past.ts';
 import { repairSessionRows } from './session-repair.ts';
 import { migrateSemanticMemory } from './semantic-schema.ts';
+import { migrateMediaStore } from './media-store.ts';
+import { SELF_SOURCE_KINDS } from './source-kinds.ts';
 import { importWakeQueues } from '../migration/wake-import.ts';
 import type { Db, Row } from './types.ts';
 
@@ -345,8 +347,7 @@ export const SCOPED_TABLES = [
   'work',
   'session_runs',
 ];
-/** Her own source kinds (`author_kind = 'self'`). */
-export const SELF_SOURCE_KINDS = ['said', 'answer', 'felt', 'memory_session', 'description_review'];
+export { SELF_SOURCE_KINDS };
 
 // The rows the migration writes are stamped with the time the legacy data is as of: the last sync before the
 // migration (an empty database has none: the epoch). Deterministic, so two databases migrated from the same rows agree.
@@ -1453,6 +1454,7 @@ export const MIGRATIONS: Array<Migration> = [
   // Version 32: one GIF library for every place. Its data step writes through the unit mappers, which this module
   // cannot import, so the opener runs it (src/memory/db/open.ts, src/memory/db/gif-library-merge.ts).
   '-- the shared GIF library',
+  migrateMediaStore,
 ];
 
 /** Every table schema v8 adds. */

@@ -56,18 +56,16 @@ const GROUP_SCOPE = "'group', 'discord', NULL, 'aud:group:discord'";
 function addRows(db: DatabaseSync): void {
   const line = db.prepare('SELECT id FROM sources WHERE place_id = ? ORDER BY rowid LIMIT 1').get(GROUP);
   const lineId = String(line?.id);
-  // A line with a described attachment, and an attachment nobody described yet, which has no row and is no finding.
-  db.prepare('UPDATE sources SET extra = ? WHERE id = ?').run(
-    JSON.stringify({ extra: { attachmentIds: ['att-kept', 'att-never-described'] } }),
-    lineId
-  );
+  // A line with a described item, linked; the store holds a line's media as links.
+  db.prepare("INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('source', ?, 0, 'media:held:att-kept')").run(lineId);
   db.exec(`
     INSERT INTO media (id, kind, native_ref, description, scope_kind, scope_iface, scope_dm, audience_id)
-      VALUES ('media:attachment:att-kept', 'attachment', 'att-kept', '${WORDS}', ${GROUP_SCOPE});
+      VALUES ('media:held:att-kept', 'image', 'att-kept', '${WORDS}', ${GROUP_SCOPE});
     INSERT INTO diary (id, at_ms, kind, gist, text, status, scope_kind, scope_iface, scope_dm, audience_id)
       VALUES ('diary:1', ${AT}, 'entry', '${WORDS}', '${WORDS}', 'written', ${GROUP_SCOPE});
     INSERT INTO media (id, kind, owner, description, scope_kind, scope_iface, scope_dm, audience_id)
-      VALUES ('media:diary:1:0', 'diary', 'diary:1', '${WORDS}', ${GROUP_SCOPE});
+      VALUES ('media:diary:1:0', 'image', 'diary:1', '${WORDS}', ${GROUP_SCOPE});
+    INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('diary', 'diary:1', 0, 'media:diary:1:0');
     INSERT INTO claims (id, subject_kind, subject_id, kind, text, scope_kind, scope_iface, scope_dm, audience_id)
       VALUES ('claim:good', 'person', 'person:someone', 'fact', '${WORDS}', ${GROUP_SCOPE});
     INSERT INTO claim_versions (id, claim_id, text) VALUES ('claim:good:v1', 'claim:good', '${WORDS}');

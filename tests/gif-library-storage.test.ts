@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { toRows } from '../src/memory/db/map/gifs.ts';
+import { migrateMediaStore } from '../src/memory/db/media-store.ts';
 import { mergeGifLibraries } from '../src/memory/db/gif-library-merge.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
@@ -47,12 +48,17 @@ test('a row with no cached file has no path, and a file outside media/ never bec
 test('an old row with a link in path, live or retired, moves it to extra and the library reads the same', () => {
   const handle = freshMemoryDb();
   const db = dbOf(handle);
+  // Rows of the old table: the store's own table refuses a link in `path`, so the one migration moves them.
+  db.exec(`DROP TABLE media_links; DROP TABLE media; ALTER TABLE sources ADD COLUMN media TEXT;
+    CREATE TABLE media (id TEXT PRIMARY KEY, kind TEXT, owner TEXT, path TEXT, native_ref TEXT, description TEXT, described_at TEXT,
+      sha1 TEXT, bytes INTEGER, mime TEXT, scope_kind TEXT, scope_iface TEXT, scope_dm TEXT, audience_id TEXT, extra JSON, owner_file TEXT, retired_at TEXT, owner_key TEXT);`);
   const insert = db.prepare(
     `INSERT INTO media (id, kind, path, scope_kind, scope_iface, extra, retired_at) VALUES (?, 'gif', ?, 'group', 'discord', ?, ?)`
   );
   insert.run('media:gif:live', TENOR, JSON.stringify({ id: 'g1', kind: 'link', count: 2 }), null);
   insert.run('media:gif:old', 'https://tenor.com/view/gone', null, '2026-01-01T00:00:00.000Z');
   insert.run('media:gif:cached', 'media/gifs/h.gif', JSON.stringify({ url: TENOR }), null);
+  migrateMediaStore(db);
   mergeGifLibraries(db);
   const rows = db.prepare("SELECT id, path, extra FROM media WHERE kind = 'gif' ORDER BY id").all();
   const urlOf = (row: Record<string, unknown>) => (JSON.parse(String(row.extra)) as { url?: string }).url;

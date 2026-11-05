@@ -244,7 +244,10 @@ export async function mirrorScene({
   /** The files memory keeps of an entry, full paths, in their order. */
   const mediaFiles = (entryId: string): Array<string> =>
     db
-      .prepare("SELECT path FROM media WHERE kind = 'diary' AND owner = ? ORDER BY id")
+      .prepare(
+        `SELECT m.path FROM media m JOIN media_links l ON l.media_id = m.id
+         WHERE l.owner_kind = 'diary' AND l.owner_id = ? ORDER BY l.position`
+      )
       .all(entryId)
       .map((row) => path.join(memory.dataDir, String(row.path)));
 

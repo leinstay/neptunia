@@ -240,7 +240,14 @@ test('one open of the v13 database moves the errand units and the intention reco
       // Schema v21 drops the eight reserved ledger_* tables of v1, empty in every database (spec 2026-10-31-stage-6-cut,
       // PR 6a), so they are gone after the open rather than as they were.
       if (table.startsWith('ledger_')) continue;
-      assert.deepEqual(plain(after[table]), expectedOwners(old[table]), `the table ${table} is as it was`);
+      // The media store rewrites `media` into items and takes the kinds off `sources`: tests/media-memory-format.test.ts holds those.
+      if (table === 'media') continue;
+      const before = expectedOwners(old[table]).map((row) => {
+        const kept = { ...row };
+        if (table === 'sources') delete kept.media;
+        return kept;
+      });
+      assert.deepEqual(plain(after[table]), before, `the table ${table} is as it was`);
     }
     const sans = (rows: Array<Row> | undefined) =>
       (rows ?? []).map((row) => Object.fromEntries(Object.entries(row).filter(([key]) => key !== 'owner_file')));

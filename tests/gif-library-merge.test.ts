@@ -107,7 +107,8 @@ function storageWrite(db: ReturnType<typeof dbOf>, place: string, value: Record<
   for (const [entryKey, entry] of Object.entries(value.entries as Record<string, object>)) {
     db.prepare(
       `INSERT INTO media (id, kind, path, scope_kind, scope_iface, extra, owner_key) VALUES (?, 'gif', ?, 'group', 'discord', ?, ?)`
-    ).run(`media:gif:${entryKey}`, Reflect.get(entry, 'url'), JSON.stringify(entry), id);
+      // The store's table holds a file under media/ in `path`; a link stays in the entry's `url`.
+    ).run(`media:gif:${entryKey}`, null, JSON.stringify(entry), id);
   }
   db.prepare("INSERT INTO operational (kind, owner, value, owner_key) VALUES ('gifs', ?, ?, ?)").run(
     id,

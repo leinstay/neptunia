@@ -494,6 +494,9 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('recent', 'Show live recent lines'),
       sub('search', 'Search her memory', [arg('query')]),
       sub('backup', 'Make a backup of the memory database and list the kept ones'),
+      sub('backfill-media', 'Bring old media lines to the one format: backfill-media [--dry-run|status]', [
+        arg('mode', false),
+      ]),
       sub('restore', 'Bring an archived item back', [arg('id')]),
       sub('journal', 'Show journal of a day: journal [<YYYY-MM-DD>]', [arg('day', false)]),
       sub('archive', 'List archived memory items', [arg('kind', false)]),

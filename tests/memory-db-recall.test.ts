@@ -1863,7 +1863,9 @@ test('an internal window retains stored media without reading captions for a nul
       author: BOB,
       scope: dmScope(personId('discord', BOB), 'discord'),
     });
-    env.db.prepare('UPDATE sources SET media = ? WHERE id = ?').run(JSON.stringify(['image']), source);
+    // The kinds of a line live on its links: one bare item, as the migration leaves an old picture.
+    env.db.exec("INSERT INTO media (id, kind, availability) VALUES ('media:bare:b', 'image', 'unknown')");
+    env.db.prepare("INSERT INTO media_links VALUES ('source', ?, 0, 'media:bare:b')").run(source);
     env.say({
       native: 'media-anchor',
       at: NOW - DAY,

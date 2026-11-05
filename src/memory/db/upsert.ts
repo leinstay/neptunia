@@ -224,6 +224,12 @@ const childKey = (child: string, row: Row): string =>
     : [row[CHILDREN[child][1]], row.position].join('\u0000');
 
 /** Retires the active rows of a unit that the given mapping no longer holds. Returns how many. */
+/** Whether a message or an entry links this media row. A database older than the links has none. */
+function linkedMedia(db: Db, row: Row): boolean {
+  if (columnsOf(db, 'media_links').size === 0) return false;
+  return prepared(db, 'SELECT 1 AS ok FROM media_links WHERE media_id = ? LIMIT 1').get(row.id) !== undefined;
+}
+
 export function retireAbsent(db: Db, owner: string, mapping: Rows, at: string): number {
   owner = mappingOwner(db, mapping, owner);
   let count = 0;
@@ -240,6 +246,8 @@ export function retireAbsent(db: Db, owner: string, mapping: Rows, at: string): 
     for (const row of existing) {
       if (keep.has(keyOf(table, row))) continue;
       if (handOver(db, table, row, owner)) continue;
+      // A media row an owner links outlives the unit that made it: a cache's or a library's cap trims only what nothing shows.
+      if (table === 'media' && linkedMedia(db, row)) continue;
       update.run(at, ...key.map((col) => row[col]));
       projectRow(db, table, row, { at });
       count += 1;

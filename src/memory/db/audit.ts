@@ -9,7 +9,6 @@
 //   vectorManifests    a month's manifest counts the rows the month holds, in the size it says
 //   linkedMediaKept    no media row a live line or a live diary entry links is retired
 
-import { linkedAttachmentIds } from './line-media.ts';
 import { resolveRow } from './rows.ts';
 import { SCOPED_TABLES } from './schema.ts';
 import type { Db } from './types.ts';
@@ -122,6 +121,7 @@ function orphanVersions(db: Db, child: string, column: string, parent: string): 
 function danglingLinks(db: Db): number {
   const descriptions = columnsOf(db, 'descriptions');
   return (
+    deadMediaLinks(db) +
     deadLinks(db, 'claim_sources', 'claim_id', 'claims', 'source_id', 'sources') +
     deadLinks(db, 'episode_sources', 'episode_id', 'episodes', 'source_id', 'sources') +
     orphanVersions(db, 'claim_versions', 'claim_id', 'claims') +
@@ -177,18 +177,25 @@ function vectorManifests(db: Db): number {
 }
 
 function linkedMediaKept(db: Db): number {
-  const linked = linkedAttachmentIds(db);
-  const trimmed = db
-    .prepare("SELECT native_ref FROM media WHERE kind = 'attachment' AND retired_at IS NOT NULL")
-    .all()
-    .filter((row) => linked.has(String(row.native_ref))).length;
-  return (
-    trimmed +
-    countOf(
-      db,
-      `SELECT COUNT(*) AS n FROM media m JOIN diary d ON d.id = m.owner
-       WHERE m.kind = 'diary' AND m.retired_at IS NOT NULL AND d.retired_at IS NULL`
-    )
+  if (columnsOf(db, 'media_links').size === 0) return 0;
+  return countOf(
+    db,
+    `SELECT COUNT(*) AS n FROM media_links l JOIN media m ON m.id = l.media_id
+     LEFT JOIN sources s ON l.owner_kind = 'source' AND s.id = l.owner_id
+     LEFT JOIN diary d ON l.owner_kind = 'diary' AND d.id = l.owner_id
+     WHERE m.retired_at IS NOT NULL AND (s.id IS NOT NULL OR d.id IS NOT NULL)
+       AND COALESCE(s.retired_at, d.retired_at) IS NULL`
+  );
+}
+
+/** Links whose item or owner is gone. */
+function deadMediaLinks(db: Db): number {
+  if (columnsOf(db, 'media_links').size === 0) return 0;
+  return countOf(
+    db,
+    `SELECT COUNT(*) AS n FROM media_links l WHERE NOT EXISTS (SELECT 1 FROM media m WHERE m.id = l.media_id)
+       OR (l.owner_kind = 'source' AND NOT EXISTS (SELECT 1 FROM sources s WHERE s.id = l.owner_id))
+       OR (l.owner_kind = 'diary' AND NOT EXISTS (SELECT 1 FROM diary d WHERE d.id = l.owner_id))`
   );
 }
 

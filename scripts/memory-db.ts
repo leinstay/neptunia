@@ -248,7 +248,15 @@ function runReproject(io: Rec, options: Untyped) {
 }
 
 /** The derived tables the rebuild drops and builds again. */
-export const DERIVED_TABLES = ['graph_nodes', 'graph_edges', 'node_access', 'sources_fts', 'sources_tri'];
+export const DERIVED_TABLES = [
+  'graph_nodes',
+  'graph_edges',
+  'node_access',
+  'sources_fts',
+  'sources_tri',
+  'media_fts',
+  'media_tri',
+];
 
 function runRebuild(io: Rec, options: Untyped) {
   need(options, 'db');
@@ -259,7 +267,7 @@ function runRebuild(io: Rec, options: Untyped) {
     const done = rebuildGraph(handle, { at: new Date().toISOString() });
     handle.transaction(() => {
       sqlOf(handle).exec(
-        "INSERT INTO sources_fts(sources_fts) VALUES ('rebuild'); INSERT INTO sources_tri(sources_tri) VALUES ('rebuild');"
+        "INSERT INTO sources_fts(sources_fts) VALUES ('rebuild'); INSERT INTO sources_tri(sources_tri) VALUES ('rebuild'); INSERT INTO media_fts(media_fts) VALUES ('rebuild'); INSERT INTO media_tri(media_tri) VALUES ('rebuild');"
       );
     });
     const after = tableHashes(sqlOf(handle), DERIVED_TABLES);

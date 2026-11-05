@@ -12,6 +12,8 @@ import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 /** The migrations of the integrated schema this workstream appends to. Shipped entries never change. */
+type Row = Record<string, unknown>;
+
 const INTEGRATED = MIGRATIONS.slice(0, 29);
 const AT = '2026-11-05T10:00:00.000Z';
 const PUBLIC = 'aud:group:discord';
@@ -137,9 +139,23 @@ test('an integrated database opens at the new version with every old row byte fo
     const db = dbOf(upgraded);
     assert.equal(schemaVersion(db), MIGRATIONS.length);
     assert.ok(MIGRATIONS.length > INTEGRATED.length);
-    assert.deepEqual(contentOf(db, tables), before);
+    // Stage M rewrites `media` and takes `media` off `sources`, on purpose; every other shipped table stays byte for byte.
+    const asOfOld = (text: Record<string, string>) => {
+      const rest = { ...text };
+      delete rest.media;
+      const lines = (JSON.parse(text.sources) as Array<Row>).map((row) => {
+        const line = { ...row };
+        delete line.media;
+        return line;
+      });
+      return { ...rest, sources: JSON.stringify(lines) };
+    };
+    assert.deepEqual(asOfOld(contentOf(db, tables)), asOfOld(before));
     const after = definitions(db);
-    for (const [name, sql] of objects) assert.equal(after.get(name), sql, `${name} changed its definition`);
+    for (const [name, sql] of objects) {
+      if (name === 'media' || name === 'sources') continue;
+      assert.equal(after.get(name), sql, `${name} changed its definition`);
+    }
     const names = db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'semantic_%'").all();
     for (const table of SEMANTIC_TABLES)
       assert.ok(

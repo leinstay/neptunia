@@ -14,12 +14,12 @@ test('media: each key is an attachment row with its description', () => {
   const rows = assertRoundTrip(media, 'media.json', file);
   assert.equal(rows.media.length, 3);
   const [first] = rows.media;
-  assert.equal(first.id, 'media:attachment:1555006398444736533');
-  assert.equal(first.kind, 'attachment');
+  // The store's shape: a cache key is a row of a closed kind, its other fields under `extra.cache`.
+  assert.equal(first.kind, 'image');
   assert.equal(first.native_ref, '1555006398444736533');
   assert.equal(first.description, 'a photo of a café');
   assert.equal(first.scope_kind, 'group');
-  assert.deepEqual(JSON.parse(String(first.extra)), { ts: 1792000000000 });
+  assert.deepEqual(JSON.parse(String(first.extra)), { cache: { '1555006398444736533': { ts: 1792000000000 } } });
   assert.equal(rows.media[1].description, null);
 });
 
@@ -64,8 +64,10 @@ test('gifs: entries become gif rows and the counter stays operational', () => {
   // B7: `path` is null or a file under `media/`; the link is in `extra`.
   assert.equal(first.path, null);
   assert.equal((JSON.parse(String(first.extra)) as { url: string }).url, 'https://example.test/g.gif');
-  assert.equal(first.native_ref, '400000000000000001');
-  assert.equal(first.description, 'dancing cat');
+  // The row is the GIF's item: its reference is the item's, and its name and message stay in `extra`.
+  assert.equal(first.native_ref, 'gif-1#e0');
+  assert.equal((JSON.parse(String(first.extra)) as { messageId: string }).messageId, '400000000000000001');
+  assert.equal((JSON.parse(String(first.extra)) as { name: string }).name, 'dancing cat');
   assert.equal(rows.operational[0].kind, 'gifs');
   assert.deepEqual(JSON.parse(String(rows.operational[0].value)), { nextId: 4, $has: ['entries'] });
 });
