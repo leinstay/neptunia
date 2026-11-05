@@ -738,7 +738,7 @@ function checkWakePosting(context: PostingContext, capability: string | null): v
  */
 export async function postingConversation({
   reads,
-  store = null,
+  store,
   iface,
   placeId,
   conversationId,
@@ -746,7 +746,7 @@ export async function postingConversation({
   need,
 }: {
   reads: Reads | null;
-  store?: unknown;
+  store: unknown;
   iface: string;
   placeId: string | null;
   conversationId: string | null | undefined;

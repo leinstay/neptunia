@@ -333,6 +333,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
         if (given && reply?.placeId && given !== reply.placeId) return failed('invalid', CODE.UNKNOWN_MESSAGE);
         conversationId = await postingConversation({
           reads: ifaceReads,
+          store,
           iface: channel.iface,
           placeId,
           conversationId: given ?? reply?.placeId ?? null,

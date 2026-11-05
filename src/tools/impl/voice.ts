@@ -118,6 +118,7 @@ const handlers = perEnv((env) => {
     // Checked before anything is made or paid for.
     const postTo = await postingConversation({
       reads,
+      store: env.store,
       iface: port.iface,
       placeId: resolvedPlaceId(context),
       conversationId: target,

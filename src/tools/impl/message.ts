@@ -57,6 +57,7 @@ async function postTarget(
   const need = reply ? 'reply' : 'send';
   return postingConversation({
     reads: env.reads,
+    store: env.store,
     iface: p.iface,
     placeId: env.resolvedPlaceId(context),
     conversationId: placeId,
@@ -196,6 +197,7 @@ const handlers = perEnv((env) => {
     const ref = await messageRefOf(raw, reads);
     const sourceId = await postingConversation({
       reads,
+      store: env.store,
       iface: p.iface,
       placeId: resolvedPlaceId(context),
       conversationId: ref.placeId,
@@ -394,6 +396,7 @@ const handlers = perEnv((env) => {
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const placeId = await postingConversation({
       reads,
+      store: env.store,
       iface: p.iface,
       placeId: resolvedPlaceId(context),
       conversationId: given ?? message.placeId,
@@ -416,6 +419,7 @@ const handlers = perEnv((env) => {
     const p = requirePort();
     const placeId = await postingConversation({
       reads,
+      store: env.store,
       iface: p.iface,
       placeId: resolvedPlaceId(context),
       conversationId: args.placeId ? idText(args.placeId) : null,

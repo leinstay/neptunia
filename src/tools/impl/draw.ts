@@ -47,6 +47,7 @@ const handlers = perEnv((env) => {
       target || reply
         ? await postingConversation({
             reads,
+            store: env.store,
             iface: port?.iface ?? '',
             placeId: resolvedPlaceId(context),
             conversationId: target,
