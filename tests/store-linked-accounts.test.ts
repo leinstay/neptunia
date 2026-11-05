@@ -74,7 +74,7 @@ type Profile = {
   character: string;
   names: Array<string>;
   lastSeen: string;
-  addressedAs: Array<{ name: string }>;
+  addressedAs: Record<string, unknown>;
   affinity: { score: number };
 };
 
@@ -124,16 +124,11 @@ test('a linked account with its own unit reads the person and keeps what is its 
     assert.equal(second.affinity.score, 12);
     assert.equal(second.id, '222');
     assert.deepEqual(second.names, ['Bob']);
-    assert.deepEqual(
-      second.addressedAs.map((use) => use.name),
-      ['Bobby']
-    );
+    // Changed: `addressedAs` is a map by name (src/memory/addressed.ts); this test first read it as a list.
+    assert.deepEqual(Object.keys(second.addressedAs), ['Bobby']);
     const first = profileOf(reader, '111');
     assert.deepEqual(first.names, ['Alice']);
-    assert.deepEqual(
-      first.addressedAs.map((use) => use.name),
-      ['Al']
-    );
+    assert.deepEqual(Object.keys(first.addressedAs), ['Al']);
   }
 });
 

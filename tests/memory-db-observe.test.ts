@@ -370,7 +370,10 @@ test('imageboard: thread tokens stay in their thread, post numbers and display n
     assert.ok(resolved.resolved_at);
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM source_relations'), relations);
 
-    // The thread's place: its parent board was never seen, so it is kept by key; its seen window follows the posts.
+    // The thread's place: its seen window follows the posts.
+    // Changed: a declared parent creates its place row even when no message was seen there, so the link is a real
+    // `parent_id` and `extra` stays empty; this test first pinned the parent kept by key in `extra`.
+    const board = db.prepare("SELECT id FROM places WHERE native_key = 'board:b'").get() as { id: string };
     const place = db
       .prepare(
         'SELECT kind, conversation, parent_id, extra, seen_from_at, seen_to_at, owner_file FROM places WHERE id = ?'
@@ -381,8 +384,8 @@ test('imageboard: thread tokens stay in their thread, post numbers and display n
       {
         kind: 'thread',
         conversation: 'group',
-        parent_id: null,
-        extra: '{"parent":"board:b"}',
+        parent_id: board.id,
+        extra: null,
         seen_from_at: at(1),
         seen_to_at: at(49),
         owner_file: null,
