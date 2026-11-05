@@ -34,7 +34,7 @@ export type Refusal = { ok: false; code: string; reason: string };
 export type Requester = { id?: string | null; roleIds?: ReadonlyArray<string> };
 
 /** Where a call is made: the current conversation and who is in it. */
-export type Audience = { conversationId?: string | null; memberIds?: ReadonlyArray<string> };
+export type Audience = { conversationId?: string | null; accountIds?: ReadonlyArray<string> };
 
 /** What a budget answers: whether a cap is spent, and which one when it is not the drawing's. */
 type Budget = { spent?: boolean; userSpent?: boolean; code?: string; key?: string };
@@ -46,7 +46,7 @@ type Budget = { spent?: boolean; userSpent?: boolean; code?: string; key?: strin
 export type GateContext = {
   config?: unknown;
   selfId?: string | null;
-  images?: { quota?: (who: { userId: string | null }) => unknown };
+  images?: { quota?: (who: { accountId: string | null }) => unknown };
   speech?: { quota?: () => unknown };
   tasks?: { budget?: (agent: unknown) => unknown };
   registry?: SkillMap;
@@ -118,7 +118,7 @@ function requesterRefusal(
   const op = skill.op ? getOp(skill.op) : null;
   if (!op) return refused(CODE.REQUESTER_DENIED, 'no-operation');
   const code = rightsRefusal(op, {
-    userId: requester?.id ?? null,
+    accountId: requester?.id ?? null,
     roleIds: requester?.roleIds ?? [],
     config: context?.config,
   });

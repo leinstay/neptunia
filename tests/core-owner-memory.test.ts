@@ -217,7 +217,7 @@ for (const kind of ['group', 'dm'] as const) {
       const id = kind === 'dm' ? 'dm-other' : 'c1';
       if (kind === 'dm') {
         await unit.ask(
-          { op: 'seed-member', communityId: 'g1', member: { id: 'u1', name: 'Eleni', bot: false, groups: [] } },
+          { op: 'seed-member', rootId: 'g1', member: { id: 'u1', name: 'Eleni', bot: false, groups: [] } },
           'done'
         );
         const membership = lineEvent({ id: 'known-member', text: 'a quiet group observation', at: NOW - 1000 });
@@ -227,7 +227,7 @@ for (const kind of ['group', 'dm'] as const) {
         await unit.ask(
           {
             op: 'seed-conversation',
-            info: channelInfo(id, { kind: 'dm', communityId: null, partnerId: 'u1', audience: null }),
+            info: channelInfo(id, { kind: 'dm', rootId: null, partnerId: 'u1', audience: null }),
           },
           'done'
         );
@@ -238,7 +238,7 @@ for (const kind of ['group', 'dm'] as const) {
         at: NOW,
         mention: true,
       });
-      if (kind === 'dm') event.conversation = { id, kind: 'dm', communityId: null, name: 'other DM' };
+      if (kind === 'dm') event.conversation = { id, kind: 'dm', rootId: null, name: 'other DM' };
       assert.equal(await (await unit.emit(event)).acked, 'ok');
       await until(() => llm.requests.length === 3, 'the ordinary search and window results');
       assert.ok(toolText(llm.requests[1]).includes('public-evidence-275'));
@@ -281,7 +281,7 @@ for (const sender of ['absent', 'interface', 'agent'] as const) {
       const event = lineEvent({ id: 'bare-cli', text: 'θυμάσαι το κουνέλι;', at: NOW, authorId: 'owner' });
       event.iface = 'cli';
       event.id = 'cli:message:bare-cli';
-      event.conversation = { id: 'cli:dm:owner', kind: 'dm', communityId: null, name: 'console' };
+      event.conversation = { id: 'cli:dm:owner', kind: 'dm', rootId: null, name: 'console' };
       const from =
         sender === 'absent' ? undefined : { principal: 'owner', authenticated: { name: 'owner', kind: sender } };
       assert.equal((await core.door.submit(event, from)).status, 'ok');

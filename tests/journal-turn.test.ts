@@ -333,7 +333,7 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
     await admin.run(
       'memory.journal.read',
       { messageId: postedId },
-      { placeId: 'g1', conversationId: 'c1', userId: OWNER }
+      { placeId: 'g1', conversationId: 'c1', accountId: OWNER }
     )
   );
   assert.ok(byId.includes(THINK), 'the think whole, not its first 80 characters');
@@ -341,13 +341,17 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
   const byLink = await admin.run(
     'memory.journal.read',
     { messageId: `https://discord.com/channels/111/222/${postedId}` },
-    { placeId: 'g1', conversationId: 'c1', userId: OWNER }
+    { placeId: 'g1', conversationId: 'c1', accountId: OWNER }
   );
   assert.equal(byLink, byId);
 
   // Someone else's message (it started the turn), an unknown one, and junk.
   await assert.rejects(
-    admin.run('memory.journal.read', { messageId: triggerId }, { placeId: 'g1', conversationId: 'c1', userId: OWNER }),
+    admin.run(
+      'memory.journal.read',
+      { messageId: triggerId },
+      { placeId: 'g1', conversationId: 'c1', accountId: OWNER }
+    ),
     {
       code: 'not-found',
     }
@@ -356,7 +360,7 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
     admin.run(
       'memory.journal.read',
       { messageId: idAt(D + 4000, 9) },
-      { placeId: 'g1', conversationId: 'c1', userId: OWNER }
+      { placeId: 'g1', conversationId: 'c1', accountId: OWNER }
     ),
     { code: 'not-found' }
   );
@@ -364,7 +368,7 @@ test('memory.journal.read: by message id or link, the turn record whole; not her
     admin.run(
       'memory.journal.read',
       { messageId: 'not an id' },
-      { placeId: 'g1', conversationId: 'c1', userId: OWNER }
+      { placeId: 'g1', conversationId: 'c1', accountId: OWNER }
     ),
     {
       code: 'unknown-message',
@@ -436,7 +440,7 @@ test('journalTurnRecord: format counts and steps are written only when the turn 
   const draft = {
     started: { turnId: 't-1', attemptId: 1, startedAt: 'x' },
     placeId: 'c1',
-    privateUserId: null,
+    privateAccountId: null,
     participants: [],
     think: null,
   };

@@ -22,6 +22,8 @@ Claude Code and Codex bring their own login, so no key travels with them, except
 
 Execution modes govern the agent's access: `read`, `write`, `full` and `sudo`. The mode in the route sets the backend's sandbox and decides whether `sudo` is refused inside the run. Use `/agent mode <agent> <mode>` to select one. Rerender units with `neptunia setup` and restart the affected unit to apply systemd restrictions. A mode stored in the key store alone does not change an already running service.
 
+The server unit hides every client's token and every interface's `credentials.json` with `InaccessiblePaths=-<path>`, because it runs as the core's user and reads the host. It connects as no client, so it keeps no token. The modes `full` and `sudo` drop these entries with the rest of the mount sandbox. `keys.json` stays readable to it, and a client made after the unit was rendered stays visible until `neptunia setup` renders the unit again. The scout hides the whole persona folder instead.
+
 The scout and server units bind the folder of every backend a role names or that is installed under `data/subharness/`, writable, so a claude child keeps its config directory there (`CLAUDE_CONFIG_DIR`). The server unit's network also reaches Anthropic's ranges, `160.79.104.0/23` and `2607:6bc0::/48`, next to Cloudflare's.
 
 Native backend sessions belong to `data/subharness/<backend>/`. A task's final answer is only part of its history; keep native sessions for later inspection of the work.

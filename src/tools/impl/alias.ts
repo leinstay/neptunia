@@ -31,14 +31,14 @@ const handlers = perEnv((env) => {
    */
   function cmdAliasAdd(args: Obj, context: OpContext) {
     assertNotPaused();
-    const userId = idText(args.userId);
-    if (!userId) throw invalid('a user is required');
+    const accountId = idText(args.accountId);
+    if (!accountId) throw invalid('a user is required');
     const placeId = requirePlaceId(context);
 
     const name = textOf(args.name).trim();
     if (!name) throw invalid('a name is required');
 
-    const before = requireProfile(placeId, userId);
+    const before = requireProfile(placeId, accountId);
     const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     const target = confirmTarget(memoryCfg);
 
@@ -52,7 +52,7 @@ const handlers = perEnv((env) => {
     const now = Date.now();
     for (let i = 0; i < needed; i += 1) {
       store.applyProfileOps(
-        accountOf(store, userId),
+        accountOf(store, accountId),
         { aliases: { add: [name] } },
         {
           confirmGapHours: 0,
@@ -65,7 +65,7 @@ const handlers = perEnv((env) => {
       );
     }
 
-    const after = store.getUser(accountOf(store, userId));
+    const after = store.getUser(accountOf(store, accountId));
     return formatAliasList(after, memoryCfg);
   }
 
@@ -74,17 +74,17 @@ const handlers = perEnv((env) => {
    * A member with no profile is an error. */
   function cmdAliasRemove(args: Obj, context: OpContext) {
     assertNotPaused();
-    const userId = idText(args.userId);
-    if (!userId) throw invalid('a user is required');
+    const accountId = idText(args.accountId);
+    if (!accountId) throw invalid('a user is required');
     const placeId = requirePlaceId(context);
 
     const name = textOf(args.name).trim();
     if (!name) throw invalid('a name is required');
 
-    requireProfile(placeId, userId);
+    requireProfile(placeId, accountId);
     const memoryCfg = { ...hot.config?.memory, ...MEMORY_LIMITS };
     store.applyProfileOps(
-      accountOf(store, userId),
+      accountOf(store, accountId),
       { aliases: { remove: [name] } },
       {
         maxAliases: memoryCfg.maxAliases,
@@ -93,18 +93,18 @@ const handlers = perEnv((env) => {
       }
     );
 
-    const after = store.getUser(accountOf(store, userId));
+    const after = store.getUser(accountOf(store, accountId));
     return formatAliasList(after, memoryCfg);
   }
 
   /** The member's aliases, as `add` and `remove` answer them. A member with no
    * profile is an error. */
   function cmdAliasList(args: Obj, context: OpContext) {
-    const userId = idText(args.userId);
-    if (!userId) throw invalid('a user is required');
+    const accountId = idText(args.accountId);
+    if (!accountId) throw invalid('a user is required');
     const placeId = requirePlaceId(context);
-    requireProfile(placeId, userId);
-    return formatAliasList(callMethod(store, 'getUser', placeId, userId), objOf(objOf(objOf(hot).config).memory));
+    requireProfile(placeId, accountId);
+    return formatAliasList(callMethod(store, 'getUser', placeId, accountId), objOf(objOf(objOf(hot).config).memory));
   }
 
   return { cmdAliasAdd, cmdAliasRemove, cmdAliasList };

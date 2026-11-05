@@ -163,7 +163,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   if (lines === null || dims === null) {
     operational.raw = { meta, i8: i8.toString('base64') };
   } else {
-    const month = monthContext(dir, manifest, i8, uniqueIds(), iface, ctx.privateUserId, ctx.dmPlace);
+    const month = monthContext(dir, manifest, i8, uniqueIds(), iface, ctx.privateAccountId, ctx.dmPlace);
     lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, month)));
     const used = lines.length * dims;
     if (i8.length > used) operational.tailI8 = i8.subarray(used).toString('base64');
@@ -187,13 +187,13 @@ export function appendRows(
     previous,
     keys,
     iface = LEGACY_IFACE,
-    privateUserId,
+    privateAccountId,
     dmPlace = null,
   }: {
     previous: Stored;
     keys: Iterable<string>;
     iface?: string;
-    privateUserId?: string | null;
+    privateAccountId?: string | null;
     dmPlace?: MapContext['dmPlace'];
   }
 ): Rows | null {
@@ -225,7 +225,7 @@ export function appendRows(
     seen.add(out);
     return out;
   };
-  const month = monthContext(dir, manifest, i8, unique, iface, privateUserId, dmPlace);
+  const month = monthContext(dir, manifest, i8, unique, iface, privateAccountId, dmPlace);
   const rows: Rows = {};
   lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, month)));
   const next: Stored = { manifest, gen: manifest.gen ?? null };

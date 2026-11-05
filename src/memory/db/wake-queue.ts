@@ -32,7 +32,7 @@ export type TurnMark = {
   kind: string;
   placeId: string | null;
   privateChat: boolean;
-  privateUserId: string | null;
+  privateAccountId: string | null;
 };
 
 /** One wake row as the store reads it back. */
@@ -159,7 +159,7 @@ function turnMarkOf(value: unknown): TurnMark | null {
     kind: textOrNull(mark.kind) ?? '',
     placeId: textOrNull(mark.placeId),
     privateChat: mark.privateChat === true,
-    privateUserId: textOrNull(mark.privateUserId),
+    privateAccountId: textOrNull(mark.privateAccountId),
   };
 }
 

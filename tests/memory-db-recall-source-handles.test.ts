@@ -240,7 +240,7 @@ test('stored source handles qualify mapped DM anchors by the actual conversation
         text: `το κουνέλι ${id}`,
         at: NOW - DAY - offset,
       });
-      event.conversation = { id: 'actual-dm-73', kind: 'dm', communityId: null, partnerId: 'partner-42' };
+      event.conversation = { id: 'actual-dm-73', kind: 'dm', rootId: null, partnerId: 'partner-42' };
       const envelope = observationOf(event);
       assert.ok(envelope);
       assert.equal(observe(env.handle, envelope, { now: () => NOW }).ok, true);
@@ -392,7 +392,7 @@ function locatorEvent(id: string, conversationId: string, offset = 0) {
     text: `το κουνέλι ${id}`,
     at: NOW - DAY - offset,
   });
-  event.conversation = { id: conversationId, kind: 'dm', communityId: null, partnerId: 'partner-42' };
+  event.conversation = { id: conversationId, kind: 'dm', rootId: null, partnerId: 'partner-42' };
   const envelope = observationOf(event);
   if (!envelope) throw new Error('valid protocol fixture was refused');
   return envelope;

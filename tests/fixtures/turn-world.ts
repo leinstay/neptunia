@@ -101,11 +101,11 @@ export type World = {
   follow(placeId: unknown, messages: unknown): void;
   /** Puts message stubs into a channel's history. */
   seed(placeId: unknown, messages: unknown): void;
-  member(communityId: string, member: Partial<MemberInfo> & { id: string } & Record<string, unknown>): void;
+  member(placeId: string, member: Partial<MemberInfo> & { id: string } & Record<string, unknown>): void;
   /** A message of a conversation is gone (deleted, or never reached the interface). */
   forget(conversationId: unknown, messageId: unknown): void;
   /** Makes `ids` members of a community the interface knows (named by their ids). */
-  knowMembers(communityId: unknown, ids: unknown): void;
+  knowMembers(rootId: unknown, ids: unknown): void;
   /** Makes every read `op` of one conversation answer `failed`. */
   failRead(op: string, conversationId: unknown): void;
   /** The clock that stamps the messages the persona sends. */
@@ -128,8 +128,8 @@ export type World = {
     port: Fake;
     reads: Reads;
     selfId: () => string;
-    memberOf: (communityId: string, memberId: string) => ({ name: string; bot: boolean } & Record<string, unknown>) | null;
-    membersOf: (communityId: string) => Array<{ id: string; name: string; bot: boolean } & Record<string, unknown>>;
+    memberOf: (placeId: string, accountId: string) => ({ name: string; bot: boolean } & Record<string, unknown>) | null;
+    membersOf: (placeId: string) => Array<{ id: string; name: string; bot: boolean } & Record<string, unknown>>;
     conversationName: (conversationId: string) => string | null;
   };
 };
@@ -185,7 +185,7 @@ function infoOf(id: string, spec: ChannelSpec): { placeId: string | null; name: 
   const info: ConversationInfo = {
     id,
     kind: spec.kind ?? (placeId === null ? 'dm' : 'channel'),
-    communityId: placeId,
+    rootId: placeId,
     name,
     topic: null,
     category: spec.category ?? null,
@@ -439,8 +439,8 @@ function create(): World {
     seed: (placeId, messages) => seed(String(placeId), messages as ReadonlyArray<Raw>),
     follow: (placeId, messages) => follow(String(placeId), messages as ReadonlyArray<Raw>),
     failRead,
-    knowMembers(communityId, ids) {
-      for (const id of ids as Array<string>) this.member(String(communityId), { id, name: id });
+    knowMembers(rootId, ids) {
+      for (const id of ids as Array<string>) this.member(String(rootId), { id, name: id });
     },
     forget(conversationId, messageId) {
       each((one) => one.messages.delete(`${String(conversationId)}/${String(messageId)}`));
@@ -479,12 +479,12 @@ function create(): World {
       adopted.set(other, made);
       return made;
     },
-    member(communityId, member) {
-      const held = members.get(communityId) ?? new Map<string, Known>();
+    member(rootId, member) {
+      const held = members.get(rootId) ?? new Map<string, Known>();
       held.set(member.id, { ...member, name: member.name ?? member.id, bot: member.bot === true });
-      members.set(communityId, held);
+      members.set(rootId, held);
       each((one) =>
-        one.seedMember(communityId, {
+        one.seedMember(rootId, {
           name: member.id,
           bot: false,
           groupIds: [],
@@ -497,8 +497,8 @@ function create(): World {
       port,
       reads,
       selfId: () => SELF,
-      memberOf: (communityId, memberId) => members.get(communityId)?.get(memberId) ?? null,
-      membersOf: (communityId) => [...(members.get(communityId) ?? [])].map(([id, member]) => ({ id, ...member })),
+      memberOf: (rootId, accountId) => members.get(rootId)?.get(accountId) ?? null,
+      membersOf: (rootId) => [...(members.get(rootId) ?? [])].map(([id, member]) => ({ id, ...member })),
       conversationName: (conversationId) => names.get(conversationId) ?? null,
     }),
   };
@@ -604,7 +604,7 @@ export function syncStub(stub: unknown): Channel {
  * `category`, `topic`; `messages`: discord.js-shaped stubs, oldest first), every permission granted, by id.
  */
 export function worldChannels(
-  communityId: string,
+  placeId: string,
   channels: ReadonlyArray<ReadonlyArray<unknown>>
 ): Record<string, Channel> {
   const out: Record<string, Channel> = {};
@@ -615,7 +615,7 @@ export function worldChannels(
       id: given.id,
       name: given.name,
       ...(given.category === undefined ? {} : { category: given.category }),
-      placeId: communityId,
+      placeId,
       extra: { topic: given.topic ?? null },
       lastMessageAt: stubs.reduce((newest, raw) => Math.max(newest, raw.createdTimestamp), 0) || null,
       historyMessages: stubs,

@@ -22,7 +22,7 @@ export type MeaningQueryInput = {
  *   (form 1, name 1, form 2, name 2, ...), de-duplicated, at most `maxForms`;
  *   each `kind: 'form'` when it is one of `forms` (the topic), else
  *   `kind: 'who'` (a name form: it locates the person, not the topic);
- * - one author query per id of `memberIds`;
+ * - one author query per id of `accountIds`;
  * - with none of those and a range: one query over the range alone
  *   (`kind: 'range'`), which the runner samples (sampleOffsets).
  * The range: `after` from `from`, `before` the instant past `to` (so `to` is inclusive), both in ms. The
@@ -33,7 +33,7 @@ export type MeaningQueryInput = {
 export type SearchPlanInput = {
   forms?: Array<string>;
   who?: Array<string>;
-  memberIds?: Array<string>;
+  accountIds?: Array<string>;
   from?: number | null;
   to?: number | null;
   maxForms?: number;
@@ -164,7 +164,7 @@ export type MemoryContextInput = {
  * it has one; lore as `title: text`; an archive entry as archivedItem renders
  * it; the stored text otherwise; `<@id>` tokens kept), `date` (`YYYY-MM-DD`: a
  * moment's own, a line's or an entry's local day in `timezone`; null for lore
- * and learned), `memberId` (the moment's member, a learned item's teacher, an
+ * and learned), `accountId` (the moment's member, a learned item's teacher, an
  * entry's scoped member, else null), `itemId` (or null), `self`, `score`. Pure.
  * `meaning`: archive entries the meaning search found, best first (already
  * allowed, one per itemId; no form needed): each joins as the item of its
@@ -201,7 +201,7 @@ export type MatchMemoryResult = {
   kind: string;
   text: string;
   date: string | null;
-  memberId: string | null;
+  accountId: string | null;
   itemId: string | null;
   self: boolean;
   score: number;
@@ -259,7 +259,7 @@ export type BuildRecallRequestInput = {
   question: { authorName?: string; content?: string };
   people?: Array<{ name: string; username?: string; count?: number; newestTs?: number | null }>;
   windows: Array<Untyped>;
-  memory?: Array<{ kind: string; text: string; date: string | null; memberId: string | null }>;
+  memory?: Array<{ kind: string; text: string; date: string | null; accountId: string | null }>;
   context?: Array<Untyped>;
   contextDescriptions?: Map<string, string>;
   replyQuoteChars?: number;

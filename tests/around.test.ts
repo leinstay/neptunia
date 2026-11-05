@@ -28,8 +28,8 @@ const NAMES = { u1: 'Αλέξης', u2: 'Zoë', u3: 'Chloé', u4: 'Ηλίας' }
 const nameOf = (id: string) => loose(NAMES)[id] ?? null;
 
 const voice = (id: string, channelId: string, flags = {}) => ({ id, channelId, ...flags });
-const presence = (userId: string, status: string, activities: Array<Record<string, unknown>> = []) => ({
-  userId,
+const presence = (accountId: string, status: string, activities: Array<Record<string, unknown>> = []) => ({
+  userId: accountId,
   status,
   activities,
 });
@@ -201,18 +201,18 @@ test('voiceOccupants: the members in a voice channel that can be named, by name,
   store.voiceUpdate(voice('stranger', 'v1'));
   store.voiceUpdate(voice('u4', 'v3'));
   assert.deepEqual(voiceOccupants(store.snapshot(), { nameOf, channelNameOf }), [
-    { memberId: 'u2', name: 'Zoë' },
-    { memberId: 'u1', name: 'Αλέξης' },
-    { memberId: 'u4', name: 'Ηλίας' },
+    { accountId: 'u2', name: 'Zoë' },
+    { accountId: 'u1', name: 'Αλέξης' },
+    { accountId: 'u4', name: 'Ηλίας' },
   ]);
   assert.deepEqual(voiceOccupants(store.snapshot(), { excludeIds: new Set(['u1', 'u4']), nameOf, channelNameOf }), [
-    { memberId: 'u2', name: 'Zoë' },
+    { accountId: 'u2', name: 'Zoë' },
   ]);
   // The name the event carried stands in for a store name.
   store.voiceUpdate({ id: 'stranger', channelId: 'v1', member: { displayName: 'Ñandú' } });
   assert.ok(
     voiceOccupants(store.snapshot(), { nameOf, channelNameOf }).some(
-      (o) => o.memberId === 'stranger' && o.name === 'Ñandú'
+      (o) => o.accountId === 'stranger' && o.name === 'Ñandú'
     )
   );
   // No channel namer: nobody can be placed.

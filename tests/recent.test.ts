@@ -12,7 +12,7 @@ import {
   episodeKey,
   foldText,
   liveRecent,
-  memberIdOf,
+  accountIdOf,
   mergeRecent,
   normalizeRecent,
   purgeRecentFor,
@@ -755,10 +755,10 @@ test('recent view: perMember sets how many moments of one member are offered', (
   for (const fallback of [undefined, -1, '3']) assert.deepEqual(view(fallback), ['ν1', 'ν2'], String(fallback));
 });
 
-test('recent: memberIdOf gives an id as a string, anything else null', () => {
-  assert.equal(memberIdOf(NIKOS), NIKOS);
-  assert.equal(memberIdOf(42), '42');
-  for (const raw of ['', null, Number.NaN, {}, [NIKOS]]) assert.equal(memberIdOf(raw), null, String(raw));
+test('recent: accountIdOf gives an id as a string, anything else null', () => {
+  assert.equal(accountIdOf(NIKOS), NIKOS);
+  assert.equal(accountIdOf(42), '42');
+  for (const raw of ['', null, Number.NaN, {}, [NIKOS]]) assert.equal(accountIdOf(raw), null, String(raw));
 });
 
 test('recent view: lines about the focus come first, then the others heavier then newer, every line before an episode', () => {

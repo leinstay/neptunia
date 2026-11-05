@@ -260,7 +260,7 @@ function heartbeatStandIn(iface: string): ConversationInfo {
     id: 'heartbeat',
     kind: 'channel',
     name: 'heartbeat',
-    communityId: PERSONA_ID,
+    rootId: PERSONA_ID,
     category: null,
     topic: null,
     permissions: { read: true, send: true, attach: true, react: false },
@@ -311,11 +311,11 @@ export async function conversationFor(life: InnerContext, group: ReadonlyArray<W
       continue;
     }
     // A private chat only while private chats are on (private.enabled, read now).
-    if (channel.communityId === null && objOf(objOf(hot.config).private).enabled !== true) {
+    if (channel.rootId === null && objOf(objOf(hot.config).private).enabled !== true) {
       fail(CODE.DM_OFF);
       continue;
     }
-    if (channel.communityId !== null && !readOnlyOk && !channel.permissions.send) {
+    if (channel.rootId !== null && !readOnlyOk && !channel.permissions.send) {
       fail(CODE.NOT_WRITABLE);
       continue;
     }
@@ -572,8 +572,8 @@ async function beginTurn(
 ): Promise<TurnClaim | null> {
   const where = {
     placeId: String(channel.id),
-    privateChat: channel.communityId === null,
-    privateUserId: channel.communityId !== null ? null : idOrNull(channel.partnerId),
+    privateChat: channel.rootId === null,
+    privateAccountId: channel.rootId !== null ? null : idOrNull(channel.partnerId),
   };
   for (const wake of group) life.running.add(wake.id);
   const claim = await claimTurn(life, group, { at, turn: { kind, ...where } });
@@ -779,7 +779,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   const shownFacts = pendingFactsOf(state, {
     ...contextOf(life, String(channel.id)),
     placeId: String(channel.id),
-    privateChat: channel.communityId === null,
+    privateChat: channel.rootId === null,
     anywhere: true,
   })
     .filter((fact) => !ownFactIds.has(fact.id))
@@ -963,7 +963,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     addFact(life, after, {
       at: ended,
       placeId: String(channel.id),
-      privateChat: channel.communityId === null,
+      privateChat: channel.rootId === null,
       ...fact,
     })
   );
@@ -982,7 +982,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
       chainId,
       dueAt: ended,
       placeId: String(channel.id),
-      privateChat: channel.communityId === null,
+      privateChat: channel.rootId === null,
       here: current.placeId,
       turnId: turnId ? asText(turnId) : null,
       facts: feedback,
@@ -1008,7 +1008,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   });
   note(life, {
     event: 'turn',
-    placeId: channel.communityId !== null ? String(channel.id) : null,
+    placeId: channel.rootId !== null ? String(channel.id) : null,
     outcome,
     reason: result.reason ?? null,
     shadow,

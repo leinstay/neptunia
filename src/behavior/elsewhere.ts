@@ -12,7 +12,7 @@
 // `elsewhereSeen`) only change where the caller assigns the result and marks
 // the state dirty.
 
-import { memberIdOf as idOf } from '../memory/recent.ts';
+import { accountIdOf as idOf } from '../memory/recent.ts';
 import { DAY_MS } from '../time.ts';
 import type { MessageUrlTemplate } from '../protocol/adapter.ts';
 import { portIface, portMessageUrl } from '../interface/capabilities.ts';
@@ -338,9 +338,9 @@ function roleDeniesContained(dest: Audience, source: Audience): boolean {
  * deny of that member proves it (he may hold a denied role).
  * `heldRoles` is the member's role ids, when known.
  */
-function memberViewsSource(memberId: string, source: Audience, heldRoles?: Set<string>): boolean {
-  if (source.memberAllow.has(memberId)) return true;
-  if (source.memberDeny.has(memberId)) return false;
+function memberViewsSource(accountId: string, source: Audience, heldRoles?: Set<string>): boolean {
+  if (source.memberAllow.has(accountId)) return true;
+  if (source.memberDeny.has(accountId)) return false;
   if (!(heldRoles instanceof Set)) return source.everyone && source.roleDeny.size === 0;
   for (const role of heldRoles) if (source.roleDeny.has(role)) return false;
   if (source.everyone) return true;
@@ -377,8 +377,8 @@ export function audienceCovers(dest: unknown, source: unknown): boolean {
   if (dest.everyone && !source.everyone) return false;
   if (!isSubset(dest.roles, source.roles)) return false;
   if (source.roleDeny.size > 0 && !roleDeniesContained(dest, source)) return false;
-  for (const memberId of dest.memberAllow)
-    if (!memberViewsSource(memberId, source, dest.memberRoles?.get(memberId))) return false;
+  for (const accountId of dest.memberAllow)
+    if (!memberViewsSource(accountId, source, dest.memberRoles?.get(accountId))) return false;
   return isSubset(source.memberDeny, dest.memberDeny);
 }
 
@@ -391,18 +391,18 @@ export type MessageReference = { iface: string; conversationId: string; messageI
 
 /**
  * The reference of a message with the address the interface's template gives it (`url` null when the interface
- * declared no template, or an id is missing). A message of no community (`communityId` null) is a private chat.
+ * declared no template, or an id is missing). A message of no community (`rootId` null) is a private chat.
  */
 export function messageReference(
   iface: string,
   template: MessageUrlTemplate | null | undefined,
-  { communityId, conversationId, messageId }: { communityId: unknown; conversationId: unknown; messageId: unknown }
+  { rootId, conversationId, messageId }: { rootId: unknown; conversationId: unknown; messageId: unknown }
 ): MessageReference {
   const ids = [idOf(conversationId), idOf(messageId)];
-  const community = communityId === null ? null : idOf(communityId);
+  const community = rootId === null ? null : idOf(rootId);
   let url: string | null = null;
-  if (template && ids[0] && ids[1] && (communityId === null || community !== null)) {
-    url = (communityId === null ? template.direct : template.community)
+  if (template && ids[0] && ids[1] && (rootId === null || community !== null)) {
+    url = (rootId === null ? template.direct : template.community)
       .replaceAll('{community}', community ?? '')
       .replaceAll('{conversation}', ids[0])
       .replaceAll('{message}', ids[1]);
@@ -422,17 +422,15 @@ export function messageLink(ref: MessageReference | null | undefined): string | 
 
 /**
  * The link to a message of a conversation in the address form of `port` (its `capabilities().messageUrl`), null when
- * the port gives none. A message of no community (`communityId` null) is in a private chat.
+ * the port gives none. A message of no community (`rootId` null) is in a private chat.
  */
 export function messageLinkOf(
   port: unknown,
-  communityId: unknown,
+  rootId: unknown,
   conversationId: unknown,
   messageId: unknown
 ): string | null {
-  return messageLink(
-    messageReference(portIface(port), portMessageUrl(port), { communityId, conversationId, messageId })
-  );
+  return messageLink(messageReference(portIface(port), portMessageUrl(port), { rootId, conversationId, messageId }));
 }
 
 /** A message a post may link to: the channel it is in and its id. */

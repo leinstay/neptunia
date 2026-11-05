@@ -12,14 +12,14 @@ function eventWith(
     iface: 'fake',
     at: 5000,
     id: 'fake:message:m1',
-    conversation: { id: 'c1', kind: 'channel', communityId: 'g1', name: 'general', topic: 'chat', category: 'Talk' },
+    conversation: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general', topic: 'chat', category: 'Talk' },
     message: {
       id: 'm1',
       author: { id: 'u1', name: 'Alice', self: false, bot: false },
       content: 'hello @Bob',
       at: 5000,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -32,7 +32,7 @@ function eventWith(
     addressing: {
       mentioned: false,
       replyToSelf: false,
-      mentionedUserIds: ['u2'],
+      mentionedAccountIds: ['u2'],
       mentionedConversationIds: [],
       ...addressing,
     },
@@ -54,22 +54,22 @@ test('lineOf makes the line of a message event with the fields a turn reads, in 
     'content',
     'ts',
     'editedAt',
-    'mentionedUserIds',
+    'mentionedAccountIds',
     'mentionedUsers',
   ]);
   assert.deepEqual(
     [line.id, line.placeId, line.channelName, line.authorId, line.authorName, line.content, line.ts],
     ['m1', 'c1', 'general', 'u1', 'Alice', 'hello @Bob', 5000]
   );
-  assert.deepEqual(line.mentionedUserIds, ['u2']);
+  assert.deepEqual(line.mentionedAccountIds, ['u2']);
 });
 
 test('lineOf carries the reply, the forward and the edit stamp of the message', () => {
   const line = lineOf(
-    eventWith({ replyToId: 'm0', replyPingUserId: 'u3', forwardedFrom: 'elsewhere', editedAt: 6000 })
+    eventWith({ replyToId: 'm0', replyPingAccountId: 'u3', forwardedFrom: 'elsewhere', editedAt: 6000 })
   );
   assert.deepEqual(
-    [line.replyToId, line.replyPingUserId, line.forwardedFrom, line.editedAt],
+    [line.replyToId, line.replyPingAccountId, line.forwardedFrom, line.editedAt],
     ['m0', 'u3', 'elsewhere', 6000]
   );
 });

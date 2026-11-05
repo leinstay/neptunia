@@ -71,7 +71,7 @@ test('a DM with a partner has a recall context with no community', () => {
   // Bug: `Boolean(guildId && ...)` turns recall off in every DM that has no community.
   assert.equal(
     hasRecallContext({
-      channel: { id: 'd1', kind: 'dm', communityId: null },
+      channel: { id: 'd1', kind: 'dm', rootId: null },
       partnerId: 'u1',
       memoryContext: null,
     }),
@@ -82,7 +82,7 @@ test('a DM with a partner has a recall context with no community', () => {
 test('a private chat with no partner still has none', () => {
   // Bug: removing the community check opens stored recall to a conversation nobody can be authorized for.
   assert.equal(
-    hasRecallContext({ channel: { id: 'd1', kind: 'dm', communityId: null }, partnerId: null, memoryContext: null }),
+    hasRecallContext({ channel: { id: 'd1', kind: 'dm', rootId: null }, partnerId: null, memoryContext: null }),
     false
   );
 });

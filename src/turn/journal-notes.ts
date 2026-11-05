@@ -75,16 +75,16 @@ type TurnIds = {
 export type NotesDraft = TurnIds & {
   placeId?: string;
   conversationId?: string;
-  privateUserId?: string | null;
+  privateAccountId?: string | null;
   inner?: { wake?: { chainId?: string | null } | null } | null;
-  info?: { id: string; communityId?: string | null } | null;
+  info?: { id: string; rootId?: string | null } | null;
   deliveredIn?: Iterable<string> | null;
   finalThink?: unknown;
   actions?: Array<unknown>;
 };
 
 /** A channel the notes name: its id and the community it is in, when one. */
-type NotesChannel = { id: string; communityId?: string | null };
+type NotesChannel = { id: string; rootId?: string | null };
 
 /** One of her posted messages as a `said` line takes it. */
 type SaidArgs = {
@@ -98,7 +98,7 @@ type SaidArgs = {
   text: unknown;
   replyId?: string | null;
   repliedAuthorId?: string | null;
-  userIds: unknown;
+  accountIds: unknown;
 };
 
 /** What createJournalNotes reads: the dependencies and the runner's state the notes keep. */
@@ -250,7 +250,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
    */
   function placeOf(channel: NotesChannel, placeId: string | null = null): string {
     return placeKey({
-      placeId: inCommunity(channel) ? (placeId ?? channel.communityId ?? null) : null,
+      placeId: inCommunity(channel) ? (placeId ?? channel.rootId ?? null) : null,
       conversationId: channel.id,
     });
   }
@@ -308,7 +308,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
       if (!channel) return;
       const failed = outcome === 'error' || outcome === 'refused';
       if (!failed && outcome !== 'spoke' && outcome !== 'skip') return;
-      const placeId = args.placeId ?? channel.communityId ?? null;
+      const placeId = args.placeId ?? channel.rootId ?? null;
       const delivered = [...(draft.deliveredIn ?? [])].map((id) =>
         placeKey({ placeId: inCommunity(channel) ? placeId : null, conversationId: id })
       );
@@ -414,12 +414,14 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     text,
     replyId,
     repliedAuthorId,
-    userIds,
+    accountIds,
   }: SaidArgs): void {
     if (!record) return;
     if (typeof posted?.id !== 'string' || !posted.id) return;
-    const privateUserId = privateChat ? (draft?.privateUserId ?? trigger?.authorId ?? channel.partnerId ?? null) : null;
-    if (privateChat && !privateUserId) return;
+    const privateAccountId = privateChat
+      ? (draft?.privateAccountId ?? trigger?.authorId ?? channel.partnerId ?? null)
+      : null;
+    if (privateChat && !privateAccountId) return;
     const line = toRecordLine(
       {
         id: posted.id,
@@ -428,7 +430,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
         ts: Number.isFinite(posted.createdTimestamp) ? posted.createdTimestamp : clock(),
         replyToId: replyId ?? null,
         replyToAuthorId: repliedAuthorId ?? null,
-        mentionedUserIds: userIds,
+        mentionedAccountIds: accountIds,
       },
       { kind: 'said', now: clock, turnId: draft?.started?.turnId ?? null, opId: op?.opId ?? null }
     );
@@ -460,7 +462,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
       name,
       by,
       placeId: draft.conversationId,
-      privateUserId: draft.privateUserId,
+      privateAccountId: draft.privateAccountId,
       ...fields,
     });
     const actions = (draft.actions ??= []);

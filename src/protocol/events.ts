@@ -80,7 +80,7 @@ export const CONVERSATION_CHANGES = Object.freeze(['created', 'updated', 'delete
 export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
 
 /**
- * Where an event happened. `communityId`: the community the conversation belongs to (none for a
+ * Where an event happened. `rootId`: the native id of the place at the top of the conversation's tree (none for a
  * direct chat); `name`, `topic`, `category`: what the people in it see, null when unknown.
  * `parentId`, `parentKind`: the place that contains this one, of any kind and at any depth (a server, a category, a
  * channel); a thread with no declared kind sits in a channel. Containment is apart from `kind`: a channel in a category
@@ -91,7 +91,7 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
 export type Conversation = {
   id: string;
   kind: 'channel' | 'dm' | 'thread';
-  communityId?: string | null;
+  rootId?: string | null;
   name?: string | null;
   topic?: string | null;
   category?: string | null;
@@ -129,7 +129,7 @@ export type Author = { id: string; name: string | null; self: boolean; bot: bool
  * embedded media cut out). `sourceText` (optional, `content` when absent): the text as written, with mentions in the
  * core's `<@id>` grammar, which edit detection and the journal's reconciliation compare. `system` (optional, false when
  * absent): the platform's own message (a member joined, a webhook post), never a person's. `at`: when it was written. `replyToId`: the message it
- * replies to (a forward replies to nothing); `replyPingUserId`: the replied-to author when only
+ * replies to (a forward replies to nothing); `replyPingAccountId`: the replied-to author when only
  * the reply notified them; `forwardedFrom`: the name of the conversation a forward came from.
  * `attachments`, `links`, `forwarded`, `stickers`, `emojis`, `reactions` keep the shapes the
  * core's media module reads (src/media/classify.ts). `messageRefs` (optional): the messages the text links to, as
@@ -143,7 +143,7 @@ export type Message = {
   system?: boolean;
   at: number;
   replyToId: string | null;
-  replyPingUserId: string | null;
+  replyPingAccountId: string | null;
   forwardedFrom: string | null;
   attachments: Array<object>;
   links: Array<object>;
@@ -164,7 +164,7 @@ export type Message = {
 export type Addressing = {
   mentioned: boolean;
   replyToSelf: boolean;
-  mentionedUserIds: Array<string>;
+  mentionedAccountIds: Array<string>;
   mentionedUsers?: Array<{ id: string; name: string }>;
   mentionedConversationIds: Array<string>;
 };
@@ -213,7 +213,7 @@ export type MessageReceived = {
  * `emoji.id` a custom emoji's id. `authorId` is the author of the reacted message when the
  * adapter knows it (null or absent otherwise). `cleared` marks a removal of many at once: `'emoji'`
  * (every reaction of one emoji taken off) or `'all'` (every reaction taken off); then `added` is
- * false, `userId` may be null or absent, and with `'all'` so may `emoji`.
+ * false, `accountId` may be null or absent, and with `'all'` so may `emoji`.
  */
 export type ReactionChanged = {
   kind: 'reaction.changed';
@@ -223,7 +223,7 @@ export type ReactionChanged = {
   conversation: Conversation;
   messageId: string;
   emoji: { name: string | null; id?: string } | null;
-  userId: string | null;
+  accountId: string | null;
   added: boolean;
   authorId?: string | null;
   cleared?: 'emoji' | 'all';
@@ -251,16 +251,16 @@ export type CommandRequested = {
 };
 
 /**
- * `membership.changed`: `change` says what happened to the member `userId` of the community
- * `communityId`; `member` is who they are now (absent when they left and the adapter no longer knows).
+ * `membership.changed`: `change` says what happened to the member `accountId` of the community
+ * `placeId`; `member` is who they are now (absent when they left and the adapter no longer knows).
  */
 export type MembershipChanged = {
   kind: 'membership.changed';
   iface: string;
   at: number;
   id: string;
-  communityId: string;
-  userId: string;
+  placeId: string;
+  accountId: string;
   change: 'joined' | 'left' | 'updated';
   member?: { id: string; name: string | null; bot: boolean; avatar?: Avatar };
 };
@@ -275,8 +275,8 @@ export type VoiceChanged = {
   iface: string;
   at: number;
   id: string;
-  communityId: string;
-  userId: string;
+  placeId: string;
+  accountId: string;
   name?: string | null;
   conversationId: string | null;
   previousId: string | null;
@@ -296,7 +296,7 @@ export type Activity = {
 
 /** A member's presence: `name` is what people see for them, null when unknown. */
 export type PresenceState = {
-  userId: string;
+  accountId: string;
   name: string | null;
   status: 'online' | 'idle' | 'dnd' | 'offline' | 'unknown';
   activities: Array<Activity>;
@@ -348,7 +348,6 @@ export type ErrandDone = {
   kind: 'errand.done';
   at: number;
   id?: string;
-  communityId?: string | null;
   errandId: string;
   status: string;
   result?: unknown;
@@ -364,7 +363,6 @@ export type InnerWake = {
   kind: 'inner.wake';
   at: number;
   id: string;
-  communityId?: string | null;
   wake: { kind: string };
 };
 

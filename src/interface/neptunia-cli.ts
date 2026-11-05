@@ -56,7 +56,7 @@ export type Answer = { text: string; status: string; code?: string };
 export type CommandEvent = {
   name: string;
   args: Record<string, unknown>;
-  conversation: { id: string; communityId?: string | null };
+  conversation: { id: string; rootId?: string | null };
   requester: { id: string; roles: ReadonlyArray<string> };
   /** The answer to a question the command asked: the dialog it belongs to and the text. Never part of `args`. */
   dialogId?: string;

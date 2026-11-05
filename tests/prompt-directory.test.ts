@@ -259,7 +259,7 @@ test('buildRequest: the authors of the pulled lines and the neighbours get handl
   const server = buildRequest(input(extra));
   assert.equal(server.handles!.get(handleOf(neighbor.id)), neighbor.id);
   assert.equal(server.handles!.get(handleOf(pulledAuthor.id)), pulledAuthor.id);
-  const dm = buildRequest(input({ ...extra, privateChat: { userId: PROFILES[1].id } }));
+  const dm = buildRequest(input({ ...extra, privateChat: { accountId: PROFILES[1].id } }));
   assert.equal(dm.handles!.has(handleOf(neighbor.id)), false);
   assert.equal(dm.handles!.has(handleOf(pulledAuthor.id)), false);
   assert.ok(directoryOf(stableOf(dm)), 'the directory is in a private chat too');

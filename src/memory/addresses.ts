@@ -5,7 +5,7 @@
 type Conversationish = {
   id?: string | null;
   iface?: string | null;
-  communityId?: string | null;
+  rootId?: string | null;
   kind?: string | null;
   chatType?: string | null;
   partnerId?: string | null;
@@ -20,7 +20,7 @@ type Addressing = {
   personOfAccount?: (accountId: string) => string;
 };
 
-const given = (conversation: Conversationish): string => String(conversation.communityId ?? conversation.id ?? '');
+const given = (conversation: Conversationish): string => String(conversation.rootId ?? conversation.id ?? '');
 
 /** The place of a conversation itself: its channel, thread, group or DM. */
 export function placeOfConversation(store: unknown, conversation: Conversationish, iface?: string): string {

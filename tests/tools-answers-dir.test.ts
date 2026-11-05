@@ -306,7 +306,7 @@ test('an answer whose tool-calls.json holds a data call drives two steps of a re
     bot: false,
     content: 'who won?',
     ts: at,
-    mentionedUserIds: ['900000000000000001'],
+    mentionedAccountIds: ['900000000000000001'],
     replyToId: null,
     forwardedFrom: null,
     attachments: [],

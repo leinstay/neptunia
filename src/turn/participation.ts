@@ -83,7 +83,7 @@ export type Participation = {
     snapshot?: Snapshot | null;
   }) => AroundInput | null;
   liveChannelName: (
-    channel: { communityId?: string | null } | null | undefined,
+    channel: { rootId?: string | null } | null | undefined,
     snapshot?: Snapshot | null
   ) => (placeId: string) => string | null;
   recordOwnParticipation: (args: {
@@ -182,7 +182,7 @@ export function createParticipation({ hot, store, around, clock }: Participation
    * A channel's live name in `channel`'s place, for a participation episode whose channel has no stored note.
    */
   function liveChannelName(
-    channel: { communityId?: string | null } | null | undefined,
+    channel: { rootId?: string | null } | null | undefined,
     snapshot: Snapshot | null = null
   ): (placeId: string) => string | null {
     return (placeId) => {

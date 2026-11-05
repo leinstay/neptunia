@@ -74,7 +74,7 @@ const task = (id: string, extra = {}) => ({
   id,
   agent: 'scout',
   goal: 'look something up',
-  requester: { userId: '100000000000000001', kind: 'member' },
+  requester: { accountId: '100000000000000001', kind: 'member' },
   origin: { placeId: '200000000000000001', messageId: null },
   scope: 'group',
   state: 'done',
@@ -113,7 +113,7 @@ test('errands: a DM errand is scoped to its requester', () => {
   const rows = assertRoundTrip(errands, 'errands.json', { errands: [task('t3', { scope: 'dm' })] });
   assert.deepEqual([rows.work[0].scope_kind, rows.work[0].scope_dm], ['dm', 'person:discord:100000000000000001']);
   assertRoundTrip(errands, 'errands.json', {
-    errands: [task('t4', { scope: 'dm', requester: { userId: null, kind: 'owner' } })],
+    errands: [task('t4', { scope: 'dm', requester: { accountId: null, kind: 'owner' } })],
   });
 });
 

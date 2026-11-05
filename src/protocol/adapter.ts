@@ -11,7 +11,7 @@ export type MessageRef = {
   iface: string;
   conversationId: string;
   messageId: string;
-  memberId?: string;
+  accountId?: string;
 };
 
 // `cause` is the platform's own error, kept for the logs and never shown to the model.
@@ -202,7 +202,7 @@ export type Adapter = {
     options?: { audience?: boolean; viewers?: ReadonlyArray<string> }
   ): Promise<ReadResult<{ conversation: ConversationInfo }>>;
   conversations(scope: {
-    communityId: string;
+    placeId: string;
     audience?: boolean;
     viewers?: ReadonlyArray<string>;
   }): Promise<ReadResult<{ conversations: Array<ConversationInfo>; groups: Array<GroupInfo> }>>;
@@ -210,21 +210,18 @@ export type Adapter = {
     conversation: ConversationRef,
     query: HistoryQuery
   ): Promise<ReadResult<{ events: Array<MessageEvent>; complete: boolean }>>;
-  memberInfo(member: {
-    communityId: string | null;
-    memberId: string;
-  }): Promise<ReadResult<{ member: MemberInfo | null }>>;
+  memberInfo(member: { placeId: string | null; accountId: string }): Promise<ReadResult<{ member: MemberInfo | null }>>;
   searchMessages(
-    scope: { communityId: string },
+    scope: { placeId: string },
     query: { text?: string; authorId?: string; after?: number; before?: number; offset?: number }
   ): Promise<ReadResult<{ total: number; hits: Array<MessageHit> }>>;
   searchMembers(
-    scope: { communityId: string },
+    scope: { placeId: string },
     query: { prefix: string; limit: number }
   ): Promise<ReadResult<{ members: Array<MemberHit> }>>;
-  emoji(scope: { communityId: string }): Promise<ReadResult<{ emoji: Array<EmojiInfo> }>>;
+  emoji(scope: { placeId: string | null }): Promise<ReadResult<{ emoji: Array<EmojiInfo> }>>;
   parseLinks(texts: ReadonlyArray<string>): Promise<ReadResult<{ refs: Array<MessageRef | null> }>>;
-  reactors(message: MessageRef, emoji: string, limit: number): Promise<ReadResult<{ memberIds: Array<string> }>>;
+  reactors(message: MessageRef, emoji: string, limit: number): Promise<ReadResult<{ accountIds: Array<string> }>>;
   capabilities(): Capabilities;
 };
 

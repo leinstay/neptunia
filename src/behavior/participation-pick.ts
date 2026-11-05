@@ -252,7 +252,7 @@ export function participationEpisodeOffer({
 }: {
   store: { getParticipation: (placeId: string) => Untyped; listChannels?: (placeId: string) => Array<Untyped> };
   placeId: string;
-  channel: { id?: string; communityId?: string | null } | null | undefined;
+  channel: { id?: string; rootId?: string | null } | null | undefined;
   audience: (conversationId: string) => boolean;
   snapshot?: Snapshot | null;
   config: Record<string, Untyped>;
@@ -317,7 +317,7 @@ export function createParticipationPicker({
   schedule?: (fn: () => void, ms: number) => () => void;
 }): (args: {
   placeId: string;
-  channel: { id?: string; communityId?: string | null } | null | undefined;
+  channel: { id?: string; rootId?: string | null } | null | undefined;
   history: Array<Untyped>;
   trigger: Untyped;
   triggerKind?: string | null;
@@ -344,7 +344,7 @@ export function createParticipationPicker({
       const config = hot.config;
       const settings = participationPickSettings(config);
       if (!settings) return [];
-      if (!participationPickAllowed({ mode, triggerKind, privateChat: channel?.communityId == null })) return [];
+      if (!participationPickAllowed({ mode, triggerKind, privateChat: channel?.rootId == null })) return [];
       if (typeof store?.getParticipation !== 'function') return [];
       const at = now();
       const labels = hot.prompts?.labels;

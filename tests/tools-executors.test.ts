@@ -314,7 +314,7 @@ function makeAdmin({
     state: { data: {}, markDirty() {} },
     getUser: () => null,
     getPlace: () => ({}),
-    isPingsOff: (placeId: string, userId: string) => userId === '8',
+    isPingsOff: (placeId: string, accountId: string) => accountId === '8',
   };
   // What the interface says of each channel: its community and what she may do there.
   freshWorld();
@@ -365,9 +365,9 @@ function deps(
 
 test("runOwnSkillOp: only her own expressive operations, without the requester's right", async () => {
   const { admin } = makeAdmin();
-  const other = await admin.runOwnSkillOp('lore.list', {}, { placeId: 'g1', userId: MEMBER });
+  const other = await admin.runOwnSkillOp('lore.list', {}, { placeId: 'g1', accountId: MEMBER });
   assert.deepEqual([other.status, other.code], ['denied', 'not-self-owned']);
-  const own = await admin.runOwnSkillOp('intention.list', {}, { placeId: 'g1', userId: MEMBER, actor: 'persona' });
+  const own = await admin.runOwnSkillOp('intention.list', {}, { placeId: 'g1', accountId: MEMBER, actor: 'persona' });
   assert.notEqual(own.code, 'not-self-owned', 'her own operation, for her, whoever asked');
 });
 
@@ -703,13 +703,13 @@ test('executeCall: her written text goes out as rendered; only the members the r
   const { admin, port } = makeAdmin();
   // The turn's rendering: two names it knows become mentions; @everyone is no name of anyone.
   const renderText = (text: string) => {
-    const userIds: Array<string> = [];
+    const accountIds: Array<string> = [];
     const out = text.replace(/@(Zoë|Élodie)/g, (whole: Untyped, name: Untyped) => {
       const id = name === 'Zoë' ? MEMBER : '8';
-      userIds.push(id);
+      accountIds.push(id);
       return `<@${id}>`;
     });
-    return { text: out, userIds };
+    return { text: out, accountIds };
   };
   const created = await executeCall(
     resolve('message.create', {}, '@Zoë @Élodie @everyone'),
@@ -754,7 +754,7 @@ test("executeCall: a person who runs message.create gives her a turn; her own ca
   const person = await admin.runSkillOp(
     'message.create',
     { text: 'πες αυτό' },
-    { placeId: 'g1', conversationId: HERE, userId: OWNER, roleIds: [] }
+    { placeId: 'g1', conversationId: HERE, accountId: OWNER, roleIds: [] }
   );
   assert.equal(person.status, 'ok');
   assert.deepEqual(forced, [[HERE, null, { requester: { id: OWNER, roleIds: [] } }]]);
@@ -1024,7 +1024,14 @@ test('executeCall: an operation that does not answer in time is unknown, never r
     [
       'lore.list',
       { query: undefined },
-      { placeId: 'g1', conversationId: HERE, userId: MEMBER, roleIds: ['r1'], actor: 'persona', invocationId: 'inv-9' },
+      {
+        placeId: 'g1',
+        conversationId: HERE,
+        accountId: MEMBER,
+        roleIds: ['r1'],
+        actor: 'persona',
+        invocationId: 'inv-9',
+      },
     ],
   ]);
 });
@@ -1435,10 +1442,10 @@ function pingsStore(off: Array<string> = []) {
     state: { data: {}, markDirty() {} },
     getUser: () => null,
     getPlace: () => ({}),
-    isPingsOff: (placeId: string, userId: string) => keys.has(`${placeId}:${userId}`),
-    setPingsOff(placeId: string, userId: string, value: unknown) {
-      if (value) keys.add(`${placeId}:${userId}`);
-      else keys.delete(`${placeId}:${userId}`);
+    isPingsOff: (placeId: string, accountId: string) => keys.has(`${placeId}:${accountId}`),
+    setPingsOff(placeId: string, accountId: string, value: unknown) {
+      if (value) keys.add(`${placeId}:${accountId}`);
+      else keys.delete(`${placeId}:${accountId}`);
       return value;
     },
   };
@@ -1514,7 +1521,7 @@ test('stored memory handles carry exact source identity through execution into t
       refs,
     });
     const callView = callViewOf({
-      channel: { id: HERE, communityId: 'g1' },
+      channel: { id: HERE, rootId: 'g1' },
       currentIface: 'fake',
       searchRefs: draft.searchRefs,
       skills: skillRegistry(),

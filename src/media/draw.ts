@@ -76,7 +76,7 @@ export type DrawInput = {
   /** The local time in the prompt. */
   withTime?: boolean;
   /** The member whose per-member rail counts it (null: nobody's). */
-  userId?: string | null;
+  accountId?: string | null;
   /** A holder the avatar is fetched into once and reused (a diary set): a `reference` of null counts as fetched, absent as not yet. */
   avatar?: { reference?: string | null } | null;
   /** The core model's id when the call is routed to it (src/tools/gateway.ts#callOnRoute), null for the drawing role's own. */
@@ -94,7 +94,7 @@ export async function drawPicture({
     generate: (request: {
       prompt: string;
       reference: string | null;
-      userId: string | null;
+      accountId: string | null;
       model?: string;
     }) => Promise<GeneratedPicture>;
   };
@@ -104,7 +104,7 @@ export async function drawPicture({
   now?: () => number;
   input: DrawInput;
 }): Promise<{ picture: GeneratedPicture; referenceMissing: boolean }> {
-  const { scene, selfName, self = false, withTime = false, userId = null, avatar = null, model = null } = input;
+  const { scene, selfName, self = false, withTime = false, accountId = null, avatar = null, model = null } = input;
   const prompt = drawPromptOf({ hot, selfName, scene, self, withTime, now });
   let reference: string | null = null;
   let referenceMissing = false;
@@ -120,6 +120,6 @@ export async function drawPicture({
       if (avatar) avatar.reference = reference;
     }
   }
-  const picture = await images.generate({ prompt, reference, userId, ...(model ? { model } : {}) });
+  const picture = await images.generate({ prompt, reference, accountId, ...(model ? { model } : {}) });
   return { picture, referenceMissing };
 }

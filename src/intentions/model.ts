@@ -1015,7 +1015,7 @@ export function dueList(records: unknown, now: number, jitterMinutes = 0): Array
 }
 
 /**
- * Whether `record` concerns member `userId` (src/memory/db/session.ts, the intentions her memory session shows): it is
+ * Whether `record` concerns member `accountId` (src/memory/db/session.ts, the intentions her memory session shows): it is
  * meant for them (`destination`), an attention names them (`attend.people`), it came from a
  * conversation with them (`provenance.participants`),
  * or its words -- the purpose, the quoted span, the completion condition, the chain, an errand's
@@ -1024,9 +1024,9 @@ export function dueList(records: unknown, now: number, jitterMinutes = 0): Array
  */
 export function concernsMember(
   record: Intention,
-  { userId, names = [] }: { userId: string; names?: Array<string> }
+  { accountId, names = [] }: { accountId: string; names?: Array<string> }
 ): boolean {
-  const id = String(userId ?? '');
+  const id = String(accountId ?? '');
   if (!id || !record) return false;
   if (record.destination === id) return true;
   if (Array.isArray(record.attend?.people) && record.attend.people.includes(id)) return true;

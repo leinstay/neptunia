@@ -35,20 +35,20 @@ function lineEvent({
   at = SENT,
   text = WORDS,
   replyToId,
-  mentionedUserIds = [],
+  mentionedAccountIds = [],
 }: {
   id?: string;
   author?: string;
   at?: number;
   text?: string;
   replyToId?: string;
-  mentionedUserIds?: Array<string>;
+  mentionedAccountIds?: Array<string>;
 } = {}) {
   return {
     iface: IFACE,
     at,
-    conversation: { id: ROOM, kind: 'channel', chatType: 'channel', communityId: COMMUNITY },
-    addressing: { mentionedUserIds },
+    conversation: { id: ROOM, kind: 'channel', chatType: 'channel', rootId: COMMUNITY },
+    addressing: { mentionedAccountIds },
     message: {
       id,
       at,
@@ -69,9 +69,9 @@ async function observeLine(memory: Memory, options: Parameters<typeof lineEvent>
 }
 
 /** The record line of her send, as recordSaid builds it, appended with no descriptor as every said writer does. */
-async function recordSent(memory: Memory, { mentionedUserIds = [] }: { mentionedUserIds?: Array<string> } = {}) {
+async function recordSent(memory: Memory, { mentionedAccountIds = [] }: { mentionedAccountIds?: Array<string> } = {}) {
   const line = toRecordLine(
-    { id: 'sent-1', placeId: ROOM, content: WORDS, ts: SENT, replyToId: null, mentionedUserIds },
+    { id: 'sent-1', placeId: ROOM, content: WORDS, ts: SENT, replyToId: null, mentionedAccountIds },
     { kind: 'said', now: () => NOW, turnId: 't-1', opId: 'op-1' }
   );
   await createRecord({ ...memory, now: () => NOW }).append(TOP, [line], {});
@@ -178,8 +178,8 @@ test('her echoed line naming a member counts once as addressed by her', async ()
   const memory = await openTestMemory({ now: () => NOW, iface: () => IFACE });
   try {
     await observeLine(memory, { id: 'hello-1', author: MEMBER, at: SENT - 1000 });
-    await observeLine(memory, { mentionedUserIds: [MEMBER] });
-    await recordSent(memory, { mentionedUserIds: [MEMBER] });
+    await observeLine(memory, { mentionedAccountIds: [MEMBER] });
+    await recordSent(memory, { mentionedAccountIds: [MEMBER] });
     const db = database(memory);
     const account = db.prepare('SELECT id, authority_id FROM accounts WHERE native_key = ?').get(MEMBER);
     db.prepare("INSERT INTO people (id, kind, first_seen_at) VALUES ('person:member', 'person', ?)").run(

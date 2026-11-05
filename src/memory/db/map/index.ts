@@ -41,7 +41,7 @@ export type Mapper = {
       previous: never;
       keys: Iterable<string>;
       iface?: string;
-      privateUserId?: string | null;
+      privateAccountId?: string | null;
       dmPlace?: MapContext['dmPlace'];
     }
   ): Rows | null;
@@ -163,7 +163,7 @@ export function storageContext(db: Db, key: StorageKey): MapContext {
     collection: key.selector?.collection,
     versionKind: key.selector?.versionKind,
     itemId: key.selector?.itemId,
-    privateUserId: key.subject.type === 'account' && key.kind !== 'user' ? subject.native : partner,
+    privateAccountId: key.subject.type === 'account' && key.kind !== 'user' ? subject.native : partner,
     ...(key.subject.type === 'place' && partner !== null
       ? { dmPlaceId: key.subject.id, dmPlace: dmPlaceOfSubject(key.subject.id, subject.row) }
       : {}),
@@ -261,7 +261,7 @@ export function storageMapper(
             appendRows: (rel, delta, state) => {
               const rows = original.appendRows!(rel, delta, {
                 ...state,
-                privateUserId: base.privateUserId,
+                privateAccountId: base.privateAccountId,
                 dmPlace: base.dmPlace,
               });
               return rows ? ownedRows(db, rows, id, undefined, legacyOwner) : null;

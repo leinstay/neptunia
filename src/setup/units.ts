@@ -14,6 +14,13 @@
 // backend a role names in keys.json or installed there is bound writable into it, and nothing above it: keys.json stays out of the agent's
 // reach.
 //
+// The watcher's, the development worker's and the server agent's units run as the user of the core, so the mount namespace
+// is all that keeps a child of theirs from the other clients' tokens and the interfaces' `credentials.json`. Given the
+// names of the clients and the interfaces the install has, each of those units hides them with `InaccessiblePaths=-<path>`
+// (the leading `-` lets the unit start before a file exists) and leaves its own client's token readable. `keys.json`
+// stays readable: the watcher and the development worker read their agents' routes from it (docs/watcher.md). The modes
+// `full` and `sudo` drop the entries with the rest of the mount sandbox.
+//
 // The watcher's timer takes `watcher.schedule` when the render is given it: one `OnCalendar=` per daily time, or an
 // interval counted from the timer's own activation and then from the last run. The other timers keep their lines.
 
@@ -44,6 +51,34 @@ export const DEVELOPMENT_UNIT_FILES: ReadonlyArray<string> = ['neptunia-developm
 /** The `Unit=` line of the watcher's timer. */
 const WATCHER_TIMER = /^Unit=neptunia-watcher\.service$/m;
 
+/**
+ * The units that hide the secrets of the core's user from their agent, found by their `ExecStart=`, and the client each
+ * connects as (null when it connects as none). The scout needs no entry: its persona folder is an empty tmpfs.
+ */
+const SECRET_HIDERS: ReadonlyArray<{ start: RegExp; own: string | null }> = [
+  { start: /^ExecStart=\S+ bin\/neptunia\.ts worker watcher\b/m, own: 'watcher' },
+  { start: /^ExecStart=\S+ bin\/neptunia\.ts worker development\b/m, own: 'development' },
+  { start: /^ExecStart=\S+ bin\/neptunia\.ts errand-runner --profile server\b/m, own: null },
+];
+
+/** A client or interface name that is one plain path segment: nothing that climbs out of its folder. */
+const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+/** The `InaccessiblePaths=` line of a unit that hides secrets from its agent, null for any other unit. */
+function hiddenLine(text: string, vars: UnitVars): string | null {
+  const hider = SECRET_HIDERS.find(({ start }) => start.test(text));
+  if (hider === undefined) return null;
+  const named = (names: ReadonlyArray<string> | undefined): Array<string> =>
+    [...new Set(names ?? [])].filter((name) => SAFE_NAME.test(name)).sort();
+  const hidden = [
+    ...named(vars.clients)
+      .filter((name) => name !== hider.own)
+      .map((name) => path.join(vars.dataDir, 'clients', `${name}.token`)),
+    ...named(vars.interfaces).map((name) => path.join(vars.dataDir, 'interfaces', name, 'credentials.json')),
+  ];
+  return hidden.length === 0 ? null : `InaccessiblePaths=${hidden.map((one) => `-${one}`).join(' ')}`;
+}
+
 /** The `ExecStart=` of an agent unit: the errand runner. */
 const AGENT_RUNNER = /^ExecStart=\S+ bin\/neptunia\.ts errand-runner\b/m;
 
@@ -71,6 +106,10 @@ export type UnitVars = {
   mode?: AgentMode;
   /** the backends a role names in keys.json or installed in the private layer; an agent unit binds the folder of each in the private layer writable */
   backends?: ReadonlyArray<BackendName>;
+  /** the names of the clients of `clients.json`; the units of the watcher, the development worker and the server agent hide every token but their own */
+  clients?: ReadonlyArray<string>;
+  /** the names of the interfaces, each with a `interfaces/<name>/credentials.json` those units hide */
+  interfaces?: ReadonlyArray<string>;
   /** `watcher.schedule`: what the watcher's timer fires on; absent keeps the template's `OnCalendar=` */
   watcherSchedule?: ServiceSchedule;
 };
@@ -143,6 +182,8 @@ type LineRules = {
   backendDirs: ReadonlyArray<string>;
   /** the lines of the watcher's timer that replace `OnCalendar=`, null for any other unit or with no schedule given */
   timer: ReadonlyArray<string> | null;
+  /** the `InaccessiblePaths=` line added under `[Service]`, null for a unit that hides nothing or in the modes `full` and `sudo` */
+  hidden: string | null;
 };
 
 /** The lines the backends' binds and the watcher's schedule make of `line`, or null when they leave it alone. */
@@ -152,6 +193,13 @@ function renderedLines(line: string, key: string | null, rules: LineRules): Arra
   // The runner reads agents/ at its start, so a persona folder emptied for the unit shows that folder.
   if (key === 'TemporaryFileSystem') return [line, `BindReadOnlyPaths=-${path.join(rules.vars.dataDir, 'agents')}`];
   if (rules.timer !== null && key === 'OnCalendar') return [...rules.timer];
+  // The profiles' socket and out defaults follow the unit's own runtime and state folders (agentSettings).
+  if (line === '[Service]')
+    return [
+      line,
+      ...(rules.scope === 'user' ? [`Environment=${UNIT_SCOPE_ENV}=user`] : []),
+      ...(rules.hidden === null ? [] : [rules.hidden]),
+    ];
   return null;
 }
 
@@ -172,8 +220,6 @@ function linesOf(line: string, rules: LineRules): Array<string> {
     const bound = line.slice('BindReadOnlyPaths='.length).split(/\s+/).filter(Boolean);
     return [`BindReadOnlyPaths=${[...bound, ...visibleHomePaths(vars, bound)].join(' ')}`];
   }
-  // The profiles' socket and out defaults follow the unit's own runtime and state folders (agentSettings).
-  if (scope === 'user' && line === '[Service]') return [line, `Environment=${UNIT_SCOPE_ENV}=user`];
   return [line];
 }
 
@@ -204,6 +250,7 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
     isInterface: /^ExecStart=.*\binterface run\b/m.test(text),
     backendDirs,
     timer,
+    hidden: dropped.has('ProtectSystem') ? null : hiddenLine(text, vars),
   };
   return text
     .split('\n')

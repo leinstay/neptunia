@@ -731,15 +731,15 @@ async function postReturnedFiles(
  * `failed` with `error`). Her arguments with the command's fixed values, mapped by the command's
  * own option mapper (`dispatch.toOp`), must reach this very operation (else `invalid`); her own
  * writing (`message.create`, `message.edit`) is first rendered as a `<msg>` of hers is posted
- * (`deps.renderText`: the text, or `{ text, userIds }` -- mentions, custom emoji, message and
+ * (`deps.renderText`: the text, or `{ text, accountIds }` -- mentions, custom emoji, message and
  * channel links; src/behavior/turn.ts#renderPost), the members it mentions handed to the
- * operation as `mentionUserIds`, the only ones it may notify. Then `deps.runOp(op, args, context)`
+ * operation as `mentionAccountIds`, the only ones it may notify. Then `deps.runOp(op, args, context)`
  * (src/admin.ts#runSkillOp) -- for her own expressive operations (src/tools/impl/effects.ts#SELF_OWNED_OPS)
  * `deps.runOwnOp` (src/admin.ts#runOwnSkillOp: her grant alone, no requester's right), and on
  * her own initiative (`envelope.ownInitiative` with no requester: an inner turn)
  * `deps.runInitiativeOp` (src/admin.ts#runInitiativeSkillOp, the same for any operation) -- on
  * the call's envelope (`deps.envelope`, built by the turn, never by
- * the model: the requester's `userId` and `roleIds`, null with nobody; the invocation id) in the
+ * the model: the requester's `accountId` and `roleIds`, null with nobody; the invocation id) in the
  * turn's context (`deps.opContext`: `placeId`, `placeId`), the persona as the actor, the replied
  * author for a reply's notification; not back within `deps.timeoutMs` (`tools.callTimeoutMs`)
  * it is `unknown` (`timeout`), never retried. Its answer is the call's `data.text`
@@ -785,14 +785,14 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
         : { status: 'failed', code: CODE.ERROR };
     }
     // Her own writing as a `<msg>` of hers is posted: the members its mentions resolved to ride along.
-    let mentionUserIds: Array<string> = [];
+    let mentionAccountIds: Array<string> = [];
     if (WRITTEN.includes(resolved.skill) && typeof args.text === 'string' && typeof deps.renderText === 'function') {
       const rendered = deps.renderText(args.text);
       if (typeof rendered === 'string') args.text = rendered;
       else if (typeof rendered.text === 'string') {
         args.text = rendered.text;
-        if (Array.isArray(rendered.userIds))
-          mentionUserIds = rendered.userIds.filter((id): id is string => typeof id === 'string' && id !== '');
+        if (Array.isArray(rendered.accountIds))
+          mentionAccountIds = rendered.accountIds.filter((id): id is string => typeof id === 'string' && id !== '');
       }
     }
     const call = resolved.dispatch.toOp(args);
@@ -820,7 +820,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
           run(call.op, call.args, {
             ...deps.opContext,
             ...(boundary ? { publicationBoundary: boundary } : {}),
-            userId: requester?.id ?? null,
+            accountId: requester?.id ?? null,
             roleIds: Array.isArray(requester?.roleIds) ? [...requester.roleIds] : [],
             actor: 'persona',
             ...(envelope.invocationId ? { invocationId: envelope.invocationId } : {}),
@@ -842,7 +842,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
               ? { sourceMessageId: String(envelope.sourceMessageIds[0]) }
               : {}),
             ...(resolved.repliedAuthorId ? { repliedAuthorId: String(resolved.repliedAuthorId) } : {}),
-            ...(mentionUserIds.length > 0 ? { mentionUserIds } : {}),
+            ...(mentionAccountIds.length > 0 ? { mentionAccountIds } : {}),
           })
         ),
         deps.timeoutMs ?? CALL_TIMEOUT_MS
@@ -1009,7 +1009,7 @@ export type RunOperation = (op: string, args: Obj, context: Obj) => unknown;
 export type ExecuteDeps = {
   publicationBoundary?: PublicationBoundary;
   inTurn?: Record<string, (args: Obj, call?: InTurnCall) => unknown>;
-  renderText?: (text: string) => string | { text?: unknown; userIds?: unknown };
+  renderText?: (text: string) => string | { text?: unknown; accountIds?: unknown };
   envelope?: CallEnvelope;
   runOp?: RunOperation;
   runOwnOp?: RunOperation;

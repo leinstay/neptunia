@@ -759,8 +759,8 @@ function fakeSetImages(steps: Untyped, events: Array<string> = []) {
     prompts,
     events,
     quota: () => ({ used: 0, cap: 50, userUsed: 0, userCap: 5, spent: false, userSpent: false }),
-    generate: async ({ prompt, userId }: { prompt: Untyped; userId: Untyped }) => {
-      prompts.push({ prompt, userId });
+    generate: async ({ prompt, accountId }: { prompt: Untyped; accountId: Untyped }) => {
+      prompts.push({ prompt, accountId });
       const step = steps[call] ?? 10;
       call += 1;
       events.push(`generate ${call}`);
@@ -850,7 +850,7 @@ test('diary set: six draw.create calls in one answer are generated before anythi
     'files 1',
   ]);
   assert.ok(
-    images.prompts.every(({ userId }) => userId === null),
+    images.prompts.every(({ accountId }) => accountId === null),
     'nobody is charged'
   );
   assert.deepEqual(

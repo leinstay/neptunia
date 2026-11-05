@@ -166,7 +166,7 @@ function day() {
           content: event.message.content,
           ts: event.message.at,
           replyToId: null,
-          mentionedUserIds: [],
+          mentionedAccountIds: [],
         },
         { kind: 'said', now: () => event.message.at + 500, turnId: 'turn-8a' }
       )

@@ -131,7 +131,7 @@ export function buildTurnRequest(
     placeMemory: placeMemory ?? {},
     interlocutor: memoryOn && trigger ? (store.getUser(accountOf(store, trigger.authorId)) ?? null) : null,
     // A private chat: the partner's private layer joins their public profile (only there).
-    privateChat: isPrivate ? { userId: trigger?.authorId ?? null } : null,
+    privateChat: isPrivate ? { accountId: trigger?.authorId ?? null } : null,
     privateProfile:
       isPrivate && memoryOn && trigger ? privateProfileOf(store, accountOf(store, trigger.authorId)) : null,
     otherProfiles: memoryOn ? pickOtherProfiles(store, placeId, history, trigger?.authorId) : [],

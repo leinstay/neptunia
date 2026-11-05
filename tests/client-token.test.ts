@@ -96,7 +96,7 @@ function reaction(id: string): Record<string, unknown> {
     conversation: { id: 'c1', kind: 'channel' },
     messageId: 'm1',
     emoji: { name: 'x' },
-    userId: 'u1',
+    accountId: 'u1',
     added: true,
   };
 }

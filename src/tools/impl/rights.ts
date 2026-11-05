@@ -19,18 +19,18 @@ export type RightsRefusal = 'owner-only' | 'not-grantable' | 'not-granted';
 export function rightsRefusal(
   op: Partial<OpInfo> | null | undefined,
   {
-    userId,
+    accountId,
     roleIds,
     config,
     asOwner = false,
-  }: { userId?: unknown; roleIds?: ReadonlyArray<unknown>; config?: unknown; asOwner?: boolean } = {}
+  }: { accountId?: unknown; roleIds?: ReadonlyArray<unknown>; config?: unknown; asOwner?: boolean } = {}
 ): RightsRefusal | null {
   // The owner's console runs as the owner (src/tools/types.ts#OpContext.asOwner).
-  if (asOwner || isOwnerId(config, userId)) return null;
+  if (asOwner || isOwnerId(config, accountId)) return null;
   const bot = objOf(objOf(config).bot);
   const allowed = isAllowed({
     op,
-    member: { userId, roleIds: listOf(roleIds) },
+    member: { accountId, roleIds: listOf(roleIds) },
     access: bot.access ?? {},
   });
   if (allowed) return null;

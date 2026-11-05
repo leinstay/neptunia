@@ -518,7 +518,7 @@ function rawMessage(
           ]
         : []
     ),
-    mentions: { users: new Map(mentions.map((userId) => [userId, { id: userId }])) },
+    mentions: { users: new Map(mentions.map((accountId) => [accountId, { id: accountId }])) },
     reactions: {
       cache: new Map(
         reactions.map((r, i) => [
@@ -1025,7 +1025,7 @@ test('buildRequest: a private chat fills private.md after the reply task', async
       trigger: history.at(-1),
       triggerKind: 'private',
       currentChannelId: 'dm1',
-      privateChat: { userId: ANA },
+      privateChat: { accountId: ANA },
       privateProfile,
       neighbors: [],
       lookup: null,
@@ -1975,7 +1975,7 @@ test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
     imageFetcher,
     state,
     isServedCommunity: (id: unknown) => id === GUILD,
-    servedCommunity: () => GUILD,
+    servedPlaces: () => [GUILD],
     selfId: () => SELF_ID,
     // The interface answers `memberInfo` with the member and the hash and address of their avatar.
     reads: {

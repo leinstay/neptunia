@@ -27,7 +27,7 @@ import {
 import * as port from '../src/interface/port.ts';
 import type { MessageReceived } from '../src/protocol/events.ts';
 
-const conversation = { id: 'c1', kind: 'channel', communityId: 'g1', name: 'γενικά', topic: null, category: null };
+const conversation = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'γενικά', topic: null, category: null };
 
 function messageEvent(overrides: Record<string, unknown> = {}) {
   // A loose literal on purpose: the cases below bend it into invalid events, so it is read as the valid shape here.
@@ -43,7 +43,7 @@ function messageEvent(overrides: Record<string, unknown> = {}) {
       content: 'καλημέρα',
       at: 1000,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -52,7 +52,7 @@ function messageEvent(overrides: Record<string, unknown> = {}) {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: true, replyToSelf: false, mentionedUserIds: ['self'], mentionedConversationIds: [] },
+    addressing: { mentioned: true, replyToSelf: false, mentionedAccountIds: ['self'], mentionedConversationIds: [] },
     ...overrides,
   } as MessageReceived;
 }
@@ -67,7 +67,7 @@ const EVENTS = {
     conversation,
     messageId: 'm1',
     emoji: { name: '\u{1F389}' },
-    userId: 'u1',
+    accountId: 'u1',
     added: true,
   },
   'command.requested': {
@@ -77,7 +77,7 @@ const EVENTS = {
     id: 'discord:command:i1',
     conversation,
     name: 'memory.show',
-    args: { userId: 'u2' },
+    args: { accountId: 'u2' },
     requester: { id: 'u1', name: null, roles: ['r1'], owner: true },
     replyRef: 'i1',
   },
@@ -88,8 +88,8 @@ const EVENTS = {
     iface: 'discord',
     at: 1000,
     id: 'discord:member:g1:u1:joined:1000',
-    communityId: 'g1',
-    userId: 'u1',
+    placeId: 'g1',
+    accountId: 'u1',
     change: 'joined',
     member: { id: 'u1', name: 'Ελένη', bot: false },
   },
@@ -98,8 +98,8 @@ const EVENTS = {
     iface: 'discord',
     at: 1000,
     id: 'discord:voice:g1:u1:1000',
-    communityId: 'g1',
-    userId: 'u1',
+    placeId: 'g1',
+    accountId: 'u1',
     conversationId: 'v1',
     previousId: null,
     muted: false,
@@ -109,7 +109,7 @@ const EVENTS = {
     kind: 'inner.wake',
     at: 1000,
     id: 'inner.wake:review:2026-10-19',
-    communityId: 'g1',
+    placeId: 'g1',
     wake: { kind: 'review' },
   },
   // Stage 2 PR 4 added these four kinds; the detailed refusals are in protocol-events.test.ts.
@@ -118,7 +118,7 @@ const EVENTS = {
     iface: 'discord',
     at: 1000,
     id: 'discord:presence:u1:1000',
-    userId: 'u1',
+    accountId: 'u1',
     name: 'Ελένη',
     status: 'online',
     activities: [{ kind: 'playing', name: 'Chess', details: '', state: '' }],
@@ -256,8 +256,8 @@ test('validateEvent: reaction.changed takes authorId and the cleared forms', () 
   assert.deepEqual(validateEvent({ ...base, authorId: null }), { ok: true });
   const clearEmoji = { ...base, added: false, cleared: 'emoji' };
   assert.deepEqual(validateEvent(clearEmoji), { ok: true });
-  assert.deepEqual(validateEvent({ ...clearEmoji, userId: null }), { ok: true });
-  const { userId: _u, ...noUser } = clearEmoji;
+  assert.deepEqual(validateEvent({ ...clearEmoji, accountId: null }), { ok: true });
+  const { accountId: _u, ...noUser } = clearEmoji;
   assert.deepEqual(validateEvent(noUser), { ok: true });
   const clearAll = { ...noUser, cleared: 'all' };
   assert.deepEqual(validateEvent({ ...clearAll, emoji: null }), { ok: true });
@@ -267,7 +267,7 @@ test('validateEvent: reaction.changed takes authorId and the cleared forms', () 
 
 test('validateEvent: reaction.changed refuses the bad cleared and authorId shapes', () => {
   const base = EVENTS['reaction.changed'];
-  const clearEmoji = { ...base, added: false, cleared: 'emoji', userId: null };
+  const clearEmoji = { ...base, added: false, cleared: 'emoji', accountId: null };
   const cases: Array<[unknown, string]> = [
     [{ ...base, authorId: 7 }, 'authorId:type'],
     [{ ...base, authorId: '' }, 'authorId:type'],
@@ -276,9 +276,9 @@ test('validateEvent: reaction.changed refuses the bad cleared and authorId shape
     [{ ...clearEmoji, added: true }, 'added:cleared'],
     [{ ...clearEmoji, emoji: null }, 'emoji:type'],
     [{ ...clearEmoji, emoji: undefined }, 'emoji:required'],
-    [{ ...clearEmoji, userId: 5 }, 'userId:type'],
+    [{ ...clearEmoji, accountId: 5 }, 'accountId:type'],
     [{ ...clearEmoji, cleared: 'all', emoji: { name: null } }, 'emoji:required'],
-    [{ ...base, userId: null }, 'userId:type'],
+    [{ ...base, accountId: null }, 'accountId:type'],
     [{ ...base, emoji: null }, 'emoji:type'],
   ];
   for (const [event, reason] of cases) assert.deepEqual(validateEvent(event), { ok: false, reason }, reason);
@@ -316,8 +316,8 @@ test('validateEvent: invalid shapes are refused with the field and the problem',
     [{ ...message, message: { ...message.message, at: undefined } }, 'message.at:required'],
     [{ ...message, message: { ...message.message, attachments: null } }, 'message.attachments:type'],
     [
-      { ...message, addressing: { ...message.addressing, mentionedUserIds: [1] } },
-      'addressing.mentionedUserIds.0:type',
+      { ...message, addressing: { ...message.addressing, mentionedAccountIds: [1] } },
+      'addressing.mentionedAccountIds.0:type',
     ],
     [{ ...message, edit: 'yes' }, 'edit:type'],
     [{ ...EVENTS['reaction.changed'], added: 1 }, 'added:type'],
@@ -441,7 +441,7 @@ test('validateEvent: membership and voice events need their community, member an
   const { member: _m, ...left } = { ...member, change: 'left' };
   assert.deepEqual(validateEvent(left), { ok: true });
   assert.deepEqual(validateEvent({ ...member, change: 'banned' }), { ok: false, reason: 'change:unknown' });
-  assert.deepEqual(validateEvent({ ...member, communityId: undefined }), { ok: false, reason: 'communityId:required' });
+  assert.deepEqual(validateEvent({ ...member, placeId: undefined }), { ok: false, reason: 'placeId:required' });
   assert.deepEqual(validateEvent({ ...member, member: { id: 'u1', name: null } }), {
     ok: false,
     reason: 'member.bot:required',
@@ -452,7 +452,7 @@ test('validateEvent: membership and voice events need their community, member an
     reason: 'conversationId:required',
   });
   assert.deepEqual(validateEvent({ ...voice, muted: 'yes' }), { ok: false, reason: 'muted:type' });
-  assert.deepEqual(validateEvent({ ...voice, userId: '' }), { ok: false, reason: 'userId:type' });
+  assert.deepEqual(validateEvent({ ...voice, accountId: '' }), { ok: false, reason: 'accountId:type' });
 });
 
 test('validateEvent: an origin record is optional, and checked when present', () => {
@@ -490,7 +490,7 @@ test('validateEvent: an origin record is optional, and checked when present', ()
 test('originOf: the origin an adapter sent wins; else it is read off the conversation and the addressing', () => {
   const plain = originOf(
     messageEvent({
-      addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
     })
   );
   assert.deepEqual(plain, {
@@ -506,7 +506,7 @@ test('originOf: the origin an adapter sent wins; else it is read off the convers
     originOf(
       messageEvent({
         conversation: { id: 'd1', kind: 'dm' },
-        addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+        addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
       })
     ).chatType,
     'dm'
@@ -595,7 +595,7 @@ test('envelope: every type validates in its documented body, and a bad one is re
     [{ ...valid[2], replyTo: null }, 'replyTo:required'],
     [{ ...valid[0], body: null }, 'body:type'],
     [{ ...valid[0], body: { iface: '' } }, 'body.iface:type'],
-    [{ ...valid[1], body: { ...event, userId: '' } }, 'body.userId:type'],
+    [{ ...valid[1], body: { ...event, accountId: '' } }, 'body.accountId:type'],
     [{ ...valid[2], body: { status: 'maybe' } }, 'body.status:unknown'],
     [{ ...valid[3], body: { action: 'message.nuke' } }, 'body.action:unknown'],
     [{ ...valid[4], body: {} }, 'body.status:type'],

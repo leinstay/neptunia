@@ -192,8 +192,8 @@ function exclusionSource(
   });
   event.iface = iface;
   event.conversation = dm
-    ? { id: room, kind: 'dm', communityId: null, partnerId: 'owner-42' }
-    : { id: room, kind: 'channel', communityId: 'g1', name: room };
+    ? { id: room, kind: 'dm', rootId: null, partnerId: 'owner-42' }
+    : { id: room, kind: 'channel', rootId: 'g1', name: room };
   const envelope = observationOf(event);
   if (!envelope) throw new Error('valid exclusion fixture was refused');
   envelope.authority = authority;
@@ -388,7 +388,7 @@ test('trusted ordinary DM history excludes its own visible line without widening
     const s = runner(env);
     const args = {
       ...s.args,
-      channel: channelInfo('own-dm', { kind: 'dm', communityId: null, partnerId: 'owner-42', audience: null }),
+      channel: channelInfo('own-dm', { kind: 'dm', rootId: null, partnerId: 'owner-42', audience: null }),
       partnerId: 'owner-42',
       historyRef: { iface: 'discord', conversationId: 'own-dm' },
       history: [{ id: 'shared-visible', placeId: 'own-dm', content: 'το κουνέλι own-dm-visible-731' }],
@@ -426,7 +426,7 @@ for (const reader of ['prefetch', 'tool'] as const) {
         ...s.args,
         placeId: null,
         snapshot: null,
-        channel: channelInfo('cli:dm:owner', { kind: 'dm', communityId: null, partnerId: 'owner-42', audience: null }),
+        channel: channelInfo('cli:dm:owner', { kind: 'dm', rootId: null, partnerId: 'owner-42', audience: null }),
         historyRef: { iface: 'cli', conversationId: 'cli:dm:owner' },
         history: [{ id: 'shared-visible', placeId: 'cli:dm:owner', content: 'το κουνέλι own-cli-visible-731' }],
         memoryContext: issuedContext({ kind: 'internal', newId: () => `ctx:exclude-cli-${reader}`, now: () => NOW }),
@@ -560,7 +560,7 @@ test('the in-turn memory tool derives CLI history scope from its trusted convers
       drawTool: () => Promise.reject(new Error('memory reads do not draw')),
     });
     const handlers = tools.inTurnTools({
-      channel: channelInfo('cli:dm:owner', { kind: 'dm', communityId: null, partnerId: 'owner-42', audience: null }),
+      channel: channelInfo('cli:dm:owner', { kind: 'dm', rootId: null, partnerId: 'owner-42', audience: null }),
       placeId: 'g1',
       selfId: 'self',
       selfName: 'Synthetic persona',
@@ -601,7 +601,7 @@ test('lookup prefetch forwards trusted CLI history identity into the real SQLite
     const { config: prefetchConfig } = await import('./fixtures/recall-run-kit.ts');
     const pending = lookup.startPrefetch({
       config: prefetchConfig(),
-      channel: channelInfo('cli:dm:owner', { kind: 'dm', communityId: null, partnerId: 'owner-42', audience: null }),
+      channel: channelInfo('cli:dm:owner', { kind: 'dm', rootId: null, partnerId: 'owner-42', audience: null }),
       placeId: 'g1',
       place: null,
       trigger: { id: 'current-cli-trigger', authorId: 'owner-42' },

@@ -46,7 +46,7 @@ export async function resolveInflight(life: InnerContext): Promise<void> {
       const read = await journal.turnOperations({
         turnId: mark.turnId,
         days: [...new Set([utcDay(mark.startedAt), utcDay(at)])],
-        privateUserId: mark.privateUserId,
+        privateAccountId: mark.privateAccountId,
       });
       ops = listOf(read).map(objOf);
     } catch (err) {
@@ -110,7 +110,7 @@ function cutOffMarks(rows: ReadonlyArray<StoredWake>): Array<Inflight> {
       startedAt: row.claimedAt ?? row.leaseExpiresAt ?? 0,
       placeId: row.turn?.placeId ?? null,
       privateChat: row.turn?.privateChat === true,
-      privateUserId: row.turn?.privateUserId ?? null,
+      privateAccountId: row.turn?.privateAccountId ?? null,
     });
   }
   return [...marks.values()];

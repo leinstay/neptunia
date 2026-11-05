@@ -465,7 +465,7 @@ function ownerContextOf(
   requester: { id: string },
   args: Record<string, unknown>
 ): Record<string, unknown> {
-  return { placeId: placeOf(deps, args), userId: requester.id, roleIds: [], actor: 'owner', asOwner: true };
+  return { placeId: placeOf(deps, args), accountId: requester.id, roleIds: [], actor: 'owner', asOwner: true };
 }
 
 export function createConsole(deps: ConsoleDeps): {
@@ -637,10 +637,10 @@ export function createConsole(deps: ConsoleDeps): {
     if (target === 'everyone') return { command };
     const [kind, id] = target.split(' ');
     if (kind === 'role' && id !== undefined) return { command, roleId: id };
-    if (kind === 'user' && id !== undefined) return { command, userId: id };
+    if (kind === 'user' && id !== undefined) return { command, accountId: id };
     const self = deps.selfId();
     if (self === null) return refused(name, args, 'no interface has said who the persona is yet', 'failed');
-    return { command, userId: self };
+    return { command, accountId: self };
   }
 
   async function intentionShow(name: string, args: Record<string, unknown>, requester: { id: string }) {
@@ -685,8 +685,8 @@ export function createConsole(deps: ConsoleDeps): {
     'memory.places.lore.list': (args) => ['lore.list', { query: args.query }],
     'memory.places.lore.show': (args) => ['lore.show', { id: args.id }],
     'memory.places.lore.remove': (args) => ['lore.remove', { id: args.id }],
-    'memory.users.names.add': (args) => ['alias.add', { userId: args.user, name: args.name }],
-    'memory.users.names.remove': (args) => ['alias.remove', { userId: args.user, name: args.name }],
+    'memory.users.names.add': (args) => ['alias.add', { accountId: args.user, name: args.name }],
+    'memory.users.names.remove': (args) => ['alias.remove', { accountId: args.user, name: args.name }],
     'memory.lessons.add': (args) => ['learning.add', { text: args.text }],
     'memory.lessons.remove': (args) => ['learning.remove', { id: Number(args.id) }],
     'rules.add': (args) => ['rule.add', { text: args.text }],

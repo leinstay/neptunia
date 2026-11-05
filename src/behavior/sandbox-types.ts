@@ -285,7 +285,7 @@ export type RunSkillLoopInput = {
  * `at` in `channel`). Her messages of both passes become her lines (src/behavior/turn.ts#continuationHistory:
  * `selfName` as author), a second apart after `at` (a step's posted speech, then its calls, step after
  * step; speech a step held is not in the chat): the text with its `@handles` rendered as a live post renders them
- * (src/behavior/handles.ts#resolveHandles over the request's handles; `mentionedUserIds` the
+ * (src/behavior/handles.ts#resolveHandles over the request's handles; `mentionedAccountIds` the
  * members it would mention), the reply target her `reply="#n"` names in the request that pass
  * answered, the link to the step's trigger (`triggerId`, as linkTriggers puts it on); a drawing
  * (a draw.create call) as a line of hers with a picture. Her reactions land on their lines (a normalized

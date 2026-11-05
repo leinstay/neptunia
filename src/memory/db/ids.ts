@@ -27,12 +27,12 @@ type Db = {
 const text = (value: unknown): string => String(value);
 
 // The interface and the native id are any value an adapter or a legacy file gave: they are written with `String`.
-export const personId = (iface: unknown, userId: unknown): string => `person:${text(iface)}:${text(userId)}`;
-export const accountId = (iface: unknown, userId: unknown): string => `${text(iface)}:${text(userId)}`;
+export const personId = (iface: unknown, nativeId: unknown): string => `person:${text(iface)}:${text(nativeId)}`;
+export const accountId = (iface: unknown, nativeId: unknown): string => `${text(iface)}:${text(nativeId)}`;
 /** The spelled id of the top place an interface names by a native id, when the database holds none for it yet. */
 export const topPlaceSpelled = (iface: unknown, nativeId: unknown): string => `${text(iface)}:server:${text(nativeId)}`;
 export const channelPlaceId = (iface: unknown, placeId: unknown): string => `${text(iface)}:channel:${text(placeId)}`;
-export const dmPlaceId = (iface: unknown, userId: unknown): string => `${text(iface)}:dm:${text(userId)}`;
+export const dmPlaceId = (iface: unknown, nativeId: unknown): string => `${text(iface)}:dm:${text(nativeId)}`;
 
 const LEGACY_NATIVE_RE = new RegExp(`^(?:person:${LEGACY_IFACE}:|${LEGACY_IFACE}:(?:[a-z_]+:)?)(.+)$`);
 

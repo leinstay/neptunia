@@ -17,15 +17,15 @@ const handlers = perEnv((env) => {
    * written at once by the store). */
   function cmdPings(args: Obj, context: OpContext): string {
     const placeId = requirePlaceId(context);
-    const userId = context.userId;
-    if (!userId) throw invalid('no user');
+    const accountId = context.accountId;
+    if (!accountId) throw invalid('no user');
     const mode = objOf(args).mode;
     freshenIfPaused();
-    if (mode === undefined || mode === null || mode === '') return pingsText(!store.isPingsOff(placeId, userId));
+    if (mode === undefined || mode === null || mode === '') return pingsText(!store.isPingsOff(placeId, accountId));
     if (typeof mode !== 'string' || !PINGS_MODES.includes(mode))
       throw invalid(`mode must be one of: ${PINGS_MODES.join(', ')}`);
-    const off = store.setPingsOff(placeId, userId, mode === 'off');
-    log.info('admin: pings set', { placeId, userId, off });
+    const off = store.setPingsOff(placeId, accountId, mode === 'off');
+    log.info('admin: pings set', { placeId, accountId, off });
     return pingsText(!off);
   }
 

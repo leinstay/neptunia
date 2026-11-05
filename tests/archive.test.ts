@@ -266,7 +266,7 @@ test('archive: queuePending and drainPending round-trip and compact', async () =
 
 test('archive: a DM memory file under private/ is not a private archive layer', async () => {
   const { dataDir, archive, done } = await scene();
-  // The private directory holds the DM memory files (`<userId>.json`) next to the layers' directories.
+  // The private directory holds the DM memory files (`<accountId>.json`) next to the layers' directories.
   const privateDir = path.join(dataDir, 'guilds', 'g1', 'private');
   fs.mkdirSync(privateDir, { recursive: true });
   fs.writeFileSync(path.join(privateDir, '283916930761621514.json'), '{}');

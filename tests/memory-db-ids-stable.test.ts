@@ -75,7 +75,7 @@ test('lands an observed Discord message of the same member and channel on the ro
       iface: 'discord',
       at: NOW,
       id: 'discord:message:400000000000000077',
-      conversation: { id: CHANNEL, kind: 'channel', communityId: GUILD, name: 'general' },
+      conversation: { id: CHANNEL, kind: 'channel', rootId: GUILD, name: 'general' },
       message: {
         id: '400000000000000077',
         author: { id: MEMBER, name: 'Ada', self: false, bot: false },

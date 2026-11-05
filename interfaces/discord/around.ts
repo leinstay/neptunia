@@ -78,8 +78,8 @@ function nameFrom(member: { displayName?: string } | null | undefined): string |
 /** The voice fields of a voice state, without the event envelope (the fields a snapshot entry shares). */
 function voiceFields(state: VoiceStateLike, guild: GuildLike | null, previousId: string | null = null) {
   return {
-    communityId: requiredId(idOf(state?.guild?.id) ?? idOf(guild?.id)),
-    userId: requiredId(idOf(state?.id) ?? idOf(state?.member?.id)),
+    placeId: requiredId(idOf(state?.guild?.id) ?? idOf(guild?.id)),
+    accountId: requiredId(idOf(state?.id) ?? idOf(state?.member?.id)),
     name: nameFrom(state?.member),
     conversationId: idOf(state?.channelId),
     previousId,
@@ -103,7 +103,7 @@ function presenceFields(presence: PresenceLike) {
     });
   }
   return {
-    userId: requiredId(idOf(presence?.userId) ?? idOf(presence?.user?.id) ?? idOf(presence?.member?.id)),
+    accountId: requiredId(idOf(presence?.userId) ?? idOf(presence?.user?.id) ?? idOf(presence?.member?.id)),
     name: nameFrom(presence?.member),
     // A status Discord does not define stays unknown, never offline.
     status: PRESENCE_STATUSES.find((known) => known === presence?.status) ?? 'unknown',
@@ -126,7 +126,7 @@ export function voiceEvent(
     kind: VOICE_CHANGED,
     iface: DISCORD_IFACE,
     at,
-    id: `${DISCORD_IFACE}:voice:${fields.userId}:${at}`,
+    id: `${DISCORD_IFACE}:voice:${fields.accountId}:${at}`,
     ...fields,
   };
 }
@@ -141,7 +141,7 @@ export function presenceEvent(presence: PresenceLike, at: number): PresenceChang
     kind: PRESENCE_CHANGED,
     iface: DISCORD_IFACE,
     at,
-    id: `${DISCORD_IFACE}:presence:${fields.userId}:${at}`,
+    id: `${DISCORD_IFACE}:presence:${fields.accountId}:${at}`,
     ...fields,
   };
 }

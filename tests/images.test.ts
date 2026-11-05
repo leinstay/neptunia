@@ -154,7 +154,7 @@ test('images: reference becomes input_references', async () => {
 test('images: unsupported model prefix is refused without a request', async () => {
   const state = fakeState();
   const { gen, fetchImpl } = makeGen({ config: baseConfig({ model: 'acme/painter' }), state });
-  await assert.rejects(gen.generate(wrongly({ prompt: 'a small boat', userId: 'u1' })), UnsupportedImageModelError);
+  await assert.rejects(gen.generate(wrongly({ prompt: 'a small boat', accountId: 'u1' })), UnsupportedImageModelError);
   assert.equal(fetchImpl.calls.length, 0);
   assert.equal(state.data.imageCount ?? 0, 0);
   assert.equal(state.data.imageUsers?.counts?.u1 ?? 0, 0);
@@ -416,6 +416,6 @@ test('images: without a route marked byok exactly true, or without is_byok false
 // PR 7d: the daily caps of plan section 4.5 are gone. A local layer not yet cut may still set them; nothing reads them.
 test('images: a hundred drawings in one day, by one member, are all made, a stale daily cap in the config included', async () => {
   const { gen, fetchImpl } = makeGen({ config: baseConfig(wrongly({ maxPerDay: 2, maxPerUserPerDay: 1 })) });
-  for (let n = 0; n < 100; n += 1) await gen.generate(wrongly({ prompt: `picture ${n}`, userId: 'u1' }));
+  for (let n = 0; n < 100; n += 1) await gen.generate(wrongly({ prompt: `picture ${n}`, accountId: 'u1' }));
   assert.equal(fetchImpl.calls.length, 100);
 });

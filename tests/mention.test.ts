@@ -144,9 +144,9 @@ test('decideMention: the spam threshold sets the ignore chance; under it every c
 });
 
 test('isTaggedCall: a typed tag counts, the reply ping alone does not', () => {
-  assert.equal(isTaggedCall({ mentionedUserIds: ['s1'], replyPingUserId: null }, 's1'), true);
-  assert.equal(isTaggedCall({ mentionedUserIds: ['s1'], replyPingUserId: 's1' }, 's1'), false);
-  assert.equal(isTaggedCall({ mentionedUserIds: ['u2'], replyPingUserId: null }, 's1'), false);
+  assert.equal(isTaggedCall({ mentionedAccountIds: ['s1'], replyPingAccountId: null }, 's1'), true);
+  assert.equal(isTaggedCall({ mentionedAccountIds: ['s1'], replyPingAccountId: 's1' }, 's1'), false);
+  assert.equal(isTaggedCall({ mentionedAccountIds: ['u2'], replyPingAccountId: null }, 's1'), false);
   assert.equal(isTaggedCall({}, 's1'), false);
 });
 
@@ -175,34 +175,34 @@ test('isFollowUpOpen: true just below the noStreak cap', () => {
 });
 
 test('followUpPreFilter: a reply to another member reaches the classifier', () => {
-  const normalized = { replyToId: 'm100', mentionedUserIds: [], replyPingUserId: null };
+  const normalized = { replyToId: 'm100', mentionedAccountIds: [], replyPingAccountId: null };
   assert.equal(followUpPreFilter(normalized, 'self1'), false);
 });
 
 test('followUpPreFilter: a reply whose only mention is the implicit reply ping reaches the classifier', () => {
-  const normalized = { replyToId: 'm100', mentionedUserIds: ['u2'], replyPingUserId: 'u2' };
+  const normalized = { replyToId: 'm100', mentionedAccountIds: ['u2'], replyPingAccountId: 'u2' };
   assert.equal(followUpPreFilter(normalized, 'self1'), false);
 });
 
 test('followUpPreFilter: a reply that also mentions a third member explicitly is "no" material', () => {
-  const normalized = { replyToId: 'm100', mentionedUserIds: ['u2', 'u3'], replyPingUserId: 'u2' };
+  const normalized = { replyToId: 'm100', mentionedAccountIds: ['u2', 'u3'], replyPingAccountId: 'u2' };
   assert.equal(followUpPreFilter(normalized, 'self1'), true);
 });
 
 test('followUpPreFilter: the reply-ping exemption only applies to a reply', () => {
-  const normalized = { replyToId: null, mentionedUserIds: ['u2'], replyPingUserId: 'u2' };
+  const normalized = { replyToId: null, mentionedAccountIds: ['u2'], replyPingAccountId: 'u2' };
   assert.equal(followUpPreFilter(normalized, 'self1'), true);
 });
 
 test('followUpPreFilter: a mention of the persona itself does not pre-filter', () => {
-  const normalized = { replyToId: null, mentionedUserIds: ['self1'] };
+  const normalized = { replyToId: null, mentionedAccountIds: ['self1'] };
   assert.equal(followUpPreFilter(normalized, 'self1'), false);
 });
 
-test('followUpPreFilter: mentionedUserIds omitted is treated as empty', () => {
-  const rows: Array<[string, { replyToId: null; mentionedUserIds?: Array<string> }]> = [
-    ['plain text with no reply and no mention reaches the model', { replyToId: null, mentionedUserIds: [] }],
-    ['mentionedUserIds omitted is treated as empty', { replyToId: null }],
+test('followUpPreFilter: mentionedAccountIds omitted is treated as empty', () => {
+  const rows: Array<[string, { replyToId: null; mentionedAccountIds?: Array<string> }]> = [
+    ['plain text with no reply and no mention reaches the model', { replyToId: null, mentionedAccountIds: [] }],
+    ['mentionedAccountIds omitted is treated as empty', { replyToId: null }],
   ];
   for (const [label, normalized] of rows) {
     // The omitted field is the case under test, so the row is passed as the full shape it stands in for.

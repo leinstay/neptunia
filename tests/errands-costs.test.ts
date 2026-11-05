@@ -32,7 +32,7 @@ function task(
 test('costRecord: keeps the id, agent, times and usage numbers only; null for a record with no id or agent', () => {
   const record = costRecord({
     ...task('t1', 'scout', 1000, 500, { input: 1200, output: 300, usd: 0.04, steps: 3, seconds: 9 }),
-    requester: { userId: 'u1' },
+    requester: { accountId: 'u1' },
   });
   assert.deepEqual(record, {
     id: 't1',

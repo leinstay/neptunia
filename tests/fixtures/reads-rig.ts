@@ -50,7 +50,7 @@ export function channel(id: string, extra: Partial<ConversationInfo> = {}): Conv
   return {
     id,
     kind: 'channel',
-    communityId: COMMUNITY,
+    rootId: COMMUNITY,
     name: `room-${id}`,
     topic: null,
     category: null,
@@ -74,7 +74,7 @@ export function channel(id: string, extra: Partial<ConversationInfo> = {}): Conv
 }
 
 /** A channel only the named members can view, nobody else of the community. */
-export function privateChannel(id: string, memberIds: Array<string>): ConversationInfo {
+export function privateChannel(id: string, accountIds: Array<string>): ConversationInfo {
   return channel(id, {
     public: false,
     audience: {
@@ -82,7 +82,7 @@ export function privateChannel(id: string, memberIds: Array<string>): Conversati
       groups: [],
       groupAllow: [],
       groupDeny: [],
-      memberAllow: memberIds,
+      memberAllow: accountIds,
       memberDeny: [],
       memberGroups: {},
     },
@@ -114,7 +114,7 @@ export function message(
     conversation: {
       id: conversation.id,
       kind: conversation.kind,
-      communityId: conversation.communityId,
+      rootId: conversation.rootId,
       name: conversation.name,
     },
     message: {
@@ -125,7 +125,7 @@ export function message(
       system: false,
       at,
       replyToId: options.replyToId ?? null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -134,6 +134,6 @@ export function message(
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
   };
 }

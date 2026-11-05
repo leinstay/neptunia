@@ -92,7 +92,7 @@ test('an unknown person and an unknown place answer their named codes', async ()
 test('anyone but the owner is refused before anything is read', async () => {
   // Bug: the rights check moves behind the read, and a refusal tells how much there is.
   const { env } = rig();
-  const result = await runOp('memory.private.read', { person: ANNA }, { env, userId: '999', roleIds: [] });
+  const result = await runOp('memory.private.read', { person: ANNA }, { env, accountId: '999', roleIds: [] });
   assert.equal(result.status, 'denied');
   assert.equal(result.code, 'owner-only');
 });

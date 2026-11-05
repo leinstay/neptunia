@@ -98,7 +98,7 @@ export function buildDataDir(root: string): string {
     envelope('system', { id: 'j-system', event: 'start', by: 'owner' }),
     envelope('memory', {
       id: 'j-memory', batchId: 'b-1', stage: 'applied', note: 'a batch',
-      attitude: [{ userId: MEMBER, delta: 3, applied: 2, reason: 'was kind' }],
+      attitude: [{ accountId: MEMBER, delta: 3, applied: 2, reason: 'was kind' }],
     }),
   ]);
   writeJson(path.join(g, 'journal', 'requests', '2026-10-20', 'turn-1-s1.json'), dump());
@@ -130,7 +130,7 @@ export function buildDataDir(root: string): string {
   });
   writeLines(path.join(g, 'intentions-archive.jsonl'), []);
   // The errand units under the names of an earlier release: the importer reads them as errands.json and errands.jsonl.
-  writeJson(path.join(g, 'tasks.json'), { tasks: [{ id: 't1', state: 'done', createdAt: 1792000000000, requester: { userId: MEMBER }, scope: 'group', seen: true }] });
+  writeJson(path.join(g, 'tasks.json'), { tasks: [{ id: 't1', state: 'done', createdAt: 1792000000000, requester: { accountId: MEMBER }, scope: 'group', seen: true }] });
   writeLines(path.join(g, 'tasks.jsonl'), [{ at: 1792000000500, id: 't1', state: 'running' }]);
   writeJson(path.join(g, 'media.json'), { '1555006398444736533': { text: 'a photo of a café', ts: 1792000000000 } });
   writeJson(path.join(g, 'gifs.json'), { nextId: 2, entries: {} });

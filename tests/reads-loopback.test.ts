@@ -36,7 +36,7 @@ function info(id: string, extra: Partial<ConversationInfo> = {}): ConversationIn
   return {
     id,
     kind: 'channel',
-    communityId: 'g1',
+    rootId: 'g1',
     name: `room-${id}`,
     topic: null,
     category: null,
@@ -56,7 +56,7 @@ function eventOf(conversation: ConversationInfo, id: string, at: number, text: s
     iface: 'fake',
     at,
     id: `fake:message:${id}`,
-    conversation: { id: conversation.id, kind: conversation.kind, communityId: conversation.communityId },
+    conversation: { id: conversation.id, kind: conversation.kind, rootId: conversation.rootId },
     message: {
       id,
       author: { id: authorId, name: 'Eleni', self: authorId === SELF.id, bot: false },
@@ -65,7 +65,7 @@ function eventOf(conversation: ConversationInfo, id: string, at: number, text: s
       system: false,
       at,
       replyToId: null,
-      replyPingUserId: null,
+      replyPingAccountId: null,
       forwardedFrom: null,
       attachments: [],
       links: [],
@@ -74,7 +74,7 @@ function eventOf(conversation: ConversationInfo, id: string, at: number, text: s
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
   };
 }
 
@@ -166,9 +166,9 @@ test('lists the conversations of one community with its groups, and none of anot
   const { reads, fake } = await rig();
   fake.seedConversation(info('c1'));
   fake.seedConversation(info('c2', { kind: 'thread', parentId: 'c1' }));
-  fake.seedConversation(info('c3', { communityId: 'g2' }));
+  fake.seedConversation(info('c3', { rootId: 'g2' }));
   fake.seedGroups('g1', [{ id: 'r1', name: 'mods' }]);
-  const listing = okBody(await reads.conversations({ communityId: 'g1' }));
+  const listing = okBody(await reads.conversations({ placeId: 'g1' }));
   assert.deepEqual(listing.conversations.map((entry) => entry.id).sort(), ['c1', 'c2']);
   assert.deepEqual(listing.groups, [{ id: 'r1', name: 'mods' }]);
 });
@@ -185,7 +185,7 @@ test('lists the audience of each conversation when asked', async () => {
     memberGroups: {},
   };
   fake.seedConversation(info('c1', { audience }));
-  const listing = okBody(await reads.conversations({ communityId: 'g1', audience: true }));
+  const listing = okBody(await reads.conversations({ placeId: 'g1', audience: true }));
   assert.deepEqual(listing.conversations[0]?.audience?.groups, ['g-a']);
 });
 
@@ -250,10 +250,10 @@ test('answers a member with groups and the large avatar, and null for someone wh
       avatar: { hash: 'h', url: 'https://x/s.png', largeUrl: 'https://x/l.png' },
     })
   );
-  const found = okBody(await reads.memberInfo({ communityId: 'g1', memberId: 'u1' }));
+  const found = okBody(await reads.memberInfo({ placeId: 'g1', accountId: 'u1' }));
   assert.deepEqual(found.member?.groupIds, ['r1']);
   assert.equal(found.member?.avatar.largeUrl, 'https://x/l.png');
-  const stranger = okBody(await reads.memberInfo({ communityId: 'g1', memberId: 'u9' }));
+  const stranger = okBody(await reads.memberInfo({ placeId: 'g1', accountId: 'u9' }));
   assert.equal(stranger.member, null);
 });
 
@@ -264,7 +264,7 @@ test('finds messages by a case-insensitive piece of text and counts all of them'
   fake.seedEvent(eventOf(conversation, 'm1', 1000, 'Pasta tonight'));
   fake.seedEvent(eventOf(conversation, 'm2', 2000, 'nothing here'));
   fake.seedEvent(eventOf(conversation, 'm3', 3000, 'more PASTA'));
-  const found = okBody(await reads.searchMessages({ communityId: 'g1' }, { text: 'pasta' }));
+  const found = okBody(await reads.searchMessages({ placeId: 'g1' }, { text: 'pasta' }));
   assert.equal(found.total, 2);
   assert.deepEqual(found.hits.map((hit) => hit.ref.messageId).sort(), ['m1', 'm3']);
 });
@@ -276,11 +276,9 @@ test('narrows a message search to one author and to a time window', async () => 
   fake.seedEvent(eventOf(conversation, 'm1', 1000, 'hello', 'u1'));
   fake.seedEvent(eventOf(conversation, 'm2', 2000, 'hello', 'u2'));
   fake.seedEvent(eventOf(conversation, 'm3', 3000, 'hello', 'u2'));
-  const byAuthor = okBody(await reads.searchMessages({ communityId: 'g1' }, { text: 'hello', authorId: 'u2' }));
+  const byAuthor = okBody(await reads.searchMessages({ placeId: 'g1' }, { text: 'hello', authorId: 'u2' }));
   assert.deepEqual(byAuthor.hits.map((hit) => hit.ref.messageId).sort(), ['m2', 'm3']);
-  const windowed = okBody(
-    await reads.searchMessages({ communityId: 'g1' }, { text: 'hello', after: 1500, before: 2500 })
-  );
+  const windowed = okBody(await reads.searchMessages({ placeId: 'g1' }, { text: 'hello', after: 1500, before: 2500 }));
   assert.deepEqual(
     windowed.hits.map((hit) => hit.ref.messageId),
     ['m2']
@@ -292,7 +290,7 @@ test('finds members by the start of a name, at most the limit', async () => {
   fake.seedMember('g1', member('u1', 'Eleni'));
   fake.seedMember('g1', member('u2', 'Elpida'));
   fake.seedMember('g1', member('u3', 'Dora'));
-  const found = okBody(await reads.searchMembers({ communityId: 'g1' }, { prefix: 'el', limit: 1 }));
+  const found = okBody(await reads.searchMembers({ placeId: 'g1' }, { prefix: 'el', limit: 1 }));
   assert.equal(found.members.length, 1);
   assert.equal(found.members[0]?.displayName?.toLowerCase().startsWith('el'), true);
 });
@@ -300,7 +298,7 @@ test('finds members by the start of a name, at most the limit', async () => {
 test('lists the custom emoji of a community', async () => {
   const { reads, fake } = await rig();
   fake.seedEmoji('g1', [{ id: 'e1', name: 'kek', animated: false, url: 'https://x/e1.png' }]);
-  const listing = okBody(await reads.emoji({ communityId: 'g1' }));
+  const listing = okBody(await reads.emoji({ placeId: 'g1' }));
   assert.deepEqual(listing.emoji, [{ id: 'e1', name: 'kek', animated: false, url: 'https://x/e1.png' }]);
 });
 
@@ -322,7 +320,7 @@ test('lists the members who put an emoji on a message, at most the limit', async
   const ref = { iface: 'fake', conversationId: 'c1', messageId: 'm1' };
   fake.seedReactors(ref, '🔥', ['u1', 'u2', 'u3']);
   const listed = okBody(await reads.reactors(ref, '🔥', 2));
-  assert.deepEqual(listed.memberIds, ['u1', 'u2']);
+  assert.deepEqual(listed.accountIds, ['u1', 'u2']);
 });
 
 test('answers failed with the queued error once and the real answer after it', async () => {

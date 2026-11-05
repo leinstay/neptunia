@@ -448,13 +448,13 @@ function normalizeSnapshot(
 /**
  * The replied-to author's id when they are among the message's mentioned
  * users only because of the reply ping: `mentions.repliedUser` is set, that
- * user is in `mentionedUserIds`, and the raw content holds no `<@id>` /
+ * user is in `mentionedAccountIds`, and the raw content holds no `<@id>` /
  * `<@!id>` token for them. Null otherwise.
  */
-function replyPingUserId(message: MessageLike, mentionedUserIds: ReadonlyArray<string>): string | null {
+function replyPingAccountId(message: MessageLike, mentionedAccountIds: ReadonlyArray<string>): string | null {
   const repliedId = message.mentions?.repliedUser?.id;
   if (!repliedId || !message.reference?.messageId) return null;
-  if (!mentionedUserIds.includes(repliedId)) return null;
+  if (!mentionedAccountIds.includes(repliedId)) return null;
   const typed = new RegExp(`<@!?${repliedId}>`).test(message.content ?? '');
   return typed ? null : repliedId;
 }
@@ -473,11 +473,11 @@ export type NormalizedMessage = {
   content: string;
   ts: number;
   editedAt: number | null;
-  mentionedUserIds: Array<string>;
+  mentionedAccountIds: Array<string>;
   mentionedUsers: Array<{ id: string; name: string }>;
   mentionedChannelIds: Array<string>;
   replyToId: string | null;
-  replyPingUserId: string | null;
+  replyPingAccountId: string | null;
   forwardedFrom: string | null;
   attachments: ReturnType<typeof normalizeMedia>['attachments'];
   links: ReturnType<typeof normalizeMedia>['links'];
@@ -545,9 +545,9 @@ export function normalizeMessage(
   const isForward = message.reference?.type === MessageReferenceType.Forward;
   const sourceChannelId = isForward ? message.reference?.channelId : null;
   const sourceChannel = sourceChannelId ? message.guild?.channels?.cache?.get?.(sourceChannelId) : null;
-  const mentionedUserIds = [...(message.mentions?.users?.keys?.() ?? [])];
+  const mentionedAccountIds = [...(message.mentions?.users?.keys?.() ?? [])];
   // The name `content` reads for each (`@DisplayName`, cleanContent), so the transcript can show their handle instead.
-  const mentionedUsers = mentionedUserIds.flatMap((id) => {
+  const mentionedUsers = mentionedAccountIds.flatMap((id) => {
     const name = displayNameOf(
       message.mentions?.members?.get?.(id) ?? message.guild?.members?.cache?.get?.(id),
       message.mentions?.users?.get?.(id)
@@ -574,7 +574,7 @@ export function normalizeMessage(
     // src/behavior/prompt.ts's <people> "asked about" window. `content`
     // above is `cleanContent`-derived and already reads "@DisplayName", so
     // this is the only place a stable member id survives normalization.
-    mentionedUserIds,
+    mentionedAccountIds,
     mentionedUsers,
     // Channels written as `<#id>` -- the only place their ids survive, since
     // `content` reads `#name`; an explicit mention pulls that channel into a
@@ -582,10 +582,10 @@ export function normalizeMessage(
     mentionedChannelIds: extractChannelIds(message.content),
     replyToId: isForward ? null : (message.reference?.messageId ?? null),
     // The replied-to author when Discord's reply ping alone put them into
-    // `mentionedUserIds` (no `<@id>` typed in the text), else null -- so the
+    // `mentionedAccountIds` (no `<@id>` typed in the text), else null -- so the
     // address classifier's pre-filter (src/behavior/mention.ts) can tell a
     // reply ping from a real mention of another member.
-    replyPingUserId: isForward ? null : replyPingUserId(message, mentionedUserIds),
+    replyPingAccountId: isForward ? null : replyPingAccountId(message, mentionedAccountIds),
     // The forwarded snapshot's source channel name, when it resolves in the
     // same guild -- see src/format.ts's `forwardedFrom` rendering.
     forwardedFrom: sourceChannel?.name ?? null,
@@ -662,7 +662,7 @@ function conversationOf(
     // A message without a channel id gives none: validateEvent refuses the event at the door.
     id: message?.channelId as string,
     kind,
-    communityId: idString(guildId),
+    rootId: idString(guildId),
     name: channel?.name ?? null,
     topic: channel?.topic ?? null,
     category: channel?.parent?.name ?? null,
@@ -823,7 +823,7 @@ export function toEvent(
       at: normalized.ts,
       editedAt: normalized.editedAt,
       replyToId: normalized.replyToId,
-      replyPingUserId: normalized.replyPingUserId,
+      replyPingAccountId: normalized.replyPingAccountId,
       forwardedFrom: normalized.forwardedFrom,
       attachments: normalized.attachments,
       links: normalized.links,
@@ -836,7 +836,7 @@ export function toEvent(
     addressing: {
       mentioned: message.mentions?.users?.has?.(selfId) === true,
       replyToSelf: cachedReplyToSelf(message, normalized.replyToId, selfId),
-      mentionedUserIds: normalized.mentionedUserIds,
+      mentionedAccountIds: normalized.mentionedAccountIds,
       mentionedUsers: normalized.mentionedUsers,
       mentionedConversationIds: normalized.mentionedChannelIds,
     },
@@ -879,7 +879,7 @@ export function reactionEvent(
     messageId,
     authorId: authorIdOf(message),
     emoji: { name, ...(emojiId ? { id: emojiId } : {}) },
-    userId,
+    accountId: userId,
     added: added === true,
     raw: { reaction, user },
   };
@@ -909,7 +909,7 @@ export function reactionClearAllEvent(given: object, { now = Date.now }: { now?:
     messageId,
     authorId: authorIdOf(message),
     emoji: null,
-    userId: null,
+    accountId: null,
     added: false,
     cleared: 'all',
   };
@@ -940,7 +940,7 @@ export function reactionClearEmojiEvent(
     messageId,
     authorId: authorIdOf(message),
     emoji: { name, ...(emojiId ? { id: emojiId } : {}) },
-    userId: null,
+    accountId: null,
     added: false,
     cleared: 'emoji',
   };

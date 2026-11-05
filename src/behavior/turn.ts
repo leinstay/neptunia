@@ -282,8 +282,8 @@ function typedFreeze<TValue>(freeze: Map<string, unknown>) {
  * its info (the permissions, the audience) and one snapshot of the community's conversations per attempt. A read the
  * interface does not offer leaves its block out of the request; a conversation it no longer knows ends the turn
  * `unavailable` before any model call. `selfId()` is the persona's id on the interface (from `hello`), `getSelfName`
- * her name in a community, `memberOf(communityId, memberId)` the name and kind of a member the core has been told of,
- * `membersOf(communityId)` all of them and `conversationName(id)` the name the interface gave a conversation.
+ * her name in a community, `memberOf(placeId, accountId)` the name and kind of a member the core has been told of,
+ * `membersOf(placeId)` all of them and `conversationName(id)` the name the interface gave a conversation.
  */
 /** An attempt's first draft: its limits, and the context and the restriction the turn was opened with. */
 function draftOf(args: TurnParams): Draft {

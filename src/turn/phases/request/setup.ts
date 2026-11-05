@@ -6,6 +6,7 @@ import { accountOf } from '../../../memory/addresses.ts';
 import { isCliOwner } from '../../../behavior/core-pause.ts';
 import { forcedPictureRefusal } from '../../../behavior/diary-turn.ts';
 import { refreshEmojiIfOn } from '../../../behavior/emoji-index.ts';
+import { PERSONA_ID } from '../../../memory/db/storage-keys.ts';
 import { takeSnapshotOf } from '../../../behavior/snapshot.ts';
 import type { Snapshot } from '../../../behavior/snapshot.ts';
 import { createDeadline } from '../../../behavior/turn-parts.ts';
@@ -175,14 +176,14 @@ export async function setupRequest(
     ? privatePartner({
         iface: channel.iface,
         placeId: libraryPlace,
-        userId: trigger?.authorId ?? channel.partnerId ?? null,
+        accountId: trigger?.authorId ?? channel.partnerId ?? null,
         config,
       })
     : Promise.resolve(null);
   // The groups the requester holds in the community, read once: the rights of her calls are checked against them.
   const requesterPending =
     !isPrivate && trigger?.authorId
-      ? ifaceReads.memberInfo({ communityId: placeId, memberId: String(trigger.authorId) })
+      ? ifaceReads.memberInfo({ placeId, accountId: String(trigger.authorId) })
       : Promise.resolve(null);
   // The community's listing, once for the attempt (neighbours, pulls, routing, places, audience rails); a private
   // chat is listed for its partner's sake.
@@ -193,7 +194,7 @@ export async function setupRequest(
     reading.length > 0 ? reading : [placeId],
     partnerHint ? [String(partnerHint)] : []
   );
-  const emojiPending = refreshEmojiIfOn(emoji);
+  const emojiPending = refreshEmojiIfOn(emoji, isPrivate || placeId === PERSONA_ID ? null : placeId);
   const historyStartedAt = clock();
   const snapshot = await beforeBar(snapshotPending);
   draft.snapshot = snapshot;

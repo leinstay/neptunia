@@ -13,7 +13,7 @@ import { ANNA, addClaim, addAffinity, seedOpaqueWorld } from './fixtures/memory-
 
 const KEY: StorageKey = { kind: 'private', subject: { type: 'account', id: 'account:a21' } };
 const PRIVATE = {
-  userId: 'n1',
+  accountId: 'n1',
   relationship: 'told only here',
   details: [{ id: 'd1', text: 'a private detail', at: '2026-11-01' }],
   interests: [],

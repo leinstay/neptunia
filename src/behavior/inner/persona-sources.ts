@@ -51,7 +51,7 @@ export function personaRecord(
     append(lines, options) {
       const first = lines[0] as { scope?: { channel?: unknown } } | undefined;
       const channel = first?.scope?.channel;
-      const home = homeOf(store, channel, options?.privateUserId);
+      const home = homeOf(store, channel, options?.privateAccountId);
       if (home.place !== null && home.sealed) {
         const closed = (lines as ReadonlyArray<{ scope?: object }>).map((line) => ({
           ...line,
@@ -74,7 +74,7 @@ export function personaJournal(journal: Journal, places: () => Array<string>, st
     inner: (fields) => journal.inner(PERSONA_ID, fields),
     read: (query) => journal.read(PERSONA_ID, query),
     op(base) {
-      const home = homeOf(store, base.placeId, base.privateUserId);
+      const home = homeOf(store, base.placeId, base.privateAccountId);
       if (home.place === null) return journal.op(PERSONA_ID, base);
       return journal.op(
         home.place,
@@ -82,7 +82,7 @@ export function personaJournal(journal: Journal, places: () => Array<string>, st
       );
     },
     async turnOperations(query) {
-      const partner = query.privateUserId;
+      const partner = query.privateAccountId;
       const dm = partner ? placeOfConversation(store, { kind: 'dm', partnerId: partner }) : null;
       const holders = new Set([...places(), PERSONA_ID, ...(dm ? [dm] : [])]);
       const found: Array<unknown> = [];

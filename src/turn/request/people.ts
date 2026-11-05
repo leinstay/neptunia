@@ -8,7 +8,7 @@ import { fitSections } from '../../llm/budget.ts';
 import { topEpisodes } from '../../memory/index.ts';
 import { isWordChar, occursAsWholeWord } from '../../memory/mentions.ts';
 import { topByRank } from '../../memory/ranking.ts';
-import { episodeKey, memberIdOf } from '../../memory/recent.ts';
+import { episodeKey, accountIdOf } from '../../memory/recent.ts';
 import { profileStateFields, renderAttitudes, renderProfileShown } from './profiles.ts';
 import type { EpisodeOptions, Shown } from './profiles.ts';
 import type { Base, Room } from './head.ts';
@@ -76,7 +76,7 @@ function profileNames(
  * priority (b)): the trigger message plus the last `ASKED_ABOUT_SCAN_MESSAGES`
  * messages of `history` (trigger is usually already the newest of those, but
  * is added explicitly in case it is not). Real mention ids
- * (`normalizeMessage`'s `mentionedUserIds`, src/protocol/events.ts#Message) are the
+ * (`normalizeMessage`'s `mentionedAccountIds`, src/protocol/events.ts#Message) are the
  * strongest signal; the plain lower-cased text is the fallback for a name/alias
  * match (`nameOccurs` above).
  */
@@ -89,7 +89,7 @@ function askedAboutWindow(
   const mentionedIds = new Set<string>();
   const texts: Array<string> = [];
   for (const message of messages) {
-    for (const id of Array.isArray(message?.mentionedUserIds) ? message.mentionedUserIds : [])
+    for (const id of Array.isArray(message?.mentionedAccountIds) ? message.mentionedAccountIds : [])
       mentionedIds.add(String(id));
     if (typeof message?.content === 'string' && message.content) texts.push(message.content);
   }
@@ -198,7 +198,7 @@ export function splitPeople(
 export type InterlocutorBlocks = {
   avatarsOn: boolean;
   interlocutorShown: Shown;
-  liveOf: (memberId: string | null) => Array<string>;
+  liveOf: (accountId: string | null) => Array<string>;
   interlocutorRowId: string | null;
   interlocutorRow: string;
   peopleNowHead: string;
@@ -220,7 +220,7 @@ export function interlocutorOf(given: RequestInput & Base & Room & Task): Interl
   const avatarsOn = true;
   const interlocutorShown = renderProfileShown(interlocutor, labels, {
     interlocutor: true,
-    handle: handleFor(memberIdOf(interlocutor?.id)),
+    handle: handleFor(accountIdOf(interlocutor?.id)),
     relationships,
     episodes: episodesOpt,
     maxInterests: MEMORY_LIMITS.maxInterests,
@@ -241,14 +241,14 @@ export function interlocutorOf(given: RequestInput & Base & Room & Task): Interl
   // by the person's mention handle (the join key with `<people>` and `<directory>`), then one
   // labelled field per line: the live snapshot (`liveOf`), then what memory holds that changes
   // from turn to turn (profileStateFields).
-  const liveOf = (memberId: string | null) =>
-    liveOn && liveSnapshot && memberId !== null
-      ? liveFields(liveSnapshot, memberId, { labels, channelNameOf: voiceChannelNameOf, now })
+  const liveOf = (accountId: string | null) =>
+    liveOn && liveSnapshot && accountId !== null
+      ? liveFields(liveSnapshot, accountId, { labels, channelNameOf: voiceChannelNameOf, now })
       : [];
   // The interlocutor's entry, never cut, its heading tagged as the one talking to the persona
   // (on an overheard turn, as overheard): the tag describes the request, so it is never in the
   // cached profile. The trigger's author without a profile has an entry only for its live part.
-  const interlocutorRowId = memberIdOf(interlocutor?.id) ?? memberIdOf(trigger?.authorId);
+  const interlocutorRowId = accountIdOf(interlocutor?.id) ?? accountIdOf(trigger?.authorId);
   const interlocutorFields =
     interlocutorRowId === null
       ? []
@@ -349,7 +349,7 @@ export function askedAboutOf(given: RequestInput & Base & PulledFits): AskedAbou
   const askedKeys = (counts: Array<number>) =>
     new Set(
       askedAbout.flatMap((profile, i) =>
-        topEpisodes(profile.episodes, counts[i]).map((ep) => episodeKey(memberIdOf(profile.id), ep))
+        topEpisodes(profile.episodes, counts[i]).map((ep) => episodeKey(accountIdOf(profile.id), ep))
       )
     );
   const askedIntended = askedKeys(askedAbout.map(() => (askedEpisodesOn ? askedAboutEpisodes : 0)));
@@ -393,7 +393,7 @@ export function placeAskedAbout(
   // A tail person's `<people_now>` entry rides on their profile: one budget item, so the entry lives
   // and dies with the profile and is paid for with it (split again after the fit).
   const tailRowOf = (profile: Profile | null | undefined, compact: boolean) => {
-    const id = memberIdOf(profile?.id);
+    const id = accountIdOf(profile?.id);
     return personRow(
       {
         handle: handleFor(id),
@@ -410,7 +410,7 @@ export function placeAskedAbout(
   const askedRows = new Map(askedAbout.map((profile) => [profile, tailRowOf(profile, false)]));
   const renderAsked = (profile: Profile, episodes: EpisodeOptions | undefined) => {
     const shown = renderProfileShown(profile, labels, {
-      handle: handleFor(memberIdOf(profile?.id)),
+      handle: handleFor(accountIdOf(profile?.id)),
       relationships,
       episodes,
       maxInterests: MEMORY_LIMITS.maxInterests,
@@ -537,7 +537,7 @@ export type PeopleOffered = {
 export function peopleOfferedOf(
   given: RequestInput & Base & Room & InterlocutorBlocks & AskedAbout & Placed
 ): PeopleOffered {
-  const { now, labels, nameOf, handleFor, relationships, selfMemberId, caps, avatarsOn } = given;
+  const { now, labels, nameOf, handleFor, relationships, selfAccountId, caps, avatarsOn } = given;
   const { liveOn, liveSnapshot, voiceChannelNameOf, liveOf, interlocutorRowId } = given;
   const { askedAbout, participants, askedRows, askedAboutItems, askedAboutReads, tailRowOf, withRow } = given;
   // `<people>`'s items, each with the member it renders and their `<people_now>` entry (an empty
@@ -553,7 +553,7 @@ export function peopleOfferedOf(
       const row = tailRowOf(profile, true);
       const { text, reads } = renderProfileShown(profile, labels, {
         compact: true,
-        handle: handleFor(memberIdOf(profile?.id)),
+        handle: handleFor(accountIdOf(profile?.id)),
         relationships,
         maxAliases: MEMORY_LIMITS.maxAliases,
         aliasHalfLifeDays: MEMORY_LIMITS.aliasHalfLifeDays,
@@ -589,15 +589,15 @@ export function peopleOfferedOf(
   // live fields alone), the lowest priority of the request, capped by `context.around.maxTokens`.
   // None from a stale snapshot: who sits in voice is not known then.
   const rowIds = new Set(
-    [interlocutorRowId, selfMemberId, ...peopleOffered.map((entry) => memberIdOf(entry.profile?.id))].filter(
+    [interlocutorRowId, selfAccountId, ...peopleOffered.map((entry) => accountIdOf(entry.profile?.id))].filter(
       (id): id is string => Boolean(id)
     )
   );
   const voiceRows =
     liveOn && liveSnapshot && liveSnapshot.stale !== true
       ? voiceOccupants(liveSnapshot, { excludeIds: rowIds, nameOf, channelNameOf: voiceChannelNameOf })
-          .map(({ memberId, name }) =>
-            personRow({ handle: handleFor(memberId), name, fields: liveOf(memberId) }, labels)
+          .map(({ accountId, name }) =>
+            personRow({ handle: handleFor(accountId), name, fields: liveOf(accountId) }, labels)
           )
           .filter(Boolean)
       : [];
@@ -619,7 +619,7 @@ export function attitudesOf(given: RequestInput & Base & Room & Recent & Placed 
   if (attitudesOn) {
     const peopleKept = keptPeopleOf(fitSections([...aheadOfPeople, peopleSection], limit, cost).kept.people);
     const skipIds = new Set(
-      [interlocutorId, ...peopleKept.map((profile) => memberIdOf(profile?.id))].filter((id) => id !== null)
+      [interlocutorId, ...peopleKept.map((profile) => accountIdOf(profile?.id))].filter((id) => id !== null)
     );
     attitudesText = renderAttitudes(given.candidateProfiles, labels, { max: ATTITUDES_SHOWN, skipIds });
   }
@@ -672,7 +672,7 @@ export function peopleShownOf(
 ): Array<{ id: string; names: Array<string> }> {
   const peopleShown: Array<{ id: string; names: Array<string> }> = [];
   const showPerson = (profile: Profile | null | undefined) => {
-    const id = memberIdOf(profile?.id);
+    const id = accountIdOf(profile?.id);
     const names = Array.isArray(profile?.names) ? profile.names.filter((name) => typeof name === 'string') : [];
     if (id !== null) peopleShown.push({ id, names });
   };

@@ -14,6 +14,7 @@ const URL_OF_U1 = 'https://cdn.example/avatars/u1/a1b2c3.png?size=256';
 
 function setup(options: { reads?: ReadonlyArray<string>; profiles?: Array<Profile> } = {}) {
   const world = rig(options.reads === undefined ? {} : { reads: options.reads });
+  const places = [COMMUNITY];
   const profiles = new Map((options.profiles ?? [{ id: 'u1', names: ['Eleni'] }]).map((p) => [p.id, p]));
   const written: Array<{ id: string; avatar: object }> = [];
   const fetched: Array<string> = [];
@@ -50,14 +51,14 @@ function setup(options: { reads?: ReadonlyArray<string>; profiles?: Array<Profil
         return Promise.resolve({ dataUrl: 'data:image/png;base64,ZmFrZQ==' });
       },
     },
-    isServedCommunity: (id: unknown) => id === COMMUNITY,
-    servedCommunity: () => COMMUNITY,
+    isServedCommunity: (id: unknown) => typeof id === 'string' && places.includes(id),
+    servedPlaces: () => places,
     selfId: () => SELF_ID,
     reads: world.reads,
     now: () => NOW,
     log: { info() {}, warn() {}, error() {} },
   });
-  return { ...world, queue, written, fetched, requests };
+  return { ...world, queue, written, fetched, requests, places };
 }
 
 test('asks the interface for each profiled member of the community and queues the one whose avatar changed', async () => {
@@ -67,14 +68,14 @@ test('asks the interface for each profiled member of the community and queues th
   assert.deepEqual(counts, { profiles: 1, queued: 1, gone: 0 });
   assert.deepEqual(queue.pending(), ['u1']);
   assert.deepEqual(requests, []);
-  assert.deepEqual(asked('memberInfo'), [{ communityId: COMMUNITY, memberId: 'u1' }]);
+  assert.deepEqual(asked('memberInfo'), [{ placeId: COMMUNITY, accountId: 'u1' }]);
 });
 
 test('counts a profiled person the interface does not know as a member as gone', async () => {
   const { queue, asked } = setup();
   assert.deepEqual(await queue.scan(COMMUNITY), { profiles: 1, queued: 0, gone: 1 });
   assert.deepEqual(queue.pending(), []);
-  assert.deepEqual(asked('memberInfo'), [{ communityId: COMMUNITY, memberId: 'u1' }]);
+  assert.deepEqual(asked('memberInfo'), [{ placeId: COMMUNITY, accountId: 'u1' }]);
 });
 
 test('counts every profiled person as gone, with no round trip, when the interface does not offer the read', async () => {
@@ -110,4 +111,16 @@ test('describes a new avatar once, from the address the interface gave and under
   assert.equal(requests.length, 1);
   assert.equal(written.length, 1);
   assert.deepEqual([written[0]?.id, (written[0]?.avatar as { hash: string; text: string }).hash], ['u1', HASH]);
+});
+
+test('the daily scan reads every place the interfaces serve, not only the first', async () => {
+  // Bug: a member of the second server never gets an avatar, because only the first one is scanned.
+  const { fake, asked, queue, places } = setup();
+  places.push('g2');
+  fake.seedMember('g2', member('u1', 'Eleni', { avatar: { hash: HASH, url: URL_OF_U1, largeUrl: null } }));
+  await queue.tick();
+  assert.deepEqual(asked('memberInfo'), [
+    { placeId: COMMUNITY, accountId: 'u1' },
+    { placeId: 'g2', accountId: 'u1' },
+  ]);
 });

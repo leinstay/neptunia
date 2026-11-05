@@ -91,7 +91,7 @@ test('record: toRecordLine keeps only the whitelisted fields and lists participa
     slim({
       replyToId: 'm0',
       replyToAuthorId: 'u3',
-      mentionedUserIds: ['u2'],
+      mentionedAccountIds: ['u2'],
       attachments: [{ kind: 'image', name: 'a.png', id: 'm1#a0', durationSec: null, url: 'https://x/a.png' }],
       links: [{ kind: 'gif', name: 'Tenor', id: 'm1#e0', durationSec: null }],
       stickers: [{ id: 's1', name: 'wave', format: 1 }],
@@ -123,7 +123,7 @@ test('record: toRecordLine keeps only the whitelisted fields and lists participa
   assert.equal(JSON.stringify(line).includes('https://'), false, 'no URL survives');
 
   const said = toRecordLine(
-    slim({ authorId: 'self1', mentionedUserIds: ['u2'], replyToId: 'm0', replyToAuthorId: 'u3' }),
+    slim({ authorId: 'self1', mentionedAccountIds: ['u2'], replyToId: 'm0', replyToAuthorId: 'u3' }),
     {
       kind: 'said',
       turnId: 't-1',

@@ -164,7 +164,7 @@ export function checkPull({
   config: Config;
   now?: number;
 }): { channel: ConversationInfo | null; skip: string | null } {
-  if (destination && destination.communityId === null && partnerId === null) return refused('private-chat');
+  if (destination && destination.rootId === null && partnerId === null) return refused('private-chat');
   const entry = typeof placeId === 'string' && placeId ? (snapshot?.get(placeId) ?? null) : null;
   if (entry === null) return refused('not-found');
   const unreadable = readableRefusal(entry);

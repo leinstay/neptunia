@@ -18,8 +18,8 @@ export type ConversationRef = { iface: string; conversationId: string };
 
 export type { Delivery };
 
-/** A message of one interface. `memberId` is its author when the caller knows it. */
-export type MessageRef = { iface: string; conversationId: string; messageId?: string; memberId?: string };
+/** A message of one interface. `accountId` is its author when the caller knows it. */
+export type MessageRef = { iface: string; conversationId: string; messageId?: string; accountId?: string };
 
 /** One attachment: its bytes (`data`) or where to take them (`url`). `voice` marks a voice message (its length and waveform). */
 export type Attachment = {

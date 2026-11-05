@@ -79,7 +79,7 @@ export function forcedPictureRefusal({
 export type HeldVoice = Partial<EntryVoice> & { text: string; durationSecs: number };
 
 /** What a diary turn holds instead of sending: her messages as written and as they would be sent. */
-export type HeldSpeech = { texts: Array<string>; rendered: Array<{ text: string; userIds: Array<string> }> };
+export type HeldSpeech = { texts: Array<string>; rendered: Array<{ text: string; accountIds: Array<string> }> };
 
 /**
  * `voice.say` as a diary turn runs it (in the turn, src/tools/executors.ts#executeCall's `inTurn`): the voice file is
@@ -157,7 +157,7 @@ function diaryPostOf({
   const maxMessageBytes = setSettings(diaryCfg).maxMessageBytes;
   const rendered = {
     messages: held.rendered.map((part) => part.text),
-    mentions: held.rendered.map((part) => part.userIds),
+    mentions: held.rendered.map((part) => part.accountIds),
   };
   const post = {
     at,
@@ -448,7 +448,7 @@ export async function wakeInputs({
     id: conversation.conversationId,
     kind: 'channel',
     name: place?.name ?? conversation.conversationId,
-    communityId: place ? (communityOfPlace(store, place.placeId) ?? PERSONA_ID) : PERSONA_ID,
+    rootId: place ? (communityOfPlace(store, place.placeId) ?? PERSONA_ID) : PERSONA_ID,
     category: null,
     topic: null,
     permissions: { read: true, send: true, attach: true, react: false },
@@ -465,7 +465,7 @@ export async function wakeInputs({
       message: {
         editedAt: null,
         replyToId: null,
-        replyPingUserId: null,
+        replyPingAccountId: null,
         forwardedFrom: null,
         attachments: [],
         links: [],
@@ -477,7 +477,7 @@ export async function wakeInputs({
         author: { id: selfId, name: selfName, self: true, bot: true },
         reactions: [],
       },
-      addressing: addressing ?? { mentionedUserIds: [], mentionedUsers: [], mentionedConversationIds: [] },
+      addressing: addressing ?? { mentionedAccountIds: [], mentionedUsers: [], mentionedConversationIds: [] },
     } as unknown as MessageEvent; // the fields line-of.js reads of a message event, as the interface fills them
     return lineOf(event);
   });

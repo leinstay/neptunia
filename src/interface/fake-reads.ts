@@ -76,17 +76,7 @@ type Deps = {
 };
 
 /** The fields of an event's `conversation` record, taken from a conversation's info. */
-const RECORD_KEYS = [
-  'id',
-  'kind',
-  'communityId',
-  'name',
-  'topic',
-  'category',
-  'chatType',
-  'parentId',
-  'partnerId',
-] as const;
+const RECORD_KEYS = ['id', 'kind', 'rootId', 'name', 'topic', 'category', 'chatType', 'parentId', 'partnerId'] as const;
 
 /** How many hits one page of a message search holds. */
 const SEARCH_PAGE = 25;
@@ -145,10 +135,10 @@ export function createFakeReads(deps: Deps): {
   seeders: {
     seedConversation(info: ConversationInfo): void;
     removeConversation(conversationId: string): void;
-    seedGroups(communityId: string, list: Array<GroupInfo>): void;
-    seedMember(communityId: string, member: MemberInfo): void;
-    seedEmoji(communityId: string, list: Array<EmojiInfo>): void;
-    seedReactors(ref: MessageRef, emoji: string, memberIds: Array<string>): void;
+    seedGroups(placeId: string, list: Array<GroupInfo>): void;
+    seedMember(placeId: string, member: MemberInfo): void;
+    seedEmoji(placeId: string, list: Array<EmojiInfo>): void;
+    seedReactors(ref: MessageRef, emoji: string, accountIds: Array<string>): void;
     seedEvent(event: MessageEvent, extra?: { attachments?: StoredMessage['attachments'] }): void;
   };
 } {
@@ -191,7 +181,7 @@ export function createFakeReads(deps: Deps): {
   /** The record an event carries for conversation `id`: what the interface would say of it. */
   function recordOf(id: string): MessageEvent['conversation'] {
     const info = conversations.get(id);
-    if (info === undefined) return { id, kind: 'channel', communityId: null, name: null };
+    if (info === undefined) return { id, kind: 'channel', rootId: null, name: null };
     const record: Record<string, unknown> = {};
     for (const key of RECORD_KEYS) if (info[key] !== undefined) record[key] = info[key];
     return record as MessageEvent['conversation'];
@@ -220,7 +210,7 @@ export function createFakeReads(deps: Deps): {
         system: false,
         at: stored.at,
         replyToId: stored.replyTo?.messageId ?? null,
-        replyPingUserId: null,
+        replyPingAccountId: null,
         forwardedFrom: null,
         attachments: [],
         links: [],
@@ -229,7 +219,7 @@ export function createFakeReads(deps: Deps): {
         emojis: [],
         reactions,
       },
-      addressing: { mentioned: false, replyToSelf: false, mentionedUserIds: [], mentionedConversationIds: [] },
+      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
     };
   }
 
@@ -262,9 +252,9 @@ export function createFakeReads(deps: Deps): {
       const early = front('conversations', 'conversations.list', [scope]);
       if (early) return refusalOf(early);
       const listed = [...conversations.values()]
-        .filter((info) => info.communityId === scope.communityId)
+        .filter((info) => info.rootId === scope.placeId)
         .map((info) => infoOf(info, scope));
-      return { status: 'ok', conversations: listed, groups: clone(groups.get(scope.communityId) ?? []) };
+      return { status: 'ok', conversations: listed, groups: clone(groups.get(scope.placeId) ?? []) };
     },
 
     history(conversation, query) {
@@ -280,7 +270,7 @@ export function createFakeReads(deps: Deps): {
     memberInfo(member) {
       const early = front('memberInfo', 'member.info', [member]);
       if (early) return refusalOf(early);
-      const held = members.get(String(member.communityId))?.get(member.memberId);
+      const held = members.get(String(member.placeId))?.get(member.accountId);
       return { status: 'ok', member: held ? clone(held) : null };
     },
 
@@ -289,7 +279,7 @@ export function createFakeReads(deps: Deps): {
       if (early) return refusalOf(early);
       const needle = query.text?.toLowerCase();
       const inCommunity = new Set(
-        [...conversations.values()].filter((info) => info.communityId === scope.communityId).map((info) => info.id)
+        [...conversations.values()].filter((info) => info.rootId === scope.placeId).map((info) => info.id)
       );
       const matches = [...messages.values()]
         .filter((message) => inCommunity.has(message.ref.conversationId) && !message.deleted)
@@ -300,7 +290,7 @@ export function createFakeReads(deps: Deps): {
         .sort((a, b) => b.at - a.at || b.seq - a.seq);
       const offset = query.offset ?? 0;
       const hits = matches.slice(offset, offset + SEARCH_PAGE).map((message) => {
-        const name = members.get(scope.communityId)?.get(message.authorId)?.name ?? null;
+        const name = members.get(scope.placeId)?.get(message.authorId)?.name ?? null;
         return {
           ref: { iface, conversationId: message.ref.conversationId, messageId: message.ref.messageId },
           at: message.at,
@@ -315,7 +305,7 @@ export function createFakeReads(deps: Deps): {
       const early = front('searchMembers', 'members.search', [scope, query]);
       if (early) return refusalOf(early);
       const prefix = query.prefix.toLowerCase();
-      const found = [...(members.get(scope.communityId)?.values() ?? [])]
+      const found = [...(members.get(scope.placeId)?.values() ?? [])]
         .filter((member) => (member.name ?? '').toLowerCase().startsWith(prefix))
         .slice(0, query.limit)
         .map((member) => ({
@@ -331,7 +321,8 @@ export function createFakeReads(deps: Deps): {
     emoji(scope) {
       const early = front('emoji', 'emoji.list', [scope]);
       if (early) return refusalOf(early);
-      return { status: 'ok', emoji: clone(emojis.get(scope.communityId) ?? []) };
+      const listed = scope.placeId === null ? [...emojis.values()].flat() : (emojis.get(scope.placeId) ?? []);
+      return { status: 'ok', emoji: clone(listed) };
     },
 
     parseLinks(texts) {
@@ -356,7 +347,7 @@ export function createFakeReads(deps: Deps): {
       if (early) return refusalOf(early);
       const list = reactorLists.get(`${message.conversationId}/${String(message.messageId)}/${emoji}`);
       if (list === undefined) return refusalOf(notOk('failed', CODE.NOT_FOUND));
-      return { status: 'ok', memberIds: list.slice(0, limit) };
+      return { status: 'ok', accountIds: list.slice(0, limit) };
     },
   };
 
@@ -382,19 +373,19 @@ export function createFakeReads(deps: Deps): {
       removeConversation(conversationId) {
         conversations.delete(conversationId);
       },
-      seedGroups(communityId, list) {
-        groups.set(communityId, clone(list));
+      seedGroups(placeId, list) {
+        groups.set(placeId, clone(list));
       },
-      seedMember(communityId, member) {
-        const held = members.get(communityId) ?? new Map<string, MemberInfo>();
+      seedMember(placeId, member) {
+        const held = members.get(placeId) ?? new Map<string, MemberInfo>();
         held.set(member.id, clone(member));
-        members.set(communityId, held);
+        members.set(placeId, held);
       },
-      seedEmoji(communityId, list) {
-        emojis.set(communityId, clone(list));
+      seedEmoji(placeId, list) {
+        emojis.set(placeId, clone(list));
       },
-      seedReactors(ref, emoji, memberIds) {
-        reactorLists.set(`${ref.conversationId}/${String(ref.messageId)}/${emoji}`, [...memberIds]);
+      seedReactors(ref, emoji, accountIds) {
+        reactorLists.set(`${ref.conversationId}/${String(ref.messageId)}/${emoji}`, [...accountIds]);
       },
       /** Keeps a whole `message.received` event as the message it carries, in the conversation it names. */
       seedEvent(event, extra = {}) {

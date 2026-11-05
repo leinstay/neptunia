@@ -64,7 +64,7 @@ export type InTurnToolsContext = {
   routes: TurnRoutes;
   clock: () => number;
   ifaceReads: Reads;
-  memberOf: (communityId: string, memberId: string) => { name?: string | null } | null;
+  memberOf: (placeId: string, accountId: string) => { name?: string | null } | null;
   conversationOf: (channel: { id: string }) => ConversationRef;
   turnContextOf: (draft: InTurnDraft | null | undefined, channel: ConversationInfo) => unknown;
   linkCalls: JournalNotes['linkCalls'];
@@ -323,7 +323,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
         }
       },
       readRecord: ({ placeId: conversationId, from }) =>
-        recordMessages(record, channelOf(conversationId)?.communityId ?? placeId, {
+        recordMessages(record, channelOf(conversationId)?.rootId ?? placeId, {
           placeId: conversationId,
           from,
           nameOf,
