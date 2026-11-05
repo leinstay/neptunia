@@ -263,7 +263,7 @@ test('search-compare: two queries x three engines -> results, summary, blind she
   assert.equal(calls.exa.length, 2);
   assert.equal(asRecord(calls.brave[0]).options.apiKey, 'brave-test-key');
   assert.equal(asRecord(calls.brave[0]).options.timeoutMs, 7000);
-  assert.equal(asRecord(calls.exa[0]).options.apiKey, null);
+  assert.equal(asRecord(calls.exa[0]).options.apiKey, 'exa-test-key');
   const summaryCall = asRecord(calls.llm[0]).options;
   // Changed: quick search has its own model setting, apart from the analyzer.
   assert.equal(summaryCall.model, 'test/search');
@@ -272,7 +272,7 @@ test('search-compare: two queries x three engines -> results, summary, blind she
   assert.equal(summaryCall.origin, 'search-compare');
   assert.equal(summaryCall.countAgainstDailyCap, false);
   const pluginCall = asRecord(calls.llm.find((c) => asRecord(c).options.plugins))?.options;
-  assert.deepEqual(pluginCall.plugins, [{ id: 'web', engine: 'exa', max_results: 5 }]);
+  assert.deepEqual(pluginCall.plugins, [{ id: 'web', engine: 'auto', max_results: 5 }]);
   assert.equal(pluginCall.isRoleRequest, false);
   assert.equal(pluginCall.countAgainstDailyCap, false);
 
