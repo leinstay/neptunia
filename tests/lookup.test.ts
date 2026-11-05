@@ -4,7 +4,7 @@
 import { placeOfCommunity } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createLookup, normalizeQuery, cleanQuery } from '../src/web/lookup.ts';
+import { createLookup, normalizeQuery, cleanQuery, urlCitations } from '../src/web/lookup.ts';
 import { DailyCapError, roleRequestOptions, TokenLimitError } from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -868,4 +868,28 @@ test('readLinks: the preview is the opening of the page text, no helper request'
   run.llm.capLeft = () => 0;
   const other = await readOne(run.lookup, { ...LINK, id: 'm2#e0', url: 'https://example.org/b' });
   assert.ok(other, 'a preview sends no model request: the request cap does not stop it');
+});
+
+test('urlCitations keeps http(s) urls once, collapses title and snippet to one line', () => {
+  // Catches: a javascript: url, a repeated url or a multi-line snippet reaching the results the model reads.
+  const cite = (url: string, title?: string, content?: string) => ({
+    type: 'url_citation',
+    url_citation: { url, title, content, start_index: 0, end_index: 1 },
+  });
+  const results = urlCitations([
+    cite('https://a.example/one', 'First\nTitle', 'Line one.\n\nLine two.'),
+    cite('https://a.example/one', 'Again', 'dup'),
+    cite('javascript:alert(1)', 'Bad', 'x'),
+    { type: 'file', file: {} },
+    cite('http://b.example/two', 'Second', 'Short.'),
+    cite('https://c.example/three', undefined, undefined),
+  ]);
+  assert.deepEqual(
+    results.map((r) => r.url),
+    ['https://a.example/one', 'http://b.example/two', 'https://c.example/three']
+  );
+  assert.equal(results[0].title, 'First Title');
+  assert.equal(results[0].snippet, 'Line one. Line two.');
+  assert.deepEqual(results[2], { title: '', url: 'https://c.example/three', snippet: '' });
+  assert.deepEqual(urlCitations(undefined), []);
 });

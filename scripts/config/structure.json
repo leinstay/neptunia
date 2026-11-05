@@ -217,13 +217,6 @@
       "test": "none"
     },
     {
-      "path": "agents/scout/web-search.ts",
-      "purpose": "The scout's web search command, run by its wrapper `agents/scout/bin/web-search` on the agent's PATH. Its logic is `src/web/web-search.ts`, tested there.",
-      "layer": "public",
-      "imports": ["src/web/web-search.ts"],
-      "test": "none"
-    },
-    {
       "path": "bin/",
       "purpose": "Entry points that run as their own process.",
       "layer": "public",
