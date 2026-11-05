@@ -19,7 +19,7 @@ import type { DevelopmentEdges } from '../src/development/edges.ts';
 import { developmentSettings, ensureStartedAt } from '../src/development/settings.ts';
 import { createDevelopmentWorker, listHeldBack, serveDevelopment } from '../src/development/worker.ts';
 import type { DevelopmentDeps, SkillPackageAnswer } from '../src/development/worker.ts';
-import { promptFilesOf } from '../src/agent-runner/profiles.ts';
+import { listAgents, promptFilesOf } from '../src/agent-runner/profiles.ts';
 import { createHot } from '../src/hot.ts';
 import { log } from '../src/log.ts';
 import { resolvePaths } from '../src/paths.ts';
@@ -46,6 +46,12 @@ function agentPrompt(agent: string, where: { rootDir: string; dataDir: string })
     }
   }
   throw new Error(`agents/${agent}/prompt.md cannot be read; the checkout is not whole`);
+}
+
+/** The tool names the agent's profile.json declares, read when the run starts; none when it has no profile. */
+function profileTools(agent: string, where: { rootDir: string; dataDir: string }): ReadonlyArray<string> | undefined {
+  const definition = listAgents({ ...where, env: process.env }).find((one) => one.id === agent);
+  return definition && 'tools' in definition ? definition.tools : undefined;
 }
 
 /** A skill task's package: filed when a pending version names the task, which the thinker's `task skill-pending` does. */
@@ -111,7 +117,10 @@ export async function runDevelopment(argv: ReadonlyArray<string>): Promise<numbe
       git: edges.git,
       gh: edges.gh,
       tests: edges.tests,
-      runAgent: edges.runAgent,
+      runAgent: (run) => {
+        const tools = profileTools(run.agent, where);
+        return edges.runAgent(tools === undefined ? run : { ...run, tools });
+      },
       brief: (request) => {
         const template: unknown = hot.prompts['executor-brief'];
         const filled = briefFrom(typeof template === 'string' ? template : '', fixBriefOf(request));
