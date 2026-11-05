@@ -14,8 +14,7 @@
 // - `analyzer`   the core's classifier model: picks one of a few given options (address, room,
 //                merge, route-channel, participation-pick, rewatch, split, gif-pick, missed),
 //                plans a search and turns sources into notes (lookup, recall-summary,
-//                search-summary, diary-plan) and runs the persona's raw web search
-//                on the OpenRouter engine (web-search);
+//                search-summary, diary-plan);
 // - `vision`     describes a picture (describe, relook, avatar);
 // - `video`      watches a video and looks at it again;
 // - `embedding`  turns text into vectors for search by meaning;
@@ -56,13 +55,10 @@ export const MEMORY_ROLE_DEFAULT = 'anthropic/claude-opus-4.6';
  */
 export const SEARCH_ROLE = 'search';
 
-/** `web.search.model` while the setting is empty: the owner's choice of 2026-11-03. */
-const SEARCH_MODEL_DEFAULT = 'openai/gpt-6.1-sol';
-
-/** The model of quick search and of the scout's web search. */
-export function searchModel(config: unknown): string {
+/** The model of quick search and of the scout's web search; undefined until the owner sets one, as it has no default. */
+export function searchModel(config: unknown): string | undefined {
   const model = objOf(objOf(objOf(config).web).search).model;
-  return typeof model === 'string' && model !== '' ? model : SEARCH_MODEL_DEFAULT;
+  return typeof model === 'string' && model !== '' ? model : undefined;
 }
 
 /** The model roles other than `core` that a turn calls, in display order. */
@@ -175,7 +171,9 @@ export const PURPOSE_ROLES = Object.freeze({
   'search-summary': 'analyzer',
   'diary-plan': 'analyzer',
   speech: 'analyzer',
+  // Usage rows and `models.byPurpose` pins written before quick search took its own name still read as this.
   'web-search': 'analyzer',
+  'quick-search': 'analyzer',
   describe: 'vision',
   relook: 'vision',
   avatar: 'vision',

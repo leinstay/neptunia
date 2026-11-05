@@ -3,6 +3,7 @@
 // door, and the door's handler calls `dispatch(at)`, which starts every beat that is due. A beat runs on its own
 // from there (its tick guards its own overlap), so a slow beat never holds a fast one back and never holds the
 // timer. Each beat's interval is read when the beat is scheduled, so a changed setting applies from the next wait.
+// A tick still at the door when the scheduler stops starts nothing, because what its beats need may be closed by then.
 // The housekeeping timers of the composition root (flushes, queues, metrics) are not beats.
 
 import type { Logger } from '../protocol/serve.ts';
@@ -33,6 +34,7 @@ export function createScheduler(options: {
   let clear: (() => void) | null = null;
   let running = false;
   let ticking = false;
+  let isStopped = false;
 
   function intervalOf(beat: Beat): number {
     let ms = FALLBACK_EVERY_MS;
@@ -93,15 +95,18 @@ export function createScheduler(options: {
     },
     start() {
       running = true;
+      isStopped = false;
       for (const entry of beats) entry.dueAt = now() + intervalOf(entry.beat);
       arm();
     },
     stop() {
       running = false;
+      isStopped = true;
       disarm();
     },
     dispatch(at) {
       const started: Array<string> = [];
+      if (isStopped) return { started };
       for (const entry of beats) {
         if (entry.dueAt > at) continue;
         entry.dueAt = at + intervalOf(entry.beat);

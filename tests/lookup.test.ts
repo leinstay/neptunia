@@ -51,6 +51,7 @@ function fakeHot({
         links: { maxOutputTokens: 300, fetchTimeoutMs: 10_000, ...web.links },
         search: {
           enabled: true,
+          engine: 'brave',
           model: 'x/search',
           maxOutputTokens: 400,
           cacheHours: 24,
@@ -569,10 +570,10 @@ test('search: engine exa -- the Exa client searches (its key, the count, the tim
     '1. Exa one\nhttps://exa.example.net/one\nexa extract\n2026-09-01T00:00:00.000Z'
   );
   const line = logs.find((l) => l.msg === 'lookup: search');
-  assert.deepEqual([present(line).state, present(line).engine, present(line).fallback], ['found', 'exa', false]);
+  assert.deepEqual([present(line).state, present(line).engine], ['found', 'exa']);
   const keyless = engineSetup({ engine: 'exa' });
-  await keyless.lookup.search('g1', 'x y');
-  assert.equal(keyless.exaSearch.calls[0].options.apiKey, null);
+  assert.equal(await keyless.lookup.search('g1', 'x y'), null);
+  assert.equal(keyless.exaSearch.calls.length, 0);
 });
 
 test('search: engine openrouter -- one analyzer request with the Exa web plugin; the annotations are the sources', async () => {
@@ -600,7 +601,7 @@ test('search: engine openrouter -- one analyzer request with the Exa web plugin;
   const { messages, options } = llm.calls[0];
   assert.equal(messages[0].content, 'The query: Qui a gagné ?. Up to 900 characters.', 'the same system prompt');
   assert.equal(messages[1].content, 'Qui a gagné ?', 'the user content is the question');
-  assert.deepEqual(options.plugins, [{ id: 'web', engine: 'exa', max_results: 5 }]);
+  assert.deepEqual(options.plugins, [{ id: 'web', engine: 'auto', max_results: 5 }]);
   // Changed: quick search has its own model setting and key binding, apart from the analyzer.
   assert.equal(options.model, 'x/search');
   assert.equal(options.role, 'search');
@@ -613,71 +614,19 @@ test('search: engine openrouter -- one analyzer request with the Exa web plugin;
   assert.equal(bare.llm.calls[0].options.plugins[0].max_results, 5);
 });
 
-test('search: hasSearch follows the chosen engine; an unknown engine reads as brave', async () => {
+test('search: hasSearch follows the chosen engine; an unknown engine is off', async () => {
   const cases = [
     [{ engine: 'brave' }, 'k', true, 'brave'],
     [{ engine: 'brave' }, null, false, 'brave'],
-    [{ engine: 'exa' }, null, true, 'exa'],
+    [{ engine: 'exa' }, null, false, 'exa'],
     [{ engine: 'openrouter' }, null, true, 'openrouter'],
-    [{ engine: 'bing' }, null, false, 'brave'],
-    [{ engine: 'brave', fallback: ['exa'] }, null, false, 'brave'],
+    [{ engine: 'bing' }, null, false, null],
   ];
   for (const [search, braveApiKey, has, engine] of cases) {
     const { lookup } = engineSetup(search, { braveApiKey });
     assert.equal(lookup.hasSearch(), has, JSON.stringify(search));
     assert.equal(lookup.searchEngine(), engine, JSON.stringify(search));
   }
-});
-
-test('search: the fallback order is tried on rate-limited, timeout, network and a Brave 429; one daily slot; one journal line per attempt', async () => {
-  for (const failure of [
-    { ok: false, reason: 'rate-limited', status: 429 },
-    { ok: false, reason: 'timeout' },
-    { ok: false, reason: 'network' },
-    { ok: false, reason: 'http', status: 429 },
-  ]) {
-    const { lookup, braveSearch, exaSearch } = engineSetup({ engine: 'brave', fallback: ['exa'] }, { brave: failure });
-    const { result, logs } = await withCapturedLogs(() => lookup.search('g1', 'x y'));
-    assert.equal(present(result).sources[0].url, 'https://exa.example.net/one', JSON.stringify(failure));
-    assert.equal(braveSearch.calls.length, 1);
-    assert.equal(exaSearch.calls.length, 1);
-    const lines = logs.filter((l) => l.msg === 'lookup: search');
-    assert.deepEqual(
-      lines.map((l) => [l.state, l.reason, l.engine, l.fallback]),
-      [
-        ['error', failure.reason, 'brave', false],
-        ['found', null, 'exa', true],
-      ]
-    );
-  }
-});
-
-test('search: the fallback list runs in its order, each engine once, past a second failure; all failing -> null', async () => {
-  const { lookup, exaSearch, llm } = engineSetup(
-    { engine: 'brave', fallback: ['brave', 'nope', 'exa', 'exa', 'openrouter'] },
-    { brave: { ok: false, reason: 'timeout' }, exa: { ok: false, reason: 'rate-limited', status: 429 } }
-  );
-  const { result, logs } = await withCapturedLogs(() => lookup.search('g1', 'x y'));
-  assert.equal(exaSearch.calls.length, 1);
-  assert.equal(llm.calls.length, 1);
-  assert.ok(llm.calls[0].options.plugins, 'the openrouter engine answered last');
-  assert.ok(present(result).text);
-  assert.deepEqual(
-    logs.filter((l) => l.msg === 'lookup: search').map((l) => [l.engine, l.fallback]),
-    [
-      ['brave', false],
-      ['exa', true],
-      ['openrouter', true],
-    ]
-  );
-
-  const allFail = engineSetup(
-    { engine: 'exa', fallback: ['brave'] },
-    { exa: { ok: false, reason: 'network' }, brave: { ok: false, reason: 'timeout' } }
-  );
-  assert.equal(await allFail.lookup.search('g1', 'x y'), null);
-  assert.equal(allFail.braveSearch.calls.length, 1);
-  assert.deepEqual(Object.keys(allFail.store.getMediaCache('g1')), []);
 });
 
 test('search: no fallback on empty (nothing found is the answer, no summary), nor on any other failure', async () => {
@@ -705,63 +654,6 @@ test('search: no fallback on empty (nothing found is the answer, no summary), no
   assert.equal(blankSummary.exaSearch.calls.length, 0);
 });
 
-test('search: a fallback engine that cannot run is skipped; a fallback that can runs', async () => {
-  const { lookup, braveSearch, exaSearch } = engineSetup(
-    { engine: 'exa', fallback: ['brave'] },
-    { braveApiKey: null, exa: { ok: false, reason: 'timeout' } }
-  );
-  assert.equal(await lookup.search('g1', 'x y'), null);
-  assert.equal(exaSearch.calls.length, 1);
-  assert.equal(braveSearch.calls.length, 0, 'brave without its key is not a fallback');
-
-  const fell = setup({
-    brave: { ok: false, reason: 'timeout' },
-    hotOptions: { web: { search: { fallback: ['exa'] } } },
-  });
-  assert.ok(await fell.lookup.search('g1', 'x y'));
-  assert.equal(fell.exaSearch.calls.length, 1);
-});
-
-test('search: the openrouter engine maps a 429 and a timeout to fallback reasons; the daily request cap stops a fallback', async () => {
-  for (const [error, reason] of [
-    [Object.assign(new Error('HTTP 429'), { statusCode: 429 }), 'rate-limited'],
-    [Object.assign(new Error('t'), { name: 'TimeoutError' }), 'timeout'],
-  ]) {
-    const { lookup, exaSearch } = engineSetup({ engine: 'openrouter', fallback: ['exa'] }, { llmText: error });
-    const { logs } = await withCapturedLogs(() => lookup.search('g1', 'x y'));
-    assert.equal(exaSearch.calls.length, 1);
-    assert.equal(present(logs.find((l) => l.msg === 'lookup: search')).reason, reason);
-  }
-  const refused = engineSetup({ engine: 'openrouter', fallback: ['exa'] }, { llmText: new DailyCapError('cap') });
-  assert.equal(await refused.lookup.search('g1', 'x y'), null);
-  assert.equal(refused.exaSearch.calls.length, 0);
-
-  // The first attempt spends the last request of the day: the fallback is not sent.
-  let left = 1;
-  const spent = engineSetup(
-    { engine: 'brave', fallback: ['exa'] },
-    {
-      brave: () => {
-        left = 0;
-        return { ok: false, reason: 'timeout' };
-      },
-    }
-  );
-  spent.llm.capLeft = () => left;
-  const { logs } = await withCapturedLogs(() => spent.lookup.search('g1', 'x y'));
-  assert.equal(spent.exaSearch.calls.length, 0);
-  assert.deepEqual(
-    logs.filter((l) => l.msg === 'lookup: search').map((l) => [l.state, l.reason, l.engine]),
-    [
-      ['error', 'timeout', 'brave'],
-      ['limit', 'daily-cap', 'exa'],
-    ]
-  );
-});
-
-// --- the daily request cap, the helper options, the read-only web cap ------------
-
-/** setup() with a read-only capLeft on the fake llm reporting `left`. */
 function cappedSetup(left: number, overrides = {}) {
   const run = setup(overrides);
   run.llm.capLeft = () => left;
@@ -835,7 +727,7 @@ test('searchResults: Brave results come back raw -- title, url, site, snippet, d
   assert.equal(braveSearch.calls.length, 1);
 });
 
-test('searchResults: engine openrouter -- one analyzer request (purpose web-search) with the plugin and only the query; the annotations with their content are the results', async () => {
+test('searchResults: engine openrouter -- one analyzer request (purpose quick-search) with the plugin and only the query; the annotations with their content are the results', async () => {
   const annotations = [
     {
       type: 'url_citation',
@@ -863,7 +755,7 @@ test('searchResults: engine openrouter -- one analyzer request (purpose web-sear
   assert.equal(braveSearch.calls.length + exaSearch.calls.length, 0);
   const [{ messages, options }] = llm.calls;
   assert.deepEqual(messages, [{ role: 'user', content: 'Qui a gagné ?' }], 'no prompt: only her query');
-  assert.deepEqual(options.plugins, [{ id: 'web', engine: 'exa', max_results: 5 }]);
+  assert.deepEqual(options.plugins, [{ id: 'web', engine: 'auto', max_results: 5 }]);
   assert.deepEqual(
     [
       options.model,
@@ -874,7 +766,7 @@ test('searchResults: engine openrouter -- one analyzer request (purpose web-sear
       options.countAgainstDailyCap,
     ],
     // Changed: quick search has its own model setting and key binding, apart from the analyzer.
-    ['x/search', 'search', 'web-search', 64, false, true]
+    ['x/search', 'search', 'quick-search', 64, false, true]
   );
 
   const none = engineSetup({ engine: 'openrouter' }, { braveApiKey: null });
@@ -886,43 +778,6 @@ test('searchResults: engine openrouter -- one analyzer request (purpose web-sear
   );
 });
 
-test('searchResults: the fallback engines answer the same failures as the summary path; the request cap stops it; off returns a coded failure', async () => {
-  const fell = engineSetup(
-    { engine: 'brave', fallback: ['exa'] },
-    { brave: { ok: false, reason: 'rate-limited', status: 429 } }
-  );
-  const found: Record<string, Untyped> = await fell.lookup.searchResults('g1', 'x y');
-  assert.equal(found.results[0].url, 'https://exa.example.net/one');
-  const stopped = engineSetup(
-    { engine: 'brave', fallback: ['exa'] },
-    { brave: { ok: false, reason: 'http', status: 500 } }
-  );
-  assert.deepEqual(await stopped.lookup.searchResults('g1', 'x y'), { failed: { code: 'provider', status: 500 } });
-  assert.equal(stopped.exaSearch.calls.length, 0, 'another failure never falls back');
-
-  const capped = engineSetup({ engine: 'openrouter' });
-  capped.llm.capLeft = () => 0;
-  assert.deepEqual(await capped.lookup.searchResults('g1', 'x y'), { failed: { code: 'cap' } });
-  assert.equal(capped.llm.calls.length, 0);
-  const braveCapped = setup();
-  braveCapped.llm.capLeft = () => 0;
-  assert.ok(
-    await braveCapped.lookup.searchResults('g1', 'x y'),
-    'Brave sends no model request: the request cap does not stop it'
-  );
-
-  assert.deepEqual(
-    await setup({ hotOptions: { web: { search: { enabled: false } } } }).lookup.searchResults('g1', 'x y'),
-    { failed: { code: 'not-configured' } }
-  );
-  assert.deepEqual(await setup().lookup.searchResults('g1', '   '), { failed: { code: 'empty-query' } });
-  assert.ok(
-    await setup({ hotOptions: { prompts: { 'search-summary': '' } } }).lookup.searchResults('g1', 'x y'),
-    'never needs the search-summary prompt'
-  );
-});
-
-// PR 7d: `web.links.readChars` is the constant 4000, so the page is longer than that.
 test('readPage: the page text as extracted, cut at web.links.readChars, with its title and final url; no model request; cached', async () => {
   const long = 'mot '.repeat(1100).trim();
   const { lookup, pageFetcher, llm, store } = setup({
@@ -977,7 +832,7 @@ test('readPage: a short page is not cut; failures say why and are not cached', a
       'g1',
       'https://example.org/e'
     ),
-    { ok: false, reason: 'empty' }
+    { ok: false, reason: 'empty', url: 'https://example.org/e' }
   );
 });
 

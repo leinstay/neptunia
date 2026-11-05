@@ -547,8 +547,8 @@ test('the watcher hour given in a setup run is in the timer the same run writes'
   writeKeysFile(options.privateDir, { subharness: { backends: ['codex'], key: null, modes: {} } });
   // Changed: the watcher's source must be installed and logged in, whatever the stored list says.
   fakeVendor(options.privateDir, 'codex', { loggedIn: true });
-  // Changed: the first two answers decline the interface step and the YouTube key, which ask before the watcher.
-  const answers = ['no', '', 'on', '05:30', 'codex', ''];
+  // Changed: the first three answers decline the interface step, the YouTube key and quick search, which ask before the watcher.
+  const answers = ['no', '', '', 'on', '05:30', 'codex', ''];
   const report = await runSetup(options, { ...deps, ask: () => Promise.resolve(answers.shift() ?? '') });
   assert.equal(report.steps.find((step) => step.step === 'watcher')?.state, 'done');
   const timer = fs.readFileSync(path.join(unitDir, 'neptunia-watcher.timer'), 'utf8');

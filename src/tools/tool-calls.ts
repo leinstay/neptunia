@@ -40,6 +40,13 @@ const RESULT_LABEL_FALLBACK: Readonly<Record<string, string>> = Object.freeze({
 const INTEGER_TEXT = /^-?\d+$/;
 const NUMBER_TEXT = /^-?\d+(?:\.\d+)?$/;
 const BOOLEAN_TEXT = /^(?:true|false)$/i;
+/** What a provider's tool-call schema takes for a function name: a name outside it fails the whole request with a 400. */
+const CALL_NAME = /^[a-zA-Z0-9_.-]*$/;
+/** The longest function name the providers take. */
+const CALL_NAME_CHARS = 64;
+
+/** A name the provider and a result's attributes can carry: every run of other characters becomes one `_`. */
+const carriableName = (written: string): string => written.replace(/[^a-zA-Z0-9_.-]+/g, '_').slice(0, CALL_NAME_CHARS);
 
 /**
  * The calls of one answer as records, in her order: `{ id, index, name, apiName, raw, args, problem }`.
@@ -48,7 +55,8 @@ const BOOLEAN_TEXT = /^(?:true|false)$/i;
  * API name mapped back; the text transport's name as written, no repair), or what she wrote when no
  * skill has it; `apiName` the name the native transport carries; `raw` her arguments as text; `args`
  * the parsed object (`{}` when there is none); `problem` null or one of `truncated-call` (the answer
- * ran out of room: every call), `malformed-call` (the arguments could not be read), `unknown-skill`.
+ * ran out of room: every call), `malformed-call` (the arguments could not be read, or the name holds a quote, a space or
+ * anything else no tool name holds; `name` and `apiName` then carry it with those characters replaced), `unknown-skill`.
  * `calls` are `{ id, name, arguments, parsed, parseError }` as `toolCallsOf` and `parseToolCallBlocks` give them.
  */
 export function normalizeCalls({
@@ -72,14 +80,16 @@ export function normalizeCalls({
     let id = base;
     for (let n = 2; used.has(id); n += 1) id = `${base}~${n}`;
     used.add(id);
-    const written = textOf(call.name);
+    const given = textOf(call.name);
+    const isBrokenName = !CALL_NAME.test(given);
+    const written = isBrokenName ? carriableName(given) : given;
     const dotted = transport === 'text' ? written : skillNameOfToolCall(written);
-    const known = dotted !== null && dotted !== '' && registry.has(dotted);
+    const known = !isBrokenName && dotted !== null && dotted !== '' && registry.has(dotted);
     const name = known ? dotted : written;
     let problem: NormalCall['problem'] = null;
     if (finishReason === 'length') problem = 'truncated-call';
     else if (call.parseError === 'truncated') problem = 'truncated-call';
-    else if (typeof call.parseError === 'string' && call.parseError) problem = 'malformed-call';
+    else if (isBrokenName || (typeof call.parseError === 'string' && call.parseError)) problem = 'malformed-call';
     else if (!known) problem = 'unknown-skill';
     const apiName = transport === 'text' ? (known ? (apiNameOf(name) ?? name) : written) : written;
     return {

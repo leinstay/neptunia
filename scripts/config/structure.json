@@ -23,7 +23,7 @@
     },
     {
       "path": ".github/",
-      "purpose": "The continuous integration workflow, the issue and pull request templates and the README images.",
+      "purpose": "The continuous integration workflows, the issue and pull request templates and the README images.",
       "layer": "public",
       "imports": [],
       "test": "none"

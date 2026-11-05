@@ -303,10 +303,6 @@ const handlers = perEnv((env) => {
       ...(state === 'dropped' ? { reason: text(args, 'reason') ?? null } : {}),
       turnId: from.turnId,
       by: from.by,
-      // An inner turn's call (her own initiative) and its chain: which candidates it may accept.
-      ...(context?.ownInitiative === true
-        ? { initiative: true, callerChain: context?.chainId ? idText(context.chainId) : null }
-        : {}),
       ...whereOf(context),
     });
     return answer(result, 'updated');

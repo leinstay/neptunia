@@ -506,7 +506,7 @@ test('recall-eval: a record line becomes a chat message with its link previews, 
 
 test('recall-eval: --web readiness follows web.search.engine through the lookup, not the Brave key alone', () => {
   const searches = { brave: createBraveSearch(), exa: createExaSearch() };
-  const hotOf = (engine: string) => ({ config: { web: { search: { engine } } }, prompts: {} });
+  const hotOf = (engine: string) => ({ config: { web: { search: { engine, model: 'x/quick' } } }, prompts: {} });
   // Readiness reads service credentials from the selected prepared persona, not environment secret values.
   const envFor = (services: Record<string, string>) => {
     const dataDir = tempDir('nep-eval-service-');
@@ -518,7 +518,8 @@ test('recall-eval: --web readiness follows web.search.engine through the lookup,
   const ready = (engine: string, services: Record<string, string>) =>
     webSearchReady({ hot: hotOf(engine), createLookup, searches, env: envFor(services) });
   assert.equal(ready('openrouter', {}), true, 'openrouter needs no Brave key');
-  assert.equal(ready('exa', {}), true, 'exa needs no key');
+  assert.equal(ready('exa', {}), false, 'exa without its key cannot search');
+  assert.equal(ready('exa', { exa: 'k' }), true);
   assert.equal(ready('brave', {}), false, 'brave without its key cannot search');
   assert.equal(ready('brave', { brave: '   ' }), false, 'a blank key is no key');
   assert.equal(ready('brave', { brave: 'k' }), true);

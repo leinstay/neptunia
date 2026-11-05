@@ -16,9 +16,9 @@ The runtime refuses ambiguous legacy and canonical layouts. `NEPTUNIA_PRIVATE_DI
 
 ## Backup and restore
 
-With `memoryDb.backup.enabled`, the core saves one backup per UTC day after `memoryDb.backup.hour` (default 03:00 UTC). `memoryDb.backup.keep` retains the latest seven completed backups by default. Files live in `memoryDb.backup.dir`, resolved against `data/`; the default is `../backups/memory`.
+With `memoryDb.backup.enabled`, the core saves one backup per UTC day after `memoryDb.backup.hour` (default 03:00 UTC). `memoryDb.backup.keep` retains the latest seven completed backups by default. Files live in `memoryDb.backup.dir`, resolved against `data/`; the default is `../backups/memory`, which lands in `backups/memory` inside a default checkout, and `.gitignore` covers `/backups/`.
 
-Each backup includes a consistent SQLite snapshot and the regular files throughout `data/`: prompts, configuration, credentials, media, skills, interface state, agent overrides and subharness files. Executable and private file permissions are preserved. Runtime sockets, `run/`, and the main database's WAL, SHM and lock files are omitted. Backup directories are private to the user. A backup destination inside `data/` is refused.
+Each backup includes a consistent SQLite snapshot and the regular files throughout `data/`: prompts, configuration, credentials, media, skills, interface state, agent overrides and subharness files. Every folder a backup creates is mode 700 and every file in it mode 600. The manifest records each file's mode and a restore gives it back, so executable and private file permissions survive, with `keys.json` at 600 even from a looser source. Runtime sockets, `run/`, and the main database's WAL, SHM and lock files are omitted. A backup destination inside `data/` is refused.
 
 The database snapshot is consistent; files are copied during the run and are not an atomic filesystem snapshot. Stop services for a migration checkpoint that must represent one exact moment. `scripts/memory-db.ts restore` restores all manifest files and checks database row counts. Older database-and-diary backups remain readable but do not contain a complete persona.
 

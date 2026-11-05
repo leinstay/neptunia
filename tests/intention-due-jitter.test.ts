@@ -193,8 +193,7 @@ test('a recurring heartbeat intention woken early still advances to the next occ
         expiresDays: 14,
         recurringExpiresDays: 30,
         maxOpen: 20,
-        maxCandidates: 5,
-        candidateExpiresHours: 48,
+
         waitHours: 2,
       },
       wakes: { heartbeat: { dueJitterMinutes: J } },

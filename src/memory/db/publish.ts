@@ -42,6 +42,7 @@ import { diaryMetadataOf, diaryPublicationRefusal } from '../../tools/publicatio
 
 import { audienceRefusal } from './diary-audience.ts';
 import { legacyNativeKind, nativeAuthorityOf } from './ids.ts';
+import { parseExtra } from './map/common.ts';
 import { contextRow } from './scope.ts';
 import { projectRow } from './graph.ts';
 import { dbOf, transactionOf, asText, isFiniteNumber } from './types.ts';
@@ -677,10 +678,12 @@ export function projectPublicationsNaming(
   const db = dbOf(handle);
   if (!hasPublications(db) || source?.kind !== 'said' || source.native_id === null || source.native_id === undefined)
     return 0;
-  const needle = `%"key":${JSON.stringify(asText(source.native_id))}%`;
+  // A receipt names the message as the interface does; a line in a family holds the family's key.
+  const needle = (key: unknown): string => `%"key":${JSON.stringify(asText(key))}%`;
+  const messageId = (parseExtra(source.extra).$messageLocator as { messageId?: unknown } | undefined)?.messageId;
   const ids = db
-    .prepare('SELECT id FROM publications WHERE receipts LIKE ? ORDER BY id')
-    .all(needle)
+    .prepare('SELECT id FROM publications WHERE receipts LIKE ? OR receipts LIKE ? ORDER BY id')
+    .all(needle(source.native_id), needle(messageId ?? source.native_id))
     .map((row) => row.id);
   for (const id of ids) projectRow(db, 'publications', { id }, { at });
   return ids.length;

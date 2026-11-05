@@ -154,9 +154,23 @@ const SKILL_FILING = 'skill.pending';
 /** Whether `principal` may send `command.requested`: the owner's command line or an agent, never an interface. */
 export const mayCommand = (principal: Principal): boolean => principal.kind === 'cli' || principal.kind === 'agent';
 
+/** The prefix of the owner's command-line conversations: `cli:dm:owner`, whose history and replies are the command line's. */
+const CLI_CONVERSATION_PREFIX = `${CLI_IFACE}:`;
+
+/** Whether an event places itself in a conversation of the command line, by any of the two fields that name one. */
+function namesCliConversation(body: Record<string, unknown>): boolean {
+  const { conversation, conversationId } = body;
+  const named =
+    conversation !== null && typeof conversation === 'object'
+      ? (conversation as Record<string, unknown>).id
+      : conversationId;
+  return typeof named === 'string' && named.startsWith(CLI_CONVERSATION_PREFIX);
+}
+
 /** Why the authenticated sender of `body` may not send it, or null. */
 function eventRefusal(body: Record<string, unknown>, iface: string, principal: Principal): string | null {
   if (body.iface !== iface) return 'body.iface:foreign';
+  if (principal.kind !== 'cli' && namesCliConversation(body)) return 'conversation:foreign';
   if (principal.kind === 'agent') {
     if (body.kind !== 'command.requested') return 'body.kind:not-allowed';
     if (typeof body.name !== 'string') return 'body.name:not-allowed';
@@ -538,6 +552,12 @@ export function createLinkSwitch(first: AdapterLink | null): {
     current: () => live,
     attach(link: AdapterLink): void {
       if (link === live) return;
+      // Only the principal it serves reconnects onto a live link: connecting later wins no other client's sends.
+      const serving = live.isClosed() ? null : (live.principal()?.name ?? null);
+      if (serving !== null && link.principal()?.name !== serving) {
+        link.close();
+        return;
+      }
       live.close();
       live = link;
     },

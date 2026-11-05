@@ -26,7 +26,7 @@ The worker exits `0` for a committed report, with its filing deferred too, and f
 
 Every report is one Markdown file in one template. `checkTemplate` in `src/watcher/report.ts` checks the title, the metadata rows, the twelve sections, the four subheadings of each, `Decisions needed` ahead of them in `For the owner`, and the `coverage` block at the end, and `checkCoverage` reads the block as data. [The prompt contract](prompt-contract.md#watcher-answer) holds the template and the codes.
 
-The runner checks the answer before it saves or files anything. A failed check fails the run with a code and a detail that never quotes the agent, the answer is kept nowhere, and the last successful view stays. The engine then replaces the metadata rows it knows: the observation interval, the run id, the selected backend, the model, the effort, the risk and both counts. It stamps `observation` and `backend` of the `coverage` block with the same facts, so the block and the rows cannot disagree. The rows `Effective account` and `Available sources` and the block's other fields stay the agent's.
+The runner checks the answer before it saves or files anything, and a refusal's detail never quotes the agent. An answer refused by the template, the coverage block, the `tasks` block or the key check earns one more attempt on the same run. `src/watcher/inspection.ts` counts it in `attempts` on the run's record before it starts. Its brief holds the first brief whole, `agents/watcher/retry.md`, the code and detail, and the refused answer. The second attempt gets what is left of `WATCHER_RUN_TIMEOUT_MS`, a run with no time left fails with `timeout`, and a retry prompt that cannot be read ends the run with the refusal. A second refusal fails the run with its own code and nothing filed, and the last successful view stays. An exit code, a timeout or the engine's own check after stamping earns no attempt. Each refused answer stays in `reports/refused/<run id>-<attempt>.md`, mode 600 and invisible to the report readers, with a string shaped like a key masked there and in the second brief. The engine then replaces the metadata rows it knows: the observation interval, the run id, the selected backend, the model, the effort, the risk and both counts. It stamps `observation` and `backend` of the `coverage` block with the same facts, so the block and the rows cannot disagree. The rows `Effective account` and `Available sources` and the block's other fields stay the agent's.
 
 Each successful run commits an immutable file `reports/runs/<day>_<commit ms>_<run id>.md`, and `reports/<day>.md` is a link swapped atomically to the newest of its day, so a failed or interrupted attempt replaces nothing. A plain `<day>.md` from an older installation reads as before, with no run identity, and stays readable as the run `legacy-<day>` once a run commits over it. The day of a report is the UTC day of its claim.
 
@@ -58,7 +58,7 @@ The window opens at the last successful inspection, or at the start of the UTC d
 
 | Category | What it lists |
 |---|---|
-| `units` | A `neptunia-*` unit whose binary or script is gone, or that is disabled with nothing referencing it |
+| `units` | A `neptunia-*` unit whose binary or script is gone, or that is disabled with nothing referencing it. An entry that cannot be read as a file, such as a `.service.d` drop-in folder, is left out and the others are still judged |
 | `identities` | A `neptunia-*` user or group that owns no process and no file under `/home`, `/var/lib`, `/srv`, `/opt` and `/etc`, searched to depth 4 |
 | `state-folders` | A `neptunia-*` folder of `/var/lib` that no unit names |
 | `stray-files` | An untracked file, from `git status --porcelain` |
@@ -93,6 +93,7 @@ Duplicates are found by the draft's `finding` key, so a reworded repeat files no
 |---|---|
 | `ProtectSystem=strict` | The whole file system is read-only, the checkout and `data/memory.db` included |
 | `ReadWritePaths=` | `data/agents/watcher` and `data/subharness` stay writable, each only if it exists. `service watcher enable` makes the first |
+| `SupplementaryGroups=systemd-journal` | The unit reads the journal of the other units. Only a system unit carries it, because a user manager refuses the line |
 | `NoNewPrivileges=yes` | No child gains privileges through a setuid binary |
 | `PrivateTmp=yes` | The unit has its own `/tmp` |
 

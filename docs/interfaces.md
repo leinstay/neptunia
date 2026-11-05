@@ -47,6 +47,8 @@ The shared setup stores values under `data/interfaces/<name>/`. Secrets go to `c
 
 The core socket authenticates each client against `clients.json` and its token file. An interface client has kind `interface` and a fixed `iface`. It supplies platform events, not owner administrative commands. CLI and agent clients have separate kinds and permissions.
 
+The token decides what a client may do, and the message fields and the order of connecting add nothing to it. [The link](../src/interface/link.ts) answers `invalid` to an event that names a `cli:` conversation unless the client has kind `cli`. While a client serves an interface, `createLinkSwitch` closes the link of another client of the same `iface` and keeps the live one. A reconnect of the same client replaces its own link.
+
 ```bash
 node scripts/client-token.ts add NAME --kind interface --iface NAME
 ```

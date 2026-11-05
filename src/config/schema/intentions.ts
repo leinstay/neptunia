@@ -24,11 +24,4 @@ export const INTENTIONS: ReadonlyArray<SchemaEntry> = [
     'default': 20,
     'text': 'Max intentions open at once',
   },
-  {
-    'key': 'intentions.candidateExpiresHours',
-    'types': ['number'],
-    'reader': 'src/intentions/model.ts',
-    'default': 48,
-    'text': 'Hours before an unhandled candidate expires',
-  },
 ];
