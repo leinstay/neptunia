@@ -161,6 +161,8 @@ function linesOf(line: string, rules: LineRules): Array<string> {
   if (key === 'Conflicts' && line.includes('neptunia-bot.service')) return [];
   if (key === 'Group' || (key !== null && dropped.has(key))) return [];
   if (key === 'User') return scope === 'system' ? [`User=${vars.user}`, `Group=${vars.group}`] : [];
+  // A user manager refuses `SupplementaryGroups=` with status 216.
+  if (key === 'SupplementaryGroups' && scope === 'user') return [];
   if (scope === 'user' && line === 'WantedBy=multi-user.target') return ['WantedBy=default.target'];
   if (scope === 'user' && rules.isInterface && key === 'InaccessiblePaths') return [];
   const rendered = renderedLines(line, key, rules);

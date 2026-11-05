@@ -58,7 +58,7 @@ The window opens at the last successful inspection, or at the start of the UTC d
 
 | Category | What it lists |
 |---|---|
-| `units` | A `neptunia-*` unit whose binary or script is gone, or that is disabled with nothing referencing it |
+| `units` | A `neptunia-*` unit whose binary or script is gone, or that is disabled with nothing referencing it. An entry that cannot be read as a file, such as a `.service.d` drop-in folder, is left out and the others are still judged |
 | `identities` | A `neptunia-*` user or group that owns no process and no file under `/home`, `/var/lib`, `/srv`, `/opt` and `/etc`, searched to depth 4 |
 | `state-folders` | A `neptunia-*` folder of `/var/lib` that no unit names |
 | `stray-files` | An untracked file, from `git status --porcelain` |
@@ -91,6 +91,7 @@ Duplicates are found by the draft's `finding` key, so a reworded repeat files no
 |---|---|
 | `ProtectSystem=strict` | The whole file system is read-only, the checkout and `data/memory.db` included |
 | `ReadWritePaths=` | `data/agents/watcher` and `data/subharness` stay writable, each only if it exists. `service watcher enable` makes the first |
+| `SupplementaryGroups=systemd-journal` | The unit reads the journal of the other units. Only a system unit carries it, because a user manager refuses the line |
 | `NoNewPrivileges=yes` | No child gains privileges through a setuid binary |
 | `PrivateTmp=yes` | The unit has its own `/tmp` |
 
