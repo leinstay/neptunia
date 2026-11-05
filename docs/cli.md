@@ -277,7 +277,7 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 | `running` | Whether a run is going, as the manager says for the watcher. `unknown` for a wake with no core, and for the watcher with no `systemctl` |
 | `readiness` | `ready`, or `not ready` and what is missing: the core, a role's subharness source or the repository |
 | `schedule` | The schedule, with the heartbeat's jitter. `windows` for a diary with no `selfreflection.schedule` |
-| `next due` | The next time, `none` when disabled, `unknown` for a diary drawing from windows with no core |
+| `next due` | The next time, `none` when disabled. For a diary drawing from windows with no core it is the start of the next window that can post in `bot.timezone`, `none` when no window can |
 | `last result` | The newest report of the watcher, the core's last wake of the others, `unknown` with no core |
 | `current run` | The watcher's run in progress with its state and source, `none` with no run |
 | `last success` | The watcher's newest succeeded run and when it ended |

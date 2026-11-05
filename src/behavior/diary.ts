@@ -223,6 +223,24 @@ function windowSpan(window: unknown, dayKey: string, timezone: string): [number,
   return [start, end];
 }
 
+/**
+ * The start of the first window after `nowMs` that can post (`posts` maximum above 0), read from `windows` in
+ * `timezone` (UTC when missing). Null when no window can post or none is well formed.
+ */
+export function nextWindowStart(windows: unknown, nowMs: number, timezone?: string): number | null {
+  const zone = timezone || 'UTC';
+  const usable = listOf(windows).filter((window) => postRange(window)[1] > 0);
+  let day = localDayKey(nowMs, zone);
+  for (let ahead = 0; ahead < 2; ahead += 1) {
+    const starts = usable
+      .map((window) => windowSpan(window, day, zone)?.[0])
+      .filter((start): start is number => start !== undefined && start > nowMs);
+    if (starts.length > 0) return Math.min(...starts);
+    day = nextDayKey(day);
+  }
+  return null;
+}
+
 /** The named schedule of `selfreflection`, or null while the windows draw the day. */
 const namedSchedule = (cfg: unknown): ServiceSchedule | null => parseSchedule(objOf(cfg).schedule);
 
