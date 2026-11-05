@@ -39,6 +39,7 @@
 import { createHash } from 'node:crypto';
 import { log as engineLog } from '../../log.ts';
 import { canonicalKey } from './ids.ts';
+import { hasMessageFamilies } from './message-family-catalog.ts';
 import { AUD_INTERNAL, audienceParts, audienceWhere, dmAudienceId, groupAudienceId } from './scope.ts';
 import { NODE_KINDS, RELATION_EDGES, UNIT_OF, UNIT_ORDER } from './graph-manifest.ts';
 import { dbOf, transactionOf, asText, isWholeNumber } from './types.ts';
@@ -500,7 +501,7 @@ const PRODUCERS: Record<string, (db: Db, id: string) => Produced> = {
     if (row.row_kind === 'diary' && filled(row.row_id))
       out.edges.push(edge('published_as', ['diary', row.row_id], ['publication', id], { audience, recorded, retired }));
     if (row.status === 'sent') {
-      for (const source of receiptSources(db, row.receipts))
+      for (const source of receiptSources(db, row.receipts, row.destination_place_id))
         out.edges.push(
           edge('publication_source', ['publication', id], ['source', source], {
             audience,
@@ -535,8 +536,23 @@ function publicationAudience(db: Db, row: Row) {
   return AUD_INTERNAL;
 }
 
+/** A receipt names the message as the interface does: the key its line holds, through the destination's family. */
+function familyKeyOfReceipt(db: Db, receipt: Row, destination: unknown): unknown {
+  if (!hasMessageFamilies(db)) return undefined;
+  return one(
+    db,
+    `SELECT f.native_key FROM message_families f WHERE f.authority_id = ? AND f.native_kind = ? AND f.message_id = ?
+      AND f.generation = 1 AND (? IS NULL OR f.conversation_id = (SELECT native_id FROM places WHERE id = ?))`,
+    receipt.authority,
+    receipt.kind,
+    receipt.key,
+    destination ?? null,
+    destination ?? null
+  )?.native_key;
+}
+
 /** The stored lines a publication's receipts name (`[{ authority, kind, key }]`): the first stored revision of each. */
-function receiptSources(db: Db, receipts: unknown): Array<unknown> {
+function receiptSources(db: Db, receipts: unknown, destination: unknown): Array<unknown> {
   let list: unknown;
   try {
     list = JSON.parse(asText(receipts ?? '[]'));
@@ -552,7 +568,7 @@ function receiptSources(db: Db, receipts: unknown): Array<unknown> {
       AND kind IN ('said', 'seen') AND retired_at IS NULL ORDER BY revision, rowid LIMIT 1`,
       receipt.authority,
       receipt.kind,
-      receipt.key
+      familyKeyOfReceipt(db, receipt, destination) ?? receipt.key
     );
     if (found && !out.includes(found.id)) out.push(found.id);
   }
