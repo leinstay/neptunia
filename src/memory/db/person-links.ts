@@ -7,7 +7,8 @@
 // and src/interface/commands/console.ts.
 
 import { currentIface } from './current-iface.ts';
-import { SELF_PERSON, dmPlaceOfPerson, personId } from './ids.ts';
+import { SELF_PERSON, dmPlaceOfPerson, personId, survivorOf } from './ids.ts';
+import type { StorageKey } from './storage-keys.ts';
 import type { Db, MemoryHandle } from './types.ts';
 import { dbOf } from './types.ts';
 
@@ -110,6 +111,23 @@ export function accountLinks(
     .all(account.person_id) as Array<{ iface: string; native: string }>;
   const accounts = rows.map((row) => ({ iface: row.iface, native: row.native }));
   return { person: account.person_id, accounts: accounts.length > 0 ? accounts : [{ iface, native }] };
+}
+
+/**
+ * The profile unit of the person an account is linked to, when another account's unit holds it: the unit that owns the
+ * person's `people` row. Null for an account with no person, a person whose row no unit owns, and a row its own account
+ * owns in another community. What a linked account writes through its own unit stays account-specific (map/user.ts).
+ */
+export function linkedProfileUnit(db: Db, accountId: string): { id: string; key: StorageKey } | null {
+  const person = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId)?.person_id;
+  if (typeof person !== 'string' || !person) return null;
+  const unit = db
+    .prepare(
+      `SELECT u.id, u.key_json FROM people p JOIN storage_units u ON u.id = p.owner_key
+       WHERE p.id = ? AND p.retired_at IS NULL AND u.kind = 'user' AND u.retired_at IS NULL AND u.subject_id != ?`
+    )
+    .get(survivorOf(db, person), accountId);
+  return unit ? { id: String(unit.id), key: JSON.parse(String(unit.key_json)) as StorageKey } : null;
 }
 
 /** The other DMs of the person behind a DM's `person:<iface>:<native>`; empty for an account nobody bound. */

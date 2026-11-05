@@ -75,6 +75,7 @@ import type { MediaDescriptionEntry } from './db/export.ts';
 import { listUnits } from './db/storage-units.ts';
 import type { UnitQuery } from './db/storage-units.ts';
 import { storageContext, classify } from './db/map/index.ts';
+import { linkedProfileUnit } from './db/person-links.ts';
 import { accountId, channelPlaceId } from './db/ids.ts';
 
 import { isRecord, propOf, isFiniteNumber, isIntegerNumber, canWriteUnits, readSeamOf } from './types.ts';
@@ -1037,6 +1038,27 @@ function normalizeChannel(channel: Untyped) {
 /** A cached file of the store: its parsed value, whether it waits for a flush, and the holds on that flush. */
 type CacheItem = { value: Untyped; dirty: boolean; holdFlush?: number; stale?: boolean };
 
+/** A cached profile's value field by field: every stored value here is a profile object. */
+const entryRecord = (item: CacheItem): StoredRecord => item.value as StoredRecord;
+
+/** `names` with `name`: first when it is the newest touch, else last when unseen. A list keeps five names. */
+function withName(names: unknown, name: string, isNewest: boolean): Array<string> {
+  const known: Array<string> = Array.isArray(names) ? names.map(String) : [];
+  if (isNewest) return [name, ...known.filter((one) => one !== name)].slice(0, 5);
+  return known.includes(name) ? known : [...known, name].slice(0, 5);
+}
+
+/** What a linked account reads: the person's profile with the account's own id, names, address and avatar. */
+function linkedProfile(person: CacheItem, account: CacheItem | null, id: string): StoredRecord {
+  const own = account ? entryRecord(account) : {};
+  const profile: StoredRecord = { ...entryRecord(person), id, names: own.names ?? [] };
+  for (const field of ['addressedAs', 'avatar']) {
+    if (own[field]) profile[field] = own[field];
+    else delete profile[field];
+  }
+  return profile;
+}
+
 type StoreClosedInput = {
   item: Untyped;
   file: string;
@@ -1554,6 +1576,13 @@ function buildStore({
     return trimmed;
   }
 
+  /** The cache entry of what belongs to the account itself (names, avatar, address), created empty and normalised. */
+  function accountEntry(guildId: string, userId: string): CacheItem & { value: StoredRecord } {
+    const item = entry(accountFile(guildId, userId), () => emptyProfile(String(userId)));
+    normalizeProfile(item.value);
+    return item;
+  }
+
   /** Where an archived item goes back to (`restoreArchived`): its cache entry (null without the file) and list; null for a kind that cannot. */
   function restoreTarget(guildId: string, archived: Untyped) {
     const userId = typeof archived?.scope?.user === 'string' ? archived.scope.user : null;
@@ -1798,8 +1827,19 @@ function buildStore({
     };
   }
   const usersDir = (guildId: string) => collection('user', guildId, () => path.join(guildDir(guildId), 'users'));
-  const userFile = (guildId: string, userId: string) =>
+  /** The unit of the account itself: its names, its avatar, how it is addressed. */
+  const accountFile = (guildId: string, userId: string) =>
     address(memberKey('user', guildId, userId), () => path.join(usersDir(guildId), `${userId}.json`));
+  /**
+   * The unit that holds what describes the member: the account's own, or the profile unit of the person it is linked to.
+   * Read at every use, so an unlink takes effect at once. A closed database answers with the account's own unit.
+   */
+  function userFile(guildId: string, userId: string): string {
+    const own = accountFile(guildId, userId);
+    if (!memoryDb?.readHandle?.()) return own;
+    const unit = seam.run(() => linkedProfileUnit(seam.db(), accountId(namespace(), userId)));
+    return unit ? address(unit.key, () => own) : own;
+  }
   const guildFile = (guildId: string) =>
     address(communityKey('guild', guildId, { iface: namespace() }), () => path.join(guildDir(guildId), 'guild.json'));
   const channelsDir = (guildId: string) =>
@@ -2136,7 +2176,9 @@ function buildStore({
       if (!known(file)) return null;
       const item = entry(file, () => emptyProfile(String(userId)));
       normalizeProfile(item.value);
-      return item.value;
+      const own = accountFile(guildId, userId);
+      if (file === own) return item.value;
+      return linkedProfile(item, known(own) ? accountEntry(guildId, userId) : null, String(userId));
     },
 
     /**
@@ -2155,18 +2197,13 @@ function buildStore({
     touchUser(guildId: string, userId: string, name: string, at = Date.now()): StoredRecord {
       const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
       const profile = item.value;
+      const account = accountEntry(guildId, userId);
 
       const priorFirstSeenMs = profile.firstSeen ? Date.parse(profile.firstSeen) : NaN;
       const priorLastSeenMs = profile.lastSeen ? Date.parse(profile.lastSeen) : NaN;
       const isNewest = !isFiniteNumber(priorLastSeenMs) || at >= priorLastSeenMs;
 
-      if (name) {
-        if (isNewest) {
-          profile.names = [name, ...profile.names.filter((n: string) => n !== name)].slice(0, 5);
-        } else if (!profile.names.includes(name)) {
-          profile.names = [...profile.names, name].slice(0, 5);
-        }
-      }
+      if (name) account.value.names = withName(account.value.names, name, isNewest);
 
       if (!isFiniteNumber(priorFirstSeenMs) || at < priorFirstSeenMs) {
         profile.firstSeen = new Date(at).toISOString();
@@ -2176,7 +2213,8 @@ function buildStore({
       }
       profile.messageCount += 1;
       item.dirty = true;
-      return profile;
+      account.dirty = true;
+      return account === item ? profile : (store.getUser(guildId, userId) as StoredRecord);
     },
 
     /**
@@ -2354,10 +2392,10 @@ function buildStore({
       const profile = store.getUser(guildId, userId);
       if (!profile) return null;
       if (!Array.isArray(uses) || uses.length === 0) return profile;
-      const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
-      profile.addressedAs = applyAddressUses(profile.addressedAs, uses, opts);
-      item.dirty = true;
-      return profile;
+      const account = accountEntry(guildId, userId);
+      account.value.addressedAs = applyAddressUses(account.value.addressedAs, uses, opts);
+      account.dirty = true;
+      return store.getUser(guildId, userId);
     },
 
     /**
@@ -2368,15 +2406,13 @@ function buildStore({
      * @returns The profile, or null when nothing was written.
      */
     setAvatar(guildId: string, userId: string, avatar: Untyped): object | null {
-      const file = userFile(guildId, userId);
-      if (!known(file)) return null;
+      if (!known(userFile(guildId, userId))) return null;
       const value = normalizeAvatar(avatar);
       if (!value) return null;
-      const item = entry(file, () => emptyProfile(String(userId)));
-      normalizeProfile(item.value);
+      const item = accountEntry(guildId, userId);
       item.value.avatar = value;
       item.dirty = true;
-      return item.value;
+      return store.getUser(guildId, userId);
     },
 
     /**
@@ -2392,8 +2428,8 @@ function buildStore({
       const profile = store.getUser(guildId, userId);
       if (!profile || typeof profile.relationship !== 'string' || !profile.relationship.trim()) return false;
       const item = entry(userFile(guildId, userId), () => emptyProfile(String(userId)));
-      if (on) profile.relationshipRewrite = true;
-      else delete profile.relationshipRewrite;
+      if (on) entryRecord(item).relationshipRewrite = true;
+      else delete entryRecord(item).relationshipRewrite;
       item.dirty = true;
       return true;
     },
@@ -2455,10 +2491,14 @@ function buildStore({
         item.value.affinity = affinity;
         item.dirty = true;
       };
+      // A person with two accounts holds one score, so it cools once.
+      const swept = new Set<string>();
       for (const userId of idsUnder(usersDir(guildId))) {
         if (!store.getUser(guildId, userId)) continue;
-        // `getUser` just loaded the profile into the cache.
-        sweep(entries.get(userFile(guildId, userId)) as CacheItem);
+        const file = userFile(guildId, userId);
+        if (swept.has(file)) continue;
+        swept.add(file);
+        sweep(entry(file, () => emptyProfile(String(userId))));
       }
       for (const userId of idsUnder(privateDir(guildId))) sweep(privateEntry(guildId, userId));
       return counts;
