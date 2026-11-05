@@ -128,6 +128,8 @@ function checkConversation(given: unknown): void {
     problem: 'unknown',
   });
   need(conversation.partnerId, 'conversation.partnerId', isNullableId, { required: false });
+  need(conversation.parentKind, 'conversation.parentKind', isId, { required: false });
+  need(conversation.authorityId, 'conversation.authorityId', isId, { required: false });
 }
 
 /** The values of `reaction.changed`'s `cleared`. */

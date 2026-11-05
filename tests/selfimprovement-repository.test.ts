@@ -1,17 +1,11 @@
-// The push-right check of her self-development (src/selfimprovement/repository.ts): gh present, logged in under her own gh
-// home, and allowed to push to `selfimprovement.repository`. The gh runner is a fake that answers from a table and records
+// The push-right check of her self-development (src/selfimprovement/repository.ts): gh present, logged in on the system,
+// and allowed to push to `selfimprovement.repository`. The gh runner is a fake that answers from a table and records
 // what it was asked; nothing reaches GitHub. Each test names the bug it catches.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  REPOSITORY_FAILURES,
-  checkRepository,
-  ghConfigDir,
-  ghEnv,
-  repositoryOfRemote,
-} from '../src/selfimprovement/repository.ts';
+import { REPOSITORY_FAILURES, checkRepository, repositoryOfRemote } from '../src/selfimprovement/repository.ts';
 import type { GhAnswer, GhRunner } from '../src/selfimprovement/repository.ts';
 import { labelsFileOf } from '../src/config/labels.ts';
 
@@ -136,16 +130,6 @@ test('every failure code has a one-line label in the shipped owner labels', () =
     assert.match(typeof label === 'string' ? label : '', /^[^\n]*\S[^\n]*$/, code);
   }
   assert.ok(String(check['no-push']).includes('{repository}'));
-});
-
-test('her gh home is subharness/gh under the private folder, and ghEnv sets it without touching the given env', () => {
-  // Catches: gh runs under the installing user's own login (~/.config/gh), so her pull requests are his.
-  assert.equal(ghConfigDir('/p'), path.join('/p', 'subharness', 'gh'));
-  const env = { PATH: '/usr/bin', GH_CONFIG_DIR: '/home/him/.config/gh' };
-  const made = ghEnv('/p', env);
-  assert.equal(made.GH_CONFIG_DIR, path.join('/p', 'subharness', 'gh'));
-  assert.equal(made.PATH, '/usr/bin');
-  assert.equal(env.GH_CONFIG_DIR, '/home/him/.config/gh');
 });
 
 test('repositoryOfRemote reads owner/name from https and ssh remotes of github.com', () => {

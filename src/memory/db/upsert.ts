@@ -120,10 +120,10 @@ function upsert(db: Db, table: string, row: Row, { ignore = false }: { ignore?: 
 
 const keyOf = (table: string, row: Row): string => OWNED[table].map((col) => row[col]).join('\u0000');
 
-/** The existing row of a mapped row's primary key: { owner_key, retired_at, origin? } or undefined. */
+/** The existing row of a mapped row's primary key: { owner_key, retired_at, origin?, kind? } or undefined. */
 function existingOf(db: Db, table: string, row: Row): Row | undefined {
   const key = OWNED[table];
-  const origin = table === 'sources' ? ', origin' : '';
+  const origin = table === 'sources' ? ', origin' : table === 'people' ? ', kind' : '';
   return prepared(
     db,
     `SELECT owner_key, retired_at${origin} FROM ${quote(table)} WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`
@@ -134,12 +134,15 @@ function existingOf(db: Db, table: string, row: Row): Row | undefined {
  * Whether a row the database wrote is an observation's (observe.ts) that a unit write now brings: a line observed
  * live (`origin` `observation`), or an account or a non-DM place (only an observation writes those without a unit;
  * the DM places the resolver creates are never in a unit). The unit's row adopts it (its `owner_key`, every column
- * the mapping names) instead of skipping it or writing a second row.
+ * the mapping names) instead of skipping it or writing a second row. A person with no kind is what an owner's link
+ * made (person-links.ts) and waits for its profile the same way.
  */
 const observedRow = (table: string, found: Row, row: Row) =>
   table === 'sources'
     ? found.origin === 'observation'
-    : table === 'accounts' || (table === 'places' && row.kind !== 'dm');
+    : table === 'accounts' ||
+      (table === 'places' && row.kind !== 'dm') ||
+      (table === 'people' && (found.kind === null || found.kind === undefined));
 
 /**
  * Writes one mapped row of a unit, keeping the ownership rules: a row the database wrote (no owner) is left alone;

@@ -17,10 +17,11 @@ export const DANGER_PATHS = [
       /^src\/tools\/(?:access|gateway)\.ts$/,
       /^src\/tools\/impl\/(?:access|grants|rights|effects)\.ts$/,
       /^src\/interface\/principals\.ts$/,
+      /^src\/setup\/clients\.ts$/,
       /^src\/agent-runner\/policy\.ts$/,
       /^agents\/[^/]+\/profile\.json$/,
       // The gate's own files: a change to them could open the gate it passes through.
-      /^src\/development\/(?:worker|risk|changes|settings)\.ts$/,
+      /^src\/development\/(?:worker|risk|changes|settings|edges)\.ts$/,
       /^bin\/development\.ts$/,
       /^src\/selfimprovement\/settings\.ts$/,
       /^src\/config\/schema\/selfimprovement\.ts$/,

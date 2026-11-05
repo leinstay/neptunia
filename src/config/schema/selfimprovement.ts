@@ -32,7 +32,7 @@ export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/setup/run.ts',
     'default': null,
     'text':
-      'The absolute path of the dev checkout that `neptunia setup` renders `neptunia-development.service` over, so the development worker runs there. Setup renders no development unit while it is unset, relative or the deployed checkout itself',
+      "The absolute path of the dev checkout the development worker works on: its working repository, with one worktree per task under `.worktrees/`. The worker's own code runs from the install. Setup renders no development unit while it is unset, relative or the deployed checkout itself",
   },
   {
     'key': 'selfimprovement.repository',
@@ -40,7 +40,7 @@ export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/selfimprovement/settings.ts',
     'default': null,
     'text':
-      "The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when her gh login can push there, so someone else's installation names a fork. While it is unset a filed task blocks with that reason",
+      "The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when the system's gh login can push there, so someone else's installation names a fork. While it is unset a filed task blocks with that reason",
   },
   {
     'key': 'selfimprovement.schedule',

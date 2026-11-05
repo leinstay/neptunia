@@ -191,7 +191,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * @param {object} params
    * @param {import('../protocol/adapter.ts').ConversationRef} [params.conversation]  absent for the selfreflection wake
    * @param {{ turnId: string, attemptId?: number }|null} [params.journalTurn]  The journal's turn and attempt (runTurn passes them on).
-   * @param {string} [params.guildId]  The guild of a private chat; a server channel uses its own; with neither it throws.
+   * @param {string} [params.guildId]  The community of a private chat; a server channel uses its own; a private chat with neither has none.
    * @param {'reply'|'interject'|'initiate'|'auto'|'diary'|'inner'} params.mode  'auto' lets `chooseMode` pick
    *   between interject/initiate/nothing once the history is known (spontaneous turns); 'inner'
    *   is an inner turn (with `params.inner`).

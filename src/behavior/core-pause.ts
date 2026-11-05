@@ -73,20 +73,18 @@ type PausedPlace = {
 function pausedObservation(
   event: unknown,
   place: PausedPlace
-): { direct: boolean; where: { guildId: string; privateUserId?: string } } | null {
+): { direct: boolean; where: { guildId?: string; privateUserId?: string } } | null {
   const fields = looseOf(event);
   const message = looseOf(fields.message);
   const author = looseOf(message.author);
   const conversation = looseOf(fields.conversation);
-  const { guildId } = place;
-  if (guildId === null || guildId === '') return null;
   if (fields.edit === true || fields.deleted === true || message.system === true) return null;
   if (conversation.communityId === null || conversation.communityId === undefined) {
     if (fields.iface !== CLI_IFACE || author.self === true || typeof author.id !== 'string') return null;
     if (conversation.partnerId === undefined || conversation.partnerId === null) return null;
-    return { direct: true, where: { guildId, privateUserId: author.id } };
+    return { direct: true, where: { privateUserId: author.id } };
   }
-  const isServed = place.isServed ?? ((id: unknown) => id === guildId);
+  const isServed = place.isServed ?? ((id: unknown) => id === place.guildId);
   if (!isServed(conversation.communityId as string | null | undefined) || conversation.kind === 'thread') return null;
   if (author.bot === true && author.id !== place.selfId) return null;
   return {

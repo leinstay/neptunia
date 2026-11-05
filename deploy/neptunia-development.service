@@ -1,11 +1,12 @@
 # systemd unit for the development worker (src/development/, docs/selfimprovement.md): `neptunia worker development`
 # stays up, wakes on the board's events over the core's socket as the client `development`, and runs one thinker per
-# filed task and one dev per scoped step, each in the task's own branch and worktree under <data>/development/.
+# filed task and one dev per scoped step, each in the task's own branch and worktree under
+# /opt/neptunia/checkout/.worktrees/.
 #
-# The worker works on a dev checkout, never on the deployed one: `neptunia setup` renders this unit only when
-# `selfimprovement.checkout` names another checkout, and the WorkingDirectory below becomes that path. The private and
-# data folders stay the deployment's. The client token is made once with scripts/client-token.ts
-# (`add development --kind agent`).
+# The worker's code comes from the install, the WorkingDirectory below, so a dev run never edits the code that is running.
+# Its working repository is the dev checkout `selfimprovement.checkout` names, /opt/neptunia/checkout below. `neptunia
+# setup` renders this unit only when that setting names another checkout, and it makes the client `development` with its
+# token. The private and data folders stay the deployment's.
 #
 # `neptunia setup` renders this service for the installing user (deploy/README.md) and neither enables nor starts it.
 # Enabling it is the owner's step: `systemctl enable --now neptunia-development.service` (`--user` for a user unit). The
@@ -35,9 +36,9 @@ RestartSec=30
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-# The worktrees, the git folder they hang off, her skills, the backends' homes, her gh home, the core's socket and the
-# one setting the worker writes. Each leading `-` lets the unit start before setup made the folder.
-ReadWritePaths=-/opt/neptunia/data/development -/opt/neptunia/app/.git -/opt/neptunia/data/skills -/opt/neptunia/data/subharness -/opt/neptunia/data/run -/opt/neptunia/data/config
+# The checkout with its worktrees and git folder, her skills, the backends' homes, the core's socket and the one setting
+# the worker writes. Each leading `-` lets the unit start before setup made the folder.
+ReadWritePaths=-/opt/neptunia/checkout -/opt/neptunia/data/skills -/opt/neptunia/data/subharness -/opt/neptunia/data/run -/opt/neptunia/data/config
 
 [Install]
 WantedBy=multi-user.target

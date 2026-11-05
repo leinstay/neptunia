@@ -2,7 +2,7 @@
 // `selfreflection` and `selfimprovement`, each switched on or off at the terminal, and the time of day of the daily
 // selfimprovement wake's schedule (`selfimprovement.schedule`). Each question offers the value in force, so an empty answer keeps it.
 // `selfimprovement` on needs a connected subharness backend, `selfimprovement.repository` and a push right to it
-// through her gh login (src/selfimprovement/repository.ts); without them it is stored off and the step is `refused`.
+// through the system's gh login (src/selfimprovement/repository.ts); without them it is stored off and the step is `refused`.
 // The answers go into `<private>/config.local/config.json`, every other key kept, and nothing is written when no
 // answer changes a value. The watcher step (src/setup/watcher.ts) asks through `askSwitch` and `askSchedule` of this file.
 
