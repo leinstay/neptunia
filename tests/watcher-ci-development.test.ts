@@ -67,8 +67,10 @@ test('the facts of the mode carry the CI summary, asked of the configured reposi
   // Bug: the CI is read from the repository of whatever folder the worker stands in, not the one development files against.
   const calls: Array<Call> = [];
   const facts = await factsOver(ghRun(calls));
-  assert.equal(facts.ci?.thisWeek.runs, 2);
-  assert.equal(facts.ci?.thisWeek.nearLimit, 2);
+  // R.2: the week gets a name, so the assertions read three segments deep.
+  const thisWeek = facts.ci?.thisWeek;
+  assert.equal(thisWeek?.runs, 2);
+  assert.equal(thisWeek?.nearLimit, 2);
   const ci = calls.filter((one) => one.args[0] === 'run');
   assert.ok(ci.length >= 3, 'a list and a view per run');
   for (const call of ci) assert.equal(call.args[call.args.indexOf('--repo') + 1], 'example/engine');
