@@ -11,6 +11,8 @@ import { storageMapper } from './map/index.ts';
 import { personaKey, placeCollection } from './storage-keys.ts';
 import { ensureUnit, listUnits } from './storage-units.ts';
 import { qualify, retireAbsent, writeMapping } from './upsert.ts';
+import { adoptLibraryRows } from './media-store.ts';
+import { storeHeld } from './media-stems.ts';
 import type { StorageKey } from './storage-keys.ts';
 import type { Db } from './types.ts';
 
@@ -23,6 +25,7 @@ function writeOver(db: Db, key: StorageKey, value: unknown): void {
   const mapping = qualify(mapper.toRows(id, value, {}), { rel: id, full: id });
   writeMapping(db, mapping, id, { at: MERGED_AT });
   retireAbsent(db, id, mapping, MERGED_AT);
+  if (storeHeld(db)) adoptLibraryRows(db, id, MERGED_AT);
 }
 
 /** The old rows' links in `extra.url`. A row that already names a url keeps it. */

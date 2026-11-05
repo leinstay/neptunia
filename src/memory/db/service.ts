@@ -129,6 +129,7 @@ import type { RetrievalInput } from '../retrieval-input.ts';
 import type { PrivatePersonView, PrivatePlaceView } from './private-read.ts';
 import { recoverRequestArchive } from './request-archive.ts';
 import { applyDiaryUpdate, createDiaryMedia } from './diary-media.ts';
+import { embedMedia } from './media-store.ts';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.ts';
 import { FOCUS_DEFAULTS, focusView, lastFocusDay, runFocusDay } from './focus.ts';
 import { utcDay } from '../../time.ts';
@@ -1207,6 +1208,36 @@ export function createMemoryDb({
 
   // The re-embed job (index-policy.ts#reembedTouched): `recall.db.reembed` with an embedding client, at most once a minute.
   let reembedRun: Promise<void> | null = null;
+  // The embedding of media text forms (media-store.ts#embedMedia): at most once a minute, a bounded page each time.
+  let mediaEmbedRun: Promise<void> | null = null;
+  let mediaEmbedAt = -Infinity;
+  function startMediaEmbed() {
+    if (closing || !handle || mediaEmbedRun || engine?.dead || typeof embed !== 'function') return;
+    const at = now();
+    if (at - mediaEmbedAt < REEMBED_EVERY_MS) return;
+    mediaEmbedAt = at;
+    const db = dbOf(handle);
+    mediaEmbedRun = (async () => {
+      const [{ quantize }, { roleModel }] = await Promise.all([import('../vectors.ts'), import('../../llm/roles.ts')]);
+      const config = hot.config;
+      return embedMedia({
+        db,
+        write: (update) => write({ kind: 'media-embed', ...update }),
+        embed,
+        config,
+        now: at,
+        quantize,
+        model: roleModel(config, 'embedding') ?? null,
+      });
+    })()
+      .then((done) => {
+        if (done.pending > 0) log.debug?.('memory db: media embed', { embedded: done.embedded, written: done.written });
+      })
+      .catch((error) => log.warn('memory db: media embed failed', { code: codeOf(error) }))
+      .finally(() => {
+        mediaEmbedRun = null;
+      });
+  }
   let reembedAt = -Infinity;
   function startReembed() {
     if (closing || !handle || reembedRun || engine?.dead || typeof embed !== 'function') return;
@@ -1568,6 +1599,7 @@ export function createMemoryDb({
     startFocus();
     startIndexPolicy();
     startReembed();
+    startMediaEmbed();
     startSemanticEmbed();
     startSession();
     startBackup();
@@ -1836,6 +1868,7 @@ export function createMemoryDb({
     await waitFor(focusRun, Math.max(0, deadline - performance.now()));
     await waitFor(indexRun, Math.max(0, deadline - performance.now()));
     await waitFor(reembedRun, Math.max(0, deadline - performance.now()));
+    await waitFor(mediaEmbedRun, Math.max(0, deadline - performance.now()));
     await waitFor(projectRun, Math.max(0, deadline - performance.now()));
     await waitFor(sessionRun, Math.max(0, deadline - performance.now()));
     await waitFor(backupRun, Math.max(0, deadline - performance.now()));

@@ -22,6 +22,9 @@ import { contentHash, idOfKey, mirrorReceipts, publicationKey } from './publish.
 import { dbOf, isFiniteNumber, transactionOf } from './types.ts';
 import type { Connection, Db, Row } from './types.ts';
 
+/** The kind of a delivery receipt that names a posted file. */
+const ATTACHMENT_RECEIPT = 'attachment';
+
 export type SegmentStatus = 'sent' | 'failed' | 'uncertain' | 'pending';
 
 /** One send of an entry to one place, as the row keeps it. */
@@ -128,7 +131,7 @@ function receiptsOf(db: Db, row: Row, segments: ReadonlyArray<StoredSegment>): s
   );
   const authority = mirrorReceipts(iface, ['x'])[0]?.authority ?? iface;
   const attachments = segments.flatMap((one) =>
-    one.attachmentIds.map((key) => ({ authority, kind: 'attachment', key }))
+    one.attachmentIds.map((key) => ({ authority, kind: ATTACHMENT_RECEIPT, key }))
   );
   return JSON.stringify([...messages, ...attachments]);
 }

@@ -121,6 +121,9 @@
 // first answer is kept the same way, with `offScript`, when the second request fails. Nothing is dropped, cut or edited for
 // this, and a second look's answer is outside it.
 
+import { fetchTextPreview } from '../media/text-preview.ts';
+import { TEXT_FORM_CHARS, hearAudio, readTextFile } from './describe-audio.ts';
+import type { AudioDeps } from './describe-audio.ts';
 import { isRecord, propOf, isFiniteNumber } from './types.ts';
 import { watchedLengths } from '../media/classify.ts';
 import { createImageFetcher, VISION_MAX_BYTES } from '../media/fetch-image.ts';
@@ -217,8 +220,17 @@ function gifAnimationSource(item: MediaItem) {
 
 /** The model role that describes `item`: a GIF or a video needs `video`, every other picture `vision`. */
 function mediaRoleOf(item: MediaItem): string {
-  return item.kind === 'gif' || item.kind === 'video' ? 'video' : 'vision';
+  return item.kind === 'gif' || item.kind === 'video' || isAudioItem(item) ? 'video' : 'vision';
 }
+
+/** A voice message or an audio file: the `video` role hears it. */
+const isAudioItem = (item: MediaItem): boolean => item.kind === 'voice' || item.kind === 'audio';
+
+/** A cached failure whose cause a later try cannot change: the file itself is refused. */
+const isRefused = (miss: unknown): boolean => PERMANENT_VIDEO_MISSES.has((miss as { reason?: string }).reason ?? '');
+
+/** A model name as the request's options take it. */
+const asModel = (model: unknown): string | null => (typeof model === 'string' ? model : null);
 
 /** Whether `item` is one collectVideos candidate (an attached video or a video-site link). */
 function isVideoCandidate(item: MediaItem) {
@@ -499,7 +511,15 @@ type DescriberDeps = {
   videoProxy?: string | null;
   /** The event loop watch's `track` (src/loop-watch.ts); a description is a named operation. */
   track?: Track;
+  /** Reads a text file's words: `{ ok, text }` or `{ ok: false, reason }`. */
+  fetchText?: (url: string) => Promise<{ ok: boolean; text?: string; reason?: string }>;
 };
+
+/** A text file's opening, over plain HTTP. */
+async function readTextForm(url: string): Promise<{ ok: boolean; text?: string; reason?: string }> {
+  const text = await fetchTextPreview(url, TEXT_FORM_CHARS);
+  return text === null ? { ok: false, reason: 'download' } : { ok: true, text };
+}
 
 /**
  * The `video_url` part of a video request. A public URL (a pinned
@@ -581,6 +601,7 @@ function buildDescriber({
   youtubeApiKey = null,
   videoProxy = null,
   track = untracked,
+  fetchText = readTextForm,
 }: DescriberDeps) {
   /** Today's UTC date as `YYYY-MM-DD` from the injected clock: the daily counters and the prompts' `{{today}}`. */
   function todayDate() {
@@ -614,7 +635,7 @@ function buildDescriber({
     const cache = store.getMediaCache(placeId);
     const cached = readEntry(placeId, itemId);
     if (!cached) return null;
-    if (cached.miss) return now() - cached.ts < MISS_TTL_MS ? FRESH_MISS : null;
+    if (cached.miss) return isRefused(cached) || now() - cached.ts < MISS_TTL_MS ? FRESH_MISS : null;
     touchHit(placeId, cache, itemId, cached);
     const result = { text: cached.text, usage: null, estimated: 0, cached: true };
     return { result, stale: dueForRecache(cached, MISS_TTL_MS), entry: cached };
@@ -700,7 +721,10 @@ function buildDescriber({
    * the entry stamped `refreshFailedAt` unless the daily cap refused the
    * request) instead of a miss being cached.
    */
+  // health: allow complexity until 2027-04-01 -- the steps of one description, in their order
   async function describeNow(placeId: string, item: MediaItem, previous: Untyped = null) {
+    if (isAudioItem(item)) return hearAudio(audioDeps(placeId), item);
+    if (item.kind === 'text') return readTextFile(audioDeps(placeId), item);
     const promptText = hot.prompts?.describe;
     if (!promptText) return null;
     const mediaCfg = hot.config.media ?? {};
@@ -829,6 +853,36 @@ function buildDescriber({
     store.markMediaCacheDirty(placeId);
     return { text, usage: standard.answer.usage ?? null, estimated };
   }
+
+  /** What src/memory/describe-audio.ts works with, placed: a text form goes to this place's cache as a picture's does. */
+  const audioDeps = (placeId: string): AudioDeps => ({
+    prompt: () => (hot.prompts as Record<string, unknown> | null | undefined)?.['describe-audio'],
+    settings: () => videoSettingsOf(hot.config) as ReturnType<AudioDeps['settings']>,
+    model: () => roleModel(hot.config, 'video'),
+    fill: (template, values) => fillPromptTemplate(template, { ...values, today: todayDate() }),
+    fetchAudio: (url, options) => (videoFetcher as Pick<AudioDeps, 'fetchAudio'>).fetchAudio(url, options),
+    fetchText,
+    complete: (messages, options) => (llm as Pick<AudioDeps, 'complete'>).complete(messages, options),
+    requestOptions: (settings, seconds, model) =>
+      videoRequestOptions(settings, { seconds }, { maxOutputTokens: settings.maxOutputTokens, model: asModel(model) }),
+    failureReason: (error) => String(requestFailureReason(error)),
+    keep: (item, entry) => {
+      const cache = store.getMediaCache(placeId);
+      if (isMediaDescriptionEntry(entry)) store.rememberMediaDescription?.(placeId, item.itemId, entry);
+      touchKey(cache, item.itemId, entry);
+      trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? NO_LINKS);
+      store.markMediaCacheDirty(placeId);
+    },
+    miss: (item, reason) => {
+      const cache = store.getMediaCache(placeId);
+      log.warn('describe: failed', { kind: item.kind, reason });
+      touchKey(cache, item.itemId, { miss: true, ts: now(), reason });
+      trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? NO_LINKS);
+      store.markMediaCacheDirty(placeId);
+      return null;
+    },
+    now,
+  });
 
   /**
    * Why GIFs are not watched under the live config and prompts, or null when
@@ -1075,7 +1129,8 @@ function buildDescriber({
     const on = picturesOn();
     const spent = on && capSpent();
     for (const item of on ? (items ?? []) : []) {
-      if (!item?.itemId || seen.has(item.itemId) || !roleOn(hot.config, mediaRoleOf(item))) continue;
+      if (!item?.itemId || seen.has(item.itemId) || item.kind === 'file') continue;
+      if (item.kind !== 'text' && !roleOn(hot.config, mediaRoleOf(item))) continue;
       seen.add(item.itemId);
       const hit = cachedPicture(placeId, item.itemId);
       if (hit === FRESH_MISS) continue;

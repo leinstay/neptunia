@@ -251,8 +251,7 @@ const DAMAGE: ReadonlyArray<Case> = [
     name: 'a live line links a media row that was trimmed',
     check: 'linkedMediaKept',
     count: 1,
-    edit: (db) =>
-      db.exec("UPDATE media SET retired_at = '2026-11-03T09:00:00.000Z' WHERE id = 'media:attachment:att-kept'"),
+    edit: (db) => db.exec("UPDATE media SET retired_at = '2026-11-03T09:00:00.000Z' WHERE id = 'media:held:att-kept'"),
   },
   {
     name: 'a live diary entry links a media row that was trimmed',
@@ -292,9 +291,9 @@ const FINE: ReadonlyArray<{ name: string; edit: (db: DatabaseSync) => void }> = 
     edit: (db) => {
       db.exec(DEAD_LINE);
       db.exec(
-        `UPDATE sources SET extra = '{"extra":{"attachmentIds":["att-trimmed"]}}' WHERE id = 'src:dead';
-         INSERT INTO media (id, kind, native_ref, scope_kind, scope_iface, scope_dm, audience_id, retired_at)
-           VALUES ('media:attachment:att-trimmed', 'attachment', 'att-trimmed', 'group', 'discord', NULL, 'aud:group:discord', '2026-11-03T09:00:00.000Z')`
+        `INSERT INTO media (id, kind, native_ref, scope_kind, scope_iface, scope_dm, audience_id, retired_at)
+           VALUES ('media:held:att-trimmed', 'image', 'att-trimmed', 'group', 'discord', NULL, 'aud:group:discord', '2026-11-03T09:00:00.000Z');
+         INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('source', 'src:dead', 0, 'media:held:att-trimmed')`
       );
     },
   },
@@ -303,7 +302,7 @@ const FINE: ReadonlyArray<{ name: string; edit: (db: DatabaseSync) => void }> = 
     edit: (db) =>
       db.exec(
         `INSERT INTO media (id, kind, native_ref, scope_kind, scope_iface, scope_dm, audience_id, retired_at)
-           VALUES ('media:attachment:att-unlinked', 'attachment', 'att-unlinked', 'group', 'discord', NULL, 'aud:group:discord', '2026-11-03T09:00:00.000Z')`
+           VALUES ('media:held:att-unlinked', 'image', 'att-unlinked', 'group', 'discord', NULL, 'aud:group:discord', '2026-11-03T09:00:00.000Z')`
       ),
   },
   {

@@ -37,7 +37,15 @@ const lineWith = (ids: ReadonlyArray<string>) => ({
   mentions: [],
   direct: false,
   relations: [],
-  extra: { attachmentIds: ids },
+  // The store's shape: a line's media are items and links, never ids in its `extra`.
+  media: ids.map((nativeRef) => ({
+    kind: 'image',
+    nativeRef,
+    availability: 'unknown',
+    description: null,
+    origin: null,
+    extra: {},
+  })),
 });
 
 /** The media cache of #room full to its cap, oldest first, one new picture described over it, the rows as stored. */
@@ -47,10 +55,14 @@ async function trimmed(linkAttachments: ReadonlyArray<string>, diaryAttachment: 
   await memory.memoryDb.observe(lineWith(linkAttachments), null);
   if (diaryAttachment !== null) {
     const db = new DatabaseSync(file);
+    // A diary entry's file is an item with a link to the entry.
     db.prepare(
       `INSERT INTO media (id, kind, owner, native_ref, mime, scope_kind, scope_iface, audience_id)
-       VALUES ('media:diary:1:0', 'diary', 'diary:1', ?, 'image/png', 'group', 'discord', 'aud:group:discord')`
-    ).run(JSON.stringify({ messageId: 'post-1', attachmentId: diaryAttachment }));
+       VALUES ('media:diary:1:0', 'image', 'diary:1', ?, 'image/png', 'group', 'discord', 'aud:group:discord')`
+    ).run(diaryAttachment);
+    db.prepare(
+      "INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('diary', 'diary:1', 0, 'media:diary:1:0')"
+    ).run();
     db.close();
   }
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
@@ -74,8 +86,7 @@ async function trimmed(linkAttachments: ReadonlyArray<string>, diaryAttachment: 
 
   const db = new DatabaseSync(file, { readOnly: true });
   const live = (key: string): boolean =>
-    db.prepare('SELECT 1 AS yes FROM media WHERE id = ? AND retired_at IS NULL').get(`media:attachment:${key}`) !==
-    undefined;
+    db.prepare('SELECT 1 AS yes FROM media WHERE native_ref = ? AND retired_at IS NULL').get(key) !== undefined;
   return {
     live,
     close: () => db.close(),

@@ -4,9 +4,11 @@
 
 import { log } from '../log.ts';
 import {
+  collectAudio,
   collectEmojiItems,
   collectPictures,
   collectReadableLinks,
+  collectTextFiles,
   collectVideos,
   isDescribable,
 } from '../media/classify.ts';
@@ -89,7 +91,7 @@ export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillConte
     return messages.flatMap((m) => {
       const pictures: Array<unknown> = collectPictures(m);
       const emoji: Array<unknown> = collectEmojiItems(m);
-      return [...pictures, ...emoji].filter(isDescribable);
+      return [...pictures, ...collectAudio(m), ...collectTextFiles(m), ...emoji].filter(isDescribable);
     });
   }
 

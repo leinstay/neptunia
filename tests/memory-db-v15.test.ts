@@ -317,8 +317,8 @@ test("the media job gives a step's entry its picture with the attachment id and 
       {
         media: [
           {
-            id: 'media:attachment:att-p1',
-            kind: 'attachment',
+            id: 'media:held:att-p1',
+            kind: 'image',
             owner: null,
             path: null,
             native_ref: 'att-p1',
@@ -367,10 +367,13 @@ test("the media job gives a step's entry its picture with the attachment id and 
       .prepare("SELECT row_id FROM publications WHERE row_kind = 'diary' AND receipts LIKE '%\"r1\"%'")
       .all()[0]?.row_id;
     const media = db
-      .prepare("SELECT native_ref, description FROM media WHERE kind = 'diary' AND owner = ?")
+      .prepare(
+        `SELECT m.native_ref, m.description FROM media m JOIN media_links l ON l.media_id = m.id
+         WHERE l.owner_kind = 'diary' AND l.owner_id = ?`
+      )
       .all(owner)
       .map((row) => ({
-        attachmentId: (JSON.parse(String(row.native_ref)) as { attachmentId?: unknown }).attachmentId,
+        attachmentId: row.native_ref,
         description: row.description,
       }));
     assert.deepEqual(media, [{ attachmentId: 'att-p1', description: 'a pier at dusk' }]);

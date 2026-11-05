@@ -44,7 +44,7 @@ import path from 'node:path';
 import { accountCollection, keyText, personaKey, placeCollection, storageId } from './db/storage-keys.ts';
 import type { StorageKey, StorageKind, StorageSelector } from './db/storage-keys.ts';
 import { isMediaDescriptionEntry, mediaDescriptionOf } from './db/export.ts';
-import { linkedAttachmentIds } from './db/line-media.ts';
+import { linkedAttachmentIds } from './db/media-store.ts';
 import type { MediaDescriptionEntry } from './db/export.ts';
 
 import { listUnits } from './db/storage-units.ts';

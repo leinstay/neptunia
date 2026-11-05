@@ -4,6 +4,7 @@
 // of her messages. A file that cannot be read makes the entry `missing`: the publisher posts nothing of it, since a
 // partial post could not be completed later.
 
+import { entryMedia } from '../memory/db/media-store.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { deliveryOf } from '../memory/db/publication-delivery.ts';
@@ -28,9 +29,6 @@ function objectOf(text: unknown): Row {
   }
 }
 
-/** The number at the end of a media id (`media:diary:<entry>-<n>`): its place in the entry. */
-const mediaNumber = (id: unknown): number => Number(/-(\d+)$/.exec(String(id))?.[1] ?? 0);
-
 /** What a stored entry comes to: the entry, whether a file of it is gone, and whether it has any content yet. */
 export type StoredEntry = { entry: DiaryEntry; missing: boolean; hasContent: boolean };
 
@@ -40,10 +38,7 @@ function storedMedia(
   id: string,
   dataDir: string | null
 ): { pictures: Array<EntryPicture>; files: Array<EntryFile>; voice: DiaryEntry['voice']; missing: boolean } {
-  const media = db
-    .prepare("SELECT id, path, mime, extra FROM media WHERE kind = 'diary' AND owner = ? AND retired_at IS NULL")
-    .all(id)
-    .sort((a, b) => mediaNumber(a.id) - mediaNumber(b.id));
+  const media = entryMedia(db, id);
   const pictures: Array<EntryPicture> = [];
   const files: Array<EntryFile> = [];
   let voice: DiaryEntry['voice'] = null;

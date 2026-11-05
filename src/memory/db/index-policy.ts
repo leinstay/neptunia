@@ -29,9 +29,7 @@
 //       description and the interface's reference; its hash may be null).
 // Every time is an ISO string; `now` is milliseconds. Imports nothing heavy (the sync worker loads it).
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { SELF_SOURCE_KINDS } from './schema.ts';
+import { SELF_SOURCE_KINDS } from './source-kinds.ts';
 import type { Config, Connection, Db, MemoryHandle, Row } from './types.ts';
 import { dbOf, transactionOf, asText, isFiniteNumber } from './types.ts';
 
@@ -402,43 +400,7 @@ export async function reembedTouched({
   return { pending: rows.length, embedded: out.length, written: Number(done?.written ?? 0), skipped };
 }
 
-/**
- * Checks her diary media files (see the head of this file).
- */
-export function checkMedia(
-  handle: Connection,
-  { dataDir, apply = false }: { dataDir: string; apply?: unknown }
-): { present: number; missing: number; unknown: number; changed: number } {
-  const db = dbOf(handle);
-  const counts: Record<string, number> = { present: 0, missing: 0, unknown: 0, changed: 0 };
-  const marks: Array<[string, unknown]> = [];
-  for (const row of db
-    .prepare('SELECT id, kind, path, bytes, availability FROM media WHERE retired_at IS NULL')
-    .iterate()) {
-    if (row.kind !== 'diary' || typeof row.path !== 'string' || !row.path) {
-      counts.unknown += 1;
-      continue;
-    }
-    let state = 'missing';
-    try {
-      const stat = fs.statSync(path.join(dataDir, row.path));
-      if (stat.isFile() && (!Number.isInteger(row.bytes) || stat.size === row.bytes)) state = 'present';
-    } catch {
-      /* no file */
-    }
-    counts[state] += 1;
-    if (state !== row.availability) marks.push([state, row.id]);
-  }
-  counts.changed = marks.length;
-  if (apply && marks.length > 0) {
-    const write = () => {
-      const mark = db.prepare('UPDATE media SET availability = ? WHERE id = ?');
-      for (const [state, id] of marks) mark.run(state, id);
-    };
-    transactionOf(handle)(write);
-  }
-  return counts as { present: number; missing: number; unknown: number; changed: number };
-}
+export { checkMediaFiles as checkMedia } from './media-store.ts';
 
 /**
  * One index-policy write on the writer connection (service.ts): `{ kind: 'index-policy', now, config }` (classify, and

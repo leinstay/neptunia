@@ -122,20 +122,14 @@ function describe(
     retired = null,
   }: { scope?: ReturnType<typeof groupScope>; retired?: string | null } = {}
 ) {
-  env.db
+  // The item the observation made holds its description; a cache row of an item not yet observed is one more row.
+  const held = env.db
     .prepare(
-      `INSERT INTO media (id, kind, native_ref, description, scope_kind, scope_iface, scope_dm, retired_at)
-       VALUES (?, 'attachment', ?, ?, ?, ?, ?, ?)`
+      `UPDATE media SET description = ?, availability = ?, retired_at = ?, extra = json_set(COALESCE(extra, '{}'), '$.textOrigin', 'retelling')
+       WHERE native_ref = ? AND scope_iface IS ?`
     )
-    .run(
-      `media:attachment:${attachmentId}`,
-      attachmentId,
-      description,
-      scope.scope_kind,
-      scope.scope_iface,
-      scope.scope_dm,
-      retired
-    );
+    .run(description, description === null ? 'unknown' : 'present', retired, attachmentId, scope.scope_iface);
+  assert.equal(Number(held.changes) > 0, true, 'the picture was observed first');
 }
 
 /** The runner and the tool over the fixture database: #general (c1), #secret (c4) that the community cannot see. */
@@ -704,7 +698,17 @@ test('a picture-only line of a sampled day comes back with the bare image marker
   const env = fixture();
   try {
     const source = env.say({ native: 'pic', at: DAY_START + 60 * MINUTE, text: '', place: GENERAL });
-    env.db.prepare('UPDATE sources SET media = ? WHERE id = ?').run(JSON.stringify(['image']), source);
+    // The kinds of a line live on its links: one bare item, as the migration leaves an old picture.
+    env.db
+      .prepare(
+        "INSERT INTO media (id, kind, availability, scope_kind, scope_iface) VALUES ('media:bare:b', 'image', 'unknown', 'group', 'discord')"
+      )
+      .run();
+    env.db
+      .prepare(
+        "INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('source', ?, 0, 'media:bare:b')"
+      )
+      .run(source);
     const text = textOf(await toolRig(env).ask({ when: '2026-11-01', placeId: 'c1' }));
     assert.ok(text.includes(labels.transcript.image), text);
     assert.ok(!text.includes(NONE_MARK), text);
@@ -775,14 +779,15 @@ for (const [name, setup] of [
   });
 }
 
-test("a description stored under a DM's audience is not read into a group's line", async () => {
+// The owner's ruling of 2026-11-05: one row per item, and audience comes only from a link. A group line that shows an item reads
+// its description; a DM's line stays out of a group by its own audience (tests/media-memory-search.test.ts holds that for each kind).
+test('a group line reads the description of the item it shows, whichever reader told it', async () => {
   const env = fixture();
   try {
     observePicture(env, { native: 'pic', at: DAY_START + 60 * MINUTE, attachments: [{ id: 'att-1', kind: 'image' }] });
-    describe(env, 'att-1', 'a private description', { scope: dmScope(personId('discord', BOB), 'discord') });
+    describe(env, 'att-1', 'a red bicycle');
     const text = textOf(await toolRig(env).ask({ when: '2026-11-01', placeId: 'c1' }));
-    assert.ok(!text.includes('a private description'), text);
-    assert.ok(text.includes(labels.transcript.image), text);
+    assert.ok(text.includes(imageTag('a red bicycle')), text);
   } finally {
     env.done();
   }

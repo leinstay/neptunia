@@ -283,6 +283,54 @@ const FIT_VIDEO_FLOOR_KBPS = 100;
  * worst for a 300 s clip. Most clips land far below it; one still over
  * `media.video.maxBytes` is encoded once more at fitBitrate (ffmpegFitArgs).
  */
+/**
+ * The ffmpeg run that carries an audio file as the short clip the `video` role reads: a still black picture with the sound in
+ * AAC, cut to `maxSeconds`. The one place the packaging of audio is decided.
+ */
+export function ffmpegAudioArgs(
+  inPath: string,
+  outPath: string,
+  { ffmpegPath, maxSeconds }: { ffmpegPath: string; maxSeconds: number }
+): { command: string; args: Array<string> } {
+  return {
+    command: ffmpegPath,
+    args: [
+      '-y',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=black:s=64x64:r=1',
+      '-i',
+      String(inPath),
+      '-map',
+      '0:v',
+      '-map',
+      '1:a',
+      '-shortest',
+      '-t',
+      String(maxSeconds),
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-tune',
+      'stillimage',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '64k',
+      '-movflags',
+      '+faststart',
+      String(outPath),
+    ],
+  };
+}
+
 export function ffmpegTrimArgs(
   inPath: string,
   outPath: string,
