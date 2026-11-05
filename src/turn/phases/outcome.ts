@@ -11,10 +11,11 @@ import { limitOf } from '../../behavior/limits.ts';
 import { DailyCapError, TokenLimitError, errorCodeOf, railReason } from '../../llm/openrouter.ts';
 import { log } from '../../log.ts';
 import { skillUsesOfTurn } from '../../skills/uses.ts';
+import { OP_EFFECTS } from '../../tools/impl/effects.ts';
 import type { AudienceChoice } from '../../tools/publication.ts';
 import type { HeldSpeech } from '../act.ts';
 import type { Draft } from '../draft.ts';
-import { untoldDiagnostics } from '../journal.ts';
+import { SKIP_NOTHING_TO_DO, untoldDiagnostics } from '../journal.ts';
 import { NO_LOOP } from '../settings.ts';
 import { TOO_SLOW } from '../timers.ts';
 import type { AttemptResult, PhaseContext, PhaseParams } from './context.ts';
@@ -26,6 +27,21 @@ function audienceOfTurn(store: unknown, draft: Draft): AudienceChoice {
   const choice = audienceChoice(draft.diaryAudience ?? [], readMirrors(store, publicationPlaces, NO_PLACES));
   if (!choice.ok) log.warn('diary: audience refused', { code: choice.code });
   return choice;
+}
+
+/** A call that changed nothing: refused, failed, or a read. A proposal in shadow mode is what the turn did, so it is none. */
+function changedNothing(action: { skill?: unknown; status?: unknown }): boolean {
+  if (action.status === 'refused' || action.status === 'failed') return true;
+  return action.status === 'executed' && OP_EFFECTS[String(action.skill)] === 'read';
+}
+
+/** An inner turn that said nothing, reacted to nothing, changed nothing and answered skip last: it skipped, whatever it read. */
+function isQuietInner(draft: Draft, stepped: Rounded['stepped']): boolean {
+  if (draft.inner === undefined || draft.inner === null || !stepped.skipped) return false;
+  const reached = stepped.acts.some(
+    (acted) => acted.delivered === true || (acted.posts?.length ?? 0) > 0 || (acted.reacted?.length ?? 0) > 0
+  );
+  return !reached && (draft.innerActions ?? []).every((action) => changedNothing(action as Record<string, unknown>));
 }
 
 export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, rounded: Rounded): AttemptResult {
@@ -87,6 +103,7 @@ export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draf
       log.warn('skills: uses not recorded', { count: uses.length, code: errorCodeOf(error) })
     );
   }
+  if (isQuietInner(draft, stepped)) return { outcome: 'skip', mode: finalMode, reason: SKIP_NOTHING_TO_DO };
   // An inner turn in shadow mode delivers nothing, whatever it proposed.
   const delivered = stepped.delivered && draft.inner?.shadow !== true;
   return {

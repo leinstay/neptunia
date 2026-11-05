@@ -4,9 +4,13 @@
 // stamps, the receipts and the board (src/watcher/filing.ts) and the commit of the report. A
 // cancel reaches the agent and a waiting board call through the signal and is looked at between the phases, up to the commit: from the commit on the
 // run has its report and ends as succeeded. The board is opened only when something is to be filed, and a board that cannot
-// be reached or stops answering leaves a report with the filing deferred. Nothing the agent wrote reaches a run record, and an answer that
-// fails a check is kept nowhere, so a planted key is copied nowhere.
+// be reached or stops answering leaves a report with the filing deferred. An answer that fails its template, coverage, tasks
+// or secret check earns one more attempt on the same run, inside the run's timeout, with the refusal and the answer in its
+// brief. A refused answer stays only in `refused/<run id>-<attempt>.md`, mode 600, with what looks like a key masked there and
+// in that brief. Nothing the agent wrote reaches a run record. No second refusal, exit code, timeout or failure of the
+// engine's own check after stamping earns an attempt.
 
+import fs from 'node:fs';
 import path from 'node:path';
 import { readPromptFile } from '../agent-runner/opencode.ts';
 import { log } from '../log.ts';
@@ -24,7 +28,7 @@ import {
   saveDrafts,
 } from './filing.ts';
 import type { InstallFacts } from './install.ts';
-import { claimRun, finishRun, lastRuns, readRun } from './lifecycle.ts';
+import { claimRun, finishRun, lastRuns, noteAttempt, readRun } from './lifecycle.ts';
 import type { ProcessIdentity, RunRecord, RunSource, RunState, RunStore } from './lifecycle.ts';
 import { readReportRun, reportVersions } from './read.ts';
 import {
@@ -34,6 +38,7 @@ import {
   findSecret,
   insertFilingLines,
   insertUnavailable,
+  maskCredentials,
   stampCoverage,
   stampMetadata,
 } from './report.ts';
@@ -63,6 +68,8 @@ export type InspectionDeps = {
   source: RunSource;
   timeoutMs: number;
   promptFiles: ReadonlyArray<string>;
+  /** The prompt of the second attempt; with none, a refused answer ends the run. */
+  retryPromptFiles?: ReadonlyArray<string>;
   selected: { backend: string | null; model: string | null; effort: string | null };
   runAgent(
     brief: string,
@@ -93,6 +100,9 @@ const DEFAULT_CANCEL_POLL_MS = 1000;
 const DEFAULT_BOARD_TIMEOUT_MS = 30_000;
 /** A task files only from a finding line at one of these levels, as the rules left it. */
 const FILED_LEVELS: ReadonlyArray<string> = ['critical', 'high', 'medium'];
+
+/** The folder of the refused answers, inside the reports folder. */
+const REFUSED_DIR = 'refused';
 
 /** A run that ends before its report, carrying how. */
 class RunEnd extends Error {
@@ -134,13 +144,8 @@ type Watch = ReturnType<typeof watchRun>;
 type Observation = { from: number; to: number; dayFrom: number };
 type BoardOpener = () => Promise<BoardCaller>;
 
-/** The agent's answer, or the end of the run. A cancel wins over whatever the agent came back with. */
-async function generate(
-  deps: InspectionDeps,
-  run: RunRecord,
-  watch: Watch,
-  observation: Observation
-): Promise<InspectionAgentResult> {
+/** The first brief, or the end of the run. */
+function firstBrief(deps: InspectionDeps, run: RunRecord, observation: Observation): string {
   let prompt = '';
   try {
     prompt = readPromptFile([...deps.promptFiles]);
@@ -148,28 +153,59 @@ async function generate(
     // The refusal below names the missing file.
   }
   if (prompt.trim() === '') throw new RunEnd('failed', 'no-prompt', 'prompt.md is missing or empty');
-  const brief = buildBrief({
+  return buildBrief({
     prompt,
     day: run.day,
     reportsDir: deps.reportsDir,
     observation,
     ...(deps.install === undefined ? {} : { install: deps.install() }),
   });
+}
+
+/** The agent's answer, or the end of the run. A cancel wins over whatever the agent came back with. */
+async function generate(
+  deps: InspectionDeps,
+  run: RunRecord,
+  watch: Watch,
+  ask: { brief: string; timeoutMs: number; attempt: number }
+): Promise<InspectionAgentResult> {
+  noteAttempt(deps.store, run.runId, ask.attempt);
   let answer: InspectionAgentResult;
   try {
-    answer = await deps.runAgent(brief, { signal: watch.signal, timeoutMs: deps.timeoutMs, runId: run.runId });
+    answer = await deps.runAgent(ask.brief, { signal: watch.signal, timeoutMs: ask.timeoutMs, runId: run.runId });
   } catch {
     watch.check();
     throw new RunEnd('failed', 'agent-failed', 'the agent run threw');
   }
   watch.check();
   if (answer.error === 'cancelled') throw new RunEnd('cancelled');
-  if (answer.error === 'timeout') throw new RunEnd('failed', 'timeout', `the agent ran past ${deps.timeoutMs} ms`);
+  if (answer.error === 'timeout') throw new RunEnd('failed', 'timeout', `the agent ran past ${ask.timeoutMs} ms`);
   if (!answer.ok || answer.exitCode !== 0) {
     const how = answer.error ?? `exit code ${String(answer.exitCode)}`;
     throw new RunEnd('failed', 'agent-failed', `the agent ended with ${how}`);
   }
   return answer;
+}
+
+/** Keeps a refused answer where only this account reads it, masked, for the owner to see why a day failed. */
+function keepRefused(deps: InspectionDeps, runId: string, attempt: number, masked: string): void {
+  const dir = path.join(deps.reportsDir, REFUSED_DIR);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(dir, `${runId}-${attempt}.md`), masked, { mode: 0o600 });
+}
+
+/** The brief of the second attempt, or null with no retry prompt to read. */
+function retryBrief(deps: InspectionDeps, first: string, refusal: RunEnd, masked: string): string | null {
+  if (deps.retryPromptFiles === undefined) return null;
+  let prompt: string;
+  try {
+    prompt = readPromptFile([...deps.retryPromptFiles]).trim();
+  } catch {
+    return null;
+  }
+  if (prompt === '') return null;
+  const refused = `<refusal code="${refusal.code ?? ''}">${refusal.detail ?? ''}</refusal>`;
+  return `${first.trim()}\n\n${prompt}\n\n${refused}\n\n<previous-answer>\n${masked}\n</previous-answer>\n`;
 }
 
 /** The report and drafts of an answer, or the end of the run. Refusals never quote the agent. */
@@ -299,6 +335,49 @@ function filingOutcome(dir: string, runId: string): FilingOutcome {
   return states.length === 0 ? 'none' : 'filed';
 }
 
+type PassedAnswer = { answer: InspectionAgentResult; split: Extract<SplitAnswer, { ok: true }> };
+
+/**
+ * An answer that passed its checks: the first, or after one refusal the second. A second attempt reads the first brief whole
+ * and gets what is left of the run's timeout. With no time or no prompt left, the first refusal ends the run.
+ */
+async function passedAnswer(
+  deps: InspectionDeps,
+  run: RunRecord,
+  watch: Watch,
+  observation: Observation,
+  phase: (name: InspectionPhase) => void
+): Promise<PassedAnswer> {
+  const first = firstBrief(deps, run, observation);
+  const startedAt = deps.store.now();
+  const attempt = async (
+    brief: string,
+    timeoutMs: number,
+    number: number
+  ): Promise<PassedAnswer | { refusal: RunEnd; masked: string }> => {
+    phase('generating');
+    const answer = await generate(deps, run, watch, { brief, timeoutMs, attempt: number });
+    phase('validating');
+    try {
+      return { answer, split: validate(answer.text) };
+    } catch (error) {
+      if (!(error instanceof RunEnd)) throw error;
+      const { text: masked } = maskCredentials(answer.text);
+      keepRefused(deps, run.runId, number, masked);
+      return { refusal: error, masked };
+    }
+  };
+  const one = await attempt(first, deps.timeoutMs, 1);
+  if ('split' in one) return one;
+  const left = deps.timeoutMs - (deps.store.now() - startedAt);
+  if (left <= 0) throw new RunEnd('failed', 'timeout', `the run has used its ${deps.timeoutMs} ms`);
+  const brief = retryBrief(deps, first, one.refusal, one.masked);
+  if (brief === null) throw one.refusal;
+  const two = await attempt(brief, left, 2);
+  if ('split' in two) return two;
+  throw two.refusal;
+}
+
 /** The work of a claimed run up to its committed report; anything short of that throws `RunEnd`. */
 async function inspect(deps: InspectionDeps, run: RunRecord, watch: Watch): Promise<string> {
   const { runId, day } = run;
@@ -314,10 +393,8 @@ async function inspect(deps: InspectionDeps, run: RunRecord, watch: Watch): Prom
   // One link per run, however many phases ask for it; a link that failed stays failed for the run.
   let opening: Promise<BoardCaller> | null = null;
   const open: BoardOpener = () => (opening ??= deps.openBoard());
-  phase('generating');
-  const answer = await generate(deps, run, watch, observation);
-  phase('validating');
-  const { report, tasks } = validate(answer.text);
+  const { answer, split } = await passedAnswer(deps, run, watch, observation, phase);
+  const { report, tasks } = split;
   const rated = await rateFindings(deps, report, open, watch);
   watch.check();
   const repeated = new Set(rated.findings.flatMap((one) => (one.repeat === null ? [] : [one.key])));

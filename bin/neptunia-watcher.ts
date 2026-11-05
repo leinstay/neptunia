@@ -69,6 +69,7 @@ export async function runWatcherWorker(where: Where): Promise<number> {
       source: 'timer',
       timeoutMs: WATCHER_RUN_TIMEOUT_MS,
       promptFiles: promptFiles(where),
+      retryPromptFiles: [path.join(where.rootDir, 'agents', 'watcher', 'retry.md')],
       selected: selectedOf(where.privateDir),
       install: () => installFacts({ rootDir: where.rootDir, dataDir: where.dataDir }),
       runAgent: (brief, { signal, timeoutMs, runId }) =>
