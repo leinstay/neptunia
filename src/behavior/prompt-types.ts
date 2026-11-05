@@ -72,6 +72,7 @@ export type BuildRequestInput = {
   recallAvailable?: boolean;
   drawOn?: boolean;
   customEmoji?: Array<{ id: string; name: string; animated?: boolean }>;
+  mediaPickText?: string | null;
   mediaCache?: RequestInput['mediaCache'];
   gifs?: RequestInput['gifs'];
   pulled?: Array<PulledChannel> | null;

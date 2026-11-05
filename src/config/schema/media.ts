@@ -18,6 +18,28 @@ export const MEDIA: ReadonlyArray<SchemaEntry> = [
     'text': 'Most GIFs the search hands the media pick',
   },
   {
+    'key': 'media.pick.emojiCandidates',
+    'types': ['number'],
+    'reader': 'src/behavior/media-pick.ts',
+    'default': 20,
+    'text': "Most custom emoji the media pick is offered, the place's most used first",
+  },
+  {
+    'key': 'media.pick.emojiPerReplies',
+    'types': ['number'],
+    'reader': 'src/behavior/media-pick.ts',
+    'default': 5,
+    'text':
+      'At most one appended or replacing emoji per this many of her replies in a place. `0` switches this rail off',
+  },
+  {
+    'key': 'media.pick.emojiCooldownMinutes',
+    'types': ['number'],
+    'reader': 'src/behavior/media-pick.ts',
+    'default': 60,
+    'text': 'How long one emoji stays closed in a place after it went out. `0` switches this rail off',
+  },
+  {
     'key': 'media.maxOutputTokens',
     'types': ['number'],
     'reader': 'src/memory/avatar-queue.ts',

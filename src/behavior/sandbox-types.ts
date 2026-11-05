@@ -99,7 +99,7 @@ export type SandboxToolsetResult = {
  * `view.calibrator`, so the caps trim what a real turn trims), `samples`
  * completions, each parsed with parseOutput and trimmed by
  * `features.reactions` / `features.multiMessage` like a real turn. The
- * server's custom emoji (`<emoji>`) and the transcript's GIF handles render as in a real turn when the caller hands in
+ * transcript's GIF handles render as in a real turn when the caller hands in
  * the same sources the turn uses (`customEmoji`, `gifs`, `mediaCache`;
  * buildRequest applies `features.customEmoji` / `features.gifs`); so do
  * `<senses>`' line on where a call from a read-only channel is answered
@@ -131,7 +131,7 @@ export type SandboxToolsetResult = {
  * @param [input.descriptions]  Item id -> caption, rendered as the live transcript does.
  * @param [input.videos]  Item id -> video state (`{ state: 'watched', text }`), likewise.
  * @param [input.customEmoji]  The served place's
- *   custom emoji (src/behavior/emoji-index.ts#createEmojiIndex `list()`); omitted, no `<emoji>`.
+ *   custom emoji (src/behavior/emoji-index.ts#createEmojiIndex `list()`).
  * @param [input.gifs]  The GIF library (store.getGifs); omitted, the transcript's GIFs carry no handle.
  * @param [input.mediaCache]  The describer cache (store.getMediaCache), read only, for both lists' captions.
  * @param [input.elsewhereDestination]  The channel `<senses>` names for a call from a read-only channel; omitted, no

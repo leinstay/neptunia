@@ -75,13 +75,6 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'text': 'Token cap: lore entries',
   },
   {
-    'key': 'context.caps.emoji',
-    'types': ['number'],
-    'reader': 'src/turn/request/sections.ts',
-    'default': 800,
-    'text': 'Token cap: custom emoji',
-  },
-  {
     'key': 'context.caps.pulled',
     'types': ['number'],
     'reader': 'src/behavior/prompt.ts',

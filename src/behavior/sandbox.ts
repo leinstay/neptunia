@@ -166,6 +166,7 @@ export const SANDBOX_STORE_READS = Object.freeze([
  * empty list). Every other input is passed.
  */
 export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
+  mediaPickText: 'no interface runs here: nothing declares its text',
   neighbors: 'no neighbouring channel is fetched: no <other_channels>',
   neighborDescriptions: 'no neighbouring channel, so no captions of one',
   pulled: 'no other channel is pulled in: no <channel_view>',
@@ -787,6 +788,7 @@ export function sandboxRequestInput({
     imageAnswers: null,
     searchAvailable: searchAvailable === true,
     customEmoji: Array.isArray(customEmoji) ? customEmoji : [],
+    mediaPickText: null,
     gifs,
     mediaCache,
     elsewhereDestination:

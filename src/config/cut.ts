@@ -442,6 +442,9 @@ const CODE: Readonly<Record<string, unknown>> = {
 
 /** The switches and knobs that went with their code, with the value production ran with. */
 const GONE: Readonly<Record<string, unknown>> = {
+  // The GIF and emoji lists left the persona's turn (plan 2026-11-04-cli-and-memory B7 and B8), so nothing is cut to a cap.
+  'context.caps.gifs': 900,
+  'context.caps.emoji': 800,
   // The plugin mechanism left the engine, and no command changes the section a layer written before that still sets.
   plugins: null,
   // Quick search runs one chosen engine and nothing answers in its place.

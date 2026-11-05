@@ -63,7 +63,6 @@ import type { MemoryRead, Prompts, RequestConfig } from '../turn/request/types.t
 import { RECENT_EPISODES_PER_MEMBER, recentSettings, recentView } from '../memory/recent.ts';
 import { DEFAULT_HISTORY_POSTS, renderKindsBlock } from './diary.ts';
 import { diaryHistoryLines, diaryOf, worldText } from '../turn/request/diary.ts';
-import { trimLists } from '../turn/request/emoji-gifs.ts';
 import { requestHead, requestRoom } from '../turn/request/head.ts';
 import {
   keptEarlier,
@@ -293,16 +292,11 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   renders, right after the web search line, only when it is true (and never in a private chat).
  * @param [input.drawOn]  Whether this turn may draw (an image client and Attach Files);
  *   false or omitted -> no drawing line in `<senses>`.
- * @param [input.customEmoji]  The served
- *   place's custom emoji (src/behavior/emoji-index.ts#createEmojiIndex's `list()`). With
- *   `features.customEmoji` on (a missing key counts as on) and a non-empty list, `<emoji>`
- *   renders (ranked by `placeMemory.emojiUsage`, see `emojiItems`) and `<senses>` carries
- *   `senses.customEmoji`. Omitted or [] -> neither. With `labels.emoji.seenInChat` (and
- *   `entry`) set, the transcript's lines keep a custom emoji as a bare `:name:` and `<emoji>`
- *   describes the described ones not in its top list once, under that sub-heading; without
- *   it they keep the inline `transcript.emojiDescribed` tag.
+ * @param [input.customEmoji]  The custom emoji the interface offers (src/behavior/emoji-index.ts). With a non-empty list
+ *   the interface's text (`input.mediaPickText`) shows in `<senses>`.
+ * @param [input.mediaPickText]  What the interface declares for the turn (src/interface/capabilities.ts#portMediaPick).
  * @param [input.mediaCache]  The describer cache (store.getMediaCache), read only
- *   for the `emoji:<id>` captions of `<emoji>` and the three
+ *   for the `emoji:<id>` captions of a custom emoji in the chat and the three
  *   caption fields of a library GIF in the transcript (`transcript.gifKnownFields`, see
  *   gifFieldsMap).
  * @param [input.gifs]  The GIF library (store.getGifs). A GIF of the library in the transcript carries its handle
@@ -547,6 +541,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     recallAvailable: input.recallAvailable,
     drawOn: input.drawOn,
     customEmoji: input.customEmoji,
+    mediaPickText: input.mediaPickText,
     mediaCache: input.mediaCache,
     gifs: input.gifs,
     pulled: input.pulled,
@@ -625,7 +620,6 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     attitudesText,
   });
   // What the budget kept, made whole: each step only shortens the request, so the fit holds.
-  trimLists(fit, { ...given, ...base });
   const keptPeopleEntries = keptPeopleNow(fit, { ...room, ...speaker, ...placed, ...people });
   // The memory-read collector, filled from what the request kept (see noteItems; `memoryReads` in the result).
   const memoryReads: Array<MemoryRead> = [];

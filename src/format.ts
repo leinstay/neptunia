@@ -333,8 +333,8 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
     // memory transcript tells a picture sticker from one without exactly like a live chat transcript does.
     pushLabel(stickerLabelFor(sticker, { description }));
   }
-  // `context.emojiInline === false`: the request lists the emoji once in its
-  // `<emoji>` block (src/behavior/prompt.ts), so the line keeps the bare `:name:`.
+  // `context.emojiInline === false`: the caller lists the emoji with their descriptions elsewhere, so the line keeps the
+  // bare `:name:`.
   if (labels.transcript.emojiDescribed && context.emojiInline !== false) {
     for (const emoji of message.emojis ?? []) {
       const description = context.descriptions?.get(`emoji:${emoji.id}`) ?? null;
@@ -892,7 +892,7 @@ type MediaContext = Pick<
  *   memory mode `transcript.replyToMemory`. A reply to a message outside the list renders
  *   `transcript.replyToOld` in both modes.
  * @param [options.emojiInline]  Default true; false leaves out the `emojiDescribed` tag of a
- *   custom emoji (the request lists the emoji with their descriptions in `<emoji>` instead).
+ *   custom emoji (the caller lists the emoji with their descriptions elsewhere).
  * @param [options.indexOffset]  Default 0 (when undefined or null): the first message
  *   is numbered `indexOffset + 1`, and every index (the `#index`, a reply target inside the
  *   list, `item.index`) shifts by it, so a second block (another channel's lines) continues

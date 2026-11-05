@@ -15,6 +15,7 @@ import { log } from '../../../log.ts';
 import { exposedSkillNames } from '../../../tools/discovery.ts';
 import { buildTools } from '../../../tools/tools-json.ts';
 import { SEARCH_HANDLE_GAP, defaultSkills, searchHandles } from '../../calls.ts';
+import { portMediaPick } from '../../../interface/capabilities.ts';
 import type { SearchRef } from '../../calls.ts';
 import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
@@ -157,11 +158,12 @@ export function buildTurnRequest(
     // The search of the server's own history: the value the lookup stage used.
     recallAvailable: serverOn,
     drawOn,
-    // The `<emoji>` block: the index's emoji (ranked by placeMemory.emojiUsage) and their cached captions.
+    // The custom emoji the interface offers, and what it declares for them in the turn.
     customEmoji: emoji ? (emoji.list() ?? []) : [],
+    mediaPickText: portMediaPick(ctx.iface)?.text ?? null,
     // The transcript's GIF handles: the shared library.
     gifs: typeof store.getGifs === 'function' ? (store.getGifs() ?? null) : null,
-    // The cached captions of the lists and of a library GIF in the transcript.
+    // The cached captions of a custom emoji and of a library GIF in the transcript.
     mediaCache: emoji || typeof store.getGifs === 'function' ? (store.getMediaCache(libraryPlace) ?? null) : null,
     // `<channel_view>`: the channels pulled into this turn (each with the last view of it
     // shown in this channel, when one is within context.pull.seenTtlMinutes), the one it is

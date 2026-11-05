@@ -68,8 +68,7 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
  * directory, changing only with a member's names or aliases); the profiles
  * (`cacheSegment: 'profiles'`: `<people>` with the interlocutor alone), then
  * the tail (no segment) with everything that changes from turn to turn -- a
- * second `<people>` with the other members first, `<emoji>` among it, its
- * ranking moves with use several times a day, `<tool_catalogue>` (the catalogue, on
+ * second `<people>` with the other members first, `<tool_catalogue>` (the catalogue, on
  * a question about what the persona can do) and `<people_now>` (what is current about each
  * person: status, voice, activity, attitude) right before `<chat>` -- `<now>`, the per-turn
  * `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
@@ -143,7 +142,6 @@ export function assembleUser({
     // moves with every turn, so they open the tail, right where the one block stood.
     block('people', kept.people.join('\n\n')),
     block('server', kept.server.join('\n\n')),
-    block('emoji', (kept.emoji ?? []).join('\n')),
     block('lore', kept.lore.join('\n\n')),
     // The last hours: one item, the header with the kept lines and moments, oldest first.
     block('recent', (kept.recent ?? []).join('\n')),

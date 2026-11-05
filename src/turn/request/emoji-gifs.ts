@@ -1,13 +1,11 @@
-// The server's custom emoji and the GIF library as a request shows them: the `<emoji>` list ranked by use with its
-// captions, and the caption fields a GIF of the library carries in the transcript and in media.find's result.
-// buildRequest (src/behavior/prompt.js) and her GIF tools (src/tools/tools.ts) read them.
+// The GIF library as a request shows it: the caption fields a GIF of the library carries in the transcript and in
+// media.find's result, and the per-bucket hold of what memory changes in the stable part. buildRequest
+// (src/behavior/prompt.js) and her GIF tools (src/tools/tools.ts) read them.
 
 import { fill, fillGifFields, formatDuration } from '../../format.ts';
-import { rankEmojiUsage } from '../../memory/index.ts';
 import { clampWithEllipsis } from '../../memory/clamp.ts';
 import { HOUR_MS } from '../../time.ts';
-import type { EmojiRef, Fit, Labels, Message } from './types.ts';
-import { EMOJI_HALF_LIFE_DAYS } from '../../memory/emoji-usage.ts';
+import type { Labels } from './types.ts';
 
 /** The describer cache (store.getMediaCache), read only: a caption, or a three-field GIF description, per item id. */
 export type MediaCache = {
@@ -31,100 +29,6 @@ const cacheOf = (mediaCache: object | null | undefined): MediaCache | null | und
 
 /** What freezePerBucket holds under a key for the bucket it was computed in. */
 export type Held<T> = { bucket: number; signature: string; value: T };
-
-/**
- * The `<emoji>` section's items: `labels.emoji.header` first, then one line
- * per custom emoji -- the top-ranked ids of `place.emojiUsage` (see
- * src/memory/emoji-usage.ts#rankEmojiUsage) that the index still has, topped
- * up with the rest of the index in its own order (a fresh install with no
- * ranking yet shows the first `max` of the index), at most `max` lines. The
- * name is the index's current one. A `vision` caption cached under
- * `emoji:<id>` (the describer's cache; a `miss` entry has no text) renders
- * through `labels.emoji.entry` (`{name}`/`{text}`), otherwise
- * `labels.emoji.entryNoText` (`{name}`); a caption this request's
- * `describe(id)` knows comes first. Then, when `seen` is given and
- * `labels.emoji.seenInChat` and `entry` are set, the custom emoji of this
- * request's transcript (seenEmoji) not listed above that have a caption:
- * `seenInChat` as a sub-heading, one `entry` line each. `[]` when the index
- * is empty or the labels lack `header`/`entryNoText` (an older labels.json).
- * `index` is the emoji index's list (createEmojiIndex().list()), `usage` is `place.emojiUsage`, `mediaCache` the
- * describer cache (store.getMediaCache, read only).
- */
-export function emojiItems(
-  index: Array<EmojiRef | null | undefined>,
-  usage: unknown,
-  mediaCache: MediaCache | null,
-  labels: Labels,
-  { seen = [], describe = () => '' }: { seen?: Array<EmojiRef>; describe?: (id: string) => string } = {}
-): Array<string> {
-  const e = labels.emoji;
-  if (!e?.header || !e.entryNoText) return [];
-  const list = Array.isArray(index) ? index.filter((emoji): emoji is EmojiRef => Boolean(emoji?.id && emoji.name)) : [];
-  if (list.length === 0) return [];
-  const byId = new Map(list.map((emoji) => [String(emoji.id), emoji]));
-  const chosen: Array<EmojiRef> = [];
-  const taken = new Set<string>();
-  const take = (emoji: EmojiRef | undefined) => {
-    if (!emoji || taken.has(String(emoji.id)) || chosen.length >= EMOJI_MAX) return;
-    taken.add(String(emoji.id));
-    chosen.push(emoji);
-  };
-  for (const used of rankEmojiUsage(usage, EMOJI_HALF_LIFE_DAYS)) take(byId.get(used.id));
-  for (const emoji of list) take(emoji);
-  if (chosen.length === 0) return [];
-  const captionOf = (id: string) => {
-    const known = describe(String(id));
-    if (known) return known;
-    const cached = mediaCache?.[`emoji:${id}`];
-    return cached && !cached.miss && typeof cached.text === 'string' ? cached.text.trim() : '';
-  };
-  const lines = chosen.map((emoji) => {
-    const text = captionOf(emoji.id);
-    return text && e.entry ? fill(e.entry, { name: emoji.name, text }) : fill(e.entryNoText, { name: emoji.name });
-  });
-  const more: Array<string> = [];
-  if (e.seenInChat && e.entry) {
-    for (const emoji of seen) {
-      const text = taken.has(String(emoji.id)) ? '' : captionOf(emoji.id);
-      if (text) more.push(fill(e.entry, { name: emoji.name, text }));
-    }
-  }
-  return [e.header, ...lines, ...(more.length > 0 ? [e.seenInChat, ...more] : [])];
-}
-
-/** The first non-blank caption under `key` in `maps` (each a Map or nothing), trimmed; '' when none. */
-export function emojiCaption(key: string, maps: Array<unknown>): string {
-  for (const map of maps) {
-    const text: unknown = map instanceof Map ? (map as Map<string, unknown>).get(key) : null;
-    if (typeof text === 'string' && text.trim()) return text.trim();
-  }
-  return '';
-}
-
-// Production values, config cut of 2026-10-31.
-/** The custom emoji `<emoji>` lists. */
-export const EMOJI_MAX = 30;
-
-/**
- * The custom emoji used in `messageSets` (arrays of normalized messages, a
- * forwarded snapshot's emoji included), each id once, in order of first use.
- */
-export function seenEmoji(messageSets: Array<Array<Message> | null | undefined>): Array<EmojiRef> {
-  const out = new Map<string, EmojiRef>();
-  const add = (emojis: Array<EmojiRef | null | undefined> | undefined) => {
-    for (const emoji of Array.isArray(emojis) ? emojis : []) {
-      if (emoji?.id && emoji.name && !out.has(String(emoji.id)))
-        out.set(String(emoji.id), { id: String(emoji.id), name: emoji.name });
-    }
-  };
-  for (const messages of messageSets) {
-    for (const message of Array.isArray(messages) ? messages : []) {
-      add(message?.emojis);
-      for (const snapshot of message?.forwarded ?? []) add(snapshot?.emojis);
-    }
-  }
-  return [...out.values()];
-}
 
 /**
  * `compute()`, held in `freeze` under `key` for the time bucket of `now`
@@ -276,15 +180,4 @@ function ownPostAge(entry: GifEntry, { ownMarkHours, now }: { ownMarkHours: numb
   if (!Number.isFinite(ownMarkHours) || ownMarkHours <= 0 || !(ownLast > 0) || age > ownMarkHours * HOUR_MS)
     return null;
   return age;
-}
-
-/** The emoji list as kept: a header alone, or entries without it, make no block. Fills `fit`. */
-export function trimLists(fit: Fit, given: { labels: Labels; emojiOnce: boolean }): void {
-  const { kept } = fit;
-  const { labels, emojiOnce } = given;
-  // The emoji seen in the chat lost to the cap leave no sub-heading of their own behind.
-  if (emojiOnce && kept.emoji.length > 0 && kept.emoji.at(-1) === labels.emoji?.seenInChat)
-    kept.emoji = kept.emoji.slice(0, -1);
-  // The header alone, or entries without their header, make no block.
-  if (kept.emoji.length < 2 || kept.emoji[0] !== labels.emoji?.header) kept.emoji = [];
 }

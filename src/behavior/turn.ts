@@ -509,6 +509,7 @@ export function createTurnRunner({
     postGif,
     pickedInTime,
     mediaPick,
+    emojiInventory: () => emoji?.list() ?? [],
     recordOwnParticipation,
   });
   const { pullChannels, captionAll, withSeenBefore, markPulledSeen, noteSpokeSaw, stampShownCalls } = createPulls({

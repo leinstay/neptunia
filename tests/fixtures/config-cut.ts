@@ -584,7 +584,6 @@ export const KEPT: ReadonlyArray<string> = [
   'context.caps.neighbors',
   'context.caps.server',
   'context.caps.lore',
-  'context.caps.emoji',
   'context.caps.pulled',
   'context.caps.recent',
   'context.caps.participation',
@@ -692,6 +691,10 @@ export const KEPT: ReadonlyArray<string> = [
   // B7: the media pick's settings.
   'media.pick.maxOutputTokens',
   'media.pick.candidates',
+  // B8: the emoji forms' cap and rails.
+  'media.pick.emojiCandidates',
+  'media.pick.emojiPerReplies',
+  'media.pick.emojiCooldownMinutes',
   'private.minAffinity',
   'errands.opencodePath',
   'errands.toolResultChars',

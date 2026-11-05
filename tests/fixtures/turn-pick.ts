@@ -25,10 +25,10 @@ export function gifStore(): ReturnType<typeof fakeStore> & { getGifs: () => obje
 }
 
 /** Whether the pick runs is what the interface declares; the world's port declares it here. */
-export function declarePick(): void {
+export function declarePick(mediaPick: object = { gifForms: ['file', 'link'] }): void {
   const port = world().port as unknown as { capabilities: () => object };
   const declared = port.capabilities.bind(port);
-  port.capabilities = () => ({ ...declared(), mediaPick: { gifForms: ['file', 'link'] } });
+  port.capabilities = () => ({ ...declared(), mediaPick });
 }
 
 /** A hot config that runs the media pick, on an interface that declares it. */

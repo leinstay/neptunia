@@ -373,7 +373,7 @@ const MEDIA_CACHE = {
   k1: { text: 'a dancing cat', ts: NOW - 1000 },
 };
 
-test("answerReply: the server's custom emoji render as in a live turn, with their cached captions, and the GIF library not", async () => {
+test("answerReply: the server's custom emoji and the GIF library stay out of the turn", async () => {
   const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const result = await answerReply({
     view,
@@ -388,13 +388,11 @@ test("answerReply: the server's custom emoji render as in a live turn, with thei
     gifs: GIF_LIBRARY,
     mediaCache: MEDIA_CACHE,
   });
-  assert.ok(
-    result.request.user.includes(`<emoji>\n${labels.emoji.header}\n:wave: -- a waving hand\n</emoji>`),
-    result.request.user
-  );
+  // B8: the emoji list left the turn too.
+  assert.ok(!result.request.user.includes('<emoji>'), result.request.user);
   // B7: the GIF library left the turn.
   assert.ok(!result.request.user.includes('<gifs>'), result.request.user);
-  assert.ok(result.request.user.includes(labels.senses.customEmoji));
+  assert.ok(!result.request.user.includes(labels.senses.customEmoji));
   assert.ok(!result.request.user.includes(labels.senses.gifs));
 
   // Nothing handed in, nothing rendered.

@@ -1891,10 +1891,12 @@ function fakeEmojiIndex() {
   return { refresh: () => Promise.resolve(), byName, list: () => emojis.map((e) => ({ ...e })) };
 }
 
-test('createTurnRunner: the request carries <emoji> ranked by guild.emojiUsage, with cached captions', async () => {
+// B8: the pick offers the emoji list, and what the adapter declares takes the sense line's place.
+test('createTurnRunner: the request carries no <emoji> block and the text the interface declares', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<skip/>');
+  declarePick({ gifForms: ['link'], text: 'ένα σημάδι' });
   const store = fakeStore({
     placeMemory: { emojiUsage: { '222222222222222222': { name: 'dance', count: 4, last: Date.now() } } },
     mediaCache: { 'emoji:222222222222222222': { text: 'a spinning figure', ts: 1 } },
@@ -1914,10 +1916,9 @@ test('createTurnRunner: the request carries <emoji> ranked by guild.emojiUsage, 
 
   const user = textOf(llm.calls[0][1].content);
   const text = Array.isArray(user) ? user.find((part) => part.type === 'text').text : user;
-  const block = /<emoji>\n([\s\S]*?)\n<\/emoji>/.exec(text);
-  assert.ok(block, 'an <emoji> block is sent');
-  assert.deepEqual(block[1].split('\n'), [labels.emoji.header, ':dance: -- a spinning figure', ':pepe_cry:']);
-  assert.ok(text.includes(labels.senses.customEmoji));
+  assert.ok(!text.includes('<emoji>'), 'no <emoji> block');
+  assert.ok(text.includes('ένα σημάδι'));
+  assert.ok(!text.includes(labels.senses.customEmoji));
 });
 
 test('createTurnRunner: an outgoing :name: becomes the custom emoji, next to a resolved mention', async () => {
@@ -5868,8 +5869,7 @@ test("runTurn: another member's waiting call is named under labels.task.queuedOt
 const GIF_PICK_PROMPT = 'Pick a GIF for what {{name}} wrote.';
 const PICK_LIBRARY_SIZE = 50;
 // PR 7d: gifs.pick.maxChars (160), contextMessages (4) and graceMs (1000) are constants of the picker.
-// B7: a cap above the library, so a pick may name any of it.
-const PICK_SETTINGS = { maxOutputTokens: 17, candidates: PICK_LIBRARY_SIZE };
+const PICK_SETTINGS = { maxOutputTokens: 17, candidates: PICK_LIBRARY_SIZE }; // B7: the cap holds the whole library.
 
 /**
  * A library of PICK_LIBRARY_SIZE link GIFs, every one captioned: g1 the most used, g50 used

@@ -16,7 +16,8 @@ import { log } from '../log.ts';
 import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import type { DrawGif, ResolvedGif } from './draw-gif.ts';
-import type { MediaPick, MediaPickArgs, MediaPickResult } from '../behavior/media-pick.ts';
+import { applyEmojiPick } from '../behavior/media-pick.ts';
+import type { EmojiRef, MediaPick, MediaPickArgs, MediaPickResult } from '../behavior/media-pick.ts';
 import { portMediaPick } from '../interface/capabilities.ts';
 import { closeResult, portError, postedOf, sendHash } from './journal.ts';
 import type { JournalOp, PortResult } from './journal.ts';
@@ -24,7 +25,7 @@ import type { JournalNotes, NotesDraft } from './journal-notes.ts';
 import type { Participation } from './participation.ts';
 import { snapshotOfDraft } from './routing.ts';
 import type { Sends } from './sends.ts';
-import { reactionChannel, replyTarget, sendArgs } from './targets.ts';
+import { reactionChannel, replyTarget, sendArgs, withLink } from './targets.ts';
 import type { TriggerKind } from './triggers.ts';
 
 /** The typing imitation's settings (`typing`): the pauses before a reaction and between messages, the typing speed. */
@@ -54,8 +55,12 @@ type EffectVerdict = { ok: boolean };
 
 /** What createAct reads: the dependencies and the functions of the other topic modules it calls. */
 export type ActContext = {
-  hot: { readonly config: ActConfig };
-  store: { isPingsOff?: (placeId: string, accountId: string | null | undefined) => boolean };
+  hot: { readonly config: ActConfig; readonly prompts?: { readonly labels?: Parameters<typeof withLink>[2] } };
+  store: {
+    isPingsOff?: (placeId: string, accountId: string | null | undefined) => boolean;
+    getPlace?: (placeId: string) => { emojiUsage?: unknown } | null | undefined;
+    getMediaCache?: (placeId: string) => object | null | undefined;
+  };
   rng: () => number;
   clock: () => number;
   selfIdOf: () => string;
@@ -72,6 +77,8 @@ export type ActContext = {
   postGif: DrawGif['postGif'];
   pickedInTime: DrawGif['pickedInTime'];
   mediaPick: MediaPick;
+  /** What the interface offers of custom emoji now (src/behavior/emoji-index.ts); empty without an index. */
+  emojiInventory: () => ReadonlyArray<EmojiRef>;
   recordOwnParticipation: Participation['recordOwnParticipation'];
 };
 
@@ -205,6 +212,7 @@ export function createAct(ctx: ActContext): Act {
     postGif,
     pickedInTime,
     mediaPick,
+    emojiInventory,
     recordOwnParticipation,
   } = ctx;
 
@@ -267,7 +275,8 @@ export function createAct(ctx: ActContext): Act {
    * message goes as written. Without that typing (the imitation off, or the first message refused) it waits for the answer
    * as before. A GIF it picks is posted in place of the first message (that text is not sent), replying where it would
    * have, and the other messages follow in order, each waited for and typed; a picked GIF that fails to send or that the
-   * interface refuses (`turn: gif failed`) leaves every message to be posted as written, so nothing is lost.
+   * interface refuses (`turn: gif failed`) leaves every message to be posted as written, so nothing is lost. An emoji it
+   * picks goes on the first message as the interface renders it (applyEmojiPick), and the rails of the place count the reply.
    *
    * `plain`: the turn quotes no chat line (postsPlain); `lines`: the lines shown of the
    * pulled channels, then `history` (a chat author wins a display name both share);
@@ -402,6 +411,13 @@ export function createAct(ctx: ActContext): Act {
             selfName,
             idByIndex,
             trigger,
+            ...(capability?.emoji
+              ? {
+                  emoji: emojiInventory(),
+                  emojiUsage: store.getPlace?.(placeId)?.emojiUsage,
+                  emojiCache: (store.getMediaCache?.(placeId) as Record<string, unknown> | null | undefined) ?? null,
+                }
+              : {}),
           })
         : Promise.resolve<MediaPickResult>({ kind: 'none' })
     ).then((value) => {
@@ -468,6 +484,8 @@ export function createAct(ctx: ActContext): Act {
     // When it fails to send (`turn: gif failed`), the first message goes as written after all.
     const replaced = picked.kind === 'gif' && capability ? Boolean(await sendGif(picked, capability.gifForms)) : false;
     const messages = replaced ? parsed.messages.slice(1) : parsed.messages;
+    // An emoji the pick chose goes on the first message as written, as the interface renders it (replyTo and mentions stay).
+    const emojiPick = picked.kind === 'emoji' && capability?.emoji ? { picked, render: capability.emoji.render } : null;
     // Every message but the first one as written waits and is typed here; that one was typed alongside the picker.
     const typedAbove = (index: number): boolean => index === 0 && !replaced;
     // Members who turned the persona's notifications off (`/nep pings off`), read from the store at
@@ -497,8 +515,9 @@ export function createAct(ctx: ActContext): Act {
       const repliedAuthorId = replyId
         ? (lines.find((line) => line.id === replyId)?.authorId ?? (trigger?.id === replyId ? trigger.authorId : null))
         : null;
+      const withEmoji = index === 0 ? emojiPick : null;
       // Links on the text sent; the typing time stays on the text before them.
-      const { text, spoken, accountIds } = renderPost(message.text, {
+      const rendered = renderPost(message.text, {
         channel,
         snapshot: snapshotOfDraft(draft),
         placeId,
@@ -510,8 +529,14 @@ export function createAct(ctx: ActContext): Act {
         directory,
         handles,
         channelHandles,
-        link,
+        link: withEmoji ? null : link,
       });
+      const { spoken, accountIds } = rendered;
+      const text = withEmoji
+        ? withLink(applyEmojiPick(rendered.text, withEmoji.picked, withEmoji.render), link, hot.prompts?.labels)
+        : rendered.text;
+      // What she said, for her own record: the emoji by its name, as she would have written it.
+      const said = withEmoji ? applyEmojiPick(message.text, withEmoji.picked, { still: ':{name}:' }) : message.text;
       const args = sendArgs({ text, replyId });
       // A first message refused before its typing above ends the posting (already logged).
       if (typedAbove(index) && firstRefused) {
@@ -567,7 +592,7 @@ export function createAct(ctx: ActContext): Act {
         draft,
         op,
         posted,
-        text: message.text,
+        text: said,
         replyId,
         repliedAuthorId,
         accountIds,
@@ -576,7 +601,7 @@ export function createAct(ctx: ActContext): Act {
       if (pulledId) answered.add(pulledId);
       lastPostAt.set(channel.id, clock());
       notePost(posted, replyId, op);
-      postedTexts.push(message.text);
+      postedTexts.push(said);
       const ownLine: OwnLine = {
         id: posted?.id ?? null,
         // Number.isFinite is true only for a number.
@@ -584,7 +609,7 @@ export function createAct(ctx: ActContext): Act {
         placeId: channel.id,
         self: true,
         authorId: selfIdOf(),
-        content: message.text,
+        content: said,
         replyToId: replyId,
       };
       // The persona's own exchange on this channel, kept for her turns elsewhere (a server channel only).
@@ -623,6 +648,9 @@ export function createAct(ctx: ActContext): Act {
       posts,
       reacted,
     };
+    // The rails count a reply of hers that went out, with the emoji it carried.
+    if (capability?.emoji && parsed.messages.length > 0 && delivered)
+      mediaPick.noteReply({ placeId: channel.id, emoji: emojiPick ? emojiPick.picked.emoji.name : null });
     return { delivered, answered, ...posted };
   }
 
