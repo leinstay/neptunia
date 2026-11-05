@@ -188,7 +188,6 @@ export function toRecordLine(
     text: typeof source.content === 'string' ? source.content : '',
     media: mediaKinds(source),
     ...(links.length > 0 ? { links } : {}),
-    ...(typeof source.voiced === 'string' && source.voiced !== '' ? { voiced: source.voiced } : {}),
     mentions,
   };
   if (kind === 'said') {

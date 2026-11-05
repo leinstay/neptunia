@@ -108,6 +108,7 @@ import {
 import { fitExcerpts, focusHits, lanePlan, lexicalKeep, rankPrefetch } from './prefetch.ts';
 import { indexWords } from '../memory/record-index.ts';
 import { CODE } from '../tools/codes.ts';
+import { knownDescriptions, lineDescriptions } from '../memory/db/line-media.ts';
 import { dbSettings, quotesOf, search as searchRows, window as windowRows } from '../memory/db/recall.ts';
 import { factExcerpts, prefetchFacts, searchFacts } from './recall-facts.ts';
 import type { MemoryPage } from '../memory/db/semantic-types.ts';
@@ -239,6 +240,13 @@ function samplePlaceRule(given: Record<keyof SamplePlaceInput, unknown>) {
     return entry === null || (isReadable(entry) && audienceAllows(channel, entry, config, { partnerId }));
   };
 }
+
+/** The captions of a window: what the cache holds, with what the database stores for its lines over it. */
+function joinedCaptions(cached: Map<string, string> | undefined, stored: Map<string, string> | null) {
+  return stored && stored.size > 0 ? new Map([...(cached ?? []), ...stored]) : cached;
+}
+
+const noCaptions = (): null => null;
 
 /**
  * The locator of a run (the options recall.js matchRecord, matchMemory and
@@ -1016,13 +1024,20 @@ export function createRecall({
   }
 
   /**
-   * The stretches of db windows as `recall.run` returns them (decorated, each line with the text forms of its own media
-   * rows, cut to `recall.stretchChars`). Never a request.
+   * The stretches of db windows as `recall.run` returns them (decorated, captioned from the cache and from the
+   * descriptions stored for each line's pictures, cut to `recall.stretchChars`). Never a request.
    */
-  function dbQuotes({ config, settings, selfName, windows, decorate }: DbQuotesInput) {
+  function dbQuotes({ db, ctx, config, settings, placeId, selfName, windows, decorate }: DbQuotesInput) {
     const shown = windows.map((window: Untyped) =>
       typeof decorate === 'function' ? { ...window, messages: decorate(window.messages) } : window
     );
+    const cached = cachedCaptions(config, placeId, shown);
+    const lines: Array<object> = shown.flatMap((window: { messages: Array<object> }) => window.messages);
+    const descriptions = joinedCaptions(
+      cached as Map<string, string> | undefined,
+      lineDescriptions({ db, ctx, lines })
+    );
+    for (const window of shown) window.descriptions = descriptions;
     const render = {
       labels: hot.prompts.labels,
       timezone: config.bot?.timezone,
@@ -1958,7 +1973,7 @@ export function createRecall({
     render: Parameters<typeof renderRecallWindows>[1],
     excerptChars: number,
     nameOf: Untyped,
-    captionsFromCache: boolean
+    storedCaptions: (lines: Array<object>) => Map<string, string> | null
   ): Array<Untyped> {
     const rendered: Array<Untyped> = [];
     for (const unit of units) {
@@ -1984,8 +1999,10 @@ export function createRecall({
       );
       const focused = { ...unit.window, hitIds: new Set(focus) };
       const window = typeof decorate === 'function' ? { ...focused, messages: decorate(focused.messages) } : focused;
-      // A stored line carries its own media's text forms; only a window of live messages asks the describer's cache.
-      if (captionsFromCache) window.descriptions = cachedCaptions(config, placeId, [window]);
+      window.descriptions = joinedCaptions(
+        cachedCaptions(config, placeId, [window]),
+        storedCaptions(window.messages as Array<object>)
+      );
       const [shown] = renderRecallWindows([window], render);
       const lines = cutStretch(shown?.lines ?? [], excerptChars);
       if (lines.length === 0) continue;
@@ -2148,6 +2165,7 @@ export function createRecall({
       // The database answers the words and the meaning of every lane (while it is not open, the stored memory alone).
       const db = recallDatabase(memoryDb);
       const dbMeaning = Boolean(db) && typeof embed === 'function';
+      let storedCaptions: (lines: Array<object>) => Map<string, string> | null = noCaptions;
       // One embedding request for every lane's text.
       const laneVectors = dbMeaning
         ? timed(
@@ -2196,6 +2214,7 @@ export function createRecall({
         // hits. A word hit is relevant by lexicalKeep (its terms and phrases, its cosine when the meaning search found
         // it); a meaning hit by the same floors the vector files use, with a term of the lane or a strong cosine.
         const reader = dbReader({ db, config, snapshot, placeId, channel, partnerId, asker, memoryContext });
+        storedCaptions = (lines) => knownDescriptions({ db, ctx: reader.ctx, lines });
         const exclusions = historyExclusions({ history, historyRef, context: reader.ctx, channel });
         list.forEach((lane, i) => {
           const plan = plans[i];
@@ -2292,7 +2311,7 @@ export function createRecall({
         seeReactions: true,
         indexed: false,
       };
-      const rendered = renderUnits(units, config, placeId, decorate, render, p.excerptChars, nameOf, !db);
+      const rendered = renderUnits(units, config, placeId, decorate, render, p.excerptChars, nameOf, storedCaptions);
       // Facts come after the windows: they take the room the windows leave, so they can never hide a plain line.
       rendered.push(...factExcerpts(facts.page));
       const excerpts = fitExcerpts(rendered, p).map(({ text, ...excerpt }) => excerpt);

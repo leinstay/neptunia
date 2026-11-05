@@ -55,20 +55,7 @@ const PICTURE_ATTACHMENT_KINDS = new Set(['image', 'gif', 'video']);
 // describable through its thumbnail alone -- collectPictures only ever
 // offers a 'link' item that actually carries one (see below), so the kind
 // alone is a safe signal here.
-// 'voice' and 'audio' (collectAudio) are told by the `video` model role, which hears them; a 'text' file by its own words.
-const DESCRIBABLE_KINDS = new Set<unknown>([
-  'image',
-  'gif',
-  'video',
-  'sticker',
-  'emoji',
-  'link',
-  'voice',
-  'audio',
-  'text',
-]);
-/** The kinds of attachment a model hears. */
-const AUDIO_KINDS = new Set<unknown>(['voice', 'audio']);
+const DESCRIBABLE_KINDS = new Set<unknown>(['image', 'gif', 'video', 'sticker', 'emoji', 'link']);
 
 /** One attachment of a normalized message, as the media collectors read it. */
 type MediaAttachment = {
@@ -521,18 +508,13 @@ export function mediaLabelFor(
         ? { key: 'videoDescribed', values: { name, duration, text: description } }
         : { key: 'video', values: { name, duration } };
     }
-    case 'voice': {
-      const duration = durationOrUnknown(item.durationSec, unknownDuration);
-      return description
-        ? { key: 'voiceDescribed', values: { duration, text: description } }
-        : { key: 'voice', values: { duration } };
-    }
-    case 'audio': {
-      const values = { name: item.name ?? '', duration: durationOrUnknown(item.durationSec, unknownDuration) };
-      return description
-        ? { key: 'audioDescribed', values: { ...values, text: description } }
-        : { key: 'audio', values };
-    }
+    case 'voice':
+      return { key: 'voice', values: { duration: durationOrUnknown(item.durationSec, unknownDuration) } };
+    case 'audio':
+      return {
+        key: 'audio',
+        values: { name: item.name ?? '', duration: durationOrUnknown(item.durationSec, unknownDuration) },
+      };
     case 'text':
       return item.previewText
         ? { key: 'filePreview', values: { name: item.name ?? '', text: item.previewText } }
@@ -551,7 +533,7 @@ export function mediaLabelFor(
       return extra ? { ...base, extra } : base;
     }
     default:
-      return { key: 'fileUnreadable', values: { name: item.name ?? '' } };
+      return { key: 'file', values: { name: item.name ?? '' } };
   }
 }
 
@@ -560,14 +542,14 @@ export function mediaLabelFor(
  * sticker item, mirroring `mediaLabelFor`'s priority for the picture-format
  * ones (PNG/APNG/GIF -- the adapter sets `sticker.url`): described >
  * blind (plain `sticker`, name only). A Lottie sticker (`sticker.url` is
- * null) is never a picture: always the `stickerUnreadable` form, regardless of
+ * null) is never a picture: always the plain `sticker` form, regardless of
  * `description` -- see `senses.lottie`.
  */
 export function stickerLabelFor(
   sticker: { name: string; url: string | null },
   { description = null }: { description?: string | null } = {}
 ): LabelTag {
-  if (!sticker.url) return { key: 'stickerUnreadable', values: { name: sticker.name } };
+  if (!sticker.url) return { key: 'sticker', values: { name: sticker.name } };
   return description
     ? { key: 'stickerDescribed', values: { name: sticker.name, text: description } }
     : { key: 'sticker', values: { name: sticker.name } };
@@ -730,56 +712,6 @@ export function collectEmojiItems(message: object): Array<EmojiItem> {
       url: emoji.url,
       name: emoji.name,
     }))
-  );
-}
-
-/** One voice message or audio file of a message, as `collectAudio` lists it. */
-export type AudioItem = {
-  source: 'attachment';
-  messageId: string;
-  itemId: string;
-  kind: string;
-  url: string;
-  name: string | undefined;
-  durationSec: number | null | undefined;
-};
-
-/**
- * The voice messages and audio files of one normalized message, the message's own first, then each forwarded snapshot's, for
- * the describer. Kept apart from collectPictures so an audio file is never offered to a model's vision.
- */
-export function collectAudio(message: object): Array<AudioItem> {
-  const { id } = asMediaMessage(message);
-  return mediaParts(message).flatMap((part) =>
-    (part.attachments ?? [])
-      .filter((attachment) => AUDIO_KINDS.has(attachment.kind))
-      .map((attachment): AudioItem => ({
-        source: 'attachment',
-        messageId: id,
-        itemId: attachment.id,
-        kind: attachment.kind,
-        url: attachment.url,
-        name: attachment.name,
-        durationSec: attachment.durationSec,
-      }))
-  );
-}
-
-/** One text file of a message, for the describer: its text form is its own words. */
-export function collectTextFiles(message: object): Array<AudioItem> {
-  const { id } = asMediaMessage(message);
-  return mediaParts(message).flatMap((part) =>
-    (part.attachments ?? [])
-      .filter((attachment) => attachment.kind === 'text')
-      .map((attachment): AudioItem => ({
-        source: 'attachment',
-        messageId: id,
-        itemId: attachment.id,
-        kind: 'text',
-        url: attachment.url,
-        name: attachment.name,
-        durationSec: null,
-      }))
   );
 }
 

@@ -44,8 +44,7 @@
 // as arguments. Rows are read here; wording and rendering are the caller's (`quotesOf` turns windows into the
 // stretches `recall.run` returns when it renders them with src/behavior/recall.js#renderRecallWindows).
 
-import { mediaMessageParts, sourceMedia } from './source-media.ts';
-import type { MediaRow } from './source-media.ts';
+import { sourceAttachmentIds } from './line-media.ts';
 import { nativeLocatorOf } from './source-locator.ts';
 import { locatorText } from './message-locator.ts';
 import { MINUTE_MS } from '../../time.ts';
@@ -162,7 +161,6 @@ type Reader = {
   exclude: Set<unknown>;
   authorOf: (accountId: unknown) => { id: string | null; name: string | null; nameKey: string | null };
   channelNameOf: (placeId: unknown) => string | null;
-  mediaOf: (sourceId: string) => ReadonlyArray<MediaRow>;
 };
 /** The settings of a db recall: the recall settings with the keys of `recall.db` lifted out. */
 type DbKeys = { gateShare: number; candidates: number; minMeaning: number; wordPool?: number };
@@ -264,19 +262,23 @@ function storedRefOf(row: Row, extra: Row): StoredSourceRef {
   };
 }
 
+/** The native id of the `at`-th attachment, kept on the row by the observation, as a field of the attachment. */
+function attachmentIdAt(extra: Row, at: number): { attachmentId?: string } {
+  const id = sourceAttachmentIds(extra)[at];
+  return typeof id === 'string' ? { attachmentId: id } : {};
+}
+
 /** A name as a line shows it: one line, `-` when nothing is left. */
 const shownName = (name: string | null): string => (name ?? '').replace(/\s+/g, ' ').trim() || '-';
 
 /** One source row as a normalized chat message (the shape renderRecallWindows reads). */
-function messageOf(
-  row: Row,
-  { authorOf, selfName, mediaOf }: Pick<Reader, 'authorOf' | 'selfName' | 'mediaOf'>
-): RecallMessage {
+function messageOf(row: Row, { authorOf, selfName }: Pick<Reader, 'authorOf' | 'selfName'>): RecallMessage {
   const extra = (parseJson(row.extra) ?? {}) as Row;
   const self = row.kind === 'said';
   const author = authorOf(row.author_account);
   const name = self ? selfName : author.name;
-  const media = mediaMessageParts(mediaOf(String(row.id)), row.native_id);
+  const media = parseJson(row.media);
+  const links = Array.isArray(extra.links) ? (extra.links as Array<Row>) : [];
   const ts = Date.parse(row.occurred_at as string);
   const recordedAt = Date.parse(row.recorded_at as string);
   const mentions = parseJson(row.mentions);
@@ -294,10 +296,27 @@ function messageOf(
     replyToId: str(row.reply_to) || null,
     mentionedAccountIds: Array.isArray(mentions) ? (mentions as Array<unknown>) : [],
     mentionedChannelIds: [],
-    attachments: media.attachments,
-    links: media.links,
-    stickers: media.stickers,
-    emojis: media.emojis,
+    attachments: (Array.isArray(media) ? (media as Array<unknown>) : [])
+      .filter((kind) => typeof kind === 'string' && kind)
+      .map((kind, i) => ({
+        id: `${asText(row.native_id)}#m${i}`,
+        kind,
+        name: kind,
+        ...attachmentIdAt(extra, i),
+      })),
+    links: links
+      .filter((link) => link && typeof link === 'object' && (str(link.title) || str(link.description)))
+      .map((link, i) => ({
+        id: str(link.id) || `${asText(row.native_id)}#l${i}`,
+        kind: 'link',
+        site: str(link.site),
+        title: str(link.title),
+        text: str(link.description),
+        url: str(link.url) || null,
+        thumbnailUrl: null,
+      })),
+    stickers: [],
+    emojis: [],
     forwarded: [],
     reactions: [],
     editedAt: isWholeNumber(row.revision) && row.revision > 1 ? (Number.isFinite(recordedAt) ? recordedAt : ts) : null,
@@ -358,7 +377,7 @@ function holds(terms: ReadonlyArray<Term>, row: Row): { terms: number; phrases: 
   const tokens = asText(row.stems ?? '')
     .split(' ')
     .filter(Boolean);
-  const text = foldText(typeof row.media_text === 'string' ? `${asText(row.text ?? '')} ${row.media_text}` : row.text);
+  const text = foldText(row.text);
   let count = 0;
   let phrases = 0;
   for (const term of terms) {
@@ -478,14 +497,6 @@ function trigramRows(
         .prepare(
           `SELECT ${WORD_COLUMNS}, bm25(sources_tri) AS rank FROM sources_tri JOIN sources s ON s.rowid = sources_tri.rowid
       WHERE sources_tri MATCH ? AND ${CURRENT_SOURCE} AND ${filter.sql} ORDER BY rank LIMIT ?`
-        )
-        .all(quoteFts(term.form.trim()), ...filter.params, limit),
-      // The same part of a word in a line's media: a text form is searched as the line's own words are.
-      ...db
-        .prepare(
-          `SELECT ${WORD_COLUMNS}, m.text AS media_text, bm25(source_media_tri) AS rank
-      FROM source_media_tri JOIN source_media m ON m.rowid = source_media_tri.rowid JOIN sources s ON s.id = m.source_id
-      WHERE source_media_tri MATCH ? AND ${CURRENT_SOURCE} AND ${filter.sql} ORDER BY rank LIMIT ?`
         )
         .all(quoteFts(term.form.trim()), ...filter.params, limit)
     );
@@ -982,7 +993,6 @@ function readerOf(
   let places: Map<unknown, PlaceName> | null = null;
   return {
     selfName,
-    mediaOf: (sourceId) => sourceMedia(db, [sourceId], ctx).get(sourceId) ?? [],
     exclude: exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []),
     authorOf: (accountId) => {
       names ??= accountNames(db);

@@ -44,7 +44,7 @@ import {
   sourceTargetKey,
 } from './ids.ts';
 import { AUD_INTERNAL, SCOPE_INTERNAL, audienceOf, audienceParts } from './scope.ts';
-import { SELF_SOURCE_KINDS } from './source-kinds.ts';
+import { SELF_SOURCE_KINDS } from './schema.ts';
 import { projectRow } from './graph.ts';
 import { deriveMirrorPublication, projectPublicationsNaming } from './publish.ts';
 import { asText, isWholeNumber } from './types.ts';

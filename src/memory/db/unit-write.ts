@@ -24,14 +24,12 @@ import { unitRows, isMediaDescriptionEntry, mediaDescriptionId } from './export.
 import { unitValue } from './readers/common.ts';
 import { assignDiaryDestination } from './publish.ts';
 import { graphPending, projectPending } from './graph.ts';
-import { fillStems, markStemsPending, stemsPending } from './stems.ts';
-import { takeRecordMedia, tellFromCacheKey, writeRecordMedia } from './source-media.ts';
+import { fillStems, markStemsPending, restampAttachment, stemsPending } from './stems.ts';
 import { applyErrandUnit, skippedErrandUnit } from '../../board/errands.ts';
 import { dbOf, asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
 import type { MappedPath } from '../migration/classify.ts';
 import { groupScope } from './scope.ts';
-import type { Scope } from './scope.ts';
 import { storageContext } from './map/index.ts';
 
 /** Tables of an owned unit whose rows carry a `position`. */
@@ -303,6 +301,9 @@ function recordReply(db: Db, source: Row, line: Row, identity: ResolvedRecordIde
   source.extra = JSON.stringify({ ...extra, $messageReply: reply });
 }
 
+/** Whether a `media` column names at least one kind. */
+const holdsMedia = (media: unknown): boolean => typeof media === 'string' && media !== '[]';
+
 function adoptedRecord(source: Row, found: Row): Row {
   const adopted: Row = {
     ...found,
@@ -312,6 +313,7 @@ function adoptedRecord(source: Row, found: Row): Row {
     origin: source.origin,
     turn_id: source.turn_id ?? found.turn_id,
     op_id: source.op_id ?? found.op_id,
+    media: holdsMedia(source.media) ? source.media : found.media,
     extra: JSON.stringify({
       ...parseExtra(source.extra),
       ...parseExtra(found.extra),
@@ -372,10 +374,7 @@ function writeLine(
     found && found.origin === 'observation' && found.owner_key === unit.full && Number.isInteger(found.position);
   // A row is looked up only for a source line, so `keep` holds only with one.
   if (keep) (source as Row).position = found.position;
-  // A source row's media go to `source_media`, beside the row: what a record line holds of them leaves its `extra`.
-  const media = source ? takeRecordMedia(source) : null;
   writeMapping(db, qualify(mapping, unit), unit.full, { at, ignoreClaims: archive });
-  if (source && media) writeRecordMedia(db, asText(source.id), media, at);
   return { written: 1, duplicates: 0, adopted: found?.origin === 'observation' ? 1 : 0, advance: keep ? 0 : 1 };
 }
 
@@ -423,15 +422,6 @@ function writeRecallTrace(db: Db, unit: Unit, update: Row, at: string) {
   }
   noteUnit(db, unit.full, unit.kind, { lines: position, at });
   return { written, duplicates: 0, adopted: 0 };
-}
-
-/** The audience a description of this unit is: its place's when that is a private one, else the interface's group. */
-function placeScopeOf(db: Db, key: NonNullable<Unit['key']>): Scope | Row {
-  const place = key.subject?.type === 'place' ? key.subject.id : null;
-  const row = place ? db.prepare('SELECT scope_kind, iface, partner_person FROM places WHERE id = ?').get(place) : null;
-  return row?.scope_kind === 'dm'
-    ? { scope_kind: 'dm', scope_iface: row.iface, scope_dm: row.partner_person }
-    : groupScope(storageContext(db, key).iface ?? null);
 }
 
 /** Media generations append independently of the active cache's replacement writes. */
@@ -510,15 +500,7 @@ function writeMediaDescriptions(db: Db, unit: Unit, given: unknown, at: string) 
       unit.full,
       { at }
     );
-    if (filled(key.selector?.itemId) && typeof text === 'string' && text !== '') {
-      tellFromCacheKey(db, {
-        iface: storageContext(db, key).iface ?? null,
-        key: key.selector.itemId,
-        text,
-        scope: placeScopeOf(db, key),
-        at,
-      });
-    }
+    if (filled(key.selector?.itemId)) restampAttachment(db, key.selector.itemId);
     written += 1;
   }
   noteUnit(db, unit.full, unit.kind, { at });

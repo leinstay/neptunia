@@ -9,8 +9,6 @@ import type { InspectionRow } from './inspection.ts';
 import { checkLimit, coded, contextBinding, keysetPage, positionOf } from './read-page.ts';
 import type { Page } from './read-page.ts';
 import { audienceWhere } from './scope.ts';
-import { sourceMedia } from './source-media.ts';
-import type { MediaRow } from './source-media.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
@@ -30,14 +28,7 @@ export type DomainFamily =
   | 'turns';
 export type DomainLink = { family: DomainFamily; id: string; role: string };
 export type DomainDetail =
-  | {
-      found: true;
-      family: DomainFamily;
-      id: string;
-      rows: Array<InspectionRow>;
-      links: Array<DomainLink>;
-      sourceMedia?: Array<MediaRow>;
-    }
+  | { found: true; family: DomainFamily; id: string; rows: Array<InspectionRow>; links: Array<DomainLink> }
   | { found: false; code: 'RECORD_NOT_FOUND' };
 
 type FamilySpec = {
@@ -225,8 +216,7 @@ export function domainDetail(db: Db, request: { family: DomainFamily; id: string
     seen.add(key);
     return true;
   });
-  const media = family === 'sources' ? { sourceMedia: sourceMedia(db, [id], context).get(id) ?? [] } : {};
-  return { found: true, family, id, rows: rowsWithValue(db, spec.table, spec.key, id, RECORD_ROWS), links, ...media };
+  return { found: true, family, id, rows: rowsWithValue(db, spec.table, spec.key, id, RECORD_ROWS), links };
 }
 
 /** Each record of a family once across pages, retired and internal ones included, as far as the context may read. */

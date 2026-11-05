@@ -31,7 +31,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { SELF_SOURCE_KINDS } from './source-kinds.ts';
+import { SELF_SOURCE_KINDS } from './schema.ts';
 import type { Config, Connection, Db, MemoryHandle, Row } from './types.ts';
 import { dbOf, transactionOf, asText, isFiniteNumber } from './types.ts';
 

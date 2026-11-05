@@ -75,7 +75,6 @@ import {
   resolveAlias,
 } from './ids.ts';
 import { hasMessageFamilies } from './message-family-catalog.ts';
-import { envelopeItems, sourceLine, writeSourceMedia } from './source-media.ts';
 import { addKey, addRelation, deriveRow, ensureAuthority, ensureInterface, resolveRelationsTo } from './rows.ts';
 import { AUD_INTERNAL, SCOPE_INTERNAL, dmAudienceId, groupAudienceId, groupScope } from './scope.ts';
 import {
@@ -914,10 +913,20 @@ function fillOwnAuthor(db: Db, e: Envelope, sourceId: string, at: string): numbe
   return 1;
 }
 
+/** A line stored before its echo knows only its media kinds: the echo brings the attachment ids it lacks. */
+function fillAttachmentIds(db: Db, e: Envelope, sourceId: string): void {
+  const ids = e.extra?.attachmentIds;
+  if (!Array.isArray(ids)) return;
+  db.prepare(
+    `UPDATE sources SET extra = json_set(COALESCE(extra, '{}'), '$.extra.attachmentIds', json(?))
+     WHERE id = ? AND (extra IS NULL OR (json_valid(extra) AND json_extract(extra, '$.extra.attachmentIds') IS NULL))`
+  ).run(JSON.stringify(ids), sourceId);
+}
+
 /**
  * A line already stored (by the sync or an earlier observation): it is registered under its native key when it is not
  * yet, gets the connection it came by when it has none, her account when it is her line recorded before its echo, the
- * media references it lacks, and the relations it lacks. Nothing else of it changes.
+ * attachment ids it lacks, and the relations it lacks. Nothing else of it changes.
  */
 function replayOf(
   db: Db,
@@ -952,10 +961,7 @@ function replayOf(
       sourceId
     );
   }
-  if (hasMediaItems(e)) {
-    const line = sourceLine(db, sourceId);
-    if (line) writeSourceMedia(db, line, envelopeItems(e.media), { at });
-  }
+  fillAttachmentIds(db, e, sourceId);
   let relations = fillOwnAuthor(db, e, sourceId, at);
   for (const relation of e.relations ?? []) {
     const target =
@@ -968,14 +974,13 @@ function replayOf(
   return { ok: true, replayed: true, sourceId, ...(filled(owner) ? { revision: e.native.revision } : {}), written: 0 };
 }
 
-const hasMediaItems = (e: Envelope): boolean => Array.isArray(e.media) && e.media.length > 0;
-
 function sourceExtraOf(e: Envelope): Row {
   const extra: Row = {};
   if (e.messageReply) extra.$messageReply = e.messageReply;
   if (e.messageLocator) extra.$messageLocator = messageLocator(e.messageLocator, e.iface);
   if (e.native.subtype) extra.subtype = e.native.subtype;
   if (e.author.kind === 'participant' && filled(e.author.display)) extra.display = e.author.display;
+  if (isObject(e.extra) && Object.keys(e.extra).length > 0) extra.extra = e.extra;
   return extra;
 }
 
@@ -1053,6 +1058,7 @@ function writeObservation(
       seen_at: author.kind === 'self' ? null : e.observedAt,
       observed_at: e.observedAt,
       text: e.text,
+      media: Array.isArray(e.media) && e.media.length > 0 ? json(e.media) : null,
       mentions: Array.isArray(e.mentions) ? json(e.mentions) : null,
       direct: e.direct === true ? 1 : 0,
       connection_id: connection,
@@ -1080,10 +1086,6 @@ function writeObservation(
   }
   const resolved = resolveRelationsTo(db, row, { at });
   projectRow(db, 'sources', { id: sourceId }, { at });
-  if (hasMediaItems(e)) {
-    const line = sourceLine(db, sourceId);
-    if (line) writeSourceMedia(db, line, envelopeItems(e.media), { at });
-  }
   let bundleId: string | null = null;
   if (isObject(e.capture)) {
     const c = e.capture;

@@ -1,4 +1,4 @@
-import { createReadSeam } from './db/readers/seam.ts';
+import { createReadSeam } from './db/readers/common.ts';
 import type { MemoryHandle, Row } from './db/types.ts';
 // The shapes the memory modules share: the live settings handle a module reads at the moment of use, and the logger
 // it reports counts and names to. A module's own data types live in that module.
