@@ -10,7 +10,7 @@ const SHOWN: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'web.read': ['url'],
   'media.look': ['question', 'url', 'item'],
   'media.find': ['query', 'n'],
-  'memory.search': ['question', 'people', 'channel', 'when', 'terms'],
+  'memory.search': ['question', 'people', 'channel', 'when', 'terms', 'entity', 'predicate', 'as_of', 'historical'],
   'conversation.read': ['channel', 'around', 'before', 'after', 'since', 'last'],
   'memory.profile.read': ['user', 'section', 'limit'],
   'memory.journal.read': ['day', 'kind', 'n', 'message'],

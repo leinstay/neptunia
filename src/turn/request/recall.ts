@@ -41,6 +41,9 @@ export type Excerpt = {
   readonly startTs?: number;
   readonly channelName?: string | null;
   readonly hitIds?: unknown;
+  readonly versionId?: string;
+  readonly state?: string;
+  readonly polarity?: string;
 };
 
 /** The automatic memory prefetch of a turn (src/behavior/recall-run.ts `prefetch`). */
@@ -119,6 +122,15 @@ function renderServerLookup(server: ServerLookup | null | undefined, labels: Lab
   return lines.length > 0 ? [l.serverHeader, ...lines].join('\n') : '';
 }
 
+/** A stored fact's standing as words: its state, and that it says something is not so. */
+function factStateText(excerpt: Excerpt, l: PrefetchLabels): string {
+  const words = [
+    l.factStates?.[excerpt.state ?? 'unknown'],
+    excerpt.polarity === 'negative' ? l.factStates?.negative : '',
+  ];
+  return words.filter((word): word is string => typeof word === 'string' && word !== '').join(', ');
+}
+
 /**
  * The `<retrieved>` block body (the automatic memory prefetch): `labels.prefetch.header`,
  * `labels.prefetch.basis` with `{basis}` (the lanes searched, `labels.prefetch.lanes.<kind>`
@@ -127,7 +139,9 @@ function renderServerLookup(server: ServerLookup | null | undefined, labels: Lab
  * `labels.prefetch.sources.history`, `{date}` its first line's day in `timezone`, `{channel}`,
  * `{id}` its best hit's message id) and its lines (time and speaker on each, relevant ones marked),
  * a stored item under `labels.prefetch.memoryExcerpt` (`{n}`, `{source}` =
- * `labels.prefetch.sources.memory`, `{date}`, `{who}`, `{id}`) and its text; without excerpts the
+ * `labels.prefetch.sources.memory`, `{date}`, `{who}`, `{id}`) and its text, a stored fact under
+ * `labels.prefetch.factExcerpt` (`{n}`, `{source}` = `labels.prefetch.sources.fact`, `{state}` from
+ * `labels.prefetch.factStates`) and its text as she wrote it; without excerpts the
  * status line `labels.prefetch.status.<status>` (`none`, `timeout`, `unavailable`). '' without
  * `labels.prefetch.header`. Pure.
  */
@@ -153,25 +167,28 @@ export function prefetchText(prefetch: Prefetch | null | undefined, labels: Labe
   if (typeof l.caution === 'string' && l.caution) lines.push(l.caution);
   excerpts.forEach((excerpt, i) => {
     const memory = excerpt.source === 'memory';
-    const head = memory ? (l.memoryExcerpt ?? l.excerpt) : l.excerpt;
-    const fields = memory
-      ? {
-          n: i + 1,
-          source: l.sources?.memory ?? '',
-          date: excerpt.date ?? '',
-          who: excerpt.who ?? '',
-          id: excerpt.id ?? '',
-        }
-      : {
-          n: i + 1,
-          source: l.sources?.history ?? '',
-          date:
-            excerpt.startTs !== undefined && Number.isFinite(excerpt.startTs)
-              ? zonedDay(excerpt.startTs, timezone)
-              : '',
-          channel: String(excerpt.channelName ?? ''),
-          id: excerpt.id ?? '',
-        };
+    const fact = excerpt.source === 'semantic';
+    const head = fact ? l.factExcerpt : memory ? (l.memoryExcerpt ?? l.excerpt) : l.excerpt;
+    const fields = fact
+      ? { n: i + 1, source: l.sources?.fact ?? '', state: factStateText(excerpt, l) }
+      : memory
+        ? {
+            n: i + 1,
+            source: l.sources?.memory ?? '',
+            date: excerpt.date ?? '',
+            who: excerpt.who ?? '',
+            id: excerpt.id ?? '',
+          }
+        : {
+            n: i + 1,
+            source: l.sources?.history ?? '',
+            date:
+              excerpt.startTs !== undefined && Number.isFinite(excerpt.startTs)
+                ? zonedDay(excerpt.startTs, timezone)
+                : '',
+            channel: String(excerpt.channelName ?? ''),
+            id: excerpt.id ?? '',
+          };
     lines.push(
       block(
         'excerpt',

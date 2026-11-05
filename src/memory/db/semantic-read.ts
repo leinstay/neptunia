@@ -44,7 +44,7 @@ function labelsInForce(db: Db, ctx: Context, rows: ReadonlyArray<Row>, recordedB
 }
 
 /** Where a chain of visible equivalences from `entityId` ends. */
-function followMerges(merges: ReadonlyMap<string, string>, entityId: string): string {
+export function followMerges(merges: ReadonlyMap<string, string>, entityId: string): string {
   const seen = new Set<string>();
   let at = entityId;
   while (!seen.has(at)) {

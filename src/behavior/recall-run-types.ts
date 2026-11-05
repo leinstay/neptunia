@@ -284,6 +284,7 @@ export type RunDbQuotesInput = {
   decorate: Untyped;
   started: Untyped;
   memoryContext?: Untyped;
+  retrieval?: Untyped;
 };
 
 export type WindowInput = {
@@ -407,6 +408,8 @@ export type RunInput = {
   decorate?: Untyped;
   quotes?: boolean;
   memoryContext?: Untyped;
+  /** The persona's filters of the stored facts in a `quotes` run: `entity`, `predicate`, `asOf`, `historical`. */
+  retrieval?: Untyped;
 };
 
 /**
