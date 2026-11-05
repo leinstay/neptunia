@@ -103,7 +103,7 @@ import type { StorageKey } from './storage-keys.ts';
 
 import { importCoreJsonState } from './core-state-import.ts';
 import { lockPathOf, openMemoryDb } from './open.ts';
-import { channelPlaceId, guildPlaceId, nativeAuthorityOf } from './ids.ts';
+import { NO_COMMUNITY, channelPlaceId, guildPlaceId, nativeAuthorityOf } from './ids.ts';
 import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
 import { contextRow, issueContext as issuePureContext } from './scope.ts';
 import { linkedDmScopes } from './person-links.ts';
@@ -393,7 +393,8 @@ function openContextOf(config: Config, dataDir: string): { diaryPlaceId: string 
 
 /** The record unit of an observed line (record.js#dayFile's day: the UTC day of the line), or null. */
 function recordUnitOf(envelope: Row, where: Row | null): string | null {
-  const guildId = where?.guildId;
+  // A private line with no community is kept under the scope its turn reads (ids.ts#NO_COMMUNITY).
+  const guildId = where?.guildId ?? (typeof where?.privateUserId === 'string' ? NO_COMMUNITY : null);
   const day = /^\d{4}-\d{2}-\d{2}/.exec(asText(envelope?.occurredAt ?? ''))?.[0];
   if (typeof guildId !== 'string' || !guildId || !day) return null;
   return keyText(

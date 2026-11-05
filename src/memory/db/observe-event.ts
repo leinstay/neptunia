@@ -1,13 +1,14 @@
 // The observation of a message event (stage 8a of spec 2026-10-24-memory-schema-v7): the core maps an interface's
 // normalised `message.received` event (src/protocol/events.ts) to the envelope observe.ts writes. Nothing here knows a
-// platform: the interface is the event's `iface`, its namespace `<iface>/global`, and every id is the opaque string the
-// adapter gave. Pure, no I/O.
+// platform: the interface is the event's `iface`, its namespace the authority the conversation declares or
+// `<iface>/global`, and every id is the opaque string the adapter gave. Pure, no I/O.
 //
 //   native    the message id, kind `message`, subtype the record's kind of the line (`said` for her own new line,
 //             `seen` for anyone else's and for every edit, hers too, as the record writes them); revision 1 for a new
 //             line, none for an edit (`edited: true`: observe takes it from the database);
-//   place     `channel:<id>` (a channel), `thread:<id>` (a thread, its parent `channel:<parent id>`), `group_dm:<id>`
-//             (a group chat) with conversation `group`; `dm:<partner id>` for a direct chat with its partner, with
+//   place     `channel:<id>` (a channel), `thread:<id>` (a thread), `group_dm:<id>` (a group chat) with conversation
+//             `group`, each with the place that contains it as `<parentKind>:<parentId>` when it declares one (a thread
+//             with no declared kind sits in `channel:<parentId>`); `dm:<partner id>` for a direct chat with its partner, with
 //             conversation `dm` (a direct chat whose partner the event does not name is not observed);
 //   author    the account of the author's id, of kind `bot` when the event says bot; her own line is author `self`
 //             with her account (kind `self`);
@@ -60,6 +61,8 @@ type EventConversation = {
   name?: unknown;
   partnerId?: unknown;
   parentId?: unknown;
+  parentKind?: unknown;
+  authorityId?: unknown;
 };
 
 /** The media kinds of a message: attachments, links, then one `sticker` per sticker (src/memory/record.ts's order). */
@@ -73,6 +76,17 @@ function mediaKindsOf(message: EventMessage): Array<string> {
   }
   for (const sticker of Array.isArray(message.stickers) ? message.stickers : []) if (sticker) kinds.push('sticker');
   return kinds;
+}
+
+/** The authority an event's place is observed under: the one its conversation declares, or the interface's. */
+const authorityOf = (iface: string, conversation: EventConversation | undefined): string =>
+  filled(conversation?.authorityId) ? conversation.authorityId : `${iface}/global`;
+
+/** The place key of what contains a conversation: `<parentKind>:<parentId>`; with no declared kind it sits in a channel. */
+function parentField(conversation: EventConversation): { parent?: string } {
+  if (!filled(conversation.parentId)) return {};
+  const kind = filled(conversation.parentKind) ? conversation.parentKind : 'channel';
+  return { parent: `${kind}:${conversation.parentId}` };
 }
 
 /** The place part of an envelope from the event's conversation, or null when it cannot be keyed. */
@@ -94,7 +108,14 @@ function placeOf(conversation: EventConversation | undefined, authority: string)
     };
   }
   if (chatType === 'group_dm')
-    return { authority, key: `group_dm:${id}`, kind: 'group_dm', conversation: 'group', ...(title ? { title } : {}) };
+    return {
+      authority,
+      key: `group_dm:${id}`,
+      kind: 'group_dm',
+      conversation: 'group',
+      ...(title ? { title } : {}),
+      ...parentField(conversation),
+    };
   if (chatType === 'thread') {
     return {
       authority,
@@ -102,11 +123,18 @@ function placeOf(conversation: EventConversation | undefined, authority: string)
       kind: 'thread',
       conversation: 'group',
       ...(title ? { title } : {}),
-      ...(filled(conversation.parentId) ? { parent: `channel:${conversation.parentId}` } : {}),
+      ...parentField(conversation),
     };
   }
   if (chatType === 'channel')
-    return { authority, key: `channel:${id}`, kind: 'channel', conversation: 'group', ...(title ? { title } : {}) };
+    return {
+      authority,
+      key: `channel:${id}`,
+      kind: 'channel',
+      conversation: 'group',
+      ...(title ? { title } : {}),
+      ...parentField(conversation),
+    };
   return null;
 }
 
@@ -175,9 +203,9 @@ export function observationOf(
     !filled(message.author.id)
   )
     return null;
-  const authority = `${iface}/global`;
   // The protocol conversation is narrowed by placeOf before its descriptor is emitted.
   const conversation = event.conversation as EventConversation | undefined;
+  const authority = authorityOf(iface, conversation);
   const place = placeOf(conversation, authority);
   const occurredAt = isoOf(message.at);
   if (!place || !occurredAt || typeof message.content !== 'string') return null;
@@ -248,13 +276,14 @@ export function deletionOf(event: Row): MessageDeletion | null {
     { v: 1, origin: 'protocol-message', iface, conversationId: conversation?.id, messageId: message.id },
     iface
   );
-  const place = placeOf(conversation, `${iface}/global`);
+  const authority = authorityOf(iface, conversation);
+  const place = placeOf(conversation, authority);
   const observedAt = isoOf(event.at);
   if (!locator || !place || !observedAt) return null;
   return {
     v: 1,
     iface,
-    authority: `${iface}/global`,
+    authority,
     messageLocator: locator,
     messageConversation: messageConversationOf(locator.conversationId, place, conversation),
     occurredAt: isoOf(message.at) ?? observedAt,

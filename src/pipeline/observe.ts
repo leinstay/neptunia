@@ -14,7 +14,7 @@ import type { MessageEvent, Observed } from './edits.ts';
 import type { AcceptedMessageEvent, Thrown } from './types.ts';
 
 /** The record a line belongs to: the guild's, or a private chat's under it. */
-export type ObserveWhere = { guildId: string; privateUserId?: string } | null;
+export type ObserveWhere = { guildId?: string | null; privateUserId?: string } | null;
 
 /**
  * The timers of the observation's deadline and of the settle waits (setTimeout and clearTimeout by default). A settle

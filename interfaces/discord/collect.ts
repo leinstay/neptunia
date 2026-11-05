@@ -645,7 +645,8 @@ export function normalizeOptions(
  * read exactly as normalizeMessage reads them. `chatType` tells a one-to-one chat (`dm`) from a
  * group chat (`group_dm`, Discord's `GroupDM` channel type), a `thread` and a `channel`; a
  * one-to-one chat names its partner (`partnerId`: the channel's recipient, null when Discord did
- * not say), a thread the channel it sits in (`parentId`).
+ * not say), a thread the channel it sits in (`parentId`), a channel in a category that category
+ * (`parentId`, `parentKind`).
  */
 function conversationOf(
   message:
@@ -668,16 +669,23 @@ function conversationOf(
     chatType,
     ...(chatType === 'dm' ? { partnerId: idString(channel?.recipientId ?? channel?.recipient?.id) } : {}),
     ...(chatType === 'thread' ? { parentId: idString(channel?.parentId) } : {}),
+    ...(chatType === 'channel' && channel?.parentId ? { parentId: channel.parentId, parentKind: 'category' } : {}),
   };
 }
 
 /**
  * The protocol conversation of a discord.js channel: the record `conversationOf` builds for a message in it.
  * @param channel A discord.js channel.
+ * @param guildId The community when the caller knows it apart from the channel object.
  */
-export function conversationOfChannel(given: object): Conversation {
+export function conversationOfChannel(given: object, guildId?: string): Conversation {
   const channel = asChannel(given);
-  return conversationOf({ channel, channelId: channel?.id, guild: channel?.guild ?? null, guildId: channel?.guildId });
+  return conversationOf({
+    channel,
+    channelId: channel?.id,
+    guild: channel?.guild ?? null,
+    guildId: guildId ?? channel?.guildId,
+  });
 }
 
 /**
