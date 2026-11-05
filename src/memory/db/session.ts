@@ -1663,7 +1663,7 @@ const issuedSessionContext = (scope: SweepScope, runId: string, startedAt: numbe
   issueContext({
     kind: scope.scope.scope_kind === 'dm' ? 'dm' : 'group',
     iface: scope.scope.scope_iface ?? undefined,
-    person: scope.scope.scope_dm,
+    person: scope.ctx.person ?? scope.scope.scope_dm,
     place: scope.ctx.place ?? null,
     now: () => startedAt,
     newId: () => `ctx:session:${runId}`,

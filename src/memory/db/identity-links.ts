@@ -11,6 +11,7 @@
 
 import { nativeAuthorityOf } from '../../protocol/identity.ts';
 import { projectRow } from './graph.ts';
+import { rescopeDmPlacesOfAccount } from './dm-rescope.ts';
 import { SELF_PERSON, survivorOf } from './ids.ts';
 import { mergePersonInto } from './person-merge.ts';
 import { linkAccount, ownerLinkedPerson } from './person-links.ts';
@@ -69,7 +70,7 @@ function proposedPeople(db: Db, accountId: string, owner: string): Array<string>
 /**
  * Links `accountId` to the owner's person `owner` as the owner's own word, the person made when nobody stored it. Her
  * proposals for the account are closed, and each tentative person of hers that holds nothing else merges into the owner.
- * The account's DM places name the owner as their partner.
+ * The account's DM places name the owner as their partner, and so do the rows those DMs already hold.
  */
 export function linkOwnerAccount(db: Db, accountId: string, owner: string, at: string): IdentityLinked {
   db.prepare("INSERT OR IGNORE INTO people (id, kind, status, first_seen_at) VALUES (?, 'person', 'active', ?)").run(
@@ -82,6 +83,7 @@ export function linkOwnerAccount(db: Db, accountId: string, owner: string, at: s
   if (linked) {
     linkAccount(db, accountId, survivorOf(db, owner), at, { by: 'owner', reason: 'the owner command line' });
     db.prepare('UPDATE places SET partner_person = ? WHERE partner_account = ?').run(survivorOf(db, owner), accountId);
+    rescopeDmPlacesOfAccount(db, accountId);
     projectRow(db, 'accounts', { id: accountId }, { at });
   }
   for (const person of merging)

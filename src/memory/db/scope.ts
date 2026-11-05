@@ -260,19 +260,29 @@ export function audienceOf(
   return out;
 }
 
-/** A person id that spells no interface: its DM place is only found through `places`, never from the id. */
-const OPAQUE_PERSON = /^person:[^:]+$/;
-export const isOpaquePerson = (person: unknown): boolean => typeof person === 'string' && OPAQUE_PERSON.test(person);
+/**
+ * Whether `person` is a person id that spells no DM place on `iface`: an opaque one, or one spelled for another interface
+ * (an account of the command line linked to the owner's person on a chat platform). Only `places` finds that DM.
+ */
+export const namesNoPlaceOn = (person: unknown, iface: unknown): boolean =>
+  typeof person === 'string' && person.startsWith('person:') && dmPlaceOfPerson(person, iface) === null;
 
 /**
- * Whether a triple is one of the four well-formed kinds (a malformed one resolves to internal). A DM with an opaque partner
- * is well formed: its audience comes from its stored DM place, which the triple cannot spell.
+ * The person a context of a DM place names. A DM nobody linked has none, so the context carries the partner its place
+ * spells: `check` needs a name, and a read through `audience_id` tells the DM by its place.
+ */
+export const dmContextPerson = (person: string | null | undefined, iface: string, place: string): string =>
+  person ?? dmPartnerOfPlace(place)?.person ?? personId(iface, place);
+
+/**
+ * Whether a triple is one of the four well-formed kinds (a malformed one resolves to internal). A DM whose partner spells
+ * no place on its interface is well formed: its audience comes from its stored DM place, which the triple cannot spell.
  */
 export function wellFormed(scope: unknown): boolean {
   const row = scope as Partial3 | null | undefined;
   const kind = row?.scope_kind ?? null;
   if (kind === 'internal') return true;
-  if (kind === 'dm' && filled(row?.scope_iface) && isOpaquePerson(row?.scope_dm)) return true;
+  if (kind === 'dm' && filled(row?.scope_iface) && namesNoPlaceOn(row?.scope_dm, row?.scope_iface)) return true;
   return audienceOf(scope).audience_id !== AUD_INTERNAL;
 }
 
@@ -300,7 +310,8 @@ export function audienceParts(id: unknown, lookup: unknown = null): AudiencePart
 
 /**
  * The three columns of an audience id (the compatibility projection). A DM audience names its partner through its
- * place (`lookup(placeId)` -> `{ iface, partner_person }`, else the legacy place spelling); an unknown id is internal.
+ * place (`lookup(placeId)` -> `{ iface, partner_person }`, else the legacy place spelling); a stored place with no partner
+ * person is a DM nobody linked, whose rows name none; an unknown id is internal.
  */
 export function scopeOfAudience(id: unknown, lookup: unknown = null): Scope {
   const look = lookup as Lookup;
@@ -309,6 +320,8 @@ export function scopeOfAudience(id: unknown, lookup: unknown = null): Scope {
   if (parts.kind === 'none') return { ...SCOPE_NONE };
   if (parts.kind === 'group') return groupScope(parts.iface);
   const found = typeof look === 'function' && parts.place_id !== null ? look(parts.place_id) : null;
+  if (found && !found.partner_person && filled(found.iface))
+    return { scope_kind: 'dm', scope_iface: found.iface, scope_dm: null };
   const partner = found?.partner_person
     ? { iface: found.iface as string, person: found.partner_person as string }
     : dmPartnerOfPlace(parts.place_id);

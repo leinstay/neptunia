@@ -99,6 +99,7 @@ import {
   linkOwnerAccount,
   linkSelfAccount,
 } from './identity-links.ts';
+import { rescopeDmPlace } from './dm-rescope.ts';
 import { mergePersonInto } from './person-merge.ts';
 import { nativeAuthorityOf } from '../../protocol/identity.ts';
 import { projectRow } from './graph.ts';
@@ -663,6 +664,12 @@ function fillTitle(db: Db, existing: Row, title: unknown, at: string): void {
   projectRow(db, 'places', { id: existing.id }, { at });
 }
 
+/** A DM place that just took its partner person: the rows from before the link take it too, with the audience they had. */
+function keepDmOne(db: Db, stored: Row, partnerPerson: unknown): void {
+  if (typeof partnerPerson === 'string' && partnerPerson !== stored.partner_person)
+    rescopeDmPlace(db, String(stored.id), partnerPerson);
+}
+
 /** The place of an envelope, created when missing; its conversation filled or checked. Returns its row. */
 function placeOf(
   db: Db,
@@ -710,6 +717,7 @@ function placeOf(
       db.prepare(
         'UPDATE places SET conversation = ?, scope_kind = COALESCE(scope_kind, ?), seen_from_at = ?, seen_to_at = ?, partner_person = ?, partner_account = ?, parent_id = ? WHERE id = ?'
       ).run(conversation, conversation, from, to, partnerPerson, partnerAccount, parentId, existing.id);
+      keepDmOne(db, existing, partnerPerson);
       projectRow(db, 'places', { id: existing.id }, { at });
     }
     return { id: existing.id as string, conversation: conversation as string | null, partner_person: partnerPerson };

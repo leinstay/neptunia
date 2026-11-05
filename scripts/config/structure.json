@@ -1599,7 +1599,14 @@
     },
     {
       "path": "src/memory/db/session-scopes.ts",
-      "purpose": "The scopes a memory session sweeps: the groups of an interface, each DM alone, a DM of an opaque partner by its stored place. Tested through the session tests.",
+      "purpose": "The scopes a memory session sweeps: the groups of an interface, and each DM alone by the place its lines' audience names. Tested through the session tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/dm-rescope.ts",
+      "purpose": "Gives every row of a DM's audience the partner person its place names, with the audience unchanged. Tested through the DM scope tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
