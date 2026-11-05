@@ -5,10 +5,13 @@ import { createElement } from 'react';
 import { render } from 'ink';
 import { ChatApp } from './app.ts';
 import type { ChatEnv } from './app.ts';
+import { mouseFilter } from './mouse.ts';
 
 export { reducedMotion } from './galaxy.ts';
+export { mouseAvailable } from './mouse.ts';
 export type { ChatEntry, ChatEnv, ChatImages, Panel, Question, StageResult } from './app.ts';
-export type { ChatAttachment, DraftPart, PasteLimits } from './composer.ts';
+export type { ChatAttachment, Draft, DraftPart, PasteLimits } from './composer.ts';
+export type { KeyBinding } from './keymap.ts';
 export type { StatusBrief } from './state.ts';
 
 /** Draws the chat until the owner leaves. Leaving ends this process only: the core goes on. */
@@ -16,7 +19,21 @@ export async function runInteractive(
   env: ChatEnv,
   streams: { stdin?: NodeJS.ReadStream; stdout?: NodeJS.WriteStream } = {}
 ): Promise<void> {
+  const mouse = env.mouse === true ? mouseFilter(streams.stdin ?? process.stdin) : null;
+  const stdout = streams.stdout ?? process.stdout;
+  const input = mouse === null ? {} : { stdin: mouse.input };
   // Only a terminal reaches this chat, and Ink otherwise stops drawing under a `CI` variable.
-  const app = render(createElement(ChatApp, { env }), { exitOnCtrlC: false, interactive: true, ...streams });
+  const app = render(createElement(ChatApp, { env, mouse: mouse?.reports ?? null }), {
+    exitOnCtrlC: false,
+    interactive: true,
+    ...streams,
+    ...input,
+  });
+  // SGR reports of buttons and the wheel, with no motion: the fewest reports that do the job.
+  if (mouse !== null) stdout.write('\u001b[?1000h\u001b[?1006h');
   await app.waitUntilExit();
+  if (mouse !== null) {
+    stdout.write('\u001b[?1006l\u001b[?1000l');
+    mouse.close();
+  }
 }

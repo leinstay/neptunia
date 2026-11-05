@@ -135,6 +135,10 @@ export type ComposerLayout = {
   rows: ReadonlyArray<DraftRow>;
   hiddenAbove: number;
   hiddenBelow: number;
+  /** the wrapped row drawn first, and the cells of a row: what turns a click into an offset */
+  first: number;
+  width: number;
+  safe: string;
   /** the rows it takes on the screen, its borders and its count of hidden rows included */
   height: number;
 };
@@ -173,11 +177,22 @@ export function composerLayout(
     rows,
     hiddenAbove: view.hiddenAbove,
     hiddenBelow: view.hiddenBelow,
+    first: view.first,
+    width,
+    safe,
     height: rows.length + (isCut ? 1 : 0) + (isLinear ? 0 : BORDER_ROWS),
   };
 }
 
-export function ComposerBox({ layout, isLinear }: { layout: ComposerLayout; isLinear: boolean }): ReactElement {
+export function ComposerBox({
+  layout,
+  isLinear,
+  isActive,
+}: {
+  layout: ComposerLayout;
+  isLinear: boolean;
+  isActive: boolean;
+}): ReactElement {
   const hidden = [
     layout.hiddenAbove > 0 ? `↑ ${layout.hiddenAbove}` : null,
     layout.hiddenBelow > 0 ? `↓ ${layout.hiddenBelow}` : null,
@@ -198,5 +213,9 @@ export function ComposerBox({ layout, isLinear }: { layout: ComposerLayout; isLi
     )
   );
   if (isLinear) return body;
-  return h(Box, { borderStyle: 'round', paddingX: 1, flexShrink: 0, ...THEME.activeBorder }, body);
+  return h(
+    Box,
+    { borderStyle: 'round', paddingX: 1, flexShrink: 0, ...(isActive ? THEME.activeBorder : THEME.inactiveBorder) },
+    body
+  );
 }

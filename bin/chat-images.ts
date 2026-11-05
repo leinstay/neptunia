@@ -7,6 +7,8 @@ import path from 'node:path';
 import { createAttachmentActions } from '../cli/attachment-actions.ts';
 import type { AttachmentActions } from '../cli/attachment-actions.ts';
 import { createClipboard } from '../cli/clipboard.ts';
+import { assembleDraft, draftFromText } from '../cli/composer.ts';
+import { editExternally } from '../cli/editor-actions.ts';
 import type { ProcessRun } from '../cli/clipboard.ts';
 import type { ChatAttachment, ChatImages } from '../cli/index.ts';
 import { openImageStaging, stagedIdOf, stagingDir } from '../src/media/staging.ts';
@@ -19,6 +21,15 @@ const TOOL_TIMEOUT_MS = 5000;
 const TOOL_OUTPUT_BYTES = 32 * 1024 * 1024;
 /** What the persona may send: one file of the socket's frame, as src/protocol/wire.ts sizes it. */
 export const RECEIVED_FILE_BYTES = 10 * 1024 * 1024;
+
+/** An editor owns the terminal until it ends. */
+const runEditor = (argv: ReadonlyArray<string>): Promise<{ code: number }> =>
+  new Promise((resolve, reject) => {
+    const [command = '', ...args] = argv;
+    const child = spawn(command, args, { stdio: 'inherit' });
+    child.once('error', reject);
+    child.once('close', (code) => resolve({ code: code ?? 1 }));
+  });
 
 const homePath = (file: string): string =>
   file === '~' || file.startsWith('~/') ? path.join(os.homedir(), file.slice(1)) : file;
@@ -97,6 +108,23 @@ export function receivedActions(dataDir: string): AttachmentActions {
     platform: process.platform,
     tempDir: stagingDir(dataDir),
   });
+}
+
+/** The chat's external editor: `$VISUAL` or `$EDITOR` split on spaces with no shell, and the draft in a private temporary file. */
+export function draftEditor(
+  env: Readonly<Record<string, string | undefined>>
+): (text: string) => Promise<{ status: 'edited' | 'cancelled' | 'failed'; text: string }> {
+  return async (text) => {
+    const command = (env.VISUAL ?? env.EDITOR ?? '').split(' ').filter((word) => word !== '');
+    if (command.length === 0) return { status: 'failed', text };
+    const result = await editExternally(draftFromText('editor', text, text.length), {
+      command,
+      tempDir: os.tmpdir(),
+      run: runEditor,
+    });
+    const assembled = assembleDraft(result.draft);
+    return { status: result.status, text: assembled.ok ? assembled.text : text };
+  };
 }
 
 /** What a chat shows for a file the persona sent: a kept image, or a line saying what could not be kept. */

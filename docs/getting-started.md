@@ -47,7 +47,7 @@ Check the installation:
 ./bin/neptunia.ts
 ```
 
-In the chat, `/status` shows the core and its connections. Ordinary text talks to the persona; slash commands administer the installation. [CLI](cli.md) covers daily use and [setup](setup.md) covers system units, the setup flow and what a chat needs to open.
+In the chat, `/status` shows the core and its connections. Ordinary text talks to the persona; slash commands administer the installation. A large paste stays one chip with its text whole, and Ctrl+V or `/attach <file>` adds an image. [CLI](cli.md) covers daily use and [setup](setup.md) covers system units, the setup flow and what a chat needs to open.
 
 ## Make it your persona
 

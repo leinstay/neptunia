@@ -130,7 +130,7 @@ import { cutConfigKeys } from '../src/config/cut.ts';
 import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { COMMANDS, isRetiredCommand, parseCommandLine } from '../src/interface/commands/table.ts';
-import type { ChatAttachment, ChatEntry, PasteLimits, Question, StatusBrief } from '../cli/index.ts';
+import type { ChatAttachment, ChatEntry, KeyBinding, PasteLimits, Question, StatusBrief } from '../cli/index.ts';
 import { chatPanel } from './chat-panels.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
@@ -140,7 +140,7 @@ import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../src/llm/openrouter.ts';
 import { log, logToStderr } from '../src/log.ts';
 import { resolvePaths } from '../src/paths.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
-import { chatImages, keepReceived, receivedActions, stageForPrompt } from './chat-images.ts';
+import { chatImages, draftEditor, keepReceived, receivedActions, stageForPrompt } from './chat-images.ts';
 import { addToHistory, readHistory, writeHistory } from './cli-history.ts';
 import type { HistoryRecord } from './cli-history.ts';
 import { CLI_CLIENT, openLinkOver } from './cli-link.ts';
@@ -536,7 +536,11 @@ async function runInkChat(
   where: { rootDir: string; privateDir: string; dataDir: string },
   firstLine = ''
 ): Promise<void> {
-  const { runInteractive, reducedMotion } = await import('../cli/index.ts');
+  const { mouseAvailable, runInteractive, reducedMotion } = await import('../cli/index.ts');
+  const settings = readConfig(where.rootDir, { privateDir: where.privateDir }) as {
+    cli?: { mouse?: boolean; bindings?: Array<KeyBinding> };
+  };
+  const linear = process.env.NEPTUNIA_LINEAR === '1';
   let entry: (one: ChatEntry) => void = () => {};
   let question: (asked: Question) => void = () => {};
   let linked: (connected: boolean) => void = () => {};
@@ -587,7 +591,11 @@ async function runInkChat(
       return pasteLimits(where);
     },
     still: reducedMotion(process.env),
-    linear: process.env.NEPTUNIA_LINEAR === '1',
+    linear,
+    bindings: settings.cli?.bindings ?? [],
+    mouse:
+      settings.cli?.mouse === true && mouseAvailable({ tty: true, term: process.env.TERM ?? '', linear, plain: false }),
+    editDraft: draftEditor(process.env),
     now: () => Date.now(),
     subscribe(listeners) {
       entry = listeners.entry;

@@ -461,6 +461,8 @@
     "paste": {
       "collapseLines": 10,
       "collapseChars": 2000
-    }
+    },
+    "mouse": false,
+    "bindings": []
   }
 }

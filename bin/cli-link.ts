@@ -104,9 +104,7 @@ function cliAdapter(
     capabilities: () => CLI_CAPABILITIES,
     async send(conversation, content, options = {}): Promise<Delivery> {
       const idempotencyKey = options.idempotencyKey ?? randomUUID();
-      const files = (
-        isObject(content) && Array.isArray(content.attachments) ? content.attachments : []
-      ) as Array<Attachment>;
+      const files = isObject(content) && Array.isArray(content.attachments) ? content.attachments : [];
       if (print === null || conversation.conversationId !== CHAT_ID || (files.length > 0 && deliver === null)) {
         const error = { code: 'unsupported', retryable: false, retryAfterMs: null };
         return { status: 'unsupported', ref: null, parts: [], at: null, idempotencyKey, error };

@@ -21,13 +21,21 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 |---|---|
 | Enter | Send |
 | Alt+Enter or Ctrl+J | Insert a newline |
-| Up and Down | Browse command suggestions or input history |
+| Up and Down | Select a command suggestion, move a row inside a multiline draft, or browse the input history |
+| Left, Right, Home and End | Move the caret, by whole characters and across a chip in one step |
+| Backspace and Delete | Delete a whole character or a whole chip |
 | Tab | Complete the selected command |
-| Esc | Close a panel, cancel a panel still loading, cancel a question or clear the input |
+| Esc | Close a panel, cancel a panel still loading, cancel a question, leave a search or clear the input |
+| Ctrl+R | Search the history, and again for the next older match |
+| Ctrl+F | Search the transcript, and again for the next older match |
+| Alt+Up and Alt+Down | Jump to your line above or below |
+| Ctrl+Z and Ctrl+Y | Undo and redo in the draft |
+| Ctrl+S | Stash the draft, or bring back the stashed draft on an empty input |
+| Ctrl+G | Edit the draft in `$VISUAL` or `$EDITOR` |
 | Ctrl+O | Expand or fold the newest folded answer on the screen, or show the text behind the chip before the caret |
 | Page Up and Page Down | Scroll the transcript |
 | Ctrl+V | Attach an image from the clipboard of this machine |
-| Ctrl+C | Exit the CLI |
+| Ctrl+C, or Ctrl+D on an empty input | Exit the CLI |
 
 The Project Neptunia header shows separate lines for the core, memory and enabled interfaces. Missing reports show a check in progress, and old reports are marked outdated. A lost core connection leaves memory and interface states unknown. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation, and `NEPTUNIA_LINEAR=1` draws the plain column described under [Rendering](#rendering).
 
@@ -55,7 +63,7 @@ A stored control character is drawn as one visible character (`displaySafe`), so
 
 `cli/theme.ts` holds the semantic tokens: `text`, `muted`, `title`, `mark`, `userMarker`, `activeBorder`, `inactiveBorder`, `selection`, `caret`, `code`, `quote`, `heading`, `success`, `warning` and `error`. A token asks for an ANSI style. The font family, its faces and the cell size belong to the terminal emulator.
 
-`NEPTUNIA_LINEAR=1` sets `ChatEnv.linear`: one plain column in reading order, with no borders and no galaxy, for a screen reader.
+`NEPTUNIA_LINEAR=1` draws one plain column in reading order for a screen reader, with no borders and no galaxy. It sets `ChatEnv.linear`.
 
 ### Measured geometry
 
@@ -64,7 +72,7 @@ These rows were read from frames the chat wrote into the fake terminal of `tests
 | Element | 80 by 24 | 40 by 18 | 20 by 6 | Linear, 80 by 24 |
 |---|---|---|---|---|
 | Header | 5 rows and 1 blank | 5 rows and 1 blank | None | 1 row |
-| Transcript budget | 14 rows | 8 rows | 2 rows | 16 rows |
+| Transcript budget | 14 rows | 8 rows | 2 rows | 21 rows |
 | Input with one row of text | 3 rows, on rows 20 to 22 | 3 rows, on rows 14 to 16 | 3 rows, on rows 2 to 4 | 1 row |
 | Text column of the input | 4 | 4 | 4 | 2 |
 | Footer | 1 row, cut with `…` | 1 row, cut with `…` | 1 row, cut with `…` | 1 row |
@@ -72,6 +80,18 @@ These rows were read from frames the chat wrote into the fake terminal of `tests
 | Blank rows between a reply and a command result | 0 | 0 | 0 | 0 |
 
 The galaxy needs at least 16 rows and 40 columns. Below that the header is one line, and under 8 rows it goes.
+
+## Editing and keys
+
+`buildKeymap` in `cli/keymap.ts` is the one registry of these keys, read by dispatch and by the footer. A key resolves against the focus context first: `composer`, `attachment` (the caret right after a chip), `menu`, `secret` (any open question), `search` or `panel`. The `secret` context binds no history, stash, undo, editor or clipboard action, so what is typed there reaches no store. The setting `cli.bindings` (default `[]`) overrides a key with entries such as `{ "context": "composer", "key": "ctrl+t", "action": "history.search" }`. An override that collides with a bound key, names an unknown action or names one its context does not allow is not bound, and the chat says so when it opens.
+
+`cli/editor-actions.ts` works on the draft of `cli/composer.ts` and the transcript's entries. A search shows its match in the input and sends and stores nothing. Enter on a history match loads it into the draft, and the next Enter sends it. Esc restores the draft and the view exactly. The letters of one word undo together, up to 100 steps, and a send starts over. Undo cannot bring back an image whose chip was removed, because its staged bytes went with it. Stashed drafts keep their parts and last until the chat ends.
+
+Ctrl+G hands the terminal to the editor with the draft in a private temporary file under `$TMPDIR`, removed afterwards. The command is `$VISUAL` or `$EDITOR` split on spaces, with no shell. Images stay in the draft. A failing editor leaves the draft as it was and says so, and an emptied file cancels.
+
+Raw mode clears `IXON` and `ISIG` (checked with `stty -a` under a pseudo-terminal), so Ctrl+S and Ctrl+Z reach the chat instead of the terminal's flow control and job control.
+
+`cli.mouse` (default `false`) takes the terminal's SGR mouse reports for the wheel, which scrolls the transcript or the slash menu, and for a click in the input, which places the caret on a whole character. Tracking takes native text selection away, so it stays off until asked for, and `mouseAvailable` refuses it for `TERM=dumb` and the linear mode. With it off, Ink drops a stray report before it can reach the draft. Every mouse action has its key.
 
 ## Overlays and questions
 
