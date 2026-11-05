@@ -21,6 +21,7 @@ import { assertPersonaLayout } from './config/files.ts';
 import { localConfigPath, readInterfaceConfig } from './config/files.ts';
 import { createHot } from './hot.ts';
 import { log, onLog } from './log.ts';
+import { createLoopWatch, loopStallMs } from './loop-watch.ts';
 import { createMetrics, metricsTap } from './tools/impl/metrics.ts';
 import { createUsage, usageTap } from './tools/impl/usage.ts';
 import { createMemoryDb } from './memory/db/service.ts';
@@ -297,6 +298,16 @@ async function buildCore(
   const dataDir = paths.dataDir;
   // The parts of the hot reload the one-core claim and the interfaces' switches read and write (src/hot.ts).
   const settings = hot;
+  // The event loop watch (src/loop-watch.ts): a late tick logs the operations open or just ended around it.
+  const loopWatch = createLoopWatch({
+    log,
+    now: Date.now,
+    thresholdMs: () => loopStallMs(hot.config),
+    sampleMs: 250,
+    setInterval,
+    clearInterval,
+  });
+  cleanups.push(() => loopWatch.stop());
   const configuredGuild: string | null = settings.config.bot?.guildId ?? null;
   // One core over this data directory, claimed before anything below touches it or the socket.
   fs.mkdirSync(dataDir, { recursive: true });
@@ -334,6 +345,7 @@ async function buildCore(
     embed: (texts: Untyped, options: Untyped) => embedder.embed(texts, options),
     selfName: () => getSelfName(getGuildId()),
     sessionLlm: () => sessionClient,
+    track: loopWatch.track,
     sessionEnv: () => env,
     sessionKeys: ringNow,
     onSessionFailure: (failure: Untyped) => tellSessionFailure(failure),
@@ -431,6 +443,7 @@ async function buildCore(
     record,
     archive,
     memoryDb,
+    track: loopWatch.track,
   });
 
   const calibrator = createCalibrator(store.state.data.calibration);
@@ -544,6 +557,7 @@ async function buildCore(
     state: store.state,
     youtubeApiKey,
     videoProxy: serviceCredential(paths.dataDir, 'videoProxy'),
+    track: loopWatch.track,
   });
   // The web lookup (features.webLookup, off by default): link reader + search on a question.
   // state: the daily web counter lives next to the LLM client's daily counter.
@@ -836,6 +850,7 @@ async function buildCore(
     embed: (texts: Array<string>, opts: Untyped) => embedder.embed(texts, opts),
     memoryDb,
     iface: identity.iface,
+    track: loopWatch.track,
   });
   // When each person last wrote in each channel (fed by the message handler): a turn answering
   // someone waits until they stop writing (pace.settleMs).
@@ -911,6 +926,7 @@ async function buildCore(
   // When the interface's link to its platform last came back, for /nep status.
   const connection: { lastReconnectAt: number | null } = { lastReconnectAt: null };
   const turns = createTurnRunner({
+    track: loopWatch.track,
     hot,
     store,
     roleHealth,
@@ -1417,7 +1433,7 @@ async function buildCore(
   function every(ms: number, fn: Untyped, label: string) {
     const id = setInterval(() => {
       Promise.resolve()
-        .then(fn)
+        .then(() => loopWatch.track(label, fn))
         .catch((err) => log.error(`index: ${label} failed`, { error: err }));
     }, ms);
     id.unref?.();
@@ -1706,6 +1722,7 @@ async function buildCore(
     shuttingDown = true;
     log.info('index: shutting down', { signal });
     for (const id of timers) clearInterval(id);
+    loopWatch.stop();
     if (archiveDrainTimer) clearTimeout(archiveDrainTimer);
     diary.stop();
     onMessage.stop();

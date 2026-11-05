@@ -3,6 +3,7 @@
 // attempt's clocks and indicator that its end closes (Life), and the cancellation point at its bar (BeforeBar).
 // createTurnRunner (src/behavior/turn.ts) builds the context once; runTurnOnce hands it to every phase.
 
+import type { Track } from '../../loop-watch.ts';
 import type { SkillUse } from '../../memory/db/skills.ts';
 import type { IndexedSkill } from '../../skills/uses.ts';
 import type { createParticipationPicker } from '../../behavior/participation-pick.ts';
@@ -127,6 +128,8 @@ export type PhaseContext = {
   pickParticipation: ReturnType<typeof createParticipationPicker>;
   notifyIdle: () => void;
   facts: Facts['facts'];
+  /** The event loop watch's `track` (src/loop-watch.ts); the stages of the request phase are named operations. */
+  track?: Track;
 } & Pick<
   Participation,
   'participationOn' | 'participationAudience' | 'aroundInputFor' | 'liveChannelName' | 'recentInput'

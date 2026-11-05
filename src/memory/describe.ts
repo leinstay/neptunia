@@ -136,6 +136,8 @@ import { MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from '../web/cach
 import { normalizeQuery } from '../web/lookup.ts';
 import type { StoredRecord, Untyped } from './types.ts';
 import type { StoreView } from './store.ts';
+import type { Track } from '../loop-watch.ts';
+import { untracked } from '../loop-watch.ts';
 import { isMediaDescriptionEntry } from './db/export.ts';
 
 const MISS_TTL_MS = 60 * MINUTE_MS;
@@ -450,6 +452,8 @@ type DescriberDeps = {
   state?: { data: Untyped; markDirty: () => void };
   youtubeApiKey?: string | null;
   videoProxy?: string | null;
+  /** The event loop watch's `track` (src/loop-watch.ts); a description is a named operation. */
+  track?: Track;
 };
 
 /**
@@ -521,6 +525,7 @@ function pictureBlockerOf(hot: DescriberDeps['hot']): 'no-prompt' | null {
   return hot.prompts?.describe ? null : 'no-prompt';
 }
 
+// health: allow function-length until 2027-04-01 -- the closure holds its whole operation, grown by the one dependency that names the loop watch
 function buildDescriber({
   hot,
   store,
@@ -530,6 +535,7 @@ function buildDescriber({
   videoFetcher = createVideoFetcher(),
   youtubeApiKey = null,
   videoProxy = null,
+  track = untracked,
 }: DescriberDeps) {
   /** Today's UTC date as `YYYY-MM-DD` from the injected clock: the daily counters and the prompts' `{{today}}`. */
   function todayDate() {
@@ -1772,10 +1778,10 @@ function buildDescriber({
   const checkYoutube = createYoutubeCheck({ hot, videoFetcher, youtubeApiKey, videoProxy });
 
   return {
-    describe,
+    describe: ((...args) => track('describe', () => describe(...args))) as typeof describe,
     redescribe,
     pictureBlocker: () => pictureBlockerOf(hot),
-    describeMany,
+    describeMany: ((...args) => track('describe.many', () => describeMany(...args))) as typeof describeMany,
     cachedDescriptions,
     describeVideo,
     describeVideos,

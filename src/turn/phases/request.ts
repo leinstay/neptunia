@@ -4,6 +4,7 @@
 // turn ends here when a step returns its result (a refused diary picture, a source gone, nothing to choose, parts in
 // time).
 
+import { untracked } from '../../loop-watch.ts';
 import type { Draft } from '../draft.ts';
 import type { Ended, PhaseContext, PhaseParams } from './context.ts';
 import type { Opened } from './preflight.ts';
@@ -50,18 +51,23 @@ export async function requestPhase(
   draft: Draft,
   opened: Opened
 ): Promise<Ended | Prepared> {
-  const setup = await setupRequest(ctx, params, draft, opened);
+  const track = ctx.track ?? untracked;
+  const setup = await track('turn.setup', () => setupRequest(ctx, params, draft, opened));
   if (setup.ended) return setup;
   const planned = planRequest(ctx, opened, setup);
-  const pulled = await pullRequest(ctx, params, opened, setup);
+  const pulled = await track('turn.pulls', () => pullRequest(ctx, params, opened, setup));
   if (pulled.ended) return pulled;
   const staged = startStages(ctx, params, opened, setup, pulled);
   const second = startSecondLook(ctx, params, opened, setup, staged);
   const looked = startLookup(ctx, opened, setup, planned, staged);
   const waited = await waitForPreparation(ctx, params, draft, opened, setup, pulled, staged, second, looked);
   if (waited.ended) return waited;
-  const gathered = await gatherRequest(ctx, params, draft, opened, setup, pulled, staged, second, looked, waited);
-  const told = await tellFacts(ctx, params, draft, opened, setup, pulled, gathered);
-  const request = buildTurnRequest(ctx, params, draft, opened, setup, planned, pulled, waited, gathered, told);
+  const gathered = await track('turn.gather', () =>
+    gatherRequest(ctx, params, draft, opened, setup, pulled, staged, second, looked, waited)
+  );
+  const told = await track('turn.facts', () => tellFacts(ctx, params, draft, opened, setup, pulled, gathered));
+  const request = track('turn.build', () =>
+    buildTurnRequest(ctx, params, draft, opened, setup, planned, pulled, waited, gathered, told)
+  );
   return { ended: null, opened, setup, planned, pulled, staged, second, looked, waited, gathered, told, request };
 }

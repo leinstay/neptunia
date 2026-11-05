@@ -1,7 +1,6 @@
 {
   "files": {
     "scripts/replay.ts": 7325,
-    "src/behavior/recall-run.ts": 2100,
     "src/behavior/recall.ts": 2375,
     "src/behavior/sandbox.ts": 2063,
     "tests/admin.test.ts": 3698,
@@ -246,9 +245,6 @@
       }
     },
     "src/behavior/recall-run.ts": {
-      "createRecall": {
-        "function-length": 1704
-      },
       "createRecall>findPeople": {
         "complexity": 36
       },
@@ -300,11 +296,6 @@
       },
       "sandboxRequestInput": {
         "complexity": 38
-      }
-    },
-    "src/behavior/turn.ts": {
-      "createTurnRunner": {
-        "function-length": 441
       }
     },
     "src/behavior/wake.ts": {
@@ -470,9 +461,6 @@
       }
     },
     "src/memory/db/service.ts": {
-      "createMemoryDb": {
-        "function-length": 1056
-      },
       "createMemoryDb>sessionJob": {
         "complexity": 30
       },
@@ -503,9 +491,6 @@
       }
     },
     "src/memory/describe.ts": {
-      "buildDescriber": {
-        "function-length": 1268
-      },
       "buildDescriber>fetchVideoMedia": {
         "complexity": 21
       },
