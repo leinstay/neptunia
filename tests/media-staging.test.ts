@@ -26,7 +26,7 @@ function rig(over: { ttlMs?: number; maxBytes?: number } = {}) {
 
 const stagedOf = async (result: ReturnType<ReturnType<typeof rig>['staging']['stageBytes']>) => {
   const answer = await result;
-  assert.equal(answer.ok, true);
+  // The narrowing to the ok branch made `answer.code` below a type error; the code is the fact that matters.
   if (!answer.ok) throw new Error(answer.code);
   return answer.staged;
 };
@@ -120,7 +120,7 @@ test('release removes one image and leaves the other', async () => {
   const two = await stagedOf(staging.stageBytes(syntheticPng(41), { name: 'b.png' }));
   await staging.release(one.id);
   assert.equal(await staging.read(one.id), null);
-  assert.notEqual(await staging.read(two.id), null);
+  assert.ok((await staging.read(two.id))?.byteLength);
   await staging.release('unknown');
 });
 
