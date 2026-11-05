@@ -424,8 +424,10 @@ test('the record lacks the span: the history of the channel is asked and its lin
 test("the owner's internal turn reads a channel the pull rail hides from an ordinary turn", async () => {
   // Bug: the authenticated command line has all memory through search, yet this reader answers it with the live gate.
   const memoryContext = issueContext({ kind: 'internal', newId: () => 'ctx:owner', now: () => NOW });
+  // Named by its id: a name the bot cannot read is not among the places she may name (tests/place-names.test.ts), so
+  // only an id reaches the operation, whose rail this test is about.
   const run = await turn({
-    answers: [toolAnswer('', [call('conversation.read', { channel: 'secret', last: 3 })]), '<skip/>'],
+    answers: [toolAnswer('', [call('conversation.read', { channel: 'c3', last: 3 })]), '<skip/>'],
     record: fakeRecord([]),
     memoryContext,
   });
@@ -437,8 +439,9 @@ test("the owner's internal turn reads a channel the pull rail hides from an ordi
 });
 
 test('a channel the pull rail hides is refused channel-not-visible and nothing of it is read', async () => {
+  // Named by its id, for the same reason as above: the operation's rail judges an id, resolution judges a name.
   const run = await turn({
-    answers: [toolAnswer('', [call('conversation.read', { channel: 'secret', last: 3 })]), '<skip/>'],
+    answers: [toolAnswer('', [call('conversation.read', { channel: 'c3', last: 3 })]), '<skip/>'],
   });
   const text = requestText(run.llm, 1);
   assert.ok(
