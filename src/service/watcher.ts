@@ -277,6 +277,13 @@ function filingText(deps: ServiceDeps, run: RunRecord | null): string {
   return counted.length === 0 ? 'none' : counted.join(', ');
 }
 
+/** The answers the newest run asked for: more than one means its first answer was refused. */
+function attemptsText(current: RunRecord | null, success: RunRecord | null, failure: RunRecord | null): string {
+  const finished = [success, failure].filter((run) => run !== null).sort((a, b) => a.claimedAt - b.claimedAt);
+  const newest = current ?? finished.at(-1);
+  return newest?.attempts === undefined ? 'none' : String(newest.attempts);
+}
+
 /** The lines of the watcher's status that only its run records know. */
 export function watcherStatusFields(deps: ServiceDeps): Array<readonly [string, string]> {
   const store = storeOf(deps);
@@ -290,6 +297,7 @@ export function watcherStatusFields(deps: ServiceDeps): Array<readonly [string, 
       'last failure',
       lastFailure === null ? 'none' : `${lastFailure.runId} ${lastFailure.code ?? 'failed'} ${at(lastFailure)}`,
     ],
+    ['attempts', attemptsText(current, lastSuccess, lastFailure)],
     ['filing', filingText(deps, lastSuccess)],
     ['source', sourceText(deps)],
     ['run timeout', `${WATCHER_RUN_TIMEOUT_MS / 60_000}m`],

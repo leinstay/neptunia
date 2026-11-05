@@ -123,6 +123,7 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 | `current run` | The watcher's run in progress with its state and source, `none` with no run |
 | `last success` | The watcher's newest succeeded run and when it ended |
 | `last failure` | The watcher's newest failed run, its code and when it ended |
+| `attempts` | The answers the watcher's newest run asked for, `2` when its first was refused, `none` with no run |
 | `filing` | The receipts of the last success by state, such as `filed 2, deferred 1`, `none` with no drafts |
 | `source` | The watcher's backend, model and effort from `keys.json`, `default` where the backend picks, `unknown` with no backend. Reading it asks no model |
 | `run timeout` | How long the watcher's agent may run |
