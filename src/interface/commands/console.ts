@@ -43,7 +43,7 @@ import { searchCommand } from './search.ts';
 import { skillsCommand } from './skills.ts';
 import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
 import type { ModuleAction } from './module-setup.ts';
-import { accountLinks } from '../../memory/db/person-links.ts';
+import { isMemoryBrowserCommand, memoryBrowserCommand } from './memory.ts';
 import { serviceCommand } from '../../keys/services.ts';
 import { simulationCommand, subharnessCommand, subharnessDeps } from './subharness.ts';
 import { serviceFamily } from '../../service/commands.ts';
@@ -148,27 +148,15 @@ function ownCommand(
     return Promise.resolve({ text: JSON.stringify(read), status: 'ok' });
   }
   if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args, ENGINE_ROOT));
-  if (name === 'memory.bind' || name === 'memory.unbind') return personLinkCommand(memoryDb, runOp, name, args);
-  if (name === 'memory.accounts') return Promise.resolve(accountsCommand(memoryDb, args));
+  if (name === 'memory.bind') return personLinkCommand(memoryDb, runOp, args);
   const action = moduleActionOf(name);
   return action === null ? null : moduleRun(dataDir, name, action, args, dialog);
 }
 
-/** `/memory accounts`: the accounts of one person, read through the memory database's read connection. */
-function accountsCommand(memoryDb: unknown, args: Record<string, unknown>): Answer {
-  const db = callMethod(memoryDb, 'database') as Parameters<typeof accountLinks>[0] | null;
-  if (db == null || typeof db.prepare !== 'function')
-    return { text: 'the memory database is closed', status: 'failed' };
-  const word = (key: string) => (typeof args[key] === 'string' ? args[key] : '');
-  const { accounts } = accountLinks(db, word('iface'), word('account'));
-  return { text: accounts.map((one) => `${one.iface} ${one.native}`).join('\n'), status: 'ok' };
-}
-
-/** `/memory bind` and `/memory unbind`: the one way accounts come to share a person. */
+/** `/memory bind`: accounts by their native words come to share a person, the persona or the owner. */
 async function personLinkCommand(
   memoryDb: unknown,
   runOp: ConsoleDeps['runOp'],
-  name: string,
   args: Record<string, unknown>
 ): Promise<Answer> {
   const word = (key: string) => (typeof args[key] === 'string' ? args[key] : '');
@@ -179,7 +167,7 @@ async function personLinkCommand(
       : named === 'owner'
         ? { owner: true }
         : { iface: named, native: word('targetAccount') };
-  if (name === 'memory.bind' && 'native' in target && target.native === '')
+  if ('native' in target && target.native === '')
     return {
       text: 'name the other account: bind <iface> <account> <iface> <account>, or self, or owner',
       status: 'invalid',
@@ -197,18 +185,15 @@ async function personLinkCommand(
     if (accountId === null || ('native' in target && other === null))
       return { text: 'she has not met that account yet; bind it after its first message', status: 'invalid' };
     const written = (await (callMethod(memoryDb, 'personLink', {
-      op: name === 'memory.bind' ? 'bind' : 'unbind',
+      op: 'bind',
       accountId,
       target: 'native' in target ? { accountId: other } : target,
     }) as Promise<unknown>)) as { person?: unknown } | null;
-    if (name === 'memory.bind' && 'owner' in target) {
+    if ('owner' in target) {
       const set = await runOp('config.set', { path: 'bot.ownerPerson', value: written?.person }, { asOwner: true });
       if (set.status !== 'ok') return { text: `the owner person was not set: ${set.summary}`, status: 'failed' };
     }
-    return {
-      text: `${word('iface')} ${word('account')}: ${name === 'memory.bind' ? 'bound' : 'unbound'}`,
-      status: 'ok',
-    };
+    return { text: `${word('iface')} ${word('account')}: bound`, status: 'ok' };
   } catch (err) {
     const code = (err as { code?: unknown }).code;
     return code === 'UNKNOWN_ACCOUNT'
@@ -691,21 +676,17 @@ export function createConsole(deps: ConsoleDeps): {
       },
     ],
     'routes.remove': (args) => ['route.remove', { model: args.model, role: anyRole(args.role) }],
-    'memory.profile': (args) => ['memory.profile.read', { accountId: args.user, section: args.section }],
     'memory.recent': () => ['memory.recent.read', {}],
-    'memory.affinity': (args) => ['memory.affinity.read', { accountId: args.user }],
     'memory.search': (args) => ['memory.search', { question: args.query }],
     'memory.restore': (args) => ['memory.restore', { itemId: args.id }],
     'memory.journal': (args) => ['memory.journal.read', args.day === undefined ? {} : { day: args.day }],
-    'memory.private': (args) => ['memory.private.read', { accountId: args.user }],
     'memory.archive': (args) => ['memory.archive.read', args.kind === undefined ? {} : { kind: args.kind }],
-    'memory.server': () => ['memory.server.read', {}],
-    'memory.lore.add': (args) => ['lore.add', { title: args.title, keys: args.keys, text: args.text }],
-    'memory.lore.list': (args) => ['lore.list', { query: args.query }],
-    'memory.lore.show': (args) => ['lore.show', { id: args.id }],
-    'memory.lore.remove': (args) => ['lore.remove', { id: args.id }],
-    'memory.aliases.add': (args) => ['alias.add', { accountId: args.user, name: args.name }],
-    'memory.aliases.remove': (args) => ['alias.remove', { accountId: args.user, name: args.name }],
+    'memory.places.lore.add': (args) => ['lore.add', { title: args.title, keys: args.keys, text: args.text }],
+    'memory.places.lore.list': (args) => ['lore.list', { query: args.query }],
+    'memory.places.lore.show': (args) => ['lore.show', { id: args.id }],
+    'memory.places.lore.remove': (args) => ['lore.remove', { id: args.id }],
+    'memory.users.names.add': (args) => ['alias.add', { accountId: args.user, name: args.name }],
+    'memory.users.names.remove': (args) => ['alias.remove', { accountId: args.user, name: args.name }],
     'memory.lessons.add': (args) => ['learning.add', { text: args.text }],
     'memory.lessons.remove': (args) => ['learning.remove', { id: Number(args.id) }],
     'rules.add': (args) => ['rule.add', { text: args.text }],
@@ -734,10 +715,6 @@ export function createConsole(deps: ConsoleDeps): {
         return memoryConversation(args);
       case 'memory.lessons.list':
         return ownerRead(name, args, () => deps.ownerReads.lessons(ownerContext(requester, args)));
-      case 'memory.aliases.list':
-        return ownerRead(name, args, () =>
-          deps.ownerReads.aliases({ accountId: args.user }, ownerContext(requester, args))
-        );
       case 'tools.list':
         return toolsList();
       case 'tools.grant':
@@ -768,6 +745,7 @@ export function createConsole(deps: ConsoleDeps): {
       if (deps.keys != null && (name.startsWith(KEYS_PREFIX) || (name === 'model.set' && deps.keys.enabled())))
         return deps.keys.run(name, args, dialog);
       if (name.startsWith('mirror.')) return mirrorCommand(deps.mirrors, name, args, requester);
+      if (isMemoryBrowserCommand(name)) return memoryBrowserCommand(deps, name, args, requester);
       const owned = ownCommand(deps, name, args, dialog);
       if (owned !== null) return owned;
       if (name.startsWith(SERVICE_PREFIX)) return serviceRun(deps, config, name, args);

@@ -78,6 +78,8 @@
 //     `memoryDb.backup.keep` backups and every other unfinished one are deleted. Never two at once. A failure is a
 //     warning (`memory db: backup failed`, the code), the status's `backup.lastFailure`, and one
 //     `onBackupFailure({ code, at })` per UTC day (her fact); it is tried again an hour later.
+//   - `inspection()` is the owner's port of snapshots over read-only connections of their own (inspection-snapshots.ts), null
+//     while the database is closed. Each tick closes the expired ones, and a close of the database ends them all.
 //   - `close()` waits for the jobs under way, writes the turn reads and the observations still waiting, closes the
 //     database and releases the lock. The waits are bounded by `memoryDb.closeTimeoutMs` (default 10000); then the
 //     worker is terminated.
@@ -107,6 +109,8 @@ import { channelPlaceId, nativeAuthorityOf } from './ids.ts';
 import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
 import { contextRow, issueContext as issuePureContext } from './scope.ts';
 import { linkedDmScopes } from './person-links.ts';
+import { createInspectionPort } from './inspection-snapshots.ts';
+import type { InspectionPort } from './inspection-snapshots.ts';
 import { privateByPerson, privateByPlace } from './private-read.ts';
 import type { PrivatePersonView, PrivatePlaceView } from './private-read.ts';
 import { recoverRequestArchive } from './request-archive.ts';
@@ -579,6 +583,8 @@ export type MemoryDbService = {
   issueContext(spec?: Parameters<typeof issuePureContext>[0]): Context;
   /** The owner's binding of an account to a person (person-links.ts). */
   personLink(update: Row): Promise<Row>;
+  /** The owner's snapshots of the whole database (inspection-snapshots.ts), null while it is closed. */
+  inspection(): InspectionPort | null;
   /** The private view of a person or a DM place (private-read.ts). Throws `DB_CLOSED` while memory is closed. */
   privateByPerson(personId: string, context: Context): PrivatePersonView;
   privateByPlace(placeId: string, context: Context): PrivatePlaceView;
@@ -709,6 +715,7 @@ export function createMemoryDb({
   const openDb = open ?? openMemoryDb;
   let handle: MemoryHandle | null = null;
   let engine: Engine | null = null;
+  let inspectionPort: InspectionPort | null = null;
   let openedAt: number | null = null;
   const pendingReads = new Set<ReadJob>();
   const writingReads = new Set<Promise<void>>();
@@ -797,6 +804,8 @@ export function createMemoryDb({
       }
     }
     const worker = engine;
+    inspectionPort?.closeAll();
+    inspectionPort = null;
     handle = null;
     engine = null;
     openedAt = null;
@@ -1460,9 +1469,22 @@ export function createMemoryDb({
   /** The read-only connection (`{ db }`) while the database is open, else null. */
   const readHandle = () => (handle !== null && !closed && !replaying ? handle : null);
 
+  /** The port over this open of the database: its connections are its own, and `closeNow` ends them. */
+  const inspection = (): InspectionPort | null => {
+    if (readHandle() === null || closing) return null;
+    inspectionPort ??= createInspectionPort({
+      dbPath: path.join(dataDir, settings().file),
+      now,
+      engineRevision: typeof commit === 'string' ? commit : engineCommit(),
+      log,
+    });
+    return inspectionPort;
+  };
+
   /** The tick: opens the database when it is not open, then runs the jobs that are due. Safe to call at any rate. */
   async function tick() {
     if (closing) return;
+    inspectionPort?.sweepExpired();
     if (engine?.dead) await closeNow(0);
     if (!handle) {
       try {
@@ -1728,6 +1750,7 @@ export function createMemoryDb({
     recordWake,
     issueContext,
     personLink: (update: Row) => write({ ...update, kind: 'person-link' }),
+    inspection,
     ...privateReads(() => dbOf(opened())),
     observe,
     ...messageWriters(observe),
