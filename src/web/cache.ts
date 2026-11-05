@@ -12,14 +12,38 @@ export function touchKey(cache: Record<string, unknown>, key: string, value: unk
   cache[key] = value;
 }
 
-/** The entries a place's media cache keeps. Production value, config cut of 2026-10-31. */
+/** The most characters of a link's read text a transcript shows. Production value, config cut of 2026-10-31. */
+export const LINK_EXCERPT_CHARS = 700;
+
+/** The entries of a place's media cache that nothing links are capped at this. Production value, config cut of 2026-10-31. */
 export const MEDIA_CACHE_ENTRIES = 5000;
 
-/** Drop the oldest entries once `cache` holds more than `maxEntries`. */
-export function trimCache(cache: Record<string, unknown>, maxEntries: number): void {
+/**
+ * Drop the oldest entries once `cache` holds more than `maxEntries`, the entries of `linked` aside: an attachment id or its
+ * video summary (`video:<id>`) that a stored line or a diary post links stays, however old. `linked` is asked only when
+ * something is to go, and with every entry linked the cache stays over the cap.
+ */
+export function trimCache(
+  cache: Record<string, unknown>,
+  maxEntries: number,
+  linked?: (() => ReadonlySet<string>) | null
+): void {
   const keys = Object.keys(cache);
-  const overflow = keys.length - Math.max(0, maxEntries);
-  for (let i = 0; i < overflow; i += 1) delete cache[keys[i]];
+  let overflow = keys.length - Math.max(0, maxEntries);
+  if (overflow <= 0) return;
+  let kept: ReadonlySet<string> | null;
+  try {
+    kept = linked?.() ?? null;
+  } catch {
+    // The links cannot be read now, so nothing can be told apart: the entries wait for the next trim.
+    return;
+  }
+  for (const key of keys) {
+    if (overflow === 0) break;
+    if (kept?.has(key.replace(/^video:/, ''))) continue;
+    delete cache[key];
+    overflow -= 1;
+  }
 }
 
 /**

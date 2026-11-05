@@ -9,11 +9,13 @@
 // (src/llm/tool-text.ts). A leftover `<call>`, draw or `<gif>` tag (her history still holds some; a picture is the `draw.create` tool, a GIF the media pick's) is cut
 // out wherever it stands outside code, never run, and told as a `retiredTag` diagnostic.
 // `<audience>`, a diary post's alone, is taken out before this parser runs (`takeAudience`, src/turn/phases/response.ts).
-// The parser is forgiving: a missing tag wrapper falls back to a single plain
-// message (`untagged`), an unterminated <think> (output cut by max_tokens) means
-// silence (`thinkOpen`, its text so far kept in `think` for the journal). It also accounts for
+// The parser is forgiving about everything but her thinking: a missing tag wrapper falls back to a single plain
+// message (`untagged`). An answer whose `<think>` is broken has no action at all and names its shape in `thinkLeak`:
+// `unclosed` (a think left open, `thinkOpen`, its text so far kept in `think` for the journal) or `unopened` (a closing
+// tag with no opening). A spelling of the tag other than plain `<think>` and `</think>` counts as broken, wherever it
+// stands, so no think tag is ever in a message that comes out. The parser never repairs such an answer. It also accounts for
 // what it did not use: `diagnostics`, one `{ kind, ... }` per thing it dropped, cut or joined
-// (`retiredTag` with its `tag`, `msgMalformed` with its counts, `messagesMerged`, `thinkUnclosed`), so the
+// (`retiredTag` with its `tag`, `msgMalformed` with its counts, `messagesMerged`, `thinkUnclosed`, `thinkUnopened`), so the
 // caller can tell the persona what happened to her output (src/behavior/turn.ts).
 
 import type { LimitsSink } from './limits.ts';
@@ -164,7 +166,11 @@ export type Diagnostic =
   | { kind: 'retiredTag'; tag: string }
   | { kind: 'msgMalformed'; nested: number; unclosed: number; stray: number }
   | { kind: 'messagesMerged'; count: number }
-  | { kind: 'thinkUnclosed' };
+  | { kind: 'thinkUnclosed' }
+  | { kind: 'thinkUnopened' };
+
+/** The shape of a broken `<think>`: a closing tag with no opening, or an opening never closed. */
+export type ThinkLeak = 'unopened' | 'unclosed';
 
 /** The actions the model's tagged output holds. */
 export type ParsedOutput = {
@@ -174,9 +180,60 @@ export type ParsedOutput = {
   untargetedReactions: Array<{ emoji: string }>;
   think: string;
   thinkOpen: boolean;
+  thinkLeak: ThinkLeak | null;
   untagged: boolean;
   diagnostics: Array<Diagnostic>;
 };
+
+/** Any spelling of a think tag, opening or closing. */
+const THINK_TAG_RE = /<\s*(\/?)\s*think\b/i;
+/** One whole think, the one spelling an answer's own thinking has. */
+const WHOLE_THINK_RE = /<think>([\s\S]*?)<\/think>/gi;
+
+/** Whether `text` holds a think tag in any spelling. Outgoing text never may. */
+export function hasThinkTag(text: string): boolean {
+  return THINK_TAG_RE.test(text);
+}
+
+/** The shape of the broken think of a tag left over once the whole thinks are out, or null. */
+function leakOfLeftover(leftover: string): ThinkLeak | null {
+  const tag = THINK_TAG_RE.exec(leftover);
+  if (tag === null) return null;
+  return tag[1] === '/' ? 'unopened' : 'unclosed';
+}
+
+/** The shape of the broken `<think>` of an answer, null for a whole one or an answer with none. */
+export function thinkLeakOf(raw: string): ThinkLeak | null {
+  return leakOfLeftover(raw.replace(WHOLE_THINK_RE, ''));
+}
+
+/**
+ * An answer in the shape every stored reply has: text with no think tag at all gets an empty `<think></think>` in front.
+ * An answer with no text and an answer that holds any think tag, a broken one too, stay as they are.
+ */
+export function shapedThink(raw: string): string {
+  if (raw.trim() === '' || hasThinkTag(raw)) return raw;
+  return `<think></think>${raw}`;
+}
+
+/** Whether `leftover`, the text with its whole thinks out, holds a think tag: `result` then says so and has no action. */
+function markThinkLeak(result: ParsedOutput, leftover: string): boolean {
+  result.thinkLeak = leakOfLeftover(leftover);
+  if (result.thinkLeak === null) return false;
+  result.skip = true;
+  if (result.thinkLeak === 'unopened') {
+    result.diagnostics.push({ kind: 'thinkUnopened' });
+    return true;
+  }
+  const sofar = leftover
+    .slice(THINK_TAG_RE.exec(leftover)?.index ?? 0)
+    .replace(/^[^>]*>?/, '')
+    .trim();
+  result.think = [result.think, sofar].filter(Boolean).join('\n');
+  result.thinkOpen = true;
+  result.diagnostics.push({ kind: 'thinkUnclosed' });
+  return true;
+}
 
 /**
  * The model's tagged output as actions. A picture is never read from the text: the draw tag is a
@@ -190,8 +247,9 @@ export type ParsedOutput = {
  * @returns `diagnostics`: what the parser did not use, in order -- `{ kind: 'retiredTag', tag: 'call'|'draw'|'gif' }`
  *   (a retired tag written outside code, cut out), at most one
  *   `{ kind: 'msgMalformed', nested, unclosed, stray }` (message tags out of place, counts only),
- *   `{ kind: 'messagesMerged', count }`, `{ kind: 'thinkUnclosed' }`. `thinkOpen`: a `<think>` was never
- *   closed -- silence, with what it held so far appended to `think`. `untagged`: the one message is the
+ *   `{ kind: 'messagesMerged', count }`, `{ kind: 'thinkUnclosed' }`, `{ kind: 'thinkUnopened' }`. `thinkLeak`: the shape of a
+ *   broken think, whose answer has no action. `thinkOpen`: a `<think>` was never
+ *   closed, with what it held so far appended to `think`. `untagged`: the one message is the
  *   plain text of an answer with no tag (the fallback), not a `<msg>`.
  */
 export function parseOutput(
@@ -205,24 +263,17 @@ export function parseOutput(
     untargetedReactions: [],
     think: '',
     thinkOpen: false,
+    thinkLeak: null,
     untagged: false,
     diagnostics: [],
   };
   let text = String(raw ?? '');
 
-  text = text.replace(/<think>([\s\S]*?)<\/think>/gi, (all, inner) => {
+  text = text.replace(WHOLE_THINK_RE, (all, inner) => {
     result.think += inner.trim();
     return '';
   });
-  const open = /<think>([\s\S]*)$/i.exec(text);
-  if (open) {
-    const sofar = open[1].trim();
-    result.think = [result.think, sofar].filter(Boolean).join('\n');
-    result.thinkOpen = true;
-    result.skip = true;
-    result.diagnostics.push({ kind: 'thinkUnclosed' });
-    return result;
-  }
+  if (markThinkLeak(result, text)) return result;
 
   // The retired tags come out first: never a message, never run.
   text = withoutRetiredTags(text, RETIRED_TAGS, result.diagnostics);

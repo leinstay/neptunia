@@ -6,7 +6,8 @@
 // picture at once (a message prefill and a turn) share one download and one
 // request. Results are cached per
 // attachment/embed id in data/places/<id>/media.json (src/memory/store.ts),
-// LRU-trimmed to `MEDIA_CACHE_ENTRIES` (src/web/cache.ts). A failure is cached as a miss for an
+// LRU-trimmed to `MEDIA_CACHE_ENTRIES` (src/web/cache.ts), what a stored line or diary post links
+// never trimmed. A failure is cached as a miss for an
 // hour, so a broken picture is not retried on every turn/batch -- except a
 // refusal by `llm.maxRequestsPerDay`, which says nothing about the picture.
 // Once that cap is spent (llm.capLeft) nothing is downloaded
@@ -113,6 +114,12 @@
 // tried again for the miss TTL (an hour; `media.video.errorRetryMinutes` for
 // a video); a refusal by the daily cap only serves the
 // old text. A stale watched GIF is never replaced by a one-frame caption.
+//
+// The English standard (docs/prompt-contract.md). A caption, a GIF watch or a video summary whose letters are mostly of
+// another script outside quotes (src/memory/text-standard.ts) is described again once. The second answer stands and the
+// entry says `redescribed`. A second answer that fails the standard too is kept and the entry also says `offScript`, and a
+// first answer is kept the same way, with `offScript`, when the second request fails. Nothing is dropped, cut or edited for
+// this, and a second look's answer is outside it.
 
 import { isRecord, propOf, isFiniteNumber } from './types.ts';
 import { watchedLengths } from '../media/classify.ts';
@@ -134,6 +141,7 @@ import { log } from '../log.ts';
 import { MINUTE_MS, utcDay } from '../time.ts';
 import { MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from '../web/cache.ts';
 import { normalizeQuery } from '../web/lookup.ts';
+import { isOffScript } from './text-standard.ts';
 import type { StoredRecord, Untyped } from './types.ts';
 import type { StoreView } from './store.ts';
 import type { Track } from '../loop-watch.ts';
@@ -141,6 +149,8 @@ import { untracked } from '../loop-watch.ts';
 import { isMediaDescriptionEntry } from './db/export.ts';
 
 const MISS_TTL_MS = 60 * MINUTE_MS;
+/** What a store with no database links. */
+const NO_LINKS: ReadonlySet<string> = new Set();
 // Only when media.video.errorRetryMinutes is missing or invalid (config.json always has it).
 const VIDEO_ERROR_RETRY_MINUTES_FALLBACK = 60;
 // The describer's measures. Production values, config cut of 2026-10-31.
@@ -315,6 +325,36 @@ function pictureImageUrl(item: MediaItem) {
   return item.previewUrl ?? item.url;
 }
 
+/** What the model client answers a description's request. */
+type Answered = { text?: unknown; usage?: unknown; estimated?: number };
+
+/** What an entry says of the English standard (src/memory/text-standard.ts). */
+type StandardMarks = { redescribed?: true; offScript?: true };
+
+/**
+ * An answer brought to the English standard: `first` when `textOf` it is on script, else what `again` answers. A second answer
+ * that fails the standard too stands marked, and when `again` fails or answers nothing `first` stands marked. Asks once more at
+ * most, and never throws for the second request.
+ */
+async function toStandard<TAnswer>(
+  first: TAnswer,
+  textOf: (answer: TAnswer) => string,
+  again: () => Promise<TAnswer | null>
+): Promise<{ answer: TAnswer; marks: StandardMarks }> {
+  if (!isOffScript(textOf(first))) return { answer: first, marks: {} };
+  let second: TAnswer | null = null;
+  try {
+    second = await again();
+  } catch (err) {
+    log.warn('describe: off script', { reason: requestFailureReason(err) });
+  }
+  if (second === null) return { answer: first, marks: { offScript: true } };
+  return {
+    answer: second,
+    marks: isOffScript(textOf(second)) ? { redescribed: true, offScript: true } : { redescribed: true },
+  };
+}
+
 /** ≤200 chars, with any query string stripped -- an error message must never leak a signed URL. */
 function safeDetail(message: Untyped) {
   return String(message ?? '')
@@ -444,7 +484,12 @@ type DescribeManyOptions = { maxNew?: number; concurrency?: number; onCharge?: (
 type DescriberDeps = {
   hot: { readonly config: Untyped; readonly prompts: Untyped };
   store: Pick<StoreView, 'getMediaCache' | 'markMediaCacheDirty' | 'state'> &
-    Partial<Pick<StoreView, 'getMediaDescription' | 'rememberMediaDescription' | 'markMediaDescriptionRefreshFailed'>>;
+    Partial<
+      Pick<
+        StoreView,
+        'getMediaDescription' | 'rememberMediaDescription' | 'markMediaDescriptionRefreshFailed' | 'linkedMediaKeys'
+      >
+    >;
   llm: Untyped;
   now?: () => number;
   imageFetcher?: Untyped;
@@ -513,7 +558,7 @@ function mediaCacheAccess({ store, hot, now }: Pick<DescriberDeps, 'store' | 'ho
     const saved = store.getMediaDescription?.(placeId, key);
     if (!saved) return undefined;
     touchKey(cache, key, saved);
-    trimCache(cache, MEDIA_CACHE_ENTRIES);
+    trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? NO_LINKS);
     store.markMediaCacheDirty(placeId);
     return saved;
   }
@@ -694,7 +739,7 @@ function buildDescriber({
       if (previous) return keepPrevious(mark);
       if (mark) {
         touchKey(cache, item.itemId, { miss: true, ts: now() });
-        trimCache(cache, MEDIA_CACHE_ENTRIES);
+        trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? NO_LINKS);
         store.markMediaCacheDirty(placeId);
       }
       return null;
@@ -711,9 +756,8 @@ function buildDescriber({
     }
 
     const model = roleModel(hot.config, 'vision', 'describe');
-    let completion;
-    try {
-      completion = await llm.complete(
+    const ask = (): Promise<Answered> =>
+      llm.complete(
         [
           {
             role: 'system',
@@ -732,7 +776,10 @@ function buildDescriber({
             purpose: 'describe',
           }),
         }
-      );
+      ) as Promise<Answered>;
+    let completion: Answered;
+    try {
+      completion = await ask();
     } catch (err) {
       const reason = requestFailureReason(err);
       log.warn('describe: failed', {
@@ -746,27 +793,41 @@ function buildDescriber({
     }
 
     // First line only, hard-capped on a word boundary (never mid-token).
-    const firstLine = String(completion.text ?? '')
-      .trim()
-      .split('\n')[0];
-    const text = clampText(firstLine, descriptionChars, { tolerance: 1 });
+    const captionOf = (answered: Answered): string =>
+      clampText((typeof answered.text === 'string' ? answered.text : '').trim().split('\n')[0], descriptionChars, {
+        tolerance: 1,
+      });
+    const firstCaption = captionOf(completion);
 
-    if (!text) {
+    if (!firstCaption) {
       log.warn('describe: failed', { kind: item.kind, reason: 'empty' });
       return fail();
     }
 
+    let estimated = completion.estimated ?? 0;
+    const standard = await toStandard(
+      { text: firstCaption, usage: completion.usage },
+      (answer) => answer.text,
+      async () => {
+        const again = await ask();
+        estimated += again.estimated ?? 0;
+        const caption = captionOf(again);
+        return caption ? { text: caption, usage: again.usage } : null;
+      }
+    );
+    const { text } = standard.answer;
+
     // A GIF's one-frame caption is marked (`gif`) so the recache can find it
     // (src/memory/gif-recache.ts), and `watchFailed` when a watch was tried.
     const ts = now();
-    const entry: Record<string, Untyped> = { text, ts, describedAt: ts, model };
+    const entry: Record<string, Untyped> = { text, ts, describedAt: ts, model, ...standard.marks };
     if (item.kind === 'gif') entry.gif = true;
     if (watchFailed) entry.watchFailed = entry.ts;
     if (isMediaDescriptionEntry(entry)) store.rememberMediaDescription?.(placeId, item.itemId, entry);
     touchKey(cache, item.itemId, entry);
-    trimCache(cache, MEDIA_CACHE_ENTRIES);
+    trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? NO_LINKS);
     store.markMediaCacheDirty(placeId);
-    return { text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
+    return { text, usage: standard.answer.usage ?? null, estimated };
   }
 
   /**
@@ -824,24 +885,38 @@ function buildDescriber({
     const { clip } = fetched;
     const sizes = { seconds: clip.seconds, bytes: fetched.bytes };
     const options = videoRequestOptions(videoCfg, clip, { maxOutputTokens: videoCfg.maxOutputTokens });
-    let completion;
-    try {
-      completion = await llm.complete(
+    const ask = (): Promise<Answered> =>
+      llm.complete(
         [
           { role: 'system', content: gifSystemPrompt(descriptionChars, maxSeconds) },
           { role: 'user', content: [videoPart(videoCfg, clip)] },
         ],
         options
-      );
+      ) as Promise<Answered>;
+    let completion: Answered;
+    try {
+      completion = await ask();
     } catch (err) {
       const reason = requestFailureReason(err);
       if (reason === 'daily-cap') return report({ state: 'unavailable', reason }, sizes);
       return report({ state: 'failed', reason }, { ...sizes, status: propOf(err, 'statusCode') });
     }
 
-    const fields = parseGifDescription(completion.text, { descriptionChars });
-    if (!fields) return report({ state: 'failed', reason: 'empty' }, sizes);
-    const { text, reaction, action, screen } = fields;
+    const firstFields = parseGifDescription(completion.text, { descriptionChars });
+    if (!firstFields) return report({ state: 'failed', reason: 'empty' }, sizes);
+    let estimated = completion.estimated ?? 0;
+    // The on-screen text stays out of the check: it is quoted in its own script.
+    const standard = await toStandard(
+      { fields: firstFields, usage: completion.usage },
+      (answer) => `${answer.fields.reaction} ${answer.fields.action}`,
+      async () => {
+        const again = await ask();
+        estimated += again.estimated ?? 0;
+        const parsed = parseGifDescription(again.text, { descriptionChars });
+        return parsed ? { fields: parsed, usage: again.usage } : null;
+      }
+    );
+    const { text, reaction, action, screen } = standard.answer.fields;
     const ts = now();
     putVideoEntry(
       placeId,
@@ -856,11 +931,12 @@ function buildDescriber({
         gif: true,
         describedAt: ts,
         model: options.model,
+        ...standard.marks,
       },
       true
     );
     report({ state: 'watched' }, sizes);
-    return { state: 'watched', text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
+    return { state: 'watched', text, usage: standard.answer.usage ?? null, estimated };
   }
 
   /**
@@ -1061,7 +1137,7 @@ function buildDescriber({
     if (generated && isMediaDescriptionEntry(value)) store.rememberMediaDescription?.(placeId, key, value);
     const cache = store.getMediaCache(placeId);
     touchKey(cache, key, value);
-    trimCache(cache, MEDIA_CACHE_ENTRIES);
+    trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? NO_LINKS);
     store.markMediaCacheDirty(placeId);
   }
 
@@ -1311,9 +1387,8 @@ function buildDescriber({
 
     const sizes = { seconds: media.seconds ?? null, bytes: media.bytes ?? null, audio: media.audio?.kind ?? null };
     const options = videoRequestOptions(videoCfg, media, { maxOutputTokens: videoCfg.maxOutputTokens });
-    let completion;
-    try {
-      completion = await llm.complete(
+    const ask = (): Promise<Answered> =>
+      llm.complete(
         [
           {
             role: 'system',
@@ -1325,7 +1400,10 @@ function buildDescriber({
           { role: 'user', content: [videoPart(videoCfg, media)] },
         ],
         options
-      );
+      ) as Promise<Answered>;
+    let completion: Answered;
+    try {
+      completion = await ask();
     } catch (err) {
       const reason = requestFailureReason(err);
       if (reason === 'daily-cap') {
@@ -1339,11 +1417,30 @@ function buildDescriber({
       };
     }
 
-    const text = cleanVideoText(completion.text, summaryChars);
-    if (!text) return { result: errorMiss('empty', sizes), sent: true, attempted: true };
+    const firstSummary = cleanVideoText(completion.text, summaryChars);
+    if (!firstSummary) return { result: errorMiss('empty', sizes), sent: true, attempted: true };
 
+    let estimated = completion.estimated ?? 0;
+    const standard = await toStandard(
+      { text: firstSummary, usage: completion.usage },
+      (answer) => answer.text,
+      async () => {
+        const again = await ask();
+        estimated += again.estimated ?? 0;
+        const summary = cleanVideoText(again.text, summaryChars);
+        return summary ? { text: summary, usage: again.usage } : null;
+      }
+    );
+    const { text } = standard.answer;
     const ts = now();
-    const entry: Record<string, Untyped> = { text, ts, watched: true, describedAt: ts, model: options.model };
+    const entry: Record<string, Untyped> = {
+      text,
+      ts,
+      watched: true,
+      describedAt: ts,
+      model: options.model,
+      ...standard.marks,
+    };
     // How much of the video the summary saw: a downloaded clip is cut to
     // maxSeconds; a public URL is opened whole by the provider.
     if (!media.pinned && typeof media.seconds === 'number' && isFiniteNumber(media.seconds)) {
@@ -1351,7 +1448,7 @@ function buildDescriber({
       if (typeof media.totalSeconds === 'number') entry.totalSeconds = media.totalSeconds;
     }
     putVideoEntry(placeId, key, entry, true);
-    const result = { state: 'watched', text, usage: completion.usage ?? null, estimated: completion.estimated ?? 0 };
+    const result = { state: 'watched', text, usage: standard.answer.usage ?? null, estimated };
     Object.assign(result, watchedLengths(entry));
     report(result, sizes);
     return { result, sent: true, attempted: true };

@@ -468,6 +468,7 @@ export const labels = {
         'loop-cap': 'call not run: step limit',
         'malformed-call': 'call unreadable',
         'truncated-call': 'call cut off',
+        'think-in-text': 'a think tag in the text, nothing sent',
         'diary-draw-only': 'a diary post takes only draw.create',
         'diary-mirror': 'the diary\'s mirror',
         other: 'other failure',
@@ -485,6 +486,8 @@ export const labels = {
       messageCut: 'message cut by {chars}',
       messagesMerged: '{count} messages joined',
       thinkUnclosed: 'think never closed',
+      thinkUnopened: 'think closed, never opened',
+      thinkLeaked: 'two answers with a broken think, none sent',
     },
     toolsText: { lead: 'your tools, one JSON line each:', protocol: 'write a call as <tool_call>{json}</tool_call> after your thinking' },
     refusals: {

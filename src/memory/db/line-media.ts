@@ -44,6 +44,23 @@ export function sourceAttachmentIds(extra: Row): ReadonlyArray<unknown> {
   return Array.isArray(ids) ? (ids as ReadonlyArray<unknown>) : [];
 }
 
+/**
+ * The attachment ids live stored rows link: the ones a live line keeps in its `extra`, and the ones a live diary post's picture
+ * names in its `native_ref`. A media row of such an id is never trimmed from the media cache.
+ */
+export function linkedAttachmentIds(db: Db): Set<string> {
+  const rows = db
+    .prepare(
+      `SELECT j.value AS id FROM sources s, json_each(s.extra, '$.extra.attachmentIds') j
+       WHERE s.retired_at IS NULL AND s.extra LIKE '%attachmentIds%' AND json_valid(s.extra)
+       UNION
+       SELECT json_extract(native_ref, '$.attachmentId') FROM media
+       WHERE kind = 'diary' AND retired_at IS NULL AND json_valid(native_ref)`
+    )
+    .all();
+  return new Set(rows.flatMap((row) => (filled(row.id) ? [row.id] : [])));
+}
+
 /** The description of one attachment: its live `media` row, then the durable one under the root of `placeId`. */
 function describedAttachment(
   db: Db,

@@ -1,3 +1,4 @@
+// health: allow file-length until 2027-04-01 -- the standard counts widened two assertions; this file splits with the turn runner
 import {
   SPLIT_SYSTEM,
   SPLIT_TEXT,
@@ -6867,7 +6868,19 @@ test('turn: writes turn.start and turn records when the journal is on', async ()
   assert.equal(turn.attemptId, 1);
   assert.equal(turn.outcome, 'spoke');
   assert.equal(turn.reason, null);
-  assert.deepEqual(turn.format, { thinkMissing: 0, coerced: 0, malformed: 0, truncated: 0, capped: 0, held: 0 });
+  // Stage U adds the standard's counts, and this think is in Greek.
+  assert.deepEqual(turn.format, {
+    thinkMissing: 0,
+    coerced: 0,
+    malformed: 0,
+    truncated: 0,
+    thinkLeaked: 0,
+    leakEnded: 0,
+    tagInOutgoing: 0,
+    thinkOffScript: 1,
+    capped: 0,
+    held: 0,
+  });
   assert.equal(turn.steps, 0);
   assert.deepEqual(turn.seen, { messageIds: ['m0', 'm1'], parents: [], parts: { filePreviews: [] }, pulled: [] });
   assert.deepEqual(turn.sourceMessageIds, ['m0', 'm1']);
@@ -8203,7 +8216,8 @@ test("skill call: the next request shows a read's data as its tool message, a me
     'it came after the first request; the message itself is not rebuilt'
   );
   const [assistant, tool, note] = run.llm.calls[1].slice(2);
-  assert.equal(assistant.content, '<msg>κοιτάζω</msg>');
+  // Stage U: a reply with no think is handed on with an empty one.
+  assert.equal(assistant.content, '<think></think><msg>κοιτάζω</msg>');
   assert.ok(contentOf(tool).startsWith(labels.tools.result.ok), contentOf(tool));
   const noteText = contentOf(note);
   assert.ok(noteText.includes(labels.task.step.held), noteText);

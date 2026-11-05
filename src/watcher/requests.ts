@@ -355,6 +355,48 @@ export function selfreflectionFacts(db: Db): SelfreflectionFacts {
   return { lastEntryId: text(entry?.id), lastEntryAt: isoOrNull(entry?.at_ms), queued, failed, uncertain };
 }
 
+/** What the turns and the describer recorded of the output standards in a window, counts only. */
+export type StandardFacts = {
+  thinkMissing: number;
+  thinkLeaked: number;
+  leakEnded: number;
+  tagInOutgoing: number;
+  thinkOffScript: number;
+  descriptionsRedescribed: number;
+  descriptionsMarked: number;
+};
+
+/**
+ * The counts of the output standards (docs/prompt-contract.md) in (`from`, `to`], summed from each turn's `format` on its `day`
+ * row and from the marks on the media descriptions written in the window. Holds no word of a think or a description.
+ */
+export function standardFacts(db: Db, window: { from: number; to: number }): StandardFacts {
+  const span = [iso(window.from), iso(window.to)];
+  const sum = (name: string): string => `COALESCE(SUM(json_extract(extra, '$.format.${name}')), 0) AS ${name}`;
+  const turns = db
+    .prepare(
+      `SELECT ${['thinkMissing', 'thinkLeaked', 'leakEnded', 'tagInOutgoing', 'thinkOffScript'].map(sum).join(', ')}
+       FROM day WHERE what = 'turn' AND json_valid(extra) AND at > ? AND at <= ?`
+    )
+    .get(...span);
+  const described = db
+    .prepare(
+      `SELECT COALESCE(SUM(json_extract(extra, '$.entry.redescribed') = 1), 0) AS redescribed,
+         COALESCE(SUM(json_extract(extra, '$.entry.offScript') = 1), 0) AS marked
+       FROM description_versions WHERE origin = 'media' AND json_valid(extra) AND written_at > ? AND written_at <= ?`
+    )
+    .get(...span);
+  return {
+    thinkMissing: Number(turns?.thinkMissing ?? 0),
+    thinkLeaked: Number(turns?.thinkLeaked ?? 0),
+    leakEnded: Number(turns?.leakEnded ?? 0),
+    tagInOutgoing: Number(turns?.tagInOutgoing ?? 0),
+    thinkOffScript: Number(turns?.thinkOffScript ?? 0),
+    descriptionsRedescribed: Number(described?.redescribed ?? 0),
+    descriptionsMarked: Number(described?.marked ?? 0),
+  };
+}
+
 export type MainCi = { branch: 'main'; runs: Array<Record<string, unknown>>; unavailable: string | null };
 
 const CI_FIELDS = 'headBranch,conclusion,status,name,headSha,createdAt';

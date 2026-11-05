@@ -23,6 +23,8 @@ The request builder combines that context with the persona's prompts. The model 
 
 A line of the owner's CLI reaches the door when it arrives, as on any interface, and `src/turn/control.ts` tracks only what its client shows. The runner reads a cancel signal only for such a line (`cancelOf`, `src/behavior/turn.ts`), and it ends `cancelled` with nothing out. [CLI](cli.md#turns-the-queue-and-cancelling) explains the queue.
 
+An answer whose `<think>` is broken is never sent: the same request runs once more, and a second such answer ends the turn with the outcome `skip` and the reason `think-leaked`. [The prompt contract](prompt-contract.md#standards-of-output-and-stored-text) holds the standards of her output and of stored text.
+
 A heartbeat or completed errand can also cause a turn. It uses the same persona and memory rather than a separate conversational agent. [Inner life](inner-life.md) explains those triggers.
 
 ## The door
