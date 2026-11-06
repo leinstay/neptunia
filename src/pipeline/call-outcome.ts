@@ -89,7 +89,8 @@ export function createCallOutcome({ hot, reads, refOf, port }: CallOutcomeContex
   async function heldCallState(channel: Conv, messageId: string): Promise<HeldState> {
     const found = await reads.fetchMessages(refOf(channel), [messageId]);
     if (found === null) return 'error';
-    return found.messages[0]?.missing === true || found.messages.length === 0 ? 'gone' : true;
+    const { messages } = found;
+    return messages[0]?.missing === true || messages.length === 0 ? 'gone' : true;
   }
 
   return { notifyLimit, announceRefusal, afterCallTurn, heldCallState };

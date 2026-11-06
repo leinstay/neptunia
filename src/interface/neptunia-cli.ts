@@ -129,7 +129,8 @@ function interfacesLine(rows: ReadonlyArray<InterfaceRow>): string {
 export function statusText(facts: StatusFacts): string {
   const { spend } = facts;
   const intentions = facts.intentions;
-  const latest = facts.errands.latest.map((errand) => `${errand.id} ${errand.agent} ${errand.state}`).join(', ');
+  const { errands } = facts;
+  const latest = errands.latest.map((errand) => `${errand.id} ${errand.agent} ${errand.state}`).join(', ');
   return [
     facts.paused === null
       ? 'running'
@@ -142,7 +143,7 @@ export function statusText(facts: StatusFacts): string {
     intentions === null
       ? 'intentions: off'
       : `intentions: ${intentions.pending} pending, ${intentions.waiting} waiting`,
-    `errands: ${facts.errands.open} open${latest === '' ? '' : `; latest ${latest}`}`,
+    `errands: ${errands.open} open${latest === '' ? '' : `; latest ${latest}`}`,
     `slept wakes since the start: ${facts.slept}`,
   ].join('\n');
 }
@@ -192,9 +193,9 @@ export function createCommandDesk(deps: CommandDeps): {
       deps.interfaces.enable(target);
       return { text: `${target} is enabled.`, status: 'ok' };
     }
-    const drained = await deps.interfaces.disable(target);
+    const disabled = await deps.interfaces.disable(target);
     return {
-      text: `${target} is disabled: ${drained.drained} actions finished, ${drained.unknown} ended unknown.`,
+      text: `${target} is disabled: ${disabled.drained} actions finished, ${disabled.unknown} ended unknown.`,
       status: 'ok',
     };
   }

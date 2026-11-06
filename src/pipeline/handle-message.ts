@@ -132,7 +132,8 @@ export function createHandleMessage({
       // 1a. Paused (/nep pause): no trigger, no turn, nothing marks the store dirty. A live line is observed
       // into the memory database and the core holds it for the resume, which hands it back through the catch-up path
       // (core-pause.ts), so it is not noted as live; a direct call also gets the pause notice (maybePauseNotice).
-      if (store?.state?.data?.paused) {
+      const stateData = store?.state?.data;
+      if (stateData?.paused) {
         if (!catchUp)
           await Promise.all([maybePauseNotice(event), observeWhilePaused(event, pausedDeps, options?.acceptedEvent)]);
         return 'ignored';
@@ -171,8 +172,8 @@ export function createHandleMessage({
 
       // 3c. When this author last wrote in this channel, for a turn that waits until the person
       // it answers stops writing (pace.settleMs). The persona's own messages never count.
-      if (event.message.author.id !== selfIdOf())
-        activity?.note(event.conversation.id, event.message.author.id, event.message.at);
+      const { author } = event.message;
+      if (author.id !== selfIdOf()) activity?.note(event.conversation.id, author.id, event.message.at);
       // Any message, hers included, pushes back a missed-answer sweep armed here (src/behavior/missed.ts).
       missed?.noteActivity(event.conversation.id, event.message.at, event.iface);
 
@@ -199,7 +200,7 @@ export function createHandleMessage({
       }
 
       // 6. Other bots are never answered, never memorised.
-      if (event.message.author.bot) return 'ignored';
+      if (author.bot) return 'ignored';
 
       // 6b. A line soon after the persona's own one here joins her participation episode.
       noteFollowingLine(placeId, normalized);

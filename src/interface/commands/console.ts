@@ -680,9 +680,9 @@ export function createConsole(deps: ConsoleDeps): {
 
   function configGet(name: string, args: Record<string, unknown>): Answer {
     const settings = config();
-    const found = ownValueAt(settings, splitPath(text(args.path), settings));
-    if (!found.found) return refused(name, args, 'no such setting');
-    return { text: JSON.stringify(found.value, null, 2) ?? 'null', status: 'ok' };
+    const setting = ownValueAt(settings, splitPath(text(args.path), settings));
+    if (!setting.found) return refused(name, args, 'no such setting');
+    return { text: JSON.stringify(setting.value, null, 2) ?? 'null', status: 'ok' };
   }
 
   /** The owner's backup: on its own thread, because it copies the whole data folder (backup.ts). */

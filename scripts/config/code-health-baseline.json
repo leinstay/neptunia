@@ -64,22 +64,6 @@
       "deep": 0,
       "repeated": 1
     },
-    "src/interface/chat-turns.ts": {
-      "deep": 0,
-      "repeated": 2
-    },
-    "src/interface/commands/console.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
-    "src/interface/commands/skills.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/interface/neptunia-cli.ts": {
-      "deep": 1,
-      "repeated": 1
-    },
     "src/keys/commands.ts": {
       "deep": 0,
       "repeated": 1
@@ -91,54 +75,6 @@
     "src/media/video-sites.ts": {
       "deep": 1,
       "repeated": 0
-    },
-    "src/pipeline/address-attention.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/pipeline/answer.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/pipeline/call-outcome.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/pipeline/conversations.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/pipeline/drain.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/pipeline/edits.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/pipeline/handle-message.ts": {
-      "deep": 4,
-      "repeated": 0
-    },
-    "src/pipeline/media-prefill.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/pipeline/merge.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/protocol/reads.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
-    "src/protocol/serve.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
-    "src/protocol/validate.ts": {
-      "deep": 0,
-      "repeated": 2
     },
     "src/selfimprovement/landed.ts": {
       "deep": 1,

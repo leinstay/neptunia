@@ -40,7 +40,7 @@ const textOf = (value: unknown): string => (typeof value === 'string' ? value : 
 type TrackedLine = {
   id: string;
   turnId: string | null;
-  abort: AbortController;
+  controller: AbortController;
   hasStarted: boolean;
   outcome: TurnOutcome | null;
   settled: ((outcome: TurnOutcome) => void) | null;
@@ -153,7 +153,7 @@ export function createChatTurns({
   async function waitForLine(turn: TurnRun, signal: AbortSignal): Promise<TurnOutcome> {
     const line = lines.get(turn.requestId);
     if (line === undefined) return { status: 'failed', code: 'line-lost' };
-    signal.addEventListener('abort', () => line.abort.abort(), { once: true });
+    signal.addEventListener('abort', () => line.controller.abort(), { once: true });
     if (line.outcome !== null) return line.outcome;
     watch(line);
     return new Promise<TurnOutcome>((resolve) => {
@@ -187,7 +187,7 @@ export function createChatTurns({
 
   /** What the control says of a cancel or a removal, with the line's own turn taken back when the line still waits. */
   function takeBack(turnId: string, status: string): Answer {
-    if (status === 'cancelled' || status === 'ok') lineOfTurn(turnId)?.abort.abort();
+    if (status === 'cancelled' || status === 'ok') lineOfTurn(turnId)?.controller.abort();
     return { text: status, status: 'ok' };
   }
 
@@ -197,7 +197,7 @@ export function createChatTurns({
       const line: TrackedLine = {
         id,
         turnId: null,
-        abort: new AbortController(),
+        controller: new AbortController(),
         hasStarted: false,
         outcome: null,
         settled: null,
@@ -244,7 +244,7 @@ export function createChatTurns({
       if (line === undefined) return null;
       line.hasStarted = true;
       endEarlierThan(line);
-      return line.abort.signal;
+      return line.controller.signal;
     },
     noteProgress(triggerId, step) {
       const turnId = triggerId === null ? null : (lines.get(triggerId)?.turnId ?? null);

@@ -117,7 +117,8 @@ export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillConte
       media.descriptions = describer.cachedDescriptions(placeId, describableItems(messages));
     }
     if (typeof describer.cachedVideos === 'function') {
-      const sites = config.media?.video?.sites;
+      const video = config.media?.video;
+      const sites = video?.sites;
       const items = messages.flatMap((m): Array<unknown> => collectVideos(m, { videoSites: sites }));
       if (items.length > 0) media.videos = await describer.cachedVideos(placeId, items);
     }
@@ -130,7 +131,8 @@ export function createMediaPrefill({ hot, describer, lookup }: MediaPrefillConte
     // warmMediaCache calls this only with a describer.
     const media = describer as Describer;
     if (typeof media.describeVideos !== 'function') return;
-    const candidates: Array<unknown> = collectVideos(normalized, { videoSites: config.media?.video?.sites }).slice(
+    const video = config.media?.video;
+    const candidates: Array<unknown> = collectVideos(normalized, { videoSites: video?.sites }).slice(
       0,
       VIDEOS_PER_MESSAGE
     );
