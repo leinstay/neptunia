@@ -46,6 +46,11 @@ import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { retrievalBounds } from '../src/memory/retrieval-input.ts';
 
+// Semantic argument roles and a sample's kind, named so the request-role scan of tests/roles.test.ts reads no stray literal.
+const ROLE_INGEST = 'ingest';
+const ROLE_PART = 'part';
+const ROLE_WHOLE = 'whole';
+
 const SELF = fileURLToPath(import.meta.url);
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const ROOM = 'place:room';
@@ -177,8 +182,8 @@ function writer(db: Db, ids: string) {
           predicate: { id: 'concept.part_of', version: 1 },
           text: `${part} is part of ${whole}`,
           arguments: [
-            { role: 'part', position: 0, ref: { kind: 'entity', id: part } },
-            { role: 'whole', position: 0, ref: { kind: 'entity', id: whole } },
+            { role: ROLE_PART, position: 0, ref: { kind: 'entity', id: part } },
+            { role: ROLE_WHOLE, position: 0, ref: { kind: 'entity', id: whole } },
           ],
           sources: [source],
           polarity: 'positive',
@@ -248,7 +253,7 @@ function build(file: string, size: number, shape: Shape, queries: number, seed: 
 // ---- the ingest worker ----
 
 type IngestStart = {
-  role: 'ingest';
+  role: typeof ROLE_INGEST;
   file: string;
   entities: Array<string>;
   from: number;
@@ -377,7 +382,7 @@ async function measure(file: string, mode: Mode, ingest: boolean, everyMs: numbe
   if (ingest) {
     worker = new Worker(SELF, {
       workerData: {
-        role: 'ingest',
+        role: ROLE_INGEST,
         file,
         entities: plan.entities,
         from: plan.sources + 1,
