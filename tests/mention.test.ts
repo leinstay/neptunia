@@ -143,67 +143,44 @@ test('followUpPreFilter: mentionedAccountIds omitted is treated as empty', () =>
   }
 });
 
-test('parseFollowUpVerdict: case-insensitive and tolerates surrounding text/whitespace', () => {
-  assert.equal(parseFollowUpVerdict('  Yes, obviously.'), 'yes');
-  assert.equal(parseFollowUpVerdict('YES'), 'yes');
+// The lead: the address classifier answers in strict JSON (owner, 2026-11-06). The parser reads the object's `answer`;
+// a bare word, a fenced object or anything else is unreadable (null), and the verdict of an unreadable answer is no.
+test('parseFollowUpVerdict: yes and overheard objects are yes', () => {
+  assert.equal(parseFollowUpVerdict('{"answer":"yes"}'), 'yes');
+  assert.equal(parseFollowUpVerdict('{"answer":"overheard"}'), 'yes');
 });
 
-test('parseFollowUpVerdict: "no" and anything else is a no', () => {
-  assert.equal(parseFollowUpVerdict('no'), 'no');
-  assert.equal(parseFollowUpVerdict('No.'), 'no');
-  assert.equal(parseFollowUpVerdict('not sure'), 'no');
-  assert.equal(parseFollowUpVerdict(''), 'no');
-  assert.equal(parseFollowUpVerdict(null), 'no');
-  assert.equal(parseFollowUpVerdict(undefined), 'no');
-});
-
-test('parseAddressAnswer: a first word starting with "y" is yes, any case, surrounding text tolerated', () => {
-  for (const text of ['yes', '  Yes, obviously.', 'YES', 'yeah', 'y']) {
-    assert.equal(parseAddressAnswer(text), 'yes', JSON.stringify(text));
+test('parseFollowUpVerdict: a no object and anything unreadable are no', () => {
+  for (const text of ['{"answer":"no"}', 'yes', 'no', 'not sure', '', null, undefined]) {
+    assert.equal(parseFollowUpVerdict(text), 'no', JSON.stringify(text));
   }
 });
 
-test('parseAddressAnswer: the first word "overheard", any case, trailing punctuation allowed, is overheard', () => {
+test('parseAddressAnswer: the three objects read as their answers', () => {
+  assert.equal(parseAddressAnswer('{"answer":"yes"}'), 'yes');
+  assert.equal(parseAddressAnswer('{"answer":"overheard"}'), 'overheard');
+  assert.equal(parseAddressAnswer('{"answer":"no"}'), 'no');
+});
+
+test('parseAddressAnswer: bare words, other values and anything else are unreadable', () => {
   for (const text of [
-    'overheard',
+    'yes',
     'Overheard.',
-    'OVERHEARD',
-    ' overheard ',
-    'Overheard, she is talked about',
-    'overheard!',
-  ]) {
-    assert.equal(parseAddressAnswer(text), 'overheard', JSON.stringify(text));
-  }
-});
-
-test('parseAddressAnswer: everything else, empty included, is no; no markup is stripped', () => {
-  for (const text of [
     'no',
-    'No.',
-    'not sure',
     '',
     '   ',
     null,
     undefined,
-    'overhear',
-    'overheardx',
-    'absolutely',
-    'about',
-    '"overheard"',
-    '**overheard**',
-    '"yes"',
+    '{"answer":"maybe"}',
+    '{"verdict":"yes"}',
+    '```json\n{"answer":"yes"}\n```',
     '**yes**',
   ]) {
-    assert.equal(parseAddressAnswer(text), 'no', JSON.stringify(text));
+    assert.equal(parseAddressAnswer(text), null, JSON.stringify(text));
   }
 });
 
-test('parseFollowUpVerdict: an overheard answer counts as yes', () => {
-  for (const text of ['overheard', 'Overheard.', 'OVERHEARD']) {
-    assert.equal(parseFollowUpVerdict(text), 'yes', text);
-  }
-});
-
+// The lead: an overheard object counting as yes is the first parseFollowUpVerdict test above; the bare words are unreadable.
 test('followUpTriggerKind: no starts nothing, yes a followUp turn, overheard an overheard turn', () => {
   assert.equal(followUpTriggerKind('no'), null);
   assert.equal(followUpTriggerKind('yes'), 'followUp');

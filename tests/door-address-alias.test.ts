@@ -75,7 +75,12 @@ function door(
       llm: {
         complete: (_messages: unknown, request: { purpose?: string }) => {
           calls.push(request);
-          return Promise.resolve({ text: options.answer ?? 'yes', usage: {}, estimated: 1 });
+          // The lead: the address classifier answers in strict JSON (owner, 2026-11-06); a scene's verdict word is sent as the object.
+          return Promise.resolve({
+            text: JSON.stringify({ answer: options.answer ?? 'yes' }),
+            usage: {},
+            estimated: 1,
+          });
         },
       },
       stemmer: () => (options.stemmer === undefined ? GREEK_STEMS : options.stemmer),
