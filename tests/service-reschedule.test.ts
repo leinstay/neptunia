@@ -129,7 +129,9 @@ test('a schedule edited during a run lets the run finish and commit once, and th
   const run = lifeWith({ enabled: true, schedule: 'at 15:00', failuresPerShape: 3 }, at('2026-11-04T14:00:00Z'));
   await run.life.tick();
   const { ticking } = await startedRun(run, at('2026-11-04T15:00:00Z'));
-  Object.assign(run.hot.config.selfimprovement, { schedule: 'at 18:00' });
+  // The lead: the live settings get a name (R.2).
+  const { config } = run.hot;
+  Object.assign(config.selfimprovement, { schedule: 'at 18:00' });
   run.gate.release();
   await ticking;
   run.gate.held = false;
@@ -143,7 +145,9 @@ test("the next run after an edit made during a run comes at the new schedule's s
   const run = lifeWith({ enabled: true, schedule: 'at 15:00', failuresPerShape: 3 }, at('2026-11-04T14:00:00Z'));
   await run.life.tick();
   const { ticking } = await startedRun(run, at('2026-11-04T15:00:00Z'));
-  Object.assign(run.hot.config.selfimprovement, { schedule: 'at 18:00' });
+  // The lead: the live settings get a name (R.2).
+  const { config } = run.hot;
+  Object.assign(config.selfimprovement, { schedule: 'at 18:00' });
   run.gate.release();
   await ticking;
   run.gate.held = false;

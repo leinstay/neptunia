@@ -90,8 +90,11 @@ test('a skill she switched off is marked off in the request and an active one is
     { name: 'old-routine', active: false },
   ]);
   const line = (name: string): string => text.split('\n').find((one) => one.includes(name)) ?? '';
-  assert.ok(line('old-routine').includes(labels.model.wake.selfimprovement.skillOff));
-  assert.ok(!line('brief-the-news').includes(labels.model.wake.selfimprovement.skillOff));
+  // The lead: the label gets a name, so the reads stay three segments deep (R.2).
+  const { wake } = labels.model;
+  const { skillOff } = wake.selfimprovement;
+  assert.ok(line('old-routine').includes(skillOff));
+  assert.ok(!line('brief-the-news').includes(skillOff));
 });
 
 test('the wake prompt tells her to reuse a skill she has before proposing a new one', () => {
