@@ -1,8 +1,8 @@
-// The four situations the watcher is asked to catch, read through its public boundary on synthetic files and rows: a check it
-// cannot run, a skill whose executed bytes are not the validated ones, a memory that applied nothing for longer than its window,
-// and eligible work that no session picked up. The agent's judgment is not tested here, only that its read paths (`services
-// watcher select`, `services watcher evidence`, `installFacts`) hand it the fact and never a zero or an empty list in the
-// place of a gap. Synthetic data only: no provider, no manager, no network.
+// Two of the situations the watcher is asked to catch, read through its public boundary on synthetic files and rows: a check it
+// cannot run, and a skill whose executed bytes are not the validated ones. Idle memory and stalled eligible work are the
+// watcher agent's findings from the evidence page, covered by the evidence tests. The agent's judgment is not tested here,
+// only that its read paths (`services watcher select`, `services watcher evidence`, `installFacts`) hand it the fact and
+// never a zero or an empty list in the place of a gap. Synthetic data only: no provider, no manager, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,8 +10,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readConfig } from '../src/config.ts';
 import { localConfigPath } from '../src/config/files.ts';
-import { openMemoryDb } from '../src/memory/db/open.ts';
-import { dbOf } from '../src/memory/db/types.ts';
 import { serviceFamily } from '../src/service/commands.ts';
 import type { ServiceAnswer } from '../src/service/commands.ts';
 import { packageHash, snapshotDir } from '../src/skills/package.ts';
@@ -22,8 +20,6 @@ import { answerOf, inspectionDeps, inspectionRig, said } from './fixtures/watche
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const NOW = Date.parse('2026-11-04T10:00:00Z');
-const HOUR = 3_600_000;
-const iso = (at: number): string => new Date(at).toISOString();
 
 /** A persona folder with an empty local config, the way the family expects one. */
 function folder(): string {
@@ -49,27 +45,6 @@ function family(data: string, action: string, args: Record<string, unknown> = {}
     `services.watcher.${action}`,
     args
   );
-}
-
-type Rows = { rows: Array<Record<string, unknown>>; truncated: boolean };
-async function select(data: string, sql: string): Promise<Rows> {
-  const answer = await family(data, 'select', { sql });
-  assert.equal(answer.status, 'ok', answer.text.slice(0, 300));
-  return JSON.parse(answer.text) as Rows;
-}
-
-/** A memory database file at `data` with `fill` run over it before it closes. */
-function memoryAt(
-  data: string,
-  fill: (exec: (sql: string, ...params: Array<string | number | null>) => void) => void
-): void {
-  const handle = openMemoryDb(path.join(data, 'memory.db'));
-  try {
-    const db = dbOf(handle);
-    fill((sql, ...params) => void db.prepare(sql).run(...params));
-  } finally {
-    handle.close();
-  }
 }
 
 // ---- missing access ----------------------------------------------------------------------------------------------------
@@ -184,65 +159,4 @@ test('the active version the watcher lists is the validated one, by name and ver
   rig.port.sync();
   const still = rig.port.list().find((row) => row.name === 'say-it')?.active?.versionId;
   assert.equal(still, validated);
-});
-
-// ---- idle memory -------------------------------------------------------------------------------------------------------
-
-const SESSION =
-  'INSERT INTO session_runs (id, scope_key, mode, started_at, finished_at, outcome, applied) VALUES (?, ?, ?, ?, ?, ?, ?)';
-
-test('the newest applied session is found older than the window, whatever a shadow run did since', async () => {
-  // Bug: a shadow run counts as progress, so a memory that applied nothing for days reads as alive.
-  const data = folder();
-  memoryAt(data, (exec) => {
-    exec(SESSION, 'applied-old', 'g1', 'apply', iso(NOW - 80 * HOUR), iso(NOW - 80 * HOUR), 'ok', 1);
-    exec(SESSION, 'shadow-new', 'g1', 'shadow', iso(NOW - 2 * HOUR), iso(NOW - 2 * HOUR), 'ok', 0);
-  });
-  const { rows } = await select(data, 'SELECT MAX(finished_at) AS last FROM session_runs WHERE applied = 1');
-  assert.equal(rows[0]?.last, iso(NOW - 80 * HOUR));
-});
-
-test('a window with an applied session has it, and a window without one has none and is not an error', async () => {
-  // Bug: an empty window answers a failure or a zero row, and "idle" cannot be told from "unreadable".
-  const data = folder();
-  memoryAt(data, (exec) => {
-    exec(SESSION, 'applied-old', 'g1', 'apply', iso(NOW - 80 * HOUR), iso(NOW - 80 * HOUR), 'ok', 1);
-  });
-  const from = iso(NOW - 24 * HOUR);
-  const { rows } = await select(data, `SELECT id FROM session_runs WHERE applied = 1 AND finished_at >= '${from}'`);
-  assert.deepEqual(rows, []);
-});
-
-// ---- stalled eligible work ---------------------------------------------------------------------------------------------
-
-const LINE =
-  'INSERT INTO sources (id, kind, iface, place_id, occurred_at, recorded_at, seen_at, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
-
-test('lines recorded in the window and no session in it are both readable, so eligible work with no session shows', async () => {
-  // Bug: only the sessions are read, so a window with plenty of eligible lines and no session looks the same as a quiet one.
-  const data = folder();
-  memoryAt(data, (exec) => {
-    for (let n = 0; n < 3; n += 1) {
-      const at = iso(NOW - (n + 1) * HOUR);
-      exec(LINE, `line-${n}`, 'message', 'fake', 'c1', at, at, at, `a line ${n}`);
-    }
-    exec(SESSION, 'applied-old', 'g1', 'apply', iso(NOW - 80 * HOUR), iso(NOW - 80 * HOUR), 'ok', 1);
-  });
-  const from = iso(NOW - 24 * HOUR);
-  const lines = await select(data, `SELECT COUNT(*) AS n FROM sources WHERE recorded_at >= '${from}'`);
-  const sessions = await select(data, `SELECT COUNT(*) AS n FROM session_runs WHERE started_at >= '${from}'`);
-  assert.equal(lines.rows[0]?.n, 3);
-  assert.equal(sessions.rows[0]?.n, 0);
-});
-
-test('a window with lines and a session that failed shows the session and its outcome, not silence', async () => {
-  // Bug: only applied sessions are read, so a session that ran and failed reads as work no session ever tried.
-  const data = folder();
-  memoryAt(data, (exec) => {
-    const at = iso(NOW - HOUR);
-    exec(LINE, 'line-1', 'message', 'fake', 'c1', at, at, at, 'a line');
-    exec(SESSION, 'failed-new', 'g1', 'apply', at, at, 'provider-error', 0);
-  });
-  const { rows } = await select(data, 'SELECT id, outcome, applied FROM session_runs');
-  assert.deepEqual(rows, [{ id: 'failed-new', outcome: 'provider-error', applied: 0 }]);
 });
