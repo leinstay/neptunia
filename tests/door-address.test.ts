@@ -106,7 +106,8 @@ function door(options: DoorOptions = {}) {
       calls.push(call);
       if (options.fails) return Promise.reject(new Error('provider down'));
       const answer = typeof options.answer === 'function' ? options.answer(call) : (options.answer ?? 'yes');
-      return Promise.resolve({ text: answer, usage: {}, estimated: 1 });
+      // The lead: the address classifier answers in strict JSON (owner, 2026-11-06); a scene's verdict word is sent as the object.
+      return Promise.resolve({ text: JSON.stringify({ answer }), usage: {}, estimated: 1 });
     },
   };
   const started: Array<TurnAsked> = [];
