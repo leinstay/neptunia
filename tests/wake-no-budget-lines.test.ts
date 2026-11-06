@@ -90,7 +90,9 @@ test('a chain past wakes.caps.perChain is still held after the budget lines left
     hot: hotWith({ wakes: { caps: { perChain: 1 } } }),
   });
   await run.inner.tick();
-  assert.equal(run.turns.calls.length, 1, 'the first wake of the chain runs');
+  // The lead: the turn calls get a name, so the read stays three segments deep (R.2).
+  const turnCalls = run.turns.calls;
+  assert.equal(turnCalls.length, 1, 'the first wake of the chain runs');
   assert.deepEqual((await run.inner.tick()).drained, { refused: 'per-chain' });
   assert.equal(run.inner.state().queue.find((wake) => wake.kind !== 'feedback')?.capped, 'per-chain');
 });

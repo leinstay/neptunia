@@ -52,7 +52,9 @@ for (const how of ['key', 'signal'] as const) {
       const ended = await leave(how, mouse);
       assert.equal(ended.signal, null, `ended by a signal: ${ended.signal}`);
       assert.equal(ended.code, 0, ended.stderr);
-      assert.equal(ended.report?.raw.at(-1), false, 'the chat did not return to its caller before the process ended');
+      // The lead: the report gets a name, so the read stays three segments deep (R.2).
+      const report = ended.report;
+      assert.equal(report?.raw.at(-1), false, 'the chat did not return to its caller before the process ended');
     });
 
     test(`${name} gives the terminal back`, async () => {
