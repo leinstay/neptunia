@@ -172,7 +172,7 @@ import type { KeyRing } from '../../keys/ring.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
 import type { Context } from './scope.ts';
 import { createEntryRemoval } from './selfreflection-remove.ts';
-import type { DeletePort, EntryRemoval } from './selfreflection-remove.ts';
+import type { EntryRemoval, RemovalRequest } from './selfreflection-remove.ts';
 
 /** The folder of the unit writes that failed at a shutdown (stage W2b), under the data directory. */
 export const PENDING_DIR = 'memory-pending';
@@ -617,7 +617,7 @@ export type MemoryDbService = {
   /** The owner's fill of the audience on old group selfreflection entries (selfreflection-audience-fill.ts): `{ by, dryRun?, now? }`. */
   selfreflectionAudienceFill(update: Row): Promise<Row>;
   /** The owner's removal of a selfreflection entry with everything that points at it (selfreflection-remove.ts). */
-  removeSelfreflectionEntry(request: { entryId: string; by: string; port: DeletePort }): Promise<EntryRemoval>;
+  removeSelfreflectionEntry(request: RemovalRequest): Promise<EntryRemoval>;
   /** The owner's snapshots of the whole database (inspection-snapshots.ts), null while it is closed. */
   inspection(): InspectionPort | null;
   /** The private view of a person or a DM place (private-read.ts). Throws `DB_CLOSED` while memory is closed. */

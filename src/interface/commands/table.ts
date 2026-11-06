@@ -227,8 +227,8 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
   ),
   sub(
     'selfreflection.remove',
-    'Remove a selfreflection entry, its posts on the platform and every record of the turn that made it',
-    [arg('id')]
+    'Remove a selfreflection entry, its posts and every record of the turn that made it: --turn names that turn',
+    [arg('id'), flagArg('turn', false)]
   ),
   sub('places.list', 'List places of any kind and depth', [
     flagArg('interface', false),

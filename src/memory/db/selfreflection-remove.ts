@@ -1,15 +1,19 @@
 // The owner's removal of a selfreflection entry with everything that points at it (`/memory selfreflection remove <id>`,
 // src/interface/commands/memory-selfreflection-remove.ts). Two halves:
 //
-// applySelfreflectionRemove(handle, { entryId, by, dryRun?, now? })   the writer kind `selfreflection-remove`, one
-//     transaction. It refuses an id that names no live entry (`unknown-entry`) and an entry with a publication still
-//     `sending` or `unknown` (`busy`), and changes nothing then. Otherwise it removes, never retires: the entry; its media
-//     links and each media row no other owner links, with its descriptions and vectors (the media's search rows go with
-//     the row, through the `media_ad` trigger); its publications, grants and mirror rows; her own lines of every message
-//     the entry went out as (the lines of the message's family, found through `message_families`), with their media
-//     links, relations, vectors, external keys and family rows; the turn that posted it, found through an `answer` line
-//     whose `extra.posted` names one of those messages: its `answer` lines, `day` rows, `model_requests` and
-//     `turn_reads`; and the graph projection of every row removed. A line's search rows go with it through `sources_ad`. A
+// applySelfreflectionRemove(handle, { entryId, by, turnId?, dryRun?, now? })   the writer kind `selfreflection-remove`,
+//     one transaction. It refuses an id that names no live entry (`unknown-entry`), a `turnId` that no line, day row or
+//     request names (`unknown-turn`) and an entry with a publication still `sending` or `unknown` (`busy`), and changes
+//     nothing then. Otherwise it removes, never retires: the entry; its media links and each media row no other owner
+//     links, with its descriptions and vectors (the media's search rows go with the row, through the `media_ad`
+//     trigger); its publications, grants and mirror rows; her own lines of every message the entry went out as (the
+//     lines of the message's family, a line whose locator names it, and an older `said` line that names it only in
+//     `native_id`), with their media links, relations, vectors, external keys, family rows and `ingest` rows; the turn
+//     that made it (the entry's `extra.turnId`, the `turnId` given, and the turn of every `answer` line whose
+//     `extra.posted` names one of those messages, as an id or as `{ messageId }`): its `answer` lines, `day` rows, the
+//     `action` day rows of the `opId`s it posted under, `model_requests` and `turn_reads`; and the graph projection of
+//     every row removed. Every other day row of the place loses the removed messages from `extra.sourceMessageIds`
+//     and keeps the rest. A line's search rows go with it through `sources_ad`. A
 //     relation of another line that pointed at a removed line is left unresolved, and the unit of every other row whose
 //     edge touched a removed node is projected again. A mirror whose `backfill_high_water` names the entry gets the newest
 //     remaining entry at or before it, or null. The guards that refuse every delete of `publications`,
@@ -38,15 +42,18 @@ import { CODE, httpCode } from '../../tools/codes.ts';
 /** What the removal answers (the fixture of the removal tests holds the same contract). */
 export type EntryRemoval =
   | { ok: true; entryId: string; deleted: number; removed: Record<string, number> }
-  | { ok: false; code: 'unknown-entry' | 'busy' | 'interface-down' }
+  | { ok: false; code: 'unknown-entry' | 'unknown-turn' | 'busy' | 'interface-down' }
   | { ok: false; code: 'delete-failed'; platformCode: string };
 
 /** The interface's own delete of a message, or null while the interface is down. */
 export type DeletePort = (iface: string) => Pick<Adapter, 'delete'> | null;
 
+/** What the owner asks to remove: the entry, and the turn that wrote it when the entry keeps none. */
+export type RemovalRequest = { entryId: string; by: string; port: DeletePort; turnId?: string };
+
 /** What the writer answers: a refusal, or what the removal removed (or, in a dry run, would remove). */
 type WriterAnswer =
-  | { ok: false; code: 'unknown-entry' | 'busy' }
+  | { ok: false; code: 'unknown-entry' | 'unknown-turn' | 'busy' }
   | { ok: false; code: 'delete-failed'; platformCode: string }
   | { ok: true; entryId: string; messages: Array<MessageRef>; removed: Record<string, number>; files: Array<string> };
 
@@ -108,8 +115,12 @@ function placeFor(db: Db, placeId: unknown, iface: unknown) {
 }
 
 /** Every message the entry went out as, once each, or the id of one whose place nobody knows. */
-function messagesOf(db: Db, entryId: string): { refs: Array<MessageRef>; lost: string | null } {
+function messagesOf(
+  db: Db,
+  entryId: string
+): { refs: Array<MessageRef>; places: Map<string, string>; lost: string | null } {
   const refs = new Map<string, MessageRef>();
+  const places = new Map<string, string>();
   const sent: Array<{ placeId: unknown; iface: unknown; ids: Array<string> }> = [
     ...db
       .prepare(
@@ -125,13 +136,14 @@ function messagesOf(db: Db, entryId: string): { refs: Array<MessageRef>; lost: s
   for (const { placeId, iface, ids } of sent) {
     if (ids.length === 0) continue;
     const place = placeFor(db, placeId, iface);
-    if (!place) return { refs: [], lost: ids[0] ?? '' };
+    if (!place) return { refs: [], places, lost: ids[0] ?? '' };
     for (const messageId of ids) {
       const ref = { iface: place.iface, conversationId: place.conversationId, messageId };
       refs.set(keyOf(ref), ref);
+      places.set(keyOf(ref), place.placeId);
     }
   }
-  return { refs: [...refs.values()], lost: null };
+  return { refs: [...refs.values()], places, lost: null };
 }
 
 /** The rows removed so far, by table. */
@@ -152,8 +164,11 @@ function deleteIn(db: Db, tally: Tally, table: string, column: string, ids: Read
   );
 }
 
-/** Her own lines of `refs`: every line of each message's family, and a line that names the message in its locator. */
-function linesOf(db: Db, refs: ReadonlyArray<MessageRef>): Map<string, number> {
+/**
+ * Her own lines of `refs`: every line of each message's family, a line that names the message in its locator, and a
+ * `said` line of an older shape that names it only in `native_id`, in the message's place or in none.
+ */
+function linesOf(db: Db, refs: ReadonlyArray<MessageRef>, places: ReadonlyMap<string, string>): Map<string, number> {
   const lines = new Map<string, number>();
   const family = db.prepare(
     'SELECT authority_id, native_kind, native_key FROM message_families WHERE iface = ? AND conversation_id = ? AND message_id = ?'
@@ -166,8 +181,13 @@ function linesOf(db: Db, refs: ReadonlyArray<MessageRef>): Map<string, number> {
       AND json_extract(extra, '$."$messageLocator".conversationId') = ?
       AND json_extract(extra, '$."$messageLocator".messageId') = ?`
   );
+  const native = db.prepare(
+    `SELECT rowid, id FROM sources WHERE kind = 'said' AND iface = ? AND native_id = ?
+      AND (place_id IS NULL OR place_id = ?)`
+  );
   for (const ref of refs) {
     const rows = [
+      ...native.all(ref.iface, ref.messageId, places.get(keyOf(ref)) ?? null),
       ...family
         .all(ref.iface, ref.conversationId, ref.messageId)
         .flatMap((one) => ofFamily.all(one.authority_id, one.native_kind, one.native_key)),
@@ -178,13 +198,54 @@ function linesOf(db: Db, refs: ReadonlyArray<MessageRef>): Map<string, number> {
   return lines;
 }
 
-/** The turns that posted `refs`: the turn of every `answer` line whose `extra.posted` names one of the messages. */
+/**
+ * The turns that posted `refs`: the turn of every `answer` line whose `extra.posted` names one of the messages, as an
+ * id or as an object with a `messageId`.
+ */
 function turnsOf(db: Db, refs: ReadonlyArray<MessageRef>): Array<string> {
   const answer = db.prepare(
     `SELECT DISTINCT turn_id FROM sources WHERE kind = 'answer' AND iface = ? AND turn_id IS NOT NULL AND json_valid(extra)
-      AND EXISTS (SELECT 1 FROM json_each(sources.extra, '$.posted') WHERE value = ?)`
+      AND EXISTS (SELECT 1 FROM json_each(sources.extra, '$.posted')
+        WHERE (CASE WHEN type = 'object' THEN json_extract(value, '$.messageId') ELSE value END) = ?)`
   );
   return [...new Set(refs.flatMap((ref) => answer.all(ref.iface, ref.messageId).map((row) => String(row.turn_id))))];
+}
+
+/** The `opId`s the turn's `answer` lines posted under: an `action` day row names its turn only through one. */
+function opIdsOf(answers: ReadonlyArray<Row>): Array<string> {
+  return answers.flatMap((row) => {
+    const posted = (parsed(row.extra) as { posted?: unknown } | null)?.posted;
+    if (!Array.isArray(posted)) return [];
+    return posted.flatMap((one: unknown) => {
+      const opId = (one as { opId?: unknown } | null)?.opId;
+      return typeof opId === 'string' && opId !== '' ? [opId] : [];
+    });
+  });
+}
+
+/** Whether any line, `day` row or model request names the turn `turnId`. */
+function turnExists(db: Db, turnId: string): boolean {
+  return ['sources', 'day', 'model_requests'].some(
+    (table) => db.prepare(`SELECT 1 AS ok FROM "${table}" WHERE turn_id = ? LIMIT 1`).get(turnId) !== undefined
+  );
+}
+
+/**
+ * The removed messages taken out of the `sourceMessageIds` of every other `day` row in their place (or in none), each
+ * row keeping every other column and field; a list that held only them stays, empty.
+ */
+function forgetReads(db: Db, refs: ReadonlyArray<MessageRef>, places: ReadonlyMap<string, string>): void {
+  const reading = db.prepare(
+    `SELECT rowid, extra FROM day WHERE json_valid(extra) AND (place_id IS NULL OR place_id = ?)
+      AND EXISTS (SELECT 1 FROM json_each(day.extra, '$.sourceMessageIds') WHERE value = ?)`
+  );
+  const write = db.prepare('UPDATE day SET extra = ? WHERE rowid = ?');
+  for (const ref of refs)
+    for (const row of reading.all(places.get(keyOf(ref)) ?? null, ref.messageId)) {
+      const extra = parsed(row.extra) as { sourceMessageIds: Array<unknown> };
+      extra.sourceMessageIds = extra.sourceMessageIds.filter((id) => id !== ref.messageId);
+      write.run(JSON.stringify(extra), row.rowid);
+    }
 }
 
 /** The media rows that go: those the entry or a removed line linked or the entry owns, once no other owner links them. */
@@ -304,26 +365,37 @@ function moveBoundary(db: Db, entry: Row): void {
 }
 
 /** The removal inside the writer's transaction (see the head of this file). */
-function removeEntry(db: Db, entryId: string, at: string): WriterAnswer {
+function removeEntry(db: Db, entryId: string, at: string, named: string | null): WriterAnswer {
   const entry = db
-    .prepare('SELECT id, at_ms, position FROM selfreflection WHERE id = ? AND retired_at IS NULL')
+    .prepare('SELECT id, at_ms, position, extra FROM selfreflection WHERE id = ? AND retired_at IS NULL')
     .get(entryId);
   if (!entry) return { ok: false, code: 'unknown-entry' };
+  if (named !== null && !turnExists(db, named)) return { ok: false, code: 'unknown-turn' };
   const unsettled = db
     .prepare(
       "SELECT 1 AS ok FROM publications WHERE row_kind = 'selfreflection' AND row_id = ? AND status IN ('sending', 'unknown') LIMIT 1"
     )
     .get(entryId);
   if (unsettled) return { ok: false, code: 'busy' };
-  const { refs, lost } = messagesOf(db, entryId);
+  const { refs, places, lost } = messagesOf(db, entryId);
   if (lost !== null) return { ok: false, code: 'delete-failed', platformCode: CODE.UNKNOWN_CONVERSATION };
   const tally: Tally = {};
-  const lines = linesOf(db, refs);
-  const turns = turnsOf(db, refs);
+  const lines = linesOf(db, refs, places);
+  const kept = (parsed(entry.extra) as { turnId?: unknown } | null)?.turnId;
+  const turns = [
+    ...new Set([
+      ...turnsOf(db, refs),
+      ...(typeof kept === 'string' && kept !== '' ? [kept] : []),
+      ...(named !== null ? [named] : []),
+    ]),
+  ];
   const answers = db
-    .prepare(`SELECT rowid, id FROM sources WHERE kind = 'answer' AND turn_id IN (${marks(turns.length) || "''"})`)
+    .prepare(
+      `SELECT rowid, id, extra FROM sources WHERE kind = 'answer' AND turn_id IN (${marks(turns.length) || "''"})`
+    )
     .all(...turns);
   for (const row of answers) lines.set(String(row.id), Number(row.rowid));
+  const opIds = opIdsOf(answers);
   const lineIds = [...lines.keys()];
   const media = mediaToRemove(db, entryId, lineIds);
   const mediaIds = media.map((one) => one.id);
@@ -347,6 +419,18 @@ function removeEntry(db: Db, entryId: string, at: string): WriterAnswer {
   deleteIn(db, tally, 'turn_reads', 'row_id', removedIds);
   deleteIn(db, tally, 'model_requests', 'turn_id', turns);
   deleteIn(db, tally, 'day', 'turn_id', turns);
+  if (opIds.length > 0)
+    count(
+      tally,
+      'day',
+      db
+        .prepare(
+          `DELETE FROM day WHERE what = 'action' AND json_valid(extra)
+            AND json_extract(extra, '$.opId') IN (${marks(opIds.length)})`
+        )
+        .run(...opIds).changes
+    );
+  forgetReads(db, refs, places);
   count(
     tally,
     'media_links',
@@ -376,8 +460,15 @@ function removeEntry(db: Db, entryId: string, at: string): WriterAnswer {
     db.prepare(
       `UPDATE source_relations SET target_source_id = NULL, resolved_at = NULL WHERE target_source_id IN (${ids})`
     ).run(...lineIds);
-    db.prepare(`UPDATE ingest SET source_id = NULL WHERE source_id IN (${ids})`).run(...lineIds);
+    count(tally, 'ingest', db.prepare(`DELETE FROM ingest WHERE source_id IN (${ids})`).run(...lineIds).changes);
   }
+  deleteIn(
+    db,
+    tally,
+    'ingest',
+    'event_id',
+    refs.map((ref) => `${ref.iface}:message:${ref.messageId}`)
+  );
   deleteIn(db, tally, 'external_keys', 'node_id', lineIds);
   deleteIn(db, tally, 'co_owners', 'key', removedIds);
   deleteIn(db, tally, 'sources', 'id', lineIds);
@@ -404,13 +495,14 @@ function removeEntry(db: Db, entryId: string, at: string): WriterAnswer {
   return { ok: true, entryId, messages: refs, removed: tally, files };
 }
 
-/** The write of `applyMemoryWrite` kind `selfreflection-remove`: `{ entryId, by, dryRun?, now? }`, one transaction. */
+/** The writer kind `selfreflection-remove`: `{ entryId, by, turnId?, dryRun?, now? }`, in one transaction. */
 export function applySelfreflectionRemove(handle: MemoryHandle, update: Row): WriterAnswer {
   if (update.by !== 'owner') throw coded('OWNER_ONLY');
   const at = new Date(typeof update.now === 'number' ? update.now : Date.now()).toISOString();
   try {
     return handle.transaction(() => {
-      const answer = removeEntry(dbOf(handle), asText(update.entryId), at);
+      const named = typeof update.turnId === 'string' && update.turnId !== '' ? update.turnId : null;
+      const answer = removeEntry(dbOf(handle), asText(update.entryId), at, named);
       if (update.dryRun === true && answer.ok) throw new Rehearsal(answer);
       return answer;
     });
@@ -443,17 +535,10 @@ export function createEntryRemoval({ write, dataDir }: { write: (update: Row) =>
     }
   }
 
-  async function removeSelfreflectionEntry({
-    entryId,
-    by,
-    port,
-  }: {
-    entryId: string;
-    by: string;
-    port: DeletePort;
-  }): Promise<EntryRemoval> {
+  async function removeSelfreflectionEntry({ entryId, by, port, turnId }: RemovalRequest): Promise<EntryRemoval> {
+    const named = turnId === undefined ? {} : { turnId };
     // The writer's answers are this module's own `WriterAnswer`, crossing the worker boundary as plain data.
-    const plan = (await write({ kind: 'selfreflection-remove', entryId, by, dryRun: true })) as WriterAnswer;
+    const plan = (await write({ kind: 'selfreflection-remove', entryId, by, ...named, dryRun: true })) as WriterAnswer;
     if (!plan.ok) return plan;
     const ports = new Map<string, Pick<Adapter, 'delete'>>();
     for (const ref of plan.messages) {
@@ -468,7 +553,7 @@ export function createEntryRemoval({ write, dataDir }: { write: (update: Row) =>
       if (done && !isGone(done))
         return { ok: false, code: 'delete-failed', platformCode: done.error?.code ?? done.status };
     }
-    const result = (await write({ kind: 'selfreflection-remove', entryId, by })) as WriterAnswer;
+    const result = (await write({ kind: 'selfreflection-remove', entryId, by, ...named })) as WriterAnswer;
     if (!result.ok) return result;
     for (const file of result.files) {
       const full = path.resolve(dataDir, file);

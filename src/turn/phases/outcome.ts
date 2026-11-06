@@ -75,6 +75,7 @@ export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draf
           selfreflection: recordEntry({
             publicationBoundary: turnBoundary(draft, ctx.conversationOf(channel)),
             audience: audienceOfTurn(store, draft),
+            ...(draft.started?.turnId ? { turnId: draft.started.turnId } : {}),
             store,
             config: hot.config,
             now,

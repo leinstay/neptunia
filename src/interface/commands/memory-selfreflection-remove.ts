@@ -1,9 +1,10 @@
-// `/memory selfreflection remove <id>`: the owner's removal of a selfreflection entry, run by the console
-// (src/interface/commands/console.ts) over the memory service's `removeSelfreflectionEntry`
+// `/memory selfreflection remove <id> [--turn <turn>]`: the owner's removal of a selfreflection entry, run by the
+// console (src/interface/commands/console.ts) over the memory service's `removeSelfreflectionEntry`
 // (src/memory/db/selfreflection-remove.ts), deleting on the platform through the console's `port`. Only the `cli`
-// principal reaches it, and no operation of hers names it. The answer counts what went by table and says in one line
-// what the removal leaves alone; a refusal answers its code. The wording is `labels.selfreflectionRemoval`, and with no
-// labels the answer is the bare result as JSON. No text of the entry ever reaches the answer.
+// principal reaches it, and no operation of hers names it. `--turn` names the turn that wrote an entry which keeps no
+// `extra.turnId`, and the removal takes that turn's records too. The answer counts what went by table and says in one
+// line what the removal leaves alone; a refusal answers its code. The wording is `labels.selfreflectionRemoval`, and
+// with no labels the answer is the bare result as JSON. No text of the entry ever reaches the answer.
 
 import { fill } from '../../format.ts';
 import type { DeletePort, EntryRemoval } from '../../memory/db/selfreflection-remove.ts';
@@ -38,10 +39,14 @@ function removedText(hot: unknown, removal: Extract<EntryRemoval, { ok: true }>)
 }
 
 /** The answer of a refusal: its label, or the command, the code and the platform's code. */
-function refusedText(hot: unknown, entryId: string, refusal: Extract<EntryRemoval, { ok: false }>): string {
+function refusedText(
+  hot: unknown,
+  { entryId, turnId }: { entryId: string; turnId: string },
+  refusal: Extract<EntryRemoval, { ok: false }>
+): string {
   const platformCode = 'platformCode' in refusal ? refusal.platformCode : '';
   const label = labelAt(hot, 'refused', refusal.code);
-  if (label !== null) return fill(label, { entry: entryId, platformCode });
+  if (label !== null) return fill(label, { entry: entryId, turn: turnId, platformCode });
   return `${COMMAND}: ${refusal.code}${platformCode === '' ? '' : ` (${platformCode})`}`;
 }
 
@@ -51,7 +56,8 @@ export async function selfreflectionRemoveCommand(
   args: Readonly<Record<string, unknown>>
 ): Promise<Answer> {
   const entryId = typeof args.id === 'string' ? args.id : '';
-  const request = { entryId, by: 'owner', port: port ?? (() => null) };
+  const turnId = typeof args.turn === 'string' && args.turn !== '' ? args.turn : null;
+  const request = { entryId, by: 'owner', port: port ?? (() => null), ...(turnId === null ? {} : { turnId }) };
   // The memory service's method answers the removal's own result (src/memory/db/selfreflection-remove.ts).
   const running = callMethod(memoryDb, 'removeSelfreflectionEntry', request) as Promise<EntryRemoval> | undefined;
   if (running === undefined) return { text: `${COMMAND}: the memory database is closed`, status: 'failed' };
@@ -66,6 +72,6 @@ export async function selfreflectionRemoveCommand(
     };
   }
   if (removal.ok) return { text: removedText(hot, removal), status: 'ok' };
-  const status = removal.code === 'unknown-entry' ? 'invalid' : 'failed';
-  return { text: refusedText(hot, entryId, removal), status, code: removal.code };
+  const status = removal.code === 'unknown-entry' || removal.code === 'unknown-turn' ? 'invalid' : 'failed';
+  return { text: refusedText(hot, { entryId, turnId: turnId ?? '' }, removal), status, code: removal.code };
 }

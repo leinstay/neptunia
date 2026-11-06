@@ -76,7 +76,7 @@
 // into a person that resolves back to `from` is refused (`MERGE_CYCLE`). The owner's merge, which moves the rows, is
 // `{ kind: 'person-merge', from, into, by, reason, now }` (person-merge.ts).
 // `{ kind: 'selfreflection-audience-fill', by, dryRun?, now }` (selfreflection-audience-fill.ts).
-// `{ kind: 'selfreflection-remove', entryId, by, dryRun?, now }` (selfreflection-remove.ts).
+// `{ kind: 'selfreflection-remove', entryId, by, turnId?, dryRun?, now }` (selfreflection-remove.ts).
 //
 // Schema v9 (stage 3):
 //   - every new claim version writes its sources into `claim_version_sources` (`supports` for add, confirm and revise,
