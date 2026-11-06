@@ -507,11 +507,6 @@
       "placeReadOnly": " · read-only for you",
       "placeAttended": " · you listen here",
       "placesMore": "... and {more} more",
-      "budgets": "What you have left:",
-      "budget": {
-        "chain": "turns for this thread: {left} remaining of {cap}",
-        "turns": "until {until}: {spent} turns of {possible}"
-      },
       "heartbeat": {
         "intentionsOnly": "You may inspect memory and conversations in this wake, then finish with one intention change (intention.set, intention.update, intention.cancel) or <skip/>. Other activities belong to the intention's own turn.",
         "people": "People you are closest to:",

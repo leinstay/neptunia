@@ -31,9 +31,18 @@ export async function runInteractive(
   });
   // SGR reports of buttons and the wheel, with no motion: the fewest reports that do the job.
   if (mouse !== null) stdout.write('\u001b[?1000h\u001b[?1006h');
-  await app.waitUntilExit();
+  // A SIGINT leaves like Ctrl-C: the app unmounts, so the lines below run and the terminal comes back.
+  const onSigint = () => app.unmount();
+  process.once('SIGINT', onSigint);
+  try {
+    await app.waitUntilExit();
+  } finally {
+    process.off('SIGINT', onSigint);
+  }
   if (mouse !== null) {
     stdout.write('\u001b[?1006l\u001b[?1000l');
     mouse.close();
   }
+  // The frame ends on its footer line: the shell prompt starts on a fresh one.
+  stdout.write('\n');
 }

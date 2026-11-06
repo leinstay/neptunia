@@ -206,7 +206,6 @@ const WAKE = {
   now: NOW,
   timezone: 'UTC',
   channels: [],
-  budgets: { chain: { used: 0, cap: 3, left: 3 } },
 };
 
 test('a nested opening reaches the adapter as the two messages the parser made, in order', async () => {

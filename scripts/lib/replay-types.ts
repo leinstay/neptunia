@@ -7,7 +7,7 @@ export type Rec = Record<string, Untyped>;
 /** What `main` hands `runMain` besides the options: the engine's root, the abort signal, the random source and the answers directory. */
 export type RunEnv = { root: string; signal?: AbortSignal; rng: () => number; answers: Untyped };
 
-/** What an inner wake carries as the turn reads it: its kind, the items it holds, the budgets left and the chain it belongs to. */
+/** What an inner wake carries as the turn reads it: its kind, the items it holds and the chain it belongs to. */
 export type WakeInfo = {
   kind: string;
   items: Array<{
@@ -17,7 +17,6 @@ export type WakeInfo = {
     errandId: string | null;
     [field: string]: Untyped;
   }>;
-  budgets: { day?: Rec; chain: Rec; [field: string]: Untyped };
   chainId: string;
   now: number;
   heartbeat?: Rec;

@@ -279,7 +279,6 @@ test('a triggerless private inner turn writes its completed turn only to its par
           now: NOW,
           timezone: 'UTC',
           channels: [],
-          budgets: { chain: { used: 0, cap: 3, left: 3 } },
         },
         shadow: false,
         mayAct: () => true,

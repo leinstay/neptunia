@@ -78,7 +78,6 @@ export function wakeOfKind(kind: string, chainId: string, facts: Record<string, 
     timezone: 'UTC',
     channels: [],
     chainId,
-    budgets: { chain: { used: 0, cap: 3, left: 3 } },
     ...facts,
   };
 }
