@@ -134,7 +134,7 @@ export type BackfillReport = {
 };
 
 /** A line the backfill works on, as it lists them. */
-type Pending = Row & { id: string; native_id: string };
+export type Pending = Row & { id: string; native_id: string };
 
 /** A row of `media` as `m` that a run reads again: a sound with a reference, no text form and a download that failed. */
 const FAILED_DOWNLOAD_SQL = `(m.native_ref IS NOT NULL AND m.kind IN ('voice', 'audio') AND COALESCE(m.description, '') = ''
@@ -170,7 +170,7 @@ const parsed = (text: unknown): Row => {
 };
 
 /** The conversation a line is read through: its locator, the DM channel it or its place stored, a place's own id. Null when none is stored. */
-function conversationOf(line: Pending): string | null {
+export function conversationOf(line: Pending): string | null {
   const extra = parsed(line.extra);
   const locator = extra.$messageLocator as { conversationId?: unknown } | undefined;
   if (typeof locator?.conversationId === 'string' && locator.conversationId) return locator.conversationId;
@@ -181,7 +181,7 @@ function conversationOf(line: Pending): string | null {
 }
 
 /** The platform's id of a line's message: the locator's, else `native_id`, which can be a key of the family catalog. */
-function messageIdOf(line: Pending): string {
+export function messageIdOf(line: Pending): string {
   const locator = parsed(line.extra).$messageLocator as { messageId?: unknown } | undefined;
   return typeof locator?.messageId === 'string' && locator.messageId ? locator.messageId : line.native_id;
 }
@@ -199,7 +199,7 @@ function partnerOf(db: Db, placeId: unknown): string | null {
 }
 
 /** Whether the platform said no, so that asking again in this run would change nothing. */
-const isRefusal = (answer: Reason): boolean => answer.status !== 'failed' || answer.retryable === false;
+export const isRefusal = (answer: Reason): boolean => answer.status !== 'failed' || answer.retryable === false;
 
 /** Message ids in the platform's order: a shorter id is older, then by characters, as src/memory/chunks.ts compares them. */
 const compareIds = (a: string, b: string): number =>
@@ -598,6 +598,23 @@ export function createMediaBackfillDesk({
   };
 }
 
+/** The history reads the core holds: `answer`, where the reads have it, keeps why a read came to nothing. */
+export type HistoryReads = {
+  history(where: { iface: string; conversationId: string }, query: HistoryQuery): Promise<unknown>;
+  answer?: Reads['answer'];
+};
+
+/** One history read of the interface `iface` names now, as a run reads it. */
+export function historyReader(reads: HistoryReads, iface: () => string): Read {
+  const { answer } = reads;
+  return async (conversationId, query) => {
+    const where = { iface: iface(), conversationId };
+    if (answer) return await answer('history', where, query);
+    const found = (await reads.history(where, query)) as Row | null;
+    return found === null ? { status: 'failed' } : { status: 'ok', ...found };
+  };
+}
+
 /** The desk over the running core: the memory writer, the interface's history reads and the describer. */
 export function mediaBackfillDesk({
   memoryDb,
@@ -608,11 +625,8 @@ export function mediaBackfillDesk({
   log,
 }: {
   memoryDb: { database(): unknown; memoryWrite(update: unknown): Promise<unknown> };
-  /** `answer`, where the reads have it, keeps why a read came to nothing and lets a DM's conversation be opened. */
-  reads: {
-    history(where: { iface: string; conversationId: string }, query: HistoryQuery): Promise<unknown>;
-    answer?: Reads['answer'];
-  };
+  /** `answer`, where the reads have it, also lets a DM's conversation be opened. */
+  reads: HistoryReads;
   iface: () => string;
   describer: {
     describeMany(
@@ -627,12 +641,7 @@ export function mediaBackfillDesk({
   const { answer } = reads;
   return createMediaBackfillDesk({
     database: () => memoryDb.database() as Db | null,
-    read: async (conversationId, query) => {
-      const where = { iface: iface(), conversationId };
-      if (answer) return await answer('history', where, query);
-      const found = (await reads.history(where, query)) as Row | null;
-      return found === null ? { status: 'failed' } : { status: 'ok', ...found };
-    },
+    read: historyReader(reads, iface),
     ...(answer
       ? { dmConversationOf: (accountId: string) => answer('dmConversationOf', { iface: iface(), accountId }) }
       : {}),
