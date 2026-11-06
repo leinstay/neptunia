@@ -7574,7 +7574,9 @@ test('skills gateway: a normal reply is carried over and posted through the port
     {
       text: 'γεια σου <@u1>',
       replyTo: { iface: 'fake', conversationId: 'c1', messageId: 'm1' },
-      mentions: { users: ['u1'], repliedUser: true },
+      // The lead: the mentions carry `asked` since silent mode pings only the members who chose `on` (owner, 2026-11-06).
+      // Nobody chose a state here.
+      mentions: { users: ['u1'], repliedUser: true, asked: { users: [], repliedUser: false } },
     },
   ]);
   assert.equal(other.channel.sent.length, 0, 'nothing went around the port');
@@ -7864,7 +7866,8 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   );
   assert.deepEqual(
     created.sends[0].mentions,
-    { users: ['u1'], repliedUser: false },
+    // The lead: `asked` names who chose `on`, nobody in this test (owner, 2026-11-06).
+    { users: ['u1'], repliedUser: false, asked: { users: [], repliedUser: false } },
     'only the resolved member is notified'
   );
   // A reply keeps working, its author notified as before.
@@ -7874,7 +7877,14 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   });
   assert.deepEqual(
     replied.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions]),
-    [['c1', '<@u1> <a:dance:222222222222222222>', 'm1', { users: ['u1'], repliedUser: true }]]
+    [
+      [
+        'c1',
+        '<@u1> <a:dance:222222222222222222>',
+        'm1',
+        { users: ['u1'], repliedUser: true, asked: { users: [], repliedUser: false } },
+      ],
+    ]
   );
   // Pings off: the mention stays in the text and notifies nobody.
   const quiet = await callTurn({
@@ -7884,7 +7894,7 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   });
   assert.deepEqual(
     quiet.sends.map((send) => [send.text, send.mentions]),
-    [['<@u1>', { users: [], repliedUser: false }]]
+    [['<@u1>', { users: [], repliedUser: false, asked: { users: [], repliedUser: false } }]]
   );
   // The edit path: the same rendering, the same mentions.
   const edited = await callTurn({
