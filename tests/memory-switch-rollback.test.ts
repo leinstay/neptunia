@@ -103,7 +103,9 @@ function world(rig: Rig): World {
  * database and config into the data folder. Returns the conversion report.
  */
 function switchOver(w: World): Report {
-  backupDatabase({ db: w.db, to: w.backup, data: w.rig.dirs.dataDir });
+  // The lead: the rig's folders get a name, so the reads stay three segments deep (R.2).
+  const { dirs } = w.rig;
+  backupDatabase({ db: w.db, to: w.backup, data: dirs.dataDir });
   const { status, stderr } = convert(w.work);
   assert.equal(status, 0, stderr);
   for (const suffix of ['', '-wal', '-shm']) fs.rmSync(`${w.db}${suffix}`, { force: true });
@@ -141,7 +143,7 @@ test('the switched database opens at the current schema with every table the siz
     }
     assert.equal(report.output.schemaVersion, MIGRATIONS.length);
     const wrong = tablesOf(w.db).flatMap((table) => {
-      const promised = report.tables[table]?.output;
+      const promised = (report.tables as Record<string, { output?: number } | undefined>)[table]?.output;
       return promised === undefined || promised === rowsOf(w.db, table).length ? [] : [`${table}: ${promised}`];
     });
     assert.deepEqual(wrong, []);
@@ -195,8 +197,9 @@ test('a backup taken before the rollback holds the lines the new code wrote afte
   switched(async (w) => {
     // Bug: the rollback replaces the database first, and the messages of the resumed hours are gone with it.
     await resumed(w);
-    const preserved = path.join(w.rig.dirs.root, 'backup', 'post-switch');
-    const live = backupDatabase({ db: w.db, to: preserved, data: w.rig.dirs.dataDir });
+    const { dirs: rigDirs } = w.rig;
+    const preserved = path.join(rigDirs.root, 'backup', 'post-switch');
+    const live = backupDatabase({ db: w.db, to: preserved, data: rigDirs.dataDir });
     assert.equal(checkBackup(preserved).schemaVersion, MIGRATIONS.length);
     const pre = checkBackup(w.backup);
     assert.ok((live.rows?.sources ?? 0) > (pre.rows?.sources ?? 0), 'the preserved copy has the new lines');
