@@ -32,6 +32,7 @@ import { internalContext } from '../../memory/db/scope.ts';
 import type { Db } from '../../memory/db/types.ts';
 import { untracked } from '../../loop-watch.ts';
 import type { Track } from '../../loop-watch.ts';
+import { CODE } from '../../tools/codes.ts';
 import { callMethod, objOf } from '../../tools/types.ts';
 
 type Answer = { text: string; status: string; code?: string };
@@ -78,6 +79,7 @@ const refused = (name: string, code: string, why: string): Answer => ({
 const closedDatabase = (name: string): Answer => ({
   text: `/${name.replaceAll('.', ' ')}: the memory database is closed`,
   status: 'failed',
+  code: CODE.MEMORY_CLOSED,
 });
 
 /** A reader's detail: its own shape when found, its code otherwise. */

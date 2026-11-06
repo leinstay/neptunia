@@ -744,6 +744,7 @@
           "error": "something went wrong",
           "runner-down": "that agent is not running",
           "board-unavailable": "the task board cannot be reached right now",
+          "memory-closed": "the memory database is closed",
           "write-failed": "it could not be saved",
           "skill-tampered": "the files of that skill version changed after it was activated, so nothing ran",
           "skill-missing": "the files of that skill version are gone, so nothing ran",
