@@ -205,6 +205,13 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
     'text': 'Sweeps that reach one scope per UTC day',
   },
   {
+    'key': 'memoryDb.session.mediaPassPerDay',
+    'types': ['number'],
+    'reader': 'src/memory/db/session.ts',
+    'default': 24,
+    'text': 'Media-pass sweeps that reach one scope per UTC day, counted apart from `sweepsPerScopePerDay`',
+  },
+  {
     'key': 'memoryDb.session.everyMinutes',
     'types': ['number'],
     'reader': 'src/memory/db/session.ts',

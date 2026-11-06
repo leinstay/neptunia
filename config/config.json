@@ -108,6 +108,7 @@
       "batchLines": 30,
       "maxWaitHours": 24,
       "sweepsPerScopePerDay": 24,
+      "mediaPassPerDay": 24,
       "everyMinutes": 60,
       "reviewsPerDay": 6,
       "since": null,

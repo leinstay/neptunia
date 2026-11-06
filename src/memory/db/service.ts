@@ -1556,7 +1556,7 @@ export function createMemoryDb({
     if (!llm || !handle || refusalOf(config, env, hot.prompts, ring)) return;
     const db = dbOf(handle);
     const ctx = { db, write: memoryWrite, llm, hot, env, ring, now, log, selfName: selfName() ?? '', track };
-    const due = track('session.batch', () => dueScopes(db, config, at));
+    const due = track('session.batch', () => dueScopes(db, config, at, { log }));
     if (due.length > 0) {
       const result = await sweep(ctx, { scopes: new Set(due.map((scope) => scope.key)) });
       sessionState.lastAt = at;

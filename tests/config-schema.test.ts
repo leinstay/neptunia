@@ -213,6 +213,8 @@ const MAY_CHANGE: ReadonlyArray<string> = [
   'sessionSettings.maxWaitHours',
   // The switch of the selfimprovement wake, `selfimprovement.enabled`: a setting the snapshot has not got.
   'innerSettings.selfimprovement',
+  // The lead: the media pass got its own daily count (owner, 2026-11-06).
+  'sessionSettings.mediaPassPerDay',
 ];
 const MAY_GO: ReadonlyArray<string> = [
   'paceSettings.typingWhilePreparing',
