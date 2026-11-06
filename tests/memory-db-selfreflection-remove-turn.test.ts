@@ -132,7 +132,9 @@ test('an entry written by a selfreflection wake keeps the id of its turn as extr
     placeId: 'g1',
   })) as { outcome?: unknown; turnId?: unknown; selfreflection?: { entry?: { id?: unknown } } };
   assert.equal(result.outcome, 'spoke', 'the wake records an entry');
-  const entryId = result.selfreflection?.entry?.id;
+  // The lead: intermediate values named, for the chain rule.
+  const reflection = result.selfreflection;
+  const entryId = reflection?.entry?.id;
   assert.ok(typeof entryId === 'string' && typeof result.turnId === 'string', 'the wake names its entry and its turn');
   scene.store.flush();
   await scene.store.flushSettled({});
@@ -158,7 +160,8 @@ test('an entry without extra.turnId, removed with the turn named, removes that t
   const rig = await removalScene();
   await publishedAlone(rig, 'entry-before-turn-ids');
   wakeTurn(rig, 'turn-wake-named');
-  const service: NamingTurn = rig.scene.memory.memoryDb;
+  const { memory } = rig.scene;
+  const service: NamingTurn = memory.memoryDb;
   const removal = await service.removeSelfreflectionEntry({
     entryId: 'entry-before-turn-ids',
     by: 'owner',
@@ -175,7 +178,8 @@ test('a named turn that does not exist is refused as unknown-turn and changes no
   await publishedAlone(rig, 'entry-before-turn-ids');
   wakeTurn(rig, 'turn-wake-named');
   const before = tableCounts(rig.db);
-  const service: NamingTurn = rig.scene.memory.memoryDb;
+  const { memory } = rig.scene;
+  const service: NamingTurn = memory.memoryDb;
   const removal = await service.removeSelfreflectionEntry({
     entryId: 'entry-before-turn-ids',
     by: 'owner',

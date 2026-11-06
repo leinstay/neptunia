@@ -13,7 +13,7 @@
 //   EntryRemoval =
 //     | { ok: true; entryId: string; deleted: number; removed: Record<string, number> }
 //         deleted: the messages deleted on the platform, one already gone counted; removed: rows removed per table
-//     | { ok: false; code: 'unknown-entry' | 'busy' | 'interface-down' }
+//     | { ok: false; code: 'unknown-entry' | 'unknown-turn' | 'busy' | 'interface-down' }
 //     | { ok: false; code: 'delete-failed'; platformCode: string }   the port's own error code
 //   ConsoleDeps.port?: (iface: string) => Pick<Adapter, 'delete'> | null    what `/memory selfreflection remove` deletes through
 //   `/memory selfreflection remove <id>` parses to `memory.selfreflection.remove` with `{ id }`; a refusal answers the code.
@@ -35,9 +35,10 @@ export { HOUR, T0 };
 export const CONVERSATION = 'd1';
 
 /** The answer of a removal: what the service's answer must be assignable to (see the head of this file). */
+// The lead: `unknown-turn` joined the refusals with the entry's turn (owner, 2026-11-06).
 export type EntryRemoval =
   | { ok: true; entryId: string; deleted: number; removed: Record<string, number> }
-  | { ok: false; code: 'unknown-entry' | 'busy' | 'interface-down' }
+  | { ok: false; code: 'unknown-entry' | 'unknown-turn' | 'busy' | 'interface-down' }
   | { ok: false; code: 'delete-failed'; platformCode: string };
 
 /** The service as the removal tests reach it: its own type, with the removal the implementer adds. */
