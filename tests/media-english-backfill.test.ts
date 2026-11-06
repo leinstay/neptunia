@@ -23,6 +23,16 @@ const SIGN = 'A sign over a door reads "Καλημέρα κόσμε" in green le
  * `description_versions` row per text, oldest first, the last one current.
  */
 function seed(env: Env, { key, texts, kind = 'image' }: { key: string; texts: Array<string>; kind?: string }): void {
+  // The lead: descriptions and their versions reference storage_units(id) through owner_key, so the unit exists first,
+  // each with its own key_json, which is unique.
+  env.db
+    .prepare(
+      `INSERT INTO storage_units (id, kind, subject_type, subject_id, key_json) VALUES (?, 'versions', 'place', 'discord:main', ?)`
+    )
+    .run(
+      key,
+      JSON.stringify({ kind: 'versions', subject: { type: 'place', id: 'discord:main' }, selector: { itemId: key } })
+    );
   env.db
     .prepare(
       `INSERT INTO media (id, kind, native_ref, description, described_at, availability, scope_kind, scope_iface, owner_key)
@@ -294,10 +304,9 @@ test('the new version is a media version of the same description with the time o
       .get() as { origin: string; position: number; written_at: string; extra: string };
     assert.equal(row.origin, 'media');
     assert.equal(row.written_at, new Date(NOW).toISOString());
-    assert.deepEqual(
-      [(JSON.parse(row.extra) as { entry: Row }).entry.text, (JSON.parse(row.extra) as { entry: Row }).entry.ts],
-      [ENGLISH, NOW]
-    );
+    // The lead: the entry gets a name, so no name repeats in a row (R.2).
+    const { entry } = JSON.parse(row.extra) as { entry: Row };
+    assert.deepEqual([entry.text, entry.ts], [ENGLISH, NOW]);
   }));
 
 // ---------- the owner's command ----------
@@ -353,6 +362,7 @@ test('the desk reports a closed database as failed', async () => {
     now: () => NOW,
     log: { warn: () => undefined },
   });
-  const state = await desk.start({ dryRun: false });
-  assert.deepEqual([state.state, state.code], ['failed', 'DB_CLOSED']);
+  // The lead: the answer gets a name, so no name repeats in a row (R.2).
+  const answer = await desk.start({ dryRun: false });
+  assert.deepEqual([answer.state, answer.code], ['failed', 'DB_CLOSED']);
 });
