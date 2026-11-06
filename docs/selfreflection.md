@@ -12,6 +12,14 @@ An entry takes two requests. The planner goes first, on the `analyzer` role with
 
 The planner's `<places>` lists the places she follows, under the rail `audienceAllows` in `src/behavior/snapshot.ts` applies to a pull: a place only some of the post's readers may read is not named, so a post everyone reads does not retell a narrower room. `context.pull.sameAudience` set to `false` lets every place through.
 
+## Seeds and the stored plan
+
+The plan request carries `<seeds>`, two combinations (`SEED_SETS`) that `pickSeeds` in `src/behavior/selfreflection.ts` draws with one line of each family of `prompts/selfreflection-seeds.md`. `usedSeedLines` collects the lines of the combinations the newest `selfreflection.historyPosts` (150) entries built on, and the draw leaves them out. A family whose every line is taken is drawn from whole. The planner answers `seed`, the 1-based number of the combination its brief builds on, and `planSeed` reads a missing, fractional or out-of-range value as 0, which means none.
+
+An entry the planner planned keeps `plan` in its `extra`: the `brief`, the `seeds` offered and the `seed` taken. `recordEntry` in `src/behavior/selfreflection-turn.ts` puts it on the post, and the one writer stores it with the entry. An entry whose planner did not answer has no `plan`. `/memory selfreflection show <id>` prints it with the rest of `extra`.
+
+`<diary>` shows a past picture post by its scene. `sceneOf` takes the scene from the stored `plan.brief`, else from the description of the entry's first linked picture, else from its drawing prompt. `store.getSelfreflection` reads that description from the entry's `media_links` as `pictureDescription` on every read and never stores it, and `<diary>` cuts it to one line of at most `selfreflection.sceneChars` (400) characters at a word boundary.
+
 ## Stored names
 
 The last schema step, `renameToSelfreflection` in `src/memory/migration/selfreflection-names.ts`, moves a database from the older names and keeps every row and row id. It renames the two tables, the `diary_id` column, their indexes and trigger, the stored discriminators, the pending marks in `meta` and the persona's storage unit with every pointer to it. A graph node id, an edge key and a publication's idempotency key take the new first word. `model_requests` stays as it was, and so do the ids under `media:diary:`, the `turn_reads.block` of the `<diary>` block and the budget sections of the journal.

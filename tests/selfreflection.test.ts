@@ -22,6 +22,8 @@ import {
   renderKindsBlock,
   parseSeedFamilies,
   pickSeeds,
+  usedSeedLines,
+  sceneOf,
   renderSeedsBlock,
   stripUrls,
   gistOf,
@@ -634,6 +636,94 @@ test('pickSeeds: empty families are skipped', () => {
     pickSeeds({ place: ['a pier'] }, 0, () => 0.5),
     []
   );
+});
+
+test('pickSeeds: a used line is never drawn while its family has another line', () => {
+  // Bug: the planner is offered the place and the activity of the last entries again, and the diary repeats a scene.
+  const families = { place: ['a pier', 'a roof', 'a field'], activity: ['cycling', 'swimming'] };
+  const used = new Set(['a pier', 'a roof', 'cycling']);
+  const sets = pickSeeds(families, 3, seq([0, 0.5, 0.99, 0.2, 0.7, 0.4]), used);
+  assert.deepEqual(sets, [
+    ['a field', 'swimming'],
+    ['a field', 'swimming'],
+    ['a field', 'swimming'],
+  ]);
+});
+
+test('pickSeeds: a family whose every line is used is drawn from whole', () => {
+  // Bug: a family the recent entries used up drops out of the combination, or the whole draw comes back empty.
+  const families = { place: ['a pier', 'a roof'], activity: ['cycling', 'swimming'] };
+  const used = new Set(['a pier', 'a roof', 'cycling']);
+  const [set, ...rest] = pickSeeds(families, 1, () => 0.99, used);
+  assert.equal(rest.length, 0);
+  assert.equal(set?.length, 2);
+  assert.ok(families.place.includes(String(set?.[0])), String(set?.[0]));
+  assert.equal(set?.[1], 'swimming');
+});
+
+/** A past entry the planner planned: `seeds` the combinations offered, `seed` the 1-based one taken (0 for none). */
+const planned = (at: number, seeds: Array<Array<string>>, seed: number) => ({
+  at,
+  kind: 'status',
+  gist: `entry ${at}`,
+  picture: null,
+  plan: { brief: `brief ${at}`, seeds, seed },
+});
+
+test('usedSeedLines: the lines of the taken combination, not of the others offered', () => {
+  // Bug: every offered combination is left out, so two entries exhaust a small family that was never used.
+  const posts = [
+    planned(
+      1,
+      [
+        ['a pier', 'fog'],
+        ['a roof', 'rain'],
+      ],
+      2
+    ),
+  ];
+  assert.deepEqual([...usedSeedLines(posts, 10)].sort(), ['a roof', 'rain']);
+});
+
+test('usedSeedLines: only the newest max posts count', () => {
+  // Bug: the oldest entries (posts are oldest first) are read instead of the newest, or the window is ignored.
+  const posts = [planned(1, [['a pier', 'fog']], 1), planned(2, [['a roof', 'rain']], 1)];
+  assert.deepEqual([...usedSeedLines(posts, 1)].sort(), ['a roof', 'rain']);
+});
+
+test('usedSeedLines: seed 0, a seed past the list and a post with no plan leave nothing out', () => {
+  // Bug: `seeds[seed - 1]` read with seed 0 or a seed too large takes the wrong combination, or an old row throws.
+  const posts = [
+    planned(1, [['a pier', 'fog']], 0),
+    planned(2, [['a roof', 'rain']], 3),
+    { at: 3, kind: 'status', gist: 'an old row', picture: null },
+  ];
+  assert.equal(usedSeedLines(posts, 10).size, 0);
+});
+
+test('sceneOf: the stored brief of a planned picture post comes first', () => {
+  // Bug: the drawing prompt names the room and the light, and the planner cannot see the activity repeat.
+  const post = {
+    picture: 'a cafe interior, warm light',
+    pictureDescription: 'a girl at a window table',
+    plan: { brief: 'she learns to skate on a frozen lake', seeds: [['a lake', 'skating']], seed: 1 },
+  };
+  assert.equal(sceneOf(post, 400), 'she learns to skate on a frozen lake');
+});
+
+test('sceneOf: without a plan the picture description, one line cut at a word boundary to chars', () => {
+  // Bug: an old row with no brief falls back to the drawing prompt although its picture was described, or the
+  // description spills over several lines or past the setting.
+  const post = {
+    picture: 'a cafe interior, warm light',
+    pictureDescription: 'a girl rides a red bicycle\ndown a wet hill road at dawn',
+  };
+  assert.equal(sceneOf(post, 30), 'a girl rides a red bicycle');
+});
+
+test('sceneOf: with neither a plan nor a description, the stored drawing prompt', () => {
+  // Bug: an old row loses its scene and shows nothing.
+  assert.equal(sceneOf({ picture: 'a cafe interior, warm light' }, 400), 'a cafe interior, warm light');
 });
 
 test('renderSeedsBlock: one line per set', () => {
