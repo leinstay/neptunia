@@ -20,34 +20,6 @@
       "deep": 9,
       "repeated": 0
     },
-    "interfaces/discord/around.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "interfaces/discord/audience-warm.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
-    "interfaces/discord/collect.ts": {
-      "deep": 18,
-      "repeated": 0
-    },
-    "interfaces/discord/embed.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "interfaces/discord/port.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "interfaces/discord/search.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "interfaces/discord/session.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
     "scripts/broken-module-run.ts": {
       "deep": 2,
       "repeated": 0

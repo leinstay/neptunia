@@ -280,7 +280,8 @@ export function createDiscordAdapter({
   async function channelOf(conversationId: string): Promise<DiscordChannel | null> {
     const held = typeof lookupChannel === 'function' ? lookupChannel(conversationId) : null;
     if (held) return held;
-    const cached = client?.channels?.cache?.get?.(conversationId);
+    const channelCache = client?.channels?.cache;
+    const cached = channelCache?.get?.(conversationId);
     if (cached) return cached;
     // The fetch resolves a discord.js channel, or nothing when there is none.
     if (typeof client?.channels?.fetch === 'function')

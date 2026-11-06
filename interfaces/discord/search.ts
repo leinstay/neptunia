@@ -87,7 +87,8 @@ export async function searchMessages(
   query.set('sort_by', 'timestamp');
   query.set('sort_order', 'desc');
   try {
-    const body = objOf(await guild.client.rest.get(`/guilds/${guild.id}/messages/search`, { query, signal }));
+    const rest = guild.client.rest;
+    const body = objOf(await rest.get(`/guilds/${guild.id}/messages/search`, { query, signal }));
     if (!Array.isArray(body.messages)) {
       log.warn('search: failed', { guildId: guild.id, route: 'messages', status: null, name: 'not-indexed' });
       return null;
@@ -137,7 +138,8 @@ export async function searchMembers(
   params.set('query', String(query ?? ''));
   params.set('limit', String(Math.min(1000, Math.max(1, Math.floor(Number(limit) || 1)))));
   try {
-    const body: unknown = await guild.client.rest.get(`/guilds/${guild.id}/members/search`, { query: params, signal });
+    const rest = guild.client.rest;
+    const body: unknown = await rest.get(`/guilds/${guild.id}/members/search`, { query: params, signal });
     return (Array.isArray(body) ? (body as Array<unknown>) : [])
       .map((entry) => objOf(entry))
       .flatMap((member) => {

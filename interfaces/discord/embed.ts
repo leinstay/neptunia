@@ -70,7 +70,8 @@ function gifAnimationUrl(embed: EmbedInput | null | undefined, url: string | nul
  * (its `thumbnail` getter drops the field); '' when neither is there.
  */
 function thumbnailContentTypeOf(embed: EmbedInput | null | undefined): string {
-  return String(embed?.thumbnail?.contentType ?? embed?.data?.thumbnail?.content_type ?? '').toLowerCase();
+  const rawThumbnail = embed?.data?.thumbnail;
+  return String(embed?.thumbnail?.contentType ?? rawThumbnail?.content_type ?? '').toLowerCase();
 }
 
 /**
