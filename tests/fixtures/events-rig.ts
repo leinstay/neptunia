@@ -463,8 +463,16 @@ export function fakeFollowUpLlm(): FakeFollowUpLlm {
       }),
     respond(text) {
       const pending = resolvers;
+      const asked = calls.slice(calls.length - pending.length);
       resolvers = [];
-      for (const { resolve } of pending) resolve({ text, usage: {}, estimated: 1 });
+      // The lead: the address classifier answers in strict JSON (owner, 2026-11-06). A request that hands the client a
+      // `responseFormat` gets a bare verdict word as that object; any other text, an empty one included, stays as given.
+      pending.forEach(({ resolve }, index) => {
+        const word = /^(yes|no|overheard)\.?$/i.exec(text.trim())?.[1];
+        const options = asked[index]?.options;
+        const strict = options?.responseFormat !== undefined && word !== undefined;
+        resolve({ text: strict ? JSON.stringify({ answer: word.toLowerCase() }) : text, usage: {}, estimated: 1 });
+      });
     },
     fail(err) {
       const pending = resolvers;

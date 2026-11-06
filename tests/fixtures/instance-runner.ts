@@ -45,7 +45,8 @@ const core = await startCore({
   llm: {
     // Plan 2026-11-04-cli-and-memory B1: the door asks the address classifier first; it says yes and is not recorded.
     complete: (messages: unknown, given?: unknown) => {
-      if ((given as { purpose?: unknown } | undefined)?.purpose === 'address') return Promise.resolve({ text: 'yes', usage: {}, estimated: 1 });
+      // The lead: the address classifier answers in strict JSON (owner, 2026-11-06).
+      if ((given as { purpose?: unknown } | undefined)?.purpose === 'address') return Promise.resolve({ text: '{"answer":"yes"}', usage: {}, estimated: 1 });
       requests.push(JSON.stringify(messages));
       return Promise.resolve({ text: `<msg>${answer}</msg>`, usage: {}, estimated: 10 });
     },
