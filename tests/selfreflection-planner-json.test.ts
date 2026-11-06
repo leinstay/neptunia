@@ -188,16 +188,22 @@ function kindsSent(planOptions: Array<Record<string, unknown>>): Array<string> {
   return [...allowedStrings(properties?.kind)].sort();
 }
 
-test('the plan request hands the client a schema whose kind is every kind offered', async () => {
+test('the plan request hands the client a schema whose kind is the one kind drawn', async () => {
   // Bug: a fixed schema lets the model name a kind the request did not offer, and the post is planned for nothing.
+  // The lead: since #675 the code draws the kind and the plan request offers that one kind (owner, 2026-11-06).
   const { planOptions } = await diaryTurn(plan({}));
-  assert.deepEqual(kindsSent(planOptions), ALL_KINDS);
+  const kinds = kindsSent(planOptions);
+  assert.equal(kinds.length, 1);
+  assert.ok(ALL_KINDS.includes(kinds[0] ?? ''), kinds[0]);
 });
 
 test('with pictures off the schema allows only the text kinds', async () => {
   // Bug: the schema still offers a picture kind, so the planner picks one and the post falls back every time.
+  // The lead: since #675 the code draws the kind and the plan request offers that one kind (owner, 2026-11-06).
   const { planOptions } = await diaryTurn(plan({}), { pictures: false });
-  assert.deepEqual(kindsSent(planOptions), TEXT_KINDS);
+  const kinds = kindsSent(planOptions);
+  assert.equal(kinds.length, 1);
+  assert.ok(TEXT_KINDS.includes(kinds[0] ?? ''), kinds[0]);
 });
 
 test('a forced kind is the one kind the schema allows', async () => {
@@ -217,7 +223,10 @@ test('selfreflectionPlanFormat is a closed object of the five plan fields with k
 
 test('a well-formed object plans its kind and stores its brief and seed with the post', async () => {
   // Bug: the strict reader rejects the very object the schema asks for, and every post falls back.
-  const { planned, post } = await diaryTurn(plan({ kind: 'status', brief: 'tired of rain', seed: 1 }));
+  // The lead: since #675 the code draws the kind and the plan request offers that one kind (owner, 2026-11-06).
+  const { planned, post } = await diaryTurn(plan({ kind: 'status', brief: 'tired of rain', seed: 1 }), {
+    kind: 'status',
+  });
   assert.equal(planned?.fallback, false);
   assert.equal(post?.kind, 'status');
   assert.equal(post?.plan?.brief, 'tired of rain');

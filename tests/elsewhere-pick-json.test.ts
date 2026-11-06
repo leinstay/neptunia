@@ -103,7 +103,9 @@ test('the elsewhere request hands the client ELSEWHERE_FORMAT as its responseFor
   // Bug: the schema is defined and never sent, so the model answers in prose and the pick is lost.
   const { sent } = await pickWith(answer({}));
   assert.equal(sent.length, 1);
-  assert.deepEqual(sent[0]?.options.responseFormat, ELSEWHERE_FORMAT);
+  // The lead: the request named first, for the chain rule.
+  const [first] = sent;
+  assert.deepEqual(first?.options.responseFormat, ELSEWHERE_FORMAT);
 });
 
 test('ELSEWHERE_FORMAT is a closed object that requires place, earlier and episodes', () => {

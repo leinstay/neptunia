@@ -6,7 +6,8 @@
 export function offeredKind(options: unknown): string | null {
   const format = (options as { responseFormat?: { schema?: { properties?: { kind?: { enum?: unknown } } } } } | null)
     ?.responseFormat;
-  const kinds = format?.schema?.properties?.kind?.enum;
+  const properties = format?.schema?.properties;
+  const kinds = properties?.kind?.enum;
   return Array.isArray(kinds) && kinds.length === 1 && typeof kinds[0] === 'string' ? kinds[0] : null;
 }
 

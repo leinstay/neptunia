@@ -110,7 +110,9 @@ type Schema = {
 /** The schema the one request of a pick handed the client. */
 function schemaSent(sent: Array<Sent>): Schema {
   assert.equal(sent.length, 1);
-  const format = sent[0]?.options.responseFormat as { schema?: Schema } | undefined;
+  // The lead: the request named first, for the chain rule.
+  const [first] = sent;
+  const format = first?.options.responseFormat as { schema?: Schema } | undefined;
   return format?.schema ?? {};
 }
 
@@ -146,7 +148,8 @@ test('a well-formed object gives what the one-line answer gave for the same pick
   const gif = await pickWith('{"pick":"gif","name":"g1"}');
   assert.equal(gif.result.kind, 'gif');
   assert.ok(gif.result.kind === 'gif');
-  assert.equal(gif.result.entry.id, 'g1');
+  const { entry } = gif.result;
+  assert.equal(entry.id, 'g1');
   assert.equal(gif.result.replyTo, 2);
   const appended = await pickWith('{"pick":"emoji","name":"wave"}');
   assert.deepEqual(appended.result, { kind: 'emoji', action: 'append', emoji: WAVE });
