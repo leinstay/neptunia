@@ -65,9 +65,12 @@ async function mentionsOfAnswer(states: Record<string, State>, answer: string, d
     triggerKind: 'mention',
   });
   assert.equal(result.outcome, 'spoke');
-  const sends = world.port.calls.filter((call) => call.op === 'send');
+  // The lead: the port gets a name, so the reads stay three segments deep (R.2).
+  const { port } = world;
+  const sends = port.calls.filter((call) => call.op === 'send');
   assert.equal(sends.length, 1);
-  return (sends[0]?.args[1] as { mentions?: Mentions }).mentions ?? { users: [], repliedUser: false };
+  const [firstSend] = sends;
+  return (firstSend?.args[1] as { mentions?: Mentions }).mentions ?? { users: [], repliedUser: false };
 }
 
 const notifies = (mentions: Mentions): boolean => mentions.notify === true;

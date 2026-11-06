@@ -8,6 +8,10 @@ import { readReport } from '../src/watcher/read.ts';
 import { watcherSettings } from '../src/watcher/settings.ts';
 import { DAY, answerOf, inspectionDeps, inspectionRig, said, sectionOf } from './fixtures/watcher-inspection-rig.ts';
 
+// The lead: the fake board's lists get a name, so each assertion reads three segments deep (R.2).
+const addsOf = (rig: ReturnType<typeof inspectionRig>) => rig.fake.adds;
+const rowsOf = (rig: ReturnType<typeof inspectionRig>) => rig.fake.rows;
+
 const inspection = () => import('../src/watcher/inspection.ts');
 const filing = () => import('../src/watcher/filing.ts');
 
@@ -39,8 +43,8 @@ test('with draftsOnly true the board gets no task and the receipt is a draft', a
   const rig = inspectionRig();
   const result = await runInspection(inspectionDeps(rig, { runAgent: answering(DRAFT), draftsOnly: () => true }));
   assert.equal(result.state, 'succeeded', result.code ?? '');
-  assert.equal(rig.fake.adds.length, 0);
-  assert.equal(rig.fake.rows.length, 0);
+  assert.equal(addsOf(rig).length, 0);
+  assert.equal(rowsOf(rig).length, 0);
   assert.deepEqual(
     readFilings(rig.dir, result.runId).map((one) => [one.state, one.taskId]),
     [['draft', null]]
@@ -80,7 +84,7 @@ test('a draft is settled: a later retry with the board open files nothing', asyn
   await runInspection(inspectionDeps(rig, { runAgent: answering(DRAFT), draftsOnly: () => true }));
   assert.equal(hasUnsettledFilings(rig.dir), false);
   await retryFilings({ dir: rig.dir, board: rig.fake.board, now: rig.store.now });
-  assert.equal(rig.fake.adds.length, 0);
+  assert.equal(addsOf(rig).length, 0);
 });
 
 test('with draftsOnly false the draft is filed as before', async () => {
@@ -89,7 +93,7 @@ test('with draftsOnly false the draft is filed as before', async () => {
   const { readFilings } = await filing();
   const rig = inspectionRig();
   const result = await runInspection(inspectionDeps(rig, { runAgent: answering(DRAFT), draftsOnly: () => false }));
-  assert.equal(rig.fake.adds.length, 1);
+  assert.equal(addsOf(rig).length, 1);
   assert.equal(readFilings(rig.dir, result.runId)[0]?.state, 'filed');
   assert.equal(result.filing, 'filed');
 });
@@ -101,11 +105,11 @@ test('the setting is read when the run files: a run after a switch to false file
   const rig = inspectionRig();
   const first = await runInspection(inspectionDeps(rig, { runAgent: answering(DRAFT), draftsOnly: () => draftsOnly }));
   assert.equal(first.filing, 'none');
-  assert.equal(rig.fake.adds.length, 0);
+  assert.equal(addsOf(rig).length, 0);
   draftsOnly = false;
   rig.clock.t += DAY_MS;
   const other = { ...DRAFT, finding: 'other-rail', evidence: 'src/turn/other.ts:9, one line' };
   const second = await runInspection(inspectionDeps(rig, { runAgent: answering(other), draftsOnly: () => draftsOnly }));
   assert.equal(second.state, 'succeeded', second.code ?? '');
-  assert.equal(rig.fake.adds.length, 1, 'only the new draft is filed, the old draft stays a draft');
+  assert.equal(addsOf(rig).length, 1, 'only the new draft is filed, the old draft stays a draft');
 });

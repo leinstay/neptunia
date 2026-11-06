@@ -9,6 +9,10 @@ import { MessageFlags } from 'discord.js';
 import { createDiscordAdapter } from '../interfaces/discord/port.ts';
 import type { Mentions } from '../src/protocol/index.ts';
 
+// The lead: the first sent payload's mentions get a name, so each assertion reads three segments deep (R.2).
+const mentionsOfFirst = <T extends { allowedMentions?: unknown }>(sent: Array<T>) =>
+  sent[0]?.allowedMentions as { users?: Array<string>; repliedUser?: boolean } | undefined;
+
 const SILENT = Number(MessageFlags.SuppressNotifications);
 const VOICE = Number(MessageFlags.IsVoiceMessage);
 
@@ -47,7 +51,7 @@ test('silent mode with notify: a reply to a member with on carries no suppress f
   const mentions: Mentions = { users: [], repliedUser: true, notify: true };
   await portOver(sent, silent).send(conversation, { text: 'yes', replyTo, mentions });
   assert.equal(suppressed(sent[0]), false);
-  assert.equal(sent[0]?.allowedMentions?.repliedUser, true);
+  assert.equal(mentionsOfFirst(sent)?.repliedUser, true);
   assert.deepEqual(sent[0]?.reply, { messageReference: 'm0', failIfNotExists: false });
 });
 
@@ -59,8 +63,8 @@ test('silent mode with notify: a named member with on is in the allowed users an
     mentions: { users: ['42'], repliedUser: false, notify: true },
   });
   assert.equal(suppressed(sent[0]), false);
-  assert.deepEqual(sent[0]?.allowedMentions?.users, ['42']);
-  assert.equal(sent[0]?.allowedMentions?.repliedUser, false, 'a reply ping nobody asked for stays off');
+  assert.deepEqual(mentionsOfFirst(sent)?.users, ['42']);
+  assert.equal(mentionsOfFirst(sent)?.repliedUser, false, 'a reply ping nobody asked for stays off');
 });
 
 test('silent mode with notify: the voice flag of a voice message stays when the suppress flag goes', async () => {
@@ -82,8 +86,8 @@ test('silent mode without notify: a message with named members is suppressed and
     mentions: { users: ['42'], repliedUser: true },
   });
   assert.equal(suppressed(sent[0]), true);
-  assert.deepEqual(sent[0]?.allowedMentions?.users, ['42']);
-  assert.equal(sent[0]?.allowedMentions?.repliedUser, false);
+  assert.deepEqual(mentionsOfFirst(sent)?.users, ['42']);
+  assert.equal(mentionsOfFirst(sent)?.repliedUser, false);
 });
 
 test('silent mode with notify false: the message stays suppressed', async () => {
@@ -95,7 +99,7 @@ test('silent mode with notify false: the message stays suppressed', async () => 
     mentions: { users: ['42'], repliedUser: true, notify: false },
   });
   assert.equal(suppressed(sent[0]), true);
-  assert.equal(sent[0]?.allowedMentions?.repliedUser, false);
+  assert.equal(mentionsOfFirst(sent)?.repliedUser, false);
 });
 
 test('silent mode: a message with no mentions at all stays suppressed', async () => {
