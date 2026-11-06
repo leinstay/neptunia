@@ -173,8 +173,6 @@ import { dbOf, asText, isFiniteNumber } from './types.ts';
 import { fillMethods } from './selfreflection-fills.ts';
 import type { FillMethods } from './selfreflection-fills.ts';
 import type { Context } from './scope.ts';
-import { createEntryRemoval } from './selfreflection-remove.ts';
-import type { EntryRemoval, RemovalRequest } from './selfreflection-remove.ts';
 
 /** The folder of the unit writes that failed at a shutdown (stage W2b), under the data directory. */
 export const PENDING_DIR = 'memory-pending';
@@ -535,15 +533,12 @@ function dispatchObservation(
   return Promise.resolve().then(() => write(opened(), envelope, { now, log, owner }));
 }
 
-/** The message writers; the delete event of a message the owner's removal deleted writes nothing. */
 function messageWriters(
-  write: (envelope: unknown, where?: Row | null, type?: ObserveItem['type']) => Promise<object> | null,
-  isRemoved: (envelope: unknown) => boolean
+  write: (envelope: unknown, where?: Row | null, type?: ObserveItem['type']) => Promise<object> | null
 ) {
   return {
     observeMessage: (envelope: unknown, where?: Row | null) => write(envelope, where, 'observeMessage'),
-    deleteMessage: (envelope: unknown, where?: Row | null) =>
-      isRemoved(envelope) ? null : write(envelope, where, 'deleteMessage'),
+    deleteMessage: (envelope: unknown, where?: Row | null) => write(envelope, where, 'deleteMessage'),
   };
 }
 
@@ -617,8 +612,6 @@ export type MemoryDbService = FillMethods & {
   personLink(update: Row): Promise<Row>;
   /** The owner's merge of one person into another (person-merge.ts): `{ from, into, by, reason?, now? }`. */
   personMerge(update: Row): Promise<Row>;
-  /** The owner's removal of a selfreflection entry with everything that points at it (selfreflection-remove.ts). */
-  removeSelfreflectionEntry(request: RemovalRequest): Promise<EntryRemoval>;
   /** The owner's snapshots of the whole database (inspection-snapshots.ts), null while it is closed. */
   inspection(): InspectionPort | null;
   /** The private view of a person or a DM place (private-read.ts). Throws `DB_CLOSED` while memory is closed. */
@@ -776,7 +769,6 @@ export function createMemoryDb({
   let replaying = false;
   const pendingDir = path.join(dataDir, PENDING_DIR);
   const quarantineDir = path.join(dataDir, QUARANTINE_DIR);
-  const entryRemoval = createEntryRemoval({ write, dataDir });
 
   // What a migration needs from the opener (openContextOf).
   const openContext = () => openContextOf(hot.config, dataDir);
@@ -1984,11 +1976,10 @@ export function createMemoryDb({
     personLink: (update: Row) => write({ ...update, kind: 'person-link' }),
     personMerge: (update: Row) => write({ ...update, kind: 'person-merge' }),
     ...fillMethods(log, memoryWrite, write),
-    removeSelfreflectionEntry: entryRemoval.removeSelfreflectionEntry,
     inspection,
     ...privateReads(() => dbOf(opened())),
     observe,
-    ...messageWriters(observe, entryRemoval.isRemovedMessage),
+    ...messageWriters(observe),
     waitObservations,
     focusPeople,
     status,
