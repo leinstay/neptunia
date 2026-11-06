@@ -96,7 +96,8 @@ test('a harness chosen in the selector commits its route name as --via', () => {
 
 test('the harness a role is stored on is still marked in force', () => {
   // Catches: the stored word compared with the route name, so the row of the source in force loses its mark.
-  const current = { via: 'codex', model: 'old', effort: null };
+  // The lead: typed as the stored route the picker reads, for the type check.
+  const current = { via: 'codex' as const, model: 'old', effort: null };
   const step = play(atRole('errand', 'scout', [CLAUDE, CODEX], current), choose('subharness')).state;
   const rows = pickerRows(step);
   assert.equal(rows.find((row) => row.id === 'backend:codex')?.current, 'in force');

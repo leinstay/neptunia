@@ -143,6 +143,7 @@ test('an opencode model from the listing is committed under the name opencode ru
   assert.deepEqual(saved?.kind === 'commit' ? saved.command.args : null, {
     role: 'dev',
     model: 'openrouter/vendor/text-1',
-    via: 'opencode',
+    // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
+    via: 'opencode-harness',
   });
 });
