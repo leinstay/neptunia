@@ -1,4 +1,4 @@
-// Which Discord servers one bot account serves: the `servers` the owner listed in `interfaces/discord/config.json`, or
+// Which Discord servers one bot account serves: the `servers` the owner listed in the interface config, `data/interfaces/discord/config.json`, or
 // the one server of an older `bot.guildId` setting (read for compatibility), or the only server the bot is in. This module works on the list of guilds the
 // client is actually in, without touching discord.js itself, so it is unit-tested directly with plain `{ id, name }`
 // objects. The caller (interfaces/discord/session.ts) turns an error into a startup failure.
@@ -21,7 +21,7 @@ export function resolveGuild(
 
     const known = list.length > 0 ? list.map(describe).join(', ') : '(the bot is in no server at all)';
     return {
-      error: `The configured server ${configuredId} is not among the servers this bot is in: ${known}. Check \`servers\` in interfaces/discord/config.json.`,
+      error: `The configured server ${configuredId} is not among the servers this bot is in: ${known}. Check \`servers\` in data/interfaces/discord/config.json.`,
     };
   }
 
@@ -35,7 +35,7 @@ export function resolveGuild(
 
   const known = list.map(describe).join(', ');
   return {
-    error: `No server is chosen and the bot is in several: ${known}. List the ones to serve under \`servers\` in interfaces/discord/config.json.`,
+    error: `No server is chosen and the bot is in several: ${known}. List the ones to serve under \`servers\` in data/interfaces/discord/config.json.`,
   };
 }
 
