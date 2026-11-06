@@ -30,6 +30,7 @@ import {
   cursorKey,
   DESCRIPTION_FIELDS,
   joinOf,
+  mediaPassBatch,
   scopeSweepsToday,
   scopesOf,
   sessionSettings,
@@ -69,16 +70,32 @@ export function dueScopes(db: Db, config: Config, now: number): Array<{ key: str
       settleBefore,
       audienceId: sweepScope.audienceId ?? null,
     });
-    if (batch.length < Math.min(settings.minMessages, settings.maxMessages)) continue;
-    if (joinOf(batch, settings, now).reason === 'wait') continue;
+    const quiet = batch.length < Math.min(settings.minMessages, settings.maxMessages);
+    if (!quiet && joinOf(batch, settings, now).reason === 'wait') continue;
     if (scopeSweepsToday(db, sweepScope.key, now, settings.mode) >= settings.sweepsPerScopePerDay) continue;
-    const full = batch.length >= settings.maxMessages;
+    let lines = batch.length;
+    if (quiet) {
+      // A quiet scope is due only for the media pass, and only while the pass has old lines left.
+      if (!settings.mediaPass) continue;
+      const passCursor = Number(
+        db.prepare('SELECT value FROM meta WHERE key = ?').get(`${cursorKey(settings.mode, sweepScope.key)}:media-pass`)
+          ?.value ?? 0
+      );
+      lines = mediaPassBatch(db, sweepScope, {
+        after: passCursor,
+        upTo: cursor,
+        maxMessages: settings.maxMessages,
+        since: settings.since,
+      }).length;
+      if (lines === 0) continue;
+    }
+    const full = lines >= settings.maxMessages;
     const last = db
       .prepare('SELECT MAX(started_at) AS at FROM session_runs WHERE scope_key = ? AND mode = ?')
       .get(sweepScope.key, settings.mode)?.at;
     const lastMs = typeof last === 'string' ? Date.parse(last) : NaN;
     if (!full && Number.isFinite(lastMs) && now - lastMs < settings.everyMinutes * MINUTE) continue;
-    out.push({ key: sweepScope.key, lines: batch.length, full });
+    out.push({ key: sweepScope.key, lines, full });
   }
   return out;
 }
