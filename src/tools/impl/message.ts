@@ -200,7 +200,8 @@ const handlers = perEnv((env) => {
     const message = found?.messages[0] ?? null;
     if (message?.missing === true) throw invalid(`message ${ref.messageId} was deleted`, CODE.MESSAGE_DELETED);
     if (!message?.event) throw invalid(`no message ${ref.messageId} in ${sourceId}`, CODE.UNKNOWN_MESSAGE);
-    if (message.event.message.author?.self !== true) throw invalid('that message is not hers', CODE.NOT_OWN_MESSAGE);
+    const sent = message.event.message;
+    if (sent.author?.self !== true) throw invalid('that message is not hers', CODE.NOT_OWN_MESSAGE);
     const attachments: Array<Untyped> = [...(message.attachments ?? [])];
     const given = args.item === undefined || args.item === null || args.item === '' ? 1 : Number(args.item);
     if (attachments.length === 0) throw invalid('that message holds no attachment', CODE.NO_MEDIA);
@@ -336,7 +337,8 @@ const handlers = perEnv((env) => {
     if (reply.placeId && reply.placeId !== ref.conversationId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const fetched = await needReads(reads).fetchMessages(ref, [reply.messageId]);
-    const event = fetched?.messages[0]?.event;
+    const replied = fetched?.messages[0];
+    const event = replied?.event;
     if (!event) throw invalid(`no message ${reply.messageId} in ${ref.conversationId}`, CODE.UNKNOWN_MESSAGE);
     const trigger = lineOf(event);
     const result = await turns.runTurn({
@@ -398,8 +400,9 @@ const handlers = perEnv((env) => {
     const page = await needReads(reads).history({ iface: p.iface, conversationId: placeId }, { limit: LAST_LOOKBACK });
     let newest: NonNullable<typeof page>['events'][number] | null = null;
     for (const event of page?.events ?? []) {
-      if (event.message?.author?.self !== true) continue;
-      if (!newest || (event.message.at ?? 0) >= (newest.message?.at ?? 0)) newest = event;
+      const { message } = event;
+      if (message?.author?.self !== true) continue;
+      if (!newest || (message.at ?? 0) >= (newest.message?.at ?? 0)) newest = event;
     }
     if (!newest)
       throw invalid(`no message of the persona among the last ${LAST_LOOKBACK} in ${placeId}`, CODE.NO_OWN_MESSAGE);

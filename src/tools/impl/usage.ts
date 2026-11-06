@@ -187,8 +187,8 @@ export function createUsage({
     try {
       parsed = memoryDb
         ? seam.run(() => {
-            const found = unitValue(seam.db(), personaKey('usage'));
-            return found.found ? found.value : null;
+            const stored = unitValue(seam.db(), personaKey('usage'));
+            return stored.found ? stored.value : null;
           })
         : (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown);
     } catch (error) {
@@ -796,20 +796,20 @@ export function agentCostsLines({
 }
 
 /** An agent's `agentContext` line from its `last_wave`, or null when the wave has no context figure. */
-function contextLine(L: Untyped, agent: string, wave: unknown): string | null {
-  if (!isObj(wave)) return null;
+function contextLine(L: Untyped, agent: string, lastWave: unknown): string | null {
+  if (!isObj(lastWave)) return null;
   const figure = (value: unknown): string =>
     typeof value === 'number' && Number.isFinite(value) ? compactTokens(value) : '-';
-  const mean = wave.context_mean;
-  const peak = wave.context_peak;
+  const mean = lastWave.context_mean;
+  const peak = lastWave.context_peak;
   if (!(typeof mean === 'number' && Number.isFinite(mean)) && !(typeof peak === 'number' && Number.isFinite(peak)))
     return null;
   return line(L.agentContext, {
     agent,
-    wave: wave.wave ?? '-',
-    turns: amountOr0(wave.turns),
+    wave: lastWave.wave ?? '-',
+    turns: amountOr0(lastWave.turns),
     mean: figure(mean),
     peak: figure(peak),
-    usd: usd(wave.usd),
+    usd: usd(lastWave.usd),
   });
 }

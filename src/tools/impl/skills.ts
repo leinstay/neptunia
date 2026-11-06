@@ -32,7 +32,8 @@ const handlers = perEnv((env) => {
       name,
     });
     if (rows.length === 0) {
-      const label = labels.tools?.tools?.describe?.closest;
+      const toolsTool = objOf(objOf(labels.tools).tools);
+      const label = objOf(toolsTool.describe).closest;
       const text =
         closest.length > 0 && typeof label === 'string' && label ? fill(label, { names: closest.join(', ') }) : '';
       return { status: 'invalid', code: CODE.UNKNOWN_SKILL, summary: text, data: { text, closest } };

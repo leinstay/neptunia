@@ -53,10 +53,11 @@ function refusal(status: string, code: string, summary: string): OpResult {
  * member operation while `features.memberCommands` is off included), else `not-granted`.
  */
 function checkRights(op: { name: string; rights: Rights }, ctx: Partial<OpContext> | undefined): OpResult | null {
+  const env = ctx?.env;
   const code = rightsRefusal(op, {
     accountId: ctx?.accountId,
     roleIds: ctx?.roleIds,
-    config: ctx?.env?.hot?.config,
+    config: env?.hot?.config,
     asOwner: ctx?.asOwner === true,
   });
   if (code === null) return null;

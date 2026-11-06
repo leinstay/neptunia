@@ -148,9 +148,10 @@ const handlers = perEnv((env) => {
       const errand = store.get(id);
       if (!errand || !mayView(errand, context)) throw invalid(`no task ${id}`, CODE.NOT_FOUND);
       const lines = [errandLine(errand)];
-      if (errand.state === 'done' && errand.result) {
+      const { result } = errand;
+      if (errand.state === 'done' && result) {
         lines.push(
-          `result: ${errand.result.text ? `${errand.result.text.length} chars` : 'empty'}, ${errand.result.sources?.length ?? 0} sources, ${errand.result.files?.length ?? 0} files`
+          `result: ${result.text ? `${result.text.length} chars` : 'empty'}, ${result.sources?.length ?? 0} sources, ${result.files?.length ?? 0} files`
         );
       }
       if (errand.usage)

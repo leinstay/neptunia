@@ -719,7 +719,8 @@ const NEED_CAPABILITY: Readonly<Record<string, string>> = Object.freeze({
 
 function checkWakePosting(context: PostingContext, capability: string | null): void {
   if (capability && context?.ownInitiative === true && typeof context.wakeKind === 'string') {
-    const refusal = nestedRefusal({ config: context.env?.hot?.config, wakeKind: context.wakeKind, capability });
+    const { env } = context;
+    const refusal = nestedRefusal({ config: env?.hot?.config, wakeKind: context.wakeKind, capability });
     if (refusal) throw denied(`the wake envelope does not allow ${capability}`, refusal.reason);
   }
 }
@@ -772,7 +773,8 @@ export async function postingConversation({
   const capability = NEED_CAPABILITY[need] ?? null;
   checkWakePosting(context, capability);
   const place = context.placeId ?? null;
-  const dmConversationOf = context.env?.directory?.dmConversationOf ?? null;
+  const { env } = context;
+  const dmConversationOf = env?.directory?.dmConversationOf ?? null;
   const here = place ? conversationOfPlace(store, place, dmConversationOf) : null;
   const id = conversationId ? conversationId : here;
   if (!id) throw invalid('a channel is required');

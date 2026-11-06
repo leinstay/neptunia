@@ -33,8 +33,9 @@ import { HEARTBEAT_ORIGIN, isIntentionId, parseEvery, parseWhen } from '../../in
 import { isOwnerCaller } from './grants.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
-import { idText } from '../types.ts';
+import { idText, objOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
+import type { Intention } from '../../intentions/types.ts';
 
 /** The purpose's length in an answer line (characters). */
 const PURPOSE_LINE_CHARS = 80;
@@ -162,7 +163,8 @@ const handlers = perEnv((env) => {
    */
   function stamp(ts: number): string {
     const timezone = hot.config?.bot?.timezone ?? 'UTC';
-    const locale = hot.prompts?.labels?.locale ?? 'en-US';
+    const labels = objOf(objOf(hot.prompts).labels);
+    const locale = (labels.locale as string | undefined) ?? 'en-US';
     return `${formatDate(ts, timezone, locale)} ${formatClock(ts, timezone, locale)}`;
   }
 
@@ -176,10 +178,11 @@ const handlers = perEnv((env) => {
     // A pending intention nothing wakes her for: said at once, so a due left in the purpose text is caught in the turn.
     else if (record.status === 'pending' && !record.every?.period && !record.attend?.place) parts.push('no due');
     if (record.every?.period) parts.push(`every ${record.every.period}`);
-    if (record.attend?.place) {
-      parts.push(`attend ${record.attend.place}`);
-      if (record.attend.people.length > 0) parts.push(`people ${record.attend.people.join(',')}`);
-      parts.push(`settle ${record.attend.settle}s`, `today ${record.attend.today?.wakes ?? 0}/${record.attend.perDay}`);
+    const { attend } = record as Intention;
+    if (attend?.place) {
+      parts.push(`attend ${attend.place}`);
+      if (attend.people.length > 0) parts.push(`people ${attend.people.join(',')}`);
+      parts.push(`settle ${attend.settle}s`, `today ${attend.today?.wakes ?? 0}/${attend.perDay}`);
     }
     if (record.status === 'waiting')
       parts.push(`awaiting ${record.awaitingErrandId} until ${stamp(record.waitDeadline)}`);

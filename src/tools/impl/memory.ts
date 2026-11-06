@@ -417,7 +417,7 @@ const handlers = perEnv((env) => {
       conversationId !== null && reads && port
         ? await reads.fetchMessages({ iface: port.iface, conversationId }, [messageId])
         : null;
-    const at = fetched?.messages[0]?.event?.message.at ?? null;
+    const at = fetched?.messages.at(0)?.event?.message.at ?? null;
     if (at === null) throw invalid(`no message ${messageId} to date its turn by`, CODE.UNKNOWN_MESSAGE);
     const found = typeof journal.findTurn === 'function' ? await journal.findTurn(placeId, { messageId, at }) : null;
     if (!found)
