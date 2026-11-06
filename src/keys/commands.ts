@@ -9,6 +9,7 @@
 
 import { matchRoute } from '../llm/openrouter.ts';
 import {
+  CORE_ROLE,
   EFFORT_LEVELS,
   MEMORY_ROLE,
   REASONING_ROLES,
@@ -126,7 +127,7 @@ export type KeysDeps = {
   saveSetting?(path: string, value: unknown): Promise<void>;
   /** Told what a check of `role` came to, so a launch's readiness (src/setup/readiness.ts) needs no request of its own. */
   recordCheck?(role: string, check: { selection: string; ok: boolean; code: string | null }): void;
-  /** Returns `role` to its direct path: called after a direct model of `memory` is checked and saved. */
+  /** Returns `role` to its direct path: called after a direct model of `memory` or `core` is checked and saved. */
   directPath?(role: string): void;
   /** The path her memory writer runs on now (keys.json, src/subharness/memory-path.ts), read at every check. */
   memoryPath?: () => MemoryCheckPath | null;
@@ -490,7 +491,7 @@ export function createKeysCommands(deps: KeysDeps): {
     await deps.saveModel(role, model);
     // A refused model saves nothing, so the check of the selection in force stands; only this success replaces it.
     deps.recordCheck?.(role, checkRecord(result));
-    if (role === MEMORY_ROLE) deps.directPath?.(role);
+    if (role === MEMORY_ROLE || role === CORE_ROLE) deps.directPath?.(role);
     const saved = await saveFlags(deps, { role, model, provider, effort });
     return { text: [checkLine(result), `The ${role} model is saved.`, ...saved].join('\n'), status: 'ok' };
   }

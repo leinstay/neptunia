@@ -434,10 +434,16 @@ function typed(name: string, args: Readonly<Record<string, unknown>>): string {
   return ['/' + name.replaceAll('.', ' '), ...values.map(String)].join(' ');
 }
 
+/** What takes `--via` beside the agents: the memory writer, and the core and the simulation on a subscription. */
+const VIA_TARGETS: ReadonlyArray<string> = ['memory', 'core', 'simulation'];
+
 /**
  * The answer of a `model set` that neither the key commands nor the `model.set` operation take, or null. An agent's
- * model and effort live in its subharness, checked with one reply there, and so does the memory writer's with `--via`.
- * `--provider` of an agent pins its opencode run to an OpenRouter provider. For any other role `--provider` and `--effort` are checked on the role's key, so they need the key commands of `keys.json`.
+ * model and effort live in its subharness, checked with one reply there, and so does the memory writer's with `--via`,
+ * and the subscription route of the core or the simulation. `simulation` is no model role: without `--via` it takes
+ * only `api`, which returns it to the API. `--provider` of an agent pins its opencode run to an OpenRouter provider.
+ * For any other role `--provider` and `--effort` are checked on the role's key, so they need the key commands of
+ * `keys.json`.
  */
 function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Promise<Answer> | null {
   const typedLine = `/model set ${text(args.role)}`;
@@ -446,20 +452,25 @@ function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Pr
   const flags = args.effort === undefined ? {} : { effort: args.effort };
   const pin = text(args.provider) === '' ? {} : { provider: args.provider };
   if (text(args.via) !== '') {
-    if (!isAgent && args.role !== 'memory')
+    if (!isAgent && !VIA_TARGETS.includes(text(args.role)))
       return Promise.resolve({
-        text: `${typedLine}: ${text(args.role)} has no subharness path; only an agent or memory takes --via`,
+        text: `${typedLine}: ${text(args.role)} has no subharness path; only an agent, memory, core or simulation takes --via`,
         status: 'invalid',
         code: 'role-unsupported',
       });
-    if (!isAgent && text(args.provider) !== '') return refuse('the memory writer takes no --provider');
+    if (!isAgent && text(args.provider) !== '') return refuse(`${text(args.role)} takes no --provider with --via`);
     if (text(args.model) === '') return refuse(`name the model: /model set ${text(args.role)} <model> --via <backend>`);
     if (isAgent) {
       const given = { agent: args.role, model: args.model, via: args.via, ...flags, ...pin };
       return subharnessCommand(subharnessDeps(deps), 'subharness.model', given);
     }
     const given = { backend: args.via, model: args.model, ...flags };
-    return subharnessCommand(subharnessDeps(deps), 'subharness.memory', given);
+    if (args.role === 'memory') return subharnessCommand(subharnessDeps(deps), 'subharness.memory', given);
+    return subharnessCommand(subharnessDeps(deps), 'subharness.subscription', { role: args.role, ...given });
+  }
+  if (args.role === 'simulation') {
+    if (text(args.model) !== 'api') return refuse('name a model with --via claude or --via codex, or api');
+    return subharnessCommand(subharnessDeps(deps), 'subharness.subscription', { role: 'simulation' });
   }
   if (isAgent) {
     if (text(args.model) === '') return refuse('name the model: /model set <agent> <model>');

@@ -9,6 +9,14 @@ import type { AccountAction } from '../../subharness/account.ts';
 import { agentPaths, setAgentMode, setAgentModel, statusText, subharnessView } from '../../subharness/control.ts';
 import { memoryPath, memoryPathText, setMemoryPath } from '../../subharness/memory-path.ts';
 import { memoryGaps } from '../../subharness/memory-writer.ts';
+import {
+  SUBSCRIPTION_ROLES,
+  clearSubscriptionPath,
+  setSubscriptionPath,
+  subscriptionPath,
+  subscriptionPathText,
+} from '../../subharness/subscription-path.ts';
+import type { SubscriptionRole } from '../../subharness/subscription-path.ts';
 import type { EnableDeps, SubharnessAgent, SubharnessResult } from '../../subharness/control.ts';
 import { disableSimulation, enableSimulation, simulationStatus } from '../../simulation/key.ts';
 
@@ -87,10 +95,50 @@ function memoryRow(privateDir: string, sources: Awaited<ReturnType<typeof subhar
   return `  memory  ${memoryPathText(path)}${unavailable}${gaps.join('')}`;
 }
 
-/** `subharness.status`: the sources, every agent's line, and last her memory writer's path. No model run. */
+/** The row of the core's or the simulation's route, marked when its source cannot run now; Codex has no thinking control. */
+function routeRow(
+  privateDir: string,
+  role: SubscriptionRole,
+  sources: Awaited<ReturnType<typeof subharnessView>>['sources']
+): string {
+  const path = subscriptionPath(privateDir, role);
+  if (path.kind === 'api') return `  ${role}  ${subscriptionPathText(path)}`;
+  const state = sources.find((one) => one.backend === path.backend);
+  const unavailable = state === undefined || state.available ? '' : '  unavailable';
+  const gap = path.backend === 'codex' ? '  no thinking control' : '';
+  return `  ${role}  ${subscriptionPathText(path)}${unavailable}${gap}`;
+}
+
+/** `subharness.status`: the sources, every agent's line, her memory writer's path, then the core's and the simulation's. */
 async function statusOf(privateDir: string): Promise<string> {
   const view = await subharnessView(privateDir);
-  return `${statusText(view, agentPaths(privateDir))}\n${memoryRow(privateDir, view.sources)}`;
+  const routes = SUBSCRIPTION_ROLES.map((role) => routeRow(privateDir, role, view.sources));
+  return [statusText(view, agentPaths(privateDir)), memoryRow(privateDir, view.sources), ...routes].join('\n');
+}
+
+const isSubscriptionRole = (value: unknown): value is SubscriptionRole =>
+  SUBSCRIPTION_ROLES.some((role) => role === value);
+
+/**
+ * The core's or the simulation's route: through a backend after one reply on its model and effort, or, for the
+ * simulation with no backend, back to the API.
+ */
+async function subscriptionRoute(
+  deps: EnableDeps,
+  name: string,
+  args: Readonly<Record<string, unknown>>
+): Promise<SubharnessAnswer> {
+  const role = args.role;
+  if (!isSubscriptionRole(role)) return failed(name, args, `use ${SUBSCRIPTION_ROLES.join(' or ')}`);
+  const backend = text(args.backend);
+  if (backend === '') return answerOf(name, args, clearSubscriptionPath(deps.privateDir, role));
+  const effort = text(args.effort);
+  try {
+    const result = await setSubscriptionPath(deps, role, backend, text(args.model), effort === '' ? undefined : effort);
+    return answerOf(name, args, result);
+  } catch {
+    return failed(name, args, 'the check cannot run here: this core has no backend runner');
+  }
 }
 
 /** The memory writer's path through a backend, after one reply on its model and effort. */
@@ -175,6 +223,8 @@ export async function subharnessCommand(
       return { text: await statusOf(privateDir), status: 'ok' };
     case 'subharness.memory':
       return memoryWriterPath(deps, name, args);
+    case 'subharness.subscription':
+      return subscriptionRoute(deps, name, args);
     case 'subharness.model':
       return agentModel(deps, name, args);
     case 'agent.mode':
