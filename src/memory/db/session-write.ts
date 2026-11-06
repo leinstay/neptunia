@@ -38,6 +38,8 @@
 //       The owner's configuration of the mirrors, handed to mirror-config.ts#applyMirrorWrite.
 //   { kind: 'entry-media', id, items, dataDir }
 //       A selfreflection entry's pictures and voice file, kept as files and `media` rows (selfreflection-media.ts#applyEntryMedia).
+//   { kind: 'media-english', descriptionId, replaces, text, how, at }
+//       The English version of a stored media description and its item's text form (media-english.ts#applyMediaEnglish).
 //   { kind: 'unit', op, ... }
 //       The memory units (record and journal lines, the store's cache, the module stores, participation, the selfreflection,
 //       the vectors) and the projection the writers finish, handed to unit-write.ts#applyUnitWrite.
@@ -127,6 +129,7 @@ import { applyDeliveryWrite, isDeliveryOp } from './publication-delivery.ts';
 import { applyMirrorWrite } from './mirror-config.ts';
 import { applyEntryMedia } from './selfreflection-media.ts';
 import { applyMediaBackfill } from './media-backfill.ts';
+import { applyMediaEnglish } from './media-english.ts';
 import { applyMediaEmbed } from './media-store.ts';
 import { writeBackup } from './backup.ts';
 import { applyIngestWrite } from './ingest.ts';
@@ -965,6 +968,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ],
   ['mirror', applyMirrorWrite],
   ['semantic-embedding', applySemanticEmbedding],
+  ['media-english', applyMediaEnglish],
 ]);
 
 /** Applies one write on the writer connection; returns counts. */

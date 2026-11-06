@@ -284,9 +284,9 @@ test('defaults: limits, daily, model, env names', () => {
   assert.deepEqual(SCOUT.defaultLimits, { steps: 25, seconds: 300 });
   assert.deepEqual(SERVER.defaultLimits, { steps: 20, seconds: 120 });
   assert.deepEqual(SCOUT.defaultDaily, { tasks: 40 });
-  assert.ok(SCOUT.envNames.includes('OPENROUTER_ERRAND_KEY'));
-  assert.ok(SCOUT.envNames.includes('PROXY_URL'));
-  assert.deepEqual([...SERVER.envNames], ['OPENROUTER_ERRAND_KEY']);
+  // Stage AB: the runners read no key from their environment, so neither profile names a variable.
+  assert.deepEqual([...SCOUT.envNames], []);
+  assert.deepEqual([...SERVER.envNames], []);
   assert.equal(SCOUT.defaultSearchProvider, 'exa');
 });
 
@@ -1595,7 +1595,8 @@ test('the scout unit: runs the scout profile with the state and runtime dirs the
   assert.ok(loose(line('ExecStart')).endsWith('bin/neptunia.ts errand-runner --profile scout'));
   assert.equal(line('StateDirectory'), 'StateDirectory=neptunia-agent-scout');
   assert.equal(line('RuntimeDirectory'), 'RuntimeDirectory=neptunia-agent-scout');
-  assert.equal(line('EnvironmentFile'), 'EnvironmentFile=-/opt/neptunia/data/clients/agent-scout.env');
+  // Stage AB: the unit has no EnvironmentFile; every key comes with the task.
+  assert.equal(line('EnvironmentFile'), undefined);
   assert.equal(SCOUT.defaultSocket, '/run/neptunia-agent-scout/sock');
   assert.equal(SCOUT.defaultOut, '/var/lib/neptunia-agent-scout/out');
 });

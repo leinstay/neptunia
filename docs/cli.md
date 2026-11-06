@@ -158,6 +158,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Link a person's accounts, or merge two people | `/memory bind`, `/memory users link`, `/memory users unlink`, `/memory users merge` |
 | Give her or a person a name the door and the classifier know | `/memory users names add person:self NAME`, `/memory users names remove person:self NAME` |
 | Browse people, places, the graph and each memory family, and read every stored row | `/memory users`, `/memory places`, `/memory graph`, `/memory inspect`, `/memory claims` and the other families. See [The memory browser](#the-memory-browser) |
+| Bring stored media to the one format, or its descriptions to English | `/memory backfill-media`, `/memory backfill-english`, each with `--dry-run` or `status`. See [Moving old media to the store](memory.md#moving-old-media-to-the-store) |
 | Choose where the selfreflection is published | `/mirror` |
 | Review and activate a skill | `/skills` |
 | Show the sources of the agents and log them in or out | `/subharness status`, `/subharness <backend> login`, `/subharness <backend> status`, `/subharness <backend> logout` |
@@ -201,7 +202,7 @@ On a semantic version, `/memory claims version` adds `semantic`, its rows of `se
 
 A page shortens a cell over 4 KiB, and the cell's `excerpt` gives `totalBytes`, `remainingBytes` and `nextOffset`. `/memory inspect value <table> <locator> <column> --offset <n>` reads on in chunks of 1 MiB by byte offset in the stored value. A stored text that is not valid UTF-8 comes back from `value` as base64, with `encoding` saying so, and a page or an export names its stored bytes in the cell's `exactBytes`.
 
-`/memory inspect export <file>` writes one new JSONL file, at an absolute path on the core's machine, at mode `0600`, and refuses a file that exists. It holds a `header` with the engine revision and both schema versions, the `catalog`, one `row` record per row with full values and a `manifest` of row counts it reconciled against the snapshot. It is complete or it does not exist. FTS shadows are marked as derived storage. The restorable copy of the database is `/memory backup`.
+`/memory inspect export <file>` writes one new JSONL file, at an absolute path on the core's machine, at mode `0600`, and refuses a file that exists. It holds a `header` with the engine revision and both schema versions, the `catalog`, one `row` record per row with full values and a `manifest` of row counts it reconciled against the snapshot. It is complete or it does not exist. The write runs on a thread of its own over a snapshot that thread opens, so the core keeps answering while it works, and the event loop watch names it `memory.inspect.export`. FTS shadows are marked as derived storage. The restorable copy of the database is `/memory backup`.
 
 ## Backend usage
 

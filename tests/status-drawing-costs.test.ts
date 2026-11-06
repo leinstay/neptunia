@@ -40,7 +40,8 @@ function setup() {
     llm: {
       maxRequestsPerDay: 10,
       probeTimeoutMs: 50,
-      keyByRole: { scout: 'OPENROUTER_ERRAND_KEY', drawing: 'OPENROUTER_ERRAND_KEY' },
+      // Stage AB: the shipped map has no errand entry; this rig maps the roles itself.
+      keyByRole: { scout: 'OPENROUTER_AGENT_KEY', drawing: 'OPENROUTER_AGENT_KEY' },
     },
     errands: { maxOpen: 3 },
   };
