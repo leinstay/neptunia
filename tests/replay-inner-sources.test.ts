@@ -79,7 +79,8 @@ test('the journal handed to the inner life reads by a query alone, as the core d
       places: () => [PLACE],
       hide: { any: false, channels: new Set(), messages: new Set() },
     });
-    assert.deepEqual(await sources.journal.read({ n: 5 }), []);
+    // The lead: the persona journal's read takes a day, as its type says.
+    assert.deepEqual(await sources.journal.read({ day: '2026-11-06', n: 5 }), []);
   } finally {
     await done();
   }

@@ -2355,9 +2355,12 @@ export function innerSourcesOf({
   store: Parameters<typeof personaRecord>[1];
   places: () => Array<string>;
   hide: Rec;
-}): { record: Rec; journal: Rec } {
+}): {
+  record: { iterate(query: Rec): AsyncIterable<unknown> };
+  journal: ReturnType<typeof personaJournal>;
+} {
   return {
-    record: hiddenRecord(personaRecord(record, store, places), hide),
+    record: hiddenRecord(personaRecord(record, store, places), hide) as { iterate(query: Rec): AsyncIterable<unknown> },
     journal: personaJournal(journal, places, store),
   };
 }
