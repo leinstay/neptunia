@@ -61,7 +61,8 @@ test('the errand store keeps the count of failed searches on the finished errand
       agent: 'scout',
       goal: 'find the notes',
       requester: { accountId: '7', kind: 'member' },
-      origin: { channelId: 'c1', messageId: 'm1' },
+      // The lead: an errand's origin names its place (`placeId`), as the store's type says.
+      origin: { placeId: 'c1', messageId: 'm1' },
       scope: 'group',
     });
     const id = String(loose(errand).id);
