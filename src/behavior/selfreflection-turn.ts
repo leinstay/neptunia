@@ -214,8 +214,7 @@ const publicationAudienceOf = (choice: AudienceChoice) =>
  * mentions, the set's byte limit) and, with a voice message, the text as voiced and its length; the day's selfreflection post
  * counted. Every picture was counted when it was generated. `audience` is what her `<audience>` tags came to: the post
  * keeps it as `publicationAudience`, and a failed choice is kept as a value that publishes nowhere
- * (src/memory/db/selfreflection-audience.ts). `turnId`, the turn that wrote it, is kept as the post's `turnId`: the
- * owner's removal of the entry finds the turn's records through it (src/memory/db/selfreflection-remove.ts). Returns
+ * (src/memory/db/selfreflection-audience.ts). `turnId`, the turn that wrote it, is kept as the post's `turnId`. Returns
  * the outcome's `selfreflection` field: the counts, the audience and the entry the mirrors publish.
  */
 export function recordEntry({
