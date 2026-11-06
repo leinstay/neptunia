@@ -1,6 +1,6 @@
 // What changes to a message after it arrived: an edit of its text is a `seen` line of the record with its next
-// revision, the media a platform attached late is counted into the GIF library and warmed, and a deleted message is
-// a `deleted` line of the record. createMessageHandler (src/behavior/pipeline.js) builds it once with createEdits and
+// revision, the media a platform attached late is linked to the line's current revision, counted into the GIF library
+// and warmed, and a deleted message is a `deleted` line of the record. createMessageHandler (src/behavior/pipeline.js) builds it once with createEdits and
 // hands the two handlers to the interface's edit and deletion events.
 
 import { sharedPlaceOf } from '../memory/addresses.ts';
@@ -203,17 +203,29 @@ export function createEdits({
   const sourceTextOf = (message: Message | null | undefined) =>
     typeof message?.sourceText === 'string' ? message.sourceText : (message?.content ?? '');
 
+  /** Whether `event` carries an attachment or link item its `previous` message did not. */
+  function bringsMedia(event: MessageEvent, previous: Message): boolean {
+    // lineOf gives the normalized line of a message event.
+    const known = mediaIdsOf(lineOf({ ...event, message: previous }) as Line);
+    return [...mediaIdsOf(lineOf(event) as Line)].some((id) => !known.has(id));
+  }
+
   /**
    * An edited message (its text changed between `oldMessage` and `newMessage`) as a `seen`
-   * line of the record with the next revision of the day (`revisions`). An update that only
-   * attached embeds is no edit. Never throws: a refused append is logged as `events: record failed` (counts only).
+   * line of the record with the next revision of the day (`revisions`). An update that keeps the
+   * text and brings media (an embed the platform unfurled late) is no edit: its observation lands on
+   * the line's current revision, which links the items it lacks, and the record gets no line. Never
+   * throws: a refused append is logged as `events: record failed` (counts only).
    */
   async function recordEdit(event: MessageEvent, options?: MessageReadOptions): Promise<void> {
     try {
       if (event.partial || !recordable(event)) return;
-      if (event.previous && sourceTextOf(event.previous) === sourceTextOf(event.message)) return;
       // recordable holds only for the served community.
       const placeId = sharedPlaceOf(store, event.conversation, event.iface);
+      if (event.previous && sourceTextOf(event.previous) === sourceTextOf(event.message)) {
+        if (bringsMedia(event, event.previous)) await observeLine(event, false, { placeId }, options?.acceptedEvent);
+        return;
+      }
       // lineOf gives the normalized line of a message event.
       const normalized = lineOf(event) as Line;
       const day = utcDay(now());
