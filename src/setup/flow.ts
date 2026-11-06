@@ -115,7 +115,7 @@ async function coreModelStep(options: SetupOptions, askCore: LinkAsk, context: F
   const onRoute =
     route.kind === 'api'
       ? ''
-      : ` Her turns run ${subscriptionPathText(route)} now; a model named here moves them back to the API.`;
+      : ` Her turns run ${subscriptionPathText(route)} now; a model named here moves them back to direct-api.`;
   const model = (
     await context.ask(`The core model, as OpenRouter names it (blank checks the one set):${onRoute}`, offered)
   ).trim();

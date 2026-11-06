@@ -42,10 +42,11 @@ test('a refused read rejects, so the selector shows a failure and not an empty l
 });
 
 test('its commit is the checked model.set command, once, and keeps the code of a refusal', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: a second save path around the checked selection, or the refusal's code lost on the way to the screen.
   const { calls, run } = runner(() => ({ status: 'failed', code: 'model-rejected', text: 'no' }));
   const panel = await chatPanel('/model', run);
-  const command = { name: 'model.set', args: { role: 'dev', model: 'sonnet', via: 'claude' } } as const;
+  const command = { name: 'model.set', args: { role: 'dev', model: 'sonnet', via: 'claude-harness' } } as const;
   const answer = await panel?.picker?.commit(command);
   assert.deepEqual(calls, [command]);
   assert.equal(answer?.code, 'model-rejected');

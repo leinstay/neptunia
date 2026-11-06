@@ -257,6 +257,7 @@ test('a snapshot page continued after its snapshot expired is refused with the e
 });
 
 test('a model check that finished after the owner chose again is refused as stale and saves nothing', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Bug: the slow check of the first choice is written last, so the owner's newer choice silently disappears.
   let release: (value: BackendResult) => void = () => undefined;
   const held = new Promise<BackendResult>((resolve) => {
@@ -264,9 +265,9 @@ test('a model check that finished after the owner chose again is refused as stal
   });
   const one = await rig((model) => (model === 'slow' ? held : { ok: true, text: 'ok', exitCode: 0 }));
   const before = digestOf(one);
-  const slow = one.say('model', 'set', 'thinker', 'slow', '--via', 'claude');
+  const slow = one.say('model', 'set', 'thinker', 'slow', '--via', 'claude-harness');
   await new Promise((resolve) => setTimeout(resolve, 20));
-  const quick = await one.say('model', 'set', 'thinker', 'quick', '--via', 'codex');
+  const quick = await one.say('model', 'set', 'thinker', 'quick', '--via', 'codex-harness');
   assert.equal(quick.status, 'ok', quick.text);
   release({ ok: true, text: 'ok', exitCode: 0 });
   const stale = await slow;
@@ -282,13 +283,14 @@ test('a model check that finished after the owner chose again is refused as stal
 });
 
 test('a model check that fails is reported with the reason it gave and saves nothing', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Bug: "gave no reply" for a rejection, or a model saved on a backend that refused it.
   const one = await rig(() => ({ ok: false, text: '', exitCode: 1, detail: 'that model is not on this plan' }));
   const before = digestOf(one);
   const network = noNetwork();
   let answer: Answer;
   try {
-    answer = await one.say('model', 'set', 'thinker', 'sonnet', '--via', 'claude');
+    answer = await one.say('model', 'set', 'thinker', 'sonnet', '--via', 'claude-harness');
   } finally {
     network.restore();
   }

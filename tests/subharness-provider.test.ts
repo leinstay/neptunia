@@ -201,11 +201,12 @@ test('the route of an agent with no provider has no provider key', () => {
 // the commands
 
 test('/model set <agent> <model> --via opencode --provider stores the provider and /subharness status shows it', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: the console still refusing `--provider` for an agent, or the status leaving the pin out so the owner cannot check it.
   const dir = installed();
   const answer = await consoleOver(dir).run(
     'model.set',
-    { role: 'dev', model: MODEL, via: 'opencode', provider: 'google-vertex' },
+    { role: 'dev', model: MODEL, via: 'opencode-harness', provider: 'google-vertex' },
     OWNER
   );
   assert.equal(answer.status, 'ok', answer.text);
@@ -226,10 +227,11 @@ test('/subharness status shows no provider on the row of an agent that has none'
 });
 
 test('/model set <agent> <model> --provider with no --via on a claude agent is refused with provider-unsupported', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: the old blanket refusal text with no code, or the pin stored for an agent whose source takes none.
   const dir = installed();
   fakeVendor(dir, 'claude', { loggedIn: true });
-  await consoleOver(dir).run('model.set', { role: 'dev', model: 'sonnet', via: 'claude' }, OWNER);
+  await consoleOver(dir).run('model.set', { role: 'dev', model: 'sonnet', via: 'claude-harness' }, OWNER);
   const answer = await consoleOver(dir).run('model.set', { role: 'dev', model: 'opus', provider: 'anthropic' }, OWNER);
   assert.equal(answer.code, 'provider-unsupported');
   assert.deepEqual(providersOf(dir) ?? {}, {});

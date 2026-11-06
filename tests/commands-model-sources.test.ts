@@ -126,10 +126,11 @@ test('the core answers a status of one backend, and tells a login to go to a ter
 
 for (const role of ['scout', 'server', 'dev', 'watcher', 'thinker']) {
   test(`/model set ${role} --via stores the source, the model and the effort after one reply`, async () => {
+    // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
     // Catches: --via open to memory alone, or an agent's source and model written in two steps that can part.
     const { desk, privateDir, checks } = rig({ backends: ['codex'] });
     fakeVendor(privateDir, 'claude', { loggedIn: true });
-    const answer = await desk.run('model.set', { role, model: 'sonnet', via: 'claude', effort: 'high' }, OWNER);
+    const answer = await desk.run('model.set', { role, model: 'sonnet', via: 'claude-harness', effort: 'high' }, OWNER);
     assert.equal(answer.status, 'ok', answer.text);
     assert.deepEqual(checks, [{ name: 'claude', model: 'sonnet', effort: 'high' }]);
     const stored = readKeysFile(privateDir).subharness;
@@ -140,10 +141,15 @@ for (const role of ['scout', 'server', 'dev', 'watcher', 'thinker']) {
 }
 
 test('/model set memory --via stores the record with a backend the old list omits', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: the old connected-list gate left in the memory path after every other role moved off it.
   const { desk, privateDir } = rig({ backends: [] });
   fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const answer = await desk.run('model.set', { role: 'memory', model: 'claude-opus-4-6', via: 'claude' }, OWNER);
+  const answer = await desk.run(
+    'model.set',
+    { role: 'memory', model: 'claude-opus-4-6', via: 'claude-harness' },
+    OWNER
+  );
   assert.equal(answer.status, 'ok', answer.text);
   assert.deepEqual(readKeysFile(privateDir).subharness.memory, {
     backend: 'claude',
@@ -153,21 +159,26 @@ test('/model set memory --via stores the record with a backend the old list omit
 });
 
 test('a missing install, a missing login and a provider rejection are three answers, and none saves', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: "gave no reply" for all three, or a model request spent on a backend that cannot answer.
   const absent = rig();
-  const noInstall = await absent.desk.run('model.set', { role: 'dev', model: 'sonnet', via: 'claude' }, OWNER);
+  const noInstall = await absent.desk.run('model.set', { role: 'dev', model: 'sonnet', via: 'claude-harness' }, OWNER);
   assert.equal(noInstall.code, 'not-installed');
   assert.deepEqual(absent.checks, []);
 
   const out = rig();
   fakeVendor(out.privateDir, 'claude');
-  const noLogin = await out.desk.run('model.set', { role: 'dev', model: 'sonnet', via: 'claude' }, OWNER);
+  const noLogin = await out.desk.run('model.set', { role: 'dev', model: 'sonnet', via: 'claude-harness' }, OWNER);
   assert.equal(noLogin.code, 'not-logged-in');
   assert.deepEqual(out.checks, []);
 
   const rejecting = rig({}, () => ({ ok: false, text: '', exitCode: 1, detail: 'that model is not on this plan' }));
   fakeVendor(rejecting.privateDir, 'claude', { loggedIn: true });
-  const rejected = await rejecting.desk.run('model.set', { role: 'dev', model: 'sonnet', via: 'claude' }, OWNER);
+  const rejected = await rejecting.desk.run(
+    'model.set',
+    { role: 'dev', model: 'sonnet', via: 'claude-harness' },
+    OWNER
+  );
   assert.equal(rejected.code, 'model-rejected');
   assert.ok(rejected.text.includes('that model is not on this plan'), rejected.text);
 
@@ -180,16 +191,18 @@ test('a missing install, a missing login and a provider rejection are three answ
 
 for (const role of ['speech', 'drawing']) {
   test(`/model set ${role} --via a CLI is refused as unsupported by the role, with no check`, async () => {
+    // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
     // Catches: a text-only CLI saved as her voice or her painter.
     const { desk, privateDir, checks } = rig();
     fakeVendor(privateDir, 'claude', { loggedIn: true });
-    const answer = await desk.run('model.set', { role, model: 'opus', via: 'claude' }, OWNER);
+    const answer = await desk.run('model.set', { role, model: 'opus', via: 'claude-harness' }, OWNER);
     assert.equal(answer.code, 'role-unsupported');
     assert.deepEqual(checks, []);
   });
 }
 
 test('a stale check of an agent never overwrites the choice made while it ran', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: the slow probe's success written last, so the owner's newer choice silently disappears.
   let releaseFirst: (value: BackendResult) => void = () => {};
   const first = new Promise<BackendResult>((resolve) => (releaseFirst = resolve));
@@ -198,9 +211,9 @@ test('a stale check of an agent never overwrites the choice made while it ran', 
   );
   fakeVendor(privateDir, 'claude', { loggedIn: true });
   fakeVendor(privateDir, 'codex', { loggedIn: true });
-  const slow = desk.run('model.set', { role: 'dev', model: 'slow', via: 'claude' }, OWNER);
+  const slow = desk.run('model.set', { role: 'dev', model: 'slow', via: 'claude-harness' }, OWNER);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  const quick = await desk.run('model.set', { role: 'dev', model: 'quick', via: 'codex' }, OWNER);
+  const quick = await desk.run('model.set', { role: 'dev', model: 'quick', via: 'codex-harness' }, OWNER);
   assert.equal(quick.status, 'ok', quick.text);
   releaseFirst({ ok: true, text: 'ok', exitCode: 0 });
   const answer = await slow;
@@ -211,12 +224,13 @@ test('a stale check of an agent never overwrites the choice made while it ran', 
 });
 
 test('a stale check of memory never overwrites a return to the direct path', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: the writer jumps back onto a subscription the owner just left.
   let release: (value: BackendResult) => void = () => {};
   const held = new Promise<BackendResult>((resolve) => (release = resolve));
   const { desk, privateDir } = rig({ backends: ['claude'] }, () => held);
   fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const slow = desk.run('model.set', { role: 'memory', model: 'claude-opus-4-6', via: 'claude' }, OWNER);
+  const slow = desk.run('model.set', { role: 'memory', model: 'claude-opus-4-6', via: 'claude-harness' }, OWNER);
   await new Promise((resolve) => setTimeout(resolve, 20));
   clearMemoryPath(privateDir);
   release({ ok: true, text: 'ok', exitCode: 0 });
@@ -225,12 +239,13 @@ test('a stale check of memory never overwrites a return to the direct path', asy
 });
 
 test('a logout while the check runs keeps the selection from being saved', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: a role saved on an account that is gone by the time the reply arrives.
   let release: (value: BackendResult) => void = () => {};
   const held = new Promise<BackendResult>((resolve) => (release = resolve));
   const { desk, privateDir } = rig({}, () => held);
   const vendor = fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const slow = desk.run('model.set', { role: 'dev', model: 'sonnet', via: 'claude' }, OWNER);
+  const slow = desk.run('model.set', { role: 'dev', model: 'sonnet', via: 'claude-harness' }, OWNER);
   await new Promise((resolve) => setTimeout(resolve, 20));
   fs.rmSync(path.join(vendor.home, 'credentials'));
   release({ ok: true, text: 'ok', exitCode: 0 });

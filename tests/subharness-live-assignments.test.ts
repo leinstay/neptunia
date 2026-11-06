@@ -62,6 +62,7 @@ test('every role of a live store keeps its source, model and effort, before and 
 });
 
 test('the status of a live store shows every role on its source and marks none unavailable', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: the roles read as off the moment the list stops deciding, with the login in place.
   const privateDir = liveStore();
   fakeVendor(privateDir, 'claude', { loggedIn: true });
@@ -77,7 +78,7 @@ test('the status of a live store shows every role on its source and marks none u
     assert.ok(row(agent).includes(MODELS[agent]), agent);
     assert.equal(row(agent).includes('unavailable'), false, agent);
   }
-  assert.ok(row('memory').includes('via claude claude-opus-4-6'));
+  assert.ok(row('memory').includes('via claude-harness claude-opus-4-6'));
   assert.equal(row('memory').includes('unavailable'), false);
 });
 
