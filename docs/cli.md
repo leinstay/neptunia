@@ -55,7 +55,7 @@ An image the persona sends is kept the same way, up to 10 MiB, and the transcrip
 
 ## Rendering
 
-`cli/app.ts` gives the transcript what the other parts leave: the transcript budget is `max(0, R - F - C - O)` (`transcriptBudget` in `cli/layout.ts`), with `R` the terminal's rows, `F` the header, footer, notice and question rows, `C` the input with its borders, and `O` the slash menu or a panel. Everything is counted in cells by `cli/layout.ts`: Backspace and the caret cross a whole grapheme, wrapping never splits a wide glyph, and the caret stands on the next row when its row is full. The input grows to at most 8 rows, then scrolls inside its box with the caret's row in view and a row counting what is hidden. Deleting rows gives them back to the transcript.
+`cli/chat-controller.ts` gives the transcript what the other parts leave: the transcript budget is `max(0, R - F - C - O)` (`transcriptBudget` in `cli/layout.ts`), with `R` the terminal's rows, `F` the header, footer, notice and question rows, `C` the input with its borders, and `O` the slash menu or a panel. Everything is counted in cells by `cli/layout.ts`: Backspace and the caret cross a whole grapheme, wrapping never splits a wide glyph, and the caret stands on the next row when its row is full. The input grows to at most 8 rows, then scrolls inside its box with the caret's row in view and a row counting what is hidden. Deleting rows gives them back to the transcript.
 
 `cli/transcript.ts` wraps each entry to the width and draws only the rows that fit, however long the session. Following the tail and reading further up are separate views. Page Up anchors the view to an entry and a row inside it, so a new answer or a resize leaves the reader in place, and reaching the end follows the tail again. An answer folds to at most 20 lines, fewer when the terminal has less room, so it starts on the screen. Ctrl+O changes one entry, and an expanded last entry may go past the budget. The full text stays in the entry.
 
@@ -95,7 +95,7 @@ Raw mode clears `IXON` and `ISIG` (checked with `stty -a` under a pseudo-termina
 
 ## Overlays and questions
 
-One screen element holds the keys and a paste at a time. A question from the core goes first, then an open panel, then the input. `focusOwner` in `cli/app.ts` decides, and a panel that loses the keys stays on the screen.
+One screen element holds the keys and a paste at a time. A question from the core goes first, then an open panel, then the input. `focusOwner` in `cli/chat-controller.ts` decides, and a panel that loses the keys stays on the screen.
 
 A question replaces the input and keeps the unfinished line it interrupted. The line comes back after the answer or Esc, and an answer never joins it. Enter does nothing for 700 ms after the question closes, counted again from each Enter it swallows, so a held key cannot send a draft its owner has not seen. A secret answer is drawn as stars and stays out of the input history. A question with choices opens the selector in `cli/selector.ts`. Typing or pasting narrows the list, Enter answers with the choice exactly as the core sent it, and a filter that matches nothing answers nothing. The plain chat prints the choices beside the prompt.
 
@@ -105,7 +105,7 @@ Each slash command replaces the panel request before it. An answer of a request 
 
 `createTurnControl` in `src/turn/control.ts` owns the state of every line the chat or `neptunia -p` sends: accepted, queued, running, and committed, cancelled or failed. Each event names its turn and carries a rising `seq`. The core sends them to a client that asked with `turn.replay`, as a `command.result` of status `turn` (`src/protocol/turn-control.ts`), and `cli/turn-state.ts` builds the chat's picture from them and from nothing else. Her replies still arrive as messages, so the events carry the turn's state and the reply its words.
 
-A line goes through the event door when it arrives, like a message of any other interface (`src/interface/chat-turns.ts`). Memory observes it at once, and the pipeline's own queue decides when its turn runs, under `mention.pendingSameChannel`, `mention.oneAtATime` and the pipeline's own bound. The control adds no helper model and holds no line back: it tracks the order and states the client shows, one turn running at a time. The row above the input shows the running turn, its newest tool step and how many lines wait. The same request id sent twice is one line. A failed turn leaves a line in the transcript, and the next line goes on.
+A line goes through the event door when it arrives, like a message of any other interface (`src/interface/chat-turns.ts`). Memory observes it at once, and the pipeline's own queue decides when its turn runs: one turn at a time, with at most `mention.maxPending` calls waiting for `mention.pendingMinutes`. The control adds no helper model and holds no line back: it tracks the order and states the client shows, one turn running at a time. The row above the input shows the running turn, its newest tool step and how many lines wait. The same request id sent twice is one line. A failed turn leaves a line in the transcript, and the next line goes on.
 
 A line that waits is already said, so its text cannot be edited, and `/queue` offers no edit. Enter on a row of `/queue` cancels the turn over that line, and the line stays in memory, where she can read it. A cancel of a waiting line acknowledges at once, and when the pipeline reaches it the runner ends its turn before any request.
 
@@ -285,7 +285,7 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 |---|---|
 | `service` | The mechanic |
 | `enabled` | The saved flag |
-| `running` | Whether a run is going, as the manager says for the watcher. `unknown` for a wake with no core, and for the watcher with no `systemctl` |
+| `running` | Whether a run is going, as the manager says for the watcher. `unknown` for a wake with no core, for a selfreflection even with one, and for the watcher with no `systemctl` |
 | `readiness` | `ready`, or `not ready` and what is missing: the core, a role's subharness source or the repository |
 | `schedule` | The schedule, with the heartbeat's jitter. `windows` for a selfreflection with no `selfreflection.schedule` |
 | `next due` | The next time, `none` when disabled. For a selfreflection drawing from windows with no core it is the start of the next window that can post in `bot.timezone`, `none` when no window can |
@@ -301,7 +301,7 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 
 `neptunia services watcher trigger` starts one inspection without waiting for it and answers `run:` and `state:`. During a run it answers that run and starts nothing. It refuses a disabled watcher, names `services watcher enable` and exits `1`, and a start the manager refuses fails that run and exits `1`. `neptunia services watcher cancel` asks the run in progress to stop and answers `run:` and `state:`, `none` with nothing to stop, and exits `0` however often it is repeated. It changes no flag and no timer. [The watcher](watcher.md#one-run) describes both.
 
-`neptunia services watcher evidence [--from <iso>] [--cursor <c>]` prints one page of the recorded requests and Claude transcripts of the observation window as JSON, with no core and no board. Its keys are `interval`, `runs`, `totalRuns`, `examinedRuns`, `unreviewedRuns`, `inFlightRuns`, `nextCursor` and `gaps`, and the first page, with no `--cursor`, adds `trash`. A `--from` that is no date or a `--cursor` that is no `nextCursor` exits `2`. [The watcher](watcher.md#service-runs) describes the read.
+`neptunia services watcher evidence [--from <iso>] [--cursor <c>]` prints one page of the recorded requests and Claude transcripts of the observation window as JSON, with no core and no board. Its keys are `interval`, `runs`, `totalRuns`, `examinedRuns`, `unreviewedRuns`, `inFlightRuns`, `nextCursor` and `gaps`, and the first page, with no `--cursor`, adds `trash`, `mirrors`, `selfreflection`, `standards` and `audit`. A `--from` that is no date or a `--cursor` that is no `nextCursor` exits `2`. [The watcher](watcher.md#service-runs) describes the read.
 
 `neptunia services watcher select --sql <statement>` prints the rows of one read-only statement over the memory database as JSON, `rows` and `truncated`, with no core and no board. A missing `--sql` exits `2`, and a write, a second statement or a missing database fails. [The watcher](watcher.md#development-mode) describes the read.
 
