@@ -61,6 +61,8 @@ function filesUnder(dir: string): Array<string> {
 function worldOn(t: Parameters<typeof developmentWorld>[0], { edges }: Rig): DevelopmentWorld {
   const world = developmentWorld(t);
   world.deps.repoDir = edges.repoDir;
+  // placeTree links the checkout's node_modules into each worktree and refuses a checkout without them.
+  fs.mkdirSync(path.join(edges.repoDir, 'node_modules', '.bin'), { recursive: true });
   world.deps.worktreeRoot = edges.worktreeRoot;
   return world;
 }
