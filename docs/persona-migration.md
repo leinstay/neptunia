@@ -16,7 +16,7 @@ The runtime refuses ambiguous legacy and canonical layouts. `NEPTUNIA_PRIVATE_DI
 
 ## Convert the database to places
 
-`scripts/memory-convert-places.ts` is the one offline rebuild of a schema 28 database into neutral places, with its config. Stop every writer first. It reads a private copy of the input, builds an empty database of the current schema and carries every row over, so the input stays as it was:
+`scripts/memory-convert-places.ts` is the one offline rebuild of a schema 28 database into neutral places, with its config. Stop every writer first. It reads a private copy of the input, builds an empty database of the current schema and carries every row over, so the input stays as it was. The converter takes the writer lock beside the input (`<input>.lock`) for its whole run and releases it on success and on failure, so a core started during the conversion is refused instead of opening the old database; a live holder makes the converter itself refuse with `DATABASE_OPEN`:
 
 ```bash
 node scripts/memory-convert-places.ts --input <memory.db> --output <new memory.db> \

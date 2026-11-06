@@ -11,7 +11,7 @@ import { unitRows } from '../db/export.ts';
 import { MAPPERS } from '../db/map/index.ts';
 import { migrateMediaStore } from '../db/media-store.ts';
 import { renameToSelfreflection } from './selfreflection-names.ts';
-import { MIGRATIONS, lockPathOf, openMemoryDb, schemaVersion } from '../db/open.ts';
+import { MIGRATIONS, acquireLock, lockPathOf, openMemoryDb, schemaVersion } from '../db/open.ts';
 import { manifestOfFiles } from '../db/readers/vectors.ts';
 import { keyText, storageId } from '../db/storage-keys.ts';
 import { ensureUnit } from '../db/storage-units.ts';
@@ -762,6 +762,7 @@ export function convertFile(options: ConversionOptions): 0 | 1 {
     movedToDm: {},
   };
   let work: string | null = null;
+  let release: (() => void) | null = null;
   try {
     const stopped = refusal(options.input, options.output);
     if (fs.existsSync(options.input)) manifest.input.sha256 = sha256(options.input);
@@ -770,6 +771,8 @@ export function convertFile(options: ConversionOptions): 0 | 1 {
       writeReport(options.report, manifest);
       return 1;
     }
+    // The writer lock stands for the whole run, so a core started meanwhile is refused instead of opening the old file.
+    release = acquireLock(options.input);
     fs.mkdirSync(path.dirname(options.output), { recursive: true });
     work = fs.mkdtempSync(path.join(path.dirname(options.output), '.convert-'));
     return run(options, manifest, work);
@@ -778,5 +781,6 @@ export function convertFile(options: ConversionOptions): 0 | 1 {
     return 1;
   } finally {
     if (work !== null) fs.rmSync(work, { recursive: true, force: true });
+    release?.();
   }
 }
