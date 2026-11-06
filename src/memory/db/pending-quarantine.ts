@@ -111,28 +111,56 @@ export function releaseQuarantined(file: string): void {
   fs.rmSync(errorFileOf(file), { force: true });
 }
 
-/** A quarantine notice as the core tells a failed memory write: a `memoryFailed` fact with no conversation. */
-export type QuarantineNotice = { scopeKind: null; partner: null; code: string; lines: number; at: number };
+/**
+ * A quarantine notice as her inner life keeps it: a `pendingQuarantined` fact with `waiting` the writes set aside and `code`
+ * the code the last of them failed with, told in no conversation.
+ */
+export type QuarantineNotice = {
+  kind: 'pendingQuarantined';
+  waiting: number;
+  code: string;
+  placeId: null;
+  privateChat: false;
+  at: number;
+};
 
 /**
  * The notices of the opens that quarantined writes, for the core: `hold` is the service's `onPendingQuarantined`, and
- * the notices made before `tellWith` names the teller (the open runs before her inner life exists) wait for it.
+ * the notices made before `tellWith` names the teller (the open runs before her inner life exists) wait for it. A
+ * teller that throws is logged with its code and the notice is dropped.
  */
-export function quarantineNotices(now: () => number): {
+export function quarantineNotices(
+  now: () => number,
+  log: { warn: (message: string, fields?: object) => void }
+): {
   hold: (info: { count: number; code: string; cause?: string | null }) => void;
   tellWith: (tell: (notice: QuarantineNotice) => unknown) => void;
 } {
   const held: Array<QuarantineNotice> = [];
   let teller: ((notice: QuarantineNotice) => unknown) | null = null;
+  const tellOne = (tell: (notice: QuarantineNotice) => unknown, notice: QuarantineNotice) => {
+    try {
+      tell(notice);
+    } catch (error) {
+      log.warn('memory db: pending quarantine not told', { code: (error as { code?: unknown })?.code ?? null });
+    }
+  };
   return {
-    hold: ({ count, code }) => {
-      const notice: QuarantineNotice = { scopeKind: null, partner: null, code, lines: count, at: now() };
-      if (teller) teller(notice);
+    hold: ({ count, code, cause }) => {
+      const notice: QuarantineNotice = {
+        kind: 'pendingQuarantined',
+        waiting: count,
+        code: cause ?? code,
+        placeId: null,
+        privateChat: false,
+        at: now(),
+      };
+      if (teller) tellOne(teller, notice);
       else held.push(notice);
     },
     tellWith: (tell) => {
       teller = tell;
-      for (const notice of held.splice(0)) tell(notice);
+      for (const notice of held.splice(0)) tellOne(tell, notice);
     },
   };
 }

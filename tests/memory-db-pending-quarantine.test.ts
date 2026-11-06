@@ -79,16 +79,16 @@ test('a second failure of the same owner keeps the first quarantined file and ge
 test('a quarantine notice made before the core can tell her waits, and one made after goes at once', () => {
   // Bug: the open runs before her inner life exists, so the notice of its quarantine is lost at every start.
   let time = NOW;
-  const notices = quarantineNotices(() => time);
+  const notices = quarantineNotices(() => time, { warn: () => {} });
   const told: Array<unknown> = [];
   notices.hold({ count: 2, code: 'memory-pending-quarantined', cause: 'UNIT_UNMAPPED' });
   assert.equal(told.length, 0);
   time = NOW + 1000;
   notices.tellWith((notice) => told.push(notice));
   notices.hold({ count: 1, code: 'memory-pending-quarantined', cause: 'UNIT_BAD_OP' });
-  const at = (ms: number) => ({ scopeKind: null, partner: null, code: 'memory-pending-quarantined', at: ms });
+  const fact = { kind: 'pendingQuarantined', placeId: null, privateChat: false };
   assert.deepEqual(told, [
-    { ...at(NOW), lines: 2 },
-    { ...at(NOW + 1000), lines: 1 },
+    { ...fact, waiting: 2, code: 'UNIT_UNMAPPED', at: NOW },
+    { ...fact, waiting: 1, code: 'UNIT_BAD_OP', at: NOW + 1000 },
   ]);
 });

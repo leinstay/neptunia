@@ -133,7 +133,7 @@ function feedbackKeyOf(given: Obj, feedback: Obj): string {
  * (its sub-code, worded by `l.feedback.codes.<why>` when there is one), `{id}`, `{purpose}`, with
  * `l.feedback.wakeDroppedKind` (`{kind}`, `{code}`, `{why}`) for a wake with no intention (a review, a feedback wake);
  * `wakeHeld`: the same and `{until}` (when it is expected to run, `when`); `turnFailed`: `{code}`, `{kind}`;
- * `diagnostic`: a kept diagnostic of the parser, worded by diagnosticText when `options.labels` (the whole labels) is given; `sendFailed`: `{code}`, `{n}`, `{total}` (`l.feedback.sendUnknown` when the send's answer never came and it was not found in the channel); `stateLost`: `{code}` (the inner state file could not be read and she started empty); `memoryFailed`: `{code}` (worded by `l.feedback.codes.<code>` when there is one), `{n}` (a memory batch could not be applied; `n` lines wait for a new try); `proxySwitched`: `{why}` (the engine proxy went down or came back, worded by `l.feedback.codes.<why>`); `interrupted`: `{kind}`, `{done}` (a turn cut off by a restart after it did what `done` lists). '' without the fact's label.
+ * `diagnostic`: a kept diagnostic of the parser, worded by diagnosticText when `options.labels` (the whole labels) is given; `sendFailed`: `{code}`, `{n}`, `{total}` (`l.feedback.sendUnknown` when the send's answer never came and it was not found in the channel); `stateLost`: `{code}` (the inner state file could not be read and she started empty); `memoryFailed`: `{code}`, `{n}` (a memory batch could not be applied; `n` lines wait for a new try); `pendingQuarantined`: `{n}`, `{code}` (`waiting` pending memory writes failed at an open and wait for the owner's replay, `code` the last one's failure); `proxySwitched`: `{why}` (the engine proxy went down or came back, worded by `l.feedback.codes.<why>`); `interrupted`: `{kind}`, `{done}` (a turn cut off by a restart after it did what `done` lists). '' without the fact's label.
  * `l` is `labels.wake`.
  */
 export function feedbackFactText(
@@ -156,17 +156,14 @@ export function feedbackFactText(
         : given.why
       : '';
   const text = (line: string) => line.replace(/\s+/g, ' ').trim();
-  const codeWords = (code: unknown) => {
-    const raw = asText(code ?? '');
-    return typeof codes[raw] === 'string' ? codes[raw] : raw;
-  };
+  const code = asText(given.code ?? '');
   switch (given.kind) {
     case 'callFailed':
       return text(
         fill(template, {
           skill: asText(given.skill ?? ''),
           status: asText(given.status ?? ''),
-          code: asText(given.code ?? ''),
+          code,
           text: oneLine(asText(given.text ?? '')),
         })
       );
@@ -179,7 +176,7 @@ export function feedbackFactText(
       return text(
         fill(template, {
           kind: asText(given.wake ?? ''),
-          code: asText(given.code ?? ''),
+          code,
           why,
           id: asText(given.intentionId ?? ''),
           purpose,
@@ -187,13 +184,14 @@ export function feedbackFactText(
         })
       );
     case 'turnFailed':
-      return fill(template, { code: asText(given.code ?? ''), kind: asText(given.wake ?? '') });
+      return fill(template, { code, kind: asText(given.wake ?? '') });
     case 'sendFailed':
-      return fill(template, { code: asText(given.code ?? ''), n: n(given.n), total: n(given.total) });
+      return fill(template, { code, n: n(given.n), total: n(given.total) });
     case 'stateLost':
-      return fill(template, { code: asText(given.code ?? '') });
+      return fill(template, { code });
     case 'memoryFailed':
-      return fill(template, { code: codeWords(given.code), n: n(given.waiting) });
+    case 'pendingQuarantined':
+      return fill(template, { code, n: n(given.waiting) });
     case 'proxySwitched':
       return fill(template, { why });
     case 'interrupted':

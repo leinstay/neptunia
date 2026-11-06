@@ -354,15 +354,15 @@ async function buildCore(
   // selfreflectionMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
   // `embed` and `selfName` (the re-embed job, recall.db.reembed) are the embedding client and her name, defined below.
   // Her memory session is the memory writer: it runs on the chat client (role `memory`, its own key from `env`), and a
-  // run that fails is told to her as a `memoryFailed` fact (inner, defined below), as is a pending write the open
-  // sets aside (src/memory/db/pending-quarantine.ts), held until the inner life exists.
+  // run that fails is told to her as a `memoryFailed` fact (inner, defined below). A pending write the open sets aside
+  // (src/memory/db/pending-quarantine.ts) is a `pendingQuarantined` fact, held until the inner life exists.
   // The options are named first: the module declares the ones it reads, and `embed` and `selfName` are not among them yet.
   // The session's model client (src/subharness/memory-writer.ts): the chat client below on the direct path, else one run
   // through the subharness keys.json names; set once the chat client exists. A refused run wakes the memory probe.
   let sessionClient: SessionContext['llm'] | null = null;
   // The probe of the writer's path (src/subharness/memory-probe.ts), created with the pause below.
   let memoryWatch: MemoryWatch | null = null;
-  const quarantine = quarantineNotices(clock);
+  const quarantine = quarantineNotices(clock, log);
   const memoryDbOptions = {
     hot,
     dataDir,
@@ -1158,7 +1158,7 @@ async function buildCore(
   }
   // The engine proxy's fallback and recovery reach her like any failure: a `proxySwitched` fact.
   proxy.tellTo(inner.facts);
-  quarantine.tellWith(tellSessionFailure);
+  quarantine.tellWith((fact) => inner.facts?.enabled?.() === true && inner.facts.add(fact));
   const tagHistory = createTagHistory();
   // Messages that may have been left without an answer (src/behavior/missed.ts): facts from the
   // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
