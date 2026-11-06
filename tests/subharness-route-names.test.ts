@@ -3,6 +3,8 @@
 // types these four names; keys.json keeps `backend: "claude"` and the rest. The mapping lives in
 // src/subharness/route-names.ts and is applied at the edge: the status rows, the answers of `/model set` and the
 // `--via` value. keys.json lives in a temp dir; the backend runner, its `--help` and fetch are fakes.
+import fs from 'node:fs';
+import path from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ROUTE_NAMES, backendOfRouteName, routeName } from '../src/subharness/route-names.ts';
@@ -20,6 +22,7 @@ import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 import type { KeysFile } from './fixtures/keys-file.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { subharnessPlace } from '../src/subharness/place.ts';
 
 type Route = 'api' | 'claude' | 'codex' | 'opencode';
 const ROUTES: ReadonlyArray<Route> = ['api', 'claude', 'codex', 'opencode'];
@@ -193,7 +196,14 @@ test('model set memory --via claude-harness stores backend claude', async () => 
 
 test('model set scout --via opencode-harness stores uses opencode for the agent', async () => {
   // Catches: the agent path (setAgentModel) comparing the typed word with the stored names and refusing the new one.
-  const { dir, deps } = rig();
+  // The lead: opencode is installed and logged in on an extra key here, as tests/subharness-provider.test.ts does,
+  // because the rig installs only claude and codex and the answer was "opencode is not installed".
+  const { dir, deps } = rig({ key: 'helpers' });
+  const keys = readKeysFile(dir);
+  writeKeysFile(dir, { ...keys, extra: { helpers: 'sk-or-invented' } });
+  const { binary } = subharnessPlace(dir, 'opencode');
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  fs.writeFileSync(binary, '#!/bin/sh\nexit 9\n', { mode: 0o755 });
   const answer = await consoleOver(dir, deps).run(
     'model.set',
     { role: 'scout', via: 'opencode-harness', model: 'vendor/invented-model' },

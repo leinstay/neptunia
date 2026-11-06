@@ -66,7 +66,9 @@ test('the source step of a harness role offers claude-harness, codex-harness and
   // Catches: the owner choosing a row called Claude, then reading `via claude-harness` in the status and not matching them.
   const at = atRole('errand', 'scout', [CLAUDE, CODEX, OPENCODE], null);
   const step = play(at, choose('subharness')).state;
-  assert.equal(step.step, 'source');
+  // The lead: the state is named `picked` beside its `step` field, for the chain rule.
+  const picked = step;
+  assert.equal(picked.step, 'source');
   assert.ok(labelOf(step, 'backend:claude').includes('claude-harness'), labelOf(step, 'backend:claude'));
   assert.ok(labelOf(step, 'backend:codex').includes('codex-harness'), labelOf(step, 'backend:codex'));
   assert.ok(labelOf(step, 'backend:opencode').includes('opencode-harness'), labelOf(step, 'backend:opencode'));
@@ -76,7 +78,8 @@ test('the source step of an API role offers direct-api', () => {
   // Catches: the API route left as OpenRouter while the status prints direct-api for the same route.
   const at = atRole('main', 'speech', [API], null);
   const step = play(at, choose('api')).state;
-  assert.equal(step.step, 'source');
+  const picked = step;
+  assert.equal(picked.step, 'source');
   assert.ok(labelOf(step, 'api:openrouter').includes('direct-api'), labelOf(step, 'api:openrouter'));
 });
 
