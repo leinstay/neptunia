@@ -294,7 +294,7 @@ export function createStubVoice(fixture: Fixture): Rec {
           for (const [name, value] of Object.entries<Untyped>(args)) {
             if (typeof value === 'string' && value.startsWith('$key:'))
               resolved[name] = idOf(value.slice('$key:'.length));
-            else resolved[name] = Object.prototype.hasOwnProperty.call(values, value) ? values[value] : value;
+            else resolved[name] = Object.hasOwn(values, value) ? values[value] : value;
           }
           out.push({
             skill: action.skill,
@@ -864,6 +864,7 @@ export async function runWeek({
 
   build();
   const settle = () => new Promise((resolve) => setImmediate(resolve));
+  const { events } = fixture;
   let cursor = 0;
   let lastDrain = null;
   let nextTick = fixture.startMs;
@@ -871,12 +872,12 @@ export async function runWeek({
   for (;;) {
     steps += 1;
     if (steps > MAX_STEPS) throw new Error('inner-week: the week stopped moving (too many steps)');
-    const nextEvent = cursor < fixture.events.length ? fixture.events[cursor].at : Infinity;
+    const nextEvent = cursor < events.length ? events[cursor].at : Infinity;
     const at = Math.min(nextEvent, nextTick ?? Infinity);
     if (!Number.isFinite(at) || at >= fixture.endMs) break;
     clock.jumpTo(at);
-    while (cursor < fixture.events.length && fixture.events[cursor].at <= at) {
-      apply(fixture.events[cursor]);
+    while (cursor < events.length && events[cursor].at <= at) {
+      apply(events[cursor]);
       cursor += 1;
       await settle();
     }
@@ -892,22 +893,13 @@ export async function runWeek({
     }
     // The next tick: the earliest moment that matters, and the first tick after the next event.
     const candidates = tickCandidates(clock.now(), lastDrain);
-    if (cursor < fixture.events.length) candidates.push(fixture.events[cursor].at);
+    if (cursor < events.length) candidates.push(events[cursor].at);
     nextTick = nextTickAt(candidates, { now: clock.now(), ...grid });
   }
   clock.jumpTo(Math.max(clock.now(), fixture.endMs));
   await settle();
   // Attend wakes are listed from the record, not from a due time: they join the due items as the journal saw them.
-  for (const entry of journal) {
-    if (entry.event === 'wake' && entry.wake?.kind === 'attend' && !dueSeen.has(entry.wake.id))
-      dueSeen.set(entry.wake.id, {
-        id: entry.wake.id,
-        kind: 'attend',
-        dueAt: entry.wake.dueAt,
-        intentionId: entry.wake.intentionIds?.[0] ?? null,
-        seenAt: entry.at,
-      });
-  }
+  noteAttendWakes(journal, dueSeen);
 
   const finalState = inner.state();
   const store = intentions.store();
@@ -940,9 +932,30 @@ function stoppedAt(spans: Rec, at: Untyped) {
   return spans.some((span: Rec) => at >= span.from && (span.to === null || at < span.to));
 }
 
+/** Adds the attend wakes of the journal to the due items, unless they were seen already. */
+function noteAttendWakes(journal: Array<Untyped>, dueSeen: Map<Untyped, Untyped>) {
+  for (const entry of journal) {
+    const { wake } = entry;
+    if (entry.event === 'wake' && wake?.kind === 'attend' && !dueSeen.has(wake.id))
+      dueSeen.set(wake.id, {
+        id: wake.id,
+        kind: 'attend',
+        dueAt: wake.dueAt,
+        intentionId: wake.intentionIds?.[0] ?? null,
+        seenAt: entry.at,
+      });
+  }
+}
+
 /** The actions of a turn record (the stub's or the live voice's result). */
 function actionsOf(turn: Untyped) {
-  return turn.result?.inner?.actions ?? [];
+  return innerOf(turn)?.actions ?? [];
+}
+
+/** The inner part of a turn record's result, if the turn ran an inner turn. */
+function innerOf(turn: Untyped) {
+  const { result } = turn;
+  return result?.inner;
 }
 
 /** The voice requests a turn made: the stub's lines, else the journal's measure. */
@@ -969,7 +982,7 @@ export function countsPerDay(run: WeekRun): Rec {
   const costs = costsOf(run);
   for (const turn of run.turns) {
     const d = day(turn.at);
-    const cost = costs.get(turn.result?.inner?.turnId ?? '') ?? {};
+    const cost = costs.get(innerOf(turn)?.turnId ?? '') ?? {};
     d.turns += 1;
     d.requests += Number.isFinite(cost.voice) ? cost.voice : 0;
     d.usd += Number.isFinite(cost.usd) ? cost.usd : 0;
@@ -1121,6 +1134,7 @@ export function feedbackWakes(run: WeekRun): Array<{
     .filter((entry: Rec) => entry.event === 'wake' && entry.wake?.kind === 'feedback')
     .map((entry: Rec) => {
       const source = turns.find((turn: Rec) => turn.turnId === entry.wake.turnId) ?? null;
+      const firstWake = source?.wakes?.[0];
       return {
         id: entry.wake.id,
         at: entry.at,
@@ -1130,7 +1144,7 @@ export function feedbackWakes(run: WeekRun): Array<{
         turn: source
           ? {
               at: source.at,
-              chainId: source.wakes?.[0]?.chainId ?? null,
+              chainId: firstWake?.chainId ?? null,
               feedback: (source.wakes ?? []).some((wake: Rec) => wake.kind === 'feedback'),
             }
           : null,
@@ -1218,9 +1232,9 @@ export function computeGates(
     const n = run.journal.filter((e: Rec) => e.event === event).length;
     if (n < Number(min)) problems.push(`${event} ${n} < ${min}`);
   }
-  const kept = commitments(run);
-  if (fixture.expect.kept !== null && kept.kept !== fixture.expect.kept)
-    problems.push(`kept ${kept.kept} != ${fixture.expect.kept}`);
+  const commitment = commitments(run);
+  if (fixture.expect.kept !== null && commitment.kept !== fixture.expect.kept)
+    problems.push(`kept ${commitment.kept} != ${fixture.expect.kept}`);
   if (fixture.expect.planted !== null && run.planted.length !== fixture.expect.planted)
     problems.push(`planted ${run.planted.length} != ${fixture.expect.planted}`);
   if (fixture.expect.occurrences) {
@@ -1442,7 +1456,8 @@ export function reportOf(run: WeekRun, fixture: Fixture, gates: Rec, effectsOf: 
       })),
     attention: attention(run),
     turns: run.turns.map((turn: Untyped) => {
-      const cost = costs.get(turn.result?.inner?.turnId ?? '') ?? {};
+      const cost = costs.get(innerOf(turn)?.turnId ?? '') ?? {};
+      const placeItems = turn.places?.items;
       return {
         at: iso(turn.at),
         voice: turn.voice,
@@ -1459,7 +1474,7 @@ export function reportOf(run: WeekRun, fixture: Fixture, gates: Rec, effectsOf: 
               places: {
                 total: turn.places.total,
                 more: turn.places.more,
-                items: turn.places.items.map(
+                items: placeItems.map(
                   (p: Untyped) =>
                     `${p.name}:${p.lines}/${p.people}${p.writable === false ? ' ro' : ''}${p.attended ? ' *' : ''}`
                 ),
@@ -1468,7 +1483,7 @@ export function reportOf(run: WeekRun, fixture: Fixture, gates: Rec, effectsOf: 
           : {}),
         outcome: turn.result?.outcome ?? null,
         reason: turn.result?.reason ?? null,
-        ...(turn.result?.inner?.openFollowUp === true ? { openFollowUp: true } : {}),
+        ...(innerOf(turn)?.openFollowUp === true ? { openFollowUp: true } : {}),
         actions: actionsOf(turn).map((a: Untyped) => ({
           skill: a.skill,
           status: a.status,
@@ -1625,10 +1640,10 @@ export function renderReport(report: Rec): string {
   const paged = report.turns.filter((turn: Rec) => turn.places);
   if (paged.length > 0) {
     lines.push('', '## Places page per turn', '');
-    for (const turn of paged)
-      lines.push(
-        `- ${turn.at} ${turn.kind}: ${turn.places.items.join(', ') || '-'} (total ${turn.places.total}, ${turn.places.more} more)`
-      );
+    for (const turn of paged) {
+      const { items, total, more } = turn.places;
+      lines.push(`- ${turn.at} ${turn.kind}: ${items.join(', ') || '-'} (total ${total}, ${more} more)`);
+    }
   }
   const liveTurns = report.turns.filter((turn: Rec) => turn.steps);
   if (liveTurns.length > 0) {

@@ -121,16 +121,17 @@ export function tally(records: Array<Rec>): FullTally {
       bump2(out.turns, outcome, triggers.get(`${record.turnId}#${record.attemptId ?? 1}`) ?? '-');
       if (typeof record.reason === 'string' && record.reason) bump2(out.reasons, outcome, record.reason);
       const usage = record.usage;
+      const tally = out.cached as Rec;
       if (Number.isFinite(usage?.prompt)) {
         out.prompt.push(usage.prompt);
         if (Number.isFinite(usage.cached)) {
-          out.cached.cached += usage.cached;
-          out.cached.prompt += usage.prompt;
-          out.cached.counted += 1;
+          tally.cached += usage.cached;
+          tally.prompt += usage.prompt;
+          tally.counted += 1;
         }
         if (Number.isFinite(usage.cacheWrite)) {
-          out.cached.cacheWrite += usage.cacheWrite;
-          out.cached.writeCounted += 1;
+          tally.cacheWrite += usage.cacheWrite;
+          tally.writeCounted += 1;
         }
       }
       for (const [section, n] of Object.entries<number>(record.budget?.dropped ?? {})) {
@@ -228,18 +229,20 @@ export function tallyLog(lines: Array<string>): Map<string, Tally> {
     out.records += 1;
     bump2(out.turns, LOG_OUTCOME, typeof entry.trigger === 'string' && entry.trigger ? entry.trigger : '-');
     const prompt = entry.usage?.prompt_tokens;
+    const promptDetails = entry.usage?.prompt_tokens_details as Rec | undefined;
+    const tally = out.cached as Rec;
     if (Number.isFinite(prompt)) {
       out.prompt.push(prompt);
-      const cached = entry.usage?.prompt_tokens_details?.cached_tokens;
+      const cached = promptDetails?.cached_tokens;
       if (Number.isFinite(cached)) {
-        out.cached.cached += cached;
-        out.cached.prompt += prompt;
-        out.cached.counted += 1;
+        tally.cached += cached;
+        tally.prompt += prompt;
+        tally.counted += 1;
       }
-      const written = entry.usage?.prompt_tokens_details?.cache_write_tokens;
+      const written = promptDetails?.cache_write_tokens;
       if (Number.isFinite(written)) {
-        out.cached.cacheWrite += written;
-        out.cached.writeCounted += 1;
+        tally.cacheWrite += written;
+        tally.writeCounted += 1;
       }
     }
     for (const [section, stats] of Object.entries<Untyped>(entry.budget ?? {})) {
@@ -313,7 +316,8 @@ export function renderDay(day: string, t: Tally): string {
     )
   );
   section('Actions by name and phase', t.actions, (v) => crossTable('action', v));
-  const share = t.cached && t.cached.prompt > 0 ? `${((100 * t.cached.cached) / t.cached.prompt).toFixed(1)}%` : NA;
+  const tally = t.cached;
+  const share = tally && tally.prompt > 0 ? `${((100 * tally.cached) / tally.prompt).toFixed(1)}%` : NA;
   out.push('### Usage', '');
   out.push(
     table(

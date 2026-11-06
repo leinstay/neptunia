@@ -354,34 +354,40 @@ export function compareDay(
       unsupported: 0,
       flags: 0,
     };
-    for (const { group, op } of mine) {
+    for (const { group, op: proposed } of mine) {
       if (group === 'descriptions') {
         result.flags += 1;
         continue;
       }
       result.hers += 1;
-      const sources = Array.isArray(op.sources) ? op.sources : [];
+      const sources = Array.isArray(proposed.sources) ? proposed.sources : [];
       if (sources.length === 0) result.unsupported += 1;
       if (sources.some((id) => scopeKeyOf(scopeOfSource.get<ScopeColumns>(id)) !== key)) result.violations += 1;
       let matched = null;
       if (group === 'claims') {
         matched =
-          op.op === 'add'
+          proposed.op === 'add'
             ? take(
                 left.claims,
-                (row) => row.subjectId === op.subjectId && row.kind === op.kind && words(row.text, op.text ?? '')
+                (row) =>
+                  row.subjectId === proposed.subjectId &&
+                  row.kind === proposed.kind &&
+                  words(row.text, proposed.text ?? '')
               )
-            : take(left.claims, (row) => row.claimId === op.id);
+            : take(left.claims, (row) => row.claimId === proposed.id);
       } else if (group === 'episodes') {
-        matched = take(left.episodes, (row) => row.subjectId === op.subjectId && words(row.what, op.what ?? ''));
+        matched = take(
+          left.episodes,
+          (row) => row.subjectId === proposed.subjectId && words(row.what, proposed.what ?? '')
+        );
       } else if (group === 'affinity') {
         matched = take(
           left.affinity,
-          (row) => row.personId === op.personId && Math.sign(row.delta) === Math.sign(op.delta ?? 0)
+          (row) => row.personId === proposed.personId && Math.sign(row.delta) === Math.sign(proposed.delta ?? 0)
         );
       }
       if (matched) result.both += 1;
-      else result.onlyHers.push({ group, op });
+      else result.onlyHers.push({ group, op: proposed });
     }
     for (const group of ['claims', 'episodes', 'affinity'] as const)
       for (const row of left[group]) result.onlyAnalyzer.push({ group, row });
@@ -746,8 +752,9 @@ export async function main(argv: Array<string>): Promise<string> {
         `review ${review.subject.kind} ${review.field}: ${reviewed.status}${reviewed.code ? ` (${reviewed.code}${reviewed.step ? ` at ${reviewed.step}` : ''})` : ''}`
       );
       if (reviewed.status === 'ok') {
+        const { extra } = reviewed.row;
         lines.push(
-          `  draft ${[...reviewed.draft].length} characters, final ${[...reviewed.final].length} characters, cap ${reviewed.row.extra.cap}${reviewed.row.extra.overCap ? ', over the cap' : ''}, kept ${reviewed.row.kept}, lost ${reviewed.row.removed}, gained ${reviewed.row.added}`
+          `  draft ${[...reviewed.draft].length} characters, final ${[...reviewed.final].length} characters, cap ${extra.cap}${extra.overCap ? ', over the cap' : ''}, kept ${reviewed.row.kept}, lost ${reviewed.row.removed}, gained ${reviewed.row.added}`
         );
         if (show)
           lines.push(`  draft: ${reviewed.draft}`, `  final: ${reviewed.final}`, `  reason: ${reviewed.reason}`);

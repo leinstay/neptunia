@@ -161,13 +161,19 @@ export function openPicker(registry: ReadonlyArray<ModelRoleRow>): PickerState {
   return settled(state);
 }
 
+/** The sources the last read listed, none before a read. */
+const listedSources = (state: PickerState) => state.read?.sources;
+
+/** The model in force as the last read found it. */
+const currentOf = (state: PickerState) => state.read?.current;
+
 const sourceOf = (state: PickerState): SourceDescriptor | undefined =>
-  state.read?.sources.find((one) => one.id === state.sourceId);
+  listedSources(state)?.find((one) => one.id === state.sourceId);
 
 function sourceRow(state: PickerState, source: SourceDescriptor): PickerRow {
   const reason = source.code === 'ok' ? undefined : UNAVAILABLE[source.code];
   const account = source.account === null ? '' : ` · ${source.account}`;
-  const inForce = state.read?.current?.via === source.via && source.via !== null;
+  const inForce = currentOf(state)?.via === source.via && source.via !== null;
   return {
     id: source.id,
     label: `${source.label}${account}`,
@@ -178,7 +184,7 @@ function sourceRow(state: PickerState, source: SourceDescriptor): PickerRow {
 }
 
 function effortRows(state: PickerState): Array<PickerRow> {
-  const stored = state.read?.current?.effort ?? null;
+  const stored = currentOf(state)?.effort ?? null;
   const levels = sourceOf(state)?.effort.levels ?? [];
   return [
     {
@@ -340,7 +346,7 @@ function backed(state: PickerState): PickerStepResult {
 function effortArg(state: PickerState): string | undefined {
   const via = sourceOf(state)?.via ?? null;
   if (state.effort === null) return undefined;
-  if (state.effort === 'keep') return state.role === 'memory' ? (state.read?.current?.effort ?? undefined) : undefined;
+  if (state.effort === 'keep') return state.role === 'memory' ? (currentOf(state)?.effort ?? undefined) : undefined;
   if (state.effort === 'default') return via === null || state.role === 'memory' ? undefined : 'default';
   return state.effort;
 }
@@ -367,7 +373,9 @@ function confirmed(state: PickerState): PickerStepResult {
 }
 
 function setupAsked(state: PickerState, sourceId: string, command: string): PickerStepResult {
-  const entry = state.read?.sources.find((one) => one.id === sourceId)?.setup.find((one) => one.command === command);
+  const entry = listedSources(state)
+    ?.find((one) => one.id === sourceId)
+    ?.setup.find((one) => one.command === command);
   if (entry === undefined) return { state, effects: [] };
   return {
     state: { ...state, detour: sourceId, error: null },
@@ -519,7 +527,7 @@ function ReviewLines({ state }: { state: PickerState }): ReactElement | null {
     review.effort === null
       ? 'Set with /model set --effort on this path'
       : review.effort === 'keep'
-        ? `Keep (${state.read?.current?.effort ?? 'none stored'})`
+        ? `Keep (${currentOf(state)?.effort ?? 'none stored'})`
         : review.effort === 'default'
           ? 'The model’s default'
           : review.effort;
@@ -655,7 +663,8 @@ export function ModelPicker({
   function detourKeys(open: Detour, typed: string, key: Parameters<Parameters<typeof useInput>[0]>[1]): void {
     const { naming, source, selected } = open;
     if (naming !== null) {
-      const name = naming.input.text.trim();
+      const { text } = naming.input;
+      const name = text.trim();
       if (key.escape) setDetour({ ...open, naming: null });
       else if (key.return && name !== '') runDetour(source, naming.command, name);
       else if (key.leftArrow) setDetour({ ...open, naming: { ...naming, input: moveCursor(naming.input, -1) } });
@@ -670,7 +679,8 @@ export function ModelPicker({
     else if (key.upArrow) setDetour({ ...open, selected: Math.max(0, selected - 1) });
     else if (key.downArrow) setDetour({ ...open, selected: Math.min(source.setup.length - 1, selected + 1) });
     else if (key.return) {
-      const command = source.setup[selected]?.command;
+      const chosen = source.setup[selected];
+      const command = chosen?.command;
       if (command === undefined) return;
       if (command.includes(NAME_PLACEHOLDER)) setDetour({ ...open, naming: { command, input: emptyInput() } });
       else runDetour(source, command, null);
@@ -684,7 +694,7 @@ export function ModelPicker({
     if (now.step === 'review') dispatch({ kind: 'confirm' });
     else if (now.error !== null && now.read === null) dispatch({ kind: 'retry' });
     else if (now.highlightedId !== null) {
-      const source = now.read?.sources.find((one) => one.id === now.highlightedId);
+      const source = listedSources(now)?.find((one) => one.id === now.highlightedId);
       if (now.step === 'source' && source !== undefined && source.code !== 'ok' && source.setup.length > 0)
         setDetour({ source, selected: 0, naming: null });
       else dispatch({ kind: 'choose', id: now.highlightedId });

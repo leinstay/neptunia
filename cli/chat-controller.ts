@@ -365,13 +365,37 @@ export class ChatController {
     this.update({ entries: [...this.model.entries, shown] });
   }
 
+  /** The transcript entries on the screen. */
+  entries(): ReadonlyArray<ShownEntry> {
+    const { entries } = this.model;
+    return entries;
+  }
+
+  /** The id of the draft in the input. */
+  draftId(): string {
+    const { draft } = this.model;
+    return draft.id;
+  }
+
+  /** Gives the open question its answer, if one is open. */
+  answerQuestion(value: string): void {
+    const { question } = this.model;
+    question?.answer(value);
+  }
+
+  /** Releases the staged bytes of an image, if images are available in this chat. */
+  releaseImage(id: string): void {
+    const { images } = this.env;
+    void images?.release(id);
+  }
+
   /** Registers with the core's link, once. */
   subscribe(): void {
     this.env.subscribe({
       entry: (entry) => this.addEntry(entry),
       question: (asked) => {
         // Only one question fits the screen: the older command gets the empty answer of a cancelled one.
-        this.model.question?.answer('');
+        this.answerQuestion('');
         this.update({ question: asked, answer: emptyInput() });
       },
       connected: (now) => this.update({ connected: now }),
@@ -401,14 +425,14 @@ export class ChatController {
         original: turn.text,
         attachments: [],
       };
-      const isShown = this.model.entries.some((one) => one.id === liveId);
+      const isShown = this.entries().some((one) => one.id === liveId);
       this.update({
         entries: isShown
-          ? this.model.entries.map((one) => (one.id === liveId ? live : one))
+          ? this.entries().map((one) => (one.id === liveId ? live : one))
           : [...this.model.entries, live],
       });
     } else if (turn.state !== 'queued' && turn.state !== 'accepted') {
-      this.update({ entries: this.model.entries.filter((one) => one.id !== liveId) });
+      this.update({ entries: this.entries().filter((one) => one.id !== liveId) });
     }
     if (event.type === 'failed')
       this.say(
@@ -471,7 +495,7 @@ export class ChatController {
 
   closeQuestion(value: string): void {
     this.takeKey();
-    this.model.question?.answer(value);
+    this.answerQuestion(value);
     this.endQuestion();
   }
 
@@ -534,14 +558,14 @@ export class ChatController {
   /** The rows of everything on the next frame: the transcript gets `max(0, R - F - C - O)`, nothing is estimated. */
   frame(rows: number, columns: number): ChatFrame {
     const now = this.model;
-    const { question, panel, view, expanded, notice } = now;
+    const { question: asked, panel, view, expanded, notice } = now;
     const owner = focusOwner(now);
     const isLinear = this.env.linear === true;
     const hasChoices = owner === 'choices';
     const items = this.itemsOf(now);
     // A panel takes the transcript's rows and the header's: it is what the owner opened it to read.
     const mode = panel === null ? headerMode(rows, columns, isLinear) : 'none';
-    const questionRows = question === null ? 0 : wrapWords(question.question, columns).length;
+    const questionRows = asked === null ? 0 : wrapWords(asked.question, columns).length;
     const turnRow = this.turnRow();
     const fixed =
       headerRows(mode) + FOOTER_ROWS + (notice === null ? 0 : 1) + (turnRow === null ? 0 : 1) + questionRows;
@@ -588,8 +612,14 @@ export class ChatController {
     };
   }
 
+  /** The slash commands the menu offers. */
+  commands(): ChatEnv['commands'] {
+    const { commands } = this.env;
+    return commands;
+  }
+
   whoOf(entryId: string): ShownEntry['who'] | undefined {
-    return this.model.entries.find((one) => one.id === entryId)?.who;
+    return this.entries().find((one) => one.id === entryId)?.who;
   }
 
   itemsOf = (now: Model): Array<MenuCommand> =>
@@ -618,7 +648,7 @@ export class ChatController {
     }
     const shown = displayDraft(now.draft);
     const item = this.itemsOf(now)[now.selected];
-    if (item !== undefined && !this.env.commands.some((one) => shown === `/${one.name}`)) {
+    if (item !== undefined && !this.commands().some((one) => shown === `/${one.name}`)) {
       this.completeCommand(item);
       return;
     }
@@ -678,8 +708,8 @@ export class ChatController {
       this.update({ notice: `${source} was not attached: ${STAGE_REFUSALS[result.code] ?? result.code}.` });
       return;
     }
-    if (this.model.draft.id !== draftId) {
-      void this.env.images?.release(result.staged.id);
+    if (this.draftId() !== draftId) {
+      this.releaseImage(result.staged.id);
       return;
     }
     this.update({ draft: attachToDraft(this.model.draft, result.staged), notice: null });
@@ -699,7 +729,7 @@ export class ChatController {
       return;
     }
     const file = argument.replace(/^(['"])(.*)\1$/, '$2');
-    const draftId = this.model.draft.id;
+    const draftId = this.draftId();
     void images
       .stageFile(file)
       .then((result) => this.attachStaged(draftId, result, file))
@@ -708,7 +738,9 @@ export class ChatController {
 
   /** Open or save the newest image she sent. A failed save says so, and the same command tries again. */
   runReceived(argument: string): void {
-    const image = this.model.entries.flatMap((one) => (one.who === 'her' ? one.attachments : [])).at(-1);
+    const image = this.entries()
+      .flatMap((one) => (one.who === 'her' ? one.attachments : []))
+      .at(-1);
     const { received } = this.env;
     if (received === undefined || image === undefined) {
       this.update({ notice: 'No received image to act on.' });
@@ -736,11 +768,11 @@ export class ChatController {
       this.update({ notice: 'Images are not available in this chat.' });
       return;
     }
-    const draftId = this.model.draft.id;
+    const draftId = this.draftId();
     void images
       .clipboard()
       .then(async (read) => {
-        if (this.model.draft.id !== draftId) return;
+        if (this.draftId() !== draftId) return;
         if (read.status === 'image')
           this.attachStaged(
             draftId,
@@ -823,7 +855,7 @@ export class ChatController {
 
   /** The entries as they arrived: a search and a jump read these, never the drawn marks. */
   originals = (): Array<{ id: string; who: string; text: string }> =>
-    this.model.entries.map((one) => ({ id: one.id, who: one.who, text: one.original }));
+    this.entries().map((one) => ({ id: one.id, who: one.who, text: one.original }));
 
   /** A new query or step of the search. A match in the transcript comes on the screen at once. */
   moveSearch(search: Search): void {
@@ -870,7 +902,8 @@ export class ChatController {
 
   /** Undo and redo cannot bring back an image whose staged bytes went when its chip was removed. */
   withoutFreed(state: EditorState): EditorState {
-    const gone = state.draft.parts.filter((part) => part.kind === 'attachment' && this.freed.has(part.id));
+    const { parts } = state.draft;
+    const gone = parts.filter((part) => part.kind === 'attachment' && this.freed.has(part.id));
     const draft = gone.reduce((held, part) => removePart(held, part.id), state.draft);
     return { ...state, draft };
   }
@@ -879,7 +912,7 @@ export class ChatController {
   afterRemoval(removed: DraftPart | null): void {
     if (removed?.kind !== 'attachment') return;
     this.freed.add(removed.id);
-    void this.env.images?.release(removed.attachment.id);
+    this.releaseImage(removed.attachment.id);
   }
 
   /** Ctrl+G: the terminal goes to the editor, and the draft waits. The answer changes the draft only if it is still the same. */

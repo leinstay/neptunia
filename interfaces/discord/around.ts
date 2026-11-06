@@ -152,11 +152,13 @@ export function presenceEvent(presence: PresenceLike, at: number): PresenceChang
  */
 export function presenceSnapshotEvent(guild: GuildLike, at: number): PresenceSnapshot {
   const voice: Array<ReturnType<typeof voiceFields>> = [];
-  for (const state of guild?.voiceStates?.cache?.values() ?? []) {
+  const voiceStates = guild?.voiceStates?.cache;
+  for (const state of voiceStates?.values() ?? []) {
     const fields = voiceFields(state, guild);
     if (fields.conversationId !== null) voice.push(fields);
   }
-  const presence = [...(guild?.presences?.cache?.values() ?? [])].map(presenceFields);
+  const presences = guild?.presences?.cache;
+  const presence = [...(presences?.values() ?? [])].map(presenceFields);
   return {
     kind: PRESENCE_SNAPSHOT,
     iface: DISCORD_IFACE,

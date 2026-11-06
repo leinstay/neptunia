@@ -50,8 +50,10 @@ export function catalogueProblems({
   docs?: string | null;
 }): Array<string> {
   const problems = [];
-  const reasons = labels?.tools?.result?.reasons ?? {};
-  const wake = labels?.wake?.feedback?.codes ?? {};
+  const toolResult = labels?.tools?.result as Rec | undefined;
+  const reasons = toolResult?.reasons ?? {};
+  const wakeFeedback = labels?.wake?.feedback as Rec | undefined;
+  const wake = wakeFeedback?.codes ?? {};
   for (const [code, entry] of Object.entries<Untyped>(catalogue)) {
     if (entry.group === 'skill') {
       if (!own(reasons, code) || typeof reasons[code] !== 'string' || !reasons[code])
@@ -67,7 +69,7 @@ export function catalogueProblems({
     }
     for (const param of entry.params) {
       if (param === 'status') continue;
-      if (!own(labels?.tools?.result?.params, param))
+      if (!own(toolResult?.params, param))
         problems.push(`code ${code} takes {${param}} but labels.tools.result.params.${param} is missing`);
     }
   }

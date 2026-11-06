@@ -492,9 +492,9 @@ async function runPrint(argv: ReadonlyArray<string>): Promise<never> {
   const { text, files } = parsed;
   const line = text.trim();
   if (!line.startsWith('/')) {
-    const staged = await stageForPrompt(paths().dataDir, files);
-    if (!staged.ok) return die(staged.reason);
-    return runPrompt(text, staged.staged);
+    const prepared = await stageForPrompt(paths().dataDir, files);
+    if (!prepared.ok) return die(prepared.reason);
+    return runPrompt(text, prepared.staged);
   }
   if (files.length > 0) return usage();
   if (line === '/setup') return refuseSyntax(panelRefusal('/setup'));
