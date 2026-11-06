@@ -19,6 +19,7 @@ import type { RecordedEntry } from './fixtures/selfreflection-mirror.ts';
 import { FOUR_HOURS, OWNER, T0, mirrorScene } from './fixtures/mirror-scene.ts';
 import type { Scene } from './fixtures/mirror-scene.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
+import { planAnswerText } from './fixtures/plan-answer.ts';
 
 const TEXT = 'ήσυχο βράδυ στο λιμάνι';
 const GUILD_PLACE = 'fake:guild:g1';
@@ -35,7 +36,8 @@ function modelSaying(answer: string) {
       calls.push(structuredClone(messages));
       const text =
         options?.purpose === 'selfreflection-planner'
-          ? JSON.stringify({ kind: 'status', brief: 'a calm evening', search: '', picture: false })
+          ? // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+            planAnswerText({ kind: 'status', brief: 'a calm evening', search: '', picture: false }, options)
           : answer;
       return Promise.resolve({ text, usage: {}, estimated: 5 });
     },

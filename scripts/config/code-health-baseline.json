@@ -1445,7 +1445,7 @@
     "src/behavior/recall.ts": 2364,
     "tests/openrouter.test.ts": 3557,
     "tests/prompt.test.ts": 6579,
-    "tests/recall.test.ts": 2419
+    "tests/recall.test.ts": 2414
   },
   "functions": {
     "interfaces/discord/collect.ts": {

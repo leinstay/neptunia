@@ -54,8 +54,9 @@ const offer = (gifs: Array<string>) => ({ gifs, emoji: [], actions: [] });
 
 test('parseMediaPick: a single line naming a listed handle, trimmed and in any case, returns the listed handle', () => {
   const handles = ['g1', 'g12', 'g172'];
-  assert.deepEqual(parseMediaPick('gif g172', offer(handles)), { kind: 'gif', handle: 'g172' });
-  assert.deepEqual(parseMediaPick('  GIF G12 \n', offer(handles)), { kind: 'gif', handle: 'g12' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  assert.deepEqual(parseMediaPick('{"pick":"gif","name":"g172"}', offer(handles)), { kind: 'gif', handle: 'g172' });
+  assert.deepEqual(parseMediaPick('{"pick":"gif","name":"G12"}', offer(handles)), { kind: 'gif', handle: 'g12' });
 });
 
 test('parseMediaPick: none, an unlisted handle, extra text, several lines or no text are none', () => {

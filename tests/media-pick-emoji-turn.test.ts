@@ -59,7 +59,8 @@ function sharedLibrary() {
 
 async function runScene({
   reply = '<msg reply="#2">ναι, φυσικά, έλα</msg>',
-  pick = 'none',
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  pick = '{"pick":"none","name":null}',
   mediaPick = CAPABLE,
 }: { reply?: string; pick?: string; mediaPick?: object | null } = {}) {
   if (mediaPick) {
@@ -138,23 +139,30 @@ async function runScene({
 }
 
 test('`emoji <name>` appends the emoji as the interface renders it', async () => {
-  const { sent } = await runScene({ pick: 'emoji wave' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { sent } = await runScene({ pick: '{"pick":"emoji","name":"wave"}' });
   assert.deepEqual(sent, ['ναι, φυσικά, έλα [[wave|7]]']);
 });
 
 test('`replace <name>` posts the emoji in place of the first message and the rest follow', async () => {
-  const { sent } = await runScene({ reply: '<msg>ναι, φυσικά, έλα</msg><msg>στις οκτώ</msg>', pick: 'replace wave' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { sent } = await runScene({
+    reply: '<msg>ναι, φυσικά, έλα</msg><msg>στις οκτώ</msg>',
+    pick: '{"pick":"replace","name":"wave"}',
+  });
   assert.deepEqual(sent, ['[[wave|7]]', 'στις οκτώ']);
 });
 
 test('a reply that got a GIF carries no emoji', async () => {
-  const { picks, sent } = await runScene({ pick: 'gif g1' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { picks, sent } = await runScene({ pick: '{"pick":"gif","name":"g1"}' });
   assert.equal(picks.length, 1);
   assert.deepEqual(sent, [URL_G1]);
 });
 
 test('an emoji the model made up leaves the reply as written', async () => {
-  const { picks, sent } = await runScene({ pick: 'emoji nope' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { picks, sent } = await runScene({ pick: '{"pick":"emoji","name":"nope"}' });
   assert.equal(picks.length, 1);
   assert.deepEqual(sent, ['ναι, φυσικά, έλα']);
 });
@@ -166,11 +174,12 @@ test('a `:name:` the place does not have stays text', async () => {
 });
 
 test('a posted emoji is counted for the place, and so is a reply without one', async () => {
-  const withEmoji = await runScene({ pick: 'emoji wave' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const withEmoji = await runScene({ pick: '{"pick":"emoji","name":"wave"}' });
   assert.equal(withEmoji.rails.length, 1);
   assert.equal(withEmoji.rails[0].state.lastUsed?.wave, NOW);
   freshWorld();
-  const plain = await runScene({ pick: 'none' });
+  const plain = await runScene({ pick: '{"pick":"none","name":null}' });
   assert.equal(plain.rails.length, 1);
   assert.equal(plain.rails[0].state.lastUsed?.wave, undefined);
 });
@@ -183,7 +192,8 @@ test('a turn on an interface with the capability carries its text and no emoji b
 });
 
 test('a turn on an interface without the capability carries no emoji block, no rule and no text', async () => {
-  const { picks, request, sent } = await runScene({ mediaPick: null, pick: 'emoji wave' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { picks, request, sent } = await runScene({ mediaPick: null, pick: '{"pick":"emoji","name":"wave"}' });
   assert.equal(picks.length, 0);
   assert.deepEqual(sent, ['ναι, φυσικά, έλα']);
   assert.ok(!request.includes('<emoji>'), 'no <emoji>');

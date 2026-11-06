@@ -11,6 +11,7 @@ import { NOW, PLANNER_PURPOSE, sceneHot, sceneMemory, sceneWorld } from './fixtu
 import type { SceneMemory } from './fixtures/selfreflection-scene.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { worldTurnRunner } from './fixtures/world-runner.ts';
+import { offeredKind } from './fixtures/plan-answer.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
 const SEEDS = '# place\na pier\na roof\na field\n# light\nfog\nrain';
@@ -65,10 +66,14 @@ async function wake(
   const plans: Array<Array<{ content: unknown }>> = [];
   const llm = {
     calls: [] as Array<unknown>,
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
     complete: (messages: Array<{ content: unknown }>, options?: { purpose?: string }) => {
       const planning = options?.purpose === PLANNER_PURPOSE;
       if (planning) plans.push(structuredClone(messages));
-      const text = planning ? JSON.stringify(answer) : '<msg>a quiet evening by the water</msg>';
+      const kind = offeredKind(options);
+      const text = planning
+        ? JSON.stringify({ ...answer, ...(kind ? { kind } : {}) })
+        : '<msg>a quiet evening by the water</msg>';
       return Promise.resolve({ text, usage: {}, estimated: 5 });
     },
   };
@@ -136,8 +141,10 @@ for (const [label, seed] of [
 ] as const) {
   test(`a ${label} seed in the plan answer is stored as 0`, async () => {
     // Bug: a seed the planner did not give or could not have meant marks a combination as taken.
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
     const { scene } = await wake(planAnswer(seed));
-    assert.equal(newest(scene.store).plan?.seed, 0);
+    // A seed that is not a whole number is a broken answer, and a broken answer stores no plan.
+    assert.equal(newest(scene.store).plan?.seed, Number.isInteger(seed) ? 0 : undefined);
   });
 }
 

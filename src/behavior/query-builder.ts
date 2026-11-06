@@ -1,12 +1,14 @@
 // The query builder: the step before a search that plans whether to search, where and with which forms
-// (prompts/query-builder.md). parseQueryPlan reads its answer, labelled lines `web:`, `history:`, `who:`, `when:`,
-// `when-role:`, `recent:` and `skills:`. A live turn has no such step, because the persona's own tools search during her
+// (prompts/query-builder.md). parseQueryPlan reads its answer, the JSON object of QUERY_PLAN_FORMAT with the fields `web`,
+// `history`, `who`, `when`, `when_role`, `recent` and `skills`. A live turn has no such step, because the persona's own tools search during her
 // reply (`lookup: skipped`, reason `core-tools`, in src/turn/phases/request/lookup.ts). The callers are the replay and the
 // two evaluation scripts, and every other caller of the plan takes it from here.
 
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
+import { strictJsonObject } from '../llm/parse.ts';
 import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
+import { oneLine } from '../memory/clamp.ts';
 import { zonedDay } from '../time.ts';
 import { lookupClassifierInput } from '../turn/lookup-input.ts';
 import { objOf } from '../tools/types.ts';
@@ -26,16 +28,67 @@ export type QueryPlan = {
   skills?: SkillsLines;
 };
 
-/** The answer read into a plan. `reason`: `empty` (no text), `none`, `unparsed` (nothing usable) or `ok`. */
+const nullableText = { type: ['string', 'null'] };
+
+/**
+ * The schema of the builder's answer, handed to the client as `responseFormat`: one field per label of the plan, each
+ * null when unused. `web`, `history`, `who`, `when` and `skills` are texts, `when_role` is `scope` or `locator`, and
+ * `recent` is `yes` or `no`.
+ */
+export const QUERY_PLAN_FORMAT = {
+  name: 'query-plan',
+  schema: {
+    type: 'object',
+    properties: {
+      web: nullableText,
+      history: nullableText,
+      who: nullableText,
+      when: nullableText,
+      when_role: { type: ['string', 'null'], enum: ['scope', 'locator', null] },
+      recent: { type: ['string', 'null'], enum: ['yes', 'no', null] },
+      skills: nullableText,
+    },
+    required: ['web', 'history', 'who', 'when', 'when_role', 'recent', 'skills'],
+    additionalProperties: false,
+  },
+};
+
+/** Each field of QUERY_PLAN_FORMAT with the label parseLookupLines reads its value under, and the values it allows. */
+const PLAN_FIELDS: ReadonlyArray<{ field: string; label: string; values?: ReadonlyArray<string> }> = [
+  { field: 'web', label: 'web' },
+  { field: 'history', label: 'history' },
+  { field: 'who', label: 'who' },
+  { field: 'when', label: 'when' },
+  { field: 'when_role', label: 'when-role', values: ['scope', 'locator'] },
+  { field: 'recent', label: 'recent', values: ['yes', 'no'] },
+  { field: 'skills', label: 'skills' },
+];
+
+const NO_PLAN = (reason: QueryPlan['reason']): QueryPlan => ({ web: null, history: null, reason });
+
+/**
+ * The answer read into a plan: the JSON object of QUERY_PLAN_FORMAT, each field present and either null or a text of
+ * its form, read as parseLookupLines reads the line of its label. `reason`: `empty` (no text), `none` (every field
+ * null, or nothing asked), `unparsed` (text that is not that object, or values none of which is usable) or `ok`.
+ */
 export function parseQueryPlan(
   raw: unknown,
   options: { timezone?: string; now?: number; maxForms?: number; skillNames?: Array<string> } = {}
 ): QueryPlan {
-  const { server, ...rest } = parseLookupLines(raw, options);
+  if (raw == null || (typeof raw === 'string' && !raw.trim())) return NO_PLAN('empty');
+  const answer = strictJsonObject(raw);
+  if (!answer) return NO_PLAN('unparsed');
+  const lines: Array<string> = [];
+  for (const { field, label, values } of PLAN_FIELDS) {
+    const value = answer[field];
+    if (value === null) continue;
+    if (typeof value !== 'string' || (values && !values.includes(value))) return NO_PLAN('unparsed');
+    if (value.trim()) lines.push(`${label}: ${oneLine(value)}`);
+  }
+  if (lines.length === 0) return NO_PLAN('none');
+  const { server, ...rest } = parseLookupLines(lines.join('\n'), options);
   return { ...rest, history: server };
 }
-
-const NO_PLAN = (reason: QueryPlan['reason']): QueryPlan => ({ web: null, history: null, reason });
 
 /** What one plan is asked about. */
 export type QueryInput = {
@@ -97,6 +150,7 @@ export function createQueryBuilder({
             maxOutputTokens: Number(objOf(objOf(config.web).quickSearch).classifierMaxOutputTokens ?? 2000),
             purpose: 'query-builder',
           }),
+          responseFormat: QUERY_PLAN_FORMAT,
         }
       );
       return parseQueryPlan(objOf(completion).text, {

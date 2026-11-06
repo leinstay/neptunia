@@ -235,7 +235,8 @@ test('the diary turn offers the tools and answers a diary call as the diary chan
   }; // this test's own fixture, written by the recording of the scene on main
   // PR 7d: voice messages are code, so the recorded writer tools gained voice_say.
   const core = await community();
-  const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false, seed: 0 });
   const { llm, logs } = await turnOf(core, {
     mode: 'selfreflection',
     answers: [
@@ -341,7 +342,8 @@ test('ordinary diary planning and writing omit restricted posts from the store',
     itemId: 'selfreflection:ordinary-seed',
   });
   await core.store.flushSettled({});
-  const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false, seed: 0 });
   const { llm } = await turnOf(core, { mode: 'selfreflection', answers: [plan, '<msg>ordinary entry</msg>'] });
   assert.ok(llm.calls.length >= 2);
   const prompts = JSON.stringify(llm.calls);
@@ -352,7 +354,8 @@ test('ordinary diary planning and writing omit restricted posts from the store',
 test('a diary-mode internal turn records restricted provenance on its held speech', async () => {
   // Catches guarding diary tool calls while leaving the ordinary diary-mode producer unrestricted.
   const core = await community();
-  const plan = JSON.stringify({ kind: 'status', brief: 'a private day', search: '', picture: false });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const plan = JSON.stringify({ kind: 'status', brief: 'a private day', search: '', picture: false, seed: 0 });
   await turnOf(core, {
     mode: 'selfreflection',
     memoryContext: internalSelfreflectionContext(),

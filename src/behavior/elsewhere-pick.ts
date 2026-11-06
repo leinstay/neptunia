@@ -8,6 +8,7 @@
 import type { Conversation } from '../protocol/events.ts';
 import { formatDuration } from '../format.ts';
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
+import { strictJsonObject } from '../llm/parse.ts';
 import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { accountOf } from '../memory/addresses.ts';
@@ -208,45 +209,57 @@ export function buildElsewhereRequest({
   ];
 }
 
+/**
+ * The schema of the pick's answer, handed to the client as `responseFormat`:
+ * `{ "place": number | null, "earlier": boolean, "episodes": [number] }`, the numbers 1-based.
+ */
+export const ELSEWHERE_FORMAT = {
+  name: 'elsewhere-pick',
+  schema: {
+    type: 'object',
+    properties: {
+      place: { type: ['integer', 'null'] },
+      earlier: { type: 'boolean' },
+      episodes: { type: 'array', items: { type: 'integer' } },
+    },
+    required: ['place', 'earlier', 'episodes'],
+    additionalProperties: false,
+  },
+};
+
 type ParseCode = 'pick' | 'none' | 'unknown-id' | 'empty' | 'unparsed';
 
-/** Quotes that may wrap a value, and punctuation that may trail it. */
-const WRAPPING = /^["'`«“‘]+|["'`»”’]+$/gu;
-const TRAILING = /[.;:!?…]+$/u;
-
-const cleaned = (value: string): string => value.trim().replace(WRAPPING, '').trim().replace(TRAILING, '').trim();
-
+/** The `place` and `earlier` fields of an answer object. */
 function parsePlace(
-  value: string | undefined,
+  answer: Record<string, unknown>,
   count: number
 ): { index: number | null; direction: 'earlier' | null; reason: ParseCode } {
   const none = (reason: ParseCode) => ({ index: null, direction: null, reason });
-  if (value === undefined) return none('unparsed');
-  const text = cleaned(value);
-  if (/^none$/iu.test(text)) return none('none');
-  const match = /^#?(\d+)(?:\s+(earlier|older))?$/iu.exec(text);
-  if (!match) return none('unparsed');
-  const index = Number(match[1]);
-  if (!Number.isSafeInteger(index) || index < 1 || index > count) return none('unknown-id');
-  return { index, direction: match[2] ? 'earlier' : null, reason: 'pick' };
+  const { place, earlier } = answer;
+  if (place === null) return none('none');
+  if (!Number.isInteger(place) || typeof earlier !== 'boolean') return none('unparsed');
+  const index = place as number;
+  if (index < 1 || index > count) return none('unknown-id');
+  return { index, direction: earlier ? 'earlier' : null, reason: 'pick' };
 }
 
-function parseEpisodes(value: string | undefined, count: number): { indices: Array<number>; reason: ParseCode } {
-  if (value === undefined) return { indices: [], reason: 'unparsed' };
-  const text = cleaned(value);
-  if (/^none$/iu.test(text)) return { indices: [], reason: 'none' };
-  const parts = text.split(/[\s,]+/u).filter(Boolean);
-  const numbers = parts.map((part) => /^#?(\d+)\.?$/u.exec(part)?.[1]);
-  if (parts.length === 0 || numbers.some((number) => number === undefined)) return { indices: [], reason: 'unparsed' };
-  const known = numbers.map(Number).filter((n) => Number.isSafeInteger(n) && n >= 1 && n <= count);
+/** The `episodes` field of an answer object: known numbers kept in the order answered, at most MAX_PICKED_EPISODES. */
+function parseEpisodes(answer: Record<string, unknown>, count: number): { indices: Array<number>; reason: ParseCode } {
+  const { episodes } = answer;
+  if (!Array.isArray(episodes) || !episodes.every((n) => Number.isInteger(n))) {
+    return { indices: [], reason: 'unparsed' };
+  }
+  if (episodes.length === 0) return { indices: [], reason: 'none' };
+  const known = (episodes as Array<number>).filter((n) => n >= 1 && n <= count);
   const indices = [...new Set(known)].slice(0, MAX_PICKED_EPISODES);
   return indices.length > 0 ? { indices, reason: 'pick' } : { indices: [], reason: 'unknown-id' };
 }
 
 /**
- * The classifier's answer: two labelled lines, `place:` and `episodes:`, in either order and any case. Each field stands
- * alone, so a bad line voids only its own. A field with no line is `unparsed`, and a blank answer `empty` for both. Only
- * `pick` carries numbers (1-based).
+ * The classifier's answer: the JSON object of ELSEWHERE_FORMAT. Each field stands alone, so a bad field voids only its
+ * own: a missing or mistyped field is `unparsed`, a number outside its list `unknown-id`. A `place` with an `earlier`
+ * that is not a boolean is `unparsed`. Text that is not the object is `unparsed` for both, and a blank answer `empty`.
+ * Only `pick` carries numbers (1-based).
  */
 export function parseElsewhereAnswer(
   raw: unknown,
@@ -255,20 +268,17 @@ export function parseElsewhereAnswer(
   place: { index: number | null; direction: 'earlier' | null; reason: ParseCode };
   episodes: { indices: Array<number>; reason: ParseCode };
 } {
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's answer as it came, read as text
-  const text = String(raw ?? '');
-  if (!text.trim()) {
+  if (raw == null || (typeof raw === 'string' && !raw.trim())) {
     return { place: { index: null, direction: null, reason: 'empty' }, episodes: { indices: [], reason: 'empty' } };
   }
-  const fields = new Map<string, string>();
-  for (const line of text.split(/\r?\n/u)) {
-    const match = /^\s*(place|episodes)\s*:(.*)$/iu.exec(line);
-    if (match && !fields.has(match[1].toLowerCase())) fields.set(match[1].toLowerCase(), match[2]);
+  const answer = strictJsonObject(raw);
+  if (!answer) {
+    return {
+      place: { index: null, direction: null, reason: 'unparsed' },
+      episodes: { indices: [], reason: 'unparsed' },
+    };
   }
-  return {
-    place: parsePlace(fields.get('place'), counts.places),
-    episodes: parseEpisodes(fields.get('episodes'), counts.episodes),
-  };
+  return { place: parsePlace(answer, counts.places), episodes: parseEpisodes(answer, counts.episodes) };
 }
 
 /** The real timer behind `schedule`: `fn` once after `ms`; resolves a cancel function. */
@@ -413,6 +423,7 @@ export function createElsewherePicker({
             purpose: 'elsewhere-pick',
             signal,
           }),
+          responseFormat: ELSEWHERE_FORMAT,
         })
       );
       if (ended.late) {

@@ -41,7 +41,8 @@ test('an unusable setting takes its default and the old gifs.pick key is not rea
 const OFFERED = { gifs: ['g1', 'g50'], emoji: [], actions: [] };
 
 test('`gif <handle>` names an offered GIF in any case and spacing', () => {
-  assert.deepEqual(parseMediaPick(' GIF  G50 ', OFFERED), { kind: 'gif', handle: 'g50' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  assert.deepEqual(parseMediaPick('{"pick":"gif","name":"G50"}', OFFERED), { kind: 'gif', handle: 'g50' });
 });
 
 test('`none` and everything that is not the protocol read as none', () => {
@@ -103,7 +104,8 @@ type RigOptions = {
 
 function rig({
   library = libraryOf(gifEntry('g1', 'ναι φυσικά γνέφει')),
-  answer = 'none',
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  answer = '{"pick":"none","name":null}',
   embedQuery,
   pickConfig = {},
   prompt = 'Pick for {{name}}.',
@@ -166,7 +168,8 @@ test('an interface without the capability yields no classifier call', async () =
 });
 
 test('a chosen GIF comes back with its entry, replying where the first message would have', async () => {
-  const { pick, calls } = rig({ answer: 'gif g1' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { pick, calls } = rig({ answer: '{"pick":"gif","name":"g1"}' });
   const result = await pick.pick(args());
   assert.equal(result.kind, 'gif');
   assert.ok(result.kind === 'gif');
@@ -187,7 +190,8 @@ test('the request goes out as one analyzer request under the media-pick purpose'
 });
 
 test('`none` is the normal result and posts nothing', async () => {
-  const { pick, calls } = rig({ answer: 'none' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { pick, calls } = rig({ answer: '{"pick":"none","name":null}' });
   assert.deepEqual(await pick.pick(args()), NONE);
   assert.equal(calls.length, 1);
 });
@@ -195,7 +199,8 @@ test('`none` is the normal result and posts nothing', async () => {
 test('a GIF the request did not list is none, even when the library holds it', async () => {
   const { pick } = rig({
     library: libraryOf(gifEntry('g1', 'ναι φυσικά'), gifEntry('g2', 'άσχετη λεζάντα')),
-    answer: 'gif g2',
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+    answer: '{"pick":"gif","name":"g2"}',
   });
   assert.deepEqual(await pick.pick(args()), NONE);
 });
@@ -291,7 +296,8 @@ test('the query vector finds a caption that shares no word, asked once', async (
       asked += 1;
       return Promise.resolve([1, 0]);
     },
-    answer: 'gif g1',
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+    answer: '{"pick":"gif","name":"g1"}',
   });
   const result = await pick.pick(args());
   assert.equal(result.kind, 'gif');
@@ -300,6 +306,10 @@ test('the query vector finds a caption that shares no word, asked once', async (
 });
 
 test('a failed embedding leaves the search by words', async () => {
-  const { pick } = rig({ embedQuery: () => Promise.reject(new Error('http-500')), answer: 'gif g1' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { pick } = rig({
+    embedQuery: () => Promise.reject(new Error('http-500')),
+    answer: '{"pick":"gif","name":"g1"}',
+  });
   assert.equal((await pick.pick(args())).kind, 'gif');
 });

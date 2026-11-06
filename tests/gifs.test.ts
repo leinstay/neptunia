@@ -662,7 +662,8 @@ type GifTurnRun = {
 
 async function runGifTurn({
   output,
-  pick = 'none',
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  pick = '{"pick":"none","name":null}',
   channelOpts = {},
   prepare,
   triggerKind = 'mention',
@@ -703,7 +704,11 @@ async function runGifTurn({
 }
 
 test('the pick: a link handle sends the stored url in place of the first message, as a reply', async () => {
-  const { result, channel } = await runGifTurn({ output: '<msg reply="#1">ha</msg><msg>more</msg>', pick: 'gif g1' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { result, channel } = await runGifTurn({
+    output: '<msg reply="#1">ha</msg><msg>more</msg>',
+    pick: '{"pick":"gif","name":"g1"}',
+  });
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent.length, 2);
   assert.equal(channel.sent[0].content, TENOR);
@@ -713,7 +718,8 @@ test('the pick: a link handle sends the stored url in place of the first message
 });
 
 test('the pick: a sent gif stamps ownLast and ownUses on its entry, for the place it went to', async () => {
-  const { gifs } = await runGifTurn({ output: '<msg>ha</msg>', pick: 'gif g1' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { gifs } = await runGifTurn({ output: '<msg>ha</msg>', pick: '{"pick":"gif","name":"g1"}' });
   assert.equal(gifs.entries['m-old#e0'].ownLast, NOW);
   assert.equal(gifs.entries['m-old#e0'].ownUses, 1);
   assert.equal(gifs.entries['m-old#e0'].places.c1?.ownLast, NOW);
@@ -722,11 +728,16 @@ test('the pick: a sent gif stamps ownLast and ownUses on its entry, for the plac
 });
 
 test('the pick: a gif alone is a turn; a follow-up never replies', async () => {
-  const withReply = await runGifTurn({ output: '<msg reply="#1">ha</msg>', pick: 'gif g1' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const withReply = await runGifTurn({ output: '<msg reply="#1">ha</msg>', pick: '{"pick":"gif","name":"g1"}' });
   assert.equal(withReply.result.outcome, 'spoke');
   assert.equal(withReply.channel.sent.length, 1);
   assert.equal(withReply.channel.sent[0].reply?.messageReference, 'm1');
-  const followUp = await runGifTurn({ output: '<msg reply="#1">ha</msg>', pick: 'gif g1', triggerKind: 'followUp' });
+  const followUp = await runGifTurn({
+    output: '<msg reply="#1">ha</msg>',
+    pick: '{"pick":"gif","name":"g1"}',
+    triggerKind: 'followUp',
+  });
   assert.equal(followUp.channel.sent.length, 1);
   assert.equal(followUp.channel.sent[0].reply, undefined);
 });
@@ -735,7 +746,8 @@ test('the pick: an attachment with no cached file re-fetches its message and sen
   const fresh = 'https://cdn.discordapp.com/attachments/c2/att1/r%C3%A9action.gif?ex=fresh';
   const original = rawMessage('m-att', { attachments: new Map([['att1', { id: 'att1', url: fresh }]]) });
   const source = fakeChannel({ id: 'c2', historyMessages: [original] });
-  const { channel, logs } = await runGifTurn({ output: '<msg>ha</msg>', pick: 'gif g2' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { channel, logs } = await runGifTurn({ output: '<msg>ha</msg>', pick: '{"pick":"gif","name":"g2"}' });
   assert.deepEqual(source.fetched, ['m-att']);
   assert.equal(channel.sent[0].content, fresh);
   const line = logs.find((l: Record<string, Untyped>) => l.msg === 'turn: gif sent');
@@ -748,19 +760,22 @@ test('the pick: an attachment in a forwarded snapshot is found too', async () =>
   const snapshots = new Map([['s', { attachments: new Map([['att1', { id: 'att1', url: fresh }]]) }]]);
   const original = rawMessage('m-att', wrongly({ messageSnapshots: snapshots }));
   fakeChannel({ id: 'c2', historyMessages: [original] });
-  const { channel } = await runGifTurn({ output: '<msg>ha</msg>', pick: 'gif g2' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { channel } = await runGifTurn({ output: '<msg>ha</msg>', pick: '{"pick":"gif","name":"g2"}' });
   assert.equal(channel.sent[0].content, fresh);
 });
 
 test('the pick: a failed re-fetch falls back to the stored url', async () => {
-  const { channel, logs } = await runGifTurn({ output: '<msg>ha</msg>', pick: 'gif g2' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { channel, logs } = await runGifTurn({ output: '<msg>ha</msg>', pick: '{"pick":"gif","name":"g2"}' });
   assert.equal(channel.sent[0].content, gifAttachment('att1').url);
   assert.ok(logs.find((l: Record<string, Untyped>) => l.msg === 'turn: gif refetch failed'));
   assert.equal(logs.find((l: Record<string, Untyped>) => l.msg === 'turn: gif sent')?.fresh, false);
 });
 
 test('the pick: an unknown handle posts the text as written', async () => {
-  const { result, channel, logs } = await runGifTurn({ output: '<msg>ha</msg>', pick: 'gif g99' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { result, channel, logs } = await runGifTurn({ output: '<msg>ha</msg>', pick: '{"pick":"gif","name":"g99"}' });
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(
     channel.sent.map((p: Record<string, Untyped>) => p.content),

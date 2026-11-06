@@ -10,6 +10,7 @@ import { labels } from './fixtures/labels.ts';
 import { T0, mirrorScene } from './fixtures/mirror-scene.ts';
 import type { Scene } from './fixtures/mirror-scene.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
+import { planAnswerText } from './fixtures/plan-answer.ts';
 
 const TEXT = 'ήσυχο βράδυ στο λιμάνι';
 const D1 = 'fake:channel:d1';
@@ -37,7 +38,8 @@ async function turn({ store }: Setting, answer: string | null, extra: Record<str
     complete: (messages: unknown, options?: { purpose?: string }) => {
       calls.push(structuredClone(messages));
       if (options?.purpose === 'selfreflection-planner') {
-        const text = JSON.stringify({ kind: 'status', brief: 'a calm evening', search: '', picture: false });
+        // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+        const text = planAnswerText({ kind: 'status', brief: 'a calm evening', search: '', picture: false }, options);
         return Promise.resolve({ text, usage: {}, estimated: 5 });
       }
       if (answer === null) return Promise.reject(Object.assign(new Error('provider down'), { statusCode: 500 }));

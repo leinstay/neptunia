@@ -149,7 +149,7 @@ export async function main(
   const { lookupClassifierInput } = await import('../src/behavior/turn.ts');
   const { fillPromptTemplate } = await import('../src/behavior/prompt.ts');
   const { recallSettings } = await import('../src/behavior/recall.ts');
-  const { parseQueryPlan } = await import('../src/behavior/query-builder.ts');
+  const { QUERY_PLAN_FORMAT, parseQueryPlan } = await import('../src/behavior/query-builder.ts');
   const { roleRequestOptions } = await import('../src/llm/openrouter.ts');
   const { roleModel } = await import('../src/llm/roles.ts');
   const { skillsIndex } = await import('../src/tools/discovery.ts');
@@ -234,6 +234,7 @@ export async function main(
               maxOutputTokens: quickSearch?.classifierMaxOutputTokens ?? 2000,
               purpose: 'query-builder',
             }),
+            responseFormat: QUERY_PLAN_FORMAT,
             origin: ORIGIN,
             countAgainstDailyCap: false,
             skipCalibration: true,

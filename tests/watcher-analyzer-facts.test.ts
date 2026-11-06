@@ -271,7 +271,11 @@ async function turnWithGifAndReaction(): Promise<string> {
   const answered = {
     complete: (_messages: unknown, options: Record<string, unknown>) =>
       Promise.resolve({
-        text: options.purpose === 'media-pick' ? 'gif g1' : '<react to="#1">👍</react><msg>ναι, φυσικά, έλα</msg>',
+        // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+        text:
+          options.purpose === 'media-pick'
+            ? '{"pick":"gif","name":"g1"}'
+            : '<react to="#1">👍</react><msg>ναι, φυσικά, έλα</msg>',
         usage: {},
         estimated: 10,
       }),

@@ -15,6 +15,7 @@ import { labels as baseLabels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { planAnswerText } from './fixtures/plan-answer.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -160,7 +161,9 @@ function llm(post: Untyped, plan: Record<string, unknown> | null = null) {
   let composed = 0;
   return {
     complete: async (_messages: Untyped, opts: Untyped) => {
-      if (opts?.purpose === 'selfreflection-planner') return { text: JSON.stringify(plan), usage: {}, estimated: 5 };
+      // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+      if (opts?.purpose === 'selfreflection-planner')
+        return { text: planAnswerText(plan, opts), usage: {}, estimated: 5 };
       const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
       composed += 1;
       return completionOf(answer);

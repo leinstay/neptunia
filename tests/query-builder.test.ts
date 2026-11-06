@@ -12,13 +12,15 @@ import { createQueryBuilder, parseQueryPlan } from '../src/behavior/query-builde
 import { DailyCapError } from '../src/llm/openrouter.ts';
 import { PURPOSE_ROLES } from '../src/llm/roles.ts';
 import { labels } from './fixtures/labels.ts';
+import { queryAnswer } from './fixtures/query-answer.ts';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 const OPTIONS = { timezone: 'UTC', now: NOW, maxForms: 8 };
 
 test('a history line becomes the history part with its forms', () => {
   // Bug: the label is renamed in the prompt and the parser still looks for the old one, so she never searches.
-  const plan = parseQueryPlan('history: κουνέλι, κουνελιού', OPTIONS);
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const plan = parseQueryPlan(queryAnswer({ history: 'κουνέλι, κουνελιού' }), OPTIONS);
   assert.deepEqual(plan.history?.forms, ['κουνέλι', 'κουνελιού']);
   assert.equal(plan.web, null);
   assert.equal(plan.reason, 'ok');
@@ -26,7 +28,8 @@ test('a history line becomes the history part with its forms', () => {
 
 test('web and history are planned in one answer', () => {
   // Bug: the first label wins, and half of the plan is lost.
-  const plan = parseQueryPlan('web: tomato frost date\nhistory: tomate', OPTIONS);
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const plan = parseQueryPlan(queryAnswer({ web: 'tomato frost date', history: 'tomate' }), OPTIONS);
   assert.equal(plan.web, 'tomato frost date');
   assert.deepEqual(plan.history?.forms, ['tomate']);
 });
@@ -39,21 +42,27 @@ test('the server label is no plan', () => {
 
 test('who and when belong to the history part', () => {
   // Bug: the rename drops the fields beside the forms.
-  const plan = parseQueryPlan('who: Ana\nwhen: 2026-10-01', OPTIONS);
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const plan = parseQueryPlan(queryAnswer({ who: 'Ana', when: '2026-10-01' }), OPTIONS);
   assert.deepEqual(plan.history?.who, ['ana']);
   assert.equal(plan.history?.from, Date.UTC(2026, 9, 1));
 });
 
 test('recent and a located time qualify the history part', () => {
   // Bug: the qualifiers are read off the old key and silently stop working.
-  const plan = parseQueryPlan('history: tomate\nrecent: yes\nwhen: 2026-10-01\nwhen-role: locator', OPTIONS);
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const plan = parseQueryPlan(
+    queryAnswer({ history: 'tomate', recent: 'yes', when: '2026-10-01', when_role: 'locator' }),
+    OPTIONS
+  );
   assert.equal(plan.history?.recent, true);
   assert.equal(plan.history?.locator, true);
 });
 
 test('none plans no search', () => {
   // Bug: the picks' word for nothing is searched for on the web.
-  for (const raw of ['none', 'None.', 'web: none\nhistory: none']) {
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  for (const raw of [queryAnswer({}), queryAnswer({ web: 'none', history: 'none' })]) {
     const plan = parseQueryPlan(raw, OPTIONS);
     assert.deepEqual([plan.web, plan.history, plan.reason], [null, null, 'none'], raw);
   }
@@ -66,13 +75,18 @@ test('an empty answer plans no search', () => {
 
 test('labelled lines with nothing usable are unparsed', () => {
   // Bug: a date nobody can read turns into a search over everything.
-  const plan = parseQueryPlan('when: last spring', OPTIONS);
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const plan = parseQueryPlan(queryAnswer({ when: 'last spring' }), OPTIONS);
   assert.deepEqual([plan.web, plan.history, plan.reason], [null, null, 'unparsed']);
 });
 
 test('a skills line is read beside the plan and does not disturb it', () => {
   // Bug: the discovery line is taken for a form or a query.
-  const plan = parseQueryPlan('history: tomate\nskills: none', { ...OPTIONS, skillNames: ['garden'] });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const plan = parseQueryPlan(queryAnswer({ history: 'tomate', skills: 'none' }), {
+    ...OPTIONS,
+    skillNames: ['garden'],
+  });
   assert.deepEqual(plan.history?.forms, ['tomate']);
   assert.equal(plan.skills?.state, 'none');
 });
@@ -96,7 +110,8 @@ function builder(
       complete: (messages: Array<{ content: unknown }>, request: Record<string, unknown>) => {
         calls.push({ system: String(messages[0]?.content), user: String(messages[1]?.content), options: request });
         if (options.answer instanceof Error) return Promise.reject(options.answer);
-        return Promise.resolve({ text: options.answer ?? 'history: tomate' });
+        // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+        return Promise.resolve({ text: options.answer ?? queryAnswer({ history: 'tomate' }) });
       },
     },
     now: () => NOW,
@@ -158,7 +173,8 @@ test('the lines of a DM reach the request as its transcript', async () => {
 
 test('a date in the answer is read in the configured zone', async () => {
   // Bug: the builder parses in UTC, and a day's range is off by the zone.
-  const { build } = builder({ answer: 'when: 2026-10-01', timezone: 'Europe/Athens' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { build } = builder({ answer: queryAnswer({ when: '2026-10-01' }), timezone: 'Europe/Athens' });
   const plan = await build({ selfName: 'Nova', question: QUESTION });
   assert.equal(plan.history?.from, Date.parse('2026-10-01T00:00:00+03:00'));
 });

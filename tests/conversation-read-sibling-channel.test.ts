@@ -35,12 +35,13 @@ const FIXED: Record<string, string> = {
   split: '{"parts":[]}',
   merge: '{"item":null}',
   lookup: 'none',
-  'query-builder': 'none',
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  'query-builder': '{"web":null,"history":null,"who":null,"when":null,"when_role":null,"recent":null,"skills":null}',
   'route-channel': 'none',
   'participation-pick': 'none',
-  'elsewhere-pick': 'place: none\nepisodes: none',
+  'elsewhere-pick': '{"place":null,"earlier":false,"episodes":[]}',
   'gif-pick': 'none',
-  'media-pick': 'none',
+  'media-pick': '{"pick":"none","name":null}',
   // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
   missed: '{"verdicts":[{"n":1,"verdict":"uncertain"}]}',
 };

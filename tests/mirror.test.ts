@@ -28,6 +28,7 @@ import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
 import { worldTurnRunner } from './fixtures/world-runner.ts';
+import { planAnswerText } from './fixtures/plan-answer.ts';
 
 const TEXT = 'ήσυχο βράδυ στο λιμάνι';
 
@@ -214,7 +215,8 @@ function setAndVoiceLlm() {
       calls.push(messages);
       if (options?.purpose === 'selfreflection-planner')
         return Promise.resolve({
-          text: JSON.stringify({ kind: 'photoset', brief: 'a walk', search: '', picture: true }),
+          // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+          text: planAnswerText({ kind: 'photoset', brief: 'a walk', search: '', picture: true }, options),
           usage: {},
           estimated: 5,
         });
