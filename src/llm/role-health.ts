@@ -207,14 +207,18 @@ export function roleKeyCheck({
   env,
   mainKey,
   keyOf = () => null,
+  served = () => false,
 }: {
   hot: unknown;
   env: Readonly<Record<string, string | undefined>>;
   mainKey: string;
   /** The key of the key store; null while there is no `keys.json`, then `.env` decides. */
   keyOf?: KeyOf;
+  /** Whether a harness carries `role`, which then needs no key (keys.json: `subharness.core`, `.memory`, `.simulation`). */
+  served?: (role: string) => boolean;
 }): (role: string) => boolean {
   return (role) => {
+    if (served(role)) return true;
     const stored = keyOf(role);
     if (stored !== null) return stored !== '';
     const config = configOf(hot);

@@ -1,16 +1,17 @@
 // The subscription route of her core and of the simulation: the API, or one run of `claude` or `codex` per turn
 // (src/subharness/subscription-client.ts). Each route is a record of keys.json beside the memory writer's,
 // `subharness.core` and `subharness.simulation`, read again at every request, so a change from the chat acts on the
-// next turn. `model set core|simulation <model> --via <backend> [--effort <level>]` writes the record after one reply on
+// next turn. `model set core|simulation <model> --via <route> [--effort <level>]` writes the record after one reply on
 // that model and effort; `model set core <model>` clears the core's after the API model passed its check
-// (src/keys/commands.ts, `directPath`), and `model set simulation api` clears the simulation's. opencode cannot carry a
+// (src/keys/commands.ts, `directPath`), and `model set simulation direct-api` clears the simulation's. opencode cannot carry a
 // route, because `opencode run` takes no system prompt of its own.
 
 import type { EffortLevel } from '../llm/roles.ts';
 import { readKeys, writeKeys } from '../keys/file.ts';
 import type { MemoryBackend } from '../keys/file.ts';
 import type { EnableDeps, SubharnessResult } from './control.ts';
-import { setPathRecord } from './memory-path.ts';
+import { memoryPath, setPathRecord } from './memory-path.ts';
+import { routeName } from './route-names.ts';
 import { dropClaim } from './selection.ts';
 
 /** The routes a subscription can carry. */
@@ -34,7 +35,22 @@ export function subscriptionPath(privateDir: string, role: SubscriptionRole): Su
   return record === null ? { kind: 'api' } : { kind: 'subharness', ...record };
 }
 
-/** `model set core|simulation <model> --via <backend> [--effort <level>]`: the route, after one reply on it. */
+/** The backend `role` runs through (`core`, `memory`, `simulation`), null on the API or for another role: a role on a harness needs no key. */
+export function harnessBackend(privateDir: string, role: string): string | null {
+  try {
+    const path =
+      role === 'memory'
+        ? memoryPath(privateDir)
+        : role === 'core' || role === 'simulation'
+          ? subscriptionPath(privateDir, role)
+          : null;
+    return path !== null && path.kind === 'subharness' ? path.backend : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `model set core|simulation <model> --via <route> [--effort <level>]`: the route, after one reply on it. */
 export function setSubscriptionPath(
   deps: EnableDeps,
   role: SubscriptionRole,
@@ -59,13 +75,13 @@ export function clearSubscriptionPath(privateDir: string, role: SubscriptionRole
   dropClaim(privateDir, role);
   const store = readKeys(privateDir);
   const { what, runs, is } = CARRIES[role];
-  if (store.subharness[role] === null) return done(`${what} ${runs} on the API already`, false);
+  if (store.subharness[role] === null) return done(`${what} ${runs} on ${routeName('api')} already`, false);
   writeKeys(privateDir, { ...store, subharness: { ...store.subharness, [role]: null } });
-  return done(`${what} ${is} back on the API`);
+  return done(`${what} ${is} back on ${routeName('api')}`);
 }
 
-/** The route in words: `api`, or `via <backend> <model>` with ` effort <level>` when there is one. */
+/** The route in words: `direct-api`, or `via <harness> <model>` with ` effort <level>` when there is one. */
 export function subscriptionPathText(path: SubscriptionPath): string {
-  if (path.kind === 'api') return 'api';
-  return `via ${path.backend} ${path.model}${path.effort === null ? '' : ` effort ${path.effort}`}`;
+  if (path.kind === 'api') return routeName('api');
+  return `via ${routeName(path.backend)} ${path.model}${path.effort === null ? '' : ` effort ${path.effort}`}`;
 }

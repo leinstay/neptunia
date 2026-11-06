@@ -105,7 +105,10 @@ async function commanded(askCore: LinkAsk, command: Parameters<LinkAsk>[0]): Pro
 
 /** The first core key, whose command asks for the models too; or the model of the core role, checked before it is saved. */
 async function coreModelStep(options: SetupOptions, askCore: LinkAsk, context: FlowContext) {
-  if (createKeyStore({ privateDir: options.privateDir }).coreNames().length === 0) {
+  if (
+    createKeyStore({ privateDir: options.privateDir }).coreNames().length === 0 &&
+    subscriptionPath(options.privateDir, 'core').kind === 'api'
+  ) {
     const name = (await context.ask('The name of the first core key:', 'core-1')).trim();
     if (name === '') return 'cancelled';
     return commanded(askCore, { name: 'keys.core.add', args: { name } });
@@ -115,7 +118,7 @@ async function coreModelStep(options: SetupOptions, askCore: LinkAsk, context: F
   const onRoute =
     route.kind === 'api'
       ? ''
-      : ` Her turns run ${subscriptionPathText(route)} now; a model named here moves them back to the API.`;
+      : ` Her turns run ${subscriptionPathText(route)} now; a model named here moves them back to direct-api.`;
   const model = (
     await context.ask(`The core model, as OpenRouter names it (blank checks the one set):${onRoute}`, offered)
   ).trim();

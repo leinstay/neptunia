@@ -136,13 +136,14 @@ test('Main, Voice, API, the route and a model commit the speech role, whose key 
 });
 
 test('nothing commits before the confirmation, and a double confirmation commits once', () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: highlighting that saves, or Enter pressed twice checking the model twice.
   const steps = play(atRole('errand', 'scout', [CODEX]), choose('subharness', 'backend:codex', 'suggested-1', 'keep'));
   assert.deepEqual(committed(steps.effects), []);
   assert.equal(steps.state.step, 'review');
   const saved = play(steps.state, [{ kind: 'confirm' }, { kind: 'confirm' }]);
   assert.deepEqual(committed(saved.effects), [
-    { name: 'model.set', args: { role: 'scout', model: 'suggested-1', via: 'codex' } },
+    { name: 'model.set', args: { role: 'scout', model: 'suggested-1', via: 'codex-harness' } },
   ]);
 });
 
@@ -237,13 +238,14 @@ test('unknown effort offers only keep and the model default', () => {
 });
 
 test('observed effort offers its levels and commits the chosen one', () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: the chosen level dropped on the way to the setter.
   const proven: SourceDescriptor = { ...CODEX, effort: { evidence: 'observed', levels: ['minimal', 'high'] } };
   const at = play(atRole('errand', 'scout', [proven]), choose('subharness', 'backend:codex', 'suggested-1'));
   assert.deepEqual(rowIds(at.state), ['keep', 'default', 'minimal', 'high']);
   const saved = play(at.state, [...choose('high'), { kind: 'confirm' }]);
   assert.deepEqual(committed(saved.effects), [
-    { name: 'model.set', args: { role: 'scout', model: 'suggested-1', via: 'codex', effort: 'high' } },
+    { name: 'model.set', args: { role: 'scout', model: 'suggested-1', via: 'codex-harness', effort: 'high' } },
   ]);
 });
 

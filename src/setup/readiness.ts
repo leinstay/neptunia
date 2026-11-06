@@ -36,8 +36,11 @@ export type ReadinessHealth = {
   services: 'ok' | 'not-installed';
   core: 'listening' | 'down';
   link: 'authenticated' | 'refused' | 'untested';
-  /** `routeDown` while her turns run through a subscription backend that cannot run now. */
-  model: { selection: string | null; check: CoreCheck | null; routeDown?: true };
+  /**
+   * `routeDown` while her turns run through a subscription backend that cannot run now; `harness` while they run
+   * through one at all, so the check of the API model and its key are not asked of her.
+   */
+  model: { selection: string | null; check: CoreCheck | null; routeDown?: true; harness?: true };
   /** `unknown` with no core to ask, which `core-running` reports already. */
   memory: { service: MemoryState; writer: MemoryState };
   optional: Readonly<Record<string, string>>;
@@ -66,8 +69,9 @@ export const REPAIRS = {
 } as const;
 type FailureCode = keyof typeof REPAIRS;
 
-function codeOfModel({ selection, check, routeDown }: ReadinessHealth['model']): FailureCode | null {
+function codeOfModel({ selection, check, routeDown, harness }: ReadinessHealth['model']): FailureCode | null {
   if (routeDown === true) return 'core-route-down';
+  if (harness === true) return null;
   if (selection === null) return 'no-model';
   if (check === null) return 'check-missing';
   if (check.selection !== selection) return 'check-stale';
@@ -157,15 +161,21 @@ function modelOnDisk(privateDir: string, dataDir: string): ReadinessHealth['mode
   return { selection, check: readCoreCheck(dataDir) };
 }
 
-/** Whether her turns run through a subscription backend that cannot run now; a keys.json that cannot be read says no. */
-async function coreRouteDown(privateDir: string): Promise<boolean> {
+/**
+ * How her turns run: `routeDown` while a subscription backend carries them and cannot run now, `harness` while one
+ * carries them at all. A keys.json that cannot be read says neither.
+ */
+async function coreRoute(privateDir: string): Promise<{ routeDown?: true; harness?: true }> {
   let path: ReturnType<typeof subscriptionPath>;
   try {
     path = subscriptionPath(privateDir, 'core');
   } catch {
-    return false;
+    return {};
   }
-  return path.kind === 'subharness' && !(await sourceState(privateDir, path.backend)).available;
+  if (path.kind !== 'subharness') return {};
+  return (await sourceState(privateDir, path.backend)).available
+    ? { harness: true }
+    : { routeDown: true, harness: true };
 }
 
 const parsedReadiness = (text: string): CoreReadiness | null => {
@@ -193,7 +203,7 @@ export async function gatherHealth(where: {
     services: fs.existsSync(path.join(unitDir, CORE_UNIT)) ? ('ok' as const) : ('not-installed' as const),
     optional: {},
   };
-  const route = (await coreRouteDown(privateDir)) ? { routeDown: true as const } : {};
+  const route = await coreRoute(privateDir);
   const unread = {
     model: { ...modelOnDisk(privateDir, dataDir), ...route },
     memory: { service: 'unknown', writer: 'unknown' } as const,

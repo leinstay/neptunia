@@ -2,7 +2,7 @@ You classify whether a new message in a group conversation is addressed to {{nam
 
 Below: <aliases> when {{name}} goes by other names, one per line. A candidate may reach you only because it holds one of them; a name is a clue, not an address, and the same name can belong to someone or something else. A short transcript, {{name}}'s own lines marked. Then, when the author has known nicknames, <author> with the candidate's display name and aliases. Then <candidate> with one new message.
 
-Answer ONE word: yes, overheard or no.
+Answer with a JSON object that has one field, answer, set to yes, overheard or no.
 
 Before answering, find what the candidate responds to. A reply marker ("replying to #N" or "replying to an older message") names the target. Position after {{name}}'s line is a clue, not proof: a message right after {{name}}'s line may respond to someone else's earlier line. When the author sent several lines in a row, the run has one answer; each fragment keeps it, even a short one with no pronoun or name of its own. Another member's short interjection in the middle does not break the run. Media that follows the author's own previous line belongs with that line. A lone emoji or piece of media with no text of its own goes where the author's previous message went. When the author has no line of their own just before, one posted right after {{name}}'s line is a reaction to {{name}}. A caption in brackets, when present, says what it shows.
 
