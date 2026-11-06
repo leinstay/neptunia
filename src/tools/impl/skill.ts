@@ -8,9 +8,10 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { argsProblem, scriptManifest, snapshotDir } from '../../skills/package.ts';
+import { argsProblem, scriptManifest, snapshotDir, snapshotProblem } from '../../skills/package.ts';
 import { runSkillScript } from '../../skills/run.ts';
 import { skillRunSettings } from '../../skills/settings.ts';
+import { log } from '../../log.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { objOf, textOf } from '../types.ts';
@@ -107,6 +108,16 @@ const handlers = perEnv((env) => {
       };
     const skillDir = path.join(env.dataDir, 'skills', name);
     const packageDir = snapshotDir(skillDir, active.contentHash);
+    const broken = snapshotProblem(packageDir, active.contentHash, script);
+    if (broken !== null) {
+      log.warn('skill.run: snapshot refused', { skill: name, version: active.versionId, problem: broken });
+      return {
+        status: 'failed',
+        code: broken === 'missing' ? CODE.SKILL_MISSING : CODE.SKILL_TAMPERED,
+        summary: `${name}: the activated version cannot run (${broken})`,
+        data: null,
+      };
+    }
     const manifest = scriptManifest(packageDir, script);
     if (manifest === null) throw invalid(`${name} declares no script ${script}`);
     const problem = argsProblem(manifest, given);
