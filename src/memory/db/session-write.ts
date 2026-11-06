@@ -76,6 +76,7 @@
 // into a person that resolves back to `from` is refused (`MERGE_CYCLE`). The owner's merge, which moves the rows, is
 // `{ kind: 'person-merge', from, into, by, reason, now }` (person-merge.ts).
 // `{ kind: 'selfreflection-audience-fill', by, dryRun?, now }` (selfreflection-audience-fill.ts).
+// `{ kind: 'selfreflection-remove', entryId, by, dryRun?, now }` (selfreflection-remove.ts).
 //
 // Schema v9 (stage 3):
 //   - every new claim version writes its sources into `claim_version_sources` (`supports` for add, confirm and revise,
@@ -98,6 +99,7 @@
 import { applyPersonLinkWrite } from './person-links.ts';
 import { applyPersonMergeWrite } from './person-merge.ts';
 import { applySelfreflectionAudienceFill } from './selfreflection-audience-fill.ts';
+import { applySelfreflectionRemove } from './selfreflection-remove.ts';
 import { OWNER_CONSOLE_IFACE } from './identity-links.ts';
 import { applyRequestArchiveWrite, sessionRequestId, setRequestOutcome } from './request-archive.ts';
 import { randomUUID } from 'node:crypto';
@@ -963,6 +965,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['person-link', applyPersonLinkWrite],
   ['person-merge', applyPersonMergeWrite],
   ['selfreflection-audience-fill', applySelfreflectionAudienceFill],
+  ['selfreflection-remove', applySelfreflectionRemove],
   ['request-archive', applyRequestArchiveWrite],
   // The selfreflection's mirrors: the state of a send, then the owner's configuration.
   [

@@ -1058,6 +1058,19 @@
         "failed": "gh gave no usable answer about {repository}. Check the name and that GitHub is reachable, then try again.",
         "no-modules": "The development checkout has no node_modules, so the tests of a task cannot run. Run npm install in selfimprovement.checkout, then unblock the task."
       }
+    },
+    "selfreflectionRemoval": {
+      "removed": "Removed {entry} and deleted {deleted} of its messages on the platform. Rows removed by table: {rows}.",
+      "row": "{table} {count}",
+      "rowSeparator": ", ",
+      "noRows": "none",
+      "untouched": "The other entries, the plan of the day, the backups and the system journal stay as they were.",
+      "refused": {
+        "unknown-entry": "No live selfreflection entry has the id {entry}. Nothing changed.",
+        "busy": "A send of {entry} is still going out, or nobody knows whether it arrived. Settle it with /mirror and run this again. Nothing changed.",
+        "interface-down": "The interface {entry} was published on is not connected, so its messages cannot be deleted. Nothing changed.",
+        "delete-failed": "The platform refused to delete a message of {entry} ({platformCode}). Memory is unchanged. A message deleted before the refusal stays deleted, and a second run deletes the rest."
+      }
     }
   }
 }

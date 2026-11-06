@@ -225,6 +225,11 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
     'Give old group selfreflection entries without an audience the unrestricted one: --dry-run counts only',
     [bareFlagArg('dry-run')]
   ),
+  sub(
+    'selfreflection.remove',
+    'Remove a selfreflection entry, its posts on the platform and every record of the turn that made it',
+    [arg('id')]
+  ),
   sub('places.list', 'List places of any kind and depth', [
     flagArg('interface', false),
     flagArg('authority', false),

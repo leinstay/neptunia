@@ -1502,8 +1502,9 @@ async function buildCore(
       proxy,
       conversationLines: (conversationId, count) => recentChannelLines(conversationId, count),
       now: Date.now,
-      // `/mirror` (src/interface/commands/mirror.ts).
+      // `/mirror` (src/interface/commands/mirror.ts), and the deletes of `/memory selfreflection remove`.
       mirrors,
+      port: mirrorPort,
       // `/skills` (src/interface/commands/skills.ts).
       skills: skillsWiring.access,
       // `/keys` and the checked `/model set` (src/keys/commands.ts), over the key store.
