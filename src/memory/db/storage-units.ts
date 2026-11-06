@@ -20,6 +20,12 @@ export type UnitQuery = {
   selector?: StorageSelector;
 };
 
+/** The subject a unit belongs to: a place, an account or the persona. */
+export const subjectOf = (unit: StorageUnit): StorageSubject => unit.key.subject;
+
+/** The partition of a unit: the day (`YYYY-MM-DD`) of a record unit, the month of an archive; undefined when it has none. */
+export const partitionOf = (unit: StorageUnit): string | undefined => unit.key.partition;
+
 /** Whether the opened schema has semantic ownership. Historical importers use their original schema. */
 export const hasStorageUnits = (db: { prepare(sql: string): { get(...args: Array<unknown>): unknown } }): boolean =>
   Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'storage_units'").get());

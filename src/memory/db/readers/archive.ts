@@ -1,7 +1,7 @@
 // Archive collections are selected by semantic scope, subject and UTC month.
 
 import { placeOrPersona } from '../storage-keys.ts';
-import { listUnits } from '../storage-units.ts';
+import { listUnits, subjectOf } from '../storage-units.ts';
 import { unitLines } from './common.ts';
 import type { Db } from '../types.ts';
 
@@ -20,7 +20,8 @@ export function archiveLines(db: unknown, placeId: string | null, month: string)
 export function archiveHolders(db: Db): Array<string | null> {
   const holders = new Set<string | null>();
   for (const unit of listUnits(db, { kind: 'archive' })) {
-    holders.add(unit.key.subject.type === 'persona' ? null : unit.key.subject.id);
+    const subject = subjectOf(unit);
+    holders.add(subject.type === 'persona' ? null : subject.id);
   }
   return [...holders].sort((a, b) => String(a).localeCompare(String(b)));
 }

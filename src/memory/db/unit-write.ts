@@ -4,7 +4,7 @@
 // independent of source IDs and visibility. Historical owner strings are accepted by the explicit import and
 // pending compatibility boundary, which preserves their provenance without using it for live ownership.
 
-import { ensureUnit, hasStorageUnits, unitById, listUnits } from './storage-units.ts';
+import { ensureUnit, hasStorageUnits, unitById, listUnits, partitionOf, subjectOf } from './storage-units.ts';
 import { storageMapper } from './map/index.ts';
 import { classify } from '../migration/classify.ts';
 import { legacyStorageKey, currentUnitPath } from '../migration/paths.ts';
@@ -158,9 +158,10 @@ function recordDuplicate(db: Db, owner: string, line: Row): boolean {
   const messageId = filled(line?.messageId) ? line.messageId : null;
   if (!messageId) return false;
   const unit = hasStorageUnits(db) ? unitById(db, owner) : undefined;
+  const month = unit ? partitionOf(unit)?.slice(0, 7) : undefined;
   const ids = unit
     ? listUnits(db, { kind: 'record', subject: unit.key.subject, scopePlaceId: unit.key.scopePlaceId })
-        .filter((entry) => entry.key.partition?.slice(0, 7) === unit.key.partition?.slice(0, 7))
+        .filter((entry) => partitionOf(entry)?.slice(0, 7) === month)
         .map((entry) => entry.id)
     : [];
   const prefix = monthPrefixOf(owner);
@@ -393,9 +394,10 @@ function writeLine(
 
 function writeLines(db: Db, update: Row, at: string): { written: number; duplicates: number; adopted: number } {
   const unit = updateUnit(db, update);
-  if (unit.key?.kind === 'versions' && unit.key.selector?.versionKind === 'media')
+  const unitKey = unit.key;
+  if (unitKey?.kind === 'versions' && unitKey.selector?.versionKind === 'media')
     return writeMediaDescriptions(db, unit, update.lines, at);
-  if (unit.key?.kind === 'recall_trace') return writeRecallTrace(db, unit, update, at);
+  if (unitKey?.kind === 'recall_trace') return writeRecallTrace(db, unit, update, at);
   if (unit.format !== 'jsonl' || !LINE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
   const lines = (Array.isArray(update.lines) ? (update.lines as Array<unknown>) : []).filter(
     (line): line is Row => line !== null && typeof line === 'object' && !Array.isArray(line)
@@ -691,13 +693,13 @@ function project(handle: MemoryHandle, update: Row, at: string): { units: number
   const out = { units: 0, done: true, stems: 0 };
   if (graphPending(handle)) {
     const slice = isWholeNumber(update.sliceUnits) && update.sliceUnits > 0 ? update.sliceUnits : undefined;
-    const done = projectPending(handle, {
+    const projected = projectPending(handle, {
       at,
       ...(slice ? { sliceUnits: slice } : {}),
       maxSlices: isWholeNumber(update.maxSlices) && update.maxSlices > 0 ? update.maxSlices : 1,
     });
-    out.units = done.units;
-    out.done = done.done;
+    out.units = projected.units;
+    out.done = projected.done;
   }
   // The stems run their own transactions (stems.ts#fillStems).
   if (stemsPending(dbOf(handle))) out.stems = fillStems(dbOf(handle))?.stamped ?? 0;
@@ -758,7 +760,7 @@ export function consolidateInnerState(handle: MemoryHandle, { now }: { now: numb
     const db = dbOf(handle);
     const key = personaKey('inner');
     if (unitValue(db, key).found) return { consolidated: 0 };
-    const units = listUnits(db, { kind: 'inner' }).filter((unit) => unit.key.subject.type !== 'persona');
+    const units = listUnits(db, { kind: 'inner' }).filter((unit) => subjectOf(unit).type !== 'persona');
     const value: Row = {
       v: 1,
       stopped: false,
@@ -774,7 +776,7 @@ export function consolidateInnerState(handle: MemoryHandle, { now }: { now: numb
     for (const unit of units) {
       const stored = unitValue(db, unit.key);
       if (stored.found && stored.value && typeof stored.value === 'object')
-        mergeInner(value, stored.value as Row, unit.key.scopePlaceId ?? unit.key.subject.id);
+        mergeInner(value, stored.value as Row, unit.key.scopePlaceId ?? subjectOf(unit).id);
     }
     writeValue(db, { key, value }, isoOf(now));
     return { consolidated: units.length };

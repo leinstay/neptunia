@@ -308,10 +308,6 @@
       "deep": 1,
       "repeated": 0
     },
-    "src/memory/db/gif-library-merge.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
     "src/memory/db/graph.ts": {
       "deep": 0,
       "repeated": 1
@@ -342,14 +338,6 @@
     },
     "src/memory/db/observe.ts": {
       "deep": 2,
-      "repeated": 0
-    },
-    "src/memory/db/readers/archive.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/memory/db/readers/record.ts": {
-      "deep": 5,
       "repeated": 0
     },
     "src/memory/db/recall.ts": {
@@ -392,10 +380,6 @@
       "deep": 2,
       "repeated": 10
     },
-    "src/memory/db/unit-write.ts": {
-      "deep": 5,
-      "repeated": 1
-    },
     "src/memory/db/writer-switch.ts": {
       "deep": 1,
       "repeated": 1
@@ -403,10 +387,6 @@
     "src/memory/migration/convert.ts": {
       "deep": 10,
       "repeated": 4
-    },
-    "src/memory/store-addresses.ts": {
-      "deep": 2,
-      "repeated": 0
     },
     "src/pipeline/address-attention.ts": {
       "deep": 1,
