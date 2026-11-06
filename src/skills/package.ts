@@ -48,10 +48,29 @@ export function snapshotDir(skillDir: string, hash: string): string {
   return path.join(skillDir, VERSIONS_DIR, hash);
 }
 
-/** Copies the package once per hash; a copy interrupted before its rename is never used. */
+/**
+ * Whether the snapshot of a version can run `script`: `missing` when its folder or its `SKILL.md` is gone, or when its
+ * bytes changed and the script file is among what went; `tampered` when its bytes no longer hash to `hash`; null when
+ * it is intact (a script it never held is the caller's mistake, which the manifest check answers).
+ */
+export function snapshotProblem(packageDir: string, hash: string, script: string): 'missing' | 'tampered' | null {
+  const textFile = path.join(packageDir, 'SKILL.md');
+  if (!fs.existsSync(textFile)) return 'missing';
+  const text = fs.readFileSync(textFile, 'utf8');
+  const textHash = createHash('sha256').update(text).digest('hex');
+  if (packageHash(packageDir, text, textHash) === hash) return null;
+  return fs.existsSync(path.join(packageDir, SCRIPTS_DIR, script)) ? 'tampered' : 'missing';
+}
+
+/**
+ * Copies the package once per hash; a copy interrupted before its rename is never used. A `<hash>.made` file beside the
+ * copy records that it was made, so a copy deleted later stays deleted and `skill.run` refuses it as `skill-missing`
+ * instead of the next load quietly restoring it from the working files.
+ */
 export function snapshotPackage(skillDir: string, text: string, hash: string): void {
   const target = snapshotDir(skillDir, hash);
-  if (fs.existsSync(target)) return;
+  const made = `${target}.made`;
+  if (fs.existsSync(target) || fs.existsSync(made)) return;
   const temp = `${target}.${process.pid}.tmp`;
   fs.rmSync(temp, { recursive: true, force: true });
   fs.mkdirSync(temp, { recursive: true, mode: 0o700 });
@@ -61,6 +80,7 @@ export function snapshotPackage(skillDir: string, text: string, hash: string): v
     fs.copyFileSync(path.join(skillDir, file), path.join(temp, file));
   }
   fs.renameSync(temp, target);
+  fs.writeFileSync(made, '');
 }
 
 export type PackageCode = 'bad-setup' | 'missing-script' | 'undeclared-script' | 'symlink';
