@@ -1,7 +1,7 @@
 // The path of her memory writer: the direct path, her memory session's request on the `memory` role's key, or one
 // run of `claude` or `codex` through the subharness. The path is the record `subharness.memory` of keys.json
 // (src/keys/file.ts), read again at every call, so a change from the chat acts on the next sweep. `model set memory
-// --via <backend> <model> [--effort <level>]` writes the record after one reply on that model and effort, and `model
+// --via <route> <model> [--effort <level>]` writes the record after one reply on that model and effort, and `model
 // set memory <model>` removes it after the direct model passed its check (src/keys/commands.ts, `directPath`).
 // opencode cannot carry the writer, because `opencode run` takes no system prompt of its own.
 
@@ -10,6 +10,7 @@ import { EFFORT_LEVELS, isEffortLevel, isListedEffort } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { MEMORY_BACKENDS, readKeys, writeKeys } from '../keys/file.ts';
 import type { MemoryBackend, MemoryPathRecord } from '../keys/file.ts';
+import { routeName, routeNamesText } from './route-names.ts';
 import { MEMORY_CLAIM, checkedSelection, dropClaim, listsEffort } from './selection.ts';
 import type { EnableDeps, SubharnessResult } from './control.ts';
 
@@ -26,6 +27,14 @@ const refused = (code: string, message: string): SubharnessResult => ({ ok: fals
 export function memoryPath(privateDir: string): MemoryPath {
   const record = readKeys(privateDir).subharness.memory;
   return record === null ? { kind: 'direct' } : { kind: 'subharness', ...record };
+}
+
+/** The path as `keys check memory` answers it: the backend of a subharness path under its route name. */
+export function memoryCheckPath(
+  privateDir: string
+): { kind: 'direct' } | { kind: 'subharness'; backend: string; model: string } {
+  const path = memoryPath(privateDir);
+  return path.kind === 'direct' ? path : { kind: 'subharness', backend: routeName(path.backend), model: path.model };
 }
 
 /** The keys.json records of a path through a subharness: the memory writer's, the core's and the simulation's. */
@@ -46,17 +55,17 @@ export async function setPathRecord(
   const { backend, model, effort } = choice;
   const known = BACKEND_NAMES.find((name) => name === backend);
   if (known === undefined)
-    return refused('unknown-backend', `${backend} is no backend; use ${MEMORY_BACKENDS.join(' or ')}`);
+    return refused('unknown-backend', `${backend} is no backend; use ${routeNamesText(MEMORY_BACKENDS)}`);
   const name = MEMORY_BACKENDS.find((one) => one === known);
   if (name === undefined)
     return refused(
       'backend-unsupported',
-      `${known} cannot carry ${words.carrier}, it takes no system prompt; use ${MEMORY_BACKENDS.join(' or ')}`
+      `${routeName(known)} cannot carry ${words.carrier}, it takes no system prompt; use ${routeNamesText(MEMORY_BACKENDS)}`
     );
   let level: EffortLevel | undefined;
   if (effort !== undefined) {
     if (!isListedEffort(effort) || !(isEffortLevel(effort) || (await listsEffort(deps, name, effort))))
-      return refused('unknown-effort', `${effort} is no effort of ${name}; use ${EFFORT_LEVELS.join(', ')}`);
+      return refused('unknown-effort', `${effort} is no effort of ${routeName(name)}; use ${EFFORT_LEVELS.join(', ')}`);
     level = effort;
   }
   if (model.trim() === '') return refused('model-rejected', 'name the model; nothing was changed');
@@ -73,7 +82,7 @@ export async function setPathRecord(
   );
 }
 
-/** `model set memory --via <backend> <model> [--effort <level>]`: the memory writer's record, after one reply. */
+/** `model set memory --via <route> <model> [--effort <level>]`: the memory writer's record, after one reply. */
 export function setMemoryPath(
   deps: EnableDeps,
   backend: string,
@@ -99,13 +108,13 @@ export function setMemoryPath(
 export function clearMemoryPath(privateDir: string): SubharnessResult {
   dropClaim(privateDir, MEMORY_CLAIM);
   const store = readKeys(privateDir);
-  if (store.subharness.memory === null) return done('her memory writer is on the direct path already', false);
+  if (store.subharness.memory === null) return done('her memory writer is on direct-api already', false);
   writeKeys(privateDir, { ...store, subharness: { ...store.subharness, memory: null } });
-  return done('her memory writer is back on the direct path');
+  return done('her memory writer is back on direct-api');
 }
 
-/** The path in words: `direct`, or `via <backend> <model>` with ` effort <level>` when there is one. */
+/** The path in words: `direct-api`, or `via <harness> <model>` with ` effort <level>` when there is one. */
 export function memoryPathText(path: MemoryPath): string {
-  if (path.kind === 'direct') return 'direct';
-  return `via ${path.backend} ${path.model}${path.effort === null ? '' : ` effort ${path.effort}`}`;
+  if (path.kind === 'direct') return routeName('api');
+  return `via ${routeName(path.backend)} ${path.model}${path.effort === null ? '' : ` effort ${path.effort}`}`;
 }

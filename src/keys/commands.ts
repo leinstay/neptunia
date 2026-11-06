@@ -129,11 +129,37 @@ export type KeysDeps = {
   recordCheck?(role: string, check: { selection: string; ok: boolean; code: string | null }): void;
   /** Returns `role` to its direct path: called after a direct model of `memory` or `core` is checked and saved. */
   directPath?(role: string): void;
+  /** The backend `role` runs through (core, memory, simulation), null on the API: such a role needs no key. */
+  harnessOf?: (role: string) => string | null;
   /** The path her memory writer runs on now (keys.json, src/subharness/memory-path.ts), read at every check. */
   memoryPath?: () => MemoryCheckPath | null;
   /** One probe through the subharness path of the memory writer (src/subharness/memory-probe.ts#memoryProbe). */
   probeMemory?: () => Promise<MemoryCheckProbe>;
 };
+
+/** The answer for a role that a harness serves and that has no key, null when it runs on the API. */
+function servedByHarness(deps: KeysDeps, name: string, role: string): Answer | null {
+  const harness = deps.harnessOf?.(role) ?? null;
+  if (harness === null) return null;
+  if (name === 'keys.core.remove')
+    return {
+      text: `The last core key is removed. Her core runs through ${harness} and needs no key, so she keeps running.`,
+      status: 'ok',
+    };
+  return { text: `${typed(name)}: the ${role} role runs through ${harness} and needs no key`, status: 'ok' };
+}
+
+/** The last core key is gone: she keeps running when a harness carries her core, else she is paused as `no-core-key`. */
+async function lastCoreRemoved(deps: KeysDeps, name: string): Promise<Answer> {
+  const kept = servedByHarness(deps, name, CORE_ROLE);
+  if (kept !== null) return kept;
+  const { pause: pauseControl } = deps;
+  await pauseControl.pause(NO_CORE_KEY);
+  return {
+    text: 'The last core key is removed. She is paused (no-core-key) until you add a core key.',
+    status: 'ok',
+  };
+}
 
 /** The path `keys check memory` is asked about: the direct request, or one backend and model. */
 export type MemoryCheckPath = { kind: 'direct' } | { kind: 'subharness'; backend: string; model: string };
@@ -352,11 +378,7 @@ export function createKeysCommands(deps: KeysDeps): {
   async function removeCore(name: string, args: Record<string, unknown>): Promise<Answer> {
     const { left } = store.removeCore(text(args.name));
     if (left > 0) return { text: `The core key is removed. ${left} left.`, status: 'ok' };
-    await pauseControl.pause(NO_CORE_KEY);
-    return {
-      text: 'The last core key is removed. She is paused (no-core-key) until you add a core key.',
-      status: 'ok',
-    };
+    return lastCoreRemoved(deps, name);
   }
 
   /** `keys core grant <name> <usd> <day>` sets the grant of a stored core key, `<name> none` clears it; no value is asked. */
@@ -431,7 +453,10 @@ export function createKeysCommands(deps: KeysDeps): {
       };
     const route = ring.route(role);
     if (route === null)
-      return failed(name, `the ${role} role has no key: add a core key or bind the role to an extra key`);
+      return (
+        servedByHarness(deps, name, role) ??
+        failed(name, `the ${role} role has no key: add a core key or bind the role to an extra key`)
+      );
     const result = await checkRole({
       fetch: deps.fetch,
       baseUrl: deps.baseUrl(),

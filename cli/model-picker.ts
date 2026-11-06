@@ -162,6 +162,15 @@ export function openPicker(registry: ReadonlyArray<ModelRoleRow>): PickerState {
 }
 
 /** The sources the last read listed, none before a read. */
+/** The names of the routes, as `/model set --via` takes them. This package imports nothing of the engine, so the four
+ * names repeat src/subharness/route-names.ts; the source descriptor keeps the stored backend word in `via`. */
+const ROUTE_NAME_OF: Readonly<Record<string, string>> = {
+  claude: 'claude-harness',
+  codex: 'codex-harness',
+  opencode: 'opencode-harness',
+};
+const routeNameOf = (via: string | null): string => (via === null ? 'direct-api' : (ROUTE_NAME_OF[via] ?? via));
+
 const listedSources = (state: PickerState) => state.read?.sources;
 
 /** The model in force as the last read found it. */
@@ -176,7 +185,7 @@ function sourceRow(state: PickerState, source: SourceDescriptor): PickerRow {
   const inForce = currentOf(state)?.via === source.via && source.via !== null;
   return {
     id: source.id,
-    label: `${source.label}${account}`,
+    label: `${routeNameOf(source.via)} · ${source.label}${account}`,
     code: source.code,
     ...(reason === undefined ? { detail: LISTING_WORDS[source.listing] ?? '' } : { disabled: reason }),
     ...(inForce ? { current: 'in force' } : {}),
@@ -355,6 +364,7 @@ function confirmed(state: PickerState): PickerStepResult {
   const { role, model } = state;
   if (state.step !== 'review' || role === null || model === null) return { state, effects: [] };
   const via = sourceOf(state)?.via ?? null;
+  const route = via === null ? null : routeNameOf(via);
   const effort = effortArg(state);
   const revision = state.revision + 1;
   return {
@@ -365,7 +375,7 @@ function confirmed(state: PickerState): PickerStepResult {
         revision,
         command: {
           name: 'model.set',
-          args: { role, model, ...(via === null ? {} : { via }), ...(effort === undefined ? {} : { effort }) },
+          args: { role, model, ...(route === null ? {} : { via: route }), ...(effort === undefined ? {} : { effort }) },
         },
       },
     ],

@@ -142,20 +142,22 @@ test('clearing the core route returns it to the API and leaves the simulation ro
 });
 
 test('the route in words names the backend, the model and the effort', () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: a status line that hides which model her turns run on.
   const text = subscriptionPathText({ kind: 'subharness', backend: 'codex', model: 'gpt-6.1-sol', effort: 'high' });
-  for (const word of ['codex', 'gpt-6.1-sol', 'high']) assert.ok(text.includes(word), `${word} in "${text}"`);
-  assert.equal(subscriptionPathText({ kind: 'api' }), 'api');
+  for (const word of ['codex-harness', 'gpt-6.1-sol', 'high']) assert.ok(text.includes(word), `${word} in "${text}"`);
+  assert.equal(subscriptionPathText({ kind: 'api' }), 'direct-api');
 });
 
 // the command line and the console
 
 test('the table parses model set simulation with --via and --effort', () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: simulation refused as no model role, so the owner cannot reach its route at all.
-  const parsed = parseCommandLine('/model set simulation --via codex gpt-6.1-sol --effort high');
+  const parsed = parseCommandLine('/model set simulation --via codex-harness gpt-6.1-sol --effort high');
   assert.equal(parsed.ok, true);
   if (parsed.ok)
-    assert.deepEqual(parsed.args, { role: 'simulation', via: 'codex', model: 'gpt-6.1-sol', effort: 'high' });
+    assert.deepEqual(parsed.args, { role: 'simulation', via: 'codex-harness', model: 'gpt-6.1-sol', effort: 'high' });
 });
 
 /** What the core hands the console of `deps`: everything but the private directory, which the console has. */
@@ -198,12 +200,13 @@ function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
 }
 
 test('model set core with --via goes through the subharness and stores the core route', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: --via on core refused as role-unsupported, or handed to the key commands, which check a CLI id on OpenRouter.
   const { dir, deps, ran } = rig();
   const { desk, ops, keysCalls } = consoleOver(dir, consoleSubharness(deps));
   const answer = await desk.run(
     'model.set',
-    { role: 'core', via: 'claude', model: 'claude-opus-4-6', effort: 'low' },
+    { role: 'core', via: 'claude-harness', model: 'claude-opus-4-6', effort: 'low' },
     { id: 'owner' }
   );
   assert.equal(answer.status, 'ok', answer.text);
@@ -214,12 +217,13 @@ test('model set core with --via goes through the subharness and stores the core 
 });
 
 test('model set simulation with --via stores the simulation route', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: the simulation's --via written into the core record, which moves her live turns.
   const { dir, deps } = rig();
   const { desk } = consoleOver(dir, consoleSubharness(deps));
   const answer = await desk.run(
     'model.set',
-    { role: 'simulation', via: 'codex', model: 'gpt-6.1-sol' },
+    { role: 'simulation', via: 'codex-harness', model: 'gpt-6.1-sol' },
     { id: 'owner' }
   );
   assert.equal(answer.status, 'ok', answer.text);

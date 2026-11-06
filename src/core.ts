@@ -159,8 +159,8 @@ import { DEFAULT_BASE_URL } from './subharness/models.ts';
 import { backendUsageReader, execUsage, spawnUsageChild } from './subharness/usage.ts';
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
-import { clearMemoryPath, memoryPath, memoryPathText } from './subharness/memory-path.ts';
-import { clearSubscriptionPath } from './subharness/subscription-path.ts';
+import { clearMemoryPath, memoryCheckPath, memoryPath, memoryPathText } from './subharness/memory-path.ts';
+import { clearSubscriptionPath, harnessBackend } from './subharness/subscription-path.ts';
 import { coreSubscription } from './subharness/subscription-client.ts';
 import { memoryWriterClient } from './subharness/memory-writer.ts';
 import { createMemoryWatch, memoryProbe } from './subharness/memory-probe.ts';
@@ -477,9 +477,10 @@ async function buildCore(
   const calibrator = createCalibrator(processState.data.calibration);
   // Which model roles are down (src/llm/role-health.ts): one tracker for the turns, the operations, the describer and
   // `/status`. A role has no key when the key it resolves to is empty (src/llm/openrouter.js#roleApiKey).
+  const harnessOf = (role: string): string | null => harnessBackend(paths.privateDir, role);
   const roleHealth = createRoleHealth({
     now: () => Date.now(),
-    hasKey: roleKeyCheck({ hot, env, mainKey: openrouterKey, keyOf }),
+    hasKey: roleKeyCheck({ hot, env, mainKey: openrouterKey, keyOf, served: (role) => harnessOf(role) !== null }),
   });
   // `env` (the .env loaded once above): the keys `llm.keyByRole` names per role, looked up per request.
   // createLlm (src/llm/openrouter.js) declares `complete` as `Function`, which no caller's declared call accepts, so
@@ -1395,8 +1396,9 @@ async function buildCore(
       if (role === 'memory') clearMemoryPath(paths.privateDir);
       if (role === 'core') clearSubscriptionPath(paths.privateDir, 'core');
     },
+    harnessOf,
     // `keys check memory` proves the path the writer runs on: the probe through the backend while keys.json names one.
-    memoryPath: () => memoryPath(paths.privateDir),
+    memoryPath: () => memoryCheckPath(paths.privateDir),
     probeMemory: () => probeMemoryRaw(clock()),
   });
   // The memory probe (src/subharness/memory-probe.ts): its sleep `memory-down` goes through the same pause. While the
