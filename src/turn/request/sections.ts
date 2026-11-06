@@ -50,7 +50,7 @@ export function headSections(
     InterlocutorBlocks & { tempoText: string }
 ): HeadSections {
   const { config, now, history, trigger, channels, currentChannelId, lookup, tempoText } = given;
-  const { labels, privateChat, nameOf, timezone, frozen, loreOn, system, nowText, chatItems } = given;
+  const { labels, privateChat, nameOf, timezone, frozen, loreOn, system, nowText, spatialText, chatItems } = given;
   const { directoryText, channelDirectoryText, fittedTask, senses, toolsText, inventoryText } = given;
   const { skillIndexText } = given;
   const {
@@ -73,6 +73,7 @@ export function headSections(
     items: [
       system,
       fittedTask,
+      spatialText,
       nowText,
       sensesWhole(senses),
       tempoText,

@@ -421,6 +421,28 @@ export const labels = {
       'audience-malformed': 'that was no single listed token',
     },
   },
+  spatial: {
+    place: 'SPATIAL-PLACE {path} ON {iface} AT {when}',
+    within: ' < ',
+    kinds: {
+      server: 'server {name}',
+      category: 'category {name}',
+      channel: 'channel #{name}',
+      thread: 'thread {name}',
+      dm: 'dm {name}',
+      group_dm: 'group dm {name}',
+      place: 'place {name}',
+    },
+    unnamed: 'UNNAMED',
+    group: 'SPATIAL-GROUP',
+    private: 'SPATIAL-PRIVATE',
+    note: 'SPATIAL-NOTE {note}',
+    cli: 'SPATIAL-CLI AT {when}',
+    // Stage AC, the owner's word of 2026-11-06: a wake with no conversation place is on her own server, a
+    // selfreflection post in her own world; no turn is "nowhere".
+    server: 'SPATIAL-SERVER AT {when}',
+    world: 'SPATIAL-WORLD AT {when}',
+  },
   journal: {
     offLead: 'Your recent time away:',
     offPaused: 'Paused by the owner from {from} to {to} ({length}).',

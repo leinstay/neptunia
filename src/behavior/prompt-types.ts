@@ -1,5 +1,6 @@
 // The types of the signatures in ./prompt.ts: the inputs and results that are too long to read inline.
 
+import type { Whereabouts } from '../turn/request/spatial.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { Prompts, RequestConfig, RequestInput } from '../turn/request/types.ts';
 import type { sectionCost } from '../llm/budget.ts';
@@ -116,6 +117,7 @@ export type BuildRequestInput = {
   places?: string | null;
   previousThink?: { text: string; relation: 'same' | 'earlier'; ageMs?: number } | null;
   stableFreeze?: Map<string, Untyped> | null;
+  whereabouts?: Whereabouts | null;
 };
 
 /** One text part of a request's user message; the cache marker is the provider's. */
