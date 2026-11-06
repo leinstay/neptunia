@@ -99,6 +99,10 @@ The retrieval service's facts reach a model in four places, and each is absent w
 
 A name that fits more than one place is refused `target-ambiguous`, and one that fits none `invalid-args` with `args.channel:unknown-channel`. Both refusals carry `choices`, and `src/turn/skill-calls.ts` puts their text in the result's `data.text` through `labels.tools.tools.place`. The lead is `several` or `none` (`{given}`, `{count}`), `line` repeats once per choice (`{name}` and `{ref}`, the token to write: `#handle` or the id), and `more` (`{count}`) closes a list cut at `PLACE_CHOICES_MAX`. A place she may not read is never matched and never listed.
 
+### Errand result
+
+`errandResultText` in `src/errands/blocks.ts` writes the finished errand she reads from `labels.errands.result`. When the runner counted failed web searches (`result.searchFailures`, OpenCode's `websearch` calls that ended in an error), it adds `searchFailed` with `{count}` after the reason line, on a done errand and on a failed one alike. A run with no failed search adds nothing.
+
 ### Mention handles
 
 People, channels and messages in the request have handles supplied by the formatters. The model must reuse these handles rather than inventing native IDs. The interface resolves outgoing references for its platform.

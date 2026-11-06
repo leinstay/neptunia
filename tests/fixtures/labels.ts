@@ -377,6 +377,7 @@ export const labels = {
       sources: 'sources:',
       files: 'files:',
       file: '{handle} | {contentType} | {bytes} bytes',
+      searchFailed: 'web search failed {count} times',
     },
   },
   recent: {

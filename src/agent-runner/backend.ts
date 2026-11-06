@@ -6,8 +6,10 @@
 // agent run goes through `runAgent` (src/subharness/run.ts), which takes the path from the task's route, else reads the switch and the agent's
 // mode at the moment of the run, and runs the backend installed in the private layer (`createInstalledBackend`, src/subharness/place.ts),
 // never a CLI found on PATH. `createAgentEngine` gives the runner server (bin/neptunia.ts) its task engine: a runner that works a
-// task's brief in a fresh directory through that seam and delivers the files the agent leaves there. The log line of a
-// run carries the backend, the exit code, the duration and the tokens, never the brief or the text.
+// task's brief in a fresh directory through that seam and delivers the files the agent leaves there. OpenCode runs with
+// `--format json` and prints one event per line: its answer is the text of the `text` events, and each `tool_use` event
+// of the `websearch` tool whose `part.state.status` is `error` counts as a failed web search (`searchFailures`). The
+// log line of a run carries the backend, the exit code, the duration, the tokens and that count, never the brief or the text.
 
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -33,7 +35,7 @@ import { BACKEND_NAMES, profileOf } from './profiles.ts';
 import type { AgentPaths, BackendName, Profile } from './profiles.ts';
 import type { RunOutcome, RunnerTask, TaskResult, TaskUsage } from './protocol.ts';
 import { runAgent } from '../subharness/run.ts';
-import type { RunDeps } from '../subharness/run.ts';
+import type { AgentRun, RunDeps } from '../subharness/run.ts';
 import { markedRun } from '../subharness/activity.ts';
 import { isInstalled, subharnessPlace } from '../subharness/place.ts';
 import type { ChildOutcome, ChildRun } from '../subharness/memory-writer.ts';
@@ -135,6 +137,8 @@ export type BackendResult = {
   sessionId?: string;
   /** What this run knows it could not record, by code; a gap never stops a run. */
   gaps?: ReadonlyArray<string>;
+  /** opencode: the `websearch` calls that ended in an error, absent when there were none */
+  searchFailures?: number;
 };
 
 /** One way to run a brief. `run` resolves, never rejects. */
@@ -244,6 +248,8 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
     tail: false,
     args: (options) => [
       'run',
+      '--format',
+      'json',
       ...(options.model === undefined ? [] : ['-m', options.model]),
       ...(options.effort === undefined ? [] : ['--variant', options.effort]),
     ],
@@ -346,6 +352,48 @@ function claudeResultOf(output: string): ClaudeResult | null {
       steps: countOf(fields, 'num_turns'),
     },
   };
+}
+
+/** What `opencode run --format json` printed: its answer, the failed web searches, and the last error it reported. */
+type OpenCodeEvents = { text: string; searchFailures: number; error: string | undefined };
+
+/** The message of an OpenCode `error` event, as its plain output prints it: `error.data.message`, else `error.name`. */
+function openCodeErrorOf(event: Record<string, unknown>): string | undefined {
+  const error = objOf(event.error);
+  const message = objOf(error.data).message;
+  if (message !== undefined) return scalarText(message);
+  return error.name === undefined ? undefined : scalarText(error.name);
+}
+
+/** One line of OpenCode's output as an event, or null for a line that is none. */
+function openCodeEventOf(line: string): Record<string, unknown> | null {
+  if (!line.startsWith('{')) return null;
+  try {
+    const event = objOf(JSON.parse(line));
+    return typeof event.type === 'string' ? event : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The events OpenCode printed, or null when no line is one (the printed text then stands as the answer). */
+function openCodeEventsOf(output: string): OpenCodeEvents | null {
+  const events = output
+    .split('\n')
+    .map((line) => openCodeEventOf(line.trim()))
+    .filter((event): event is Record<string, unknown> => event !== null);
+  if (events.length === 0) return null;
+  const texts: Array<string> = [];
+  let searchFailures = 0;
+  let error: string | undefined;
+  for (const event of events) {
+    const part = objOf(event.part);
+    if (event.type === 'text' && typeof part.text === 'string' && part.text.trim() !== '') texts.push(part.text.trim());
+    if (event.type === 'tool_use' && part.tool === 'websearch' && objOf(part.state).status === 'error')
+      searchFailures++;
+    if (event.type === 'error') error = openCodeErrorOf(event) ?? error;
+  }
+  return { text: texts.join('\n'), searchFailures, error };
 }
 
 /** What a child process came to: its exit, its stdout, or why it never ran. */
@@ -469,11 +517,28 @@ function errorOf(outcome: Outcome): BackendError | undefined {
   return outcome.spawnCode ? 'spawn' : undefined;
 }
 
+/**
+ * The `detail` of a failed run: a refused claude's own words, an OpenCode error event's message, else the last line the
+ * child printed (stderr only for OpenCode events, whose stdout lines are JSON).
+ */
+function failureDetailOf(
+  ok: boolean,
+  outcome: Outcome,
+  claude: ClaudeResult | null,
+  events: OpenCodeEvents | null
+): Pick<BackendResult, 'detail'> {
+  if (claude?.isError === true && claude.words !== '') return { detail: claude.words.slice(0, DETAIL_KEEP) };
+  if (events === null) return detailOf(ok, outcome);
+  if (!ok && events.error !== undefined && events.error !== '') return { detail: events.error.slice(0, DETAIL_KEEP) };
+  return detailOf(ok, { ...outcome, stdout: '' });
+}
+
 /** What a finished child gives back: `written` is the final message of a backend that writes one to a file. */
 function resultOf(name: BackendName, outcome: Outcome, written: string | null): BackendResult {
   const printed = outcome.stdout.trim();
   const claude = name === 'claude' ? claudeResultOf(printed) : null;
-  const text = written ?? claude?.text ?? printed;
+  const events = name === 'opencode' ? openCodeEventsOf(printed) : null;
+  const text = written ?? claude?.text ?? events?.text ?? printed;
   const error = errorOf(outcome) ?? (claude?.isError === true ? 'backend-error' : undefined);
   const ok = !error && outcome.exitCode === 0 && text !== '';
   return {
@@ -481,11 +546,9 @@ function resultOf(name: BackendName, outcome: Outcome, written: string | null): 
     text: outcome.exitCode === 0 || written !== null ? text : '',
     exitCode: outcome.exitCode,
     ...(error ? { error } : {}),
-    // A refused claude says why inside its JSON, and that line is what the owner should read.
-    ...(claude?.isError === true && claude.words !== ''
-      ? { detail: claude.words.slice(0, DETAIL_KEEP) }
-      : detailOf(ok, outcome)),
+    ...failureDetailOf(ok, outcome, claude, events),
     ...(claude === null ? {} : { usage: claude.usage }),
+    ...(events !== null && events.searchFailures > 0 ? { searchFailures: events.searchFailures } : {}),
   };
 }
 
@@ -568,6 +631,17 @@ async function writeConfig(
   return { file };
 }
 
+/** The counts of a finished run for its log line: exit code, tokens, error code and failed searches, never its text. */
+function runLogOf(result: BackendResult): Record<string, unknown> {
+  return {
+    exitCode: result.exitCode,
+    ...(result.tokens === undefined ? {} : { tokens: result.tokens }),
+    ...(result.usage === undefined ? {} : { tokens: result.usage.input + result.usage.output }),
+    ...(result.error ? { error: result.error } : {}),
+    ...(result.searchFailures === undefined ? {} : { searchFailures: result.searchFailures }),
+  };
+}
+
 /**
  * The backend `name`. Throws for a name outside BACKEND_NAMES.
  * @param deps.binary The command: a path, or a name looked up on PATH.
@@ -620,14 +694,7 @@ export function createBackend(name: BackendName, deps: BackendDeps = {}): Backen
       if (tmpDir) await fsp.rm(tmpDir, { recursive: true, force: true }).catch(() => undefined);
     }
     if (tokens !== undefined) result.tokens = tokens;
-    log.info('agent-runner: backend run', {
-      backend: name,
-      exitCode: result.exitCode,
-      durationMs: now() - startedAt,
-      ...(tokens === undefined ? {} : { tokens }),
-      ...(result.usage === undefined ? {} : { tokens: result.usage.input + result.usage.output }),
-      ...(result.error ? { error: result.error } : {}),
-    });
+    log.info('agent-runner: backend run', { backend: name, durationMs: now() - startedAt, ...runLogOf(result) });
     return result;
   }
 
@@ -672,15 +739,14 @@ const FALLBACK_SECONDS = 300;
  * the agent named like the profile, in the mode the owner set for it, and with `--search` when the profile asks. A
  * task's `route` (the backend, model, effort and mode the core decided) is the path of the run and keys.json stays
  * closed; without one, and while the subharness is off, the task fails with `subharness-off`. A backend brings its own
- * login, so a task's `openrouterKey` reaches only opencode: it becomes that run's key (`routeKey`). The task's
+ * login, so a task's `openrouterKey` reaches only opencode: it becomes that run's key (`routeKey`), and its `searchKey`
+ * goes to runAgent, which hands it to an opencode run that searches with exa only. The task's
  * `proxy` reaches the child of every backend. A route that is not one fails `bad-route`, an opencode route with no key
  * `route-no-key`.
  */
-export function createAgentEngine({
-  subharness,
-  agentPaths,
-  ...deps
-}: EngineDeps): Omit<Runner, 'run'> & { run: (task: RunnerTask) => Promise<RunOutcome & { usage: TaskUsage }> } {
+export function createAgentEngine({ subharness, agentPaths, ...deps }: EngineDeps): Omit<Runner, 'run'> & {
+  run: (task: RunnerTask) => Promise<RunOutcome & { result: TaskResult; usage: TaskUsage }>;
+} {
   const { outDir } = deps;
   function currentProfile(): Profile {
     if (!agentPaths) return deps.profile;
@@ -733,8 +799,7 @@ export function createAgentEngine({
         signal: task.signal,
         runId: task.id,
         ...(task.route === undefined ? {} : { route: task.route }),
-        ...(task.secrets?.openrouterKey === undefined ? {} : { routeKey: task.secrets.openrouterKey }),
-        ...(task.secrets?.proxy === undefined ? {} : { proxy: task.secrets.proxy }),
+        ...secretOptionsOf(task.secrets),
         searchProvider: task.searchProvider ?? profile.defaultSearchProvider,
       },
       subharness
@@ -750,6 +815,7 @@ export function createAgentEngine({
       files,
     };
     if (dropped.length > 0) result.filesDropped = dropped;
+    if (outcome.searchFailures !== undefined) result.searchFailures = outcome.searchFailures;
     const base = { status: 'done', result, usage } as {
       status: string;
       result: typeof result;
@@ -765,6 +831,15 @@ export function createAgentEngine({
   }
 
   return { run, checkPrompt };
+}
+
+/** The secrets of a task as options of its run: the route's key, the proxy and the Exa key, each when the task has it. */
+function secretOptionsOf(secrets: RunnerTask['secrets']): Pick<AgentRun, 'routeKey' | 'proxy' | 'searchKey'> {
+  return {
+    ...(secrets?.openrouterKey === undefined ? {} : { routeKey: secrets.openrouterKey }),
+    ...(secrets?.proxy === undefined ? {} : { proxy: secrets.proxy }),
+    ...(secrets?.searchKey === undefined ? {} : { searchKey: secrets.searchKey }),
+  };
 }
 
 /** A finished run's usage in its protocol shape: what the backend reports, else codex's token count as the output. */
