@@ -117,7 +117,8 @@ function journeyLlm() {
     // a session reads nothing behind a line younger than its settle time.
     if (purpose === 'address') return reply(textOf(messages).includes(QUESTION) ? 'yes' : 'no');
     if (purpose === 'lookup' || purpose === 'elsewhere-pick') return reply('none');
-    if (purpose === 'split') return reply('one');
+    // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
+    if (purpose === 'split') return reply('{"parts":[]}');
     const text = textOf(messages);
     entries.push({ purpose, text });
     if (purpose === 'memory-session') {

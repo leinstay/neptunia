@@ -20,6 +20,7 @@
 // turn finishes, the actual ignore decision, the merge request) lives in
 // src/behavior/pipeline.ts; this module only knows about the list itself.
 
+import { strictJsonObject } from '../llm/parse.ts';
 import type { Untyped } from '../tools/types.ts';
 
 /**
@@ -165,22 +166,22 @@ export function foldInto(
 }
 
 /**
- * The merge classifier's answer (prompts/merge.md), parsed strictly: one
- * line holding the number of a waiting item, 1..`count` (a trailing period
- * allowed) -> `item` with its 1-based `index`; the word `new` (any case) ->
- * `new`. A blank answer is `empty`, a number outside the items `out-of-range`,
- * anything else `unparsed`: each of them means `new` to the caller. Pure.
+ * The merge classifier's answer (prompts/merge.md), parsed strictly: the text
+ * is the JSON object `{ "item": ... }`. A whole number 1..`count` -> `item`
+ * with its 1-based `index`; null -> `new`. A blank answer is `empty`, a whole
+ * number outside the items `out-of-range`, anything else `unparsed` (text that
+ * is not that object, an `item` that is missing, a text or a fraction): each
+ * of them means `new` to the caller. Pure.
  */
 export function parseMergeAnswer(
   text: unknown,
   count: number
 ): { index: number | null; reason: 'item' | 'new' | 'empty' | 'out-of-range' | 'unparsed' } {
-  const answer = String(text ?? '').trim();
-  if (!answer) return { index: null, reason: 'empty' };
-  if (/^new\.?$/i.test(answer)) return { index: null, reason: 'new' };
-  const number = /^(\d+)\.?$/.exec(answer);
-  if (!number) return { index: null, reason: 'unparsed' };
-  const index = Number(number[1]);
+  if (typeof text !== 'string' || !text.trim()) return { index: null, reason: 'empty' };
+  const answer = strictJsonObject(text);
+  if (answer?.item === null) return { index: null, reason: 'new' };
+  const index = answer?.item;
+  if (typeof index !== 'number' || !Number.isInteger(index)) return { index: null, reason: 'unparsed' };
   if (!(index >= 1 && index <= count)) return { index: null, reason: 'out-of-range' };
   return { index, reason: 'item' };
 }

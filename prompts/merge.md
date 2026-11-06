@@ -2,7 +2,7 @@ You decide whether a new message from the same person belongs to something alrea
 
 Below: <waiting> lists the things this person has waiting, numbered from 1, in their own words. Then <candidate> with the new message (author and text).
 
-Answer ONE line: a number from the waiting list, or the word `new`.
+Answer with a JSON object that has one field, item: the number of a waiting item, or null when the message is new.
 
 A number: the new message is about that waiting item. The person asks again, hurries it, clarifies it, corrects it or adds to it. A bare nudge that points at nothing in particular ("well?", "hello?") is about the first item: that is what the person expects next.
 

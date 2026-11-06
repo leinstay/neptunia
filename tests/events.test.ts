@@ -4588,6 +4588,7 @@ function answeredAuthors(calls: Record<string, Untyped>) {
   );
 }
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('events: a message with several requests is answered part by part; a call arriving mid-chain waits and is answered after the last part', async () => {
   // The call that arrives meanwhile: the same author's (it has the parts to be folded into; no
   // merge prompt here, so it is new) or another member's.
@@ -4596,7 +4597,7 @@ test('events: a message with several requests is answered part by part; a call a
     ['u2', 'Léa'],
   ])) {
     const { talk, open } = heldFirst();
-    const scene = liveScene({ talk, split: LIVE_PARTS.map((part) => `- ${part}`).join('\n') });
+    const scene = liveScene({ talk, split: JSON.stringify({ parts: LIVE_PARTS }) });
     const { logs } = await withLiveLogs(async (logs: Array<Record<string, Untyped>>) => {
       await scene.call('m1', 'u1', LIVE_SPLIT);
       await tickUntil(() => scene.calls.talk.length === 1);
@@ -4735,9 +4736,10 @@ test("events: without labels.task.queuedOthers, another author's queued call the
   assert.equal(liveTask(scene.calls.talk[1]).includes('τρία'), false);
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test("events: a call the merge classifier folds into a waiting call gets no turn; that call's turn names it", async () => {
   const { talk, open } = heldFirst();
-  const scene = liveScene({ talk, merge: '1' });
+  const scene = liveScene({ talk, merge: '{"item":1}' });
   const { logs } = await withLiveLogs(async (logs: Array<Record<string, Untyped>>) => {
     await scene.call('m1', 'u1', 'ένα');
     await tickUntil(() => scene.calls.talk.length === 1);
@@ -4770,8 +4772,9 @@ test("events: a call the merge classifier folds into a waiting call gets no turn
   );
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('events: a merge classifier that says new, fails or is missing leaves the call its own turn', async () => {
-  for (const merge of ['new', Object.assign(new Error('down'), { statusCode: 503 }), 'maybe', undefined]) {
+  for (const merge of ['{"item":null}', Object.assign(new Error('down'), { statusCode: 503 }), 'maybe', undefined]) {
     const { talk, open } = heldFirst();
     const scene = liveScene({ talk, merge });
     const { logs } = await withLiveLogs(async (logs: Array<Record<string, Untyped>>) => {
@@ -4784,7 +4787,7 @@ test('events: a merge classifier that says new, fails or is missing leaves the c
       await tickUntil(() => scene.calls.talk.length === 3);
     });
     assert.equal(scene.calls.talk.length, 3, String(merge));
-    if (merge === 'new') assert.equal(logs.find((line) => line.msg === 'merge: verdict').answer, 'new');
+    if (merge === '{"item":null}') assert.equal(logs.find((line) => line.msg === 'merge: verdict').answer, 'new');
     else
       assert.ok(
         logs.some((line) => line.msg === 'merge: failed'),
@@ -4793,9 +4796,10 @@ test('events: a merge classifier that says new, fails or is missing leaves the c
   }
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test("events: a call folded into a part of a running chain reaches that part's request", async () => {
   const { talk, open } = heldFirst();
-  const scene = liveScene({ talk, split: LIVE_PARTS.map((part) => `- ${part}`).join('\n'), merge: '1' });
+  const scene = liveScene({ talk, split: JSON.stringify({ parts: LIVE_PARTS }), merge: '{"item":1}' });
   const { logs } = await withLiveLogs(async (logs: Array<Record<string, Untyped>>) => {
     await scene.call('m1', 'u1', LIVE_SPLIT);
     await tickUntil(() => scene.calls.talk.length === 1);
@@ -4830,11 +4834,12 @@ test('events: mention.maxPending evicts the oldest waiting call of an author too
   assert.equal(liveTask(scene.calls.talk[1]).includes('δύο'), false, 'm2, the oldest, was evicted');
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('private: DMs queue and fold the same way', async () => {
   const { talk, open } = heldFirst();
   // The first merge call: `new`; the second folds into item 3 (parts 2 and 3, then the queued DM).
-  const merge = (index: number) => (index === 0 ? 'new' : '3');
-  const scene = liveScene({ dm: true, talk, split: LIVE_PARTS.map((part) => `- ${part}`).join('\n'), merge });
+  const merge = (index: number) => (index === 0 ? '{"item":null}' : '{"item":3}');
+  const scene = liveScene({ dm: true, talk, split: JSON.stringify({ parts: LIVE_PARTS }), merge });
   await withLiveLogs(async (logs: Array<Record<string, Untyped>>) => {
     await scene.call('dm-1', 'u1', LIVE_SPLIT);
     await tickUntil(() => scene.calls.talk.length === 1);
