@@ -242,14 +242,15 @@ function rowOf(shape: TableShape, row: Row, snapshot: string, position: bigint):
 /** Marks the cells of `row` whose text lost bytes on its way to a string: rare, so only a replacement character costs a read. */
 function withExactBytes(db: Db, shape: TableShape, row: InspectionRow): InspectionRow {
   for (const cell of row.values) {
-    if (cell.value.kind !== 'text' || cell.excerpt !== undefined || !cell.value.value.includes('\uFFFD')) continue;
+    const typed = cell.value;
+    if (typed.kind !== 'text' || cell.excerpt !== undefined || !typed.value.includes('\uFFFD')) continue;
     const clause = locatorClause(shape, row.locator);
     const read = db
       .prepare(
         `SELECT CAST(${quoted(cell.column)} AS BLOB) AS bytes FROM ${quoted(shape.name)} ${whereOf([clause.sql])} ${clause.tail}`
       )
       .get(...clause.params)?.bytes;
-    if (read instanceof Uint8Array && !Buffer.from(read).equals(Buffer.from(cell.value.value)))
+    if (read instanceof Uint8Array && !Buffer.from(read).equals(Buffer.from(typed.value)))
       cell.exactBytes = Buffer.from(read).toString('base64');
   }
   return row;

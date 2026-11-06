@@ -155,12 +155,12 @@ export function classify(
       'SELECT id, kind, author_kind, direct, scope_kind, audience_id, authority_id, native_id FROM sources WHERE id IS NOT NULL'
     )
     .iterate()) {
-    const tier = tierOf(row, { cited, captured, held, nowIso });
-    decided.set(row.id, tier);
-    tiers[tier.tier] += 1;
-    reasons[tier.reason] = (reasons[tier.reason] ?? 0) + 1;
-    if (['cited', 'pinned', 'touch'].includes(tier.reason) && row.native_id)
-      keptMessages.set(`${asText(row.authority_id ?? '')}\u0000${asText(row.native_id)}`, tier.reason);
+    const decision = tierOf(row, { cited, captured, held, nowIso });
+    decided.set(row.id, decision);
+    tiers[decision.tier] += 1;
+    reasons[decision.reason] = (reasons[decision.reason] ?? 0) + 1;
+    if (['cited', 'pinned', 'touch'].includes(decision.reason) && row.native_id)
+      keptMessages.set(`${asText(row.authority_id ?? '')}\u0000${asText(row.native_id)}`, decision.reason);
   }
   const plan: Array<{ rowid: unknown; action: 'clear' | 'evict' }> = [];
   const kept: Record<string, number> = { recent: 0, cited: 0, pinned: 0, touch: 0, consolidated: 0, unlinked: 0 };
@@ -203,9 +203,9 @@ export function classify(
         ON CONFLICT(node_id) DO UPDATE SET tier = excluded.tier, reason = excluded.reason, evaluated_at = excluded.evaluated_at,
           expires_at = CASE WHEN excluded.reason = 'touch' THEN index_policy.expires_at ELSE NULL END`);
       const setTier = db.prepare('UPDATE sources SET tier = ? WHERE id = ? AND tier IS NOT ?');
-      for (const [id, tier] of decided) {
-        upsert.run(nodeOf(id), tier.tier, tier.reason, nowIso, tier.expires ?? null);
-        setTier.run(tier.tier, id, tier.tier);
+      for (const [id, decision] of decided) {
+        upsert.run(nodeOf(id), decision.tier, decision.reason, nowIso, decision.expires ?? null);
+        setTier.run(decision.tier, id, decision.tier);
       }
       if (evict) {
         const drop = db.prepare(

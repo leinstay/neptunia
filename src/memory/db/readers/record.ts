@@ -1,7 +1,7 @@
 // Record readers enumerate semantic day collections and preserve native message-family identity.
 
 import { placeOrPersona, storageId } from '../storage-keys.ts';
-import { listUnits } from '../storage-units.ts';
+import { listUnits, partitionOf, subjectOf } from '../storage-units.ts';
 
 import type { StorageKey } from '../storage-keys.ts';
 import { LEGACY_IFACE } from '../legacy-namespace.ts';
@@ -18,7 +18,7 @@ export function recordMonths(db: Db, placeId: string | null): Array<string> {
   return [
     ...new Set(
       daysOf(db, placeId)
-        .map((unit) => unit.key.partition?.slice(0, 7))
+        .map((unit) => partitionOf(unit)?.slice(0, 7))
         .filter((month): month is string => Boolean(month))
     ),
   ].sort();
@@ -26,7 +26,7 @@ export function recordMonths(db: Db, placeId: string | null): Array<string> {
 
 export function recordDays(db: Db, placeId: string | null, month: string): Array<{ day: string; owner: StorageKey }> {
   return daysOf(db, placeId)
-    .filter((unit) => unit.key.partition?.startsWith(`${month}-`))
+    .filter((unit) => partitionOf(unit)?.startsWith(`${month}-`))
     .map((unit) => ({ day: unit.key.partition!, owner: unit.key }))
     .sort((a, b) => a.day.localeCompare(b.day));
 }
@@ -48,7 +48,7 @@ export function recordNewestRevision(
   locator?: NativeMessageLocator,
   iface = locator?.iface ?? ifaceOfHolder(db, placeId)
 ): number | null {
-  const units = daysOf(db, placeId).filter((unit) => unit.key.partition?.startsWith(`${month}-`));
+  const units = daysOf(db, placeId).filter((unit) => partitionOf(unit)?.startsWith(`${month}-`));
   if (!units.length) return null;
   const family = locator
     ? db
@@ -101,7 +101,9 @@ export function recordStats(db: Db, placeId: string | null): { messages: number;
 /** Every place that holds a record. */
 export function recordHolders(db: Db): Array<string> {
   const holders = new Set<string>();
-  for (const unit of listUnits(db, { kind: 'record' }))
-    if (unit.key.subject.type === 'place') holders.add(unit.key.subject.id);
+  for (const unit of listUnits(db, { kind: 'record' })) {
+    const subject = subjectOf(unit);
+    if (subject.type === 'place') holders.add(subject.id);
+  }
   return [...holders].sort();
 }

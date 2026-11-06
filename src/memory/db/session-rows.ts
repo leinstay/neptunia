@@ -53,9 +53,10 @@ function personScopeOf(
   rows: Rows,
   account: string | null
 ): { person: string; sql: string; args: Array<string> } | null {
+  const [firstPerson] = rows.people ?? [];
   const person =
     kind === 'user'
-      ? text(rows.people?.[0]?.id)
+      ? text(firstPerson?.id)
       : kind === 'private'
         ? text(rows.operational?.find((row) => row.kind === 'private')?.owner)
         : null;

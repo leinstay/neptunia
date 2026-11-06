@@ -1270,26 +1270,32 @@ export function search(
     mergeWindows(
       built.map(keyedWindow) as unknown as Parameters<typeof mergeWindows>[0]
     ) as unknown as Array<RecallWindow>
-  ).map((window) => ({
-    ...window,
-    best: Math.min(Infinity, ...[...window.hitIds].map((id) => order.get(id) ?? Infinity)),
-    endTs: window.messages[window.messages.length - 1].ts,
-  }));
+  ).map((window) => {
+    const last = window.messages[window.messages.length - 1];
+    return {
+      ...window,
+      best: Math.min(Infinity, ...[...window.hitIds].map((id) => order.get(id) ?? Infinity)),
+      endTs: last.ts,
+    };
+  });
   // The windows kept are the best by their best hit; they come back newest first, as the record recall's do.
   const windows = merged
     .sort((a, b) => a.best - b.best || b.endTs - a.endTs)
     .slice(0, keep)
     .sort((a, b) => b.endTs - a.endTs)
-    .map(({ best, endTs, ...window }) => ({
-      ...window,
-      source: 'db',
-      sourceHitIds: window.hitIds,
-      hitIds: [...window.hitIds].map(
-        (id) => built.flatMap((part) => part.messages).find((message) => message.stored?.sourceId === id)?.id ?? id
-      ),
-      place: window.messages[0]?.stored?.placeId ?? null,
-      messages: window.messages.map((message) => originalMessage(message, built)),
-    }));
+    .map(({ best, endTs, ...window }) => {
+      const first = window.messages[0];
+      return {
+        ...window,
+        source: 'db',
+        sourceHitIds: window.hitIds,
+        hitIds: [...window.hitIds].map(
+          (id) => built.flatMap((part) => part.messages).find((message) => message.stored?.sourceId === id)?.id ?? id
+        ),
+        place: first?.stored?.placeId ?? null,
+        messages: window.messages.map((message) => originalMessage(message, built)),
+      };
+    });
 
   const hidden =
     context.kind === 'group' && terms.length > 0

@@ -70,6 +70,12 @@ function buildEmojiBackfill({
 }) {
   let running = false;
 
+  /** Whether the bot is paused (`/nep pause`), read at each step. */
+  function isPaused() {
+    const stateData = store.state?.data;
+    return Boolean(stateData?.paused);
+  }
+
   function skipped(reason: string): { ok: false; reason: string } {
     log.info('emoji-backfill: skipped', { reason });
     return { ok: false, reason };
@@ -96,7 +102,7 @@ function buildEmojiBackfill({
     { force = false }: { force?: boolean } = {}
   ): Promise<{ ok: true; channels: number; messages: number; emoji: number } | { ok: false; reason: string }> {
     if (running) return skipped('running');
-    if (store.state?.data?.paused) return skipped('paused');
+    if (isPaused()) return skipped('paused');
     if (!force && store.getPlace(placeId).emojiBackfill?.at) return skipped('done');
 
     running = true;
@@ -114,7 +120,7 @@ function buildEmojiBackfill({
         emojis: message.emojis ?? [],
       }));
 
-      if (store.state?.data?.paused) return skipped('paused');
+      if (isPaused()) return skipped('paused');
       const members = [...collected].sort((a, b) => a.ts - b.ts);
       const opts = emojiUsageOpts();
 

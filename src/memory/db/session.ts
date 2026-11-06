@@ -223,7 +223,8 @@ export function memoryKeyState(
     const route = ring.route(MEMORY_ROLE);
     return route === null ? { ok: false, name: null } : { ok: true, name: route.name };
   }
-  const name = config?.llm?.keyByRole?.memory;
+  const keyByRole = config?.llm?.keyByRole;
+  const name = keyByRole?.memory;
   const valid = typeof name === 'string' && ROLE_KEY_NAME.test(name);
   const value = valid && env ? env[name] : undefined;
   return { ok: typeof value === 'string' && value.trim() !== '', name: valid ? name : null };
@@ -387,15 +388,15 @@ export function batchOf(
  */
 export function mediaPassBatch(
   db: Db,
-  scope: { scope: Scope; audienceId?: string | null },
+  swept: { scope: Scope; audienceId?: string | null },
   { after, upTo, maxMessages, since }: { after: number; upTo: number; maxMessages: number; since: string | null }
 ): Array<BatchLine> {
-  const lines = batchOf(db, scope.scope, {
+  const lines = batchOf(db, swept.scope, {
     cursor: after,
     since,
     maxMessages,
     settleBefore: Infinity,
-    audienceId: scope.audienceId ?? null,
+    audienceId: swept.audienceId ?? null,
     onlyMediaLines: true,
     upTo,
   });
@@ -584,7 +585,7 @@ export type SessionRequest = {
 // health: allow complexity until 2027-04-01 -- the blocks of one request in their order
 export function buildSessionRequest({
   db,
-  scope,
+  scope: swept,
   batch,
   config,
   prompts,
@@ -607,7 +608,7 @@ export function buildSessionRequest({
   const settings = sessionSettings(config);
   const labels = (prompts?.labels ?? {}) as Labels & Row;
   const timezone = config?.bot?.timezone ?? 'UTC';
-  const { ctx } = scope;
+  const { ctx } = swept;
   const touched = peopleOf(db, batch, selfName);
   // What the request renders, in its order (turnReadRows resolves it to versions and revisions).
   const reads: Array<{ kind: string; id: string; block: string }> = [];
@@ -721,7 +722,7 @@ export function buildSessionRequest({
   });
 
   // <place>
-  const placeLines = [`scope: ${scope.scope.scope_kind}`];
+  const placeLines = [`scope: ${swept.scope.scope_kind}`];
   for (const row of placeRows) {
     placeLines.push(
       `[${handleOf.get(row.id)}] ${row.kind === 'dm' ? 'dm' : 'channel'}: ${asText([row.name, row.topic].filter(Boolean).join(' - ') || row.id)}`
@@ -1404,35 +1405,35 @@ export async function sweep(
   let ran = 0;
   let capped = 0;
 
-  for (const scope of scopesOf(db, { audienceColumn: true })) {
-    if (options.scope && options.scope !== scope.key) continue;
-    if (options.scopes instanceof Set && !options.scopes.has(scope.key)) continue;
-    const key = cursorKey(settings.mode, scope.key);
+  for (const swept of scopesOf(db, { audienceColumn: true })) {
+    if (options.scope && options.scope !== swept.key) continue;
+    if (options.scopes instanceof Set && !options.scopes.has(swept.key)) continue;
+    const key = cursorKey(settings.mode, swept.key);
     const cursor = Number(metaOf(db, key) ?? 0);
     const batch = (ctx.track ?? untracked)('session.batch', () =>
-      batchOf(db, scope.scope, {
+      batchOf(db, swept.scope, {
         cursor,
         since: settings.since,
         maxMessages,
         settleBefore: now() - settings.settleMinutes * MINUTE,
-        audienceId: scope.audienceId ?? null,
+        audienceId: swept.audienceId ?? null,
       })
     );
     if (batch.length < Math.min(settings.minMessages, maxMessages)) {
-      runs.push({ scope: scope.key, outcome: 'quiet', lines: batch.length });
+      runs.push({ scope: swept.key, outcome: 'quiet', lines: batch.length });
       // A quiet scope reads old media lines it never saw, under the same daily cap.
       if (
         settings.mediaPass &&
         (options.ignoreSweepCap ||
-          scopeSweepsToday(db, scope.key, started, settings.mode) < settings.sweepsPerScopePerDay)
+          scopeSweepsToday(db, swept.key, started, settings.mode) < settings.sweepsPerScopePerDay)
       ) {
         const passKey = `${key}:media-pass`;
         const passCursor = Number(metaOf(db, passKey) ?? 0);
-        const old = mediaPassBatch(db, scope, { after: passCursor, upTo: cursor, maxMessages, since: settings.since });
+        const old = mediaPassBatch(db, swept, { after: passCursor, upTo: cursor, maxMessages, since: settings.since });
         if (old.length > 0) {
           ran += 1;
           runs.push(
-            ...(await runBatch(ctx, { scope, batch: old, cursor: passCursor, key: passKey, sweepId, settings }))
+            ...(await runBatch(ctx, { scope: swept, batch: old, cursor: passCursor, key: passKey, sweepId, settings }))
           );
         }
       }
@@ -1440,19 +1441,19 @@ export async function sweep(
     }
     // Small sessions wait and join the next batch of their scope: no request, no run row, the cursor stays.
     if (!joinOf(batch, settings, now()).write) {
-      runs.push({ scope: scope.key, outcome: 'waiting', lines: batch.length });
+      runs.push({ scope: swept.key, outcome: 'waiting', lines: batch.length });
       continue;
     }
     if (
       !options.ignoreSweepCap &&
-      scopeSweepsToday(db, scope.key, started, settings.mode) >= settings.sweepsPerScopePerDay
+      scopeSweepsToday(db, swept.key, started, settings.mode) >= settings.sweepsPerScopePerDay
     ) {
       capped += 1;
-      runs.push({ scope: scope.key, outcome: 'capped', lines: batch.length });
+      runs.push({ scope: swept.key, outcome: 'capped', lines: batch.length });
       continue;
     }
     ran += 1;
-    runs.push(...(await runBatch(ctx, { scope, batch, cursor, key, sweepId, settings })));
+    runs.push(...(await runBatch(ctx, { scope: swept, batch, cursor, key, sweepId, settings })));
   }
   // Every scope with work is at its daily cap: the sweep did nothing.
   if (ran === 0 && capped > 0) return { status: 'refused', code: CODES.SWEEP_CAP, runs };
@@ -1512,7 +1513,7 @@ export function fitBatch(
 async function runBatch(
   ctx: SessionContext,
   {
-    scope,
+    scope: swept,
     batch: read,
     cursor,
     key,
@@ -1531,7 +1532,7 @@ async function runBatch(
   const config = hot.config;
   let batch = read;
   let cursorTo = Math.max(...batch.map((line) => line.rowid));
-  const holdKey = pendingKey(settings.mode, scope.key);
+  const holdKey = pendingKey(settings.mode, swept.key);
   let pinned = false;
   // A batch read from this cursor before, with a page applied and another not, keeps the lines it had: the settle cut
   // may have let more lines in since, and a wider batch would carry another key and apply its first pages again. The
@@ -1541,7 +1542,7 @@ async function runBatch(
       .prepare(
         'SELECT MIN(cursor_to) AS last FROM session_runs WHERE mode = ? AND scope_key = ? AND cursor_from = ? AND applied = 1'
       )
-      .get(settings.mode, scope.key, cursor)?.last;
+      .get(settings.mode, swept.key, cursor)?.last;
     if (isFiniteNumber(earlier)) pinned = true;
     if (isFiniteNumber(earlier) && earlier !== cursorTo) {
       batch = batch.filter((line) => line.rowid <= earlier);
@@ -1558,10 +1559,10 @@ async function runBatch(
             pending: { key: holdKey, value: null },
             now: (ctx.now ?? Date.now)(),
           });
-          return [{ scope: scope.key, outcome: 'applied_before', lines: 0 }];
+          return [{ scope: swept.key, outcome: 'applied_before', lines: 0 }];
         } catch (error) {
           ctx.log?.warn?.('memory session: write failed', { code: codeOf(error) });
-          return [{ scope: scope.key, outcome: 'write_failed', lines: 0, errors: [`write:${codeOf(error)}`] }];
+          return [{ scope: swept.key, outcome: 'write_failed', lines: 0, errors: [`write:${codeOf(error)}`] }];
         }
       }
     }
@@ -1570,7 +1571,7 @@ async function runBatch(
   // first lines by arrival, halving until it fits or `minMessages` is reached; the lines after it wait for the next
   // batch (none is skipped: the cursor follows the cut). A batch pinned by an applied page above keeps its lines.
   if (!pinned) {
-    const fitted = fitBatch(db, scope, batch, {
+    const fitted = fitBatch(db, swept, batch, {
       config,
       prompts: hot.prompts,
       selfName: ctx.selfName ?? '',
@@ -1579,7 +1580,7 @@ async function runBatch(
     });
     if (fitted.length < batch.length) {
       ctx.log?.info?.('memory session: batch cut to fit the request cap', {
-        scope: scope.scope.scope_kind,
+        scope: swept.scope.scope_kind,
         from: batch.length,
         to: fitted.length,
       });
@@ -1590,26 +1591,26 @@ async function runBatch(
   const held = parseJson(metaOf(db, holdKey)) as Row | null;
   const tries = held && held.from === cursor ? Number(held.tries) || 0 : 0;
   if (tries >= settings.retryLimit)
-    return [await skipBatch(ctx, { scope, batch, cursor, cursorTo, key, holdKey, sweepId, settings, tries })];
+    return [await skipBatch(ctx, { scope: swept, batch, cursor, cursorTo, key, holdKey, sweepId, settings, tries })];
 
   const pages = pagesOf(db, batch, config, ctx.selfName ?? '');
   const results: Array<SweepRun> = [];
   const state: BatchState = { ok: true, dropped: false };
   let lastApplied = false;
   for (let page = 0; page < pages; page += 1) {
-    const batchKey = [settings.mode, scope.key, cursor, cursorTo, page].join('|');
+    const batchKey = [settings.mode, swept.key, cursor, cursorTo, page].join('|');
     const last = page === pages - 1;
     if (
       settings.mode === 'apply' &&
       db.prepare('SELECT 1 AS ok FROM session_runs WHERE batch_key = ? AND applied = 1').get(batchKey)
     ) {
-      results.push({ scope: scope.key, outcome: 'applied_before', lines: batch.length, page });
+      results.push({ scope: swept.key, outcome: 'applied_before', lines: batch.length, page });
       lastApplied = last;
       continue;
     }
     results.push(
       await runScope(ctx, {
-        scope,
+        scope: swept,
         batch,
         cursor,
         cursorTo,
@@ -1642,7 +1643,7 @@ async function runBatch(
       } catch (error) {
         ctx.log?.warn?.('memory session: write failed', { code: codeOf(error) });
         results.push({
-          scope: scope.key,
+          scope: swept.key,
           outcome: 'write_failed',
           lines: batch.length,
           errors: [`write:${codeOf(error)}`],
@@ -1680,7 +1681,7 @@ const json = (value: unknown): string => JSON.stringify(value);
 async function skipBatch(
   ctx: SessionContext,
   {
-    scope,
+    scope: swept,
     batch,
     cursor,
     cursorTo,
@@ -1702,7 +1703,7 @@ async function skipBatch(
   }
 ): Promise<SweepRun> {
   const now = ctx.now ?? Date.now;
-  const id = `skip:${shortHash(sweepId, scope.key)}`;
+  const id = `skip:${shortHash(sweepId, swept.key)}`;
   try {
     await ctx.write({
       kind: 'session',
@@ -1713,29 +1714,29 @@ async function skipBatch(
       pending: { key: holdKey, value: null },
       decision: {
         id,
-        scope: scope.key,
+        scope: swept.key,
         action: 'skipped:all_dropped',
         reason: 'every answer was dropped',
-        extra: { scope: scope.key, tries, from: cursor, to: cursorTo, lines: batch.length },
+        extra: { scope: swept.key, tries, from: cursor, to: cursorTo, lines: batch.length },
       },
       now: now(),
     });
   } catch (error) {
     ctx.log?.warn?.('memory session: write failed', { code: codeOf(error) });
-    return { scope: scope.key, outcome: 'write_failed', lines: batch.length, errors: [`write:${codeOf(error)}`] };
+    return { scope: swept.key, outcome: 'write_failed', lines: batch.length, errors: [`write:${codeOf(error)}`] };
   }
-  ctx.log?.debug?.('memory session: batch skipped', { scope: scope.scope.scope_kind, tries, lines: batch.length });
-  return { scope: scope.key, outcome: 'skipped', lines: batch.length, tries };
+  ctx.log?.debug?.('memory session: batch skipped', { scope: swept.scope.scope_kind, tries, lines: batch.length });
+  return { scope: swept.key, outcome: 'skipped', lines: batch.length, tries };
 }
 
 /** One request (one page of the batch): build, send, parse, validate, write. Never throws; the outcome is in the result. */
 /** The context a run's reads are recorded under. */
-const issuedSessionContext = (scope: SweepScope, runId: string, startedAt: number): Context =>
+const issuedSessionContext = (swept: SweepScope, runId: string, startedAt: number): Context =>
   issueContext({
-    kind: scope.scope.scope_kind === 'dm' ? 'dm' : 'group',
-    iface: scope.scope.scope_iface ?? undefined,
-    person: scope.ctx.person ?? scope.scope.scope_dm,
-    place: scope.ctx.place ?? null,
+    kind: swept.scope.scope_kind === 'dm' ? 'dm' : 'group',
+    iface: swept.scope.scope_iface ?? undefined,
+    person: swept.ctx.person ?? swept.scope.scope_dm,
+    place: swept.ctx.place ?? null,
     now: () => startedAt,
     newId: () => `ctx:session:${runId}`,
   });
@@ -1743,7 +1744,7 @@ const issuedSessionContext = (scope: SweepScope, runId: string, startedAt: numbe
 async function runScope(
   ctx: SessionContext,
   {
-    scope,
+    scope: swept,
     batch,
     cursor,
     cursorTo,
@@ -1776,14 +1777,14 @@ async function runScope(
   const now = ctx.now ?? Date.now;
   const config = hot.config;
   const startedAt = now();
-  const runId = `run:${shortHash(sweepId, scope.key, page)}`;
+  const runId = `run:${shortHash(sweepId, swept.key, page)}`;
   const last = page === pages - 1;
   const run = {
     id: runId,
     sweepId,
-    scopeKey: scope.key,
-    scope: scope.scope,
-    audienceId: scope.audienceId,
+    scopeKey: swept.key,
+    scope: swept.scope,
+    audienceId: swept.audienceId,
     batchKey,
     startedAt: new Date(startedAt).toISOString(),
     finishedAt: null as string | null,
@@ -1843,7 +1844,7 @@ async function runScope(
         () => null
       );
       return {
-        scope: scope.key,
+        scope: swept.key,
         outcome: 'write_failed',
         lines: batch.length,
         page,
@@ -1852,14 +1853,14 @@ async function runScope(
       };
     }
     log.debug?.('memory session: run', {
-      scope: scope.scope.scope_kind,
+      scope: swept.scope.scope_kind,
       outcome,
       lines: batch.length,
       page,
       ...run.counts,
     });
     return {
-      scope: scope.key,
+      scope: swept.key,
       outcome,
       lines: batch.length,
       page,
@@ -1872,7 +1873,7 @@ async function runScope(
 
   const retrieved = await readRetrieved({
     db,
-    ctx: scope.ctx,
+    ctx: swept.ctx,
     config,
     batch,
     people: peopleOf(db, batch, ctx.selfName ?? '').people.map((person) => person.id),
@@ -1884,7 +1885,7 @@ async function runScope(
     request = (ctx.track ?? untracked)('session.request', () => {
       const given = {
         db,
-        scope,
+        scope: swept,
         batch,
         config,
         prompts: hot.prompts,
@@ -1902,7 +1903,7 @@ async function runScope(
     return finish('build_error');
   }
   try {
-    const issued = issuedSessionContext(scope, runId, startedAt);
+    const issued = issuedSessionContext(swept, runId, startedAt);
     readSet = { rows: resolveSessionReads(db, request, issued.iface as string), context: contextRow(issued) };
   } catch (error) {
     // The run goes on without its read-set (and without bases): logged with a code, counted in its errors.
@@ -1939,10 +1940,11 @@ async function runScope(
     return finish('bad_answer', { answer });
   }
   const { plan, counts } = validateAnswer(parsed.value, { maps: request.maps, people: request.people });
+  const promptDetails = completion?.usage?.prompt_tokens_details;
   const counted = {
     lines: request.lines,
     sessions: joinOf(batch, settings, startedAt).sessions,
-    cacheRead: Number(completion?.usage?.prompt_tokens_details?.cached_tokens) || 0,
+    cacheRead: Number(promptDetails?.cached_tokens) || 0,
     page,
     pages,
     kept: counts.kept,

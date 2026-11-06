@@ -216,7 +216,8 @@ function buildMemoryUpdater({
     { direct = false, private: privateAccountId = null } = {}
   ) {
     // /nep pause: nothing may make the store dirty while paused.
-    if (store.state.data.paused) return;
+    const stateData = store.state.data;
+    if (stateData.paused) return;
     if (normalized.bot) return;
     if (privateAccountId) return;
     touchMemory(store, placeId, normalized, {

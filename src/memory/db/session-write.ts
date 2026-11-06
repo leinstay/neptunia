@@ -193,22 +193,22 @@ type SessionRunRow = {
 const SET_META = 'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value';
 
 /** The target of a proposed op, for its `decisions` row. */
-function targetOf(group: unknown, op: Row): { kind: unknown; id: unknown } {
+function targetOf(group: unknown, proposal: Row): { kind: unknown; id: unknown } {
   switch (group) {
     case 'claims':
-      return op.op === 'add' ? { kind: 'claim', id: null } : { kind: 'claim', id: op.id };
+      return proposal.op === 'add' ? { kind: 'claim', id: null } : { kind: 'claim', id: proposal.id };
     case 'episodes':
       return { kind: 'episode', id: null };
     case 'affinity':
-      return { kind: 'person', id: op.personId };
+      return { kind: 'person', id: proposal.personId };
     case 'people':
-      return { kind: op.subjectKind, id: op.subjectId };
+      return { kind: proposal.subjectKind, id: proposal.subjectId };
     case 'entities':
       return { kind: 'semantic_entity', id: null };
     case 'assertions':
       return { kind: 'claim', id: null };
     default:
-      return { kind: 'description', id: `desc:${asText(op.subjectId)}:${asText(op.field)}` };
+      return { kind: 'description', id: `desc:${asText(proposal.subjectId)}:${asText(proposal.field)}` };
   }
 }
 
@@ -219,8 +219,8 @@ const GROUP_OPS: Record<string, string> = {
   entities: 'entity',
   assertions: 'assertion',
 };
-const nameOf = (group: unknown, op: Row): unknown =>
-  group === 'claims' ? op.op : group === 'people' ? `people_${asText(op.op)}` : GROUP_OPS[asText(group)];
+const nameOf = (group: unknown, proposal: Row): unknown =>
+  group === 'claims' ? proposal.op : group === 'people' ? `people_${asText(proposal.op)}` : GROUP_OPS[asText(group)];
 const reasonOf = (op: unknown): string | null =>
   typeof (op as Row).reason === 'string' && (op as Row).reason
     ? ((op as Row).reason as string)
@@ -577,14 +577,14 @@ function deriveClaim(
   return id;
 }
 
-function applyClaim(db: Db, op: Row, state: WriteState): void {
+function applyClaim(db: Db, proposal: Row, state: WriteState): void {
   const { at, runId, index, counts } = state;
-  const evidence = evidenceOf(db, op.sources);
-  if (!evidence) return reject(db, state, 'claims', op, 'unknown_source');
+  const evidence = evidenceOf(db, proposal.sources);
+  if (!evidence) return reject(db, state, 'claims', proposal, 'unknown_source');
   // The scope of the NEW version: the narrowest of the run and of its own sources, never the old version's.
   const { scope, audienceId } = narrowed(db, state, evidence);
-  if (op.op === 'add') {
-    const id = `clm:${shortHash(runId, index, op.subjectId, op.text)}`;
+  if (proposal.op === 'add') {
+    const id = `clm:${shortHash(runId, index, proposal.subjectId, proposal.text)}`;
     db.prepare(
       ownershipSql(
         db,
@@ -594,53 +594,53 @@ function applyClaim(db: Db, op: Row, state: WriteState): void {
       )
     ).run(
       id,
-      op.subjectKind,
-      op.subjectId,
-      op.kind,
-      op.text,
-      op.when ? json({ when: op.when }) : null,
+      proposal.subjectKind,
+      proposal.subjectId,
+      proposal.kind,
+      proposal.text,
+      proposal.when ? json({ when: proposal.when }) : null,
       at,
       at,
-      op.how,
+      proposal.how,
       scope.scope_kind,
       scope.scope_iface,
       scope.scope_dm,
       at,
       audienceId
     );
-    addSources(db, 'claim_sources', 'claim_id', id, op.sources as Array<string>);
+    addSources(db, 'claim_sources', 'claim_id', id, proposal.sources as Array<string>);
     version(db, {
       claimId: id,
       at,
-      text: op.text,
+      text: proposal.text,
       event: 'add',
       runId,
       index,
-      sources: op.sources as Array<string>,
-      snapshot: { truth: 'current', how: op.how, audienceId },
+      sources: proposal.sources as Array<string>,
+      snapshot: { truth: 'current', how: proposal.how, audienceId },
     });
-    insertDecisionFor(db, { runId, index, at, op, action: 'add', target: id });
+    insertDecisionFor(db, { runId, index, at, op: proposal, action: 'add', target: id });
     counts.added += 1;
     return;
   }
-  const claim = db.prepare('SELECT * FROM claims WHERE id = ? AND retired_at IS NULL').get(op.id);
+  const claim = db.prepare('SELECT * FROM claims WHERE id = ? AND retired_at IS NULL').get(proposal.id);
   if (!claim) {
     counts.missing += 1;
     return;
   }
   if (!canRead(claim, contextOf(state.scope, state.audienceColumn, state.audience)))
-    return reject(db, state, 'claims', op, 'out_of_scope');
-  if ((op.op === 'revise' || op.op === 'retire') && !present(op.reason))
-    return reject(db, state, 'claims', op, 'no_reason');
+    return reject(db, state, 'claims', proposal, 'out_of_scope');
+  if ((proposal.op === 'revise' || proposal.op === 'retire') && !present(proposal.reason))
+    return reject(db, state, 'claims', proposal, 'no_reason');
   // Compare-and-set on the claim: the version the session read must still be its newest (schema v9).
-  if (Object.hasOwn(op, 'base') && (op.base ?? null) !== newestClaimVersion(db, op.id))
-    return reject(db, state, 'claims', op, 'stale_base');
+  if (Object.hasOwn(proposal, 'base') && (proposal.base ?? null) !== newestClaimVersion(db, proposal.id))
+    return reject(db, state, 'claims', proposal, 'stale_base');
   const derived = audienceId !== audienceOfRow(claim);
-  let target = op.id;
-  if (op.op === 'confirm') {
+  let target = proposal.id;
+  if (proposal.op === 'confirm') {
     if (derived) target = deriveClaim(db, claim, scope, { at, runId, index, audienceId });
-    else db.prepare('UPDATE claims SET last_seen_at = ? WHERE id = ?').run(at, op.id);
-    addSources(db, 'claim_sources', 'claim_id', target as string, op.sources as Array<string>);
+    else db.prepare('UPDATE claims SET last_seen_at = ? WHERE id = ?').run(at, proposal.id);
+    addSources(db, 'claim_sources', 'claim_id', target as string, proposal.sources as Array<string>);
     version(db, {
       claimId: target,
       at,
@@ -648,43 +648,49 @@ function applyClaim(db: Db, op: Row, state: WriteState): void {
       event: 'confirm',
       runId,
       index,
-      sources: op.sources as Array<string>,
+      sources: proposal.sources as Array<string>,
       snapshot: { truth: claim.truth, how: claim.how, audienceId },
     });
     counts.confirmed += 1;
-  } else if (op.op === 'revise') {
-    if (derived) target = deriveClaim(db, claim, scope, { at, runId, index, text: op.text, how: op.how, audienceId });
+  } else if (proposal.op === 'revise') {
+    if (derived)
+      target = deriveClaim(db, claim, scope, { at, runId, index, text: proposal.text, how: proposal.how, audienceId });
     else
-      db.prepare('UPDATE claims SET text = ?, how = ?, last_seen_at = ? WHERE id = ?').run(op.text, op.how, at, op.id);
-    addSources(db, 'claim_sources', 'claim_id', target as string, op.sources as Array<string>);
+      db.prepare('UPDATE claims SET text = ?, how = ?, last_seen_at = ? WHERE id = ?').run(
+        proposal.text,
+        proposal.how,
+        at,
+        proposal.id
+      );
+    addSources(db, 'claim_sources', 'claim_id', target as string, proposal.sources as Array<string>);
     version(db, {
       claimId: target,
       at,
-      text: op.text,
+      text: proposal.text,
       event: 'revise',
       runId,
       index,
-      extra: { before: claim.text, reason: op.reason },
-      sources: op.sources as Array<string>,
-      snapshot: { truth: claim.truth, how: op.how, audienceId },
+      extra: { before: claim.text, reason: proposal.reason },
+      sources: proposal.sources as Array<string>,
+      snapshot: { truth: claim.truth, how: proposal.how, audienceId },
     });
     counts.revised += 1;
   } else {
     // Disputed stays shown beside the claim it contradicts; historical and retired leave the shown set (still findable).
-    const shown = op.truth === 'disputed' ? 1 : 0;
-    const validTo = op.truth === 'disputed' ? null : at;
+    const shown = proposal.truth === 'disputed' ? 1 : 0;
+    const validTo = proposal.truth === 'disputed' ? null : at;
     if (derived) {
-      target = deriveClaim(db, claim, scope, { at, runId, index, truth: op.truth, shown, audienceId });
+      target = deriveClaim(db, claim, scope, { at, runId, index, truth: proposal.truth, shown, audienceId });
       if (validTo) db.prepare('UPDATE claims SET valid_to = ? WHERE id = ?').run(validTo, target);
     } else {
       db.prepare('UPDATE claims SET truth = ?, shown = ?, valid_to = COALESCE(?, valid_to) WHERE id = ?').run(
-        op.truth,
+        proposal.truth,
         shown,
         validTo,
-        op.id
+        proposal.id
       );
     }
-    addSources(db, 'claim_sources', 'claim_id', target as string, op.sources as Array<string>);
+    addSources(db, 'claim_sources', 'claim_id', target as string, proposal.sources as Array<string>);
     version(db, {
       claimId: target,
       at,
@@ -692,16 +698,16 @@ function applyClaim(db: Db, op: Row, state: WriteState): void {
       event: 'retire',
       runId,
       index,
-      extra: { truth: op.truth, reason: op.reason },
-      sources: op.sources as Array<string>,
+      extra: { truth: proposal.truth, reason: proposal.reason },
+      sources: proposal.sources as Array<string>,
       evidence: 'conflicts',
-      snapshot: { truth: op.truth, how: claim.how, audienceId },
+      snapshot: { truth: proposal.truth, how: claim.how, audienceId },
     });
     counts.retired += 1;
   }
   if (derived) counts.derived += 1;
-  else takeOverClaim(db, op.id);
-  insertDecisionFor(db, { runId, index, at, op, action: op.op, target });
+  else takeOverClaim(db, proposal.id);
+  insertDecisionFor(db, { runId, index, at, op: proposal, action: proposal.op, target });
 }
 
 function applyEpisode(db: Db, op: Row, state: WriteState): void {
@@ -1045,31 +1051,38 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
     if (plan && run) {
       const state = writeStateOf(db, run, update, counts, at);
       for (const group of ['claims', 'episodes', 'affinity', 'descriptions', 'people', 'entities', 'assertions']) {
-        for (const op of plan[group] ?? []) {
+        for (const proposal of plan[group] ?? []) {
           state.index += 1;
           if (mode === 'shadow') {
             insertDecision(db, {
               id: `dec:${run.id}:${state.index}`,
               at,
               group,
-              op,
-              action: `proposed:${asText(nameOf(group, op))}`,
+              op: proposal,
+              action: `proposed:${asText(nameOf(group, proposal))}`,
               run,
             });
             counts.proposed += 1;
           } else if (group === 'claims') {
-            applyClaim(db, op, state);
+            applyClaim(db, proposal, state);
           } else if (group === 'episodes') {
-            applyEpisode(db, op, state);
+            applyEpisode(db, proposal, state);
           } else if (group === 'affinity') {
-            applyAffinity(db, op, state);
+            applyAffinity(db, proposal, state);
           } else if (group === 'people') {
-            if (op.op === 'add') applyPeopleAdd(db, op, state);
-            else reject(db, state, 'people', op, 'bad_op');
+            if (proposal.op === 'add') applyPeopleAdd(db, proposal, state);
+            else reject(db, state, 'people', proposal, 'bad_op');
           } else if (SEMANTIC_GROUPS.has(group)) {
-            applySemantic(db, group, op, state);
+            applySemantic(db, group, proposal, state);
           } else {
-            insertDecision(db, { id: `dec:${run.id}:${state.index}`, at, group, op, action: 'flag:description', run });
+            insertDecision(db, {
+              id: `dec:${run.id}:${state.index}`,
+              at,
+              group,
+              op: proposal,
+              action: 'flag:description',
+              run,
+            });
             counts.flags += 1;
           }
         }
