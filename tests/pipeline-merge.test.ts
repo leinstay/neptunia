@@ -52,7 +52,8 @@ function setup(parts: Array<{ index: number; text: string }> = []) {
     llm: {
       complete: (messages) => {
         classifications.push(messages);
-        return Promise.resolve({ text: '1' });
+        // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
+        return Promise.resolve({ text: '{"item":1}' });
       },
     },
     getSelfName: () => 'Nova',

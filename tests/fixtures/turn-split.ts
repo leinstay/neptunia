@@ -32,7 +32,8 @@ export const SPLIT_SYSTEM = 'Split this call to {{name}} into at most {{maxTasks
 export const SPLIT_TEXT = 'ποιος είναι ο Νίκος ακριβώς; κοίτα το κανάλι της Ελένης, και πες μου αν το μιμίδιο είναι αστείο.';
 // PR 7d: split.minPartChars is the constant 20, so every part is at least that long.
 export const SPLIT_PARTS = ['ποιος είναι ο Νίκος ακριβώς', 'κοίτα το κανάλι της Ελένης', 'το μιμίδιο είναι αστείο;'];
-export const PARTS_ANSWER = SPLIT_PARTS.map((part) => `- ${part}`).join('\n');
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
+export const PARTS_ANSWER = JSON.stringify({ parts: SPLIT_PARTS });
 
 /**
  * An llm fake routing by request purpose: the splitter (`split`), the search classifier

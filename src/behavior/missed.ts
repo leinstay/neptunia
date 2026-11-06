@@ -41,6 +41,7 @@ import { placeOfConversation, sharedPlaceOf } from '../memory/addresses.ts';
 import { createReadSeam, unitValue } from '../memory/db/readers/common.ts';
 import { formatTranscript, MAX_MESSAGE_CHARS, renderTranscript, withTriggers } from '../format.ts';
 import { roleRequestOptions } from '../llm/openrouter.ts';
+import { strictJsonObject } from '../llm/parse.ts';
 import { roleModel } from '../llm/roles.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
 import { fillPromptTemplate } from './prompt.ts';
@@ -316,23 +317,51 @@ export function sweepPlan(
 }
 
 /**
- * The analyzer's answer (prompts/missed.md) for `count` candidates: one line per candidate,
- * `<n>: <verdict>` (a period, a parenthesis or a dash may stand for the colon; any case). A
- * candidate no line names, or named twice with different words, is `uncertain`; an empty
- * answer leaves every one `unchecked` (`empty`). Pure.
+ * The schema of the missed-answer check's answer, handed to the client as `responseFormat`:
+ * `{ "verdicts": [{ "n": <candidate number>, "verdict": <one of MISSED_VERDICTS> }] }`.
+ */
+export const MISSED_FORMAT = {
+  name: 'missed',
+  schema: {
+    type: 'object',
+    properties: {
+      verdicts: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { n: { type: 'integer' }, verdict: { type: 'string', enum: [...MISSED_VERDICTS] } },
+          required: ['n', 'verdict'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['verdicts'],
+    additionalProperties: false,
+  },
+};
+
+/**
+ * The analyzer's answer (prompts/missed.md) for `count` candidates: the JSON object of
+ * MISSED_FORMAT, one entry per candidate. An entry whose `n` is not a whole number 1..`count` or
+ * whose `verdict` is not one of MISSED_VERDICTS is skipped, the others kept. A candidate no entry
+ * names, or named twice with different verdicts, is `uncertain`; text that is not the object, or
+ * whose `verdicts` is not a list, leaves every one `uncertain`; an empty answer leaves every one
+ * `unchecked` (`empty`). Pure.
  */
 export function parseMissedAnswer(text: unknown, count: number): { verdicts: Array<string>; empty: boolean } {
-  const answer = String(text ?? '').trim();
-  if (!answer) return { verdicts: Array.from({ length: count }, () => UNCHECKED), empty: true };
+  if (typeof text !== 'string' || !text.trim()) {
+    return { verdicts: Array.from({ length: count }, () => UNCHECKED), empty: true };
+  }
+  const list = strictJsonObject(text)?.verdicts;
   const found = new Map();
   const conflicted = new Set();
-  const lineRe = /^\s*(\d+)\s*[:.)-]\s*([a-z-]+)/i;
-  for (const line of answer.split('\n')) {
-    const match = lineRe.exec(line);
-    if (!match) continue;
-    const index = Number(match[1]);
-    const verdict = match[2].toLowerCase();
-    if (!(index >= 1 && index <= count) || !MISSED_VERDICTS.includes(verdict)) continue;
+  for (const entry of Array.isArray(list) ? list : []) {
+    const { n: index, verdict } = (entry && typeof entry === 'object' ? entry : {}) as {
+      n?: unknown;
+      verdict?: unknown;
+    };
+    if (!Number.isInteger(index) || !((index as number) >= 1 && (index as number) <= count)) continue;
+    if (typeof verdict !== 'string' || !MISSED_VERDICTS.includes(verdict)) continue;
     if (found.has(index) && found.get(index) !== verdict) conflicted.add(index);
     found.set(index, verdict);
   }
@@ -1123,7 +1152,6 @@ export function createMissed({
       return unchecked();
     }
     if (!llm) return unchecked();
-    const settings = missedSettings(config);
     try {
       const completion = await llm.complete(
         [
@@ -1134,9 +1162,10 @@ export function createMissed({
           model: roleModel(config, 'analyzer', 'missed'),
           ...roleRequestOptions(config, {
             role: 'analyzer',
-            maxOutputTokens: settings.maxOutputTokens,
+            maxOutputTokens: missedSettings(config).maxOutputTokens,
             purpose: 'missed',
           }),
+          responseFormat: MISSED_FORMAT,
         }
       );
       const { verdicts, empty } = parseMissedAnswer(completion?.text, request.candidates.length);

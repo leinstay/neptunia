@@ -24,6 +24,17 @@ import type {
   Thrown,
 } from './types.ts';
 
+/** The schema of the merge classifier's answer, handed to the client as `responseFormat`: `{ "item": number | null }`. */
+export const MERGE_FORMAT = {
+  name: 'merge',
+  schema: {
+    type: 'object',
+    properties: { item: { type: ['integer', 'null'] } },
+    required: ['item'],
+    additionalProperties: false,
+  },
+};
+
 /** One item an author waits for: a part of their message a chain has not reached, or a queued call. */
 type WaitingItem = { kind: 'part'; index: number; text: string } | { kind: 'call'; id: string; text: string };
 
@@ -152,7 +163,8 @@ export function createMerge({
    * waiting) about one of them? System = prompts.merge with `{{name}}`; user
    * = `<waiting>` (the items as `<n>. <text>` lines from 1) then
    * `<candidate>` (`<author>: <text>`). An `analyzer` request (
-   * mention.followUpMaxOutputTokens, purpose `merge`). Resolves the item's
+   * mention.followUpMaxOutputTokens, purpose `merge`) that answers the object
+   * of MERGE_FORMAT, `{ "item": number | null }`. Resolves the item's
    * 1-based index (`merge: verdict`, `answer: 'item'`), or null for `new`
    * (`answer: 'new'`) and for every other outcome, logged as `merge: failed`
    * with its reason: `no-prompt`, the rail's code or `llm-error` (with the
@@ -187,6 +199,7 @@ export function createMerge({
             maxOutputTokens: config.mention?.followUpMaxOutputTokens,
             purpose: 'merge',
           }),
+          responseFormat: MERGE_FORMAT,
         }
       );
     } catch (err) {

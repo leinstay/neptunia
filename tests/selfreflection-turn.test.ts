@@ -239,7 +239,9 @@ function runner({
   llm,
   images = fakeImages(),
   lookup = null,
-}: { hot?: Untyped; store?: Untyped; llm?: Untyped; images?: Untyped; lookup?: Untyped } = {}) {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
+  rng = () => 0.5,
+}: { hot?: Untyped; store?: Untyped; llm?: Untyped; images?: Untyped; lookup?: Untyped; rng?: () => number } = {}) {
   return createTurnRunner({
     hot,
     store,
@@ -247,7 +249,7 @@ function runner({
     calibrator: { ratio: 1, apply: (n: Untyped) => n, observe: () => {} },
     images,
     lookup,
-    rng: () => 0.5,
+    rng,
     now: () => NOW,
   });
 }
@@ -256,6 +258,7 @@ function runner({
 const userOf = (messages: Untyped) => userText(messages[1].content);
 
 test('diary turn: plans on the analyzer model, then composes with the card', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const posts = [
     { at: NOW - DAY, kind: 'status', gist: 'une journée grise', picture: null, messageIds: ['m0'], search: null },
   ];
@@ -266,7 +269,7 @@ test('diary turn: plans on the analyzer model, then composes with the card', asy
   const result = await turns.runTurn({
     channel: selfreflectionChannel(),
     mode: 'selfreflection',
-    selfreflection: { kind: null, forced: false },
+    selfreflection: { kind: 'status', forced: false },
   });
 
   assert.equal(loose(result).outcome, 'spoke');
@@ -368,11 +371,12 @@ test("diary turn: a forced kind skips the planner's choice", async () => {
 });
 
 test('diary turn: a topic becomes a <topic> block in the plan request and a field of <plan>', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const llm = fakeLlm({ kind: 'status', brief: 'harbour at dusk', search: '', picture: false }, '<msg>brume</msg>');
   await runner({ llm }).runTurn({
     channel: selfreflectionChannel(),
     mode: 'selfreflection',
-    selfreflection: { kind: null, topic: '  le vieux  port\n ', forced: true },
+    selfreflection: { kind: 'status', topic: '  le vieux  port\n ', forced: true },
   });
   const planUser = userOf(llm.calls[0]);
   const topicBlock = `<topic>\n${labels.selfreflection.topic}\nle vieux port\n</topic>`;
@@ -410,6 +414,7 @@ test('diary turn: no topic leaves the requests unchanged', async () => {
 });
 
 test('diary turn: searches when the plan asks and passes the summary as found', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const llm = fakeLlm(
     { kind: 'news', brief: 'a comet', search: 'comet tonight', picture: false },
     '<msg>une comète</msg>'
@@ -419,7 +424,7 @@ test('diary turn: searches when the plan asks and passes the summary as found', 
   const result = await runner({ llm, lookup, store }).runTurn({
     channel: selfreflectionChannel(),
     mode: 'selfreflection',
-    selfreflection: {},
+    selfreflection: { kind: 'news', forced: false },
   });
   // Her diary searches under the persona: it belongs to no server.
   assert.deepEqual(lookup.calls, [{ placeId: 'persona:local', query: 'comet tonight' }]);
@@ -431,6 +436,7 @@ test('diary turn: searches when the plan asks and passes the summary as found', 
 });
 
 test('diary turn: a failed search posts without a find and logs it', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   for (const outcome of [null, new Error('boom')]) {
     const llm = fakeLlm(
       { kind: 'news', brief: 'a comet', search: 'comet tonight', picture: false },
@@ -440,7 +446,7 @@ test('diary turn: a failed search posts without a find and logs it', async () =>
       runner({ llm, lookup: fakeLookup(outcome) }).runTurn({
         channel: selfreflectionChannel(),
         mode: 'selfreflection',
-        selfreflection: {},
+        selfreflection: { kind: 'news', forced: false },
       })
     );
     assert.ok(!userOf(llm.calls[1]).includes('<found>'));
@@ -463,6 +469,7 @@ test('diary turn: search is not asked for a kind outside searchKinds', async () 
 });
 
 test('diary turn: a picture kind draws even when the planner said no picture', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const llm = fakeLlm(
     { kind: 'selfPicture', brief: 'a pier', search: '', picture: false },
     drawAnswer('<msg>brume</msg>', 1, true)
@@ -472,7 +479,7 @@ test('diary turn: a picture kind draws even when the planner said no picture', a
   const result = await runner({ llm, store, images }).runTurn({
     channel: selfreflectionChannel(),
     mode: 'selfreflection',
-    selfreflection: {},
+    selfreflection: { kind: 'selfPicture', forced: false },
   });
   const compose = userOf(llm.calls[1]);
   assert.ok(
@@ -490,6 +497,7 @@ const kindLine = (key: string, weight: Untyped) =>
 // PR 7d: the kinds and their weights are SELFREFLECTION_KINDS of src/behavior/selfreflection.ts, and the daily caps that turned the
 // pictures off are gone: no image client is what turns them off here.
 test('diary turn: with pictures off only text kinds are offered and the fallback picks one', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const cases = [{ name: 'no image client', store: fakeStore(), images: null, channel: selfreflectionChannel() }];
   for (const { name, store, images, channel } of cases) {
     for (const answer of ['not json at all', { kind: 'selfPicture', brief: 'a pier', search: '', picture: true }]) {
@@ -499,13 +507,10 @@ test('diary turn: with pictures off only text kinds are offered and the fallback
       );
       const planUser = userOf(llm.calls[0]);
       assert.ok(!planUser.includes(kindLine('selfPicture', 3)), `${name}: no picture kind offered`);
-      assert.ok(
-        planUser.includes(kindLine('status', 3)) && planUser.includes(kindLine('news', 2)),
-        `${name}: the text kinds offered`
-      );
       const planned = logs.find((l) => l.msg === 'selfreflection: planned');
       assert.ok(['thought', 'people', 'news', 'facts', 'status'].includes(loose(planned).kind), `${name}: a text kind`);
-      assert.equal(loose(planned).fallback, true);
+      assert.ok(planUser.includes(kindLine(String(loose(planned).kind), 1)), `${name}: the drawn text kind offered`);
+      assert.equal(loose(planned).fallback, answer === 'not json at all');
       assert.equal(loose(planned).picture, false);
       assert.equal(loose(planned).picturesOff, true, `${name}: the log says why`);
     }
@@ -518,17 +523,17 @@ test('diary turn: with pictures off only text kinds are offered and the fallback
 
 // PR 7d: the weights are SELFREFLECTION_KINDS of src/behavior/selfreflection.ts.
 test('diary turn: with pictures allowed the picture kinds are offered as before', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const llm = fakeLlm({ kind: 'status', brief: 'x', search: '', picture: false }, '<msg>brume</msg>');
   const { logs } = await withCapturedLogs(() =>
-    runner({ llm }).runTurn({ channel: selfreflectionChannel(), mode: 'selfreflection', selfreflection: {} })
+    runner({ llm, rng: () => 0 }).runTurn({
+      channel: selfreflectionChannel(),
+      mode: 'selfreflection',
+      selfreflection: {},
+    })
   );
   const planUser = userOf(llm.calls[0]);
-  const kinds: Array<[string, number]> = [
-    ['selfPicture', 3],
-    ['status', 3],
-    ['news', 2],
-  ];
-  for (const [key, weight] of kinds) assert.ok(planUser.includes(kindLine(key, weight)), key);
+  assert.ok(planUser.includes(kindLine('selfPicture', 1)), 'the drawn picture kind offered');
   assert.equal(loose(logs.find((l) => l.msg === 'selfreflection: planned')).picturesOff, undefined);
 });
 
@@ -604,6 +609,7 @@ test('diary turn: a skip posts nothing and records nothing', async () => {
 });
 
 test('diary turn: records the post with gists and message ids', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const llm = fakeLlm(
     { kind: 'selfPicture', brief: 'a pier', search: '', picture: true },
     toolAnswer('<msg>un quai dans la brume, très calme ce soir</msg>', [
@@ -612,7 +618,11 @@ test('diary turn: records the post with gists and message ids', async () => {
   );
   const store = fakeStore();
   const channel = selfreflectionChannel();
-  const result = await runner({ llm, store }).runTurn({ channel, mode: 'selfreflection', selfreflection: {} });
+  const result = await runner({ llm, store }).runTurn({
+    channel,
+    mode: 'selfreflection',
+    selfreflection: { kind: 'selfPicture', forced: false },
+  });
   assert.equal(loose(result).outcome, 'spoke');
   // Stage 3: the outcome also names the entry it recorded (`entry`), beside the same counts.
   assert.deepEqual(selfreflectionCounts(result), {
@@ -839,6 +849,7 @@ function eventChannel(events: Untyped) {
 const TOUR_PLAN = { kind: 'photoset', brief: 'a harbour walk', search: '', picture: true };
 
 test('selfreflection: a single picture is staged while the post is composed, then posted after its messages', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const events: Array<Untyped> = [];
   const images = fakeSetImages([10], events);
   const store = fakeStore();
@@ -848,7 +859,11 @@ test('selfreflection: a single picture is staged while the post is composed, the
     drawAnswer('<msg>un quai</msg>', 1, true)
   );
   const { result, logs } = await withCapturedLogs(() =>
-    runner({ llm, store, images }).runTurn({ channel, mode: 'selfreflection', selfreflection: {} })
+    runner({ llm, store, images }).runTurn({
+      channel,
+      mode: 'selfreflection',
+      selfreflection: { kind: 'selfPicture', forced: false },
+    })
   );
   assert.equal(loose(result).outcome, 'spoke');
   // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
@@ -873,6 +888,7 @@ test('selfreflection: a single picture is staged while the post is composed, the
 });
 
 test('diary set: six draw.create calls in one answer are generated before anything is sent, then the messages, then the files, chunked by bytes', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const events: Array<Untyped> = [];
   const images = fakeSetImages([3_200_000, 3_200_000, 3_200_000, 7_200_000, 800_000, 400_000], events);
   const store = fakeStore();
@@ -882,7 +898,7 @@ test('diary set: six draw.create calls in one answer are generated before anythi
     runner({ llm, store, images }).runTurn({
       channel,
       mode: 'selfreflection',
-      selfreflection: {},
+      selfreflection: { kind: 'photoset', forced: false },
     })
   );
   assert.equal(loose(result).outcome, 'spoke');
@@ -966,10 +982,15 @@ function limitedRunner({
 }
 
 test('diary set: the adapter that allows two files per message gets the six pictures in messages of two files', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = fakeSetImages([10, 10, 10, 10, 10, 10]);
   const llm = fakeLlm(TOUR_PLAN, withDraws('<msg>une promenade</msg>', 6, true));
   const { turns, adapter } = limitedRunner({ hot: fakeHot(), llm, images, limits: { maxFiles: 2 } });
-  const result = await turns.runTurn({ channel: selfreflectionChannel(), mode: 'selfreflection', selfreflection: {} });
+  const result = await turns.runTurn({
+    channel: selfreflectionChannel(),
+    mode: 'selfreflection',
+    selfreflection: { kind: 'photoset', forced: false },
+  });
   assert.equal(loose(result).outcome, 'spoke');
   // Stage 3: the turn sends nothing; the mirror's publication to this adapter splits the set by its maxFiles.
   assert.deepEqual(adapter.messagesIn('d1'), [], 'the turn itself sends nothing');
@@ -982,10 +1003,15 @@ test('diary set: the adapter that allows two files per message gets the six pict
 });
 
 test('diary set: an adapter that allows twelve files per message gets the same six pictures in one message', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = fakeSetImages([10, 10, 10, 10, 10, 10]);
   const llm = fakeLlm(TOUR_PLAN, withDraws('<msg>une promenade</msg>', 6, true));
   const { turns, adapter } = limitedRunner({ hot: fakeHot(), llm, images, limits: { maxFiles: 12 } });
-  const result = await turns.runTurn({ channel: selfreflectionChannel(), mode: 'selfreflection', selfreflection: {} });
+  const result = await turns.runTurn({
+    channel: selfreflectionChannel(),
+    mode: 'selfreflection',
+    selfreflection: { kind: 'photoset', forced: false },
+  });
   // Stage 3: the turn sends nothing; the mirror's publication to this adapter puts the set in one message.
   assert.deepEqual(adapter.messagesIn('d1'), [], 'the turn itself sends nothing');
   await published(result, null, adapter);
@@ -997,11 +1023,16 @@ test('diary set: an adapter that allows twelve files per message gets the same s
 });
 
 test('diary set: calls past selfreflection.set.pictures[1] in one answer are loop-cap results; the speech waits and step 2 posts what was staged', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = fakeSetImages([]);
   const channel = selfreflectionChannel();
   const llm = fakeLlm(TOUR_PLAN, [withDraws('<msg>x</msg>', 8), '<msg>y</msg>']);
   const { result, logs } = await withCapturedLogs(() =>
-    runner({ llm, images }).runTurn({ channel, mode: 'selfreflection', selfreflection: {} })
+    runner({ llm, images }).runTurn({
+      channel,
+      mode: 'selfreflection',
+      selfreflection: { kind: 'photoset', forced: false },
+    })
   );
   assert.equal(images.prompts.length, 6);
   assert.ok(images.prompts[5].prompt.includes('scene 6'));
@@ -1028,6 +1059,7 @@ test('chunkPictures: a new message past the byte limit or at 10 files; a picture
 });
 
 test('diary set: one failure in a set holds the speech and the staged pictures; step 2 sees the result and posts with the five that came out', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = fakeSetImages([10, 10, new ImageGenError('error'), 10, 10, 10]);
   const store = fakeStore();
   const channel = selfreflectionChannel();
@@ -1036,7 +1068,7 @@ test('diary set: one failure in a set holds the speech and the staged pictures; 
     runner({ llm, store, images }).runTurn({
       channel,
       mode: 'selfreflection',
-      selfreflection: {},
+      selfreflection: { kind: 'photoset', forced: false },
     })
   );
   assert.equal(loose(result).outcome, 'spoke');
@@ -1067,6 +1099,7 @@ test('diary set: one failure in a set holds the speech and the staged pictures; 
 });
 
 test('diary set: fewer than selfreflection.set.minPosted pictures staged posts nothing and is refused set-short', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = fakeSetImages([10, new ImageGenError('error'), new ImageGenError('error')]);
   const store = fakeStore();
   const channel = selfreflectionChannel();
@@ -1075,7 +1108,7 @@ test('diary set: fewer than selfreflection.set.minPosted pictures staged posts n
     runner({ llm, store, images }).runTurn({
       channel,
       mode: 'selfreflection',
-      selfreflection: {},
+      selfreflection: { kind: 'photoset', forced: false },
     })
   );
   assert.equal(loose(result).outcome, 'refused');
@@ -1091,7 +1124,11 @@ test('diary set: fewer than selfreflection.set.minPosted pictures staged posts n
     llm: fakeLlm(TOUR_PLAN, withDraws('<msg>x</msg>', 1)),
     store: fakeStore(),
     images: fakeSetImages([]),
-  }).runTurn({ channel: selfreflectionChannel(), mode: 'selfreflection', selfreflection: {} });
+  }).runTurn({
+    channel: selfreflectionChannel(),
+    mode: 'selfreflection',
+    selfreflection: { kind: 'photoset', forced: false },
+  });
   assert.deepEqual([loose(few).outcome, loose(few).reason], ['refused', 'set-short']);
   // A set answered without any picture is short too.
   const bare = await runner({
@@ -1101,7 +1138,7 @@ test('diary set: fewer than selfreflection.set.minPosted pictures staged posts n
   }).runTurn({
     channel: selfreflectionChannel(),
     mode: 'selfreflection',
-    selfreflection: {},
+    selfreflection: { kind: 'photoset', forced: false },
   });
   assert.deepEqual([loose(bare).outcome, loose(bare).reason], ['refused', 'set-short']);
 });
@@ -1157,19 +1194,24 @@ test('selfreflection: a single-picture kind stages one picture; a second call is
 });
 
 test('diary set: the compose request carries selfreflection.set.seedSets seeds for a set kind, none for another kind', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const seedLines = (text: string) =>
     (/<seeds>\n([\s\S]*?)\n<\/seeds>/.exec(text)?.[1] ?? '').split('\n').filter((line) => line.startsWith('- '));
   const llm = fakeLlm(TOUR_PLAN, withDraws('<msg>x</msg>', 3));
   await runner({ llm, images: fakeSetImages([]) }).runTurn({
     channel: selfreflectionChannel(),
     mode: 'selfreflection',
-    selfreflection: {},
+    selfreflection: { kind: 'photoset', forced: false },
   });
   // PR 7d: the plan's seed sets (2) and a set's (6) are constants of src/behavior/selfreflection.ts.
   assert.equal(seedLines(userOf(llm.calls[0])).length, 2, 'the plan request keeps selfreflection.seedSets');
   assert.equal(seedLines(userOf(llm.calls[1])).length, 6, 'the compose request takes selfreflection.set.seedSets');
 
   const text = fakeLlm({ kind: 'status', brief: 'x', search: '', picture: false }, '<msg>x</msg>');
-  await runner({ llm: text }).runTurn({ channel: selfreflectionChannel(), mode: 'selfreflection', selfreflection: {} });
+  await runner({ llm: text }).runTurn({
+    channel: selfreflectionChannel(),
+    mode: 'selfreflection',
+    selfreflection: { kind: 'status', forced: false },
+  });
   assert.ok(!userOf(text.calls[1]).includes('<seeds>'));
 });

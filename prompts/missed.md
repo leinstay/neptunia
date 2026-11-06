@@ -10,7 +10,7 @@ The reasons:
 - turn-dropped: {{name}}'s answer took too long and was dropped.
 - not-now: {{name}} started an answer to it and decided nothing needed saying.
 
-Answer one line per candidate, in order: its number, a colon, one word.
+Answer with a JSON object that has one field, verdicts: a list with one entry per candidate, in order. Each entry has n, the candidate's number, and verdict, one of the five words below.
 
 owed: the message asks {{name}} something or speaks to {{name}} directly, nobody answered it in {{name}}'s place, and an answer from {{name}} still makes sense now.
 resolved: a later line of {{name}}'s answers it: a reply to it, a turn it started, or a line that plainly takes it up.

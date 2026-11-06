@@ -2,10 +2,11 @@
 // person would: "about this I think that", "this one I will do now", "and the
 // meme is funny". This module is the pure side of it: the settings, the cheap
 // pre-filter that keeps an ordinary message from costing any request, and the
-// strict parse of the splitter's answer (prompts/split.md). The request itself
+// strict parse of the splitter's JSON answer (prompts/split.md). The request itself
 // and the chain of turns live in src/behavior/turn.ts.
 
 import { isPlainObject } from '../config.ts';
+import { strictJsonObject } from '../llm/parse.ts';
 import { oneLine } from '../memory/clamp.ts';
 import type { Untyped } from '../tools/types.ts';
 
@@ -118,14 +119,14 @@ export function foldShortParts(parts: Array<string>, minPartChars: number): Arra
 }
 
 /**
- * The splitter's answer, parsed strictly: the single word `one` (any case,
- * a trailing period allowed) -> one request; two or more non-empty lines,
- * each starting with `- ` and holding a part -> the parts (whitespace
- * collapsed), cut to `maxTasks`; a blank answer -> `empty`; anything else
- * (one dash line, a line without the dash, a numbered list) -> `unparsed`,
- * one request as well. `settings` is either the bare `maxTasks` number (no
- * folding) or splitSettings' object: then the parts are first folded by
- * foldShortParts with its `minPartChars` (a missing one takes
+ * The splitter's answer (prompts/split.md), parsed strictly: the text is the
+ * JSON object `{ "parts": [...] }` and every part is a text that is not blank.
+ * An empty list or one part -> `one`, one request; two or more -> the parts
+ * (whitespace collapsed), cut to `maxTasks`; a blank answer -> `empty`;
+ * anything else (text that is not that object, a part that is not a text or
+ * is blank) -> `unparsed`, one request as well. `settings` is either the bare
+ * `maxTasks` number (no folding) or splitSettings' object: then the parts are
+ * first folded by foldShortParts with its `minPartChars` (a missing one takes
  * SPLIT_DEFAULTS'), and fewer than two parts left -> `folded`, one request.
  * Pure.
  */
@@ -135,21 +136,12 @@ export function parseSplitAnswer(
 ): { parts: Array<string> | null; reason: 'one' | 'parts' | 'empty' | 'unparsed' | 'folded' } {
   const maxTasks = typeof settings === 'number' ? settings : settings?.maxTasks;
   const minPartChars = typeof settings === 'number' ? 0 : (settings?.minPartChars ?? SPLIT_DEFAULTS.minPartChars);
-  const answer = String(text ?? '').trim();
-  if (!answer) return { parts: null, reason: 'empty' };
-  if (/^one\.?$/i.test(answer)) return { parts: null, reason: 'one' };
-  const lines = answer
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const parts = [];
-  for (const line of lines) {
-    if (!line.startsWith('- ')) return { parts: null, reason: 'unparsed' };
-    const part = oneLine(line.slice(2));
-    if (!part) return { parts: null, reason: 'unparsed' };
-    parts.push(part);
-  }
-  if (parts.length < 2) return { parts: null, reason: 'unparsed' };
+  if (!String(text ?? '').trim()) return { parts: null, reason: 'empty' };
+  const list = strictJsonObject(text)?.parts;
+  if (!Array.isArray(list)) return { parts: null, reason: 'unparsed' };
+  const parts = list.map((part) => (typeof part === 'string' ? oneLine(part) : ''));
+  if (parts.some((part) => !part)) return { parts: null, reason: 'unparsed' };
+  if (parts.length < 2) return { parts: null, reason: 'one' };
   const kept = foldShortParts(parts, minPartChars);
   if (kept.length < 2) return { parts: null, reason: 'folded' };
   return { parts: kept.slice(0, Math.max(2, maxTasks)), reason: 'parts' };

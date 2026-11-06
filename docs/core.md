@@ -39,7 +39,7 @@ The classifier answers the JSON object `{ "answer": ... }` by the strict schema 
 
 ## Split and the missed-answer check
 
-`split` (`src/behavior/split.ts`) runs for every started turn with a line of a person, on any interface and in a DM: a mention, a reply, a follow-up, an overheard line or a private message. A `missed` turn never runs it. `merge` (`src/pipeline/merge.ts`) works on the pending queue and stays in the pipeline.
+`split` (`src/behavior/split.ts`) runs for every started turn with a line of a person, on any interface and in a DM: a mention, a reply, a follow-up, an overheard line or a private message. A `missed` turn never runs it. `merge` (`src/pipeline/merge.ts`) works on the pending queue and stays in the pipeline. The splitter, the merge classifier and the missed-answer check answer a JSON object by a strict schema, `SPLIT_FORMAT`, `MERGE_FORMAT` and `MISSED_FORMAT`, and an answer that is not that object counts as one they could not read: one request, a new call, every candidate `uncertain`.
 
 The missed-answer registry in `src/behavior/missed.ts` covers every group place and every DM. `noteFact` takes the line's `iface` and the candidate keeps it, so its sweep reads its conversation on that interface and its recovery turn runs there. Each candidate is stored in the unit `missed` of its own place, and `src/core.ts` starts the registry of every place that holds one (`start(placeId)` adds to those already started).
 
