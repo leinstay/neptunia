@@ -18,8 +18,11 @@ export type ProxySwitch = 'proxy-down' | 'proxy-back';
 /** One probe of `url` through the proxy, true when an answer came back within `timeoutMs`. */
 export type ProxyProbe = (url: string, timeoutMs: number) => Promise<boolean>;
 
-/** The hosts a child and the process always reach directly: the local services. */
-export const NO_PROXY = 'localhost,127.0.0.1,::1';
+/**
+ * The hosts a child and the process always reach directly: the local services, and OpenRouter, whose chat completions
+ * came back through the residential proxy as `Malformed_HTTP_Response` (measured on 2026-11-05).
+ */
+export const NO_PROXY = 'localhost,127.0.0.1,::1,openrouter.ai';
 
 /** What a probe asks for through the proxy: a small HTTPS answer, so the tunnel and the proxy's login both count. */
 const PROBE_URL = 'https://www.cloudflare.com/cdn-cgi/trace';
@@ -89,7 +92,7 @@ export function isProxyUrl(url: string): boolean {
 
 /**
  * The proxy variables of a child for `url` in force: HTTPS_PROXY and HTTP_PROXY in the http form, under both the upper
- * and the lower case spelling, since curl reads only the lower case `http_proxy`, and NO_PROXY for the local hosts.
+ * and the lower case spelling, since curl reads only the lower case `http_proxy`, and NO_PROXY for the local hosts and OpenRouter.
  * Empty for no URL or one with no http form, so a child on the direct path gets no proxy variable at all.
  */
 export function proxyEnvOf(url: string | null): Record<string, string> {

@@ -130,14 +130,12 @@ test("an opencode route takes the task's key, not the key keys.json holds", asyn
   assert.equal(seen[0]?.options.env?.OPENROUTER_API_KEY, TASK_SECRET);
 });
 
-test('an opencode route still gets its step limit through its inline config', async () => {
-  // Catches: the route path skips OPENCODE_CONFIG_CONTENT, so an opencode errand runs with no step limit.
+test('an opencode route gets no step limit in its inline config', async () => {
+  // The expectation changed on the owner's word of 2026-11-05: OpenCode gets no step cap, because at the cap it appends
+  // an assistant turn that Gemini and Anthropic refuse. Catches: the route path brings the cap back.
   const { deps, seen } = rig();
   await runAgent(request({ route: OPENCODE, routeKey: TASK_SECRET, maxSteps: 7 }), deps);
-  const config = JSON.parse(seen[0]?.options.env?.OPENCODE_CONFIG_CONTENT ?? '{}') as {
-    agent?: { build?: { steps?: number } };
-  };
-  assert.equal(config.agent?.build?.steps, 7);
+  assert.equal(seen[0]?.options.env?.OPENCODE_CONFIG_CONTENT, undefined);
 });
 
 test('an opencode route with no key fails route-no-key and starts nothing, though keys.json holds one', async () => {

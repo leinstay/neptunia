@@ -65,19 +65,20 @@ test('claude claims its step and output limits, and the spawned process carries 
   }
 });
 
-test('opencode claims its step and output limits, and the spawned process carries both', async () => {
+test('opencode claims its output limit and no step limit, and the spawned process carries the output cap', async () => {
   // Bug: the output cap of the memory writer's sibling path is dropped on the floor and nobody can tell.
+  // The steps expectation changed on the owner's word of 2026-11-05: OpenCode gets no step cap, because at the cap it
+  // appends an assistant turn that Gemini and Anthropic refuse. Like Codex, only the timeout bounds it.
   assert.deepEqual(backendLimits('opencode'), {
-    steps: { enforced: true, via: 'OPENCODE_CONFIG_CONTENT' },
+    steps: { enforced: false, bound: 'timeout' },
     output: { enforced: true, via: 'OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX' },
   });
   const { dir, cleanup } = scratch();
   try {
     const { seen, result } = await runOn('opencode', dir);
-    const inline = JSON.parse(seen.env.OPENCODE_CONFIG_CONTENT ?? '{}') as { agent?: { build?: { steps?: number } } };
-    assert.equal(inline.agent?.build?.steps, STEPS);
+    assert.equal(seen.env.OPENCODE_CONFIG_CONTENT, undefined);
     assert.equal(seen.env.OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX, String(OUTPUT));
-    assert.deepEqual(result.gaps ?? [], []);
+    assert.deepEqual(result.gaps ?? [], ['step-limit-not-enforced']);
   } finally {
     cleanup();
   }

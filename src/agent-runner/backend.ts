@@ -59,8 +59,8 @@ export type BackendRunOptions = {
   /** codex: adds `--search` */
   search?: boolean;
   /**
-   * The most model steps the run may take. A step is one model turn: claude `--max-turns`. opencode reads it as its agent's
-   * `steps` through `OPENCODE_CONFIG_CONTENT`. codex has no such control, so only the timeout bounds it.
+   * The most model steps the run may take. A step is one model turn: claude `--max-turns`. opencode and codex have no such
+   * control, so only the timeout bounds them.
    */
   maxSteps?: number;
   /**
@@ -261,7 +261,9 @@ const LIMITS: Readonly<Record<BackendName, { steps: BackendLimit; output: Backen
     output: { enforced: true, via: 'CLAUDE_CODE_MAX_OUTPUT_TOKENS' },
   },
   opencode: {
-    steps: { enforced: true, via: 'OPENCODE_CONFIG_CONTENT' },
+    // No step cap, by the owner's word of 2026-11-05: at the cap OpenCode appends an assistant turn, which Gemini and
+    // Anthropic refuse, so the run died with exit 1. The time limit of the task bounds it.
+    steps: NO_LIMIT,
     output: { enforced: true, via: 'OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX' },
   },
   codex: { steps: NO_LIMIT, output: NO_LIMIT },
@@ -530,8 +532,7 @@ function hasConfig(options: Pick<BackendRunOptions, 'system' | 'provider'>): boo
 
 /**
  * Writes the config a run of `name` reads from `dir`, mode 600. claude and codex read the system instructions as a file of
- * their own. opencode reads one config file (`OPENCODE_CONFIG`, merged with `OPENCODE_CONFIG_CONTENT`, so the agent's
- * `steps` set there stays) that holds the `build` agent's `prompt` and, for a pinned run, the model's OpenRouter
+ * their own. opencode reads one config file (`OPENCODE_CONFIG`) that holds the `build` agent's `prompt` and, for a pinned run, the model's OpenRouter
  * `provider` option, keyed by the model id without the `openrouter/` prefix opencode is started with.
  */
 async function writeConfig(

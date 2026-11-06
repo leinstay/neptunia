@@ -15,7 +15,7 @@
 // key, tool or shell class, or misses a key, fails `loadProfiles` at start
 // with one error naming the agent and the key. A profile also builds the
 // OpenCode config for one task (`buildConfig`): one agent definition
-// carrying the prompt, the step cap, and a permission map that starts every
+// carrying the prompt and a permission map that starts every
 // tool at deny and allow-lists only what the profile asks for within its
 // class, plus the model and its cost (so OpenCode's local cost estimate is
 // right). In a filtered scope (`dm`/`group`) the path tools also deny the
@@ -34,7 +34,7 @@
 //
 // This matches OpenCode release v1.19.3 (the version installed on the
 // server), whose config is the V1 shape: the top-level key is `agent`
-// (singular), an agent carries `prompt` (not `system`), `steps` and
+// (singular), an agent carries `prompt` (not `system`) and
 // `permission` (an object keyed by tool, each value an action string or a
 // { pattern: action } map; a config typo falls back to `ask`, which a
 // headless run rejects). Tool/permission keys are OpenCode's own: `bash`
@@ -149,7 +149,7 @@ type ResolvedAgentPaths = Required<AgentPaths>;
 /** The OpenCode config of one task. */
 export type OpenCodeConfig = {
   $schema: string;
-  agent: Record<string, { mode: string; prompt: string; permission: Record<string, Permission>; steps?: number }>;
+  agent: Record<string, { mode: string; prompt: string; permission: Record<string, Permission> }>;
   model?: string;
   provider?: Record<string, { models: Record<string, { cost: { input: number; output: number } }> }>;
   tool_output?: { max_bytes: number };
@@ -159,7 +159,6 @@ export type OpenCodeConfig = {
 export type BuildConfigOptions = {
   systemPrompt?: unknown;
   providerModel?: unknown;
-  steps?: unknown;
   scope?: string;
   cost?: { input?: unknown; output?: unknown } | null;
   toolResultChars?: unknown;
@@ -1380,19 +1379,19 @@ function makeProfile(definition: WorkerDefinition, paths: ResolvedAgentPaths): P
     buildConfig({
       systemPrompt,
       providerModel,
-      steps,
       scope = 'core',
       cost,
       toolResultChars,
     }: BuildConfigOptions = {}): OpenCodeConfig {
       const [providerId, ...rest] = scalarText(providerModel ?? defaultModel).split('/');
       const modelId = rest.join('/');
+      // No `steps` here, by the owner's word of 2026-11-05: OpenCode's step cap ends a run on an assistant turn that
+      // Gemini and Anthropic refuse. The time limit of the task bounds the run.
       const agent: OpenCodeConfig['agent'][string] = {
         mode: 'primary',
         prompt: scalarText(systemPrompt ?? ''),
         permission: permissionFor(definition, scope),
       };
-      if (typeof steps === 'number' && Number.isFinite(steps) && steps > 0) agent.steps = Math.floor(steps);
       const config: OpenCodeConfig = {
         $schema: 'https://opencode.ai/config.json',
         agent: { [agentId]: agent },
