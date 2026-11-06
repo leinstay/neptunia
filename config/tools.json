@@ -53,7 +53,7 @@
   },
   "pings.set": {
     "title": "Change notification setting",
-    "whenToUse": "Change the caller's own ping setting here. on: your replies and mentions notify them, even where your messages otherwise go out silently. off: nothing you send notifies them. clear: back to default, where this place's own setting decides.",
+    "whenToUse": "Change the caller's own ping setting here. Call it when a member asks you to stop pinging them or to ping them again, because agreeing in words changes nothing. on: your replies and mentions notify them, even where your messages otherwise go out silently. off: nothing you send notifies them. clear: back to default, where this place's own setting decides.",
     "whenNotToUse": "One member per call.",
     "args": {
       "mode": "on, off or clear."
