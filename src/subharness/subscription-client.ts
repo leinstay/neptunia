@@ -22,6 +22,7 @@ import { SUBSCRIPTION_CODES, TokenLimitError, countLlmRequest, toolCallsOf } fro
 import type { CompleteResult } from '../llm/openrouter.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { coreSocketPath } from '../interface/socket.ts';
+import { createKeyStore, keysFileExists } from '../keys/store.ts';
 import { log } from '../log.ts';
 import type { Transport } from '../protocol/wire.ts';
 import { bareToolName } from '../tools/gateway.ts';
@@ -736,6 +737,17 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
     [...sessions].find((session) => session.entries.some((entry) => results.some((one) => one.id === entry.id))) ??
     null;
 
+  /** Whether the direct client has a key to go out on: keys.json names one for the route, or none is kept there at all. */
+  function apiKeyExists(): boolean {
+    try {
+      if (!keysFileExists(deps.privateDir)) return true;
+      const store = createKeyStore({ privateDir: deps.privateDir });
+      return store.boundTo(deps.route) !== null || store.coreNames().length > 0;
+    } catch {
+      return true;
+    }
+  }
+
   async function onRoute(messages: Array<Rec>, options: Rec): Promise<CompleteResult> {
     const results = laterStep(messages);
     const session = results === null ? null : sessionOf(results);
@@ -749,7 +761,7 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
       else answer = await start(route, messages, options);
       return resultOf(route, answer, estimated, options);
     } catch (error) {
-      if (!isSubscriptionFailure(error) || !settingsOf(llmOf(deps)).fallback) throw error;
+      if (!isSubscriptionFailure(error) || !settingsOf(llmOf(deps)).fallback || !apiKeyExists()) throw error;
       log.warn('subscription: step goes to the api', { code: str(rec(error).code) });
       return deps.direct.complete(messages, { ...options, countAgainstDailyCap: false });
     }
