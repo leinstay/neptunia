@@ -316,6 +316,11 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
     sub(`${family}.show`, `Open one record of ${family} with every stored field and its links`, [arg('id')]),
     sub(`${family}.list`, `List the ids of ${family}`, PAGE_FLAGS),
   ]),
+  sub('pending.list', 'List the pending memory writes that failed their replay, each with its code and time'),
+  sub(
+    'pending.replay',
+    'Replay the quarantined pending writes through the writer and count what applied and what stayed'
+  ),
   sub('claims.versions', 'Open every version of a claim in order of recording', [arg('id')]),
   sub('claims.version', 'Open one version of a claim', [arg('id')]),
   sub('descriptions.versions', 'Open every version of a description in order of writing', [arg('id')]),

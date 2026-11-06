@@ -177,15 +177,19 @@ export function innerLines(
 
 /**
  * The memory database's line of the memory field from the service's status `s`, words from `labels.status.memoryDb`:
- * `unavailable` (the database not open), else `ok` with `{rows}` and `{files}` (the units it holds). Null when
- * the label is missing or blank.
+ * `unavailable` (the database not open), else `ok` with `{rows}` and `{files}` (the units it holds). While pending
+ * writes wait in the quarantine, `quarantined` with `{n}` and `{code}` (the newest one's) follows after ` · `. Null
+ * when the label is missing or blank.
  */
 export function memoryDbStatusLine(s: Untyped, labels: unknown): string | null {
   const raw = objOf(objOf(labels).status).memoryDb;
   if (!isObj(raw) || !isObj(s)) return null;
   const L: Untyped = raw;
-  if (!s.open) return labelLine(L.unavailable, {});
-  return labelLine(L.ok, { rows: s.rows ?? 0, files: s.files ?? 0 });
+  const head = s.open ? labelLine(L.ok, { rows: s.rows ?? 0, files: s.files ?? 0 }) : labelLine(L.unavailable, {});
+  const pending = objOf(s.pending);
+  const waiting = typeof pending.quarantined === 'number' && pending.quarantined > 0;
+  const tail = waiting ? labelLine(L.quarantined, { n: pending.quarantined, code: pending.lastCode ?? '' }) : null;
+  return head && tail ? `${head} · ${tail}` : head;
 }
 
 /** `<role> · <model>`: each role shows its own model, never another role's. */
