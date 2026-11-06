@@ -11,15 +11,15 @@ import { readConfig } from '../src/config.ts';
 import { serviceCredential } from '../src/keys/file.ts';
 import { proxyForRun } from '../src/net/proxy.ts';
 import { readKeys } from '../src/keys/file.ts';
-import { readMemoryAt } from '../src/service/watcher.ts';
-import { unitScope } from '../src/service/manager.ts';
-import { spawnRun } from '../src/setup/install.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { dbOf } from '../src/memory/db/types.ts';
 import { backendOfAgent } from '../src/subharness/control.ts';
 import { defaultDenyDir, runAgent } from '../src/subharness/run.ts';
-import { auditTopicsOf, developmentFacts, developmentMode } from '../src/watcher/development.ts';
 import { installFacts, watcherMemory } from '../src/watcher/install.ts';
 import { runInspection } from '../src/watcher/inspection.ts';
 import type { InspectionDeps } from '../src/watcher/inspection.ts';
+import { moneyFacts, moneyKeysOf, requestsTodayOf } from '../src/watcher/money.ts';
+import type { MoneyFacts } from '../src/watcher/money.ts';
 import {
   WATCHER_RUN_TIMEOUT_MS,
   currentRun,
@@ -54,32 +54,29 @@ function promptFiles(where: Where): Array<string> {
   return definition ? promptFilesOf(definition.id, { ...agentPaths, prompt: definition.prompt }) : [];
 }
 
-/** The dev agent's backend as keys.json holds it; null with none or with no readable file. */
-function devAgentOf(privateDir: string): string | null {
+/**
+ * The money fact of this run: every key of keys.json by slot, the roles' extra keys, today's request count and the
+ * spend of the memory database, read over a read-only connection held until the key reads are done. The key values go
+ * to `moneyFacts` and nowhere else. A database that cannot be opened fails the read, and the brief then holds no `<money>`.
+ */
+async function moneyOf(where: Where, config: unknown): Promise<MoneyFacts> {
+  const store = readKeys(where.privateDir);
+  const handle = openMemoryDb(path.join(where.dataDir, 'memory.db'), { readOnly: true });
   try {
-    return backendOfAgent(readKeys(privateDir).subharness, 'dev');
-  } catch {
-    return null;
+    const db = dbOf(handle);
+    const now = Date.now();
+    return await moneyFacts({
+      db,
+      keys: moneyKeysOf(store),
+      roleSlots: store.roles,
+      requestsToday: requestsTodayOf(db, now),
+      fetch: (url, init) => fetch(url, init),
+      now: () => now,
+      config,
+    });
+  } finally {
+    handle.close();
   }
-}
-
-/** Development mode as the settings and keys.json make it for this run. */
-function developmentOf(where: Where, config: unknown): NonNullable<InspectionDeps['development']> {
-  const mode = developmentMode({ config, rootDir: where.rootDir, devAgent: devAgentOf(where.privateDir) });
-  return {
-    mode,
-    topics: auditTopicsOf(config),
-    facts: () => {
-      if (!mode.on) return Promise.reject(new Error('development mode is off'));
-      return developmentFacts({
-        mode,
-        run: spawnRun,
-        readMemory: (read) => readMemoryAt(where.dataDir, read),
-        now: () => Date.now(),
-        scope: unitScope(process.env),
-      });
-    },
-  };
 }
 
 /** Runs the worker and answers its exit code. */
@@ -107,7 +104,7 @@ export async function runWatcherWorker(where: Where): Promise<number> {
       selected: selectedOf(where.privateDir),
       install: () => installFacts({ rootDir: where.rootDir, dataDir: where.dataDir }),
       memory: () => watcherMemory({ dataDir: where.dataDir, config }),
-      development: developmentOf(where, config),
+      money: () => moneyOf(where, config),
       // Read again when the run files, so a switch made during a long run counts for it.
       draftsOnly: () => watcherSettings(readConfig(where.rootDir, { privateDir: where.privateDir })).draftsOnly,
       runAgent: async (brief, { signal, timeoutMs, runId }) =>

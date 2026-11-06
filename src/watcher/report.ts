@@ -12,27 +12,17 @@ export const REPORT_HEADINGS = [
   'Her day',
   'Service runs',
   'Memory',
+  'Money',
   'Errors',
   'Misunderstandings',
   'Project',
   'Modules and structure',
   'Trash',
   'The server',
-  'Development',
   'Wishes',
   'Tasks filed',
   'For the owner',
 ] as const;
-
-/** The section that exists only in development mode (src/watcher/development.ts): with the mode off a report has no such heading. */
-export const DEVELOPMENT_SECTION = 'Development';
-
-/** What a template check needs to know of the run: whether its report holds the section of development mode. */
-export type ReportMode = { development?: boolean };
-
-/** The sections of a report in this mode, in order. */
-const headingsOf = ({ development = false }: ReportMode): ReadonlyArray<string> =>
-  development ? REPORT_HEADINGS : REPORT_HEADINGS.filter((name) => name !== DEVELOPMENT_SECTION);
 
 export const REPORT_SUBHEADINGS = [
   'Observed defects',
@@ -200,12 +190,12 @@ const isTitle = (heading: Heading, index: number): boolean =>
  * Whether `text` holds the sections of `REPORT_HEADINGS`, each once, in order, each with something in it, and no
  * key. The commit's last guard: the exact layout is `checkTemplate`'s, so a title and the four subheadings pass here.
  */
-export function checkReport(text: string, mode: ReportMode = {}): ReportCheck {
+export function checkReport(text: string): ReportCheck {
   const secretLine = findSecret(text);
   if (secretLine !== null) return { ok: false, code: 'secret', detail: `a key-looking string on line ${secretLine}` };
   const scanned = scan(text);
   if (scanned.preamble) return { ok: false, code: 'preamble', detail: 'text before the first heading' };
-  const known = headingsOf(mode);
+  const known: ReadonlyArray<string> = REPORT_HEADINGS;
   const seen = new Set<string>();
   const sections: Array<{ heading: Heading; filled: boolean }> = [];
   for (const [index, heading] of scanned.headings.entries()) {
@@ -426,11 +416,8 @@ function checkBlock(parts: ReadonlyArray<Part>): { before: ReadonlyArray<Part> }
   return { before: parts.slice(0, index) };
 }
 
-/**
- * Whether `text` is a report in the exact template: its day and metadata, or the first thing wrong with it. The section
- * `Development` belongs to the template with `mode.development` and is an extra heading without it.
- */
-export function checkTemplate(text: string, mode: ReportMode = {}): TemplateCheck {
+/** Whether `text` is a report in the exact template: its day and metadata, or the first thing wrong with it. */
+export function checkTemplate(text: string): TemplateCheck {
   const secretLine = findSecret(text);
   if (secretLine !== null) return refuse('secret', `a key-looking string on line ${secretLine}`);
   const lines = text.split('\n');
@@ -452,7 +439,7 @@ export function checkTemplate(text: string, mode: ReportMode = {}): TemplateChec
   }
   const body = block.before.slice(stray.length);
   const heads = body.filter((part): part is Heads => part.kind === 'heading');
-  const refused = checkHeadings(heads, headingsOf(mode)) ?? checkBodies(body);
+  const refused = checkHeadings(heads, REPORT_HEADINGS) ?? checkBodies(body);
   return refused ?? { ok: true, day, metadata: read.metadata };
 }
 
@@ -567,11 +554,10 @@ export function commitReport(input: {
   runId: string;
   at: number;
   text: string;
-  mode?: ReportMode;
 }): ReportCheck & { path?: string } {
   const { reportsDir, day, runId, at, text } = input;
   if (!isDay(day)) return { ok: false, code: 'invalid-day', detail: 'the day is not a date' };
-  const checked = checkReport(text, input.mode);
+  const checked = checkReport(text);
   if (!checked.ok) return checked;
   const versions = path.join(reportsDir, VERSIONS_DIR);
   fs.mkdirSync(versions, { recursive: true });
@@ -620,21 +606,3 @@ export const insertFilingLines = (text: string, added: ReadonlyArray<string>): s
 /** A gap the engine itself knows, under `### Unavailable checks` of `section`. */
 export const insertUnavailable = (text: string, section: string, added: ReadonlyArray<string>): string =>
   insertLines(text, section, 'Unavailable checks', added);
-
-/** A fact the engine read, under `### Inspected without a finding` of `section`. */
-export const insertInspected = (text: string, section: string, added: ReadonlyArray<string>): string =>
-  insertLines(text, section, 'Inspected without a finding', added);
-
-/** `text` with the whole of `## <section>` taken out, heading and all; the text as it was when it has no such section. */
-export function removeSection(text: string, section: string): string {
-  const lines = text.split('\n');
-  const parts = partsOf(lines, 0);
-  const at = parts.findIndex((part) => part.kind === 'heading' && part.level === 2 && part.name === section);
-  if (at === -1) return text;
-  const next = parts
-    .slice(at + 1)
-    .find(
-      (part) => (part.kind === 'heading' && part.level === 2) || (part.kind === 'fence' && part.info === 'coverage')
-    );
-  return [...lines.slice(0, parts[at]?.at ?? 0), ...lines.slice(next?.at ?? lines.length)].join('\n');
-}

@@ -27,20 +27,4 @@ export const WATCHER: ReadonlyArray<SchemaEntry> = [
     'text':
       'With `true` an inspection files no task: each draft it would have filed keeps the state `draft` and is listed under "Tasks filed" in its report, which is how the watcher is calibrated. Only `true` turns it on. The worker reads it when the run files, and a draft is never filed later',
   },
-  {
-    'key': 'watcher.auditTopics',
-    'types': ['array'],
-    'reader': 'src/watcher/development.ts',
-    'default': [
-      'dm-privacy-paths',
-      'schema-against-code',
-      'dead-code',
-      'long-chains',
-      'media-parity',
-      'restart-and-recovery',
-      'tests-that-prove-nothing',
-    ],
-    'text':
-      'The narrow topics the watcher audits in development mode, one per run that commits its report, in this order and round again. Only nonblank strings count, and an empty list audits no topic',
-  },
 ];
