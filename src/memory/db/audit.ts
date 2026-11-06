@@ -4,7 +4,8 @@
 //   placeExists        a live row's place is a row of `places`
 //   scopeMatchesPlace  a row of a DM place is scoped to a DM, and a row of any other place is not
 //   audienceDerived    a live row's `audience_id` is the one its scope resolves to (src/memory/db/rows.ts#resolveRow)
-//   danglingLinks      a live link between rows points at live rows, and a version belongs to a row that exists
+//   danglingLinks      a live link between rows points at live rows, and a version belongs to a row that exists (a claim version names a claim or an episode,
+//                      retired or not, because an expired episode's archive line is kept as a version beside it)
 //   unexplainedNone    a live row under `aud:none` has a live `decisions` row of `AUDIENCE_NONE_KEPT` naming it
 //   vectorManifests    a month's manifest counts the rows the month holds, in the size it says
 //   linkedMediaKept    no media row a live line or a live selfreflection entry links is retired
@@ -108,14 +109,14 @@ function deadLinks(
   );
 }
 
-/** The versions of `child` whose row `parent` does not exist. */
-function orphanVersions(db: Db, child: string, column: string, parent: string): number {
+/** The versions of `child` whose row exists in none of the `parents` tables. */
+function orphanVersions(db: Db, child: string, column: string, parents: Array<string>): number {
   const columns = columnsOf(db, child);
   if (columns.size === 0) return 0;
-  return countOf(
-    db,
-    `SELECT COUNT(*) AS n FROM ${child} v LEFT JOIN ${parent} p ON p.id = v.${column} WHERE ${liveIn(columns, 'v')} AND p.id IS NULL`
-  );
+  const found = parents.filter((parent) => columnsOf(db, parent).size > 0);
+  const joins = found.map((parent, i) => `LEFT JOIN ${parent} p${i} ON p${i}.id = v.${column}`).join(' ');
+  const missing = found.length === 0 ? '1' : found.map((_, i) => `p${i}.id IS NULL`).join(' AND ');
+  return countOf(db, `SELECT COUNT(*) AS n FROM ${child} v ${joins} WHERE ${liveIn(columns, 'v')} AND ${missing}`);
 }
 
 function danglingLinks(db: Db): number {
@@ -124,8 +125,8 @@ function danglingLinks(db: Db): number {
     deadMediaLinks(db) +
     deadLinks(db, 'claim_sources', 'claim_id', 'claims', 'source_id', 'sources') +
     deadLinks(db, 'episode_sources', 'episode_id', 'episodes', 'source_id', 'sources') +
-    orphanVersions(db, 'claim_versions', 'claim_id', 'claims') +
-    orphanVersions(db, 'description_versions', 'description_id', 'descriptions') +
+    orphanVersions(db, 'claim_versions', 'claim_id', ['claims', 'episodes']) +
+    orphanVersions(db, 'description_versions', 'description_id', ['descriptions']) +
     countOf(
       db,
       `SELECT COUNT(*) AS n FROM descriptions d LEFT JOIN description_versions v ON v.id = d.current_version
