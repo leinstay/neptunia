@@ -5,17 +5,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MessageFlags } from 'discord.js';
 import { createDiscordAdapter } from '../interfaces/discord/port.ts';
-import type { Untyped } from '../src/tools/types.ts';
 
 const SILENT = Number(MessageFlags.SuppressNotifications);
 const VOICE = Number(MessageFlags.IsVoiceMessage);
 
-function portOver(sent: Untyped, config: () => object) {
+function portOver(sent: Array<Payload>, config: () => object) {
   const channel = {
     id: 'c1',
-    send: async (payload: Untyped) => {
+    send: (payload: Payload) => {
       sent.push(payload);
-      return { id: `m${sent.length}`, createdTimestamp: 1 };
+      return Promise.resolve({ id: `m${sent.length}`, createdTimestamp: 1 });
     },
   };
   const client = { user: { id: 'self' }, channels: { cache: new Map([['c1', channel]]) } };
@@ -30,39 +29,50 @@ const conversation = { iface: 'discord', conversationId: 'c1' };
 const replyTo = { iface: 'discord', conversationId: 'c1', messageId: 'm0' };
 const on = () => ({ discord: { silent: true } });
 const off = () => ({ discord: { silent: false } });
+// The lead: one sent payload's mentions get a name, so each assertion reads three segments deep at most (R.2).
+type Mentions = { parse?: Array<string>; users?: Array<string>; repliedUser?: boolean };
+// The lead: a sent payload has a type, so the assertions read named fields and the lint has no `any` to refuse.
+type Payload = {
+  content?: string;
+  flags?: number;
+  reply?: unknown;
+  files?: Array<unknown>;
+  allowedMentions?: Mentions;
+};
+const mentionsOf = (payload: Payload | undefined): Mentions => payload?.allowedMentions ?? {};
 
 test('send: silent mode flags a plain message and pings nobody', async () => {
-  const sent: Array<Untyped> = [];
+  const sent: Array<Payload> = [];
   const result = await portOver(sent, on).send(conversation, { text: 'hi' });
   assert.equal(result.status, 'ok');
   assert.equal(sent[0].content, 'hi');
   assert.equal(sent[0].flags, SILENT);
-  assert.equal(sent[0].allowedMentions.repliedUser, false);
-  assert.deepEqual(sent[0].allowedMentions.parse, []);
+  assert.equal(mentionsOf(sent[0]).repliedUser, false);
+  assert.deepEqual(mentionsOf(sent[0]).parse, []);
 });
 
 test('send: silent mode keeps the reply reference and does not ping its author', async () => {
-  const sent: Array<Untyped> = [];
+  const sent: Array<Payload> = [];
   await portOver(sent, on).send(conversation, { text: 'yes', replyTo });
   assert.deepEqual(sent[0].reply, { messageReference: 'm0', failIfNotExists: false });
   assert.equal(sent[0].flags, SILENT);
-  assert.equal(sent[0].allowedMentions.repliedUser, false);
+  assert.equal(mentionsOf(sent[0]).repliedUser, false);
 });
 
 test('send: silent mode turns a requested reply ping off but keeps the named users', async () => {
-  const sent: Array<Untyped> = [];
+  const sent: Array<Payload> = [];
   await portOver(sent, on).send(conversation, {
     text: 'hey <@42>',
     replyTo,
     mentions: { users: ['42'], repliedUser: true },
   });
   assert.equal(sent[0].flags, SILENT);
-  assert.deepEqual(sent[0].allowedMentions.users, ['42']);
-  assert.equal(sent[0].allowedMentions.repliedUser, false);
+  assert.deepEqual(mentionsOf(sent[0]).users, ['42']);
+  assert.equal(mentionsOf(sent[0]).repliedUser, false);
 });
 
 test('send: silent mode flags a file message and keeps its text and file', async () => {
-  const sent: Array<Untyped> = [];
+  const sent: Array<Payload> = [];
   await portOver(sent, on).send(conversation, {
     text: 'look',
     attachments: [{ name: 'a.png', data: Buffer.from('x') }],
@@ -70,11 +80,11 @@ test('send: silent mode flags a file message and keeps its text and file', async
   assert.equal(sent[0].content, 'look');
   assert.equal(sent[0].flags, SILENT);
   assert.deepEqual(sent[0].files, [{ attachment: Buffer.from('x'), name: 'a.png' }]);
-  assert.equal(sent[0].allowedMentions.repliedUser, false);
+  assert.equal(mentionsOf(sent[0]).repliedUser, false);
 });
 
 test('send: silent mode adds the silent flag to the voice flag of a voice message', async () => {
-  const sent: Array<Untyped> = [];
+  const sent: Array<Payload> = [];
   await portOver(sent, on).send(conversation, {
     attachments: [
       {
@@ -86,18 +96,18 @@ test('send: silent mode adds the silent flag to the voice flag of a voice messag
   });
   assert.equal(sent[0].flags, VOICE | SILENT);
   assert.equal(sent[0].content, undefined);
-  assert.equal(sent[0].allowedMentions.repliedUser, false);
+  assert.equal(mentionsOf(sent[0]).repliedUser, false);
 });
 
 test('send: silent mode flags every part of a text split into several messages', async () => {
-  const sent: Array<Untyped> = [];
+  const sent: Array<Payload> = [];
   await portOver(sent, on).send(conversation, { text: `${'word '.repeat(600)}`.trim() });
   assert.ok(sent.length > 1);
   for (const payload of sent) assert.equal(payload.flags, SILENT);
 });
 
 test('send: with the key off the payload is exactly the engine always sent', async () => {
-  const sent: Array<Untyped> = [];
+  const sent: Array<Payload> = [];
   await portOver(sent, off).send(conversation, { text: 'hi', replyTo });
   assert.deepEqual(sent[0], {
     content: 'hi',
@@ -107,18 +117,18 @@ test('send: with the key off the payload is exactly the engine always sent', asy
 });
 
 test('send: with no config the payload has no flags and a requested reply ping stays', async () => {
-  const sent: Array<Untyped> = [];
+  const sent: Array<Payload> = [];
   await portOver(sent, () => ({})).send(conversation, {
     text: 'hi',
     replyTo,
     mentions: { users: [], repliedUser: true },
   });
   assert.equal(sent[0].flags, undefined);
-  assert.equal(sent[0].allowedMentions.repliedUser, true);
+  assert.equal(mentionsOf(sent[0]).repliedUser, true);
 });
 
 test('send: with the key off a voice message carries only the voice flag', async () => {
-  const sent: Array<Untyped> = [];
+  const sent: Array<Payload> = [];
   await portOver(sent, off).send(conversation, {
     attachments: [{ name: 'v.ogg', data: Buffer.from('o'), voice: { durationSecs: 1, waveform: 'AA==' } }],
   });
@@ -126,7 +136,7 @@ test('send: with the key off a voice message carries only the voice flag', async
 });
 
 test('send: switching the key between two sends changes the second only', async () => {
-  const sent: Array<Untyped> = [];
+  const sent: Array<Payload> = [];
   let silent = false;
   const port = portOver(sent, () => ({ discord: { silent } }));
   await port.send(conversation, { text: 'first', replyTo });
@@ -136,6 +146,6 @@ test('send: switching the key between two sends changes the second only', async 
   await port.send(conversation, { text: 'third', replyTo });
   assert.equal(sent[0].flags, undefined);
   assert.equal(sent[1].flags, SILENT);
-  assert.equal(sent[1].allowedMentions.repliedUser, false);
+  assert.equal(mentionsOf(sent[1]).repliedUser, false);
   assert.equal(sent[2].flags, undefined);
 });
