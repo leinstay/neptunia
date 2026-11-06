@@ -111,7 +111,8 @@ test('leaves a node_modules the worktree already holds as it is', async (t) => {
 
 test('fails the task before any agent runs when the checkout has no node_modules, naming npm install', async (t) => {
   // Bug: the task runs a whole thinker turn and then dies at its first commit with a missing-file line from xargs.
-  const world = developmentWorld(t);
+  // The lead: the rig seeds node_modules by default, so this case asks for a checkout without it.
+  const world = developmentWorld(t, { modules: false });
   const id = ownerTask(world);
   await settle(world.worker());
   const { task } = world.show(id);
