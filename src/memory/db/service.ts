@@ -170,6 +170,7 @@ import type { Track } from '../../loop-watch.ts';
 import { untracked } from '../../loop-watch.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
+import { selfreflectionFills } from './selfreflection-fills.ts';
 import type { Context } from './scope.ts';
 
 /** The folder of the unit writes that failed at a shutdown (stage W2b), under the data directory. */
@@ -583,6 +584,8 @@ export type MemoryDbService = {
   }): void;
   memoryWrite(update: unknown): Promise<unknown>;
   onAffinityMoves(fn: (moves: Array<Row>) => void): () => void;
+  /** Subscribes `fn()` to the owner's fills of old selfreflection entries that wrote (selfreflection-fills.ts). */
+  onSelfreflectionFill(fn: () => void): () => void;
   writeUnit(update: unknown): Promise<unknown>;
   keepPending(update: unknown): string;
   /** The writes in the quarantine, by name, with the code each failed with and when it moved. */
@@ -1754,6 +1757,7 @@ export function createMemoryDb({
   // otherwise write its older score over the move at its next flush). Each committed move is told once, after its
   // apply, also when the apply's answer was lost (the move is read back from the database by its run).
   const affinityListeners = new Set<(moves: Array<Row>) => void>();
+  const fills = selfreflectionFills(log);
   const toldMoves = new Set<unknown>();
   const TOLD_MOVES_KEPT = 10_000;
 
@@ -1962,8 +1966,9 @@ export function createMemoryDb({
     readHandle,
     searchRecord,
     recordTurnReads,
-    memoryWrite,
+    memoryWrite: fills.after(memoryWrite),
     onAffinityMoves,
+    onSelfreflectionFill: fills.on,
     writeUnit,
     keepPending,
     quarantinedPending: () => quarantinedIn(quarantineDir),
@@ -1975,7 +1980,10 @@ export function createMemoryDb({
     retrieve,
     personLink: (update: Row) => write({ ...update, kind: 'person-link' }),
     personMerge: (update: Row) => write({ ...update, kind: 'person-merge' }),
-    selfreflectionAudienceFill: (update: Row) => write({ ...update, kind: 'selfreflection-audience-fill' }),
+    selfreflectionAudienceFill: fills.after(
+      (update: Row) => write({ ...update, kind: 'selfreflection-audience-fill' }),
+      'selfreflection-audience-fill'
+    ),
     inspection,
     ...privateReads(() => dbOf(opened())),
     observe,

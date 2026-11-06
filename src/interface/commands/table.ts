@@ -532,6 +532,9 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('backfill-english', 'Bring stored media descriptions to English: backfill-english [--dry-run|status]', [
         arg('mode', false),
       ]),
+      sub('backfill-plans', 'Reconstruct the plans of old diary entries: backfill-plans [--dry-run|status]', [
+        arg('mode', false),
+      ]),
       sub('restore', 'Bring an archived item back', [arg('id')]),
       sub('journal', 'Show journal of a day: journal [<YYYY-MM-DD>]', [arg('day', false)]),
       sub('archive', 'List archived memory items', [arg('kind', false)]),

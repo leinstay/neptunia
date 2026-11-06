@@ -129,6 +129,8 @@ const CLOSED_KINDS = ['interest', 'detail', 'alias', 'realName'];
 /** How long a stored real name may be. */
 const REAL_NAME_CHARS = 60;
 
+/** The fields an owner's fill writes into old selfreflection entries: the reconstructed plan and the audience. */
+const SELFREFLECTION_FILLED = ['plan', 'publicationAudience'] as const;
 /** The selfreflection of a place with no post yet (the persona's selfreflection unit). */
 const emptySelfreflection = () => ({ posts: [], updatedAt: 0 });
 
@@ -3658,11 +3660,46 @@ function buildStore({
       }
       return taken;
     },
+
+    /**
+     * The owner filled old entries of the diary in the database (a reconstructed plan, an audience:
+     * src/memory/db/service.ts#onSelfreflectionFill). A clean cached diary no write holds is dropped, and the next read
+     * takes the database's. Any other gains, on each post with an item id, the filled fields (`SELFREFLECTION_FILLED`) the
+     * database holds and the post lacks, and goes to the outbox again, so its next write keeps them.
+     * @returns whether a cached diary was dropped or merged
+     */
+    noteSelfreflectionFill(): boolean {
+      const file = selfreflectionFile();
+      const item = entries.get(file);
+      if (!item || !memoryDb) return false;
+      const key = unitKeys.get(file) ?? file;
+      if (!item.dirty && !outbox?.holds(key)) {
+        entries.delete(file);
+        return true;
+      }
+      const stored: Untyped = seam.run(() => unitValue(seam.db(), dbPlace(file).key ?? file));
+      const held = new Map<string, Record<string, Untyped>>();
+      for (const post of stored?.found && Array.isArray(stored.value?.posts) ? stored.value.posts : [])
+        if (isRecord(post) && typeof post.itemId === 'string') held.set(post.itemId, post);
+      for (const post of Array.isArray(item.value?.posts) ? item.value.posts : []) {
+        const filled = isRecord(post) && typeof post.itemId === 'string' ? held.get(post.itemId) : undefined;
+        if (!filled) continue;
+        for (const field of SELFREFLECTION_FILLED)
+          if (post[field] === undefined && filled[field] !== undefined) post[field] = structuredClone(filled[field]);
+      }
+      item.dirty = true;
+      flushEntry(file, item);
+      if (outbox) void outbox.push();
+      return true;
+    },
   };
 
   // Her session's attitude moves reach the cached profiles (see noteAffinityMoves).
   if (typeof memoryDb?.onAffinityMoves === 'function')
     memoryDb.onAffinityMoves((moves: Untyped) => store.noteAffinityMoves(moves));
+  // The owner's fills of old entries reach the cached diary (see noteSelfreflectionFill).
+  if (typeof memoryDb?.onSelfreflectionFill === 'function')
+    memoryDb.onSelfreflectionFill(() => store.noteSelfreflectionFill());
 
   return store;
 }

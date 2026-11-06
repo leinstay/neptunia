@@ -76,9 +76,10 @@ type OpResult = { status: string; code: string; summary: string; data: unknown }
 type OwnerRun = { start(options: { dryRun: boolean }): Promise<unknown>; status(): unknown };
 
 /** The owner's runs in the background, by command: the dependency that holds each. */
-const OWNER_RUNS: Readonly<Record<string, 'mediaBackfill' | 'mediaEnglish' | undefined>> = {
+const OWNER_RUNS: Readonly<Record<string, 'mediaBackfill' | 'mediaEnglish' | 'planFill' | undefined>> = {
   'memory.backfill-media': 'mediaBackfill',
   'memory.backfill-english': 'mediaEnglish',
+  'memory.backfill-plans': 'planFill',
 };
 
 export type ConsoleDeps = {
@@ -113,6 +114,8 @@ export type ConsoleDeps = {
   mediaBackfill?: OwnerRun | null;
   /** The owner's run that brings stored media descriptions to English (src/memory/db/media-english.ts). */
   mediaEnglish?: OwnerRun | null;
+  /** The owner's run that reconstructs the plans of old diary entries (src/memory/db/selfreflection-plan-fill.ts). */
+  planFill?: OwnerRun | null;
   /** A conversation's newest stored lines, oldest first. */
   conversationLines(conversationId: string, count: number): ReadonlyArray<{ author: string; text: string }>;
   now(): number;
@@ -607,7 +610,8 @@ function ownerContextOf(
 }
 
 /**
- * An owner's run in the background (src/memory/db/media-backfill.ts, src/memory/db/media-english.ts): started once and
+ * An owner's run in the background (src/memory/db/media-backfill.ts, src/memory/db/media-english.ts,
+ * src/memory/db/selfreflection-plan-fill.ts): started once and
  * resumable, with its counts readable while it runs and after it ends. `--dry-run` counts what it would do, with no read
  * and no write.
  */

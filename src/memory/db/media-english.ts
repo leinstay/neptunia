@@ -23,6 +23,7 @@ import { roleModel, roleOn } from '../../llm/roles.ts';
 import { clampText, oneLine } from '../clamp.ts';
 import { DESCRIPTION_CHARS, VIDEO_SUMMARY_CHARS, createDescriber } from '../describe.ts';
 import { isOffScript } from '../text-standard.ts';
+import { selfreflectionPlanFillDesk } from './selfreflection-plan-fill.ts';
 import { projectRow } from './graph.ts';
 import { conversationOf, historyReader, isRefusal, mediaBackfillDesk, messageIdOf } from './media-backfill.ts';
 import { cacheKeyParts, mediaRowOfCacheKey, tellFromCacheKey } from './media-store.ts';
@@ -454,17 +455,23 @@ function mediaEnglishDesk({
   });
 }
 
-/** The owner's two media runs over the running core: the backfill on the core's describer, and the English run. */
-export function ownerMediaRuns({
+/**
+ * The owner's runs over the running core: the media backfill on the core's describer, the English run, and the plan fill
+ * of old selfreflection entries (selfreflection-plan-fill.ts) on the describer's client and settings.
+ */
+export function ownerMemoryRuns({
   describer,
   ...core
 }: Parameters<typeof mediaEnglishDesk>[0] & Pick<Parameters<typeof mediaBackfillDesk>[0], 'describer'>): {
   mediaBackfill: ReturnType<typeof mediaBackfillDesk>;
   mediaEnglish: ReturnType<typeof mediaEnglishDesk>;
+  planFill: ReturnType<typeof selfreflectionPlanFillDesk>;
 } {
-  const { memoryDb, reads, iface, now, log } = core;
+  const { memoryDb, reads, iface, describerDeps, now, log } = core;
+  const { llm, hot } = describerDeps as Pick<Parameters<typeof selfreflectionPlanFillDesk>[0], 'llm' | 'hot'>;
   return {
     mediaBackfill: mediaBackfillDesk({ memoryDb, reads, iface, describer, now, log }),
     mediaEnglish: mediaEnglishDesk(core),
+    planFill: selfreflectionPlanFillDesk({ memoryDb, llm, hot, now, log }),
   };
 }
