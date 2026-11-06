@@ -556,7 +556,7 @@
     },
     {
       "path": "src/subharness/tool-bridge.ts",
-      "purpose": "The core's end of the MCP server of a subscription turn: per-turn tokens and the socket pair; tests/subharness-mcp-server.test.ts tests it with the server.",
+      "purpose": "The core's end of the MCP server of a subscription turn, its per-turn tokens and its socket pair. Tested through the MCP server tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
