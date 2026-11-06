@@ -179,7 +179,8 @@ test('caps of zero and empty inputs yield empty lists', () => {
 
 test('a full answer yields both fields', () => {
   // Bug: the parser reads only the first line, so one of the two merged classifiers goes unanswered.
-  assert.deepEqual(parseElsewhereAnswer('place: 2\nepisodes: 3, 1', { places: 4, episodes: 4 }), {
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  assert.deepEqual(parseElsewhereAnswer('{"place":2,"earlier":false,"episodes":[3,1]}', { places: 4, episodes: 4 }), {
     place: { index: 2, direction: null, reason: 'pick' },
     episodes: { indices: [3, 1], reason: 'pick' },
   });
@@ -187,20 +188,23 @@ test('a full answer yields both fields', () => {
 
 test('the labels may come in either order and any case', () => {
   // Bug: a fixed line order drops a good answer on a model's whim.
-  const parsed = parseElsewhereAnswer('Episodes: 1\nPLACE: 1', { places: 1, episodes: 1 });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const parsed = parseElsewhereAnswer('{"episodes":[1],"earlier":false,"place":1}', { places: 1, episodes: 1 });
   assert.equal(parsed.place.index, 1);
   assert.deepEqual(parsed.episodes.indices, [1]);
 });
 
 test('a place may ask for the page before her last view', () => {
   // Bug: the `earlier` of the route classifier is lost in the merge.
-  const parsed = parseElsewhereAnswer('place: 1 earlier\nepisodes: none', { places: 1, episodes: 1 });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const parsed = parseElsewhereAnswer('{"place":1,"earlier":true,"episodes":[]}', { places: 1, episodes: 1 });
   assert.deepEqual(parsed.place, { index: 1, direction: 'earlier', reason: 'pick' });
 });
 
 test('none in one field leaves the other standing', () => {
   // Bug: the first `none` of the old parsers ends the whole answer.
-  const parsed = parseElsewhereAnswer('place: none\nepisodes: 2', { places: 3, episodes: 3 });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const parsed = parseElsewhereAnswer('{"place":null,"earlier":false,"episodes":[2]}', { places: 3, episodes: 3 });
   assert.equal(parsed.place.index, null);
   assert.equal(parsed.place.reason, 'none');
   assert.deepEqual(parsed.episodes.indices, [2]);
@@ -208,7 +212,11 @@ test('none in one field leaves the other standing', () => {
 
 test('a malformed place line yields none for the place, the episodes still parse', () => {
   // Bug: the two fields fail together, so a slip in one costs the other.
-  const parsed = parseElsewhereAnswer('place: the second one\nepisodes: 1', { places: 2, episodes: 2 });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const parsed = parseElsewhereAnswer('{"place":"the second one","earlier":false,"episodes":[1]}', {
+    places: 2,
+    episodes: 2,
+  });
   assert.equal(parsed.place.index, null);
   assert.equal(parsed.place.reason, 'unparsed');
   assert.deepEqual(parsed.episodes.indices, [1]);
@@ -216,7 +224,11 @@ test('a malformed place line yields none for the place, the episodes still parse
 
 test('a malformed episodes line yields none for the episodes, the place still parses', () => {
   // Bug: as above, from the other side.
-  const parsed = parseElsewhereAnswer('place: 1\nepisodes: 1 and then 2', { places: 2, episodes: 2 });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const parsed = parseElsewhereAnswer('{"place":1,"earlier":false,"episodes":"1 and then 2"}', {
+    places: 2,
+    episodes: 2,
+  });
   assert.equal(parsed.place.index, 1);
   assert.deepEqual(parsed.episodes.indices, []);
   assert.equal(parsed.episodes.reason, 'unparsed');
@@ -241,7 +253,8 @@ test('an empty answer yields none for both', () => {
 
 test('a number outside the list is unknown, and only the known episodes are kept', () => {
   // Bug: an out-of-range number indexes past the list and the turn gets `undefined` for an id.
-  const parsed = parseElsewhereAnswer('place: 9\nepisodes: 9, 2', { places: 2, episodes: 2 });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const parsed = parseElsewhereAnswer('{"place":9,"earlier":false,"episodes":[9,2]}', { places: 2, episodes: 2 });
   assert.equal(parsed.place.index, null);
   assert.equal(parsed.place.reason, 'unknown-id');
   assert.deepEqual(parsed.episodes.indices, [2]);
@@ -249,7 +262,11 @@ test('a number outside the list is unknown, and only the known episodes are kept
 
 test('at most four episodes are taken, each once, in the answer order', () => {
   // Bug: a long or repeated answer floods the turn's block.
-  const parsed = parseElsewhereAnswer('episodes: 5, 5, 4, 3, 2, 1', { places: 0, episodes: 5 });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const parsed = parseElsewhereAnswer('{"place":null,"earlier":false,"episodes":[5,5,4,3,2,1]}', {
+    places: 0,
+    episodes: 5,
+  });
   assert.deepEqual(parsed.episodes.indices, [5, 4, 3, 2]);
 });
 
@@ -338,7 +355,8 @@ function picker(
           });
           throw Object.assign(new Error('aborted'), { name: 'AbortError' });
         }
-        return { text: options.answer ?? 'place: none\nepisodes: none' };
+        // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+        return { text: options.answer ?? '{"place":null,"earlier":false,"episodes":[]}' };
       },
     },
     now: () => NOW,
@@ -372,7 +390,8 @@ function picker(
 
 test('one pick is one request, and it answers both fields with the ids of the listed candidates', async () => {
   // Bug: the merge still sends two calls, or a number is mapped against the list before the cut.
-  const scene = picker({ answer: 'place: 2 earlier\nepisodes: 2, 1' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const scene = picker({ answer: '{"place":2,"earlier":true,"episodes":[2,1]}' });
   const result = await scene.pick(scene.args);
   assert.equal(scene.calls.length, 1);
   assert.deepEqual(result, { place: { id: 'c2', direction: 'earlier' }, episodes: ['e2', 'e1'] });

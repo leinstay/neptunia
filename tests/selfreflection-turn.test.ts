@@ -23,6 +23,7 @@ import { attachmentCount, onWorld, useIface, useSelf, world } from './fixtures/t
 import type { Channel } from './fixtures/turn-world.ts';
 import { appendedPost, selfreflectionCounts, entryOf, publishTo } from './fixtures/selfreflection-mirror.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { planAnswerText } from './fixtures/plan-answer.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -124,7 +125,8 @@ function fakeLlm(plan: Untyped, post: Untyped) {
       options.push(opts);
       if (opts?.purpose === 'selfreflection-planner') {
         if (plan instanceof Error) throw plan;
-        return { text: typeof plan === 'string' ? plan : JSON.stringify(plan), usage: {}, estimated: 5 };
+        // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+        return { text: planAnswerText(plan, opts), usage: {}, estimated: 5 };
       }
       const answer = Array.isArray(post) ? post[Math.min(composed, post.length - 1)] : post;
       composed += 1;

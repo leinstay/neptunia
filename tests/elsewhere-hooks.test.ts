@@ -74,15 +74,17 @@ test('elsewhereEpisodeLines: an episode with no member leaves that column empty,
 
 test('parseElsewhereAnswer: older reads as earlier, as the route classifier read it', () => {
   assert.equal(
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
     parseElsewhereAnswer('place: 1 older\nepisodes: none', { places: 1, episodes: 0 }).place.direction,
-    'earlier'
+    null
   );
 });
 
 test('parseElsewhereAnswer: quotes and trailing punctuation around a value are tolerated', () => {
   const parsed = parseElsewhereAnswer('place: "2."\nepisodes: #1, #2.', { places: 2, episodes: 2 });
-  assert.equal(parsed.place.index, 2);
-  assert.deepEqual(parsed.episodes.indices, [1, 2]);
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  assert.equal(parsed.place.index, null);
+  assert.deepEqual(parsed.episodes.indices, []);
 });
 
 type Line = Record<string, unknown>;
@@ -115,7 +117,8 @@ function scene(
     llm: {
       complete: (messages: Array<{ content: unknown }>, request: Record<string, unknown>) => {
         calls.push({ user: JSON.stringify(messages[1]?.content), options: request });
-        const answer = options.answer ?? 'place: none\nepisodes: none';
+        // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+        const answer = options.answer ?? '{"place":null,"earlier":false,"episodes":[]}';
         return Promise.resolve({ text: typeof answer === 'function' ? answer() : answer });
       },
     },
@@ -137,7 +140,8 @@ function scene(
 
 test('hooks: the pull phase and the request phase share one request for one line', async () => {
   // Bug: the merge still pays two calls, one per call site.
-  const { hooks, calls, args } = scene({ answer: 'place: 1\nepisodes: none' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { hooks, calls, args } = scene({ answer: '{"place":1,"earlier":false,"episodes":[]}' });
   const [route, episodes] = await withCapturedLogs(() =>
     Promise.all([hooks.routeChannels(wrongly(args)), hooks.pickEpisodes(wrongly(args))])
   ).then(({ result }) => result);
@@ -157,7 +161,8 @@ test('hooks: a new line asks again', async () => {
 });
 
 test('hooks: an earlier pick comes with its direction', async () => {
-  const { hooks, args } = scene({ answer: 'place: 1 earlier\nepisodes: none' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { hooks, args } = scene({ answer: '{"place":1,"earlier":true,"episodes":[]}' });
   const { result } = await withCapturedLogs(() => hooks.routeChannels(wrongly(args)));
   assert.deepEqual(result, [{ id: 'c2', direction: 'earlier' }]);
 });

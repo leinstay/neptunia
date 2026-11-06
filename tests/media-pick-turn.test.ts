@@ -60,7 +60,8 @@ function declare(mediaPick: unknown): void {
 
 async function runScene({
   reply = '<msg reply="#2">ναι, φυσικά, έλα</msg>',
-  pick = 'none',
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  pick = '{"pick":"none","name":null}',
   mediaPick = null,
   failLink = false,
 }: { reply?: string; pick?: string; mediaPick?: object | null; failLink?: boolean } = {}) {
@@ -116,7 +117,8 @@ async function runScene({
 }
 
 test('an interface without the capability sends the reply as written with no classifier call', async () => {
-  const { picks, sent } = await runScene({ pick: 'gif g1' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { picks, sent } = await runScene({ pick: '{"pick":"gif","name":"g1"}' });
   assert.equal(picks.length, 0);
   assert.deepEqual(sent, ['ναι, φυσικά, έλα']);
 });
@@ -124,7 +126,8 @@ test('an interface without the capability sends the reply as written with no cla
 test('a picked GIF is posted in place of the first message and the rest follow', async () => {
   const { picks, sent } = await runScene({
     reply: '<msg>ναι, φυσικά, έλα</msg><msg>στις οκτώ</msg>',
-    pick: 'gif g1',
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+    pick: '{"pick":"gif","name":"g1"}',
     mediaPick: { gifForms: ['file', 'link'] },
   });
   assert.equal(picks.length, 1);
@@ -132,14 +135,19 @@ test('a picked GIF is posted in place of the first message and the rest follow',
 });
 
 test('a `none` from the classifier posts the reply as written', async () => {
-  const { picks, sent } = await runScene({ pick: 'none', mediaPick: { gifForms: ['file', 'link'] } });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { picks, sent } = await runScene({
+    pick: '{"pick":"none","name":null}',
+    mediaPick: { gifForms: ['file', 'link'] },
+  });
   assert.equal(picks[0]?.options.purpose, 'media-pick');
   assert.deepEqual(sent, ['ναι, φυσικά, έλα']);
 });
 
 test('a refused post leaves the text message in place', async () => {
   const { picks, sent } = await runScene({
-    pick: 'gif g1',
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+    pick: '{"pick":"gif","name":"g1"}',
     mediaPick: { gifForms: ['file', 'link'] },
     failLink: true,
   });

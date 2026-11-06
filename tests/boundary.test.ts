@@ -20,6 +20,7 @@ import { createTurnRunner, fakeStore, hotWith, sequenceLlm } from './fixtures/tu
 import { GUILD, MINUTE, START, innerRig, newHistory, replyTo, rowsOf } from './fixtures/boundary.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 import { createStore } from '../src/memory/store.ts';
+import { planAnswerText } from './fixtures/plan-answer.ts';
 
 // The fakes hold only the part of the real object that the code under test reads, so each is cast once, here.
 const fakeOf = <T>(value: object): T => value as T;
@@ -125,11 +126,13 @@ describe('inner turns with no interface', () => {
       'selfreflection-seeds': '# place\na pier',
       world: 'The world.',
     });
-    const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false });
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+    const plan = { kind: 'status', brief: 'a quiet day', search: '', picture: false };
     const llm = {
       complete: (_messages: unknown, options: { purpose?: string }) =>
         Promise.resolve({
-          text: options?.purpose === 'selfreflection-planner' ? plan : '<msg>μια ήσυχη μέρα</msg>',
+          text:
+            options?.purpose === 'selfreflection-planner' ? planAnswerText(plan, options) : '<msg>μια ήσυχη μέρα</msg>',
           usage: {},
           estimated: 5,
         }),

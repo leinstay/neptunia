@@ -1175,7 +1175,11 @@ async function preTurn({
 }
 
 test("preTurnLookup: the live classifier request; its web and server parts run and come back as the request's <lookup>; its skills: line is handed on", async () => {
-  const { out, requests, ran } = await preTurn({ answer: 'web: τελικός 2026\nhistory: τελικός\nskills: inventory' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { out, requests, ran } = await preTurn({
+    answer:
+      '{"web":"τελικός 2026","history":"τελικός","who":null,"when":null,"when_role":null,"recent":null,"skills":"inventory"}',
+  });
   assert.equal(requests.length, 1);
   assert.equal(requests[0].options.purpose, 'query-builder'); // plan 2026-11-04-cli-and-memory B4
   assert.ok(

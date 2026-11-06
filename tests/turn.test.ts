@@ -2123,7 +2123,8 @@ test('runTurn: an overheard turn posts its GIF plain', async () => {
       // B7: a GIF of hers is the media pick's now, in place of the message it would have replaced.
       hot: withPick(fakeHot()),
       store: gifStore(),
-      llm: pickLlm({ reply: '<msg reply="#1">χα</msg>', pick: 'gif g1' }),
+      // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+      llm: pickLlm({ reply: '<msg reply="#1">χα</msg>', pick: '{"pick":"gif","name":"g1"}' }),
       calibrator: identityCalibrator(),
       client: fakeClient(),
     });
@@ -3595,7 +3596,8 @@ test('runTurn: a GIF answering a pulled line posts plain with its jump link', as
     hot: withPick(drawHot()),
     images: fakeImages(),
     store: gifStore(),
-    llm: pickLlm({ reply: '<msg reply="#4">χα</msg>', pick: 'gif g1' }),
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+    llm: pickLlm({ reply: '<msg reply="#4">χα</msg>', pick: '{"pick":"gif","name":"g1"}' }),
   });
 
   const { result, logs } = await withCapturedLogs(() => scene.turns.runTurn(scene.params));
@@ -3615,7 +3617,8 @@ test('runTurn: a picked GIF answering a routed call links the call; the message 
   const alone = routedScene({
     hot: withPick(fakeHot()),
     store: gifStore(),
-    llm: pickLlm({ reply: '<msg>χα</msg>', pick: 'gif g1' }),
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+    llm: pickLlm({ reply: '<msg>χα</msg>', pick: '{"pick":"gif","name":"g1"}' }),
   });
   await withCapturedLogs(() => alone.turns.runTurn(alone.params));
   assert.deepEqual(
@@ -3626,7 +3629,7 @@ test('runTurn: a picked GIF answering a routed call links the call; the message 
   const after = routedScene({
     hot: withPick(fakeHot()),
     store: gifStore(),
-    llm: pickLlm({ reply: '<msg>χα</msg><msg>κοίτα</msg>', pick: 'gif g1' }),
+    llm: pickLlm({ reply: '<msg>χα</msg><msg>κοίτα</msg>', pick: '{"pick":"gif","name":"g1"}' }),
   });
   await withCapturedLogs(() => after.turns.runTurn(after.params));
   assert.deepEqual(
@@ -5967,7 +5970,8 @@ function pickHot({
 
 async function runPickTurn({
   reply = '<msg reply="#2">ναι, φυσικά, έλα</msg>',
-  pick = 'none',
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  pick = '{"pick":"none","name":null}',
   store = pickStore(),
   typing = null,
   raws = pickHistory(),
@@ -6009,7 +6013,8 @@ async function runPickTurn({
 
 // B7: the classifier reads the search's candidates, one text with no cached part, and answers `gif <handle>`.
 test('runTurn: a short reply is shown with its candidates; a picked handle posts that GIF and no text', async () => {
-  const { result, logs, channel, picks, store, sent } = await runPickTurn({ pick: ' GIF  G50 ' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { result, logs, channel, picks, store, sent } = await runPickTurn({ pick: '{"pick":"gif","name":"G50"}' });
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(picks.length, 1, 'one pick request');
@@ -6060,7 +6065,11 @@ test('runTurn: a short reply is shown with its candidates; a picked handle posts
 test('runTurn: the pick leaves out uncaptioned GIFs and acts only on a listed handle', async () => {
   const library = pickLibrary();
   delete library.gifs.entries.k7.caption;
-  const { picks, sent, logs } = await runPickTurn({ store: pickStore({ library }), pick: 'gif g7' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { picks, sent, logs } = await runPickTurn({
+    store: pickStore({ library }),
+    pick: '{"pick":"gif","name":"g7"}',
+  });
   assert.equal(textOf(picks[0].messages[1].content).includes('g7 --'), false, 'g7 has no caption');
   assert.deepEqual(sent(), ['ναι, φυσικά, έλα'], 'an unlisted handle posts the text');
   const picked = logs.find((entry) => entry.msg === 'media-pick: answered');
@@ -6089,19 +6098,21 @@ test('runTurn: a failed pick request logs media-pick: failed and posts the text'
 // B7: the case of a turn posting its own GIF went with `<gif>`, which tests/parse-gif-retired.test.ts holds retired.
 test('runTurn: no pick for a reply over maxChars', async () => {
   const text = 'α'.repeat(161);
-  const long = await runPickTurn({ reply: `<msg>${text}</msg>`, pick: 'gif g1' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const long = await runPickTurn({ reply: `<msg>${text}</msg>`, pick: '{"pick":"gif","name":"g1"}' });
   assert.equal(long.picks.length, 0, 'over maxChars');
   assert.deepEqual(long.sent(), [text]);
   // B7: a word of the reply finds the candidates.
-  const fits = await runPickTurn({ reply: `<msg>ναι ${'α'.repeat(156)}</msg>`, pick: 'gif g1' });
+  const fits = await runPickTurn({ reply: `<msg>ναι ${'α'.repeat(156)}</msg>`, pick: '{"pick":"gif","name":"g1"}' });
   assert.equal(fits.picks.length, 1, 'exactly maxChars is still picked for');
 });
 
 test('runTurn: no pick without the prompt or without a captioned GIF', async () => {
-  const noPrompt = await runPickTurn({ pick: 'gif g1', prompts: { 'media-pick': null } });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const noPrompt = await runPickTurn({ pick: '{"pick":"gif","name":"g1"}', prompts: { 'media-pick': null } });
   assert.equal(noPrompt.picks.length, 0, 'no prompts/media-pick.md');
   const empty = await runPickTurn({
-    pick: 'gif g1',
+    pick: '{"pick":"gif","name":"g1"}',
     store: pickStore({ library: { gifs: { nextId: 1, entries: {} }, mediaCache: {} } }),
   });
   assert.equal(empty.picks.length, 0, 'no captioned GIF');
@@ -6148,7 +6159,8 @@ test('runTurn: the picker names the line the first message replies to, when it i
 test('runTurn: with several messages a picked GIF replaces the first one only; the rest follow in order', async () => {
   const longer = 'και κάτι ακόμα πιο μακρύ ' + 'α'.repeat(160);
   const reply = `<msg reply="#2">χα</msg><msg>${longer}</msg><msg>τέλος</msg>`;
-  const { picks, sent, channel, store } = await runPickTurn({ reply, pick: 'gif g50' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { picks, sent, channel, store } = await runPickTurn({ reply, pick: '{"pick":"gif","name":"g50"}' });
   assert.equal(picks.length, 1, 'only the first message counts toward the longest it may replace');
   assert.equal(
     textOf(picks[0].messages[1].content).split('\n\n')[2].endsWith(' χα\n</reply>'),
@@ -6165,7 +6177,12 @@ test('runTurn: with several messages a picked GIF replaces the first one only; t
 
 test('runTurn: a picked GIF that fails to send leaves the first message to be posted as written, then the rest', async () => {
   const reply = '<msg reply="#2">χα</msg><msg>τέλος</msg>';
-  const { sent, channel, logs, store } = await runPickTurn({ reply, pick: 'gif g50', failGif: true });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { sent, channel, logs, store } = await runPickTurn({
+    reply,
+    pick: '{"pick":"gif","name":"g50"}',
+    failGif: true,
+  });
   assert.ok(
     logs.some((entry) => entry.msg === 'turn: gif failed'),
     'the failed GIF is logged'
@@ -6177,7 +6194,8 @@ test('runTurn: a picked GIF that fails to send leaves the first message to be po
 
 test('runTurn: the longest message the pick replaces gates the first message only', async () => {
   const first = 'και κάτι ακόμα πιο μακρύ ' + 'α'.repeat(160);
-  const long = await runPickTurn({ reply: `<msg>${first}</msg><msg>χα</msg>`, pick: 'gif g1' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const long = await runPickTurn({ reply: `<msg>${first}</msg><msg>χα</msg>`, pick: '{"pick":"gif","name":"g1"}' });
   assert.equal(long.picks.length, 0, 'a long first message is never replaced');
   assert.deepEqual(long.sent(), [first, 'χα']);
 });
@@ -6186,7 +6204,8 @@ test("runTurn: the picker runs alongside the first message's typing time", async
   let askedAt = null;
   const pick = () => {
     askedAt = Date.now();
-    return new Promise((resolve) => setTimeout(() => resolve('none'), 150));
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+    return new Promise((resolve) => setTimeout(() => resolve('{"pick":"none","name":null}'), 150));
   };
   const { sendTimes, sent } = await runPickTurn({
     reply: '<msg>ναι</msg>',
@@ -6202,7 +6221,8 @@ test("runTurn: the picker runs alongside the first message's typing time", async
 test("runTurn: a picker still out when the first message's typing ends is left behind: the text goes, logged and journaled", async () => {
   // PR 7d: gifs.pick.graceMs is the constant 1000, so the picker has that long beyond the typing before it is left behind.
   const typing = { msPerChar: [0, 0], minMs: 60, maxMs: 60 };
-  const slow = () => new Promise((resolve) => setTimeout(() => resolve('gif g50'), 1400));
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const slow = () => new Promise((resolve) => setTimeout(() => resolve('{"pick":"gif","name":"g50"}'), 1400));
   const late = await runPickTurn({
     reply: '<msg>ναι</msg>',
     pick: slow,
@@ -6224,7 +6244,7 @@ test("runTurn: a picker still out when the first message's typing ends is left b
 
   const graced = await runPickTurn({
     reply: '<msg>ναι</msg>',
-    pick: () => new Promise((resolve) => setTimeout(() => resolve('gif g50'), 400)),
+    pick: () => new Promise((resolve) => setTimeout(() => resolve('{"pick":"gif","name":"g50"}'), 400)),
     typing,
   });
   assert.deepEqual(
@@ -6241,7 +6261,8 @@ test("runTurn: a picker still out when the first message's typing ends is left b
 test('runTurn: a picker that answered during the typing is used', async () => {
   const quick = await runPickTurn({
     reply: '<msg>ναι</msg>',
-    pick: 'gif g50',
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+    pick: '{"pick":"gif","name":"g50"}',
     typing: { msPerChar: [0, 0], minMs: 60, maxMs: 60 },
   });
   assert.deepEqual(quick.sent(), ['https://tenor.com/view/gif-50']);
@@ -6258,7 +6279,8 @@ test('runTurn: a picker that answered during the typing is used', async () => {
 async function twoPickTurns({ times, between }: Untyped) {
   const library = pickLibrary();
   const store = pickStore({ library });
-  const llm = pickLlm({ reply: '<msg reply="#2">ναι, φυσικά, έλα</msg>', pick: 'none' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const llm = pickLlm({ reply: '<msg reply="#2">ναι, φυσικά, έλα</msg>', pick: '{"pick":"none","name":null}' });
   let t = times[0];
   const turns = createTurnRunner({
     discord: DISCORD,
@@ -6653,7 +6675,12 @@ test('runTurn: the pick classifier runs beside the turn and its pick reaches the
   // PR 7d: participation.shown is the constant 4, so both stored episodes are shown whatever the pick says.
   const hot = fakeHot();
   hot.prompts['elsewhere-pick'] = 'Pick for {{name}}.'; // plan 2026-11-04-cli-and-memory B3: one pick, two fields
-  const { llm, logs, result } = await runParticipationTurn({ hot, store, answers: ['episodes: 1', '<msg>ναι</msg>'] });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { llm, logs, result } = await runParticipationTurn({
+    hot,
+    store,
+    answers: ['{"place":null,"earlier":false,"episodes":[1]}', '<msg>ναι</msg>'],
+  });
   assert.equal(result.outcome, 'spoke');
   assert.equal(llm.calls.length, 2);
   assert.equal(llm.calls[0][0].content, 'Pick for Bot.');
@@ -7651,7 +7678,8 @@ test('skills gateway: the GIF and the drawing are published through the port', a
     llm: {
       complete: (messages: Untyped, options: Untyped) =>
         options?.purpose === 'media-pick'
-          ? Promise.resolve({ text: 'gif g1', usage: {}, estimated: 1 })
+          ? // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+            Promise.resolve({ text: '{"pick":"gif","name":"g1"}', usage: {}, estimated: 1 })
           : gatewayLlm.complete(messages, options),
     },
     calibrator: identityCalibrator(),
@@ -8866,7 +8894,8 @@ test('createTurnRunner: a message the record holds as deleted appears in the win
 test('runTurn: a picked GIF is posted after a hundred GIFs today, a stale gifs.maxPerDay in the config included', async () => {
   const run = await runPickTurn({
     reply: '<msg>χα</msg>',
-    pick: 'gif g2',
+    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+    pick: '{"pick":"gif","name":"g2"}',
     store: pickStore({ data: { gifDay: '2026-09-20', gifCount: 100 } }),
     maxPerDay: 3,
   });

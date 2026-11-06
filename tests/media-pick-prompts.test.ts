@@ -15,7 +15,8 @@ test('prompts/gif-pick.md is gone and prompts/media-pick.md fills {{name}}', () 
 
 test('the pick prompt names its blocks and its answers', () => {
   const prompt = shipped('media-pick');
-  for (const word of ['<context>', '<reply>', '<gifs>', '`none`', '`gif <handle>`']) {
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  for (const word of ['<context>', '<reply>', '<gifs>', '`none`', '`gif`']) {
     assert.ok(prompt.includes(word), word);
   }
 });

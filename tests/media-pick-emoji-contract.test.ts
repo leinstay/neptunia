@@ -16,7 +16,8 @@ const shipped = (name: string): string => fs.readFileSync(new URL(`../prompts/${
 
 test('the pick prompt names the emoji block and the answers of the emoji forms', () => {
   const prompt = shipped('media-pick');
-  for (const word of ['<emoji>', '`emoji <name>`', '`replace <name>`']) assert.ok(prompt.includes(word), word);
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  for (const word of ['<emoji>', '`emoji`', '`replace`']) assert.ok(prompt.includes(word), word);
 });
 
 test('the turn prompts hold no custom emoji rule', () => {

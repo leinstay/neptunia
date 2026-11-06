@@ -31,9 +31,7 @@ The time of day from <now> shapes the idea: a night post belongs to the night. T
 
 Write the brief in the language the people in <about_chat> write in.
 
-Answer ONE JSON object, nothing else:
-
-{"kind": "<key>", "brief": "<one line: what the post is about>", "search": "<query or empty string>", "picture": true|false, "seed": <number>}
+Answer with a JSON object that has five fields. kind: the kind of this post from <kinds>. brief: one line, what the post is about. search: the query, or an empty string. picture: true or false. seed: a number.
 
 `picture` is true when the post carries a drawing, false for text only.
 

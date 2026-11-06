@@ -4,11 +4,12 @@
 // in place of that message, an emoji appended to it or posted in its place, and the rest follow as written (src/turn/act.ts).
 // Whether the pick runs at all, and which of the forms, is what the interface declares (src/interface/capabilities.ts).
 // This module holds its settings, its candidate search over the library (src/memory/gifs.ts), the emoji rails per place,
-// its one request and the reading of its one-line answer. Every failure is `none`.
+// its one request and the reading of its JSON answer. Every failure is `none`.
 
 import { isPlainObject } from '../config.ts';
 import { fill, formatDuration, replyMarker } from '../format.ts';
 import { railReason, roleRequestOptions } from '../llm/openrouter.ts';
+import { strictJsonObject } from '../llm/parse.ts';
 import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { clampWithEllipsis } from '../memory/clamp.ts';
@@ -114,26 +115,44 @@ function listed(wanted: string, list: ReadonlyArray<string>): string | undefined
 }
 
 /**
- * The classifier's answer read strictly: one line of `none`, `gif <handle>`, `emoji <name>` or `replace <name>` naming
- * what was offered, in any case and spacing, with an action the interface supports. Anything else is `none`, two forms
- * in one line included. Pure.
+ * The schema of the pick's answer for one request, handed to the client as `responseFormat`:
+ * `{ "pick": "none" | "gif" | "emoji" | "replace", "name": string | null }`, with `name` one of the GIF handles and emoji
+ * names `offer` holds. Pure.
+ */
+export function mediaPickFormat(offer: MediaPickOffer): { name: string; schema: object } {
+  const names = [...new Set([...offer.gifs, ...offer.emoji].map(String))];
+  return {
+    name: 'media-pick',
+    schema: {
+      type: 'object',
+      properties: {
+        pick: { type: 'string', enum: ['none', 'gif', 'emoji', 'replace'] },
+        name: { type: ['string', 'null'], enum: [...names, null] },
+      },
+      required: ['pick', 'name'],
+      additionalProperties: false,
+    },
+  };
+}
+
+/**
+ * The classifier's answer read strictly: the JSON object of mediaPickFormat, whose `pick` is `gif` with a handle of
+ * `offer`, `emoji` or `replace` with an emoji name of `offer` and an action the interface supports, or `none`. Anything
+ * else is `none`, text that is not the object included. Pure.
  */
 export function parseMediaPick(text: unknown, offer: MediaPickOffer): MediaPickAnswer {
-  if (typeof text !== 'string') return NONE;
-  const line = text.trim();
-  if (line === '' || /[\r\n]/.test(line)) return NONE;
-  const words = line.split(/\s+/);
-  if (words.length !== 2) return NONE;
-  const [form, name] = words;
-  if (form.toLowerCase() === 'gif') {
+  const answer = strictJsonObject(text);
+  const { pick, name } = answer ?? {};
+  if (typeof name !== 'string') return NONE;
+  if (pick === 'gif') {
     const handle = listed(name, offer.gifs);
     return handle === undefined ? NONE : { kind: 'gif', handle };
   }
-  const action = { emoji: 'append', replace: 'replace' }[form.toLowerCase()];
+  const action = pick === 'emoji' ? 'append' : pick === 'replace' ? 'replace' : undefined;
   if (action === undefined || !offer.actions.includes(action)) return NONE;
   const emoji = listed(name, offer.emoji);
   if (emoji === undefined) return NONE;
-  return form.toLowerCase() === 'emoji' ? { kind: 'emoji', name: emoji } : { kind: 'replace', name: emoji };
+  return pick === 'emoji' ? { kind: 'emoji', name: emoji } : { kind: 'replace', name: emoji };
 }
 
 /**
@@ -423,7 +442,13 @@ export function createMediaPick({
   }
 
   /** The classifier's words, or null when the request failed. */
-  async function askClassifier(system: string, user: string, settings: MediaPickSettings, conversationId: string) {
+  async function askClassifier(
+    system: string,
+    user: string,
+    settings: MediaPickSettings,
+    conversationId: string,
+    offer: MediaPickOffer
+  ) {
     const config = hot.config;
     try {
       const completion = await llm.complete(
@@ -438,6 +463,7 @@ export function createMediaPick({
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'media-pick',
           }),
+          responseFormat: mediaPickFormat(offer),
         }
       );
       return textOf(completion);
@@ -477,12 +503,13 @@ export function createMediaPick({
       .filter(Boolean)
       .join('\n\n');
     const system = fillPromptTemplate(prompt, { name: selfName ?? '' });
-    const words = await askClassifier(system, user, settings, placeId);
-    const answer = parseMediaPick(words, {
+    const offer: MediaPickOffer = {
       gifs: handles,
       emoji: emoji.map((one) => one.name),
       actions: capability.emoji?.actions ?? [],
-    });
+    };
+    const words = await askClassifier(system, user, settings, placeId, offer);
+    const answer = parseMediaPick(words, offer);
     log.info('media-pick: answered', {
       channel: placeId,
       kind: answer.kind,

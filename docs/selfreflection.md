@@ -16,7 +16,7 @@ The planner's `<places>` lists the places she follows, under the rail `audienceA
 
 The code draws the kind of an entry before the plan request. `drawWeights` in `src/behavior/selfreflection.ts` scales the weight of each kind in `SELFREFLECTION_KINDS` by the kind's share of all the weights over its use among the newest `selfreflection.historyPosts` (150) entries, where its use is its count over the entries in that window. The factor stays between 0.25 and 4, so a kind no entry in the window used gets 4. The kind of the newest entry then counts a quarter, which keeps the same kind twice in a row possible and rare. `pickKind` draws one kind from these weights with the turn's `rng`. While a post may carry no picture, the picture kinds (`DEFAULT_PICTURE_KINDS`) stay out of the draw. A kind the owner forces for one post replaces the draw.
 
-The plan request offers that one kind in `<kinds>`, and the plan keeps it whatever kind the planner answers. When the plan request fails or its answer is broken, the entry is written in the same kind with an empty brief. The journal line `selfreflection: planned` carries `drawn: true` for a drawn kind.
+The plan request offers that one kind in `<kinds>` and in the `kind` enum of its schema, `selfreflectionPlanFormat`. When the plan request fails or its answer is not that object, the entry is written in the same kind with an empty brief. The journal line `selfreflection: planned` carries `drawn: true` for a drawn kind.
 
 ## Seeds and the stored plan
 

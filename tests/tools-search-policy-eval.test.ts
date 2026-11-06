@@ -49,9 +49,16 @@ const ROWS = [
   },
 ];
 const ANSWERS = new Map([
-  ['what is the weather in Lisboa today', 'web: Lisboa weather today'],
-  ['good night all', 'none'],
-  ['what did Nikos say about the chess night', 'history: chess night\nwho: Nikos'],
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  [
+    'what is the weather in Lisboa today',
+    '{"web":"Lisboa weather today","history":null,"who":null,"when":null,"when_role":null,"recent":null,"skills":null}',
+  ],
+  ['good night all', '{"web":null,"history":null,"who":null,"when":null,"when_role":null,"recent":null,"skills":null}'],
+  [
+    'what did Nikos say about the chess night',
+    '{"web":null,"history":"chess night","who":"Nikos","when":null,"when_role":null,"recent":null,"skills":null}',
+  ],
 ]);
 
 function hotFixture(overrides = {}) {

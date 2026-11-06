@@ -15,6 +15,7 @@ import { openTestMemory } from './memory-db/service.ts';
 import { useIface, useSelf, world } from './turn-world.ts';
 import { worldTurnRunner } from './world-runner.ts';
 import '../../src/tools/impl/index.ts';
+import { planAnswerText } from './plan-answer.ts';
 
 useIface('fake');
 useSelf('self-id');
@@ -81,7 +82,8 @@ export function sceneLlm(): {
       calls.push(structuredClone(messages));
       const text =
         options?.purpose === 'selfreflection-planner'
-          ? JSON.stringify({ kind: 'status', brief: 'a calm evening', search: '', picture: false })
+          // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+          ? planAnswerText({ kind: 'status', brief: 'a calm evening', search: '', picture: false }, options)
           : '<msg>ήσυχο βράδυ στο λιμάνι</msg>';
       return Promise.resolve({ text, usage: {}, estimated: 5 });
     },
