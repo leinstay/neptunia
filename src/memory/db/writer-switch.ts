@@ -58,27 +58,27 @@ export function dueScopes(db: Db, config: Config, now: number): Array<{ key: str
   const settings = sessionSettings(config);
   const out: Array<{ key: string; lines: number; full: boolean }> = [];
   const settleBefore = now - settings.settleMinutes * MINUTE;
-  for (const scope of scopesOf(db, { audienceColumn: true })) {
+  for (const sweepScope of scopesOf(db, { audienceColumn: true })) {
     const cursor = Number(
-      db.prepare('SELECT value FROM meta WHERE key = ?').get(cursorKey(settings.mode, scope.key))?.value ?? 0
+      db.prepare('SELECT value FROM meta WHERE key = ?').get(cursorKey(settings.mode, sweepScope.key))?.value ?? 0
     );
-    const batch = batchOf(db, scope.scope, {
+    const batch = batchOf(db, sweepScope.scope, {
       cursor,
       since: settings.since,
       maxMessages: settings.maxMessages,
       settleBefore,
-      audienceId: scope.audienceId ?? null,
+      audienceId: sweepScope.audienceId ?? null,
     });
     if (batch.length < Math.min(settings.minMessages, settings.maxMessages)) continue;
     if (joinOf(batch, settings, now).reason === 'wait') continue;
-    if (scopeSweepsToday(db, scope.key, now, settings.mode) >= settings.sweepsPerScopePerDay) continue;
+    if (scopeSweepsToday(db, sweepScope.key, now, settings.mode) >= settings.sweepsPerScopePerDay) continue;
     const full = batch.length >= settings.maxMessages;
     const last = db
       .prepare('SELECT MAX(started_at) AS at FROM session_runs WHERE scope_key = ? AND mode = ?')
-      .get(scope.key, settings.mode)?.at;
+      .get(sweepScope.key, settings.mode)?.at;
     const lastMs = typeof last === 'string' ? Date.parse(last) : NaN;
     if (!full && Number.isFinite(lastMs) && now - lastMs < settings.everyMinutes * MINUTE) continue;
-    out.push({ key: scope.key, lines: batch.length, full });
+    out.push({ key: sweepScope.key, lines: batch.length, full });
   }
   return out;
 }
@@ -174,7 +174,8 @@ export function openFlags(
 
 /** The key variable a request of `role` goes out on (openrouter.js#roleApiKey's choice), by name; null for none. */
 function keyNameOf(config: Config, env: Row | null | undefined, role: string): string | null {
-  const name = config?.llm?.keyByRole?.[role];
+  const keyByRole = config?.llm?.keyByRole;
+  const name = keyByRole?.[role];
   const valid = typeof name === 'string' && ROLE_KEY_NAME.test(name);
   const given = valid ? env?.[name] : undefined;
   if (valid && typeof given === 'string' && given.trim()) return name;

@@ -372,18 +372,6 @@
       "deep": 1,
       "repeated": 0
     },
-    "src/memory/db/session-write.ts": {
-      "deep": 0,
-      "repeated": 10
-    },
-    "src/memory/db/session.ts": {
-      "deep": 2,
-      "repeated": 10
-    },
-    "src/memory/db/writer-switch.ts": {
-      "deep": 1,
-      "repeated": 1
-    },
     "src/memory/migration/convert.ts": {
       "deep": 10,
       "repeated": 4
