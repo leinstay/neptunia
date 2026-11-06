@@ -91,6 +91,11 @@ export type CompleteOptions = {
   videoSeconds?: number;
   videoTokensPerSecond?: number;
   limits?: LimitsSink;
+  /**
+   * A JSON schema the answer must follow, sent as a strict `response_format` on every attempt, the hedged second one
+   * included (`responseFormatField`). Without it no `response_format` is sent.
+   */
+  responseFormat?: { name: string; schema: object };
 };
 
 // ---- transport shared with the images client (src/llm/images.ts) ----------
@@ -1319,6 +1324,14 @@ function reasoningField(options: { reasoning?: unknown; role?: unknown }, config
   return own === undefined ? {} : { reasoning: own };
 }
 
+/** The `response_format` of a body: the caller's schema as a strict JSON schema, nothing without one. */
+function responseFormatField(format: CompleteOptions['responseFormat']): Pick<RequestBody, 'response_format'> {
+  if (!format) return {};
+  return {
+    response_format: { type: 'json_schema', json_schema: { name: format.name, strict: true, schema: format.schema } },
+  };
+}
+
 /** The JSON body of one chat completion, as `complete` builds it. */
 type RequestBody = {
   model: string | undefined;
@@ -1331,6 +1344,7 @@ type RequestBody = {
   tool_choice?: unknown;
   parallel_tool_calls?: boolean;
   plugins?: Array<unknown>;
+  response_format?: { type: 'json_schema'; json_schema: { name: string; strict: true; schema: object } };
 };
 
 /** One free GET's answer: the status and the parsed body of a 2xx (null otherwise). */
@@ -1738,7 +1752,7 @@ export function createLlm({
       role: options.role,
     });
     if (provider) body.provider = providerBodyOf(provider);
-    Object.assign(body, reasoningField(options, getConfig()));
+    Object.assign(body, reasoningField(options, getConfig()), responseFormatField(options.responseFormat));
     // Native tool calling, only when asked for: the definitions, the choice ('auto' unless given) and
     // whether the model may call several at once (sent only when given).
     if (tools) {

@@ -11,17 +11,22 @@ import { MINUTE_MS } from '../time.ts';
 import type { ClassifierParams, ClassifierRequest } from './classifier-request.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot, PipelineLlm, PipelineMissed } from './types.ts';
 
-/** Whether `text` starts with one of the three verdict words, `yes`, `no` or `overheard`, in any case. */
-function isVerdict(text: unknown): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's answer as it came, read as text
-  return /^\s*(?:y\w*|no|overheard)\b/iu.test(String(text ?? ''));
-}
-
 /** How recent a one-to-one exchange keeps a line when the classifier fails. Production value, config cut of 2026-10-31. */
 const FAIL_OPEN_MINUTES = 3;
 
 /** What the address classifier answers. */
 export type AddressAnswer = 'yes' | 'overheard' | 'no';
+
+/** The schema of the address classifier's answer, handed to the client as `responseFormat`: `{ "answer": ... }`. */
+export const ADDRESS_FORMAT = {
+  name: 'address',
+  schema: {
+    type: 'object',
+    properties: { answer: { type: 'string', enum: ['yes', 'overheard', 'no'] } },
+    required: ['answer'],
+    additionalProperties: false,
+  },
+};
 
 /** What createAddressClassifier reads: the dependencies of createMessageHandler and its other parts' functions. */
 export type AddressClassifierContext = {
@@ -41,8 +46,8 @@ export type ClassifyAddress = (
 ) => Promise<AddressAnswer>;
 
 /**
- * Whether a follow-up whose address classifier failed (threw or answered
- * nothing) still belongs to an active one-to-one exchange, from the channel
+ * Whether a follow-up whose address classifier failed (threw, or answered nothing
+ * or no readable object) still belongs to an active one-to-one exchange, from the channel
  * `history` its request fetched (normalized, oldest first, without the
  * candidate): the persona's latest line before `candidate` was posted at most
  * `minutes` before it; that line (with the lines of hers right before it, one
@@ -176,23 +181,21 @@ export function createAddressClassifier({
               maxOutputTokens: mentionCfg.followUpMaxOutputTokens,
               purpose: 'address',
             }),
+            responseFormat: ADDRESS_FORMAT,
           }
         );
         // A completion carries its text (src/llm/openrouter.ts#complete).
         const done = completion as { text?: unknown };
         // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's answer as it came, read as text
         const said = String(done.text ?? '');
-        if (flagged && !isVerdict(said)) {
-          // A flagged line whose answer is no verdict at all was not judged: it opens like a failed call.
-          log.warn('follow-up: classifier failed', { channel: placeId, reason: 'unparsed', model: model ?? null });
-          failure = 'unparsed';
-        } else if (said.trim()) {
-          answer = parseAddressAnswer(said);
+        const parsed = parseAddressAnswer(said);
+        if (parsed) {
+          answer = parsed;
         } else {
-          // Nothing at all (typically a reasoning model that spent its whole
-          // output cap thinking) is a failed call, not a silent "no".
-          log.warn('follow-up: classifier failed', { channel: placeId, reason: 'empty', model: model ?? null });
-          failure = 'empty';
+          // Nothing at all (typically a reasoning model that spent its whole output cap thinking) or an answer that is
+          // not the object is a failed call, not a silent "no".
+          failure = said.trim() ? 'unparsed' : 'empty';
+          log.warn('follow-up: classifier failed', { channel: placeId, reason: failure, model: model ?? null });
         }
       } catch (err) {
         answer = 'no';
