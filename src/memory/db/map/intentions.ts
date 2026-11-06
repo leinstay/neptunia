@@ -68,7 +68,8 @@ export function fromRows(rows: Rows, ctx: MapContext = {}): unknown {
       ? record.$raw
       : record;
   }
-  const rest = parseExtra(rows.operational[0].value);
+  const operational = rows.operational[0];
+  const rest = parseExtra(operational.value);
   const has = Array.isArray(rest.$has) ? rest.$has : [];
   delete rest.$has;
   const obj = { ...rest };

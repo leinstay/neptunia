@@ -367,8 +367,9 @@ export function searchSemantic(
       },
     };
     known.score += 1 / (RRF_K + rank);
-    known.hit.streams.push(stream);
-    if (similarity !== null) known.hit.similarity = similarity;
+    const { hit } = known;
+    hit.streams.push(stream);
+    if (similarity !== null) hit.similarity = similarity;
     fused.set(key, known);
   };
   lexical.forEach((row, rank) => add(row, rank, 'lexical', null));

@@ -288,7 +288,8 @@ function addDocument(index: RecordIndex, line: IndexLine, revision: number) {
     seq[i] = id;
     if (!seen.has(id)) {
       seen.add(id);
-      index.postings[id].push(at);
+      const postings = index.postings[id];
+      postings.push(at);
     }
   });
   index.docs.push({
@@ -412,7 +413,8 @@ function phraseDocs(index: RecordIndex, phrase: Array<number>, ok: (at: number) 
   const others = lists.slice(1).map((list) => new Set(list));
   for (const at of lists[0]) {
     if (!ok(at) || !others.every((set) => set.has(at))) continue;
-    if (holdsPhrase(index.docs[at].seq, phrase)) out.add(at);
+    const doc = index.docs[at];
+    if (holdsPhrase(doc.seq, phrase)) out.add(at);
   }
   return out;
 }

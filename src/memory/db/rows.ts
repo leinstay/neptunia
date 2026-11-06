@@ -456,10 +456,10 @@ export function ensureNodeKeys(
       addKey(db, CORE_AUTHORITY, 'person', 'self', row.id, { at });
       return;
     }
-    const native = legacyPersonNative(row.id);
-    if (native) {
-      ensureInterface(db, native.iface);
-      addKey(db, nativeAuthorityOf(native.iface), 'person', native.native, row.id, { at });
+    const legacy = legacyPersonNative(row.id);
+    if (legacy) {
+      ensureInterface(db, legacy.iface);
+      addKey(db, nativeAuthorityOf(legacy.iface), 'person', legacy.native, row.id, { at });
     }
     addKey(db, LEGACY_AUTHORITY, 'person', row.id, row.id, { at });
   } else if (table === 'accounts' || table === 'places') {

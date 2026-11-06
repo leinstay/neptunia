@@ -318,7 +318,8 @@ export function recordOwnLine(
 
   const gapMs = s.mergeGapMinutes * MINUTE_MS;
   const newest = newestOfChannel(base.episodes, channel);
-  const targetIndex = newest !== -1 && ownLine.ts - base.episodes[newest].lastAt <= gapMs ? newest : -1;
+  const newestEpisode = base.episodes[newest];
+  const targetIndex = newest !== -1 && ownLine.ts - newestEpisode.lastAt <= gapMs ? newest : -1;
   const target = targetIndex === -1 ? null : base.episodes[targetIndex];
   const held = target ? chainIds(base.episodes, target) : new Set();
   let fresh = incoming.filter((m) => !held.has(m.id));
@@ -568,14 +569,20 @@ export function selectEpisodes(
     chosen.push(ep);
   }
 
-  const groups = new Map();
+  const groups = new Map<string, Array<Episode>>();
   for (const ep of chosen) {
-    if (!groups.has(ep.placeId)) groups.set(ep.placeId, []);
-    groups.get(ep.placeId).push(ep);
+    const group = groups.get(ep.placeId);
+    if (group) group.push(ep);
+    else groups.set(ep.placeId, [ep]);
   }
+  // Each group's episodes run oldest first, so its last one is its latest.
+  const latestOwnAt = (episodes: Array<Episode>) => Number(episodes[episodes.length - 1].lastOwnAt);
   return [...groups.entries()]
-    .map(([placeId, episodes]) => ({ placeId, episodes: [...episodes].sort((a, b) => a.lastOwnAt - b.lastOwnAt) }))
-    .sort((a, b) => b.episodes[b.episodes.length - 1].lastOwnAt - a.episodes[a.episodes.length - 1].lastOwnAt);
+    .map(([placeId, episodes]) => ({
+      placeId,
+      episodes: [...episodes].sort((a, b) => Number(a.lastOwnAt) - Number(b.lastOwnAt)),
+    }))
+    .sort((a, b) => latestOwnAt(b.episodes) - latestOwnAt(a.episodes));
 }
 
 /**
