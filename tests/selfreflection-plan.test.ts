@@ -89,7 +89,9 @@ async function wake(
   });
   assert.equal((result as { outcome?: unknown }).outcome, 'spoke', 'the wake records an entry');
   assert.equal(plans.length, 1, 'one plan request');
-  const user = plans[0]?.[1]?.content;
+  // The lead: the request named first, for the chain rule.
+  const [request] = plans;
+  const user = request?.[1]?.content;
   return { scene, user: String(user) };
 }
 

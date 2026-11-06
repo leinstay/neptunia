@@ -398,7 +398,9 @@ function planText(posts: Array<object>): string {
     kinds: { picture: 1 },
     seedsText: '',
   });
-  return request.messages[1].content;
+  // The lead: the message named first, for the chain rule.
+  const user = request.messages[1];
+  return user.content;
 }
 
 const DRAWN = 'a cafe interior, warm light';
