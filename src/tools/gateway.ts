@@ -27,6 +27,7 @@ import { idText, isObj, objOf } from './types.ts';
 import type { Skill, SkillMap } from './types.ts';
 import type { WakeAction } from './access.ts';
 import type { PlaceCandidate, PlaceChoices } from './place-names.ts';
+import { MCP_TOOL_PREFIX } from '../subharness/mcp-server.ts';
 
 /**
  * A refusal of a call: its code and a short machine-readable detail. A read call that named a place which is not one
@@ -323,6 +324,14 @@ export type ListedSkill = {
   reason: string;
   args: ReturnType<typeof skillArgs>;
 };
+
+/**
+ * A tool name as her definitions hold it. On Claude's subscription route the model calls each tool as
+ * `mcp__nep__<name>` (src/subharness/mcp-server.ts), and the prefix goes before anything reads the call.
+ */
+export function bareToolName(name: string): string {
+  return name.startsWith(MCP_TOOL_PREFIX) ? name.slice(MCP_TOOL_PREFIX.length) : name;
+}
 
 /** The model roles that run as her tools and fall back to the core model, in the order her route line names them. */
 export const TOOL_ROLES = Object.freeze(['vision', 'video', 'drawing', 'speech'] as const);
