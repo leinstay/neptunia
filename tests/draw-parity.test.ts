@@ -260,6 +260,7 @@ test("draw parity: a diary post's single self picture", async () => {
 });
 
 test("draw parity: a diary set's pictures, the persona in the first one only", async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = recordingImages();
   const plan = { kind: 'photoset', brief: 'a harbour walk', search: '', picture: true };
   const answer = toolAnswer('<msg>a walk</msg>', [
@@ -273,7 +274,7 @@ test("draw parity: a diary set's pictures, the persona in the first one only", a
     turns.runTurn({
       channel: channel('d1', 'journal'),
       mode: 'selfreflection',
-      selfreflection: { kind: null, forced: false },
+      selfreflection: { kind: 'photoset', forced: false },
     })
   );
   assert.equal(loose(result).outcome, 'spoke');
