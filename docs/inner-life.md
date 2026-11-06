@@ -16,6 +16,8 @@ An intention records something the persona wants to do, where it belongs and any
 
 Missed occurrences are skipped. Interrupted sends are not replayed automatically after downtime. A saved unfinished record can appear as context in a fresh turn, and the persona can continue it or leave it alone.
 
+The `<wake>` of an inner turn names no budget. The only limit on her turns is `wakes.caps.perChain`: a chain that has had that many inner turns on the local day waits for the next one, and the wake that is held keeps its place in the queue. Nothing in her request counts what is left.
+
 Use the `intentions`, `wakes` and `heartbeat` sections of [configuration](configuration.md) for limits, and `neptunia services <name> setup` from [the CLI](cli.md#scheduled-services) for the schedules of `heartbeat`, `selfreflection` and `selfimprovement`. [src/intentions/service.ts](../src/intentions/service.ts) applies intention changes and recurrence.
 
 ## Heartbeat and selfimprovement

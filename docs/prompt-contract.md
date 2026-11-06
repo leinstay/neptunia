@@ -37,6 +37,8 @@ Read the actual template before editing it. A placeholder is an input supplied b
 
 Stable persona instructions and tool information precede changing conversational context. Relevant memory, people, place and recent messages are assembled within context budgets. Changing this order can affect prompt-cache reuse as well as behavior.
 
+No `<wake>` and no other block states a budget, a count of turns left or a reset: `labels.wake` holds no `budgets` or `budget` key, and the limits (`wakes.caps.perChain`) act without being told to her.
+
 The active skill index contains descriptions; `skill.read` retrieves the procedure when needed. Tool transport can be native or textual, and the corresponding request builder must agree with the parser. See [core](core.md) for the turn loop and [memory](memory.md) for audience selection.
 
 ## Output

@@ -84,7 +84,6 @@ async function turnWith(args: Record<string, string>, { innerTurn = true }: { in
     now: NOW,
     timezone: 'UTC',
     channels: [],
-    budgets: { chain: { used: 0, cap: 3, left: 3 } },
   };
   return coreTurn({
     answers: [toolAnswer('', [call('message.create', { text: 'απάντηση', ...args })]), '<skip/>'],
