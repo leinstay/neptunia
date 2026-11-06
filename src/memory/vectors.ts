@@ -246,6 +246,9 @@ function storedMeta(meta: Untyped, row: Untyped, iso: string, scale: Untyped, no
   };
 }
 
+/** The dimension count of a row's vector: every row of one write must share it. */
+const dimsOf = (row: Untyped): unknown => row.vector.length;
+
 function shapeError(month: string) {
   return Object.assign(new Error(`vectors: month ${month} holds rows of another model or length`), {
     code: 'vectors-shape',
@@ -498,7 +501,7 @@ export function createVectors({
     return serial(async () => {
       const list = (Array.isArray(rows) ? rows : []).filter((row) => row && typeof row === 'object' && row.vector);
       if (list.length === 0) return { written: 0 };
-      const dims = list[0].vector.length;
+      const dims = dimsOf(list[0]);
       if (!isIntegerNumber(dims) || dims < 1) throw new TypeError('vectors: an empty vector');
       const byMonth = new Map();
       for (const row of list) {
@@ -631,7 +634,7 @@ export function createVectors({
     return serial(async () => {
       const list = (Array.isArray(rows) ? rows : []).filter((row) => row && typeof row === 'object' && row.vector);
       if (list.length === 0) return { written: 0, kept: 0, dropped: 0 };
-      const dims = list[0].vector.length;
+      const dims = dimsOf(list[0]);
       if (!isIntegerNumber(dims) || dims < 1) throw new TypeError('vectors: an empty vector');
       const items = list.map((row) => {
         if (row.vector.length !== dims) throw new TypeError('vectors: vectors of one replace differ in length');

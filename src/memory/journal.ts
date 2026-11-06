@@ -485,8 +485,8 @@ export function turnOfMessage(
       messageId: null,
     };
     if (typeof record.input?.skill === 'string') call.skill = currentToolName(record.input.skill);
-    if (Array.isArray(record.input?.args))
-      call.args = record.input.args.filter((name: string) => typeof name === 'string');
+    const args = record.input?.args;
+    if (Array.isArray(args)) call.args = args.filter((name: string) => typeof name === 'string');
     if (record.target && typeof record.target === 'object') call.target = record.target;
     if (typeof record.phase === 'string') call.phase = record.phase;
     if (typeof record.result?.code === 'string') call.code = record.result.code;

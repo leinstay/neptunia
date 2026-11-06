@@ -400,51 +400,11 @@
       "deep": 1,
       "repeated": 1
     },
-    "src/memory/emoji-backfill.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/memory/gif-backfill.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
-    "src/memory/gif-keeper.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/memory/gif-recache.ts": {
-      "deep": 7,
-      "repeated": 0
-    },
-    "src/memory/journal.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "src/memory/migration/convert.ts": {
       "deep": 10,
       "repeated": 4
     },
-    "src/memory/participation.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
-    "src/memory/record-index.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
     "src/memory/store-addresses.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/memory/store.ts": {
-      "deep": 9,
-      "repeated": 5
-    },
-    "src/memory/update.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/memory/vectors.ts": {
       "deep": 2,
       "repeated": 0
     },
