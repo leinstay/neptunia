@@ -49,7 +49,6 @@ const INNER = {
     now: NOW,
     timezone: 'UTC',
     channels: [],
-    budgets: { chain: { used: 0, cap: 3, left: 3 } },
   },
   config: { wakes: { mode: 'live', chatMessages: 2 } },
   prompts: { inner: 'Do what the wake says.' },
