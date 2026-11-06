@@ -175,11 +175,13 @@ export function followUpTriggerKind(answer: 'yes' | 'overheard' | 'no'): 'follow
 // The per-feature model keys older than the `classifier` block are never read;
 // deprecatedModelKeys lets startup warn about them.
 
+const videoOf = (config: Untyped) => config?.media?.video;
+
 const DEPRECATED_MODEL_KEYS = [
   { key: 'llm.classifierModel', use: 'models.base.analyzer', read: (c: Untyped) => c?.llm?.classifierModel },
   { key: 'mention.followUpModel', use: 'models.base.analyzer', read: (c: Untyped) => c?.mention?.followUpModel },
   { key: 'media.model', use: 'models.base.vision', read: (c: Untyped) => c?.media?.model },
-  { key: 'media.video.model', use: 'models.base.video', read: (c: Untyped) => c?.media?.video?.model },
+  { key: 'media.video.model', use: 'models.base.video', read: (c: Untyped) => videoOf(c)?.model },
 ];
 
 /**

@@ -11,6 +11,7 @@ import type { Obj } from '../../tools/types.ts';
 import { resumeDeliveries } from './deliveries.ts';
 import { asText } from './facts.ts';
 import { contextOf, addFact, enqueue, markHandled, note, paused, save, stateOf, inScope, wakeFields } from './queue.ts';
+import { storeStateOf } from './queue.ts';
 import { backendOf, dbSend, dbWrite, renewClaims, turnLeaseMs } from './wake-store.ts';
 import type { Inflight, InnerContext, Wake } from './types.ts';
 
@@ -118,9 +119,15 @@ function cutOffMarks(rows: ReadonlyArray<StoredWake>): Array<Inflight> {
   return [...marks.values()];
 }
 
+/** Records an interval she slept through, from `from` to `to`. */
+function addSleptWindow({ sleep }: InnerContext, from: number, to: number): void {
+  sleep.windows.push([from, to]);
+}
+
 /** Whether `dueAt` fell inside an interval she slept through. */
 export function sleptThrough(life: InnerContext, dueAt: unknown): boolean {
-  return typeof dueAt === 'number' && life.sleep.windows.some(([from, to]) => dueAt > from && dueAt <= to);
+  const { windows } = life.sleep;
+  return typeof dueAt === 'number' && windows.some(([from, to]) => dueAt > from && dueAt <= to);
 }
 
 /**
@@ -150,7 +157,8 @@ export function markSlept(life: InnerContext, wakes: ReadonlyArray<Wake>, at: nu
       log.warn('inner: intention not marked slept', { intentionId: id, code: codeOf(err) });
     }
   }
-  life.sleep.slept.set('persona', (life.sleep.slept.get('persona') ?? 0) + wakes.length);
+  const { slept } = life.sleep;
+  slept.set('persona', (slept.get('persona') ?? 0) + wakes.length);
   save(life);
   log.info('inner: slept', { wakes: wakes.length });
   note(life, { event: 'slept', wakes: wakes.map(wakeFields) });
@@ -184,7 +192,7 @@ async function startUpNow(life: InnerContext): Promise<void> {
   }
   const at = life.now();
   const alive = leaseOf(read, ALIVE_LEASE);
-  if (alive && alive.holder !== life.holder && alive.renewedAt < at) life.sleep.windows.push([alive.renewedAt, at]);
+  if (alive && alive.holder !== life.holder && alive.renewedAt < at) addSleptWindow(life, alive.renewedAt, at);
   const cutOff = listWakes(read, { states: ['running'] }).filter(
     (row) => life.oldWakes.has(row.id) && row.leaseHolder !== life.holder && !life.running.has(row.id)
   );
@@ -244,17 +252,18 @@ export async function beforeTick(life: InnerContext): Promise<boolean> {
   const at = life.now();
   renewClaims(life);
   renewAlive(life, at);
+  const { sleep } = life;
   if (paused(life)) {
-    if (life.sleep.pausedFrom === null) {
-      const mark = life.store?.state?.data?.pausedAt;
+    if (sleep.pausedFrom === null) {
+      const mark = storeStateOf(life)?.pausedAt;
       const since = typeof mark === 'string' ? Date.parse(mark) : Number.NaN;
-      life.sleep.pausedFrom = Number.isFinite(since) && since <= at ? since : at;
+      sleep.pausedFrom = Number.isFinite(since) && since <= at ? since : at;
     }
     return true;
   }
-  if (life.sleep.pausedFrom !== null) {
-    life.sleep.windows.push([life.sleep.pausedFrom, at]);
-    life.sleep.pausedFrom = null;
+  if (sleep.pausedFrom !== null) {
+    addSleptWindow(life, sleep.pausedFrom, at);
+    sleep.pausedFrom = null;
     sleepQueued(life, at);
   }
   return false;
@@ -271,4 +280,4 @@ export async function admitListed(life: InnerContext, wake: Wake): Promise<numbe
 }
 
 /** How many wakes of the place slept since this life started. */
-export const sleptCount = (life: InnerContext): number => life.sleep.slept.get('persona') ?? 0;
+export const sleptCount = ({ sleep }: InnerContext): number => sleep.slept.get('persona') ?? 0;

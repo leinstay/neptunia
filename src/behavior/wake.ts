@@ -322,7 +322,8 @@ export function heartbeatLines(
   const people = listOf(facts.people);
   const places = listOf(facts.activity?.items);
   const lifeRows = lifeItems(objOf(facts.life));
-  const filtered = listOf(facts.since?.filtered?.items);
+  const since = facts.since;
+  const filtered = listOf(since?.filtered?.items);
   const caps: Record<ShedKey, number> = {
     filtered: filtered.length,
     life: lifeRows.length,
@@ -812,9 +813,10 @@ export function wakeBlockText(
   if (wake.heartbeat)
     lines.push(...heartbeatLines(wake.heartbeat, l.heartbeat, when, placesBlock, { handleBase, onRefs }));
   else lines.push(...placesBlock);
-  lines.push(...selfimprovementLines(wake.selfimprovement, l.selfimprovement, when, selfimprovementReason(wake.items)));
+  const { selfimprovement } = wake;
+  lines.push(...selfimprovementLines(selfimprovement, l.selfimprovement, when, selfimprovementReason(wake.items)));
   lines.push(...memoryLines(wake, objOf(l.memory), all));
-  lines.push(...landedLines([wake.selfimprovement?.news.landed], l.landed));
+  lines.push(...landedLines([selfimprovement?.news.landed], l.landed));
   lines.push(...budgetLines(wake.budgets ?? {}, l, when));
   return lines.join('\n');
 }

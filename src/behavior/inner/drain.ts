@@ -919,17 +919,14 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
         !intentions?.store?.()?.get?.(String(listOf(wake.intentionIds)[0]))?.every;
       const again = group.filter(oneOff);
       if (again.length > 0) {
-        requeue(again, {
-          retry: 'error',
-          firstFailedAt: ended,
-          notBefore: ended + settings.retry.delaysMinutes[0] * MINUTE_MS,
-          lastCode: errorCode,
-        });
+        const [firstDelayMinutes] = settings.retry.delaysMinutes;
+        const notBefore = ended + firstDelayMinutes * MINUTE_MS;
+        requeue(again, { retry: 'error', firstFailedAt: ended, notBefore, lastCode: errorCode });
         note(life, {
           event: 'retry',
           code: errorCode,
           retry: 'error',
-          notBefore: ended + settings.retry.delaysMinutes[0] * MINUTE_MS,
+          notBefore,
           wakes: again.map(wakeFields),
         });
       }

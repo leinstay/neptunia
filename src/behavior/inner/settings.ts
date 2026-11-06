@@ -25,6 +25,13 @@ export const WAKE_KINDS = Object.freeze([
  * of `wakes`; the heartbeat's switch, clock, history and token budget of `heartbeat`; the selfimprovement wake's
  * switch and clock of `selfimprovement`).
  */
+// The selfimprovement wake: by default once a day at 03:00 (UTC, three hours after the watcher's default midnight run, owner
+// 2026-11-02), and when one chain shape fails this many times in a UTC day (decision of 2026-10-24).
+const IMPROVEMENT_WAKE_DEFAULTS = Object.freeze({
+  schedule: Object.freeze({ kind: 'at', at: Object.freeze(['03:00']) }),
+  failuresPerShape: 3,
+});
+
 export const INNER_DEFAULTS = Object.freeze({
   mode: 'shadow',
   tickSeconds: 60,
@@ -48,15 +55,8 @@ export const INNER_DEFAULTS = Object.freeze({
     dueJitterMinutes: 20,
   }),
   caps: Object.freeze({ perChain: 3 }),
-  // The selfimprovement wake: by default once a day at 03:00 (UTC, three hours after the watcher's default midnight run, owner
-  // 2026-11-02), and when one chain shape fails this many times in a UTC day (decision of 2026-10-24).
   selfimprovement: Object.freeze({ enabled: true }),
-  wakes: Object.freeze({
-    selfimprovement: Object.freeze({
-      schedule: Object.freeze({ kind: 'at', at: Object.freeze(['03:00']) }),
-      failuresPerShape: 3,
-    }),
-  }),
+  wakes: Object.freeze({ selfimprovement: IMPROVEMENT_WAKE_DEFAULTS }),
   attention: Object.freeze({ settleSeconds: 90, perDayDefault: 12, pageSize: 12, placesInWake: 8, lookbackHours: 24 }),
   loop: Object.freeze({ maxSteps: 4, timeBudgetMs: 180000, maxCallsPerStep: 4, callTimeoutMs: 60000 }),
   retry: Object.freeze({ delaysMinutes: Object.freeze([1, 5, 15, 60]), maxHours: 6 }),
@@ -110,7 +110,7 @@ function heartbeatSchedule(heartbeat: Record<string, unknown>): ServiceSchedule 
 function improvementSchedule(improvement: Record<string, unknown>): ServiceSchedule {
   return (
     parseSchedule(improvement.schedule) ??
-    (isClockTime(improvement.at) ? { kind: 'at', at: [improvement.at] } : INNER_DEFAULTS.wakes.selfimprovement.schedule)
+    (isClockTime(improvement.at) ? { kind: 'at', at: [improvement.at] } : IMPROVEMENT_WAKE_DEFAULTS.schedule)
   );
 }
 
@@ -163,7 +163,7 @@ export function innerSettings(config: unknown): InnerSettings {
     wakes: {
       selfimprovement: {
         schedule: improvementSchedule(improvement),
-        failuresPerShape: whole(improvement.failuresPerShape, d.wakes.selfimprovement.failuresPerShape),
+        failuresPerShape: whole(improvement.failuresPerShape, IMPROVEMENT_WAKE_DEFAULTS.failuresPerShape),
       },
     },
     attention: { ...d.attention },

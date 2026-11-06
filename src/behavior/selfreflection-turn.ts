@@ -186,6 +186,10 @@ function selfreflectionPostOf({
   return { post, rendered, maxMessageBytes };
 }
 
+/** What a post keeps of her audience choice: the audience, or for a failed choice a value that publishes nowhere. */
+const publicationAudienceOf = (choice: AudienceChoice) =>
+  choice.ok ? choice.audience : { kind: 'invalid' as const, code: choice.code };
+
 /**
  * A selfreflection post recorded before anything is sent: one post in the place's selfreflection (`store.appendSelfreflectionPost`, the newest
  * `selfreflection.historyPosts` (150) kept) with its gist and its first picture's scene cut to `selfreflection.gistChars` (200), her
@@ -242,7 +246,7 @@ export function recordEntry({
     id,
   });
   if (publicationBoundary !== undefined) post.publicationBoundary = publicationBoundary;
-  post.publicationAudience = audience.ok ? audience.audience : { kind: 'invalid', code: audience.code };
+  post.publicationAudience = publicationAudienceOf(audience);
   if (typeof store.appendSelfreflectionPost === 'function')
     store.appendSelfreflectionPost(post, { max: DEFAULT_HISTORY_POSTS });
   const entry: SelfreflectionEntry = {

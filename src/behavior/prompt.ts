@@ -195,7 +195,8 @@ export function classifierTranscript(
  */
 export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }: BuildDrawPromptInput): string {
   const appearance = self ? fillPromptTemplate(prompts?.appearance ?? '', { name: selfName }).trim() : '';
-  const whenLabel = prompts?.labels?.draw?.when;
+  const drawLabels = prompts?.labels?.draw;
+  const whenLabel = drawLabels?.when;
   const whenText = when && whenLabel ? fill(whenLabel, { when }) : '';
   return fillPromptTemplate(prompts?.draw ?? '', { name: selfName, appearance, request: request ?? '', when: whenText })
     .replace(/(?:\r?\n){3,}/g, '\n\n')
@@ -633,7 +634,8 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   const taskText = finalTask(fit, { ...task, ...room }, pulledKept);
 
   const { chatItems, handleById, memberNames, channelHandleById } = base;
-  const keptChat = chatItems.slice(chatItems.length - fit.kept.chat.length);
+  const keptChatLines = fit.kept.chat;
+  const keptChat = chatItems.slice(chatItems.length - keptChatLines.length);
   const seen = seenOf({ history: given.history, keptChat, anchoredIds: earlierShown?.parentIds ?? [] });
   // The text parts (assembleUser's cache segments) are the whole user content: no image part
   // ever, the persona sees pictures through the describer's captions.

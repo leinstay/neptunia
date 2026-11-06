@@ -83,6 +83,11 @@ const wakesOfRows = (rows: ReadonlyArray<StoredWake>): Array<Wake> =>
   ) as Array<Wake>;
 
 /** The handled entry of a stored row: when, the outcome, and an attend wake's place. */
+/** How the handled wake `id` ended, `handled` when the state does not say. */
+function handledOutcome({ handled }: InnerState, id: string): string {
+  return handled[id]?.outcome ?? 'handled';
+}
+
 function handledOfRow(row: StoredWake): Handled {
   const place = Object.hasOwn(row.payload, 'place') ? row.payload.place : row.payload.placeId;
   return {
@@ -216,7 +221,7 @@ export async function finishTurn(
       done.push({
         id,
         token,
-        outcome: state.handled[id]?.outcome ?? 'handled',
+        outcome: handledOutcome(state, id),
         deliveries: done.length === 0 ? deliveries : [],
       });
   }

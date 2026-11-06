@@ -1688,11 +1688,11 @@ export function buildRecallRequest({
     return typeof label === 'string' && label.trim() ? ` ${label.trim()}` : '';
   };
   const sections = rendered.map((window, i) => {
-    const source = sources[i];
-    const self = (source?.messages ?? []).some((m: Untyped) => m?.self === true) ? flag('stretchSelf') : '';
-    const current = source?.overlapsChat === true ? flag('stretchCurrent') : '';
+    const windowSource = sources[i];
+    const self = (windowSource?.messages ?? []).some((m: Untyped) => m?.self === true) ? flag('stretchSelf') : '';
+    const current = windowSource?.overlapsChat === true ? flag('stretchCurrent') : '';
     // A protocol mark, not wording: the window was read from the record, not found by the search.
-    const origin = source?.source === 'record' ? ' | source: record' : '';
+    const origin = windowSource?.source === 'record' ? ' | source: record' : '';
     return [
       `## ${i + 1} | ${zonedDay(window.startTs, timezone)} | #${oneLine(window.channelName)}${origin}${self}${current}`,
       ...window.lines.map((line) => line.text),
@@ -2224,7 +2224,7 @@ export async function matchRecord(
     ...window,
     score: Math.max(0, ...[...window.hitIds].map((id) => hitScore.get(id) ?? 0)),
     self: window.messages.some((m) => m.self === true),
-    endTs: window.messages[window.messages.length - 1].ts,
+    endTs: window.messages.at(-1).ts,
   }));
   const windowOrder = recent
     ? (a: Untyped, b: Untyped) => Number(b.self) - Number(a.self) || b.endTs - a.endTs || b.score - a.score
@@ -2232,7 +2232,7 @@ export async function matchRecord(
   const ordered = merged.sort(windowOrder);
   if (near) {
     const boosted = new Map(
-      ordered.map((window) => [window, boostedOf(window.score, window.messages[0].ts, window.endTs)])
+      ordered.map((window) => [window, boostedOf(window.score, window.messages.at(0).ts, window.endTs)])
     );
     const picked = locatorKeep(ordered, {
       keep,

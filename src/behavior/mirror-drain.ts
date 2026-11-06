@@ -167,10 +167,10 @@ export function createMirrorDrain({
       await mirrorWrite({ op: 'complete', id: mirror.id, now: at });
       return 0;
     }
-    const taken = (await mirrorWrite({ op: 'slot', id: mirror.id, expected: due, next: at + interval })) as {
+    const slot = (await mirrorWrite({ op: 'slot', id: mirror.id, expected: due, next: at + interval })) as {
       taken: boolean;
     };
-    if (!taken.taken) return 0;
+    if (!slot.taken) return 0;
     let row = next.publication as Publication | null; // the columns of the table
     if (!row) {
       const prepared = await prepareFor(db, scannedEntry(next.entry), place, false);

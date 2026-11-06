@@ -711,11 +711,12 @@ export function createTurnRunner({
       // An attempt whose turn.start was written closes with its turn record at runTurn's exit,
       // whatever it returned (a throw counts as `error`).
       if (draft.started) phaseArgs.journalAttempts?.push({ draft, result: result ?? { outcome: 'error' } });
-      if (phaseArgs.turnEnds) {
-        if (draft.info) phaseArgs.turnEnds.info = draft.info;
-        phaseArgs.turnEnds.replyTargets.push(...(draft.replyTargets ?? []));
-        if (typeof draft.reason === 'string') phaseArgs.turnEnds.reasons.push(draft.reason);
-        if (draft.factsShown) phaseArgs.turnEnds.factsShown = draft.factsShown;
+      const { turnEnds } = phaseArgs;
+      if (turnEnds) {
+        if (draft.info) turnEnds.info = draft.info;
+        turnEnds.replyTargets.push(...(draft.replyTargets ?? []));
+        if (typeof draft.reason === 'string') turnEnds.reasons.push(draft.reason);
+        if (draft.factsShown) turnEnds.factsShown = draft.factsShown;
       }
       // What an addressed turn lost, kept for her next request there (an inner turn's go to the inner life).
       if (!args.inner) recordTurnFacts(args, draft);

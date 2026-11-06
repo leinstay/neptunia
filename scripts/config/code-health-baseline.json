@@ -4,98 +4,6 @@
       "deep": 0,
       "repeated": 2
     },
-    "src/behavior/elsewhere-pick.ts": {
-      "deep": 1,
-      "repeated": 1
-    },
-    "src/behavior/inner/deliveries.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/behavior/inner/drain.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/behavior/inner/places.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/behavior/inner/queue.ts": {
-      "deep": 3,
-      "repeated": 1
-    },
-    "src/behavior/inner/recovery.ts": {
-      "deep": 7,
-      "repeated": 0
-    },
-    "src/behavior/inner/settings.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/behavior/inner/wake-store.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/behavior/mention.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/behavior/mirror-drain.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
-    "src/behavior/mirror.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/behavior/missed.ts": {
-      "deep": 1,
-      "repeated": 1
-    },
-    "src/behavior/prompt.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/behavior/pull-fetch.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/behavior/recall-run.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
-    "src/behavior/recall.ts": {
-      "deep": 2,
-      "repeated": 1
-    },
-    "src/behavior/reply-parents.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/behavior/sandbox.ts": {
-      "deep": 8,
-      "repeated": 1
-    },
-    "src/behavior/selfimprovement-text.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/behavior/selfreflection-turn.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
-    "src/behavior/turn-parts.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
-    "src/behavior/turn.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/behavior/wake.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
     "src/board/board.ts": {
       "deep": 6,
       "repeated": 0
@@ -107,10 +15,6 @@
     "src/config/check.ts": {
       "deep": 1,
       "repeated": 0
-    },
-    "src/core.ts": {
-      "deep": 13,
-      "repeated": 1
     },
     "src/development/worker.ts": {
       "deep": 3,
@@ -2102,7 +2006,7 @@
     "src/behavior/inner/drain.ts": {
       "drain": {
         "complexity": 88,
-        "function-length": 372
+        "function-length": 369
       }
     },
     "src/behavior/inner/facts.ts": {
@@ -2150,7 +2054,7 @@
       },
       "createRecall>recallWith": {
         "complexity": 73,
-        "function-length": 477
+        "function-length": 473
       },
       "createRecall>run": {
         "complexity": 26
