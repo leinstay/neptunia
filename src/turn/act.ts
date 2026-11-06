@@ -27,6 +27,8 @@ import { snapshotOfDraft } from './routing.ts';
 import type { Sends } from './sends.ts';
 import { reactionChannel, replyTarget, sendArgs, withLink } from './targets.ts';
 import type { TriggerKind } from './triggers.ts';
+import { mentionsUnderPings } from './mentions.ts';
+import type { PingState } from '../memory/pings.ts';
 
 /** The typing imitation's settings (`typing`): the pauses before a reaction and between messages, the typing speed. */
 type TypingSettings = Parameters<typeof typingMs>[1] & {
@@ -57,7 +59,7 @@ type EffectVerdict = { ok: boolean };
 export type ActContext = {
   hot: { readonly config: ActConfig; readonly prompts?: { readonly labels?: Parameters<typeof withLink>[2] } };
   store: {
-    isPingsOff?: (placeId: string, accountId: string | null | undefined) => boolean;
+    getPings?: (placeId: string, accountId: string) => PingState;
     getPlace?: (placeId: string) => { emojiUsage?: unknown } | null | undefined;
     getMediaCache?: (placeId: string) => object | null | undefined;
   };
@@ -180,7 +182,7 @@ export type HeldSpeech = {
   delivered: false;
   answered: Set<string>;
   texts: Array<string>;
-  rendered: Array<{ text: string; accountIds: Array<string | undefined> }>;
+  rendered: Array<{ text: string; accountIds: Array<string | undefined>; notify?: boolean }>;
   staged: Array<HeldPicture>;
   posts: Array<PostNote>;
   reacted: Array<ReactNote>;
@@ -216,15 +218,23 @@ export function createAct(ctx: ActContext): Act {
     recordOwnParticipation,
   } = ctx;
 
+  /** A member's ping state in `placeId` (store.getPings); a private chat has none. */
+  function pingStateIn(placeId: string, privateChat: boolean): (accountId: string) => PingState {
+    return (accountId) => (privateChat || !store.getPings ? null : store.getPings(placeId, accountId));
+  }
+
   /**
-   * A selfreflection post's speech held where act would send it: her messages as written and as renderPost renders them (pings
-   * off left out) and the staged pictures; the turn records the entry (selfreflection-turn.ts#recordEntry), its mirrors post it.
+   * A selfreflection post's speech held where act would send it: her messages as written and as renderPost renders them (the
+   * members it names under their ping states, mentionsUnderPings) and the staged pictures; the turn records the entry
+   * (selfreflection-turn.ts#recordEntry), its mirrors post it.
    */
   function holdSpeech({ channel, placeId, privateChat, parsed, set, draft = null, ...routing }: HoldArgs): HeldSpeech {
     const options = { channel, snapshot: snapshotOfDraft(draft), placeId, privateChat, ...routing, link: null };
+    const stateOf = pingStateIn(placeId, privateChat);
     const rendered = parsed.messages.map((message) => {
       const { text, accountIds } = renderPost(message.text, options);
-      return { text, accountIds: accountIds.filter((id) => !store.isPingsOff?.(placeId, id)) };
+      const mentions = mentionsUnderPings({ users: accountIds, replying: false, stateOf });
+      return { text, accountIds: mentions.users, ...(mentions.notify ? { notify: true } : {}) };
     });
     const texts = parsed.messages.map((message) => message.text);
     const staged = set?.pictures ?? [];
@@ -266,8 +276,9 @@ export function createAct(ctx: ActContext): Act {
    * (`iface`): a send it answers `unknown` is journaled so and never sent again.
    *
    * The messages are posted as the model wrote them: nothing rewrites them.
-   * A member with pings off (store.isPingsOff) is mentioned and replied to
-   * without a notification: only allowedMentions changes, never the text.
+   * A member with pings off (store.getPings) is mentioned and replied to
+   * without a notification: only allowedMentions changes, never the text. A message whose every
+   * concerned member chose `on` carries `mentions.notify` (mentionsUnderPings).
    * After the reactions, the media pick (src/behavior/media-pick.ts) runs alongside the first message's typing imitation
    * on an interface that declares it (portMediaPick): both start together, the first message waits for both, the pick at
    * most its grace past the end of that typing: a pick still out then is left behind for this turn (its answer is ignored;
@@ -487,14 +498,8 @@ export function createAct(ctx: ActContext): Act {
     const emojiPick = picked.kind === 'emoji' && capability?.emoji ? { picked, render: capability.emoji.render } : null;
     // Every message but the first one as written waits and is typed here; that one was typed alongside the picker.
     const typedAbove = (index: number): boolean => index === 0 && !replaced;
-    // Members who turned the persona's notifications off (`/nep pings off`), read from the store at
-    // each send: their `<@id>` stays in the text but notifies nobody, and a reply to their line
-    // does not ping them (server channels only).
-    const pingsOff = (accountId: string | null | undefined): boolean =>
-      !privateChat &&
-      Boolean(accountId) &&
-      typeof store.isPingsOff === 'function' &&
-      store.isPingsOff(placeId, accountId);
+    // Each member's own ping state (`pings.set`), read from the store at each send (server channels only).
+    const stateOf = pingStateIn(placeId, privateChat);
     // A message that did not go out ends the posting; the turn then ends `partial` with a `sendFailed` fact (its code, how many of how many went out).
     // A send whose answer never came (`unknown`: a timeout, a network error) may have gone out: it keeps the hash of its text, and her next turn here looks for it before telling.
     const failSend = (code: unknown, { unknown = false, text: sentText = '' } = {}): void => {
@@ -566,7 +571,7 @@ export function createAct(ctx: ActContext): Act {
       const result = await port.send(conversationOf(channel), {
         text,
         ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}),
-        mentions: { users: accountIds.filter((id) => !pingsOff(id)), repliedUser: !pingsOff(repliedAuthorId) },
+        mentions: mentionsUnderPings({ users: accountIds, repliedAuthorId, stateOf }),
       });
       if (result.status !== 'ok') {
         if (op.opId) await closeResult(op, result);

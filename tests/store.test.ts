@@ -170,7 +170,8 @@ test('getPlace: an old guild.json without learned loads it as empty, every other
     learnedNextId: 1,
     emojiUsage: {},
     emojiBackfill: null,
-    pingsOff: [],
+    // The owner's word of 2026-11-06: the members' ping states live in the map `pings` (it was the list `pingsOff`).
+    pings: {},
     notesUpdatedAt: null,
     notesCheckedAt: null,
     notesFlaggedAt: null,
@@ -203,7 +204,8 @@ test('getPlace: the keys of the removed variety pass are dropped on read, every 
   assert.equal(asRecord(guild).patterns, 'μιμίδια');
   assert.deepEqual(asRecord(guild).self, ['likes tea']);
   assert.equal(asRecord(guild).custom, 7);
-  assert.deepEqual(asRecord(guild).pingsOff, ['u1']);
+  // The owner's word of 2026-11-06: the earlier `pingsOff` list is kept as the state `off` in the map `pings`.
+  assert.deepEqual(asRecord(guild).pings, { u1: 'off' });
 
   store.updatePlace(placeOfCommunity(store, 'g1'), { starters: 'γεια' });
   store.flush();
@@ -250,66 +252,26 @@ test('getPlace: learned that is not an array or a garbage learnedNextId never th
   assert.equal(asRecord(guild).patterns, 'x');
 });
 
-test('pingsOff: empty on a fresh guild; setPingsOff adds and removes once, returns the state, survives a flush and reload', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const store = createStore({ dataDir: dir, memoryDb });
-  assert.deepEqual(asRecord(store.getPlace(placeOfCommunity(store, 'g1'))).pingsOff, []);
-  assert.equal(store.isPingsOff(placeOfCommunity(store, 'g1'), 'u1'), false);
-
-  assert.equal(store.setPingsOff(placeOfCommunity(store, 'g1'), 'u1', true), true);
-  assert.equal(store.setPingsOff(placeOfCommunity(store, 'g1'), 'u1', true), true);
-  assert.equal(store.setPingsOff(placeOfCommunity(store, 'g1'), 'u2', true), true);
-  assert.deepEqual(asRecord(store.getPlace(placeOfCommunity(store, 'g1'))).pingsOff, ['u1', 'u2']);
-  assert.equal(store.isPingsOff(placeOfCommunity(store, 'g1'), 'u1'), true);
-  store.flush();
-  await store.flushSettled({});
-
-  const again = createStore({ dataDir: dir, memoryDb });
-  assert.equal(again.isPingsOff(placeOfCommunity(again, 'g1'), 'u1'), true);
-  assert.equal(again.isPingsOff(placeOfCommunity(again, 'g1'), 'u3'), false);
-  assert.equal(again.setPingsOff(placeOfCommunity(again, 'g1'), 'u1', false), false);
-  assert.equal(again.setPingsOff(placeOfCommunity(again, 'g1'), 'u1', false), false);
-  again.flush();
-  await again.flushSettled({});
-  assert.deepEqual(asRecord(createStore({ dataDir: dir, memoryDb }).getPlace('discord:server:g1')).pingsOff, ['u2']);
-});
-
-test('pingsOff: a change is written at once, with no flush, and survives dropped caches', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const store = createStore({ dataDir: dir, memoryDb });
-  store.setPingsOff(placeOfCommunity(store, 'g1'), 'u1', true);
-  await settle();
-  const file = path.join(dir, 'guilds', 'g1', 'guild.json');
-  assert.deepEqual(JSON.parse(readRaw(file)).pingsOff, ['u1']);
-  store.dropCaches();
-  assert.equal(store.isPingsOff(placeOfCommunity(store, 'g1'), 'u1'), true);
-});
-
-test('pingsOff: updatePlace from the analyzer never overwrites it', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
-  store.setPingsOff(placeOfCommunity(store, 'g1'), 'u1', true);
-  store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: 'x', pingsOff: [] });
-  assert.deepEqual(asRecord(store.getPlace(placeOfCommunity(store, 'g1'))).pingsOff, ['u1']);
-});
-
-test('pingsOff: a hand-broken field reads as [], junk entries dropped, duplicates kept once', async () => {
+// The members' ping states (getPings, setPings, after the owner's word of 2026-11-06) are tested in
+// tests/store-pings-state.test.ts. This one reads a hand-broken field.
+test('pings: a hand-broken field reads as {}, junk entries dropped, a junk pingsOff list adds only its string ids', async () => {
   for (const [stored, expected] of [
-    ['u1', []],
-    [{ u1: true }, []],
+    [{ pings: 'u1' }, {}],
+    [{ pings: ['u1'] }, {}],
+    [{ pings: { u1: 'on', u2: 'maybe', u3: true, u4: 'off' } }, { u1: 'on', u4: 'off' }],
+    [{ pingsOff: ['u1', 7, null, '', 'u1', { id: 'u2' }, 'u3'] }, { u1: 'off', u3: 'off' }],
     [
-      ['u1', 7, null, '', 'u1', { id: 'u2' }, 'u3'],
-      ['u1', 'u3'],
+      { pings: { u1: 'on' }, pingsOff: ['u1', 'u2'] },
+      { u1: 'on', u2: 'off' },
     ],
   ]) {
     const { dir, memoryDb } = memDataDir();
     const file = path.join(dir, 'guilds', 'g1', 'guild.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    writeRaw(file, { patterns: '', pingsOff: stored });
-    assert.deepEqual(
-      asRecord(createStore({ dataDir: dir, memoryDb }).getPlace('discord:server:g1')).pingsOff,
-      expected,
-      JSON.stringify(stored)
-    );
+    writeRaw(file, { patterns: '', ...stored });
+    const guild = asRecord(createStore({ dataDir: dir, memoryDb }).getPlace('discord:server:g1'));
+    assert.deepEqual(guild.pings, expected, JSON.stringify(stored));
+    assert.equal('pingsOff' in guild, false, JSON.stringify(stored));
   }
 });
 

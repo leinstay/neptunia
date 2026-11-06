@@ -247,9 +247,12 @@ function lookupFailed(result: PortResult): ReadFailure {
 /**
  * `payload` in silent mode (`discord.silent`): no notification for anyone, which adds the suppress flag to
  * the voice flag it may carry, and no ping to the author a reply answers. The reply reference and the
- * named users stay.
+ * named users stay. A message whose mentions say `notify` and name someone to notify (a named user, or
+ * the replied author of a reply) goes out as it is: everyone it concerns asked to be pinged.
  */
-function silenced(payload: Record<string, unknown>): Record<string, unknown> {
+function silenced(payload: Record<string, unknown>, content: Content): Record<string, unknown> {
+  const { users, repliedUser, notify } = mentionsOf(content);
+  if (notify === true && (users.length > 0 || (repliedUser && content.replyTo))) return payload;
   const flags = Number(payload.flags ?? 0) | Number(MessageFlags.SuppressNotifications);
   const allowedMentions = { ...objOf(payload.allowedMentions), repliedUser: false };
   return { ...payload, flags, allowedMentions };
@@ -367,7 +370,7 @@ export function createDiscordAdapter({
     } else {
       payload.allowedMentions = { parse: [] };
     }
-    return objOf(objOf(config()).discord).silent === true ? silenced(payload) : payload;
+    return objOf(objOf(config()).discord).silent === true ? silenced(payload, content) : payload;
   }
 
   /** The reference of a message Discord answered with (`posted`), in `conversationId`. */

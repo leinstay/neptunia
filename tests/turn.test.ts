@@ -1117,13 +1117,13 @@ test('createTurnRunner: a video in the trigger renders by its tag, nothing is do
   assert.ok(textOf(parts).includes('[video: clip.mp4, 0:34]'), 'the video renders by its tag');
 });
 
-/** fakeStore whose guild keeps `pingsOff`, the members who turned the persona's notifications off. */
+/** fakeStore whose guild hands out the state `off` (store.getPings) for the members who turned the persona's notifications off. */
 function storeWithPingsOff(pingsOff: Untyped) {
   const store = fakeStore();
   store.pingsCalls = [];
-  store.isPingsOff = (placeId: string, accountId: string) => {
+  store.getPings = (placeId: string, accountId: string) => {
     store.pingsCalls.push([placeId, accountId]);
-    return pingsOff.includes(accountId);
+    return pingsOff.includes(accountId) ? 'off' : null;
   };
   return store;
 }

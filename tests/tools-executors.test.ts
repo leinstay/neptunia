@@ -313,7 +313,7 @@ function makeAdmin({
     state: { data: {}, markDirty() {} },
     getUser: () => null,
     getPlace: () => ({}),
-    isPingsOff: (placeId: string, accountId: string) => accountId === '8',
+    getPings: (placeId: string, accountId: string) => (accountId === '8' ? 'off' : null),
     // The tree of each channel the interface describes (plan T.4: a tool asks the store for the top of its place).
     rootPlaceOf: (placeId: string) =>
       placeId === OTHER_GUILD ? 'g2' : placeId === 'g1' || channels.has(placeId) ? 'g1' : null,
@@ -1440,7 +1440,8 @@ test("an unknown argument is still refused by the engine although the model's sc
 // switches the asker's pings and nobody else's.
 
 /**
- * A store whose pings switch is the real one: `off` holds the `<guild>:<user>` keys that turned pings off.
+ * A store whose ping states work as the real ones: `off` holds the `<guild>:<user>` keys whose state is `off`. The owner's
+ * word of 2026-11-06 gave a member the states `on`, `off` or none (getPings, setPings), so the fake keeps only `off` here.
  */
 function pingsStore(off: Array<string> = []) {
   const keys = new Set(off);
@@ -1451,11 +1452,11 @@ function pingsStore(off: Array<string> = []) {
     getPlace: () => ({}),
     // Every channel of the rig sits in g1 (plan T.4: the switch is kept under the top of the call's place).
     rootPlaceOf: () => 'g1',
-    isPingsOff: (placeId: string, accountId: string) => keys.has(`${placeId}:${accountId}`),
-    setPingsOff(placeId: string, accountId: string, value: unknown) {
-      if (value) keys.add(`${placeId}:${accountId}`);
+    getPings: (placeId: string, accountId: string) => (keys.has(`${placeId}:${accountId}`) ? 'off' : null),
+    setPings(placeId: string, accountId: string, state: unknown) {
+      if (state === 'off') keys.add(`${placeId}:${accountId}`);
       else keys.delete(`${placeId}:${accountId}`);
-      return value;
+      return state;
     },
   };
 }

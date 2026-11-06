@@ -32,9 +32,10 @@ export type Attachment = {
 
 /**
  * Who a message may notify: the members named, and whether the author of the message replied to
- * is. Absent means none.
+ * is. Absent means none. `notify` true says that everyone the message concerns asked to be pinged, so
+ * an interface that sends silently lets this message notify them; absent leaves it to the interface.
  */
-export type Mentions = { users: Array<string>; repliedUser: boolean };
+export type Mentions = { users: Array<string>; repliedUser: boolean; notify?: boolean };
 
 /**
  * What a message carries: text and/or attachments, the message it replies to, the mentions that
@@ -191,7 +192,7 @@ export function mentionsOf(content: { mentions?: Partial<Mentions> | null } | nu
   const users = Array.isArray(given.users)
     ? given.users.filter((id): id is string => typeof id === 'string' && id !== '')
     : [];
-  return { users, repliedUser: given.repliedUser === true };
+  return { users, repliedUser: given.repliedUser === true, ...(given.notify === true ? { notify: true } : {}) };
 }
 
 /** True when `ref` is a reference of `iface` with a non-empty `conversationId` (and `messageId` when `needMessage`). */
