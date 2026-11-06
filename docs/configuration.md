@@ -378,6 +378,7 @@ The engine proxy is described in [Proxy](proxy.md).
 |---|---|---|---|---|
 | `watcher.enabled` | boolean | `false` | Whether the deployment runs the watcher, which only `true` turns on. `neptunia services watcher enable` and `disable` move it with the timer. While it is off the selfimprovement wake carries no watcher report | `src/watcher/settings.ts` |
 | `watcher.schedule` | string | `"at 00:00"` | When the watcher runs: daily UTC times such as `at 00:00,12:00`, or `every 6h`. `neptunia services watcher setup` writes it and renders `neptunia-watcher.timer`, and a value that means nothing reads as the default | `src/watcher/settings.ts` |
+| `watcher.draftsOnly` | boolean | `false` | With `true` an inspection files no task: each draft it would have filed keeps the state `draft` and is listed under "Tasks filed" in its report, which is how the watcher is calibrated. Only `true` turns it on. The worker reads it when the run files, and a draft is never filed later | `src/watcher/settings.ts` |
 | `watcher.auditTopics` | array | `["dm-privacy-paths", "schema-against-code", "dead-code", "long-chains", "media-parity", "restart-and-recovery", "tests-that-prove-nothing"]` | The narrow topics the watcher audits in development mode, one per run that commits its report, in this order and round again. Only nonblank strings count, and an empty list audits no topic | `src/watcher/development.ts` |
 
 ## selfimprovement
