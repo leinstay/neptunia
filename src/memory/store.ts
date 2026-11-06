@@ -3099,6 +3099,17 @@ function buildStore({
       );
     },
 
+    /**
+     * The communities an interface's hello named, written as their server places through the one writer
+     * (src/memory/db/communities.ts). A failed write is logged; the next hello writes them again.
+     */
+    noteCommunities(iface: string, communities: ReadonlyArray<{ id: string; name: string }>): void {
+      if (typeof memoryDb?.memoryWrite !== 'function' || communities.length === 0) return;
+      void Promise.resolve(
+        memoryDb.memoryWrite({ kind: 'communities', iface, communities, at: new Date().toISOString() })
+      ).catch((error: unknown) => log.warn('store: communities write failed', { error }));
+    },
+
     /** The caption vectors of the library's entries by item id, those of `model` alone when it is named. */
     getGifVectors(model?: string | null): Map<string, Float32Array> {
       const found = new Map<string, Float32Array>();

@@ -173,7 +173,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   const guildById = (id: string): Obj | null => guildCache.get(id) ?? null;
   // The first server names the persona in `hello`; her name in the others comes with each of their events.
   const guildNow = (): Obj | null => guildById(guildIds[0] ?? '');
-  const communityOf = (id: string) => ({ id, name: guilds.find((guild) => guild.id === id)?.name ?? id });
+  const communityOf = (id: string) => ({ id, name: guilds.find((guild) => guild.id === id)?.name ?? '' });
   const selfId = (): string | null => client.user?.id ?? null;
 
   const discord = createDiscordInterface({ client, config });

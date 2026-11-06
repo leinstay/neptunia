@@ -61,7 +61,11 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const rows: Rows = {};
   const rest = { ...value };
   const scope = notesScope(iface, ctx);
-  if (!ctx.subjectPlace) {
+  if (ctx.subjectPlace) {
+    // The row the database holds stays as stored (channel.ts does the same): the unit owns it, so a write that left it
+    // out would retire it.
+    put(rows, 'places', { ...ctx.subjectPlace, owner_file: rel });
+  } else {
     put(rows, 'places', {
       id: placeId,
       iface,
