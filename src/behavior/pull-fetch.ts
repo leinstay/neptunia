@@ -213,7 +213,8 @@ async function fetchPage(
   }
   // The page ends at the anchor, the anchor included: the messages before it, then the anchor itself.
   const anchor = await reads.fetchMessages(ref, [anchorId]);
-  const event = anchor?.messages[0]?.event;
+  const anchorMessage = anchor?.messages[0];
+  const event = anchorMessage?.event;
   if (event === undefined) return anchor === null ? null : { lines: [], anchorTs: Number.NaN };
   const line = lineOf(event) as Line;
   // An anchor too old for the pull reads no page: the caller refuses it from its time.
@@ -237,7 +238,8 @@ async function messageById(
   const held = pageById.get(messageId);
   if (held !== undefined) return held;
   const found = await reads.fetchMessages(refOf(entry), [messageId]);
-  const event = found?.messages[0]?.event;
+  const message = found?.messages[0];
+  const event = message?.event;
   return event === undefined ? null : (lineOf(event) as Line);
 }
 

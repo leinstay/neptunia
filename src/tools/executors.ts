@@ -415,8 +415,8 @@ function transcriptReference({
   if (line.deleted === true) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
   const identity = referenceOf(name, option, line, view);
   if (!identity) return refused(CODE.UNKNOWN_MESSAGE, option);
-  if (line.stored?.native)
-    line = { ...line, id: line.stored.native.messageId, conversationId: line.stored.native.conversationId };
+  const native = line.stored?.native;
+  if (native) line = { ...line, id: native.messageId, conversationId: native.conversationId };
   if (line.deleted === true) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
   return { line, identity };
 }
@@ -459,7 +459,8 @@ export function resolveCall(
   // An errand without its agent: refused naming the agents she may pick (the schema's choices), so
   // the refusal she reads says which, never a bare missing argument.
   if (name === AGENT_SKILL && !Object.hasOwn(given, 'agent') && byName.has('agent')) {
-    const agents = skill.argsSchema.properties?.agent?.enum;
+    const { properties } = skill.argsSchema;
+    const agents = properties?.agent?.enum;
     return refused(CODE.AGENT_REQUIRED, Array.isArray(agents) ? agents.join(',') : '');
   }
 

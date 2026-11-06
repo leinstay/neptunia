@@ -52,7 +52,8 @@ const handlers = perEnv((env) => {
   async function eventOf(messageId: unknown, conversationId: string | null): Promise<Untyped> {
     if (!conversationId || !reads) return null;
     const found = await reads.fetchMessages(refOf(conversationId), [idText(messageId)]);
-    return found?.messages[0]?.event ?? null;
+    const message = found?.messages[0];
+    return message?.event ?? null;
   }
 
   /** The conversation the command came from as the interface describes it, or null. */

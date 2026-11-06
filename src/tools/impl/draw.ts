@@ -79,7 +79,8 @@ const handlers = perEnv((env) => {
         // The persona's large avatar, asked of the interface only when the picture needs the reference.
         avatarUrl: async () => {
           const found = await reads?.memberInfo({ placeId, accountId: String(env.selfId() ?? '') });
-          return found?.member?.avatar.largeUrl ?? null;
+          const member = found?.member;
+          return member?.avatar.largeUrl ?? null;
         },
         imageFetcher,
         input: { scene: request, selfName, self, withTime: false, accountId: null },

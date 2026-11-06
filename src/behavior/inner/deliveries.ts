@@ -271,7 +271,8 @@ async function sendOne(life: InnerContext, delivery: Delivery): Promise<void> {
     log.warn('inner: delivery send threw', { code: errorCode(err) });
   }
   await move(life, delivery.key, ['sending'], settledState(answer), receiptOf(answer));
-  const messageId = answer.ref?.messageId ?? answer.parts[0]?.messageId ?? null;
+  const [firstPart] = answer.parts;
+  const messageId = answer.ref?.messageId ?? firstPart?.messageId ?? null;
   if (answer.status === 'ok') {
     if (op) await op.succeeded({ messageId });
     recordSaid(life, delivery, { messageId, at: answer.at, opId: op?.opId ?? null, partner });

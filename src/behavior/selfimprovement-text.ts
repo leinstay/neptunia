@@ -150,15 +150,16 @@ function newsLines(facts: SelfimprovementFacts, l: Obj): Array<string> {
 
 /** The watcher's block: the titles of what it filed, each with the state of its receipt. */
 function watcherLine(facts: SelfimprovementFacts, l: Obj): string {
-  if (!facts.watcher) return '';
-  const findings = facts.watcher.findings.map((one) =>
+  const { watcher } = facts;
+  if (!watcher) return '';
+  const findings = watcher.findings.map((one) =>
     word(l, 'watcherFinding', {
       title: oneLine(one.title),
       state: one.state,
       task: one.taskId === null ? '' : word(l, 'watcherTask', { task: one.taskId }),
     })
   );
-  return word(l, 'watcher', { day: facts.watcher.day, findings: findings.join('\n') });
+  return word(l, 'watcher', { day: watcher.day, findings: findings.join('\n') });
 }
 
 /**

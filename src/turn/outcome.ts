@@ -470,7 +470,8 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
 
   /** Why a chain ends before its next part: `paused` (/nep pause), or null. */
   function chainStop(): string | null {
-    return store.state.data.paused ? 'paused' : null;
+    const stateData = store.state.data;
+    return stateData.paused ? 'paused' : null;
   }
 
   /**

@@ -233,13 +233,13 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
       write(content);
       return { left: content.core.length };
     },
-    setGrant(name, grant) {
+    setGrant(name, limit) {
       const content = read();
       const row = content.core.find((one) => one.name === name);
       if (row === undefined) throw new KeysError('unknown-key');
-      if (grant !== null && (!isGrant(grant.grant) || !isResetDay(grant.resetDay))) throw new KeysError('bad-grant');
-      row.grant = grant?.grant ?? null;
-      row.resetDay = grant?.resetDay ?? null;
+      if (limit !== null && (!isGrant(limit.grant) || !isResetDay(limit.resetDay))) throw new KeysError('bad-grant');
+      row.grant = limit?.grant ?? null;
+      row.resetDay = limit?.resetDay ?? null;
       write(content);
     },
     addExtra({ name, value, from }) {

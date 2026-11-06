@@ -41,7 +41,8 @@ export async function landedFor(board: BoardCaller): Promise<{ landed: Array<Lan
   for (const row of rows) {
     if (row.kind !== 'done' || typeof row.task_id !== 'string') continue;
     const view = await board.call('persona', 'task.show', { id: row.task_id });
-    const found = landedOf(view.task.metadata?.landed);
+    const { metadata } = view.task;
+    const found = landedOf(metadata?.landed);
     if (found !== null) landed.push({ seq: Number(row.seq), taskId: row.task_id, ...found });
   }
   return { landed, seqs: landed.map((one) => one.seq) };

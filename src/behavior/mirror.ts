@@ -463,6 +463,9 @@ export function mirrorSettings(config: unknown): { claimLeaseMs: number; sendTim
 let claimants = 0;
 const nextClaimant = (): string => `publisher:${process.pid}:${(claimants += 1)}`;
 
+/** The stored state of one segment of a delivery, read at the call. */
+const segmentOf = ({ segments }: StoredDelivery, segment: number) => segments[segment];
+
 /** The publisher's whole surface: publishing, draining, and the owner's desk. */
 export type Mirrors = MirrorDesk & {
   publishEntry(entry: SelfreflectionEntry): Promise<Array<PublishOutcome>>;
@@ -550,8 +553,8 @@ export function createMirrors({
     delivery: StoredDelivery
   ): Promise<PublishOutcome> {
     const sent = await sendPlan(connected, { iface: place.iface, conversationId: place.conversationId }, plan, {
-      done: (segment) => delivery.segments[segment]?.status === 'sent',
-      keyOf: (segment) => delivery.segments[segment]?.key ?? `${publication.id}:${segment}`,
+      done: (segment) => segmentOf(delivery, segment)?.status === 'sent',
+      keyOf: (segment) => segmentOf(delivery, segment)?.key ?? `${publication.id}:${segment}`,
       timeoutMs: mirrorSettings(config()).sendTimeoutMs,
       onSent: async (segment, messageIds, attachmentIds) => {
         const answer = (await write({

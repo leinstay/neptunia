@@ -252,12 +252,12 @@ async function saveFlags(deps: KeysDeps, flags: ModelFlags & { model: string }):
 export function createKeysCommands(deps: KeysDeps): {
   run(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer>;
 } {
-  const { store, ring } = deps;
+  const { store, ring, pause: pauseControl } = deps;
 
   /** Lifts the pause the last removal set, and only that one. */
   async function resumeIfNoKey(): Promise<boolean> {
-    if (deps.pause.reason() !== NO_CORE_KEY) return false;
-    await deps.pause.resume(NO_CORE_KEY);
+    if (pauseControl.reason() !== NO_CORE_KEY) return false;
+    await pauseControl.resume(NO_CORE_KEY);
     return true;
   }
 
@@ -351,7 +351,7 @@ export function createKeysCommands(deps: KeysDeps): {
   async function removeCore(name: string, args: Record<string, unknown>): Promise<Answer> {
     const { left } = store.removeCore(text(args.name));
     if (left > 0) return { text: `The core key is removed. ${left} left.`, status: 'ok' };
-    await deps.pause.pause(NO_CORE_KEY);
+    await pauseControl.pause(NO_CORE_KEY);
     return {
       text: 'The last core key is removed. She is paused (no-core-key) until you add a core key.',
       status: 'ok',

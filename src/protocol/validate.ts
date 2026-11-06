@@ -402,16 +402,16 @@ function checkCommandResult(action: Rec): void {
 export function validateAction(given: unknown): { ok: true } | { ok: false; reason: string } {
   return verdict(() => {
     need(given, 'action', isObject);
-    const action = asRecord(given);
-    need(action.action, 'action', (name) => isOneOf(ACTIONS)(name) || isReadAction(name), {
+    const request = asRecord(given);
+    need(request.action, 'action', (name) => isOneOf(ACTIONS)(name) || isReadAction(name), {
       problem: 'unknown',
     });
-    need(action.idempotencyKey, 'idempotencyKey', isId, { required: false });
-    need(action.deadlineAt, 'deadlineAt', (value) => typeof value === 'number' && Number.isFinite(value), {
+    need(request.idempotencyKey, 'idempotencyKey', isId, { required: false });
+    need(request.deadlineAt, 'deadlineAt', (value) => typeof value === 'number' && Number.isFinite(value), {
       required: false,
     });
-    throwProblem(readActionProblem(action));
-    switch (action.action) {
+    throwProblem(readActionProblem(request));
+    switch (request.action) {
       case 'conversation.info':
       case 'conversations.list':
       case 'messages.history':
@@ -424,30 +424,30 @@ export function validateAction(given: unknown): { ok: true } | { ok: false; reas
       case 'message.reactors':
         return;
       case MESSAGES_FETCH:
-        checkRef(action.conversation, 'conversation', { needMessage: false });
-        needIds(action.messageIds, 'messageIds');
+        checkRef(request.conversation, 'conversation', { needMessage: false });
+        needIds(request.messageIds, 'messageIds');
         return;
       case CAPABILITIES.send:
-        checkRef(action.conversation, 'conversation', { needMessage: false });
-        checkContent(action.content);
+        checkRef(request.conversation, 'conversation', { needMessage: false });
+        checkContent(request.content);
         return;
       case CAPABILITIES.edit:
-        checkRef(action.message, 'message', { needMessage: true });
-        checkContent(action.content);
+        checkRef(request.message, 'message', { needMessage: true });
+        checkContent(request.content);
         return;
       case CAPABILITIES.delete:
-        checkRef(action.message, 'message', { needMessage: true });
+        checkRef(request.message, 'message', { needMessage: true });
         return;
       case CAPABILITIES.react:
       case CAPABILITIES.unreact:
-        checkRef(action.message, 'message', { needMessage: true });
-        need(action.emoji, 'emoji', isString);
+        checkRef(request.message, 'message', { needMessage: true });
+        need(request.emoji, 'emoji', isString);
         return;
       case CAPABILITIES.typing:
-        checkRef(action.conversation, 'conversation', { needMessage: false });
+        checkRef(request.conversation, 'conversation', { needMessage: false });
         return;
       case COMMAND_RESULT:
-        checkCommandResult(action);
+        checkCommandResult(request);
         return;
       default:
         throw new Refusal('action', 'unknown');

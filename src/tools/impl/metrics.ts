@@ -128,8 +128,8 @@ export function createMetrics({
     try {
       parsed = memoryDb
         ? seam.run(() => {
-            const found = unitValue(seam.db(), personaKey('metrics'));
-            return found.found ? found.value : null;
+            const stored = unitValue(seam.db(), personaKey('metrics'));
+            return stored.found ? stored.value : null;
           })
         : (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown);
     } catch (error) {

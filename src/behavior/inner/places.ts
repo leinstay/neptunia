@@ -339,7 +339,8 @@ export function attendFactsOf(
   wake: Wake
 ): { attend?: AttendInfo & { placeName: string; peopleNames: Array<unknown> } } {
   const { nameOf } = life;
-  if (!wake.attend) return {};
+  const { attend } = wake;
+  if (!attend) return {};
   const name = (id: string): unknown => {
     try {
       return (typeof nameOf === 'function' ? nameOf(id) : null) ?? id;
@@ -349,9 +350,9 @@ export function attendFactsOf(
   };
   return {
     attend: {
-      ...wake.attend,
-      placeName: placeNameOf(life, wake.attend.place),
-      peopleNames: wake.attend.people.map(name),
+      ...attend,
+      placeName: placeNameOf(life, attend.place),
+      peopleNames: attend.people.map(name),
     },
   };
 }

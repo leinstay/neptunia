@@ -41,6 +41,7 @@ export async function toolRoundPhase(
     const index = draft.callCount ?? 0;
     draft.callCount = index + 1;
     const target = typeof call?.args?.placeId === 'string' ? call.args.placeId || channel.id : channel.id;
+    const wake = draft.inner?.wake;
     return callEnvelope({
       trigger,
       channel,
@@ -50,11 +51,10 @@ export async function toolRoundPhase(
       turnId: turnKey.turnId,
       // A wake's one decision is keyed by its chain, so a restarted turn of the wake answers with what it already did.
       idempotencyKey:
-        wakeCallKey(draft.inner?.wake?.kind, draft.inner?.wake?.chainId, call.skill ?? '') ??
-        `${turnKey.turnId}:${index}:${target}`,
+        wakeCallKey(wake?.kind, wake?.chainId, call.skill ?? '') ?? `${turnKey.turnId}:${index}:${target}`,
       ownInitiative: Boolean(draft.inner) || draft.ownInitiative === true,
-      chainId: draft.inner?.wake?.chainId ?? null,
-      wakeKind: draft.inner?.wake?.kind ?? null,
+      chainId: wake?.chainId ?? null,
+      wakeKind: wake?.kind ?? null,
     });
   };
   const actArgs = {

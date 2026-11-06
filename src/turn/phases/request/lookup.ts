@@ -34,11 +34,12 @@ export function startLookup(ctx: PhaseContext, opened: Opened, setup: Setup, pla
   const { track } = staged;
   // The links: the newest readable links of the history, at most LINKS_PER_TURN NEW reads (cached excerpts are free).
   let linksStage: Looked['linksStage'] = null;
+  const videoConfig = config.media?.video;
   // Cache only: no fetch, no model request, no daily slot (src/web/lookup.ts#cachedReads).
   const cachedLinkReads = () => {
     if (!linksStage || typeof lookup?.cachedReads !== 'function') return undefined;
     try {
-      return lookup.cachedReads(placeId, readableLinkCandidates(rawHistory, config.media?.video?.sites));
+      return lookup.cachedReads(placeId, readableLinkCandidates(rawHistory, videoConfig?.sites));
     } catch (err) {
       log.warn('lookup: links failed', { channel: channel.id, error: err });
       return undefined;
@@ -48,7 +49,7 @@ export function startLookup(ctx: PhaseContext, opened: Opened, setup: Setup, pla
     const readLinks = lookup.readLinks.bind(lookup);
     linksStage = track('links', async () => {
       try {
-        const candidates = readableLinkCandidates(rawHistory, config.media?.video?.sites);
+        const candidates = readableLinkCandidates(rawHistory, videoConfig?.sites);
         // The journal: the link reads as one operation of the engine, hosts only.
         const readOp =
           candidates.length > 0 ? prepStep('links', 'read-link', { input: { hosts: linkHosts(candidates) } }) : null;

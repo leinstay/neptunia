@@ -269,8 +269,9 @@ export async function responsePhase(
   markPulledSeen(serverShown);
   // This channel's view of each pulled channel the request showed, for the next view of it here.
   if (!isPrivate) pullViews.remember(channel.id, request.pulledViews ?? [], now);
-  store.state.data.calibration = calibrator.ratio;
-  store.state.markDirty();
+  const processState = store.state;
+  processState.data.calibration = calibrator.ratio;
+  processState.markDirty();
   // The calls of the ring this turn showed follow its decision (stampShownCalls), except a
   // routed turn's own call: its caller stamps that one.
   const ownCallId = source?.reason === 'routed' ? (trigger?.id ?? null) : null;

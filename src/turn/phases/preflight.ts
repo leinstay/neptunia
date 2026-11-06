@@ -77,7 +77,8 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   // /nep pause: the owner is editing data/ by hand -- no new turn may start (a reply, an interject, an initiate,
   // or a forced turn) until /nep resume. A turn already in flight when the pause is requested is left to
   // finish naturally; admin.js's pause handler waits for it via waitIdle() below instead of aborting it here.
-  if (store.state.data.paused) return { ended: { outcome: 'paused' } };
+  const stateData = store.state.data;
+  if (stateData.paused) return { ended: { outcome: 'paused' } };
   // A chain's turn runs under the attention it holds; taken before anything is awaited, so two turns cannot both take it.
   const attentionId = conversation.conversationId;
   if (!owned && !takeAttention(busy, attentionId)) return { ended: { outcome: 'busy' } };

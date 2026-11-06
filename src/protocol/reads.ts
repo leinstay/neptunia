@@ -172,45 +172,45 @@ function linkTexts(action: Fields): Problem | null {
  * that is no read, and `messages.fetch` (checked beside the effects), give null.
  */
 export function readActionProblem(given: unknown): Problem | null {
-  const action: Fields = isObject(given) ? given : {};
-  const community = (): Problem | null => field(action.placeId, 'placeId', isId);
-  switch (action.action) {
+  const fields: Fields = isObject(given) ? given : {};
+  const community = (): Problem | null => field(fields.placeId, 'placeId', isId);
+  switch (fields.action) {
     case 'conversation.info':
       return firstOf(
-        () => reference(action.conversation, 'conversation', false),
-        () => audience(action)
+        () => reference(fields.conversation, 'conversation', false),
+        () => audience(fields)
       );
     case 'conversations.list':
-      return firstOf(community, () => audience(action));
+      return firstOf(community, () => audience(fields));
     case 'messages.history':
-      return history(action);
+      return history(fields);
     case 'member.info':
       return firstOf(
-        () => field(action.placeId, 'placeId', (value) => value === null || isId(value)),
-        () => field(action.accountId, 'accountId', isId)
+        () => field(fields.placeId, 'placeId', (value) => value === null || isId(value)),
+        () => field(fields.accountId, 'accountId', isId)
       );
     case 'dm.conversation':
       return firstOf(
-        () => field(action.iface, 'iface', isId),
-        () => field(action.accountId, 'accountId', isId)
+        () => field(fields.iface, 'iface', isId),
+        () => field(fields.accountId, 'accountId', isId)
       );
     case 'messages.search':
-      return messageSearch(action);
+      return messageSearch(fields);
     case 'members.search':
       return firstOf(
         community,
-        () => field(action.prefix, 'prefix', (value) => typeof value === 'string'),
-        () => field(action.limit, 'limit', isIntegerFrom(1, MAX_MEMBER_LIMIT))
+        () => field(fields.prefix, 'prefix', (value) => typeof value === 'string'),
+        () => field(fields.limit, 'limit', isIntegerFrom(1, MAX_MEMBER_LIMIT))
       );
     case 'emoji.list':
-      return field(action.placeId, 'placeId', (value) => value === null || isId(value));
+      return field(fields.placeId, 'placeId', (value) => value === null || isId(value));
     case 'links.parse':
-      return linkTexts(action);
+      return linkTexts(fields);
     case 'message.reactors':
       return firstOf(
-        () => reference(action.message, 'message', true),
-        () => field(action.emoji, 'emoji', (value) => typeof value === 'string'),
-        () => field(action.limit, 'limit', isIntegerFrom(1, MAX_REACTOR_LIMIT))
+        () => reference(fields.message, 'message', true),
+        () => field(fields.emoji, 'emoji', (value) => typeof value === 'string'),
+        () => field(fields.limit, 'limit', isIntegerFrom(1, MAX_REACTOR_LIMIT))
       );
     default:
       return null;

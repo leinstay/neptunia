@@ -81,10 +81,11 @@ export function createAnswer({
     const windowMs = (config.address?.attentionMinutes ?? 0) * MINUTE_MS;
     const limit = config.address?.maxTurnsPerAuthor ?? 0;
     const turnsSoFar = tagHistory.count(key, now(), windowMs);
+    const { neverIgnore: neverIgnored } = config.mention;
     const decision = decideTurn({
       turns: turnsSoFar,
       limit,
-      neverIgnore: config.mention.neverIgnore.includes(trigger.authorId),
+      neverIgnore: neverIgnored.includes(trigger.authorId),
     });
     if (decision.respond) tagHistory.hit(key, now(), windowMs);
     else log.info('address: refused', { channel: channel.id, author: trigger.authorId, turns: turnsSoFar, limit });

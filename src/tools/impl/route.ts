@@ -70,7 +70,7 @@ const handlers = perEnv((env) => {
     let applied = 'none';
     if (match) applied = `${match.key} ${routingSummary(match.value)}`;
     else if (isObj(fallback)) applied = `${fallbackName} ${routingSummary(fallback)}`;
-    const pin = cfg?.media?.video?.provider;
+    const pin = objOf(cfg?.media?.video).provider;
     const pinned =
       role === 'video' && isObj(pin) ? `; direct-URL videos: media.video.provider ${routingSummary(pin)}` : '';
     return `  ${role}: ${model} -> ${applied}${pinned}`;

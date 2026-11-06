@@ -64,7 +64,7 @@ export function createTurnControl({
   const byRequest = new Map<string, string>();
   const events: Array<TurnEvent> = [];
   let queue: ReadonlyArray<TurnRun> = [];
-  let active: { turnId: string; abort: AbortController } | null = null;
+  let active: { turnId: string; controller: AbortController } | null = null;
   let seq = 0;
 
   function say(turnId: string, type: TurnEvent['type'], fields: Partial<TurnEvent> = {}): void {
@@ -98,12 +98,12 @@ export function createTurnControl({
     const [next, ...rest] = queue;
     if (active !== null || next === undefined) return;
     queue = rest;
-    const abort = new AbortController();
-    active = { turnId: next.turnId, abort };
+    const controller = new AbortController();
+    active = { turnId: next.turnId, controller };
     phases.set(next.turnId, 'running');
     say(next.turnId, 'running', { streaming: isStreaming() });
     // A run that throws, at once or later, is a failed turn: the error's words stay out of the events.
-    new Promise<TurnOutcome>((resolve) => resolve(run(next, { signal: abort.signal })))
+    new Promise<TurnOutcome>((resolve) => resolve(run(next, { signal: controller.signal })))
       .catch((): TurnOutcome => ({ status: 'failed', code: 'run-threw' }))
       .then((outcome) => finished(next.turnId, outcome))
       // Only a throwing `emit` lands here, and the next turn still has to start.
@@ -150,7 +150,7 @@ export function createTurnControl({
         dropQueued(turnId);
         return { status: 'cancelled' };
       }
-      if (active?.turnId === turnId) active.abort.abort();
+      if (active?.turnId === turnId) active.controller.abort();
       return { status: 'cancelling' };
     },
     queued: () => queue,

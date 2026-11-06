@@ -107,13 +107,14 @@ export function createMemoryWatch(deps: MemoryWatchDeps): MemoryWatch {
 
   /** Pauses on a failure while she runs, resumes a `memory-down` pause on a pass, and touches nothing else. */
   async function follow(result: ProbeResult): Promise<void> {
-    const reason = deps.pause.reason();
+    const pauseControl = deps.pause;
+    const reason = pauseControl.reason();
     if (!result.ok && reason === null) {
       log.warn('memory probe: failed, she sleeps', { code: result.code });
-      await deps.pause.pause(MEMORY_DOWN);
+      await pauseControl.pause(MEMORY_DOWN);
     } else if (result.ok && reason === MEMORY_DOWN) {
       log.info('memory probe: passed, she wakes', {});
-      await deps.pause.resume(MEMORY_DOWN);
+      await pauseControl.resume(MEMORY_DOWN);
     } else if (!result.ok) {
       log.warn('memory probe: failed', { code: result.code, paused: reason });
     }

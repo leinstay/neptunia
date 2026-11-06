@@ -79,7 +79,8 @@ export async function runSetupFlow(deps: SetupFlowDeps): Promise<FlowOutcome> {
       fs.rmSync(answersFile(deps.dataDir), { force: true });
       return { status: 'ready', at: null, detail: '' };
     }
-    if (tried.has(at)) return { status: 'failed', at, detail: readiness.failed[0]?.repair ?? '' };
+    const [firstFailure] = readiness.failed;
+    if (tried.has(at)) return { status: 'failed', at, detail: firstFailure?.repair ?? '' };
     tried.add(at);
     const outcome = await deps.steps[at](context);
     if (outcome === 'cancelled') return { status: 'cancelled', at, detail: '' };

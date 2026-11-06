@@ -257,8 +257,8 @@ export function lateMediaTeller({
         ? (videoStage.value.videos as Map<string, { state?: string }>)
         : null;
     const newVideos = pending.videoIds.filter((itemId) => {
-      const state = states?.get(itemId);
-      return !told.videos.has(itemId) && state !== undefined && state.state !== 'pending';
+      const video = states?.get(itemId);
+      return !told.videos.has(itemId) && video !== undefined && video.state !== 'pending';
     });
     const newCaptions = pending.captions && !told.captions && Boolean(captions?.done);
     const ids = new Set([

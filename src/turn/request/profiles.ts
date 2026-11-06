@@ -745,12 +745,13 @@ export function profileStateFields(
   const lines: Array<string> = [];
   if (relationships) {
     const affinity = profile.affinity;
+    const affinityBands = labels.affinity?.bands;
     const shown = hasAttitude(profile, relationships);
     const attitude =
       shown && affinity && n.attitude
         ? fill(n.attitude, {
             score: roundScore(affinity.score),
-            band: labels.affinity?.bands?.[affinityBand(affinity.score)],
+            band: affinityBands?.[affinityBand(affinity.score)],
             reason: resolveChatText(affinity.reason, nameOf),
           })
         : none;

@@ -256,6 +256,7 @@ export function interlocutorOf(given: RequestInput & Base & Room & Task): Interl
           ...liveOf(interlocutorRowId),
           ...profileStateFields(interlocutor, labels, { relationships, shownMoves, timezone, nameOf }),
         ];
+  const peopleMarks = labels.peopleNow?.marks;
   const interlocutorRow =
     interlocutorRowId === null || (!interlocutor && interlocutorFields.length === 0)
       ? ''
@@ -263,7 +264,7 @@ export function interlocutorOf(given: RequestInput & Base & Room & Task): Interl
           {
             handle: handleFor(interlocutorRowId),
             name: interlocutor?.names?.[0] ?? trigger?.authorName ?? '',
-            mark: (overheard ? labels.peopleNow?.marks?.overheard : labels.peopleNow?.marks?.interlocutor) ?? '',
+            mark: (overheard ? peopleMarks?.overheard : peopleMarks?.interlocutor) ?? '',
             fields: interlocutorFields,
           },
           labels
@@ -439,6 +440,7 @@ export function placeAskedAbout(
   if (askedEpisodesOn) {
     const measured = fitSections(aheadOfPeople, limit, cost);
     const free = Math.max(0, limit - measured.used);
+    const recentMeasured = measured.stats.recent;
     const room = Math.min(peopleRoomCap, free);
     let spare = room;
     // Who the budget keeps without episodes: one that does not fit is skipped, the next tried.
@@ -473,10 +475,7 @@ export function placeAskedAbout(
       // come back, ranked anew, in the room the block took plus what the request has beyond
       // `<people>`'s room -- so `<people>` keeps at least the room its members were placed in.
       recentBuilt = buildRecent(askedShown);
-      recentSection = recentSectionOf(
-        recentBuilt,
-        Math.min(recentCap, (measured.stats.recent?.used ?? 0) + (free - room))
-      );
+      recentSection = recentSectionOf(recentBuilt, Math.min(recentCap, (recentMeasured?.used ?? 0) + (free - room)));
       aheadOfPeople = aheadOfPeopleWith(recentSection);
       // The room `<people>` has now (never less than `room`): the members placed above keep their
       // rendering, and one that was not is tried bare (their moments are in `<recent>` now) in

@@ -93,7 +93,8 @@ export async function skillsCommand(
       if (shown === null) return failed(name, skill, `no skill named ${skill}`);
       const head = listLine(shown.row);
       if (shown.text === null) return { text: `${head}\nno active version`, status: 'ok' };
-      return { text: `${head}\ntools: ${shown.row.active?.tools.join(', ') || 'none'}\n${shown.text}`, status: 'ok' };
+      const { active } = shown.row;
+      return { text: `${head}\ntools: ${active?.tools.join(', ') || 'none'}\n${shown.text}`, status: 'ok' };
     }
     case 'skills.review': {
       const review = await access.review(skill);

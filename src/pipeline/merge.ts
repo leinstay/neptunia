@@ -121,7 +121,8 @@ export function createMerge({
     arrivedAt: number;
   }): Promise<void> {
     const index = await classifyMerge(channel, trigger, items);
-    if (store?.state?.data?.paused) {
+    const stateData = store?.state?.data;
+    if (stateData?.paused) {
       log.info('mention: dropped', { channel: channel.id, kind, reason: 'paused' });
       return;
     }

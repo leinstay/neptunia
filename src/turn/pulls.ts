@@ -257,7 +257,8 @@ export function createPulls(ctx: PullsContext): Pulls {
       if (wanted.length > 0 || hookWanted) log.info('pull: skipped', { channel: channel.id, reason: 'no-label' });
     }
     // The ring of calls the store keeps (src/behavior/elsewhere.ts).
-    const pings = (store.state.data.elsewherePings ?? []) as FetchArgs['pings'];
+    const stateData = store.state.data;
+    const pings = (stateData.elsewherePings ?? []) as FetchArgs['pings'];
     // The route hook's channels asked for the page before their last view here.
     const earlierIds = new Set<string>();
     const pageOf = (conversationId: string): { direction?: 'earlier'; beforeId?: string | null } => {
@@ -441,9 +442,10 @@ export function createPulls(ctx: PullsContext): Pulls {
    */
   function markPulledSeen(shown: ReadonlyArray<{ placeId: string; newestTs: number }>): void {
     if (shown.length === 0) return;
-    let seen = store.state.data.elsewhereSeen;
+    const stateData = store.state.data;
+    let seen = stateData.elsewhereSeen;
     for (const { placeId, newestTs } of shown) seen = markSeen(seen, placeId, newestTs);
-    store.state.data.elsewhereSeen = seen;
+    stateData.elsewhereSeen = seen;
   }
 
   /**

@@ -232,7 +232,8 @@ export function fitAll(
   const { config, caps, cost, limit } = given;
   const { worldItem, selfreflectionLines, aheadOfPeople, peopleSection, voiceRows } = given;
   const { neighborItems, attitudesText } = given;
-  const aroundMax = config.context.around?.maxTokens;
+  const { around } = config.context;
+  const aroundMax = around?.maxTokens;
   const budgetFit = fitSections(
     [
       ...aheadOfPeople,

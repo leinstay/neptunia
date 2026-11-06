@@ -205,7 +205,8 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       // The persona's large avatar, asked of the interface only when the picture needs the reference.
       avatarUrl: async () => {
         const found = await ifaceReads.memberInfo({ placeId, accountId: selfIdOf() });
-        return found?.member?.avatar.largeUrl ?? null;
+        const member = found?.member;
+        return member?.avatar.largeUrl ?? null;
       },
       imageFetcher,
       now: clock,

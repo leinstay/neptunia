@@ -206,9 +206,16 @@ export const SEARCH_ENGINES = ['brave', 'exa', 'openrouter'] as const;
 /** The reason of an engine's request that had no key to go out on. */
 const NO_KEY = 'no-key';
 
+/** The video sites of the live config (`media.video.sites`), none when it names none. */
+function videoSitesOf(config: LookupConfig): ReadonlyArray<string> {
+  const video = config.media?.video;
+  return video?.sites ?? [];
+}
+
 /** The engine of the live config: `web.quickSearch.engine` when it names one, else none. */
 function engineOf(config: LookupConfig): Engine | null {
-  const engine = config?.web?.quickSearch?.engine;
+  const quickSearch = config?.web?.quickSearch;
+  const engine = quickSearch?.engine;
   return SEARCH_ENGINES.find((name) => name === engine) ?? null;
 }
 
@@ -393,7 +400,7 @@ export function createLookup(deps: LookupDeps): Lookup {
     if (link.kind !== undefined && link.kind !== 'link') return false;
     if (videoSiteFor(link.url, SKIP_SITES)) return false;
     if (isGifHostUrl(link.url)) return false;
-    if (videoSiteFor(link.url, config.media?.video?.sites ?? [])) return false;
+    if (videoSiteFor(link.url, videoSitesOf(config))) return false;
     if (isBinaryPath(link.url)) return false;
     return true;
   }
@@ -556,13 +563,10 @@ export function createLookup(deps: LookupDeps): Lookup {
 
     const outcome = await attempt(engine, asked, promptText, config);
     if (outcome.result) {
-      putEntry(placeId, key, { ...outcome.result, ts: now() });
-      report(outcome.result.text ? 'found' : 'nothing', null, {
-        cached: false,
-        results: outcome.result.sources.length,
-        engine,
-      });
-      return outcome.result;
+      const found = outcome.result;
+      putEntry(placeId, key, { ...found, ts: now() });
+      report(found.text ? 'found' : 'nothing', null, { cached: false, results: found.sources.length, engine });
+      return found;
     }
     const { reason, status } = outcome.failure;
     report('error', reason, { ...(status !== undefined ? { status } : {}), engine });

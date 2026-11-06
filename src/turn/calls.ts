@@ -197,12 +197,13 @@ export function callViewOf({
     messageAt: (n) => {
       // A line a memory.search of the turn quoted: its number was numbered on past the request's own.
       const found = searchRefs && n >= searchRefs.base ? searchRefs.byNumber.get(n) : null;
+      const storedNative = found?.stored?.native;
       if (found)
         return {
           id: String(found.id),
           stored: found.stored,
           native:
-            found.stored?.native ??
+            storedNative ??
             (!found.stored && currentIface
               ? {
                   iface: currentIface,
@@ -210,7 +211,7 @@ export function callViewOf({
                   messageId: String(found.id),
                 }
               : undefined),
-          conversationId: found.stored?.native?.conversationId ?? String(found.placeId ?? channel.id),
+          conversationId: storedNative?.conversationId ?? String(found.placeId ?? channel.id),
           authorId: found.authorId ?? null,
           self: found.self === true,
           ...(found.deleted === true ? { deleted: true } : {}),

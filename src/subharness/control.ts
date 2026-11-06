@@ -183,9 +183,9 @@ export async function setAgentModel(
     () => routeText(readKeys(deps.privateDir), agent),
     () => {
       const fresh = readKeys(deps.privateDir);
-      const { efforts } = fresh.subharness;
+      const { efforts, uses } = fresh.subharness;
       const kept =
-        backend === fresh.subharness.uses[agent] && effort !== DEFAULT_EFFORT
+        backend === uses[agent] && effort !== DEFAULT_EFFORT
           ? efforts
           : Object.fromEntries(Object.entries(efforts).filter(([role]) => role !== agent));
       writeKeys(deps.privateDir, {

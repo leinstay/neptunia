@@ -248,16 +248,17 @@ export async function watcherEvidence(
   });
   const window = { from: flags.from ?? interval.from, to: interval.to };
   const current = currentRun(store)?.runId ?? null;
-  const map = readSessionMap(deps.privateDir);
+  const sessions = readSessionMap(deps.privateDir);
   const recorded = recordedPage(deps, { ...window, offset: flags.records, excludeRunId: current });
-  const agents = new Map(map.map((row) => [row.sessionId, row]));
+  const recordedRuns = recorded.page.runs;
+  const agents = new Map(sessions.map((row) => [row.sessionId, row]));
   const transcripts = readTranscriptRuns({
     home: path.join(subharnessPlace(deps.privateDir, 'claude').dir, 'home'),
     ...window,
-    maxChars: Math.max(WATCHER_EVIDENCE_MAX_CHARS - JSON.stringify(recorded.page.runs).length, 0),
-    fitOnly: recorded.page.runs.length > 0,
+    maxChars: Math.max(WATCHER_EVIDENCE_MAX_CHARS - JSON.stringify(recordedRuns).length, 0),
+    fitOnly: recordedRuns.length > 0,
     cursor: String(flags.sessions),
-    excludeSessions: map.filter((row) => current !== null && row.runId === current).map((row) => row.sessionId),
+    excludeSessions: sessions.filter((row) => current !== null && row.runId === current).map((row) => row.sessionId),
     attribute: (_project, session) => agents.get(session)?.agent ?? null,
     outcome: (session) => recorded.tasks(agents.get(session)?.runId ?? ''),
   });

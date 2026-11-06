@@ -75,7 +75,8 @@ export function createAddressAttention({
 
   /** Why the persona is mute right now: `'paused'` (`/nep pause`) or null. */
   function followUpMuted(): 'paused' | null {
-    return store?.state?.data?.paused ? 'paused' : null;
+    const stateData = store?.state?.data;
+    return stateData?.paused ? 'paused' : null;
   }
 
   /**
