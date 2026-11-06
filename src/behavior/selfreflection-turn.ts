@@ -137,10 +137,19 @@ export type SelfreflectionStore = {
   state: { data: Record<string, unknown>; markDirty(): void };
 };
 
+/** The plan of a selfreflection post as recordEntry reads it: its kind, search and brief, and the seeding its planner answered. */
+export type EntryPlan = {
+  kind: string | null;
+  search?: string | null;
+  brief?: string;
+  seeding?: { seeds: Array<Array<string>>; seed: number };
+};
+
 /**
  * The post of the place's selfreflection an entry is (recordEntry): its gist and its first picture's scene cut to
- * `selfreflection.gistChars` (200), her full text, the entry's id as its `itemId`, its search query, how it is sent (`send`) and,
- * with a voice message, the text as voiced and its length.
+ * `selfreflection.gistChars` (200), her full text, the entry's id as its `itemId`, its search query, how it is sent (`send`),
+ * with a voice message the text as voiced and its length, and with a planner's answer its `plan` (`brief`, the `seeds`
+ * offered, the `seed` taken), which the memory database keeps in the entry's `extra`.
  */
 function selfreflectionPostOf({
   config,
@@ -154,7 +163,7 @@ function selfreflectionPostOf({
 }: {
   config: Config;
   at: number;
-  plan: { kind: string | null; search?: string | null };
+  plan: EntryPlan;
   held: HeldSpeech;
   staged: ReadonlyArray<StagedPicture>;
   set: boolean;
@@ -187,6 +196,7 @@ function selfreflectionPostOf({
     text: held.texts.join('\n'),
     itemId: id,
     ...(voice ? { voice: { text: voice.text, durationSec: voice.durationSecs } } : {}),
+    ...(plan.seeding ? { plan: { brief: plan.brief ?? '', seeds: plan.seeding.seeds, seed: plan.seeding.seed } } : {}),
     // How the entry goes out, kept so a publication sent after a restart sends it whole (src/behavior/mirror.ts).
     send: { ...rendered, maxMessageBytes },
   };
@@ -224,7 +234,7 @@ export function recordEntry({
   config: Config;
 
   now: number;
-  plan: { kind: string | null; search?: string | null };
+  plan: EntryPlan;
   held: HeldSpeech;
   staged: ReadonlyArray<StagedPicture>;
   set: boolean;

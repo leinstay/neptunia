@@ -386,6 +386,33 @@ export function entryMedia(db: Db, entryId: string): Array<Row> {
     .all(entryId);
 }
 
+/**
+ * The description of each entry's first linked picture, by entry id: the image at the lowest position of its
+ * `media_links`, retired ones left out. An entry whose first picture has no description has no entry.
+ */
+export function entryPictureDescriptions(db: Db, entryIds: ReadonlyArray<string>): Map<string, string> {
+  const found = new Map<string, string>();
+  if (entryIds.length === 0) return found;
+  const rows = db
+    .prepare(
+      `SELECT l.owner_id AS owner_id, m.description AS description
+       FROM media_links l JOIN media m ON m.id = l.media_id
+       WHERE l.owner_kind = 'selfreflection' AND l.owner_id IN (SELECT value FROM json_each(?))
+         AND m.kind = 'image' AND m.retired_at IS NULL
+       ORDER BY l.owner_id, l.position`
+    )
+    .all(JSON.stringify(entryIds));
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const id = asText(row.owner_id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const description = asText(row.description ?? '').trim();
+    if (description) found.set(id, description);
+  }
+  return found;
+}
+
 /** Whether an entry holds a file its post has not named on the platform, and whether it holds a voice file. */
 export function entryFilesPending(db: Db, entryId: string): { unnamed: boolean; voice: boolean } {
   const rows = entryMedia(db, entryId);

@@ -16,6 +16,7 @@ import { factStateWords } from '../memory/retrieval-input.ts';
 import type { RetrievalInput } from '../memory/retrieval-input.ts';
 import type { Context } from '../memory/db/scope.ts';
 import {
+  DEFAULT_HISTORY_POSTS,
   DEFAULT_PICTURE_KINDS,
   DEFAULT_SEARCH_KINDS,
   DEFAULT_SET_KINDS,
@@ -24,10 +25,12 @@ import {
   isSetKind,
   parseSeedFamilies,
   pickSeeds,
+  planSeed,
   renderSeedsBlock,
   renderTopicBlock,
   SEED_SETS,
   setSettings,
+  usedSeedLines,
   validatePlan,
   withoutPictureKinds,
 } from '../behavior/selfreflection.ts';
@@ -113,8 +116,11 @@ export type SelfreflectionContext = {
 /** What the owner's command asked of a selfreflection post: a forced kind, a topic, whether it was forced. */
 type SelfreflectionParams = { kind?: unknown; topic?: unknown; forced?: unknown } | null | undefined;
 
-/** The plan of a selfreflection post, with the owner's topic when there is one. */
-type SelfreflectionPlan = ReturnType<typeof validatePlan> & { topic?: string };
+/** The seed combinations a plan request offered and the 1-based one the planner built on (0 for none). */
+export type PlanSeeding = { seeds: Array<Array<string>>; seed: number };
+
+/** The plan of a selfreflection post, with the owner's topic when there is one and its seeding when the planner answered. */
+type SelfreflectionPlan = ReturnType<typeof validatePlan> & { topic?: string; seeding?: PlanSeeding };
 
 export type SelfreflectionPrepared = {
   posts: Array<object>;
@@ -244,12 +250,14 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
    * (300), `selfreflection.planTimeoutMs` (20000), usage purpose `selfreflection-planner`; when
    * `llm.hedge` hedges `analyzer`, the hedged call is limited by
    * `selfreflection.planTimeoutMs` rather than `llm.hedge.timeoutMs`) with
-   * `<seeds>` drawn from prompts/selfreflection-seeds.md (SEED_SETS) and,
+   * `<seeds>` drawn from prompts/selfreflection-seeds.md (SEED_SETS, without the lines the newest
+   * `selfreflection.historyPosts` entries built on: src/behavior/selfreflection.ts#usedSeedLines) and,
    * with an owner's topic (`params.topic`, src/behavior/selfreflection.ts#selfreflectionTopic),
    * a `<topic>` block after them; the topic also rides on the plan as its
    * `topic` field (the `<plan>` block of the post). The answer goes through parseJsonObject and src/behavior/selfreflection.ts#validatePlan
    * (a weighted random kind when it is missing, broken or names no weighted
-   * kind; `selfreflection.searchKinds`, `selfreflection.pictureKinds`). While the post may not
+   * kind; `selfreflection.searchKinds`, `selfreflection.pictureKinds`). A plan the planner answered keeps its
+   * `seeding`: the combinations offered and the answer's `seed` (src/behavior/selfreflection.ts#planSeed). While the post may not
    * carry a picture, the kinds in `selfreflection.pictureKinds` are dropped before the
    * plan request and validatePlan (src/behavior/selfreflection.ts#withoutPictureKinds),
    * so neither the planner nor the random fallback picks one, and the
@@ -297,6 +305,7 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
     // What the entry may draw on: the notes of every server she is in.
     const tops = store.topPlaces?.() ?? [];
     let answer: unknown = null;
+    let offered: Array<Array<string>> = [];
     const planPrompt = prompts?.['selfreflection-planner'];
     if (typeof planPrompt === 'string' && planPrompt.trim() && labels) {
       const recent = memoryOn
@@ -308,10 +317,12 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
       const placeAudience = channel.rootId
         ? (placeId: string) => audienceAllows(channel, snapshot?.get(placeId) ?? null, config)
         : null;
-      const seedsText = renderSeedsBlock(
-        pickSeeds(parseSeedFamilies(prompts['selfreflection-seeds']), SEED_SETS, rng),
-        labels
+      // The lines the newest entries built on stay out of the draw, so the planner is offered other scenes.
+      const used = usedSeedLines(stored?.posts, DEFAULT_HISTORY_POSTS);
+      offered = pickSeeds(parseSeedFamilies(prompts['selfreflection-seeds']), SEED_SETS, rng, used).map((set) =>
+        set.map(String)
       );
+      const seedsText = renderSeedsBlock(offered, labels);
       const request = buildSelfreflectionPlanRequest({
         config,
         prompts,
@@ -383,7 +394,11 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
       rng
     );
     // The owner's topic reaches the post even when the planner ignored it.
-    const plan: SelfreflectionPlan = topic ? { ...validated, topic } : validated;
+    const plan: SelfreflectionPlan = {
+      ...validated,
+      ...(topic ? { topic } : {}),
+      ...(validated.fallback ? {} : { seeding: { seeds: offered, seed: planSeed(answer, offered.length) } }),
+    };
 
     let found: string | null = null;
     if (plan.search && typeof lookup?.search === 'function') {

@@ -411,6 +411,7 @@
     ],
     "quietDayChance": 0.3,
     "forceWaitMs": 120000,
+    "sceneChars": 400,
     "loop": {
       "maxSteps": 2,
       "timeBudgetMs": 600000

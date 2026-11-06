@@ -61,6 +61,14 @@ export const SELFREFLECTION: ReadonlyArray<SchemaEntry> = [
     'text': 'Milliseconds a forced post waits for a running turn',
   },
   {
+    'key': 'selfreflection.sceneChars',
+    'types': ['number'],
+    'reader': 'src/turn/request/selfreflection.ts',
+    'default': 400,
+    'text':
+      "Characters of a past picture post's picture description that `<diary>` shows as its scene when the post has no stored plan, cut at a word boundary",
+  },
+  {
     'key': 'selfreflection.loop.maxSteps',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
