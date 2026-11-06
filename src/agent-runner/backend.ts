@@ -58,7 +58,7 @@ export type BackendRunOptions = {
   timeoutMs: number;
   /** added to the minimal child environment */
   env?: Record<string, string>;
-  /** codex: adds `--search` */
+  /** codex: adds `-c web_search="live"` */
   search?: boolean;
   /**
    * The most model steps the run may take. A step is one model turn: claude `--max-turns`. opencode and codex have no such
@@ -221,7 +221,7 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
       ...(options.effort === undefined ? [] : ['-c', `model_reasoning_effort=${options.effort}`]),
       ...(systemFile === undefined ? [] : ['-c', `model_instructions_file=${JSON.stringify(systemFile)}`]),
       ...(options.images ?? []).flatMap((image) => ['-i', image]),
-      ...(options.search === true ? ['--search'] : []),
+      ...(options.search === true ? ['-c', 'web_search="live"'] : []),
     ],
   },
   claude: {
@@ -739,7 +739,7 @@ const FALLBACK_SECONDS = 300;
 /**
  * The task engine of a runner: it works the task's goal and context in `<outDir>/<id>/`, with the task's preamble and
  * then the profile's prompt as its system instructions, through `runAgent` (src/subharness/run.ts) and delivers the files left there. The agent runs as
- * the agent named like the profile, in the mode the owner set for it, and with `--search` when the profile asks. A
+ * the agent named like the profile, in the mode the owner set for it, and with `-c web_search="live"` when the profile asks. A
  * task's `route` (the backend, model, effort and mode the core decided) is the path of the run and keys.json stays
  * closed; without one, and while the subharness is off, the task fails with `subharness-off`. A backend brings its own
  * login, so a task's `openrouterKey` reaches only opencode: it becomes that run's key (`routeKey`), and its `searchKey`
