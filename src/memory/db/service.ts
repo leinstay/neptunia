@@ -170,6 +170,8 @@ import type { Track } from '../../loop-watch.ts';
 import { untracked } from '../../loop-watch.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
+import { fillMethods } from './selfreflection-fills.ts';
+import type { FillMethods } from './selfreflection-fills.ts';
 import type { Context } from './scope.ts';
 import { createEntryRemoval } from './selfreflection-remove.ts';
 import type { EntryRemoval, RemovalRequest } from './selfreflection-remove.ts';
@@ -570,7 +572,8 @@ export type MemoryDbStatus = {
 };
 
 /** What `createMemoryDb` gives its callers. */
-export type MemoryDbService = {
+// `onSelfreflectionFill` and `selfreflectionAudienceFill` are declared with their wiring in selfreflection-fills.ts.
+export type MemoryDbService = FillMethods & {
   namespace(): string | null;
   open(): Promise<void>;
   tick(): Promise<void>;
@@ -614,8 +617,6 @@ export type MemoryDbService = {
   personLink(update: Row): Promise<Row>;
   /** The owner's merge of one person into another (person-merge.ts): `{ from, into, by, reason?, now? }`. */
   personMerge(update: Row): Promise<Row>;
-  /** The owner's fill of the audience on old group selfreflection entries (selfreflection-audience-fill.ts): `{ by, dryRun?, now? }`. */
-  selfreflectionAudienceFill(update: Row): Promise<Row>;
   /** The owner's removal of a selfreflection entry with everything that points at it (selfreflection-remove.ts). */
   removeSelfreflectionEntry(request: RemovalRequest): Promise<EntryRemoval>;
   /** The owner's snapshots of the whole database (inspection-snapshots.ts), null while it is closed. */
@@ -1970,7 +1971,6 @@ export function createMemoryDb({
     readHandle,
     searchRecord,
     recordTurnReads,
-    memoryWrite,
     onAffinityMoves,
     writeUnit,
     keepPending,
@@ -1983,7 +1983,7 @@ export function createMemoryDb({
     retrieve,
     personLink: (update: Row) => write({ ...update, kind: 'person-link' }),
     personMerge: (update: Row) => write({ ...update, kind: 'person-merge' }),
-    selfreflectionAudienceFill: (update: Row) => write({ ...update, kind: 'selfreflection-audience-fill' }),
+    ...fillMethods(log, memoryWrite, write),
     removeSelfreflectionEntry: entryRemoval.removeSelfreflectionEntry,
     inspection,
     ...privateReads(() => dbOf(opened())),

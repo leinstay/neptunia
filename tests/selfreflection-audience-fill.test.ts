@@ -13,6 +13,7 @@ import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { commandLineWords, parseCommandLine } from '../src/interface/commands/table.ts';
 import { audienceRefusal } from '../src/memory/db/selfreflection-audience.ts';
+import { createStore } from '../src/memory/store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dbOf } from '../src/memory/db/types.ts';
@@ -169,6 +170,39 @@ test('the memory service fills through its one writer', async () => {
     const answer = (await memory.memoryDb.selfreflectionAudienceFill({ by: 'owner', now: NOW })) as Filled;
     assert.equal(answer.written, 3);
     assert.deepEqual((extraOf(db, 'e:plain') as Row).publicationAudience, UNRESTRICTED);
+  } finally {
+    await memory.close();
+  }
+});
+
+test('a store that cached the diary before the fill keeps the filled audience when it records a new entry', async () => {
+  // Bug: the running core's store writes its whole cached diary back with the next entry, and the audience the fill
+  // gave every old entry is gone again.
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'fake' });
+  try {
+    const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
+    type Post = Parameters<typeof store.appendSelfreflectionPost>[0];
+    // An old entry is a post as the store records it, with no audience.
+    const post = (itemId: string, at: number): Post => {
+      const fields: Record<string, unknown> = {
+        at,
+        kind: 'status',
+        gist: 'an evening',
+        picture: null,
+        search: null,
+        itemId,
+      };
+      return fields as Post;
+    };
+    store.appendSelfreflectionPost(post('selfreflection:old', NOW - 1000), { max: 40 });
+    await store.flushSettled({});
+    store.getSelfreflection();
+    const answer = (await memory.memoryDb.selfreflectionAudienceFill({ by: 'owner', now: NOW })) as Filled;
+    assert.equal(answer.written, 1);
+    store.appendSelfreflectionPost(post('selfreflection:new', NOW), { max: 40 });
+    await store.flushSettled({});
+    const db = memory.memoryDb.readHandle()?.db as Db;
+    assert.deepEqual((extraOf(db, 'selfreflection:old') as Row).publicationAudience, UNRESTRICTED);
   } finally {
     await memory.close();
   }
