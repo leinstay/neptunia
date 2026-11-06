@@ -1,6 +1,6 @@
 // The owner's fill of the audience on old selfreflection entries (`/memory selfreflection audience fill [--dry-run]`, writer kind
 // `selfreflection-audience-fill`). An entry written before she could choose an audience carries no `publicationAudience`.
-// By the owner's word the fill gives each such group entry the explicit `{ kind: 'unrestricted' }`, merged into its
+// A row's own `kind` does not matter: it is the entry's kind, NULL or any value. By the owner's word the fill gives each such group entry the explicit `{ kind: 'unrestricted' }`, merged into its
 // `extra` so every other key and a saved `publicationBoundary` stay. Left alone: an entry with any audience (chosen or
 // invalid), a retired entry, an entry outside the group scope, and one whose `extra` cannot be read as an object.
 // A second run finds nothing, and `dryRun` counts the same set without writing. Only the owner fills (`OWNER_ONLY`).
@@ -36,7 +36,7 @@ export function applySelfreflectionAudienceFill(
     const rows = db
       .prepare(
         `SELECT id, extra FROM selfreflection
-          WHERE kind = 'entry' AND scope_kind = 'group' AND retired_at IS NULL ORDER BY at_ms, id`
+          WHERE scope_kind = 'group' AND retired_at IS NULL ORDER BY at_ms, id`
       )
       .all();
     const write = db.prepare('UPDATE selfreflection SET extra = ? WHERE id = ?');
