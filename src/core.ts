@@ -159,7 +159,7 @@ import { DEFAULT_BASE_URL } from './subharness/models.ts';
 import { backendUsageReader, execUsage, spawnUsageChild } from './subharness/usage.ts';
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
-import { clearMemoryPath, memoryPath, memoryPathText } from './subharness/memory-path.ts';
+import { clearMemoryPath, memoryCheckPath, memoryPath, memoryPathText } from './subharness/memory-path.ts';
 import { clearSubscriptionPath } from './subharness/subscription-path.ts';
 import { coreSubscription } from './subharness/subscription-client.ts';
 import { memoryWriterClient } from './subharness/memory-writer.ts';
@@ -1396,7 +1396,7 @@ async function buildCore(
       if (role === 'core') clearSubscriptionPath(paths.privateDir, 'core');
     },
     // `keys check memory` proves the path the writer runs on: the probe through the backend while keys.json names one.
-    memoryPath: () => memoryPath(paths.privateDir),
+    memoryPath: () => memoryCheckPath(paths.privateDir),
     probeMemory: () => probeMemoryRaw(clock()),
   });
   // The memory probe (src/subharness/memory-probe.ts): its sleep `memory-down` goes through the same pause. While the
