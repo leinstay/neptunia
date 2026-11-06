@@ -63,17 +63,18 @@ test('sends the brief to the child whole and starts it in the given cwd with exe
   }
 });
 
-test('adds --search only when search is true', async () => {
-  // Bug: the scout agent searches without --search (stale answers), or every agent gets live web access.
+test('adds web_search="live" only when search is true', async () => {
+  // Bug: the scout agent searches without live search (stale answers), or every agent gets live web access.
+  // The argument is `-c web_search="live"` because codex-cli 0.164.0 refuses `exec --search` (see agent-backend-codex-search.test.ts).
   const { dir, cleanup } = scratch();
   try {
     const env = { FAKE_MODE: 'report' };
     const on = reportOf((await codex().run('look it up', { cwd: dir, timeoutMs: 20_000, env, search: true })).text);
     const off = reportOf((await codex().run('look it up', { cwd: dir, timeoutMs: 20_000, env, search: false })).text);
     const unset = reportOf((await codex().run('look it up', { cwd: dir, timeoutMs: 20_000, env })).text);
-    assert.ok(on.argv.includes('--search'));
-    assert.ok(!off.argv.includes('--search'));
-    assert.ok(!unset.argv.includes('--search'));
+    assert.ok(on.argv.includes('web_search="live"'));
+    assert.ok(!off.argv.includes('web_search="live"'));
+    assert.ok(!unset.argv.includes('web_search="live"'));
   } finally {
     cleanup();
   }

@@ -1364,7 +1364,7 @@ function makeProfile(definition: WorkerDefinition, paths: ResolvedAgentPaths): P
     // Where the runner listens and writes its files when `agents.<profile>.socket` / `.out` are unset.
     defaultSocket: definition.socket,
     defaultOut: definition.out,
-    // Whether the codex backend runs it with live web search (`codex exec --search`).
+    // Whether the codex backend runs it with live web search (`codex exec -c web_search="live"`).
     search: definition.search === true,
     // The sandbox of a CLI backend (`codex exec -s`): workspace-write unless the profile asks for read-only.
     sandbox: definition.sandbox ?? 'workspace-write',
