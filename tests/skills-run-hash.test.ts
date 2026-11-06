@@ -191,6 +191,9 @@ test('both refusal codes are catalogued as skill failures and worded in the ship
     const entry = (CATALOGUE as Record<string, { status: string; group: string }>)[code];
     assert.equal(entry?.group, 'skill');
     assert.equal(entry?.status, 'failed');
-    assert.match(String(reasons[code] ?? ''), /\S/, `${code} has a label`);
+    // The lead: a label is a string; the lint refuses stringifying an unknown value.
+    const reason = reasons[code];
+    assert.equal(typeof reason, 'string', `${code} has a label`);
+    assert.match(reason as string, /\S/, `${code} has a label`);
   }
 });
