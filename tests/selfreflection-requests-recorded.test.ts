@@ -46,9 +46,11 @@ async function wakeRequests(
   OPEN.push(scene);
   sceneWorld({ history: false });
   const llm = sceneLlm();
+  // The lead: the code draws the diary's kind (owner, 2026-11-06). The kind given is the planner's recorded
+  // `status`, and the recorded plan request's <kinds> holds that kind alone.
   const result = await sceneRunner(llm, scene.store).runTurn({
     mode: 'selfreflection',
-    selfreflection: { kind: null, forced: false },
+    selfreflection: { kind: 'status', forced: false },
     placeId: GUILD,
   });
   assert.equal((result as { outcome?: unknown }).outcome, 'spoke', 'the scene records an entry');

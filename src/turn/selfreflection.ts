@@ -20,10 +20,12 @@ import {
   DEFAULT_PICTURE_KINDS,
   DEFAULT_SEARCH_KINDS,
   DEFAULT_SET_KINDS,
+  drawWeights,
   SELFREFLECTION_KINDS,
   selfreflectionTopic,
   isSetKind,
   parseSeedFamilies,
+  pickKind,
   pickSeeds,
   planSeed,
   renderSeedsBlock,
@@ -255,15 +257,15 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
    * with an owner's topic (`params.topic`, src/behavior/selfreflection.ts#selfreflectionTopic),
    * a `<topic>` block after them; the topic also rides on the plan as its
    * `topic` field (the `<plan>` block of the post). The answer goes through parseJsonObject and src/behavior/selfreflection.ts#validatePlan
-   * (a weighted random kind when it is missing, broken or names no weighted
-   * kind; `selfreflection.searchKinds`, `selfreflection.pictureKinds`). A plan the planner answered keeps its
-   * `seeding`: the combinations offered and the answer's `seed` (src/behavior/selfreflection.ts#planSeed). While the post may not
-   * carry a picture, the kinds in `selfreflection.pictureKinds` are dropped before the
-   * plan request and validatePlan (src/behavior/selfreflection.ts#withoutPictureKinds),
-   * so neither the planner nor the random fallback picks one, and the
-   * `selfreflection: planned` line carries `picturesOff: true`. A forced kind
-   * (`params.kind`) is the only kind offered and replaces the answer's kind,
-   * its brief kept (a forced picture kind with pictures off never gets here:
+   * (the given kind with an empty brief when the answer is missing or broken; `selfreflection.searchKinds`,
+   * `selfreflection.pictureKinds`). A plan the planner answered keeps its
+   * `seeding`: the combinations offered and the answer's `seed` (src/behavior/selfreflection.ts#planSeed). Before the
+   * plan request the code draws the kind with `rng` over src/behavior/selfreflection.ts#drawWeights (the weights
+   * corrected for their use among the newest `selfreflection.historyPosts` posts); the plan request offers that kind
+   * alone, the plan keeps it over the answer's kind, and the `selfreflection: planned` line carries `drawn: true`.
+   * While the post may not carry a picture, the kinds in `selfreflection.pictureKinds` are dropped before the draw
+   * (src/behavior/selfreflection.ts#withoutPictureKinds) and the line carries `picturesOff: true`. A forced kind
+   * (`params.kind`) replaces the draw, its brief kept (a forced picture kind with pictures off never gets here:
    * runTurn refuses it first, selfreflectionPictureGate). Then the search the plan asks for (lookup.search, its own
    * cache): its text is `found`; a failure or nothing
    * found logs `selfreflection: search failed` and the post goes without it. A request
@@ -293,14 +295,18 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
     const forcedKind = typeof params?.kind === 'string' && params.kind ? params.kind : null;
     const topic = selfreflectionTopic(params?.topic);
     const pictureAllowed = selfreflectionPictureGate(config, channel, now).allowed;
-    // Pictures off: only the text kinds are offered (a forced kind is offered alone).
+    // Pictures off: only the text kinds may be drawn.
     const picturesOff = !forcedKind && !pictureAllowed;
-    const kinds: Record<string, number> = forcedKind
-      ? { [forcedKind]: 1 }
-      : picturesOff
-        ? // withoutPictureKinds drops entries of `kinds` and keeps the rest as they are, numbers.
-          (withoutPictureKinds(SELFREFLECTION_KINDS, DEFAULT_PICTURE_KINDS) as Record<string, number>)
-        : SELFREFLECTION_KINDS;
+    const drawable: Record<string, number> = picturesOff
+      ? // withoutPictureKinds drops entries of `kinds` and keeps the rest as they are, numbers.
+        (withoutPictureKinds(SELFREFLECTION_KINDS, DEFAULT_PICTURE_KINDS) as Record<string, number>)
+      : SELFREFLECTION_KINDS;
+    // The code draws the kind, corrected for recent use; a forced kind wins. The planner is offered that kind alone.
+    const drawnKind = forcedKind
+      ? null
+      : pickKind(drawWeights(drawable, posts, { window: DEFAULT_HISTORY_POSTS }), rng);
+    const chosenKind = forcedKind ?? drawnKind;
+    const kinds: Record<string, number> = chosenKind ? { [chosenKind]: 1 } : drawable;
 
     // What the entry may draw on: the notes of every server she is in.
     const tops = store.topPlaces?.() ?? [];
@@ -385,8 +391,8 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
     } else {
       log.warn('selfreflection: plan failed', { channel: channel.id, reason: 'no-prompt', status: null });
     }
-    if (forcedKind && answer && typeof answer === 'object' && !Array.isArray(answer))
-      answer = { ...answer, kind: forcedKind };
+    if (chosenKind && answer && typeof answer === 'object' && !Array.isArray(answer))
+      answer = { ...answer, kind: chosenKind };
     const validated = validatePlan(
       answer,
       kinds,
@@ -437,6 +443,7 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
       search: Boolean(plan.search),
       found: found !== null,
       forced: params?.forced === true,
+      ...(drawnKind ? { drawn: true } : {}),
       ...(picturesOff ? { picturesOff: true } : {}),
     });
     return { posts, plan, found, pictureAllowed, seeds };
