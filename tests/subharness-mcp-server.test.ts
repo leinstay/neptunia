@@ -29,6 +29,8 @@ const TOOLS = [
     function: { name: 'status_show', description: 'Show the status', parameters: { type: 'object', properties: {} } },
   },
 ];
+// The lead: the first tool's function gets a name, so the reads stay three segments deep (R.2).
+const firstToolFunction = TOOLS[0]?.function;
 
 /** A peer that lists TOOLS and records every call, answering each with `answer`. */
 function fakePeer(
@@ -53,7 +55,7 @@ const rpc = (id: number | undefined, method: string, params?: object) => ({
 });
 
 type Reply = { jsonrpc?: string; id?: unknown; result?: Record<string, unknown>; error?: { code?: number } };
-const replyOf = (value: object | null): Reply => (value ?? {}) as Reply;
+const replyOf = (value: object | null): Reply => value ?? {};
 
 // the server
 
@@ -75,7 +77,7 @@ test('tools/list gives her definitions as MCP tools with their names bare and th
     {
       name: 'intention_update',
       description: 'Update an intention',
-      inputSchema: TOOLS[0]?.function.parameters,
+      inputSchema: firstToolFunction?.parameters,
     },
     { name: 'status_show', description: 'Show the status', inputSchema: { type: 'object', properties: {} } },
   ]);
@@ -115,7 +117,8 @@ test('a refused call reaches the CLI as an error result that names the code', as
   );
   assert.equal(reply.result?.isError, true);
   const content = reply.result?.content as Array<{ text?: string }> | undefined;
-  assert.ok(content?.[0]?.text?.includes('turn-unknown'), JSON.stringify(reply));
+  const [firstPart] = content ?? [];
+  assert.ok(firstPart?.text?.includes('turn-unknown'), JSON.stringify(reply));
 });
 
 test('a notification gets no answer and an unknown method gets method-not-found', async () => {

@@ -422,7 +422,9 @@ test('thinking stays on when the owner asks for it', STEP_TIMEOUT, async () => {
   const { client, runs } = rig({ subscription: { thinking: true } });
   const asked = client.complete(FIRST, REPLY);
   await until(() => runs.length === 1, 'the run started');
-  assert.equal(runs[0].child.env.MAX_THINKING_TOKENS, undefined);
+  // The lead: the first child gets a name (R.2).
+  const firstChild = runs[0].child;
+  assert.equal(firstChild.env.MAX_THINKING_TOKENS, undefined);
   finishClaude(runs[0]);
   await asked;
 });
@@ -663,7 +665,8 @@ test('a simulation client runs her core request on the simulation route', STEP_T
   });
   const asked = client.complete(FIRST, REPLY);
   await until(() => runs.length === 1, 'the run started');
-  assert.equal(valueAfter(runs[0].child.args, '--model'), 'claude-sonnet-5-5');
+  const [firstRun] = runs;
+  assert.equal(valueAfter(firstRun.child.args, '--model'), 'claude-sonnet-5-5');
   finishClaude(runs[0]);
   assert.equal((await asked).text, FINAL_TEXT);
   assert.equal(directCalls.length, 0);
