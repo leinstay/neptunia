@@ -1465,7 +1465,7 @@ async function readMoment({
   guild,
   placeId,
   self,
-  placeId: conversationId,
+  conversationId,
   triggerId,
   before,
   config,
@@ -1473,7 +1473,7 @@ async function readMoment({
   fetchMessage,
   log,
 }: Rec) {
-  const channel = await readableChannel({ client, guild, placeId, conversationId: conversationId });
+  const channel = await readableChannel({ client, guild, placeId, conversationId });
 
   const trigger = await fetchMessage(channel, triggerId);
   if (!trigger) throw new CliError('replay-cli: the trigger message was not found');
@@ -1498,7 +1498,7 @@ async function readMoment({
 }
 
 /** A channel of the served guild that can be read: from the guild's fetched channels, else one REST fetch (a thread is not in that list); else a CliError. */
-async function readableChannel({ client, guild, placeId, placeId: conversationId }: Rec) {
+async function readableChannel({ client, guild, placeId, conversationId }: Rec) {
   let channel = cachedChannel(guild, conversationId) ?? null;
   if (!channel) {
     try {

@@ -164,6 +164,21 @@ export const SANDBOX_STORE_READS = Object.freeze([
   'getRecent',
   'getGifs',
   'getMediaCache',
+  // The addresses of src/memory/store-addresses.ts: each reads a row or spells an id, and writes nothing.
+  'dmHomeOf',
+  'placeOfConversation',
+  'placeOfCommunity',
+  'holdsSharedConversation',
+  'sharedPlaceOf',
+  'accountOf',
+  'personOfAccount',
+  'nativeCommunityOf',
+  'placeChainOf',
+  'conversationOfPlace',
+  'listChildren',
+  'topPlaces',
+  'placesHolding',
+  'placeHolding',
 ]);
 
 /**
