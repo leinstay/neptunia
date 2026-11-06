@@ -6,7 +6,8 @@
 //   export type PlaceLink = { id: string; kind: string | null; name: string | null };
 //   export type Whereabouts =
 //     | { kind: 'cli' }
-//     | { kind: 'nowhere' }
+//     | { kind: 'server' }
+//     | { kind: 'world' }
 //     | { kind: 'place'; iface: string; private: boolean; chain: ReadonlyArray<PlaceLink> };
 //   export function spatialAwarenessText(input: {
 //     whereabouts: Whereabouts; now: number; timezone: string; labels: Labels; notes: unknown;
@@ -17,6 +18,8 @@
 //   }): Whereabouts;
 // `chain` runs from the place itself up to the top of its tree. `notes` is `config.spatial.notes`: stored place id ->
 // the owner's note.
+// Stage AC, the owner's word of 2026-11-06: a wake with no conversation place says she is at the command line of her own
+// server, a selfreflection post that she is in her own world; `nowhere` is gone, and these tests follow.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatNow } from '../src/format.ts';
@@ -85,11 +88,19 @@ test('the command line says she is on the command line, with the time', () => {
   );
 });
 
-test('a turn in no place says so plainly, with the time', () => {
+test('a turn with no conversation place is on her own server, with the time', () => {
   // Bug: a heartbeat names the last channel she heard of as the place she is in.
   assert.equal(
-    spatialAwarenessText({ whereabouts: { kind: 'nowhere' }, now: NOW, timezone: 'UTC', labels, notes: {} }),
-    `SPATIAL-NOWHERE AT ${WHEN}`
+    spatialAwarenessText({ whereabouts: { kind: 'server' }, now: NOW, timezone: 'UTC', labels, notes: {} }),
+    `SPATIAL-SERVER AT ${WHEN}`
+  );
+});
+
+test('a selfreflection post is in her own world, with the time', () => {
+  // Bug: the diary names the channel it is published to, and the illusion of her world breaks.
+  assert.equal(
+    spatialAwarenessText({ whereabouts: { kind: 'world' }, now: NOW, timezone: 'UTC', labels, notes: {} }),
+    `SPATIAL-WORLD AT ${WHEN}`
   );
 });
 
@@ -133,9 +144,9 @@ test('no notes setting at all gives no note line and no failure', () => {
   }
 });
 
-test('the command line and no place carry no note, whatever the notes hold', () => {
-  const notes = { cli: 'x', nowhere: 'y', 'p-server': 'adults only' };
-  for (const whereabouts of [{ kind: 'cli' as const }, { kind: 'nowhere' as const }]) {
+test('the command line, her server and her world carry no note, whatever the notes hold', () => {
+  const notes = { cli: 'x', server: 'y', world: 'z', 'p-server': 'adults only' };
+  for (const whereabouts of [{ kind: 'cli' as const }, { kind: 'server' as const }, { kind: 'world' as const }]) {
     const text = spatialAwarenessText({ whereabouts, now: NOW, timezone: 'UTC', labels, notes });
     assert.ok(!text.includes('SPATIAL-NOTE'), text);
   }
@@ -156,12 +167,12 @@ test('whereaboutsOf: the command line is the command line, whatever place it is 
   });
 });
 
-test('whereaboutsOf: a turn with no place or no interface is in no place', () => {
+test('whereaboutsOf: a turn with no place or no interface is on her own server', () => {
   assert.deepEqual(whereaboutsOf({ iface: 'discord', placeId: null, isPrivate: false, chainOf: () => [CHANNEL] }), {
-    kind: 'nowhere',
+    kind: 'server',
   });
   assert.deepEqual(whereaboutsOf({ iface: null, placeId: 'p-channel', isPrivate: false, chainOf: () => [CHANNEL] }), {
-    kind: 'nowhere',
+    kind: 'server',
   });
 });
 

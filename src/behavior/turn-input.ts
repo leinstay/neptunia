@@ -74,6 +74,7 @@ export const TURN_INPUT_KEYS: ReadonlyArray<string> = Object.freeze([
   'places',
   'previousThink',
   'stableFreeze',
+  'whereabouts',
 ]);
 
 const KNOWN = new Set(TURN_INPUT_KEYS);

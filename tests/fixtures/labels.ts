@@ -438,7 +438,10 @@ export const labels = {
     private: 'SPATIAL-PRIVATE',
     note: 'SPATIAL-NOTE {note}',
     cli: 'SPATIAL-CLI AT {when}',
-    nowhere: 'SPATIAL-NOWHERE AT {when}',
+    // Stage AC, the owner's word of 2026-11-06: a wake with no conversation place is on her own server, a
+    // selfreflection post in her own world; no turn is "nowhere".
+    server: 'SPATIAL-SERVER AT {when}',
+    world: 'SPATIAL-WORLD AT {when}',
   },
   journal: {
     offLead: 'Your recent time away:',

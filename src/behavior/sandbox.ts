@@ -213,6 +213,7 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   previousThink:
     'no earlier turn or step in a replay: no <previous_think> block (a live turn carries its previous think, src/behavior/previous-think.ts)',
   stableFreeze: 'one request per moment, no cache bucket to hold: <self_facts> renders from memory as it stands',
+  whereabouts: 'a replay names no place tree: no <spatial_awareness> block, and <now> keeps the clock',
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
@@ -848,6 +849,8 @@ export function sandboxRequestInput({
     previousThink: null,
     // No cache bucket to hold (SANDBOX_OMITS): the stable part renders from memory as it stands.
     stableFreeze: null,
+    // No place tree in a replay (SANDBOX_OMITS): no <spatial_awareness>, and <now> keeps the clock.
+    whereabouts: null,
   };
 }
 

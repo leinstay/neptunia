@@ -3,7 +3,9 @@
 // `config.spatial.notes` at the moment of use. The labels are the fixture's markers. Synthetic names only.
 //
 // The request input gains `whereabouts?: Whereabouts | null` (src/turn/request/spatial.ts). A heartbeat and a
-// selfimprovement wake are her own time: their block says she is in no place, whatever place the input names.
+// selfimprovement wake are her own time: their block says she is at the command line of her own server, and a
+// selfreflection post that she is in her own world, whatever place the input names (stage AC, the owner's word of
+// 2026-11-06). With the block the clock leaves `<now>`, which keeps her recent time away (the lead's ruling for stage AC).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatNow } from '../src/format.ts';
@@ -24,27 +26,39 @@ const placeIn = (channelName: string) => ({
   ],
 });
 
+/** The parts of the user message. */
+function partsOf(request: Built): Built['messages'][1]['content'] {
+  const [, user] = request.messages;
+  return user.content;
+}
+
 /** The text of the user part with no cache segment: the tail. */
 const tailOf = (request: Built): string =>
-  request.messages[1].content
+  partsOf(request)
     .filter((part) => !part.cacheSegment)
     .map((part) => part.text)
     .join('');
 
 /** The texts of the cached user parts, by segment. */
 const cachedOf = (request: Built): Array<string> =>
-  request.messages[1].content.filter((part) => part.cacheSegment).map((part) => `${part.cacheSegment}:${part.text}`);
+  partsOf(request)
+    .filter((part) => part.cacheSegment)
+    .map((part) => `${part.cacheSegment}:${part.text}`);
 
 /** The body of `<spatial_awareness>` in a request, null when it has none. */
 function spatialOf(request: Built): string | null {
-  const text = request.messages[1].content.map((part) => part.text).join('');
+  const text = partsOf(request)
+    .map((part) => part.text)
+    .join('');
   const match = /<spatial_awareness>\n([\s\S]*?)\n<\/spatial_awareness>/.exec(text);
   return match ? (match[1] ?? null) : null;
 }
 
 test('the block sits in the tail, after the chat and right before <now>', () => {
   // Bug: the block lands in a cached part, so every move between channels rewrites the prompt cache.
-  const request = buildRequest(baseInput({ whereabouts: placeIn('general') }));
+  // Stage AC: `<now>` holds only her time away once the block carries the clock, so this request has a pause to show it.
+  const offPeriods = [{ kind: 'paused', from: NOW - 3_600_000, to: NOW - 1_800_000 }];
+  const request = buildRequest(baseInput({ whereabouts: placeIn('general'), offPeriods }));
   const tail = tailOf(request);
   assert.ok(tail.includes('<chat>'), 'the base input has a chat');
   assert.ok(tail.includes('<spatial_awareness>'), tail);
@@ -72,7 +86,7 @@ test('the command line says the command line', () => {
 });
 
 for (const wakeKind of ['heartbeat', 'selfimprovement']) {
-  test(`a ${wakeKind} wake is in no place, even when the turn rode in on a channel`, () => {
+  test(`a ${wakeKind} wake is on her own server, even when the turn rode in on a channel`, () => {
     // Bug: the transport anchor of her own time is named as the place she is in.
     const request = buildRequest(
       baseInput({
@@ -82,9 +96,28 @@ for (const wakeKind of ['heartbeat', 'selfimprovement']) {
         whereabouts: placeIn('general'),
       })
     );
-    assert.equal(spatialOf(request), `SPATIAL-NOWHERE AT ${WHEN}`);
+    assert.equal(spatialOf(request), `SPATIAL-SERVER AT ${WHEN}`);
   });
 }
+
+test('a selfreflection post is in her own world, even when it is published to a channel', () => {
+  // Bug: the diary names the channel it goes to, and the illusion of her own world breaks.
+  const request = buildRequest(
+    baseInput({
+      mode: 'selfreflection',
+      prompts: fakePrompts({ selfreflection: 'SELFREFLECTION_TASK' }),
+      whereabouts: placeIn('general'),
+    })
+  );
+  assert.equal(spatialOf(request), `SPATIAL-WORLD AT ${WHEN}`);
+});
+
+test('the clock leaves <now> when the block carries it, so the time appears once', () => {
+  const user = partsOf(buildRequest(baseInput({ whereabouts: placeIn('general') })))
+    .map((part) => part.text)
+    .join('');
+  assert.equal(user.split(WHEN).length - 1, 1, user);
+});
 
 test('an inner turn of another kind keeps the place it runs in', () => {
   const request = buildRequest(

@@ -73,10 +73,11 @@ test('an inner turn that runs in a channel names that place', async () => {
 });
 
 for (const kind of ['heartbeat', 'selfimprovement']) {
-  test(`a ${kind} wake says she is in no place, with the time`, async () => {
+  test(`a ${kind} wake says she is on her own server, with the time`, async () => {
     // Bug: her own time carries no block at all, or names the anchor channel the wake rode in on.
+    // Stage AC, the owner's word of 2026-11-06: a wake with no conversation place is at the command line of her server.
     const run = await wakeTurn({ wake: wakeOfKind(kind, `${kind}:1`), answers: ['<skip/>'], board: null });
     const body = spatialOf(wakeRequestText(run.requests[0] ?? []));
-    assert.equal(body, `SPATIAL-NOWHERE AT ${formatNow(WAKE_NOW, 'UTC', labels.locale)}`);
+    assert.equal(body, `SPATIAL-SERVER AT ${formatNow(WAKE_NOW, 'UTC', labels.locale)}`);
   });
 }
