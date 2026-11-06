@@ -182,7 +182,10 @@ function fakeTreeCall(world: DevelopmentWorld, args: ReadonlyArray<string>): Git
   return ok();
 }
 
-export function developmentWorld(t: { after: (fn: () => void | Promise<void>) => void }): DevelopmentWorld {
+export function developmentWorld(
+  t: { after: (fn: () => void | Promise<void>) => void },
+  options: { modules?: boolean } = {}
+): DevelopmentWorld {
   const dir = tempDir('nep-development-board-');
   fs.writeFileSync(
     path.join(dir, 'clients.json'),
@@ -217,6 +220,9 @@ export function developmentWorld(t: { after: (fn: () => void | Promise<void>) =>
     },
   };
   const repoDir = tempDir('nep-development-repo-');
+  // The worker links the checkout's node_modules into each worktree and refuses a checkout without them (placeTree), so the
+  // rig's checkout holds a bin the way an installed one does; tests/development-worktree-modules.test.ts covers the rest.
+  if (options.modules !== false) fs.mkdirSync(path.join(repoDir, 'node_modules', '.bin'), { recursive: true });
   const worktreeRoot = tempDir('nep-development-trees-');
   const holds: Record<AgentName, Array<Promise<void>>> = { thinker: [], dev: [] };
   const workers: Array<DevelopmentWorker> = [];

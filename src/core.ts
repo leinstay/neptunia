@@ -677,12 +677,17 @@ async function buildCore(
   // served interface above keeps the core's identity and capabilities, and an effect goes by the reference's `iface`.
   const linksByName = new Map<string, ReturnType<typeof createLinkSwitch>>();
   const communityRoutes = createCommunityRoutes({ current: currentIface });
+  /** The communities a hello names: the one it serves first, then the rest. */
+  const helloCommunities = (greeting: Hello) =>
+    [greeting.community, ...(greeting.communities ?? [])].flatMap((one) => (one ? [one] : []));
   function connectInterface(name: string, greeting: Hello, link: ReturnType<typeof openAdapterLink>) {
     const known = linksByName.get(greeting.iface);
     if (known === undefined) linksByName.set(greeting.iface, createLinkSwitch(link));
     else known.attach(link);
-    const communities = [greeting.community, ...(greeting.communities ?? [])].flatMap((one) => (one ? [one.id] : []));
+    const named = helloCommunities(greeting);
+    const communities = named.map((one) => one.id);
     communityRoutes.note(greeting.iface, communities);
+    store.noteCommunities(greeting.iface, named);
     log.info('index: interface connected', { principal: name, iface: greeting.iface, communities: communities.length });
   }
   /** True for a community some connected interface serves, and the configured one before any said hello. */
@@ -798,10 +803,12 @@ async function buildCore(
     : await coreLink.current().hello.catch((err) => fail(`index: the link to the interface failed: ${String(err)}`));
   if (hello !== null) {
     greet(hello);
+    const named = helloCommunities(hello);
     communityRoutes.note(
       hello.iface,
-      [hello.community, ...(hello.communities ?? [])].flatMap((one) => (one ? [one.id] : []))
+      named.map((one) => one.id)
     );
+    store.noteCommunities(hello.iface, named);
   }
   // The around store tells a presence event from a voice one by what the interface declares in `hello`: whether it
   // reports presences at all (intents are fixed at login, the interface reads its own at its start).
