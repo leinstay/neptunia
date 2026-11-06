@@ -245,6 +245,17 @@ function lookupFailed(result: PortResult): ReadFailure {
 }
 
 /**
+ * `payload` in silent mode (`discord.silent`): no notification for anyone, which adds the suppress flag to
+ * the voice flag it may carry, and no ping to the author a reply answers. The reply reference and the
+ * named users stay.
+ */
+function silenced(payload: Record<string, unknown>): Record<string, unknown> {
+  const flags = Number(payload.flags ?? 0) | Number(MessageFlags.SuppressNotifications);
+  const allowedMentions = { ...objOf(payload.allowedMentions), repliedUser: false };
+  return { ...payload, flags, allowedMentions };
+}
+
+/**
  * The Discord adapter over a discord.js client.
  * @param options `config`: the live config, read at each read (`normalizeOptions(config())`); `lookupChannel`: a channel the
  *   caller already holds, tried before the client's cache and
@@ -356,7 +367,7 @@ export function createDiscordAdapter({
     } else {
       payload.allowedMentions = { parse: [] };
     }
-    return payload;
+    return objOf(objOf(config()).discord).silent === true ? silenced(payload) : payload;
   }
 
   /** The reference of a message Discord answered with (`posted`), in `conversationId`. */
