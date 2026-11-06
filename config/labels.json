@@ -745,6 +745,8 @@
           "runner-down": "that agent is not running",
           "board-unavailable": "the task board cannot be reached right now",
           "write-failed": "it could not be saved",
+          "skill-tampered": "the files of that skill version changed after it was activated, so nothing ran",
+          "skill-missing": "the files of that skill version are gone, so nothing ran",
           "no-result": "nothing came back",
           "send-failed": "the message did not go out",
           "selfreflection-mirror": "this place is your diary's mirror, and only your diary posts there",

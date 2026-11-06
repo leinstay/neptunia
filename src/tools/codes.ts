@@ -155,6 +155,8 @@ export const CATALOGUE = Object.freeze({
   'runner-down': skill('failed'),
   'board-unavailable': skill('failed'),
   'write-failed': skill('failed'),
+  'skill-tampered': skill('failed'),
+  'skill-missing': skill('failed'),
   'file-unreadable': skill('failed'),
   'attachment-too-large': skill('failed'),
   'gif-failed': skill('partial'),

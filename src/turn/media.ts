@@ -11,13 +11,10 @@ import {
   isDescribable,
 } from '../media/classify.ts';
 
-export const REWATCH_SUMMARY_CHARS = 200;
 // Protocol tokens of the re-watch classifier (docs/prompt-contract.md), not wording:
 // the kind and status columns of a `<media>` line. The answer's parser
 // (parseRewatchPickDetailed) lives in src/turn/rewatch.ts; it is re-exported from src/behavior/turn.ts.
-export const REWATCH_KIND_VIDEO = 'video';
-export const REWATCH_KIND_PICTURE = 'picture';
-// A watched GIF: listed to the classifier as a video (REWATCH_KIND_VIDEO); `gif` is the internal
+// A watched GIF: listed to the classifier as a video; `gif` is the internal
 // candidate kind and the log's code, never written into `<media>`.
 export const REWATCH_KIND_GIF = 'gif';
 export const REWATCH_STATUS_WATCHED = 'watched';
