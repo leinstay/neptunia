@@ -1,25 +1,5 @@
 {
   "chains": {
-    "bin/neptunia.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
-    "cli/app.ts": {
-      "deep": 0,
-      "repeated": 2
-    },
-    "cli/chat-controller.ts": {
-      "deep": 16,
-      "repeated": 1
-    },
-    "cli/composer.ts": {
-      "deep": 5,
-      "repeated": 0
-    },
-    "cli/model-picker.ts": {
-      "deep": 9,
-      "repeated": 0
-    },
     "scripts/broken-module-run.ts": {
       "deep": 2,
       "repeated": 0

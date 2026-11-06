@@ -107,8 +107,9 @@ function insertPart(draft: Draft, part: DraftPart): Draft {
   const size = labelOf(part).length;
   if (inside !== undefined && inside.part.kind === 'text') {
     const cut = draft.cursor - inside.start;
-    const head: DraftPart = { ...inside.part, text: inside.part.text.slice(0, cut) };
-    const tail: DraftPart = { kind: 'text', id: `${draft.id}-t${draft.serial}`, text: inside.part.text.slice(cut) };
+    const { part: split } = inside;
+    const head: DraftPart = { ...split, text: split.text.slice(0, cut) };
+    const tail: DraftPart = { kind: 'text', id: `${draft.id}-t${draft.serial}`, text: split.text.slice(cut) };
     const parts = [...draft.parts.slice(0, inside.index), head, part, tail, ...draft.parts.slice(inside.index + 1)];
     return withParts(draft, parts, draft.cursor + size, draft.serial + 1);
   }
@@ -127,8 +128,9 @@ export function typeIntoDraft(draft: Draft, typed: string): Draft {
     return { ...insertPart(draft, part), serial: draft.serial + 1 };
   }
   const cut = draft.cursor - span.start;
-  const text = span.part.text.slice(0, cut) + typed + span.part.text.slice(cut);
-  const parts = draft.parts.map((part, index) => (index === span.index ? { ...span.part, text } : part));
+  const { part: held } = span;
+  const text = held.text.slice(0, cut) + typed + held.text.slice(cut);
+  const parts = draft.parts.map((part, index) => (index === span.index ? { ...held, text } : part));
   return withParts(draft, parts, draft.cursor + typed.length);
 }
 
@@ -172,7 +174,8 @@ export function removePart(draft: Draft, partId: string): Draft {
   if (span === undefined) return draft;
   const size = span.end - span.start;
   const cursor = draft.cursor >= span.end ? draft.cursor - size : Math.min(draft.cursor, span.start);
-  const after = draft.parts[span.index - 1]?.id ?? null;
+  const previous = draft.parts[span.index - 1];
+  const after = previous?.id ?? null;
   return {
     ...withParts(
       draft,
