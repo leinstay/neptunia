@@ -28,7 +28,7 @@ The one reply that checks the selection goes out through the same provider, so a
 
 ### The preamble and the system instructions
 
-A run's system instructions are the deployment's preamble first and the agent's prompt after it, joined by a blank line. The prompt text of the run is the task alone, its goal and context. `composePreamble` in [src/errands/preambles.ts](../src/errands/preambles.ts) builds the preamble from the files of `prompts.local/preambles/` that match the run, `all.md`, `<agent>.md`, `@<model>.md` and `<agent>@<model>.md` in that order. Every matching file goes in whole, and the preamble has no length cap.
+A run's system instructions are the deployment's preamble first and the agent's prompt after it, joined by a blank line. The prompt text of the run is the task alone, its goal and context. `composePreamble` in [src/errands/preambles.ts](../src/errands/preambles.ts) builds the preamble from the files of `data/prompts/preambles/` that match the run, `all.md`, `<agent>.md`, `@<model>.md` and `<agent>@<model>.md` in that order. Every matching file goes in whole, and the preamble has no length cap.
 
 The system instructions replace the backend's own. Claude Code reads them from the file `--system-prompt-file` names, Codex from `-c model_instructions_file=<path>`, and OpenCode as the `build` agent's `prompt` in the config file `OPENCODE_CONFIG` names (the file that also holds a provider pin). [src/agent-runner/backend.ts](../src/agent-runner/backend.ts) writes each file mode `600` into a folder of the run's own and removes it when the run ends, whether the child succeeded, failed or never started.
 
@@ -57,7 +57,7 @@ A personal `profile.json` or `prompt.md` under `data/agents/<id>/` is opened wit
 | Backend | Steps | Output tokens |
 |---|---|---|
 | `claude` | `--max-turns` | `CLAUDE_CODE_MAX_OUTPUT_TOKENS` |
-| `opencode` | `OPENCODE_CONFIG_CONTENT` | `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX` |
+| `opencode` | none, the timeout bounds it | `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX` |
 | `codex` | none, the timeout bounds it | none, the timeout bounds it |
 
 A run that asks a backend for a cap it has no control for carries the gap `step-limit-not-enforced` or `output-limit-not-enforced` and writes one log line. The profile's seconds and the global request caps in `llm.*` apply on every backend, and no dollar budget exists.
