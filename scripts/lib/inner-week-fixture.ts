@@ -436,7 +436,7 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
   const historyChannel = channel(history.channel ?? channels[0].id, 'history.channel');
 
   const stub = isObject(data.stub) ? data.stub : {};
-  const expect = isObject(data.expect) ? data.expect : {};
+  const { feedback: wantFeedback, attention: wantAttention, ...expect } = isObject(data.expect) ? data.expect : {};
   return {
     name: id,
     description: typeof data.description === 'string' ? data.description : '',
@@ -484,24 +484,24 @@ export function parseFixture(raw: Rec | string, { name = 'fixture' }: { name?: s
       // The feedback wakes (the `feedback` gate): how many over the week (`wakes`), the fact kinds
       // they must carry (`facts`), a refusal code a `callFailed` fact must name (`code`), the intention (by key)
       // one must name as closed without delivery (`intention`).
-      feedback: isObject(expect.feedback)
+      feedback: isObject(wantFeedback)
         ? {
-            wakes: Number.isInteger(expect.feedback.wakes) ? expect.feedback.wakes : null,
-            facts: Array.isArray(expect.feedback.facts) ? expect.feedback.facts.map(String) : [],
-            code: typeof expect.feedback.code === 'string' ? expect.feedback.code : null,
-            intention: typeof expect.feedback.intention === 'string' ? expect.feedback.intention : null,
+            wakes: Number.isInteger(wantFeedback.wakes) ? wantFeedback.wakes : null,
+            facts: Array.isArray(wantFeedback.facts) ? wantFeedback.facts.map(String) : [],
+            code: typeof wantFeedback.code === 'string' ? wantFeedback.code : null,
+            intention: typeof wantFeedback.intention === 'string' ? wantFeedback.intention : null,
           }
         : null,
       // Her attention (the `attention` gate): the attend turns in order (`{ day, lines }`), how many
       // attend wakes waited on her per-day bound and ran after the reset, and a listen-only channel
       // the places page must list with lines.
-      attention: isObject(expect.attention)
+      attention: isObject(wantAttention)
         ? {
-            turns: Array.isArray(expect.attention.turns) ? expect.attention.turns.map(attentionTurnOf) : null,
-            capped: Number.isInteger(expect.attention.capped) ? expect.attention.capped : null,
+            turns: Array.isArray(wantAttention.turns) ? wantAttention.turns.map(attentionTurnOf) : null,
+            capped: Number.isInteger(wantAttention.capped) ? wantAttention.capped : null,
             listenOnly:
-              typeof expect.attention.listenOnly === 'string'
-                ? channel(expect.attention.listenOnly, 'expect.attention.listenOnly')
+              typeof wantAttention.listenOnly === 'string'
+                ? channel(wantAttention.listenOnly, 'expect.attention.listenOnly')
                 : null,
           }
         : null,

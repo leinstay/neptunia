@@ -343,17 +343,17 @@ function startWorker({
     });
   }
 
-  worker.on('message', (message: Row | null) => {
-    if (message?.type === 'log') {
-      const level = message.level as 'info' | 'warn' | 'error' | 'debug';
-      log[level]?.(message.message as string, message.fields as Row | undefined);
+  worker.on('message', (posted: Row | null) => {
+    if (posted?.type === 'log') {
+      const level = posted.level as 'info' | 'warn' | 'error' | 'debug';
+      log[level]?.(posted.message as string, posted.fields as Row | undefined);
       return;
     }
-    const waiting = pending.get(message?.id as number);
-    if (!waiting || !message) return;
-    pending.delete(message.id as number);
-    if (message.ok) waiting.resolve(message.result as Row);
-    else waiting.reject(Object.assign(new Error('memory db worker call failed'), { code: message.code }));
+    const waiting = pending.get(posted?.id as number);
+    if (!waiting || !posted) return;
+    pending.delete(posted.id as number);
+    if (posted.ok) waiting.resolve(posted.result as Row);
+    else waiting.reject(Object.assign(new Error('memory db worker call failed'), { code: posted.code }));
   });
   worker.on('error', (error) => {
     if (!logged && !stopping) {
@@ -1127,9 +1127,9 @@ export function createMemoryDb({
     if (!due) return;
     projectRun = writeUnit({ op: 'project', maxSlices: 1 })
       .then((answer) => {
-        const done = answer as Row;
-        if (Number(done?.units) > 0 || Number(done?.stems) > 0)
-          log.debug?.('memory db: projected', { units: done.units, stems: done.stems, done: done.done });
+        const projected = answer as Row;
+        if (Number(projected?.units) > 0 || Number(projected?.stems) > 0)
+          log.debug?.('memory db: projected', { units: projected.units, stems: projected.stems, done: projected.done });
       })
       .catch((error) => log.warn('memory db: projection failed', { code: codeOf(error) }))
       .finally(() => {

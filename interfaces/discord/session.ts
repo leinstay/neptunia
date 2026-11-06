@@ -159,7 +159,8 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   }
   await ready;
 
-  const guilds = [...client.guilds.cache.values()].map((guild) => ({ id: String(guild.id), name: String(guild.name) }));
+  const guildCache = client.guilds.cache;
+  const guilds = [...guildCache.values()].map((guild) => ({ id: String(guild.id), name: String(guild.name) }));
   const listed = Array.isArray(config().servers) ? (config().servers as Array<unknown>).map(String) : [];
   const resolved = resolveGuilds(listed, text(obj(config().bot).guildId) ?? '', guilds);
   if ('error' in resolved) {
@@ -169,7 +170,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   if (resolved.missing.length > 0)
     log.warn('interface: listed servers the bot is not in', { missing: resolved.missing });
   const { guildIds } = resolved;
-  const guildById = (id: string): Obj | null => client.guilds.cache.get(id) ?? null;
+  const guildById = (id: string): Obj | null => guildCache.get(id) ?? null;
   // The first server names the persona in `hello`; her name in the others comes with each of their events.
   const guildNow = (): Obj | null => guildById(guildIds[0] ?? '');
   const communityOf = (id: string) => ({ id, name: guilds.find((guild) => guild.id === id)?.name ?? id });
@@ -243,7 +244,8 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     if (guild === null) return;
     const at = Date.now();
     inbound('presence.snapshot', () => presenceSnapshotEvent(guild, at));
-    for (const channel of client.channels.cache.values()) {
+    const channelCache = client.channels.cache;
+    for (const channel of channelCache.values()) {
       if (obj(channel.guild).id !== id) continue;
       const readable = isThreadChannel(channel) ? canRead(channel) : isReadableChannel(channel);
       if (readable) inbound('conversation.changed', () => conversationChangedEvent('updated', channel, id, at));

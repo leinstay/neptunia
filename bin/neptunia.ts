@@ -492,9 +492,9 @@ async function runPrint(argv: ReadonlyArray<string>): Promise<never> {
   const { text, files } = parsed;
   const line = text.trim();
   if (!line.startsWith('/')) {
-    const staged = await stageForPrompt(paths().dataDir, files);
-    if (!staged.ok) return die(staged.reason);
-    return runPrompt(text, staged.staged);
+    const prepared = await stageForPrompt(paths().dataDir, files);
+    if (!prepared.ok) return die(prepared.reason);
+    return runPrompt(text, prepared.staged);
   }
   if (files.length > 0) return usage();
   if (line === '/setup') return refuseSyntax(panelRefusal('/setup'));
@@ -1231,9 +1231,6 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
   if (outDir === '') die(`no output folder for ${name}: set agents.${name}.out`);
   const opencodePath = typeof errands.opencodePath === 'string' ? errands.opencodePath : DEFAULT_OPENCODE_PATH;
   fs.mkdirSync(outDir, { recursive: true });
-  // The keys come with each task from the core; this environment is used only for what a task does not bring.
-  if (!process.env.OPENROUTER_ERRAND_KEY)
-    log.info('agent-runner: no key in the environment, each task brings its own', { profile: name });
   // The config as of each task (for the model role); the last readable one while the files are mid-edit.
   const currentConfig = (): Settings => {
     try {

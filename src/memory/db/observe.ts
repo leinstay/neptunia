@@ -1032,7 +1032,8 @@ function sourceExtraOf(e: Envelope): Row {
 function claimConsole(db: Db, e: Envelope, at: string): void {
   const owner = e.consoleOwner;
   if (!owner) return;
-  const key = e.author.kind === 'account' ? e.author.key : e.place.partner?.key;
+  const partner = e.place.partner;
+  const key = e.author.kind === 'account' ? e.author.key : partner?.key;
   if (filled(key)) {
     const authority = e.author.kind === 'account' ? (e.author.authority ?? e.authority) : e.authority;
     const account = accountOf(db, e.iface, { authority, key }, e.occurredAt, at);
@@ -1070,11 +1071,12 @@ function writeObservation(
   const sourceId = known ?? storedLineOf(db, e, n.revision) ?? observedSourceId(e);
   if (db.prepare('SELECT 1 AS ok FROM sources WHERE id = ?').get(sourceId)) return replayOf(db, e, sourceId, at, owner);
   ensureInterface(db, e.iface);
+  const partner = e.place.partner;
   const authorities = new Set([
     e.authority,
     e.place.authority,
     e.author.authority,
-    e.place.partner?.authority,
+    partner?.authority,
     ...(e.relations ?? []).map((r) => r.target?.authority),
   ]);
   for (const authority of authorities)

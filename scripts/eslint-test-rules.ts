@@ -94,6 +94,18 @@ function isFunction(node: Node): node is FunctionNode {
   return node.type === 'FunctionExpression' || node.type === 'ArrowFunctionExpression';
 }
 
+/** The line a node starts on, 0 when it has no location. */
+function startLineOf(node: { loc?: { start: { line: number } } | null }): number {
+  const { loc } = node;
+  return loc?.start.line ?? 0;
+}
+
+/** The line a node or comment ends on, 0 when it has no location. */
+function endLineOf(node: { loc?: { end: { line: number } } | null }): number {
+  const { loc } = node;
+  return loc?.end.line ?? 0;
+}
+
 /**
  * @param value Anything found under a node.
  * @returns true for an AST node.
@@ -287,8 +299,8 @@ const noWideDeepEqual: Rule.RuleModule = {
           while (statement.parent.type !== 'Program' && statement.parent.type !== 'BlockStatement') {
             statement = statement.parent;
           }
-          const line = statement.loc?.start.line ?? 0;
-          if (comments.some((c) => c.type === 'Line' && (c.loc?.end.line ?? 0) === line - 1)) continue;
+          const line = startLineOf(statement);
+          if (comments.some((c) => c.type === 'Line' && endLineOf(c) === line - 1)) continue;
           context.report({ node: call, messageId: 'wide' });
         }
       },

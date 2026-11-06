@@ -10,8 +10,23 @@ import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { createDiscordAdapter } from '../../interfaces/discord/index.ts';
 import { createEmojiIndex } from '../../src/behavior/emoji-index.ts';
 import type { IndexedEmoji } from '../../src/behavior/emoji-index.ts';
+import type { Untyped } from '../../src/tools/types.ts';
 
 type Obj = Record<string, unknown>;
+
+/** The channel the cache of a guild or a client holds under `id`, undefined when it holds none. */
+export function cachedChannel(holder: unknown, id: unknown): Untyped {
+  const cache = obj(obj(holder).channels).cache;
+  const get = obj(cache).get;
+  return typeof get === 'function' ? get.call(cache, id) : undefined;
+}
+
+/** The guild the cache of a client holds under `id`, undefined when it holds none. */
+export function cachedGuild(client: unknown, id: unknown): Untyped {
+  const cache = obj(obj(client).guilds).cache;
+  const get = obj(cache).get;
+  return typeof get === 'function' ? get.call(cache, id) : undefined;
+}
 
 const obj = (value: unknown): Obj => (value !== null && typeof value === 'object' ? (value as Obj) : {});
 
@@ -227,7 +242,10 @@ function ownHistoryOf<T extends Reads>(
       if (!posted.conversations.has(String(ref.conversationId))) return reads.history(ref, query);
       const page = await reads.history(ref, { ...query, limit: Math.max(query.limit, HISTORY_PAGE) });
       if (page === null) return null;
-      const mine = page.events.filter((event) => event.message?.author?.self === true);
+      const mine = page.events.filter((event) => {
+        const { message } = event;
+        return message?.author?.self === true;
+      });
       return { ...page, events: mine.slice(-query.limit) };
     },
   };

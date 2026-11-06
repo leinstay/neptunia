@@ -114,7 +114,7 @@ import {
   runCli,
   simKey,
 } from './lib/cli.ts';
-import { discordReads, recallScope } from './lib/platform-objects.ts';
+import { cachedChannel, discordReads, recallScope } from './lib/platform-objects.ts';
 import {
   HIT_AT,
   latestLines,
@@ -292,8 +292,9 @@ async function connectDiscord({ token, placeId }: Rec) {
   const { Client, Routes } = discord;
   const client = new Client({ intents: [] });
   client.rest.setToken(token);
-  const restRequest = client.rest.request.bind(client.rest);
-  client.rest.request = (options) => {
+  const { rest } = client;
+  const restRequest = rest.request.bind(rest);
+  rest.request = (options) => {
     if (String(options?.method ?? 'GET').toUpperCase() !== 'GET')
       throw new Error('recall-eval: only GET requests reach Discord');
     return restRequest(options);
@@ -375,7 +376,8 @@ async function recallParts(
   } = guild;
   const { id: conversationId } = channel;
   if (found.local === true) {
-    const channelNameOf = (id: string) => found.channels.cache.get(id)?.name ?? null;
+    const { channels } = found;
+    const channelNameOf = (id: string) => channels.cache.get(id)?.name ?? null;
     return {
       reads: localReads({ placeId, channelNameOf }),
       scope: localScope({ placeId, conversationId: String(conversationId), channelNameOf }),
@@ -506,7 +508,7 @@ async function traces(flags: Flags, { dataDir, placeId, now, cwd }: RunContext) 
         if (at === -1) throw Object.assign(new Error('no trigger'), { name: 'no-trigger-in-record' });
         const trigger = messages[at];
         const history = messages.slice(Math.max(0, at + 1 - historyCount), at + 1);
-        const channel = guild.channels.cache.get(t.placeId);
+        const channel = cachedChannel(guild, t.placeId);
         const { lanes, skip } = prefetchLanes({
           trigger,
           history,
@@ -715,7 +717,8 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
     };
   } else {
     const apiKey = simKey(ORIGIN);
-    const calibrator = createCalibrator(store.state.data?.calibration);
+    const { data: stateData } = store.state;
+    const calibrator = createCalibrator(stateData?.calibration);
     const realLlm = createLlm({ apiKey, env: {}, getConfig: () => hot.config, calibrator, state: counters });
     llm = {
       capLeft: () => Infinity,
@@ -891,7 +894,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   async function askPrefetch(q: Question, index: number) {
     const started = now();
     try {
-      const channel = guild.channels.cache.get(q.placeId);
+      const channel = cachedChannel(guild, q.placeId);
       if (!channel) return { status: 'error', error: 'no-channel', excerpts: 0, score: null, ms: 0 };
       const trigger = triggerOf(q, index);
       const chat = await channelHistory(q.placeId);
@@ -979,7 +982,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
       return out;
     };
     try {
-      const channel = guild.channels.cache.get(q.placeId);
+      const channel = cachedChannel(guild, q.placeId);
       if (!channel) return finish({ error: 'no-channel', score: null });
       const trigger = triggerOf(q, index);
       const chat = await channelHistory(q.placeId);
@@ -1089,10 +1092,12 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
       limit,
       maxUsd,
       ask: (q) => ask(q, index++),
-      onResult: (r) =>
+      onResult: (r) => {
+        const prefetchScore = r.prefetch?.score;
         process.stderr.write(
-          `recall-eval: ${r.id} ${r.error ? `error ${r.error}` : `${r.score?.outcome ?? r.kind} rank ${r.score?.rank ?? '-'} hit@${HIT_AT} ${r.score?.hit5 ?? '-'} confident ${r.confident === true}${r.web ? ` web ${r.web.found}` : ''}`}${r.prefetch ? ` prefetch ${r.prefetch.status} rank ${r.prefetch.score?.rank ?? '-'}` : ''} ${r.latencyMs} ms ${r.costUsd.toFixed(4)} USD\n`
-        ),
+          `recall-eval: ${r.id} ${r.error ? `error ${r.error}` : `${r.score?.outcome ?? r.kind} rank ${r.score?.rank ?? '-'} hit@${HIT_AT} ${r.score?.hit5 ?? '-'} confident ${r.confident === true}${r.web ? ` web ${r.web.found}` : ''}`}${r.prefetch ? ` prefetch ${r.prefetch.status} rank ${prefetchScore?.rank ?? '-'}` : ''} ${r.latencyMs} ms ${r.costUsd.toFixed(4)} USD\n`
+        );
+      },
     });
   } finally {
     if (connection) await connection.client.destroy().catch(() => {});

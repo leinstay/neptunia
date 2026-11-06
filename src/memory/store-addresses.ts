@@ -11,7 +11,7 @@ import { rootPlaceInDb } from './db/place-tree.ts';
 import { linkedPrivateClaims } from './db/private-read.ts';
 import { PERSONA_ID } from './db/storage-keys.ts';
 import type { StorageKind } from './db/storage-keys.ts';
-import { listUnits } from './db/storage-units.ts';
+import { listUnits, subjectOf } from './db/storage-units.ts';
 import type { Db } from './db/types.ts';
 
 /** What the store knows of a conversation it names. */
@@ -268,12 +268,15 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
     /** The subject of the first collection of `kind` the database holds, for a registry kept in one place. */
     placesHolding(kind: StorageKind): Array<string> {
       if (!readable()) return [];
-      return seam.run(() => [...new Set(listUnits(seam.db(), { kind }).map((unit) => unit.key.subject.id))]);
+      return seam.run(() => [...new Set(listUnits(seam.db(), { kind }).map((unit) => subjectOf(unit).id))]);
     },
 
     placeHolding(kind: StorageKind): string | null {
       if (!readable()) return null;
-      return seam.run(() => listUnits(seam.db(), { kind })[0]?.key.subject.id ?? null);
+      return seam.run(() => {
+        const first = listUnits(seam.db(), { kind })[0];
+        return first ? subjectOf(first).id : null;
+      });
     },
 
     /** What a person said in their other DMs, for the request of a DM turn: `{ text }` per claim. */

@@ -87,15 +87,12 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'types': ['map'],
     'reader': 'src/core.ts',
     'default': {
-      'scout': 'OPENROUTER_ERRAND_KEY',
-      'server': 'OPENROUTER_ERRAND_KEY',
-      'drawing': 'OPENROUTER_ERRAND_KEY',
       'thinker': 'OPENROUTER_DEV_KEY',
       'dev': 'OPENROUTER_DEV_KEY',
       'memory': 'OPENROUTER_MEMORY_KEY',
     },
     'text':
-      'Read only while the private layer has no `keys.json`; with one, the key store decides (see [Keys](keys.md)). Maps a role name to the NAME of a `.env` variable holding an OpenRouter key, or to a list of names. The first name of a list is the primary key. When a request gets HTTP 402, or 429 with a body naming credits or balance, the role moves to the next name and the request is repeated once on it; after the last name it goes back to the first. When every key failed within a minute the request fails with `keys-exhausted` and the role counts as down until 00:00 UTC. Read at every request. A role not in the map falls back to `OPENROUTER_CORE_KEY`; the `core` role then uses `OPENROUTER_CORE_BACKUP_KEY` as its second key when that variable is set. A name that is not an `OPENROUTER_` variable or is unset is left out. The `memory` role is the exception: with `OPENROUTER_MEMORY_KEY` unset, the session is not configured and no request goes out on any other key',
+      'Read only while the private layer has no `keys.json`; with one, the key store decides (see [Keys](keys.md)). Maps a role name to the NAME of a `.env` variable holding an OpenRouter key, or to a list of names. The first name of a list is the primary key. When a request gets HTTP 402, or 429 with a body naming credits or balance, the role moves to the next name and the request is repeated once on it; after the last name it goes back to the first. When every key failed within a minute the request fails with `keys-exhausted` and the role counts as down until 00:00 UTC. Read at every request. A role not in the map falls back to `OPENROUTER_CORE_KEY`, except that `scout`, `server` and `drawing` have no entry and get a key from a `keys.json` binding only, never the main key; the `core` role then uses `OPENROUTER_CORE_BACKUP_KEY` as its second key when that variable is set. A name that is not an `OPENROUTER_` variable or is unset is left out. The `memory` role is the exception: with `OPENROUTER_MEMORY_KEY` unset, the session is not configured and no request goes out on any other key',
   },
   {
     'key': 'llm.keys',

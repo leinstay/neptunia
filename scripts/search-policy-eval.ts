@@ -219,6 +219,7 @@ export async function main(
       const { config, system, user, skillNames } = requestOf(row);
       const started = now();
       const base = { id: row.id, source: row.source, tier: row.tier };
+      const quickSearch = config.web?.quickSearch as { classifierMaxOutputTokens?: number } | undefined;
       let completion;
       try {
         completion = await llm.complete(
@@ -230,7 +231,7 @@ export async function main(
             model: roleModel(config, 'analyzer', 'query-builder'),
             ...roleRequestOptions(config, {
               role: 'analyzer',
-              maxOutputTokens: config.web?.quickSearch?.classifierMaxOutputTokens ?? 2000,
+              maxOutputTokens: quickSearch?.classifierMaxOutputTokens ?? 2000,
               purpose: 'query-builder',
             }),
             origin: ORIGIN,

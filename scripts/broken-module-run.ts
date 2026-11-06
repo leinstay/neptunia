@@ -104,7 +104,8 @@ function editsForStatement(stmt: ts.Statement, listed: Map<string, string>, file
   }
   if (ts.isExportAssignment(stmt)) return editsForValue(stmt.expression, 'default', file);
   if (!ts.isVariableStatement(stmt)) return [];
-  return stmt.declarationList.declarations.flatMap((decl) => {
+  const { declarations } = stmt.declarationList;
+  return declarations.flatMap((decl) => {
     if (!ts.isIdentifier(decl.name)) return [];
     const name = exported ? decl.name.text : listed.get(decl.name.text);
     return name ? editsForValue(decl.initializer, name, file) : [];
@@ -389,7 +390,8 @@ async function runBroken(
     const ms = Date.now() - started;
     if (run.timedOut) return { ...base, status: 'timeout', tests: 0, green: [], ms };
     const tests = parseTap(run.output);
-    const loadFailure = tests.length === 1 && tests[0]?.status === 'failed' && tests[0].name.endsWith(testFile);
+    const [only] = tests;
+    const loadFailure = tests.length === 1 && only?.status === 'failed' && only.name.endsWith(testFile);
     if (tests.length === 0 || loadFailure) return { ...base, status: 'import-failed', tests: 0, green: [], ms };
     const green = tests.filter((t) => t.status === 'passed').map((t) => t.name);
     return { ...base, status: 'ran', tests: tests.length, green, ms };

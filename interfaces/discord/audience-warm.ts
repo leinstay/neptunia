@@ -33,7 +33,8 @@ export function overwriteMemberIds(
 ): Array<string> {
   const ids = new Set<string>();
   for (const channel of channels ?? []) {
-    for (const overwrite of channel?.permissionOverwrites?.cache?.values?.() ?? []) {
+    const overwrites = channel?.permissionOverwrites?.cache;
+    for (const overwrite of overwrites?.values?.() ?? []) {
       if (overwrite.type !== OverwriteType.Member || ids.has(overwrite.id) || isCached(overwrite.id)) continue;
       ids.add(overwrite.id);
     }
@@ -103,8 +104,10 @@ export function createAudienceWarmer({
     const guild = getGuild();
     if (!guild) return;
     try {
-      const isCached = (id: string): boolean => gone.has(id) || guild.members?.cache?.has?.(id) === true;
-      const ids = overwriteMemberIds(guild.channels?.cache?.values?.(), isCached);
+      const memberCache = guild.members?.cache;
+      const channelCache = guild.channels?.cache;
+      const isCached = (id: string): boolean => gone.has(id) || memberCache?.has?.(id) === true;
+      const ids = overwriteMemberIds(channelCache?.values?.(), isCached);
       if (quiet && ids.length === 0) return;
       const {
         fetched,

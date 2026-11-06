@@ -96,9 +96,10 @@ function propertyText(name: ts.PropertyName) {
 /** The name an object literal goes by: its variable, or its property in another named object. */
 function objectName(obj: ts.ObjectLiteralExpression): string | undefined {
   const parent = obj.parent;
+  const { parent: grandparent } = parent;
   if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) return parent.name.text;
-  if (ts.isPropertyAssignment(parent) && ts.isObjectLiteralExpression(parent.parent)) {
-    const outer = objectName(parent.parent);
+  if (ts.isPropertyAssignment(parent) && ts.isObjectLiteralExpression(grandparent)) {
+    const outer = objectName(grandparent);
     const own = propertyText(parent.name);
     return outer ? `${outer}.${own}` : own;
   }
@@ -125,9 +126,10 @@ function ownName(node: ts.FunctionLikeDeclaration): string {
     return qualify(node.parent, propertyText(node.name));
   }
   const parent = node.parent;
+  const { parent: grandparent } = parent;
   if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) return parent.name.text;
   if (ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent)) {
-    return qualify(parent.parent, propertyText(parent.name));
+    return qualify(grandparent, propertyText(parent.name));
   }
   return '<anonymous>';
 }
@@ -497,7 +499,8 @@ export function findImports(source: string, fromPath: string): Array<string> {
       node.arguments.length > 0 &&
       ts.isStringLiteralLike(node.arguments[0])
     ) {
-      add(node.arguments[0].text);
+      const [specifier] = node.arguments;
+      add(specifier.text);
     }
     ts.forEachChild(node, visit);
   }
@@ -749,10 +752,11 @@ function main(args: Array<string>) {
 
 function summary(b: Baseline) {
   const fns = Object.values(b.functions).reduce((n, f) => n + Object.keys(f).length, 0);
-  const imports = Object.values(b.structure.imports).reduce((n, t) => n + t.length, 0);
+  const { imports: importsByFile, tests: missingTests } = b.structure;
+  const imports = Object.values(importsByFile).reduce((n, t) => n + t.length, 0);
   const deep = Object.values(b.chains).reduce((n, c) => n + c.deep, 0);
   const repeated = Object.values(b.chains).reduce((n, c) => n + c.repeated, 0);
-  return `${Object.keys(b.files).length} long files, ${fns} offending functions, ${deep} deep chains, ${repeated} repeated names, ${imports} import breaches, ${b.structure.tests.length} modules without a test`;
+  return `${Object.keys(b.files).length} long files, ${fns} offending functions, ${deep} deep chains, ${repeated} repeated names, ${imports} import breaches, ${missingTests.length} modules without a test`;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

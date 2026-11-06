@@ -87,6 +87,8 @@ export type TaskResult = {
   files: Array<{ path: string; name: string; contentType: string; bytes: number }>;
   withheld?: Array<string>;
   filesDropped?: Array<{ name: string; reason: 'withheld' | 'secret' }>;
+  /** the web searches of the run that failed (OpenCode's `websearch`), a positive whole number when any */
+  searchFailures?: number;
 };
 
 /** A usage in its protocol shape. */
@@ -379,7 +381,8 @@ export function progressEvent({
 /** A result in its protocol shape: `{ text, sources: [url], files: [{ path, name, contentType, bytes }] }`,
  * plus `withheld: [path]` (the withheld paths the agent reached for in a filtered scope, at most
  * MAX_WITHHELD) when any, and `filesDropped: [{ name, reason }]` (`withheld` | `secret`: the files
- * the runner did not deliver, src/agent-runner/opencode.ts; at most MAX_WITHHELD) when any. */
+ * the runner did not deliver, src/agent-runner/opencode.ts; at most MAX_WITHHELD) when any, and `searchFailures` (the
+ * count of the run's failed web searches) when it is a positive whole number. */
 export function normalizeResult(result: unknown): TaskResult {
   const r = objOf(result);
   const sources: Array<string> = Array.isArray(r.sources)
@@ -419,6 +422,8 @@ export function normalizeResult(result: unknown): TaskResult {
         .slice(0, MAX_WITHHELD)
     : [];
   if (dropped.length > 0) out.filesDropped = dropped;
+  if (Number.isSafeInteger(r.searchFailures) && Number(r.searchFailures) > 0)
+    out.searchFailures = Number(r.searchFailures);
   return out;
 }
 

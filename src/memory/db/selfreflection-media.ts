@@ -347,7 +347,8 @@ function platformOf(
 ): { nativeRef: string; description: string | null } {
   const database = connection;
   // The read names each attachment's own id; the message event names it too.
-  const found = (message.event?.message?.attachments ?? []).find((item) => item?.url === attachment.url);
+  const eventMessage = message.event?.message;
+  const found = (eventMessage?.attachments ?? []).find((item) => item?.url === attachment.url);
   const named = typeof attachment.id === 'string' && attachment.id ? attachment.id : found?.id;
   const attachmentId = typeof named === 'string' && named ? named : null;
   return {

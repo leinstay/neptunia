@@ -158,7 +158,7 @@ const NO_LINKS: ReadonlySet<string> = new Set();
 const VIDEO_ERROR_RETRY_MINUTES_FALLBACK = 60;
 // The describer's measures. Production values, config cut of 2026-10-31.
 /** The length of a picture's or a GIF's caption. */
-const DESCRIPTION_CHARS = 500;
+export const DESCRIPTION_CHARS = 500;
 /** The seconds of a GIF that are watched. */
 const GIF_MAX_SECONDS = 15;
 /** The length of the answer of a second look. */
@@ -179,6 +179,8 @@ const VIDEO_FIXED = Object.freeze({
   urlProcessing: 'agentic',
   reasoning: Object.freeze({ effort: 'low' }),
 });
+/** The length of a video summary. */
+export const VIDEO_SUMMARY_CHARS = VIDEO_FIXED.summaryChars;
 
 /** The live `media.video` section with the fixed fields (VIDEO_FIXED) over it. */
 function videoSettingsOf(config: Untyped) {

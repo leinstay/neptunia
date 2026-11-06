@@ -808,8 +808,9 @@ export function renderPrefetchCompare(compare: PrefetchComparison, results: Unty
     '| --- | --- | --- | --- | --- | --- | --- |',
   ];
   for (const r of results) {
+    const prefetchScore = r.prefetch?.score as { rank?: number | null; inChat?: boolean } | undefined;
     out.push(
-      `| ${cell(r.id, 40)} | ${r.kind} | ${r.score?.rank ?? (r.score?.inChat ? 'chat' : '-')} | ${r.prefetch?.score?.rank ?? (r.prefetch?.score?.inChat ? 'chat' : '-')} | ${r.prefetch?.status ?? '-'} | ${r.prefetch?.excerpts ?? 0} | ${cell(r.question, 80)} |`
+      `| ${cell(r.id, 40)} | ${r.kind} | ${r.score?.rank ?? (r.score?.inChat ? 'chat' : '-')} | ${prefetchScore?.rank ?? (prefetchScore?.inChat ? 'chat' : '-')} | ${r.prefetch?.status ?? '-'} | ${r.prefetch?.excerpts ?? 0} | ${cell(r.question, 80)} |`
     );
   }
   return `${out.join('\n')}\n`;

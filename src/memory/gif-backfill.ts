@@ -48,6 +48,12 @@ function buildGifBackfill({
 }) {
   let running = false;
 
+  /** Whether the bot is paused (`/nep pause`), read at each step. */
+  function isPaused() {
+    const stateData = store.state?.data;
+    return Boolean(stateData?.paused);
+  }
+
   function skipped(reason: string): { ok: false; reason: string } {
     log.info('gif-backfill: skipped', { reason });
     return { ok: false, reason };
@@ -103,7 +109,7 @@ function buildGifBackfill({
     { ok: true; channels: number; messages: number; gifs: number; described: number } | { ok: false; reason: string }
   > {
     if (running) return skipped('running');
-    if (store.state?.data?.paused) return skipped('paused');
+    if (isPaused()) return skipped('paused');
     const stamp: StoredRecord | null = store.getGifs().backfills[placeId] ?? null;
     if (!force && stamp?.at) return skipped('done');
 
@@ -118,7 +124,7 @@ function buildGifBackfill({
       const { channels, messages: collected } = history;
 
       // From here on nothing awaits until the stamp: no GIF can be recorded in between.
-      if (store.state?.data?.paused) return skipped('paused');
+      if (isPaused()) return skipped('paused');
       const members = collected.sort((a, b) => a.ts - b.ts);
       const opts = gifOpts();
 
@@ -141,7 +147,7 @@ function buildGifBackfill({
             pictures.set(picture.itemId, picture);
         }
       }
-      const described = store.state?.data?.paused ? 0 : await describeTop(placeId, pictures, BACKFILL_DESCRIBE);
+      const described = isPaused() ? 0 : await describeTop(placeId, pictures, BACKFILL_DESCRIBE);
       if (described > 0) store.flush();
       // Their captions and files go on the entries in the background: the owner's run does not wait for the downloads.
       void keeper?.keepPictures(placeId, [...pictures.values()]);

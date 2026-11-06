@@ -326,19 +326,25 @@ export type NewTurn = {
 /** What one new line is, in the shape the metrics read: its calls with statuses, leaks, duplicates, counts, numbers. */
 export function newTurnOf(line: Untyped): NewTurn {
   const loop = line.loop;
-  const calls: Array<NewCall> = loop.steps.flatMap((step: Rec) =>
-    step.calls.map((c: Rec) => ({
-      name: c.skill,
-      args: c.args ?? {},
-      status: c.result?.status ?? null,
-      code: c.result?.code ?? null,
-      step: step.step,
-    }))
+  const calls: Array<NewCall> = loop.steps.flatMap(
+    ({ step: stepNumber, calls: stepCalls }: { step: number; calls: Array<Rec> }) =>
+      stepCalls.map((c: Rec) => ({
+        name: c.skill,
+        args: c.args ?? {},
+        status: c.result?.status ?? null,
+        code: c.result?.code ?? null,
+        step: stepNumber,
+      }))
   );
   // A leak: speech posted in a step with a call that did not work or that she has to read first.
   const leaks = loop.steps.filter((step: Rec) => {
     if (step.held || !step.answer || step.calls.length === 0) return false;
-    const spoke = step.answer.messages.length > 0 || step.answer.reactions.length > 0 || Boolean(step.answer.gif);
+    const { messages, reactions, gif } = step.answer as {
+      messages: Array<unknown>;
+      reactions: Array<unknown>;
+      gif?: unknown;
+    };
+    const spoke = messages.length > 0 || reactions.length > 0 || Boolean(gif);
     return spoke && step.calls.some((c: Rec) => c.result?.status !== 'ok' || resultKind(c.skill) === 'data');
   }).length;
   const ok = calls.filter((call) => call.status === 'ok');
@@ -586,8 +592,9 @@ export function main(
   const sheet = paired.pairs.map((pair: Untyped, index: number) => {
     const first = order[index];
     key.pairs[pair.label] = { first, triggerId: pair.old.triggerId };
-    const context = pair.new.context.length > 0 ? pair.new.context : pair.old.context;
-    const answers = { A: pair.old.answer, B: pair.new.answer };
+    const { old: before, new: after } = pair as { old: Rec; new: Rec };
+    const context = after.context.length > 0 ? after.context : before.context;
+    const answers = { A: before.answer, B: after.answer };
     return { id: pair.label, context, first: answers[first], second: answers[first === 'A' ? 'B' : 'A'] };
   });
   fs.mkdirSync(out, { recursive: true });

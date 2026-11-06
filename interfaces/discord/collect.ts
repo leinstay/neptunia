@@ -452,7 +452,8 @@ function normalizeSnapshot(
  * `<@!id>` token for them. Null otherwise.
  */
 function replyPingAccountId(message: MessageLike, mentionedAccountIds: ReadonlyArray<string>): string | null {
-  const repliedId = message.mentions?.repliedUser?.id;
+  const repliedUser = message.mentions?.repliedUser;
+  const repliedId = repliedUser?.id;
   if (!repliedId || !message.reference?.messageId) return null;
   if (!mentionedAccountIds.includes(repliedId)) return null;
   const typed = new RegExp(`<@!?${repliedId}>`).test(message.content ?? '');
@@ -544,14 +545,17 @@ export function normalizeMessage(
   // (an older/plain payload) is a normal reply, never a forward.
   const isForward = message.reference?.type === MessageReferenceType.Forward;
   const sourceChannelId = isForward ? message.reference?.channelId : null;
-  const sourceChannel = sourceChannelId ? message.guild?.channels?.cache?.get?.(sourceChannelId) : null;
-  const mentionedAccountIds = [...(message.mentions?.users?.keys?.() ?? [])];
+  const guild = message.guild;
+  const guildChannels = guild?.channels?.cache;
+  const sourceChannel = sourceChannelId ? guildChannels?.get?.(sourceChannelId) : null;
+  const category = message.channel?.parent;
+  const mentionedUserCache = message.mentions?.users;
+  const mentionedAccountIds = [...(mentionedUserCache?.keys?.() ?? [])];
   // The name `content` reads for each (`@DisplayName`, cleanContent), so the transcript can show their handle instead.
+  const mentionedMembers = message.mentions?.members;
+  const guildMembers = guild?.members?.cache;
   const mentionedUsers = mentionedAccountIds.flatMap((id) => {
-    const name = displayNameOf(
-      message.mentions?.members?.get?.(id) ?? message.guild?.members?.cache?.get?.(id),
-      message.mentions?.users?.get?.(id)
-    );
+    const name = displayNameOf(mentionedMembers?.get?.(id) ?? guildMembers?.get?.(id), mentionedUserCache?.get?.(id));
     return typeof name === 'string' && name ? [{ id, name }] : [];
   });
 
@@ -559,7 +563,7 @@ export function normalizeMessage(
     id: message.id,
     channelId: message.channelId,
     channelName: message.channel?.name ?? null,
-    channelCategory: message.channel?.parent?.name ?? null,
+    channelCategory: category?.name ?? null,
     channelTopic: message.channel?.topic ?? null,
     authorId: message.author.id,
     authorName: displayNameOf(message.member, message.author),
@@ -631,9 +635,10 @@ export function normalizeOptions(
     | null
     | undefined
 ): { embedTextChars?: number; videoSites?: Array<string>; maxUrlChars?: number; imageSize?: number } {
+  const video = config?.media?.video;
   return {
     embedTextChars: config?.media?.embedTextChars,
-    videoSites: config?.media?.video?.sites,
+    videoSites: video?.sites,
     maxUrlChars: config?.context?.maxUrlChars,
     imageSize: IMAGE_SIZE,
   };
@@ -696,7 +701,8 @@ export function conversationOfChannel(given: object, guildId?: string): Conversa
 function cachedReplyToSelf(message: MessageLike, replyToId: string | null, selfId: string): boolean {
   if (!replyToId) return false;
   try {
-    const cached = message.channel?.messages?.cache?.get?.(replyToId);
+    const messages = message.channel?.messages;
+    const cached = messages?.cache?.get?.(replyToId);
     return Boolean(cached && !cached.partial && cached.author?.id === selfId);
   } catch {
     return false;
@@ -801,6 +807,7 @@ export function toEvent(
   }
   const normalized = normalizeMessage(message, selfId, options);
   const view = memberView(message.member);
+  const mentionedCache = message.mentions?.users;
   return {
     ...base,
     at: edit ? editAt : normalized.ts,
@@ -834,7 +841,7 @@ export function toEvent(
       messageRefs: normalized.messageRefs,
     },
     addressing: {
-      mentioned: message.mentions?.users?.has?.(selfId) === true,
+      mentioned: mentionedCache?.has?.(selfId) === true,
       replyToSelf: cachedReplyToSelf(message, normalized.replyToId, selfId),
       mentionedAccountIds: normalized.mentionedAccountIds,
       mentionedUsers: normalized.mentionedUsers,
@@ -955,7 +962,8 @@ export function reactionClearEmojiEvent(
 function hasPermission(given: object, flag: bigint): boolean {
   const channel = asChannel(given);
   if (!channel.guild) return true;
-  const me = channel.guild.members?.me;
+  const guildMembers = channel.guild.members;
+  const me = guildMembers?.me;
   if (!me || !channel.viewable) return false;
   return channel.permissionsFor?.(me)?.has?.(flag) ?? false;
 }
@@ -1107,7 +1115,8 @@ export async function fetchMessage(channel: TextBasedChannel, id: string | null 
   try {
     // A partial one (a reaction event on an uncached message caches it so: no author, no
     // content) is fetched whole like a missing one.
-    const cached = channel.messages.cache?.get?.(id);
+    const messageCache = channel.messages.cache;
+    const cached = messageCache?.get?.(id);
     if (cached && !cached.partial) return cached;
     return (await channel.messages.fetch(id)) ?? null;
   } catch {
@@ -1234,18 +1243,23 @@ export function audienceOf(given: object | null): {
   const canView = (role: unknown): boolean => channel.permissionsFor?.(role)?.has?.(view) ?? false;
   const everyoneRole = guild.roles?.everyone ?? null;
   const everyoneId = everyoneRole?.id ?? guild.id; // the @everyone role's id is the guild's
-  const botId = guild.members?.me?.id ?? channel.client?.user?.id ?? null;
+  const guildMembers = guild.members;
+  const memberCache = guildMembers?.cache;
+  const selfUser = channel.client?.user;
+  const botId = guildMembers?.me?.id ?? selfUser?.id ?? null;
   const isBotMember = (id: string): boolean =>
-    (botId !== null && id === botId) || guild.members?.cache?.get?.(id)?.user?.bot === true;
+    (botId !== null && id === botId) || memberCache?.get?.(id)?.user?.bot === true;
+  const roleCache = guild.roles?.cache;
   const roles = new Set<string>();
-  for (const role of guild.roles?.cache?.values?.() ?? []) {
+  for (const role of roleCache?.values?.() ?? []) {
     if (canView(role)) roles.add(role.id);
   }
   const sets: Record<number, { allow: Set<string>; deny: Set<string> }> = {
     [OverwriteType.Role]: { allow: new Set(), deny: new Set() },
     [OverwriteType.Member]: { allow: new Set(), deny: new Set() },
   };
-  for (const overwrite of channel.permissionOverwrites?.cache?.values?.() ?? []) {
+  const overwriteCache = channel.permissionOverwrites?.cache;
+  for (const overwrite of overwriteCache?.values?.() ?? []) {
     const target = sets[overwrite.type];
     if (!target) continue;
     if (overwrite.type === OverwriteType.Role && overwrite.id === everyoneId) continue;
@@ -1255,7 +1269,7 @@ export function audienceOf(given: object | null): {
   }
   const memberRoles = new Map<string, Set<string>>();
   for (const id of [...sets[OverwriteType.Member].allow, ...sets[OverwriteType.Member].deny]) {
-    const held = guild.members?.cache?.get?.(id)?.roles?.cache;
+    const held = memberCache?.get?.(id)?.roles?.cache;
     if (!held?.keys) continue;
     memberRoles.set(id, new Set(held.keys()));
   }

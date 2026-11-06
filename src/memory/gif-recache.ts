@@ -320,10 +320,17 @@ function buildGifRecache({
 }) {
   let running: Untyped = null;
 
+  /** Whether the bot is paused (`/nep pause`), read at each step. */
+  function isPaused() {
+    const stateData = store.state?.data;
+    return Boolean(stateData?.paused);
+  }
+
   /** One message read again through the interface, as a line; null when it is gone or the read fails. */
   async function readMessage(placeId: string, messageId: string) {
     const found = await reads.fetchMessages({ iface: iface(), conversationId: String(placeId) }, [messageId]);
-    const event = found?.messages[0]?.event;
+    const message = found?.messages[0];
+    const event = message?.event;
     if (!event) {
       log.warn('gif-recache: message read failed', { placeId });
       return null;
@@ -356,7 +363,7 @@ function buildGifRecache({
     const counts = { watched: 0, failed: 0 };
     let stopped = null;
     for (const entry of queue) {
-      if (store.state?.data?.paused) {
+      if (isPaused()) {
         stopped = 'paused';
         break;
       }
@@ -369,7 +376,7 @@ function buildGifRecache({
         break;
       }
     }
-    if (!store.state?.data?.paused) store.flush();
+    if (!isPaused()) store.flush();
     log.info('gif-recache: done', { ...counts, queued: queue.length, stopped });
   }
 
@@ -384,7 +391,7 @@ function buildGifRecache({
    */
   function start(placeId: string) {
     if (running) return { ok: false, reason: 'running' };
-    if (store.state?.data?.paused) return { ok: false, reason: 'paused' };
+    if (isPaused()) return { ok: false, reason: 'paused' };
     if (typeof describer?.watchGif !== 'function') return { ok: false, reason: 'unavailable' };
     const blocker = typeof describer.gifWatchBlocker === 'function' ? describer.gifWatchBlocker() : null;
     if (blocker) return { ok: false, reason: blocker };
@@ -413,7 +420,7 @@ function buildGifRecache({
 
   /** Why a run must stop before its next step (`paused`), or null. */
   function stopReason() {
-    return store.state?.data?.paused ? 'paused' : null;
+    return isPaused() ? 'paused' : null;
   }
 
   /** Re-describe the picked keys: emoji, then library GIFs, then the rest through the record; see startMedia. */
@@ -492,7 +499,7 @@ function buildGifRecache({
     };
 
     await run();
-    if (!store.state?.data?.paused) store.flush();
+    if (!isPaused()) store.flush();
     log.info('media: recached', { picked: keys.length, ...counts, unlocated: stopped ? 0 : wanted.size, stopped });
   }
 
@@ -508,7 +515,7 @@ function buildGifRecache({
    */
   function startMedia(placeId: string, { days = RECACHE_DAYS.default }: { days?: number } = {}) {
     if (running) return { ok: false, reason: 'running' };
-    if (store.state?.data?.paused) return { ok: false, reason: 'paused' };
+    if (isPaused()) return { ok: false, reason: 'paused' };
     if (typeof describer?.redescribe !== 'function') return { ok: false, reason: 'unavailable' };
     const blocker = typeof describer.pictureBlocker === 'function' ? describer.pictureBlocker() : null;
     if (blocker) return { ok: false, reason: blocker };
