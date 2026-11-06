@@ -32,6 +32,8 @@
 //
 // Git, gh, the test runner, the board and the agent runs are injected. The journal carries ids, counts and codes.
 
+import fs from 'node:fs';
+import path from 'node:path';
 import type { BoardOp, BoardResults, HandoffTest, TaskRecord, TaskView } from '../board/board.ts';
 import { CLOSED } from '../board/machine.ts';
 import type { BackendResult } from '../agent-runner/backend.ts';
@@ -341,6 +343,19 @@ class Worker {
    * worker's local ref goes stale.
    */
   async placeTree(
+    where: { branch: string; tree: string },
+    start: { kind: 'base'; base: string } | { kind: 'branch'; branch: string },
+    wasPlaced: boolean
+  ): Promise<string | null> {
+    const { repoDir } = this.deps;
+    if (!fs.existsSync(path.join(repoDir, 'node_modules'))) {
+      return `modules-missing: ${repoDir}/node_modules does not exist, run npm install in the checkout`;
+    }
+    const failure = await this.addTree(where, start, wasPlaced);
+    return failure ?? linkModules(repoDir, where.tree);
+  }
+
+  async addTree(
     where: { branch: string; tree: string },
     start: { kind: 'base'; base: string } | { kind: 'branch'; branch: string },
     wasPlaced: boolean
@@ -1003,5 +1018,35 @@ export async function serveDevelopment(options: {
     if (!signal.aborted) throw error;
   } finally {
     await worker.stop();
+  }
+}
+
+/**
+ * Gives a worktree the dependencies of the checkout: `<tree>/node_modules` becomes a folder with one link per package of
+ * `<repoDir>/node_modules` (`.bin` included), so the hooks find `node_modules/.bin/prettier`. The `@neptunia` links stay
+ * relative, as `npm install` made them, and so resolve to the worktree's own workspace folders. A tree that holds a
+ * `node_modules` keeps it. Null when the tree is linked, else why not.
+ */
+function linkModules(repoDir: string, tree: string): string | null {
+  const own = path.join(tree, 'node_modules');
+  if (fs.existsSync(own)) return null;
+  const source = path.join(repoDir, 'node_modules');
+  try {
+    fs.mkdirSync(own, { recursive: true });
+    for (const name of fs.readdirSync(source)) {
+      if (name === '@neptunia') linkWorkspace(path.join(source, name), path.join(own, name));
+      else fs.symlinkSync(path.join(source, name), path.join(own, name));
+    }
+    return null;
+  } catch (error) {
+    return `modules-failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+/** One relative link per workspace package, copied as the checkout holds it. */
+function linkWorkspace(from: string, to: string): void {
+  fs.mkdirSync(to);
+  for (const name of fs.readdirSync(from)) {
+    fs.symlinkSync(fs.readlinkSync(path.join(from, name)), path.join(to, name));
   }
 }
