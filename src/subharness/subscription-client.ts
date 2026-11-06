@@ -50,6 +50,8 @@ export type SubscriptionClientDeps = {
   privateDir: string;
   /** The record of keys.json this client reads: the core's, or the simulation's. */
   route: SubscriptionRole;
+  /** The route as a paid script read it once at its start; absent, the record is read again at every first step. */
+  fixedPath?: SubscriptionPath;
   direct: { complete(messages: unknown, options?: unknown): Promise<CompleteResult> };
   bridge: ToolBridge;
   spawn(child: SubscriptionChild): SubscriptionProcess;
@@ -734,7 +736,7 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
   async function onRoute(messages: Array<Rec>, options: Rec): Promise<CompleteResult> {
     const results = laterStep(messages);
     const session = results === null ? null : sessionOf(results);
-    const route = session?.route ?? subscriptionPath(deps.privateDir, deps.route);
+    const route = session?.route ?? deps.fixedPath ?? subscriptionPath(deps.privateDir, deps.route);
     if (route.kind === 'api') return deps.direct.complete(messages, options);
     const estimated = rails(messages, options);
     try {

@@ -25,6 +25,8 @@
 //   from the live data and run in shadow, her proposed actions reported.
 // Exists so a prompt or profile change can be checked against real moments
 // before it is deployed.
+// The model client comes from scripts/lib/cli.ts#simulationLlm: her core requests take the simulation's subscription
+// route while one is stored, every other request the simulation key, and the run says on stderr which it spends.
 //
 // Not for: measuring what her memory session writes (scripts/memory-session.ts);
 // reading the journal's day numbers (scripts/journal-report.ts).
@@ -526,6 +528,7 @@ import {
   serviceKey,
   platformToken,
   simKey,
+  simulationLlm,
   CliError,
   REFUSED_EXIT,
   defaultDataDir,
@@ -562,6 +565,7 @@ import {
 import { MAX_MESSAGE_CHARS } from '../src/format.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { ReplayArgs } from './lib/replay-args.ts';
+import type { SimulationLlm } from './lib/cli.ts';
 import type { Hot } from '../src/hot.ts';
 import { proxySettings } from '../src/net/proxy.ts';
 import { parseArgs, MAX_BEFORE, SNOWFLAKE } from './lib/replay-args.ts';
@@ -1990,6 +1994,25 @@ export function selfreflectionTurnRunner(
   });
 }
 
+/**
+ * The model client of a replay mode (scripts/lib/cli.ts#simulationLlm) over the live client `createLlm`, said on
+ * stderr. A tool bridge it serves stays open to the end of the process, whose exit removes its socket folder.
+ */
+function replaySimulation(
+  createLlm: Untyped,
+  hot: Untyped,
+  calibrator: unknown,
+  state: { data: object; markDirty(): void }
+): SimulationLlm {
+  const sim = simulationLlm('replay-cli', {
+    createDirect: (apiKey) => createLlm({ apiKey, getConfig: () => hot.config, calibrator, state }),
+    getConfig: () => hot.config,
+    state,
+  });
+  process.stderr.write(`replay-cli: ${sim.said}\n`);
+  return sim;
+}
+
 async function runSelfreflection({ args, root, load, hot: liveHot, createHot, log, signal, rng }: ModeCtx) {
   const mods = await loadSelfreflectionMods(load);
   const { SELFREFLECTION_KINDS, selfreflectionTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
@@ -2008,7 +2031,6 @@ async function runSelfreflection({ args, root, load, hot: liveHot, createHot, lo
   if (outFile !== null && (outFile === liveData || outFile.startsWith(`${liveData}${path.sep}`)))
     throw new CliError('replay-cli: --out may not be under data/');
   const discordToken = platformToken('discord', { rootDir: root });
-  const openrouterKey = simKey('replay-cli');
 
   let layered = null;
   let client = null;
@@ -2041,10 +2063,11 @@ async function runSelfreflection({ args, root, load, hot: liveHot, createHot, lo
 
     // The model clients: every request the tool's own, recorded with its purpose.
     const calibrator = createCalibrator(state.data.calibration);
-    const realLlm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state });
+    const sim = replaySimulation(createLlm, hot, calibrator, state);
     const calls: Array<Untyped> = [];
-    const llm = recordingLlm(realLlm, calls, { noCache: args.count === 1 });
-    const realImages = createImageGen({ apiKey: openrouterKey, getConfig: () => hot.config, state });
+    const llm = recordingLlm(sim.llm, calls, { noCache: args.count === 1 });
+    // No key: only quota and familyOf are used below, and generate, the one call that sends, is replaced.
+    const realImages = createImageGen({ apiKey: '', getConfig: () => hot.config, state });
     const images = {
       quota: (...a: Array<Untyped>) => realImages.quota(...a),
       familyOf: (...a: Array<Untyped>) => realImages.familyOf(...a),
@@ -2605,7 +2628,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
   if (outFile !== null && [liveData, dataDir].some((dir) => outFile === dir || outFile.startsWith(`${dir}${path.sep}`)))
     throw new CliError('replay-cli: --out may not be under data/');
   const discordToken = platformToken('discord', { rootDir: root });
-  const openrouterKey = simKey('replay-cli');
 
   let layered = null;
   let client: Untyped = null;
@@ -2620,10 +2642,10 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     const timezone = config.bot?.timezone ?? 'UTC';
     const { store, state } = unflushedStore(createStore({ dataDir, memoryDb: memoryFor(dataDir) }));
     const calibrator = createCalibrator(state.data.calibration);
-    const realLlm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state });
+    const sim = replaySimulation(createLlm, hot, calibrator, state);
     const calls: Array<Untyped> = [];
     const requests: Array<Untyped> = [];
-    const recorded = recordingLlm(realLlm, calls, { noCache: true, errorCodeOf: mods.errorCodeOf });
+    const recorded = recordingLlm(sim.llm, calls, { noCache: true, errorCodeOf: mods.errorCodeOf });
     const llm = new Proxy(recorded, {
       get(target, prop) {
         if (prop === 'complete') {
@@ -6748,7 +6770,6 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
   }
   const discordToken = platformToken('discord', { rootDir: root });
   const keyNeeded = args.showRequestTurn === null && !args.dry;
-  const openrouterKey = keyNeeded ? simKey('replay-cli') : undefined;
   const searchAvailable = searchAvailableOf({
     hot,
     createLookup: (await load('web/lookup.ts')).createLookup,
@@ -6875,9 +6896,10 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     const stateData = store.state.data;
     const calibrator = createCalibrator(stateData.calibration);
     const llmState = { data: { llmDay: stateData.llmDay, llmCount: stateData.llmCount }, markDirty() {} };
-    const realLlm = openrouterKey
-      ? createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state: llmState })
-      : null;
+    const sim = keyNeeded ? replaySimulation(createLlm, hot, calibrator, llmState) : null;
+    // Absent on a dry run or a shown request, neither of which sends a request.
+    const realLlm: Untyped = sim?.llm;
+    const openrouterKey = sim?.key;
     // Every request is marked as this tool's own. One sample or the splitter: no cache marker
     // (a skill scenario's runs share their request: the sandbox marks it when it has several).
     const noCache = replayWithoutCache(args, Boolean(scenarios));

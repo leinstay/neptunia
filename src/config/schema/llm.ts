@@ -158,7 +158,7 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/subharness/subscription-client.ts',
     'default': false,
     'text':
-      'While her core runs through a subscription CLI (`/model set core <model> --via claude` or `--via codex`), `true` sends a step that failed on it, and every later step of that turn, to the API with the same messages. With `false` the step fails and she reads its code. A refusal of the token or daily rail never goes to the API. Read at every failed step',
+      "While her core runs through a subscription CLI (`/model set core <model> --via claude` or `--via codex`), `true` sends a step that failed on it, and every later step of that turn, to the API with the same messages. With `false` the step fails and she reads its code. A paid script on the simulation's route (`/model set simulation <model> --via claude`) reads it too and sends such a step to the simulation key. A refusal of the token or daily rail never goes to the API. Read at every failed step",
   },
   {
     'key': 'llm.subscription.thinking',
