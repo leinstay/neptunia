@@ -143,7 +143,9 @@ test('counts the requests of each analyzer function in the window by status and 
 // turn for each.
 test('reads each address answer with its parser and counts yes, overheard and no', () => {
   const handle = freshHandle();
-  const answers = ['Yes, she was asked', 'Overheard.', 'nope', 'no'];
+  // The lead: the address classifier answers in strict JSON since #669 (owner, 2026-11-06); an unreadable answer is
+  // no decision, so a bare word is counted under none of the three.
+  const answers = ['{"answer":"yes"}', '{"answer":"overheard"}', '{"answer":"no"}', '{"answer":"no"}', 'nope'];
   answers.forEach((answer, n) => {
     request(handle, `a${n}`, { at: NOW - HOUR, role: 'analyzer', purpose: 'address', answer });
   });

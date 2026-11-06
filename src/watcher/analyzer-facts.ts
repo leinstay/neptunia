@@ -77,7 +77,14 @@ const offered = (asked: string, tag: string): Array<string> =>
 
 /** The parser of each function and the decisions it counts, in the order the brief names them. */
 const READERS: Readonly<Record<string, Reader>> = {
-  address: { decisions: ['yes', 'overheard', 'no'], read: ({ answer }) => [parseAddressAnswer(answer)] },
+  address: {
+    decisions: ['yes', 'overheard', 'no'],
+    // An unreadable answer is no decision.
+    read: ({ answer }) => {
+      const one = parseAddressAnswer(answer);
+      return one === null ? [] : [one];
+    },
+  },
   split: {
     decisions: ['one', 'several'],
     read: ({ answer }, config) => [parseSplitAnswer(answer, splitSettings(config)).parts === null ? 'one' : 'several'],
@@ -274,7 +281,12 @@ function zerosOf(
   effects: AnalyzerEffects,
   inputs: { groupLines: number; herReplies: number }
 ): Array<AnalyzerZero> {
-  const watched = [
+  const watched: Array<{
+    purpose: string;
+    inputs: Record<string, number>;
+    acting: Array<string>;
+    effect: number | null;
+  }> = [
     { purpose: 'address', inputs: { groupLines: inputs.groupLines }, acting: ['yes', 'overheard'], effect: null },
     {
       purpose: 'media-pick',

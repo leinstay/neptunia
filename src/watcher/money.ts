@@ -254,7 +254,8 @@ export async function moneyFacts(input: {
       unavailable.push({ slot: key.slot, service: key.service, code: 'no-balance-read' });
       continue;
     }
-    const spent = spend.byKey[spendSlot(key.slot)]?.credits ?? 0;
+    const keySpend = spend.byKey[spendSlot(key.slot)];
+    const spent = keySpend?.credits ?? 0;
     const read = await readKey(key, input.fetch, spent, now);
     if ('code' in read) unavailable.push({ slot: key.slot, service: key.service, code: read.code });
     else keys.push(read);
@@ -301,8 +302,9 @@ export function moneyKeysOf(store: KeyStore): Array<MoneyKey> {
   for (const [name, value] of Object.entries(store.extra)) {
     if (value.trim() !== '') keys.push({ slot: name, service: 'openrouter', value });
   }
-  if (store.simulation.key !== null && store.simulation.key.trim() !== '') {
-    keys.push({ slot: 'simulation', service: 'openrouter', value: store.simulation.key });
+  const simulationKey = store.simulation.key;
+  if (simulationKey !== null && simulationKey.trim() !== '') {
+    keys.push({ slot: 'simulation', service: 'openrouter', value: simulationKey });
   }
   const services = (store as { services?: unknown }).services;
   for (const [name, value] of Object.entries(isRecord(services) ? services : {})) {
