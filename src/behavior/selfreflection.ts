@@ -156,6 +156,8 @@ const DEFAULT_HUNGER_BOOST = 0.5;
 const MIN_GAP_MINUTES = 90;
 export const DEFAULT_HISTORY_POSTS = 150;
 export const DEFAULT_GIST_CHARS = 200;
+/** The characters of a picture description shown as a past post's scene (`selfreflection.sceneChars`' default). */
+export const DEFAULT_SCENE_CHARS = 400;
 /** The weight of each kind of post the planner picks among. */
 export const SELFREFLECTION_KINDS: Readonly<Record<string, number>> = Object.freeze({
   selfPicture: 3,
@@ -544,33 +546,58 @@ export function validatePlan(
   return { kind: named, brief, search, picture, fallback: false };
 }
 
-/** The picture suffix of one post: the scene, `pictureUnknown` for a picture with no recorded
- * scene (`true` or ''), nothing for no picture. A set (`pictures` above 1) shows its first
- * scene with the count (`labels.selfreflection.pictureSet`; `picture` when that label is missing). */
-function pictureSuffix(picture: unknown, labels: unknown, pictures: unknown): string {
-  const words = selfreflectionWords(labels);
-  const count = countOf(pictures);
-  if (typeof picture === 'string' && picture.trim()) {
-    if (count > 1 && words.pictureSet) return fill(labelOf(words.pictureSet), { count, scene: oneLine(picture) });
-    return fill(labelOf(words.picture), { scene: oneLine(picture) });
-  }
-  if (picture === true || picture === '') return fill(labelOf(words.picture), { scene: words.pictureUnknown ?? '' });
-  return '';
+/**
+ * The number of the seed combination a plan answer `parsed` names as its `seed`: a whole number from 1 to `offered`
+ * (the combinations its request carried), else 0, which stands for none.
+ */
+export function planSeed(parsed: unknown, offered: number): number {
+  const seed = objOf(parsed).seed;
+  return typeof seed === 'number' && Number.isInteger(seed) && seed >= 1 && seed <= offered ? seed : 0;
 }
 
 /**
- * The body of the `<diary>` block over `posts` (oldest first; each `{ at, kind, gist, picture, pictures }`):
- * `labels.selfreflection.intro`, then one
+ * What a past picture post showed, one line: the brief its planner wrote (`plan.brief`), else the description of its
+ * first linked picture (`pictureDescription`) cut at a word boundary to `chars` (selfreflection.sceneChars, 400), else
+ * its stored drawing prompt (`picture`). '' when it has none of them.
+ */
+export function sceneOf(post: unknown, chars?: unknown): string {
+  const entry = objOf(post);
+  const brief = objOf(entry.plan).brief;
+  if (typeof brief === 'string' && brief.trim()) return oneLine(brief);
+  const described = entry.pictureDescription;
+  if (typeof described === 'string' && described.trim())
+    return clampText(oneLine(described), countOf(chars) || DEFAULT_SCENE_CHARS, { tolerance: 1 });
+  return typeof entry.picture === 'string' ? oneLine(entry.picture) : '';
+}
+
+/** The picture suffix of one post: its scene (sceneOf), `pictureUnknown` for a picture with no recorded
+ * scene (`picture` `true` or '' and no plan or description), nothing for no picture. A set (`pictures` above 1) shows its
+ * first scene with the count (`labels.selfreflection.pictureSet`; `picture` when that label is missing). */
+function pictureSuffix(post: Obj, labels: unknown, sceneChars: unknown): string {
+  const words = selfreflectionWords(labels);
+  const { picture } = post;
+  const drawn = (typeof picture === 'string' && picture.trim() !== '') || picture === true || picture === '';
+  if (!drawn) return '';
+  const scene = sceneOf(post, sceneChars);
+  if (!scene) return fill(labelOf(words.picture), { scene: words.pictureUnknown ?? '' });
+  const count = countOf(post.pictures);
+  if (count > 1 && words.pictureSet) return fill(labelOf(words.pictureSet), { count, scene });
+  return fill(labelOf(words.picture), { scene });
+}
+
+/**
+ * The body of the `<diary>` block over `posts` (oldest first; each `{ at, kind, gist, picture, pictures }`, with `plan` and
+ * `pictureDescription` when the store has them): `labels.selfreflection.intro`, then one
  * `labels.selfreflection.line` per post (`{date}` the post's local date in
  * `timezone`, `{kind}` its kind key or `labels.selfreflection.kindUnknown`, `{gist}`)
- * with `labels.selfreflection.picture` appended when the post had a picture
+ * with `labels.selfreflection.picture` appended when the post had a picture, its scene from sceneOf cut to `sceneChars`
  * (`labels.selfreflection.pictureSet` with the count for a set: `pictures` above 1). The
  * newest `max` (selfreflection.historyPosts) posts, oldest first. '' when there is no post.
  */
 export function renderSelfreflectionBlock(
   posts: unknown,
   labels: unknown,
-  { timezone, max }: { timezone?: string; max?: unknown } = {}
+  { timezone, max, sceneChars }: { timezone?: string; max?: unknown; sceneChars?: unknown } = {}
 ): string {
   const words = selfreflectionWords(labels);
   const list = listOf(posts);
@@ -582,7 +609,7 @@ export function renderSelfreflectionBlock(
     const date = isFiniteNumber(post.at) ? localDayKey(post.at, timezone) : '';
     const kind = typeof post.kind === 'string' && post.kind ? post.kind : (words.kindUnknown ?? '');
     const line = fill(labelOf(words.line), { date, kind, gist: oneLine(post.gist) });
-    return line + pictureSuffix(post.picture, labels, post.pictures);
+    return line + pictureSuffix(post, labels, sceneChars);
   });
   return [words.intro, ...lines].filter(Boolean).join('\n');
 }
@@ -646,13 +673,24 @@ export function parseSeedFamilies(text: unknown): Record<string, Array<string>> 
 /**
  * `sets` (selfreflection.seedSets) seed combinations from `families` (parseSeedFamilies): each one random line of every
  * non-empty family,
- * in the families' order. [] when no family has a line or `sets` is not a
+ * in the families' order. A line in `used` (usedSeedLines) is left out while its family has another line; a family whose
+ * every line is used is drawn from whole. [] when no family has a line or `sets` is not a
  * positive count.
  */
-export function pickSeeds(families: unknown, sets: unknown, rng: () => number): Array<Array<unknown>> {
+export function pickSeeds(
+  families: unknown,
+  sets: unknown,
+  rng: () => number,
+  used: ReadonlySet<string> = new Set()
+): Array<Array<unknown>> {
   const source: object = families && typeof families === 'object' ? families : {};
   const values: Array<unknown> = Object.values(source);
-  const lists = values.filter((lines): lines is Array<unknown> => Array.isArray(lines) && lines.length > 0);
+  const lists = values
+    .filter((lines): lines is Array<unknown> => Array.isArray(lines) && lines.length > 0)
+    .map((lines) => {
+      const fresh = lines.filter((line) => typeof line !== 'string' || !used.has(line));
+      return fresh.length > 0 ? fresh : lines;
+    });
   const count = countOf(sets);
   if (lists.length === 0 || count === 0) return [];
   const result: Array<Array<unknown>> = [];
@@ -660,6 +698,26 @@ export function pickSeeds(families: unknown, sets: unknown, rng: () => number): 
     result.push(lists.map((lines) => lines[Math.min(lines.length - 1, Math.floor(rng() * lines.length))]));
   }
   return result;
+}
+
+/**
+ * The seed lines the newest `max` (selfreflection.historyPosts, 150) of `posts` (oldest first) took: the lines of the
+ * combination each post's plan built on (`plan.seeds[plan.seed - 1]`). A post with no plan, `seed` 0 or a `seed` past
+ * its combinations takes none.
+ */
+export function usedSeedLines(posts: unknown, max?: unknown): Set<string> {
+  const limit = countOf(max ?? DEFAULT_HISTORY_POSTS);
+  const used = new Set<string>();
+  if (limit === 0) return used;
+  for (const post of listOf(posts).slice(-limit)) {
+    const plan = objOf(objOf(post).plan);
+    const seeds = listOf(plan.seeds);
+    const { seed } = plan;
+    const taken = typeof seed === 'number' && Number.isInteger(seed) && seed >= 1 ? seeds[seed - 1] : undefined;
+    if (!Array.isArray(taken)) continue;
+    for (const line of taken) if (typeof line === 'string') used.add(line);
+  }
+  return used;
 }
 
 /**

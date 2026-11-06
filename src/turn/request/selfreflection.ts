@@ -44,7 +44,8 @@ export function worldText(
   return fillPromptTemplate(text, { name: selfName }).trim();
 }
 
-/** The `<diary>` block's post lines (no intro), oldest first: the newest `selfreflection.historyPosts` (150). */
+/** The `<diary>` block's post lines (no intro), oldest first: the newest `selfreflection.historyPosts` (150), a picture
+ * post's scene cut to `selfreflection.sceneChars` (400). */
 export function selfreflectionHistoryLines(
   posts: unknown,
   labels: Labels,
@@ -53,6 +54,7 @@ export function selfreflectionHistoryLines(
   const body = renderSelfreflectionBlock(posts, labels, {
     timezone: config.bot?.timezone,
     max: DEFAULT_HISTORY_POSTS,
+    sceneChars: config.selfreflection?.sceneChars,
   });
   if (!body) return [];
   const lines = body.split('\n');

@@ -10,9 +10,13 @@ import { createSubscriptionClient } from '../src/subharness/subscription-client.
 import type { SubscriptionChild, SubscriptionProcess } from '../src/subharness/subscription-client.ts';
 import { createToolBridge } from '../src/subharness/tool-bridge.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
+import '../src/tools/impl/index.ts';
 import { appendStep } from '../src/behavior/tool-step.ts';
+import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
+import { buildSkills } from '../src/tools/registry.ts';
+import { normalizeCalls } from '../src/tools/tool-calls.ts';
 import { parseOutput } from '../src/llm/parse.ts';
-import { DailyCapError, TokenLimitError, countLlmRequest, errorCodeOf, toolCallsOf } from '../src/llm/openrouter.ts';
+import { DailyCapError, TokenLimitError, countLlmRequest, errorCodeOf } from '../src/llm/openrouter.ts';
 import type { CompleteResult } from '../src/llm/openrouter.ts';
 import type { UsageEntry } from '../src/tools/impl/usage.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
@@ -507,7 +511,8 @@ test(
     const one = await first;
     assert.equal(one.text, STEP_ONE_TEXT);
     assert.equal(one.finishReason, 'tool_calls');
-    const calls = toolCallsOf(one.toolCalls);
+    // The client hands normalised calls, as the API client does, since the step loop reads them unwrapped.
+    const calls = one.toolCalls as Array<{ id?: string; name?: string; parsed?: unknown }>;
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.id, 'toolu_1');
     assert.equal(calls[0]?.name, 'intention_update');
@@ -540,6 +545,26 @@ test(
     await until(() => fs.readdirSync(workDir).length === 0, 'the run directory was removed');
   }
 );
+
+test('the calls of a Claude answer reach the step loop as it reads them, not as refusals', STEP_TIMEOUT, async () => {
+  // Catches: raw provider-shaped calls (`function.name`), so every call of hers read as `unknown-skill` with no name.
+  const { client, runs } = rig();
+  const first = client.complete(FIRST, REPLY);
+  await until(() => runs.length === 1, 'the run started');
+  pushAll(
+    runs[0],
+    claudeCall({ tools: [{ id: 'toolu_4', name: 'mcp__nep__intention_update', input: CALL_ARGS }], stop: 'tool_use' })
+  );
+  const { toolCalls } = await first;
+  const handed = toolCalls?.[0] as { name?: string; parsed?: unknown } | undefined;
+  assert.equal(handed?.name, 'intention_update');
+  assert.deepEqual(handed?.parsed, CALL_ARGS);
+  const registry = buildSkills({ table: SKILL_DEFINITIONS });
+  const planned = normalizeCalls({ calls: toolCalls, registry, step: 1 });
+  assert.equal(planned.length, 1);
+  assert.equal(planned[0]?.problem, null);
+  assert.deepEqual(planned[0]?.args, CALL_ARGS);
+});
 
 test('a tool call that reaches the bridge after its result is known is answered at once', STEP_TIMEOUT, async () => {
   // Catches: a result handed over before the CLI's call arrived and lost, so the CLI waits forever and her turn hangs.
@@ -600,7 +625,8 @@ test('a Codex turn of two steps: the step ends when the started call waits at th
   const forwarded = bridge.call('tok-1', { name: 'intention_update', arguments: CALL_ARGS, meta: null });
   const one = await first;
   assert.equal(one.text, STEP_ONE_TEXT);
-  const calls = toolCallsOf(one.toolCalls);
+  // The client hands normalised calls, as the API client does, since the step loop reads them unwrapped.
+  const calls = one.toolCalls as Array<{ id?: string; name?: string; parsed?: unknown }>;
   assert.equal(calls[0]?.id, 'item_1');
   assert.equal(calls[0]?.name, 'intention_update');
   assert.deepEqual(calls[0]?.parsed, CALL_ARGS);

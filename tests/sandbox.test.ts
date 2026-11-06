@@ -1720,15 +1720,31 @@ test('scripts/replay.ts: replays through src/behavior/sandbox.ts, every name it 
     .filter(Boolean);
   assert.ok(names.length >= 10);
   for (const name of names) assert.notEqual((sandbox as Record<string, unknown>)[name], undefined, name);
+  // The lead: the list also names the address reads of src/memory/store-addresses.ts since the replay reads a place
+  // and an account through them; each reads a row or spells an id (tests/replay-reads.test.ts).
   assert.deepEqual([...sandbox.SANDBOX_STORE_READS].sort(), [
+    'accountOf',
+    'conversationOfPlace',
+    'dmHomeOf',
     'getGifs',
     'getLore',
     'getMediaCache',
     'getPlace',
     'getRecent',
     'getUser',
+    'holdsSharedConversation',
     'listChannels',
+    'listChildren',
     'listUserProfiles',
+    'nativeCommunityOf',
+    'personOfAccount',
+    'placeChainOf',
+    'placeHolding',
+    'placeOfCommunity',
+    'placeOfConversation',
+    'placesHolding',
+    'sharedPlaceOf',
+    'topPlaces',
   ]);
 });
 

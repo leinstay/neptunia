@@ -386,6 +386,56 @@ test('buildSelfreflectionPlanRequest: no world block with diary.world off, no se
   assert.ok(text.includes('<kinds>'));
 });
 
+/** The user text of a plan request over `posts`, with `selfreflection.sceneChars` at 30. */
+function planText(posts: Array<object>): string {
+  const request = buildSelfreflectionPlanRequest({
+    config: fakeConfig({ selfreflection: { sceneChars: 30 } }),
+    prompts: fakePrompts(),
+    calibrator: identityCalibrator(),
+    now: NOW,
+    selfName: 'Nept',
+    posts,
+    kinds: { picture: 1 },
+    seedsText: '',
+  });
+  // The lead: the message named first, for the chain rule.
+  const user = request.messages[1];
+  return user.content;
+}
+
+const DRAWN = 'a cafe interior, warm light';
+const scene = (text: string) => fill(labels.selfreflection.picture, { scene: text });
+
+test('buildSelfreflectionPlanRequest: a planned picture post shows its brief as the scene in <diary>', () => {
+  // Bug: the diary shows the drawing prompt, which names the room and stops before the activity.
+  const planned = {
+    ...post(NOW - DAY, 'picture', 'μια μέρα στη λίμνη', DRAWN),
+    pictureDescription: 'a girl at a window table',
+    plan: { brief: 'she learns to skate on a frozen lake', seeds: [['a lake', 'skating']], seed: 1 },
+  };
+  const text = planText([planned]);
+  assert.ok(text.includes(scene('she learns to skate on a frozen lake')), text);
+  assert.equal(text.includes(DRAWN), false);
+});
+
+test('buildSelfreflectionPlanRequest: a picture post with no plan shows its picture description cut to sceneChars', () => {
+  // Bug: an old row shows its drawing prompt although its picture was described, or the description is not cut.
+  const described = {
+    ...post(NOW - DAY, 'picture', 'une longue descente', DRAWN),
+    pictureDescription: 'a girl rides a red bicycle\ndown a wet hill road at dawn',
+  };
+  const text = planText([described]);
+  assert.ok(text.includes(scene('a girl rides a red bicycle')), text);
+  assert.equal(text.includes('hill road'), false);
+  assert.equal(text.includes(DRAWN), false);
+});
+
+test('buildSelfreflectionPlanRequest: a picture post with neither shows its drawing prompt', () => {
+  // Bug: the fallback drops the scene of a row that has only its drawing prompt.
+  const text = planText([post(NOW - DAY, 'picture', 'καφές', DRAWN)]);
+  assert.ok(text.includes(scene(DRAWN)), text);
+});
+
 test('buildRequest: the server block marks the diary channel', () => {
   const channel = (id: string, name: string) => ({
     id,
