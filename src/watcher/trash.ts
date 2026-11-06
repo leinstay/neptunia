@@ -1,7 +1,6 @@
-// What the watcher's `Trash` section lists: leftovers by category, with a name, a reason and where each sits. It is the one
-// place the watcher looks at a development checkout, which only `services watcher evidence` passes in, and an install with
-// none reports its own half. Every command is a read through the injected `run`, nothing is deleted, and no leftover's
-// contents are opened: names, link targets' existence and file times only, a name shaped like a key masked. A category
+// What the watcher's `Trash` section lists: leftovers of the install and the system by category, with a name, a reason and
+// where each sits. Every command is a read through the injected `run`, nothing is deleted, and no leftover's
+// contents are opened: names and whether link targets exist only, a name shaped like a key masked. A category
 // that cannot be read is named in `unavailable`, so an empty one means it was looked at. The owner decides what goes.
 
 import fs from 'node:fs';
@@ -18,11 +17,8 @@ export type TrashCategory =
   | 'stray-files'
   | 'dangling-symlinks'
   | 'retired-config-keys'
-  | 'unloaded-files'
-  | 'dead-branches'
-  | 'dead-worktrees'
-  | 'old-worktrees';
-export type TrashWhere = 'install' | 'checkout' | 'system';
+  | 'unloaded-files';
+export type TrashWhere = 'install' | 'system';
 export type TrashItem = { name: string; category: TrashCategory; reason: string; where: TrashWhere };
 export type TrashGap = { category: TrashCategory; where: TrashWhere; reason: string };
 export type Trash = { items: Array<TrashItem>; unavailable: Array<TrashGap> };
@@ -30,27 +26,16 @@ export type Trash = { items: Array<TrashItem>; unavailable: Array<TrashGap> };
 type RunResult = { code: number; stdout: string; stderr?: string };
 export type TrashInput = {
   installDir: string;
-  checkout: string | null;
   unitDir: string;
   env: Readonly<Record<string, string | undefined>>;
   run: (command: string, args: ReadonlyArray<string>) => Promise<RunResult>;
-  now: () => number;
-  /** The ids of the tasks still open; null when the board cannot be read. */
-  tasks?: () => ReadonlyArray<string> | null;
 };
 
 /** The most items of one category in one place. */
 export const TRASH_ITEM_LIMIT = 50;
-/** A worktree folder this long untouched, with no open task, is old. */
-export const OLD_WORKTREE_DAYS = 30;
-/** A branch with no commit for this long is abandoned. */
-export const ABANDONED_BRANCH_DAYS = 14;
-
-const DAY_MS = 86_400_000;
 const PREFIX = 'neptunia-';
 const WALK_LIMIT = 100_000;
 const NOT_WALKED: ReadonlySet<string> = new Set(['node_modules', '.git', '.worktrees', '.claude']);
-const LONG_LIVED: ReadonlySet<string> = new Set(['main', 'master']);
 // Where a removed identity's files would be; a search of the whole disk would stall the inspection.
 const OWNER_ROOTS = ['/home', '/var/lib', '/srv', '/opt', '/etc'];
 const SCRIPT = /\.(?:ts|mts|js|mjs|cjs|sh|py)$/;
@@ -328,94 +313,6 @@ function collectUnloaded(input: TrashInput, sink: Sink): void {
   }
 }
 
-/** The branches merged into main, or null. */
-async function mergedBranches(input: TrashInput, checkout: string): Promise<Set<string> | null> {
-  const answer = await input.run('git', ['-C', checkout, 'branch', '--merged', 'main', '--format=%(refname:short)']);
-  if (answer.code !== 0) return null;
-  return new Set(linesOf(answer.stdout).filter((name) => !LONG_LIVED.has(name)));
-}
-
-async function collectBranches(
-  input: TrashInput,
-  checkout: string,
-  merged: Set<string> | null,
-  sink: Sink
-): Promise<void> {
-  if (merged === null) sink.missing('git cannot list the merged branches');
-  for (const name of merged ?? []) sink.item(name, 'merged into main');
-  const refs = await input.run('git', [
-    '-C',
-    checkout,
-    'for-each-ref',
-    '--format=%(refname:short) %(committerdate:unix)',
-    'refs/heads',
-  ]);
-  if (refs.code !== 0) {
-    sink.missing('git cannot list the branches');
-    return;
-  }
-  const before = input.now() - ABANDONED_BRANCH_DAYS * DAY_MS;
-  for (const line of linesOf(refs.stdout)) {
-    const [name = '', at] = line.split(' ');
-    if (LONG_LIVED.has(name) || merged?.has(name) === true) continue;
-    if (Number(at) * 1000 < before) sink.item(name, `no commit for ${ABANDONED_BRANCH_DAYS} days`);
-  }
-}
-
-async function collectWorktrees(
-  input: TrashInput,
-  checkout: string,
-  merged: Set<string> | null,
-  sink: Sink
-): Promise<void> {
-  const answer = await input.run('git', ['-C', checkout, 'worktree', 'list', '--porcelain']);
-  if (answer.code !== 0) {
-    sink.missing('git cannot list the worktrees');
-    return;
-  }
-  for (const block of answer.stdout.split(/\n\s*\n/)) {
-    const lines = linesOf(block);
-    const place = lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length);
-    if (place === undefined || place === checkout) continue;
-    const branch = lines.find((line) => line.startsWith('branch refs/heads/'))?.slice('branch refs/heads/'.length);
-    if (lines.some((line) => line.startsWith('prunable'))) sink.item(place, 'its folder is gone');
-    else if (branch !== undefined && merged?.has(branch) === true) sink.item(place, 'its branch is merged');
-  }
-}
-
-function collectOldWorktrees(input: TrashInput, checkout: string, sink: Sink): void {
-  const tasks = input.tasks?.() ?? null;
-  if (tasks === null) {
-    sink.missing('the board cannot say which tasks are open');
-    return;
-  }
-  fs.statSync(checkout);
-  const folder = path.join(checkout, '.worktrees');
-  if (!fs.existsSync(folder)) return;
-  const before = input.now() - OLD_WORKTREE_DAYS * DAY_MS;
-  for (const name of fs.readdirSync(folder)) {
-    if (tasks.includes(name) || fs.statSync(path.join(folder, name)).mtimeMs >= before) continue;
-    sink.item(path.join('.worktrees', name), `untouched for ${OLD_WORKTREE_DAYS} days, with no open task`);
-  }
-}
-
-/** The categories of a development checkout, each marked `checkout`. */
-async function collectCheckout(input: TrashInput, checkout: string, out: Trash): Promise<void> {
-  await category(out, 'stray-files', 'checkout', (sink) => collectStray(input, checkout, sink));
-  await category(out, 'dangling-symlinks', 'checkout', (sink) => {
-    collectDangling(checkout, sink);
-  });
-  let merged: Set<string> | null = null;
-  await category(out, 'dead-branches', 'checkout', async (sink) => {
-    merged = await mergedBranches(input, checkout);
-    await collectBranches(input, checkout, merged, sink);
-  });
-  await category(out, 'dead-worktrees', 'checkout', (sink) => collectWorktrees(input, checkout, merged, sink));
-  await category(out, 'old-worktrees', 'checkout', (sink) => {
-    collectOldWorktrees(input, checkout, sink);
-  });
-}
-
 /** Everything left over that can be named. Reads only; never rejects. */
 export async function collectTrash(input: TrashInput): Promise<Trash> {
   const out: Trash = { items: [], unavailable: [] };
@@ -433,6 +330,5 @@ export async function collectTrash(input: TrashInput): Promise<Trash> {
   await category(out, 'unloaded-files', 'install', (sink) => {
     collectUnloaded(input, sink);
   });
-  if (input.checkout !== null) await collectCheckout(input, input.checkout, out);
   return out;
 }

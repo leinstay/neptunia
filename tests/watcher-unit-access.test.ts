@@ -13,7 +13,6 @@ import { collectTrash } from '../src/watcher/trash.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
-const NOW = Date.UTC(2026, 10, 5, 9, 0, 0);
 const VARS: UnitVars = {
   user: 'someone',
   group: 'someone',
@@ -49,12 +48,10 @@ function folders() {
 const collect = ({ installDir, unitDir, root }: ReturnType<typeof folders>) =>
   collectTrash({
     installDir,
-    checkout: null,
+    // The lead: the watcher left development and reads no checkout (owner, 2026-11-06).
     unitDir,
     env: { NEPTUNIA_PRIVATE_DIR: path.join(root, 'data'), NEPTUNIA_UNIT_SCOPE: 'system' },
     run: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
-    now: () => NOW,
-    tasks: () => [],
   });
 
 test('a drop-in directory beside the units leaves the unit category readable', async () => {
