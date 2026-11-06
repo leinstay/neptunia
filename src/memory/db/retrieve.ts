@@ -215,6 +215,18 @@ class Walk {
     this.mark(reason);
   }
 
+  /** Adds the paths that reached `to`, each ending there. */
+  addPaths(paths: ReadonlyArray<GraphPath>, to: SemanticRef): void {
+    const { page } = this;
+    page.paths.push(...paths.map((path) => ({ ...path, to })));
+  }
+
+  /** Records a name that matched more than one ref, so the page can say which it could not tell apart. */
+  addAmbiguous(text: string, candidates: Array<SemanticRef>): void {
+    const { page } = this;
+    page.ambiguous.push({ text, candidates });
+  }
+
   /** The first reason is the one a page reports. */
   mark(reason: Reason): void {
     this.page.partialReason ??= reason;
@@ -262,7 +274,8 @@ class Walk {
     this.tokens += estimateTokens(one.text);
     this.emitted += 1;
     this.seen.add(one.versionId);
-    this.page.assertions.push({
+    const { page } = this;
+    page.assertions.push({
       claimId: one.claimId,
       versionId: one.versionId,
       assertionKind: one.assertionKind,
@@ -274,7 +287,7 @@ class Walk {
       dependencies: one.dependencies,
       needsReview: one.needsReview,
     });
-    this.page.signals.push({ versionId: one.versionId, ...signal });
+    page.signals.push({ versionId: one.versionId, ...signal });
     if (evidence.length < one.evidence.length) this.stop('evidence');
   }
 }
@@ -320,7 +333,7 @@ function namedSeeds(
   for (const text of names.values()) {
     const found = resolveLabel(db, ctx, { text, language: null, recordedBefore: query.recordedBefore });
     const refs = found.candidates.map((one) => one.ref);
-    if (found.status === 'ambiguous') walk.page.ambiguous.push({ text: normalizeLabel(text), candidates: refs });
+    if (found.status === 'ambiguous') walk.addAmbiguous(normalizeLabel(text), refs);
     seeds.push(...refs);
   }
   return seeds;
@@ -401,14 +414,14 @@ function discover(
     if (known !== undefined) {
       const room = paths.slice(0, Math.max(0, MAX_PATHS_PER_NODE - known.paths.length));
       known.paths.push(...room);
-      walk.page.paths.push(...room.map((path) => ({ ...path, to: ref })));
+      walk.addPaths(room, ref);
       continue;
     }
     if (walk.visited.has(key)) continue;
     const kept = paths.slice(0, MAX_PATHS_PER_NODE);
     walk.visited.add(key);
     next.set(key, { ref, hop: node.hop + 1, paths: kept, anchored: false });
-    walk.page.paths.push(...kept.map((path) => ({ ...path, to: ref })));
+    walk.addPaths(kept, ref);
     if (walk.visited.size > query.bounds.nodes) walk.stop('nodes');
   }
 }
@@ -722,11 +735,12 @@ function readPage(
   const frontier = walk.stopped ? start : walkFrom(db, ctx, query, start, merges, walk, forks);
   emitDirect(walk, direct, direct.length);
   emitDirect(walk, plain, plain.length);
-  const shownSources = walk.page.assertions.flatMap((one) => one.evidence.map((item) => item.sourceId));
+  const { page } = walk;
+  const shownSources = page.assertions.flatMap((one) => one.evidence.map((item) => item.sourceId));
   const lines = cursor === null && deps.sources !== false ? sourceStream(db, ctx, query, deps, vector) : [];
-  walk.page.sourceIds = [...new Set([...lines, ...shownSources])];
-  if (walk.page.partialReason !== null) walk.page.next = writeCursor(db, ctx, query, walk, frontier);
-  return walk.page;
+  page.sourceIds = [...new Set([...lines, ...shownSources])];
+  if (page.partialReason !== null) page.next = writeCursor(db, ctx, query, walk, frontier);
+  return page;
 }
 
 /**

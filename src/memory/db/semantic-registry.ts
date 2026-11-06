@@ -136,7 +136,7 @@ const usableVersion = (version: unknown): boolean => Number.isInteger(version) &
 function usableDefinition(definition: PredicateDefinition): boolean {
   if (typeof definition.id !== 'string' || definition.id === '' || !usableVersion(definition.version)) return false;
   if (!Array.isArray(definition.roles) || definition.roles.length === 0) return false;
-  const names = new Set(definition.roles.map((role) => role.role));
+  const names = new Set(definition.roles.map((definedRole) => definedRole.role));
   if (names.size !== definition.roles.length) return false;
   return definition.roles.every(
     (role) => role.min >= 0 && role.min <= role.max && role.max >= 1 && role.refs.length + role.literals.length > 0
@@ -209,18 +209,18 @@ export function checkArguments(
 ): RegistryResult {
   const filled = new Map<string, Set<number>>();
   for (const argument of given) {
-    const role = definition.roles.find((one) => one.role === argument.role);
-    if (!role) return { ok: false, code: 'bad_role' };
-    const code = checkOne(role, argument);
+    const definedRole = definition.roles.find((one) => one.role === argument.role);
+    if (!definedRole) return { ok: false, code: 'bad_role' };
+    const code = checkOne(definedRole, argument);
     if (code !== null) return { ok: false, code };
-    const positions = filled.get(role.role) ?? new Set<number>();
+    const positions = filled.get(definedRole.role) ?? new Set<number>();
     if (!Number.isInteger(argument.position) || argument.position < 0 || positions.has(argument.position))
       return { ok: false, code: 'bad_arity' };
-    filled.set(role.role, positions.add(argument.position));
+    filled.set(definedRole.role, positions.add(argument.position));
   }
-  for (const role of definition.roles) {
-    const count = filled.get(role.role)?.size ?? 0;
-    if (count < role.min || count > role.max) return { ok: false, code: 'bad_arity' };
+  for (const definedRole of definition.roles) {
+    const count = filled.get(definedRole.role)?.size ?? 0;
+    if (count < definedRole.min || count > definedRole.max) return { ok: false, code: 'bad_arity' };
   }
   return { ok: true };
 }

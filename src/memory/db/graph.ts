@@ -583,7 +583,7 @@ function semanticEdges(db: Db, version: Row, later: ReadonlyArray<Row>, parentRe
   );
   if (payload.assertion_kind !== 'relation' || refs.length !== 2 || payload.truth_state === 'retired') return edges;
   const definition = readPredicate(db, asText(payload.predicate_id), Number(payload.predicate_version));
-  const order = definition?.roles.map((role) => role.role) ?? [];
+  const order = definition?.roles.map((definedRole) => definedRole.role) ?? [];
   const [src, dst] = [...refs].sort((a, b) => order.indexOf(asText(a.role)) - order.indexOf(asText(b.role)));
   edges.push(
     edge(payload.polarity === 'negative' ? 'denies' : 'asserts', refOf(src), refOf(dst), {

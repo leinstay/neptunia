@@ -53,24 +53,24 @@ export function inspectionValueOf(
 }
 
 /** The value to bind for a filter or a locator; one that names no exact value is refused. */
-export function sqlValueOf(value: InspectionValue): null | string | number | bigint | Uint8Array {
-  switch (value.kind) {
+export function sqlValueOf(typed: InspectionValue): null | string | number | bigint | Uint8Array {
+  switch (typed.kind) {
     case 'null':
       return null;
     case 'text':
-      return value.value;
+      return typed.value;
     case 'integer': {
-      if (!BIG_INTEGER.test(value.value)) throw bad('this integer');
-      const parsed = BigInt(value.value);
+      if (!BIG_INTEGER.test(typed.value)) throw bad('this integer');
+      const parsed = BigInt(typed.value);
       if (parsed > INTEGER_MAX || parsed < INTEGER_MIN) throw bad('this integer');
       return parsed;
     }
     case 'real':
-      if ('text' in value) return value.text === 'Infinity' ? Infinity : -Infinity;
-      return value.value;
+      if ('text' in typed) return typed.text === 'Infinity' ? Infinity : -Infinity;
+      return typed.value;
     case 'blob':
-      if (!BASE64.test(value.value)) throw bad('this blob');
-      return new Uint8Array(Buffer.from(value.value, 'base64'));
+      if (!BASE64.test(typed.value)) throw bad('this blob');
+      return new Uint8Array(Buffer.from(typed.value, 'base64'));
   }
 }
 

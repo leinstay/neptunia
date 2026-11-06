@@ -150,6 +150,16 @@ type UnitPlan = {
   failures: Array<Failure>;
 };
 
+/** The new id of an old unit, or undefined when the plan keeps the unit's id. */
+function newUnitId(plan: UnitPlan, oldId: string): string | undefined {
+  return plan.newId.get(oldId);
+}
+
+/** The new key of an old unit, or undefined when the plan holds none for it. */
+function newUnitKey(plan: UnitPlan, oldId: string): StorageKey | undefined {
+  return plan.newKey.get(oldId);
+}
+
 function planUnits(source: Db): UnitPlan {
   const plan: UnitPlan = { newId: new Map(), newKey: new Map(), groups: new Map(), failures: [] };
   const dmRows = source
@@ -211,10 +221,10 @@ function positionOffsets(source: Db, plan: UnitPlan): Map<string, number> {
       let next = 0;
       for (const unit of units) {
         offsets.set(`${table}\u0000${String(unit.id)}`, next);
-        const top = source
+        const highest = source
           .prepare(`SELECT MAX(position) AS top FROM ${quote(table)} WHERE owner_key = ?`)
           .get(String(unit.id)) as Row;
-        next += typeof top.top === 'number' ? top.top + 1 : 0;
+        next += typeof highest.top === 'number' ? highest.top + 1 : 0;
       }
     }
   }
@@ -246,7 +256,8 @@ function neutralColumns(table: string, row: Row, out: Row, owner: string | null,
     if (!JSON_COLUMNS.has(column)) continue;
     const value = parsed(row[column]);
     if (value === undefined) continue;
-    const next = neutralValue(table, value, owner === null ? undefined : ctx.plan.newKey.get(owner), ctx);
+    const ownerKey = owner === null ? undefined : newUnitKey(ctx.plan, owner);
+    const next = neutralValue(table, value, ownerKey, ctx);
     const text = JSON.stringify(next);
     if (text !== JSON.stringify(value)) out[column] = text;
   }
@@ -256,13 +267,13 @@ function neutralColumns(table: string, row: Row, out: Row, owner: string | null,
 function carried(table: string, row: Row, ctx: Context): Row {
   if (WHOLE_TABLES.has(table)) {
     const owner = row.owner_key;
-    return typeof owner === 'string' && ctx.plan.newId.has(owner)
-      ? { ...row, owner_key: ctx.plan.newId.get(owner) }
-      : row;
+    const renamed = typeof owner === 'string' ? newUnitId(ctx.plan, owner) : undefined;
+    return renamed === undefined ? row : { ...row, owner_key: renamed };
   }
   const out: Row = { ...row };
   const owner = typeof row.owner_key === 'string' ? row.owner_key : null;
-  if (owner !== null && ctx.plan.newId.has(owner)) out.owner_key = ctx.plan.newId.get(owner);
+  const renamedOwner = owner === null ? undefined : newUnitId(ctx.plan, owner);
+  if (renamedOwner !== undefined) out.owner_key = renamedOwner;
   if (owner !== null && typeof row.position === 'number') {
     const offset = ctx.offsets.get(`${table}\u0000${owner}`);
     if (offset !== undefined) out.position = row.position + offset;
@@ -274,8 +285,7 @@ function carried(table: string, row: Row, ctx: Context): Row {
 
 /** The stored words of one row that the neutral schema spells otherwise. */
 function renamedFields(table: string, row: Row, ctx: Context): Row {
-  const unit = (id: unknown): unknown =>
-    typeof id === 'string' && ctx.plan.newId.has(id) ? ctx.plan.newId.get(id) : id;
+  const unit = (id: unknown): unknown => (typeof id === 'string' ? (newUnitId(ctx.plan, id) ?? id) : id);
   if (table === 'places') return row.kind === 'guild' ? { kind: 'server' } : {};
   if (table === 'operational')
     return {
@@ -390,10 +400,11 @@ function positionsAfter(
       free = 0;
       for (const old of plan.groups.get(unit) ?? []) {
         const id = String(old.id);
-        const top = source
+        const highest = source
           .prepare(`SELECT MAX(position) AS top FROM ${quote(table)} WHERE owner_key = ?`)
           .get(id) as Row;
-        if (typeof top.top === 'number') free = Math.max(free, top.top + (offsets.get(`${table}\u0000${id}`) ?? 0) + 1);
+        if (typeof highest.top === 'number')
+          free = Math.max(free, highest.top + (offsets.get(`${table}\u0000${id}`) ?? 0) + 1);
       }
     }
     next.set(key, free + 1);
@@ -440,7 +451,8 @@ function settleVectorManifests(target: Db, tables: Record<string, Counts>): void
   const update = target.prepare("UPDATE operational SET value = ? WHERE kind = 'vectors' AND owner_key = ?");
   for (const month of months) {
     const rows = unitRows(target, JSON.parse(String(month.key_json)) as StorageKey);
-    const stored = JSON.parse(asText(rows.operational[0]?.value ?? '{}')) as {
+    const manifestRow = rows.operational[0];
+    const stored = JSON.parse(asText(manifestRow?.value ?? '{}')) as {
       manifest?: Row;
       raw?: unknown;
       tailI8?: unknown;
@@ -706,10 +718,11 @@ function run(options: ConversionOptions, manifest: ConversionManifest, work: str
     target.close();
     target = null;
     const builtConfig = path.join(work, 'config');
-    manifest.config = convertConfig(options.configIn, builtConfig);
+    const configReport = convertConfig(options.configIn, builtConfig);
+    manifest.config = configReport;
     ownerOnly(builtConfig);
     manifest.changed =
-      manifest.config.removed.length + manifest.config.moved.length > 0 ||
+      configReport.removed.length + configReport.moved.length > 0 ||
       Object.values(manifest.tables).some((counts) => counts.transformed + counts.merged + counts.added > 0);
     writeReport(options.report, manifest);
     fs.mkdirSync(path.dirname(options.configOut), { recursive: true });
