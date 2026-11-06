@@ -1,4 +1,4 @@
-// The writer of the owner's plan fill (selfreflection-plan-fill.ts): a reconstructed plan into an old diary entry's
+// The writer of the owner's plan fill (selfreflection-plan-fill.ts): a reconstructed plan into an old selfreflection entry's
 // `extra`, on the writer connection. Kept apart from the run so the writer worker loads no model client.
 
 import { projectRow } from './graph.ts';

@@ -1,4 +1,4 @@
-// The owner's plan fill for old diary entries (`/memory backfill-plans [--dry-run|status]`, writer kind
+// The owner's plan fill for old selfreflection entries (`/memory backfill-plans [--dry-run|status]`, writer kind
 // `selfreflection-plan-fill`). An entry written before the planner's plan was kept has no `extra.plan`. The run shows each
 // live one, oldest first, to the analyzer once (purpose `selfreflection-plan-fill`, prompts/selfreflection-plan-fill.md):
 // its kind, its text, its scene (the description of its first picture, else its drawing prompt) and, for an entry that

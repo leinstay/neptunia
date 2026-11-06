@@ -3662,11 +3662,11 @@ function buildStore({
     },
 
     /**
-     * The owner filled old entries of the diary in the database (a reconstructed plan, an audience:
-     * src/memory/db/service.ts#onSelfreflectionFill). A clean cached diary no write holds is dropped, and the next read
+     * The owner filled old entries of the selfreflection in the database (a reconstructed plan, an audience:
+     * src/memory/db/service.ts#onSelfreflectionFill). A clean cached selfreflection no write holds is dropped, and the next read
      * takes the database's. Any other gains, on each post with an item id, the filled fields (`SELFREFLECTION_FILLED`) the
      * database holds and the post lacks, and goes to the outbox again, so its next write keeps them.
-     * @returns whether a cached diary was dropped or merged
+     * @returns whether a cached selfreflection was dropped or merged
      */
     noteSelfreflectionFill(): boolean {
       const file = selfreflectionFile();
@@ -3697,7 +3697,7 @@ function buildStore({
   // Her session's attitude moves reach the cached profiles (see noteAffinityMoves).
   if (typeof memoryDb?.onAffinityMoves === 'function')
     memoryDb.onAffinityMoves((moves: Untyped) => store.noteAffinityMoves(moves));
-  // The owner's fills of old entries reach the cached diary (see noteSelfreflectionFill).
+  // The owner's fills of old entries reach the cached selfreflection (see noteSelfreflectionFill).
   if (typeof memoryDb?.onSelfreflectionFill === 'function')
     memoryDb.onSelfreflectionFill(() => store.noteSelfreflectionFill());
 

@@ -1,5 +1,5 @@
 // The owner's fills of old selfreflection entries (a reconstructed plan, selfreflection-plan-fill.ts, and an audience,
-// selfreflection-audience-fill.ts), told to whoever caches the entries. The store's cached diary would otherwise write
+// selfreflection-audience-fill.ts), told to whoever caches the entries. The store's cached selfreflection would otherwise write
 // the entries back without what a fill added at its next new entry (src/memory/store.ts#noteSelfreflectionFill). The
 // memory service wraps its writes with `after`, and a fill that wrote at least one entry, with no `dryRun`, calls every
 // listener once. A listener that throws is a warning, never the write's failure. Logs: codes only.

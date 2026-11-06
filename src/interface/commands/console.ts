@@ -116,7 +116,7 @@ export type ConsoleDeps = {
   mediaBackfill?: OwnerRun | null;
   /** The owner's run that brings stored media descriptions to English (src/memory/db/media-english.ts). */
   mediaEnglish?: OwnerRun | null;
-  /** The owner's run that reconstructs the plans of old diary entries (src/memory/db/selfreflection-plan-fill.ts). */
+  /** The owner's run that reconstructs the plans of old selfreflection entries (src/memory/db/selfreflection-plan-fill.ts). */
   planFill?: OwnerRun | null;
   /** A conversation's newest stored lines, oldest first. */
   conversationLines(conversationId: string, count: number): ReadonlyArray<{ author: string; text: string }>;
