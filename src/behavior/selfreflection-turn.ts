@@ -85,7 +85,10 @@ export function forcedPictureRefusal({
 export type HeldVoice = Partial<EntryVoice> & { text: string; durationSecs: number };
 
 /** What a selfreflection turn holds instead of sending: her messages as written and as they would be sent. */
-export type HeldSpeech = { texts: Array<string>; rendered: Array<{ text: string; accountIds: Array<string> }> };
+export type HeldSpeech = {
+  texts: Array<string>;
+  rendered: Array<{ text: string; accountIds: Array<string>; notify?: boolean }>;
+};
 
 /**
  * `voice.say` as a selfreflection turn runs it (in the turn, src/tools/executors.ts#executeCall's `inTurn`): the voice file is
@@ -159,7 +162,7 @@ function selfreflectionPostOf({
   id: string;
 }): {
   post: Record<string, unknown>;
-  rendered: { messages: Array<string>; mentions: Array<Array<string>> };
+  rendered: { messages: Array<string>; mentions: Array<Array<string>>; notify?: Array<boolean> };
   maxMessageBytes: number;
 } {
   const selfreflectionCfg = sectionOf(config, 'selfreflection');
@@ -169,6 +172,10 @@ function selfreflectionPostOf({
   const rendered = {
     messages: held.rendered.map((part) => part.text),
     mentions: held.rendered.map((part) => part.accountIds),
+    // Kept only when a message notifies everyone it names (src/turn/mentions.ts#mentionsUnderPings).
+    ...(held.rendered.some((part) => part.notify === true)
+      ? { notify: held.rendered.map((part) => part.notify === true) }
+      : {}),
   };
   const post = {
     at,

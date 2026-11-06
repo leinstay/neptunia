@@ -393,7 +393,7 @@ const ENTRIES: Array<Definition> = [
   }),
   def('pings.get', { params: EMPTY(), effects: 'read', toArgs: () => ({ mode: undefined }) }),
   def('pings.set', {
-    params: obj({ mode: oneOf(['on', 'off']) }, ['mode']),
+    params: obj({ mode: oneOf(['on', 'off', 'clear']) }, ['mode']),
     effects: 'write',
     toArgs: (a) => ({ mode: opt(a, 'mode') }),
   }),

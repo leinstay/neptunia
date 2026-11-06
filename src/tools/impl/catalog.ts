@@ -82,8 +82,8 @@ export const ROUTE_ROLES = MODEL_SET_ROLES.filter((role) => !OPENCODE_ROLES.incl
 /** The `kind` choices of `memory.journal.read` (`all` reads every kind). */
 export const JOURNAL_KINDS = Object.freeze(['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all']);
 
-/** The `mode` choices of `pings.set`. */
-export const PINGS_MODES = Object.freeze(['on', 'off']);
+/** The `mode` choices of `pings.set`: a state, or `clear` back to the interface's switch. */
+export const PINGS_MODES = Object.freeze(['on', 'off', 'clear']);
 
 /** The `agent` choices of `errand.run`: the errand agents (src/agent-runner/profiles.ts). */
 export const TASK_AGENTS = Object.freeze(['scout', 'server']);

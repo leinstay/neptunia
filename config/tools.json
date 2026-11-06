@@ -49,14 +49,14 @@
   },
   "pings.get": {
     "title": "Notification setting",
-    "whenToUse": "The caller's ping setting."
+    "whenToUse": "The caller's own ping setting here: on, off or default."
   },
   "pings.set": {
     "title": "Change notification setting",
-    "whenToUse": "Toggle pings on or off.",
+    "whenToUse": "Change the caller's own ping setting here. on: your replies and mentions notify them, even where your messages otherwise go out silently. off: nothing you send notifies them. clear: back to default, where this place's own setting decides.",
     "whenNotToUse": "One member per call.",
     "args": {
-      "mode": "on or off."
+      "mode": "on, off or clear."
     }
   },
   "media.status": {

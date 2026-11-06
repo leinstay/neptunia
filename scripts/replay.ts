@@ -1761,7 +1761,7 @@ export function unflushedStore(store: Untyped): { store: Rec; state: { data: Unt
     'forgetUser',
     'forgetPrivate',
     'wipeGuild',
-    'setPingsOff',
+    'setPings',
     'dropCaches',
     'reloadState',
   ]);

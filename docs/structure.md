@@ -116,7 +116,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/turn/timers.ts` | public | The stages, the bar signal, the typing refresh and the stage record of a turn's preparation. Tested through the turn tests. | `node:*`, `src/**` | none |
 | `src/turn/triggers.ts` | public | The trigger kinds and what they say about a turn: plain posts, who waits, who asked, the attention. Tested through the turn and attention tests. | `node:*`, `src/**` | none |
 | `src/turn/lookup-input.ts` | public | The transcript and trigger input of the splitter's classifier request. Tested through the turn and search policy eval tests. | `node:*`, `src/**` | none |
-| `src/turn/mentions.ts` | public | The `@name` matching, the member directory, the stored names and profiles a request shows, and the untagged note. Tested through the turn and mention feedback tests. | `node:*`, `src/**` | none |
+| `src/turn/mentions.ts` | public | The `@name` matching, the member directory, the stored names and profiles a request shows, the untagged note, and whom a message of hers notifies under each member's ping state. Tested through the turn, mention feedback and turn ping state tests. | `node:*`, `src/**` | none |
 | `src/turn/targets.ts` | public | Where a post or a reaction lands, the link a post carries, and a post's check arguments. Tested through the turn tests. | `node:*`, `src/**` | none |
 | `src/turn/media.ts` | public | The re-watch tokens and the media of a history a turn's preparation works on. Tested through the turn tests. | `node:*`, `src/**` | none |
 | `src/turn/history.ts` | public | The history a turn reads with its reply parents and continues after a skill call. Tested through the turn, prompt anchors and replay loop tests. | `node:*`, `src/**` | none |
@@ -209,6 +209,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/migration/` | public | The offline conversion to places and the only decoders of the ids and paths a shipped database spells. | `node:*`, `src/**` | none |
 | `src/memory/` | public | The memory modules above the database: records, lore, episodes, recall ranking, vectors and backfills. | `node:*`, `src/**` | required |
 | `src/memory/types.ts` | public | The types the memory modules share: untyped JSON, the settings handle, the logger and the memory database. Types and two small guards, tested through the modules that use them. | `node:*`, `src/**` | none |
+| `src/memory/pings.ts` | public | A member's ping state in a place as the store keeps it, and the earlier `pingsOff` list read as `off`. Tested through the store tests. | `node:*`, `src/**` | none |
 | `src/memory/db/` | public | The memory database: schema, the single writer, sessions, wakes and the read paths. | `node:*`, `src/**` | required |
 | `src/memory/db/media-store.ts` | public | The one store of media: its read, its writes, its vectors, its search and the forward migration. Tested through the media memory tests. | `node:*`, `src/**` | none |
 | `src/memory/db/media-backfill.ts` | public | The historical backfill of media over an interface's history. Tested through `tests/media-memory-backfill.test.ts`, `tests/media-voice-backfill.test.ts` and `tests/media-backfill-dm.test.ts`. | `node:*`, `src/**` | none |
