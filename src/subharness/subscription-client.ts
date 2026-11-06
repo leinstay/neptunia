@@ -18,7 +18,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { childEnvOf, outputLimitEnv } from '../agent-runner/backend.ts';
 import { killTree } from '../agent-runner/opencode.ts';
-import { SUBSCRIPTION_CODES, TokenLimitError, countLlmRequest } from '../llm/openrouter.ts';
+import { SUBSCRIPTION_CODES, TokenLimitError, countLlmRequest, toolCallsOf } from '../llm/openrouter.ts';
 import type { CompleteResult } from '../llm/openrouter.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { coreSocketPath } from '../interface/socket.ts';
@@ -628,11 +628,14 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
       promptTokens: usage.prompt_tokens,
       completionTokens: usage.completion_tokens,
     });
-    const toolCalls = answer.calls.map((call) => ({
-      id: call.id,
-      type: 'function',
-      function: { name: call.name, arguments: call.json },
-    }));
+    // The shape the API client returns, since the step loop reads the calls unwrapped.
+    const toolCalls = toolCallsOf(
+      answer.calls.map((call) => ({
+        id: call.id,
+        type: 'function',
+        function: { name: call.name, arguments: call.json },
+      }))
+    );
     const result = {
       text: answer.text,
       usage,

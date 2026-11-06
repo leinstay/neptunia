@@ -16,7 +16,7 @@ import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { buildSkills } from '../src/tools/registry.ts';
 import { normalizeCalls } from '../src/tools/tool-calls.ts';
 import { parseOutput } from '../src/llm/parse.ts';
-import { DailyCapError, TokenLimitError, countLlmRequest, errorCodeOf, toolCallsOf } from '../src/llm/openrouter.ts';
+import { DailyCapError, TokenLimitError, countLlmRequest, errorCodeOf } from '../src/llm/openrouter.ts';
 import type { CompleteResult } from '../src/llm/openrouter.ts';
 import type { UsageEntry } from '../src/tools/impl/usage.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
@@ -511,7 +511,8 @@ test(
     const one = await first;
     assert.equal(one.text, STEP_ONE_TEXT);
     assert.equal(one.finishReason, 'tool_calls');
-    const calls = toolCallsOf(one.toolCalls);
+    // The client hands normalised calls, as the API client does, since the step loop reads them unwrapped.
+    const calls = one.toolCalls as Array<{ id?: string; name?: string; parsed?: unknown }>;
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.id, 'toolu_1');
     assert.equal(calls[0]?.name, 'intention_update');
@@ -624,7 +625,8 @@ test('a Codex turn of two steps: the step ends when the started call waits at th
   const forwarded = bridge.call('tok-1', { name: 'intention_update', arguments: CALL_ARGS, meta: null });
   const one = await first;
   assert.equal(one.text, STEP_ONE_TEXT);
-  const calls = toolCallsOf(one.toolCalls);
+  // The client hands normalised calls, as the API client does, since the step loop reads them unwrapped.
+  const calls = one.toolCalls as Array<{ id?: string; name?: string; parsed?: unknown }>;
   assert.equal(calls[0]?.id, 'item_1');
   assert.equal(calls[0]?.name, 'intention_update');
   assert.deepEqual(calls[0]?.parsed, CALL_ARGS);
