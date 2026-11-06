@@ -10,7 +10,7 @@ import type { EffortLevel } from '../llm/roles.ts';
 import { readKeys, writeKeys } from '../keys/file.ts';
 import type { MemoryBackend } from '../keys/file.ts';
 import type { EnableDeps, SubharnessResult } from './control.ts';
-import { setPathRecord } from './memory-path.ts';
+import { memoryPath, setPathRecord } from './memory-path.ts';
 import { routeName } from './route-names.ts';
 import { dropClaim } from './selection.ts';
 
@@ -33,6 +33,21 @@ const done = (message: string, changed = true): SubharnessResult => ({ ok: true,
 export function subscriptionPath(privateDir: string, role: SubscriptionRole): SubscriptionPath {
   const record = readKeys(privateDir).subharness[role];
   return record === null ? { kind: 'api' } : { kind: 'subharness', ...record };
+}
+
+/** The backend `role` runs through (`core`, `memory`, `simulation`), null on the API or for another role: a role on a harness needs no key. */
+export function harnessBackend(privateDir: string, role: string): string | null {
+  try {
+    const path =
+      role === 'memory'
+        ? memoryPath(privateDir)
+        : role === 'core' || role === 'simulation'
+          ? subscriptionPath(privateDir, role)
+          : null;
+    return path !== null && path.kind === 'subharness' ? path.backend : null;
+  } catch {
+    return null;
+  }
 }
 
 /** `model set core|simulation <model> --via <route> [--effort <level>]`: the route, after one reply on it. */

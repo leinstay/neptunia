@@ -149,6 +149,8 @@ function rig(
 ) {
   const dir = tempDir('nep-subscription-client-');
   writeKeysFile(dir, {
+    // The lead: fallback reaches the API only with a key there (owner, 2026-11-06).
+    core: [{ name: 'core-1', value: 'sk-or-v1-never-leaves' }],
     subharness: {
       key: null,
       modes: {},
