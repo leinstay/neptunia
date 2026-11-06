@@ -60,7 +60,7 @@
 //
 // Rails: concurrency 1; `--limit N` questions; no question is asked once the summed cost has
 // passed `--max-usd` (default 3); the model and embedding clients spend the simulation key
-// (scripts/lib/cli.ts#simKey), every request `origin: 'recall-eval'`, never counted against
+// (scripts/lib/cli.ts#simulationLlm), every request `origin: 'recall-eval'`, never counted against
 // llm.maxRequestsPerDay, no calibration, no prompt-cache marker; the daily counters (the
 // requests, recall.maxPerDay) are throwaway copies, fresh per question. Nothing under
 // data/guilds/ is written: the store is read through its read methods only and never flushed,
@@ -113,7 +113,9 @@ import {
   resolveGuildId,
   runCli,
   simKey,
+  simulationLlm,
 } from './lib/cli.ts';
+import type { SimulationLlm } from './lib/cli.ts';
 import { cachedChannel, discordReads, recallScope } from './lib/platform-objects.ts';
 import {
   HIT_AT,
@@ -708,6 +710,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   let usage: Untyped = null;
   let llm: Untyped;
   let embed: Untyped = null;
+  let sim: SimulationLlm | null = null;
   if (dry) {
     llm = {
       capLeft: () => Infinity,
@@ -716,10 +719,17 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
       },
     };
   } else {
-    const apiKey = simKey(ORIGIN);
     const { data: stateData } = store.state;
     const calibrator = createCalibrator(stateData?.calibration);
-    const realLlm = createLlm({ apiKey, env: {}, getConfig: () => hot.config, calibrator, state: counters });
+    sim = simulationLlm(ORIGIN, {
+      createDirect: (apiKey) =>
+        createLlm({ apiKey, env: {}, getConfig: () => hot.config, calibrator, state: counters }),
+      getConfig: (): unknown => hot.config,
+      state: counters,
+    });
+    process.stderr.write(`${ORIGIN}: ${sim.said}\n`);
+    const realLlm = sim.llm;
+    const apiKey = sim.key;
     llm = {
       capLeft: () => Infinity,
       async complete(messages: Untyped, options: Untyped = {}) {
@@ -739,7 +749,8 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
         return completion;
       },
     };
-    if (meaningOn) {
+    // The meaning search is on whenever requests are sent; on the route with no simulation key it stays off.
+    if (apiKey !== null) {
       const embedder = createEmbedder({ apiKey, env: {}, state: counters });
       embed = async (texts: Untyped, options: Untyped = {}) => {
         if (usage) usage.embeddings += 1;
@@ -1103,6 +1114,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
     if (connection) await connection.client.destroy().catch(() => {});
     sources.close();
     hot.close?.();
+    await sim?.close();
   }
 
   const summary = summarize(outcome.results);

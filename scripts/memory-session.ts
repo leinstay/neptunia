@@ -13,7 +13,9 @@
 // (default `memoryDb.session.maxMessages`). The first sweep on a copy reads from its first line (or from
 // `memoryDb.session.since`).
 //
-// The simulation's key pays (scripts/lib/cli.ts#simKey): the run stops with one line while the simulation is off.
+// The simulation's key pays (scripts/lib/cli.ts#simulationLlm). Every request of a session has the role `memory`, so
+// the simulation's subscription route never carries one: with no route stored the run stops with one line while the
+// simulation is off, and with a route stored and no key the first request is refused with `simulation-off`.
 // The core keys are never touched. The config and the prompts are read from the checkout
 // (and its private layer) as the bot reads them. A request is answered, or after a 429 tried again after the
 // provider's wait (`Retry-After` when the error carries it), at most three tries in all.
@@ -45,7 +47,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CliError, parseFlags, privateDirOf, runCli, simKey } from './lib/cli.ts';
+import { CliError, parseFlags, privateDirOf, runCli, simulationLlm } from './lib/cli.ts';
+import type { SimulationLlm } from './lib/cli.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { sqlOf } from './lib/sql.ts';
 import type { SqlDb } from './lib/sql.ts';
@@ -514,18 +517,18 @@ export async function runCompare({
 
 /**
  * The live config and the environment the tool's session runs with: `llm.keyByRole.memory` names the tool's key slot,
- * and `env` maps that slot to `apiKey` (the simulation's key). Every other key of `live` is kept. The session runs with
- * no key ring, so it finds its key through the slot.
+ * and `env` maps that slot to `apiKey` (the simulation's key), or is empty when there is none. Every other key of `live`
+ * is kept. The session runs with no key ring, so it finds its key through the slot.
  */
 export function sessionKeyWiring<TConfig extends Record<string, unknown>>(
   live: TConfig,
-  apiKey: string
+  apiKey: string | null
 ): { config: TConfig; env: Record<string, string> } {
   const llm = (live.llm ?? {}) as Rec; // the live settings are an object of objects; nothing here reads a value of it
   const keyByRole = (llm.keyByRole ?? {}) as Rec;
   // The copy differs from `live` in one string under `llm.keyByRole`, so it keeps the live settings' type.
   const config = { ...live, llm: { ...llm, keyByRole: { ...keyByRole, memory: KEY_SLOT } } } as TConfig;
-  return { config, env: { [KEY_SLOT]: apiKey } };
+  return { config, env: apiKey === null ? {} : { [KEY_SLOT]: apiKey } };
 }
 
 /** The compare subcommand (see the head of this file). */
@@ -544,21 +547,35 @@ async function compareMain(argv: Array<string>) {
 
   const { createHot } = await import('../src/hot.ts');
   const { openMemoryDb } = await import('../src/memory/db/open.ts');
-  let apiKey: string | undefined;
-  if (!shadowOnly) {
-    apiKey = simKey('memory-session');
-  }
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   const work = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memory-session-'));
   const copy = flags['--keep'] ? path.resolve(flags['--keep']) : path.join(work, 'memory.db');
   let handle: Awaited<ReturnType<typeof openMemoryDb>> | null = null;
+  let sim: SimulationLlm | null = null;
   try {
+    const live = hot.config;
+    const config = sessionKeyWiring(live, null).config;
+    const counters = { data: {}, markDirty() {} };
+    if (!shadowOnly) {
+      const { createLlm } = await import('../src/llm/openrouter.ts');
+      const { createCalibrator } = await import('../src/llm/tokens.ts');
+      sim = simulationLlm('memory-session', {
+        createDirect: (apiKey) =>
+          createLlm({
+            apiKey,
+            env: sessionKeyWiring(live, apiKey).env,
+            getConfig: () => config,
+            calibrator: createCalibrator(undefined),
+            state: counters,
+          }),
+        getConfig: (): unknown => config,
+        state: counters,
+      });
+      process.stderr.write(`memory-session: ${sim.said}\n`);
+    }
     if (fs.existsSync(copy)) throw new CliError(`memory-session: ${copy} already exists`);
     await copyDatabase(source, copy);
     handle = openMemoryDb(copy);
-    const live = hot.config;
-    const wiring = sessionKeyWiring(live, apiKey ?? '');
-    const config = wiring.config;
     const usage: Usage = {
       requests: 0,
       prompt: 0,
@@ -566,16 +583,8 @@ async function compareMain(argv: Array<string>) {
       cost: null,
     };
     let llm = null;
-    if (!shadowOnly) {
-      const { createLlm } = await import('../src/llm/openrouter.ts');
-      const { createCalibrator } = await import('../src/llm/tokens.ts');
-      const client = createLlm({
-        apiKey: apiKey as string, // set and checked above whenever the model is called
-        env: wiring.env,
-        getConfig: () => config,
-        calibrator: createCalibrator(undefined),
-        state: { data: {}, markDirty() {} },
-      });
+    if (sim !== null) {
+      const client = sim.llm;
       llm = {
         complete: withBackoff(
           async (messages, options: Untyped = {}) => {
@@ -605,7 +614,7 @@ async function compareMain(argv: Array<string>) {
       handle,
       llm,
       hot: { config, prompts: hot.prompts },
-      env: apiKey ? wiring.env : {},
+      env: sim?.key ? sessionKeyWiring(live, sim.key).env : {},
       day: flags['--day'],
       shadowOnly,
       scope: flags['--scope'] ?? null,
@@ -623,6 +632,7 @@ async function compareMain(argv: Array<string>) {
   } finally {
     handle?.close();
     hot.close?.();
+    await sim?.close();
     fs.rmSync(work, { recursive: true, force: true });
   }
 }
@@ -651,22 +661,17 @@ export async function main(argv: Array<string>): Promise<string> {
   const { sweep, sessionSettings } = await import('../src/memory/db/session.ts');
   const { reviewDescription } = await import('../src/memory/db/describe.ts');
   const { applyMemoryWrite } = await import('../src/memory/db/session-write.ts');
-  const apiKey = simKey('memory-session');
 
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   const lines = [];
   const work = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memory-session-'));
   const copy = flags['--keep'] ? path.resolve(flags['--keep']) : path.join(work, 'memory.db');
   let handle: Untyped = null;
+  let sim: SimulationLlm | null = null;
   try {
-    if (fs.existsSync(copy)) throw new CliError(`memory-session: ${copy} already exists`);
-    await copyDatabase(source, copy);
-    handle = openMemoryDb(copy);
-    lines.push(`copy: ${flags['--keep'] ? 'kept' : 'temporary'}, schema ok`);
-
     // The effective config: shadow, a sweep of the tool's own, the simulation's key pays.
     const live = hot.config;
-    const wiring = sessionKeyWiring(live, apiKey);
+    const wiring = sessionKeyWiring(live, null);
     const config = {
       ...wiring.config,
       memoryDb: {
@@ -683,13 +688,25 @@ export async function main(argv: Array<string>): Promise<string> {
       },
     };
     const counters = { data: {}, markDirty() {} };
-    const client = createLlm({
-      apiKey,
-      env: wiring.env,
-      getConfig: () => config,
-      calibrator: createCalibrator(undefined),
+    sim = simulationLlm('memory-session', {
+      createDirect: (apiKey) =>
+        createLlm({
+          apiKey,
+          env: sessionKeyWiring(live, apiKey).env,
+          getConfig: () => config,
+          calibrator: createCalibrator(undefined),
+          state: counters,
+        }),
+      getConfig: (): unknown => config,
       state: counters,
     });
+    process.stderr.write(`memory-session: ${sim.said}\n`);
+    const client = sim.llm;
+    const env = sessionKeyWiring(live, sim.key).env;
+    if (fs.existsSync(copy)) throw new CliError(`memory-session: ${copy} already exists`);
+    await copyDatabase(source, copy);
+    handle = openMemoryDb(copy);
+    lines.push(`copy: ${flags['--keep'] ? 'kept' : 'temporary'}, schema ok`);
     const usage = { requests: 0, prompt: 0, completion: 0 };
     const complete = withBackoff(
       async (messages, options: Untyped = {}) => {
@@ -717,7 +734,7 @@ export async function main(argv: Array<string>): Promise<string> {
       write: async (update: Rec) => applyMemoryWrite(handle, update),
       llm: { complete },
       hot: { config, prompts: hot.prompts },
-      env: wiring.env,
+      env,
       now: Date.now,
       log: {
         info() {},
@@ -764,6 +781,7 @@ export async function main(argv: Array<string>): Promise<string> {
   } finally {
     handle?.close();
     hot.close?.();
+    await sim?.close();
     fs.rmSync(work, { recursive: true, force: true });
   }
   return `${lines.join('\n')}\n`;

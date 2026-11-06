@@ -2,7 +2,8 @@
 // production scheduler and intention service over a temporary data directory, a fake clock that
 // jumps between the moments that matter, the week scripted by a fixture (scripts/fixtures/),
 // the inner turns answered by a deterministic stub voice -- or, on selected days, by the real voice
-// in shadow on the simulator key. Prints the acceptance gates; writes a report per fixture.
+// in shadow on the simulation's route or key (scripts/lib/cli.ts#simulationLlm). Prints the acceptance gates; writes a
+// report per fixture.
 //
 // Usage (from the checkout):
 //   node scripts/inner-week.ts --all [--out <dir>]
@@ -47,9 +48,10 @@ import {
   parseFlags,
   privateDirOf,
   runCli,
-  simKey,
+  simulationLlm,
   spendGate,
 } from './lib/cli.ts';
+import type { SimulationLlm } from './lib/cli.ts';
 import { readOnlyMemory } from './lib/memory-read.ts';
 import { discordReads, scriptedChatOf, scriptedReads } from './lib/platform-objects.ts';
 import {
@@ -259,7 +261,6 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
   const token = interfaceCredential(privateDirOf(ROOT), 'discord');
   if (!token)
     throw new CliError('inner-week: the Discord credential is not set in data/interfaces/discord/credentials.json');
-  const apiKey = simKey('inner-week');
   const dataDir = args.data ? path.resolve(args.data) : defaultDataDir(ROOT);
   if (!fs.existsSync(dataDir)) throw new CliError(`inner-week: no data directory at ${dataDir}`);
 
@@ -275,15 +276,20 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
     },
   });
   let client: Untyped = null;
+  let sim: SimulationLlm | null = null;
   try {
     const { store, state } = replay.unflushedStore(
       mods.createStore({ dataDir, memoryDb: readOnlyMemory(dataDir).memoryDb })
     );
     const calibrator = mods.createCalibrator(state.data.calibration);
     const calls: Array<Untyped> = [];
-    const llm = replay.recordingLlm(mods.createLlm({ apiKey, getConfig: () => hot.config, calibrator, state }), calls, {
-      noCache: true,
+    sim = simulationLlm('inner-week', {
+      createDirect: (apiKey) => mods.createLlm({ apiKey, getConfig: () => hot.config, calibrator, state }),
+      getConfig: (): unknown => hot.config,
+      state,
     });
+    process.stderr.write(`inner-week: ${sim.said}\n`);
+    const llm = replay.recordingLlm(sim.llm, calls, { noCache: true });
     const discord = createRequire(path.join(ROOT, 'package.json'))('discord.js');
     const connection = await replay.connectDiscord({
       discord,
@@ -422,11 +428,13 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
       close: async () => {
         liveHot.close?.();
         if (client) await Promise.resolve(client.destroy()).catch(() => {});
+        await sim?.close();
       },
     };
   } catch (err) {
     liveHot.close?.();
     if (client) await Promise.resolve(client.destroy()).catch(() => {});
+    await sim?.close();
     throw err;
   }
 }
