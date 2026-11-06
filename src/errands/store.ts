@@ -260,6 +260,7 @@ function journalResult(errand: ErrandRecord): Record<string, unknown> {
   if (chars > 0) out.chars = chars;
   if (Array.isArray(result?.sources) && result.sources.length > 0) out.sources = result.sources.length;
   if (Array.isArray(result?.files) && result.files.length > 0) out.files = result.files.length;
+  if (typeof result?.searchFailures === 'number') out.searchFailures = result.searchFailures;
   if (errand.usage)
     out.usage = { usd: errand.usage.usd ?? 0, steps: errand.usage.steps ?? 0, seconds: errand.usage.seconds ?? 0 };
   return out;

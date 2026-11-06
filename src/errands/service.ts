@@ -13,7 +13,8 @@
 // a role's key (src/llm/openrouter.ts#roleApiKey over `llm.keyByRole`; never the persona's main
 // key), or the extra key of an opencode route; the engine proxy of the moment (`proxy`, the core's
 // monitor, src/net/proxy.ts) in its http form for every agent, so no harness child goes out from
-// the server's own address while the proxy is on. A run with none of them carries no secrets. Settings are read at the moment of
+// the server's own address while the proxy is on; the stored Exa key (keys.json `services.exa`) for an
+// agent that searches with exa on an opencode route (`searchKey`). A run with none of them carries no secrets. Settings are read at the moment of
 // use; logs carry ids and codes, never a goal, a result or a secret. The context also carries
 // `recent`: the last `DEFAULT_RECENT_LINES` lines of the origin channel as `[{ author, text }]`
 // (display names and text on one line, cut to RECENT_CHARS), read from the memory's buffer
@@ -32,7 +33,7 @@ import { log as defaultLog } from '../log.ts';
 import { loadProfiles, agentSettings, profileOf } from '../agent-runner/profiles.ts';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { roleApiKey } from '../llm/openrouter.ts';
-import { hasExtraKey, readKeys } from '../keys/file.ts';
+import { hasExtraKey, readKeys, serviceCredential } from '../keys/file.ts';
 import { routeOfAgent } from '../subharness/control.ts';
 import { MAX_RECENT_ENTRIES, RECENT_CHARS } from '../agent-runner/protocol.ts';
 import { httpProxyForm } from '../net/proxy.ts';
@@ -85,16 +86,17 @@ function limitsFor(agent: string, config: Untyped, agentPaths?: AgentPaths): Lim
 }
 
 /**
- * The secrets an errand of `agent` carries to its runner: `{ openrouterKey?, proxy? }`, or null when it has
+ * The secrets an errand of `agent` carries to its runner: `{ openrouterKey?, proxy?, searchKey? }`, or null when it has
  * none. The key is the agent's role key (never the main key: none is passed); `keyOverride` replaces it, since a route
  * spends the extra key keys.json names, and a run with a route but no such key carries none (a claude or codex agent
- * brings its own login). `proxy` is the engine proxy in force now, null on the direct path.
+ * brings its own login). `proxy` is the engine proxy in force now, null on the direct path. `searchKey` is the
+ * stored Exa key in `privateDir`, for a run on `route` that searches with exa (`exaKeyOf`).
  */
 function secretsFor(
   agent: string,
   config: Untyped,
   env: Record<string, string | undefined>,
-  { agentPaths, keyOverride = null, routed = false, proxy = null }: SecretsOptions
+  { agentPaths, keyOverride = null, routed = false, proxy = null, privateDir, route = null }: SecretsOptions
 ): RunSecrets | null {
   const profile = objOf(profileOf(agent, agentPaths));
   // The main key is never passed (an empty one: a role without a key of its own gets none).
@@ -104,6 +106,8 @@ function secretsFor(
   if (typeof openrouterKey === 'string' && openrouterKey) secrets.openrouterKey = openrouterKey;
   const form = httpProxyForm(proxy);
   if (form !== null) secrets.proxy = form;
+  const searchKey = exaKeyOf(agent, config, { privateDir, route, agentPaths });
+  if (searchKey !== null) secrets.searchKey = searchKey;
   return Object.keys(secrets).length > 0 ? secrets : null;
 }
 
@@ -112,7 +116,24 @@ type SecretsOptions = {
   keyOverride?: string | null;
   routed?: boolean;
   proxy?: string | null;
+  privateDir?: string;
+  route?: TaskRoute | null;
 };
+
+/**
+ * The Exa key an errand of `agent` carries: keys.json `services.exa`, read now, for an agent whose search provider is
+ * `exa` on an opencode route. Null otherwise: claude and codex search with their own tools, and with no stored key
+ * OpenCode searches Exa's free endpoint.
+ */
+function exaKeyOf(
+  agent: string,
+  config: Untyped,
+  { privateDir, route, agentPaths }: { privateDir?: string; route: TaskRoute | null; agentPaths?: AgentPaths }
+): string | null {
+  if (privateDir === undefined || route?.backend !== 'opencode') return null;
+  if (agentSettings(agent, config, agentPaths)?.searchProvider !== 'exa') return null;
+  return serviceCredential(privateDir, 'exa');
+}
 
 /** What the core decides for one errand at dispatch: its route, the key an opencode route spends, or why it cannot go. */
 type Dispatch = { route: TaskRoute | null; key: string | null; error?: string };
@@ -322,6 +343,8 @@ export function createErrandService({
         keyOverride: key,
         routed: route !== null,
         proxy: proxy(),
+        privateDir,
+        route,
       });
       outcome =
         error !== undefined
