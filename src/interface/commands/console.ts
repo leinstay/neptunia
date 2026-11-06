@@ -59,6 +59,7 @@ import type { WakeClock } from '../../service/commands.ts';
 import type { ServiceName } from '../../service/schedule.ts';
 import { spawnRun } from '../../setup/install.ts';
 import type { RunManager } from '../../service/manager.ts';
+import { backendOfRouteName, routeName, routeNamesText } from '../../subharness/route-names.ts';
 import { SUBHARNESS_AGENTS } from '../../subharness/control.ts';
 import { DEFAULT_BASE_URL } from '../../subharness/models.ts';
 import { modelRoleRegistry, roleSources } from '../../subharness/model-capabilities.ts';
@@ -438,14 +439,66 @@ function typed(name: string, args: Readonly<Record<string, unknown>>): string {
   return ['/' + name.replaceAll('.', ' '), ...values.map(String)].join(' ');
 }
 
+/** The four route names in the order they are told. */
+const ROUTE_ORDER = ['api', 'claude', 'codex', 'opencode'] as const;
+
 /** What takes `--via` beside the agents: the memory writer, and the core and the simulation on a subscription. */
 const VIA_TARGETS: ReadonlyArray<string> = ['memory', 'core', 'simulation'];
+
+/**
+ * The answer of a `model set` with `--via`, null when the route is `direct-api` and the role goes on as with no `--via`,
+ * undefined when no `--via` was typed. `--via` takes the route names (src/subharness/route-names.ts), never the stored
+ * backend words.
+ */
+function modelSetVia(
+  deps: ConsoleDeps,
+  args: Record<string, unknown>,
+  isAgent: boolean
+): Promise<Answer> | null | undefined {
+  const typedLine = `/model set ${text(args.role)}`;
+  const refuse = (why: string, code?: string): Promise<Answer> =>
+    Promise.resolve({ text: `${typedLine}: ${why}`, status: 'invalid', ...(code === undefined ? {} : { code }) });
+  const flags = args.effort === undefined ? {} : { effort: args.effort };
+  const pin = text(args.provider) === '' ? {} : { provider: args.provider };
+  const typedVia = text(args.via);
+  if (typedVia === '') return undefined;
+  const via = backendOfRouteName(typedVia);
+  if (via === null) return refuse(`${typedVia} is no route; use ${routeNamesText(ROUTE_ORDER)}`, 'unknown-backend');
+  if (via === 'api') {
+    if (isAgent)
+      return refuse(
+        `${routeName('api')} cannot run an agent; use ${routeNamesText(['claude', 'codex', 'opencode'])}`,
+        'backend-unsupported'
+      );
+    return args.role === 'simulation'
+      ? subharnessCommand(subharnessDeps(deps), 'subharness.subscription', { role: args.role })
+      : null;
+  }
+  if (!isAgent && !VIA_TARGETS.includes(text(args.role)))
+    return refuse(
+      `${text(args.role)} has no subharness path; only an agent, memory, core or simulation takes --via`,
+      'role-unsupported'
+    );
+  if (!isAgent && text(args.provider) !== '') return refuse(`${text(args.role)} takes no --provider with --via`);
+  if (text(args.model) === '') return refuse(`name the model: /model set ${text(args.role)} <model> --via <route>`);
+  if (isAgent)
+    return subharnessCommand(subharnessDeps(deps), 'subharness.model', {
+      agent: args.role,
+      model: args.model,
+      via,
+      ...flags,
+      ...pin,
+    });
+  const given = { backend: via, model: args.model, ...flags };
+  if (args.role === 'memory') return subharnessCommand(subharnessDeps(deps), 'subharness.memory', given);
+  return subharnessCommand(subharnessDeps(deps), 'subharness.subscription', { role: args.role, ...given });
+}
 
 /**
  * The answer of a `model set` that neither the key commands nor the `model.set` operation take, or null. An agent's
  * model and effort live in its subharness, checked with one reply there, and so does the memory writer's with `--via`,
  * and the subscription route of the core or the simulation. `simulation` is no model role: without `--via` it takes
- * only `api`, which returns it to the API. `--provider` of an agent pins its opencode run to an OpenRouter provider.
+ * only `direct-api` (or the older `api`), which returns it to the API. `--provider` of an agent pins its opencode run to an OpenRouter provider.
  * For any other role `--provider` and `--effort` are checked on the role's key, so they need the key commands of
  * `keys.json`.
  */
@@ -455,25 +508,13 @@ function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Pr
   const isAgent = SUBHARNESS_AGENTS.some((agent) => agent === args.role);
   const flags = args.effort === undefined ? {} : { effort: args.effort };
   const pin = text(args.provider) === '' ? {} : { provider: args.provider };
-  if (text(args.via) !== '') {
-    if (!isAgent && !VIA_TARGETS.includes(text(args.role)))
-      return Promise.resolve({
-        text: `${typedLine}: ${text(args.role)} has no subharness path; only an agent, memory, core or simulation takes --via`,
-        status: 'invalid',
-        code: 'role-unsupported',
-      });
-    if (!isAgent && text(args.provider) !== '') return refuse(`${text(args.role)} takes no --provider with --via`);
-    if (text(args.model) === '') return refuse(`name the model: /model set ${text(args.role)} <model> --via <backend>`);
-    if (isAgent) {
-      const given = { agent: args.role, model: args.model, via: args.via, ...flags, ...pin };
-      return subharnessCommand(subharnessDeps(deps), 'subharness.model', given);
-    }
-    const given = { backend: args.via, model: args.model, ...flags };
-    if (args.role === 'memory') return subharnessCommand(subharnessDeps(deps), 'subharness.memory', given);
-    return subharnessCommand(subharnessDeps(deps), 'subharness.subscription', { role: args.role, ...given });
-  }
+  const viaAnswer = modelSetVia(deps, args, isAgent);
+  if (viaAnswer !== undefined) return viaAnswer;
   if (args.role === 'simulation') {
-    if (text(args.model) !== 'api') return refuse('name a model with --via claude or --via codex, or api');
+    if (text(args.model) !== 'api' && text(args.model) !== routeName('api'))
+      return refuse(
+        `name a model with --via ${routeName('claude')} or --via ${routeName('codex')}, or ${routeName('api')}`
+      );
     return subharnessCommand(subharnessDeps(deps), 'subharness.subscription', { role: args.role });
   }
   if (isAgent) {

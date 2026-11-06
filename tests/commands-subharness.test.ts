@@ -155,12 +155,17 @@ test('the console runs the subharness and simulation commands over its private d
 });
 
 test('without the runner and fetch the console refuses a model selection and runs no model', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Bug: a console built without the check dependencies falls back to the real codex or the real network.
   // Changed: the selection is where a check runs, now that enable is gone.
   const { dir } = rig();
   const vendor = fakeVendor(dir, 'codex', { loggedIn: true });
   const desk = consoleOver(dir, undefined);
-  const answer = await desk.run('model.set', { role: 'dev', model: 'gpt-6-sol', via: 'codex' }, { id: 'owner' });
+  const answer = await desk.run(
+    'model.set',
+    { role: 'dev', model: 'gpt-6-sol', via: 'codex-harness' },
+    { id: 'owner' }
+  );
   assert.equal(answer.status, 'failed');
   assert.deepEqual(
     vendor.calls().filter((one) => one !== 'login status'),

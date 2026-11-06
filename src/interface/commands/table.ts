@@ -369,8 +369,8 @@ const RETIRED_MEMORY: Readonly<Record<string, string>> = {
 
 /** What replaced each retired word of the `subharness` family; `next` is the word after it on the line. */
 const RETIRED_SUBHARNESS: Readonly<Record<string, (next: string | undefined) => string>> = {
-  use: () => '/model set <agent> <model> --via <backend>',
-  model: () => '/model set <agent> <model> [--via <backend>] [--effort <effort>]',
+  use: () => '/model set <agent> <model> --via <route>',
+  model: () => '/model set <agent> <model> [--via <route>] [--effort <effort>]',
   mode: () => '/agent mode <agent> [<mode>]',
   enable: (next) => `/subharness ${next ?? '<backend>'} login`,
   disable: (next) => `/subharness ${next ?? '<backend>'} logout`,

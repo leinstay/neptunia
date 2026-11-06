@@ -137,13 +137,14 @@ test("an agent's OpenRouter model is hidden while opencode cannot run", async ()
 });
 
 test('every model an agent is offered through opencode is accepted by /model set with --via', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: the chooser and the setter disagreeing, a row that only fails after the owner confirmed it.
   const { deps, privateDir } = withOpencode();
   const read = await roleSources(deps, 'dev');
   const opencode = source(read, 'opencode');
   const desk = deskOf(privateDir, deps.fetch);
   const model = opencode.models[0]?.id;
-  const answer = await desk.run('model.set', { role: 'dev', model, via: opencode.via }, { id: 'owner' });
+  const answer = await desk.run('model.set', { role: 'dev', model, via: 'opencode-harness' }, { id: 'owner' });
   assert.equal(answer.status, 'ok', answer.text);
 });
 
