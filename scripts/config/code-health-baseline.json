@@ -1,77 +1,5 @@
 {
   "chains": {
-    "scripts/broken-module-run.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "scripts/code-health.ts": {
-      "deep": 2,
-      "repeated": 3
-    },
-    "scripts/eslint-test-rules.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "scripts/inner-week.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "scripts/lib/fault-run.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "scripts/lib/inner-week-fixture.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "scripts/lib/inner-week.ts": {
-      "deep": 12,
-      "repeated": 2
-    },
-    "scripts/lib/labels-catalogue.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
-    "scripts/lib/platform-objects.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "scripts/lib/recall-eval.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "scripts/lib/report.ts": {
-      "deep": 2,
-      "repeated": 3
-    },
-    "scripts/memory-repair-dm-vectors.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "scripts/memory-session.ts": {
-      "deep": 2,
-      "repeated": 1
-    },
-    "scripts/recall-eval.ts": {
-      "deep": 7,
-      "repeated": 0
-    },
-    "scripts/replay-compare.ts": {
-      "deep": 3,
-      "repeated": 1
-    },
-    "scripts/replay.ts": {
-      "deep": 39,
-      "repeated": 6
-    },
-    "scripts/search-policy-eval.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "scripts/vision-compare.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "src/agent-runner/server.ts": {
       "deep": 0,
       "repeated": 2
@@ -2161,8 +2089,7 @@
         "complexity": 47
       },
       "runWeek": {
-        "complexity": 23,
-        "function-length": 578
+        "function-length": 570
       },
       "runWeek>act": {
         "complexity": 39
@@ -2240,7 +2167,7 @@
       },
       "runInner": {
         "complexity": 62,
-        "function-length": 388
+        "function-length": 383
       },
       "runMain": {
         "complexity": 153

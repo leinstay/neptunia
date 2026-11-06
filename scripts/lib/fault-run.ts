@@ -430,13 +430,14 @@ async function liveRound(round: number, ledger: Ledger, repeats: number): Promis
 
       // A turn cut off mid-call: her reaction takes longer than the call may, so the turn goes on without its result
       // while the reaction still lands. It lands once, and the turn does not make it again.
-      const react = live.adapter.react.bind(live.adapter);
-      live.adapter.react = async (ref, emoji) => {
+      const { adapter } = live;
+      const react = adapter.react.bind(adapter);
+      adapter.react = async (ref, emoji) => {
         await sleep(SLOW_REACT_MS);
         return react(ref, emoji);
       };
       await live.deliver(messageEvent('m4', `do:react:${word('four')}`, Date.now()));
-      await until(() => live.adapter.calls.some((call) => call.op === 'react'), 'the reaction');
+      await until(() => adapter.calls.some((call) => call.op === 'react'), 'the reaction');
       await sleep(SLOW_REACT_MS + 400);
       expected.push(`react:${ROOM}/m4/👍`);
 

@@ -294,8 +294,9 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
     });
     client = connection.client;
     const { placeId, self } = connection;
-    const queueRequest = client.rest.queueRequest.bind(client.rest);
-    client.rest.queueRequest = (request: Rec) => {
+    const { rest } = client;
+    const queueRequest = rest.queueRequest.bind(rest);
+    rest.queueRequest = (request: Rec) => {
       const method = String(request?.method ?? 'GET').toUpperCase();
       if (method !== 'GET') return Promise.reject(new Error(`inner-week: Discord ${method} refused (read-only tool)`));
       return queueRequest(request);
@@ -376,10 +377,10 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
       },
     });
     const spent = () =>
-      calls.reduce(
-        (sum, call) => sum + (Number(call.usage?.cost_details?.upstream_inference_cost ?? call.usage?.cost ?? 0) || 0),
-        0
-      );
+      calls.reduce((sum, call) => {
+        const details = call.usage?.cost_details;
+        return sum + (Number(details?.upstream_inference_cost ?? call.usage?.cost ?? 0) || 0);
+      }, 0);
     const voice = {
       kind: 'live',
       bind(service: Untyped) {

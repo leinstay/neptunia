@@ -95,8 +95,9 @@ async function connectDiscord(token: Untyped) {
   const { Client } = await import('discord.js');
   const client = new Client({ intents: [] });
   client.rest.setToken(token);
-  const restRequest = client.rest.request.bind(client.rest);
-  client.rest.request = (options) => {
+  const { rest } = client;
+  const restRequest = rest.request.bind(rest);
+  rest.request = (options) => {
     if (String(options?.method ?? 'GET').toUpperCase() !== 'GET')
       throw new Error('vision-compare: only GET requests reach Discord');
     return restRequest(options);

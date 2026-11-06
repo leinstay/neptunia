@@ -86,7 +86,8 @@ function readMonths(db: Db, counts: Counts): { months: Map<string, Month>; left:
     const { key } = unit;
     if (key.subject.type !== 'place' || !key.partition) continue;
     const rows = unitRows(db, key);
-    const stored = JSON.parse(asText(rows.operational[0]?.value ?? '{}')) as {
+    const [operational] = rows.operational;
+    const stored = JSON.parse(asText(operational?.value ?? '{}')) as {
       manifest?: Manifest;
       raw?: unknown;
       tailI8?: unknown;
