@@ -13,8 +13,7 @@
 // a role's key (src/llm/openrouter.ts#roleApiKey over `llm.keyByRole`; never the persona's main
 // key), or the extra key of an opencode route; the engine proxy of the moment (`proxy`, the core's
 // monitor, src/net/proxy.ts) in its http form for every agent, so no harness child goes out from
-// the server's own address while the proxy is on; and for `scout` the search key
-// (OPENCODE_WEBSEARCH_KEY) when set. A run with none of them carries no secrets. Settings are read at the moment of
+// the server's own address while the proxy is on. A run with none of them carries no secrets. Settings are read at the moment of
 // use; logs carry ids and codes, never a goal, a result or a secret. The context also carries
 // `recent`: the last `DEFAULT_RECENT_LINES` lines of the origin channel as `[{ author, text }]`
 // (display names and text on one line, cut to RECENT_CHARS), read from the memory's buffer
@@ -86,7 +85,7 @@ function limitsFor(agent: string, config: Untyped, agentPaths?: AgentPaths): Lim
 }
 
 /**
- * The secrets an errand of `agent` carries to its runner: `{ openrouterKey?, proxy?, searchKey? }`, or null when it has
+ * The secrets an errand of `agent` carries to its runner: `{ openrouterKey?, proxy? }`, or null when it has
  * none. The key is the agent's role key (never the main key: none is passed); `keyOverride` replaces it, since a route
  * spends the extra key keys.json names, and a run with a route but no such key carries none (a claude or codex agent
  * brings its own login). `proxy` is the engine proxy in force now, null on the direct path.
@@ -105,10 +104,6 @@ function secretsFor(
   if (typeof openrouterKey === 'string' && openrouterKey) secrets.openrouterKey = openrouterKey;
   const form = httpProxyForm(proxy);
   if (form !== null) secrets.proxy = form;
-  if (profile.name === 'scout') {
-    const searchKey = typeof env?.OPENCODE_WEBSEARCH_KEY === 'string' ? env.OPENCODE_WEBSEARCH_KEY.trim() : '';
-    if (searchKey && secrets.openrouterKey !== undefined) secrets.searchKey = searchKey;
-  }
   return Object.keys(secrets).length > 0 ? secrets : null;
 }
 

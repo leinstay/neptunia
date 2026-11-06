@@ -292,6 +292,8 @@ function inspection(options: PersonaLayerOptions): { plan: PersonaLayerPlan; mat
         copyTree(path.join(source, name), path.join(target, name));
     } else if (stat?.isFile()) {
       const own = /^interfaces\/([^/]+)\/config\.json$/.exec(source)?.[1];
+      // Stage AB: a runner's environment file holds keys the runners no longer read.
+      if (/^clients\/agent-(?:scout|server)\.env$/.test(source)) return;
       if (own) layer(own, 'own', source, read(options.privateDir, source));
       else add(source, target, 'bytes');
     } else throw new InspectionError(source, 'unreadable');

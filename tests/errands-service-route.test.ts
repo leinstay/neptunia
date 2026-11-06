@@ -10,7 +10,8 @@ import { keysPath, writeKeysFile } from './fixtures/keys-file.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
-const ENV = { OPENROUTER_ERRAND_KEY: 'sk-agent-SECRET' };
+// Stage AB: the rig maps scout to a variable of its own; the shipped map names none.
+const ENV = { OPENROUTER_AGENT_KEY: 'sk-agent-SECRET' };
 
 const closers: Array<() => Promise<void> | void> = [];
 after(async () => {
@@ -22,7 +23,7 @@ const quiet = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}
 function rig(privateDir: string) {
   const hot = {
     config: {
-      llm: { keyByRole: { scout: 'OPENROUTER_ERRAND_KEY' } },
+      llm: { keyByRole: { scout: 'OPENROUTER_AGENT_KEY' } },
       errands: { maxOpen: 3 },
       agents: { scout: { enabled: true, daily: { tasks: 10 } } },
     },
