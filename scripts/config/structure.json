@@ -1523,6 +1523,13 @@
       "test": "none"
     },
     {
+      "path": "src/memory/db/communities.ts",
+      "purpose": "The server places of the communities a `hello` names. Tested through `tests/memory-db-communities.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/media-english.ts",
       "purpose": "The owner's run that brings stored media descriptions to English. Tested through `tests/media-english-backfill.test.ts`.",
       "layer": "public",

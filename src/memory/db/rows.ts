@@ -143,7 +143,11 @@ export function addKey(
 }
 
 /** The derived columns of a place row: authority, native key, conversation. */
-function placeColumns(row: Row): { authority_id: string; native_key: string | null; conversation: string | null } {
+export function placeColumns(row: Row): {
+  authority_id: string;
+  native_key: string | null;
+  conversation: string | null;
+} {
   const kind = row.kind ?? null;
   const conversation =
     kind === 'dm' || row.scope_kind === 'dm' ? 'dm' : CONTAINERS.has(kind as string) ? null : 'group';

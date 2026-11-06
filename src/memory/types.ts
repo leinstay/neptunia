@@ -52,6 +52,7 @@ export type MemoryDb = {
   namespace?: () => string | null;
   readHandle?: () => MemoryHandle | null;
   writeUnit?: (update: unknown) => Promise<unknown>;
+  memoryWrite?: (update: unknown) => Promise<unknown>;
   keepPending?: (update: unknown) => string;
   onAffinityMoves?: (listener: (moves: Array<Row>) => void) => () => void;
 };
