@@ -1614,6 +1614,20 @@
       "test": "none"
     },
     {
+      "path": "src/memory/db/inspection-export.ts",
+      "purpose": "The owner's inspection export on its own thread. Tested through the inspect-export-off-main test.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/inspection-export-worker.ts",
+      "purpose": "The thread of one owner's inspection export. Tested through the inspect-export-off-main test.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/types.ts",
       "purpose": "The shapes the memory database files share: a row, the connection, the handle and the settings, with the helpers that read them. Types only, tested through the modules that use them.",
       "layer": "public",
