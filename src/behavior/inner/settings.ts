@@ -20,18 +20,20 @@ export const WAKE_KINDS = Object.freeze([
 ] as const);
 
 /**
- * The inner life's measures: production values of the config cut of 2026-10-31, and the fallbacks of the keys the
- * live config holds (`mode`, `tickSeconds`, `review.historyDays`, `caps.perChain`, `loop`, `retry` and `factsKeepDays`
- * of `wakes`; the heartbeat's switch, clock, history and token budget of `heartbeat`; the selfimprovement wake's
- * switch and clock of `selfimprovement`).
+ * The selfimprovement wake's defaults: once a day at 03:00 (UTC, three hours after the watcher's default midnight run,
+ * owner 2026-11-02), and when one chain shape fails this many times in a UTC day (decision of 2026-10-24).
  */
-// The selfimprovement wake: by default once a day at 03:00 (UTC, three hours after the watcher's default midnight run, owner
-// 2026-11-02), and when one chain shape fails this many times in a UTC day (decision of 2026-10-24).
 const IMPROVEMENT_WAKE_DEFAULTS = Object.freeze({
   schedule: Object.freeze({ kind: 'at', at: Object.freeze(['03:00']) }),
   failuresPerShape: 3,
 });
 
+/**
+ * The inner life's measures: production values of the config cut of 2026-10-31, and the fallbacks of the keys the
+ * live config holds (`mode`, `tickSeconds`, `review.historyDays`, `caps.perChain`, `loop`, `retry` and `factsKeepDays`
+ * of `wakes`; the heartbeat's switch, clock, history and token budget of `heartbeat`; the selfimprovement wake's
+ * switch and clock of `selfimprovement`).
+ */
 export const INNER_DEFAULTS = Object.freeze({
   mode: 'shadow',
   tickSeconds: 60,

@@ -267,13 +267,13 @@ function journalResult(errand: ErrandRecord): Record<string, unknown> {
   return out;
 }
 
-/** A copy of a stored errand, as the store hands it out (a stored record is plain JSON). */
 /** The files of an errand's result: none without a result or with a list the store cannot read. */
 function resultFilesOf(errand: ErrandRecord | null | undefined): Array<ErrandFile> {
   const files = errand?.result?.files;
   return Array.isArray(files) ? files : [];
 }
 
+/** A copy of a stored errand, as the store hands it out (a stored record is plain JSON). */
 function copy(errand: ErrandRecord): ErrandRecord {
   return JSON.parse(JSON.stringify(errand)) as ErrandRecord;
 }

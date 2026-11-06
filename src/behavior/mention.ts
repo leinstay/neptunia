@@ -175,6 +175,7 @@ export function followUpTriggerKind(answer: 'yes' | 'overheard' | 'no'): 'follow
 // The per-feature model keys older than the `classifier` block are never read;
 // deprecatedModelKeys lets startup warn about them.
 
+/** The video settings of a config (`media.video`). */
 const videoOf = (config: Untyped) => config?.media?.video;
 
 const DEPRECATED_MODEL_KEYS = [

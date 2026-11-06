@@ -455,10 +455,10 @@ export function mirrorSettings(config: unknown): { claimLeaseMs: number; sendTim
 
 /** Every claimant this process makes differs, so a publisher whose claim expired can be told from its successor. */
 let claimants = 0;
+const nextClaimant = (): string => `publisher:${process.pid}:${(claimants += 1)}`;
+
 /** The stored state of one segment of a delivery, read at the call. */
 const segmentOf = ({ segments }: StoredDelivery, segment: number) => segments[segment];
-
-const nextClaimant = (): string => `publisher:${process.pid}:${(claimants += 1)}`;
 
 /** The publisher's whole surface: publishing, draining, and the owner's desk. */
 export type Mirrors = MirrorDesk & {
