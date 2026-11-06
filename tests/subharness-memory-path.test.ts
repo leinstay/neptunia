@@ -286,12 +286,13 @@ function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
 }
 
 test('model set memory with --via goes through the subharness, not to the key commands', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: the --via line handed to the key commands, which check the CLI model id on OpenRouter and refuse it.
   const { dir, deps, ran } = rig();
   const { desk, ops } = consoleOver(dir, consoleSubharness(deps));
   const answer = await desk.run(
     'model.set',
-    { role: 'memory', via: 'claude', model: 'claude-opus-4-6', effort: 'low' },
+    { role: 'memory', via: 'claude-harness', model: 'claude-opus-4-6', effort: 'low' },
     { id: 'owner' }
   );
   assert.equal(answer.status, 'ok');

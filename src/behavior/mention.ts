@@ -130,36 +130,36 @@ export function followUpPreFilter(
   return (normalized.mentionedAccountIds ?? []).some((id) => id !== selfId && id !== replyPing);
 }
 
-// Protocol token of the address classifier (docs/prompt-contract.md), not
-// wording: the answer for a line that talks about the persona to someone else
-// or to the room. Trailing punctuation is tolerated, nothing before the word.
-const OVERHEARD_ANSWER = /^overheard[.,;:!?\u2026]*$/;
+/** The three answers of the address classifier (docs/prompt-contract.md). */
+const ADDRESS_ANSWERS: ReadonlySet<unknown> = new Set(['yes', 'overheard', 'no']);
 
 /**
- * The address classifier's answer (prompts/address.md): its first
- * whitespace-separated word, lower-cased. `yes` when it starts with 'y';
- * `overheard` when it is `overheard` (trailing punctuation allowed);
- * anything else, empty included, `no`. Quotes or markup around the word
- * are not stripped.
+ * The address classifier's answer (prompts/address.md): the text is the JSON
+ * object `{ "answer": ... }` and its `answer` is `yes`, `overheard` or `no`,
+ * exactly. Anything else is null: text that is not JSON (a bare word or a
+ * code fence included), JSON that is not an object, an object without
+ * `answer`, or a value outside the three. The caller treats null as a failed call.
  */
-export function parseAddressAnswer(text: unknown): 'yes' | 'overheard' | 'no' {
-  const firstWord = (
-    String(text ?? '')
-      .trim()
-      .split(/\s+/)[0] ?? ''
-  ).toLowerCase();
-  if (firstWord.startsWith('y')) return 'yes';
-  return OVERHEARD_ANSWER.test(firstWord) ? 'overheard' : 'no';
+export function parseAddressAnswer(text: unknown): 'yes' | 'overheard' | 'no' | null {
+  if (typeof text !== 'string') return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const { answer } = parsed as { answer?: unknown };
+  return ADDRESS_ANSWERS.has(answer) ? (answer as 'yes' | 'overheard' | 'no') : null;
 }
 
 /**
  * The two-way projection of parseAddressAnswer: `overheard` counts as `yes`,
- * so every two-word answer parses exactly as before the third answer. The
- * bot itself reads parseAddressAnswer; this stays for the classifier bench,
- * which scores yes / no.
+ * and an answer it cannot read counts as `no`.
  */
 export function parseFollowUpVerdict(text: unknown): 'yes' | 'no' {
-  return parseAddressAnswer(text) === 'no' ? 'no' : 'yes';
+  const answer = parseAddressAnswer(text);
+  return answer === 'yes' || answer === 'overheard' ? 'yes' : 'no';
 }
 
 /**

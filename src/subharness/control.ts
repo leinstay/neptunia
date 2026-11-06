@@ -15,6 +15,7 @@ import type { EffortLevel } from '../llm/roles.ts';
 import { SUBHARNESS_AGENTS, readKeys, writeKeys } from '../keys/file.ts';
 import type { KeyStore, SubharnessAgent } from '../keys/file.ts';
 import { modelOfBackend } from './place.ts';
+import { routeName, routeNamesText } from './route-names.ts';
 import { checkedSelection, listsEffort } from './selection.ts';
 import { sourceState } from './sources.ts';
 import type { SourceState } from './sources.ts';
@@ -119,7 +120,10 @@ function badProvider(provider: string | undefined): SubharnessResult | null {
 /** The refusal of a provider asked of a backend other than opencode, or null. */
 function providerUnsupported(provider: string | undefined, backend: BackendName): SubharnessResult | null {
   if (provider === undefined || backend === 'opencode') return null;
-  return refused('provider-unsupported', `${backend} has no provider control; only opencode takes --provider`);
+  return refused(
+    'provider-unsupported',
+    `${routeName(backend)} has no provider control; only ${routeName('opencode')} takes --provider`
+  );
 }
 
 /** The stored providers with `agent`'s entry replaced by `provider`, or dropped when there is none. */
@@ -160,11 +164,11 @@ export async function setAgentModel(
   const current = backendOfAgent(store.subharness, agent);
   const backend = via === undefined ? current : BACKEND_NAMES.find((one) => one === via);
   if (backend === undefined)
-    return refused('unknown-backend', `${via ?? ''} is no backend; use ${BACKEND_NAMES.join(', ')}`);
+    return refused('unknown-backend', `${via ?? ''} is no backend; use ${routeNamesText(BACKEND_NAMES)}`);
   if (level !== undefined && !isEffortLevel(level) && (backend === null || !(await listsEffort(deps, backend, level))))
     return noEffort(level);
   if (backend === null)
-    return refused('subharness-off', `${agent} has no source yet: /model set ${agent} <model> --via <backend>`);
+    return refused('subharness-off', `${agent} has no source yet: /model set ${agent} <model> --via <route>`);
   const unsupported = providerUnsupported(provider, backend);
   if (unsupported !== null) return unsupported;
   const { key } = store.subharness;
@@ -200,7 +204,7 @@ export async function setAgentModel(
       });
       const at = level === undefined ? '' : ` at ${level} effort`;
       const pin = provider === undefined ? '' : `, pinned to ${provider} alone`;
-      return done(`${agent} runs through ${backend} on ${model}${at}${pin} from its next run`);
+      return done(`${agent} runs through ${routeName(backend)} on ${model}${at}${pin} from its next run`);
     }
   );
 }
@@ -303,7 +307,7 @@ export function statusText(view: SubharnessView, paths: ReadonlyArray<AgentPath>
     const model = path.model ?? 'default';
     const effort = path.effort ?? 'default';
     const pin = path.provider === undefined ? '' : `  provider ${path.provider}`;
-    return `  ${path.agent}  ${view.modes[path.agent]}  ${path.backend ?? 'none'}${mark}  model ${model}  effort ${effort}${pin}`;
+    return `  ${path.agent}  ${view.modes[path.agent]}  ${path.backend === null ? 'none' : routeName(path.backend)}${mark}  model ${model}  effort ${effort}${pin}`;
   });
   return ['subharness:', ...view.sources.map((state) => sourceLine(view, state)), 'modes:', ...rows].join('\n');
 }

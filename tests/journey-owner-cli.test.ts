@@ -191,10 +191,11 @@ const same = (one: Answer, two: Answer): void => {
 };
 
 test('a model chosen on argv and another on the chat are each checked once, saved, and read the same on both paths', async () => {
+  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Bug: one spelling saves a choice the check never ran, or `model show` answers differently on the two paths.
-  const first = await journey.argv('model', 'set', 'thinker', 'sonnet', '--via', 'claude');
+  const first = await journey.argv('model', 'set', 'thinker', 'sonnet', '--via', 'claude-harness');
   assert.equal(first.status, 'ok', first.text);
-  const second = await journey.chat('/model set scout haiku --via claude');
+  const second = await journey.chat('/model set scout haiku --via claude-harness');
   assert.equal(second.status, 'ok', second.text);
   assert.deepEqual(
     journey.checks.map((one) => one.model),
