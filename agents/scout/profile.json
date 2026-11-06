@@ -15,6 +15,6 @@
   "sandbox": "workspace-write",
   "socket": "/run/neptunia-agent-scout/sock",
   "out": "/var/lib/neptunia-agent-scout/out",
-  "env": ["OPENROUTER_ERRAND_KEY", "OPENCODE_WEBSEARCH_KEY", "PROXY_URL"],
+  "env": [],
   "description": "Internet errands: searches the web, reads pages, looks at images and downloads files through a proxy."
 }

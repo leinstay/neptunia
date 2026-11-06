@@ -35,7 +35,7 @@ const SPEC: Array<Spec> = [
 /** The claim row for an archived item that is not in hot memory: retired, historical, text from the entry. */
 export function claimStub(rel: string, entry: Row, ctx: MapContext = {}): Row {
   const scope = (entry.scope ?? {}) as { user?: unknown; channel?: unknown };
-  const text = entry.text as { text?: unknown } | undefined;
+  const entryText = entry.text as { text?: unknown } | undefined;
   const observedAt = entry.observedAt as { date?: unknown } | undefined;
   const subject =
     typeof scope.user === 'string' && scope.user
@@ -47,7 +47,7 @@ export function claimStub(rel: string, entry: Row, ctx: MapContext = {}): Row {
     id: entry.itemId,
     ...subject,
     kind: typeof entry.itemKind === 'string' ? entry.itemKind : null,
-    text: typeof text?.text === 'string' ? text.text : null,
+    text: typeof entryText?.text === 'string' ? entryText.text : null,
     extra: null,
     weight: typeof entry.weight === 'number' ? entry.weight : null,
     first_seen_at: typeof observedAt?.date === 'string' ? observedAt.date : null,
@@ -108,9 +108,10 @@ export function toRows(rel: string, entry: Row, ctx: MapContext = {}): Rows {
   }
   const body: Row = { ...entry };
   let text: string | null = null;
-  if (isPlainObject(entry.text) && typeof entry.text.text === 'string') {
-    text = entry.text.text;
-    const left = { ...entry.text };
+  const entryText = entry.text;
+  if (isPlainObject(entryText) && typeof entryText.text === 'string') {
+    text = entryText.text;
+    const left = { ...entryText };
     delete left.text;
     body.text = left;
   }

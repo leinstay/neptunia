@@ -519,7 +519,7 @@ const originOf = (kind: unknown, watched: boolean): MediaOrigin => {
 };
 
 /** The row a cache key speaks of, on this interface. A plain key that is also an item's own reference is that item. */
-function rowOfCacheKey(db: Db, iface: unknown, key: string): Row | undefined {
+export function mediaRowOfCacheKey(db: Db, iface: unknown, key: string): Row | undefined {
   const exact = itemByRef(db, iface, key);
   if (exact) return exact;
   const { ref, kinds } = cacheKeyParts(key);
@@ -536,7 +536,7 @@ export function tellFromCacheKey(
   db: Db,
   { iface, key, text, at }: { iface: unknown; key: string; text: string; at: unknown }
 ): number {
-  const row = rowOfCacheKey(db, iface, key);
+  const row = mediaRowOfCacheKey(db, iface, key);
   if (!row) return 0;
   const watched = itemByRef(db, iface, key) === undefined && cacheKeyParts(key).watched;
   return writeText(db, row, { text, origin: originOf(row.kind, watched), at }) ? 1 : 0;
@@ -544,7 +544,7 @@ export function tellFromCacheKey(
 
 /** Whether the item a describer's key names holds a text form on this interface. */
 export function itemTold(db: Db, iface: unknown, key: string): boolean {
-  return filled(rowOfCacheKey(db, iface, key)?.description);
+  return filled(mediaRowOfCacheKey(db, iface, key)?.description);
 }
 
 const BARE_ID = (sourceId: unknown, position: number): string => `media:bare:${asText(sourceId)}:${position}`;
@@ -709,7 +709,7 @@ export function takeRecordMedia(row: Row): Row | null {
   const extra = typeof row.extra === 'string' ? parsedObject(row.extra) : {};
   const hasCards = 'links' in extra;
   const hasVoiced = 'voiced' in extra;
-  const media: Row = {
+  const taken: Row = {
     media: typeof kinds === 'string' ? parsedList(kinds) : kinds,
     links: extra.links,
     voiced: extra.voiced,
@@ -719,7 +719,7 @@ export function takeRecordMedia(row: Row): Row | null {
     delete extra.voiced;
     row.extra = Object.keys(extra).length > 0 ? JSON.stringify(extra) : null;
   }
-  return (Array.isArray(media.media) && media.media.length > 0) || hasCards || hasVoiced ? media : null;
+  return (Array.isArray(taken.media) && taken.media.length > 0) || hasCards || hasVoiced ? taken : null;
 }
 
 /** What a record line brings for its source row: its kinds and cards, and the words of her voice message. */
@@ -793,7 +793,7 @@ export function writeMediaCache(
     const entry: Row =
       given !== null && typeof given === 'object' && !Array.isArray(given) ? (given as Row) : { $raw: given };
     const { watched } = cacheKeyParts(key);
-    const row = rowOfCacheKey(db, iface, key) ?? newCacheRow(key);
+    const row = mediaRowOfCacheKey(db, iface, key) ?? newCacheRow(key);
     kept.add(String(row.id));
     const extra = parsedObject(row.extra);
     const entries = { ...((extra.cache as Row | undefined) ?? {}), [key]: entryRest(entry) };
@@ -1456,10 +1456,10 @@ function settleText(held: Held): void {
 }
 
 /** The old kinds and cards of one line, as items, and what is left of its `extra`. Pure. */
-function oldLineItems(kinds: ReadonlyArray<unknown>, extra: Row): { items: Array<MediaItem>; rest: Row | null } {
-  const inner = extra.extra !== null && typeof extra.extra === 'object' ? (extra.extra as Row) : null;
+function oldLineItems(kinds: ReadonlyArray<unknown>, lineExtra: Row): { items: Array<MediaItem>; rest: Row | null } {
+  const inner = lineExtra.extra !== null && typeof lineExtra.extra === 'object' ? (lineExtra.extra as Row) : null;
   const ids = inner && Array.isArray(inner.attachmentIds) ? (inner.attachmentIds as Array<unknown>) : [];
-  const cards = [...listOf(extra.links)];
+  const cards = [...listOf(lineExtra.links)];
   const fromCard = (card: Row): MediaItem =>
     linkItem({ ...card, id: card.id, title: card.title, site: card.site, url: card.url, text: card.description });
   const items = kinds.filter(filled).map((kind, position): MediaItem => {
@@ -1468,8 +1468,8 @@ function oldLineItems(kinds: ReadonlyArray<unknown>, extra: Row): { items: Array
   });
   items.push(...cards.map(fromCard));
   const hasOld = inner !== null ? 'attachmentIds' in inner : false;
-  if (!hasOld && !('links' in extra)) return { items, rest: null };
-  const rest = { ...extra };
+  if (!hasOld && !('links' in lineExtra)) return { items, rest: null };
+  const rest = { ...lineExtra };
   delete rest.links;
   if (inner) {
     const others = { ...inner };

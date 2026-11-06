@@ -45,6 +45,7 @@ export type NormalizedResult = {
   files: Array<ErrandFile>;
   withheld?: Array<string>;
   filesDropped?: Array<{ name: string; reason: string }>;
+  searchFailures?: number;
 };
 
 /** A result as the store keeps it: the runner's, with the dropped files reduced to their names. */
@@ -54,6 +55,8 @@ export type ErrandResult = {
   files: Array<ErrandFile>;
   withheld?: Array<string>;
   filesDropped?: Array<string | { name: string }>;
+  /** the run's failed web searches, when any */
+  searchFailures?: number;
 };
 
 /** A usage as the runner's protocol shapes it (src/agent-runner/protocol.ts#normalizeUsage). */

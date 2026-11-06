@@ -1516,6 +1516,13 @@
       "test": "none"
     },
     {
+      "path": "src/memory/db/media-english.ts",
+      "purpose": "The owner's run that brings stored media descriptions to English. Tested through `tests/media-english-backfill.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/media-stems.ts",
       "purpose": "The stems of a media row. Tested through the media memory tests.",
       "layer": "public",
@@ -1609,6 +1616,20 @@
     {
       "path": "src/memory/db/backup-worker.ts",
       "purpose": "The thread of one owner's backup. Tested through the backup-off-main tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/inspection-export.ts",
+      "purpose": "The owner's inspection export on its own thread. Tested through the inspect-export-off-main test.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/inspection-export-worker.ts",
+      "purpose": "The thread of one owner's inspection export. Tested through the inspect-export-off-main test.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

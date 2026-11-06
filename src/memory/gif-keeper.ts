@@ -64,7 +64,10 @@ export function createGifKeeper({
     queue = run;
     return run;
   };
-  const paused = () => Boolean(store.state?.data?.paused);
+  const paused = () => {
+    const stateData = store.state?.data;
+    return Boolean(stateData?.paused);
+  };
 
   /** The entry a native id is held under, read now: a file on another message may have moved it. */
   function entryOf(itemId: string) {

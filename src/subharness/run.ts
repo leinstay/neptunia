@@ -8,7 +8,8 @@
 // PATH on which `sudo` refuses unless the mode is `sudo`: a stand-in named `sudo` in a folder of its own comes first.
 // OpenCode gets one extra key as OPENROUTER_API_KEY and nothing else key-like: the one it logged in with, or with a
 // route the one the task brought (`routeKey`, a run without it fails `route-no-key`); codex and claude bring their own
-// login and get no key. A run with a `route` (src/agent-runner/protocol.ts#TaskRoute) is the runner's: the core decided
+// login and get no key. An opencode run that searches with exa gets `OPENCODE_ENABLE_EXA=1` and, when the task brought
+// the stored Exa key (`searchKey`), that key as `EXA_API_KEY`. A run with a `route` (src/agent-runner/protocol.ts#TaskRoute) is the runner's: the core decided
 // the backend, model, effort, mode and provider when it dispatched the task, because a runner unit may hide keys.json. Such a
 // run uses exactly the route and never opens keys.json. A run in `full` or `sudo` writes one log line before it starts, with
 // the agent and the mode and never the brief, so the log shows who worked without a sandbox. A claude whose `--help` lists
@@ -68,6 +69,8 @@ export type AgentRun = {
   proxy?: string | null;
   /** the search provider of the run; `exa` switches OpenCode's own `websearch` on (Exa's free endpoint, no key) */
   searchProvider?: string | null;
+  /** the Exa key of the run, the child's `EXA_API_KEY` on an opencode run whose search provider is `exa`, else unused */
+  searchKey?: string;
   /** what the session map ties this run to: the task or the inspection */
   runId?: string;
 };
@@ -154,6 +157,14 @@ function envOf(deps: RunDeps, mode: AgentMode, keyValue: string | null): Record<
 function runEnvOf(run: AgentRun, engine: Record<string, string>): Record<string, string> {
   const given = Object.entries(run.env ?? {}).filter(([name]) => !PROXY_ENV_NAMES.includes(name));
   return { ...Object.fromEntries(given), ...engine, ...proxyEnvOf(run.proxy ?? null) };
+}
+
+/** The search variables of an opencode run that searches with exa: the switch, and the Exa key when the task brought one. */
+function searchEnvOf(name: BackendName, run: AgentRun): Record<string, string> {
+  if (name !== 'opencode' || run.searchProvider !== 'exa') return {};
+  return run.searchKey === undefined || run.searchKey === ''
+    ? { OPENCODE_ENABLE_EXA: '1' }
+    : { OPENCODE_ENABLE_EXA: '1', EXA_API_KEY: run.searchKey };
 }
 
 /** The refusal of a run that cannot start, with the code and no child. */
@@ -251,7 +262,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
   if ('ok' in settled) return settled;
   const { name, mode, model, effort, keyValue, provider } = settled;
   const env = runEnvOf(run, envOf(deps, mode, keyValue));
-  if (name === 'opencode' && run.searchProvider === 'exa') env.OPENCODE_ENABLE_EXA = '1';
+  Object.assign(env, searchEnvOf(name, run));
   if (mode === 'full' || mode === 'sudo') log.info('subharness: run without a sandbox', { agent: run.agent, mode });
   const options: BackendRunOptions = {
     cwd: run.cwd,

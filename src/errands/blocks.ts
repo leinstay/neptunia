@@ -88,7 +88,8 @@ export function errandsBlockText(
  * The `<errand_result>` block's body for a finished `errand`: `labels.errands.result.header` (`{id}`,
  * `{agent}`, `{goal}` on one line, `{state}` in words), then the result's text under
  * `result.text` cut to `maxChars` (`result.empty` when there is none), `result.error` (`{error}`:
- * the code) when it did not end `done`, the sources as a numbered list under `result.sources`,
+ * the code) when it did not end `done`, `result.searchFailed` (`{count}`: the web searches of the run that failed,
+ * `result.searchFailures`) when there were any, the sources as a numbered list under `result.sources`,
  * and each file as `result.file` (`{handle}`: `file:<errand id>/<name>`, `{contentType}`,
  * `{bytes}`) under `result.files` unless the files have expired (`filesExpired`: the state's word
  * is then `states.expired`, when present), then one `result.withheld` line (`{paths}`: the paths
@@ -97,6 +98,13 @@ export function errandsBlockText(
  * `result.filesDropped`, joined by `, `; no handle for them) when there are any. A part without its
  * label is left out; '' without the header.
  */
+/** The line that counts the run's failed web searches (`result.searchFailed`), none when there were none. */
+function searchNoticeOf(result: ErrandRecord['result'], labels: Record<string, unknown>): Array<string> {
+  const count = Number(result?.searchFailures);
+  const notice = labels.searchFailed;
+  return Number.isSafeInteger(count) && count > 0 && typeof notice === 'string' ? [fill(notice, { count })] : [];
+}
+
 export function errandResultText(
   errand: ErrandRecord | null | undefined,
   labels: Untyped,
@@ -118,6 +126,7 @@ export function errandResultText(
   if (errand.state !== 'done' && errand.error && typeof r.error === 'string')
     parts.push(fill(r.error, { error: errand.error }));
   const result = errand.result;
+  parts.push(...searchNoticeOf(result, r as Record<string, unknown>));
   const sources = Array.isArray(result?.sources) ? result.sources.filter((url) => typeof url === 'string' && url) : [];
   if (sources.length > 0 && typeof r.sources === 'string')
     parts.push(r.sources, ...sources.map((url, i) => `${i + 1}. ${url}`));

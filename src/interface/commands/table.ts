@@ -521,6 +521,9 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('backfill-media', 'Bring old media lines to the one format: backfill-media [--dry-run|status]', [
         arg('mode', false),
       ]),
+      sub('backfill-english', 'Bring stored media descriptions to English: backfill-english [--dry-run|status]', [
+        arg('mode', false),
+      ]),
       sub('restore', 'Bring an archived item back', [arg('id')]),
       sub('journal', 'Show journal of a day: journal [<YYYY-MM-DD>]', [arg('day', false)]),
       sub('archive', 'List archived memory items', [arg('kind', false)]),

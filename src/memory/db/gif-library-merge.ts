@@ -9,7 +9,7 @@ import { mergePlaceLibraries } from '../gifs.ts';
 import { storageValue } from './export.ts';
 import { storageMapper } from './map/index.ts';
 import { personaKey, placeCollection } from './storage-keys.ts';
-import { ensureUnit, listUnits } from './storage-units.ts';
+import { ensureUnit, listUnits, subjectOf } from './storage-units.ts';
 import { qualify, retireAbsent, writeMapping } from './upsert.ts';
 import { adoptLibraryRows } from './media-store.ts';
 import { storeHeld } from './media-stems.ts';
@@ -39,12 +39,12 @@ function moveLinksToExtra(db: Db): void {
 /** Merges every per-place library of `db` into the persona's one. Answers how many places it merged. */
 export function mergeGifLibraries(db: Db): number {
   moveLinksToExtra(db);
-  const units = listUnits(db, { kind: 'gifs' }).filter((unit) => unit.key.subject.type === 'place');
+  const units = listUnits(db, { kind: 'gifs' }).filter((unit) => subjectOf(unit).type === 'place');
   if (units.length === 0) return 0;
   const libraries: Record<string, unknown> = {};
   const caches: Record<string, Record<string, unknown>> = {};
   for (const unit of units) {
-    const placeId = unit.key.subject.id;
+    const placeId = subjectOf(unit).id;
     libraries[placeId] = storageValue(db, unit.key);
     caches[placeId] = storageValue(db, placeCollection('media', placeId)) as Record<string, unknown>;
   }

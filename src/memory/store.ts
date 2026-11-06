@@ -1615,10 +1615,10 @@ function buildStore({
       let value: Untyped;
       if (!place.file) {
         // A memory unit: the database's value; a unit it does not hold is new (and so is every unit without a database).
-        const found: Untyped = memoryDb
+        const unit: Untyped = memoryDb
           ? seam.run(() => unitValue(seam.db(), place.key ?? place.rel))
           : { found: false };
-        value = found.found ? found.value : fallback();
+        value = unit.found ? unit.value : fallback();
       } else {
         value = readJson(file, fallback());
       }
@@ -1859,8 +1859,9 @@ function buildStore({
     const chars = [...previous].length;
     const list = Array.isArray(item.value[field]) ? item.value[field] : [];
     const all = withItemIds([...list, { at, by, chars, ...diff, text: previous }], ITEM_ID_PREFIX.version, newId);
-    item.value[field] = all.slice(-kept);
-    const dropped = all.slice(0, all.length - item.value[field].length);
+    const keptVersions = all.slice(-kept);
+    item.value[field] = keptVersions;
+    const dropped = all.slice(0, all.length - keptVersions.length);
     item.dirty = true;
     holdVictims({
       item,
@@ -2016,11 +2017,12 @@ function buildStore({
     const loading = !entries.has(file);
     const item = entry(file, emptyRecent);
     const raw = item.value;
-    item.value = normalizeRecent(raw);
+    const recent = normalizeRecent(raw);
+    item.value = recent;
     if (loading && (!isRecord(raw) || !Array.isArray(raw.lines))) {
       log.warn('store: recent store replaced', { placeId, reason: 'malformed' });
-    } else if (loading && raw.lines.length > item.value.lines.length) {
-      log.warn('store: recent lines dropped', { placeId, dropped: raw.lines.length - item.value.lines.length });
+    } else if (loading && raw.lines.length > recent.lines.length) {
+      log.warn('store: recent lines dropped', { placeId, dropped: raw.lines.length - recent.lines.length });
     }
     return item;
   }
@@ -2036,13 +2038,14 @@ function buildStore({
     const loading = !entries.has(file);
     const item = entry(file, emptyParticipation);
     const raw = item.value;
-    item.value = normalizeParticipation(raw);
+    const participation = normalizeParticipation(raw);
+    item.value = participation;
     if (loading && (!isRecord(raw) || !Array.isArray(raw.episodes))) {
       log.warn('store: participation store replaced', { placeId, reason: 'malformed' });
-    } else if (loading && raw.episodes.length > item.value.episodes.length) {
+    } else if (loading && raw.episodes.length > participation.episodes.length) {
       log.warn('store: participation episodes dropped', {
         placeId,
-        dropped: raw.episodes.length - item.value.episodes.length,
+        dropped: raw.episodes.length - participation.episodes.length,
       });
     }
     return item;
@@ -2652,20 +2655,21 @@ function buildStore({
     setPingsOff(placeId: string, accountId: string, off: boolean): boolean {
       const item = entry(placeFile(placeId), emptyPlace);
       normalizePlace(item.value);
-      if (!isRecord(item.value)) return false;
+      const place = item.value;
+      if (!isRecord(place)) return false;
       const id = String(accountId);
-      const has = item.value.pingsOff.includes(id);
+      const has = place.pingsOff.includes(id);
       if (off === true && !has) {
-        item.value.pingsOff = [...item.value.pingsOff, id];
+        place.pingsOff = [...place.pingsOff, id];
         item.dirty = true;
       } else if (off !== true && has) {
-        item.value.pingsOff = item.value.pingsOff.filter((other: Untyped) => other !== id);
+        place.pingsOff = place.pingsOff.filter((other: Untyped) => other !== id);
         item.dirty = true;
       }
       // Written at once: the place unit goes to the database now, not at the next flush.
       flushEntry(placeFile(placeId), item);
       if (outbox) outbox.push();
-      return item.value.pingsOff.includes(id);
+      return place.pingsOff.includes(id);
     },
 
     /**
@@ -3060,9 +3064,10 @@ function buildStore({
       stamp: { at: string; channels: number; messages: number }
     ): { at: string; channels: number; messages: number } | null {
       const item = gifsEntry();
-      item.value = stampGifBackfill(item.value, placeId, stamp);
+      const library = stampGifBackfill(item.value, placeId, stamp);
+      item.value = library;
       item.dirty = true;
-      return item.value.backfills[placeId] ?? null;
+      return library.backfills[placeId] ?? null;
     },
 
     /** The cached file of the entry under `key` (a library key or a native id), which moves it under the content hash. */
@@ -3530,15 +3535,15 @@ function buildStore({
       const list = Array.isArray(where.holder[where.key]) ? where.holder[where.key] : [];
       const strings = target.strings === true;
       // An entry archived before links were kept out of memory loses them on the way back.
-      const text = isRecord(entry.text) ? withoutLinks(structuredClone(entry.text), Object.keys(entry.text)) : {};
+      const textFields = isRecord(entry.text) ? withoutLinks(structuredClone(entry.text), Object.keys(entry.text)) : {};
       let value;
       if (strings) {
-        value = typeof text.text === 'string' && text.text.trim() ? text.text : null;
+        value = typeof textFields.text === 'string' && textFields.text.trim() ? textFields.text : null;
         if (value === null) return { restored: false, reason: 'kind' };
       } else {
         value = {
           ...(isRecord(entry.stored) ? structuredClone(entry.stored) : {}),
-          ...text,
+          ...textFields,
           ...(isFiniteNumber(entry.weight) ? { weight: entry.weight } : {}),
           itemId: entry.itemId,
         };
@@ -3587,8 +3592,8 @@ function buildStore({
       const place = dbPlace(stateFile);
       if (place.file) stateEntry.value = readJson(stateFile, {});
       else {
-        const found = seam.run(() => unitValue(seam.db(), place.key ?? place.rel));
-        stateEntry.value = found.found ? found.value : {};
+        const unit = seam.run(() => unitValue(seam.db(), place.key ?? place.rel));
+        stateEntry.value = unit.found ? unit.value : {};
       }
       stateEntry.dirty = false;
     },
