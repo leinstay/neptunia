@@ -735,6 +735,7 @@ export function createAgentEngine({
         ...(task.route === undefined ? {} : { route: task.route }),
         ...(task.secrets?.openrouterKey === undefined ? {} : { routeKey: task.secrets.openrouterKey }),
         ...(task.secrets?.proxy === undefined ? {} : { proxy: task.secrets.proxy }),
+        searchProvider: task.searchProvider ?? profile.defaultSearchProvider,
       },
       subharness
     );

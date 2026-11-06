@@ -66,6 +66,8 @@ export type AgentRun = {
   env?: Readonly<Record<string, string>>;
   /** the engine proxy in force for this run; absent or null, the child gets no proxy variable */
   proxy?: string | null;
+  /** the search provider of the run; `exa` switches OpenCode's own `websearch` on (Exa's free endpoint, no key) */
+  searchProvider?: string | null;
   /** what the session map ties this run to: the task or the inspection */
   runId?: string;
 };
@@ -249,6 +251,7 @@ export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendRes
   if ('ok' in settled) return settled;
   const { name, mode, model, effort, keyValue, provider } = settled;
   const env = runEnvOf(run, envOf(deps, mode, keyValue));
+  if (name === 'opencode' && run.searchProvider === 'exa') env.OPENCODE_ENABLE_EXA = '1';
   if (mode === 'full' || mode === 'sudo') log.info('subharness: run without a sandbox', { agent: run.agent, mode });
   const options: BackendRunOptions = {
     cwd: run.cwd,

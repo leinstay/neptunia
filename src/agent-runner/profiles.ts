@@ -42,9 +42,9 @@
 // `edit`, `write`, `patch`, `task` (subagents), `question`, `skill`,
 // `todowrite`, `lsp`, `plan_exit`, `execute`, `external_directory`; every
 // tool no class asks for is denied (ALWAYS_DENIED). v1.19.3 shows `websearch`
-// only with Exa or Parallel switched on directly, which this engine never
-// does (Exa only through OpenRouter): the scout agent searches with its
-// harness's own tools instead. The permission runtime takes the LAST matching rule,
+// only with Exa or Parallel switched on directly. The engine switches Exa on with
+// `OPENCODE_ENABLE_EXA=1` for an OpenCode run whose search provider is `exa`; the
+// free endpoint takes no key (owner's word of 2026-11-06). The permission runtime takes the LAST matching rule,
 // so for `bash` a catch-all `*: deny` comes first and the allowed commands
 // after (then a class's staged rules, then the denies), and for a path tool (and the server class's `external_directory`)
 // `*: allow` comes first and the withheld-path denies after. The web search provider is chosen by an environment variable
@@ -1374,7 +1374,7 @@ function makeProfile(definition: WorkerDefinition, paths: ResolvedAgentPaths): P
      * (`{ input, output }` USD per million tokens) sets the catalog entry so
      * the cost estimate is right; `toolResultChars` caps each tool result
      * (`tool_output.max_bytes`); `scope` adds the withheld-path denies when
-     * filtered. The web search provider is set by the environment, not here.
+     * filtered. `websearch` is switched on by the environment (`OPENCODE_ENABLE_EXA`), not here.
      */
     buildConfig({
       systemPrompt,
