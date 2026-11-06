@@ -17,9 +17,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { serviceCredential } from './keys/file.ts';
 import { startEngineProxy } from './net/engine-proxy.ts';
-import { assertPersonaLayout } from './config/files.ts';
 
-import { localConfigPath, readInterfaceConfig } from './config/files.ts';
+import { assertPersonaLayout, localConfigPath, readInterfaceConfig } from './config/files.ts';
 import { createHot } from './hot.ts';
 import { log, onLog } from './log.ts';
 import { createLoopWatch, loopStallMs } from './loop-watch.ts';
@@ -159,8 +158,9 @@ import { DEFAULT_BASE_URL } from './subharness/models.ts';
 import { backendUsageReader, execUsage, spawnUsageChild } from './subharness/usage.ts';
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
-import { clearMemoryPath } from './subharness/memory-path.ts';
-import { memoryPath, memoryPathText } from './subharness/memory-path.ts';
+import { clearMemoryPath, memoryPath, memoryPathText } from './subharness/memory-path.ts';
+import { clearSubscriptionPath } from './subharness/subscription-path.ts';
+import { coreSubscription } from './subharness/subscription-client.ts';
 import { memoryWriterClient } from './subharness/memory-writer.ts';
 import { createMemoryWatch, memoryProbe } from './subharness/memory-probe.ts';
 import { recordCoreCheck } from './setup/model-check.ts';
@@ -499,7 +499,8 @@ async function buildCore(
       }),
       roleHealth
     )) as ChatClient;
-  const llm = archivedLlm(directLlm, requestArchive);
+  const subscription = coreSubscription({ direct: directLlm, paths, hot, state: processState, usage });
+  const llm = archivedLlm(subscription.llm, requestArchive);
   // Her memory session through a subharness never reaches the chat client, so it has its own archive wrap.
   sessionClient = archivedLlm(
     memoryWriterClient({
@@ -724,7 +725,7 @@ async function buildCore(
     path: LINK_SOCKET,
     maxFrameBytes: MAX_FRAME_BYTES,
     log,
-    onConnection: (transport) => openInterfaceLink(transport),
+    onConnection: (transport) => subscription.serve(transport, openInterfaceLink),
   });
   cleanups.push(() => linkServer.close());
   function openInterfaceLink(transport: Transport) {
@@ -1391,9 +1392,10 @@ async function buildCore(
     recordCheck: (role, check) => {
       if (role === 'core') recordCoreCheck(paths.dataDir, { ...check, at: clock() });
     },
-    // `/model set memory <model>` returns the writer to the direct path once the model passed its check.
+    // `/model set memory|core <model>` returns the writer or her turns to the direct path once the model passed its check.
     directPath: (role) => {
       if (role === 'memory') clearMemoryPath(paths.privateDir);
+      if (role === 'core') clearSubscriptionPath(paths.privateDir, 'core');
     },
     // `keys check memory` proves the path the writer runs on: the probe through the backend while keys.json names one.
     memoryPath: () => memoryPath(paths.privateDir),

@@ -152,4 +152,28 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'text':
       'Timeout used when the caller marks the request `long: true` (the route classifier does this for a large channel list)',
   },
+  {
+    'key': 'llm.subscription.fallback',
+    'types': ['boolean'],
+    'reader': 'src/subharness/subscription-client.ts',
+    'default': false,
+    'text':
+      'While her core runs through a subscription CLI (`/model set core <model> --via claude` or `--via codex`), `true` sends a step that failed on it, and every later step of that turn, to the API with the same messages. With `false` the step fails and she reads its code. A refusal of the token or daily rail never goes to the API. Read at every failed step',
+  },
+  {
+    'key': 'llm.subscription.thinking',
+    'types': ['boolean'],
+    'reader': 'src/subharness/subscription-client.ts',
+    'default': false,
+    'text':
+      "`false` turns Claude's native thinking off with `MAX_THINKING_TOKENS=0` and asks Codex for no reasoning summary. Codex has no switch that turns a reasoning model's thinking off. Read at the start of each run",
+  },
+  {
+    'key': 'llm.subscription.holdMs',
+    'types': ['number'],
+    'reader': 'src/subharness/subscription-client.ts',
+    'default': 60000,
+    'text':
+      'How long a subscription run whose last step ended on tool calls waits for its next step before its process is killed (ms). Read after each such step',
+  },
 ];

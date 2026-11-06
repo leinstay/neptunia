@@ -6,6 +6,6 @@ Then ask yourself whether something in how you work deserves a change. Look for 
 
 When you find a real need, compare it with the tasks you already have, then file it with `task.propose`. The people who build it never saw your turns and read only what you write: say what went wrong or repeated, name the turns where you saw it, and say what would be better. A procedure over tools you already hold is a `skill`, a change to the engine's behaviour is a `fix`. Keep it to one need.
 
-A task worth filing has a need you can point at. When you see none, `<skip/>` is a complete answer and costs you nothing.
+Before you propose anything, look at the skills you already have in `<wake>` and reuse or improve one of them when it covers the need, rather than filing a new skill. A task worth filing has a need you can point at. When you see none, `<skip/>` is a complete answer and costs you nothing.
 
 You decide here and someone else does the work: a filed task starts on its own. You do not build it in this wake and you cannot start anyone on it. Posts, intentions, web searches and errands belong to other turns. Your answers on older tasks do not end the wake. One filed task ends it, and so does `<skip/>`. If a filing is refused, read why, then correct it or skip.

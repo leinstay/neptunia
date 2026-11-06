@@ -65,6 +65,11 @@
       "afterMs": 2500,
       "timeoutMs": 8000,
       "longTimeoutMs": 20000
+    },
+    "subscription": {
+      "fallback": false,
+      "thinking": false,
+      "holdMs": 60000
     }
   },
   "memoryDb": {

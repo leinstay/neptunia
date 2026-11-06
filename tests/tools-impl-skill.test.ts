@@ -5,6 +5,7 @@
 // temporary folders (tests/fixtures/skills-rig.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +14,7 @@ import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { grantedToPersona } from '../src/tools/access.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
+import { packageHash } from '../src/skills/package.ts';
 import type { SkillsPort } from '../src/skills/port.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { skillText, skillsRig } from './fixtures/skills-rig.ts';
@@ -129,8 +131,9 @@ test('skill.run runs the activated version only, with the credentials its script
   // Bug: `skill.run` runs a newer edit, a script nobody declared, or hands a script every credential.
   const dataDir = tempDir('nep-skill-tool-');
   const skillDir = path.join(dataDir, 'skills', 'echoer');
-  const hash = 'h1';
-  const snapshot = path.join(skillDir, '.versions', hash);
+  // Stage AJ: `skill.run` hashes the snapshot again, so the fixture carries the real package hash, not a made-up one.
+  const snapshotText = skillText('echoer', 'I repeat what I am told', ['skill.run']);
+  const snapshot = path.join(skillDir, '.versions', 'building');
   fs.mkdirSync(path.join(snapshot, 'scripts'), { recursive: true });
   fs.writeFileSync(
     path.join(snapshot, 'setup.json'),
@@ -145,6 +148,9 @@ test('skill.run runs the activated version only, with the credentials its script
   const echo = `console.log(JSON.stringify({ok:true,text:String(process.env.SKILL_TOKEN)+'/'+String(process.env.SKILL_OTHER)}))`;
   fs.writeFileSync(path.join(snapshot, 'scripts', 'say.cjs'), echo);
   fs.writeFileSync(path.join(snapshot, 'scripts', 'bare.cjs'), echo);
+  fs.writeFileSync(path.join(snapshot, 'SKILL.md'), snapshotText);
+  const hash = packageHash(snapshot, snapshotText, createHash('sha256').update(snapshotText).digest('hex'));
+  fs.renameSync(snapshot, path.join(skillDir, '.versions', hash));
   fs.mkdirSync(path.join(skillDir, 'scripts'), { recursive: true });
   fs.writeFileSync(path.join(skillDir, 'scripts', 'say.cjs'), `console.log(JSON.stringify({ok:true,text:'edited'}))`);
   fs.writeFileSync(path.join(skillDir, 'credentials.json'), JSON.stringify({ token: 'abc', other: 'nope' }));

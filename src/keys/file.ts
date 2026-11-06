@@ -32,6 +32,10 @@ export type KeyStore = {
     providers: Record<string, string>;
     /** the memory writer's path through a subharness (src/subharness/memory-path.ts); null is the direct path */
     memory: MemoryPathRecord | null;
+    /** her core's subscription route (src/subharness/subscription-path.ts), in the memory record's shape; null is the API */
+    core: MemoryPathRecord | null;
+    /** the simulation's subscription route, in the same shape; null is the API */
+    simulation: MemoryPathRecord | null;
   };
   simulation: { key: string | null };
 };
@@ -44,7 +48,7 @@ export type SubharnessAgent = (typeof SUBHARNESS_AGENTS)[number];
 export const MEMORY_BACKENDS = ['codex', 'claude'] as const;
 export type MemoryBackend = (typeof MEMORY_BACKENDS)[number];
 
-/** keys.json `subharness.memory`: the backend, model and effort the memory writer runs on. */
+/** keys.json `subharness.memory`, `subharness.core` and `subharness.simulation`: the backend, model and effort a path runs on. */
 export type MemoryPathRecord = { backend: MemoryBackend; model: string; effort: EffortLevel | null };
 
 /** The file's name inside the private directory. */
@@ -99,9 +103,9 @@ function effortsOf(value: unknown): Record<string, EffortLevel> {
 }
 
 /**
- * The memory writer's record, or null for one whose backend cannot carry the writer, whose model is no non-empty
- * string or whose effort is neither null nor an effort level. It is kept apart from `uses`, so the writer never runs
- * through a backend nobody chose for it.
+ * A path record (the memory writer's, the core's or the simulation's), or null for one whose backend cannot carry it,
+ * whose model is no non-empty string or whose effort is neither null nor an effort level. It is kept apart from `uses`,
+ * so a path never runs through a backend nobody chose for it.
  */
 function memoryOf(value: unknown): MemoryPathRecord | null {
   if (!isRecord(value)) return null;
@@ -119,7 +123,17 @@ export function emptyKeys(): KeyStore {
     core: [],
     extra: {},
     roles: {},
-    subharness: { key: null, modes: {}, models: {}, efforts: {}, uses: {}, providers: {}, memory: null },
+    subharness: {
+      key: null,
+      modes: {},
+      models: {},
+      efforts: {},
+      uses: {},
+      providers: {},
+      memory: null,
+      core: null,
+      simulation: null,
+    },
     simulation: { key: null },
   };
 }
@@ -156,6 +170,8 @@ export function readKeys(privateDir: string): KeyStore {
       uses: usesOf(sub),
       providers: textMap(sub.providers),
       memory: memoryOf(sub.memory),
+      core: memoryOf(sub.core),
+      simulation: memoryOf(sub.simulation),
     },
     simulation: { key: typeof sim.key === 'string' ? sim.key : null },
   };

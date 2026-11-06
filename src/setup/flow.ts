@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createKeyStore } from '../keys/store.ts';
+import { subscriptionPath, subscriptionPathText } from '../subharness/subscription-path.ts';
 import { CLI_CLIENT, OWNER_CLIENT, provisionClients } from './clients.ts';
 import type { Ask } from './mechanics.ts';
 import { REPAIRS, REQUIREMENTS, evaluateReadiness } from './readiness.ts';
@@ -110,8 +111,13 @@ async function coreModelStep(options: SetupOptions, askCore: LinkAsk, context: F
     return commanded(askCore, { name: 'keys.core.add', args: { name } });
   }
   const offered = context.remembered(MODEL_ANSWER);
+  const route = subscriptionPath(options.privateDir, 'core');
+  const onRoute =
+    route.kind === 'api'
+      ? ''
+      : ` Her turns run ${subscriptionPathText(route)} now; a model named here moves them back to the API.`;
   const model = (
-    await context.ask('The core model, as OpenRouter names it (blank checks the one set):', offered)
+    await context.ask(`The core model, as OpenRouter names it (blank checks the one set):${onRoute}`, offered)
   ).trim();
   if (model === '') return commanded(askCore, { name: 'keys.check', args: { role: 'core' } });
   context.remember(MODEL_ANSWER, model);

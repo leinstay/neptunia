@@ -45,7 +45,7 @@ The active skill index contains descriptions; `skill.read` retrieves the procedu
 
 ## Output
 
-The conversation parser recognizes `<think>`, `<msg>`, `<react>` and `<skip/>`. The tracked `format.md` tells her of a unicode emoji in `<react>`. A custom one as `:name:` still resolves through the emoji index, and the interface's capability text says so where an interface offers them. A message can name a reply target, and a reaction names its target message. Native tool calls arrive separately; textual tool calls are extracted before the conversation parser runs.
+The conversation parser recognizes `<think>`, `<msg>`, `<react>` and `<skip/>`. The tracked `format.md` tells her of a unicode emoji in `<react>`. A custom one as `:name:` still resolves through the emoji index, and the interface's capability text says so where an interface offers them. A message can name a reply target, and a reaction names its target message. Native tool calls arrive separately; textual tool calls are extracted before the conversation parser runs. On Claude's subscription route the model sees each tool as `mcp__nep__<name>`, and `bareToolName` in `src/tools/gateway.ts` strips the prefix before anything reads the call.
 
 `parseOutput` in `src/llm/parse.ts` reads the `<msg>` tags outside inline code and fences, so a tag example in code stays literal text. An opening `<msg>` while a message is open ends that message there. A last `<msg>` that is never closed ends at the first `<react>` or `<skip/>` after it, or with the output. Its words go out when the answer stopped on its own. The caller passes `cutOff` for an answer cut at the output cap, as `src/turn/phases/response.ts` and the sandbox in `src/behavior/sandbox.ts` do for the finish reason `length`, and that last message is dropped. A `</msg>` with no open message is never sent.
 
@@ -288,6 +288,8 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `runner-down` | failed | - | `tools.result.reasons.runner-down` |
 | `board-unavailable` | failed | - | `tools.result.reasons.board-unavailable` |
 | `write-failed` | failed | - | `tools.result.reasons.write-failed` |
+| `skill-tampered` | failed | - | `tools.result.reasons.skill-tampered` |
+| `skill-missing` | failed | - | `tools.result.reasons.skill-missing` |
 | `file-unreadable` | failed | - | `tools.result.reasons.file-unreadable` |
 | `attachment-too-large` | failed | - | `tools.result.reasons.attachment-too-large` |
 | `gif-failed` | partial | - | `tools.result.reasons.gif-failed` |

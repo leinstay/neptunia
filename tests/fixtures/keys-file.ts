@@ -29,6 +29,10 @@ export type KeysFile = {
     uses?: Record<string, Backend>;
     /** the memory writer's subharness path; absent or null is the direct path */
     memory?: { backend: string; model: string; effort: string | null } | null;
+    /** the core's subscription route; absent or null is the API route */
+    core?: { backend: string; model: string; effort: string | null } | null;
+    /** the simulation's subscription route; absent or null is the API route */
+    simulation?: { backend: string; model: string; effort: string | null } | null;
   };
   simulation: { key: string | null };
 };
