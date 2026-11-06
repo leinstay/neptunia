@@ -50,20 +50,23 @@ test('splitCandidate: a missed-answer recovery and an unprompted turn never are'
   assert.equal(splitCandidate(null, null, config()), false);
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('parseSplitAnswer: the word one is one request', () => {
-  assert.deepEqual(parseSplitAnswer('one', 3), { parts: null, reason: 'one' });
-  assert.deepEqual(parseSplitAnswer('  One \n', 3), { parts: null, reason: 'one' });
+  assert.deepEqual(parseSplitAnswer('{"parts":[]}', 3), { parts: null, reason: 'one' });
+  assert.deepEqual(parseSplitAnswer('  {"parts":["κοίτα το κανάλι"]} \n', 3), { parts: null, reason: 'one' });
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('parseSplitAnswer: dash lines are the parts, whitespace collapsed', () => {
-  assert.deepEqual(parseSplitAnswer('- ποιος είναι ο Νίκος\n\n-   κοίτα  το κανάλι\n', 3), {
+  assert.deepEqual(parseSplitAnswer(JSON.stringify({ parts: ['ποιος είναι ο Νίκος', '  κοίτα  το κανάλι\n'] }), 3), {
     parts: ['ποιος είναι ο Νίκος', 'κοίτα το κανάλι'],
     reason: 'parts',
   });
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('parseSplitAnswer: more parts than maxTasks are cut', () => {
-  assert.deepEqual(parseSplitAnswer('- a\n- b\n- c\n- d', 3).parts, ['a', 'b', 'c']);
+  assert.deepEqual(parseSplitAnswer('{"parts":["a","b","c","d"]}', 3).parts, ['a', 'b', 'c']);
 });
 
 test('parseSplitAnswer: anything else is one request, unparsed', () => {
@@ -90,63 +93,43 @@ const ARGUMENT = 'αφού ο καθένας ζει μόνος του και κ�
 const CLOSER = 'τι μπορεί να κάνει λοιπόν μια φίλη;';
 const FOLD = { maxTasks: 4, minPartChars: 30 };
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('parseSplitAnswer: a two-part answer with a short opener folds to one', () => {
-  assert.deepEqual(
-    parseSplitAnswer(
-      `- ${OPENER}
-- ${ARGUMENT} ${CLOSER}`,
-      FOLD
-    ),
-    { parts: null, reason: 'folded' }
-  );
+  assert.deepEqual(parseSplitAnswer(JSON.stringify({ parts: [OPENER, `${ARGUMENT} ${CLOSER}`] }), FOLD), {
+    parts: null,
+    reason: 'folded',
+  });
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('parseSplitAnswer: a short middle part joins the next one', () => {
-  assert.deepEqual(
-    parseSplitAnswer(
-      `- ${ARGUMENT}
-- ${OPENER}
-- ${CLOSER}`,
-      FOLD
-    ),
-    {
-      parts: [ARGUMENT, `${OPENER} ${CLOSER}`],
-      reason: 'parts',
-    }
-  );
+  assert.deepEqual(parseSplitAnswer(JSON.stringify({ parts: [ARGUMENT, OPENER, CLOSER] }), FOLD), {
+    parts: [ARGUMENT, `${OPENER} ${CLOSER}`],
+    reason: 'parts',
+  });
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('parseSplitAnswer: a short last part joins the previous one', () => {
-  assert.deepEqual(
-    parseSplitAnswer(
-      `- ${ARGUMENT}
-- ${CLOSER}
-- ${OPENER}`,
-      FOLD
-    ),
-    {
-      parts: [ARGUMENT, `${CLOSER} ${OPENER}`],
-      reason: 'parts',
-    }
-  );
+  assert.deepEqual(parseSplitAnswer(JSON.stringify({ parts: [ARGUMENT, CLOSER, OPENER] }), FOLD), {
+    parts: [ARGUMENT, `${CLOSER} ${OPENER}`],
+    reason: 'parts',
+  });
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('parseSplitAnswer: minPartChars 0 or a bare maxTasks number folds nothing', () => {
-  const answer = `- ${OPENER}
-- ${ARGUMENT}`;
+  const answer = JSON.stringify({ parts: [OPENER, ARGUMENT] });
   assert.deepEqual(parseSplitAnswer(answer, { maxTasks: 4, minPartChars: 0 }).parts, [OPENER, ARGUMENT]);
   assert.deepEqual(parseSplitAnswer(answer, 4).parts, [OPENER, ARGUMENT]);
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('parseSplitAnswer: settings without minPartChars fold at the shipped default', () => {
-  assert.deepEqual(
-    parseSplitAnswer(
-      `- ναι;
-- ${ARGUMENT}`,
-      { maxTasks: 4 }
-    ),
-    { parts: null, reason: 'folded' }
-  );
+  assert.deepEqual(parseSplitAnswer(JSON.stringify({ parts: ['ναι;', ARGUMENT] }), { maxTasks: 4 }), {
+    parts: null,
+    reason: 'folded',
+  });
 });
 
 test('foldShortParts: a part exactly at the minimum stays', () => {

@@ -155,10 +155,13 @@ test('reads each address answer with its parser and counts yes, overheard and no
 });
 
 // Bug: every split answer is counted as several, or a list the parser refuses is counted as a split that never happened.
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('counts the splitter by one or several, as its parser reads the answer', () => {
   const handle = freshHandle();
-  const several = '- the first question stands on its own here\n- the second question stands on its own too';
-  const answers = ['one', 'One.', several, '1. a numbered list the parser refuses'];
+  const several = JSON.stringify({
+    parts: ['the first question stands on its own here', 'the second question stands on its own too'],
+  });
+  const answers = ['{"parts":[]}', '{"parts":["one thing"]}', several, '1. a numbered list the parser refuses'];
   answers.forEach((answer, n) => {
     request(handle, `s${n}`, { at: NOW - HOUR, role: 'analyzer', purpose: 'split', answer });
   });

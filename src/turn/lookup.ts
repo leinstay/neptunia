@@ -25,6 +25,17 @@ import { mentionDirectory } from './mentions.ts';
 import type { ClassifierLlm, Rewatch } from './rewatch.ts';
 import type { TriggerKind } from './triggers.ts';
 
+/** The schema of the splitter's answer, handed to the client as `responseFormat`: `{ "parts": [text, ...] }`. */
+export const SPLIT_FORMAT = {
+  name: 'split',
+  schema: {
+    type: 'object',
+    properties: { parts: { type: 'array', items: { type: 'string' } } },
+    required: ['parts'],
+    additionalProperties: false,
+  },
+};
+
 /** The live config, as far as the lookup reads it; the settings functions read their own sections. */
 export type LookupConfig = ClassifierContextInput['config'] & {
   bot?: { timezone?: string } | null;
@@ -329,11 +340,11 @@ export function createLookup(ctx: LookupContext): Lookup {
    * `analyzer` request: roleRequestOptions, purpose `split`) reads the last
    * `split.contextMessages` messages of `history` before the trigger (the
    * captions this turn has at its start) and the trigger itself, and answers
-   * `one` or 2..maxTasks lines `- <part>` (parseSplitAnswer). Resolves the
-   * parts, or null for one request: `one`, a failed call (`split: failed`
+   * the object of SPLIT_FORMAT, `{ "parts": [...] }` (parseSplitAnswer). Resolves
+   * the parts, or null for one request: no part or one, a failed call (`split: failed`
    * with the rail's code or `llm-error` and the HTTP status), an empty or
    * unparsable answer (`split: failed`, `empty` / `unparsed`). Every answer
-   * that parsed logs `split: verdict` (`parts`: 1 for `one`, `ms`, and `late`
+   * that parsed logs `split: verdict` (`parts`: 1 for one request, `ms`, and `late`
    * once the turn went on without it, `isLate()`). Codes and counts only,
    * never a part. Never throws.
    */
@@ -377,6 +388,7 @@ export function createLookup(ctx: LookupContext): Lookup {
             maxOutputTokens: settings.maxOutputTokens,
             purpose: 'split',
           }),
+          responseFormat: SPLIT_FORMAT,
         }
       );
     } catch (err) {

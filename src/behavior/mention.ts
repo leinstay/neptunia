@@ -2,6 +2,7 @@
 // window and the per-author rail in front of a turn, and the answers of the address classifier. A flag is a fact an
 // interface reports; whether the line was said to her is the classifier's verdict.
 
+import { strictJsonObject } from '../llm/parse.ts';
 import { MINUTE_MS } from '../time.ts';
 import type { Untyped } from '../tools/types.ts';
 
@@ -141,15 +142,7 @@ const ADDRESS_ANSWERS: ReadonlySet<unknown> = new Set(['yes', 'overheard', 'no']
  * `answer`, or a value outside the three. The caller treats null as a failed call.
  */
 export function parseAddressAnswer(text: unknown): 'yes' | 'overheard' | 'no' | null {
-  if (typeof text !== 'string') return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-  const { answer } = parsed as { answer?: unknown };
+  const answer = strictJsonObject(text)?.answer;
   return ADDRESS_ANSWERS.has(answer) ? (answer as 'yes' | 'overheard' | 'no') : null;
 }
 

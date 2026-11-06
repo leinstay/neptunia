@@ -526,16 +526,21 @@ test('sweepPlan: expired, answered in the history, out of the window, owed alrea
   );
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('parseMissedAnswer: one verdict per line; a missing or conflicting one is uncertain; an empty answer is unchecked', () => {
-  assert.deepEqual(parseMissedAnswer('1: owed\n2. Resolved\n3) intentional-skip\n4 - stale', 4).verdicts, [
+  const entries = (...pairs: Array<[number, string]>) =>
+    JSON.stringify({ verdicts: pairs.map(([n, verdict]) => ({ n, verdict })) });
+  assert.deepEqual(
+    parseMissedAnswer(entries([1, 'owed'], [2, 'resolved'], [3, 'intentional-skip'], [4, 'stale']), 4).verdicts,
+    ['owed', 'resolved', 'intentional-skip', 'stale']
+  );
+  assert.deepEqual(parseMissedAnswer(entries([2, 'owed'], [9, 'owed']), 3).verdicts, [
+    'uncertain',
     'owed',
-    'resolved',
-    'intentional-skip',
-    'stale',
+    'uncertain',
   ]);
-  assert.deepEqual(parseMissedAnswer('2: owed\n9: owed\nnoise', 3).verdicts, ['uncertain', 'owed', 'uncertain']);
-  assert.deepEqual(parseMissedAnswer('1: owed\n1: stale', 1).verdicts, ['uncertain']);
-  assert.deepEqual(parseMissedAnswer('1: maybe', 1).verdicts, ['uncertain']);
+  assert.deepEqual(parseMissedAnswer(entries([1, 'owed'], [1, 'stale']), 1).verdicts, ['uncertain']);
+  assert.deepEqual(parseMissedAnswer(entries([1, 'maybe']), 1).verdicts, ['uncertain']);
   assert.deepEqual(parseMissedAnswer('  ', 2), { verdicts: [UNCHECKED, UNCHECKED], empty: true });
 });
 
@@ -791,6 +796,7 @@ test('createMissed: the sweep waits sweepDelaySeconds after the last event, push
 });
 
 // PR 7d: the recovery turn is code, so the owed one gets its turn; the shadow mode went with the switch.
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('createMissed: the sweep filters by code and asks the helper once for the rest; the owed one gets its turn', async () => {
   const history = [
     msg({ id: 'm1', content: 'πού είσαι;', ts: T0 }),
@@ -798,7 +804,7 @@ test('createMissed: the sweep filters by code and asks the helper once for the r
     msg({ id: 'm3', authorId: 'u3', authorName: 'Léa', ts: T0 + 2000 }),
     msg({ id: 's1', self: true, ts: T0 + 3000, replyToId: 'm3' }),
   ];
-  const llm = fakeLlm('1: owed\n2: stale');
+  const llm = fakeLlm('{"verdicts":[{"n":1,"verdict":"owed"},{"n":2,"verdict":"stale"}]}');
   const turns = fakeTurns();
   const { missed, timers, journal, clock } = scene({ history, llm, turns });
   missed.noteFact(fact('gate-failed', history[0]));
@@ -864,9 +870,10 @@ test('createMissed: a failed or timed-out helper leaves every candidate unchecke
   }
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('createMissed: no sweep while paused', async () => {
   const history = [msg({ id: 'm1', ts: T0 })];
-  const llm = fakeLlm('1: owed');
+  const llm = fakeLlm('{"verdicts":[{"n":1,"verdict":"owed"}]}');
   const { missed, timers, store } = scene({ history, llm });
   missed.noteFact(fact('gate-failed', history[0]));
   store.state.data.paused = true;
@@ -877,6 +884,7 @@ test('createMissed: no sweep while paused', async () => {
 
 // ---- recovery ---------------------------------------------------------------------------
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('createMissed: recovery starts one turn per channel with every owed candidate, the earliest as trigger', async () => {
   const history = [
     msg({ id: 'm1', content: 'πού είσαι;', ts: T0 }),
@@ -885,7 +893,7 @@ test('createMissed: recovery starts one turn per channel with every owed candida
   const turns = fakeTurns({ outcome: 'spoke' });
   const { missed, timers, journal } = scene({
     history,
-    llm: fakeLlm('1: owed\n2: owed'),
+    llm: fakeLlm('{"verdicts":[{"n":1,"verdict":"owed"},{"n":2,"verdict":"owed"}]}'),
     turns,
     config: baseConfig(),
   });
@@ -914,10 +922,11 @@ test('createMissed: recovery starts one turn per channel with every owed candida
   assert.deepEqual([recovery!.messageIds, recovery!.triggerId, recovery!.outcome], [['m1', 'm2'], 'm1', 'spoke']);
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('createMissed: a second owed candidate inside the channel cooldown waits for it; one attempt per candidate', async () => {
   const history = [msg({ id: 'm1', ts: T0 })];
   const turns = fakeTurns({ outcome: 'error' });
-  const llm = fakeLlm('1: owed');
+  const llm = fakeLlm('{"verdicts":[{"n":1,"verdict":"owed"}]}');
   const { missed, timers, clock, fetched } = scene({
     history,
     llm,
@@ -955,6 +964,7 @@ test('createMissed: a second owed candidate inside the channel cooldown waits fo
   assert.equal(turns.calls[1].trigger.id, 'm2');
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('createMissed: the pre-post check fails once she spoke in the channel or another turn answered it', async () => {
   const history = [msg({ id: 'm1', ts: T0 })];
   let checks: Array<boolean> = [];
@@ -974,7 +984,7 @@ test('createMissed: the pre-post check fails once she spoke in the channel or an
   });
   const { missed, timers } = scene({
     history,
-    llm: fakeLlm('1: owed'),
+    llm: fakeLlm('{"verdicts":[{"n":1,"verdict":"owed"}]}'),
     turns,
     config: baseConfig(),
   });
@@ -987,7 +997,7 @@ test('createMissed: the pre-post check fails once she spoke in the channel or an
   checks = [];
   const second = scene({
     history,
-    llm: fakeLlm('1: owed'),
+    llm: fakeLlm('{"verdicts":[{"n":1,"verdict":"owed"}]}'),
     turns: fakeTurns({ onRun: (params: TurnCall) => checks.push(params.stillDue()) && { outcome: 'not-now' } }),
     config: baseConfig(),
   });
@@ -997,11 +1007,12 @@ test('createMissed: the pre-post check fails once she spoke in the channel or an
   assert.deepEqual(checks, [false]);
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('createMissed: no recovery where the bot cannot write, and a busy attention holds it', async () => {
   const history = [msg({ id: 'm1', ts: T0 })];
   const mute = scene({
     history,
-    llm: fakeLlm('1: owed'),
+    llm: fakeLlm('{"verdicts":[{"n":1,"verdict":"owed"}]}'),
     canSend: () => false,
     config: baseConfig(),
   });
@@ -1012,7 +1023,7 @@ test('createMissed: no recovery where the bot cannot write, and a busy attention
 
   const busy = scene({
     history,
-    llm: fakeLlm('1: owed'),
+    llm: fakeLlm('{"verdicts":[{"n":1,"verdict":"owed"}]}'),
     turns: fakeTurns({ busy: true }),
     config: baseConfig(),
   });
@@ -1036,11 +1047,12 @@ test('createMissed: the reasons of a call that left the pending queue are candid
   );
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test("createMissed: a private chat's fact goes to that person's private journal and its recovery turn runs in the chat only after the gate", async () => {
   const dm = { id: 'd1', recipientId: 'u1' };
   const history = [msg({ id: 'm1', ts: T0, placeId: 'd1' })];
   const config = baseConfig();
-  const refused = scene({ history, llm: fakeLlm('1: owed'), channels: [dm], config });
+  const refused = scene({ history, llm: fakeLlm('{"verdicts":[{"n":1,"verdict":"owed"}]}'), channels: [dm], config });
   refused.missed.noteFact(fact('pending-full', history[0]));
   await refused.timers.fireAll();
   await flush();
@@ -1052,7 +1064,7 @@ test("createMissed: a private chat's fact goes to that person's private journal 
   );
 
   const seen: Array<Array<unknown>> = [];
-  const allowed = scene({ history, llm: fakeLlm('1: owed'), channels: [dm], config });
+  const allowed = scene({ history, llm: fakeLlm('{"verdicts":[{"n":1,"verdict":"owed"}]}'), channels: [dm], config });
   allowed.missed.setPrivateRecovery({
     allow: async (channel: { id: string }, trigger: { id: string }) => seen.push(['allow', channel.id, trigger.id]) > 0,
     after: async (channel: { id: string }, trigger: unknown, result: { outcome: string }) =>
