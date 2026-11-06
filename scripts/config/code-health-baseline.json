@@ -1562,8 +1562,8 @@
         "complexity": 42
       },
       "runInner": {
-        "complexity": 62,
-        "function-length": 382
+        "complexity": 59,
+        "function-length": 376
       },
       "runMain": {
         "complexity": 152
