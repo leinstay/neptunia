@@ -10,6 +10,7 @@ import { NO_OP } from '../../src/turn/journal.ts';
 import { withCapturedLogs } from './capture-logs.ts';
 import type { LogEntry } from './capture-logs.ts';
 import { labels } from './labels.ts';
+import { planAnswerText } from './plan-answer.ts';
 
 export const NOW = Date.UTC(2026, 10, 6, 12, 0, 0);
 const HOUR = 60 * 60 * 1000;
@@ -119,10 +120,11 @@ export async function prepare({
       state: { data: {} },
     },
     llm: {
-      complete: (messages) => {
+      // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+      complete: (messages, options) => {
         requests.push(structuredClone(messages));
         if (failing) return Promise.reject(new Error('the provider answered 502'));
-        return Promise.resolve({ text: JSON.stringify(answer), usage: {}, estimated: 5 });
+        return Promise.resolve({ text: planAnswerText(answer, options), usage: {}, estimated: 5 });
       },
     },
     calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },

@@ -655,7 +655,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
 
   const { createHot } = await import('../src/hot.ts');
   const { createRecall } = await import('../src/behavior/recall-run.ts');
-  const { parseQueryPlan } = await import('../src/behavior/query-builder.ts');
+  const { QUERY_PLAN_FORMAT, parseQueryPlan } = await import('../src/behavior/query-builder.ts');
   const { fallbackLookupPlan } = await import('../src/behavior/turn.ts');
   const { prefetchLanes } = await import('../src/behavior/prefetch.ts');
   const { classifierTranscript, fillPromptTemplate } = await import('../src/behavior/prompt.ts');
@@ -861,6 +861,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
             maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
             purpose: 'query-builder',
           }),
+          responseFormat: QUERY_PLAN_FORMAT,
         }
       );
     } catch (err) {

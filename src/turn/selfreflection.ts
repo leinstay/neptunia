@@ -22,8 +22,10 @@ import {
   DEFAULT_SET_KINDS,
   drawWeights,
   SELFREFLECTION_KINDS,
+  selfreflectionPlanFormat,
   selfreflectionTopic,
   isSetKind,
+  parsePlanAnswer,
   parseSeedFamilies,
   pickKind,
   pickSeeds,
@@ -43,7 +45,6 @@ import { buildSelfreflectionPlanRequest } from '../behavior/prompt.ts';
 import { audienceAllows } from '../behavior/snapshot.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { DailyCapError, TokenLimitError, hedgeSettings, railReason, roleRequestOptions } from '../llm/openrouter.ts';
-import { parseJsonObject } from '../llm/parse.ts';
 import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
@@ -256,7 +257,8 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
    * `selfreflection.historyPosts` entries built on: src/behavior/selfreflection.ts#usedSeedLines) and,
    * with an owner's topic (`params.topic`, src/behavior/selfreflection.ts#selfreflectionTopic),
    * a `<topic>` block after them; the topic also rides on the plan as its
-   * `topic` field (the `<plan>` block of the post). The answer goes through parseJsonObject and src/behavior/selfreflection.ts#validatePlan
+   * `topic` field (the `<plan>` block of the post). The request hands the client src/behavior/selfreflection.ts#selfreflectionPlanFormat over the kinds it offers,
+   * and the answer goes through parsePlanAnswer and validatePlan
    * (the given kind with an empty brief when the answer is missing or broken; `selfreflection.searchKinds`,
    * `selfreflection.pictureKinds`). A plan the planner answered keeps its
    * `seeding`: the combinations offered and the answer's `seed` (src/behavior/selfreflection.ts#planSeed). Before the
@@ -360,6 +362,7 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
         hedge && hedge.afterMs > 0 && hedge.roles.includes('analyzer')
           ? { hedge: { afterMs: hedge.afterMs, timeoutMs: planTimeoutMs } }
           : {};
+      const offeredKinds = Object.keys(kinds);
       let completion: unknown = null;
       try {
         completion = await llm.complete(request.messages, {
@@ -371,6 +374,7 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
             timeoutMs: planTimeoutMs,
           }),
           ...planHedge,
+          responseFormat: selfreflectionPlanFormat(offeredKinds),
         });
       } catch (err) {
         if (err instanceof DailyCapError || err instanceof TokenLimitError) throw err;
@@ -382,11 +386,8 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
         });
       }
       if (completion) {
-        try {
-          answer = parseJsonObject(textOf(completion));
-        } catch {
-          log.warn('selfreflection: plan failed', { channel: channel.id, reason: 'unparsed', status: null });
-        }
+        answer = parsePlanAnswer(textOf(completion), offeredKinds);
+        if (!answer) log.warn('selfreflection: plan failed', { channel: channel.id, reason: 'unparsed', status: null });
       }
     } else {
       log.warn('selfreflection: plan failed', { channel: channel.id, reason: 'no-prompt', status: null });

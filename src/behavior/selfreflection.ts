@@ -19,6 +19,7 @@
 // day plan in state.json and runs the post through the turn runner.
 
 import { fill } from '../format.ts';
+import { strictJsonObject } from '../llm/parse.ts';
 import { log } from '../log.ts';
 import { oneLine, clampText, stripUrls } from '../memory/clamp.ts';
 import { parseSchedule, slotsOfDay } from '../service/schedule.ts';
@@ -579,6 +580,47 @@ export function validatePlan(
   const brief = typeof answer.brief === 'string' ? clampText(oneLine(answer.brief), BRIEF_CHARS, { tolerance: 1 }) : '';
   const search = typeof answer.search === 'string' && searchable.includes(named) ? oneLine(answer.search) : '';
   return { kind: named, brief, search, picture, fallback: false };
+}
+
+/**
+ * The schema of the plan request's answer, handed to the client as `responseFormat`:
+ * `{ "kind", "brief", "search", "picture", "seed" }`, with `kind` one of `kinds`, the kinds that request offered.
+ */
+export function selfreflectionPlanFormat(kinds: ReadonlyArray<string>): { name: string; schema: object } {
+  return {
+    name: 'selfreflection-plan',
+    schema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: [...kinds] },
+        brief: { type: 'string' },
+        search: { type: 'string' },
+        picture: { type: 'boolean' },
+        seed: { type: 'integer' },
+      },
+      required: ['kind', 'brief', 'search', 'picture', 'seed'],
+      additionalProperties: false,
+    },
+  };
+}
+
+/**
+ * The plan answer `text` read strictly: the object of selfreflectionPlanFormat with `kind` one of `kinds`, a text
+ * `brief` and `search`, a boolean `picture` and a whole-number `seed`. Null for anything else, which validatePlan
+ * reads as a broken answer. Pure.
+ */
+export function parsePlanAnswer(text: unknown, kinds: ReadonlyArray<string>): Record<string, unknown> | null {
+  const answer = strictJsonObject(text);
+  if (!answer) return null;
+  const { kind, brief, search, picture, seed } = answer;
+  const readable =
+    typeof kind === 'string' &&
+    kinds.includes(kind) &&
+    typeof brief === 'string' &&
+    typeof search === 'string' &&
+    typeof picture === 'boolean' &&
+    Number.isInteger(seed);
+  return readable ? answer : null;
 }
 
 /**

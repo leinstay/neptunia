@@ -451,7 +451,8 @@
 //    cached link reads with features.webLookup and web.links on) and the
 //    `<candidate>` line; on the analyzer model (roleModel) with roleRequestOptions
 //    (role `analyzer`, `web.quickSearch.classifierMaxOutputTokens`, purpose
-//    `query-builder`); the answer parsed by src/behavior/query-builder.ts#parseQueryPlan
+//    `query-builder`) and QUERY_PLAN_FORMAT as its responseFormat; the answer parsed by
+//    src/behavior/query-builder.ts#parseQueryPlan
 //    at the trigger's time;
 // 2. when the answer has a server part, the `run()` of
 //    src/behavior/recall-run.js#createRecall with the turn's arguments (the
@@ -963,6 +964,7 @@ async function loadRecallMods(load: Untyped) {
   const pull = (await load('../interfaces/discord/index.ts')) as Rec;
   const mods = {
     parseQueryPlan: queryBuilder.parseQueryPlan,
+    QUERY_PLAN_FORMAT: queryBuilder.QUERY_PLAN_FORMAT,
     recallSettings: recall.recallSettings,
     parseSummaryNote: summaryBuilder.parseSummaryNote,
     createRecall: runner.createRecall,
@@ -1077,6 +1079,7 @@ async function runRecall({
 }: Rec) {
   const {
     parseQueryPlan,
+    QUERY_PLAN_FORMAT,
     recallSettings,
     parseSummaryNote,
     createRecall,
@@ -1186,6 +1189,7 @@ async function runRecall({
           purpose: 'query-builder',
           signal,
         }),
+        responseFormat: QUERY_PLAN_FORMAT,
       }
     );
     classifierRaw = completion?.text ?? null;
@@ -5765,6 +5769,7 @@ export async function preTurnLookup({
     roleModel,
     roleRequestOptions,
     parseQueryPlan,
+    QUERY_PLAN_FORMAT,
     recallSettings,
     fallbackLookupPlan,
   } = deps;
@@ -5833,6 +5838,7 @@ export async function preTurnLookup({
           maxOutputTokens: searchCfg.classifierMaxOutputTokens ?? 2000,
           purpose: 'query-builder',
         }),
+        responseFormat: QUERY_PLAN_FORMAT,
       }
     );
     if (String(completion?.text ?? '').trim())
@@ -6497,7 +6503,7 @@ async function loopDepsOf({
   // The search classifier's path before her reply with features.coreTools off (preTurnLookup).
   const { fillPromptTemplate } = await load('behavior/prompt.ts');
   const { recallSettings } = await load('behavior/recall.ts');
-  const { parseQueryPlan } = await load('behavior/query-builder.ts');
+  const { parseQueryPlan, QUERY_PLAN_FORMAT } = await load('behavior/query-builder.ts');
   const { zonedDay } = await load('time.ts');
   const { roleModel } = await load('llm/roles.ts');
   const { roleRequestOptions } = await load('llm/openrouter.ts');
@@ -6509,6 +6515,7 @@ async function loopDepsOf({
     roleModel,
     roleRequestOptions,
     parseQueryPlan,
+    QUERY_PLAN_FORMAT,
     recallSettings,
   };
   const { createAppendStore } = await load('memory/append-store.ts');

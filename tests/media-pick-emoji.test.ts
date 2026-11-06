@@ -27,18 +27,21 @@ const EMOJI_CAPABILITY = { gifForms: [], emoji: { actions: ['append', 'replace']
 const OFFERED = { gifs: ['g1'], emoji: ['wave', 'Clap'], actions: ['append', 'replace'] };
 
 test('`emoji <name>` and `replace <name>` name an offered emoji as it is listed', () => {
-  assert.deepEqual(parseMediaPick('emoji WAVE', OFFERED), { kind: 'emoji', name: 'wave' });
-  assert.deepEqual(parseMediaPick(' replace clap ', OFFERED), { kind: 'replace', name: 'Clap' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  assert.deepEqual(parseMediaPick('{"pick":"emoji","name":"WAVE"}', OFFERED), { kind: 'emoji', name: 'wave' });
+  assert.deepEqual(parseMediaPick('{"pick":"replace","name":"clap"}', OFFERED), { kind: 'replace', name: 'Clap' });
 });
 
 test('an emoji that was not offered is none', () => {
-  assert.deepEqual(parseMediaPick('emoji nope', OFFERED), NONE);
-  assert.deepEqual(parseMediaPick('replace nope', OFFERED), NONE);
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  assert.deepEqual(parseMediaPick('{"pick":"emoji","name":"nope"}', OFFERED), NONE);
+  assert.deepEqual(parseMediaPick('{"pick":"replace","name":"nope"}', OFFERED), NONE);
 });
 
 test('an action the interface does not support is none', () => {
-  assert.deepEqual(parseMediaPick('replace wave', { ...OFFERED, actions: ['append'] }), NONE);
-  assert.deepEqual(parseMediaPick('emoji wave', { ...OFFERED, actions: ['replace'] }), NONE);
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  assert.deepEqual(parseMediaPick('{"pick":"replace","name":"wave"}', { ...OFFERED, actions: ['append'] }), NONE);
+  assert.deepEqual(parseMediaPick('{"pick":"emoji","name":"wave"}', { ...OFFERED, actions: ['replace'] }), NONE);
 });
 
 test('two forms in one answer are none, so a reply never gets a GIF and an emoji in the same pass', () => {
@@ -142,7 +145,8 @@ type RigOptions = {
   gifs?: Record<string, object>;
 };
 
-function rig({ answer = 'none', pickConfig = {}, gifs = {} }: RigOptions = {}) {
+// The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+function rig({ answer = '{"pick":"none","name":null}', pickConfig = {}, gifs = {} }: RigOptions = {}) {
   const calls: Array<{ messages: Array<{ role: string; content: unknown }>; options: Record<string, unknown> }> = [];
   const held = new Map<string, unknown>();
   let at = NOW;
@@ -219,13 +223,15 @@ const ONE_GIF = {
 };
 
 test('an interface with no capability gets none, with no call, whatever the inventory holds', async () => {
-  const { pick, calls } = rig({ answer: 'emoji wave' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { pick, calls } = rig({ answer: '{"pick":"emoji","name":"wave"}' });
   assert.deepEqual(await pick.pick(args({ capability: null })), NONE);
   assert.equal(calls.length, 0);
 });
 
 test('an interface with GIFs and no emoji capability is offered no emoji and gets none for one', async () => {
-  const { pick, calls } = rig({ answer: 'emoji wave', gifs: ONE_GIF });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { pick, calls } = rig({ answer: '{"pick":"emoji","name":"wave"}', gifs: ONE_GIF });
   assert.deepEqual(await pick.pick(args({ capability: { gifForms: ['link'] } })), NONE);
   assert.equal(calls.length, 1);
   assert.equal(blockOf(calls[0], 'emoji'), null);
@@ -254,20 +260,23 @@ test('the emoji are listed most used first, cut by media.pick.emojiCandidates', 
 });
 
 test('an emoji answer comes back with its action and the emoji as the interface knows it', async () => {
-  const appended = await rig({ answer: 'emoji wave' }).pick.pick(args());
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const appended = await rig({ answer: '{"pick":"emoji","name":"wave"}' }).pick.pick(args());
   assert.deepEqual(appended, { kind: 'emoji', action: 'append', emoji: INVENTORY[0] });
-  const replaced = await rig({ answer: 'replace wave' }).pick.pick(args());
+  const replaced = await rig({ answer: '{"pick":"replace","name":"wave"}' }).pick.pick(args());
   assert.deepEqual(replaced, { kind: 'emoji', action: 'replace', emoji: INVENTORY[0] });
 });
 
 test('`none` is the normal answer with emoji on offer', async () => {
-  const { pick, calls } = rig({ answer: 'none' });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { pick, calls } = rig({ answer: '{"pick":"none","name":null}' });
   assert.deepEqual(await pick.pick(args()), NONE);
   assert.equal(calls.length, 1);
 });
 
 test('past the per-replies rail no emoji is offered, and without GIFs there is no call', async () => {
-  const { pick, calls } = rig({ answer: 'emoji wave', pickConfig: { emojiPerReplies: 2 } });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { pick, calls } = rig({ answer: '{"pick":"emoji","name":"wave"}', pickConfig: { emojiPerReplies: 2 } });
   pick.noteReply({ placeId: PLACE, emoji: 'wave' });
   assert.deepEqual(await pick.pick(args()), NONE);
   assert.equal(calls.length, 0);
@@ -276,13 +285,18 @@ test('past the per-replies rail no emoji is offered, and without GIFs there is n
 });
 
 test('the per-replies rail of one place leaves another place open', async () => {
-  const { pick } = rig({ answer: 'emoji wave', pickConfig: { emojiPerReplies: 5 } });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { pick } = rig({ answer: '{"pick":"emoji","name":"wave"}', pickConfig: { emojiPerReplies: 5 } });
   pick.noteReply({ placeId: PLACE, emoji: 'wave' });
   assert.equal((await pick.pick(args({ placeId: ELSEWHERE }))).kind, 'emoji');
 });
 
 test('an emoji in its cooldown is not offered and a model that names it anyway gets none', async () => {
-  const { pick, calls, advance } = rig({ answer: 'emoji wave', pickConfig: { emojiCooldownMinutes: 10 } });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { pick, calls, advance } = rig({
+    answer: '{"pick":"emoji","name":"wave"}',
+    pickConfig: { emojiCooldownMinutes: 10 },
+  });
   pick.noteReply({ placeId: PLACE, emoji: 'wave' });
   assert.deepEqual(await pick.pick(args()), NONE);
   assert.doesNotMatch(String(blockOf(calls[0], 'emoji')), /wave/);
@@ -291,7 +305,11 @@ test('an emoji in its cooldown is not offered and a model that names it anyway g
 });
 
 test('with both rails at 0 the rollout setting leaves the prompt alone to decide', async () => {
-  const { pick, calls } = rig({ answer: 'emoji wave', pickConfig: { emojiPerReplies: 0, emojiCooldownMinutes: 0 } });
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { pick, calls } = rig({
+    answer: '{"pick":"emoji","name":"wave"}',
+    pickConfig: { emojiPerReplies: 0, emojiCooldownMinutes: 0 },
+  });
   pick.noteReply({ placeId: PLACE, emoji: 'wave' });
   assert.equal((await pick.pick(args())).kind, 'emoji');
   assert.equal(calls.length, 1);

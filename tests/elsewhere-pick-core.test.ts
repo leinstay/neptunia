@@ -94,7 +94,8 @@ async function secondTurn(pick: string): Promise<{ asked: Array<Asked>; reply: s
 
 test('a started turn asks one elsewhere pick and neither of the classifiers it replaces', async () => {
   // Bug: the merge leaves a hook wired, so a turn still pays for two calls and their latency.
-  const { result } = await withCapturedLogs(() => secondTurn('place: none\nepisodes: none'));
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { result } = await withCapturedLogs(() => secondTurn('{"place":null,"earlier":false,"episodes":[]}'));
   const purposes = result.asked.map((entry) => entry.purpose);
   assert.equal(purposes.filter((purpose) => purpose === 'elsewhere-pick').length, 1);
   assert.equal(purposes.includes('route-channel'), false);
@@ -103,13 +104,15 @@ test('a started turn asks one elsewhere pick and neither of the classifiers it r
 
 test('a picked place reaches her request as the view of that place', async () => {
   // Bug: the answer's first field is parsed and dropped, so she is asked about a place she cannot see.
-  const { result } = await withCapturedLogs(() => secondTurn('place: 1\nepisodes: none'));
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { result } = await withCapturedLogs(() => secondTurn('{"place":1,"earlier":false,"episodes":[]}'));
   assert.ok(result.reply.includes('<channel_view'));
   assert.ok(result.reply.includes('κόκκινο βιβλίο'));
 });
 
 test('a picked place of none leaves no view in her request', async () => {
   // Bug: a none is read as the first place and a read is spent on it.
-  const { result } = await withCapturedLogs(() => secondTurn('place: none\nepisodes: none'));
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  const { result } = await withCapturedLogs(() => secondTurn('{"place":null,"earlier":false,"episodes":[]}'));
   assert.equal(result.reply.includes('<channel_view'), false);
 });
