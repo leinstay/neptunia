@@ -71,6 +71,15 @@ export type Answer = { text: string; status: string; code?: string };
 /** An operation's result as src/tools/impl/index.ts#runOp answers it. */
 type OpResult = { status: string; code: string; summary: string; data: unknown };
 
+/** An owner's run in the background: started once, its state readable while it runs and after it ends. */
+type OwnerRun = { start(options: { dryRun: boolean }): Promise<unknown>; status(): unknown };
+
+/** The owner's runs in the background, by command: the dependency that holds each. */
+const OWNER_RUNS: Readonly<Record<string, 'mediaBackfill' | 'mediaEnglish' | undefined>> = {
+  'memory.backfill-media': 'mediaBackfill',
+  'memory.backfill-english': 'mediaEnglish',
+};
+
 export type ConsoleDeps = {
   /** One operation for a caller, the rights check included (src/admin.ts#runSkillOp). */
   runOp(op: string, args: Record<string, unknown>, context: Record<string, unknown>): Promise<OpResult>;
@@ -100,10 +109,9 @@ export type ConsoleDeps = {
   /** The speed figures (src/tools/impl/metrics.ts): `samples('reply', 24)` are the reply durations of the last day. */
   metrics: unknown;
   /** The owner's media backfill, null where no interface can read history. */
-  mediaBackfill?: {
-    start(options: { dryRun: boolean }): Promise<unknown>;
-    status(): unknown;
-  } | null;
+  mediaBackfill?: OwnerRun | null;
+  /** The owner's run that brings stored media descriptions to English (src/memory/db/media-english.ts). */
+  mediaEnglish?: OwnerRun | null;
   /** A conversation's newest stored lines, oldest first. */
   conversationLines(conversationId: string, count: number): ReadonlyArray<{ author: string; text: string }>;
   now(): number;
@@ -541,18 +549,20 @@ function ownerContextOf(
 }
 
 /**
- * The owner's media backfill (src/memory/db/media-backfill.ts): started once and resumable, with its counts readable while it
- * runs and after it ends. `--dry-run` counts what it would do, with no read and no write.
+ * An owner's run in the background (src/memory/db/media-backfill.ts, src/memory/db/media-english.ts): started once and
+ * resumable, with its counts readable while it runs and after it ends. `--dry-run` counts what it would do, with no read
+ * and no write.
  */
-async function memoryBackfillMedia(
-  desk: ConsoleDeps['mediaBackfill'],
+async function memoryBackfill(
+  desk: OwnerRun | null | undefined,
   name: string,
   args: Record<string, unknown>
 ): Promise<Answer> {
   const fail = (why: string): Answer => ({ text: `/${name.replaceAll('.', ' ')}: ${why}`, status: 'invalid' });
-  if (!desk) return fail('the media backfill is not available here');
+  const command = name.slice(name.indexOf('.') + 1);
+  if (!desk) return fail(`${command} is not available here`);
   const mode = typeof args.mode === 'string' ? args.mode : '';
-  if (mode !== '' && mode !== '--dry-run' && mode !== 'status') return fail('usage: backfill-media [--dry-run|status]');
+  if (mode !== '' && mode !== '--dry-run' && mode !== 'status') return fail(`usage: ${command} [--dry-run|status]`);
   const state = mode === 'status' ? desk.status() : await desk.start({ dryRun: mode === '--dry-run' });
   return { text: JSON.stringify(state), status: 'ok' };
 }
@@ -791,6 +801,8 @@ export function createConsole(deps: ConsoleDeps): {
   async function run(name: string, args: Record<string, unknown>, requester: { id: string }): Promise<Answer> {
     const part = DOCTOR_PARTS[name];
     if (part !== undefined) return health(part);
+    const ownerRun = OWNER_RUNS[name];
+    if (ownerRun !== undefined) return memoryBackfill(deps[ownerRun], name, args);
     switch (name) {
       case 'status.full':
         return statusFull(requester);
@@ -804,8 +816,6 @@ export function createConsole(deps: ConsoleDeps): {
         return configGet(name, args);
       case 'memory.backup':
         return memoryBackup(name, args);
-      case 'memory.backfill-media':
-        return memoryBackfillMedia(deps.mediaBackfill, name, args);
       case 'memory.conversation':
         return memoryConversation(args);
       case 'memory.lessons.list':
