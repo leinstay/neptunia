@@ -1253,7 +1253,6 @@ test('shipped labels: every kind of fact she can be told is worded, with no plac
 });
 
 test('buildRequest: an inner turn fills system-prompt, character-card, rules, format, inner.md and every labels.wake line', async () => {
-  const resetAt = NOW + 12 * HOUR_MS;
   const wake = {
     kind: 'intention_due',
     items: [
@@ -1268,12 +1267,6 @@ test('buildRequest: an inner turn fills system-prompt, character-card, rules, fo
     now: NOW,
     timezone: 'UTC',
     channels: ['général'],
-    budgets: {
-      day: { left: 20, cap: 24, resetAt },
-      hour: { left: 3, cap: 4, resetAt: NOW + HOUR_MS },
-      chain: { left: 2, cap: 3 },
-      posts: { left: 2, cap: 2, resetAt },
-    },
   };
   const request = buildRequest(
     await turnInput({
@@ -1281,7 +1274,6 @@ test('buildRequest: an inner turn fills system-prompt, character-card, rules, fo
       trigger: null,
       triggerKind: 'inner',
       interlocutor: null,
-      // @ts-expect-error the wake of this test carries the fields the block reads
       wake: wakeBlockText(wake, LABELS, { locale: LABELS.locale }),
     })
   );

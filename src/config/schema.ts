@@ -40,6 +40,7 @@ import { BOARD } from './schema/board.ts';
 import { INTENTIONS } from './schema/intentions.ts';
 import { WAKES } from './schema/wakes.ts';
 import { HEARTBEAT } from './schema/heartbeat.ts';
+import { SPATIAL } from './schema/spatial.ts';
 import { APPEND_STORE } from './schema/append-store.ts';
 import { ARCHIVE } from './schema/archive.ts';
 import { DIAGNOSTICS } from './schema/diagnostics.ts';
@@ -97,6 +98,7 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...INTENTIONS,
   ...WAKES,
   ...HEARTBEAT,
+  ...SPATIAL,
   ...APPEND_STORE,
   ...ARCHIVE,
   ...DIAGNOSTICS,

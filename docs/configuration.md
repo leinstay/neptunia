@@ -509,6 +509,12 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 | `heartbeat.maxTasks` | number, null | `null` | The most errands a heartbeat wake may start; null: no cap | `src/tools/access.ts` |
 | `heartbeat.inputTokens` | number, null | `null` | The input token budget of a heartbeat wake; null: the loop budget | `src/tools/access.ts` |
 
+## spatial
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `spatial.notes` | map | `{}` | The owner's note on a place, by stored place id, shown in `<spatial_awareness>` of every turn in that place and in every place under it; the nearest place with a note wins. See [Prompt contract](prompt-contract.md) | `src/turn/request/head.ts` |
+
 ## appendStore
 
 | Key | Type | Default | What it does | Read by |

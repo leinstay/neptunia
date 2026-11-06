@@ -6,7 +6,7 @@
 // her intentions that expired untouched since she was last told (`wake.expired`: the newest
 // first, capped, the rest counted) -- then the present moment and her timezone, the channels she was recently active in (a review), the places page
 // (`wake.places`, src/behavior/inner.ts#places: where life is beyond this conversation, with the
-// total and how many more; a heartbeat's facts, `wake.heartbeat`, carry that page themselves) and what is left of her budgets with when each resets: facts she reads,
+// total and how many more; a heartbeat's facts, `wake.heartbeat`, carry that page themselves): facts she reads,
 // never a rule. A `feedback` wake (src/behavior/inner.ts#feedbackFacts: what did not go through in
 // her previous turn) is its kind line followed by one `wake.feedbackItem` per fact, each fact
 // worded by `wake.feedback.<kind>` (feedbackFactText); nothing tells her what to do about it. The facts kept
@@ -26,9 +26,7 @@ import type { Obj } from '../tools/types.ts';
 import type { HeartbeatFacts } from './heartbeat-view.ts';
 import { landedLines, selfimprovementLines, selfimprovementReason } from './selfimprovement-text.ts';
 import type { SelfimprovementFacts } from './selfimprovement-view.ts';
-import type { ChainBudget, PlacesPage } from './inner/types.ts';
-import type { TurnsBudget } from './turn-budget.ts';
-import { utcDay } from '../time.ts';
+import type { PlacesPage } from './inner/types.ts';
 
 /** `value` as text (String over a value of any type). */
 const asText = (value: unknown): string => String(value);
@@ -227,9 +225,6 @@ export function feedbackInTurnText(
     .map((text) => fill(item, { fact: text }));
   return lines.length > 0 ? [header, ...lines].join('\n') : '';
 }
-
-/** The budgets the block names, in order. */
-export const WAKE_BUDGETS: ReadonlyArray<'chain'> = Object.freeze(['chain'] as const);
 
 /** A label of `l` filled, or '' when it is missing. */
 function part(l: Obj, key: string, values: object): string {
@@ -661,33 +656,11 @@ export type WakeBlockInput = {
   timezone?: string;
   channels?: ReadonlyArray<string>;
   places?: PlacesPage | null;
-  budgets?: { chain?: ChainBudget & { resetAt?: number }; turns?: TurnsBudget };
   heartbeat?: HeartbeatFacts | null;
   selfimprovement?: SelfimprovementFacts | null;
   facts?: ReadonlyArray<unknown>;
   here?: { channel: string; why: string | null } | null;
 };
-
-/** The budgets part of the wake: the `labels.wake.budgets` lead, then one line per budget (`chain`, then `turns`). [] without a line. */
-function budgetLines(budgets: NonNullable<WakeBlockInput['budgets']>, l: Obj, when: When): Array<string> {
-  const budget = objOf(l.budget);
-  const lines: Array<string> = WAKE_BUDGETS.map((key) => {
-    const entry = budgets[key];
-    const template = budget[key];
-    if (!entry || typeof template !== 'string' || !template) return '';
-    return fill(template, { left: String(entry.left), cap: String(entry.cap), reset: when(entry.resetAt) });
-  }).filter(Boolean);
-  const turns = budgets.turns;
-  if (turns) {
-    const line = part(budget, 'turns', {
-      until: utcDay(turns.until),
-      spent: String(turns.spent),
-      possible: turns.possible === null ? '?' : String(turns.possible),
-    });
-    if (line) lines.push(line);
-  }
-  return lines.length > 0 && typeof l.budgets === 'string' && l.budgets ? [l.budgets, ...lines] : lines;
-}
 
 /**
  * The `<wake>` body for `wake` (src/behavior/inner/drain.ts's turn record: `items`, `intentions`, `notes`
@@ -695,7 +668,7 @@ function budgetLines(budgets: NonNullable<WakeBlockInput['budgets']>, l: Obj, wh
  * ` · ` -- `expired` (a review: src/intentions/model.ts#expiredToShow's `{ items, more }`, after
  * the wake lines as `labels.wake.expired`, one `labels.wake.expiredItem` per item with `{id}`,
  * `{purpose}`, `{when}`, then `labels.wake.expiredMore` with `{more}` when more follow; left out
- * without its two labels or an item), `now`, `timezone`, `channels`, `places`, `budgets`), ''
+ * without its two labels or an item), `now`, `timezone`, `channels`, `places`), ''
  * when `labels.wake.header` is missing. An `attend` item fills `{place}` (its name), `{lines}`,
  * `{people}` (names, joined by ", ") and `{since}` (when she last looked) beside `{id}` and `{purpose}`.
  * An item with `delayed` (`{ minutes, code }`: a wake retried after a failed turn) is followed by one
@@ -817,6 +790,5 @@ export function wakeBlockText(
   lines.push(...selfimprovementLines(selfimprovement, l.selfimprovement, when, selfimprovementReason(wake.items)));
   lines.push(...memoryLines(wake, objOf(l.memory), all));
   lines.push(...landedLines([selfimprovement?.news.landed], l.landed));
-  lines.push(...budgetLines(wake.budgets ?? {}, l, when));
   return lines.join('\n');
 }

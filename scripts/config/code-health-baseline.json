@@ -469,7 +469,7 @@
       "repeated": 0
     },
     "tests/inner.test.ts": {
-      "deep": 173,
+      "deep": 169,
       "repeated": 1
     },
     "tests/intention-due-jitter.test.ts": {
@@ -1638,7 +1638,7 @@
     "src/behavior/inner/drain.ts": {
       "drain": {
         "complexity": 88,
-        "function-length": 369
+        "function-length": 367
       }
     },
     "src/behavior/inner/facts.ts": {
@@ -1731,7 +1731,7 @@
         "complexity": 36
       },
       "wakeBlockText": {
-        "complexity": 67
+        "complexity": 66
       }
     },
     "src/errands/blocks.ts": {

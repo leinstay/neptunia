@@ -1,9 +1,35 @@
-// The tree of places: `parent_id` walked to its top. A pure read over a connection; the store and the private views use it.
+// The tree of places: `parent_id` walked to its top. A pure read over a connection; the store, the private views and
+// the `<spatial_awareness>` block (src/turn/request/spatial.ts, through the store's `placeChainOf`) use it.
 
 import type { Db } from './types.ts';
 
 /** The most parents a walk follows; deeper than any platform nests its places. */
 const MAX_DEPTH = 64;
+
+/** One place of a chain: its stored id, its kind and its name, each null when the row holds none. */
+export type PlaceChainLink = { id: string; kind: string | null; name: string | null };
+
+const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+
+/**
+ * The chain from a place up to the top of its stored tree, the place itself first. It ends at a missing parent, before
+ * a place it already holds (a cycle) and at MAX_DEPTH; an unknown id gives an empty chain.
+ */
+export function placeChainInDb(db: Db, placeId: string): Array<PlaceChainLink> {
+  const read = db.prepare('SELECT id, kind, name, parent_id FROM places WHERE id = ?');
+  const chain: Array<PlaceChainLink> = [];
+  const seen = new Set<string>();
+  let row = read.get(placeId);
+  while (row && chain.length < MAX_DEPTH) {
+    const id = String(row.id);
+    seen.add(id);
+    chain.push({ id, kind: textOrNull(row.kind), name: textOrNull(row.name) });
+    const parent = textOrNull(row.parent_id);
+    if (parent === null || seen.has(parent)) break;
+    row = read.get(parent);
+  }
+  return chain;
+}
 
 /**
  * The top of a place's stored tree: the place itself when it has no parent, the last stored place when a parent is

@@ -133,7 +133,6 @@ const BEAT_WAKE = {
   timezone: 'UTC',
   channels: [],
   chainId: 'heartbeat:1',
-  budgets: { chain: { used: 0, cap: 3, left: 3 } },
 };
 const DUE_WAKE = {
   ...BEAT_WAKE,

@@ -26,6 +26,7 @@ import { freezePerBucket, gifFieldChars, gifFieldsMap } from './emoji-gifs.ts';
 import type { Held, MediaCache } from './emoji-gifs.ts';
 import { anchoredOn } from './memory.ts';
 import { authorsInView } from './pulled.ts';
+import { spatialAwarenessText } from './spatial.ts';
 import { nowBlock } from './tail.ts';
 import { TAG_OVERHEAD, fillPromptTemplate, requireLabels } from './text.ts';
 import type {
@@ -61,6 +62,7 @@ export type Base = {
   channelDirectoryText: string;
   handleFor: (accountId: string | null) => string | null;
   nowText: string;
+  spatialText: string;
   relationships: boolean;
   shownMoves: number;
   episodesOn: boolean;
@@ -215,8 +217,18 @@ export function requestHead(given: RequestInput): Base {
   // heading and at the start of their `<people_now>` entry, as `<directory>` lists it.
   const handleFor = (accountId: string | null) =>
     accountId !== null && handleById ? (handleById.get(accountId) ?? null) : null;
-  // `<now>`: the clock, then the persona's recent time away.
-  const nowText = nowBlock(now, timezone, labels, given.offPeriods);
+  // `<spatial_awareness>`: where she is and the time (src/turn/request/spatial.ts), with the owner's note read now. With
+  // it the clock leaves `<now>`, so the time appears once; `<now>` keeps her recent time away.
+  const spatialText = given.whereabouts
+    ? spatialAwarenessText({
+        whereabouts: given.whereabouts,
+        now,
+        timezone,
+        labels,
+        notes: config.spatial?.notes,
+      })
+    : '';
+  const nowText = nowBlock(now, timezone, labels, given.offPeriods, spatialText === '');
   const relationships = true;
   // How many attitude moves follow the attitude in a `<people_now>` entry (profileStateFields).
   const shownMoves = RELATIONSHIP_LIMITS.shownMoves;
@@ -306,6 +318,7 @@ export function requestHead(given: RequestInput): Base {
     channelDirectoryText,
     handleFor,
     nowText,
+    spatialText,
     relationships,
     shownMoves,
     episodesOn,

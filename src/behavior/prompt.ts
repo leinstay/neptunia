@@ -458,6 +458,11 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   (src/llm/openrouter.js#cacheTtlMs: an hour for `llm.cache.ttl` `'1h'`), see freezePerBucket;
  *   a memory batch's change shows at the next bucket edge. Omitted, null or the cache off ->
  *   rendered from the input every time.
+ * @param [input.whereabouts]  Where the turn is (src/turn/request/spatial.ts#whereaboutsOf): `<spatial_awareness>` in
+ *   the tail right after `<chat>` and before `<now>`, paid for with the fixed part and never cut, with the owner's note
+ *   from `config.spatial.notes` read now. A heartbeat and a selfimprovement wake are on her own server and a
+ *   selfreflection post in her own world, whatever place it names. With the block the clock leaves `<now>`; omitted or
+ *   null: no block, and `<now>` keeps the clock.
  *   The user message's content is always an array of text parts (assembleUser: the stable
  *   part, the profiles and the tail, each tagged with its `cacheSegment` but the tail; an empty
  *   one left out), never an image part: the persona sees pictures through the describer's
@@ -504,6 +509,17 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   // The transport anchor is not the conversation of a wake of her own time. Memory and its wake remain available.
   const ownTime = input.mode === 'inner' && (input.wakeKind === 'heartbeat' || input.wakeKind === 'selfimprovement');
   if (ownTime) input = { ...input, history: [], neighbors: [], pulled: null, currentChannelId: null };
+  // Her own time is at the command line of her own server, a selfreflection post in her own world (the owner's word of
+  // 2026-11-06), whatever place the turn rode in on.
+  // The turn mode as the turn runner names it: a selfreflection post's mode is not in the input's own union.
+  const modeName: string = input.mode;
+  const turnPlace = input.whereabouts ?? null;
+  const ownPlace = ownTime
+    ? { kind: 'server' as const }
+    : modeName === 'selfreflection'
+      ? { kind: 'world' as const }
+      : null;
+  const whereabouts = turnPlace && ownPlace ? ownPlace : turnPlace;
   const { forced = false, channels = [], currentChannelId = null, lookup = null } = input;
   // Every input, named once: the block builders of src/turn/request/ read theirs from it.
   const given = {
@@ -570,6 +586,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     places: input.places,
     previousThink: input.previousThink,
     stableFreeze: input.stableFreeze,
+    whereabouts,
   };
   // Each builder reads the input and what the builders before it gave, under the names they give it; a later one
   // hands on a checked value under the input's own name (`privateChat`, `interlocutor`, `nameOf`, `source`).
@@ -641,6 +658,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   // ever, the persona sees pictures through the describer's captions.
   const user = assembleUser({
     nowText: base.nowText,
+    spatial: base.spatialText,
     timezone: base.timezone,
     labels,
     senses: sensesShown,

@@ -49,7 +49,6 @@ import { channelNames, recentChannels } from './review.ts';
 import { FACTS_SHOWN_MAX, innerSettings } from './settings.ts';
 import { claimTurn, finishTurn } from './wake-store.ts';
 import type { TurnClaim } from './wake-store.ts';
-import type { TurnsBudget } from '../turn-budget.ts';
 import type {
   ChainBudget,
   CostMeter,
@@ -391,7 +390,6 @@ type WakeView = {
   notes: Record<string, string>;
   expired: ReturnType<typeof expiredToShow> | null;
   isReview: boolean;
-  chain: ChainBudget;
   shownFacts: Array<Fact>;
   heartbeat: HeartbeatFacts | null;
   selfimprovement: SelfimprovementFacts | null;
@@ -399,7 +397,7 @@ type WakeView = {
 };
 
 /** The `<wake>` facts of an inner turn for `group` (src/behavior/wake.ts words them). */
-async function wakeInfoOf(life: InnerContext, group: ReadonlyArray<Wake>, view: WakeView): Promise<WakeInfo> {
+function wakeInfoOf(life: InnerContext, group: ReadonlyArray<Wake>, view: WakeView): WakeInfo {
   const {
     anchor,
     at,
@@ -409,7 +407,6 @@ async function wakeInfoOf(life: InnerContext, group: ReadonlyArray<Wake>, view: 
     notes,
     expired,
     isReview,
-    chain,
     shownFacts,
     heartbeat,
     selfimprovement,
@@ -424,7 +421,6 @@ async function wakeInfoOf(life: InnerContext, group: ReadonlyArray<Wake>, view: 
         ? wake.facts
         : [];
   const placesInWake = settings.attention.placesInWake;
-  const turnsLine = await turnsBudgetOf(life);
   return {
     kind: anchor.kind,
     items: group.map((wake) => ({
@@ -452,7 +448,6 @@ async function wakeInfoOf(life: InnerContext, group: ReadonlyArray<Wake>, view: 
     channels: isReview ? channelNames(life) : [],
     // The places page: where life is, beyond this conversation (0 keeps it to her places.list skill).
     ...(placesInWake > 0 ? { places: placesInWakeOf(life, settings) } : {}),
-    budgets: { chain, ...(turnsLine ? { turns: turnsLine } : {}) },
     chainId: anchor.chainId,
     ...(heartbeat ? { heartbeat } : {}),
     ...(selfimprovement ? { selfimprovement } : {}),
@@ -463,17 +458,6 @@ async function wakeInfoOf(life: InnerContext, group: ReadonlyArray<Wake>, view: 
         ? { channel: placeNameOf(life, here.placeId), why: here.why }
         : null,
   };
-}
-
-/** The figures of the wake's turns line, read now; null without a source or when the read fails (the wake goes without the line). */
-async function turnsBudgetOf(life: InnerContext): Promise<TurnsBudget | null> {
-  if (!life.turnsBudget) return null;
-  try {
-    return await life.turnsBudget();
-  } catch (error) {
-    life.log.warn('inner: turns budget not read', { error });
-    return null;
-  }
 }
 
 /** The facts of the wake kinds that carry their own view: the heartbeat's and the selfimprovement wake's, each null for a group without it. */
@@ -741,7 +725,6 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   const group = coalesceGroup(eligible, (wake) => held.includes(wake));
   const anchor = group.find((wake) => !channelless(wake)) ?? group[0];
   const chainId = anchor.chainId;
-  const chain = chainOf(chainId);
 
   const { channel, why: noChannelWhy, turn } = await conversationFor(life, group);
   if (!channel) {
@@ -786,7 +769,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     .filter((fact) => !ownFactIds.has(fact.id))
     .slice(0, FACTS_SHOWN_MAX);
   const kinds = await kindFacts(life, group, { settings, at });
-  const info = await wakeInfoOf(life, group, {
+  const info = wakeInfoOf(life, group, {
     anchor,
     at,
     timezone,
@@ -795,7 +778,6 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     notes,
     expired,
     isReview,
-    chain,
     shownFacts,
     ...kinds,
     here: current,

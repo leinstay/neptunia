@@ -25,10 +25,12 @@ type MediaPart = { readonly attachments?: Array<{ readonly kind?: string; readon
  * and one line per period: `offPaused` or `offStopped` with `{from}` / `{to}` (the date and
  * the clock in `timezone`, as a pulled channel's header writes them) and `{length}`
  * (formatDuration). A period whose label is missing is left out; without the lead, or with no
- * line left, the clock stands alone. Per-turn: it sits in the tail, never in a cached part.
+ * line left, the clock stands alone. `withClock` false (the request carries `<spatial_awareness>`, which holds the
+ * time) leaves the clock out, and with no period line the body is ''. Per-turn: it sits in the tail, never in a cached
+ * part.
  */
-export function nowBlock(now: number, timezone: string, labels: Labels, periods: unknown): string {
-  const clock = formatNow(now, timezone, labels.locale);
+export function nowBlock(now: number, timezone: string, labels: Labels, periods: unknown, withClock = true): string {
+  const clock = withClock ? formatNow(now, timezone, labels.locale) : '';
   const l: LabelGroup = labels.journal ?? {};
   if (!Array.isArray(periods) || periods.length === 0 || typeof l.offLead !== 'string' || !l.offLead.trim())
     return clock;
@@ -53,7 +55,7 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
       })
     );
   }
-  return lines.length > 0 ? [clock, l.offLead, ...lines].join('\n') : clock;
+  return lines.length > 0 ? [clock, l.offLead, ...lines].filter(Boolean).join('\n') : clock;
 }
 
 /**
@@ -70,7 +72,7 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
  * the tail (no segment) with everything that changes from turn to turn -- a
  * second `<people>` with the other members first, `<tool_catalogue>` (the catalogue, on
  * a question about what the persona can do) and `<people_now>` (what is current about each
- * person: status, voice, activity, attitude) right before `<chat>` -- `<now>`, the per-turn
+ * person: status, voice, activity, attitude) right before `<chat>` -- `<spatial_awareness>`, `<now>`, the per-turn
  * `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
  * renderSenses' two halves. A segment with no block is left
  * out; every part but the last ends with the blank line that separates
@@ -85,6 +87,7 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
 // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/prompt.ts in stage 5d, a pure move
 export function assembleUser({
   nowText,
+  spatial = '',
   timezone,
   labels,
   senses,
@@ -104,6 +107,7 @@ export function assembleUser({
   previousThink = '',
 }: {
   nowText: string;
+  spatial?: string;
   timezone: string;
   labels: Labels;
   senses: Senses;
@@ -194,6 +198,8 @@ export function assembleUser({
     // in memory. Tail only, right before the chat.
     block('people_now', (kept.peopleNow ?? []).join('\n')),
     block('chat', chatItems === null ? '' : chatText(chatItems, timezone, labels)),
+    // Where she is and the present moment (src/turn/request/spatial.ts): per turn, so never in a cached part.
+    block('spatial_awareness', spatial),
     // The present moment after the history it dates, with the persona's recent time away (nowBlock).
     block('now', nowText),
     // The per-turn senses lines (renderSenses' `turn` half); the rest lead the stable part.

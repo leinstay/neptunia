@@ -3,7 +3,7 @@
 // and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it last.
 
 import { pageReads } from '../../../memory/db/retrieve.ts';
-import { accountOf } from '../../../memory/addresses.ts';
+import { accountOf, placeOfConversation } from '../../../memory/addresses.ts';
 import { buildRequest } from '../../../behavior/prompt.ts';
 import { NO_PLACES, selfreflectionConversationIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
 import { turnRequestInput } from '../../../behavior/turn-input.ts';
@@ -12,6 +12,7 @@ import { budgetDrops } from '../../../llm/budget.ts';
 import { toolsBlockText } from '../../../llm/tool-text.ts';
 import { estimateTools } from '../../../llm/tokens.ts';
 import { log } from '../../../log.ts';
+import { PERSONA_ID } from '../../../memory/db/storage-keys.ts';
 import { exposedSkillNames } from '../../../tools/discovery.ts';
 import { buildTools } from '../../../tools/tools-json.ts';
 import { SEARCH_HANDLE_GAP, defaultSkills, searchHandles } from '../../calls.ts';
@@ -21,6 +22,8 @@ import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
 import { pickOtherProfiles } from '../../mentions.ts';
 import { channelDirectoryOf } from '../../routing.ts';
+import { whereaboutsOf } from '../../request/spatial.ts';
+import type { PlaceLink, Whereabouts } from '../../request/spatial.ts';
 import type { PhaseContext, PhaseParams } from '../context.ts';
 import type { Opened } from '../preflight.ts';
 import type { Gathered } from './gather.ts';
@@ -45,6 +48,33 @@ function privateProfileOf(store: PhaseContext['store'], accountId: string): obje
 }
 
 export type BuiltRequest = ReturnType<typeof buildRequest>;
+
+/** The wakes that run with no conversation of their own (src/behavior/inner/queue.ts#channelless). */
+const OWN_SERVER_WAKES = new Set(['review', 'heartbeat', 'selfimprovement']);
+
+/**
+ * Where the turn is, for `<spatial_awareness>`: the conversation's own place with its chain from the store
+ * (`placeChainOf`). A wake with no conversation place (a review, a heartbeat, a selfimprovement wake, or one in the
+ * stand-in) is on her own server, whatever channel carries it.
+ */
+function whereaboutsOfTurn(
+  store: PhaseContext['store'],
+  channel: Opened['channel'],
+  wake: { kind: string | null } | null,
+  isPrivate: boolean
+): Whereabouts {
+  if (wake && (OWN_SERVER_WAKES.has(wake.kind ?? '') || channel.rootId === PERSONA_ID)) return { kind: 'server' };
+  const chainOf: unknown = Reflect.get(Object(store), 'placeChainOf');
+  return whereaboutsOf({
+    iface: typeof channel.iface === 'string' ? channel.iface : null,
+    placeId: placeOfConversation(store, channel) || null,
+    isPrivate,
+    chainOf:
+      typeof chainOf === 'function'
+        ? (placeId: string) => (chainOf as (id: string) => ReadonlyArray<PlaceLink>).call(store, placeId)
+        : null,
+  });
+}
 
 /** The budget's line of a request: one entry per section (src/llm/budget.ts). */
 function statsOf(request: BuiltRequest): Record<string, { dropped?: number }> {
@@ -256,6 +286,8 @@ export function buildTurnRequest(
     previousThink: earlierThinkFor({ channel, isPrivate, draft, mode: finalMode }),
     // `<self_facts>` held per cache bucket, so a memory batch rewrites the cache once at most.
     stableFreeze: stableFreezeOf(placeId),
+    // `<spatial_awareness>`: where she is, the whole nesting of the place (buildRequest names her own time's places).
+    whereabouts: whereaboutsOfTurn(store, channel, draft.inner ? { kind: wakeKind } : null, isPrivate),
   });
   let request = requestOf(requestInput);
   if (heartbeatRefs.length > 0) {

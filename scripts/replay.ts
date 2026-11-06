@@ -2205,21 +2205,13 @@ export function innerReplayHot(hot: Untyped): Rec {
 /**
  * The wake an `--inner` turn runs for, as the scheduler's drain builds it
  * (src/behavior/inner.ts#createInnerLife): the intention's wake (`intention`, for
- * `intention_due` / `errand_deadline`) or the day's review, the budgets from `state` (the guild's
- * inner.json as read) under `settings`, the review's channel names. `inner` is
+ * `intention_due` / `errand_deadline`) or the day's review, the review's channel names. `inner` is
  * src/behavior/inner.ts's module. Pure.
  */
-export function innerReplayWake({
-  inner,
-  kind,
-  intention = null,
-  state,
-  settings,
-  now,
-  timezone,
-  day,
-  channelNames = [],
-}: Rec): { wake: Untyped; info: WakeInfo } {
+export function innerReplayWake({ inner, kind, intention = null, now, timezone, day, channelNames = [] }: Rec): {
+  wake: Untyped;
+  info: WakeInfo;
+} {
   const wake =
     kind === 'review'
       ? inner.reviewWake(day, now)
@@ -2228,7 +2220,6 @@ export function innerReplayWake({
           reason: kind === 'errand_deadline' ? 'wait-deadline' : 'due',
           at: Number.isFinite(intention?.dueAt) ? intention.dueAt : now,
         });
-  const chain = inner.chainBudget(state, wake.chainId, settings.caps.perChain, { now, timezone });
   return {
     wake,
     info: {
@@ -2240,7 +2231,6 @@ export function innerReplayWake({
       now,
       timezone,
       channels: kind === 'review' ? channelNames : [],
-      budgets: { chain },
       chainId: wake.chainId,
     },
   };

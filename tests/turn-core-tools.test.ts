@@ -931,7 +931,6 @@ test('draw.create on a turn nobody asked (her own initiative): the picture is ch
     now: NOW,
     timezone: 'UTC',
     channels: [],
-    budgets: { chain: { used: 0, cap: 3, left: 3 } },
   };
   const images = fakeImages();
   const run = await drawTurn({

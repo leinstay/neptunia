@@ -75,8 +75,6 @@ import { hasRequiredLabels } from './behavior/prompt.ts';
 import { createRecall } from './behavior/recall-run.ts';
 import { createSpontaneous } from './behavior/spontaneous.ts';
 import { createInnerLife, innerSettings } from './behavior/inner.ts';
-import { createTurnsBudget } from './behavior/turn-budget.ts';
-import { coreKeyBalances } from './llm/key-grants.ts';
 import { createSelfreflection } from './behavior/selfreflection.ts';
 import { createMirrors, guardMirrorPort } from './behavior/mirror.ts';
 import { createImageFetcher } from './media/fetch-image.ts';
@@ -1090,13 +1088,6 @@ async function buildCore(
     // People's turns first: an inner turn waits while a direct ping is queued.
     peopleWaiting: () => onMessage.pendingCount() > 0,
     submit: (event) => door.submit(event),
-    // The wake's turns line (src/behavior/turn-budget.ts): the core keys' balances against the week's core requests.
-    turnsBudget: createTurnsBudget({
-      usage,
-      // What is left of each key of the core's list: its `llm.keys` grant minus what the usage records say went out on it.
-      keyBalances: () => coreKeyBalances({ llm, usage, config: hot.config, now: clock() }),
-      now: clock,
-    }),
     // Each inner turn as a wake run in the memory database.
     memoryDb,
     // A live wake turn's posts go out through the guarded port once the wake completed (src/behavior/inner/deliveries.ts).
