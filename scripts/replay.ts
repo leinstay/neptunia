@@ -628,7 +628,7 @@ function frozenCopy(value: Untyped) {
  * `markDirty` throws. Nothing is ever flushed from here.
  * @param store From src/memory/store.ts#createStore.
  */
-function readOnlyStore(store: Untyped, reads: ReadonlyArray<string>) {
+export function readOnlyStore(store: Untyped, reads: ReadonlyArray<string>): Untyped {
   const refused = (name: string) => () => {
     throw new Error(`replay-cli: the memory store is read-only here (${name} refused)`);
   };
@@ -1460,7 +1460,7 @@ async function runRecall({
  * when the channel or the trigger cannot be read. Returns `{ channel,
  * history, triggerLine, at }`.
  */
-async function readMoment({
+export async function readMoment({
   client,
   guild,
   placeId,
@@ -1472,7 +1472,7 @@ async function readMoment({
   fetchHistoryWindow,
   fetchMessage,
   log,
-}: Rec) {
+}: Rec): Promise<Rec> {
   const channel = await readableChannel({ client, guild, placeId, conversationId });
 
   const trigger = await fetchMessage(channel, triggerId);
@@ -1498,7 +1498,7 @@ async function readMoment({
 }
 
 /** A channel of the served guild that can be read: from the guild's fetched channels, else one REST fetch (a thread is not in that list); else a CliError. */
-async function readableChannel({ client, guild, placeId, conversationId }: Rec) {
+export async function readableChannel({ client, guild, placeId, conversationId }: Rec): Promise<Untyped> {
   let channel = cachedChannel(guild, conversationId) ?? null;
   if (!channel) {
     try {
