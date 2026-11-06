@@ -727,7 +727,7 @@ export async function connectDiscord({
       (Array.isArray(guilds) ? guilds : []).map((g) => ({ id: g.id, name: g.name }))
     );
     if (resolved.error) throw new CliError(`replay-cli: ${resolved.error}`);
-    const placeId = resolved.placeId;
+    const placeId = resolved.guildId;
     const guild = await client.guilds.fetch(placeId);
     const channels = await guild.channels.fetch();
     try {
