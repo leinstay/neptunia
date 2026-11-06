@@ -71,13 +71,15 @@ export type EntryFile = { message: number; name: string; data: Uint8Array; conte
 
 /**
  * A selfreflection entry as it is published: its `selfreflection` row's id, her messages as they are sent, the members each message may
- * notify (`mentions[i]` for `messages[i]`, none when absent), the pictures and the voice message.
+ * notify (`mentions[i]` for `messages[i]`, none when absent), whether everyone a message names chose to be pinged (`notify[i]`,
+ * src/turn/mentions.ts#mentionsUnderPings), the pictures and the voice message.
  */
 export type SelfreflectionEntry = {
   publicationBoundary?: PublicationBoundary;
   id: string;
   messages: ReadonlyArray<string>;
   mentions?: ReadonlyArray<ReadonlyArray<string>>;
+  notify?: ReadonlyArray<boolean>;
   pictures?: ReadonlyArray<EntryPicture>;
   voice?: EntryVoice | null;
   /** The files her messages carry, each with the index of its message in `messages`. */
@@ -246,7 +248,11 @@ export function entryPlan(
     const own = files.filter(({ file }) => file.message === index);
     const content: Content = {
       text,
-      mentions: { users: [...(entry.mentions?.[index] ?? [])], repliedUser: false },
+      mentions: {
+        users: [...(entry.mentions?.[index] ?? [])],
+        repliedUser: false,
+        ...(entry.notify?.[index] === true ? { notify: true } : {}),
+      },
       ...(own.length > 0 ? { attachments: own.map(({ file }) => fileAttachment(file)) } : {}),
     };
     sends.push({ content, items: own.map(({ item }) => item) });

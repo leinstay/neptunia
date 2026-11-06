@@ -75,6 +75,8 @@ import { clampText, stripUrls } from './clamp.ts';
 import { feltLine } from './record.ts';
 import { sortRanked } from './ranking.ts';
 import { mergeEmojiUsage, normalizeEmojiUsage } from './emoji-usage.ts';
+import { normalizePings, pingStateOf, withPingState } from './pings.ts';
+import type { PingState } from './pings.ts';
 import {
   emptyGifs,
   findGif,
@@ -438,7 +440,7 @@ function emptyPlace() {
     learnedNextId: 1, // the next id a learned item gets -- never reused, even after a remove
     emojiUsage: {}, // { [emojiId]: { name, count, last } } -- members' custom emoji uses, see recordEmojiUsage
     emojiBackfill: null, // { at, channels, messages } once src/memory/emoji-backfill.ts has read the history
-    pingsOff: [], // ids of the members who turned the persona's notifications off (`/nep pings`) -- see setPingsOff
+    pings: {}, // { [accountId]: 'on' | 'off' } -- each member's own ping state, set by `pings.set`; see setPings
     updatedAt: null,
     notesUpdatedAt: null, // when patterns, starters or injokes last changed -- see updatePlace
     notesCheckedAt: null, // an ISO time kept as stored; nothing in the engine writes it
@@ -698,10 +700,9 @@ function normalizePlace(place: Untyped) {
   // Missing or hand-broken -> null: the history backfill has not run.
   place.emojiBackfill = normalizeBackfillStamp(place.emojiBackfill);
   for (const key of STALE_PLACE_FIELDS) delete place[key];
-  // Missing or hand-broken -> []: nobody turned pings off. Non-empty string ids only, each once.
-  place.pingsOff = Array.isArray(place.pingsOff)
-    ? [...new Set(place.pingsOff.filter((id: string) => typeof id === 'string' && id))]
-    : [];
+  // Missing or hand-broken -> {}: nobody chose a state. A member in the `pingsOff` list of the earlier switch reads `off`.
+  place.pings = normalizePings(place.pings, place.pingsOff);
+  delete place.pingsOff;
   // Missing or hand-broken -> null: never stamped.
   place.notesUpdatedAt = isoStampOrNull(place.notesUpdatedAt);
   place.notesCheckedAt = isoStampOrNull(place.notesCheckedAt);
@@ -2575,7 +2576,7 @@ function buildStore({
      * through `applyLearnedOps`, which merges incrementally instead of
      * overwriting wholesale (mirrors `updateUser`); `emojiUsage` likewise
      * only through `recordEmojiUsage`/`clearEmojiUsage`, `emojiBackfill` only
-     * through `setEmojiBackfill`, `pingsOff` only through `setPingsOff`. `notesUpdatedAt` gets the
+     * through `setEmojiBackfill`, `pings` (and the earlier `pingsOff`) only through `setPings`. `notesUpdatedAt` gets the
      * same stamp when one of the server notes (`patterns`, `starters`,
      * `injokes`) really changes; `self` alone never moves it, and neither does
      * `applyLearnedOps`, so it tells how old the notes are. A changed `patterns`/`starters` keeps its previous
@@ -2589,8 +2590,10 @@ function buildStore({
     updatePlace(placeId: string, fields: Untyped, opts: UpdatePlaceOptions = {}): StoredRecord {
       const item = entry(placeFile(placeId), emptyPlace);
       normalizePlace(item.value);
-      const { learned, learnedNextId, emojiUsage, emojiBackfill, pingsOff, notesUpdatedAt, notesCheckedAt, ...given } =
+      const { learned, learnedNextId, emojiUsage, emojiBackfill, pings, notesUpdatedAt, notesCheckedAt, ...given } =
         fields ?? {};
+      // The earlier switch's list would read as `off` at the next load.
+      delete given.pingsOff;
       const safeFields = withoutLinks(given, PLACE_TEXT);
       if (!changesStored(item.value, safeFields)) return item.value;
       const notes = Object.fromEntries(Object.entries(safeFields).filter(([key]) => NOTES_FIELDS.includes(key)));
@@ -2636,40 +2639,36 @@ function buildStore({
       return item.value;
     },
 
-    /**
-     * Whether `accountId` turned the persona's notifications off in this place (`/nep pings off`).
-     */
+    /** Whether `accountId` turned the persona's notifications off in this place (state `off`). */
     isPingsOff(placeId: string, accountId: string): boolean {
-      const list = store.getPlace(placeId)?.pingsOff;
-      return Array.isArray(list) && list.includes(String(accountId));
+      return store.getPings(placeId, accountId) === 'off';
+    },
+
+    /** The ping state `accountId` chose in this place: `on`, `off`, or null when they never chose (the interface's switch decides). */
+    getPings(placeId: string, accountId: string): PingState {
+      return pingStateOf(store.getPlace(placeId)?.pings, accountId);
     },
 
     /**
-     * Turn the persona's notifications to `accountId` off (`off` true) or back on, in the place's
-     * `pingsOff` list. A change is written at once (a member's own switch, allowed while paused,
-     * when the next flush could otherwise land on a hand-edited file or be dropped with the
-     * caches); no change writes nothing. Nothing else is touched, never `updatedAt`. Persists like
-     * every place field and is never reset implicitly.
-     * @returns The state now: true when the member's pings are off.
+     * Set the ping state of `accountId` in the place: `on`, `off`, or null to clear it. A change is written at once (a
+     * member's own switch, allowed while paused, when the next flush could otherwise land on a hand-edited file or be
+     * dropped with the caches); no change writes nothing. Nothing else is touched, never `updatedAt`.
+     * @returns The state now.
      */
-    setPingsOff(placeId: string, accountId: string, off: boolean): boolean {
+    setPings(placeId: string, accountId: string, state: PingState): PingState {
       const item = entry(placeFile(placeId), emptyPlace);
       normalizePlace(item.value);
       const place = item.value;
-      if (!isRecord(place)) return false;
-      const id = String(accountId);
-      const has = place.pingsOff.includes(id);
-      if (off === true && !has) {
-        place.pingsOff = [...place.pingsOff, id];
-        item.dirty = true;
-      } else if (off !== true && has) {
-        place.pingsOff = place.pingsOff.filter((other: Untyped) => other !== id);
+      if (!isRecord(place)) return null;
+      const { pings, changed } = withPingState(place.pings, accountId, state);
+      if (changed) {
+        place.pings = pings;
         item.dirty = true;
       }
       // Written at once: the place unit goes to the database now, not at the next flush.
       flushEntry(placeFile(placeId), item);
       if (outbox) outbox.push();
-      return place.pingsOff.includes(id);
+      return pingStateOf(place.pings, accountId);
     },
 
     /**

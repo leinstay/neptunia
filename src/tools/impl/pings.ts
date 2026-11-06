@@ -11,27 +11,27 @@ import type { Obj, OpContext } from '../types.ts';
 const handlers = perEnv((env) => {
   const { store, freshenIfPaused, requirePlaceId } = env;
 
-  /** `/nep pings [on|off]`: the caller's own notifications from the persona in this place
-   * (store.setPingsOff; src/behavior/turn.ts reads them when it posts). No mode shows the state.
-   * A member's own switch, not memory: it works while paused too (read fresh off disk then, and
-   * written at once by the store). */
+  /** `/nep pings [on|off|clear]`: the caller's own ping state in this place (store.setPings; src/turn/mentions.ts
+   * reads it when she posts). `on` and `off` win over the interface's silent switch, `clear` hands the choice back
+   * to it. No mode shows the state. A member's own switch, not memory: it works while paused too (read fresh off disk
+   * then, and written at once by the store). */
   function cmdPings(args: Obj, context: OpContext): string {
     const placeId = requirePlaceId(context);
     const accountId = context.accountId;
     if (!accountId) throw invalid('no user');
     const mode = objOf(args).mode;
     freshenIfPaused();
-    if (mode === undefined || mode === null || mode === '') return pingsText(!store.isPingsOff(placeId, accountId));
+    if (mode === undefined || mode === null || mode === '') return pingsText(store.getPings(placeId, accountId));
     if (typeof mode !== 'string' || !PINGS_MODES.includes(mode))
       throw invalid(`mode must be one of: ${PINGS_MODES.join(', ')}`);
-    const off = store.setPingsOff(placeId, accountId, mode === 'off');
-    log.info('admin: pings set', { placeId, accountId, off });
-    return pingsText(!off);
+    const state = store.setPings(placeId, accountId, mode === 'clear' ? null : (mode as 'on' | 'off'));
+    log.info('admin: pings set', { placeId, accountId, state: state ?? 'default' });
+    return pingsText(state);
   }
 
   /** The one reply of `/nep pings`: the caller's state after the call. */
-  function pingsText(on: boolean): string {
-    return on ? 'Pings: on' : 'Pings: off';
+  function pingsText(state: unknown): string {
+    return state === 'on' || state === 'off' ? `Pings: ${state}` : 'Pings: default';
   }
 
   return { cmdPings, pingsText };

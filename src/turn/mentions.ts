@@ -1,13 +1,17 @@
 // The names a turn turns into mentions and the profiles it shows: `@name` written by the model resolved against the
 // people the request showed and the community's directory, the stored names that count, the profiles of the people
-// most recently active, and the note on tags that went nowhere. src/behavior/turn.ts calls them while it renders a
-// post and builds a request; the replay sandbox (src/behavior/sandbox.ts) reads pickOtherProfiles through its re-export.
+// most recently active, the note on tags that went nowhere, and whom a message notifies under each member's ping state.
+// src/behavior/turn.ts calls them while it renders a post and builds a request, and her `message.create`
+// (src/tools/impl/message.ts) asks mentionsUnderPings too. The replay sandbox (src/behavior/sandbox.ts) reads
+// pickOtherProfiles through its re-export.
 
 import { accountOf } from '../memory/addresses.ts';
 import { untaggedNames } from '../behavior/handles.ts';
 import { fill } from '../format.ts';
 import { outsideUrls } from '../memory/mentions.ts';
 import { listOf, objOf } from '../tools/types.ts';
+import type { PingState } from '../memory/pings.ts';
+import type { Mentions } from '../protocol/actions.ts';
 
 /** A member id as the sources give it. */
 type Id = string | number;
@@ -278,4 +282,38 @@ export function untaggedNote(
   return untaggedNames(text, { names: memberNames, handles: handleById, mentionedIds })
     .map((hit) => fill(template, { name: `@${hit.name}`, handle: hit.handle }))
     .join(' ');
+}
+
+/**
+ * Who one of her messages notifies, under each member's own ping state (`stateOf`, store.getPings): every posting path
+ * (a turn's messages, her `message.create`, a selfreflection entry) asks here. The message concerns the author it
+ * replies to (`repliedAuthorId`, when `replying`) and every member it names (`users`). A member with `off` is left out
+ * of `users` and gets no reply ping. `notify` is set, true, only when the message concerns someone and every one of
+ * them has `on`: the interface then lets it notify even when it sends silently. Otherwise the interface decides.
+ */
+export function mentionsUnderPings({
+  users,
+  repliedAuthorId = null,
+  replying = true,
+  stateOf,
+}: {
+  users: ReadonlyArray<string | null | undefined>;
+  repliedAuthorId?: string | null;
+  replying?: boolean;
+  stateOf: (accountId: string) => PingState;
+}): Mentions {
+  const states = new Map<string, PingState>();
+  const state = (id: string): PingState => {
+    if (!states.has(id)) states.set(id, stateOf(id));
+    return states.get(id) ?? null;
+  };
+  const named = users.filter((id): id is string => typeof id === 'string' && id !== '');
+  const replied = replying && repliedAuthorId ? repliedAuthorId : null;
+  const concerned = [...new Set([...(replied ? [replied] : []), ...named])];
+  const notify = concerned.length > 0 && concerned.every((id) => state(id) === 'on');
+  return {
+    users: named.filter((id) => state(id) !== 'off'),
+    repliedUser: replying && (replied === null || state(replied) !== 'off'),
+    ...(notify ? { notify: true } : {}),
+  };
 }
