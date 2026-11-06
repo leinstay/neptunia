@@ -170,7 +170,8 @@ import type { Track } from '../../loop-watch.ts';
 import { untracked } from '../../loop-watch.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
-import { selfreflectionFills } from './selfreflection-fills.ts';
+import { fillMethods } from './selfreflection-fills.ts';
+import type { FillMethods } from './selfreflection-fills.ts';
 import type { Context } from './scope.ts';
 import { createEntryRemoval } from './selfreflection-remove.ts';
 import type { EntryRemoval, RemovalRequest } from './selfreflection-remove.ts';
@@ -571,7 +572,8 @@ export type MemoryDbStatus = {
 };
 
 /** What `createMemoryDb` gives its callers. */
-export type MemoryDbService = {
+// `onSelfreflectionFill` and `selfreflectionAudienceFill` are declared with their wiring in selfreflection-fills.ts.
+export type MemoryDbService = FillMethods & {
   namespace(): string | null;
   open(): Promise<void>;
   tick(): Promise<void>;
@@ -589,8 +591,6 @@ export type MemoryDbService = {
   }): void;
   memoryWrite(update: unknown): Promise<unknown>;
   onAffinityMoves(fn: (moves: Array<Row>) => void): () => void;
-  /** Subscribes `fn()` to the owner's fills of old selfreflection entries that wrote (selfreflection-fills.ts). */
-  onSelfreflectionFill(fn: () => void): () => void;
   writeUnit(update: unknown): Promise<unknown>;
   keepPending(update: unknown): string;
   /** The writes in the quarantine, by name, with the code each failed with and when it moved. */
@@ -617,8 +617,6 @@ export type MemoryDbService = {
   personLink(update: Row): Promise<Row>;
   /** The owner's merge of one person into another (person-merge.ts): `{ from, into, by, reason?, now? }`. */
   personMerge(update: Row): Promise<Row>;
-  /** The owner's fill of the audience on old group selfreflection entries (selfreflection-audience-fill.ts): `{ by, dryRun?, now? }`. */
-  selfreflectionAudienceFill(update: Row): Promise<Row>;
   /** The owner's removal of a selfreflection entry with everything that points at it (selfreflection-remove.ts). */
   removeSelfreflectionEntry(request: RemovalRequest): Promise<EntryRemoval>;
   /** The owner's snapshots of the whole database (inspection-snapshots.ts), null while it is closed. */
@@ -1765,7 +1763,6 @@ export function createMemoryDb({
   // otherwise write its older score over the move at its next flush). Each committed move is told once, after its
   // apply, also when the apply's answer was lost (the move is read back from the database by its run).
   const affinityListeners = new Set<(moves: Array<Row>) => void>();
-  const fills = selfreflectionFills(log);
   const toldMoves = new Set<unknown>();
   const TOLD_MOVES_KEPT = 10_000;
 
@@ -1974,9 +1971,7 @@ export function createMemoryDb({
     readHandle,
     searchRecord,
     recordTurnReads,
-    memoryWrite: fills.after(memoryWrite),
     onAffinityMoves,
-    onSelfreflectionFill: fills.on,
     writeUnit,
     keepPending,
     quarantinedPending: () => quarantinedIn(quarantineDir),
@@ -1988,10 +1983,7 @@ export function createMemoryDb({
     retrieve,
     personLink: (update: Row) => write({ ...update, kind: 'person-link' }),
     personMerge: (update: Row) => write({ ...update, kind: 'person-merge' }),
-    selfreflectionAudienceFill: fills.after(
-      (update: Row) => write({ ...update, kind: 'selfreflection-audience-fill' }),
-      'selfreflection-audience-fill'
-    ),
+    ...fillMethods(log, memoryWrite, write),
     removeSelfreflectionEntry: entryRemoval.removeSelfreflectionEntry,
     inspection,
     ...privateReads(() => dbOf(opened())),

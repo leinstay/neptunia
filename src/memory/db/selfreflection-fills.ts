@@ -45,3 +45,29 @@ export function selfreflectionFills(log: { warn(message: string, fields?: Row): 
     },
   };
 }
+
+/** The two methods of the memory service the fills add. */
+export type FillMethods = {
+  /** Subscribes `fn()` to the owner's fills of old selfreflection entries that wrote. */
+  onSelfreflectionFill(fn: () => void): () => void;
+  /** The owner's fill of the audience on old group selfreflection entries (selfreflection-audience-fill.ts): `{ by, dryRun?, now? }`. */
+  selfreflectionAudienceFill(update: Row): Promise<Row>;
+};
+
+/**
+ * The service's three methods the fills touch: `memoryWrite` and `selfreflectionAudienceFill` (a write of the kind
+ * `selfreflection-audience-fill` through `write`) wrapped to tell the listeners, and `onSelfreflectionFill` to subscribe.
+ */
+export function fillMethods<T extends (update: Row) => Promise<unknown>>(
+  log: { warn(message: string, fields?: Row): void },
+  memoryWrite: T,
+  write: (update: Row) => Promise<Row>
+): FillMethods & { memoryWrite: T } {
+  const fills = selfreflectionFills(log);
+  const audience = (update: Row): Promise<Row> => write({ ...update, kind: 'selfreflection-audience-fill' });
+  return {
+    memoryWrite: fills.after(memoryWrite),
+    onSelfreflectionFill: fills.on,
+    selfreflectionAudienceFill: fills.after(audience, 'selfreflection-audience-fill'),
+  };
+}
