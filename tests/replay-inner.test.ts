@@ -65,7 +65,7 @@ test('innerReplayHot: shadow forced; the live config untouched', () => {
   assert.equal(config.wakes.tickSeconds, 7);
   assert.equal(live.config.wakes.mode, 'live');
 });
-test("innerReplayWake: the scheduler's wake for the intention, its budgets from the state read", () => {
+test("innerReplayWake: the scheduler's wake for the intention", () => {
   const settings = inner.innerSettings({});
   const state = { ...inner.emptyState(), turns: [{ at: NOW - 60_000, chainId: 'intention:i1', usd: 0.2 }] };
   const intention = {
@@ -89,8 +89,8 @@ test("innerReplayWake: the scheduler's wake for the intention, its budgets from 
   assert.deepEqual(asRecord(info).items, [
     { kind: 'intention_due', reason: 'due', intentionIds: ['i1'], errandId: null },
   ]);
-  assert.equal(asRecord(info).budgets.day, undefined);
-  assert.equal(asRecord(info).budgets.chain.left, 2);
+  // Stage AD: the replayed wake carries no budgets any more.
+  assert.equal(asRecord(info).budgets, undefined);
   const review = innerReplayWake({
     inner,
     kind: 'review',

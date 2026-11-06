@@ -87,8 +87,8 @@ test('inner: a due intention is one wake through the door and one inner turn; th
     params.inner.wake.intentions.map((r) => r.id),
     ['i1']
   );
-  assert.equal(wrongly<Record<string, unknown>>(params.inner.wake.budgets).day, undefined);
-  assert.equal(params.inner.wake.budgets.chain.left, 3);
+  // Stage AD: the wake carries no budgets any more.
+  assert.equal(wrongly<Record<string, unknown>>(params.inner.wake).budgets, undefined);
   const second = await run.inner.tick();
   assert.equal(second.submitted, 0);
   assert.equal(run.turns.calls.length, 1, 'the same due time wakes her once');
@@ -349,7 +349,6 @@ test('inner: a wake of another chain that shares the conversation of a held one 
     run.turns.calls[0].inner.wake.intentions.map((r) => r.id),
     ['i2']
   );
-  assert.equal(run.turns.calls[0].inner.wake.budgets.chain.cap, 1);
   const queue = run.inner.state().queue;
   assert.deepEqual(
     queue.map((wake) => `${wake.intentionIds[0]}:${wake.capped}`),
@@ -1443,7 +1442,6 @@ test('inner: a turn that lost something queues one feedback wake in its chain an
     code: 'destination-required',
   });
   assert.equal(present(params.inner.wake.items[0].facts)[2].purpose, 'send a cat meme');
-  assert.equal(params.inner.wake.budgets.chain.used, 1, 'the turn it reports used the chain once');
   assert.equal(
     chainBudget(run.inner.state(), 'intention:i1', 3, { now: clock.t, timezone: 'UTC' }).used,
     1,

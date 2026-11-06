@@ -209,9 +209,6 @@ const WAKE = {
   now: NOW,
   timezone: 'UTC',
   channels: [],
-  budgets: {
-    chain: { used: 0, cap: 3, left: 3 },
-  },
 };
 
 /**
@@ -679,7 +676,8 @@ test('gateway: with nobody asking only a read runs, unless the turn is her own i
   assert.notEqual(ungranted.reason, 'no-requester');
 });
 
-test('wakeBlockText: the wake, the moment and the budgets as facts; none without its header', () => {
+// Stage AD: the wake carries no budget line, so the chain line and the turns line are no longer asserted here.
+test('wakeBlockText: the wake and the moment as facts; none without its header', () => {
   const text = wakeBlockText({ ...WAKE, channels: ['général'] }, labels);
   const lines = text.split('\n');
   assert.equal(lines[0], labels.wake.header);
@@ -693,7 +691,6 @@ test('wakeBlockText: the wake, the moment and the budgets as facts; none without
     !lines.some((line) => line.startsWith('day ') || line.startsWith('hour ') || line.startsWith('posts ')),
     text
   );
-  assert.ok(lines.includes('chain 3/3'));
   assert.equal(wakeBlockText(WAKE, { ...labels, wake: undefined }), '');
   // A recurring intention's last occurrence before its expiry: the note joins its line.
   const noted = wakeBlockText(
@@ -709,28 +706,6 @@ test('wakeBlockText: the wake, the moment and the budgets as facts; none without
     lines[1],
     'without the note label the line stays as it is'
   );
-});
-
-test('wakeBlockText: one turns line after the chain line, with the Sunday, the turns so far and the possible count', () => {
-  const turnsLabels = {
-    ...labels,
-    wake: { ...labels.wake, budget: { ...labels.wake.budget, turns: 'until {until}: {spent} turns of {possible}' } },
-  };
-  const turns = { until: Date.parse('2026-11-08T00:00:00Z'), spent: 37, possible: 200 };
-  const lines = wakeBlockText({ ...WAKE, budgets: { ...WAKE.budgets, turns } }, turnsLabels).split('\n');
-  assert.ok(lines.includes('until 2026-11-08: 37 turns of 200'), lines.join('|'));
-  assert.ok(lines.indexOf('until 2026-11-08: 37 turns of 200') > lines.indexOf('chain 3/3'), 'after the chain line');
-  // Bug caught: an unknown possible count printed as null or NaN, which she would read as a number.
-  const unknown = wakeBlockText(
-    { ...WAKE, budgets: { ...WAKE.budgets, turns: { ...turns, possible: null } } },
-    turnsLabels
-  );
-  assert.ok(unknown.includes('until 2026-11-08: 37 turns of ?'), unknown);
-});
-
-test('wakeBlockText: a turns figure without its label adds nothing', () => {
-  const turns = { until: Date.parse('2026-11-08T00:00:00Z'), spent: 1, possible: 2 };
-  assert.equal(wakeBlockText({ ...WAKE, budgets: { ...WAKE.budgets, turns } }, labels), wakeBlockText(WAKE, labels));
 });
 
 test('wakeBlockText: an attend wake names the place, the lines and the people; the places page follows with its total and the rest; placesBlockText stands alone', () => {
@@ -769,7 +744,8 @@ test('wakeBlockText: an attend wake names the place, the lines and the people; t
   const at = lines.indexOf('places (5):');
   assert.ok(at > 0, lines.join('|'));
   assert.deepEqual(lines.slice(at, at + 5), ['places (5):', '#κήπος 3/2 *', '#νέα 1/1 ro', '#general 0/0', '+2']);
-  assert.ok(lines.indexOf('budgets:') > at, 'the budgets close the block');
+  // Stage AD: no budgets line closes the block any more.
+  assert.ok(!lines.some((line) => line.startsWith('budgets')), lines.join('|'));
   assert.equal(
     wakeBlockText(
       wrongly({ ...WAKE, places: { total: 1, more: 0, items: [{ id: 'c1', name: 'general', lines: 0, people: 0 }] } }),

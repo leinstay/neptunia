@@ -93,7 +93,6 @@ import { log as defaultLog } from '../log.ts';
 import { errorCode } from '../tools/types.ts';
 import { createCostMeter, drain, onTaskFinished } from './inner/drain.ts';
 import type { DrainAnswer } from './inner/drain.ts';
-import type { TurnsBudget } from './turn-budget.ts';
 import { markFactsTold, pendingFactsOf } from './inner/facts.ts';
 import { heartbeatDue } from './inner/heartbeat.ts';
 import { selfimprovementDue } from './inner/selfimprovement.ts';
@@ -193,8 +192,6 @@ export type InnerLifeOptions = {
   heartbeat?: HeartbeatSources;
   /** The sources of the selfimprovement wake's facts that are not the journal (src/behavior/selfimprovement-view.ts). */
   selfimprovement?: SelfimprovementSources;
-  /** The figures of the wake's turns line (src/behavior/turn-budget.ts), read at wake time; without it the wake has no line. */
-  turnsBudget?: (() => Promise<TurnsBudget | null>) | null;
   /**
    * The memory database (src/memory/db/service.ts): the wake queue is kept in it through its writer, and with
    * `memoryDb.wakeRuns` on each inner turn is recorded as a wake run with its actions. Without one the queue lives in
@@ -261,7 +258,6 @@ export function createInnerLife({
   meter = null,
   heartbeat: heartbeatSources = {},
   selfimprovement: selfimprovementSources = {},
-  turnsBudget = null,
   memoryDb = null,
   port = null,
   rng = Math.random,
@@ -288,7 +284,6 @@ export function createInnerLife({
     costs: meter ?? createCostMeter(),
     heartbeatSources,
     selfimprovementSources,
-    turnsBudget,
     memoryDb,
     port,
     rng,

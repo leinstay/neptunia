@@ -574,8 +574,6 @@ export const labels = {
     placeReadOnly: ' ro',
     placeAttended: ' *',
     placesMore: '+{more}',
-    budgets: 'budgets:',
-    budget: { chain: 'chain {left}/{cap}' },
     heartbeat: {
       people: 'People you are closest to:',
       person: '{name}: {parts}',
