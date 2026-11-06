@@ -71,13 +71,15 @@ export type EntryFile = { message: number; name: string; data: Uint8Array; conte
 
 /**
  * A selfreflection entry as it is published: its `selfreflection` row's id, her messages as they are sent, the members each message may
- * notify (`mentions[i]` for `messages[i]`, none when absent), the pictures and the voice message.
+ * notify (`mentions[i]` for `messages[i]`, none when absent), whether everyone a message names chose to be pinged (`notify[i]`,
+ * src/turn/mentions.ts#mentionsUnderPings), the pictures and the voice message.
  */
 export type SelfreflectionEntry = {
   publicationBoundary?: PublicationBoundary;
   id: string;
   messages: ReadonlyArray<string>;
   mentions?: ReadonlyArray<ReadonlyArray<string>>;
+  notify?: ReadonlyArray<boolean>;
   pictures?: ReadonlyArray<EntryPicture>;
   voice?: EntryVoice | null;
   /** The files her messages carry, each with the index of its message in `messages`. */
@@ -246,7 +248,11 @@ export function entryPlan(
     const own = files.filter(({ file }) => file.message === index);
     const content: Content = {
       text,
-      mentions: { users: [...(entry.mentions?.[index] ?? [])], repliedUser: false },
+      mentions: {
+        users: [...(entry.mentions?.[index] ?? [])],
+        repliedUser: false,
+        ...(entry.notify?.[index] === true ? { notify: true } : {}),
+      },
       ...(own.length > 0 ? { attachments: own.map(({ file }) => fileAttachment(file)) } : {}),
     };
     sends.push({ content, items: own.map(({ item }) => item) });
@@ -457,6 +463,9 @@ export function mirrorSettings(config: unknown): { claimLeaseMs: number; sendTim
 let claimants = 0;
 const nextClaimant = (): string => `publisher:${process.pid}:${(claimants += 1)}`;
 
+/** The stored state of one segment of a delivery, read at the call. */
+const segmentOf = ({ segments }: StoredDelivery, segment: number) => segments[segment];
+
 /** The publisher's whole surface: publishing, draining, and the owner's desk. */
 export type Mirrors = MirrorDesk & {
   publishEntry(entry: SelfreflectionEntry): Promise<Array<PublishOutcome>>;
@@ -544,8 +553,8 @@ export function createMirrors({
     delivery: StoredDelivery
   ): Promise<PublishOutcome> {
     const sent = await sendPlan(connected, { iface: place.iface, conversationId: place.conversationId }, plan, {
-      done: (segment) => delivery.segments[segment]?.status === 'sent',
-      keyOf: (segment) => delivery.segments[segment]?.key ?? `${publication.id}:${segment}`,
+      done: (segment) => segmentOf(delivery, segment)?.status === 'sent',
+      keyOf: (segment) => segmentOf(delivery, segment)?.key ?? `${publication.id}:${segment}`,
       timeoutMs: mirrorSettings(config()).sendTimeoutMs,
       onSent: async (segment, messageIds, attachmentIds) => {
         const answer = (await write({

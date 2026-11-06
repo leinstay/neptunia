@@ -150,6 +150,9 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     readerId?: string | null;
   };
 
+/** The wake an inner turn's draft runs under; nothing on any other turn. */
+const wakeOf = (draft: CallsDraft | null | undefined) => draft?.inner?.wake;
+
 /** The channel a call is made from, as the interface described it. */
 type CallChannel = Pick<Conversation, 'id' | 'rootId'> & { name?: unknown };
 
@@ -241,7 +244,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     skills,
     selfIdOf,
     clock,
-    iface,
+    iface: port,
     conversationOf,
     images,
     speech,
@@ -286,7 +289,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
             errands.fileOf!({ placeId, handle, privateChannelId: inCommunity(channel) ? null : String(channel.id) })
         : null;
     return callViewOf({
-      currentIface: iface.iface,
+      currentIface: port.iface,
       channel,
       snapshot,
       placeId,
@@ -320,6 +323,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     resolved: Resolved,
     { channel, envelope, draft = null }: { channel: CallChannel; envelope: CallEnvelope; draft?: CallsDraft | null }
   ): ReturnType<typeof checkSkill> {
+    const wakeKind = wakeOf(draft)?.kind;
     const verdict = checkSkill({
       skill: resolved.skill,
       args: resolved.args,
@@ -334,9 +338,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         // An inner turn, or the result turn of her own errand, is her own initiative: nobody asked, her grants alone decide.
         ...(draft?.inner || draft?.ownInitiative ? { ownInitiative: true } : {}),
         // An inner turn's wake envelope (wakes.kinds.<kind>): its wake kind and the calls it made so far.
-        ...(draft?.inner?.wake?.kind
-          ? { wakeKind: String(draft.inner.wake.kind), wakeActions: draft.innerActions ?? [] }
-          : {}),
+        ...(wakeKind ? { wakeKind: String(wakeKind), wakeActions: draft?.innerActions ?? [] } : {}),
         lastRunAt: destructiveRuns.get(`${resolved.skill}:${envelope.originChannelId}`) ?? null,
         now: clock(),
         ...(images ? { images } : {}),
@@ -404,7 +406,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       return { call, op, envelope, resolved: null, refusal: { ...call.preRefuse } };
     }
     // A wake's own set: a call outside it, and a task answer outside the selfimprovement wake, are refused before resolution.
-    const wakeKind = draft?.inner?.wake?.kind ?? null;
+    const wakeKind = wakeOf(draft)?.kind ?? null;
     const wakeRefusal = wakeRefusalCode(wakeKind, call.skill);
     if (wakeRefusal !== null) {
       const reason = `${String(wakeKind ?? 'selfimprovement')}:only`;
@@ -643,7 +645,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         const publicationBoundary = turnBoundary(draft, conversationOf(channel));
         result = await executeCall(resolvedCall, {
           publicationBoundary,
-          port: iface,
+          port,
           here: conversationOf(channel),
           refOf: (conversationId) => conversationOf({ id: String(conversationId) }),
           renderText,
@@ -681,7 +683,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       // step (openIntentionsText) no longer lists it; the action record carries it, and the state
       // an intention.update set (`done`, `pending`), for the feedback facts (src/behavior/inner.ts#feedbackFacts).
       const named = intentionNamed(skill, plan.resolved?.args ?? call.args ?? {});
-      const state = skill === 'intention.update' ? (plan.resolved?.args?.state ?? call.args?.state ?? null) : null;
+      const resolvedArgs = plan.resolved?.args;
+      const state = skill === 'intention.update' ? (resolvedArgs?.state ?? call.args?.state ?? null) : null;
       (draft.innerActions ??= []).push({
         skill,
         status: innerGate?.proposed ? 'proposed' : ran ? 'executed' : 'refused',

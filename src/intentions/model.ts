@@ -247,13 +247,14 @@ export function attentionRetrieval(
   const open = records.flatMap((one) => (one === null || one === undefined ? [] : [one]));
   if (open.length === 0) return null;
   const people = open.flatMap((one) => one.attend?.people ?? []).flatMap((id) => personOf(String(id)) ?? []);
+  const [first] = open;
   return {
     purpose: 'attention',
     intention: {
       purpose: open.map((one) => (typeof one.purpose === 'string' ? one.purpose : '')).join('\n'),
       people: [...new Set(people)],
       entities: [],
-      place: [open[0].attend?.place, open[0].destination].find((id): id is string => typeof id === 'string') ?? null,
+      place: [first.attend?.place, first.destination].find((id): id is string => typeof id === 'string') ?? null,
     },
   };
 }
@@ -1060,7 +1061,8 @@ export function concernsMember(
   const id = String(accountId ?? '');
   if (!id || !record) return false;
   if (record.destination === id) return true;
-  if (Array.isArray(record.attend?.people) && record.attend.people.includes(id)) return true;
+  const { attend } = record;
+  if (Array.isArray(attend?.people) && attend.people.includes(id)) return true;
   const provenance: Partial<Provenance> = record.provenance ?? {};
   if (Array.isArray(provenance.participants) && provenance.participants.includes(id)) return true;
   const texts = [

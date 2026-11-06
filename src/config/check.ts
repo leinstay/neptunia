@@ -46,9 +46,10 @@ function schemaTree(schema: ReadonlyArray<SchemaEntry>): Node {
 
 /** The problems of `value` at the schema node `node`, whose dotted path is `at`. */
 function checkNode(value: unknown, node: Node, at: string, out: Array<ConfigProblem>): void {
-  if (node.entry !== null) {
+  const { entry } = node;
+  if (entry !== null) {
     const type = typeOf(value);
-    if (type === null || !node.entry.types.includes(type)) out.push({ key: at, kind: 'type' });
+    if (type === null || !entry.types.includes(type)) out.push({ key: at, kind: 'type' });
     return;
   }
   if (!isTree(value)) {

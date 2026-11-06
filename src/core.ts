@@ -338,7 +338,7 @@ async function buildCore(
   fs.mkdirSync(dataDir, { recursive: true });
   let releaseCore: () => void = () => {};
   try {
-    const dbFile: string | undefined = settings.config.memoryDb?.file;
+    const dbFile: string | undefined = hot.config.memoryDb?.file;
     releaseCore = claimCore(path.join(dataDir, dbFile || 'memory.db'), { now: clock });
   } catch (err) {
     fail(`index: ${err instanceof Error ? err.message : String(err)}`);
@@ -469,8 +469,8 @@ async function buildCore(
     memoryDb,
     track: loopWatch.track,
   });
-
-  const calibrator = createCalibrator(store.state.data.calibration);
+  const processState = store.state; // state.json: the pause flag, the daily counters and the process's marks
+  const calibrator = createCalibrator(processState.data.calibration);
   // Which model roles are down (src/llm/role-health.ts): one tracker for the turns, the operations, the describer and
   // `/status`. A role has no key when the key it resolves to is empty (src/llm/openrouter.js#roleApiKey).
   const roleHealth = createRoleHealth({
@@ -495,7 +495,7 @@ async function buildCore(
         keys: ringNow,
         getConfig: () => hot.config,
         calibrator,
-        state: store.state,
+        state: processState,
       }),
       roleHealth
     )) as ChatClient;
@@ -515,7 +515,7 @@ async function buildCore(
     requestArchive
   );
   // Embeddings (role embedding) on the same daily request count as the chat client.
-  const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, env, keyOf, state: store.state });
+  const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, env, keyOf, state: processState });
   // The meaning index kept current: record lines queued above, flushed on the tick below.
   embedQueue = createEmbedQueue({
     hot,
@@ -527,7 +527,7 @@ async function buildCore(
       firstName(store.getUser(accountOf(store, accountId))) ?? members.nameOf(nativeOfPlace(placeId), accountId),
     selfName: (placeId) => getSelfName(placeId),
     // No catch-up pass while paused (the owner may be editing data/); /nep resume runs one.
-    paused: () => store.state.data.paused === true,
+    paused: () => processState.data.paused === true,
     memoryDb,
   });
   // The persona's drawings: its own daily rails, counted on the same state. Pictures are paid with the drawing role's
@@ -536,7 +536,7 @@ async function buildCore(
   const imageOptions = {
     apiKey: () => keyOf('drawing') ?? roleApiKey(hot.config, env, 'drawing', openrouterKey),
     getConfig: () => hot.config,
-    state: store.state,
+    state: processState,
   };
   const images = createImageGen(imageOptions);
   // The persona's voice messages: the preparation pass on the analyzer, the synthesis on the
@@ -551,7 +551,7 @@ async function buildCore(
     apiKey: openrouterKey,
     keyOf,
     llm,
-    state: store.state,
+    state: processState,
   };
   const speech = speechReady ? createSpeech(speechOptions) : null;
 
@@ -571,7 +571,7 @@ async function buildCore(
     llm: describerLlm,
     imageFetcher,
     videoFetcher,
-    state: store.state,
+    state: processState,
     youtubeApiKey,
     proxy: () => proxy.current(),
     track: loopWatch.track,
@@ -585,7 +585,7 @@ async function buildCore(
     // The store answers a media cache as a plain object; the lookup reads it as its cache entries.
     store: store as unknown as Parameters<typeof createLookup>[0]['store'],
     llm,
-    state: store.state,
+    state: processState,
     pageFetcher: createPageFetcher(),
     // web.quickSearch.engine picks one of these, and nothing answers in its place.
     searches: { brave: createBraveSearch(), exa: createExaSearch() },
@@ -664,8 +664,8 @@ async function buildCore(
     receive: async (value: unknown, from: From | undefined) => {
       const door = await doorReady.promise;
       // Everything this event does to memory happens under the interface it came from.
-      const body = (value as { body?: { iface?: unknown }; iface?: unknown } | null) ?? null;
-      return withIface(body?.body?.iface ?? body?.iface, () => door.receive(value, from));
+      const envelope = (value as { body?: { iface?: unknown }; iface?: unknown } | null) ?? null;
+      return withIface(envelope?.body?.iface ?? envelope?.iface, () => door.receive(value, from));
     },
   };
   const linkOpened: PromiseWithResolvers<ReturnType<typeof openAdapterLink>> = Promise.withResolvers();
@@ -851,10 +851,10 @@ async function buildCore(
     store,
     llm,
     imageFetcher,
-    state: store.state,
+    state: processState,
     selfId: () => identity.selfId,
     reads,
-    paused: () => store.state.data.paused === true,
+    paused: () => processState.data.paused === true,
   };
   const avatars = createAvatarQueue({
     ...avatarOptions,
@@ -1469,8 +1469,8 @@ async function buildCore(
       ...ownerMediaRuns({ memoryDb, reads, iface: () => identity.iface, describer, describerDeps, now: clock, log }),
       statusBrief: () => ({
         core: {
-          state: store.state.data.paused ? 'paused' : 'running',
-          reason: store.state.data.paused ? pauseControl.reason() : null,
+          state: processState.data.paused ? 'paused' : 'running',
+          reason: processState.data.paused ? pauseControl.reason() : null,
         },
         memory: {
           path: memoryPathText(memoryPath(paths.privateDir)),
@@ -1570,17 +1570,17 @@ async function buildCore(
 
   /** RELATIONSHIP_LIMITS.decayPerDay: every stored affinity drifts toward zero, one step per whole day; not while paused. */
   function sweepAffinityDecay() {
-    if (store.state.data.paused) return;
+    if (processState.data.paused) return;
     // Decay counts only time she was running: the sweep runs hourly, so a gap of more than two sweeps since the last one
     // (kept in the state file) is downtime, and all of it but one sweep's hour is skipped.
     const now = Date.now();
-    const last = Date.parse(store.state.data.affinityDecaySweptAt ?? '');
+    const last = Date.parse(processState.data.affinityDecaySweptAt ?? '');
     const gap = Number.isFinite(last) ? now - last : 0;
     const skipMs = gap > 2 * AFFINITY_SWEEP_MS ? gap - AFFINITY_SWEEP_MS : 0;
     const decay = { ...RELATIONSHIP_LIMITS, skipMs };
     const counts = store.decayAffinities(now, decay);
-    store.state.data.affinityDecaySweptAt = new Date(now).toISOString();
-    store.state.markDirty();
+    processState.data.affinityDecaySweptAt = new Date(now).toISOString();
+    processState.markDirty();
     if (counts.decayed > 0 || skipMs > 0)
       log.info('index: affinity decay applied', { ...counts, skippedHours: Math.round(skipMs / 3_600_000) });
   }
@@ -1597,7 +1597,7 @@ async function buildCore(
     archiveDrainTimer = setTimeout(
       () => {
         Promise.resolve()
-          .then(() => (store.state.data.paused ? null : store.drainArchive()))
+          .then(() => (processState.data.paused ? null : store.drainArchive()))
           .catch((err) => log.error('index: archive drain failed', { error: err }))
           .finally(() => {
             if (!shuttingDown) scheduleArchiveDrain();
@@ -1915,9 +1915,9 @@ async function buildCore(
   log.info('index: ready', { tag: identity.selfName });
 
   // A pause persisted before this restart comes back paused: every spontaneous tick does nothing until /resume.
-  if (store.state.data.paused) {
+  if (processState.data.paused) {
     log.info('index: starting up paused, run /resume when data/ is ready', {
-      pausedAt: store.state.data.pausedAt ?? null,
+      pausedAt: processState.data.pausedAt ?? null,
     });
   }
 
@@ -1977,7 +1977,7 @@ async function buildCore(
 
   // What the archive refused before this start: drained once now (it also counts the queue for
   // the stall check), then on the timer (above). Fire-and-forget.
-  await startupStep('archive.drain', () => (store.state.data.paused ? null : store.drainArchive()));
+  await startupStep('archive.drain', () => (processState.data.paused ? null : store.drainArchive()));
 
   return {
     door,

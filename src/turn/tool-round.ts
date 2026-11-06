@@ -288,10 +288,11 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
   ): Promise<Array<Line>> {
     const namesOn = reactors;
     const place = placeId;
+    const reactionsConfig = config.context.reactions;
     const names: ReactorNames | null = namesOn
       ? {
           store: reactors,
-          budgetMs: config.context.reactions?.fetchTimeoutMs ?? 2000,
+          budgetMs: reactionsConfig?.fetchTimeoutMs ?? 2000,
           fetchUsers: REACTION_FETCH_USERS,
           known: (accountId) => (place ? memberOf(place, accountId) : null),
           cache: draft
@@ -433,7 +434,8 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
   }: RunStepsArgs & { typing: { stop: () => void; started: boolean } }): Promise<Stepped> {
     const inner = Boolean(draft.inner);
     const isCancelled = (): boolean => cancel?.aborted === true;
-    const wakeKind = draft.inner?.wake?.kind ?? null;
+    const wake = draft.inner?.wake;
+    const wakeKind = wake?.kind ?? null;
     // A selfreflection post (draft.selfreflection): only draw.create runs; its pictures are staged and posted with the messages.
     const selfreflection = Boolean(draft.selfreflection);
     const registry = skills ?? defaultSkills();
@@ -628,7 +630,8 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         // The calls and how they ended, for the use of her skills (src/skills/uses.ts).
         const skillCalls = (draft.skillCalls ??= []);
         for (const [index, result] of results.entries()) {
-          const named = plans[index]?.record.args?.name;
+          const record = plans[index]?.record;
+          const named = record?.args?.name;
           skillCalls.push({
             tool: result.skill,
             ...(result.skill === 'skill.read' && typeof named === 'string' ? { name: named } : {}),
@@ -837,13 +840,14 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       };
       if (last) finalReason = reason;
       answer = readAnswer(completion, step + 1);
+      const followUp = answer.parsed;
       log.info('skills: follow-up answered', {
         channel: channel.id,
         step,
         calls: answer.calls.length,
         usage: completion.usage,
-        messages: answer.parsed.messages.length,
-        reactions: answer.parsed.reactions.length,
+        messages: followUp.messages.length,
+        reactions: followUp.reactions.length,
         final: last,
       });
       const quiet = answer.parsed.skip || speechItemsOf(answer.parsed) === 0;
@@ -942,7 +946,10 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       for (const call of loweredCalls)
         lowered.push(await planToolCall({ call, channel, envelope: envelopeOf(call), draft, view }));
       out.loweredResults = await runCalls(lowered, contextOf(routed, callTimeoutCap));
-      const messagesSent = out.loweredResults.filter((result, i) => lowered[i].call.skill === 'message.create');
+      const messagesSent = out.loweredResults.filter((result, i) => {
+        const plan = lowered[i];
+        return plan.call.skill === 'message.create';
+      });
       const failed = messagesSent.filter((result) => result.status !== 'ok');
       if (failed.length > 0)
         out.deliveries.push({

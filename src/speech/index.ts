@@ -91,7 +91,7 @@ export function createSpeech({
     const config = getConfig();
     const original = String(text ?? '');
 
-    const prepared = await prepareSpeech({
+    const pass = await prepareSpeech({
       text: original,
       complete: llm.complete,
       prompt: objOf(getPrompts())['speech-prepare'],
@@ -100,16 +100,16 @@ export function createSpeech({
       timeoutMs: objOf(objOf(config).llm).analyzerTimeoutMs,
     });
 
-    if (!prepared.prepared) {
-      throw new SpeechError('prepare', CODE.SPEECH_PREPARE_FAILED, `pronunciation pass failed (${prepared.reason})`, {
-        reason: prepared.reason ?? null,
+    if (!pass.prepared) {
+      throw new SpeechError('prepare', CODE.SPEECH_PREPARE_FAILED, `pronunciation pass failed (${pass.reason})`, {
+        reason: pass.reason ?? null,
       });
     }
 
     let made: Awaited<ReturnType<typeof synthesizeSpeech>>;
     try {
       made = await synthesizeSpeech({
-        text: prepared.text,
+        text: pass.text,
         getConfig,
         env,
         mainKey: apiKey,
@@ -137,16 +137,16 @@ export function createSpeech({
       );
     }
     log.info('speech: made', {
-      chars: Array.from(prepared.text).length,
-      prepared: prepared.prepared,
+      chars: Array.from(pass.text).length,
+      prepared: pass.prepared,
       seconds: note.durationSecs,
     });
     return {
       ...note,
-      chars: Array.from(prepared.text).length,
+      chars: Array.from(pass.text).length,
       cost: made.cost,
       model: made.model,
-      voiced: prepared.text,
+      voiced: pass.text,
       prepared: true,
       ms: made.ms,
     };

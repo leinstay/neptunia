@@ -7,7 +7,8 @@
 // posted through her interface (src/interface/port.ts, `env.port`), replying to a message when
 // one is named, and a reply notifies the replied author unless they turned pings off. Her text
 // (a post or an edit) arrives rendered as a `<msg>` of hers (src/tools/executors.ts#executeCall);
-// only the members it mentions (`context.mentionAccountIds`) are notified, none with pings off. Edit,
+// only the members it mentions (`context.mentionAccountIds`) are notified, under each one's ping
+// state as a turn's messages are (src/turn/mentions.ts#mentionsUnderPings). Edit,
 // delete and react go through the interface too. The rules live here, for every caller: a post,
 // an edit, a deletion or a reaction in the conversation the command runs in, or in any text
 // channel of the served place where the bot holds the platform permissions it needs
@@ -42,6 +43,8 @@ import type { Adapter, ConversationRef } from '../../protocol/adapter.ts';
 import type { Content } from '../../protocol/actions.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';
+import { mentionsUnderPings } from '../../turn/mentions.ts';
+import type { PingState } from '../../memory/pings.ts';
 
 /** The conversation `conversationId` names, checked for what `need` asks there (src/tools/impl/shared.ts#postingConversation). */
 function checkedConversation(
@@ -162,10 +165,11 @@ function gifEntry(env: Env, args: Obj): Untyped {
   return entry;
 }
 
-/** True when member `accountId` turned pings off here. */
-function pingsOff(env: Env, { context, accountId }: { context: OpContext; accountId: unknown }): boolean {
-  if (!accountId || typeof env.store?.isPingsOff !== 'function') return false;
-  return env.store.isPingsOff(env.resolvedPlaceId(context), idText(accountId)) === true;
+/** The ping state each member chose in the place of the call (store.getPings). */
+function pingStates(env: Env, context: OpContext): (accountId: string) => PingState {
+  const placeId = env.resolvedPlaceId(context);
+  const store = env.store as { getPings?: (placeId: string, accountId: string) => PingState } | null | undefined;
+  return (accountId) => (placeId && typeof store?.getPings === 'function' ? store.getPings(placeId, accountId) : null);
 }
 
 const handlers = perEnv((env) => {
@@ -175,12 +179,10 @@ const handlers = perEnv((env) => {
   const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
   const clock = typeof env.now === 'function' ? env.now : Date.now;
 
-  /** The members her rendered text mentions (`context.mentionAccountIds`, her own calls only), less those with pings off. */
-  function mentionedUsers(context: OpContext) {
+  /** The members her rendered text mentions (`context.mentionAccountIds`, her own calls only). */
+  function mentionedUsers(context: OpContext): Array<string> {
     if (context?.actor !== 'persona' || !Array.isArray(context.mentionAccountIds)) return [];
-    return (context.mentionAccountIds as Array<unknown>)
-      .map(idText)
-      .filter((id) => id && !pingsOff(env, { context, accountId: id }));
+    return (context.mentionAccountIds as Array<unknown>).map(idText).filter(Boolean);
   }
 
   /**
@@ -200,7 +202,8 @@ const handlers = perEnv((env) => {
     const message = found?.messages[0] ?? null;
     if (message?.missing === true) throw invalid(`message ${ref.messageId} was deleted`, CODE.MESSAGE_DELETED);
     if (!message?.event) throw invalid(`no message ${ref.messageId} in ${sourceId}`, CODE.UNKNOWN_MESSAGE);
-    if (message.event.message.author?.self !== true) throw invalid('that message is not hers', CODE.NOT_OWN_MESSAGE);
+    const sent = message.event.message;
+    if (sent.author?.self !== true) throw invalid('that message is not hers', CODE.NOT_OWN_MESSAGE);
     const attachments: Array<Untyped> = [...(message.attachments ?? [])];
     const given = args.item === undefined || args.item === null || args.item === '' ? 1 : Number(args.item);
     if (attachments.length === 0) throw invalid('that message holds no attachment', CODE.NO_MEDIA);
@@ -250,7 +253,12 @@ const handlers = perEnv((env) => {
     if (given && reply?.placeId && given !== reply.placeId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const conversationId = await postTarget(env, p, context, given ?? reply?.placeId ?? null, reply !== null);
-    const repliedUser = Boolean(reply) && !pingsOff(env, { context, accountId: context?.repliedAuthorId });
+    const mentions = mentionsUnderPings({
+      users: mentionedUsers(context),
+      repliedAuthorId: context?.repliedAuthorId ? idText(context.repliedAuthorId) : null,
+      replying: reply !== null,
+      stateOf: pingStates(env, context),
+    });
     const entry = gifEntry(env, args);
     const attachment = (await errandFile(env, args, context, conversationId, p)) ?? (await mediaFile(args, context, p));
     const to = { iface: p.iface, conversationId };
@@ -258,7 +266,7 @@ const handlers = perEnv((env) => {
       text,
       ...(attachment ? { attachments: [attachment] } : {}),
       ...(reply ? { replyTo: { iface: p.iface, conversationId, messageId: reply.messageId } } : {}),
-      mentions: { users: mentionedUsers(context), repliedUser },
+      mentions,
     };
     let result: Untyped = null;
     if (text || attachment) {
@@ -336,7 +344,8 @@ const handlers = perEnv((env) => {
     if (reply.placeId && reply.placeId !== ref.conversationId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const fetched = await needReads(reads).fetchMessages(ref, [reply.messageId]);
-    const event = fetched?.messages[0]?.event;
+    const replied = fetched?.messages[0];
+    const event = replied?.event;
     if (!event) throw invalid(`no message ${reply.messageId} in ${ref.conversationId}`, CODE.UNKNOWN_MESSAGE);
     const trigger = lineOf(event);
     const result = await turns.runTurn({
@@ -398,8 +407,9 @@ const handlers = perEnv((env) => {
     const page = await needReads(reads).history({ iface: p.iface, conversationId: placeId }, { limit: LAST_LOOKBACK });
     let newest: NonNullable<typeof page>['events'][number] | null = null;
     for (const event of page?.events ?? []) {
-      if (event.message?.author?.self !== true) continue;
-      if (!newest || (event.message.at ?? 0) >= (newest.message?.at ?? 0)) newest = event;
+      const { message } = event;
+      if (message?.author?.self !== true) continue;
+      if (!newest || (message.at ?? 0) >= (newest.message?.at ?? 0)) newest = event;
     }
     if (!newest)
       throw invalid(`no message of the persona among the last ${LAST_LOOKBACK} in ${placeId}`, CODE.NO_OWN_MESSAGE);
@@ -415,7 +425,12 @@ const handlers = perEnv((env) => {
     if (!text) throw invalid('text is required');
     const { placeId, messageId, ref } = await target(args, context, 'read', { last: true });
     if (publicationRefusal(context.publicationBoundary, ref)) throw denied('publication-boundary', 'not-allowed');
-    const users = mentionedUsers(context);
+    // An edit notifies nobody new on the interface; the mentions only keep a member with pings off out of the allowed list.
+    const { users } = mentionsUnderPings({
+      users: mentionedUsers(context),
+      replying: false,
+      stateOf: pingStates(env, context),
+    });
     const content = { text, ...(users.length > 0 ? { mentions: { users, repliedUser: false } } : {}) };
     return portAnswer('message.edit', await p.edit(ref, content), `edited message ${messageId} in ${placeId}`);
   }

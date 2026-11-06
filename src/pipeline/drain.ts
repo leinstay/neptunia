@@ -68,6 +68,8 @@ export function createDrain({
   followUpStale,
   decideAndLog,
 }: DrainContext): { drainPending: () => Promise<void> } {
+  /** The store's `state.json` data, read at each call: the pause flag. */
+  const storeState = () => store?.state?.data;
   let draining = false; // guards against a re-entrant drainPending() call (see below)
 
   /**
@@ -102,7 +104,7 @@ export function createDrain({
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.ts in stage 5d, a pure move
   async function drainPending(): Promise<void> {
-    if (draining || store?.state?.data?.paused) return;
+    if (draining || storeState()?.paused) return;
     draining = true;
     try {
       while (pending.list.length > 0) {
@@ -122,7 +124,7 @@ export function createDrain({
         await sleep(between(SWITCH_DELAY_MS, rng));
 
         // Paused meanwhile: the ping goes back to the queue, which the resume drains.
-        if (store?.state?.data?.paused) {
+        if (storeState()?.paused) {
           pending.list = [...pending.list, ping];
           logPending(ping, 'kept', { reason: 'paused' });
           break;

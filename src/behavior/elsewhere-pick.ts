@@ -292,17 +292,17 @@ async function askWithin(
   schedule: NonNullable<PickerDeps['schedule']>,
   ask: (signal: AbortSignal | undefined) => unknown
 ): Promise<{ late: boolean; completion?: unknown } | { late: false; error: unknown }> {
-  const abort = timeoutMs === null ? null : new AbortController();
+  const controller = timeoutMs === null ? null : new AbortController();
   let late = false;
   const cancel =
-    abort && timeoutMs !== null
+    controller && timeoutMs !== null
       ? schedule(() => {
           late = true;
-          abort.abort();
+          controller.abort();
         }, timeoutMs)
       : null;
   try {
-    const completion: unknown = await ask(abort?.signal);
+    const completion: unknown = await ask(controller?.signal);
     return late ? { late } : { late, completion };
   } catch (error) {
     return late ? { late } : { late, error };
@@ -431,7 +431,8 @@ export function createElsewherePicker({
       }
       const answer = parseElsewhereAnswer(objOf(ended.completion).text, counts);
       const place = answer.place.index === null ? null : places[answer.place.index - 1];
-      const picked = answer.episodes.indices.map((n) => listed.ids[n - 1]);
+      const { indices } = answer.episodes;
+      const picked = indices.map((n) => listed.ids[n - 1]);
       log.info('elsewhere: classified', {
         channel: placeId,
         kind: triggerKind,

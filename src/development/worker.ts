@@ -189,6 +189,9 @@ const changesIn = (view: TaskView): number =>
 const owesRework = (view: TaskView, saved: Development): boolean =>
   saved.pr !== null && (changesIn(view) > saved.reviewed || saved.head === null);
 
+/** Whether the run of a held task was stopped. */
+const wasStopped = ({ controller }: Held): boolean => controller.signal.aborted;
+
 const isClosed = (status: TaskRecord['status']): boolean => CLOSED.includes(status);
 
 /** The push URL of `owner/name`. */
@@ -244,7 +247,8 @@ class Worker {
   }
 
   async call<TOp extends BoardOp>(op: TOp, args: Readonly<Record<string, unknown>> = {}): Promise<BoardResults[TOp]> {
-    return await this.deps.board.call(PRINCIPAL, op, args);
+    const { board } = this.deps;
+    return await board.call(PRINCIPAL, op, args);
   }
 
   async show(id: string): Promise<TaskView> {
@@ -399,8 +403,7 @@ class Worker {
     })()
       .catch(async (error: unknown) => {
         this.journal({ event: 'run-error', taskId: entry.id, code: codeOf(error) });
-        if (!entry.controller.signal.aborted)
-          await this.failAndDrop(entry, `error: ${codeOf(error)}`).catch(() => undefined);
+        if (!wasStopped(entry)) await this.failAndDrop(entry, `error: ${codeOf(error)}`).catch(() => undefined);
       })
       .finally(() => {
         entry.run = null;
@@ -412,7 +415,7 @@ class Worker {
 
   /** What an ended run leaves to do: null when the run was stopped or the task moved on, so nothing may be written. */
   async viewAfterRun(entry: Held, done: BackendResult): Promise<TaskView | null> {
-    if (entry.controller.signal.aborted) {
+    if (wasStopped(entry)) {
       this.drop(entry);
       return null;
     }

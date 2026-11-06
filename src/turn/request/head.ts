@@ -346,7 +346,8 @@ export function requestRoom(given: RequestInput): Room {
   const toolsTokens =
     typeof tokensGiven === 'number' && Number.isFinite(tokensGiven) && tokensGiven > 0 ? Math.floor(tokensGiven) : 0;
   const toolsExposed = toolsTokens > 0 || (typeof given.toolsBlock === 'string' && given.toolsBlock.trim() !== '');
-  const reserveRaw = config.tools?.loop?.stepReserveTokens;
+  const toolLoop = config.tools?.loop;
+  const reserveRaw = toolLoop?.stepReserveTokens;
   const stepReserve =
     toolsExposed && reserveRaw !== undefined && Number.isFinite(reserveRaw) && reserveRaw > 0
       ? Math.floor(reserveRaw)

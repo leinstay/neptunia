@@ -80,7 +80,8 @@ function mediaOffLines(config: RequestConfig, labels: SensesLabels, window: Read
   const why = at(labels.tools, 'result', 'params', 'why', 'no-model');
   if (typeof template !== 'string' || typeof why !== 'string') return [];
   const held = new Set<string>();
-  const sites = config.media?.video?.sites;
+  const video = config.media?.video;
+  const sites = video?.sites;
   for (const message of window) {
     for (const item of collectPictures(message)) {
       held.add(item.kind === 'gif' || item.kind === 'video' ? 'video' : 'vision');
@@ -196,7 +197,8 @@ export function renderSenses(
   // The web lookup: the links line stays as it is and the read-excerpt line follows it; the search line follows
   // only when a search key is configured (`searchAvailable`). An older labels.json without either line shows
   // nothing extra.
-  const searchOn = config.web?.quickSearch?.enabled !== false && searchAvailable === true;
+  const quickSearch = config.web?.quickSearch;
+  const searchOn = quickSearch?.enabled !== false && searchAvailable === true;
   // With her own page reader (web.read granted) the links line says a preview may show the opening of the page
   // and she can read it all, in place of "cannot open the page".
   const readerOn = granted('web.read');

@@ -569,7 +569,20 @@ export class Board {
   }
 
   grantsOf(principal: string): ReadonlySet<BoardRole> {
-    return this.context.grants.get(principal) ?? new Set();
+    const { grants } = this.context;
+    return grants.get(principal) ?? new Set();
+  }
+
+  /** The lease length of this call's settings, in minutes. */
+  leaseTtlMinutes(): number {
+    const { settings } = this.context;
+    return settings.leaseTtlMinutes;
+  }
+
+  /** Whether the project `name` runs without CI in this call's settings. */
+  isWithoutCi(name: string): boolean {
+    const { projects } = this.context.settings;
+    return projects[name]?.ci === false;
   }
 
   /** Whether `principal` speaks for `name` (a requester, a subscriber, a question's addressee). */
@@ -584,7 +597,8 @@ export class Board {
 
   /** Whether any client of clients.json holds `reviewer`: then a dev task filed with `auto` waits for its brief. */
   hasReviewer(): boolean {
-    return [...this.context.grants.values()].some((roles) => roles.has('reviewer'));
+    const { grants } = this.context;
+    return [...grants.values()].some((roles) => roles.has('reviewer'));
   }
 
   newId(prefix: string, table: string): string {
@@ -674,7 +688,7 @@ export class Board {
     if (task.lane === 'errand') out.add('errand');
     const meta = parseTask(task).metadata;
     if (meta?.ci === 'green') out.add('ci-green');
-    if (task.project !== null && this.context.settings.projects[task.project]?.ci === false) out.add('no-ci');
+    if (task.project !== null && this.isWithoutCi(task.project)) out.add('no-ci');
     if (meta?.tests === 'pass') out.add('tests-pass');
     if (isObject(meta?.merged)) out.add('merged');
     const parent = this.db
@@ -800,7 +814,7 @@ export class Board {
     if (!owner) return { lease_owner: null, lease_expires_at: null, heartbeat_at: null };
     return {
       lease_owner: owner,
-      lease_expires_at: this.later(this.context.settings.leaseTtlMinutes),
+      lease_expires_at: this.later(this.leaseTtlMinutes()),
       heartbeat_at: this.now(),
     };
   }
@@ -1080,7 +1094,7 @@ function claimTask(board: Board, principal: string, args: Args): TaskRecord {
   if (task.defer_until && task.defer_until > now) {
     throw new BoardError('blocked', `${task.id} is deferred until ${task.defer_until}`);
   }
-  const expires = board.later(leaseMinutes(args, board.context.settings.leaseTtlMinutes));
+  const expires = board.later(leaseMinutes(args, board.leaseTtlMinutes()));
   // The claim itself: one guarded statement, so of two claimers exactly one changes the row.
   const info = board.db
     .prepare(
@@ -1106,7 +1120,7 @@ function heartbeatTask(board: Board, principal: string, args: Args): TaskRecord 
   board.checkGeneration(task, args.generation);
   if (task.status !== 'in_progress') throw new BoardError('invalid-transition', `${task.id} is ${task.status}`);
   if (task.lease_owner !== principal) throw new BoardError('forbidden', `${principal} does not hold ${task.id}`);
-  const expires = board.later(leaseMinutes(args, board.context.settings.leaseTtlMinutes));
+  const expires = board.later(leaseMinutes(args, board.leaseTtlMinutes()));
   // A heartbeat only extends the lease: it does not bump the revision.
   const updated = board.write(task, { lease_expires_at: expires, heartbeat_at: board.now() }, { bump: false });
   board.event(task.id, principal, 'lease.heartbeat', task.lease_expires_at, expires);

@@ -393,9 +393,10 @@ export function createErrandService({
     if (runnerDown(agent)) return { ok: false, code: CODE.RUNNER_DOWN };
     const added = store.add({ agent, goal, requester, origin, scope, idempotencyKey });
     if (!added.ok || added.duplicate) return added;
-    const id = added.errand.id;
+    const { errand } = added;
+    const id = errand.id;
     // The channel as it was when the errand was asked for, not when it is sent.
-    recentById.set(id, recentOf(added.errand.origin?.placeId ?? null, added.errand.scope));
+    recentById.set(id, recentOf(errand.origin?.placeId ?? null, errand.scope));
     // After the operation's answer: the persona never waits for her errand.
     const run = new Promise<void>((resolve) => defer(resolve))
       .then(() => runErrand(store, id))
@@ -467,10 +468,8 @@ export function createErrandService({
     // Files the runner has deleted: a marker the callers refuse as `file-expired`, never a path.
     if (!file)
       return store?.fileExpired?.(handle) === true ? expiredFile(store, idText(handle), privateChannelId) : null;
-    if (
-      file.errand.scope === 'dm' &&
-      (privateChannelId === null || file.errand.origin?.placeId !== String(privateChannelId))
-    )
+    const { errand } = file;
+    if (errand.scope === 'dm' && (privateChannelId === null || errand.origin?.placeId !== String(privateChannelId)))
       return null;
     return file;
   }

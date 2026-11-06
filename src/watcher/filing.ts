@@ -18,7 +18,7 @@ import { HER, WATCHER, herOpenTask, normalized } from './tasks.ts';
 import type { TaskDraft } from './tasks.ts';
 
 export type FilingState =
-  'pending' | 'filed' | 'duplicate' | 'deferred' | 'failed' | 'cancelled' | 'unmatched-draft' | 'hypothesis';
+  'pending' | 'filed' | 'duplicate' | 'deferred' | 'failed' | 'cancelled' | 'unmatched-draft' | 'hypothesis' | 'draft';
 
 export type FilingReceipt = {
   /** The model's key, or the normalized evidence of a draft with none. */
@@ -74,14 +74,21 @@ function sameFinding(a: FilingReceipt, b: FilingReceipt): boolean {
  * for a finding in `limits.repeated`, a key the risk rules found to repeat an earlier report with no new evidence. With
  * `limits.fileable`, the keys of the finding lines at `medium` or above, any other draft is `unmatched-draft`: settled, never
  * sent to the board and never retried. With `limits.commandRequired`, development mode's rule, a draft left to file with no
- * command that reproduces it (`reproducingCommand`) is a `hypothesis`, settled the same way, and the report names it.
+ * command that reproduces it (`reproducingCommand`) is a `hypothesis`, settled the same way, and the report names it. With
+ * `limits.draftsOnly` (`watcher.draftsOnly`, while the watcher is calibrated) every draft left to file is a `draft`: settled,
+ * never sent to the board, listed in the report.
  */
 export function saveDrafts(
   dir: string,
   runId: string,
   at: number,
   drafts: ReadonlyArray<TaskDraft>,
-  limits: { repeated?: ReadonlySet<string>; fileable?: ReadonlySet<string>; commandRequired?: boolean } = {}
+  limits: {
+    repeated?: ReadonlySet<string>;
+    fileable?: ReadonlySet<string>;
+    commandRequired?: boolean;
+    draftsOnly?: boolean;
+  } = {}
 ): void {
   if (drafts.length === 0) return;
   fs.mkdirSync(filingsDir(dir), { recursive: true });
@@ -105,6 +112,7 @@ export function saveDrafts(
     else if (receipts.some((one) => one.state !== 'hypothesis' && sameFinding(one, receipt)))
       receipt.state = 'duplicate';
     else if (limits.commandRequired === true && !reproducing.ok) receipt.state = 'hypothesis';
+    else if (limits.draftsOnly === true) receipt.state = 'draft';
     receipts.push(receipt);
   }
   writeFile(dir, { runId, at, receipts });
@@ -311,7 +319,7 @@ export function filingLines(receipts: ReadonlyArray<FilingReceipt>): Array<strin
     const title = one.title.replace(/\s+/g, ' ').trim();
     const tag = hasOwnKey(one) ? `${one.kind}, ${one.finding}` : one.kind;
     if (one.state === 'filed') return [`- ${one.taskId ?? ''} (${tag}): ${title}`];
-    if (['deferred', 'failed', 'unmatched-draft', 'hypothesis'].includes(one.state)) {
+    if (['deferred', 'failed', 'unmatched-draft', 'hypothesis', 'draft'].includes(one.state)) {
       return [`- ${one.state} (${tag}): ${title}`];
     }
     if (one.state === 'duplicate' && one.taskId !== null) return [`- already ${one.taskId} (${tag}): ${title}`];

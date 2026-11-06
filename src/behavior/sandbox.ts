@@ -272,7 +272,7 @@ function momentTrigger(moment: Untyped) {
 
 /** `cache[key]` when it is the cache's own entry (never an inherited property), else undefined. */
 function entryOf(cache: Untyped, key: Untyped) {
-  return cache && typeof cache === 'object' && Object.prototype.hasOwnProperty.call(cache, key)
+  return cache && typeof cache === 'object' && Object.hasOwn(cache as object, key as PropertyKey)
     ? cache[key]
     : undefined;
 }
@@ -420,20 +420,20 @@ function profileBefore(
   const details = keepBefore(profile.details, firstSeenLater);
   const interests = keepBefore(profile.interests, firstSeenLater);
   const aliases = keepBefore(profile.aliases, firstSeenLater);
-  const affinity = affinityBefore(profile.affinity, cutoff);
+  const affinityKept = affinityBefore(profile.affinity, cutoff);
   hidden.episodes = episodes.hidden;
   hidden.details = details.hidden;
   hidden.interests = interests.hidden;
   hidden.aliases = aliases.hidden;
-  hidden.affinity = affinity.hidden;
-  hidden.reasons = affinity.reasons;
+  hidden.affinity = affinityKept.hidden;
+  hidden.reasons = affinityKept.reasons;
   if (HIDDEN_KINDS.every((kind) => hidden[kind] === 0)) return { profile, hidden };
   const out = { ...profile };
   if (episodes.hidden) out.episodes = episodes.list;
   if (details.hidden) out.details = details.list;
   if (interests.hidden) out.interests = interests.list;
   if (aliases.hidden) out.aliases = aliases.list;
-  if (affinity.hidden) out.affinity = affinity.affinity;
+  if (affinityKept.hidden) out.affinity = affinityKept.affinity;
   return { profile: out, hidden };
 }
 
@@ -1566,7 +1566,8 @@ async function runSkillLoop({
     requestChars: requestChars(built.messages),
     continuation: undefined,
   });
-  run.loop = { steps: [first], ms: 0 };
+  const loopSteps = [first];
+  run.loop = { steps: loopSteps, ms: 0 };
   let messages = built.messages;
   let read = firstRead;
   let current = first;
@@ -1580,7 +1581,8 @@ async function runSkillLoop({
     calibrator.apply(estimateMessages(list)) + (transport === 'native' ? estimateTools(toolset.tools) : 0);
   for (;;) {
     const records = read.calls;
-    const speechItems = read.answer.messages.length + read.answer.reactions.length;
+    const readAnswer = read.answer;
+    const speechItems = readAnswer.messages.length + readAnswer.reactions.length;
     if (records.length === 0) break;
     if (typeof onCall !== 'function') break;
     const isFinal = finalReason !== null;
@@ -1731,7 +1733,7 @@ async function runSkillLoop({
     }
     const next = stepRecord(step + 1, { answer: null, thinkMissing: false });
     next.requestChars = requestChars(sent);
-    run.loop.steps.push(next);
+    loopSteps.push(next);
     const started = clock();
     let completion;
     try {
@@ -1761,14 +1763,15 @@ async function runSkillLoop({
   const replyCalls = first.calls;
   const firstCall = replyCalls[0] ?? null;
   const recordFirst = firstRead.calls[0] ?? null;
-  run.call = firstCall && !firstCall.outcome.verdict?.stage?.startsWith('plan') ? firstCall.call : null;
+  const firstVerdict = firstCall?.outcome.verdict;
+  run.call = firstCall && !firstVerdict?.stage?.startsWith('plan') ? firstCall.call : null;
   run.callError =
     recordFirst && !run.call ? (firstRead.calls.find((record: Untyped) => record.problem)?.problem ?? null) : null;
   run.extraCalls = first.dropped;
   run.outcome = firstCall?.outcome ?? null;
   const callText = run.call ? handleMentions(callTextOf(run.call), request.handles) : {};
   if (callText.mentions) run.callMentions = callText;
-  const followed = run.loop.steps[1];
+  const followed = loopSteps[1];
   if (followed) {
     run.refs.followUpIdByIndex = followed.idByIndex;
     run.followUp = followed.error
@@ -1938,9 +1941,10 @@ export function afterScenarioTurn({
           : []),
       ];
   for (const step of steps) {
-    if (step.answer && step.held !== true) {
-      pass(step.answer, step.idByIndex ?? refs.idByIndex, refs.handles, cursor);
-      cursor += ((step.answer.messages?.length ?? 0) + 1) * CONTINUATION_STEP_MS;
+    const { answer } = step;
+    if (answer && step.held !== true) {
+      pass(answer, step.idByIndex ?? refs.idByIndex, refs.handles, cursor);
+      cursor += ((answer.messages?.length ?? 0) + 1) * CONTINUATION_STEP_MS;
     }
     for (const { outcome } of step.calls ?? []) {
       if (!outcome?.result) continue;
@@ -2033,9 +2037,10 @@ export function burstTurns(
     const placeId = String(line.placeId ?? '');
     const slot = followUpSlot(pending, placeId, kind);
     if (!slot.admit) continue;
-    if (slot.replaced) {
-      pending = pending.filter((ping) => ping !== slot.replaced);
-      replaced.push({ id: slot.replaced.trigger.id, by: line.id });
+    const displaced = slot.replaced;
+    if (displaced) {
+      pending = pending.filter((ping) => ping !== displaced);
+      replaced.push({ id: displaced.trigger.id, by: line.id });
     }
     const { list, evicted } = addPending(
       pending,

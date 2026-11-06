@@ -272,15 +272,15 @@ function collectRetiredKeys(input: TrashInput, sink: Sink): void {
     return;
   }
   const parsed = JSON.parse(text) as Record<string, unknown>;
-  const moved = moveConfigKeys(structuredClone(parsed));
-  const cut = cutConfigKeys(structuredClone(parsed));
+  const moves = moveConfigKeys(structuredClone(parsed));
+  const cuts = cutConfigKeys(structuredClone(parsed));
   const keys = new Set([
-    ...moved.moved.map((one) => one.from),
-    ...moved.shadowed.map((one) => one.from),
-    ...moved.dropped,
-    ...moved.toDatabase,
-    ...cut.cut,
-    ...cut.renamed.map((one) => one.from),
+    ...moves.moved.map((one) => one.from),
+    ...moves.shadowed.map((one) => one.from),
+    ...moves.dropped,
+    ...moves.toDatabase,
+    ...cuts.cut,
+    ...cuts.renamed.map((one) => one.from),
   ]);
   for (const key of keys) sink.item(key, 'nothing reads this name');
 }

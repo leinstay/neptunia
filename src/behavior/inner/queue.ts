@@ -327,8 +327,8 @@ export function stateOf(life: InnerContext): InnerState {
   try {
     if (life.memoryDb) {
       const seam = stateSeam(life);
-      const found = seam.run(() => unitValue(seam.db(), personaKey('inner')));
-      raw = found.found ? found.value : null;
+      const stored = seam.run(() => unitValue(seam.db(), personaKey('inner')));
+      raw = stored.found ? stored.value : null;
     } else raw = JSON.parse(fs.readFileSync(fileOf(life), 'utf8'));
   } catch (err) {
     if (life.memoryDb) throw err;
@@ -396,10 +396,10 @@ function stateSeam(life: InnerContext) {
 function persistState(life: InnerContext, key: string, state: InnerState): void {
   const failed = (err: unknown) => life.log.warn('inner: state write failed', { code: errorCode(err) });
   const value = fileStateOf(state);
-  if (life.memoryDb) {
-    if (!life.memoryDb.writeUnit)
-      throw Object.assign(new Error('DB_WRITE_UNAVAILABLE'), { code: 'DB_WRITE_UNAVAILABLE' });
-    const write = life.memoryDb.writeUnit.bind(life.memoryDb);
+  const { memoryDb } = life;
+  if (memoryDb) {
+    if (!memoryDb.writeUnit) throw Object.assign(new Error('DB_WRITE_UNAVAILABLE'), { code: 'DB_WRITE_UNAVAILABLE' });
+    const write = memoryDb.writeUnit.bind(memoryDb);
     const snapshot: unknown = JSON.parse(JSON.stringify(value));
     const keyOfState = personaKey('inner');
     life.writes = life.writes.then(() => write({ op: 'value', key: keyOfState, value: snapshot })).catch(failed);
@@ -445,11 +445,14 @@ export function note(life: InnerContext, fields: Obj): void {
     .catch((err: unknown) => log.warn('inner: journal failed', { code: errorCode(err) }));
 }
 
+/** The store's `state.json` data: the pause flag and the time of the pause. */
+export const storeStateOf = ({ store }: InnerContext): { paused?: unknown; pausedAt?: unknown } | undefined =>
+  store?.state?.data;
+
 /** Whether the memory store is paused (`/nep pause`). Never throws. */
 export function paused(life: InnerContext): boolean {
-  const { store } = life;
   try {
-    return store?.state?.data?.paused === true;
+    return storeStateOf(life)?.paused === true;
   } catch {
     return false;
   }
@@ -578,6 +581,7 @@ export function onWake(life: InnerContext, event: unknown): WakeAnswer {
 
 /** What the journal keeps of a wake: ids, codes and times. */
 export function wakeFields(wake: Wake): Obj {
+  const { attend } = wake;
   return {
     id: wake.id,
     kind: wake.kind,
@@ -589,7 +593,7 @@ export function wakeFields(wake: Wake): Obj {
       ? { retry: wake.retry, firstFailedAt: wake.firstFailedAt ?? null, notBefore: wake.notBefore ?? null }
       : {}),
     ...(wake.errandId ? { errandId: wake.errandId } : {}),
-    ...(wake.attend ? { place: wake.attend.place, lines: wake.attend.lines, people: wake.attend.people.length } : {}),
+    ...(attend ? { place: attend.place, lines: attend.lines, people: attend.people.length } : {}),
     ...(wake.kind === 'feedback' ? { turnId: wake.turnId ?? null, facts: listOf(wake.facts) } : {}),
   };
 }

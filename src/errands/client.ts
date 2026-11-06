@@ -66,7 +66,8 @@ function runModelFor(agent: string, config: Untyped, agentPaths?: AgentPaths): s
 
 /** The price the deployment sets for `agent` (`agents.<agent>.cost`) when both fields are usable, else null: the runner has the profile's. */
 function costFor(agent: string, config: Untyped): { input: number; output: number } | null {
-  const cost = config?.agents?.[agent]?.cost;
+  const agentConfig = config?.agents?.[agent];
+  const cost = agentConfig?.cost;
   const usable = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
   if (!cost || typeof cost !== 'object' || !usable(cost.input) || !usable(cost.output)) return null;
   return { input: cost.input, output: cost.output };
@@ -141,32 +142,32 @@ export function createErrandClient({
   }
 
   /** One decoded line from `agent`'s runner. */
-  function onEvent(agent: string, event: Untyped): void {
-    if (!event || typeof event !== 'object') return;
-    if (event.event === 'pong') {
+  function onEvent(agent: string, line: Untyped): void {
+    if (!line || typeof line !== 'object') return;
+    if (line.event === 'pong') {
       const waiters = pings.get(agent) ?? [];
       pings.delete(agent);
       for (const waiter of waiters) {
         clearTimer(waiter.timer);
         waiter.resolve({
           ok: true,
-          profile: String(event.profile ?? agent),
-          busy: event.busy === true,
-          queued: Number(event.queued) || 0,
+          profile: String(line.profile ?? agent),
+          busy: line.busy === true,
+          queued: Number(line.queued) || 0,
         });
       }
       return;
     }
-    const id = textOf(event.id) || null;
-    if (event.event === 'progress' && id) {
+    const id = textOf(line.id) || null;
+    if (line.event === 'progress' && id) {
       for (const fn of progressListeners) {
         try {
           fn({
             agent,
             id,
-            step: Number(event.step) || 0,
-            tool: typeof event.tool === 'string' ? event.tool : null,
-            note: String(event.note ?? ''),
+            step: Number(line.step) || 0,
+            tool: typeof line.tool === 'string' ? line.tool : null,
+            note: String(line.note ?? ''),
           });
         } catch (err) {
           log.warn('errands: progress listener failed', { agent, id, error: err });
@@ -174,21 +175,21 @@ export function createErrandClient({
       }
       return;
     }
-    if ((event.event === 'end' || event.event === 'error') && id && pending.has(id)) {
+    if ((line.event === 'end' || line.event === 'error') && id && pending.has(id)) {
       // `has` was just checked, so the entry is there.
       const entry = pending.get(id)!;
       pending.delete(id);
       clearTimer(entry.timer);
-      if (event.event === 'error') {
-        entry.resolve(failed(typeof event.error === 'string' && event.error ? event.error : 'runner-error'));
+      if (line.event === 'error') {
+        entry.resolve(failed(typeof line.error === 'string' && line.error ? line.error : 'runner-error'));
         return;
       }
       const outcome: RunOutcome = {
-        status: ['done', 'failed', 'cancelled'].includes(event.status) ? event.status : 'failed',
-        result: normalizeResult(event.result),
-        usage: normalizeUsage(event.usage),
+        status: ['done', 'failed', 'cancelled'].includes(line.status) ? line.status : 'failed',
+        result: normalizeResult(line.result),
+        usage: normalizeUsage(line.usage),
       };
-      if (typeof event.error === 'string' && event.error) outcome.error = event.error;
+      if (typeof line.error === 'string' && line.error) outcome.error = line.error;
       entry.resolve(outcome);
     }
   }

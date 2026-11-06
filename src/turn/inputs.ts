@@ -106,7 +106,7 @@ export type Inputs = {
 };
 
 export function createInputs(ctx: InputsContext): Inputs {
-  const { store, iface, memoryContext, errands, intentions, places } = ctx;
+  const { store, iface: port, memoryContext, errands, intentions, places } = ctx;
 
   /**
    * The one execution context of an attempt's memory reads (`memoryContext`): issued the first time a read needs it
@@ -124,7 +124,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     let ctx: unknown = null;
     try {
       const isPrivate = !inCommunity(channel);
-      const channelIface = portIface(channel) || portIface(iface);
+      const channelIface = portIface(channel) || portIface(port);
       const partner = isPrivate ? (draft.privateAccountId ?? null) : null;
       if (!isPrivate || partner) {
         ctx =
@@ -161,7 +161,7 @@ export function createInputs(ctx: InputsContext): Inputs {
    * The port reference of a conversation (its info, a snapshot entry, anything with an `id`), in the iface it names.
    */
   function conversationOf(channel: { id: string }): ConversationRef {
-    return { iface: portIface(channel) || iface.iface, conversationId: String(channel.id) };
+    return { iface: portIface(channel) || port.iface, conversationId: String(channel.id) };
   }
 
   /**
@@ -258,10 +258,11 @@ export function createInputs(ctx: InputsContext): Inputs {
     const channelNameOf = (id: string): string | null => (isPrivate ? null : (snapshot?.get(String(id))?.name ?? null));
     const nameOf = (id: string): string | null =>
       typeof store?.getUser === 'function' ? (store.getUser(accountOf(store, String(id)))?.names?.[0] ?? null) : null;
+    const contextCaps = config.context?.caps;
     return intentionsBlockText(shown, labels, {
       timezone: config.bot?.timezone ?? 'UTC',
       locale: labels?.locale,
-      maxTokens: config.context?.caps?.intentions ?? DEFAULT_INTENTIONS_CAP,
+      maxTokens: contextCaps?.intentions ?? DEFAULT_INTENTIONS_CAP,
       channelNameOf,
       nameOf,
       now,

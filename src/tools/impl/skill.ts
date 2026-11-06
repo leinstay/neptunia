@@ -92,7 +92,8 @@ const handlers = perEnv((env) => {
     const name = nameOf(args);
     const script = textOf(args.script).trim();
     if (!script) throw invalid('script: the file to run');
-    const given = argsOf(args.args);
+    const { args: scriptArgs } = args;
+    const given = argsOf(scriptArgs);
     const skills = env.skills;
     if (skills == null || !env.dataDir) return unavailable();
     const shown = await skills.show(name);

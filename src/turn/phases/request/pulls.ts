@@ -40,7 +40,8 @@ export async function pullRequest(
   // is paid for; a turn's source is still pulled (its chooser and a routed call's search
   // classifier read it).
   const certain = mode !== 'auto';
-  const pullLabelled = Boolean(hot.prompts?.labels?.pull?.header);
+  const promptLabels = hot.prompts?.labels;
+  const pullLabelled = Boolean(promptLabels?.pull?.header);
   const pullStartedAt = clock();
   const pullsPending =
     isPrivate && !likeServer

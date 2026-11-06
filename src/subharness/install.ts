@@ -125,7 +125,8 @@ function lockedIntegrity(dir: string, pkg: string): string | null {
     const lock = JSON.parse(fs.readFileSync(path.join(dir, 'package-lock.json'), 'utf8')) as {
       packages?: Record<string, { integrity?: string }>;
     };
-    return lock.packages?.[`node_modules/${pkg}`]?.integrity ?? null;
+    const entry = lock.packages?.[`node_modules/${pkg}`];
+    return entry?.integrity ?? null;
   } catch {
     return null;
   }

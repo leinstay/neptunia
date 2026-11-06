@@ -1242,7 +1242,7 @@ export function createRecall({
       log.info('recall: window', {
         channel: channel.id,
         move: move === 'down' ? 'down' : 'up',
-        lines: found.windows[0]?.messages.length ?? 0,
+        lines: found.windows.at(0)?.messages.length ?? 0,
         stopped: found.stopped,
       });
       return out({
@@ -1333,9 +1333,10 @@ export function createRecall({
     });
     if (signal.aborted) return null;
     if (meaning) {
-      stats.meaning = meaning.trace.kept.length;
-      stats.meaningMs = meaning.trace.ms;
-      if (trace) trace.meaning = meaning.trace;
+      const meaningTrace = meaning.trace;
+      stats.meaning = meaningTrace.kept.length;
+      stats.meaningMs = meaningTrace.ms;
+      if (trace) trace.meaning = meaningTrace;
     }
 
     // The time of each step, for `recall: searched` (src/tools/impl/metrics.ts reads them off the log).
@@ -1619,12 +1620,7 @@ export function createRecall({
     });
 
     // 7. The summary.
-    const render = {
-      labels: hot.prompts.labels,
-      timezone: config.bot?.timezone,
-      selfName,
-      seeReactions: true,
-    };
+    const render = { labels: hot.prompts.labels, timezone: config.bot?.timezone, selfName, seeReactions: true };
     /** One window as a stretch (no indices, cut to `recall.stretchChars`), or null. */
     const stretchOf = (window: Untyped) => {
       if (!window || settings.stretchChars <= 0) return null;
@@ -1977,12 +1973,13 @@ export function createRecall({
         continue;
       }
       // Only the best hit and the hits close to it are marked, so a long stretch with many hits is cut around them.
+      const unitWindow = unit.window;
       const focus = focusHits(
-        unit.window.messages.map((m: Untyped) => m.id),
+        unitWindow.messages.map((m: Untyped) => m.id),
         unit.hitIds,
         FOCUS_LINES
       );
-      const focused = { ...unit.window, hitIds: new Set(focus) };
+      const focused = { ...unitWindow, hitIds: new Set(focus) };
       const window = typeof decorate === 'function' ? { ...focused, messages: decorate(focused.messages) } : focused;
       // A stored line carries its own media's text forms; only a window of live messages asks the describer's cache.
       if (captionsFromCache) window.descriptions = cachedCaptions(config, placeId, [window]);

@@ -218,9 +218,8 @@ export function journalStartOf({
   turnId: string | null;
   attemptId: string | null;
 } {
-  const woke = draft.inner
-    ? { kind: 'inner', messageId: null, authorId: null, wake: draft.inner.wake?.kind ?? null }
-    : null;
+  const { inner } = draft;
+  const woke = inner ? { kind: 'inner', messageId: null, authorId: null, wake: inner.wake?.kind ?? null } : null;
   return {
     placeId: channel.id,
     mode: journalMode(mode, triggerKind),

@@ -30,8 +30,9 @@ export async function fetchReplyParents(
     if (!id || asked.has(id) || found.length >= max) return null;
     asked.add(id);
     const answer = await reads.fetchMessages(ref, [id]);
-    const event = answer?.messages[0]?.event;
-    if (event === undefined || answer?.messages[0]?.missing === true) {
+    const parentMessage = answer?.messages[0];
+    const event = parentMessage?.event;
+    if (event === undefined || parentMessage?.missing === true) {
       log.info('collect: parent missing', { channel: ref.conversationId, messageId: id });
       return null;
     }

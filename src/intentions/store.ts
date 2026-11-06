@@ -52,8 +52,8 @@ export function createIntentionStore({
   function load(): Array<Intention> {
     if (!memoryDb) return [];
     const db = seam.db();
-    const found = seam.run(() => intentionsValue(db));
-    return valid(found.found ? found.value : null);
+    const stored = seam.run(() => intentionsValue(db));
+    return valid(stored.found ? stored.value : null);
   }
 
   /** The records of a loaded value that keep the model's invariants. */

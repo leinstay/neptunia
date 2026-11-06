@@ -686,11 +686,10 @@ export function createIntentionService({
       const store = storeOf();
       if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
       const result = store.update(id, (record) => bumpAttend(record, zonedDay(now(), timezone())));
-      if (result.ok && result.changed)
-        log.info('intentions: attend wake counted', {
-          id: idText(id),
-          wakes: result.intention.attend?.today?.wakes,
-        });
+      if (result.ok && result.changed) {
+        const { attend } = result.intention;
+        log.info('intentions: attend wake counted', { id: idText(id), wakes: attend?.today?.wakes });
+      }
       return result;
     } catch (err) {
       log.warn('intentions: attend count failed', { id: idText(id), error: err });

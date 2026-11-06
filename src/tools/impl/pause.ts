@@ -5,10 +5,15 @@
 import { log } from '../../log.ts';
 import { defineOp, perEnv } from './registry.ts';
 import { callMethod, objOf } from '../types.ts';
-import type { OpContext } from '../types.ts';
+import type { OpContext, Untyped } from '../types.ts';
+
+/** The store's `state.json` as the pause reads and writes it. */
+type StoreState = { data: Record<string, Untyped>; markDirty(): void };
 
 const handlers = perEnv((env) => {
   const { slash, resolvedPlaceId, journalSystem } = env;
+  /** The store's `state.json`: its data and its dirty mark, read at each call. */
+  const storeState = () => env.store.state as StoreState;
 
   /**
    * Sets `paused`/`pausedAt` (and `pausedBy`, the caller) in state.json FIRST (so a crash or restart
@@ -22,7 +27,7 @@ const handlers = perEnv((env) => {
    * of the pause from the journal, src/memory/journal.ts#offPeriods).
    */
   async function cmdPause(context: OpContext): Promise<string> {
-    const state = env.store.state.data;
+    const state = storeState().data;
     if (state.paused) {
       const held = objOf(state);
       if (held.pausedReason !== undefined) {
@@ -42,7 +47,7 @@ const handlers = perEnv((env) => {
     state.pausedAt = new Date().toISOString();
     // Who paused, for the status card; absent when the caller is unknown.
     if (context?.accountId) state.pausedBy = String(context.accountId);
-    env.store.state.markDirty();
+    storeState().markDirty();
     env.store.flush();
 
     if (env.turns && typeof env.turns.waitIdle === 'function') {
@@ -60,8 +65,9 @@ const handlers = perEnv((env) => {
     }
 
     // A file held for the archive (an item rewritten in place) waits up to archive.holdMaxMs, then is written.
+    const { hot } = env;
     if (typeof env.store.flushSettled === 'function')
-      await env.store.flushSettled({ holdMaxMs: env.hot.config?.archive?.holdMaxMs ?? 5000 });
+      await env.store.flushSettled({ holdMaxMs: hot.config?.archive?.holdMaxMs ?? 5000 });
     else env.store.flush();
     const dropped = typeof env.store.dropCaches === 'function' ? env.store.dropCaches() : 0;
 
@@ -87,7 +93,7 @@ const handlers = perEnv((env) => {
    * with the index switches off). With `only`, a pause of another reason stays (the core's own resumes).
    */
   async function cmdResume(context: OpContext, only?: string): Promise<string> {
-    if (!env.store.state.data.paused) return 'Not paused.';
+    if (!storeState().data.paused) return 'Not paused.';
 
     const badFiles = typeof env.store.validate === 'function' ? env.store.validate() : [];
     if (badFiles.length > 0) {
@@ -98,7 +104,7 @@ const handlers = perEnv((env) => {
     }
 
     if (typeof env.store.reloadState === 'function') env.store.reloadState();
-    const state = env.store.state.data;
+    const state = storeState().data;
     if (!state.paused) {
       return 'Not paused.';
     }
@@ -109,7 +115,7 @@ const handlers = perEnv((env) => {
     delete state.pausedBy;
     // The reason the core paused her itself (the last core key removed); an owner's pause has none.
     delete objOf(state).pausedReason;
-    env.store.state.markDirty();
+    storeState().markDirty();
     env.store.flush();
 
     log.info('admin: resumed', {});

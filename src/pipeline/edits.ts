@@ -140,7 +140,8 @@ export function createEdits({
     // An edit event carries the whole message unless it is partial; recordEdit leaves a partial one alone.
     await recordEdit(event as MessageEvent, options);
     try {
-      if (store?.state?.data?.paused) return;
+      const stateData = store?.state?.data;
+      if (stateData?.paused) return;
       const community = event.conversation.rootId ?? null;
       if (!community || !isServedCommunity(community)) return;
       const placeId = sharedPlaceOf(store, event.conversation, event.iface);
@@ -149,7 +150,8 @@ export function createEdits({
         const fetched = await reads.fetchMessages({ iface: event.iface, conversationId: event.conversation.id }, [
           event.message.id,
         ]);
-        const whole = fetched?.messages[0]?.event;
+        const message = fetched?.messages[0];
+        const whole = message?.event;
         if (!whole) return;
         // The interface's event of the message, fetched whole.
         edited = { ...(whole as MessageEvent), conversation: event.conversation, previous: event.previous ?? null };

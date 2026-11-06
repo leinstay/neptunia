@@ -169,7 +169,7 @@ function createActions(
   onCommandResult: ((result: CommandResult) => unknown) | null
 ) {
   // Insertion order is the age: the oldest key is the first one.
-  const keys = new Map<string, Promise<Result>>();
+  const runsByKey = new Map<string, Promise<Result>>();
   const cancelled = new Set<string>();
 
   async function runRead(body: Record<string, unknown>): Promise<Result> {
@@ -227,14 +227,14 @@ function createActions(
   function answerOf(body: Record<string, unknown>): Promise<Result> {
     const key = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : null;
     if (key === null || isReadAction(body.action)) return runSafely(body);
-    const known = keys.get(key);
+    const known = runsByKey.get(key);
     if (known !== undefined) return known;
     const started = runSafely(body);
-    keys.set(key, started);
-    while (keys.size > KEPT_KEYS) {
-      const oldest = keys.keys().next();
+    runsByKey.set(key, started);
+    while (runsByKey.size > KEPT_KEYS) {
+      const oldest = runsByKey.keys().next();
       if (oldest.done === true) break;
-      keys.delete(oldest.value);
+      runsByKey.delete(oldest.value);
     }
     return started;
   }

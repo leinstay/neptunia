@@ -178,7 +178,7 @@ async function reflectionFacts(
   posts: ReadonlyArray<{ at?: unknown }>,
   now: number,
   labels: unknown,
-  warn: { warn(message: string, fields: Record<string, unknown>): void }
+  logger: { warn(message: string, fields: Record<string, unknown>): void }
 ): Promise<string> {
   if (typeof read !== 'function') return '';
   try {
@@ -200,7 +200,7 @@ async function reflectionFacts(
     const lines = page.assertions.map((fact) => fill(line, { state: factStateWords(fact, states), text: fact.text }));
     return block('stored_facts', [words.header, ...lines].join('\n'));
   } catch (err) {
-    warn.warn('selfreflection: retrieval failed', { code: objOf(err).code ?? null });
+    logger.warn('selfreflection: retrieval failed', { code: objOf(err).code ?? null });
     return '';
   }
 }

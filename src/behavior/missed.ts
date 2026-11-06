@@ -710,8 +710,8 @@ async function readRegistry(
   });
   const { memoryDb, seam, fs, dataDir, log, now } = deps;
   if (memoryDb) {
-    const found = seam.run(() => unitValue(seam.db(), missedKey(placeId)));
-    return known(registryOf(found.found ? found.value : null));
+    const stored = seam.run(() => unitValue(seam.db(), missedKey(placeId)));
+    return known(registryOf(stored.found ? stored.value : null));
   }
   const file = registryFile(dataDir, placeId);
   let text;
@@ -800,7 +800,7 @@ export function createMissed({
 
   const enabled = () => true;
   const recoveryOn = () => true;
-  const paused = () => Boolean(store?.state?.data?.paused);
+  const paused = () => Boolean(objOf(objOf(store?.state).data).paused);
   const journalOn = () => Boolean(journal) && typeof journal.answer === 'function';
   const iso = (ms: number) => new Date(ms).toISOString();
 

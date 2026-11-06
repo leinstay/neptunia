@@ -13,6 +13,7 @@
 // live conversation from a dead chat that somebody has just poked.
 
 import { reasonText } from './tools/codes.ts';
+import { objOf } from './tools/types.ts';
 import { clipWithEllipsis, mediaLabelFor, stickerLabelFor } from './media/classify.ts';
 import { gifHandleOf } from './memory/index.ts';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.ts';
@@ -60,9 +61,7 @@ function formatter(timezone: Untyped, locale: Untyped, options: Untyped) {
  */
 export function fill(template: string, values: Record<string, Untyped> = {}): string {
   if (!template) return '';
-  return template.replace(/\{(\w+)\}/g, (all, key) =>
-    Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : all
-  );
+  return template.replace(/\{(\w+)\}/g, (all, key: string) => (Object.hasOwn(values, key) ? String(values[key]) : all));
 }
 
 // A field slot of a GIF's three-field label (labels.gifs.entryFields,
@@ -88,7 +87,7 @@ export function fillGifFields(template: string, id: string, fields: Record<strin
   let out = fill(template.slice(0, slots[0].index), { id });
   let kept = 0;
   for (const [i, slot] of slots.entries()) {
-    const value = Object.prototype.hasOwnProperty.call(fields, slot[2]) ? fields[slot[2]] : '';
+    const value = Object.hasOwn(fields, slot[2]) ? fields[slot[2]] : '';
     if (!value) continue;
     if (kept > 0) out += fill(template.slice(endOf(slots[i - 1]), slot.index), { id });
     out += `${slot[1]}${value}${slot[3]}`;
@@ -288,7 +287,7 @@ function mediaTags(message: Untyped, labels: Untyped, context: MediaContext = {}
     const { key, values } = partFallback(tag, labels);
     const reasons = PART_KEYS.has(key) ? labels.transcript.videoPartReason : labels.transcript.videoReason;
     const filled =
-      values && Object.prototype.hasOwnProperty.call(values, 'reason')
+      values && Object.hasOwn(values as object, 'reason')
         ? { ...values, reason: reasons?.[values.reason] ?? '' }
         : values;
     // A library GIF's three caption fields drop an empty field with its separator.
@@ -716,7 +715,7 @@ export function callReason(mark: Untyped, labels: Untyped): string {
     (channel || !phrase.includes('{channel}')) &&
     (agents || (!phrase.includes('{agents}') && !phrase.includes('{args}')));
   const own = labels.transcript.callReasons;
-  const coded = labels.tools?.result?.reasons;
+  const coded = objOf(objOf(labels.tools).result).reasons;
   const lookup = (map: Untyped, key: Untyped) =>
     map && typeof map === 'object' && typeof key === 'string' && Object.hasOwn(map, key) ? map[key] : null;
   const refusal = lookup(labels.tools?.refusals, lookup(REFUSAL_LABELS, detail.kind));

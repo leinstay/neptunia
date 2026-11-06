@@ -47,7 +47,9 @@ export function createConversations({ reads, memoryDb }: ConversationsContext): 
   async function resolveReference(ref: ConversationRef, replyToId: string | null | undefined): Promise<boolean> {
     if (!replyToId) return false;
     const found = await reads.fetchMessages(ref, [replyToId]);
-    return found?.messages[0]?.event?.message.author?.self === true;
+    const [fetched] = found?.messages ?? [];
+    const message = fetched?.event?.message;
+    return message?.author?.self === true;
   }
 
   return { refOf, currentOf, turnPlaceOf, infoNow, resolveReference };

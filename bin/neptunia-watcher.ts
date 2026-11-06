@@ -108,6 +108,8 @@ export async function runWatcherWorker(where: Where): Promise<number> {
       install: () => installFacts({ rootDir: where.rootDir, dataDir: where.dataDir }),
       memory: () => watcherMemory({ dataDir: where.dataDir, config }),
       development: developmentOf(where, config),
+      // Read again when the run files, so a switch made during a long run counts for it.
+      draftsOnly: () => watcherSettings(readConfig(where.rootDir, { privateDir: where.privateDir })).draftsOnly,
       runAgent: async (brief, { signal, timeoutMs, runId }) =>
         runAgent(
           {

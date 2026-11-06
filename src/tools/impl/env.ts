@@ -140,8 +140,14 @@ function buildEnv({
    * learned.remove, emoji.rescan, gifs.rescan, gifs.recache and draw (it counts against the image rail
    * in state.json).
    */
+  /** Whether state.json holds the pause flag (`/nep pause`), read at the call. */
+  function isPausedNow(): boolean {
+    const { data } = store.state;
+    return Boolean(data.paused);
+  }
+
   function assertNotPaused(): void {
-    if (store.state.data.paused) {
+    if (isPausedNow()) {
       throw Object.assign(new Error(pausedText()), { code: CODE.PAUSED });
     }
   }
@@ -154,7 +160,7 @@ function buildEnv({
    * A no-op when not paused, so callers can call it unconditionally.
    */
   function freshenIfPaused(): void {
-    if (store.state.data.paused && typeof store.dropCaches === 'function') store.dropCaches();
+    if (isPausedNow() && typeof store.dropCaches === 'function') store.dropCaches();
   }
 
   /**

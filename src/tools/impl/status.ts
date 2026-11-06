@@ -274,8 +274,9 @@ function extractRoutingFunnel(rawBody: unknown): string | null {
   } catch {
     return null;
   }
+  const parsedError = objOf(parsed?.error);
   const funnel: unknown =
-    parsed?.error?.metadata?.routing_funnel ?? parsed?.routing_funnel ?? parsed?.error?.routing_funnel;
+    objOf(parsedError.metadata).routing_funnel ?? parsed?.routing_funnel ?? parsedError.routing_funnel;
   if (!Array.isArray(funnel) || funnel.length === 0) return null;
   const last: Untyped = funnel[funnel.length - 1];
   if (!last || typeof last !== 'object') return null;
@@ -503,9 +504,10 @@ const handlers = perEnv((env) => {
     }
     if (listing.status === 404) return 'not listed (HTTP 404)';
     if (!listing.ok) return `failed: HTTP ${listing.status}`;
-    const modalities = listing.json?.data?.architecture?.output_modalities;
+    const listed = objOf(listing.json?.data);
+    const modalities = objOf(listed.architecture).output_modalities;
     if (!Array.isArray(modalities) || !modalities.includes('image')) return 'listed, but no image output';
-    const endpoints = Array.isArray(listing.json.data.endpoints) ? listing.json.data.endpoints.length : 0;
+    const endpoints = Array.isArray(listed.endpoints) ? listed.endpoints.length : 0;
     return `listed, image output, ${endpoints} endpoint(s), ${Date.now() - start} ms`;
   }
 
@@ -599,7 +601,7 @@ const handlers = perEnv((env) => {
     // The web search engine, one word: the chosen engine (web.quickSearch.engine) when a search can
     // run (features.webLookup on, web.quickSearch.enabled not false, the engine ready), else `off`.
     if (typeof lookup?.searchEngine === 'function') {
-      const on = cfg?.web?.quickSearch?.enabled !== false && lookup.hasSearch();
+      const on = objOf(cfg?.web?.quickSearch).enabled !== false && lookup.hasSearch();
       parts.push(`search: ${on ? lookup.searchEngine() : 'off'}`);
     }
     return `${parts.join('\n')}\nresets 00:00 UTC`;
@@ -1022,7 +1024,8 @@ defineOp({
   name: 'status.show',
   rights: { kind: 'read' },
   run: async (args, ctx) => {
-    const owner = isOwnerCaller(ctx.env.hot.config, ctx);
+    const { env } = ctx;
+    const owner = isOwnerCaller(env.hot.config, ctx);
     const field = typeof args.field === 'string' ? args.field : null;
     // Her own call without a part gets the short overview; the owner's command without a field, the whole card.
     const asked = typeof args.part === 'string' && STATUS_PARTS.includes(args.part) ? args.part : null;

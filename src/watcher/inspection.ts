@@ -103,6 +103,8 @@ export type InspectionDeps = {
   cancelPollMs?: number;
   /** How long opening the board or one call to it may take before the filing is deferred (ms). */
   boardTimeoutMs?: number;
+  /** `watcher.draftsOnly`, read when the run files: true lists the drafts in the report and files none. */
+  draftsOnly?: () => boolean;
 };
 
 export type InspectionResult = {
@@ -391,7 +393,7 @@ async function file(deps: InspectionDeps, runId: string, open: BoardOpener, watc
 function filingOutcome(dir: string, runId: string): FilingOutcome {
   const states = readFilings(dir, runId)
     .map((one) => one.state)
-    .filter((state) => state !== 'unmatched-draft' && state !== 'hypothesis');
+    .filter((state) => state !== 'unmatched-draft' && state !== 'hypothesis' && state !== 'draft');
   if (states.includes('failed')) return 'failed';
   if (states.includes('deferred')) return 'deferred';
   return states.length === 0 ? 'none' : 'filed';
@@ -472,7 +474,12 @@ async function inspect(deps: InspectionDeps, run: RunRecord, watch: Watch): Prom
   watch.check();
   const repeated = new Set(rated.findings.flatMap((one) => (one.repeat === null ? [] : [one.key])));
   const fileable = new Set(rated.findings.flatMap((one) => (FILED_LEVELS.includes(one.level) ? [one.key] : [])));
-  saveDrafts(dir, runId, deps.store.now(), tasks, { repeated, fileable, commandRequired: development !== null });
+  saveDrafts(dir, runId, deps.store.now(), tasks, {
+    repeated,
+    fileable,
+    commandRequired: development !== null,
+    draftsOnly: deps.draftsOnly?.() === true,
+  });
   phase('filing');
   await file(deps, runId, open, watch);
   phase('committing');
