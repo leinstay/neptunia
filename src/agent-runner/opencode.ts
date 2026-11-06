@@ -192,9 +192,6 @@ export type RunnerDeps = {
   outDir: string;
   env?: Record<string, string | undefined>;
   opencodePath?: string;
-  openrouterKeyEnv?: string;
-  searchKeyEnv?: string;
-  proxyEnv?: string;
   getConfig?: () => unknown;
   now?: () => number;
   spawnImpl?: typeof spawn;

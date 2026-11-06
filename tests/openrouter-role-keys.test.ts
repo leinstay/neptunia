@@ -141,45 +141,43 @@ test('createLlm: roleKeys names the extra keys by role without their values; key
   );
 });
 
-test('config.json: the errand agents share OPENROUTER_ERRAND_KEY, the development agents share OPENROUTER_DEV_KEY: two key lines; an unset one logs once and shows none', async () => {
+test('config.json: the development agents share OPENROUTER_DEV_KEY and her memory session has its own key; the errand roles are unmapped', async () => {
+  // Stage AB: scout, server and drawing leave the shipped map; they get a key from a keys.json binding only.
   // PR 7c: the shipped settings live in config/config.json.
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8')) as {
     llm: { keyByRole: Record<string, string> };
   };
   assert.deepEqual(shipped.llm.keyByRole, {
-    scout: 'OPENROUTER_ERRAND_KEY',
-    server: 'OPENROUTER_ERRAND_KEY',
-    drawing: 'OPENROUTER_ERRAND_KEY',
     thinker: 'OPENROUTER_DEV_KEY',
     dev: 'OPENROUTER_DEV_KEY',
     memory: 'OPENROUTER_MEMORY_KEY',
   });
   assert.deepEqual(
     Object.keys(shipped.llm.keyByRole).sort(),
-    [...OPENCODE_ROLES, 'drawing', 'memory'].sort(),
-    'every agent role has its own key, the pictures on the agents key, and her memory session its own'
+    [...OPENCODE_ROLES.filter((role) => role !== 'scout' && role !== 'server'), 'memory'].sort(),
+    'the development roles have a key, and her memory session its own'
   );
   const cfg = config(shipped.llm.keyByRole);
   const { llm, sent } = makeLlm(cfg, { OPENROUTER_ERRAND_KEY: 'agent-key', OPENROUTER_DEV_KEY: 'dev-key' });
   assert.deepEqual(
     llm.roleKeys(),
-    [{ roles: ['drawing', 'scout', 'server'] }, { roles: ['dev', 'thinker'] }],
-    'the agents key, then the development key'
+    [{ roles: ['dev', 'thinker'] }],
+    'only the development key; a set errand variable is unread'
   );
   await llm.keyInfo({ timeoutMs: 100, role: 'server' });
   await llm.keyInfo({ timeoutMs: 100, role: 'dev' });
   await llm.complete(ask, { role: 'core' });
   assert.deepEqual(
     sent.map((call) => call.auth),
-    ['Bearer agent-key', 'Bearer dev-key', 'Bearer main-key'],
+    ['Bearer main-key', 'Bearer dev-key', 'Bearer main-key'],
     "each dedicated key is read, the bot's requests stay on the main key"
   );
-  assert.equal(llm.keyHash({ role: 'scout' }), keyHashOf('agent-key'));
+  assert.equal(llm.keyHash({ role: 'scout' }), keyHashOf('main-key'));
   assert.equal(llm.keyHash({ role: 'dev' }), keyHashOf('dev-key'));
   const { result: devOnly } = await withCapturedLogs(() =>
     makeLlm(cfg, { OPENROUTER_DEV_KEY: 'dev-key' }).llm.roleKeys()
   );
-  assert.deepEqual(devOnly, [{ roles: ['dev', 'thinker'] }], 'an unset OPENROUTER_ERRAND_KEY: no agents line');
+  assert.deepEqual(devOnly, [{ roles: ['dev', 'thinker'] }], 'the development key alone');
   const { result: unset } = await withCapturedLogs(() => makeLlm(cfg, {}).llm.roleKeys());
   assert.deepEqual(unset, [], 'neither set: no line, the main key is never shown as theirs');
 });
@@ -195,11 +193,7 @@ test("config.json: no role is on the simulator key OPENROUTER_SIM_KEY (the advic
     OPENROUTER_DEV_KEY: 'dev-key',
     OPENROUTER_SIM_KEY: 'sim-key',
   });
-  assert.deepEqual(
-    llm.roleKeys(),
-    [{ roles: ['drawing', 'scout', 'server'] }, { roles: ['dev', 'thinker'] }],
-    'a set OPENROUTER_SIM_KEY adds no role line'
-  );
+  assert.deepEqual(llm.roleKeys(), [{ roles: ['dev', 'thinker'] }], 'a set OPENROUTER_SIM_KEY adds no role line');
   await llm.complete(ask, { role: 'core' });
   assert.deepEqual(
     sent.map((call) => call.auth),

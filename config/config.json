@@ -50,9 +50,6 @@
     "providerByModel": {},
     "reasoningByRole": {},
     "keyByRole": {
-      "scout": "OPENROUTER_ERRAND_KEY",
-      "server": "OPENROUTER_ERRAND_KEY",
-      "drawing": "OPENROUTER_ERRAND_KEY",
       "thinker": "OPENROUTER_DEV_KEY",
       "dev": "OPENROUTER_DEV_KEY",
       "memory": "OPENROUTER_MEMORY_KEY"

@@ -20,7 +20,7 @@ import {
   graphWalk,
 } from '../../memory/db/graph-read.ts';
 import type { GraphDirection, GraphEdgeRequest } from '../../memory/db/graph-read.ts';
-import { writeInspectionExport } from '../../memory/db/inspection-snapshots.ts';
+import { exportInspectionInWorker } from '../../memory/db/inspection-export.ts';
 import type { InspectionBounds, InspectionPort, SnapshotHandle } from '../../memory/db/inspection-snapshots.ts';
 import { isInspectionValue } from '../../memory/db/inspection-values.ts';
 import type { InspectionRead, RowLocator } from '../../memory/db/inspection.ts';
@@ -30,11 +30,13 @@ import { privateByPerson } from '../../memory/db/private-read.ts';
 import { coded } from '../../memory/db/read-page.ts';
 import { internalContext } from '../../memory/db/scope.ts';
 import type { Db } from '../../memory/db/types.ts';
+import { untracked } from '../../loop-watch.ts';
+import type { Track } from '../../loop-watch.ts';
 import { callMethod, objOf } from '../../tools/types.ts';
 
 type Answer = { text: string; status: string; code?: string };
 type Args = Record<string, unknown>;
-type Deps = { memoryDb: unknown; hot: unknown };
+type Deps = { memoryDb: unknown; hot: unknown; dataDir: string; now: () => number; track?: Track };
 
 /** How deep a walk or a path goes when the line names no depth. Past it the answer says so and leaves a frontier. */
 const DEFAULT_DEPTH = 32;
@@ -400,16 +402,29 @@ function locatorOf(args: Args): RowLocator {
   return parsed;
 }
 
-/** `/memory inspect export`: one new snapshot, a complete file written from it, the snapshot closed however that ended. */
-function inspectExport(port: InspectionPort, args: Args, ownerId: string, bounds: InspectionBounds): Answer {
+/** The memory database file, from `memoryDb.file` at the moment of use. */
+function memoryFileOf({ hot, dataDir }: Deps): string {
+  const file = objOf(objOf(objOf(hot).config).memoryDb).file;
+  return path.join(dataDir, typeof file === 'string' && file !== '' ? file : 'memory.db');
+}
+
+/**
+ * `/memory inspect export`: the file written from a snapshot of a thread's own (inspection-export.ts), so the core's loop
+ * stays free. A snapshot opened and closed here checks the owner and the snapshot limit and gives the port's revision.
+ */
+async function inspectExport(
+  deps: Deps,
+  port: InspectionPort,
+  args: Args,
+  ownerId: string,
+  bounds: InspectionBounds
+): Promise<Answer> {
   const file = word(args, 'file');
   if (!path.isAbsolute(file)) throw coded('INSPECTION_BAD_PATH', 'an export names an absolute path');
-  const handle = port.openInspection({ ownerId, bounds });
-  try {
-    return ok(writeInspectionExport(port, handle, { file }));
-  } finally {
-    port.closeInspection(handle);
-  }
+  const opened = port.openInspection({ ownerId, bounds });
+  port.closeInspection(opened);
+  const job = { db: memoryFileOf(deps), file, ownerId, bounds, engineRevision: opened.revision, at: deps.now() };
+  return ok(await (deps.track ?? untracked)('memory.inspect.export', () => exportInspectionInWorker(job)));
 }
 
 /** A read of `/memory inspect` over the `--snapshot` it names, or over a new one it closes again when the read is refused. */
@@ -432,12 +447,13 @@ function overSnapshot(
 }
 
 function inspectRead(
+  deps: Deps,
   port: InspectionPort,
   name: string,
   args: Args,
   ownerId: string,
   bounds: InspectionBounds
-): Answer | null {
+): Answer | Promise<Answer> | null {
   const table = word(args, 'table');
   switch (name) {
     case 'memory.inspect.tables':
@@ -480,7 +496,7 @@ function inspectRead(
       );
     }
     case 'memory.inspect.export':
-      return inspectExport(port, args, ownerId, bounds);
+      return inspectExport(deps, port, args, ownerId, bounds);
     case 'memory.inspect.close': {
       const handle = port.snapshotOf(word(args, 'snapshot'), ownerId);
       port.closeInspection(handle);
@@ -512,16 +528,17 @@ export const isMemoryBrowserCommand = (name: string): boolean =>
 
 /** The answer of a browser command, for `requester`, the owner. */
 export async function memoryBrowserCommand(
-  { memoryDb, hot }: Deps,
+  deps: Deps,
   name: string,
   args: Args,
   requester: { id: string }
 ): Promise<Answer> {
+  const { memoryDb, hot } = deps;
   const answer = await answering(name, () => {
     if (name.startsWith('memory.inspect.')) {
       const port = callMethod(memoryDb, 'inspection') as InspectionPort | null | undefined;
       if (port == null) return closedDatabase(name);
-      return inspectRead(port, name, args, requester.id, boundsOf(hot));
+      return inspectRead(deps, port, name, args, requester.id, boundsOf(hot));
     }
     if (name === 'memory.selfreflection.audience.fill') return audienceFill(memoryDb, name, args);
     const db = callMethod(memoryDb, 'database') as Db | null | undefined;
