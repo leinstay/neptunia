@@ -81,8 +81,9 @@ function makeService(env: Untyped, { keyByRole, proxy = null }: { keyByRole?: Un
     config: {
       llm: {
         keyByRole: keyByRole ?? {
-          scout: 'OPENROUTER_ERRAND_KEY',
-          server: 'OPENROUTER_ERRAND_KEY',
+          // Stage AB: the shipped map has no errand entry; this rig maps the roles to a variable of its own.
+          scout: 'OPENROUTER_AGENT_KEY',
+          server: 'OPENROUTER_AGENT_KEY',
           dev: 'OPENROUTER_DEV_KEY',
         },
       },
@@ -133,13 +134,14 @@ function filesText(dir: string) {
 
 const ENV = {
   OPENROUTER_CORE_KEY: 'sk-persona-SECRET',
-  OPENROUTER_ERRAND_KEY: 'sk-agent-SECRET',
+  OPENROUTER_AGENT_KEY: 'sk-agent-SECRET',
   OPENROUTER_DEV_KEY: 'sk-dev-SECRET',
   MEDIA_VIDEO_PROXY: 'socks5h://user:pw-SECRET@proxy.example:1080',
+  // Stage AB: the core no longer reads this; it must reach no run.
   OPENCODE_WEBSEARCH_KEY: 'search-SECRET',
 };
 
-test("errands service: a scout run carries its role's key, the proxy in its http form and the search key; no secret in a log, a journal line or a file", async () => {
+test("errands service: a scout run carries its role's key, the proxy in its http form and no search key; no secret in a log, a journal line or a file", async () => {
   // Stage Z: the proxy is the engine proxy in force, handed by the core, in place of MEDIA_VIDEO_PROXY.
   const { errands, client, log, journalLines, rootDir, cleanup } = makeService(ENV, { proxy: ENV.MEDIA_VIDEO_PROXY });
   try {
@@ -151,7 +153,6 @@ test("errands service: a scout run carries its role's key, the proxy in its http
     assert.deepEqual(client.runs[0].secrets, {
       openrouterKey: 'sk-agent-SECRET',
       proxy: 'http://user:pw-SECRET@proxy.example:1080',
-      searchKey: 'search-SECRET',
     });
     assert.ok(journalLines.length >= 2, 'the task was journaled');
     assert.ok(log.calls.length > 0, 'the run was logged');
@@ -180,7 +181,6 @@ test('errands service: the key follows llm.keyByRole read now; an http proxy is 
     ...ENV,
     OPENROUTER_WEB_ONLY: 'sk-web-only',
     MEDIA_VIDEO_PROXY: 'http://proxy.example:8000',
-    OPENCODE_WEBSEARCH_KEY: '',
   };
   // Stage Z: the proxy is the engine proxy in force, handed by the core, in place of MEDIA_VIDEO_PROXY.
   const { errands, client, cleanup } = makeService(env, {
