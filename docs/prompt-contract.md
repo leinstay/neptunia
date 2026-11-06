@@ -287,6 +287,7 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `turn-cap` | failed | - | `tools.result.reasons.turn-cap` |
 | `runner-down` | failed | - | `tools.result.reasons.runner-down` |
 | `board-unavailable` | failed | - | `tools.result.reasons.board-unavailable` |
+| `memory-closed` | failed | - | `tools.result.reasons.memory-closed` |
 | `write-failed` | failed | - | `tools.result.reasons.write-failed` |
 | `skill-tampered` | failed | - | `tools.result.reasons.skill-tampered` |
 | `skill-missing` | failed | - | `tools.result.reasons.skill-missing` |

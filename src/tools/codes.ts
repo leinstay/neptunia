@@ -154,6 +154,8 @@ export const CATALOGUE = Object.freeze({
   'turn-cap': skill('failed'),
   'runner-down': skill('failed'),
   'board-unavailable': skill('failed'),
+  // A /memory command answered while the memory database is closed (src/interface/commands/memory.ts).
+  'memory-closed': skill('failed'),
   'write-failed': skill('failed'),
   'skill-tampered': skill('failed'),
   'skill-missing': skill('failed'),
