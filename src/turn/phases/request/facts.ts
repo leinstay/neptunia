@@ -131,8 +131,8 @@ export async function tellFacts(
   // `<now>`: the persona's recent time away (the journal's pauses and stops).
   const offPeriods = await offPeriodsFor(placeId);
   // The index of her active skills: every turn kind shows it, and the turn counts the skills it showed.
-  const indexed = skillIndex == null ? null : await skillIndex();
-  draft.skillsIndexed = indexed?.indexed ?? [];
+  const index = skillIndex == null ? null : await skillIndex();
+  draft.skillsIndexed = index?.indexed ?? [];
   return {
     factsText,
     tasks,
@@ -140,6 +140,6 @@ export async function tellFacts(
     placeMemory,
     taggedCall,
     offPeriods,
-    skillIndex: indexed?.text ? indexed.text : null,
+    skillIndex: index?.text ? index.text : null,
   };
 }

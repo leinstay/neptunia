@@ -22,7 +22,8 @@ export function planRequest(ctx: PhaseContext, opened: Opened, setup: Setup): Pl
   const { isPrivate } = opened;
   const { config, likeServer } = setup;
   const webLookupOn = Boolean(lookup);
-  const webSearchOn = webLookupOn && config.web?.quickSearch?.enabled !== false && typeof lookup?.search === 'function';
+  const quickSearch = config.web?.quickSearch;
+  const webSearchOn = webLookupOn && quickSearch?.enabled !== false && typeof lookup?.search === 'function';
   const serverOn = (!isPrivate || likeServer) && recallAvailable();
   return { webLookupOn, webSearchOn, serverOn };
 }

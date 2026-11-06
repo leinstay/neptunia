@@ -124,15 +124,13 @@ export async function gatherRequest(
   const pendingMedia = {
     videoIds:
       videoStage && !videoStage.done && !(rewatchStage?.done && rewatchStage.value?.videos)
-        ? [...(videos ?? [])].filter(([, state]) => state?.state === 'pending').map(([id]) => id)
+        ? [...(videos ?? [])].filter(([, video]) => video?.state === 'pending').map(([id]) => id)
         : [],
     captions: Boolean(captions) && !captions?.done && captionCandidates.length > 0,
   };
   // A picture's second look on a question: rendered under its line.
-  const imageAnswers =
-    rewatchStage?.done && (rewatchStage.value?.imageAnswers?.size ?? 0) > 0
-      ? (rewatchStage.value?.imageAnswers ?? null)
-      : null;
+  const rewatchAnswers = rewatchStage?.done ? rewatchStage.value?.imageAnswers : undefined;
+  const imageAnswers = (rewatchAnswers?.size ?? 0) > 0 ? (rewatchAnswers ?? null) : null;
   const reads = linksStage?.done ? linksStage.value : undefined;
   // A prefetch still out at the deadline: the request says so (`timeout`) instead of waiting.
   const prefetchResult = prefetching

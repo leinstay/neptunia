@@ -93,7 +93,8 @@ export function buildTurnRequest(
   // stable part of the request. A selfreflection post has the same tools; only `draw.create` runs there (runSteps).
   const registry = skills ?? defaultSkills();
   draft.toolNames = exposedSkillNames({ config, selfId, registry });
-  const wakeKind = draft.inner?.wake?.kind ?? null;
+  const wake = draft.inner?.wake;
+  const wakeKind = wake?.kind ?? null;
   draft.tools = buildTools(exposedSkillNames({ config, selfId, registry, wakeKind }), {
     registry,
     texts: prompts?.tools,
@@ -104,9 +105,8 @@ export function buildTurnRequest(
   // Every input named (turnRequestInput throws on one left undefined); null marks an absent one.
   // A heartbeat's lines carry handles (`#N`) numbered on past the request's own lines, like a memory.search's quotes:
   // the text is worded once with a provisional base, then again when the request says where its own numbering ends.
-  const heartbeatRefs: Array<object> = Array.isArray(draft.inner?.wake?.heartbeat?.refs)
-    ? (draft.inner.wake.heartbeat.refs as Array<object>)
-    : [];
+  const heartbeat = wake?.heartbeat;
+  const heartbeatRefs: Array<object> = Array.isArray(heartbeat?.refs) ? (heartbeat.refs as Array<object>) : [];
   const heartbeatHandleBase = heartbeatRefs.length > 0 ? SEARCH_HANDLE_GAP + 1 : null;
   let shownHeartbeatRefs: Array<number> = [];
   const wakeTextOf = (handleBase: number | null) =>
@@ -246,7 +246,7 @@ export function buildTurnRequest(
     // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.ts); none on any other turn.
     wake: draft.inner ? wakeTextOf(heartbeatHandleBase) : factsText || null,
     // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
-    wakeKind: draft.inner?.wake?.kind ?? null,
+    wakeKind,
     // `<places>`: the places page on an addressed server turn, only with `context.places` exactly true (an inner turn has it in `<wake>`).
     places:
       !draft.inner && !isPrivate && finalMode !== 'selfreflection'
@@ -276,7 +276,7 @@ export function buildTurnRequest(
   // What `<recent>` showed, held back or cut: counts only.
   if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
   // The memory rows this request carried, for the database's per-turn record (deferred there; it never fails a turn).
-  const wakeMemory = draft.inner?.wake?.heartbeat?.memory ?? draft.inner?.wake?.selfimprovement?.memory ?? null;
+  const wakeMemory = heartbeat?.memory ?? wake?.selfimprovement?.memory ?? null;
   const allReads = [...(request.memoryReads ?? []), ...(wakeMemory ? pageReads(wakeMemory, { block: 'wake' }) : [])];
   if (memoryReads && draft.started?.turnId && allReads.length > 0) {
     // One step: the steps of her tool loop add tool results to this request, never memory reads of their own.

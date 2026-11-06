@@ -271,7 +271,8 @@ export function untaggedNote(
   },
   labels?: { tools?: { result?: { untaggedNote?: unknown } } } | null
 ): string {
-  const template = labels?.tools?.result?.untaggedNote;
+  const toolResults = labels?.tools?.result;
+  const template = toolResults?.untaggedNote;
   if (typeof template !== 'string' || !template || !(handles instanceof Map) || !(memberNames instanceof Map))
     return '';
   const handleById = new Map([...handles].map(([handle, id]) => [String(id), handle]));

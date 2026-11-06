@@ -143,9 +143,10 @@ export function startStages(
   let splitStage: Staged['splitStage'] = null;
   if (maySplit && trigger && splitCandidate(trigger, triggerKind, config)) {
     const splitPrompt = hot.prompts?.split;
+    const promptLabels = hot.prompts?.labels;
     if (!splitPrompt) {
       log.info('split: skipped', { channel: channel.id, reason: 'no-prompt' });
-    } else if (hot.prompts?.labels?.task?.part) {
+    } else if (promptLabels?.task?.part) {
       const shown = captionsSoFar();
       splitStage = track('split', () =>
         maybeSplit({
@@ -188,7 +189,7 @@ export function startStages(
           return {
             result: {
               seconds: Math.round((clock() - watchStartedAt) / 100) / 10,
-              watched: states.filter((state) => state?.state === 'watched').length,
+              watched: states.filter((video) => video?.state === 'watched').length,
             },
             offered: states.length > 0,
           };

@@ -171,9 +171,9 @@ export function createParticipation({ store, around, clock }: ParticipationConte
     return {
       snapshot: around.view(),
       channelNameOf: (placeId) => {
-        const voice = snapshot?.get(String(placeId));
-        const visible = voice?.voice === true && voice.public === true;
-        return visible && typeof voice.name === 'string' && voice.name ? voice.name : null;
+        const entry = snapshot?.get(String(placeId));
+        const visible = entry?.voice === true && entry.public === true;
+        return visible && typeof entry.name === 'string' && entry.name ? entry.name : null;
       },
     };
   }

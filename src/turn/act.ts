@@ -648,8 +648,10 @@ export function createAct(ctx: ActContext): Act {
       reacted,
     };
     // The rails count a reply of hers that went out, with the emoji it carried.
-    if (capability?.emoji && parsed.messages.length > 0 && delivered)
-      mediaPick.noteReply({ placeId: channel.id, emoji: emojiPick ? emojiPick.picked.emoji.name : null });
+    if (capability?.emoji && parsed.messages.length > 0 && delivered) {
+      const pickedEmoji = emojiPick ? emojiPick.picked.emoji : null;
+      mediaPick.noteReply({ placeId: channel.id, emoji: pickedEmoji ? pickedEmoji.name : null });
+    }
     return { delivered, answered, ...posted };
   }
 
