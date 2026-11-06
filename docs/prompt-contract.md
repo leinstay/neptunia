@@ -165,6 +165,8 @@ A transcript and what she voiced are quoted speech as a whole. The transcript la
 
 `config/labels.json` holds inserted wording and result explanations. Personal wording belongs in `data/config/labels.json`. Preserve every placeholder a label reader supplies. A result code and its label must remain aligned with the catalogue.
 
+`selfreflectionRemoval` in the `owner` section words the answer of `/memory selfreflection remove` (`src/interface/commands/memory-selfreflection-remove.ts`). `removed` takes `{entry}`, `{deleted}` and `{rows}`. `{rows}` is one `row` per table, with `{table}` and `{count}`, joined by `rowSeparator`, or `noRows` when no row was counted. `untouched` follows on a line of its own and names what the removal leaves alone. `refused.<code>` words each refusal, `unknown-entry`, `unknown-turn`, `busy`, `interface-down` and `delete-failed`, with `{entry}`. `unknown-turn` also takes `{turn}`, and `delete-failed` takes `{platformCode}`. With no labels the command answers the result as JSON, or the command with its code.
+
 ### Reason codes
 
 The following table is generated from the code catalogue. Regenerate it with `node scripts/labels-catalogue.ts --write` and check it with `npm run check:codes`.

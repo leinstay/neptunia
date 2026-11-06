@@ -18,6 +18,8 @@ The plan request carries `<seeds>`, two combinations (`SEED_SETS`) that `pickSee
 
 An entry the planner planned keeps `plan` in its `extra`: the `brief`, the `seeds` offered and the `seed` taken. `recordEntry` in `src/behavior/selfreflection-turn.ts` puts it on the post, and the one writer stores it with the entry. An entry whose planner did not answer has no `plan`. `/memory selfreflection show <id>` prints it with the rest of `extra`.
 
+An entry also keeps `turnId` in its `extra`, the id of the selfreflection turn that wrote it. `recordEntry` takes it from the turn runner, and the owner's removal of the entry finds that turn's records through it ([Removing a selfreflection entry](memory.md#removing-a-selfreflection-entry)). An entry recorded before the field has no `turnId`.
+
 `<diary>` shows a past picture post by its scene. `sceneOf` takes the scene from the stored `plan.brief`, else from the description of the entry's first linked picture, else from its drawing prompt. `store.getSelfreflection` reads that description from the entry's `media_links` as `pictureDescription` on every read and never stores it, and `<diary>` cuts it to one line of at most `selfreflection.sceneChars` (400) characters at a word boundary.
 
 ## Stored names
