@@ -1516,6 +1516,13 @@
       "test": "none"
     },
     {
+      "path": "src/memory/db/media-english.ts",
+      "purpose": "The owner's run that brings stored media descriptions to English. Tested through `tests/media-english-backfill.test.ts`.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/memory/db/media-stems.ts",
       "purpose": "The stems of a media row. Tested through the media memory tests.",
       "layer": "public",
