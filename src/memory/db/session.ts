@@ -7,9 +7,10 @@
 //   each private conversation alone (`dm:<iface>:<person>`). Each scope has a cursor in `meta`
 //   (`memory_session.cursor.<mode>.<scope>`, a `sources.rowid`), so a line is read once. At most `sweepsPerScopePerDay`
 //   sweeps of one scope a UTC day (stage W3; the old `sweepsPerDay` is read when the new key is missing); a sweep whose
-//   every scope with work is at its cap is refused (`sweep_cap`). `options.scopes` (a Set of scope keys) limits a sweep
-//   to those scopes (the service's schedule, writer-switch.ts#dueScopes). One request per scope with at least
-//   `minMessages` new lines, at most `maxMessages` lines each, serial.
+//   every scope with work is at its cap is refused (`sweep_cap`). A quiet scope's media pass counts toward its own
+//   `mediaPassPerDay` (its runs carry the sweep id with `:media-pass` appended). `options.scopes` (a Set of scope keys)
+//   limits a sweep to those scopes (the service's schedule, writer-switch.ts#dueScopes). One request per scope with at
+//   least `minMessages` new lines, at most `maxMessages` lines each, serial.
 //   The batch is the next lines by arrival (so none is ever skipped) shown in event time (`occurred_at`, then rowid);
 //   when it holds more people than `maxPeople`, the batch is sent again with the next page of people (the same lines, the
 //   next people), one request per page. The cursor moves, by compare-and-set and in the same transaction as the last
@@ -122,6 +123,7 @@ const DEFAULTS = Object.freeze({
   maxMessages: 200,
   minMessages: 5,
   sweepsPerScopePerDay: 24,
+  mediaPassPerDay: 24,
   everyMinutes: 60,
   reviewsPerDay: 6,
   settleMinutes: 10,
@@ -149,6 +151,7 @@ export type SessionSettings = {
   maxMessages: number;
   minMessages: number;
   sweepsPerScopePerDay: number;
+  mediaPassPerDay: number;
   everyMinutes: number;
   reviewsPerDay: number;
   settleMinutes: number;
@@ -179,6 +182,7 @@ export function sessionSettings(configGiven: unknown): SessionSettings {
     minMessages: posInt(given.minMessages, DEFAULTS.minMessages),
     // Per scope since stage W3; the old daily key stands in while the new one is missing.
     sweepsPerScopePerDay: posInt(given.sweepsPerScopePerDay, posInt(given.sweepsPerDay, DEFAULTS.sweepsPerScopePerDay)),
+    mediaPassPerDay: posInt(given.mediaPassPerDay, DEFAULTS.mediaPassPerDay),
     everyMinutes:
       Number.isFinite(at(given.everyMinutes)) && at(given.everyMinutes) >= 0
         ? at(given.everyMinutes)
@@ -1266,22 +1270,25 @@ export type SessionContext = {
   track?: Track;
 };
 
-/** How many sweeps have started on the UTC day of `now`. */
+// The media pass's runs count toward `mediaPassPerDay`, never toward the ordinary cap.
+const MEDIA_PASS_MARK = ':media-pass';
+
+/** How many sweeps have started on the UTC day of `now` (a sweep's media pass is the same sweep). */
 export function sweepsToday(db: Db, now: number): number {
   return db
     .prepare(
-      'SELECT COUNT(DISTINCT sweep_id) AS n FROM session_runs WHERE substr(started_at, 1, 10) = ? AND sweep_id IS NOT NULL'
+      "SELECT COUNT(DISTINCT replace(sweep_id, ?, '')) AS n FROM session_runs WHERE substr(started_at, 1, 10) = ? AND sweep_id IS NOT NULL"
     )
-    .get(dayOf(now))?.n as number;
+    .get(MEDIA_PASS_MARK, dayOf(now))?.n as number;
 }
 
-/** How many sweeps reached the scope `scopeKey` (in `mode`) on the UTC day of `now`. */
-export function scopeSweepsToday(db: Db, scopeKey: unknown, now: number, mode: unknown): number {
+/** How many ordinary sweeps (or with `isMediaPass`, media passes) reached the scope on the UTC day of `now`. */
+export function scopeSweepsToday(db: Db, scopeKey: unknown, now: number, mode: unknown, isMediaPass = false): number {
   return db
     .prepare(
-      'SELECT COUNT(DISTINCT sweep_id) AS n FROM session_runs WHERE scope_key = ? AND mode = ? AND substr(started_at, 1, 10) = ? AND sweep_id IS NOT NULL'
+      `SELECT COUNT(DISTINCT sweep_id) AS n FROM session_runs WHERE scope_key = ? AND mode = ? AND substr(started_at, 1, 10) = ? AND sweep_id ${isMediaPass ? '' : 'NOT '}LIKE ?`
     )
-    .get(scopeKey, mode, dayOf(now))?.n as number;
+    .get(scopeKey, mode, dayOf(now), `%${MEDIA_PASS_MARK}`)?.n as number;
 }
 
 /** The batches waiting for another try: `[{ scope, tries, from, to }]` (an `all_dropped` answer leaves its lines pending). */
@@ -1421,20 +1428,19 @@ export async function sweep(
     );
     if (batch.length < Math.min(settings.minMessages, maxMessages)) {
       runs.push({ scope: swept.key, outcome: 'quiet', lines: batch.length });
-      // A quiet scope reads old media lines it never saw, under the same daily cap.
+      // A quiet scope reads old media lines it never saw, under the media pass's own daily cap.
       if (
         settings.mediaPass &&
         (options.ignoreSweepCap ||
-          scopeSweepsToday(db, swept.key, started, settings.mode) < settings.sweepsPerScopePerDay)
+          scopeSweepsToday(db, swept.key, started, settings.mode, true) < settings.mediaPassPerDay)
       ) {
         const passKey = `${key}:media-pass`;
         const passCursor = Number(metaOf(db, passKey) ?? 0);
         const old = mediaPassBatch(db, swept, { after: passCursor, upTo: cursor, maxMessages, since: settings.since });
         if (old.length > 0) {
           ran += 1;
-          runs.push(
-            ...(await runBatch(ctx, { scope: swept, batch: old, cursor: passCursor, key: passKey, sweepId, settings }))
-          );
+          const pass = { cursor: passCursor, key: passKey, sweepId: `${sweepId}${MEDIA_PASS_MARK}`, settings };
+          runs.push(...(await runBatch(ctx, { scope: swept, batch: old, ...pass })));
         }
       }
       continue;

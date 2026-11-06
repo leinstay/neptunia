@@ -2,11 +2,14 @@
 // schedule the service runs with `memoryDb.session.mode` `apply`, and the effective models the service names at its
 // start. Reads only; every write goes through the service's writer.
 //
-//   dueScopes(db, config, now) -> [{ key, lines, full }]
+//   dueScopes(db, config, now, { log }) -> [{ key, lines, full }]
 //     The scopes a sweep should take now: at least `minMessages` settled lines after the scope's cursor, and either
 //     `everyMinutes` since the scope's last run (no run yet counts as long ago) or `maxMessages` lines waiting (`full`),
-//     and fewer than `sweepsPerScopePerDay` sweeps of the scope today (UTC). The lines are counted the way the sweep
-//     reads them (session.ts#batchOf: after the cursor, at most `maxMessages`, cut at the settle time).
+//     and fewer than `sweepsPerScopePerDay` ordinary sweeps of the scope today (UTC). The lines are counted the way the
+//     sweep reads them (session.ts#batchOf: after the cursor, at most `maxMessages`, cut at the settle time). A quiet
+//     scope is due for its media pass while the pass has old lines left, under `mediaPassPerDay`, and `everyMinutes`
+//     after the scope's last run of any kind: a media pass is never `full`. A scope left out at a daily cap is logged
+//     `memory session: capped` once per scope, cap and day.
 //   openFlags(db, config, { skip, selfName }) -> [{ key, at, subject, field, readCtx }]
 //     The description flags her session runs raised (`decisions` rows `flag:description`, `by` her) whose description
 //     has no accepted review (`origin` `review`) written since the flag, one per description (its oldest open flag: a
@@ -41,7 +44,9 @@ import type { Context } from './scope.ts';
 import { SELF_PERSON } from './ids.ts';
 import { LEGACY_IFACE } from './legacy-namespace.ts';
 import { closePeople } from './focus.ts';
-import type { Config, Db, Row } from './types.ts';
+import type { SessionSettings } from './session.ts';
+import type { SweepScope } from './session-scopes.ts';
+import type { Config, Db, Log, Row } from './types.ts';
 
 const MINUTE = 60_000;
 const MAIN_KEY = 'OPENROUTER_CORE_KEY';
@@ -54,8 +59,45 @@ const parse = (text: unknown): Row | null => {
   }
 };
 
+// The capped lines already logged, per database: one per scope, cap and day, so a capped scope is not said every minute.
+const cappedSaid = new WeakMap<Db, Set<string>>();
+
+type CappedLine = { scope: string; cap: 'sweepsPerScopePerDay' | 'mediaPassPerDay'; count: number; now: number };
+
+/** Logs `memory session: capped` for the scope once per cap and day. */
+function sayCapped(db: Db, log: Partial<Log> | undefined, { scope, cap, count, now }: CappedLine): void {
+  const day = dayOf(now);
+  const said = cappedSaid.get(db) ?? new Set<string>();
+  cappedSaid.set(db, said);
+  const key = `${day}|${cap}|${scope}`;
+  if (said.has(key)) return;
+  for (const old of said) if (!old.startsWith(`${day}|`)) said.delete(old);
+  said.add(key);
+  log?.info?.('memory session: capped', { scope, cap, count });
+}
+
+/** The old media lines the quiet scope's media pass would read now; 0 while the pass is off. */
+function mediaPassLines(db: Db, settings: SessionSettings, sweepScope: SweepScope, cursor: number): number {
+  if (!settings.mediaPass) return 0;
+  const passCursor = Number(
+    db.prepare('SELECT value FROM meta WHERE key = ?').get(`${cursorKey(settings.mode, sweepScope.key)}:media-pass`)
+      ?.value ?? 0
+  );
+  return mediaPassBatch(db, sweepScope, {
+    after: passCursor,
+    upTo: cursor,
+    maxMessages: settings.maxMessages,
+    since: settings.since,
+  }).length;
+}
+
 /** The scopes a scheduled sweep takes now (see the head of this file). */
-export function dueScopes(db: Db, config: Config, now: number): Array<{ key: string; lines: number; full: boolean }> {
+export function dueScopes(
+  db: Db,
+  config: Config,
+  now: number,
+  { log }: { log?: Partial<Log> } = {}
+): Array<{ key: string; lines: number; full: boolean }> {
   const settings = sessionSettings(config);
   const out: Array<{ key: string; lines: number; full: boolean }> = [];
   const settleBefore = now - settings.settleMinutes * MINUTE;
@@ -71,25 +113,16 @@ export function dueScopes(db: Db, config: Config, now: number): Array<{ key: str
       audienceId: sweepScope.audienceId ?? null,
     });
     const quiet = batch.length < Math.min(settings.minMessages, settings.maxMessages);
-    if (!quiet && joinOf(batch, settings, now).reason === 'wait') continue;
-    if (scopeSweepsToday(db, sweepScope.key, now, settings.mode) >= settings.sweepsPerScopePerDay) continue;
-    let lines = batch.length;
-    if (quiet) {
-      // A quiet scope is due only for the media pass, and only while the pass has old lines left.
-      if (!settings.mediaPass) continue;
-      const passCursor = Number(
-        db.prepare('SELECT value FROM meta WHERE key = ?').get(`${cursorKey(settings.mode, sweepScope.key)}:media-pass`)
-          ?.value ?? 0
-      );
-      lines = mediaPassBatch(db, sweepScope, {
-        after: passCursor,
-        upTo: cursor,
-        maxMessages: settings.maxMessages,
-        since: settings.since,
-      }).length;
-      if (lines === 0) continue;
+    const lines = quiet ? mediaPassLines(db, settings, sweepScope, cursor) : batch.length;
+    if (lines === 0 || (!quiet && joinOf(batch, settings, now).reason === 'wait')) continue;
+    const cap = quiet ? 'mediaPassPerDay' : 'sweepsPerScopePerDay';
+    const count = scopeSweepsToday(db, sweepScope.key, now, settings.mode, quiet);
+    if (count >= settings[cap]) {
+      sayCapped(db, log, { scope: sweepScope.key, cap, count, now });
+      continue;
     }
-    const full = lines >= settings.maxMessages;
+    // Only ordinary new lines skip the wait: a media pass always finds old lines and would run every minute.
+    const full = !quiet && lines >= settings.maxMessages;
     const last = db
       .prepare('SELECT MAX(started_at) AS at FROM session_runs WHERE scope_key = ? AND mode = ?')
       .get(sweepScope.key, settings.mode)?.at;

@@ -128,6 +128,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `memoryDb.session.batchLines` | number | `30` | Joined lines at which a scope with waiting sessions is written | `src/memory/db/session.ts` |
 | `memoryDb.session.maxWaitHours` | number | `24` | Age of the oldest waiting line at which its scope is written, whatever the size | `src/memory/db/session.ts` |
 | `memoryDb.session.sweepsPerScopePerDay` | number | `24` | Sweeps that reach one scope per UTC day | `src/memory/db/session.ts` |
+| `memoryDb.session.mediaPassPerDay` | number | `24` | Media-pass sweeps that reach one scope per UTC day, counted apart from `sweepsPerScopePerDay` | `src/memory/db/session.ts` |
 | `memoryDb.session.everyMinutes` | number | `60` | Minutes between sweeps (with `mode` `apply`) | `src/memory/db/session.ts` |
 | `memoryDb.session.reviewsPerDay` | number | `6` | Description reviews per UTC day. `0` disables | `src/memory/db/service.ts` |
 | `memoryDb.session.since` | string, null | `null` | An ISO date; a scope with no cursor starts from this date. `null`: the first line | `src/memory/db/session.ts` |
