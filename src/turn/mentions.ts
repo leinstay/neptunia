@@ -290,7 +290,8 @@ export function untaggedNote(
  * (a turn's messages, her `message.create`, a selfreflection entry) asks here. The message concerns the author it
  * replies to (`repliedAuthorId`, when `replying`) and every member it names (`users`). A member with `off` is left out
  * of `users` and gets no reply ping. `notify` is set, true, only when the message concerns someone and every one of
- * them has `on`: the interface then lets it notify even when it sends silently. Otherwise the interface decides.
+ * them has `on`. `asked` is set whenever the message concerns someone: the named members whose state is `on`, in the
+ * order named, and whether the replied author's state is `on`. An interface that sends silently pings exactly those.
  */
 export function mentionsUnderPings({
   users,
@@ -316,5 +317,13 @@ export function mentionsUnderPings({
     users: named.filter((id) => state(id) !== 'off'),
     repliedUser: replying && (replied === null || state(replied) !== 'off'),
     ...(notify ? { notify: true } : {}),
+    ...(concerned.length > 0
+      ? {
+          asked: {
+            users: named.filter((id) => state(id) === 'on'),
+            repliedUser: replied !== null && state(replied) === 'on',
+          },
+        }
+      : {}),
   };
 }

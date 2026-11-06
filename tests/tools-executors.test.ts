@@ -438,7 +438,8 @@ test('executeCall: message.create posts her own text where she may, the reply no
   assert.equal(asRecord(result.ref).conversationId, NEWS);
   const [posted] = port.messagesIn(NEWS).filter((message) => message.authorId === SELF);
   assert.equal(posted.text, 'απάντηση');
-  assert.deepEqual(posted.mentions, { users: [], repliedUser: true });
+  // The lead: `asked` names who chose `on`, nobody here (owner, 2026-11-06: silent mode pings only those members).
+  assert.deepEqual(posted.mentions, { users: [], repliedUser: true, asked: { users: [], repliedUser: false } });
   // a channel the bot may see but not send in: refused before anything is sent
   const away = await executeCall(resolve('message.create', { channel: '#αλλού' }, 'γεια'), deps(admin, port));
   assert.deepEqual([away.status, away.code], ['denied', 'channel-no-permission']);
@@ -722,7 +723,12 @@ test('executeCall: her written text goes out as rendered; only the members the r
   assert.equal(created.status, 'ok');
   const posted = port.messagesIn(HERE).at(-1);
   assert.equal(posted?.text, `<@${MEMBER}> <@8> @everyone`);
-  assert.deepEqual(posted?.mentions, { users: [MEMBER], repliedUser: false }, 'Élodie (8) turned pings off');
+  // The lead: `asked` names who chose `on`, nobody here (owner, 2026-11-06: silent mode pings only those members).
+  assert.deepEqual(
+    posted?.mentions,
+    { users: [MEMBER], repliedUser: false, asked: { users: [], repliedUser: false } },
+    'Élodie (8) turned pings off'
+  );
   // The edit: the same text and mentions.
   port.seed(NEWS, { authorId: SELF, messageId: '1004', text: 'λάθος' });
   const edited = await executeCall(
