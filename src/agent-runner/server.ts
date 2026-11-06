@@ -61,7 +61,7 @@ export function createRunnerServer({
   const queue: Array<{ task: RunRequest; conn: net.Socket }> = [];
   const seen = new Set<string>();
   const finished: Array<string> = [];
-  let current: { id: string; conn: net.Socket; abort: AbortController } | null = null;
+  let current: { id: string; conn: net.Socket; controller: AbortController } | null = null;
   let draining = false;
   const connections = new Set<net.Socket>();
 
@@ -90,8 +90,8 @@ export function createRunnerServer({
     const next = queue.shift();
     if (!next) return;
     const { task, conn } = next;
-    const abort = new AbortController();
-    current = { id: task.id, conn, abort };
+    const controller = new AbortController();
+    current = { id: task.id, conn, controller };
     let outcome: RunOutcome;
     try {
       outcome = await runner.run({
@@ -105,7 +105,7 @@ export function createRunnerServer({
         secrets: task.secrets,
         preamble: task.preamble,
         route: task.route,
-        signal: abort.signal,
+        signal: controller.signal,
         onProgress: (p: { step: number; tool: string | null; note: string }) =>
           send(conn, progressEvent({ id: task.id, step: p.step, tool: p.tool, note: p.note })),
       });
@@ -147,7 +147,7 @@ export function createRunnerServer({
 
   function handleCancel(id: string): void {
     if (current && current.id === id) {
-      current.abort.abort();
+      current.controller.abort();
       return;
     }
     const at = queue.findIndex((item) => item.task.id === id);
@@ -223,7 +223,7 @@ export function createRunnerServer({
   async function stop(): Promise<void> {
     draining = true;
     if (current) {
-      current.abort.abort();
+      current.controller.abort();
       send(current.conn, restartedEvent(current.id));
       current = null;
     }

@@ -59,6 +59,7 @@ import type {
   Budget,
   CostRecord,
   ErrandEnd,
+  ErrandFile,
   ErrandFileRef,
   ErrandRecord,
   ErrandState,
@@ -267,6 +268,12 @@ function journalResult(errand: ErrandRecord): Record<string, unknown> {
 }
 
 /** A copy of a stored errand, as the store hands it out (a stored record is plain JSON). */
+/** The files of an errand's result: none without a result or with a list the store cannot read. */
+function resultFilesOf(errand: ErrandRecord | null | undefined): Array<ErrandFile> {
+  const files = errand?.result?.files;
+  return Array.isArray(files) ? files : [];
+}
+
 function copy(errand: ErrandRecord): ErrandRecord {
   return JSON.parse(JSON.stringify(errand)) as ErrandRecord;
 }
@@ -412,7 +419,7 @@ export function createErrandStore({
     let changed = 0;
     for (const errand of state.errands) {
       if (isOpenState(errand.state) || errand.filesExpired === true) continue;
-      if (!Array.isArray(errand.result?.files) || errand.result.files.length === 0) continue;
+      if (resultFilesOf(errand).length === 0) continue;
       const outDir = outDirOf(errand.agent);
       if (!outDir || missing(outDir) || !missing(path.join(outDir, errand.id))) continue;
       errand.filesExpired = true;
@@ -685,7 +692,7 @@ export function createErrandStore({
     expireFiles();
     const errand = find(parsed.id);
     if (!errand || errand.filesExpired === true) return null;
-    const file = errand.result?.files?.find((entry) => entry?.name === parsed.name) ?? null;
+    const file = resultFilesOf(errand).find((entry) => entry?.name === parsed.name) ?? null;
     if (!file) return null;
     const outDir = outDirOf(errand.agent);
     if (!outDir) return null;
@@ -707,7 +714,7 @@ export function createErrandStore({
     if (!parsed) return false;
     expireFiles();
     const errand = find(parsed.id);
-    return errand?.filesExpired === true && Boolean(errand.result?.files?.some((entry) => entry?.name === parsed.name));
+    return errand?.filesExpired === true && resultFilesOf(errand).some((entry) => entry?.name === parsed.name);
   }
 
   /**

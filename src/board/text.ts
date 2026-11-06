@@ -144,11 +144,11 @@ export function costsText(costs: Readonly<Record<string, unknown>>): string {
     }
   }
   const thinker = costs.thinker;
-  const wave = isObject(thinker) && isObject(thinker.last_wave) ? thinker.last_wave : null;
+  const lastWave = isObject(thinker) && isObject(thinker.last_wave) ? thinker.last_wave : null;
   lines.push(
-    wave
-      ? `thinker last wave ${field(wave.wave)}: ${field(wave.turns)} turns, $${Number(wave.usd).toFixed(4)}, ` +
-          `context mean ${field(wave.context_mean) || '-'}, peak ${field(wave.context_peak) || '-'}`
+    lastWave
+      ? `thinker last wave ${field(lastWave.wave)}: ${field(lastWave.turns)} turns, $${Number(lastWave.usd).toFixed(4)}, ` +
+          `context mean ${field(lastWave.context_mean) || '-'}, peak ${field(lastWave.context_peak) || '-'}`
       : 'thinker last wave: none'
   );
   return lines.join('\n');

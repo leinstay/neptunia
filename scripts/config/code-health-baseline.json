@@ -1,43 +1,7 @@
 {
   "chains": {
-    "src/agent-runner/server.ts": {
-      "deep": 0,
-      "repeated": 2
-    },
-    "src/board/board.ts": {
-      "deep": 6,
-      "repeated": 0
-    },
-    "src/board/text.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
     "src/config/check.ts": {
       "deep": 1,
-      "repeated": 0
-    },
-    "src/development/worker.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
-    "src/errands/blocks.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/errands/client.ts": {
-      "deep": 1,
-      "repeated": 5
-    },
-    "src/errands/service.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/errands/store.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
-    "src/errands/turns.ts": {
-      "deep": 2,
       "repeated": 0
     },
     "src/format.ts": {

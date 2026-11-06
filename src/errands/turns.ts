@@ -159,7 +159,8 @@ export function createErrandTurns({
     const messageId = errand.origin?.messageId;
     if (!messageId) return null;
     const found = await reads.fetchMessages(ref, [messageId]);
-    const event = found?.messages[0]?.event;
+    const message = found?.messages[0];
+    const event = message?.event;
     return event === undefined ? null : lineOf(event);
   }
 
@@ -202,8 +203,9 @@ export function createErrandTurns({
       return null;
     }
     // A restricted errand names its exact origin, which may be on another interface than the home one.
+    const boundary = errand.origin?.publicationBoundary;
     const conversation = {
-      iface: errand.origin?.publicationBoundary?.origin.iface ?? iface(),
+      iface: boundary?.origin.iface ?? iface(),
       conversationId: String(conversationId),
     };
     const known = await reads.conversationInfo(conversation);

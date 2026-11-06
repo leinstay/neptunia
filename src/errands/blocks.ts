@@ -31,7 +31,7 @@ function stateWord(state: string | null | undefined, labels: Untyped): string {
  * runner has deleted (`filesExpired`) when that label is there, else its state's word.
  */
 function errandStateWord(errand: ErrandRecord | null | undefined, labels: Untyped): string {
-  const expired = labels?.errands?.states?.expired;
+  const expired = objOf(objOf(labels?.errands).states).expired;
   if (errand?.filesExpired === true && typeof expired === 'string' && expired) return expired;
   return stateWord(errand?.state, labels);
 }
@@ -120,7 +120,8 @@ export function errandResultText(
       state: errandStateWord(errand, labels),
     }),
   ];
-  const text = typeof errand.result?.text === 'string' ? errand.result.text.trim() : '';
+  const resultText = errand.result?.text;
+  const text = typeof resultText === 'string' ? resultText.trim() : '';
   if (text && typeof r.text === 'string') parts.push(r.text, clampWithEllipsis(text, maxChars));
   else if (!text && typeof r.empty === 'string') parts.push(r.empty);
   if (errand.state !== 'done' && errand.error && typeof r.error === 'string')
