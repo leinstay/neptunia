@@ -1,10 +1,11 @@
-// The owner's browser of memory: `/memory users`, `places`, `entities`, `graph`, `inspect` and the domain routes, over the typed readers
-// of src/memory/db/. Each answers the reader's own result as JSON, so a script and a panel see the same typed ids. A read goes
-// straight to its reader with the owner's internal context: it runs no operation, asks no model, changes no setting and writes
-// no row, and what it answers never reaches her memory or a request. Only the `cli` principal reaches this module
-// (src/interface/neptunia-cli.ts), and no operation of hers names it. A refusal has a status other than `ok` and a stable
-// `code`. Linking and unlinking go through the one writer. `/memory inspect` reads through a snapshot the core holds for the
-// owner: a command without `--snapshot` opens one and names it in its answer, and `--snapshot` goes on reading that moment.
+// The owner's browser of memory: `/memory users`, `places`, `entities`, `graph`, `inspect`, `pending` and the domain
+// routes, over the typed readers of src/memory/db/. Each answers the reader's own result as JSON, so a script and a
+// panel see the same typed ids. A read goes straight to its reader with the owner's internal context: it runs no
+// operation, asks no model, changes no setting and writes no row, and what it answers never reaches her memory or a
+// request. Only the `cli` principal reaches this module (src/interface/neptunia-cli.ts), and no operation of hers names
+// it. A refusal has a status other than `ok` and a stable `code`. Linking, unlinking and `/memory pending replay` go
+// through the one writer. `/memory inspect` reads through a snapshot the core holds for the owner: a command without
+// `--snapshot` opens one and names it in its answer, and `--snapshot` goes on reading that moment.
 
 import path from 'node:path';
 import { domainDetail, domainList, versionsOf } from '../../memory/db/domain-read.ts';
@@ -191,6 +192,24 @@ async function audienceFill(memoryDb: unknown, name: string, args: Args): Promis
     return ok(filled);
   } catch {
     return { text: `/${name.replaceAll('.', ' ')}: the audience could not be written`, status: 'failed' };
+  }
+}
+
+/**
+ * `/memory pending list` and `/memory pending replay`: the pending writes the open set aside
+ * (src/memory/db/pending-quarantine.ts), listed from their folder or replayed through the one writer.
+ */
+async function pendingCommand(memoryDb: unknown, name: string): Promise<Answer> {
+  if (name === 'memory.pending.list') {
+    const files = callMethod(memoryDb, 'quarantinedPending') as Array<unknown> | undefined;
+    return files === undefined ? closedDatabase(name) : ok({ files });
+  }
+  try {
+    const counts = callMethod(memoryDb, 'replayQuarantinedPending') as Promise<unknown> | undefined;
+    return counts === undefined ? closedDatabase(name) : ok(await counts);
+  } catch (error) {
+    if ((error as { code?: unknown }).code === 'DB_CLOSED') return closedDatabase(name);
+    return { text: `/${name.replaceAll('.', ' ')}: the quarantine could not be replayed`, status: 'failed' };
   }
 }
 
@@ -522,7 +541,7 @@ async function answering(name: string, read: () => Answer | Promise<Answer> | nu
 }
 
 /** The prefixes of the commands this module answers. */
-const BROWSER_NAME = new RegExp(`^memory\\.(users|places|entities|graph|inspect|${FAMILY_WORDS.join('|')})\\.`);
+const BROWSER_NAME = new RegExp(`^memory\\.(users|places|entities|graph|inspect|pending|${FAMILY_WORDS.join('|')})\\.`);
 
 /** Whether this module answers `name`: the writes that stay operations are the console's. */
 export const isMemoryBrowserCommand = (name: string): boolean =>
@@ -543,6 +562,7 @@ export async function memoryBrowserCommand(
       return inspectRead(deps, port, name, args, requester.id, boundsOf(hot));
     }
     if (name === 'memory.selfreflection.audience.fill') return audienceFill(memoryDb, name, args);
+    if (name === 'memory.pending.list' || name === 'memory.pending.replay') return pendingCommand(memoryDb, name);
     const db = callMethod(memoryDb, 'database') as Db | null | undefined;
     if (db == null) return closedDatabase(name);
     if (name === 'memory.users.link' || name === 'memory.users.unlink') return usersWrite(memoryDb, db, name, args);

@@ -1871,16 +1871,16 @@
   },
   "src/tools/impl/status.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 28
+      "count": 23
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 77
+      "count": 73
     },
     "@typescript-eslint/no-unsafe-call": {
       "count": 44
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 208
+      "count": 206
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 11

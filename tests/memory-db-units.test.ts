@@ -563,14 +563,17 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
   }
 });
 
-test('a pending write the writer refuses keeps its file and the database closed', async () => {
+// Stage AM of the master plan: a refused pending write no longer keeps the database closed. It moves to the
+// quarantine with its code and the open goes on (tests/memory-pending-quarantine.test.ts holds the rest).
+test('a pending write the writer refuses moves to the quarantine and the database opens', async () => {
   const { root, data } = prepared();
   const log = logs();
   const hot = { config: configOf() };
   const pendingDir = path.join(data, 'memory-pending');
+  const name = `${'0'.repeat(40)}.json`;
   fs.mkdirSync(pendingDir);
   fs.writeFileSync(
-    path.join(pendingDir, `${'0'.repeat(40)}.json`),
+    path.join(pendingDir, name),
     JSON.stringify({ owner: `guilds/${GUILD}/nothing.json`, op: 'value', value: {}, at: '2026-11-03T12:00:00.000Z' })
   );
   const service = createMemoryDb({
@@ -583,19 +586,22 @@ test('a pending write the writer refuses keeps its file and the database closed'
   });
   try {
     await service.tick();
-    assert.equal(service.status().open, false);
-    assert.equal(service.readHandle(), null);
-    assert.equal(fs.readdirSync(pendingDir).length, 1);
+    assert.equal(service.status().open, true);
+    assert.deepEqual(fs.readdirSync(pendingDir), []);
+    assert.ok(fs.existsSync(path.join(data, 'memory-pending-quarantine', name)));
     assert.ok(
       log.out.some(
         (entry) =>
           entry.level === 'error' &&
-          entry.message === 'memory db: pending replay failed' &&
+          entry.message === 'memory db: pending quarantined' &&
           entry.count === 1 &&
           entry.code === 'UNIT_UNMAPPED'
       )
     );
-    assert.ok(log.out.some((entry) => entry.message === 'memory db: open failed' && entry.code === 'PENDING_REPLAY'));
+    assert.equal(
+      log.out.some((entry) => entry.message === 'memory db: open failed'),
+      false
+    );
   } finally {
     await service.close();
     fs.rmSync(root, { recursive: true, force: true });

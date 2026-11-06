@@ -59,8 +59,12 @@
 //     writes it to `data/memory-pending/<sha1 of the owner>.json` (`{ owner, op, value | lines, at }`; the lines of one
 //     owner are appended to what its file holds), and every open replays each pending file through the writer before
 //     anything reads the database (`readHandle()` answers nothing meanwhile), deleting a file only after its write
-//     resolved. A replay that fails keeps its file, logs `memory db: pending replay failed` (an error, with the count)
-//     and fails the open (`PENDING_REPLAY`): the database is not used behind a write it has not taken.
+//     resolved. A write whose replay fails moves to `memory-pending-quarantine/` with its code (pending-quarantine.ts),
+//     the open goes on, an error line `memory db: pending quarantined` names the count and the code, and
+//     `onPendingQuarantined({ count, code: 'memory-pending-quarantined', cause })` tells the core once per open.
+//     `status().pending` counts what the quarantine holds; `quarantinedPending()` lists it and
+//     `replayQuarantinedPending()` replays it through the writer (the owner's `/memory pending`). A write that cannot
+//     be moved keeps its file, logs `memory db: pending replay failed` and fails the open (`PENDING_REPLAY`).
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
 //     description review and every other purpose; writer-switch.ts#effectiveModels). With `memoryDb.session.mode`
@@ -106,6 +110,16 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { keyText, placeCollection } from './storage-keys.ts';
+import {
+  QUARANTINE_DIR,
+  quarantinePending,
+  quarantineStatus,
+  quarantinedIn,
+  readPendingWrite,
+  releaseQuarantined,
+  writeError,
+} from './pending-quarantine.ts';
+import type { QuarantinedPending, QuarantineStatus } from './pending-quarantine.ts';
 
 import type { StorageKey } from './storage-keys.ts';
 
@@ -149,6 +163,7 @@ import { search } from './recall.ts';
 import type { SearchInput, SearchResult } from './recall.ts';
 import { mirrorPlaces, readMirrors } from './mirrors.ts';
 import { noteSkipped } from '../../board/errands.ts';
+import { CODE } from '../../tools/codes.ts';
 import type { Config, Db, Log, MemoryHandle, Row } from './types.ts';
 import type { SessionContext } from './session.ts';
 import type { Track } from '../../loop-watch.ts';
@@ -424,25 +439,9 @@ function pendingWrites(pendingDir: string, log: Log): Array<{ file: string; upda
   let bad = 0;
   for (const name of names) {
     const file = path.join(pendingDir, name);
-    try {
-      const kept = (JSON.parse(fs.readFileSync(file, 'utf8')) ?? {}) as {
-        owner?: unknown;
-        key?: StorageKey;
-        op?: unknown;
-        value?: unknown;
-        lines?: unknown;
-      };
-      const { owner, op, key } = kept;
-      if ((!key && typeof owner !== 'string') || (op !== 'value' && op !== 'lines' && op !== 'errand')) {
-        bad += 1;
-        continue;
-      }
-      const lines = Array.isArray(kept.lines) ? kept.lines : [];
-      const target = key ? { key } : { owner };
-      out.push({ file, update: op === 'lines' ? { op, ...target, lines } : { op, ...target, value: kept.value } });
-    } catch {
-      bad += 1;
-    }
+    const update = readPendingWrite(file);
+    if (update) out.push({ file, update });
+    else bad += 1;
   }
   if (bad > 0) log.error('memory db: pending unreadable', { count: bad });
   return out;
@@ -561,6 +560,8 @@ export type MemoryDbStatus = {
     lastFailure: { code: unknown; at: number; scope: string | null; review?: boolean } | null;
     reviewsFailedToday: number;
   };
+  /** The pending writes that failed their replay and wait in `memory-pending-quarantine/` (pending-quarantine.ts). */
+  pending: QuarantineStatus;
 };
 
 /** What `createMemoryDb` gives its callers. */
@@ -584,6 +585,10 @@ export type MemoryDbService = {
   onAffinityMoves(fn: (moves: Array<Row>) => void): () => void;
   writeUnit(update: unknown): Promise<unknown>;
   keepPending(update: unknown): string;
+  /** The writes in the quarantine, by name, with the code each failed with and when it moved. */
+  quarantinedPending(): Array<QuarantinedPending>;
+  /** Replays the quarantine through the writer: a file that applies goes, one that fails stays. `DB_CLOSED` if closed. */
+  replayQuarantinedPending(): Promise<{ replayed: number; kept: number }>;
   recordWake(update: unknown): Promise<unknown> | null;
   issueContext(spec?: Parameters<typeof issuePureContext>[0]): Context;
   /** The budget of one retrieval from the settings read now; null while they are absent. */
@@ -656,6 +661,8 @@ export type MemoryDbOptions = {
   onSessionFailure?: ((failure: Row) => void) | null;
   sessionLookMs?: number;
   onBackupFailure?: ((failure: Row) => void) | null;
+  /** Told once per open that quarantined pending writes: `{ count, code: 'memory-pending-quarantined', cause }`. */
+  onPendingQuarantined?: ((info: { count: number; code: string; cause: string | null }) => void) | null;
   iface?: () => string | null;
 };
 
@@ -734,6 +741,7 @@ export function createMemoryDb({
   onSessionFailure = null,
   sessionLookMs = 60_000,
   onBackupFailure = null,
+  onPendingQuarantined = null,
   iface = () => null,
 }: MemoryDbOptions): MemoryDbService {
   const threaded = useWorker ?? open === undefined;
@@ -759,6 +767,7 @@ export function createMemoryDb({
   // While the pending unit writes of the last shutdown are replayed at an open, nothing reads the database.
   let replaying = false;
   const pendingDir = path.join(dataDir, PENDING_DIR);
+  const quarantineDir = path.join(dataDir, QUARANTINE_DIR);
 
   // What a migration needs from the opener (openContextOf).
   const openContext = () => openContextOf(hot.config, dataDir);
@@ -905,15 +914,15 @@ export function createMemoryDb({
 
   /**
    * Replays the pending writes through the writer (at the open), each file deleted once its write resolved.
-   * Without a worker it runs synchronously and returns nothing; with one it returns the promise. Throws (rejects) with
-   * `PENDING_REPLAY` when a write failed: its file stays.
+   * Without a worker it runs synchronously and returns nothing; with one it returns the promise. A write that fails
+   * moves to the quarantine (pending-quarantine.ts) and the open goes on; one that cannot be moved keeps its file
+   * and the open throws (rejects) with `PENDING_REPLAY`.
    */
   function replayPending() {
     const writes = pendingWrites(pendingDir, log);
     if (writes.length === 0) return null;
     replaying = true;
-    let failed = 0;
-    let code: string | null = null;
+    const failed = { stuck: 0, moved: 0, code: null as string | null };
     const done = (file: string): void => {
       try {
         fs.rmSync(file, { force: true });
@@ -921,17 +930,24 @@ export function createMemoryDb({
         /* removed at the next replay */
       }
     };
-    const fail = (error: unknown) => {
-      failed += 1;
-      code = codeOf(error);
+    const fail = (file: string, error: unknown) => {
+      const code = codeOf(error);
+      failed.code = code;
+      try {
+        quarantinePending(file, quarantineDir, code, new Date(now()).toISOString());
+        failed.moved += 1;
+      } catch {
+        failed.stuck += 1;
+      }
     };
     const finish = () => {
       replaying = false;
-      if (failed > 0) {
-        log.error('memory db: pending replay failed', { count: failed, code });
+      tellQuarantined(failed.moved, failed.code);
+      if (failed.stuck > 0) {
+        log.error('memory db: pending replay failed', { count: failed.stuck, code: failed.code });
         throw Object.assign(new Error('memory db: pending writes not replayed'), { code: 'PENDING_REPLAY' });
       }
-      log.info('memory db: pending replayed', { count: writes.length });
+      log.info('memory db: pending replayed', { count: writes.length - failed.moved });
     };
     if (!engine) {
       for (const { file, update } of writes) {
@@ -939,7 +955,7 @@ export function createMemoryDb({
           noteSkipped(log, applyMemoryWrite(opened(), stampUnit(update)));
           done(file);
         } catch (error) {
-          fail(error);
+          fail(file, error);
         }
       }
       return finish();
@@ -950,11 +966,48 @@ export function createMemoryDb({
           noteSkipped(log, await engine.call('memoryWrite', { update: stampUnit(update) }));
           done(file);
         } catch (error) {
-          fail(error);
+          fail(file, error);
         }
       }
       finish();
     })();
+  }
+
+  /** The error line and the core's notice of `count` writes moved to the quarantine at this open. */
+  function tellQuarantined(count: number, cause: string | null): void {
+    if (count === 0) return;
+    log.error('memory db: pending quarantined', { count, code: cause });
+    try {
+      onPendingQuarantined?.({ count, code: CODE.MEMORY_PENDING_QUARANTINED, cause });
+    } catch (error) {
+      log.warn('memory db: pending quarantine not told', { code: codeOf(error) });
+    }
+  }
+
+  /** The owner's replay of the quarantine through the writer: each file that applies goes, each that fails stays. */
+  async function replayQuarantinedPending(): Promise<{ replayed: number; kept: number }> {
+    if (!handle || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
+    const counts = { replayed: 0, kept: 0 };
+    for (const { name } of quarantinedIn(quarantineDir)) {
+      const file = path.join(quarantineDir, name);
+      try {
+        const update = readPendingWrite(file);
+        if (update === null) throw Object.assign(new Error('not a unit write'), { code: 'PENDING_UNREADABLE' });
+        await writeUnit(update);
+        releaseQuarantined(file);
+        counts.replayed += 1;
+      } catch (error) {
+        counts.kept += 1;
+        if (codeOf(error) === 'DB_CLOSED') throw error;
+        try {
+          writeError(file, codeOf(error), new Date(now()).toISOString());
+        } catch {
+          /* the older code stays beside it */
+        }
+      }
+    }
+    log.info('memory db: quarantine replayed', counts);
+    return counts;
   }
 
   /** One write on the writer connection: a message to the worker, or this thread's own connection. */
@@ -1870,6 +1923,7 @@ export function createMemoryDb({
         lastFailure: sessionState.lastFailure,
         reviewsFailedToday: sessionState.reviewFailDay === utcDay(now()) ? sessionState.reviewFails : 0,
       },
+      pending: quarantineStatus(quarantineDir),
     };
   }
 
@@ -1912,6 +1966,8 @@ export function createMemoryDb({
     onAffinityMoves,
     writeUnit,
     keepPending,
+    quarantinedPending: () => quarantinedIn(quarantineDir),
+    replayQuarantinedPending,
     recordWake,
     issueContext,
     retrievalBoundsFor,
