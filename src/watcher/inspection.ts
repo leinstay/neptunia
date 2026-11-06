@@ -8,8 +8,7 @@
 // or secret check earns one more attempt on the same run, inside the run's timeout, with the refusal and the answer in its
 // brief. A refused answer stays only in `refused/<run id>-<attempt>.md`, mode 600, with what looks like a key masked there and
 // in that brief. Nothing the agent wrote reaches a run record. No second refusal, exit code, timeout or failure of the
-// engine's own check after stamping earns an attempt. In development mode (src/watcher/development.ts) the run also reads the
-// facts of the checkout, empties its scratch, audits one topic and files only drafts with a command that reproduces them.
+// engine's own check after stamping earns an attempt.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,15 +16,6 @@ import { readPromptFile } from '../agent-runner/opencode.ts';
 import { log } from '../log.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
 import { buildBrief } from './brief.ts';
-import {
-  currentAuditTopic,
-  developmentBrief,
-  emptyScratch,
-  finishAuditTopic,
-  stampDevelopment,
-  watcherScratch,
-} from './development.ts';
-import type { DevelopmentFacts, DevelopmentMode } from './development.ts';
 import {
   cancelFilings,
   deferFilings,
@@ -38,6 +28,7 @@ import {
   saveDrafts,
 } from './filing.ts';
 import type { InstallFacts } from './install.ts';
+import type { MoneyFacts } from './money.ts';
 import { claimRun, finishRun, lastRuns, noteAttempt, readRun } from './lifecycle.ts';
 import type { ProcessIdentity, RunRecord, RunSource, RunState, RunStore } from './lifecycle.ts';
 import { readReportRun, reportVersions } from './read.ts';
@@ -71,12 +62,6 @@ export type InspectionAgentResult = {
   gaps?: ReadonlyArray<string>;
 };
 
-export type DevelopmentDep = {
-  mode: DevelopmentMode;
-  topics: ReadonlyArray<string>;
-  facts: () => Promise<DevelopmentFacts>;
-};
-
 export type InspectionDeps = {
   store: RunStore;
   reportsDir: string;
@@ -96,8 +81,8 @@ export type InspectionDeps = {
   install?: () => InstallFacts;
   /** Stored facts that bear on failing work for the brief; absent, the brief holds none. */
   memory?: () => Promise<ReadonlyArray<string>>;
-  /** Development mode: the mode, the topics of `watcher.auditTopics` and the read of the facts; absent, it is off. */
-  development?: DevelopmentDep | undefined;
+  /** The spend, balances and limits for the brief, read before the agent starts; absent or failed, the brief holds none. */
+  money?: () => Promise<MoneyFacts>;
   onPhase?: (phase: InspectionPhase, runId: string) => void;
   /** How often the run's record is read for a cancel (ms). */
   cancelPollMs?: number;
@@ -166,34 +151,19 @@ type Watch = ReturnType<typeof watchRun>;
 type Observation = { from: number; to: number; dayFrom: number };
 type BoardOpener = () => Promise<BoardCaller>;
 
-/** What development mode holds for one run; null with the mode off. */
-type DevelopmentRun = {
-  mode: Extract<DevelopmentMode, { on: true }>;
-  facts: DevelopmentFacts | null;
-  topics: ReadonlyArray<string>;
-} | null;
-
-/** Prepares the run's development mode: an empty scratch, and the facts, a read that failed leaving them null. */
-async function startDevelopment(deps: InspectionDeps): Promise<DevelopmentRun> {
-  const dep = deps.development;
-  if (dep === undefined || !dep.mode.on) return null;
-  emptyScratch(deps.store.dir);
-  let facts: DevelopmentFacts | null = null;
+/** The money fact for the brief, or none when it is not wired or its read failed; the prompt then calls it unavailable. */
+async function moneyOf(deps: InspectionDeps): Promise<MoneyFacts | undefined> {
+  if (deps.money === undefined) return undefined;
   try {
-    facts = await dep.facts();
+    return await deps.money();
   } catch {
-    // The report's section says the facts could not be read.
+    log.info('watcher: money facts unavailable');
+    return undefined;
   }
-  return { mode: dep.mode, facts, topics: dep.topics };
 }
 
 /** The first brief, or the end of the run. */
-async function firstBrief(
-  deps: InspectionDeps,
-  run: RunRecord,
-  observation: Observation,
-  development: DevelopmentRun
-): Promise<string> {
+async function firstBrief(deps: InspectionDeps, run: RunRecord, observation: Observation): Promise<string> {
   let prompt = '';
   try {
     prompt = readPromptFile([...deps.promptFiles]);
@@ -201,24 +171,15 @@ async function firstBrief(
     // The refusal below names the missing file.
   }
   if (prompt.trim() === '') throw new RunEnd('failed', 'no-prompt', 'prompt.md is missing or empty');
+  const money = await moneyOf(deps);
   return buildBrief({
     prompt,
     day: run.day,
     reportsDir: deps.reportsDir,
     observation,
     ...(deps.install === undefined ? {} : { install: deps.install() }),
+    ...(money === undefined ? {} : { money }),
     ...(deps.memory === undefined ? {} : { memory: await deps.memory() }),
-    ...(development === null
-      ? {}
-      : {
-          development: developmentBrief({
-            mode: development.mode,
-            facts: development.facts,
-            scratch: watcherScratch(deps.store.dir),
-            node: process.execPath,
-          }),
-          auditTopic: currentAuditTopic(deps.store.dir, development.topics),
-        }),
   });
 }
 
@@ -268,21 +229,17 @@ function retryBrief(deps: InspectionDeps, first: string, refusal: RunEnd, masked
   return `${first.trim()}\n\n${prompt}\n\n${refused}\n\n<previous-answer>\n${masked}\n</previous-answer>\n`;
 }
 
-/**
- * The report and drafts of an answer, or the end of the run. Refusals never quote the agent. With the mode off, what the agent
- * wrote under the section of development mode goes before any check, so it neither counts nor files.
- */
-function validate(text: string, development: boolean): Extract<SplitAnswer, { ok: true }> {
+/** The report and drafts of an answer, or the end of the run. Refusals never quote the agent. */
+function validate(text: string): Extract<SplitAnswer, { ok: true }> {
   const secretLine = findSecret(text);
   if (secretLine !== null) throw new RunEnd('failed', 'secret', `a key-looking string on line ${secretLine}`);
   const split = splitAnswer(text);
   if (!split.ok) throw new RunEnd('failed', split.code, split.detail);
-  const report = development ? split.report : stampDevelopment(split.report, { on: false });
-  const checked = checkTemplate(report, { development });
+  const checked = checkTemplate(split.report);
   if (!checked.ok) throw new RunEnd('failed', checked.code, checked.detail);
-  const covered = checkCoverage(report);
+  const covered = checkCoverage(split.report);
   if (!covered.ok) throw new RunEnd('failed', covered.code, covered.detail);
-  return { ...split, report };
+  return split;
 }
 
 /** The earlier successful reports as the risk rules read them, oldest first, with each resolution at its moment. */
@@ -393,7 +350,7 @@ async function file(deps: InspectionDeps, runId: string, open: BoardOpener, watc
 function filingOutcome(dir: string, runId: string): FilingOutcome {
   const states = readFilings(dir, runId)
     .map((one) => one.state)
-    .filter((state) => state !== 'unmatched-draft' && state !== 'hypothesis' && state !== 'draft');
+    .filter((state) => state !== 'unmatched-draft' && state !== 'draft');
   if (states.includes('failed')) return 'failed';
   if (states.includes('deferred')) return 'deferred';
   return states.length === 0 ? 'none' : 'filed';
@@ -410,10 +367,9 @@ async function passedAnswer(
   run: RunRecord,
   watch: Watch,
   observation: Observation,
-  development: DevelopmentRun,
   phase: (name: InspectionPhase) => void
 ): Promise<PassedAnswer> {
-  const first = await firstBrief(deps, run, observation, development);
+  const first = await firstBrief(deps, run, observation);
   const startedAt = deps.store.now();
   const attempt = async (
     brief: string,
@@ -424,7 +380,7 @@ async function passedAnswer(
     const answer = await generate(deps, run, watch, { brief, timeoutMs, attempt: number });
     phase('validating');
     try {
-      return { answer, split: validate(answer.text, development !== null) };
+      return { answer, split: validate(answer.text) };
     } catch (error) {
       if (!(error instanceof RunEnd)) throw error;
       const { text: masked } = maskCredentials(answer.text);
@@ -443,15 +399,6 @@ async function passedAnswer(
   throw two.refusal;
 }
 
-/** Moves the queue for a committed run. The report stands whatever happens here, and the topic then runs again. */
-function moveAuditQueue(dir: string, runId: string, topics: ReadonlyArray<string>): void {
-  try {
-    finishAuditTopic(dir, runId, topics);
-  } catch {
-    log.info('watcher: audit queue not moved', { runId });
-  }
-}
-
 /** The work of a claimed run up to its committed report; anything short of that throws `RunEnd`. */
 async function inspect(deps: InspectionDeps, run: RunRecord, watch: Watch): Promise<string> {
   const { runId, day } = run;
@@ -467,8 +414,7 @@ async function inspect(deps: InspectionDeps, run: RunRecord, watch: Watch): Prom
   // One link per run, however many phases ask for it; a link that failed stays failed for the run.
   let opening: Promise<BoardCaller> | null = null;
   const open: BoardOpener = () => (opening ??= deps.openBoard());
-  const development = await startDevelopment(deps);
-  const { answer, split } = await passedAnswer(deps, run, watch, observation, development, phase);
+  const { answer, split } = await passedAnswer(deps, run, watch, observation, phase);
   const { report, tasks } = split;
   const rated = await rateFindings(deps, report, open, watch);
   watch.check();
@@ -477,25 +423,21 @@ async function inspect(deps: InspectionDeps, run: RunRecord, watch: Watch): Prom
   saveDrafts(dir, runId, deps.store.now(), tasks, {
     repeated,
     fileable,
-    commandRequired: development !== null,
     draftsOnly: deps.draftsOnly?.() === true,
   });
   phase('filing');
   await file(deps, runId, open, watch);
   phase('committing');
-  const filed = insertUnavailable(
+  const text = insertUnavailable(
     insertFilingLines(stamped(deps, runId, report, rated, observation), filingLines(readFilings(dir, runId))),
     'Service runs',
     (answer.gaps ?? []).map((gap) => `- ${gap}`)
   );
-  const text = development === null ? filed : stampDevelopment(filed, { on: true, facts: development.facts });
-  const mode = { development: development !== null };
-  const final = checkTemplate(text, mode);
+  const final = checkTemplate(text);
   if (!final.ok) throw new RunEnd('failed', final.code, final.detail);
-  const committed = commitReport({ reportsDir: deps.reportsDir, day, runId, at: deps.store.now(), text, mode });
+  const committed = commitReport({ reportsDir: deps.reportsDir, day, runId, at: deps.store.now(), text });
   if (!committed.ok) throw new RunEnd('failed', committed.code, committed.detail);
   phase('committed');
-  if (development !== null) moveAuditQueue(dir, runId, development.topics);
   return committed.path ?? path.join(deps.reportsDir, `${day}.md`);
 }
 

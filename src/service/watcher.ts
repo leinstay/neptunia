@@ -4,20 +4,20 @@
 // into the run's record, and the worker that holds the run, or the worker that comes for a claim nobody holds yet, ends it.
 // Neither `cancel` nor `disable` touches the other's business. `evidence` opens the memory database read-only, runs only
 // reads and asks no model: it is the bounded path by which the watcher agent reads what the services asked and answered,
-// and what is left over (src/watcher/trash.ts). `select` runs one read-only statement of the agent's over the same kind of
-// connection (src/watcher/development.ts).
+// what is left over (src/watcher/trash.ts) and what the analyzer did (src/watcher/analyzer-facts.ts). `select` runs one
+// read-only statement of the agent's over the same kind of connection (src/watcher/select.ts).
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { readPrompts } from '../hot.ts';
 import { readKeys } from '../keys/file.ts';
 import { auditMemory } from '../memory/db/audit.ts';
 import { openMemoryDb } from '../memory/db/open.ts';
 import { dbOf } from '../memory/db/types.ts';
-import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { backendOfAgent } from '../subharness/control.ts';
 import { subharnessPlace } from '../subharness/place.ts';
 import { readSessionMap } from '../subharness/sessions.ts';
-import { selectRefusal, selectRows } from '../watcher/development.ts';
+import { analyzerFacts } from '../watcher/analyzer-facts.ts';
 import { readFilings } from '../watcher/filing.ts';
 import {
   WATCHER_RUN_TIMEOUT_MS,
@@ -34,7 +34,6 @@ import {
   WATCHER_EVIDENCE_MAX_CHARS,
   mirrorFacts,
   observationInterval,
-  openTaskIds,
   readArchiveGaps,
   readRecordedRuns,
   selfreflectionFacts,
@@ -43,6 +42,7 @@ import {
 } from '../watcher/requests.ts';
 import type { RecordedRunPage } from '../watcher/requests.ts';
 import { maskCredentials } from '../watcher/report.ts';
+import { selectRefusal, selectRows } from '../watcher/select.ts';
 import { watcherSettings } from '../watcher/settings.ts';
 import { readTranscriptRuns } from '../watcher/transcripts.ts';
 import { collectTrash } from '../watcher/trash.ts';
@@ -150,7 +150,7 @@ function recordedPage(
 }
 
 /** What `read` makes of a read-only connection to the memory of `dataDir`; null when it cannot be read. */
-export function readMemoryAt<TResult>(dataDir: string, read: (db: ReturnType<typeof dbOf>) => TResult): TResult | null {
+function readMemoryAt<TResult>(dataDir: string, read: (db: ReturnType<typeof dbOf>) => TResult): TResult | null {
   const file = path.join(dataDir, 'memory.db');
   if (!fs.existsSync(file)) return null;
   let handle: ReturnType<typeof openMemoryDb> | null = null;
@@ -175,19 +175,19 @@ async function firstPageFacts(deps: ServiceDeps, window: { from: number; to: num
     selfreflection: readMemory(deps, selfreflectionFacts),
     standards: readMemory(deps, (db) => standardFacts(db, window)),
     audit: readMemory(deps, auditMemory),
+    analyzer: readMemory(deps, (db) =>
+      analyzerFacts(db, window, { config: deps.config(), prompts: readPrompts(deps.rootDir, deps.privateDir) })
+    ),
   };
 }
 
-/** The leftovers of the install and of the development checkout the settings name, if they name one. */
+/** The leftovers of the install and of the system. */
 function trashOf(deps: ServiceDeps): Promise<Trash> {
   return collectTrash({
     installDir: deps.rootDir,
-    checkout: selfimprovementSettings(deps.config()).checkout,
     unitDir: unitFolder(deps.env),
     env: { ...deps.env, NEPTUNIA_PRIVATE_DIR: deps.privateDir, NEPTUNIA_UNIT_SCOPE: unitScope(deps.env) },
     run: deps.run,
-    now: () => deps.now(),
-    tasks: () => readMemory(deps, openTaskIds),
   });
 }
 

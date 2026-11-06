@@ -13,12 +13,11 @@ import type { TaskRecord } from '../board/board.ts';
 import { BoardError, BoardRefusal } from '../board/machine.ts';
 import { DAY_MS } from '../time.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
-import { reproducingCommand } from './development.ts';
 import { HER, WATCHER, herOpenTask, normalized } from './tasks.ts';
 import type { TaskDraft } from './tasks.ts';
 
 export type FilingState =
-  'pending' | 'filed' | 'duplicate' | 'deferred' | 'failed' | 'cancelled' | 'unmatched-draft' | 'hypothesis' | 'draft';
+  'pending' | 'filed' | 'duplicate' | 'deferred' | 'failed' | 'cancelled' | 'unmatched-draft' | 'draft';
 
 export type FilingReceipt = {
   /** The model's key, or the normalized evidence of a draft with none. */
@@ -29,8 +28,6 @@ export type FilingReceipt = {
   done: string;
   state: FilingState;
   taskId: string | null;
-  /** The line that reproduces the finding, which the filed task carries. */
-  command?: string;
 };
 
 type FilingFile = { runId: string; at: number; receipts: Array<FilingReceipt> };
@@ -73,9 +70,7 @@ function sameFinding(a: FilingReceipt, b: FilingReceipt): boolean {
  * Saves a run's validated drafts as `pending`. A repeat inside the answer is a `duplicate` from the start, and so is a draft
  * for a finding in `limits.repeated`, a key the risk rules found to repeat an earlier report with no new evidence. With
  * `limits.fileable`, the keys of the finding lines at `medium` or above, any other draft is `unmatched-draft`: settled, never
- * sent to the board and never retried. With `limits.commandRequired`, development mode's rule, a draft left to file with no
- * command that reproduces it (`reproducingCommand`) is a `hypothesis`, settled the same way, and the report names it. With
- * `limits.draftsOnly` (`watcher.draftsOnly`, while the watcher is calibrated) every draft left to file is a `draft`: settled,
+ * sent to the board and never retried. With `limits.draftsOnly` (`watcher.draftsOnly`, while the watcher is calibrated) every draft left to file is a `draft`: settled,
  * never sent to the board, listed in the report.
  */
 export function saveDrafts(
@@ -86,7 +81,6 @@ export function saveDrafts(
   limits: {
     repeated?: ReadonlySet<string>;
     fileable?: ReadonlySet<string>;
-    commandRequired?: boolean;
     draftsOnly?: boolean;
   } = {}
 ): void {
@@ -103,15 +97,11 @@ export function saveDrafts(
       state: 'pending',
       taskId: null,
     };
-    const reproducing = reproducingCommand(draft.command);
-    if (reproducing.ok) receipt.command = reproducing.command;
     if (limits.repeated?.has(receipt.finding) === true) {
       receipt.state = 'duplicate';
       receipt.taskId = linkedReceipts(dir).findLast((one) => one.finding === receipt.finding)?.taskId ?? null;
     } else if (limits.fileable?.has(receipt.finding) === false) receipt.state = 'unmatched-draft';
-    else if (receipts.some((one) => one.state !== 'hypothesis' && sameFinding(one, receipt)))
-      receipt.state = 'duplicate';
-    else if (limits.commandRequired === true && !reproducing.ok) receipt.state = 'hypothesis';
+    else if (receipts.some((one) => sameFinding(one, receipt))) receipt.state = 'duplicate';
     else if (limits.draftsOnly === true) receipt.state = 'draft';
     receipts.push(receipt);
   }
@@ -245,7 +235,7 @@ async function fileOne(
       {
         lane: 'dev',
         title: receipt.title,
-        description: receipt.command === undefined ? receipt.evidence : `${receipt.evidence}\n\n${receipt.command}`,
+        description: receipt.evidence,
         acceptance: receipt.done,
         metadata: {
           kind: receipt.kind,
@@ -253,7 +243,6 @@ async function fileOne(
           origin: WATCHER,
           runId,
           ...(hasOwnKey(receipt) ? { finding: receipt.finding } : {}),
-          ...(receipt.command === undefined ? {} : { command: receipt.command }),
         },
       },
       `watcher-${key}`
@@ -319,7 +308,7 @@ export function filingLines(receipts: ReadonlyArray<FilingReceipt>): Array<strin
     const title = one.title.replace(/\s+/g, ' ').trim();
     const tag = hasOwnKey(one) ? `${one.kind}, ${one.finding}` : one.kind;
     if (one.state === 'filed') return [`- ${one.taskId ?? ''} (${tag}): ${title}`];
-    if (['deferred', 'failed', 'unmatched-draft', 'hypothesis', 'draft'].includes(one.state)) {
+    if (['deferred', 'failed', 'unmatched-draft', 'draft'].includes(one.state)) {
       return [`- ${one.state} (${tag}): ${title}`];
     }
     if (one.state === 'duplicate' && one.taskId !== null) return [`- already ${one.taskId} (${tag}): ${title}`];
