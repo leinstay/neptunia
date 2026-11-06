@@ -289,14 +289,6 @@ export function taskOutcomes(db: Db, runId: string): RequestOutcome | null {
   return { kind: 'task', state: CLOSED_BADLY.includes(status) ? 'failed' : 'open', ref: runId };
 }
 
-/** The ids of the board's tasks still open. */
-export function openTaskIds(db: Db): Array<string> {
-  return db
-    .prepare("SELECT id FROM board_tasks WHERE status NOT IN ('done', 'failed', 'cancelled', 'rejected')")
-    .all()
-    .map((row) => String(row.id));
-}
-
 export type PublicationCounts = { queued: number; failed: number; uncertain: number };
 export type MirrorFacts = PublicationCounts & {
   place: string;

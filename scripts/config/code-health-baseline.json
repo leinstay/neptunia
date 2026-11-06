@@ -1380,10 +1380,6 @@
       "deep": 4,
       "repeated": 0
     },
-    "tests/watcher-development-run.test.ts": {
-      "deep": 6,
-      "repeated": 0
-    },
     "tests/watcher-filing-board.test.ts": {
       "deep": 4,
       "repeated": 0

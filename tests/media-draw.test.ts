@@ -208,6 +208,7 @@ function memberTrigger() {
 
 // PR 7d: the daily image cap that ended the set is gone, so the set posts every picture it drew.
 test('diary set: the avatar is fetched once and goes with the first picture; the set is posted', async () => {
+  // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const images = recordingImages();
   const hotValue = hot();
   const plan = { kind: 'photoset', brief: 'a harbour walk', search: '', picture: true };
@@ -223,7 +224,7 @@ test('diary set: the avatar is fetched once and goes with the first picture; the
     runner({ answer, plan, images, hotValue }).runTurn({
       channel: target,
       mode: 'selfreflection',
-      selfreflection: { kind: null, forced: false },
+      selfreflection: { kind: 'photoset', forced: false },
     })
   );
   assert.equal(result.outcome, 'spoke');

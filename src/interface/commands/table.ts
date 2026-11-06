@@ -225,6 +225,11 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
     'Give old group selfreflection entries without an audience the unrestricted one: --dry-run counts only',
     [bareFlagArg('dry-run')]
   ),
+  sub(
+    'selfreflection.remove',
+    'Remove a selfreflection entry, its posts and every record of the turn that made it: --turn names that turn',
+    [arg('id'), flagArg('turn', false)]
+  ),
   sub('places.list', 'List places of any kind and depth', [
     flagArg('interface', false),
     flagArg('authority', false),
@@ -530,6 +535,9 @@ export const COMMANDS: ReadonlyArray<Command> = [
         arg('mode', false),
       ]),
       sub('backfill-english', 'Bring stored media descriptions to English: backfill-english [--dry-run|status]', [
+        arg('mode', false),
+      ]),
+      sub('backfill-plans', 'Reconstruct the plans of old selfreflection entries: backfill-plans [--dry-run|status]', [
         arg('mode', false),
       ]),
       sub('restore', 'Bring an archived item back', [arg('id')]),

@@ -112,6 +112,9 @@ const NOT_BUILT = {
   'describe-translate':
     'built by the English backfill (src/memory/db/media-english.ts), checked in tests/media-english-backfill.test.ts',
   'describe-audio': 'a voice message needs a fetcher of the file: tests/media-memory-audio.test.ts builds it',
+  // The owner's plan fill builds it over the memory database, with a scripted model in tests/selfreflection-plan-fill.test.ts.
+  'selfreflection-plan-fill':
+    'built by the plan fill (src/memory/db/selfreflection-plan-fill.ts), checked in tests/selfreflection-plan-fill.test.ts',
   // The voice-message preparation pass (src/speech/prepare.ts) runs inside the speech pipeline, whose request tests/speech-prepare.test.js checks.
   'speech-prepare': 'built by the speech pipeline (src/speech/prepare.ts), checked in tests/speech-prepare.test.js',
   // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),
@@ -1714,6 +1717,7 @@ function bareStore() {
   };
 }
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('createTurnRunner: the splitter fills split.md; each part, its queued calls and a folded message fill labels.task', async () => {
   const hot = shippedHot();
   const line = rawMessage(GENERAL_INFO, {
@@ -1724,7 +1728,9 @@ test('createTurnRunner: the splitter fills split.md; each part, its queued calls
   });
   const channel = worldChannelsOf([[GENERAL_INFO, [...generalRaws(), line]]])[GENERAL];
   const llm = recordingLlm((messages, options) =>
-    options.purpose === 'split' ? '- qui a planté les tomates\n- regarde le canal du jardin' : '<skip/>'
+    options.purpose === 'split'
+      ? JSON.stringify({ parts: ['qui a planté les tomates', 'regarde le canal du jardin'] })
+      : '<skip/>'
   );
   const turns = createTurnRunner({
     hot,
@@ -1824,10 +1830,11 @@ test('createTurnRunner: the media pick fills media-pick.md', async () => {
   );
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('createMissed: the missed-answer check fills missed.md', async () => {
   const history = await generalHistory();
   const candidate = history.findLast((message) => !message.self);
-  const llm = recordingLlm(() => '1: stale');
+  const llm = recordingLlm(() => '{"verdicts":[{"n":1,"verdict":"stale"}]}');
   worldChannelsOf([[GENERAL_INFO, generalRaws()]]);
   const dataDir = tempDir('nep-shipped-missed-');
   const missed = createMissed({
@@ -1869,6 +1876,7 @@ test('buildRequest: a recovery turn names its messages under labels.task.missed 
   assert.ok(text.includes(fill(LABELS.task.missed, { missed: '1. Ana: tu es là ?' })), 'the task names the messages');
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('createMessageHandler: the merge classifier fills merge.md', async () => {
   const hot = shippedHot();
   worldChannelsOf([[GENERAL_INFO, generalRaws()]]);
@@ -1891,7 +1899,7 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
     addToPart: (...args: Array<unknown>) => folded.push(args) > 0,
   };
   // Plan 2026-11-04-cli-and-memory B1: a flagged line asks the address classifier first.
-  const llm = recordingLlm((_messages, options) => (options.purpose === 'address' ? 'yes' : '1'));
+  const llm = recordingLlm((_messages, options) => (options.purpose === 'address' ? 'yes' : '{"item":1}'));
   const handler = createMessageHandler({
     hot,
     store: { state: { data: {}, markDirty() {} }, getUser: () => null },

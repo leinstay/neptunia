@@ -410,6 +410,21 @@ export function parseOutput(
 }
 
 /**
+ * The JSON object a strict `response_format` answer holds: `text` parsed whole, with nothing around it. Null for
+ * anything else: no text, text that is not JSON (a bare word or a code fence included), or JSON that is not an object.
+ */
+export function strictJsonObject(text: unknown): Record<string, unknown> | null {
+  if (typeof text !== 'string') return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+}
+
+/**
  * Parse the outermost `{...}` span of a model reply (from its first `{` to its
  * last `}`), tolerating code fences and chatter around it. Two objects in one
  * reply, or a stray `}` in trailing chatter, make the span invalid and throw.

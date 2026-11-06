@@ -5460,11 +5460,12 @@ test('runTurn: a short or unstructured call never asks the splitter', async () =
   }
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('runTurn: a `one` verdict leaves the turn exactly as without the splitter', async () => {
   const off = splitHot();
   delete off.prompts.split;
   const before = await runSplitTurn({ hot: off });
-  const after = await runSplitTurn({ llm: splitLlm({ split: 'one' }) });
+  const after = await runSplitTurn({ llm: splitLlm({ split: '{"parts":[]}' }) });
 
   assert.equal(before.llm.calls.split.length, 0);
   assert.equal(after.llm.calls.split.length, 1);
@@ -5483,8 +5484,9 @@ test('runTurn: a `one` verdict leaves the turn exactly as without the splitter',
   );
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('runTurn: the splitter request fills split.md and carries the transcript and the candidate', async () => {
-  const { llm } = await runSplitTurn({ llm: splitLlm({ split: 'one' }) });
+  const { llm } = await runSplitTurn({ llm: splitLlm({ split: '{"parts":[]}' }) });
   const [call] = llm.calls.split;
   assert.equal(call.messages[0].content, fillPromptTemplate(SPLIT_SYSTEM, { name: 'Bot', maxTasks: 4 }));
   assert.ok(textOf(call.messages[1].content).startsWith('<transcript>\n'));
@@ -5495,8 +5497,9 @@ test('runTurn: the splitter request fills split.md and carries the transcript an
   );
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('runTurn: a failed, empty or unparsable splitter answer is one request', async () => {
-  for (const split of [Object.assign(new Error('boom'), { statusCode: 503 }), '   ', '- only one']) {
+  for (const split of [Object.assign(new Error('boom'), { statusCode: 503 }), '   ', '{"parts":"only one"}']) {
     const { llm, logs, result } = await runSplitTurn({ llm: splitLlm({ split }) });
     assert.equal(llm.calls.talk.length, 1);
     assert.equal(taskOf(llm.calls.talk[0]).includes('parts'), false);
@@ -5606,11 +5609,12 @@ test("runTurn: a chain where no part spoke gives the first skip, else the first 
   assert.equal(failing.result.outcome, 'error');
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('runTurn: the splitter cuts the parts at its four tasks', async () => {
   // PR 7d: split.maxTasks is the constant 4 (the production value).
   const kept = [...SPLIT_PARTS, 'και κάτι ακόμα πιο μεγάλο'];
   const { llm } = await runSplitTurn({
-    llm: splitLlm({ split: `${PARTS_ANSWER}\n- ${kept[3]}\n- και ένα τελευταίο ακόμα θέμα` }),
+    llm: splitLlm({ split: JSON.stringify({ parts: [...SPLIT_PARTS, kept[3], 'και ένα τελευταίο ακόμα θέμα'] }) }),
   });
   assert.equal(llm.calls.talk.length, 4);
   assert.ok(taskOf(llm.calls.talk[0]).endsWith(partLabel(1, kept)));

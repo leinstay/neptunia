@@ -214,8 +214,9 @@ const publicationAudienceOf = (choice: AudienceChoice) =>
  * mentions, the set's byte limit) and, with a voice message, the text as voiced and its length; the day's selfreflection post
  * counted. Every picture was counted when it was generated. `audience` is what her `<audience>` tags came to: the post
  * keeps it as `publicationAudience`, and a failed choice is kept as a value that publishes nowhere
- * (src/memory/db/selfreflection-audience.ts). Returns the outcome's `selfreflection` field: the counts, the audience and the entry the
- * mirrors publish.
+ * (src/memory/db/selfreflection-audience.ts). `turnId`, the turn that wrote it, is kept as the post's `turnId`: the
+ * owner's removal of the entry finds the turn's records through it (src/memory/db/selfreflection-remove.ts). Returns
+ * the outcome's `selfreflection` field: the counts, the audience and the entry the mirrors publish.
  */
 export function recordEntry({
   store,
@@ -228,6 +229,7 @@ export function recordEntry({
   voice,
   publicationBoundary,
   audience = { ok: true, audience: UNRESTRICTED },
+  turnId,
   newId = () => `selfreflection:${randomUUID()}`,
 }: {
   store: SelfreflectionStore;
@@ -241,6 +243,7 @@ export function recordEntry({
   voice: HeldVoice | null;
   publicationBoundary?: PublicationBoundary;
   audience?: AudienceChoice;
+  turnId?: string;
   newId?: () => string;
 }): {
   kind: string | null;
@@ -264,6 +267,7 @@ export function recordEntry({
   });
   if (publicationBoundary !== undefined) post.publicationBoundary = publicationBoundary;
   post.publicationAudience = publicationAudienceOf(audience);
+  if (turnId !== undefined) post.turnId = turnId;
   if (typeof store.appendSelfreflectionPost === 'function')
     store.appendSelfreflectionPost(post, { max: DEFAULT_HISTORY_POSTS });
   const entry: SelfreflectionEntry = {

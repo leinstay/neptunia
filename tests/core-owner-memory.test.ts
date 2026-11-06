@@ -87,7 +87,8 @@ async function grantSearch(dirs: Dirs) {
   }
 }
 
-function script(answers: Array<Completion>, split = 'one'): Llm {
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
+function script(answers: Array<Completion>, split = '{"parts":[]}'): Llm {
   const requests: Array<unknown> = [];
   const options: Array<unknown> = [];
   return {
@@ -297,6 +298,7 @@ for (const sender of ['absent', 'interface', 'agent'] as const) {
   });
 }
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('split CLI parts each search private evidence and send only to the CLI destination', async () => {
   await withRig({ config: CONFIG }, async ({ dirs, cores, clis, units }) => {
     seed(dirs);
@@ -307,7 +309,12 @@ test('split CLI parts each search private evidence and send only to the CLI dest
         toolAnswer('', [call('memory.search', { question: 'κουνέλι', people: 'Benoit', when: '2026-10-23' })]),
         toolAnswer('<msg>second-owner-part-497</msg>'),
       ],
-      '- Explain what Benoit said about the rabbit on the requested date.\n- Explain the neighboring private line from the same conversation.'
+      JSON.stringify({
+        parts: [
+          'Explain what Benoit said about the rabbit on the requested date.',
+          'Explain the neighboring private line from the same conversation.',
+        ],
+      })
     );
     cores.push(await startUnitsCore(dirs, llm, () => NOW));
     const unit = await startedUnit(dirs);
@@ -332,6 +339,7 @@ test('split CLI parts each search private evidence and send only to the CLI dest
   });
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('a live CLI query queued behind a blocked turn retains its own internal reads and CLI reply', async (t) => {
   // Drain waits between two and nine seconds. Fix the random boundary so its delay fits the bounded fixture wait.
   t.mock.method(Math, 'random', () => 0);
@@ -348,7 +356,7 @@ test('a live CLI query queued behind a blocked turn retains its own internal rea
         const purpose = given && typeof given === 'object' && 'purpose' in given ? given.purpose : null;
         if (purpose === 'address') return toolAnswer('yes');
         if (purpose === 'lookup' || purpose === 'elsewhere-pick') return toolAnswer('none');
-        if (purpose === 'split') return toolAnswer('one');
+        if (purpose === 'split') return toolAnswer('{"parts":[]}');
         requests.push(messages);
         options.push(given);
         if (requests.length === 1) {

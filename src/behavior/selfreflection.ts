@@ -453,6 +453,41 @@ export function pickKind(kinds: unknown, rng: () => number): string | null {
   return entries[entries.length - 1][0];
 }
 
+/** The correction of a kind's weight for its recent use is held between these factors. */
+const DRAW_CLAMP: [number, number] = [0.25, 4];
+/** The factor on the weight of the newest post's kind. */
+const NEWEST_FACTOR = 0.25;
+/** The smallest use a share is divided by, so an unused kind gets the upper clamp. */
+const USE_EPSILON = 1e-9;
+
+/**
+ * The weights a selfreflection post's kind is drawn by (pickKind): each kind of `kinds` (selfreflection.kinds) with a
+ * positive weight, in the order of `kinds`, at `weight * clamp(share / max(used, ε), 0.25, 4)`, where `share` is its
+ * weight over the sum of the weights and `used` its count over the newest `window` (selfreflection.historyPosts) of
+ * `posts` (oldest first, each `{ kind }`) as a fraction of the posts in that window. The newest post's kind then
+ * counts a quarter. With no post every kind gets the upper clamp, so the weights keep their proportions.
+ */
+export function drawWeights(
+  kinds: unknown,
+  posts: unknown,
+  { window }: { window?: unknown } = {}
+): Record<string, number> {
+  const entries = weightedKinds(kinds);
+  const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
+  const limit = countOf(window ?? DEFAULT_HISTORY_POSTS);
+  const recent = limit > 0 && Array.isArray(posts) ? listOf(posts).slice(-limit) : [];
+  const newest = recent.length > 0 ? objOf(recent[recent.length - 1]).kind : null;
+  const [low, high] = DRAW_CLAMP;
+  return Object.fromEntries(
+    entries.map(([key, weight]) => {
+      const count = recent.filter((post) => objOf(post).kind === key).length;
+      const used = recent.length > 0 ? count / recent.length : 0;
+      const factor = Math.min(high, Math.max(low, weight / total / Math.max(used, USE_EPSILON)));
+      return [key, weight * factor * (key === newest ? NEWEST_FACTOR : 1)];
+    })
+  );
+}
+
 /** `value` when it is a list, else `fallback`. */
 const listOr = (value: unknown, fallback: ReadonlyArray<string>): ReadonlyArray<unknown> =>
   Array.isArray(value) ? listOf(value) : fallback;

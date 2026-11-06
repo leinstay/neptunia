@@ -104,6 +104,7 @@ test('an internal split chain exposes no waiting part for an ordinary follow-up 
 });
 
 for (const replacement of ['author', 'shorter'] as const) {
+  // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
   test(`a delayed merge queues its message when a replacement chain has ${replacement === 'author' ? 'a different author' : 'fewer parts'}`, async () => {
     const decision = Promise.withResolvers<{ text: string }>();
     const pending: PendingQueue = { list: [] };
@@ -121,15 +122,11 @@ for (const replacement of ['author', 'shorter'] as const) {
     const mergeChannel = channelInfo('c1');
     const llm = splitLlm({
       split: (index) =>
-        index === 1 && replacement === 'shorter'
-          ? SPLIT_PARTS.slice(0, 2)
-              .map((part) => `- ${part}`)
-              .join('\n')
-          : PARTS_ANSWER,
+        index === 1 && replacement === 'shorter' ? JSON.stringify({ parts: SPLIT_PARTS.slice(0, 2) }) : PARTS_ANSWER,
       talk: async (index) => {
         if (index === 0) merge.holdCall(mergeChannel, incoming, 'mention');
         if (index === 3) {
-          decision.resolve({ text: replacement === 'shorter' ? '2' : '1' });
+          decision.resolve({ text: replacement === 'shorter' ? '{"item":2}' : '{"item":1}' });
           await new Promise<void>((resolve) => setImmediate(resolve));
         }
         return '<msg>part complete</msg>';

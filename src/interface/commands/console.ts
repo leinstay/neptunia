@@ -47,6 +47,8 @@ import { skillsCommand } from './skills.ts';
 import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
 import type { ModuleAction } from './module-setup.ts';
 import { isMemoryBrowserCommand, memoryBrowserCommand } from './memory.ts';
+import { selfreflectionRemoveCommand } from './memory-selfreflection-remove.ts';
+import type { DeletePort } from '../../memory/db/selfreflection-remove.ts';
 import { serviceCommand } from '../../keys/services.ts';
 import { probeProxy } from '../../net/proxy.ts';
 import { proxyCommand } from './proxy.ts';
@@ -76,9 +78,10 @@ type OpResult = { status: string; code: string; summary: string; data: unknown }
 type OwnerRun = { start(options: { dryRun: boolean }): Promise<unknown>; status(): unknown };
 
 /** The owner's runs in the background, by command: the dependency that holds each. */
-const OWNER_RUNS: Readonly<Record<string, 'mediaBackfill' | 'mediaEnglish' | undefined>> = {
+const OWNER_RUNS: Readonly<Record<string, 'mediaBackfill' | 'mediaEnglish' | 'planFill' | undefined>> = {
   'memory.backfill-media': 'mediaBackfill',
   'memory.backfill-english': 'mediaEnglish',
+  'memory.backfill-plans': 'planFill',
 };
 
 export type ConsoleDeps = {
@@ -113,6 +116,8 @@ export type ConsoleDeps = {
   mediaBackfill?: OwnerRun | null;
   /** The owner's run that brings stored media descriptions to English (src/memory/db/media-english.ts). */
   mediaEnglish?: OwnerRun | null;
+  /** The owner's run that reconstructs the plans of old selfreflection entries (src/memory/db/selfreflection-plan-fill.ts). */
+  planFill?: OwnerRun | null;
   /** A conversation's newest stored lines, oldest first. */
   conversationLines(conversationId: string, count: number): ReadonlyArray<{ author: string; text: string }>;
   now(): number;
@@ -137,6 +142,8 @@ export type ConsoleDeps = {
   roleKey?: (role: string) => { name: string; value: string } | null;
   /** The selfreflection's mirrors (src/behavior/mirror-desk.ts); `/mirror` fails while there is none. */
   mirrors?: MirrorDesk | null;
+  /** The connected interface's delete of a message, for `/memory selfreflection remove`; absent, every interface is down. */
+  port?: DeletePort | null;
   /** How `/services` and `/doctor server` reach the service manager, the machine's own when absent. A test always gives its own. */
   serviceManager?: RunManager;
   /** What the core knows of one of its wakes, for `/services <name> status`. */
@@ -607,7 +614,8 @@ function ownerContextOf(
 }
 
 /**
- * An owner's run in the background (src/memory/db/media-backfill.ts, src/memory/db/media-english.ts): started once and
+ * An owner's run in the background (src/memory/db/media-backfill.ts, src/memory/db/media-english.ts,
+ * src/memory/db/selfreflection-plan-fill.ts): started once and
  * resumable, with its counts readable while it runs and after it ends. `--dry-run` counts what it would do, with no read
  * and no write.
  */
@@ -908,6 +916,7 @@ export function createConsole(deps: ConsoleDeps): {
       if (deps.keys != null && isKeysCommand(name, () => deps.keys?.enabled() === true))
         return deps.keys.run(name, args, dialog);
       if (name.startsWith('mirror.')) return mirrorCommand(deps.mirrors, name, args, requester);
+      if (name === 'memory.selfreflection.remove') return selfreflectionRemoveCommand(deps, args);
       if (isMemoryBrowserCommand(name)) return memoryBrowserCommand(deps, name, args, requester);
       const owned = ownCommand(deps, name, args, dialog);
       if (owned !== null) return owned;
