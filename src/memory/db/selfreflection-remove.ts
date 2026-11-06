@@ -12,8 +12,8 @@
 //     that made it (the entry's `extra.turnId`, the `turnId` given, and the turn of every `answer` line whose
 //     `extra.posted` names one of those messages, as an id or as `{ messageId }`): its `answer` lines, `day` rows, the
 //     `action` day rows of the `opId`s it posted under, `model_requests` and `turn_reads`; and the graph projection of
-//     every row removed. Every other day row of the place loses the removed messages from `extra.sourceMessageIds`
-//     and keeps the rest. A line's search rows go with it through `sources_ad`. A
+//     every row removed. Every other day row of the place loses the removed messages from the message-id lists of its
+//     `extra` (`DAY_MESSAGE_LISTS`) and keeps the rest. A line's search rows go with it through `sources_ad`. A
 //     relation of another line that pointed at a removed line is left unresolved, and the unit of every other row whose
 //     edge touched a removed node is projected again. A mirror whose `backfill_high_water` names the entry gets the newest
 //     remaining entry at or before it, or null. The guards that refuse every delete of `publications`,
@@ -231,20 +231,46 @@ function turnExists(db: Db, turnId: string): boolean {
 }
 
 /**
- * The removed messages taken out of the `sourceMessageIds` of every other `day` row in their place (or in none), each
+ * The lists of message ids the journal writes into a `day` row's `extra` (src/memory/journal.ts): the messages a turn
+ * drew on, saw and saw replied to, a memory batch's lines and a recovery turn's messages.
+ */
+const DAY_MESSAGE_LISTS: ReadonlyArray<ReadonlyArray<string>> = [
+  ['sourceMessageIds'],
+  ['seen', 'messageIds'],
+  ['seen', 'parents'],
+  ['batch', 'messageIds'],
+  ['messageIds'],
+];
+
+/** The object at `path` inside `value`, or null. */
+function objectAt(value: unknown, path: ReadonlyArray<string>): Row | null {
+  let at: unknown = value;
+  for (const key of path) at = at !== null && typeof at === 'object' ? (at as Row)[key] : null;
+  return at !== null && typeof at === 'object' && !Array.isArray(at) ? (at as Row) : null;
+}
+
+/**
+ * The removed messages taken out of every message-id list of every other `day` row in their place (or in none), each
  * row keeping every other column and field; a list that held only them stays, empty.
  */
 function forgetReads(db: Db, refs: ReadonlyArray<MessageRef>, places: ReadonlyMap<string, string>): void {
   const reading = db.prepare(
-    `SELECT rowid, extra FROM day WHERE json_valid(extra) AND (place_id IS NULL OR place_id = ?)
-      AND EXISTS (SELECT 1 FROM json_each(day.extra, '$.sourceMessageIds') WHERE value = ?)`
+    'SELECT rowid, extra FROM day WHERE json_valid(extra) AND (place_id IS NULL OR place_id = ?) AND instr(extra, ?) > 0'
   );
   const write = db.prepare('UPDATE day SET extra = ? WHERE rowid = ?');
   for (const ref of refs)
-    for (const row of reading.all(places.get(keyOf(ref)) ?? null, ref.messageId)) {
-      const extra = parsed(row.extra) as { sourceMessageIds: Array<unknown> };
-      extra.sourceMessageIds = extra.sourceMessageIds.filter((id) => id !== ref.messageId);
-      write.run(JSON.stringify(extra), row.rowid);
+    for (const row of reading.all(places.get(keyOf(ref)) ?? null, JSON.stringify(ref.messageId))) {
+      const extra = parsed(row.extra);
+      let changed = false;
+      for (const path of DAY_MESSAGE_LISTS) {
+        const holder = objectAt(extra, path.slice(0, -1));
+        const key = path.at(-1) ?? '';
+        const list = holder?.[key];
+        if (!holder || !Array.isArray(list) || !list.includes(ref.messageId)) continue;
+        holder[key] = list.filter((id: unknown) => id !== ref.messageId);
+        changed = true;
+      }
+      if (changed) write.run(JSON.stringify(extra), row.rowid);
     }
 }
 
