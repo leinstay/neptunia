@@ -846,7 +846,10 @@ export function adoptLibraryRows(db: Db, owner: string, at: unknown): void {
       "SELECT id, native_ref, scope_iface FROM media WHERE owner_key = ? AND kind = 'gif' AND native_ref IS NOT NULL"
     )
     .all(owner);
-  for (const row of rows) {
+  for (const snapshot of rows) {
+    // An earlier iteration may have adopted this row into another and deleted it.
+    const row = db.prepare('SELECT id, native_ref, scope_iface FROM media WHERE id = ?').get(snapshot.id);
+    if (!row) continue;
     for (const other of db
       .prepare('SELECT * FROM media WHERE native_ref = ? AND scope_iface IS ? AND id <> ?')
       .all(row.native_ref, row.scope_iface, row.id)) {
