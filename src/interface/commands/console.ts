@@ -470,7 +470,7 @@ function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Pr
   }
   if (args.role === 'simulation') {
     if (text(args.model) !== 'api') return refuse('name a model with --via claude or --via codex, or api');
-    return subharnessCommand(subharnessDeps(deps), 'subharness.subscription', { role: 'simulation' });
+    return subharnessCommand(subharnessDeps(deps), 'subharness.subscription', { role: args.role });
   }
   if (isAgent) {
     if (text(args.model) === '') return refuse('name the model: /model set <agent> <model>');
