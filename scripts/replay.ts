@@ -431,7 +431,7 @@
 // the describer's cached captions when features.mediaDescriptions is on)
 // and the `<candidate>` line; on the analyzer model (roleModel) with
 // roleRequestOptions (role `analyzer`, `split.maxOutputTokens`,
-// purpose `split`); each answer parsed by src/behavior/split.js#parseSplitAnswer.
+// purpose `split`) and SPLIT_FORMAT as its responseFormat; each answer parsed by src/behavior/split.js#parseSplitAnswer.
 // `--text "<candidate text>"` replaces the trigger's content (same author,
 // same time, same lines before it), so an invented message is tested in the
 // real channel's context. `--before` defaults to `split.contextMessages`
@@ -821,6 +821,7 @@ async function runSplit({
     splitCandidate,
     mayHaveParts,
     parseSplitAnswer,
+    SPLIT_FORMAT,
     fillPromptTemplate,
     classifierTranscript,
     roleModel,
@@ -881,6 +882,7 @@ async function runSplit({
             purpose: 'split',
             signal,
           }),
+          responseFormat: SPLIT_FORMAT,
         }
       );
       const u = completion?.usage;
@@ -6868,6 +6870,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
         ...(await load('behavior/prompt.ts')),
         ...(await load('llm/roles.ts')),
         ...(await load('llm/openrouter.ts')),
+        SPLIT_FORMAT: ((await load('turn/lookup.ts')) as Rec).SPLIT_FORMAT,
       }
     : null;
   const recallMods = args.recall ? await loadRecallMods(load) : null;

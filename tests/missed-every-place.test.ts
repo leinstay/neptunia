@@ -76,7 +76,8 @@ function eventOf(spot: Spot, line: ReturnType<typeof memberLine>) {
 /** One registry over a fake adapter per interface, with hand timers and a fake model. */
 function scene({
   spots,
-  answer = '1: uncertain',
+  // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
+  answer = '{"verdicts":[{"n":1,"verdict":"uncertain"}]}',
   memoryDb,
   partners = {},
 }: {
@@ -206,9 +207,10 @@ test('two candidates under one native id on two interfaces are checked apart', a
   assert.equal(run.llmCalls.length, 2);
 });
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('an owed line on a second interface gets its recovery turn there', async () => {
   // Bug: the recovery turn opens on the home interface, or none opens at all.
-  const run = scene({ spots: [GROUP_A, GROUP_B], answer: '1: owed' });
+  const run = scene({ spots: [GROUP_A, GROUP_B], answer: '{"verdicts":[{"n":1,"verdict":"owed"}]}' });
   await run.missed.start('r1');
   run.failGate(GROUP_B, 'm1');
   await run.sweep();

@@ -31,8 +31,9 @@ const CONFIG = {
 
 const FIXED: Record<string, string> = {
   address: 'yes',
-  split: 'one',
-  merge: 'new',
+  // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
+  split: '{"parts":[]}',
+  merge: '{"item":null}',
   lookup: 'none',
   'query-builder': 'none',
   'route-channel': 'none',
@@ -40,7 +41,8 @@ const FIXED: Record<string, string> = {
   'elsewhere-pick': 'place: none\nepisodes: none',
   'gif-pick': 'none',
   'media-pick': 'none',
-  missed: '1: uncertain',
+  // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
+  missed: '{"verdicts":[{"n":1,"verdict":"uncertain"}]}',
 };
 
 const toolResults = (messages: unknown): string =>

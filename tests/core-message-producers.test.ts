@@ -202,6 +202,7 @@ function toolText(messages: unknown): string {
     .join('\n');
 }
 
+// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
 test('a handle recalled from a real received event reads and replies with its native conversation and message IDs', async () => {
   await withCapturedLogs(async () => {
     let step = 0;
@@ -210,7 +211,7 @@ test('a handle recalled from a real received event reads and replies with its na
       const purpose = options !== null && typeof options === 'object' && 'purpose' in options ? options.purpose : null;
       if (purpose === 'address') return Promise.resolve(toolAnswer('yes'));
       if (purpose === 'lookup' || purpose === 'elsewhere-pick') return Promise.resolve(toolAnswer('none'));
-      if (purpose === 'split') return Promise.resolve(toolAnswer('one'));
+      if (purpose === 'split') return Promise.resolve(toolAnswer('{"parts":[]}'));
       step += 1;
       if (step === 1) return Promise.resolve(toolAnswer('', [call('memory.search', { question: 'gardenrabbit731' })]));
       if (step === 2) {
