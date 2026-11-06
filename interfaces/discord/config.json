@@ -1,5 +1,5 @@
 {
-  "discord": { "intents": { "presences": false, "members": false } },
+  "discord": { "intents": { "presences": false, "members": false }, "silent": false },
   "context": { "maxUrlChars": 200 },
   "media": { "embedTextChars": 200 }
 }
