@@ -515,6 +515,7 @@
 // error (the message on stderr). Ctrl-C once stops the sampling; twice exits.
 
 import { accountOf, placeOfCommunity } from '../src/memory/addresses.ts';
+import { personaJournal, personaRecord } from '../src/behavior/inner/persona-sources.ts';
 import fs from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
 import os from 'node:os';
@@ -2338,6 +2339,63 @@ export function hiddenRecord(record: Untyped, hide: Rec): Rec {
   });
 }
 
+/**
+ * The record and the journal as the core hands them to the inner life (src/core.ts): the persona's, read by a query
+ * alone over every served place, the record with the hidden lines left out.
+ */
+export function innerSourcesOf({
+  record,
+  journal,
+  store,
+  places,
+  hide,
+}: {
+  record: Parameters<typeof personaRecord>[0];
+  journal: Parameters<typeof personaJournal>[0];
+  store: Parameters<typeof personaRecord>[1];
+  places: () => Array<string>;
+  hide: Rec;
+}): { record: Rec; journal: Rec } {
+  return {
+    record: hiddenRecord(personaRecord(record, store, places), hide),
+    journal: personaJournal(journal, places, store),
+  };
+}
+
+/** The inner life's record and journal over the data directory, with the served places as the core builds them. */
+function replayInnerSources({
+  mods,
+  dataDir,
+  log,
+  store,
+  placeId,
+  hide,
+}: {
+  mods: Untyped;
+  dataDir: string;
+  log: Untyped;
+  store: Untyped;
+  placeId: string;
+  hide: Rec;
+}) {
+  const memoryDb = memoryFor(dataDir);
+  return innerSourcesOf({
+    record: mods.createRecord({ dataDir, log, memoryDb }),
+    journal: mods.createJournal({ dataDir, config: () => ({}), log, memoryDb }),
+    store,
+    places: () => [store.placeOfCommunity(placeId, 'discord') as string],
+    hide,
+  });
+}
+
+/** Her own `said` lines since `from`, newest first, from a record read by a query alone. */
+async function ownSaidLines(record: Rec, from: string): Promise<Array<Untyped>> {
+  const own: Array<Untyped> = [];
+  for await (const line of record.iterate({ from }))
+    if (line?.kind === 'said' && typeof line.scope?.channel === 'string') own.push(line);
+  return own.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
+}
+
 /** The places list without the hidden channels (the channel directory is another list and stays whole). */
 export function hiddenPlaces(places: unknown, hide: Rec): (...args: Array<Untyped>) => Array<Rec> {
   const listed = places as (...args: Array<Untyped>) => Array<Rec>;
@@ -2616,7 +2674,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     createIntentionStores,
     createIntentionService,
     createErrandStore,
-    createRecord,
     createAdmin,
     skillRegistry,
     userText,
@@ -2707,6 +2764,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
         log.warn('replay-cli: inner.json unreadable, budgets from an empty state', { code: err?.code ?? 'parse' });
     }
 
+    const sources = replayInnerSources({ mods: { ...mods, createJournal }, dataDir, log, store, placeId, hide });
     const now = Date.now();
     let intention = null;
     let conversation = null;
@@ -2726,8 +2784,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
           return typeof value === 'function' ? value.bind(target) : value;
         },
       });
-      const record = hiddenRecord(createRecord({ dataDir, log, memoryDb: memoryFor(dataDir) }), hide);
-      const journalRead = createJournal({ dataDir, config: () => ({}), log, memoryDb: memoryFor(dataDir) });
       const caught = await heartbeatReplayWake({
         inner: mods,
         hot,
@@ -2737,8 +2793,8 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
         log,
         deps: {
           intentions,
-          record,
-          journal: { read: (...a: Array<Untyped>) => journalRead.read(...a) },
+          record: sources.record,
+          journal: sources.journal,
           places: hiddenPlaces((id: string) => {
             const guild = cachedGuild(client, String(id));
             if (!guild) return [];
@@ -2783,12 +2839,8 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       } else {
         conversationIds = innerState.review?.channels ?? [];
         if (conversationIds.length === 0) {
-          const record = hiddenRecord(createRecord({ dataDir, log, memoryDb: memoryFor(dataDir) }), hide);
           const from = new Date(now - settings.review.historyDays * 86_400_000).toISOString();
-          const own = [];
-          for await (const line of record.iterate(placeId, { from }))
-            if (line?.kind === 'said' && typeof line.scope?.channel === 'string') own.push(line);
-          own.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
+          const own = await ownSaidLines(sources.record, from);
           conversationIds = [...new Set(own.map((line) => line.scope.channel))].slice(0, 3);
         }
       }
