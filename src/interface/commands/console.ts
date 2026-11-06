@@ -309,6 +309,12 @@ const SERVICE_PREFIX = 'services.';
 
 /** The prefix of the `/keys` commands, which the key commands answer. */
 const KEYS_PREFIX = 'keys.';
+
+/** Whether the key commands answer `name`: the `keys.` commands but `keys.service.*`, and `model.set` while `enabled()`. */
+function isKeysCommand(name: string, enabled: () => boolean): boolean {
+  if (name.startsWith('keys.service.')) return false;
+  return name.startsWith(KEYS_PREFIX) || (name === 'model.set' && enabled());
+}
 /** The prefixes of `/subharness` and `/simulation`, which `subharnessCommand` and `simulationCommand` answer. */
 const SUBHARNESS_PREFIX = 'subharness.';
 const isSubharnessCommand = (name: string): boolean => name.startsWith(SUBHARNESS_PREFIX) || name === 'agent.mode';
@@ -847,7 +853,7 @@ export function createConsole(deps: ConsoleDeps): {
     run: (name, args, requester, dialog = null) => {
       const routed = modelCommand(deps, name, args);
       if (routed !== null) return routed;
-      if (deps.keys != null && (name.startsWith(KEYS_PREFIX) || (name === 'model.set' && deps.keys.enabled())))
+      if (deps.keys != null && isKeysCommand(name, () => deps.keys?.enabled() === true))
         return deps.keys.run(name, args, dialog);
       if (name.startsWith('mirror.')) return mirrorCommand(deps.mirrors, name, args, requester);
       if (isMemoryBrowserCommand(name)) return memoryBrowserCommand(deps, name, args, requester);
