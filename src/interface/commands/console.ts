@@ -47,6 +47,8 @@ import { skillsCommand } from './skills.ts';
 import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
 import type { ModuleAction } from './module-setup.ts';
 import { isMemoryBrowserCommand, memoryBrowserCommand } from './memory.ts';
+import { selfreflectionRemoveCommand } from './memory-selfreflection-remove.ts';
+import type { DeletePort } from '../../memory/db/selfreflection-remove.ts';
 import { serviceCommand } from '../../keys/services.ts';
 import { probeProxy } from '../../net/proxy.ts';
 import { proxyCommand } from './proxy.ts';
@@ -140,6 +142,8 @@ export type ConsoleDeps = {
   roleKey?: (role: string) => { name: string; value: string } | null;
   /** The selfreflection's mirrors (src/behavior/mirror-desk.ts); `/mirror` fails while there is none. */
   mirrors?: MirrorDesk | null;
+  /** The connected interface's delete of a message, for `/memory selfreflection remove`; absent, every interface is down. */
+  port?: DeletePort | null;
   /** How `/services` and `/doctor server` reach the service manager, the machine's own when absent. A test always gives its own. */
   serviceManager?: RunManager;
   /** What the core knows of one of its wakes, for `/services <name> status`. */
@@ -912,6 +916,7 @@ export function createConsole(deps: ConsoleDeps): {
       if (deps.keys != null && isKeysCommand(name, () => deps.keys?.enabled() === true))
         return deps.keys.run(name, args, dialog);
       if (name.startsWith('mirror.')) return mirrorCommand(deps.mirrors, name, args, requester);
+      if (name === 'memory.selfreflection.remove') return selfreflectionRemoveCommand(deps, args);
       if (isMemoryBrowserCommand(name)) return memoryBrowserCommand(deps, name, args, requester);
       const owned = ownCommand(deps, name, args, dialog);
       if (owned !== null) return owned;

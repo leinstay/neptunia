@@ -1,6 +1,6 @@
 // What the watcher's `Trash` section lists (`collectTrash` of src/watcher/trash.ts): leftovers by category, each with a name,
-// a category and a reason, read-only and bounded. It is the one place the watcher looks at a development checkout, and it
-// reports names, never contents. A category it cannot read is named as unavailable. Folders are synthetic, and every
+// a category and a reason, read-only and bounded. It reads the install and the system, never a development checkout, and it
+// reports names, never contents. The lead: the watcher left development (owner, 2026-11-06). A category it cannot read is named as unavailable. Folders are synthetic, and every
 // command goes through a fake `run` that answers from a table, so no real user, unit or repository is read, except by the
 // one test of `services watcher evidence`, whose fake `run` still answers for all of them.
 import { test } from 'node:test';
@@ -18,8 +18,6 @@ const trash = () => import('../src/watcher/trash.ts');
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const NOW = Date.parse('2026-11-05T12:00:00Z');
-const DAY_MS = 86_400_000;
-const unixOf = (at: number): number => Math.floor(at / 1000);
 
 const CATEGORIES = [
   'units',
@@ -29,9 +27,6 @@ const CATEGORIES = [
   'dangling-symlinks',
   'retired-config-keys',
   'unloaded-files',
-  'dead-branches',
-  'dead-worktrees',
-  'old-worktrees',
 ];
 
 type Answer = string | null;
@@ -46,9 +41,6 @@ type Table = {
   owned?: Readonly<Record<string, Answer>>;
   /** folder to what `git status --porcelain` prints */
   status?: Readonly<Record<string, Answer>>;
-  merged?: Answer;
-  refs?: Answer;
-  worktrees?: Answer;
 };
 type Call = { command: string; args: ReadonlyArray<string> };
 
@@ -71,9 +63,6 @@ function fakeRun(table: Table): {
     if (command === 'git') {
       const dir = args[args.indexOf('-C') + 1] ?? '';
       if (has('status')) return table.status?.[dir];
-      if (has('--merged')) return table.merged;
-      if (has('for-each-ref')) return table.refs;
-      if (has('worktree')) return table.worktrees;
     }
     return undefined;
   };
@@ -116,27 +105,18 @@ const clean = (table: Table = {}): Table => ({
   group: '',
   ps: '',
   varLib: '',
-  merged: '',
-  refs: '',
-  worktrees: '',
   ...table,
 });
 
-async function collect(
-  where: ReturnType<typeof folders>,
-  table: Table,
-  options: { checkout?: string | null; tasks?: () => ReadonlyArray<string> | null } = {}
-) {
+// The lead: the watcher left development (owner, 2026-11-06). The checkout and the board's tasks left the input.
+async function collect(where: ReturnType<typeof folders>, table: Table) {
   const { collectTrash } = await trash();
   const fake = fakeRun(table);
   const result = await collectTrash({
     installDir: where.installDir,
-    checkout: options.checkout ?? null,
     unitDir: where.unitDir,
     env: where.env,
     run: fake.run,
-    now: () => NOW,
-    tasks: options.tasks ?? (() => []),
   });
   return { result, calls: fake.calls };
 }
@@ -381,148 +361,16 @@ test('prompt and agent files nothing loads are listed, and loaded ones are not',
   ]);
 });
 
-// ---- the development checkout --------------------------------------------------------------------------------------
-
-function checkoutOf(where: ReturnType<typeof folders>): string {
-  const checkout = path.join(where.root, 'checkout');
-  fs.mkdirSync(checkout);
-  return checkout;
-}
-
-test('merged branches, abandoned branches and dead worktrees of the checkout are listed; the live ones are not', async () => {
-  // Bug: branches pile up in the checkout, or the main branch and a fresh one are called trash.
-  const where = folders();
-  const checkout = checkoutOf(where);
-  const { result } = await collect(
-    where,
-    clean({
-      status: { [where.installDir]: '', [checkout]: '' },
-      merged: 'main\nspec-merged\n',
-      refs: [
-        `main ${unixOf(NOW)}`,
-        `spec-merged ${unixOf(NOW)}`,
-        `spec-abandoned ${unixOf(NOW - 365 * DAY_MS)}`,
-        `spec-fresh ${unixOf(NOW - DAY_MS)}`,
-      ].join('\n'),
-      worktrees: [
-        `worktree ${checkout}\nHEAD a\nbranch refs/heads/main\n`,
-        `worktree /work/on-merged\nHEAD b\nbranch refs/heads/spec-merged\n`,
-        `worktree /work/gone\nHEAD c\nbranch refs/heads/spec-fresh\nprunable gitdir file points to non-existent location\n`,
-        `worktree /work/fresh\nHEAD d\nbranch refs/heads/spec-fresh\n`,
-      ].join('\n'),
-    }),
-    { checkout }
-  );
-  assert.deepEqual(namesIn(result, 'dead-branches'), ['spec-abandoned', 'spec-merged']);
-  assert.deepEqual(namesIn(result, 'dead-worktrees'), ['/work/gone', '/work/on-merged']);
-  assert.ok(
-    result.items.filter((item) => item.category === 'dead-branches').every((item) => item.where === 'checkout')
-  );
-});
-
-test('an old folder under .worktrees with no task is listed; a fresh one and one with a task are not', async () => {
-  // Bug: a finished task's worktree holds gigabytes for a year, or a run in progress is called trash.
-  const where = folders();
-  const checkout = checkoutOf(where);
-  const old = new Date(NOW - 365 * DAY_MS);
-  for (const name of ['T-orphan', 'T-open', 'T-fresh']) {
-    fs.mkdirSync(path.join(checkout, '.worktrees', name), { recursive: true });
-  }
-  fs.utimesSync(path.join(checkout, '.worktrees', 'T-orphan'), old, old);
-  fs.utimesSync(path.join(checkout, '.worktrees', 'T-open'), old, old);
-  fs.utimesSync(path.join(checkout, '.worktrees', 'T-fresh'), new Date(NOW), new Date(NOW));
-  const { result } = await collect(where, clean({ status: { [where.installDir]: '', [checkout]: '' } }), {
-    checkout,
-    tasks: () => ['T-open'],
-  });
-  assert.deepEqual(namesIn(result, 'old-worktrees'), [path.join('.worktrees', 'T-orphan')]);
-});
-
-test('with the board out of reach, old worktrees are unavailable rather than called orphans', async () => {
-  // Bug: no task list reads as "no task", and every worktree is reported on the day the core is down.
-  const where = folders();
-  const checkout = checkoutOf(where);
-  fs.mkdirSync(path.join(checkout, '.worktrees', 'T-1'), { recursive: true });
-  const { result } = await collect(where, clean({ status: { [where.installDir]: '', [checkout]: '' } }), {
-    checkout,
-    tasks: () => null,
-  });
-  assert.deepEqual(namesIn(result, 'old-worktrees'), []);
-  assert.equal(missing(result, 'old-worktrees'), true);
-});
-
-test('the checkout gets its own stray files and symlinks, each marked with where it is', async () => {
-  // Bug: two folders' leftovers read as one, and the owner looks for a file in the wrong tree.
-  const where = folders();
-  const checkout = checkoutOf(where);
-  fs.symlinkSync(path.join(where.root, 'gone'), path.join(checkout, 'broken'));
-  const { result } = await collect(
-    where,
-    clean({ status: { [where.installDir]: '?? in-install\n', [checkout]: '?? in-checkout\n' } }),
-    { checkout }
-  );
-  const where_ = (name: string) => result.items.find((item) => item.name === name)?.where;
-  assert.equal(where_('in-install'), 'install');
-  assert.equal(where_('in-checkout'), 'checkout');
-  assert.equal(where_('broken'), 'checkout');
-});
-
-test('with no checkout configured nothing asks about one and the install half still reports', async () => {
-  // Bug: a public install, which has no development checkout, fails the section or searches a folder it does not have.
-  const where = folders();
-  const { result, calls } = await collect(where, clean({ status: { [where.installDir]: '?? stray.log\n' } }), {
-    checkout: null,
-  });
-  assert.deepEqual(namesIn(result, 'stray-files'), ['stray.log']);
-  assert.equal(
-    result.items.some((item) => item.where === 'checkout'),
-    false
-  );
-  const git = calls.filter((call) => call.command === 'git');
-  for (const call of git) assert.equal(call.args[call.args.indexOf('-C') + 1], where.installDir);
-  for (const word of ['--merged', 'for-each-ref', 'worktree']) {
-    assert.equal(
-      git.some((call) => call.args.includes(word)),
-      false,
-      word
-    );
-  }
-});
-
-test('a checkout git cannot read makes its categories unavailable, and the install half stands', async () => {
-  // Bug: a broken checkout takes the install's findings with it, or reads as "no dead branches".
-  const where = folders();
-  const checkout = checkoutOf(where);
-  const { result } = await collect(
-    where,
-    clean({
-      status: { [where.installDir]: '?? stray.log\n', [checkout]: null },
-      merged: null,
-      refs: null,
-      worktrees: null,
-    }),
-    { checkout }
-  );
-  assert.deepEqual(namesIn(result, 'stray-files'), ['stray.log']);
-  for (const category of ['stray-files', 'dead-branches', 'dead-worktrees']) {
-    assert.ok(
-      result.unavailable.some((one) => one.category === category && one.where === 'checkout'),
-      category
-    );
-  }
-});
-
 // ---- the whole collector ----------------------------------------------------------------------------------------------
 
 test('with nothing readable every category is a named unavailable item, each with its reason', async () => {
   // Bug: one category forgets its failure path and reads silently empty, which is the report's worst lie.
+  // The lead: the watcher left development (owner, 2026-11-06). The categories of a checkout are gone from the list.
   const where = folders();
-  const checkout = checkoutOf(where);
   fs.rmSync(where.unitDir, { recursive: true });
   fs.rmSync(where.installDir, { recursive: true });
-  fs.rmSync(checkout, { recursive: true });
   fs.writeFileSync(localConfigPath(where.data), '{');
-  const { result } = await collect(where, {}, { checkout, tasks: () => null });
+  const { result } = await collect(where, {});
   assert.deepEqual(result.items, []);
   const named = new Set(result.unavailable.map((one) => one.category));
   assert.deepEqual([...named].sort(), [...CATEGORIES].sort());
@@ -533,14 +381,12 @@ test('a run that throws is an unavailable category, never a rejected collection'
   // Bug: one tool crash loses the whole section, and the watcher reports nothing about any of it.
   const { collectTrash } = await trash();
   const where = folders();
+  // The lead: the watcher left development (owner, 2026-11-06). The checkout and the board's tasks left the input.
   const result = await collectTrash({
     installDir: where.installDir,
-    checkout: null,
     unitDir: where.unitDir,
     env: where.env,
     run: () => Promise.reject(new Error('spawn failed')),
-    now: () => NOW,
-    tasks: () => [],
   });
   assert.equal(
     result.unavailable.some((one) => one.category === 'identities'),
@@ -560,21 +406,20 @@ test('a category over its limit is cut and says so', async () => {
 
 test('nothing is changed: every command is a read, and the leftovers are still there', async () => {
   // Bug: a helpful `git worktree prune` or `rm` arrives in a report collector, and a watcher deletes what it was to list.
+  // The lead: the watcher left development (owner, 2026-11-06). No checkout is read, so the install and the system are
+  // what the collector could change.
   const where = folders();
-  const checkout = checkoutOf(where);
   const broken = path.join(where.installDir, 'broken');
   fs.symlinkSync(path.join(where.root, 'gone'), broken);
   writeUnit(where.unitDir, 'neptunia-old.service', `ExecStart=${where.root}/gone/tool`);
   const { calls } = await collect(
     where,
     clean({
-      status: { [where.installDir]: '?? stray\n', [checkout]: '' },
+      status: { [where.installDir]: '?? stray\n' },
       enabled: { 'neptunia-old.service': 'disabled' },
       passwd: 'neptunia-dead:x:3:3::/home/c:/bin/sh',
       owned: { 'neptunia-dead': '' },
-      merged: 'spec-merged\n',
-    }),
-    { checkout }
+    })
   );
   const allowed = new Set(['getent', 'ps', 'ls', 'find', 'systemctl', 'git']);
   for (const { command, args } of calls) {
@@ -591,12 +436,11 @@ test('nothing is changed: every command is a read, and the leftovers are still t
 
 // ---- through service watcher evidence --------------------------------------------------------------------------------
 
-test('services watcher evidence carries the trash, with the configured checkout in it', async () => {
+test('services watcher evidence carries the trash of the install', async () => {
   // Bug: the collector exists and the agent's one read path does not reach it, so `Trash` is written from guesses.
+  // The lead: the watcher left development (owner, 2026-11-06). The item comes from the install, since no checkout is read.
   const where = folders();
-  const checkout = checkoutOf(where);
-  fs.writeFileSync(localConfigPath(where.data), JSON.stringify({ selfimprovement: { checkout } }));
-  const fake = fakeRun(clean({ status: { [checkout]: '?? in-checkout\n' } }));
+  const fake = fakeRun(clean({ status: { [REPO]: '?? in-install\n' } }));
   const answer = await serviceFamily(
     {
       rootDir: REPO,
@@ -613,7 +457,7 @@ test('services watcher evidence carries the trash, with the configured checkout 
   );
   assert.equal(answer.status, 'ok', answer.text.slice(0, 200));
   const page = JSON.parse(answer.text) as { trash: Result };
-  const item = page.trash.items.find((one) => one.name === 'in-checkout');
+  const item = page.trash.items.find((one) => one.name === 'in-install');
   assert.equal(item?.category, 'stray-files');
-  assert.equal(item?.where, 'checkout');
+  assert.equal(item?.where, 'install');
 });

@@ -222,9 +222,11 @@ async function fill(
 }
 
 /** The report a finished run holds. */
-function reportOf(state: PlanFillDeskState) {
-  assert.equal(state.state, 'done', JSON.stringify(state));
-  const { report } = state;
+function reportOf(desk: PlanFillDeskState) {
+  // The lead: the parameter is named `desk`, for the chain rule.
+  const state = desk;
+  assert.equal(desk.state, 'done', JSON.stringify(state));
+  const { report } = desk;
   assert.ok(report, 'a finished run holds its report');
   return report;
 }
