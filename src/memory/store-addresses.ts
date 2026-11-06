@@ -7,7 +7,8 @@ import { interfaceAccountId, interfacePlaceOf, nativeAuthorityOf, nativeOfAny, t
 import { LEGACY_IFACE } from './db/legacy-namespace.ts';
 import { conversationPlaceKey } from './db/observe-event.ts';
 import { accountNodeOf } from './db/person-links.ts';
-import { rootPlaceInDb } from './db/place-tree.ts';
+import { placeChainInDb, rootPlaceInDb } from './db/place-tree.ts';
+import type { PlaceChainLink } from './db/place-tree.ts';
 import { linkedPrivateClaims } from './db/private-read.ts';
 import { PERSONA_ID } from './db/storage-keys.ts';
 import type { StorageKind } from './db/storage-keys.ts';
@@ -217,6 +218,11 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
      * named from (`placeOfConversation`); an unknown id answers null.
      */
     rootPlaceOf,
+
+    /** The stored chain from a place up to the top of its tree, the place first (placeChainInDb); empty without a row. */
+    placeChainOf(placeId: string): Array<PlaceChainLink> {
+      return readable() ? seam.run(() => placeChainInDb(seam.db(), placeId)) : [];
+    },
 
     /**
      * The native conversation of a place, for a call that speaks to its interface: the native id of a channel, a thread

@@ -480,6 +480,9 @@
     "maxTasks": null,
     "inputTokens": null
   },
+  "spatial": {
+    "notes": {}
+  },
   "appendStore": {
     "retryMax": 1000
   },

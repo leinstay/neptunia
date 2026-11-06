@@ -926,6 +926,26 @@
       "activityTrack": "{activity}: {track} - {artist}",
       "attitude": "{score} ({band}) — {reason}",
       "move": "{delta} on {date}: {reason}"
+    },
+    "spatial": {
+      "place": "You are in {path}, on {iface}. It is {when}.",
+      "within": ", in ",
+      "kinds": {
+        "server": "the server {name}",
+        "category": "the category {name}",
+        "channel": "the channel #{name}",
+        "thread": "the thread \"{name}\"",
+        "dm": "a direct chat with {name}",
+        "group_dm": "the group chat {name}",
+        "place": "the place {name}"
+      },
+      "unnamed": "(unnamed)",
+      "group": "This is a group place: others here read what you write.",
+      "private": "This is a private place: only the people in this chat read what you write.",
+      "note": "The owner's note on this place: {note}",
+      "cli": "You are on the command line, talking with the owner. It is {when}.",
+      "server": "You are at the command line of your own physical server, and nobody is around you. It is {when}.",
+      "world": "You are in your own world. It is {when}."
     }
   },
   "owner": {

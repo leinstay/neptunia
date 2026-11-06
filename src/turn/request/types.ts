@@ -11,6 +11,7 @@ import type { Tasks } from './task.ts';
 import type { PreviousThink } from './wake.ts';
 import type { MediaCache } from './emoji-gifs.ts';
 import type { SelfreflectionInput } from './selfreflection.ts';
+import type { Whereabouts } from './spatial.ts';
 
 /** A group of label texts (`labels.<group>.<key>`); a key the labels file lacks reads as undefined at run time. */
 export type LabelGroup = { readonly [key: string]: string };
@@ -78,6 +79,21 @@ export type Labels = {
   readonly elsewhere?: LabelGroup;
   readonly previousThink?: LabelGroup;
   readonly draw?: LabelGroup;
+  readonly spatial?: SpatialLabels;
+};
+
+/** `labels.spatial`: the lines of `<spatial_awareness>` (src/turn/request/spatial.ts) and the label of each place kind. */
+export type SpatialLabels = {
+  readonly place?: string;
+  readonly within?: string;
+  readonly kinds?: LabelGroup;
+  readonly unnamed?: string;
+  readonly group?: string;
+  readonly private?: string;
+  readonly note?: string;
+  readonly cli?: string;
+  readonly server?: string;
+  readonly world?: string;
 };
 
 /** The live prompts: the prompt files by name, and the labels. */
@@ -89,6 +105,7 @@ export type Caps = { readonly [section: string]: number | undefined };
 /** The live config, as far as the request builders read it. */
 export type RequestConfig = {
   readonly bot: { readonly timezone: string };
+  readonly spatial?: { readonly notes?: unknown };
   readonly private?: { readonly enabled?: unknown; readonly likeServer?: unknown };
   readonly context: {
     readonly caps: Caps;
@@ -328,4 +345,5 @@ export type RequestInput = {
   readonly places?: unknown;
   readonly previousThink?: PreviousThink | null;
   readonly stableFreeze?: unknown;
+  readonly whereabouts?: Whereabouts | null;
 };
