@@ -31,7 +31,7 @@ function withQuietScope(body: (env: ReturnType<typeof fixture>, key: string, cur
 test('lists a quiet scope while the media pass has old lines left and the pass is on', () =>
   withQuietScope((env, scopeKey) => {
     const config = { memoryDb: { session: { mode: 'apply', mediaPass: true } } };
-    const due = dueScopes(env.db, config as never, AT + 24 * HOUR);
+    const due = dueScopes(env.db, config, AT + 24 * HOUR);
     assert.deepEqual(
       due.map((one) => one.key),
       [scopeKey]
@@ -41,5 +41,5 @@ test('lists a quiet scope while the media pass has old lines left and the pass i
 test('lists nothing for a quiet scope when the media pass is off', () =>
   withQuietScope((env) => {
     const config = { memoryDb: { session: { mode: 'apply' } } };
-    assert.deepEqual(dueScopes(env.db, config as never, AT + 24 * HOUR), []);
+    assert.deepEqual(dueScopes(env.db, config, AT + 24 * HOUR), []);
   }));
