@@ -149,7 +149,7 @@ The media cache of a place keeps `MEDIA_CACHE_ENTRIES`, 5000, of the rows nothin
 
 ## The memory audit
 
-`auditMemory` in `src/memory/db/audit.ts` counts what breaks the rules of the stored rows, over a read connection, and looks at live rows only. `scripts/memory-audit.ts --db <file>` prints its JSON, `{ findings, checks }`, and is safe on a running core. It exits `0` when clean, `1` with a finding and `2` when the database cannot be read. The output holds counts and no word, id or name of a row. The [watcher](watcher.md#service-runs) reads the same counts.
+`auditMemory` in `src/memory/db/audit.ts` counts what breaks the rules of the stored rows, over a read connection, and looks at live rows only. A claim version resolves when its `claim_id` names a row of `claims` or of `episodes`, retired or not, because the archive line of an expired episode is kept as a version beside the episode. `scripts/memory-audit.ts --db <file>` prints its JSON, `{ findings, checks }`, and is safe on a running core. It exits `0` when clean, `1` with a finding and `2` when the database cannot be read. The output holds counts and no word, id or name of a row. The [watcher](watcher.md#service-runs) reads the same counts.
 
 | Check | What it counts |
 |---|---|
