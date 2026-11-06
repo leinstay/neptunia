@@ -2,7 +2,7 @@
 // Discord's terms. A conversation is a channel id, a message a message id, a member a user id,
 // all namespaced `discord`. Channels and messages are looked up by id through the client (a
 // channel the caller already holds first, when it passes `lookupChannel`); mentions become
-// `allowedMentions` (nobody is notified unless named); edit and delete touch only messages the
+// `allowedMentions` (nobody is notified unless named; with `discord.silent` only the members who asked); edit and delete touch only messages the
 // bot wrote (else `forbidden`). Discord's answers are normalised: a 429 is `failed` and
 // retryable, a 403 `forbidden`, any other 4xx `failed` with its `http-<status>` code; a 5xx, a
 // timeout or a network error once the request may have left is `unknown` -- it may have taken
@@ -245,17 +245,16 @@ function lookupFailed(result: PortResult): ReadFailure {
 }
 
 /**
- * `payload` in silent mode (`discord.silent`): no notification for anyone, which adds the suppress flag to
- * the voice flag it may carry, and no ping to the author a reply answers. The reply reference and the
- * named users stay. A message whose mentions say `notify` and name someone to notify (a named user, or
- * the replied author of a reply) goes out as it is: everyone it concerns asked to be pinged.
+ * `payload` in silent mode (`discord.silent`): the message notifies the channel like any other and pings
+ * only the members who asked for it, so no suppress flag is added (a voice message keeps its voice flag).
+ * Content that carries `asked` pings exactly those members and the replied author when `asked` says so.
+ * Content with `notify` and no `asked` keeps its `users` and `repliedUser`. Any other content pings nobody.
+ * The reply reference and the text stay as written.
  */
 function silenced(payload: Record<string, unknown>, content: Content): Record<string, unknown> {
-  const { users, repliedUser, notify } = mentionsOf(content);
-  if (notify === true && (users.length > 0 || (repliedUser && content.replyTo))) return payload;
-  const flags = Number(payload.flags ?? 0) | Number(MessageFlags.SuppressNotifications);
-  const allowedMentions = { ...objOf(payload.allowedMentions), repliedUser: false };
-  return { ...payload, flags, allowedMentions };
+  const { users, repliedUser, notify, asked } = mentionsOf(content);
+  const pinged = asked ?? (notify === true ? { users, repliedUser } : { users: [], repliedUser: false });
+  return { ...payload, allowedMentions: { ...objOf(payload.allowedMentions), parse: [], ...pinged } };
 }
 
 /**
