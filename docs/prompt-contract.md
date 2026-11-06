@@ -151,7 +151,7 @@ The brief carries `<day>`, `<observation from="..." to="..." day-from="..."/>`, 
 
 ## Media text forms
 
-A transcript and what she voiced are quoted speech as a whole. The transcript labels `voiceDescribed` and `audioDescribed` take `{duration}` and `{text}`, and `audioDescribed` also `{name}`. `fileUnreadable` and `stickerUnreadable` take `{name}` and state that no model can read the item. `senses.voiceHeard` replaces `senses.voice` while the `video` role is on. The prompt `describe-audio` takes `{{maxChars}}` and `{{today}}`. The memory session's `<batch>` shows a line's media with the same tags as the turn's chat, and numbers a line that holds only media.
+A transcript and what she voiced are quoted speech as a whole. The transcript labels `voiceDescribed` and `audioDescribed` take `{duration}` and `{text}`, and `audioDescribed` also `{name}`. `fileUnreadable` and `stickerUnreadable` take `{name}` and state that no model can read the item. `senses.voiceHeard` replaces `senses.voice` while the `video` role is on. The prompt `describe-audio` takes `{{maxChars}}` and `{{today}}`. `describe-translate` takes `{{maxChars}}`, 500 for a description and 1500 for a video summary. It is the system message of the owner's `backfill-english` run on the `vision` or `video` role, with the purpose `describe-translate` and a stored description as the user message. Its answer is kept on one line and cut at `{{maxChars}}`. The memory session's `<batch>` shows a line's media with the same tags as the turn's chat, and numbers a line that holds only media.
 
 ## Labels
 

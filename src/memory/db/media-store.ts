@@ -519,7 +519,7 @@ const originOf = (kind: unknown, watched: boolean): MediaOrigin => {
 };
 
 /** The row a cache key speaks of, on this interface. A plain key that is also an item's own reference is that item. */
-function rowOfCacheKey(db: Db, iface: unknown, key: string): Row | undefined {
+export function mediaRowOfCacheKey(db: Db, iface: unknown, key: string): Row | undefined {
   const exact = itemByRef(db, iface, key);
   if (exact) return exact;
   const { ref, kinds } = cacheKeyParts(key);
@@ -536,7 +536,7 @@ export function tellFromCacheKey(
   db: Db,
   { iface, key, text, at }: { iface: unknown; key: string; text: string; at: unknown }
 ): number {
-  const row = rowOfCacheKey(db, iface, key);
+  const row = mediaRowOfCacheKey(db, iface, key);
   if (!row) return 0;
   const watched = itemByRef(db, iface, key) === undefined && cacheKeyParts(key).watched;
   return writeText(db, row, { text, origin: originOf(row.kind, watched), at }) ? 1 : 0;
@@ -544,7 +544,7 @@ export function tellFromCacheKey(
 
 /** Whether the item a describer's key names holds a text form on this interface. */
 export function itemTold(db: Db, iface: unknown, key: string): boolean {
-  return filled(rowOfCacheKey(db, iface, key)?.description);
+  return filled(mediaRowOfCacheKey(db, iface, key)?.description);
 }
 
 const BARE_ID = (sourceId: unknown, position: number): string => `media:bare:${asText(sourceId)}:${position}`;
@@ -793,7 +793,7 @@ export function writeMediaCache(
     const entry: Row =
       given !== null && typeof given === 'object' && !Array.isArray(given) ? (given as Row) : { $raw: given };
     const { watched } = cacheKeyParts(key);
-    const row = rowOfCacheKey(db, iface, key) ?? newCacheRow(key);
+    const row = mediaRowOfCacheKey(db, iface, key) ?? newCacheRow(key);
     kept.add(String(row.id));
     const extra = parsedObject(row.extra);
     const entries = { ...((extra.cache as Row | undefined) ?? {}), [key]: entryRest(entry) };

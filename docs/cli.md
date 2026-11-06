@@ -158,6 +158,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Link a person's accounts, or merge two people | `/memory bind`, `/memory users link`, `/memory users unlink`, `/memory users merge` |
 | Give her or a person a name the door and the classifier know | `/memory users names add person:self NAME`, `/memory users names remove person:self NAME` |
 | Browse people, places, the graph and each memory family, and read every stored row | `/memory users`, `/memory places`, `/memory graph`, `/memory inspect`, `/memory claims` and the other families. See [The memory browser](#the-memory-browser) |
+| Bring stored media to the one format, or its descriptions to English | `/memory backfill-media`, `/memory backfill-english`, each with `--dry-run` or `status`. See [Moving old media to the store](memory.md#moving-old-media-to-the-store) |
 | Choose where the selfreflection is published | `/mirror` |
 | Review and activate a skill | `/skills` |
 | Show the sources of the agents and log them in or out | `/subharness status`, `/subharness <backend> login`, `/subharness <backend> status`, `/subharness <backend> logout` |

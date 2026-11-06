@@ -108,6 +108,9 @@ const SHIPPED = {
 const LABELS = SHIPPED.prompts.labels as typeof contractLabels;
 /** Tracked prompt files no request here can build, each with the reason. */
 const NOT_BUILT = {
+  // The owner's English backfill builds it, with a fake describer in tests/media-english-backfill.test.ts.
+  'describe-translate':
+    'built by the English backfill (src/memory/db/media-english.ts), checked in tests/media-english-backfill.test.ts',
   'describe-audio': 'a voice message needs a fetcher of the file: tests/media-memory-audio.test.ts builds it',
   // The voice-message preparation pass (src/speech/prepare.ts) runs inside the speech pipeline, whose request tests/speech-prepare.test.js checks.
   'speech-prepare': 'built by the speech pipeline (src/speech/prepare.ts), checked in tests/speech-prepare.test.js',
