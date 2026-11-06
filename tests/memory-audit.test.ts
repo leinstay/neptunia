@@ -19,6 +19,8 @@ const CHECKS = [
   'unexplainedNone',
   'vectorManifests',
   'linkedMediaKept',
+  // The lead: the audit gained `unlinkedLineMedia` with the late embeds slice (owner, 2026-11-06).
+  'unlinkedLineMedia',
 ] as const;
 type Check = (typeof CHECKS)[number];
 const ZERO = Object.fromEntries(CHECKS.map((check) => [check, 0])) as Record<Check, number>;

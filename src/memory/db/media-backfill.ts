@@ -1,8 +1,10 @@
-// The historical backfill of media: every old line whose linked items are placeholders gets its message read through the
-// interface's history and written in the one format, through the one writer. `backfillMedia` is the core: it lists the lines,
-// asks `read` for pages of their conversations, hands each result to `write` (`applyMediaBackfill` on the writer) and missing
-// text forms to `describe`. Nothing here knows a platform. A run is resumable: what is done holds a reference or the state
-// `missing`, so the next run lists only the rest, along with a voice or an audio file whose download failed.
+// The historical backfill of media: every old line whose linked items are placeholders, and every old line that misses an
+// item of its message the describer already holds a row for, gets its message read through the interface's history and
+// written in the one format, through the one writer. `backfillMedia` is the core: it lists the lines, asks `read` for pages of
+// their conversations, hands each result to `write` (`applyMediaBackfill` on the writer) and missing text forms to
+// `describe`. Nothing here knows a platform. A run is resumable: what is done holds a reference or the state `missing`, so the
+// next run lists only the rest, along with a voice or an audio file whose download failed. A line that misses a row is
+// listed until it links the row, so its message gone from the platform is read again on every run.
 //
 // A line's message id is the one of its locator, else `native_id`, because `native_id` can be a key of the family catalog
 // (message-families.ts), which no platform knows. A DM line that stored no conversation is read through the one
@@ -11,10 +13,10 @@
 // A place whose read failed gets one more read in the run. A read the platform refuses (any status but `failed`, or a failure it
 // marks not worth another try) gets none. Either way the place's lines wait for the next run.
 //
-// Report: `linked` lines got their items, `gone` the platform no longer returns the message or refuses the partner, `bare` the line
-// cannot be read at all, each counted with its reason in `classes`; `told` text forms it held, `reembedded` items waiting for a
-// vector; `failedPlaces` places a read gave up on, with `linesLeft` lines waiting, and `read-failed` or `read-refused`, each also
-// with its code after a colon, in `classes`.
+// Report: `linked` lines got their items (class `read`, or `embed-picture` for a line listed for a row it missed), `gone` the
+// platform no longer returns the message or refuses the partner, `bare` the line cannot be read at all, each counted with its
+// reason in `classes`; `told` text forms it held, `reembedded` items waiting for a vector; `failedPlaces` places a read gave up
+// on, with `linesLeft` lines waiting, and `read-failed` or `read-refused`, each also with its code after a colon, in `classes`.
 
 import {
   collectEmojiItems,
@@ -24,7 +26,7 @@ import {
   isDescribable,
 } from '../../media/classify.ts';
 import { nativeOf } from './ids.ts';
-import { itemTold, mediaItemsOf, sourceLine, writeLineMedia } from './media-store.ts';
+import { itemTold, mediaItemsOf, sourceLine, unlinkedLineItems, writeLineMedia } from './media-store.ts';
 import { messageLocator } from './message-locator.ts';
 import { observationOf } from './observe-event.ts';
 import { rootPlaceInDb } from './place-tree.ts';
@@ -141,15 +143,19 @@ const FAILED_DOWNLOAD_SQL = `(m.native_ref IS NOT NULL AND m.kind IN ('voice', '
   AND json_extract(m.extra, '$.cache.' || json_quote(m.native_ref) || '.miss') = 1
   AND json_extract(m.extra, '$.cache.' || json_quote(m.native_ref) || '.reason') = 'download')`;
 
+/** The columns of a line a run reads, with its place's `extra`, from `sources s LEFT JOIN places p`. */
+const PENDING_COLUMNS = `s.id AS id, s.native_id AS native_id, s.place_id AS place_id, s.iface AS iface, s.extra AS extra,
+  s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.kind AS kind, p.extra AS place_extra`;
+
 /**
  * The old lines a run works on: linked items still placeholders, a reference missing and no state said about it, and sounds
- * whose download failed. A sound refused for its size is left alone, and one told since is no longer listed.
+ * whose download failed. A sound refused for its size is left alone, and one told since is no longer listed. After them come
+ * the lines that miss an item of their message a row already names (media-store.ts#unlinkedLineItems), marked `embed`.
  */
 function pendingLines(db: Db): Array<Pending> {
-  return db
+  const lines = db
     .prepare(
-      `SELECT DISTINCT s.id AS id, s.native_id AS native_id, s.place_id AS place_id, s.iface AS iface, s.extra AS extra,
-         s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.kind AS kind, p.extra AS place_extra
+      `SELECT DISTINCT ${PENDING_COLUMNS}
        FROM media_links l JOIN media m ON m.id = l.media_id JOIN sources s ON s.id = l.owner_id
          LEFT JOIN places p ON p.id = s.place_id
        WHERE l.owner_kind = 'source' AND m.availability = 'unknown' AND m.retired_at IS NULL
@@ -158,6 +164,16 @@ function pendingLines(db: Db): Array<Pending> {
        ORDER BY s.occurred_at, s.rowid`
     )
     .all() as Array<Pending>;
+  const listed = new Set(lines.map((line) => line.id));
+  const missing = [...new Set(unlinkedLineItems(db).map(({ sourceId }) => sourceId))].filter((id) => !listed.has(id));
+  const lineOf = db.prepare(
+    `SELECT ${PENDING_COLUMNS} FROM sources s LEFT JOIN places p ON p.id = s.place_id WHERE s.id = ?`
+  );
+  const embeds = missing
+    .map((id) => lineOf.get(id) as Pending | undefined)
+    .filter((line): line is Pending => line !== undefined)
+    .map((line) => ({ ...line, embed: true }));
+  return [...lines, ...embeds];
 }
 
 const parsed = (text: unknown): Row => {
@@ -421,7 +437,8 @@ export async function backfillMedia({
   const toOpen = new Map<string, { partner: string; lines: Array<Pending> }>();
   for (const line of lines) {
     const conversationId = conversationOf(line);
-    const rows = named.get(messageIdOf(line));
+    // A line listed for its embed holds no placeholder a named row could take.
+    const rows = line.embed === true ? undefined : named.get(messageIdOf(line));
     if (rows && !dryRun) {
       await apply({ ...updateFor(line, conversationId, null, now), named: rows, state: 'linked', items: [] });
       report.linked += 1;
@@ -520,7 +537,7 @@ export async function backfillMedia({
           continue;
         }
         report.linked += 1;
-        count('read');
+        count(line.embed === true ? 'embed-picture' : 'read');
         const items = itemsToDescribe(db, line.scope_iface ?? line.iface ?? null, event);
         if (items.length > 0) {
           report.described += items.length;

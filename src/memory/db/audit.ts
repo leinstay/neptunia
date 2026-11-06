@@ -9,7 +9,10 @@
 //   unexplainedNone    a live row under `aud:none` has a live `decisions` row of `AUDIENCE_NONE_KEPT` naming it
 //   vectorManifests    a month's manifest counts the rows the month holds, in the size it says
 //   linkedMediaKept    no media row a live line or a live selfreflection entry links is retired
+//   unlinkedLineMedia  no live media row of a message's item (`<message id>#<item>`) stands apart from the message's live line
+//                      (src/memory/db/media-store.ts#unlinkedLineItems); the media backfill links them
 
+import { unlinkedLineItems } from './media-store.ts';
 import { resolveRow } from './rows.ts';
 import { SCOPED_TABLES } from './schema.ts';
 import type { Db } from './types.ts';
@@ -25,6 +28,7 @@ export const AUDIT_CHECKS = [
   'unexplainedNone',
   'vectorManifests',
   'linkedMediaKept',
+  'unlinkedLineMedia',
 ] as const;
 export type AuditCheck = (typeof AUDIT_CHECKS)[number];
 export type AuditReport = { findings: number; checks: Record<AuditCheck, number> };
@@ -189,6 +193,12 @@ function linkedMediaKept(db: Db): number {
   );
 }
 
+/** The media rows some stored line misses, each counted once however many revisions of the line miss it. */
+function unlinkedLineMedia(db: Db): number {
+  if (columnsOf(db, 'media_links').size === 0) return 0;
+  return new Set(unlinkedLineItems(db).map(({ mediaId }) => mediaId)).size;
+}
+
 /** Links whose item or owner is gone. */
 function deadMediaLinks(db: Db): number {
   if (columnsOf(db, 'media_links').size === 0) return 0;
@@ -209,6 +219,7 @@ export function auditMemory(db: Db): AuditReport {
     unexplainedNone: unexplainedNone(db),
     vectorManifests: vectorManifests(db),
     linkedMediaKept: linkedMediaKept(db),
+    unlinkedLineMedia: unlinkedLineMedia(db),
   };
   return { findings: Object.values(checks).reduce((sum, count) => sum + count, 0), checks };
 }

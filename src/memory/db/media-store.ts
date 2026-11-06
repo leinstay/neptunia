@@ -775,6 +775,39 @@ export function fillLineMedia(db: Db, sourceId: string, items: ReadonlyArray<Med
   if (line) writeLineMedia(db, line, items, { at });
 }
 
+/**
+ * The media rows a stored line misses: a live row no owner links, whose reference `<message id>#<item>` names the message of
+ * a live `seen` or `said` line of its interface, while that line links no item of the reference. The describer wrote such a
+ * row for an embed the platform unfurled after the line was stored. The line's message id is its locator's, else
+ * `native_id`. One pair per line and row, in no order.
+ */
+export function unlinkedLineItems(db: Db): Array<{ sourceId: string; mediaId: string }> {
+  return db
+    .prepare(
+      `WITH loose AS MATERIALIZED (
+         SELECT m.id AS media_id, m.native_ref AS ref, m.scope_iface AS iface,
+           substr(m.native_ref, 1, instr(m.native_ref, '#') - 1) AS message
+         FROM media m
+         WHERE m.retired_at IS NULL AND instr(m.native_ref, '#') > 1
+           AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = m.id)
+       ), lines AS MATERIALIZED (
+         SELECT s.id AS source_id, s.scope_iface AS iface,
+           COALESCE(CASE WHEN json_valid(s.extra) THEN json_extract(s.extra, '$."$messageLocator".messageId') END, s.native_id)
+             AS message
+         FROM sources s
+         WHERE s.kind IN ('seen', 'said') AND s.retired_at IS NULL
+       )
+       SELECT lines.source_id AS source_id, loose.media_id AS media_id
+       FROM loose JOIN lines ON lines.message = loose.message AND lines.iface IS loose.iface
+       WHERE NOT EXISTS (
+         SELECT 1 FROM media_links l JOIN media o ON o.id = l.media_id
+         WHERE l.owner_kind = 'source' AND l.owner_id = lines.source_id AND o.native_ref = loose.ref
+       )`
+    )
+    .all()
+    .map((row) => ({ sourceId: asText(row.source_id), mediaId: asText(row.media_id) }));
+}
+
 // ---------- the describer's cache ----------
 
 /** The fields of a cache entry kept on its row beside the text. */
