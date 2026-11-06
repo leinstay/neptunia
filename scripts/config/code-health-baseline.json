@@ -1,93 +1,5 @@
 {
   "chains": {
-    "src/config/check.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/format.ts": {
-      "deep": 4,
-      "repeated": 0
-    },
-    "src/health/server.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/hot.ts": {
-      "deep": 7,
-      "repeated": 0
-    },
-    "src/intentions/model.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "src/intentions/service.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/intentions/store.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
-    "src/keys/commands.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
-    "src/keys/store.ts": {
-      "deep": 0,
-      "repeated": 2
-    },
-    "src/media/video-sites.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/selfimprovement/landed.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/service/watcher.ts": {
-      "deep": 1,
-      "repeated": 1
-    },
-    "src/setup/flow.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/skills/agent-commands.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
-    "src/speech/index.ts": {
-      "deep": 0,
-      "repeated": 2
-    },
-    "src/subharness/control.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/subharness/install.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/subharness/memory-probe.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
-    "src/subharness/memory-writer.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/watcher/brief.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "src/watcher/trash.ts": {
-      "deep": 0,
-      "repeated": 2
-    },
-    "src/web/lookup.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
     "tests/admin.test.ts": {
       "deep": 42,
       "repeated": 0
@@ -1863,7 +1775,7 @@
     },
     "src/intentions/service.ts": {
       "createIntentionService": {
-        "function-length": 555
+        "function-length": 554
       },
       "createIntentionService>set": {
         "complexity": 24
@@ -2160,7 +2072,7 @@
     },
     "src/web/lookup.ts": {
       "createLookup": {
-        "function-length": 509
+        "function-length": 506
       }
     },
     "src/web/readable.ts": {

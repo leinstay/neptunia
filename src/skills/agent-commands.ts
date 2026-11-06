@@ -38,8 +38,8 @@ function answerOfFiling(
   const problem = problems.find((one) => one.dir === name);
   if (problem !== undefined)
     return { status: 'invalid', text: `skill.pending ${name}: ${problem.code}`, data: { code: problem.code } };
-  const version = pending.find((one) => one.skill === name);
-  if (version !== undefined) return { status: 'ok', text: `${name} ${version.version} is pending`, data: version };
+  const waiting = pending.find((one) => one.skill === name);
+  if (waiting !== undefined) return { status: 'ok', text: `${name} ${waiting.version} is pending`, data: waiting };
   return known
     ? { status: 'ok', text: `${name} has no new version`, data: null }
     : { status: 'failed', text: `skill.pending ${name}: no-package`, data: null };

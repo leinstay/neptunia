@@ -40,6 +40,10 @@ const JSON_LAYERS: ReadonlyArray<{
 /** Where an earlier version kept the tool texts, which the start refuses to find (scripts/tools-file-move.ts moves it). */
 const OLD_TOOLS_FILE = path.join('prompts.local', 'skills.json');
 
+/** The value at the dotted `key` of `config`, undefined once a step is missing. */
+const valueAtKey = (config: Untyped, key: string): unknown =>
+  key.split('.').reduce((node: Untyped, step) => node?.[step], config);
+
 /**
  * Config keys a deployment may still carry that are no longer read, each with what is read
  * instead: `memory.voiceModel` (the memory wording runs on `models.base.core`, the persona's one model);
@@ -51,49 +55,27 @@ const OLD_TOOLS_FILE = path.join('prompts.local', 'skills.json');
  * `wakes.errandReserveMaxMinutes`, `agents.<agent>.daily.usd` and `agents.<agent>.limits.usd` are
  * not read (the provider keys' own limits are the money bounds; costs are only reported).
  */
-const RETIRED_CONFIG_KEYS = Object.freeze([
-  { key: 'memory.voiceModel', use: 'models.base.core', read: (config: Untyped) => config?.memory?.voiceModel },
-  { key: 'features.vision', use: null, read: (config: Untyped) => config?.features?.vision },
-  {
-    key: 'features.attachedDescriptions',
-    use: null,
-    read: (config: Untyped) => config?.features?.attachedDescriptions,
-  },
-  {
-    key: 'wakes.loop.strayFollowUps',
-    use: 'wakes.loop.maxSteps',
-    read: (config: Untyped) => config?.wakes?.loop?.strayFollowUps,
-  },
-  { key: 'wakes.caps.usdPerDay', use: null, read: (config: Untyped) => config?.wakes?.caps?.usdPerDay },
-  { key: 'wakes.caps.perDay', use: null, read: (config: Untyped) => config?.wakes?.caps?.perDay },
-  { key: 'wakes.caps.perHour', use: null, read: (config: Untyped) => config?.wakes?.caps?.perHour },
-  {
-    key: 'wakes.caps.publicPostsPerDay',
-    use: null,
-    read: (config: Untyped) => config?.wakes?.caps?.publicPostsPerDay,
-  },
-  { key: 'wakes.estimatedTurnUsd', use: null, read: (config: Untyped) => config?.wakes?.estimatedTurnUsd },
-  {
-    key: 'wakes.errandReserveMaxMinutes',
-    use: null,
-    read: (config: Untyped) => config?.wakes?.errandReserveMaxMinutes,
-  },
-  { key: 'intentions.droppedDays', use: null, read: (config: Untyped) => config?.intentions?.droppedDays },
-  {
-    key: 'heartbeat.droppedDays',
-    use: null,
-    read: (config: Untyped) => config?.heartbeat?.droppedDays,
-  },
-  {
-    key: 'heartbeat.droppedShown',
-    use: null,
-    read: (config: Untyped) => config?.heartbeat?.droppedShown,
-  },
-  ...['scout', 'server', 'thinker', 'dev'].flatMap((agent) => [
-    { key: `agents.${agent}.daily.usd`, use: null, read: (config: Untyped) => config?.agents?.[agent]?.daily?.usd },
-    { key: `agents.${agent}.limits.usd`, use: null, read: (config: Untyped) => config?.agents?.[agent]?.limits?.usd },
-  ]),
-]);
+const RETIRED_CONFIG_KEYS = Object.freeze(
+  [
+    { key: 'memory.voiceModel', use: 'models.base.core' },
+    { key: 'features.vision', use: null },
+    { key: 'features.attachedDescriptions', use: null },
+    { key: 'wakes.loop.strayFollowUps', use: 'wakes.loop.maxSteps' },
+    { key: 'wakes.caps.usdPerDay', use: null },
+    { key: 'wakes.caps.perDay', use: null },
+    { key: 'wakes.caps.perHour', use: null },
+    { key: 'wakes.caps.publicPostsPerDay', use: null },
+    { key: 'wakes.estimatedTurnUsd', use: null },
+    { key: 'wakes.errandReserveMaxMinutes', use: null },
+    { key: 'intentions.droppedDays', use: null },
+    { key: 'heartbeat.droppedDays', use: null },
+    { key: 'heartbeat.droppedShown', use: null },
+    ...['scout', 'server', 'thinker', 'dev'].flatMap((agent) => [
+      { key: `agents.${agent}.daily.usd`, use: null },
+      { key: `agents.${agent}.limits.usd`, use: null },
+    ]),
+  ].map(({ key, use }) => ({ key, use, read: (config: Untyped) => valueAtKey(config, key) }))
+);
 
 /**
  * The live view `createHot` returns. `config` is the parsed settings and `prompts` the loaded prompt files, each

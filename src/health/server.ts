@@ -115,7 +115,10 @@ export function systemProbe(config: unknown, dataDir: string, exec: Exec = run):
       const names = [...ENGINE_UNITS, ...interfaces];
       const states = await Promise.all(names.map((name) => exec('systemctl', ['is-active', name])));
       if (states.every((state) => state === null)) return [];
-      return names.map((name, index) => ({ name, active: states[index]?.stdout.trim() === 'active' }));
+      return names.map((name, index) => {
+        const state = states[index];
+        return { name, active: state?.stdout.trim() === 'active' };
+      });
     },
     lastBackup() {
       const kept = backupsIn(backupSettings(config, dataDir).dir);

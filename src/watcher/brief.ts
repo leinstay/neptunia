@@ -45,7 +45,9 @@ export function buildBrief({
   }
   for (const { runId } of reportVersions(reportsDir, day)) {
     const read = readReportRun(reportsDir, runId);
-    if (read.ok) earlier.push(`<report day="${day}" run="${runId}">\n${read.report.text.trim()}\n</report>`);
+    if (!read.ok) continue;
+    const reportText = read.report.text;
+    earlier.push(`<report day="${day}" run="${runId}">\n${reportText.trim()}\n</report>`);
   }
   const parts = [
     prompt.trim(),

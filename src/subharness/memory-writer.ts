@@ -274,12 +274,13 @@ export function memoryWriterClient(deps: {
           },
           writer
         );
+        const { usage } = completion;
         record?.({
           role: 'memory',
           // A backend that prints one total counts it as input, where it inflates nothing the writer wrote.
-          promptTokens: completion.usage?.prompt_tokens || completion.usage?.total_tokens || 0,
-          cachedTokens: completion.usage?.prompt_tokens_details?.cached_tokens ?? 0,
-          completionTokens: completion.usage?.completion_tokens ?? 0,
+          promptTokens: usage?.prompt_tokens || usage?.total_tokens || 0,
+          cachedTokens: usage?.prompt_tokens_details?.cached_tokens ?? 0,
+          completionTokens: usage?.completion_tokens ?? 0,
           cost: 0,
         });
         return completion;

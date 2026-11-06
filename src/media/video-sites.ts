@@ -567,12 +567,12 @@ export function youtubeDataApiUrl(id: string, key: string): string {
  * or null -- no items (private, deleted), a live `P0D`, anything unparsable.
  */
 export function parseYoutubeDataApi(jsonText: string): number | null {
-  let data;
+  let data: { items?: ReadonlyArray<{ contentDetails?: { duration?: string } } | null> } | null;
   try {
     data = JSON.parse(String(jsonText));
   } catch {
     return null;
   }
-  const duration = data?.items?.[0]?.contentDetails?.duration;
-  return positiveSeconds(parseIsoDuration(duration));
+  const item = data?.items?.[0];
+  return positiveSeconds(parseIsoDuration(item?.contentDetails?.duration ?? ''));
 }
