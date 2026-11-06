@@ -96,9 +96,9 @@ test('an expired participation episode leaves no claim version without its claim
       assert.equal(orphans?.n, 0, 'a live version names a row that is in neither claims nor episodes');
       // The rows the test's own synthetic messages leave (a place and sources nothing recorded) are in the audit either
       // way; what the expiry's version adds to `danglingLinks` is the difference to the same database without it.
-      const withVersion = auditMemory(db as never).checks.danglingLinks;
+      const withVersion = auditMemory(db).checks.danglingLinks;
       db.prepare("DELETE FROM claim_versions WHERE event = 'expired'").run();
-      assert.equal(withVersion, auditMemory(db as never).checks.danglingLinks, 'the version counts as dangling');
+      assert.equal(withVersion, auditMemory(db).checks.danglingLinks, 'the version counts as dangling');
     } finally {
       db.close();
     }
