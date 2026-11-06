@@ -286,11 +286,14 @@ export function outputLimitEnv(name: BackendName, maxOutputTokens: number | unde
   return maxOutputTokens === undefined || !limit.enforced ? {} : { [limit.via]: String(maxOutputTokens) };
 }
 
-/** The environment of a child: the inherited variables the parent has, then `extra`. Nothing else. */
-export function childEnvOf(extra: Record<string, string> | undefined): Record<string, string> {
+/** The environment of a child: the inherited variables `host` (the parent's own by default) has, then `extra`. Nothing else. */
+export function childEnvOf(
+  extra: Record<string, string> | undefined,
+  host: Readonly<Record<string, string | undefined>> = process.env
+): Record<string, string> {
   const env: Record<string, string> = {};
   for (const name of INHERITED_ENV) {
-    const value = process.env[name];
+    const value = host[name];
     if (value !== undefined) env[name] = value;
   }
   return { ...env, ...extra };

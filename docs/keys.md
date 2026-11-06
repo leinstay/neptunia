@@ -37,6 +37,27 @@ The memory writer differs by path, and `memoryCapabilities` in `src/subharness/m
 
 `keys.json` holds a role's source in `subharness.uses` and the memory writer's in `subharness.memory`. A store with the older list `subharness.backends`, or the single `subharness.backend`, reads each agent that names no source as using the list's first name, and the next write leaves the list out.
 
+## Her core on a subscription
+
+`/model set core <model> --via claude` or `--via codex` moves her turns from the OpenRouter API to the subscription that CLI is logged into, after one reply on that model and its optional `--effort <level>` through it. `src/subharness/subscription-path.ts` keeps the route in `keys.json` as `subharness.core`, in the shape of the memory writer's record, and reads it at every request, so the next turn takes it. `/model set core <model>` with no `--via` checks the API model, saves it and clears the record, which returns her turns to the API. `opencode` is refused with `backend-unsupported`, because `opencode run` takes no system prompt of its own. The simulation has a record of its own, `subharness.simulation`. `/model set simulation <model> --via claude` or `--via codex` sets it and `/model set simulation api` clears it. A replay reads that record and never the core's. `/subharness status` ends with a `core` row and a `simulation` row, each `api` or `via <backend> <model>` with its effort. A row is marked `unavailable` while its backend cannot run, and `no thinking control` on Codex.
+
+`createSubscriptionClient` in `src/subharness/subscription-client.ts` sits in front of the API client and takes the requests of the role `core` alone. The analyzer, vision, memory and every other role go to the API client unchanged. The step loop calls it once per step, as it calls the API. A turn's first step starts one `claude -p` or `codex exec` from the persona's own install in `data/subharness/<backend>/`, with her system text in place of the CLI's prompt and her user text on stdin. The later steps of the turn continue that process. Claude runs with `--system-prompt`, `--tools ""`, `--setting-sources ""`, `--no-session-persistence`, `--strict-mcp-config` and `--output-format stream-json`, and its native thinking is off through `MAX_THINKING_TOKENS=0`. Codex reads her system text from the file `-c model_instructions_file` names, runs `--ephemeral` with the user config ignored, and has its shell, patch, image and web tools turned off. The child gets the plain host variables and the backend's home, never a key of the core.
+
+Her tools reach the CLI as the MCP server `nep`. The CLI starts `bin/neptunia-mcp.ts` with the core socket and a file that holds a token for this turn alone. The server lists her tool definitions with their names bare, and Claude shows them to the model as `mcp__nep__<name>`. Each call travels over the core socket to the tool bridge of `src/subharness/tool-bridge.ts` and waits there while the step loop runs it through the gateway and the executors, as on the API. The next step hands the result back. A token that is unknown, or whose turn has ended, is refused with `turn-unknown`. A run that ended on tool calls and gets no next step within `llm.subscription.holdMs`, 60000 milliseconds by default, is killed.
+
+Each step passes the token cap and the daily request cap before anything starts, records its tokens in `/usage` at no cost and writes one `model_requests` row whose backend is `claude` or `codex`. A failed step rejects with one of these codes, and her turn's `reason` carries it:
+
+| Code | When |
+|---|---|
+| `not-installed` | The backend's binary is not in its place, and nothing starts |
+| `subscription-exhausted` | The window is spent: Claude rejected the request in a `rate_limit_event` or ended with status 429, or Codex named a usage limit |
+| `subscription-login` | The CLI is not logged in |
+| `subscription-failed` | Any other failed run, or a CLI that ended before its answer |
+| `subscription-timeout` | No event came within the request's timeout, or the request was aborted |
+| `subscription-lost` | A later step names tool calls that no open run holds |
+
+`llm.subscription.fallback` at `true` sends a failed step and every later step of that turn to the API with the same messages. A refusal of either rail never goes there. `llm.subscription.thinking` at `true` leaves Claude's native thinking on. Both are `false` by default. Codex has no switch that turns a reasoning model's thinking off.
+
 ## The model selector
 
 `/model` in the chat opens `ModelPicker` in `cli/model-picker.ts` and runs nothing until a choice needs it. The same bare word in a shell stays `/model show`, and every other `/model` line stays a command. The steps are category, role, provider type, source, model, effort and review. Main holds `core`, `drawing`, `speech` (shown as Voice), `memory`, `analyzer`, `vision`, `video` and `embedding`. Errand holds `scout` and `server`, Development holds `thinker` and `dev`, and `watcher` is a utility row under Development with no `models.development` key.

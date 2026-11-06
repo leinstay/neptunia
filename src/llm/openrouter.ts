@@ -867,18 +867,32 @@ export function providerLimitOf(err: unknown): {
   return { status, ...bodyLimit(status, body) };
 }
 
+/** The codes a core step on a subscription route fails with (src/subharness/subscription-client.ts). */
+export const SUBSCRIPTION_CODES = [
+  'not-installed',
+  'subscription-exhausted',
+  'subscription-login',
+  'subscription-failed',
+  'subscription-timeout',
+  'subscription-lost',
+] as const;
+export type SubscriptionCode = (typeof SUBSCRIPTION_CODES)[number];
+
 /**
  * The short code of a failed model call, for the turn result's `reason`, the journal and the
- * status card: `provider-limit` (any 429: a quota of the day or a throttle), `provider-error`
+ * status card: a subscription route's own code (`SUBSCRIPTION_CODES`) as it is,
+ * `provider-limit` (any 429: a quota of the day or a throttle), `provider-error`
  * (another HTTP status, or a network failure), `timeout` (a timed-out or aborted attempt), else
  * `error` (a rail refusal or any other exception). Only the status, the error name and the
  * message shape are read, never the provider's text.
  */
 export function errorCodeOf(
   err: unknown
-): 'provider-limit' | 'provider-error' | 'timeout' | 'keys-exhausted' | 'error' {
+): 'provider-limit' | 'provider-error' | 'timeout' | 'keys-exhausted' | SubscriptionCode | 'error' {
   const { statusCode: status, name, message } = errorFields(err);
   if (isKeysExhausted(err)) return 'keys-exhausted';
+  const own = SUBSCRIPTION_CODES.find((code) => isRec(err) && err.code === code);
+  if (own !== undefined) return own;
   if (typeof status === 'number' && Number.isInteger(status))
     return status === 429 ? 'provider-limit' : 'provider-error';
   if (err instanceof TokenLimitError || err instanceof DailyCapError || err instanceof NotByokError) return 'error';

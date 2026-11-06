@@ -87,6 +87,9 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `llm.hedge.afterMs` | number | `2500` | Milliseconds before the second attempt starts. `0` or below turns hedging off | `src/llm/openrouter.ts` |
 | `llm.hedge.timeoutMs` | number | `8000` | Milliseconds from the first attempt's start at which both are aborted if neither returned | `src/llm/openrouter.ts` |
 | `llm.hedge.longTimeoutMs` | number | `20000` | Timeout used when the caller marks the request `long: true` (the route classifier does this for a large channel list) | `src/llm/openrouter.ts` |
+| `llm.subscription.fallback` | boolean | `false` | While her core runs through a subscription CLI (`/model set core <model> --via claude` or `--via codex`), `true` sends a step that failed on it, and every later step of that turn, to the API with the same messages. With `false` the step fails and she reads its code. A refusal of the token or daily rail never goes to the API. Read at every failed step | `src/subharness/subscription-client.ts` |
+| `llm.subscription.thinking` | boolean | `false` | `false` turns Claude's native thinking off with `MAX_THINKING_TOKENS=0` and asks Codex for no reasoning summary. Codex has no switch that turns a reasoning model's thinking off. Read at the start of each run | `src/subharness/subscription-client.ts` |
+| `llm.subscription.holdMs` | number | `60000` | How long a subscription run whose last step ended on tool calls waits for its next step before its process is killed (ms). Read after each such step | `src/subharness/subscription-client.ts` |
 
 ## memoryDb
 

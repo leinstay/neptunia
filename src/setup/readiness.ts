@@ -10,6 +10,8 @@ import { ROOT_DIR, readConfig } from '../config.ts';
 import { localConfigPath } from '../config/files.ts';
 import { loadPrincipals } from '../interface/principals.ts';
 import { CORE_UNIT } from '../service/manager.ts';
+import { sourceState } from '../subharness/sources.ts';
+import { subscriptionPath } from '../subharness/subscription-path.ts';
 import { coreSelection, readCoreCheck } from './model-check.ts';
 import type { CoreCheck } from './model-check.ts';
 
@@ -34,7 +36,8 @@ export type ReadinessHealth = {
   services: 'ok' | 'not-installed';
   core: 'listening' | 'down';
   link: 'authenticated' | 'refused' | 'untested';
-  model: { selection: string | null; check: CoreCheck | null };
+  /** `routeDown` while her turns run through a subscription backend that cannot run now. */
+  model: { selection: string | null; check: CoreCheck | null; routeDown?: true };
   /** `unknown` with no core to ask, which `core-running` reports already. */
   memory: { service: MemoryState; writer: MemoryState };
   optional: Readonly<Record<string, string>>;
@@ -57,12 +60,14 @@ export const REPAIRS = {
   'check-missing': 'check the model with /keys check core',
   'check-stale': 'the model changed since its check: /keys check core',
   'check-failed': 'the provider refused the model or the key: /keys check core says why',
+  'core-route-down': "the core's subscription route cannot run: read /subharness status",
   'memory-service-down': 'the memory database is closed: read neptunia doctor memory',
   'memory-writer-down': 'the memory writer does not answer: read neptunia doctor memory and /subharness status',
 } as const;
 type FailureCode = keyof typeof REPAIRS;
 
-function codeOfModel({ selection, check }: ReadinessHealth['model']): FailureCode | null {
+function codeOfModel({ selection, check, routeDown }: ReadinessHealth['model']): FailureCode | null {
+  if (routeDown === true) return 'core-route-down';
   if (selection === null) return 'no-model';
   if (check === null) return 'check-missing';
   if (check.selection !== selection) return 'check-stale';
@@ -152,6 +157,17 @@ function modelOnDisk(privateDir: string, dataDir: string): ReadinessHealth['mode
   return { selection, check: readCoreCheck(dataDir) };
 }
 
+/** Whether her turns run through a subscription backend that cannot run now; a keys.json that cannot be read says no. */
+async function coreRouteDown(privateDir: string): Promise<boolean> {
+  let path: ReturnType<typeof subscriptionPath>;
+  try {
+    path = subscriptionPath(privateDir, 'core');
+  } catch {
+    return false;
+  }
+  return path.kind === 'subharness' && !(await sourceState(privateDir, path.backend)).available;
+}
+
 const parsedReadiness = (text: string): CoreReadiness | null => {
   try {
     const parsed = JSON.parse(text) as Partial<CoreReadiness>;
@@ -177,8 +193,9 @@ export async function gatherHealth(where: {
     services: fs.existsSync(path.join(unitDir, CORE_UNIT)) ? ('ok' as const) : ('not-installed' as const),
     optional: {},
   };
+  const route = (await coreRouteDown(privateDir)) ? { routeDown: true as const } : {};
   const unread = {
-    model: modelOnDisk(privateDir, dataDir),
+    model: { ...modelOnDisk(privateDir, dataDir), ...route },
     memory: { service: 'unknown', writer: 'unknown' } as const,
   };
   const down = { ...base, ...unread, core: 'down', link: 'untested' } as const;
@@ -191,7 +208,7 @@ export async function gatherHealth(where: {
   const read = answer.status === 'ok' ? parsedReadiness(answer.text) : null;
   return read === null
     ? { ...base, ...unread, core: 'listening', link: 'refused' }
-    : { ...base, ...read, core: 'listening', link: 'authenticated' };
+    : { ...base, ...read, model: { ...read.model, ...route }, core: 'listening', link: 'authenticated' };
 }
 
 /** The failures as one line each way a person or a script reads them. */

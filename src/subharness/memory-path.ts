@@ -28,17 +28,22 @@ export function memoryPath(privateDir: string): MemoryPath {
   return record === null ? { kind: 'direct' } : { kind: 'subharness', ...record };
 }
 
+/** The keys.json records of a path through a subharness: the memory writer's, the core's and the simulation's. */
+export type PathSlot = 'memory' | 'core' | 'simulation';
+
 /**
- * `model set memory --via <backend> <model> [--effort <level>]`: one reply on that model and effort through the
- * backend, then the record, written whole, if nothing moved while the reply ran. Without an effort the record holds
- * none, whatever was stored before. A refusal writes nothing.
+ * One checked write of the record `slot`: one reply on that model and effort through the backend, then the record,
+ * written whole, if nothing moved while the reply ran. Without an effort the record holds none, whatever was stored
+ * before. A refusal writes nothing. `carrier` names what the backend would carry, for the refusal of opencode, and
+ * `said` the line of a saved record.
  */
-export async function setMemoryPath(
+export async function setPathRecord(
   deps: EnableDeps,
-  backend: string,
-  model: string,
-  effort?: string
+  slot: PathSlot,
+  choice: { backend: string; model: string; effort: string | undefined },
+  words: { carrier: string; said: (record: MemoryPathRecord) => string }
 ): Promise<SubharnessResult> {
+  const { backend, model, effort } = choice;
   const known = BACKEND_NAMES.find((name) => name === backend);
   if (known === undefined)
     return refused('unknown-backend', `${backend} is no backend; use ${MEMORY_BACKENDS.join(' or ')}`);
@@ -46,7 +51,7 @@ export async function setMemoryPath(
   if (name === undefined)
     return refused(
       'backend-unsupported',
-      `${known} cannot carry the memory writer, it takes no system prompt; use ${MEMORY_BACKENDS.join(' or ')}`
+      `${known} cannot carry ${words.carrier}, it takes no system prompt; use ${MEMORY_BACKENDS.join(' or ')}`
     );
   let level: EffortLevel | undefined;
   if (effort !== undefined) {
@@ -57,15 +62,32 @@ export async function setMemoryPath(
   if (model.trim() === '') return refused('model-rejected', 'name the model; nothing was changed');
   return checkedSelection(
     deps,
-    { claim: MEMORY_CLAIM, backend: name, keyValue: '', model, ...(level === undefined ? {} : { effort: level }) },
-    () => JSON.stringify(readKeys(deps.privateDir).subharness.memory),
+    { claim: slot, backend: name, keyValue: '', model, ...(level === undefined ? {} : { effort: level }) },
+    () => JSON.stringify(readKeys(deps.privateDir).subharness[slot]),
     () => {
       const fresh = readKeys(deps.privateDir);
       const record: MemoryPathRecord = { backend: name, model, effort: level ?? null };
-      writeKeys(deps.privateDir, { ...fresh, subharness: { ...fresh.subharness, memory: record } });
-      return done(
-        `her memory writer runs through ${memoryPathText({ kind: 'subharness', ...record })} from its next sweep`
-      );
+      writeKeys(deps.privateDir, { ...fresh, subharness: { ...fresh.subharness, [slot]: record } });
+      return done(words.said(record));
+    }
+  );
+}
+
+/** `model set memory --via <backend> <model> [--effort <level>]`: the memory writer's record, after one reply. */
+export function setMemoryPath(
+  deps: EnableDeps,
+  backend: string,
+  model: string,
+  effort?: string
+): Promise<SubharnessResult> {
+  return setPathRecord(
+    deps,
+    MEMORY_CLAIM,
+    { backend, model, effort },
+    {
+      carrier: 'the memory writer',
+      said: (record) =>
+        `her memory writer runs through ${memoryPathText({ kind: 'subharness', ...record })} from its next sweep`,
     }
   );
 }
