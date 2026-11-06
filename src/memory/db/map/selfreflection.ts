@@ -4,7 +4,8 @@
 //
 // A post's id is its `itemId` (a derived one, marked `$derived`, when it has none); `at` is at_ms, `picture` is
 // picture_prompt, `search` the search column (null stays null through the `$null` list). `pictures` (a count) and
-// anything else no column names stay in `extra`. A post that carries its `text` (an entry recorded before it is sent,
+// anything else no column names stay in `extra`, the planner's `plan` among them. `pictureDescription` is read from the
+// entry's media by the store and never written. A post that carries its `text` (an entry recorded before it is sent,
 // src/behavior/selfreflection-turn.ts) sets the `text` column; any other leaves `text` and `lost` alone (a re-map does too):
 // src/memory/db/selfreflection-media.ts fills them for the older posts from the interface, with the pictures. The old JSON has
 // no such fields, so the export leaves them out.
@@ -38,6 +39,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
     const uniq = uniqueIds();
     value.posts.forEach((post: Row, position: number) => {
       const body = { ...post };
+      delete body.pictureDescription;
       const mirrored = isIds(post.messageIds);
       if (mirrored) delete body.messageIds;
       // The entry's text, when the post carries it (a post recorded before it is sent), is the row's.

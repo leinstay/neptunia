@@ -23,7 +23,9 @@ Only `news` and `facts` may use `search`. For every other kind, `search` is an e
 
 The search query is short and plain: a few words, no operators, no `site:`, no quotes, no month or date unless the event itself is dated. Broad enough to return something: the subject and what is new about it. The brief narrows the post, not the query.
 
-The weights in <kinds> set the tendency, not a strict ratio. Prefer a kind that has been absent or underused lately. Use <diary> for continuity and to avoid repeating recent subjects and narrative angles, not as a template for the next post; changing the place or post kind does not make a repeated theme new. Familiar places may return with a different activity or visual focus. A seed from <seeds> may be used whole, in part, or not at all. What happens in these places is one source of subjects, not a required connection for every post. Choose seed elements only when they fit <world>, the persona's constraints and <now>; discard incompatible elements rather than making their incompatibility the subject.
+The weights in <kinds> set the tendency, not a strict ratio. Prefer a kind that has been absent or underused lately. Read <diary> for continuity and for what is taken: every place, activity and subject it shows. The new post differs from the recent posts in its place, its activity and its subject. A familiar place comes back only with an activity the diary has not shown there, and a new post kind does not make a repeated theme new. What happens in these places is one source of subjects, not a required connection for every post.
+
+For selfPicture, picture, photoset, randomSet and status, when <seeds> is present, build the brief on one combination: its activity, its subject or twist, and its place. Fit the combination to <world>, the persona's constraints and <now> by bending its elements. When one element cannot be bent, drop that element alone and build on the rest. The brief says nothing about what was dropped. A post that follows <topic> or something that happened in these places needs no seed, and neither do thought, people, news, facts and meme.
 
 The time of day and the season from <now> shape the idea. A night post belongs to the night. A winter morning is cold. They shape the scene, not the wording: the brief names no weekday, date or clock time. When <world> appears, draw on the persona's places and routines for selfPicture and picture. Without it, the persona has no fixed home; pick from what the places and the people suggest. Other settings may be used when consistent with <world> and the persona's constraints.
 
@@ -31,9 +33,11 @@ Write the brief in the language the people in <about_chat> write in.
 
 Answer ONE JSON object, nothing else:
 
-{"kind": "<key>", "brief": "<one line: what the post is about>", "search": "<query or empty string>", "picture": true|false}
+{"kind": "<key>", "brief": "<one line: what the post is about>", "search": "<query or empty string>", "picture": true|false, "seed": <number>}
 
 `picture` is true when the post carries a drawing, false for text only.
+
+`seed` is the number of the <seeds> combination the brief is built on, counting from 1 in the order listed, and 0 when the post uses none.
 
 selfPicture, picture and meme always carry a picture when the day's caps allow it. Your `picture` field decides only for the other kinds.
 

@@ -44,7 +44,7 @@ import path from 'node:path';
 import { accountCollection, keyText, personaKey, placeCollection, storageId } from './db/storage-keys.ts';
 import type { StorageKey, StorageKind, StorageSelector } from './db/storage-keys.ts';
 import { isMediaDescriptionEntry, mediaDescriptionOf } from './db/export.ts';
-import { linkedAttachmentIds } from './db/media-store.ts';
+import { entryPictureDescriptions, linkedAttachmentIds } from './db/media-store.ts';
 import type { MediaDescriptionEntry } from './db/export.ts';
 
 import { listUnits } from './db/storage-units.ts';
@@ -1143,6 +1143,16 @@ type SelfreflectionPostOptions = {
   search: string;
   text?: string;
   itemId?: string;
+  /** What the planner planned: its brief, the seed combinations offered and the 1-based one taken (0 for none). */
+  plan?: { brief: string; seeds: Array<Array<string>>; seed: number };
+  /** The description of the entry's first linked picture, read from the media on each read and never stored. */
+  pictureDescription?: string;
+};
+
+/** A copy of the persona's selfreflection unit as `getSelfreflection` returns it. */
+type SelfreflectionCopy = {
+  posts: Array<SelfreflectionPostOptions & { messageIds: Array<string> }>;
+  updatedAt: number;
 };
 
 type HoldVictimsInput = {
@@ -3183,13 +3193,20 @@ function buildStore({
 
     /**
      * A copy of the place's selfreflection (the persona's selfreflection unit): `{ posts, updatedAt }`, posts newest last; the empty
-     * selfreflection (`{ posts: [], updatedAt: 0 }`) when there is no file, never null. Reading never creates the file.
+     * selfreflection (`{ posts: [], updatedAt: 0 }`) when there is no file, never null. Reading never creates the file. A post
+     * whose entry links a described picture carries its description as `pictureDescription`.
      */
-    getSelfreflection(): {
-      posts: Array<SelfreflectionPostOptions & { messageIds: Array<string> }>;
-      updatedAt: number;
-    } {
-      return structuredClone(selfreflectionEntry().value);
+    getSelfreflection(): SelfreflectionCopy {
+      // selfreflectionEntry() replaces a value that is not `{ posts: [...] }` with the empty selfreflection.
+      const copy = structuredClone(selfreflectionEntry().value) as SelfreflectionCopy;
+      const ids = copy.posts.flatMap((post) => (post.itemId ? [post.itemId] : []));
+      const described = memoryDb && ids.length > 0 ? seam.run(() => entryPictureDescriptions(seam.db(), ids)) : null;
+      for (const post of copy.posts) {
+        const description = post.itemId ? described?.get(post.itemId) : undefined;
+        if (description) post.pictureDescription = description;
+        else delete post.pictureDescription;
+      }
+      return copy;
     },
 
     /**
