@@ -253,7 +253,9 @@ test('the memory export is the same row counts on both paths and reconciles with
     (one) => (JSON.parse(one.text) as { manifest: { rows: Record<string, number> } }).manifest.rows
   );
   assert.deepEqual(manifests[1], manifests[0]);
-  const db = journey.memory.memoryDb.database();
+  // The memory service is named so the chain stays under the code-health depth (tests by the lead).
+  const { memoryDb } = journey.memory;
+  const db = memoryDb.database();
   assert.ok(db);
   assert.deepEqual(manifests[0], Object.fromEntries(actualTableNames(db).map((table) => [table, countOf(db, table)])));
   const exported = readFileSync(files[0] ?? '', 'utf8')

@@ -281,12 +281,15 @@ after(async () => {
   await journey?.stop();
 });
 
-const why = (): string =>
-  `session problems: ${JSON.stringify(journey.llm.problems)}; model purposes: ${journey.llm.entries
+// The log is named so the chain stays under the code-health depth (tests by the lead).
+const why = (): string => {
+  const { llm } = journey;
+  return `session problems: ${JSON.stringify(llm.problems)}; model purposes: ${llm.entries
     .map((entry) => entry.purpose)
     .join(
       ','
     )}; session runs: ${JSON.stringify(rows('SELECT scope_key, outcome FROM session_runs'))}; provider calls: ${providerCalls.length}; memory logs: ${warnings.join(' | ')}`;
+};
 const rows = (sql: string, ...args: Array<unknown>): Array<Row> => query(journey.dirs, sql, ...args);
 
 const entityIdOf = (name: string): string => {
@@ -359,14 +362,17 @@ let followUp = '';
 
 test('a follow-up query reaches her turn with the facts the sessions stored', async () => {
   // Bug: the question is asked and the turn never gets the structured memory, so she answers from the chat history.
-  const before = journey.llm.entries.length;
+  // The log is named so the chains stay under the code-health depth (tests by the lead).
+  const { entries } = journey.llm;
+  const before = entries.length;
   await journey.unit.emit(mention('q1', QUESTION, Date.now() - SETTLED_MS));
   await waitFor(
-    () => journey.llm.entries.slice(before).some((entry) => entry.text.includes(QUESTION)),
+    () => entries.slice(before).some((entry) => entry.text.includes(QUESTION)),
     'the follow-up turn request',
     SESSION_AT
   );
-  followUp = journey.llm.entries.slice(before).find((entry) => entry.text.includes(QUESTION))?.text ?? '';
+  const asked = entries.slice(before).find((entry) => entry.text.includes(QUESTION));
+  followUp = asked?.text ?? '';
   assert.notEqual(followUp, '');
 });
 
@@ -391,8 +397,10 @@ test('a heartbeat with no place and no target ends handled without an error', as
   );
   const failed = rows("SELECT 1 FROM wakes WHERE kind = 'heartbeat' AND state = 'failed'");
   assert.equal(failed.length, 0);
+  const posts = journey.unit.posted('c1');
   assert.deepEqual(
-    await journey.unit.posted('c1').then((posted) => posted.filter((text) => text.includes('skip'))),
+    // Named so the chain stays under the code-health depth (tests by the lead).
+    await posts.then((posted) => posted.filter((text) => text.includes('skip'))),
     []
   );
 });

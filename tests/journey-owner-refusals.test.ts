@@ -141,7 +141,9 @@ async function rig(
 
 const fileHash = (file: string): string => createHash('sha256').update(readFileSync(file)).digest('hex');
 const digestOf = (one: Rig) => {
-  const db = one.memory.memoryDb.database();
+  // The memory service is named so the chain stays under the code-health depth (tests by the lead).
+  const { memoryDb } = one.memory;
+  const db = memoryDb.database();
   assert.ok(db);
   return databaseDigest(db);
 };
@@ -156,7 +158,7 @@ test('a principal that is not the owner is refused at the desk and nothing behin
     console: {
       run: (name) => {
         reached.push(name);
-        return Promise.resolve({ text: 'ran', status: 'ok' });
+        return Promise.resolve({ text: 'ran', status: 'ok', data: null });
       },
     },
     interfaces: { list: () => [], enable: () => undefined, disable: () => Promise.resolve({ drained: 0, unknown: 0 }) },
@@ -166,7 +168,7 @@ test('a principal that is not the owner is refused at the desk and nothing behin
     tasks: {
       command: (_principal, name) => {
         reached.push(name);
-        return Promise.resolve({ text: 'ran', status: 'ok' });
+        return Promise.resolve({ text: 'ran', status: 'ok', data: null });
       },
     },
   });
