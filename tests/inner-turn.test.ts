@@ -1709,3 +1709,14 @@ test('feedbackFactText: a memoryFailed fact names the code and how many lines wa
   assert.equal(feedbackFactText({ kind: 'memoryFailed', code: 'apply-error', waiting: 20 }, { feedback: {} }), '');
   assert.equal(feedbackFactText({ kind: 'interrupted', wake: 'review', done: 'x' }, { feedback: {} }), '');
 });
+
+test('feedbackFactText: a memoryFailed fact words a catalogued wake code by its label (stage AM)', () => {
+  // Bug: the quarantine notice reaches her as a bare code she has no words for.
+  const wake = {
+    feedback: { memoryFailed: 'not kept ({code}), {n} waiting', codes: { 'memory-pending-quarantined': 'set aside' } },
+  };
+  assert.equal(
+    feedbackFactText({ kind: 'memoryFailed', code: 'memory-pending-quarantined', waiting: 2 }, wake),
+    'not kept (set aside), 2 waiting'
+  );
+});

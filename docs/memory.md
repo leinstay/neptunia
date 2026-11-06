@@ -98,6 +98,12 @@ The memory prefetch searches under `recall.prefetch.deadlineMs` and the persona'
 
 The daily backup runs on the writer thread, and `pruneBackups` in `src/memory/db/backup.ts` deletes old backups through the asynchronous `fs`. The owner's `/memory backup` runs `backupInWorker`, which opens a read-only connection on a thread of its own (`src/memory/db/backup-worker.ts`).
 
+## Pending writes and their quarantine
+
+A unit write the writer cannot take at shutdown is kept by `keepPending` in `src/memory/db/service.ts` as `data/memory-pending/<sha1 of its owner>.json`. Every open replays these files through the writer before anything reads the database and deletes each file once its write is applied. A write whose replay fails moves to `data/memory-pending-quarantine/` (`src/memory/db/pending-quarantine.ts`), and the open goes on with the rest. The folder has mode `0700` and its files `0600`, and `<name>.error.json` beside each write holds the failure `code` and the time `at`. When the folder already holds the name, the moved file gets the time of the move as a suffix, so an earlier failure of the same owner stays. A write that cannot be moved keeps its pending file, the open fails with `PENDING_REPLAY`, and the next tick tries again.
+
+An open that moves files logs the error `memory db: pending quarantined` with the count and the code and no content, and calls `onPendingQuarantined` once. The core turns that into a `memoryFailed` fact with the code `memory-pending-quarantined`, worded by `wake.feedback.codes.memory-pending-quarantined`, which she reads at her next turn. `status().pending` counts the files in the quarantine and names the code of the newest, and the owner's status line shows them through `status.memoryDb.quarantined`. `/memory pending list` names each file with its code and time. Once the cause is fixed, `/memory pending replay` replays them through the writer: a file that applies is deleted with its error file, and one that fails stays with its new code.
+
 ## Learning and remembering
 
 Source messages are the evidence. A memory session reads a window and proposes claims, episodes and affinity changes. The writer validates references and applies accepted changes transactionally. A claim records what was learned and the sources supporting it; its versions preserve changes over time.

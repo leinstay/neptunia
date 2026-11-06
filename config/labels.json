@@ -304,7 +304,8 @@
       "probe": "Reply with the single word pong.",
       "memoryDb": {
         "unavailable": "db: on, not open",
-        "ok": "db · {rows} rows · {files} files"
+        "ok": "db · {rows} rows · {files} files",
+        "quarantined": "{n} pending writes quarantined, newest failed with {code}"
       }
     },
     "draw": {
@@ -492,7 +493,8 @@
           "no-review-channel": "no channel to run the review in",
           "keys-exhausted": "every key you run on is out of credit until the reset",
           "proxy-down": "the proxy stopped answering, so your requests, video downloads and agents go out from the server's own address until it answers again",
-          "proxy-back": "the proxy answers again, and your requests, video downloads and agents go through it"
+          "proxy-back": "the proxy answers again, and your requests, video downloads and agents go through it",
+          "memory-pending-quarantined": "it failed again when your memory reopened, so it is set aside until the owner replays it"
         }
       },
       "here": "You are in #{channel} ({why})",

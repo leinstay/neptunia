@@ -157,6 +157,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Choose which providers serve a model | `/routes` |
 | Link a person's accounts, or merge two people | `/memory bind`, `/memory users link`, `/memory users unlink`, `/memory users merge` |
 | Give her or a person a name the door and the classifier know | `/memory users names add person:self NAME`, `/memory users names remove person:self NAME` |
+| Replay the memory writes an open set aside | `/memory pending list`, `/memory pending replay`. See [Pending writes and their quarantine](memory.md#pending-writes-and-their-quarantine) |
 | Browse people, places, the graph and each memory family, and read every stored row | `/memory users`, `/memory places`, `/memory graph`, `/memory inspect`, `/memory claims` and the other families. See [The memory browser](#the-memory-browser) |
 | Bring stored media to the one format, or its descriptions to English | `/memory backfill-media`, `/memory backfill-english`, each with `--dry-run` or `status`. See [Moving old media to the store](memory.md#moving-old-media-to-the-store) |
 | Choose where the selfreflection is published | `/mirror` |
@@ -191,6 +192,7 @@ A page holds at most `memoryDb.inspection.pageRows` rows, whatever `--limit` ask
 | `/memory sources`, `claims`, `descriptions`, `episodes`, `selfreflection`, `media`, `publications`, `grants`, `sessions`, `requests`, `turns`, each `show <id>` and `list` | One record with every stored field and links to the exact records around it, retired and internal ones included |
 | `/memory claims versions <id>`, `version <id>`, `/memory descriptions versions <id>`, `version <id>` | Every version in order, or one |
 | `/memory inspect tables`, `schema`, `rows`, `row`, `value`, `export`, `close` | Every table the database holds, whether or not a menu names it |
+| `/memory pending list`, `replay` | The pending memory writes that failed their replay at an open, each with its code and time. `replay` sends them through the memory writer and answers `replayed` and `kept`, and a closed database answers `memory-closed` ([Pending writes and their quarantine](memory.md#pending-writes-and-their-quarantine)) |
 
 `/memory graph walk` visits each node once whatever the number of paths. `--depth` and `--nodes` bound it, a node at the depth bound with an edge not yet followed is its `frontier`, and a walk from the frontier goes on. With no `--depth` it stops at 32. `/memory graph path` answers the shortest association and why there is none (`none`, `depth` or `work`). A path is read and never remembered.
 
