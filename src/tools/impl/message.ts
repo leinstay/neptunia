@@ -422,7 +422,7 @@ const handlers = perEnv((env) => {
     if (!text) throw invalid('text is required');
     const { placeId, messageId, ref } = await target(args, context, 'read', { last: true });
     if (publicationRefusal(context.publicationBoundary, ref)) throw denied('publication-boundary', 'not-allowed');
-    // An edit notifies nobody new on Discord; the mentions only keep a member with pings off out of the allowed list.
+    // An edit notifies nobody new on the interface; the mentions only keep a member with pings off out of the allowed list.
     const { users } = mentionsUnderPings({
       users: mentionedUsers(context),
       replying: false,
