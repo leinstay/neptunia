@@ -54,16 +54,17 @@ function spatialOf(request: Built): string | null {
   return match ? (match[1] ?? null) : null;
 }
 
-test('the block sits in the tail, after the chat and right before <now>', () => {
+test('the block sits in the tail, right before the chat, and holds her time away', () => {
   // Bug: the block lands in a cached part, so every move between channels rewrites the prompt cache.
-  // Stage AC: `<now>` holds only her time away once the block carries the clock, so this request has a pause to show it.
+  // Slice 7: every request is built on its frame, whose order puts `<spatial_awareness>` before `<chat>` and folds
+  // `<now>` into it (the lead's decisions 6 and 7 of the plan), so her time away is the block's last lines.
   const offPeriods = [{ kind: 'paused', from: NOW - 3_600_000, to: NOW - 1_800_000 }];
   const request = buildRequest(baseInput({ whereabouts: placeIn('general'), offPeriods }));
   const tail = tailOf(request);
   assert.ok(tail.includes('<chat>'), 'the base input has a chat');
-  assert.ok(tail.includes('<spatial_awareness>'), tail);
-  assert.ok(tail.indexOf('</chat>') < tail.indexOf('<spatial_awareness>'), tail);
-  assert.ok(tail.includes('</spatial_awareness>\n\n<now>'), tail);
+  assert.ok(tail.includes('</spatial_awareness>\n\n<chat>'), tail);
+  assert.ok(!tail.includes('<now>'), tail);
+  assert.match(spatialOf(request) ?? '', /30 min/);
   for (const part of cachedOf(request)) assert.ok(!part.includes('<spatial_awareness>'), part);
 });
 
@@ -77,7 +78,8 @@ test('two places give the same cached parts byte for byte', () => {
 
 test('a reply turn names its place, the interface and the time', () => {
   const body = spatialOf(buildRequest(baseInput({ whereabouts: placeIn('general') })));
-  assert.equal(body?.split('\n')[0], `SPATIAL-PLACE channel #general < server Example Server ON discord AT ${WHEN}`);
+  // Slice 7: a native kind reads `spatial.kind` with its noun, so the channel has no `#` of the old `kinds.channel`.
+  assert.equal(body?.split('\n')[0], `SPATIAL-PLACE channel general < server Example Server ON discord AT ${WHEN}`);
 });
 
 test('the command line says the command line', () => {
@@ -128,7 +130,7 @@ test('an inner turn of another kind keeps the place it runs in', () => {
       whereabouts: placeIn('general'),
     })
   );
-  assert.ok(spatialOf(request)?.startsWith('SPATIAL-PLACE channel #general'), String(spatialOf(request)));
+  assert.ok(spatialOf(request)?.startsWith('SPATIAL-PLACE channel general'), String(spatialOf(request)));
 });
 
 test("the owner's note comes from config.spatial.notes and reaches the channel through its server", () => {

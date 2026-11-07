@@ -91,7 +91,6 @@ test('a second attempt of a turn whose first attempt failed before its send carr
     describer: undefined,
     lookup: undefined,
     emoji: undefined,
-    routeChannels: undefined,
     now: () => NOW,
     port,
     reads,

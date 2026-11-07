@@ -46,7 +46,8 @@ test('a reply in a channel names the channel, its server, the interface, the tim
   const body = spatialOf(requestText(run.llm, 0));
   assert.ok(asked.length > 0, 'the turn asked the store for its chain');
   assert.deepEqual(body?.split('\n'), [
-    `SPATIAL-PLACE channel #general < server Example Server ON fake AT ${formatNow(NOW, 'UTC', labels.locale)}`,
+    // Slice 7: a native kind reads `spatial.kind` with its noun, so the channel has no `#` of the old `kinds.channel`.
+    `SPATIAL-PLACE channel general < server Example Server ON fake AT ${formatNow(NOW, 'UTC', labels.locale)}`,
     'SPATIAL-GROUP',
     'SPATIAL-NOTE adults only',
   ]);
@@ -69,7 +70,7 @@ test('an inner turn that runs in a channel names that place', async () => {
     prompts: { inner: 'Do what the wake says.' },
   });
   const body = spatialOf(requestText(run.llm, 0));
-  assert.ok(body?.startsWith('SPATIAL-PLACE channel #general < server'), String(body));
+  assert.ok(body?.startsWith('SPATIAL-PLACE channel general < server'), String(body));
 });
 
 for (const kind of ['heartbeat', 'selfimprovement']) {

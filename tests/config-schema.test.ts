@@ -29,7 +29,6 @@ import { backupSettings } from '../src/memory/db/backup.ts';
 import { captureSettings } from '../src/memory/db/observe.ts';
 import { sessionSettings } from '../src/memory/db/session.ts';
 import { boardSettings } from '../src/board/board.ts';
-import { elsewherePickSettings } from '../src/behavior/elsewhere-pick.ts';
 import { pullSettings } from '../src/behavior/pull.ts';
 import { setSettings } from '../src/behavior/selfreflection.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
@@ -147,8 +146,6 @@ const READERS: ReadonlyArray<{ name: string; group: CutGroup; read: (config: Tre
   { name: 'indexSettings', group: 'recall', read: (config) => indexSettings(config) },
   { name: 'recentSettings', group: 'memory', read: (config) => recentSettings(config) },
   { name: 'participationSettings', group: 'memory', read: () => participationSettings() },
-  // Plan 2026-11-04-cli-and-memory B3: one elsewhere pick replaces the participation pick and the route classifier.
-  { name: 'elsewherePickSettings', group: 'memory', read: (config) => elsewherePickSettings(config) },
   { name: 'graphSettings', group: 'memory', read: (config) => graphSettings(config) },
   { name: 'focusSettings', group: 'memory', read: (config) => focusSettings(config) },
   { name: 'captureSettings', group: 'memory', read: (config) => captureSettings(config) },
@@ -236,6 +233,18 @@ const MAY_GO: ReadonlyArray<string> = [
   'innerSettings.heartbeat.placesShown',
   'innerSettings.heartbeat.placeLines',
   'innerSettings.heartbeat.maxTokens',
+  // Slice 7: the pulled channel block is deleted, and with it the window, the caption and the keep fields of
+  // pullSettings. The age and audience rails stay.
+  'pullSettings.windowMinutes',
+  'pullSettings.minMessages',
+  'pullSettings.maxMessages',
+  'pullSettings.maxNewDescriptions',
+  'pullSettings.describeTimeoutMs',
+  'pullSettings.scanMessages',
+  'pullSettings.maxChannels',
+  'pullSettings.seenTtlMinutes',
+  'pullSettings.keepMinutes',
+  'pullSettings.keepTurns',
 ];
 
 const BEFORE: unknown = JSON.parse(

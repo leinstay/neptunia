@@ -6,15 +6,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   audienceCovers,
-  markPingAnswered,
-  markPingSkipped,
   markSeen,
   messageLink,
   pingStatus,
   pingsIn,
   recordPing,
   settleDueAt,
-  stampPings,
 } from '../src/behavior/elsewhere.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
@@ -166,9 +163,9 @@ test('recordPing: a pingMaxAgeDays of 0 keeps calls of any age', () => {
 });
 
 test('recordPing: one entry per message id, the first record and its state kept', () => {
-  let ring = recordPing([], { messageId: 'm1', placeId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
-  ring = markPingAnswered(ring, 'm1', NOW - MIN);
-  ring = recordPing(ring, { messageId: 'm1', placeId: 'src', ts: NOW - MIN }, RING_OPTS);
+  // The answered stamp is written into the stored ring: markPingAnswered left with the old producers in slice 7.
+  const stored = [{ messageId: 'm1', placeId: 'src', ts: NOW - 2 * MIN, answeredAt: NOW - MIN, skippedAt: null }];
+  const ring = recordPing(stored, { messageId: 'm1', placeId: 'src', ts: NOW - MIN }, RING_OPTS);
   assert.equal(ring.length, 1);
   assert.equal(ring[0].ts, NOW - 2 * MIN);
   assert.equal(ring[0].answeredAt, NOW - MIN);
@@ -192,98 +189,6 @@ test('recordPing: garbage in the stored ring or the new call is dropped, never t
     recordPing(undefined, { messageId: 'm3', placeId: 'src', ts: NOW }, RING_OPTS).map((p) => p.messageId),
     ['m3']
   );
-});
-
-test('markPingAnswered: stamps that entry only and keeps the first stamp', () => {
-  let ring: Array<Untyped> = [];
-  ring = recordPing(ring, { messageId: 'm1', placeId: 'src', ts: NOW - 3 * MIN }, RING_OPTS);
-  ring = recordPing(ring, { messageId: 'm2', placeId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
-  const before = ring;
-  ring = markPingAnswered(ring, 'm2', NOW - MIN);
-  assert.equal(before[1].answeredAt, null, 'the input ring is not mutated');
-  assert.equal(ring[0].answeredAt, null);
-  assert.equal(ring[1].answeredAt, NOW - MIN);
-  ring = markPingAnswered(ring, 'm2', NOW);
-  assert.equal(ring[1].answeredAt, NOW - MIN);
-  assert.deepEqual(markPingAnswered(ring, 'unknown', NOW), ring);
-});
-
-test('markPingSkipped: a call the persona chose to skip is skipped, not unanswered', () => {
-  let ring = recordPing([], { messageId: 'm1', placeId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
-  ring = markPingSkipped(ring, 'm1', NOW - MIN);
-  assert.equal(ring[0].skippedAt, NOW - MIN);
-  assert.equal(pingStatus(ring[0]), 'skipped');
-  ring = markPingSkipped(ring, 'm1', NOW);
-  assert.equal(ring[0].skippedAt, NOW - MIN, 'the first skip is kept');
-});
-
-test('markPingSkipped: an answered call stays answered; a later answer wins over a skip', () => {
-  let answered = recordPing([], { messageId: 'm1', placeId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
-  answered = markPingSkipped(markPingAnswered(answered, 'm1', NOW - MIN), 'm1', NOW);
-  assert.equal(answered[0].skippedAt, null);
-  assert.equal(pingStatus(answered[0]), 'answered');
-  let skipped = recordPing([], { messageId: 'm2', placeId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
-  skipped = markPingAnswered(markPingSkipped(skipped, 'm2', NOW - MIN), 'm2', NOW);
-  assert.equal(pingStatus(skipped[0]), 'answered');
-});
-
-test('stampPings: stamps each call in order and reports only the ones whose state changed', () => {
-  let ring: Array<Untyped> = [];
-  for (const id of ['a', 's', 'u', 'w'])
-    ring = recordPing(ring, { messageId: id, placeId: 'src', ts: NOW - 2 * MIN }, RING_OPTS);
-  ring = markPingSkipped(markPingAnswered(ring, 'a', NOW - MIN), 's', NOW - MIN);
-  const before = ring;
-
-  const { ring: next, marked } = stampPings(
-    ring,
-    [
-      { messageId: 'a', status: 'skipped' },
-      { messageId: 's', status: 'answered' },
-      { messageId: 'u', status: 'skipped' },
-      { messageId: 'u', status: 'answered' },
-      { messageId: 'w', status: 'skipped' },
-      { messageId: 'w', status: 'skipped' },
-      { messageId: 'unknown', status: 'answered' },
-    ],
-    NOW
-  );
-
-  assert.deepEqual(
-    marked,
-    [
-      { messageId: 's', placeId: 'src', status: 'answered' },
-      { messageId: 'u', placeId: 'src', status: 'skipped' },
-      { messageId: 'u', placeId: 'src', status: 'answered' },
-      { messageId: 'w', placeId: 'src', status: 'skipped' },
-    ],
-    'an answered call is never skipped, an answer wins over a skip, a repeat changes nothing, an unknown id is passed over'
-  );
-  assert.deepEqual(
-    next.map((p) => [p.messageId, pingStatus(p)]),
-    [
-      ['a', 'answered'],
-      ['s', 'answered'],
-      ['u', 'answered'],
-      ['w', 'skipped'],
-    ]
-  );
-  assert.deepEqual(
-    [next[1].skippedAt, next[1].answeredAt, next[3].skippedAt],
-    [NOW - MIN, NOW, NOW],
-    'earlier stamps are kept'
-  );
-  assert.equal(pingStatus(before[2]), 'unanswered', 'the stored ring is not mutated');
-});
-
-test('stampPings: no stamp, an unknown status or garbage changes nothing and never throws', () => {
-  const ring = recordPing([], { messageId: 'm1', placeId: 'src', ts: NOW - MIN }, RING_OPTS);
-  assert.deepEqual(stampPings(ring, [], NOW), { ring, marked: [] });
-  assert.deepEqual(
-    stampPings(ring, [{ messageId: 'm1', status: 'seen' }, null, { status: 'skipped' }], NOW).marked,
-    []
-  );
-  assert.deepEqual(stampPings(undefined, [{ messageId: 'm1', status: 'skipped' }], NOW), { ring: [], marked: [] });
-  assert.deepEqual(stampPings(ring, undefined, NOW).marked, []);
 });
 
 test('pingsIn: only this channel, only unexpired, oldest first', () => {

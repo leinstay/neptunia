@@ -1,4 +1,4 @@
-// Tests for src/behavior/sandbox-frame.ts: the frame a replayed reply carries on the `new` arm of `--frame`.
+// Tests for src/behavior/sandbox-frame.ts: the frame a replayed reply carries.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,20 +19,15 @@ function turn(memory: ReplayTurn['memory'] = {}): ReplayTurn {
   };
 }
 
-test('the old arm builds no frame, so a replay without --frame keeps the request it always had', () => {
-  // Bug: the default arm carries a frame and the two arms of a comparison render the same request.
-  assert.deepEqual(replayFrame('old', turn()), { frame: null, whereabouts: null });
-  assert.deepEqual(replayFrame(undefined, turn()), { frame: null, whereabouts: null });
-});
-
-test('the new arm places the reply in the stored chain of the channel, with the author as the counterpart', () => {
+test('a replayed reply is placed in the stored chain of the channel, with the author as the counterpart', () => {
   // Bug: the replay builds the frame for the channel id alone, so <spatial_awareness> names a place the live turn does not.
   const chain = [
     { id: 'p-c1', kind: 'channel', name: 'café' },
     { id: 'p-root', kind: 'root', name: 'Ágora' },
   ];
+  // Slice 7: the replay's `--frame old` is gone, so every replayed turn is built on its frame and replayFrame takes
+  // the turn alone.
   const { frame, whereabouts } = replayFrame(
-    'new',
     turn({
       placeOfConversation: () => 'p-c1',
       placeChainOf: (id) => (id === 'p-c1' ? chain : []),
@@ -46,9 +41,9 @@ test('the new arm places the reply in the stored chain of the channel, with the 
   assert.equal(whereabouts?.kind, 'place');
 });
 
-test('the new arm falls back to the channel by its name when the view holds no tree', () => {
+test('a replayed turn falls back to the channel by its name when the view holds no tree', () => {
   // Bug: a snapshot without places gives a frame with no place, and the place check fails on every turn.
-  const { frame } = replayFrame('new', turn());
+  const { frame } = replayFrame(turn());
   assert.equal(frame?.place?.id, 'c1');
   assert.equal(frame?.place?.name, 'café');
 });

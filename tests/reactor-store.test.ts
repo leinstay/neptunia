@@ -13,6 +13,7 @@ import {
 import { formatTranscript, reactorIdsOf } from '../src/format.ts';
 import { labels as fixtureLabels } from './fixtures/labels.ts';
 import { buildRequest, type Built, type Part } from './fixtures/built-request.ts';
+import { framed } from './fixtures/prompt-rig.ts';
 
 const SELF = '100';
 const GUILD = '900';
@@ -429,31 +430,33 @@ test('buildRequest: a reactor on her line gets a handle like an author, only in 
     lore: { scanMessages: 30, maxMatches: 8 },
     memory: { recentHours: 72 },
   });
-  const input = (lines: Array<unknown>, features?: object) => ({
-    config: config(features),
-    prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
-      rules: 'RULES',
-      format: 'FORMAT',
-      reply: 'REPLY',
-      interject: 'INTERJECT',
-      labels,
-    },
-    calibrator: { ratio: 1, apply: (n: number) => n },
-    mode: 'interject',
-    now,
-    selfName: 'Persona',
-    selfId: SELF,
-    history: lines,
-    neighbors: [],
-    trigger: null,
-    triggerKind: null,
-    placeMemory: {},
-    interlocutor: null,
-    otherProfiles: [],
-    candidateProfiles: [{ id: author.id, names: [author.name], aliases: [] }],
-  });
+  // Every request is built on its turn frame (slice 7).
+  const input = (lines: Array<unknown>, features?: object) =>
+    framed({
+      config: config(features),
+      prompts: {
+        'system-prompt': 'SYSTEM',
+        'character-card': 'CARD',
+        rules: 'RULES',
+        format: 'FORMAT',
+        reply: 'REPLY',
+        interject: 'INTERJECT',
+        labels,
+      },
+      calibrator: { ratio: 1, apply: (n: number) => n },
+      mode: 'interject',
+      now,
+      selfName: 'Persona',
+      selfId: SELF,
+      history: lines,
+      neighbors: [],
+      trigger: null,
+      triggerKind: null,
+      placeMemory: {},
+      interlocutor: null,
+      otherProfiles: [],
+      candidateProfiles: [{ id: author.id, names: [author.name], aliases: [] }],
+    });
   const textOf = (request: Built) =>
     request.messages[1].content
       .filter((part: Part) => part.type === 'text')

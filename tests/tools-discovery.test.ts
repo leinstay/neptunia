@@ -290,8 +290,9 @@ test('skillArgs: a skill lists its arguments, the same each time', () => {
     { name: 'n', required: false, minimum: 1, maximum: 50 },
     { name: 'message', required: false },
   ]);
+  // Slice 7: the tool argument `channel` is named `place`.
   assert.deepEqual(skillArgs(registry.get('message.create')), [
-    { name: 'channel', required: false },
+    { name: 'place', required: false },
     { name: 'reply', required: false },
     { name: 'text', required: false },
     { name: 'file', required: false },
@@ -383,10 +384,11 @@ test('describeRows: an exact name gives the skill in full, a family one line eac
   assert.deepEqual(
     exact.rows[0].args.map((arg) => arg.name),
     // The contract gained the stored facts' filters: entity, predicate, as_of and historical (docs/prompt-contract.md).
+    // Slice 7: the tool argument `channel` is named `place`.
     [
       'question',
       'people',
-      'channel',
+      'place',
       'when',
       'terms',
       'anchor',

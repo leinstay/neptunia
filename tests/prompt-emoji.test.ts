@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { rankEmojiCandidates } from '../src/behavior/media-pick.ts';
 import { userText as contentText } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.ts';
+import { frameOfInput } from './fixtures/prompt-rig.ts';
 import { buildRequest, type Built } from './fixtures/built-request.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);
@@ -33,7 +34,7 @@ function fakeConfig(overrides: { caps?: object } = {}) {
 }
 
 function baseInput(overrides = {}) {
-  return {
+  const input = {
     config: fakeConfig(),
     prompts: {
       'system-prompt': 'SYSTEM',
@@ -68,6 +69,8 @@ function baseInput(overrides = {}) {
     otherProfiles: [],
     ...overrides,
   };
+  // Every request is built on its turn frame (slice 7).
+  return { ...input, frame: frameOfInput(input) };
 }
 
 const INDEX = [
@@ -84,6 +87,11 @@ function userText(request: Built) {
 function emojiBlock(request: Built) {
   const match = /<emoji>\n([\s\S]*?)\n<\/emoji>/.exec(userText(request));
   return match ? match[1].split('\n') : null;
+}
+
+function surroundingsOf(request: Built) {
+  const match = /<surroundings>\n([\s\S]*?)\n<\/surroundings>/.exec(userText(request));
+  return match ? match[1] : '';
 }
 
 function sensesOf(request: Built) {
@@ -112,12 +120,14 @@ test('rankEmojiCandidates: falls back to the index order when nothing is ranked 
 });
 
 test('buildRequest: no <emoji> block, and the interface text only with an index', () => {
+  // Slice 7: every request is built on its frame, where the interface's text is in <surroundings>, never in <senses>.
   const withIndex = buildRequest(baseInput({ customEmoji: INDEX, mediaPickText: 'ένα σημάδι' }));
   assert.equal(emojiBlock(withIndex), null);
-  assert.ok(sensesOf(withIndex).split('\n').includes('ένα σημάδι'));
+  assert.ok(surroundingsOf(withIndex).split('\n').includes('ένα σημάδι'));
+  assert.ok(!sensesOf(withIndex).includes('ένα σημάδι'));
   const empty = buildRequest(baseInput({ customEmoji: [], mediaPickText: 'ένα σημάδι' }));
   assert.equal(emojiBlock(empty), null);
-  assert.ok(!sensesOf(empty).includes('ένα σημάδι'));
+  assert.ok(!userText(empty).includes('ένα σημάδι'));
   assert.equal(emojiBlock(buildRequest(baseInput())), null, 'no index passed at all');
 });
 

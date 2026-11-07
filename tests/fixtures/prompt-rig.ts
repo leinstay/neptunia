@@ -7,7 +7,10 @@ import { fill } from '../../src/format.ts';
 import { SAFETY_MARGIN } from '../../src/llm/budget.ts';
 import { estimateTokens } from '../../src/llm/tokens.ts';
 import { labels } from './labels.ts';
+import { frameOf } from '../../src/turn/request/frame.ts';
+import type { Frame } from '../../src/turn/request/frame.ts';
 import type { Built, RequestInput } from './built-request.ts';
+import { DM_CHAIN, ROOM_CHAIN, frameInput } from './frame-input.ts';
 
 type ConfigOverrides = { context?: object; llm?: object; memory?: object; private?: object; features?: object };
 type FakeConfig = {
@@ -76,9 +79,45 @@ export function makeMessage(id: number | string, ts: number, overrides: Record<s
   };
 }
 
+/**
+ * The turn frame of a loose input (src/turn/request/frame.ts): its kind read off `mode`, `triggerKind` and `wakeKind`,
+ * in the fixture's room or, with `privateChat`, in a one-to-one chat, answering the trigger's author.
+ */
+export function frameOfInput(input: Record<string, unknown>): Frame {
+  const text = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+  const trigger = input.trigger as { id?: unknown; authorId?: unknown; authorName?: unknown } | null | undefined;
+  const rawId = trigger?.authorId;
+  const authorId = typeof rawId === 'string' || typeof rawId === 'number' ? String(rawId) : '';
+  const author = trigger
+    ? { personId: `person:${authorId}`, accountId: authorId, name: text(trigger.authorName) }
+    : null;
+  const dm = Boolean(input.privateChat);
+  return frameOf(
+    frameInput({
+      mode: text(input.mode) ?? 'reply',
+      triggerKind: text(input.triggerKind),
+      wakeKind: text(input.wakeKind),
+      chain: dm ? DM_CHAIN : ROOM_CHAIN,
+      dm: dm ? { word: 'private', nativeId: authorId || '1234', partner: author } : null,
+      trigger: trigger ? { messageId: String(trigger.id), authorId } : null,
+      author,
+      now: typeof input.now === 'number' ? input.now : NOW,
+    })
+  );
+}
+
+/** `input` with the turn frame of its own fields (frameOfInput): every request is built on its frame. */
+export function framed<T extends Record<string, unknown>>(input: T): T & { frame: Frame } {
+  return { ...input, frame: frameOfInput(input) };
+}
+
+/**
+ * A loose input of `buildRequest`. Every request is built on its turn frame, so an input without one gets the frame of
+ * its own fields (frameOfInput); a test that passes `frame` keeps its own.
+ */
 export function baseInput(overrides: Record<string, unknown> = {}): RequestInput {
   const history = overrides.history ?? [makeMessage(1, NOW - MIN)];
-  return {
+  const input: Record<string, unknown> = {
     config: fakeConfig(),
     prompts: fakePrompts(),
     calibrator: identityCalibrator(),
@@ -93,7 +132,9 @@ export function baseInput(overrides: Record<string, unknown> = {}): RequestInput
     interlocutor: null,
     otherProfiles: [],
     ...overrides,
-  } as unknown as RequestInput;
+  };
+  if (!Object.hasOwn(overrides, 'frame')) input.frame = frameOfInput(input);
+  return input as unknown as RequestInput;
 }
 
 /** The `<people_now>` body of a request, null when it has none. */

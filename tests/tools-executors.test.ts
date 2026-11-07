@@ -1102,10 +1102,11 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
     code: 'invalid-args',
     arg: 'text',
   });
+  // Slice 7: the tool argument `channel` is named `place`.
   assert.deepEqual(of(resolve('message.create', { place: '#πουθενά' }, 'x')), {
     kind: 'unknown-channel',
     code: 'invalid-args',
-    arg: 'channel',
+    arg: 'place',
   });
   assert.deepEqual(of(resolve('message.delete', { message: '#7' })), {
     kind: 'unknown-message',

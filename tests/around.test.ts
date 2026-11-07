@@ -1,7 +1,6 @@
-// The pieces of a `<people_now>` entry (src/behavior/around.ts): the live fields, the block's notices, the
-// people in voice, the entry itself. The store behind them is fed through tests/fixtures/around-feed.ts with
-// plain objects in the shape of discord.js' VoiceState and Presence; the store itself is tested in
-// tests/behavior-around-store.test.ts. Pure: no client, no network.
+// The pieces of a `<people_now>` entry (src/behavior/around.ts): the live fields and the entry itself. The store
+// behind them is fed through tests/fixtures/around-feed.ts with plain objects in the shape of discord.js' VoiceState
+// and Presence; the store itself is tested in tests/behavior-around-store.test.ts. Pure: no client, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createFedAround } from './fixtures/around-feed.ts';
@@ -11,9 +10,7 @@ import {
   cleanText,
   fieldLine,
   liveFields,
-  liveNotices,
   personRow,
-  voiceOccupants,
 } from '../src/behavior/around.ts';
 import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
@@ -24,8 +21,6 @@ const loose = (value: unknown): Record<string, Untyped> => value as Record<strin
 
 const CHANNELS = { v1: 'Σαλόνι', v2: 'Café', v3: 'Zéro' };
 const channelNameOf = (id: string) => loose(CHANNELS)[id] ?? null;
-const NAMES = { u1: 'Αλέξης', u2: 'Zoë', u3: 'Chloé', u4: 'Ηλίας' };
-const nameOf = (id: string) => loose(NAMES)[id] ?? null;
 
 const voice = (id: string, channelId: string, flags = {}) => ({ id, channelId, ...flags });
 const presence = (accountId: string, status: string, activities: Array<Record<string, unknown>> = []) => ({
@@ -178,45 +173,6 @@ test('liveFields: member text is one line, cut to the clamp, and cannot open or 
   assert.equal([...cleanText(long)].length, AROUND_TEXT_CHARS);
   assert.equal(cleanText(null), '');
   assert.equal(cleanText(42), '');
-});
-
-test('liveNotices: stale and the intent off each add one notice; a fresh snapshot with the intent on adds none', () => {
-  const on = createFedAround({ presences: true });
-  assert.deepEqual(liveNotices(on.snapshot(), labels), []);
-  on.markStale();
-  assert.deepEqual(liveNotices(on.snapshot(), labels), [labels.peopleNow.stale]);
-  const off = createFedAround({ presences: false });
-  assert.deepEqual(liveNotices(off.snapshot(), labels), [labels.peopleNow.unavailable]);
-  off.markStale();
-  assert.deepEqual(liveNotices(off.snapshot(), labels), [labels.peopleNow.stale, labels.peopleNow.unavailable]);
-  assert.deepEqual(liveNotices(null, labels), []);
-  assert.deepEqual(liveNotices(off.snapshot(), {}), []);
-});
-
-test('voiceOccupants: the members in a voice channel that can be named, by name, without the ones excluded', () => {
-  const store = createFedAround();
-  store.voiceUpdate(voice('u1', 'v1', { selfMute: true }));
-  store.voiceUpdate(voice('u2', 'v2'));
-  store.voiceUpdate(voice('u3', 'hidden'));
-  store.voiceUpdate(voice('stranger', 'v1'));
-  store.voiceUpdate(voice('u4', 'v3'));
-  assert.deepEqual(voiceOccupants(store.snapshot(), { nameOf, channelNameOf }), [
-    { accountId: 'u2', name: 'Zoë' },
-    { accountId: 'u1', name: 'Αλέξης' },
-    { accountId: 'u4', name: 'Ηλίας' },
-  ]);
-  assert.deepEqual(voiceOccupants(store.snapshot(), { excludeIds: new Set(['u1', 'u4']), nameOf, channelNameOf }), [
-    { accountId: 'u2', name: 'Zoë' },
-  ]);
-  // The name the event carried stands in for a store name.
-  store.voiceUpdate({ id: 'stranger', channelId: 'v1', member: { displayName: 'Ñandú' } });
-  assert.ok(
-    voiceOccupants(store.snapshot(), { nameOf, channelNameOf }).some(
-      (o) => o.accountId === 'stranger' && o.name === 'Ñandú'
-    )
-  );
-  // No channel namer: nobody can be placed.
-  assert.deepEqual(voiceOccupants(store.snapshot(), { nameOf }), []);
 });
 
 test('personRow: a heading with handle and name, the tag in parentheses, then one field per line; nothing to say is empty', () => {

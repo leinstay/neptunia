@@ -18,28 +18,14 @@ import { SnowflakeUtil } from 'discord.js';
 import { joinLabels } from '../src/config/labels.ts';
 import { deepMerge, isPlainObject } from '../src/config.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../src/time.ts';
-import {
-  buildSelfreflectionPlanRequest,
-  buildDrawPrompt,
-  hasRequiredLabels,
-  userText,
-} from '../src/behavior/prompt.ts';
-import {
-  SELFREFLECTION_KINDS,
-  SEED_SETS,
-  parseSeedFamilies,
-  pickSeeds,
-  renderSeedsBlock,
-} from '../src/behavior/selfreflection.ts';
-import { fill, formatDate } from '../src/format.ts';
+import { buildDrawPrompt, hasRequiredLabels, userText } from '../src/behavior/prompt.ts';
+import { fill } from '../src/format.ts';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { createRecall as createRecallOf } from '../src/behavior/recall-run.ts';
-import { createElsewhereHooks as createElsewhereHooksOf } from '../src/behavior/elsewhere-pick.ts';
 import { createTagHistory } from '../src/behavior/mention.ts';
 import { createMissed as createMissedOf } from '../src/behavior/missed.ts';
 import { createMessageHandler as createMessageHandlerOf } from '../src/behavior/pipeline.ts';
 import { normalizeMessage, normalizeOptions, toEvent } from '../interfaces/discord/index.ts';
-import { takeSnapshot } from '../src/behavior/snapshot.ts';
 import { onWorld, onWorldIface, useIface, useSelf, world, worldChannels } from './fixtures/turn-world.ts';
 import { declarePick, twoCaptionedGifs } from './fixtures/turn-pick.ts';
 
@@ -49,13 +35,12 @@ import { createCalibrator } from '../src/llm/tokens.ts';
 import { createDescriber as createDescriberOf } from '../src/memory/describe.ts';
 import { createAvatarQueue as createAvatarQueueOf } from '../src/memory/avatar-queue.ts';
 import { createLookup as createLookupOf } from '../src/web/lookup.ts';
-import { loadSkills } from '../src/tools/registry.ts';
-import { listSkills } from '../src/tools/gateway.ts';
 import { CATALOGUE } from '../src/tools/codes.ts';
 import { catalogueProblems } from '../scripts/lib/labels-catalogue.ts';
 import { awakeLines, feedbackInTurnText } from '../src/behavior/wake.ts';
 import { frameOf } from '../src/turn/request/frame.ts';
 import { labels as contractLabels } from './fixtures/labels.ts';
+import { framed } from './fixtures/prompt-rig.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { buildRequest } from './fixtures/built-request.ts';
@@ -73,7 +58,6 @@ const createTurnRunner = onWorld(createRealTurnRunner as unknown as Parameters<t
 
 // The fakes of these tests carry the members a factory reads, so each factory takes its options as they are.
 const createRecall = loose(createRecallOf);
-const createElsewhereHooks = loose(createElsewhereHooksOf);
 const createMissed = loose(createMissedOf);
 const createMessageHandler = loose(createMessageHandlerOf);
 const createDescriber = loose(createDescriberOf);
@@ -140,6 +124,10 @@ const NOT_BUILT = {
   'query-builder': 'loaded by the replay and the evaluation scripts; a live turn runs no planner (plan B4)',
   'search-summary': 'loaded behind her web.search call (src/web/lookup.ts), which no turn here makes',
   'recall-summary': 'loaded behind her memory.search call (src/behavior/recall-run.ts), which no turn here makes',
+  // Slice 7: the planner's request is built on the turn frame inside the selfreflection turn, which no builder here
+  // reaches; tests/selfreflection-turn.test.ts and tests/selfreflection-planner.test.ts check what it loads.
+  'selfreflection-planner':
+    'built on the turn frame by the selfreflection turn (src/behavior/selfreflection.ts), checked in tests/selfreflection-turn.test.ts',
   // The errand agents' prompts are not here: they live in agents/<id>/prompt.md, read by the
   // agent runner process (src/agent-runner/profiles.ts), never by a bot request.
 };
@@ -172,6 +160,35 @@ const PENDING_LABELS = {
   'recent.line': 'the <recent> view (spec-recall R3): its wording is a text task for the dev agent',
   'recent.lineIn': 'the <recent> view (spec-recall R3): its wording is a text task for the dev agent',
   'recent.episode': 'the <recent> view (spec-recall R3): its wording is a text task for the dev agent',
+  // Slice 7: retired with the old producers (the channel directory, the pulled channel, the elsewhere and
+  // participation blocks, the server lookup), and the fixture keeps their words so a test can see that the core
+  // renders none.
+  'channelDirectory.lead': 'retired',
+  'channelDirectory.line': 'retired',
+  'senses.lottie': 'retired',
+  'senses.channels': 'retired',
+  'senses.participation': 'retired',
+  'senses.elsewhere': 'retired',
+  'lookup.serverHeader': 'retired',
+  'lookup.bothNote': 'retired',
+  'pull.header': 'retired',
+  'pull.olderNotShown': 'retired',
+  'pull.picturesNotSeen': 'retired',
+  'pull.earlierPings': 'retired',
+  'pull.pingAnswered': 'retired',
+  'pull.pingUnanswered': 'retired',
+  'pull.pingSkipped': 'retired',
+  'pull.seenBefore': 'retired',
+  'pull.seenSame': 'retired',
+  'elsewhere.called': 'retired',
+  'participation.header': 'retired',
+  'participation.channel': 'retired',
+  'participation.channelNoPurpose': 'retired',
+  'participation.episode': 'retired',
+  'participation.skipped': 'retired',
+  'participation.earlierHeader': 'retired',
+  'participation.earlierGap': 'retired',
+  'participation.earlierOpen': 'retired',
 };
 
 const SYSTEM = ['system-prompt', 'character-card', 'rules', 'format'];
@@ -183,14 +200,11 @@ const LOADS = {
   overheard: [...SYSTEM, 'overheard'],
   errandResult: [...SYSTEM, 'errand-result'],
   private: [...SYSTEM, 'reply', 'private'],
-  routed: [...SYSTEM, 'reply'],
-  noticed: [...SYSTEM, 'elsewhere'],
   draw: ['draw', 'appearance'],
   selfreflection: [...SYSTEM, 'selfreflection', 'world'],
   inner: [...SYSTEM, 'inner'],
   heartbeat: [...SYSTEM, 'heartbeat'],
   selfimprovement: [...SYSTEM, 'selfimprovement'],
-  selfreflectionPlan: ['selfreflection-planner', 'world'],
   describe: ['describe'],
   avatar: ['avatar'],
   describeGif: ['describe-gif'],
@@ -199,7 +213,6 @@ const LOADS = {
   lookup: ['query-builder'],
   searchSummary: ['search-summary'],
   recallSummary: ['recall-summary'],
-  elsewherePick: ['elsewhere-pick'],
   split: ['split'],
   merge: ['merge'],
   missed: ['missed'],
@@ -567,7 +580,6 @@ function rawMessage(
 
 const GENERAL_INFO = { id: GENERAL, name: 'général', category: 'Café', topic: 'tout et rien' };
 const GARDEN_INFO = { id: GARDEN, name: 'jardin', category: 'Café', topic: null };
-const SELFREFLECTION_INFO = { id: DIARY, name: 'journal', category: 'Notes', topic: 'one member per thread' };
 
 const GIF_EMBED = {
   url: 'https://tenor.com/view/cat-wave-123',
@@ -755,7 +767,7 @@ async function turnInput(overrides: Record<string, unknown> = {}) {
     private: { enabled: true },
     memory: { mainChannelIds: [GENERAL] },
   });
-  return {
+  const input = {
     config,
     prompts: SHIPPED.prompts,
     calibrator: createCalibrator(),
@@ -790,19 +802,19 @@ async function turnInput(overrides: Record<string, unknown> = {}) {
     recentAudience: () => true,
     ...overrides,
   };
+  // Every request is built on its turn frame (slice 7).
+  return Object.hasOwn(overrides, 'frame') ? input : framed(input);
 }
 
-// The blocks a fully fed server turn renders, each headed or filled by labels.
+// The blocks a fully fed server turn renders, each headed or filled by labels. Slice 7: every request is built on its
+// turn frame (docs/prompt-contract.md), so these are the frame's blocks and none of the old ones.
 const TURN_BLOCKS = [
-  'now',
+  'self',
   'senses',
-  'about_chat',
-  'server',
-  'lore',
-  'self_facts',
+  'surroundings',
+  'memory',
   'people',
-  'other_channels',
-  'lookup',
+  'spatial_awareness',
   'chat',
   'tempo',
   'task',
@@ -866,96 +878,6 @@ test('buildRequest: a reply fills system-prompt, character-card, rules, format a
   const tagged = buildRequest(await turnInput({ triggerKind: 'reply', taggedCall: true }));
   const taggedText = assertFilled(tagged.messages, { files: LOADS.reply, blocks: TURN_BLOCKS }, 'reply (tagged reply)');
   assert.ok(!carries(taggedText, 'follow-up'), 'a tagged reply: the follow-up task is not sent');
-});
-
-test('buildRequest: the skills protocol and an asked-for catalogue fill labels.tools from the shipped skill texts', async () => {
-  const texts = JSON.parse(fs.readFileSync(path.join(PROMPTS_DIR, '..', 'config', 'tools.json'), 'utf8'));
-  const shipped = shippedConfig();
-  // message.edit granted to the persona (the bot's user, as `/nep access grant` stores it).
-  const self = '799999999999999999';
-  const config = {
-    ...shipped,
-    bot: { ...shipped.bot, access: { 'message.edit': { everyone: false, roles: [], users: [self] } } },
-  };
-  // Stand-ins named as the operations, with no operation behind them: the shipped texts are keyed by those names.
-  const registry = loadSkills(
-    // @ts-expect-error stand-ins named as the operations, without the operation behind them
-    ['message.create', 'message.edit', 'message.delete']
-      .map((name) => ({
-        name,
-        op: null,
-        argsSchema: { type: 'object' },
-        effects: 'write',
-        costClass: 'free',
-        targets: null,
-      }))
-      .map((definition) =>
-        definition.name !== 'message.edit'
-          ? definition
-          : {
-              ...definition,
-              // Every form of an argument: required, the body option, a range, an enum. A command makes it a
-              // derived skill, so an operation stands behind it (message.edit is her own: no requester right).
-              op: 'message.edit',
-              argsSchema: {
-                type: 'object',
-                properties: {
-                  message: { type: 'string' },
-                  text: { type: 'string' },
-                  n: { type: 'integer', minimum: 1, maximum: 50 },
-                  kind: { type: 'string', enum: ['turn', 'all'] },
-                },
-                required: ['message', 'text'],
-                additionalProperties: false,
-              },
-              dispatch: { op: 'message.edit', toOp: () => ({}), body: 'text' },
-            }
-      ),
-    { getOp: (name) => ({ name, rights: { kind: 'write' } }) }
-  );
-  const rows = listSkills({
-    config,
-    selfId: self,
-    texts,
-    requester: { id: ANA },
-    audience: { conversationId: GENERAL },
-    registry,
-  });
-  const request = buildRequest(await turnInput({ skillsInventory: rows }));
-  const text = assertFilled(
-    request.messages,
-    { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'tool_catalogue'] },
-    'reply (skills catalogue)'
-  );
-  // Only what she may use now: carried over and allowed; a closed skill is not listed.
-  assert.ok(text.includes(`(${LABELS.tools.access.allowed})`), 'labels.tools.access.allowed');
-  // message.create, carried over, has no shipped texts yet: listed by its name alone.
-  assert.ok(
-    texts['message.create'] !== undefined || text.includes('\nmessage.create\n'),
-    'a skill without texts by its name'
-  );
-  assert.ok(!text.includes('message.delete'), 'a closed skill is not listed');
-  const forms = (LABELS.tools as unknown as { args: Record<string, string> }).args;
-  const args = fill(forms.list, {
-    list: [
-      fill(forms.required, { arg: 'message' }),
-      fill(forms.required, { arg: 'text' }),
-      fill(forms.range, { arg: 'n', min: 1, max: 50 }),
-      fill(forms.values, { arg: 'kind', values: 'turn|all' }),
-    ].join(', '),
-  });
-  assert.ok(
-    text.includes(
-      fill(LABELS.tools.line, {
-        name: 'message.edit',
-        title: texts['message.edit'].title,
-        whenToUse: texts['message.edit'].whenToUse,
-        access: LABELS.tools.access.allowed,
-        args,
-      })
-    ),
-    'the arguments through labels.tools.args'
-  );
 });
 
 test('buildRequest: the text transport describes her tools in <tools> in the stable part, the same for another requester', async () => {
@@ -1052,100 +974,6 @@ test('buildRequest: a private chat fills private.md after the reply task', async
     'private'
   );
   assert.ok(text.includes(LABELS.senses.privateChat), 'the private senses line');
-});
-
-/**
- * #journal, a channel the persona reads but cannot write in, pulled into a turn in #général
- * (`reason`): Ana's lines, an earlier call answered, the last line a call when `called`.
- */
-function selfreflectionPulled(reason: string, { called = true }: { called?: boolean } = {}) {
-  const at = (minutes: number) => NOW - minutes * MINUTE_MS;
-  const messages = normalize([
-    rawMessage(SELFREFLECTION_INFO, { ts: at(40), author: PEOPLE[ANA], content: 'journal du jour : semis' }),
-    rawMessage(SELFREFLECTION_INFO, {
-      ts: at(30),
-      author: PEOPLE[ANA],
-      content: '@Zoë tu te souviens ?',
-      mentions: [SELF_ID],
-    }),
-    rawMessage(SELFREFLECTION_INFO, { ts: at(20), author: PEOPLE[ANA], content: 'et les tomates ?' }),
-    rawMessage(SELFREFLECTION_INFO, {
-      ts: at(3),
-      author: PEOPLE[ANA],
-      content: called ? '@Zoë alors, ces tomates ?' : 'les tomates ont gelé',
-      mentions: called ? [SELF_ID] : [],
-    }),
-  ]);
-  const earlier = messages[1];
-  return {
-    placeId: DIARY,
-    channelName: 'journal',
-    readOnly: true,
-    canReact: true,
-    reason,
-    earlierPingIds: new Set([earlier.id]),
-    olderNotShown: true,
-    descriptions: new Map(),
-    picturesNotSeen: 2,
-    pingState: new Map([[earlier.id, 'answered']]),
-    newestId: messages.at(-1)!.id,
-    newestTs: messages.at(-1)!.ts,
-    messages,
-  };
-}
-
-test('buildRequest: a routed call fills the task and renders the pulled channel with its call', async () => {
-  const pulled = selfreflectionPulled('routed');
-  const call = pulled.messages.at(-1);
-  const input = await turnInput({
-    trigger: call,
-    pulled: [pulled],
-    source: { placeId: DIARY, reason: 'routed' },
-    elsewhereDestination: { name: 'général' },
-  });
-  const request = buildRequest(input);
-  const text = assertFilled(
-    request.messages,
-    { files: LOADS.routed, blocks: [...TURN_BLOCKS, 'channel_view'] },
-    'routed'
-  );
-  const { timezone } = input.config.bot;
-  for (const [key, line] of [
-    ['elsewhere.called', fill(LABELS.elsewhere.called, { channel: 'journal', destination: 'général' })],
-    ['senses.elsewhere', fill(LABELS.senses.elsewhere, { destination: 'général' })],
-    ['server.readOnly', LABELS.server.readOnly],
-    ['pull.olderNotShown', LABELS.pull.olderNotShown],
-    ['pull.picturesNotSeen', fill(LABELS.pull.picturesNotSeen, { count: 2 })],
-    [
-      'pull.earlierPings',
-      fill(LABELS.pull.earlierPings, { date: formatDate(pulled.messages[1].ts, timezone, LABELS.locale) }),
-    ],
-    ['pull.pingAnswered', LABELS.pull.pingAnswered],
-  ]) {
-    assert.ok(text.includes(line), `${key} is rendered`);
-  }
-});
-
-test('buildRequest: a noticed turn fills elsewhere.md with the channel it read and the one it speaks in', async () => {
-  const pulled = selfreflectionPulled('noticed', { called: false });
-  const request = buildRequest(
-    await turnInput({
-      mode: 'elsewhere',
-      trigger: null,
-      triggerKind: null,
-      interlocutor: null,
-      pulled: [pulled],
-      source: { placeId: DIARY, reason: 'noticed' },
-      elsewhereDestination: { name: 'général' },
-    })
-  );
-  const text = assertFilled(
-    request.messages,
-    { files: LOADS.noticed, blocks: ['senses', 'channel_view', 'chat', 'tempo', 'task'] },
-    'noticed'
-  );
-  // Slice 5: interject.md is deleted, so only reply.md could still ride along.
-  assert.ok(!carries(text, 'reply'), 'the task is elsewhere.md alone');
 });
 
 test('buildDrawPrompt: draw.md and appearance.md are filled for a picture the persona is in', () => {
@@ -1348,51 +1176,19 @@ test('buildRequest: a diary post fills system-prompt, character-card, rules, for
     selfreflectionChannel: 'journal',
     selfreflection: { posts: SELFREFLECTION_POSTS, plan, found: 'Une comète passe ce soir.' },
   });
+  // Slice 7: the writer is built on its turn frame, so its blocks are the frame's: the plan in `<inner>` and the world
+  // in `<virtual_world>`, her entries coming from memory alone (slice 6).
   const text = assertFilled(
     request.messages,
-    { files: LOADS.selfreflection, blocks: ['senses', 'world', 'diary', 'plan', 'found', 'chat', 'task'] },
+    {
+      files: LOADS.selfreflection,
+      blocks: ['self', 'senses', 'inner', 'plan', 'virtual_world', 'spatial_awareness', 'task'],
+    },
     'selfreflection'
   );
   assert.ok(
     text.includes(fill(LABELS.senses.selfreflection, { channel: 'journal' })),
     'senses.selfreflection names the channel'
-  );
-});
-
-test('buildSelfreflectionPlanRequest: selfreflection-planner.md and world.md fill the plan request with its blocks', async () => {
-  const config = shippedConfig({ selfreflection: { world: true, placeId: DIARY } });
-  const seeds = renderSeedsBlock(
-    // PR 7d: the seed sets and the kinds are the constants of src/behavior/selfreflection.ts.
-    pickSeeds(
-      parseSeedFamilies((SHIPPED.prompts as Record<string, unknown>)['selfreflection-seeds']),
-      SEED_SETS,
-      () => 0.5
-    ),
-    LABELS
-  );
-  const request = buildSelfreflectionPlanRequest({
-    config,
-    prompts: SHIPPED.prompts,
-    calibrator: createCalibrator(),
-    now: NOW,
-    selfName: SELF_NAME,
-    history: [],
-    placeMemory: GUILD_MEMORY,
-    channels: CHANNELS,
-    loreEntries: LORE,
-    currentChannelId: DIARY,
-    recentLines: RECENT_LINES,
-    recentAudience: () => true,
-    candidateProfiles: Object.values(PROFILES),
-    nameOf,
-    posts: SELFREFLECTION_POSTS,
-    kinds: SELFREFLECTION_KINDS,
-    seedsText: seeds,
-  });
-  assertFilled(
-    request.messages,
-    { files: LOADS.selfreflectionPlan, blocks: ['now', 'places', 'about_chat', 'world', 'diary', 'kinds', 'seeds'] },
-    'diary plan'
   );
 });
 
@@ -1612,103 +1408,6 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
     },
     'the turn'
   );
-});
-
-/** The persona's stored exchanges: one in #jardin and one in #journal, both inside the window. */
-function participationState() {
-  const own = (id: string, ts: number, text: string) => ({
-    id,
-    ts,
-    authorId: SELF_ID,
-    name: SELF_NAME,
-    self: true,
-    text,
-    replyTo: null,
-    caption: null,
-  });
-  const member = (id: string, ts: number, text: string) => ({
-    id,
-    ts,
-    authorId: NIKOS,
-    name: 'Nikos',
-    self: false,
-    text,
-    replyTo: null,
-    caption: 'a tomato plant',
-  });
-  return {
-    nextId: 3,
-    episodes: [
-      {
-        id: 'p1',
-        placeId: GARDEN,
-        continues: null,
-        messages: [
-          member('pa1', NOW - 3 * 60 * MINUTE_MS, 'les tomates ont poussé'),
-          own('pa2', NOW - 3 * 60 * MINUTE_MS + MINUTE_MS, 'enfin !'),
-        ],
-      },
-      {
-        id: 'p2',
-        placeId: DIARY,
-        continues: null,
-        messages: [own('pb1', NOW - 40 * MINUTE_MS, 'je relis mes notes')],
-      },
-    ],
-  };
-}
-
-// Plan 2026-11-04-cli-and-memory B3: one pick fills one prompt with both lists.
-test('createElsewhereHooks: the elsewhere pick fills elsewhere-pick.md', async () => {
-  const hot = shippedHot();
-  const channels = worldChannelsOf([
-    [GENERAL_INFO, generalRaws()],
-    [GARDEN_INFO, []],
-    [SELFREFLECTION_INFO, []],
-  ]);
-  const store = {
-    getParticipation: () => participationState(),
-    listChannels: () => CHANNELS,
-    getUser: (id: string) => PROFILES[id] ?? null,
-  };
-  const llm = recordingLlm(() => 'place: none\nepisodes: none');
-  const hooks = createElsewhereHooks({ hot, store, llm, now: () => NOW });
-  const history = await generalHistory();
-  const snapshot = await takeSnapshot(world().reads, GUILD);
-  const { result } = await withCapturedLogs(() =>
-    hooks.routeChannels({
-      placeId: GUILD,
-      channel: channels[GENERAL].info,
-      snapshot,
-      history,
-      trigger: history.at(-1),
-      triggerKind: 'mention',
-      mode: 'reply',
-      selfName: SELF_NAME,
-    })
-  );
-  assert.deepEqual(result, []);
-  assert.equal(llm.calls.length, 1, 'one pick request');
-  assertFilled(
-    llm.calls[0].messages,
-    { files: LOADS.elsewherePick, blocks: ['transcript', 'places', 'episodes', 'candidate'] },
-    'elsewhere-pick'
-  );
-});
-
-test('buildRequest: the <participation> block fills its labels and the senses line', async () => {
-  const request = buildRequest(
-    await turnInput({
-      participation: { state: participationState(), pickedIds: [], audience: () => true, channelName: () => null },
-    })
-  );
-  const text = assertFilled(
-    request.messages,
-    { files: LOADS.reply, blocks: [...TURN_BLOCKS, 'participation'] },
-    'participation'
-  );
-  assert.ok(text.includes(LABELS.senses.participation), 'senses.participation rides with the block');
-  assert.ok(text.indexOf('<participation>') < text.indexOf('<other_channels>'));
 });
 
 // ---- several requests in one message, several calls waiting ------------------------------

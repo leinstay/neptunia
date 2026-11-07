@@ -213,10 +213,11 @@ test('the API names: 75, well-formed, unique, a round trip, no longer than 64', 
 });
 
 test('a reference argument is a reference, and only those', () => {
+  // Slice 7: the tool argument `channel` is named `place`.
   for (const definition of SKILL_DEFINITIONS) {
     for (const [name, schema] of Object.entries(definition.params.properties ?? {})) {
       const isRef =
-        schema.type === 'string' && schema.maxLength === 100 && ['channel', 'attend', 'user', 'role'].includes(name);
+        schema.type === 'string' && schema.maxLength === 100 && ['place', 'attend', 'user', 'role'].includes(name);
       assert.equal(Object.hasOwn(definition.refs, name), isRef, `${definition.name}.${name}`);
     }
   }
@@ -252,7 +253,8 @@ test('voice.say: a paid skill of hers, text required, no owner command', () => {
   assert.equal(definition?.effects, 'paid');
   assert.equal(definition?.body, 'text');
   assert.deepEqual(definition?.params.required, ['text']);
-  assert.deepEqual(Object.keys(definition?.params.properties ?? {}), ['text', 'channel', 'reply']);
+  // Slice 7: the tool argument `channel` is named `place`.
+  assert.deepEqual(Object.keys(definition?.params.properties ?? {}), ['text', 'place', 'reply']);
   assert.deepStrictEqual(definition?.toArgs({ text: 't', reply: 'm' }), { text: 't', replyTo: 'm' });
 });
 

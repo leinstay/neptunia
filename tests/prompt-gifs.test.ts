@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { gifFieldChars, gifLine, userText as contentText } from '../src/behavior/prompt.ts';
 import { rankGifs } from '../src/memory/gifs.ts';
 import { labels } from './fixtures/labels.ts';
+import { frameOfInput } from './fixtures/prompt-rig.ts';
 import { buildRequest, type Built, type Part } from './fixtures/built-request.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);
@@ -37,7 +38,7 @@ function fakeConfig(overrides: { caps?: object } = {}) {
 }
 
 function baseInput(overrides: Record<string, unknown> = {}) {
-  return {
+  const input = {
     config: fakeConfig(),
     prompts: {
       'system-prompt': 'SYSTEM',
@@ -72,6 +73,8 @@ function baseInput(overrides: Record<string, unknown> = {}) {
     otherProfiles: [],
     ...overrides,
   };
+  // Every request is built on its turn frame (slice 7).
+  return { ...input, frame: frameOfInput(input) };
 }
 
 /** A library entry: a link GIF keyed `k<n>` with handle `g<n>`. */

@@ -305,8 +305,9 @@ test('skills schemas: her own table gives each skill its arguments', () => {
   assert.deepEqual(props('media.status'), ['kind']);
   assert.deepEqual(props('media.recache'), ['kind', 'days']);
   const create = skillRegistry().get('message.create');
+  // Slice 7: the tool argument `channel` is named `place`.
   assert.deepEqual(Object.keys(create?.argsSchema.properties ?? {}), [
-    'channel',
+    'place',
     'reply',
     'text',
     'file',
@@ -316,7 +317,7 @@ test('skills schemas: her own table gives each skill its arguments', () => {
   ]);
   assert.deepEqual(create?.argsSchema.required, []);
   assert.equal(create?.dispatch?.body, 'text');
-  assert.ok(Object.hasOwn(skillRegistry().get('draw.create')?.argsSchema.properties ?? {}, 'channel'));
+  assert.ok(Object.hasOwn(skillRegistry().get('draw.create')?.argsSchema.properties ?? {}, 'place'));
   assert.deepEqual(skillRegistry().get('draw.create')?.argsSchema.properties?.self, { type: 'boolean' });
   assert.deepEqual(skillRegistry().get('lore.add')?.argsSchema.properties?.always, { type: 'boolean' });
   assert.deepEqual(skillRegistry().get('route.set')?.argsSchema.properties?.fallbacks, { type: 'boolean' });
@@ -943,7 +944,8 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
   // PR 7d: no skill sits behind a feature switch any more, so every skill has a row.
   assert.equal(rows.length, skillNames().length);
   const byName = new Map(rows.map((row) => [row.name, row]));
-  const channel = { name: 'channel', required: false };
+  // Slice 7: the tool argument `channel` is named `place`.
+  const place = { name: 'place', required: false };
   const body = { name: 'text', required: true };
   const message = { name: 'message', required: true };
   assert.deepEqual(byName.get('message.create'), {
@@ -953,7 +955,7 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
     allowed: true,
     reason: 'carried-over',
     args: [
-      channel,
+      place,
       { name: 'reply', required: false },
       { name: 'text', required: false },
       { name: 'file', required: false },
@@ -968,7 +970,7 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
     whenToUse: '',
     allowed: true,
     reason: 'allowed',
-    args: [message, body, channel],
+    args: [message, body, place],
   });
   assert.deepEqual(byName.get('message.delete'), {
     name: 'message.delete',
@@ -976,7 +978,7 @@ test('skills list: one row per skill with its texts, allowed or not and why', ()
     whenToUse: '',
     allowed: false,
     reason: 'not-allowed',
-    args: [message, channel],
+    args: [message, place],
   });
   assert.deepEqual(byName.get('memory.restore'), {
     name: 'memory.restore',

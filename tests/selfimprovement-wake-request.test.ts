@@ -24,9 +24,7 @@ import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { workLines } from '../src/behavior/selfimprovement-text.ts';
 import { joinLabels } from '../src/config/labels.ts';
 import { createHot } from '../src/hot.ts';
-import { createCalibrator } from '../src/llm/tokens.ts';
 import { briefFrom } from '../src/development/brief.ts';
-import { buildRequest } from './fixtures/built-request.ts';
 import { selfimprovementWorld } from './fixtures/selfimprovement-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { ANCHOR_LINE, PROMPT_MARK, WAKE_NOW, requestText, wakeOfKind, wakeTurn } from './fixtures/wake-turn.ts';
@@ -103,70 +101,6 @@ test('a local selfdev.md is the executor brief and never replaces her wake promp
   } finally {
     hot.close();
   }
-});
-
-/** The tracked layer's settings and labels with marker prompts, and the input of a selfimprovement wake's request. */
-function shippedInput(overrides: Record<string, unknown>): object {
-  const config: unknown = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
-  const labels: unknown = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'labels.json'), 'utf8'));
-  return {
-    config,
-    prompts: {
-      'system-prompt': 'system',
-      'character-card': PROMPT_MARK.card,
-      format: 'format',
-      inner: PROMPT_MARK.inner,
-      selfimprovement: PROMPT_MARK.selfimprovement,
-      labels: joinLabels(labels as never),
-    },
-    calibrator: createCalibrator(),
-    mode: 'inner',
-    forced: false,
-    now: WAKE_NOW,
-    selfName: 'Her',
-    history: [],
-    neighbors: [],
-    trigger: null,
-    triggerKind: 'inner',
-    interlocutor: null,
-    otherProfiles: [],
-    candidateProfiles: [],
-    nameOf: (id: string) => id,
-    channels: [
-      { id: 'c1', name: 'general' },
-      { id: 'c2', name: 'hidden' },
-    ],
-    loreEntries: [],
-    descriptions: new Map(),
-    neighborDescriptions: new Map(),
-    videos: new Map(),
-    reads: new Map(),
-    wakeKind: 'selfimprovement',
-    wake: '',
-    ...overrides,
-  };
-}
-
-test('guard: the wake request carries recent memory the audience rule allows and leaves out what it refuses', () => {
-  const line = (id: number, placeId: string, text: string) => ({
-    id,
-    at: WAKE_NOW - 2 * HOUR,
-    addedAt: iso(WAKE_NOW - HOUR),
-    placeId,
-    text,
-    who: [],
-    weight: 2,
-  });
-  const request = buildRequest(
-    shippedInput({
-      recentLines: [line(1, 'c1', 'an eligible moment'), line(2, 'c2', 'a private moment')],
-      recentAudience: (placeId: string | null) => placeId === 'c1',
-    })
-  );
-  const text = requestText(request.messages as never);
-  assert.ok(text.includes(PROMPT_MARK.card));
-  assert.ok(text.includes('an eligible moment'));
-  assert.ok(!text.includes('a private moment'));
 });
 
 const JOURNAL_AT = WAKE_NOW - HOUR;

@@ -1285,38 +1285,6 @@ test('createReplayTools.prefetch: the live lanes of the trigger, run as of the m
   assert.equal(runs.length, 1);
 });
 
-test('the step engine with a prefetch: <retrieved> stands in every request, as live', async () => {
-  const prefetch = {
-    status: 'ok',
-    basis: ['message'],
-    excerpts: [
-      {
-        source: 'history',
-        placeId: 'c2',
-        channelName: 'κήπος',
-        startTs: NOW - 86_400_000,
-        id: 'r1',
-        ids: ['r1'],
-        hitIds: ['r1'],
-        lines: '>> [09:00] Élodie: plus ultra',
-      },
-    ],
-  };
-  const { llm } = await loopRun(
-    [toolAnswer(THINK, [call('web.search', { query: 'τελικός' })]), `${THINK}<msg>ok</msg>`],
-    { tool: () => okTool('κάτι'), prefetch }
-  );
-  assert.equal(llm.calls.length, 2);
-  for (const recorded of llm.calls) {
-    const user = userOf(recorded);
-    assert.ok(user.includes(`<retrieved>\n${labels.prefetch.header}`), user);
-    assert.ok(user.includes('>> [09:00] Élodie: plus ultra'));
-    assert.ok(user.indexOf('<retrieved>') < user.indexOf('<chat>'));
-  }
-  const { llm: bare } = await loopRun([`${THINK}<msg>ok</msg>`], { tool: () => okTool('κάτι') });
-  assert.ok(!userOf(bare.calls[0]).includes('<retrieved>'), 'none handed in: no block');
-});
-
 // ---- --loop-triggers and --pair-transport over fakes ----
 
 /** What runTriggerLoops needs, faked: one real-shaped trigger in a one-line chat, the tools answering ok, a model answering `answers`. */

@@ -1,12 +1,13 @@
 // src/turn/request/senses.ts: what she is told about looking things up in each search configuration.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderSenses, sensesWhole } from '../src/turn/request/senses.ts';
+import { renderSenses } from '../src/turn/request/senses.ts';
 import { labels } from './fixtures/labels.ts';
 
 function linesOf(enabled: boolean, searchAvailable: boolean, toolsGranted: Array<string>): Array<string> {
   const config = { web: { quickSearch: { enabled } } } as Parameters<typeof renderSenses>[0];
-  return sensesWhole(renderSenses(config, labels, { searchAvailable, toolsGranted })).split('\n');
+  const { stable, turn } = renderSenses(config, labels, { searchAvailable, toolsGranted });
+  return [stable, turn].filter(Boolean).join('\n').split('\n');
 }
 
 test('she is told the way she has: quick alone, deep alone, both, or neither, and a known page stays readable', () => {

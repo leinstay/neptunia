@@ -427,10 +427,9 @@ export const labels = {
   spatial: {
     place: 'SPATIAL-PLACE {path} ON {iface} AT {when}',
     within: ' < ',
+    // Slice 7: a native kind of place reads `kind` with the interface's noun, so only the core's own kinds stay.
+    kind: '{noun} {name}',
     kinds: {
-      server: 'server {name}',
-      channel: 'channel #{name}',
-      thread: 'thread {name}',
       dm: 'dm {name}',
       group_dm: 'group dm {name}',
       place: 'place {name}',
