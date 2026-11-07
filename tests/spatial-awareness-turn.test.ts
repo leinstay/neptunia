@@ -79,8 +79,8 @@ for (const kind of ['heartbeat', 'selfimprovement']) {
     const run = await wakeTurn({ wake: wakeOfKind(kind, `${kind}:1`), answers: ['<skip/>'], board: null });
     const body = spatialOf(wakeRequestText(run.requests[0] ?? []));
     // Slice 5 (d): a service's whereabouts add the wake kind as the reason she is awake, after the place and the clock.
-    const [where, ...rest] = body.split('\n');
+    const [where, ...rest] = String(body).split('\n');
     assert.equal(where, `SPATIAL-SERVER AT ${formatNow(WAKE_NOW, 'UTC', labels.locale)}`);
-    assert.ok(rest.join('\n').includes(kind), body);
+    assert.ok(rest.join('\n').includes(kind), String(body));
   });
 }
