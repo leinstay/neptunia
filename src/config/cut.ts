@@ -438,6 +438,8 @@ const CODE: Readonly<Record<string, unknown>> = {
   'memoryDb.focus.enabled': true,
   'memoryDb.wakeRuns': true,
   'heartbeat.focusSource': 'db',
+  // A non-empty prompts/world.md is always the selfreflection's `<virtual_world>`.
+  'selfreflection.world': true,
 };
 
 /** The switches and knobs that went with their code, with the value production ran with. */

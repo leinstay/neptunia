@@ -157,7 +157,7 @@ export type RequestConfig = {
     readonly links?: { readonly enabled?: unknown };
     readonly quickSearch?: { readonly enabled?: unknown };
   };
-  readonly selfreflection?: { readonly world?: unknown; readonly historyPosts?: number; readonly sceneChars?: number };
+  readonly selfreflection?: { readonly entries?: number; readonly sceneChars?: number };
   readonly media?: { readonly video?: { readonly sites?: ReadonlyArray<string> } };
   readonly models?: { readonly base?: Record<string, unknown> };
 };

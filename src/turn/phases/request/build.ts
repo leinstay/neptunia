@@ -1,6 +1,7 @@
 // The last step of a turn's request: her tools for the turn, the request input with every block named, the request
 // built (twice for a heartbeat whose handles follow the request's own lines), the record of the memory rows it carried
-// and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it last.
+// and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it last. Beside
+// it, the selfreflection planner's request on the same frame (`plannerRequest`), which the setup step hands the plan.
 
 import { accountOf, personOfMember, placeOfConversation } from '../../../memory/addresses.ts';
 import { buildRequest } from '../../../behavior/prompt.ts';
@@ -22,7 +23,10 @@ import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
 import { pickOtherProfiles } from '../../mentions.ts';
 import { channelDirectoryOf } from '../../routing.ts';
-import { frameOf, framedRequest } from '../../request/frame.ts';
+import { PLANNER_MODE, frameOf, framedRequest } from '../../request/frame.ts';
+import { entriesShownOf } from '../../request/selfreflection.ts';
+import type { PlanParts } from '../../selfreflection.ts';
+import type { PastEntry } from '../../../memory/db/selfreflection-past.ts';
 import type { Frame, FrameParty } from '../../request/frame.ts';
 import { whereaboutsOfFrame } from '../../request/spatial.ts';
 import type { PlaceLink } from '../../request/spatial.ts';
@@ -486,6 +490,125 @@ function serviceInnerOf(
   return work || board ? { work, board } : null;
 }
 
+/**
+ * Her newest selfreflection entries the turn's context may read, as many as `entriesShownOf` says, oldest first, read
+ * from memory alone (src/memory/db/selfreflection-past.ts#readSelfreflection). None without a reader or a context.
+ */
+function pastEntriesOf(
+  ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf'>,
+  draft: Draft,
+  channel: Opened['channel'],
+  config: Setup['config']
+): Array<PastEntry> {
+  const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
+  if (!memoryContext) return [];
+  return ctx.frameReads?.selfreflection?.(memoryContext, entriesShownOf(config)) ?? [];
+}
+
+/**
+ * The selfreflection planner's request on the turn frame: the kind `selfreflection_plan`, nowhere, with the service
+ * template's `<memory>`, `<meanwhile>` and `<my_day>`, the world, her past entries and what it chooses from in `<inner>`,
+ * and prompts/selfreflection-planner.md as its task. Nothing of a chat: it answers nobody and offers no tool.
+ */
+export function plannerRequest(
+  ctx: PhaseContext,
+  draft: Draft,
+  opened: Opened,
+  turn: { config: Setup['config']; selfName: string; selfId: string; now: number },
+  parts: PlanParts
+): BuiltRequest {
+  const { channel, isPrivate } = opened;
+  const { config, selfName, selfId, now } = turn;
+  const prompts = ctx.hot.prompts;
+  const timezone = String(config.bot?.timezone ?? 'UTC');
+  const frame = frameOfTurn(ctx.store, {
+    channel,
+    isPrivate,
+    mode: PLANNER_MODE,
+    triggerKind: null,
+    wakeKind: null,
+    inner: false,
+    trigger: null,
+    now,
+    timezone,
+  });
+  const facts = { history: [], trigger: null, prefetch: null, labels: prompts?.labels, now };
+  const framed = framedInputsOf(ctx, frame, draft, channel, facts);
+  return requestOf(
+    turnRequestInput({
+      frame,
+      config,
+      prompts,
+      calibrator: ctx.calibrator,
+      mode: PLANNER_MODE,
+      now,
+      selfName,
+      selfId,
+      history: [],
+      neighbors: [],
+      trigger: null,
+      triggerKind: null,
+      taggedCall: null,
+      placeMemory: {},
+      interlocutor: null,
+      privateChat: null,
+      privateProfile: null,
+      otherProfiles: [],
+      candidateProfiles: [],
+      nameOf: null,
+      channels: [],
+      channelDirectory: [],
+      loreEntries: [],
+      currentChannelId: null,
+      descriptions: null,
+      neighborDescriptions: null,
+      videos: null,
+      imageAnswers: null,
+      reads: null,
+      lookup: null,
+      prefetch: null,
+      searchAvailable: false,
+      recallAvailable: false,
+      drawOn: false,
+      customEmoji: [],
+      mediaPickText: null,
+      mediaCache: null,
+      gifs: null,
+      pulled: null,
+      source: null,
+      tasks: null,
+      readOnlyIds: [],
+      recentLines: null,
+      recentAudience: null,
+      participation: null,
+      selfreflectionChannel: null,
+      selfreflectionChannelIds: [],
+      elsewhereDestination: null,
+      offPeriods: null,
+      selfreflection: { entries: pastEntriesOf(ctx, draft, channel, config), ...parts },
+      skillsInventory: null,
+      skillIndex: null,
+      toolsGranted: null,
+      toolsBlock: null,
+      toolsTokens: 0,
+      around: null,
+      errands: null,
+      intentions: '',
+      wake: null,
+      awake: null,
+      serviceInner: null,
+      wakeKind: null,
+      places: null,
+      previousThink: null,
+      callMarks: null,
+      stableFreeze: null,
+      myDay: myDayLines(ctx, { draft, channel, config, prompts, now }),
+      whereabouts: whereaboutsOfFrame(frame),
+      ...framed,
+    })
+  );
+}
+
 /** The budget's line of a request: one entry per section (src/llm/budget.ts). */
 function statsOf(request: BuiltRequest): Record<string, { dropped?: number }> {
   return request.stats as Record<string, { dropped?: number }>;
@@ -653,16 +776,12 @@ export function buildTurnRequest(
         }
       : null,
     // `<senses>`: where the persona keeps its selfreflection, when one is set.
-    selfreflectionChannel: selfreflectionChannelName(
-      placeId,
-      config,
-      snapshot,
-      finalMode === 'selfreflection' ? channel : null
-    ),
-    // A selfreflection post: its past posts, its plan and what its search found.
+    selfreflectionChannel: selfreflectionChannelName(placeId, config, snapshot, null),
+    // A selfreflection post: its past entries from memory, its plan, what its search found and the mirrors.
     selfreflection: selfreflectionPrep
       ? {
           posts: selfreflectionPrep.posts,
+          entries: pastEntriesOf(ctx, draft, channel, config),
           plan: selfreflectionPrep.plan,
           found: selfreflectionPrep.found,
           seeds: selfreflectionPrep.seeds ?? '',

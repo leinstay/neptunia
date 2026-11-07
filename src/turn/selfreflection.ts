@@ -1,15 +1,14 @@
 // A selfreflection post's first step and its picture gate: the post history, whether the post may carry a picture, the plan
-// request with its seeds and the owner's topic, the search the plan asks for, and the seeds of a set post.
+// request with its kinds, seeds and the owner's topic, the search the plan asks for, and the seeds of a set post. The plan
+// request itself is built on the turn frame by the request step (src/turn/phases/request/build.ts#plannerRequest).
 // createTurnRunner (src/behavior/turn.ts) builds it once per runner with createSelfreflection; the attempt calls prepareSelfreflection
 // before it builds a selfreflection post's request, and runTurn asks selfreflectionPictureGate before a forced picture kind.
 
-import { accountOf, sharedPlaceOf } from '../memory/addresses.ts';
 import { PERSONA_ID } from '../memory/db/storage-keys.ts';
 import { selfreflectionRestricted } from '../tools/publication.ts';
 import { fill } from '../format.ts';
 import { personOfMember } from '../memory/addresses.ts';
 import { listOf, objOf } from '../tools/types.ts';
-import { block } from './request/text.ts';
 import { isIssuedInternalContext } from '../memory/db/scope.ts';
 import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import { factStateWords } from '../memory/retrieval-input.ts';
@@ -30,6 +29,7 @@ import {
   pickKind,
   pickSeeds,
   planSeed,
+  renderKindsBlock,
   renderSeedsBlock,
   renderTopicBlock,
   SEED_SETS,
@@ -40,19 +40,13 @@ import {
 } from '../behavior/selfreflection.ts';
 import { pictureGate } from '../behavior/selfreflection-turn.ts';
 import type { PictureGate } from '../behavior/selfreflection-turn.ts';
-import { selfreflectionConversationIds } from '../behavior/mirror.ts';
-import { buildSelfreflectionPlanRequest } from '../behavior/prompt.ts';
-import { audienceAllows } from '../behavior/snapshot.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { DailyCapError, TokenLimitError, hedgeSettings, railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
-import { NO_RECENT } from './history.ts';
 import type { JournalNotes } from './journal-notes.ts';
-import type { Participation } from './participation.ts';
-import { snapshotOfDraft } from './routing.ts';
 
 /** The `selfreflection` section of the live config, as the first step reads it. */
 type SelfreflectionSection = {
@@ -77,20 +71,19 @@ type SelfreflectionPrompts = Record<string, unknown> & { labels?: unknown };
 export type SelfreflectionStore = {
   getSelfreflection?: () => { posts?: Array<object> } | null | undefined;
   getPlace: (placeId: string) => object | null;
-  listChannels: (placeId: string) => Array<object>;
-  getLore: (placeId: string) => Array<object>;
-  topPlaces?: () => Array<string>;
   listUserProfiles: () => Array<object>;
-  getUser: (accountId: string) => { names?: Array<string | null> } | null | undefined;
   state: { data: Parameters<typeof pictureGate>[0]['data'] };
 };
 
+/** The messages of a request, as the client sends them. */
+type PlanMessages = ReadonlyArray<{ role: string; content: unknown }>;
+
+/** What the planner chooses from, each already rendered: the kinds, the seeds, the owner's topic and the stored facts. */
+export type PlanParts = { kinds: string; seeds: string; topic: string; facts: string };
+
 /** The language model client (src/llm/openrouter.ts#createLlm), as the plan request uses it. */
 export type SelfreflectionLlm = {
-  complete: (
-    messages: ReturnType<typeof buildSelfreflectionPlanRequest>['messages'],
-    options: object
-  ) => Promise<unknown>;
+  complete: (messages: PlanMessages, options: object) => Promise<unknown>;
 };
 
 /** The web lookup (src/web/lookup.ts#createLookup), as the plan's search uses it. */
@@ -108,12 +101,10 @@ export type SelfreflectionContext = {
   hot: { readonly prompts: SelfreflectionPrompts | null | undefined };
   store: SelfreflectionStore;
   llm: SelfreflectionLlm;
-  calibrator: object;
   rng: () => number;
   lookup: SelfreflectionLookup | undefined;
   images: SelfreflectionImages | undefined;
   journalOp: JournalNotes['journalOp'];
-  recentOfPlaces: Participation['recentOfPlaces'];
 };
 
 /** What the owner's command asked of a selfreflection post: a forced kind, a topic, whether it was forced. */
@@ -138,11 +129,11 @@ export type Selfreflection = {
     config: SelfreflectionConfig;
 
     channel: ConversationInfo;
-    selfName: string;
-    history: Array<object>;
     now: number;
     params: SelfreflectionParams;
     memoryOn: boolean;
+    /** The planner's request on the turn frame over what it chooses from; null when it cannot be built. */
+    planMessages: (parts: PlanParts) => PlanMessages | null;
     draft?:
       | (NonNullable<Parameters<JournalNotes['journalOp']>[0]> & {
           snapshot?: Snapshot | null;
@@ -207,7 +198,7 @@ async function reflectionFacts(
     const states = objOf(objOf(objOf(labels).prefetch).factStates);
     const line = words.fact;
     const lines = page.assertions.map((fact) => fill(line, { state: factStateWords(fact, states), text: fact.text }));
-    return block('stored_facts', [words.header, ...lines].join('\n'));
+    return [words.header, ...lines].join('\n');
   } catch (err) {
     logger.warn('selfreflection: retrieval failed', { code: objOf(err).code ?? null });
     return '';
@@ -232,31 +223,21 @@ export function selfreflectionPlaceNotes(
 }
 
 export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection {
-  const {
-    hot,
-    store,
-    llm,
-    calibrator,
-    rng,
-    lookup,
-    images,
-    journalOp,
-    recentOfPlaces,
-    selfreflectionFacts = null,
-  } = ctx;
+  const { hot, store, llm, rng, lookup, images, journalOp, selfreflectionFacts = null } = ctx;
 
   /**
    * A selfreflection post's first step (mode `selfreflection`), before its request is built:
    * the post history (store.getSelfreflection), whether it may carry a picture (the
-   * image client and Attach Files here), then the plan request (src/behavior/prompt.ts#buildSelfreflectionPlanRequest:
-   * prompts/selfreflection-planner.md on the classifier model, `selfreflection.planMaxOutputTokens`
-   * (300), `selfreflection.planTimeoutMs` (20000), usage purpose `selfreflection-planner`; when
+   * image client and Attach Files here), then the plan request (`planMessages`, the turn frame's request of the kind
+   * `selfreflection_plan` with prompts/selfreflection-planner.md as its task, on the `analyzer` role,
+   * `selfreflection.planMaxOutputTokens` (2000), `selfreflection.planTimeoutMs` (60000), usage purpose
+   * `selfreflection-planner`; when
    * `llm.hedge` hedges `analyzer`, the hedged call is limited by
    * `selfreflection.planTimeoutMs` rather than `llm.hedge.timeoutMs`) with
    * `<seeds>` drawn from prompts/selfreflection-seeds.md (SEED_SETS, without the lines the newest
    * `selfreflection.historyPosts` entries built on: src/behavior/selfreflection.ts#usedSeedLines) and,
    * with an owner's topic (`params.topic`, src/behavior/selfreflection.ts#selfreflectionTopic),
-   * a `<topic>` block after them; the topic also rides on the plan as its
+   * a `<topic>` after them, and the stored facts of the interval as `<stored_facts>`; the topic also rides on the plan as its
    * `topic` field (the `<plan>` block of the post). The request hands the client src/behavior/selfreflection.ts#selfreflectionPlanFormat over the kinds it offers,
    * and the answer goes through parsePlanAnswer and validatePlan
    * (the given kind with an empty brief when the answer is missing or broken; `selfreflection.searchKinds`,
@@ -280,11 +261,10 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
   async function prepareSelfreflection({
     config,
     channel,
-    selfName,
-    history,
     now,
     params,
     memoryOn,
+    planMessages,
     draft = null,
   }: Parameters<Selfreflection['prepareSelfreflection']>[0]): Promise<SelfreflectionPrepared> {
     const prompts = hot.prompts;
@@ -310,51 +290,25 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
     const chosenKind = forcedKind ?? drawnKind;
     const kinds: Record<string, number> = chosenKind ? { [chosenKind]: 1 } : drawable;
 
-    // What the entry may draw on: the notes of every server she is in.
-    const tops = store.topPlaces?.() ?? [];
     let answer: unknown = null;
     let offered: Array<Array<string>> = [];
     const planPrompt = prompts?.['selfreflection-planner'];
+    let messages: PlanMessages | null = null;
     if (typeof planPrompt === 'string' && planPrompt.trim() && labels) {
-      const recent = memoryOn
-        ? recentOfPlaces(tops, { channel, snapshot: snapshotOfDraft(draft), isPrivate: false, config, now })
-        : NO_RECENT;
-      const factsText = memoryOn ? await reflectionFacts(selfreflectionFacts, store, posts, now, labels, log) : '';
-      // The rail the pulls pass (context.pull.sameAudience): the planner names no room narrower than the post's readers.
-      const snapshot = snapshotOfDraft(draft);
-      const placeAudience = channel.rootId
-        ? (placeId: string) => audienceAllows(channel, snapshot?.get(placeId) ?? null, config)
-        : null;
+      const facts = memoryOn ? await reflectionFacts(selfreflectionFacts, store, posts, now, labels, log) : '';
       // The lines the newest entries built on stay out of the draw, so the planner is offered other scenes.
       const used = usedSeedLines(stored?.posts, DEFAULT_HISTORY_POSTS);
       offered = pickSeeds(parseSeedFamilies(prompts['selfreflection-seeds']), SEED_SETS, rng, used).map((set) =>
         set.map(String)
       );
-      const seedsText = renderSeedsBlock(offered, labels);
-      const request = buildSelfreflectionPlanRequest({
-        config,
-        prompts,
-        calibrator,
-        now,
-        selfName,
-        history,
-        placeMemory: memoryOn
-          ? selfreflectionPlaceNotes(store, tops, channel.rootId ? sharedPlaceOf(store, channel) : null)
-          : null,
-        channels: memoryOn ? tops.flatMap((place) => store.listChannels(place)) : [],
-        loreEntries: memoryOn ? tops.flatMap((place) => store.getLore(place)) : [],
-        currentChannelId: channel.id,
-        selfreflectionChannelIds: selfreflectionConversationIds(store),
-        recentLines: recent.lines ?? null,
-        recentAudience: recent.audience ?? null,
-        placeAudience,
-        candidateProfiles: memoryOn ? store.listUserProfiles() : [],
-        nameOf: memoryOn ? (id: string) => store.getUser(accountOf(store, id))?.names?.[0] ?? null : null,
-        posts,
-        kinds,
-        seedsText,
-        topicText: [renderTopicBlock(topic, labels), factsText].filter(Boolean).join('\n\n'),
+      messages = planMessages({
+        kinds: renderKindsBlock(kinds, posts, labels, { window: DEFAULT_HISTORY_POSTS }),
+        seeds: renderSeedsBlock(offered, labels),
+        topic: renderTopicBlock(topic, labels),
+        facts,
       });
+    }
+    if (messages) {
       const planTimeoutMs = selfreflectionCfg.planTimeoutMs ?? 60000;
       // A hedged plan request gets the plan's own limit, not llm.hedge.timeoutMs.
       const hedge = hedgeSettings(config);
@@ -365,7 +319,7 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
       const offeredKinds = Object.keys(kinds);
       let completion: unknown = null;
       try {
-        completion = await llm.complete(request.messages, {
+        completion = await llm.complete(messages, {
           model: roleModel(config, 'analyzer', 'selfreflection-planner'),
           ...roleRequestOptions(config, {
             role: 'analyzer',

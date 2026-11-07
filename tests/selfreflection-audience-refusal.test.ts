@@ -64,9 +64,13 @@ function requestText(value: unknown): string {
   return '';
 }
 
-/** The body of the request's `<audience_refused>` block, or null when it has none. */
+/**
+ * The body of the request's `<feedback>` part of `<inner>`, or null when it has none. In these scenes nothing else
+ * failed, so the part holds the refused audiences alone.
+ */
 function refusalBlock(request: unknown): string | null {
-  return /<audience_refused>([\s\S]*?)<\/audience_refused>/.exec(requestText(request))?.[1] ?? null;
+  // Slice 6: the refused audiences are told in `<feedback>` inside `<inner>`, which replaces `<audience_refused>`.
+  return /<feedback>([\s\S]*?)<\/feedback>/.exec(requestText(request))?.[1] ?? null;
 }
 
 /** Whether the request tells her of a refused audience. */

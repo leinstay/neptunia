@@ -115,6 +115,7 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   // A chain's turn runs under the attention it holds; taken before anything is awaited, so two turns cannot both take it.
   const attentionId = conversation?.conversationId ?? PERSONA_ID;
   draft.nowhere = conversation === null;
+  draft.mode = mode;
   if (!owned && !takeAttention(busy, attentionId)) return { ended: { outcome: 'busy' } };
   const letGo = () => {
     if (owned) return;
@@ -140,7 +141,6 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   // The journal: the turn starts here, past the pause and
   // attention rails; a later attempt of the same turn (journalTurn) keeps its id.
   if (journalOn()) {
-    draft.mode = mode;
     const started = journal.start(placeId, journalStartOf({ draft, channel, trigger, triggerKind, mode, journalTurn }));
     // The journal of the tree's top keeps the attempt's records.
     draft.started = { ...started, placeId };

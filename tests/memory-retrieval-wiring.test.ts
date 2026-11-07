@@ -243,6 +243,9 @@ test('a diary plan is told the stored facts of group conversations and no privat
     now: START + 3_600_000,
     params: {},
     memoryOn: true,
+    // Slice 6: the plan request is built on the frame by the request step; this stand-in carries the stored facts the
+    // step read, so the assertions below still see what reached the planner.
+    planMessages: (parts: { facts: string }) => [{ role: 'user', content: parts.facts }],
   }).catch(() => null);
   const text = JSON.stringify(asked);
   assert.ok(text.includes(FACT_TEXT), 'the plan request carries no stored fact');

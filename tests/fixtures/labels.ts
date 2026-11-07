@@ -406,10 +406,17 @@ export const labels = {
     kinds: 'Post kinds and their recent use:',
     kindLine: '{key} weight {weight}, used {count} of the last {window}',
     plan: 'Plan for this post:',
+    // Slice 6: the plan is rendered as lines (src/turn/request/selfreflection.ts#planBody), one label per field.
+    planKind: 'Kind: {value}',
+    planBrief: 'Brief: {value}',
+    planPicture: 'With a picture.',
+    planNoPicture: 'No picture.',
+    planTopic: 'Topic: {value}',
     found: 'What the search found. Retell it in your own words; no links, no quoting.',
     seeds: 'Random seeds (place; setting; detail; activity; subject; twist):',
     topic: 'Topic the owner asked for:',
     publicationPlaces: 'Who may read this post, and the audience tag:',
+    publicationPlace: '{place} {name}, on {iface}',
     audienceRefused: 'not published {date}: {gist}: {reason}',
     audienceReasons: {
       'audience-unknown-place': 'that place is not listed',

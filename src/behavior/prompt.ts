@@ -31,8 +31,8 @@
 //      `<people_now>` entry (the entry lives and dies with the profile)
 //   6b. the members the persona feels most strongly about that the request
 //       does not describe (`<attitudes>`, one piece: names and bands)
-//   6c. a selfreflection post only (mode `selfreflection`): the persona's world (`<world>`, one piece, under
-//       `selfreflection.world`), then its past selfreflection posts (`<diary>`, the oldest lines cut first);
+//   6c. a selfreflection post with no frame only (mode `selfreflection`): the persona's world (`<world>`, one piece),
+//       then its past selfreflection posts (`<diary>`, the oldest lines cut first);
 //       the post's `<plan>` and a set post's `<seeds>` are never cut, and what its search found (`<found>`) ranks
 //       right after `<lookup>`
 //   7. neighbouring channels
@@ -52,8 +52,8 @@
 // (src/behavior/private.ts). Pictures of another channel are shown as
 // captions only: nothing outside the turn's own channel is ever attached.
 // buildRequest assembles the request from the block builders of src/turn/request/, one module per
-// group of blocks. The selfreflection's plan request, the classifiers' transcript and the drawing prompt are
-// built here too.
+// group of blocks. The classifiers' transcript and the drawing prompt are built here too, and the selfreflection's old plan
+// request, which no turn builds since the planner runs on the turn frame; it leaves with the old producers.
 
 import { createHash } from 'node:crypto';
 import { fitSections, requestTokenLimit, sectionCost } from '../llm/budget.ts';
@@ -381,8 +381,8 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   own, src/behavior/selfreflection.ts) when one is set: `<senses>` gains `senses.selfreflection` with
  *   `{channel}`. Omitted or null -> no line. `input.selfreflectionChannelIds` (ids) are its places, marked in `<server>`.
  * @param [input.selfreflection]  A selfreflection post's own input, read only with `mode:
- *   'selfreflection'` (whose task text is `prompts.selfreflection`): `<world>` (prompts/world.md, `{{name}}` filled,
- *   only with `selfreflection.world === true`, see `worldText`; one piece, fitted right after `<attitudes>`),
+ *   'selfreflection'` (whose task text is `prompts.selfreflection`) on a request with no frame: `<world>` (prompts/world.md,
+ *   `{{name}}` filled, see `worldText`; one piece, fitted right after `<attitudes>`),
  *   `<diary>` (the past posts through src/behavior/selfreflection.ts#renderSelfreflectionBlock, the newest
  *   `selfreflection.historyPosts` (150 when unset) oldest first, fitted after `<world>` and losing its
  *   oldest lines first), `<plan>` (`labels.selfreflection.plan`, then the plan as one JSON line with `kind`,
@@ -540,7 +540,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   const turnPlace = input.whereabouts ?? null;
   const ownPlace = ownTime
     ? { kind: 'server' as const }
-    : turnKind === 'selfreflection'
+    : turnKind === 'selfreflection' || turnKind === 'selfreflection_plan'
       ? { kind: 'world' as const }
       : null;
   const whereabouts = turnPlace && ownPlace ? ownPlace : turnPlace;
@@ -770,14 +770,14 @@ function placesNamed(
 }
 
 /**
- * The selfreflection's plan request (prompts/selfreflection-planner.md, sent on the classifier
- * model by src/behavior/turn.ts): the system message is the plan prompt with
+ * The selfreflection's old plan request, which no turn sends: the planner's request is built on the turn frame
+ * (src/turn/phases/request/build.ts#plannerRequest). The system message is the plan prompt with
  * `{{name}}` filled; the user message carries, in this order, `<now>`,
  * `<places>` (the stored channel map, the selfreflection channel first as the current
  * one, without a place `placeAudience` refuses: a post that everyone reads does not retell a narrower room), `<about_chat>`, `<recent>` (the lines `recentAudience` accepts and the
  * members' moments of the last `memory.recentHours`, oldest first; needs
  * `labels.recent.header` and `line`), `<lore>` (the entries the selfreflection
- * channel's lines match), `<world>` (`worldText`, under `selfreflection.world`),
+ * channel's lines match), `<world>` (`worldText`),
  * `<diary>` (the past posts, as in the post request), `<kinds>`
  * (src/behavior/selfreflection.ts#renderKindsBlock over `kinds`, the use counted among
  * the newest `selfreflection.historyPosts`) and `<seeds>` (`seedsText`, already

@@ -28,13 +28,6 @@ export const SELFREFLECTION: ReadonlyArray<SchemaEntry> = [
       "The seed of the selfreflection's first mirror: schema v15 makes this channel's place a `selfreflection` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it",
   },
   {
-    'key': 'selfreflection.world',
-    'types': ['boolean'],
-    'reader': 'src/behavior/prompt.ts',
-    'default': false,
-    'text': 'Include `prompts/world.md` as a `<world>` block in selfreflection requests',
-  },
-  {
     'key': 'selfreflection.windows',
     'types': ['array'],
     'reader': 'src/behavior/selfreflection.ts',
@@ -61,12 +54,19 @@ export const SELFREFLECTION: ReadonlyArray<SchemaEntry> = [
     'text': 'Milliseconds a forced post waits for a running turn',
   },
   {
+    'key': 'selfreflection.entries',
+    'types': ['number'],
+    'reader': 'src/turn/request/selfreflection.ts',
+    'default': 150,
+    'text': 'How many of her newest stored entries `<selfreflection>` shows the planner and the writer, oldest first',
+  },
+  {
     'key': 'selfreflection.sceneChars',
     'types': ['number'],
     'reader': 'src/turn/request/selfreflection.ts',
     'default': 400,
     'text':
-      "Characters of a past picture post's picture description that `<diary>` shows as its scene when the post has no stored plan, cut at a word boundary",
+      "Characters of a past picture post's picture description that `<selfreflection>` shows as its scene when the post has no stored plan, cut at a word boundary",
   },
   {
     'key': 'selfreflection.loop.maxSteps',

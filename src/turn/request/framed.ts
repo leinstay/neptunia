@@ -1,7 +1,7 @@
 // The result of a request built on the turn frame (src/turn/request/reader.ts), in the shape buildRequest returns for
 // every request: the messages, the budget's line, the cache segments, the archive's blocks, the handles and what of
-// the chat went in. buildRequest (src/behavior/prompt.ts) calls it for a reply and an errand's result once the head,
-// the task, the senses and her own texts are built. Pure.
+// the chat went in. buildRequest (src/behavior/prompt.ts) calls it for every request on the frame once the head, the
+// task, the senses and her own texts are built. Pure.
 
 import { createHash } from 'node:crypto';
 import { liveFields } from '../../behavior/around.ts';
@@ -16,6 +16,8 @@ import type { SurroundingsInput } from './reader.ts';
 import { ordered } from './reads.ts';
 import { renderSenses } from './senses.ts';
 import type { SensesOf } from './senses.ts';
+import { selfreflectionFramedOf } from './selfreflection.ts';
+import type { SelfreflectionFramed } from './selfreflection.ts';
 import { seenOf } from './tail.ts';
 import type { Task } from './task.ts';
 import { resolveChatText } from './text.ts';
@@ -79,10 +81,16 @@ function storedFactsOf(prefetch: RequestInput['prefetch']): Array<StoredFact> {
   );
 }
 
-/** The request of a reply or an errand's result on the frame. */
+/** What she has not been told: the turn's facts, then a selfreflection request's refused audiences; null with neither. */
+function feedbackOf(told: string, selfreflection: SelfreflectionFramed | null): string | null {
+  return [told, selfreflection?.feedback ?? ''].filter(Boolean).join('\n') || null;
+}
+
+/** The request of a turn on the frame. */
 export function framedBuild(given: RequestInput, steps: FramedSteps): BuildRequestResult {
   const { frame, base, task, senses, own, room, tempo, tempoText } = steps;
   const { labels, nameOf } = base;
+  const selfreflection = selfreflectionFramedOf({ ...given, labels });
   const surroundings: SurroundingsInput = {
     interfaceText: interfaceTextOf(given, base),
     root: given.surroundings?.root ?? null,
@@ -119,11 +127,12 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
       myDay: own.myDayText ? [own.myDayText] : [],
       intentions: own.intentionsText || null,
       errands: own.errandsText.list || null,
-      feedback: own.wakeText || null,
+      feedback: feedbackOf(own.wakeText, selfreflection),
       work: given.serviceInner?.work || null,
       board: given.serviceInner?.board || null,
       previousThink: given.previousThink ?? null,
     },
+    selfreflection,
     errandResult: own.errandsText.result,
     nameOf,
     lineOf: given.refLineOf ?? null,

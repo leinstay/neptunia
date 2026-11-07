@@ -24,6 +24,17 @@ import type { Channel } from './fixtures/turn-world.ts';
 import { appendedPost, selfreflectionCounts, entryOf, publishTo } from './fixtures/selfreflection-mirror.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { planAnswerText } from './fixtures/plan-answer.ts';
+import { mirrorScene } from './fixtures/mirror-scene.ts';
+import {
+  FRAME_NOW,
+  JOURNAL,
+  PAGES,
+  TEXT as FRAME_TEXT,
+  blockOf,
+  frameTurn,
+  gistOf,
+  partOf,
+} from './fixtures/selfreflection-frame.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -259,6 +270,16 @@ function runner({
 // The whole user text, every cache part: the stable part always carries the static senses lines.
 const userOf = (messages: Untyped) => userText(messages[1].content);
 
+/** The writer's `<plan>` body for `plan` as lines: the intro, the kind, the brief, the picture and the owner's topic. */
+const planLines = (plan: { kind: string; brief: string; picture: boolean; topic?: string }): string =>
+  [
+    labels.selfreflection.plan,
+    fill(labels.selfreflection.planKind, { value: plan.kind }),
+    fill(labels.selfreflection.planBrief, { value: plan.brief }),
+    plan.picture ? labels.selfreflection.planPicture : labels.selfreflection.planNoPicture,
+    ...(plan.topic === undefined ? [] : [fill(labels.selfreflection.planTopic, { value: plan.topic })]),
+  ].join('\n');
+
 test('diary turn: plans on the analyzer model, then composes with the card', async () => {
   // The lead: the code draws the diary's kind (owner, 2026-11-06).
   const posts = [
@@ -277,10 +298,13 @@ test('diary turn: plans on the analyzer model, then composes with the card', asy
   assert.equal(loose(result).outcome, 'spoke');
   assert.equal(llm.calls.length, 2);
   const [plan, compose] = llm.calls;
-  assert.equal(plan[0].content, 'PLAN_SYSTEM for Bot');
+  // Slice 6: the planner is a frame request: the persona is its system message and the planner prompt its `<task>`,
+  // the time is in `<spatial_awareness>`, the world in `<virtual_world>`, the kinds and the seeds in `<inner>`.
+  assert.ok(String(plan[0].content).includes('CARD_TEXT'), 'the planner is the persona');
   const planUser = userOf(plan);
-  for (const tag of ['now', 'world', 'diary', 'kinds', 'seeds'])
+  for (const tag of ['spatial_awareness', 'virtual_world', 'inner', 'kinds', 'seeds'])
     assert.ok(planUser.includes(`<${tag}>`), `plan request: <${tag}>`);
+  assert.ok(planUser.includes('<task>\nPLAN_SYSTEM for Bot\n</task>'), 'the planner prompt is the task');
   assert.ok(planUser.includes('WORLD of Bot'));
   assert.ok(planUser.includes('- a pier; fog'), 'one seed line per family');
   assert.equal(llm.options[0].role, 'analyzer');
@@ -291,18 +315,16 @@ test('diary turn: plans on the analyzer model, then composes with the card', asy
 
   assert.ok(compose[0].content.includes('CARD_TEXT'), 'the post is composed with the card');
   const composeUser = userOf(compose);
-  assert.ok(composeUser.includes('<world>\nWORLD of Bot\n</world>'));
+  // Slice 6: the world is `<virtual_world>` whenever world.md has text, and the plan is lines in `<inner>`, no JSON.
+  // Her past entries come from memory, which this fake store has not: '<selfreflection> holds the newest 150 of 200
+  // stored entries oldest first' below checks that they reach the writer. The writer is nowhere, so no diary channel
+  // is named in its senses.
+  assert.ok(composeUser.includes('<virtual_world>\nWORLD of Bot\n</virtual_world>'));
   assert.ok(
-    composeUser.includes(
-      `<plan>\n${labels.selfreflection.plan}\n${JSON.stringify({ kind: 'status', brief: 'tired of rain', picture: false })}\n</plan>`
-    )
+    composeUser.includes(`<plan>\n${planLines({ kind: 'status', brief: 'tired of rain', picture: false })}\n</plan>`),
+    composeUser
   );
-  assert.ok(composeUser.includes('une journée grise'));
   assert.ok(composeUser.includes('<task>\nDIARY_TASK for Bot\n</task>'));
-  assert.ok(
-    composeUser.includes(fill(labels.senses.selfreflection, { channel: 'journal' })),
-    'the senses name the diary'
-  );
 });
 
 test('diary turn: a hedged plan request is limited by diary.planTimeoutMs, an unhedged one carries no hedge', async () => {
@@ -365,8 +387,9 @@ test("diary turn: a forced kind skips the planner's choice", async () => {
     !planUser.includes(fill(labels.selfreflection.kindLine, { key: 'status', weight: 1, count: 0, window: 0 })),
     'the only kind offered'
   );
+  // Slice 6: the writer's plan is lines, no JSON.
   assert.ok(
-    userOf(llm.calls[1]).includes(JSON.stringify({ kind: 'selfPicture', brief: 'a pier in the fog', picture: true })),
+    userOf(llm.calls[1]).includes(planLines({ kind: 'selfPicture', brief: 'a pier in the fog', picture: true })),
     'the brief is kept'
   );
   assert.equal(store.appended[0].post.kind, 'selfPicture');
@@ -384,11 +407,14 @@ test('diary turn: a topic becomes a <topic> block in the plan request and a fiel
   const topicBlock = `<topic>\n${labels.selfreflection.topic}\nle vieux port\n</topic>`;
   assert.ok(planUser.includes(topicBlock), 'the plan request carries the topic block');
   assert.ok(planUser.indexOf('<seeds>') < planUser.indexOf('<topic>'), 'the topic follows the seeds');
-  assert.ok(planUser.trimEnd().endsWith('</topic>'), 'the topic is the last block');
+  // Slice 6: the topic is a part of `<inner>`, the last one with memory off (no `<stored_facts>`), and the request goes
+  // on with the frame's later blocks.
+  assert.ok(blockOf(planUser, 'inner').trimEnd().endsWith('</topic>'), 'the topic is the last part of <inner>');
   const composeUser = userOf(llm.calls[1]);
+  // Slice 6: the writer's plan is lines, the owner's topic one of them.
   assert.ok(
     composeUser.includes(
-      `<plan>\n${labels.selfreflection.plan}\n${JSON.stringify({ kind: 'status', brief: 'harbour at dusk', picture: false, topic: 'le vieux port' })}\n</plan>`
+      `<plan>\n${planLines({ kind: 'status', brief: 'harbour at dusk', picture: false, topic: 'le vieux port' })}\n</plan>`
     ),
     'the plan carries the topic'
   );
@@ -412,7 +438,8 @@ test('diary turn: no topic leaves the requests unchanged', async () => {
     assert.deepEqual(llm.calls, plain.calls, `topic ${JSON.stringify(topic)}: byte-identical requests`);
   }
   assert.ok(!userOf(plain.calls[0]).includes('<topic>'));
-  assert.ok(!userOf(plain.calls[1]).includes('"topic"'));
+  // Slice 6: the plan is lines, so no topic means no topic line (the JSON key it looked for is gone).
+  assert.ok(!userOf(plain.calls[1]).includes(fill(labels.selfreflection.planTopic, { value: '' }).trim()));
 });
 
 test('diary turn: searches when the plan asks and passes the summary as found', async () => {
@@ -430,9 +457,9 @@ test('diary turn: searches when the plan asks and passes the summary as found', 
   });
   // Her diary searches under the persona: it belongs to no server.
   assert.deepEqual(lookup.calls, [{ placeId: 'persona:local', query: 'comet tonight' }]);
-  assert.ok(
-    userOf(llm.calls[1]).includes(`<found>\n${labels.selfreflection.found}\nA comet is visible tonight.\n</found>`)
-  );
+  // Slice 6: what the search found is the last group of lines of `<plan>` in `<inner>`, no block of its own.
+  const plan = partOf(blockOf(userOf(llm.calls[1]), 'inner'), 'plan');
+  assert.ok(plan.endsWith(`${labels.selfreflection.found}\nA comet is visible tonight.`), plan);
   assert.equal(store.appended[0].post.search, 'comet tonight');
   assert.equal(loose(result).selfreflection.search, true);
 });
@@ -451,7 +478,8 @@ test('diary turn: a failed search posts without a find and logs it', async () =>
         selfreflection: { kind: 'news', forced: false },
       })
     );
-    assert.ok(!userOf(llm.calls[1]).includes('<found>'));
+    // Slice 6: a find rides at the end of `<plan>`, so no find means no find label there (`<found>` is gone).
+    assert.ok(!userOf(llm.calls[1]).includes(labels.selfreflection.found));
     assert.ok(
       logs.some((l) => l.msg === 'selfreflection: search failed'),
       String(outcome)
@@ -484,8 +512,9 @@ test('diary turn: a picture kind draws even when the planner said no picture', a
     selfreflection: { kind: 'selfPicture', forced: false },
   });
   const compose = userOf(llm.calls[1]);
+  // Slice 6: the writer's plan is lines, no JSON.
   assert.ok(
-    compose.includes(JSON.stringify({ kind: 'selfPicture', brief: 'a pier', picture: true })),
+    compose.includes(planLines({ kind: 'selfPicture', brief: 'a pier', picture: true })),
     'the plan says picture'
   );
   assert.equal(images.prompts.length, 1, 'the picture is drawn');
@@ -1216,4 +1245,97 @@ test('diary set: the compose request carries selfreflection.set.seedSets seeds f
     selfreflection: { kind: 'status', forced: false },
   });
   assert.ok(!userOf(text.calls[1]).includes('<seeds>'));
+});
+
+// The selfreflection turn on the turn frame (plan 2026-11-06-turn-frame, slice 6, with the owner's answers of
+// 2026-11-07): `conversation: null`, `<selfreflection>` in `<inner>` read from the `selfreflection` table, newest
+// `selfreflection.entries` oldest first, `<meanwhile>` as in the service template, and the entry still reaching
+// every mirror. tests/fixtures/selfreflection-frame.ts holds the scene.
+
+/** The positions of the gists of entries `from` to `to` (inclusive) in `text`, -1 for an absent one. */
+const gistsAt = (text: string, from: number, to: number): Array<number> =>
+  Array.from({ length: to - from + 1 }, (_, i) => text.indexOf(gistOf(from + i)));
+
+test('<selfreflection> holds the newest 150 of 200 stored entries oldest first', async () => {
+  // Bug: the block keeps the old history cut, reads the first mirror's messages, or renders newest first.
+  // Slice 6: the setting is `selfreflection.entries` (the owner's rule: `diary` only in prompts).
+  const run = await frameTurn({ entries: 200, selfreflection: { entries: 150 } });
+  const text = run.writer[0] ?? '';
+  const block = partOf(blockOf(text, 'inner'), 'selfreflection');
+  const kept = gistsAt(block, 50, 199);
+  assert.ok(
+    kept.every((at) => at >= 0),
+    `kept ${kept.filter((at) => at >= 0).length} of 150`
+  );
+  assert.deepEqual(
+    kept,
+    [...kept].sort((a, b) => a - b),
+    'oldest first'
+  );
+  assert.ok(
+    gistsAt(block, 0, 49).every((at) => at < 0),
+    'the 50 oldest are left out'
+  );
+  assert.ok(!text.includes('<diary>'), 'the tag is <selfreflection>');
+});
+
+test('<selfreflection> reads no mirror place', async () => {
+  // Bug: the entries are rebuilt from the mirror's history, through the interface or from her stored lines there.
+  const run = await frameTurn({ entries: 3 });
+  const block = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'selfreflection');
+  assert.ok(block.includes(gistOf(2)), block);
+  assert.ok(!block.includes(FRAME_TEXT.mirrorOnly), block);
+  const { port } = run;
+  const reads = port.calls.filter((one: { op: string }) => one.op === 'history' || one.op === 'fetchMessages');
+  assert.deepEqual(reads, []);
+});
+
+test('<selfreflection> is cut at selfreflection.entries', async () => {
+  // Bug: the new setting is not read and the block keeps a constant 150.
+  // Slice 6: the setting is `selfreflection.entries`, not `diaryEntries` (the owner's rule: `diary` only in prompts).
+  const run = await frameTurn({ entries: 5, selfreflection: { entries: 2 } });
+  const block = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'selfreflection');
+  assert.deepEqual(
+    gistsAt(block, 0, 4).map((at) => at >= 0),
+    [false, false, false, true, true]
+  );
+});
+
+test('<meanwhile> of the writer holds her lines from the groups of two interfaces and none from a direct chat', async () => {
+  // Bug: the writer keeps the first mirror's chat as what happened lately, reads one interface, or lets a private chat in.
+  const run = await frameTurn();
+  const meanwhile = blockOf(run.writer[0] ?? '', 'meanwhile');
+  assert.ok(meanwhile.includes(FRAME_TEXT.ownGarden), 'the room of the first interface');
+  assert.ok(meanwhile.includes(FRAME_TEXT.ownHarbour), 'the room of the second interface');
+  assert.ok(!meanwhile.includes(FRAME_TEXT.ownPrivate), 'no direct chat');
+});
+
+test('an entry recorded with conversation null reaches every mirror', async () => {
+  // Bug: with no conversation the turn records nothing, or the entry only goes to the place the turn used to run in.
+  const scene = await mirrorScene({ ifaces: ['fake', 'tele'], start: FRAME_NOW });
+  // No earlier entry, so the drain has only this one to send.
+  const run = await frameTurn({ memory: scene.memory, mirrors: [JOURNAL, PAGES], entries: 0 });
+  const mirrors = scene.publisher();
+  await mirrors.publishEntry(entryOf(run.result));
+  await mirrors.drainQueued();
+  assert.deepEqual(scene.transport('fake').posted('d1'), [FRAME_TEXT.entry]);
+  assert.deepEqual(scene.transport('tele').posted('k9'), [FRAME_TEXT.entry]);
+});
+
+test('an <audience> naming a group room that is no mirror is refused, and the entry goes nowhere', async () => {
+  // Bug: her choice is checked against every group place memory knows, so a room that is no mirror passes.
+  const scene = await mirrorScene({ ifaces: ['fake', 'tele'], start: FRAME_NOW });
+  const run = await frameTurn({
+    memory: scene.memory,
+    mirrors: [JOURNAL, PAGES],
+    entries: 0,
+    answer: `<audience>place:fake:channel:c2</audience><msg>${FRAME_TEXT.entry}</msg>`,
+  });
+  const mirrors = scene.publisher();
+  await mirrors.publishEntry(entryOf(run.result));
+  await mirrors.drainQueued();
+  const reasons = mirrors.mirrorStatus().flatMap((mirror) => mirror.audienceBlocked.map((one) => one.reason));
+  assert.deepEqual(reasons, ['audience-unknown-place', 'audience-unknown-place']);
+  assert.deepEqual(scene.transport('fake').attempts, []);
+  assert.deepEqual(scene.transport('tele').attempts, []);
 });

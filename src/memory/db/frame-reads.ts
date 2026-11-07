@@ -1,6 +1,7 @@
 // The reads of a request built on the turn frame beside the graph reader (src/memory/db/mind-read.ts): her own last
 // lines in other places and the lines around one line for `<meanwhile>`, one stored line by its identity for a
-// reference in a stored text, the stored fields of a place for `<surroundings>` and an interface's name and nouns. Each
+// reference in a stored text, the stored fields of a place for `<surroundings>`, an interface's name and nouns and her
+// past selfreflection entries for a selfreflection request's `<selfreflection>`. Each
 // read applies the turn's context (`whereFor`), so nothing a scope may not read leaves here. Read only.
 
 import { nativeOfAny } from './ids.ts';
@@ -9,6 +10,8 @@ import type { Mind, Seeds } from './mind-read.ts';
 import { interfaceNouns } from './names.ts';
 import { placeChainInDb } from './place-tree.ts';
 import { whereFor } from './scope.ts';
+import { readSelfreflection } from './selfreflection-past.ts';
+import type { PastEntry } from './selfreflection-past.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
@@ -237,6 +240,8 @@ export type FrameReads = {
   source?(iface: string, messageId: string): string | null;
   /** The stored line of a message id in a stored place of any interface, null when none (sourceInPlace). */
   sourceInPlace?(placeId: string, messageId: string): string | null;
+  /** Her newest `limit` selfreflection entries the context may read, oldest first (readSelfreflection). */
+  selfreflection?(ctx: Context, limit: number): Array<PastEntry>;
 };
 
 const NO_MIND: Mind = {
@@ -268,5 +273,6 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     person: (account) => over(null, (db) => personOfAccount(db, account)),
     source: (iface, messageId) => over(null, (db) => sourceOfMessage(db, iface, messageId)),
     sourceInPlace: (placeId, messageId) => over(null, (db) => sourceInPlace(db, placeId, messageId)),
+    selfreflection: (ctx, limit) => over([], (db) => readSelfreflection(db, ctx, limit)),
   };
 }

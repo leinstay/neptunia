@@ -1,5 +1,5 @@
 // Tests for the diary side of src/behavior/prompt.ts: the `<world>` block only
-// in a diary request under `diary.world`, the `{{when}}` line of the drawing
+// in a diary request, whenever world.md has text, the `{{when}}` line of the drawing
 // prompt, the diary channel in `<senses>`, the diary post's own blocks and
 // their budget, and the plan request. Fake prompts/config/labels only.
 import { test } from 'node:test';
@@ -13,6 +13,19 @@ import {
 import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
 import { buildRequest, type Built } from './fixtures/built-request.ts';
+import { blocksOf } from '../src/turn/request/frame.ts';
+import {
+  JOURNAL,
+  MARK,
+  PAGES,
+  PLAN,
+  TEXT,
+  blockOf,
+  frameTurn,
+  inOrderOf,
+  partOf,
+  rootTags,
+} from './fixtures/selfreflection-frame.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);
 const MIN = 60_000;
@@ -111,44 +124,24 @@ const post = (at: number, kind: string | null, gist: string, picture: string | n
   search: null,
 });
 
-test('buildRequest: the world block appears in diary mode with diary.world on only', () => {
-  const on = fakeConfig({ selfreflection: { world: true } });
-  const selfreflectionOn = userText(
-    buildRequest(
-      baseInput({ mode: 'selfreflection', config: on, selfreflection: { posts: [], plan: null, found: null } })
-    )
-  );
-  assert.ok(selfreflectionOn.includes('<world>\nA world of Nept.\n</world>'), selfreflectionOn);
+test('buildRequest: the world block appears in diary mode whenever world.md has text, never in an ordinary turn', () => {
+  // Slice 6: `selfreflection.world` is gone. A non-empty world.md is always the selfreflection's world, whatever a
+  // leftover switch says, and an ordinary turn never carries it.
+  for (const config of [
+    fakeConfig(),
+    fakeConfig({ selfreflection: { world: false } }),
+    fakeConfig({ selfreflection: { world: 'yes' } }),
+  ]) {
+    const text = userText(
+      buildRequest(
+        baseInput({ mode: 'selfreflection', config, selfreflection: { posts: [], plan: null, found: null } })
+      )
+    );
+    assert.ok(text.includes('<world>\nA world of Nept.\n</world>'), text);
+  }
 
-  const reply = userText(buildRequest(baseInput({ mode: 'reply', config: on })));
+  const reply = userText(buildRequest(baseInput({ mode: 'reply', config: fakeConfig() })));
   assert.ok(!reply.includes('<world>'), 'never in an ordinary turn');
-
-  const off = userText(
-    buildRequest(
-      baseInput({
-        mode: 'selfreflection',
-        config: fakeConfig({ selfreflection: { world: false } }),
-        selfreflection: {},
-      })
-    )
-  );
-  assert.ok(!off.includes('<world>'), 'selfreflection.world false');
-
-  const missing: { selfreflection: { historyPosts: number; world?: unknown } } = fakeConfig();
-  delete missing.selfreflection.world;
-  const unset = userText(buildRequest(baseInput({ mode: 'selfreflection', config: missing, selfreflection: {} })));
-  assert.ok(!unset.includes('<world>'), 'a missing selfreflection.world counts as off');
-
-  const truthy = userText(
-    buildRequest(
-      baseInput({
-        mode: 'selfreflection',
-        config: fakeConfig({ selfreflection: { world: 'yes' } }),
-        selfreflection: {},
-      })
-    )
-  );
-  assert.ok(!truthy.includes('<world>'), 'read as === true');
 });
 
 test('buildRequest: no world block without the file', () => {
@@ -196,6 +189,15 @@ test('renderSenses: does not name the diary channel when unset', () => {
   }
 });
 
+/** The `<plan>` body of `plan` as lines: the intro, then the kind, the brief and whether it carries a picture. */
+const planLines = (plan: { kind: string; brief: string; picture: boolean }): string =>
+  [
+    labels.selfreflection.plan,
+    fill(labels.selfreflection.planKind, { value: plan.kind }),
+    fill(labels.selfreflection.planBrief, { value: plan.brief }),
+    plan.picture ? labels.selfreflection.planPicture : labels.selfreflection.planNoPicture,
+  ].join('\n');
+
 test('buildRequest: diary mode renders diary, plan and found blocks before the chat and uses prompts.selfreflection as the task', () => {
   const posts = [
     post(NOW - 2 * DAY, 'status', 'café au lait again'),
@@ -207,7 +209,7 @@ test('buildRequest: diary mode renders diary, plan and found blocks before the c
       baseInput({
         mode: 'selfreflection',
         selfreflection: { posts, plan, found: 'Une comète passe ce soir.' },
-        config: fakeConfig({ selfreflection: { world: true } }),
+        config: fakeConfig(),
       })
     )
   );
@@ -229,7 +231,9 @@ test('buildRequest: diary mode renders diary, plan and found blocks before the c
       })
     )
   );
-  assert.ok(text.includes(`<plan>\n${labels.selfreflection.plan}\n${JSON.stringify(plan)}\n</plan>`));
+  // Slice 6: the plan is lines, one per field, and no JSON (nothing in a request is JSON).
+  assert.ok(text.includes(`<plan>\n${planLines(plan)}\n</plan>`), text);
+  assert.ok(!text.includes(JSON.stringify(plan)));
   assert.ok(text.includes(`<found>\n${labels.selfreflection.found}\nUne comète passe ce soir.\n</found>`));
   assert.ok(text.includes('<task>\nDIARY_TASK for Nept\n</task>'));
 });
@@ -245,9 +249,9 @@ test('buildRequest: a diary post with seeds renders them right after the plan, n
   const full = buildRequest(baseInput({ mode: 'selfreflection', selfreflection: { posts, plan, found: null, seeds } }));
   const text = userText(full);
   assert.ok(
+    // Slice 6: the plan before the seeds is lines, no JSON.
     text.includes(`<plan>
-${labels.selfreflection.plan}
-${JSON.stringify(plan)}
+${planLines(plan)}
 </plan>
 
 <seeds>
@@ -370,7 +374,7 @@ test('buildSelfreflectionPlanRequest: the plan prompt as system, the blocks in o
   assert.ok(!text.includes('<chat>') && !text.includes('<task>'));
 });
 
-test('buildSelfreflectionPlanRequest: no world block with diary.world off, no seeds block without seeds', () => {
+test('buildSelfreflectionPlanRequest: no seeds block without seeds, no diary block without posts', () => {
   const request = buildSelfreflectionPlanRequest({
     config: fakeConfig(),
     prompts: fakePrompts(),
@@ -382,7 +386,9 @@ test('buildSelfreflectionPlanRequest: no world block with diary.world off, no se
     seedsText: '',
   });
   const text = request.messages[1].content;
-  assert.ok(!text.includes('<world>') && !text.includes('<seeds>') && !text.includes('<diary>'));
+  // Slice 6: with `selfreflection.world` gone the world.md text is always there; seeds and diary still need content.
+  assert.ok(!text.includes('<seeds>') && !text.includes('<diary>'));
+  assert.ok(text.includes('<world>'));
   assert.ok(text.includes('<kinds>'));
 });
 
@@ -461,4 +467,64 @@ test('buildRequest: the server block marks the diary channel', () => {
 
   const off = userText(buildRequest(baseInput({ ...input })));
   assert.ok(off.includes('# journal-κ') && !off.includes(mark), 'no mark without a mirror on it');
+});
+
+// The writer on the turn frame (plan 2026-11-06-turn-frame, slice 6, with the owner's answers of 2026-11-07): the turn
+// runs with `conversation: null`, its request holds the selfreflection list of the frame, `<virtual_world>` is the
+// `world.md` text whenever the file is non-empty (`selfreflection.world` is gone), and `<publication_places>` is a part of
+// `<inner>` that lists the mirrors when there are two or more. tests/fixtures/selfreflection-frame.ts holds the scene.
+
+/** The selfreflection list without `persona`, which is the system message and no root tag of the user text. */
+const WRITER_TAGS = blocksOf('selfreflection', null).filter((name) => name !== 'persona');
+
+test('the writer request holds the frame list, with no <chat>, <surroundings>, <about_chat> or root <places>', async () => {
+  // Bug: the writer is still built as a reply in the first mirror, with its chat, surroundings and the old place blocks.
+  const run = await frameTurn();
+  const text = run.writer[0] ?? '';
+  const tags = rootTags(text);
+  assert.ok(inOrderOf(tags, WRITER_TAGS), tags.join(' '));
+  for (const tag of ['self', 'meanwhile', 'virtual_world', 'spatial_awareness', 'task'])
+    assert.ok(tags.includes(tag), `holds <${tag}>`);
+  for (const tag of ['chat', 'surroundings', 'about_chat', 'places'])
+    assert.ok(!tags.includes(tag), `no root <${tag}>`);
+  assert.ok(blockOf(text, 'task').includes(MARK.writer), 'its own task');
+});
+
+test('<virtual_world> holds world.md even where the old selfreflection.world switch says false', async () => {
+  // Bug: the deleted switch is still read, so a non-empty world.md never reaches her (the 13:55 post had no world).
+  const run = await frameTurn({ selfreflection: { world: false } });
+  assert.ok(blockOf(run.writer[0] ?? '', 'virtual_world').includes(TEXT.world));
+});
+
+test('<virtual_world> is absent when world.md is empty', async () => {
+  // Bug: an empty file still renders an empty block or the frame's own placeholder.
+  for (const world of ['', '  \n']) {
+    const run = await frameTurn({ world });
+    assert.ok(!rootTags(run.writer[0] ?? '').includes('virtual_world'), JSON.stringify(world));
+  }
+});
+
+test('the writer <plan> sits in <inner> as lines, with no JSON', async () => {
+  // Bug: the plan stays one JSON line, while nothing in a request is JSON.
+  const run = await frameTurn();
+  const plan = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'plan');
+  assert.ok(plan.includes(PLAN.brief), plan);
+  assert.ok(!plan.includes('{"'), plan);
+});
+
+test('<publication_places> is absent with one mirror', async () => {
+  // Bug: the list shows with nothing to choose, or lists every group room memory knows.
+  const run = await frameTurn({ mirrors: [JOURNAL] });
+  assert.ok(!(run.writer[0] ?? '').includes('<publication_places>'));
+});
+
+test('<publication_places> in <inner> lists two mirrors, each on its own line with its interface, and no other room', async () => {
+  // Bug: the part lists every group place of memory (`c2` here), or drops the interface a mirror is on.
+  const run = await frameTurn({ mirrors: [JOURNAL, PAGES] });
+  const part = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'publication_places');
+  const lines = part.split('\n');
+  const journal = lines.findIndex((line) => line.includes('fake:channel:d1') && line.includes('fake'));
+  const pages = lines.findIndex((line) => line.includes('tele:channel:k9') && line.includes('tele'));
+  assert.ok(journal >= 0 && pages >= 0 && journal !== pages, part);
+  assert.ok(!part.includes('fake:channel:c2'), part);
 });

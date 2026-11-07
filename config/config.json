@@ -415,7 +415,6 @@
     "enabled": true,
     "schedule": null,
     "placeId": "",
-    "world": false,
     "windows": [
       {
         "from": 7,
@@ -440,6 +439,7 @@
     ],
     "quietDayChance": 0.3,
     "forceWaitMs": 120000,
+    "entries": 150,
     "sceneChars": 400,
     "loop": {
       "maxSteps": 2,

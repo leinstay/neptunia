@@ -54,7 +54,7 @@ export type PhaseConfig = LookupConfig &
     mention?: { oneAtATime?: unknown } | null;
     format?: { stripDashes?: unknown } | null;
     bot?: { timezone?: string } | null;
-    selfreflection?: { maxMessages?: number; setKinds?: unknown } | null;
+    selfreflection?: { maxMessages?: number; setKinds?: unknown; entries?: number } | null;
   };
 
 /** The labels, as far as the phases read them; the text functions read their own sections. */

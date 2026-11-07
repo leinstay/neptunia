@@ -1,10 +1,11 @@
-// The user message of a request built on the turn frame (docs/prompt-contract.md, "Blocks per kind"): a reply and an
-// errand's result carry the frame's tags in its order, filtered by `frame.blocks`. The stable segment holds `<self>`
-// and `<surroundings>`; the tail `<memory>` from the graph reader, `<recall>` from her lookups, `<inner>`, `<meanwhile>`
-// from her lines elsewhere, `<spatial_awareness>` with the clock and her time away, `<chat>` and `<task>`. The budget
-// fits them in this priority: the fixed part, the person she answers, the memory shares, the recall, the chat, the
-// background, her own state. Mention handles are given after the fit, to the authors of the chat and to the people
-// `<memory>` and `<meanwhile>` kept, and to nobody else. buildRequest (src/behavior/prompt.ts) calls it. Pure.
+// The user message of a request built on the turn frame (docs/prompt-contract.md, "Blocks per kind"): every kind carries
+// the frame's tags in its order, filtered by `frame.blocks`. The stable segment holds `<self>` and `<surroundings>`; the
+// tail `<memory>` from the graph reader, `<recall>` from her lookups, `<inner>`, `<meanwhile>` from her lines elsewhere,
+// a selfreflection request's `<virtual_world>`, `<spatial_awareness>` with the clock and her time away, `<chat>` and
+// `<task>`. The budget fits them in this priority: the fixed part, the person she answers, the memory shares, the
+// recall, the chat, the background, her own state, the world, her past entries. Mention handles are given after the
+// fit, to the authors of the chat and to the people `<memory>` and `<meanwhile>` kept, and to nobody else; a
+// selfreflection request gives none. buildRequest (src/behavior/prompt.ts) calls it. Pure.
 
 import { assignChannelHandles, assignHandles } from '../../behavior/handles.ts';
 import { fill, renderTranscript } from '../../format.ts';
@@ -25,6 +26,7 @@ import type { LineOf } from './refs.ts';
 import type { Senses } from './senses.ts';
 import { surroundingsOf } from './surroundings.ts';
 import type { PlaceFields } from './surroundings.ts';
+import type { SelfreflectionFramed } from './selfreflection.ts';
 import { blockRecords, userParts } from './tail.ts';
 import type { BlockRecord, ListedBlock, UserPart } from './tail.ts';
 import { block, escapeStored } from './text.ts';
@@ -65,6 +67,8 @@ export type ReaderInput = {
   chatItems: Array<TranscriptItem>;
   tempoText: string;
   inner: InnerParts;
+  /** A selfreflection request's world, past entries and own parts of `<inner>`; null on any other kind. */
+  selfreflection?: SelfreflectionFramed | null;
   errandResult: string;
   nameOf: NameOf;
   lineOf: LineOf | null;
@@ -124,6 +128,10 @@ type Offered = {
   resolveRef: (text: string) => string;
 };
 
+/** What of a selfreflection request the budget never cuts: its own parts of `<inner>` and the first line of its entries. */
+const selfreflectionFixed = (given: SelfreflectionFramed | null): Array<string> =>
+  given === null ? [] : [...given.parts.map((part) => part.text), given.intro];
+
 /** The budget's sections of the frame's request, in priority order. */
 function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
   const settings = mindSettingsOf(given.config);
@@ -139,6 +147,7 @@ function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
     offered.surroundings,
     given.tempoText,
     given.errandResult,
+    ...selfreflectionFixed(given.selfreflection ?? null),
   ].filter(Boolean);
   const counterpart = offered.memory.filter((one) => one.counterpart).map((one) => one.text);
   const { caps } = given.config.context;
@@ -156,6 +165,8 @@ function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
     { name: 'chat', keep: 'newest', items: offered.chat.map((item) => item.text) },
     { name: 'meanwhile', keep: 'newest', items: offered.windowTexts },
     { name: 'inner', keep: 'first', items: offered.inner.map((one) => one.text) },
+    { name: 'virtual_world', items: [given.selfreflection?.world ?? ''].filter(Boolean) },
+    { name: 'selfreflection', keep: 'newest', items: given.selfreflection?.entries ?? [] },
   ];
 }
 
@@ -275,7 +286,23 @@ function innerTextOf(given: ReaderInput, offered: Offered, fit: Fit): string {
     board: kept.has('board') ? (inner.board ?? null) : null,
     previousThink: kept.has('previousThink') ? inner.previousThink : null,
   };
-  return [block('errand_result', given.errandResult), innerBlockOf(parts, given.labels, offered.resolveRef)]
+  return [
+    block('errand_result', given.errandResult),
+    innerBlockOf(parts, given.labels, offered.resolveRef),
+    selfreflectionInnerOf(given.selfreflection ?? null, fit),
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/** A selfreflection request's parts of `<inner>`: her past entries the budget kept, then the request's own parts. */
+function selfreflectionInnerOf(given: SelfreflectionFramed | null, fit: Fit): string {
+  if (given === null) return '';
+  const entries = fit.kept.selfreflection ?? [];
+  return [
+    block('selfreflection', entries.length > 0 ? [given.intro, ...entries].filter(Boolean).join('\n') : ''),
+    ...given.parts.map((part) => block(part.tag, part.text)),
+  ]
     .filter(Boolean)
     .join('\n');
 }
@@ -315,6 +342,7 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
     tail('recall', 'lookups', kept.recall?.[0] ?? '', 'recall'),
     tail('inner', 'inner', bodies.inner, 'inner'),
     tail('meanwhile', 'meanwhile', bodies.meanwhile, 'meanwhile'),
+    tail('virtual_world', 'world', kept.virtual_world?.[0] ?? '', 'virtual_world'),
     tail('spatial_awareness', 'spatial', offered.spatial),
     tail('chat', 'kept.chat', bodies.chat, 'chat'),
     tail('task', 'task', given.task),
@@ -335,8 +363,12 @@ export function readerRequest(given: ReaderInput): ReaderResult {
   const keptWindows = keptOf(offered.windows, fit.kept.meanwhile, (window) => {
     return offered.windowTexts[offered.windows.indexOf(window)];
   });
-  const handleById = handlesOf(given.chatHandles, people, keptWindows);
-  const channelHandleById = channelHandlesOf(given.currentChannelId, keptMemory, keptWindows);
+  // A selfreflection request names people and places by name alone: an entry mentions nobody.
+  const named = given.selfreflection === null || given.selfreflection === undefined;
+  const handleById = named ? handlesOf(given.chatHandles, people, keptWindows) : null;
+  const channelHandleById = named
+    ? channelHandlesOf(given.currentChannelId, keptMemory, keptWindows)
+    : new Map<string, string>();
   const withHandle = (one: MemoryItem): MemoryItem => {
     const channel = one.placeId ? channelHandleById.get(channelIdOf(one.placeId, null) ?? '') : undefined;
     if (channel) return { ...one, text: `#${channel} ${one.text}` };

@@ -1,5 +1,5 @@
-// The audience of a selfreflection entry over the memory database: the places she can name (`publicationPlaces`, what the writer
-// request shows and what her `<audience>` is checked against) and whether a stored entry may reach a place
+// The audience of a selfreflection entry over the memory database: the places she can name (`publicationPlaces`, the
+// mirrors, what the writer request shows and what her `<audience>` is checked against) and whether a stored entry may reach a place
 // (`audienceRefusal`, reached through publish.ts#storedSelfreflectionPublicationRefusal at queue time and right before a send).
 //
 // Places are compared by their interface-qualified id, so the same native id on two interfaces stays two places. A place
@@ -11,29 +11,22 @@
 
 import { selfreflectionMetadataOf, isPublicationAudience, refusedAudience } from '../../tools/publication.ts';
 import type { KnownPlaces, PublicationAudience } from '../../tools/publication.ts';
+import { mirrorPlaces } from './mirrors.ts';
 import type { Db, Row } from './types.ts';
 
 export const NO_PLACES: KnownPlaces = { interfaces: [], places: [] };
 
 const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
 
-/** The group places memory knows, by interface and id, and their interfaces. A private conversation is none of them. */
+/**
+ * The places she can name: the places of the enabled `selfreflection` mirrors, the ones a stored entry is copied to,
+ * oldest mirror first, and their interfaces. A group room that is no mirror is none of them.
+ */
 export function publicationPlaces(connection: unknown): KnownPlaces {
-  const db = connection as Db; // a node:sqlite connection; the query below reads it
-  const rows = db
-    .prepare(
-      `SELECT id, iface, name, parent_id FROM places
-        WHERE scope_kind = 'group' AND kind <> 'dm' AND retired_at IS NULL AND iface IS NOT NULL AND iface <> ''
-        ORDER BY iface, id`
-    )
-    .all();
+  const places = mirrorPlaces(connection);
   return {
-    interfaces: [...new Set(rows.map((row) => String(row.iface)))],
-    places: rows.map((row) => ({
-      id: String(row.id),
-      name: textOrNull(row.name),
-      parentId: textOrNull(row.parent_id),
-    })),
+    interfaces: [...new Set(places.map((place) => place.iface))],
+    places: places.map((place) => ({ id: place.placeId, name: place.name, parentId: null, iface: place.iface })),
   };
 }
 

@@ -26,6 +26,7 @@ import { TOO_SLOW, TURN_CANCELLED } from '../../timers.ts';
 import { askedFor, unhurried } from '../../triggers.ts';
 import type { BeforeBar, Ended, HistoryLine, PhaseConfig, PhaseContext, PhaseParams, TurnTrigger } from '../context.ts';
 import type { Opened } from '../preflight.ts';
+import { plannerRequest } from './build.ts';
 
 /**
  * The cancellation point at `bar`: the work, or TOO_SLOW thrown once the bar is reached (none without a bar). A turn the owner
@@ -272,11 +273,12 @@ export async function setupRequest(
       ? prepareSelfreflection({
           config,
           channel,
-          selfName,
-          history: rawHistory,
           now,
           params: selfreflectionParams,
           memoryOn,
+          // The planner's request on the turn frame, built when the plan has what it chooses from.
+          planMessages: (parts) =>
+            plannerRequest(ctx, draft, opened, { config, selfName, selfId, now }, parts).messages,
           draft,
         }).then(
           (value) => ({ value }),

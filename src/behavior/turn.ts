@@ -505,12 +505,7 @@ export function createTurnRunner({
   };
   const { runTurn, recordTurnFacts, notifyIdle, waitingParts, addToPart, waitIdle, setOnIdle, setOnTurnEnd } =
     createOutcome({
-      hot,
       store,
-      iface,
-      ifaceReads,
-      selfIdOf,
-      getSelfName,
       clock,
       busy,
       facts,
@@ -524,12 +519,10 @@ export function createTurnRunner({
     hot,
     store,
     llm,
-    calibrator,
     rng,
     lookup,
     images,
     journalOp,
-    recentOfPlaces,
     selfreflectionFacts,
   });
   const mediaPick = createMediaPick({

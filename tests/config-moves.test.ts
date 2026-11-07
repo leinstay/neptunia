@@ -739,7 +739,8 @@ test('cuts an old diary.set and innerLife.heartbeat.people of the local file at 
   const { result } = await withCapturedLogs(
     () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
   );
-  assert.deepEqual(result.selfreflection, { world: true });
+  // Slice 6: `selfreflection.world` is a cut key too (`<virtual_world>` has no switch), so nothing of the old diary stays.
+  assert.equal(result.selfreflection, undefined);
   assert.equal(Object.hasOwn(result, 'heartbeat'), false);
   assert.equal(Object.hasOwn(result, 'diary') || Object.hasOwn(result, 'innerLife'), false);
 });
