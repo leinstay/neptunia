@@ -7,7 +7,7 @@ import { nativeOfAny } from './ids.ts';
 import { mindOf, mindSettingsOf } from './mind-read.ts';
 import type { Mind, Seeds } from './mind-read.ts';
 import { interfaceNouns } from './names.ts';
-import { placeChainInDb, rootPlaceInDb } from './place-tree.ts';
+import { placeChainInDb } from './place-tree.ts';
 import { whereFor } from './scope.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
@@ -103,9 +103,8 @@ export type IdentityLine = FrameLine & {
   path: Array<string>;
   revision: number;
   deleted: boolean;
-  /** The interface's id of its conversation, null in a one-to-one chat; and of the top place above it, if any. */
-  conversationId: string | null;
-  communityId: string | null;
+  /** True when its place is a one-to-one chat. */
+  dm: boolean;
 };
 
 /**
@@ -129,12 +128,10 @@ export function lineOfIdentity(db: Db, ctx: Context, key: string): IdentityLine 
   if (!line) return null;
   const placeId = text(line.place_id) ?? '';
   const located = placePathOf(db, placeId);
-  const root = rootPlaceInDb(db, placeId);
   return {
     ...lineOf(line),
     path: located.path,
-    conversationId: located.dm ? null : nativeOfAny(placeId),
-    communityId: located.dm || root === null || root === placeId ? null : nativeOfAny(root),
+    dm: located.dm,
     revision: Number(line.revision ?? 1) || 1,
     deleted: rows.some((row) => row.kind === 'deleted'),
   };
@@ -191,6 +188,12 @@ export function sourceOfMessage(db: Db, iface: string, messageId: string): strin
   return text(byId?.id);
 }
 
+/** The stored line of a message id in a stored place, on the place's own interface (sourceOfMessage); null when none. */
+export function sourceInPlace(db: Db, placeId: string, messageId: string): string | null {
+  const iface = text(db.prepare('SELECT iface FROM places WHERE id = ?').get(placeId)?.iface);
+  return iface === null ? null : sourceOfMessage(db, iface, messageId);
+}
+
 /** The person an account row belongs to; null for an unknown account. */
 export function personOfAccount(db: Db, account: string): string | null {
   return text(db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(account)?.person_id);
@@ -218,6 +221,8 @@ export type FrameReads = {
   person(account: string): string | null;
   /** The stored line of an interface's message id, null when none (sourceOfMessage). */
   source?(iface: string, messageId: string): string | null;
+  /** The stored line of a message id in a stored place of any interface, null when none (sourceInPlace). */
+  sourceInPlace?(placeId: string, messageId: string): string | null;
 };
 
 const NO_MIND: Mind = {
@@ -247,5 +252,6 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     account: (iface, native) => over(null, (db) => accountOfNative(db, iface, native)),
     person: (account) => over(null, (db) => personOfAccount(db, account)),
     source: (iface, messageId) => over(null, (db) => sourceOfMessage(db, iface, messageId)),
+    sourceInPlace: (placeId, messageId) => over(null, (db) => sourceInPlace(db, placeId, messageId)),
   };
 }

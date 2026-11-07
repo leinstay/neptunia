@@ -284,6 +284,7 @@ export const labels = {
   memory: {
     privateChannel: 'direct chat',
     redaction: 'someone',
+    selfreflection: 'her diary',
   },
   status: {
     probe: 'Reply with one word: pong',

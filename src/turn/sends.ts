@@ -12,6 +12,7 @@ import { resolveHandles } from '../behavior/handles.ts';
 import { selfreflectionPlaces, readMirrors } from '../behavior/mirror.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.ts';
+import { nativeOfAny } from '../memory/db/ids.ts';
 import { linkChannels, linkMessageNumbers } from '../memory/mentions.ts';
 import { resolveMentions } from './mentions.ts';
 import { inCommunity } from './routing.ts';
@@ -151,13 +152,21 @@ export function createSends(ctx: SendsContext): Sends {
     return outgoingRefs(written, {
       placeId: refs.placeId,
       lineOf: refs.lineOf,
-      linkOf: (line) =>
-        line.conversationId && line.placeId.startsWith(`${here}:`)
-          ? messageLinkOf(iface, line.communityId ?? null, line.conversationId, line.messageId)
-          : null,
+      linkOf: (line) => {
+        const conversation = line.dm ? null : nativeOfAny(line.placeId);
+        if (!conversation || !line.placeId.startsWith(`${here}:`)) return null;
+        return messageLinkOf(iface, communityOfPlace(line.placeId), conversation, line.messageId);
+      },
       labels,
       timezone: refs.timezone,
     });
+  }
+
+  /** The native id of the top place above `placeId` (`store.rootPlaceOf`), null when it is its own top or has none. */
+  function communityOfPlace(placeId: string): string | null {
+    const known = store as { rootPlaceOf?(id: string): string | null; nativeCommunityOf?(id: string): string | null };
+    const top = known.rootPlaceOf?.(placeId) ?? null;
+    return top === null || top === placeId ? null : (known.nativeCommunityOf?.(top) ?? null);
   }
 
   /** The custom emoji lookup, or null when there is no index or features.customEmoji is off (read now). */

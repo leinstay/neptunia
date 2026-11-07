@@ -17,8 +17,8 @@ import { innerBlockOf } from './inner-block.ts';
 import type { InnerParts } from './inner-block.ts';
 import { meanwhileText, meanwhileWindows, windowText } from './meanwhile.ts';
 import type { MeanwhileReads, MeanwhileWindow } from './meanwhile.ts';
-import { MEMORY_SUBTAGS, channelIdOf, memoryItemsOf, renderMemory } from './memory-block.ts';
-import type { LiveOf, MemoryItem } from './memory-block.ts';
+import { MEMORY_SUBTAGS, channelIdOf, factItemsOf, memoryItemsOf, renderMemory } from './memory-block.ts';
+import type { LiveOf, MemoryItem, StoredFact } from './memory-block.ts';
 import { recallBlockOf } from './recall-block.ts';
 import { refResolverOf } from './refs.ts';
 import type { LineOf } from './refs.ts';
@@ -56,6 +56,10 @@ export type ReaderInput = {
   selfFacts: Array<string>;
   surroundings: SurroundingsInput | null;
   mind: Mind;
+  /** The conversation ids of the places her selfreflection is mirrored to, marked in `<memory>`. */
+  selfreflectionIds?: ReadonlySet<string>;
+  /** The stored facts the prefetch found, shown in `<found>` after the mind's excerpts. */
+  facts?: ReadonlyArray<StoredFact>;
   lookups: ReadonlyArray<Lookup>;
   meanwhileReads: MeanwhileReads | null;
   chatItems: Array<TranscriptItem>;
@@ -226,7 +230,7 @@ function channelHandlesOf(
 ): Map<string, string> {
   const ids = [
     current,
-    ...places.map((one) => one.channelId ?? null),
+    ...places.map((one) => (one.placeId ? channelIdOf(one.placeId, null) : null)),
     ...windows.map((window) => (window.dm ? null : channelIdOf(window.placeId, null))),
   ].filter((id): id is string => typeof id === 'string' && id !== '');
   return assignChannelHandles(ids);
@@ -255,7 +259,10 @@ function offeredOf(given: ReaderInput): Offered {
       stored?.place ?? null,
       labels
     ),
-    memory: memoryItemsOf(mind, frame, labels, given.nameOf, given.live),
+    memory: [
+      ...memoryItemsOf(mind, frame, labels, given.nameOf, given.live, given.selfreflectionIds),
+      ...factItemsOf(given.facts ?? [], labels),
+    ],
     recall: recallBlockOf(lookups, { retired: retiredOf(given.lookups, lineOf) }, labels, timezone),
     chat: given.chatItems.map((item) => ({ ...item, text: resolveRef(item.text) })),
     windows,
@@ -339,7 +346,7 @@ export function readerRequest(given: ReaderInput): ReaderResult {
   const handleById = handlesOf(given.chatHandles, people, keptWindows);
   const channelHandleById = channelHandlesOf(given.currentChannelId, keptMemory, keptWindows);
   const withHandle = (one: MemoryItem): MemoryItem => {
-    const channel = one.channelId ? channelHandleById.get(one.channelId) : undefined;
+    const channel = one.placeId ? channelHandleById.get(channelIdOf(one.placeId, null) ?? '') : undefined;
     if (channel) return { ...one, text: `#${channel} ${one.text}` };
     const handle = one.handleIds.map((id) => handleById?.get(id)).find(Boolean);
     return handle ? { ...one, text: `@${handle} ${one.text}` } : one;

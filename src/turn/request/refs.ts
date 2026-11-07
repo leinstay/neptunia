@@ -18,10 +18,8 @@ export type RefLine = {
   text: string;
   revision: number;
   deleted: boolean;
-  /** The interface's id of the line's conversation, null for a one-to-one chat whose channel the memory does not know. */
-  conversationId?: string | null;
-  /** The interface's id of the top place above it, null when it has none. */
-  communityId?: string | null;
+  /** True when the line's place is a one-to-one chat, whose channel the memory does not know, so it has no link. */
+  dm?: boolean;
 };
 
 /** The labels the references read. */

@@ -7,7 +7,8 @@ import { createHash } from 'node:crypto';
 import { liveFields } from '../../behavior/around.ts';
 import type { BuildRequestResult } from '../../behavior/prompt-types.ts';
 import type { computeTempo } from '../../format.ts';
-import type { Mind, PersonEntry } from '../../memory/db/mind-read.ts';
+import type { Mind } from '../../memory/db/mind-read.ts';
+import type { LiveOf, StoredFact } from './memory-block.ts';
 import type { Frame } from './frame.ts';
 import type { Base, Room } from './head.ts';
 import { readerRequest } from './reader.ts';
@@ -45,12 +46,12 @@ export type FramedSteps = {
   tempoText: string;
 };
 
-/** The live line of a person from the interface's snapshot, null without one. */
-function liveOf(base: Base, frame: Frame, now: number): ((person: PersonEntry) => string | null) | null {
+/** The live line of a person by their accounts from the interface's snapshot, null without one. */
+function liveOf(base: Base, frame: Frame, now: number): LiveOf | null {
   const snapshot = base.liveSnapshot;
   if (!base.liveOn || !snapshot) return null;
-  return (person) => {
-    const account = person.accounts.find((id) => id.startsWith(`${frame.interface}:`)) ?? person.accounts[0];
+  return (accounts) => {
+    const account = accounts.find((id) => id.startsWith(`${frame.interface}:`)) ?? accounts[0];
     if (!account) return null;
     const native = account.slice(account.indexOf(':') + 1);
     const lines = liveFields(snapshot, native, {
@@ -67,6 +68,15 @@ function interfaceTextOf(given: RequestInput, base: Base): string {
   const declared = given.surroundings?.interfaceText ?? '';
   const emoji = base.customEmoji.length > 0 ? (given.mediaPickText ?? '') : '';
   return [declared, emoji].filter((text) => text.trim() !== '').join('\n');
+}
+
+/** The stored facts among the prefetch's excerpts (`source: 'semantic'`), for `<found>`. */
+function storedFactsOf(prefetch: RequestInput['prefetch']): Array<StoredFact> {
+  return (prefetch?.excerpts ?? []).flatMap((excerpt) =>
+    excerpt?.source === 'semantic' && typeof excerpt.lines === 'string'
+      ? [{ state: excerpt.state, polarity: excerpt.polarity, text: excerpt.lines }]
+      : []
+  );
 }
 
 /** The request of a reply or an errand's result on the frame. */
@@ -99,6 +109,8 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     selfFacts,
     surroundings,
     mind: given.mind ?? NO_MIND,
+    facts: storedFactsOf(given.prefetch),
+    selfreflectionIds: new Set(given.selfreflectionChannelIds ?? []),
     lookups: given.lookups ?? [],
     meanwhileReads: given.meanwhileReads ?? null,
     chatItems: base.chatItems,

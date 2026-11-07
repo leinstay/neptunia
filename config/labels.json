@@ -358,6 +358,8 @@
       "ownNone": "you have not written here",
       "episode": "{date}: {what}",
       "excerpt": "{date}, {path}: \"{text}\"",
+      "fact": "stored fact ({state}): \"{text}\"",
+      "selfreflection": "Your diary.",
       "leftOut": "({count} more not shown)",
       "pathJoin": " > "
     },

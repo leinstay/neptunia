@@ -218,7 +218,7 @@ function seedsOf(
   frame: Frame,
   history: ReadonlyArray<Message>,
   turn: { trigger: { id: string } | null; prefetch: unknown },
-  reads: Pick<FrameReads, 'account' | 'person' | 'source'>
+  reads: Pick<FrameReads, 'account' | 'person' | 'source' | 'sourceInPlace'>
 ): Seeds {
   const { trigger, prefetch } = turn;
   const iface = frame.interface;
@@ -236,9 +236,16 @@ function seedsOf(
   // A platform id as the memory's account row, the spelled form when none is stored yet.
   const accountOf = (native: string): string => reads.account(iface, native) ?? accountId(iface, native);
   const excerpts: unknown = prefetch && typeof prefetch === 'object' ? Reflect.get(prefetch, 'excerpts') : null;
+  // A find is a message id of the place it was found in, which may be on another interface than this turn's (the
+  // command line reads every interface), so it is resolved on its own place's interface first.
   const hits = (Array.isArray(excerpts) ? excerpts : []).flatMap((excerpt: unknown) => {
     const ids: unknown = excerpt && typeof excerpt === 'object' ? Reflect.get(excerpt, 'hitIds') : null;
-    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string' && id !== '') : [];
+    const found: unknown = excerpt && typeof excerpt === 'object' ? Reflect.get(excerpt, 'placeId') : null;
+    const placeId = typeof found === 'string' && found !== '' ? found : null;
+    const named = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string' && id !== '') : [];
+    return named.map(
+      (hit) => (placeId === null ? null : reads.sourceInPlace?.(placeId, hit)) ?? reads.source?.(iface, hit) ?? hit
+    );
   });
   return {
     messages: lines.map((line) => ({
@@ -254,10 +261,7 @@ function seedsOf(
     counterpart: counterpartOf(frame, reads),
     place: frame.place?.id ?? null,
     previous: [],
-    candidates: hits.map((hit) => {
-      const id = reads.source?.(iface, hit) ?? hit;
-      return { nodeId: `source:${id}`, sourceIds: [id], from: 'prefetch' as const };
-    }),
+    candidates: hits.map((id) => ({ nodeId: `source:${id}`, sourceIds: [id], from: 'prefetch' as const })),
   };
 }
 

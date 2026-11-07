@@ -4663,9 +4663,9 @@ test('runTurn: turn: timings carries every stage, null for one that did not run'
   ]);
   assert.equal(timings?.stages.history, 100);
   assert.equal(timings?.stages.captions, 1000);
-  for (const name of ['previews', 'links', 'neighbors', 'pulled'])
-    assert.equal(typeof timings?.stages[name], 'number', name);
-  for (const name of ['videos', 'rewatch', 'lookup', 'participation', 'record'])
+  for (const name of ['previews', 'links', 'pulled']) assert.equal(typeof timings?.stages[name], 'number', name);
+  // Slice 4: a reply on the frame fetches no neighbours (`<server>` leaves it), so that stage did not run.
+  for (const name of ['videos', 'rewatch', 'lookup', 'neighbors', 'participation', 'record'])
     assert.equal(timings?.stages[name], null, name);
   assert.deepEqual(
     [

@@ -1,30 +1,35 @@
 // She keeps knowing her diary once `diary.placeId` is only a seed (stage 3 design, section 5): with an enabled `selfreflection`
 // mirror on a place and no `diary.placeId` in the config, an ordinary turn treats that place as her diary the way it
-// treats the configured channel today. `<server>` marks it with `labels.server.selfreflection`, byte for byte as the recorded
-// block (tests/fixtures/selfreflection-mirror-awareness.json, built on the code before the change with `diary.placeId: 'd1'`),
-// a turn in it keeps no participation, and every mirrored place carries the mark. Real turn runner, real store over a
-// memory database, fake interface, scripted model. Synthetic text only.
+// treats the configured channel. A reply's `<memory>` marks every mirrored place it shows with
+// `labels.memory.selfreflection`, and a turn in it keeps no participation. Real turn runner, real store over a memory
+// database, fake interface, scripted model. Synthetic text only.
 import { placeOfCommunity } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import { GUILD, replyTurn, serverBlock } from './fixtures/selfreflection-awareness.ts';
+import { userText } from '../src/behavior/prompt.ts';
+import { GUILD, replyTurn } from './fixtures/selfreflection-awareness.ts';
 import { labels } from './fixtures/labels.ts';
 
-const RECORDED_FILE = new URL('./fixtures/selfreflection-mirror-awareness.json', import.meta.url);
-
-/** The section of `name` in a `<server>` block: from its `# name` line to the next blank line. */
-function sectionOf(block: string, name: string): string {
-  const section = new RegExp(`# ${name}\\b[^\\n]*\\n(?:[^\\n]+\\n?)*`).exec(block)?.[0];
-  assert.ok(section, `<server> lists #${name}`);
-  return section;
+/** The entry of the place named `name` in `<memory>`'s `<places>`: from its heading to the next blank line. */
+function placeEntryOf(request: unknown, name: string): string {
+  const user = (request as Array<{ content: unknown }>)[1]?.content;
+  const places = /<places>\n([\s\S]*?)\n<\/places>/.exec(userText(user))?.[1] ?? '';
+  const entry = places.split('\n\n').find((one) => new RegExp(`&gt; ${name} \\(`).test(one.split('\n')[0] ?? ''));
+  assert.ok(entry, `<memory> shows ${name}`);
+  return entry;
 }
 
-test('a turn marks the mirrored place as her diary in <server>, byte for byte as diary.placeId did', async () => {
+const marked = (entry: string): boolean => entry.split('\n').includes(labels.memory.selfreflection);
+
+// Slice 4: "a turn marks the mirrored place as her diary in <server>, byte for byte as diary.placeId did" asserted the
+// recorded `<server>` block, which a reply on the frame no longer has. The mark moved to the place's `<memory>` entry.
+test('a reply marks the mirrored place as her diary in <memory>, and no other place', async () => {
+  // Bug: the mirror is read but the mark is lost with `<server>`, so she speaks of her own diary as a stranger's room.
   const { request } = await replyTurn({ here: 'c1', mirrors: ['d1'] });
-  const parsed: unknown = JSON.parse(fs.readFileSync(RECORDED_FILE, 'utf8'));
-  // This test's own fixture, recorded from the same scene with `diary.placeId: 'd1'` and no mirror.
-  assert.equal(serverBlock(request), (parsed as { server: string }).server);
+  assert.deepEqual(
+    ['journal', 'notes', 'general'].map((name) => marked(placeEntryOf(request, name))),
+    [true, false, false]
+  );
 });
 
 test('a turn in the mirrored place keeps no participation there', async () => {
@@ -42,13 +47,11 @@ test('a turn in the mirrored place keeps no participation there', async () => {
 // She cannot write in a mirror place at all (stage 3 design, section 9): the refusal, the event that opens no turn and
 // the publisher that still writes there are tests/selfreflection-mirror-guard.test.ts.
 
-test('with two mirrors both places carry the diary mark in <server>', async () => {
+// Slice 4: on the frame the places of a reply are `<memory>`'s, so the mark is asserted there instead of in `<server>`.
+test('with two mirrors both places carry the diary mark in <memory>', async () => {
   const { request } = await replyTurn({ here: 'c1', mirrors: ['d1', 'd2'] });
-  const block = serverBlock(request);
-  for (const name of ['journal', 'notes'])
-    assert.ok(
-      sectionOf(block, name).includes(`\n${labels.server.selfreflection}\n`),
-      `#${name} is marked as her diary`
-    );
-  assert.ok(!sectionOf(block, 'general').includes(labels.server.selfreflection), '#general is not');
+  assert.deepEqual(
+    ['journal', 'notes', 'general'].map((name) => marked(placeEntryOf(request, name))),
+    [true, true, false]
+  );
 });

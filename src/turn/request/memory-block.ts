@@ -6,6 +6,7 @@
 
 import { fill, formatDate } from '../../format.ts';
 import { nativeOfAny } from '../../memory/db/ids.ts';
+import { factStateWords } from '../../memory/retrieval-input.ts';
 import type {
   ClaimEntry,
   EpisodeEntry,
@@ -34,13 +35,13 @@ export type MemoryItem = {
   /** The name a person goes by, null for anything else. */
   readonly name: string | null;
   readonly handleIds: ReadonlyArray<string>;
-  /** The conversation id a place's channel handle is given for once it is shown; null for anything else and a DM. */
-  readonly channelId?: string | null;
+  /** The place a channel handle is given for once it is shown; null for anything else and a DM. */
+  readonly placeId?: string | null;
   readonly reads: ReadonlyArray<MemoryRead>;
 };
 
 /** What is live about a person now (their status, their voice seat), one line; null when nothing is. */
-export type LiveOf = (person: PersonEntry) => string | null;
+export type LiveOf = (accounts: ReadonlyArray<string>) => string | null;
 
 type Words = { l: LabelGroup; origin: LabelGroup; frame: Frame; nameOf: NameOf; locale: string | undefined };
 
@@ -81,8 +82,10 @@ function personText(w: Words, person: PersonEntry, counterpart: boolean, live: s
   return lines.filter(Boolean).join('\n');
 }
 
-function placeText(w: Words, place: PlaceEntry): string {
+function placeText(w: Words, place: PlaceEntry, selfreflection: boolean): string {
   const lines = [heading(w, pathText(place.path, w.l.pathJoin), w.origin[place.evidence] ?? '', place.candidate)];
+  // A place her selfreflection is mirrored to is marked at every detail, so she knows it as hers wherever it shows.
+  if (selfreflection) lines.push(w.l.selfreflection ?? '');
   if (place.detail !== 'name') {
     for (const field of ['purpose', 'tone', 'topics'] as const) {
       const value = place[field];
@@ -132,7 +135,7 @@ function answers(frame: Frame, person: PersonEntry): boolean {
 function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryItem> {
   const item = (person: PersonEntry, counterpart: boolean): MemoryItem => ({
     subtag: 'people',
-    text: personText(w, person, counterpart, live ? live(person) : null),
+    text: personText(w, person, counterpart, live ? live(person.accounts) : null),
     counterpart,
     name: person.name,
     handleIds: nativeIds(person.accounts, w.frame.interface),
@@ -146,9 +149,12 @@ function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryIte
   if (found) first.push(item(found, true));
   else if (them !== null) {
     const name = them.name ?? them.accountId;
+    const now = live ? live([them.accountId]) : null;
     first.push({
       subtag: 'people',
-      text: heading(w, name, w.l.counterpart ?? '', false),
+      text: [heading(w, name, w.l.counterpart ?? '', false), now ? valueLine(w.l.live, now) : '']
+        .filter(Boolean)
+        .join('\n'),
       counterpart: true,
       name: them.name,
       handleIds: nativeIds([them.accountId], w.frame.interface),
@@ -158,15 +164,45 @@ function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryIte
   return [...first, ...people.filter((person) => person !== found).map((person) => item(person, false))];
 }
 
-/** Every entry of `mind` as an item, in the order of the subtags and, inside one, the reader's rank. */
+/** A fact the retrieval service stored and the prefetch found (src/behavior/recall-facts.ts#factExcerpts). */
+export type StoredFact = { readonly state?: unknown; readonly polarity?: unknown; readonly text: string };
+
+/**
+ * The prefetch's stored facts as `<found>` items, in its order: `memory.fact` with `{state}` (`labels.prefetch.factStates`,
+ * as everywhere a fact reaches a model) and `{text}` as she wrote it.
+ */
+export function factItemsOf(facts: ReadonlyArray<StoredFact>, labels: Labels): Array<MemoryItem> {
+  const template = labels.memory?.fact;
+  if (typeof template !== 'string' || template === '') return [];
+  return facts
+    .filter((fact) => fact.text.trim() !== '')
+    .map((fact) => ({
+      subtag: 'found',
+      text: fill(template, {
+        state: factStateWords(fact, labels.prefetch?.factStates),
+        text: escapeStored(fact.text),
+      }),
+      counterpart: false,
+      name: null,
+      handleIds: [],
+      reads: [],
+    }));
+}
+
+/**
+ * Every entry of `mind` as an item, in the order of the subtags and, inside one, the reader's rank. `selfreflectionIds`
+ * are the conversation ids of the places her selfreflection is mirrored to (src/memory/db/mirrors.ts).
+ */
 export function memoryItemsOf(
   mind: Mind,
   frame: Frame,
   labels: Labels,
   nameOf: NameOf,
-  live: LiveOf | null = null
+  live: LiveOf | null = null,
+  selfreflectionIds: ReadonlySet<string> = new Set()
 ): Array<MemoryItem> {
   const l = labels.memory ?? {};
+  const mine = (place: PlaceEntry): boolean => selfreflectionIds.has(channelIdOf(place.placeId, place.kind) ?? '');
   const w: Words = { l, origin: l.origin ?? {}, frame, nameOf, locale: labels.locale };
   const plain = (subtag: MemorySubtag, text: string, reads: Array<MemoryRead>): MemoryItem => ({
     subtag,
@@ -180,8 +216,8 @@ export function memoryItemsOf(
     ...peopleItems(w, mind, live),
     ...mind.interfaces.map((entry) => plain('places', interfaceText(w, entry), readsOf(entry))),
     ...mind.places.map((place) => ({
-      ...plain('places', placeText(w, place), readsOf(place)),
-      channelId: channelIdOf(place.placeId, place.kind),
+      ...plain('places', placeText(w, place, mine(place)), readsOf(place)),
+      placeId: place.kind === 'dm' ? null : place.placeId,
     })),
     ...mind.lore.map((claim) => plain('lore', loreText(w, claim), readsOf(claim))),
     ...mind.recent.map((episode) => plain('recent', episodeText(w, episode), readsOf(episode))),

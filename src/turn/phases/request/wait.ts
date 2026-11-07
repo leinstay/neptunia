@@ -56,19 +56,21 @@ export async function waitForPreparation(
   // pulls pass (audienceAllows, context.pull.sameAudience): everyone who can read this channel
   // can read it. One refused takes no slot, costs no fetch, and never reaches `<server>`
   // either (buildRequest maps only the neighbours it is given); counted on the answer's log.
-  const neighborsStage = isPrivate
-    ? null
-    : track('neighbors', async () => {
-        let hidden = 0;
-        const accept = (other: ConversationInfo) => {
-          const allowed = audienceAllows(channel, other, config);
-          if (!allowed) hidden += 1;
-          return allowed;
-        };
-        // Without the listing (the interface does not offer it) there are no neighbours to show.
-        const found = snapshot ? await fetchNeighbors(ifaceReads, snapshot, channel, now, { accept }) : [];
-        return { neighbors: found, hidden };
-      });
+  // A turn on the frame shows no neighbours (`<server>` leaves it), so it fetches none.
+  const neighborsStage =
+    isPrivate || framedTurn(finalMode, triggerKind, source)
+      ? null
+      : track('neighbors', async () => {
+          let hidden = 0;
+          const accept = (other: ConversationInfo) => {
+            const allowed = audienceAllows(channel, other, config);
+            if (!allowed) hidden += 1;
+            return allowed;
+          };
+          // Without the listing (the interface does not offer it) there are no neighbours to show.
+          const found = snapshot ? await fetchNeighbors(ifaceReads, snapshot, channel, now, { accept }) : [];
+          return { neighbors: found, hidden };
+        });
   // The pulled channels started earlier: timed from their own start.
   const pulledStage = isPrivate && !likeServer ? null : track('pulled', () => pulledPending, pullStartedAt);
   // `<participation>`: the persona's own exchanges on other channels this turn may show, and

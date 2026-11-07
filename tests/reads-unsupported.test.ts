@@ -1,7 +1,6 @@
 // A fake that offers only some reads (`reads` option, wire names): the core makes no call for a read the interface did
 // not declare, and a block that needs it is left out of the request. `conversation.info`, `messages.history` and
-// `messages.fetch` stay on, since a turn cannot run without them. A control rig with every read shows the block the
-// others miss.
+// `messages.fetch` stay on, since a turn cannot run without them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { channelInfo, deliver, until, withFakeCore } from './fixtures/core-over-fake.ts';
@@ -28,18 +27,9 @@ async function turnWith(reads: ReadonlyArray<string> | undefined) {
   });
 }
 
-test('shows the other channels block when the interface offers the conversations read', async () => {
-  const { result } = await turnWith(undefined);
-  assert.equal(result.request.includes('other_channels'), true);
-  assert.equal(result.request.includes('tomatoes are ripe'), true);
-});
-
-test('leaves out the other channels and channel view blocks when the conversations read is not offered', async () => {
-  const { result } = await turnWith(NEEDED);
-  assert.equal(result.request.includes('other_channels'), false);
-  assert.equal(result.request.includes('channel_view'), false);
-  assert.equal(result.request.includes('tomatoes are ripe'), false);
-});
+// Slice 4: "shows the other channels block when the interface offers the conversations read" left this file. A reply
+// on the frame shows no `<other_channels>` and no `<channel_view>` whatever the interface offers, and only a routed or
+// noticed turn keeps them, which no caller in src/ starts through the core.
 
 test('makes no call of a read the interface did not declare', async () => {
   const { result } = await turnWith(NEEDED);
