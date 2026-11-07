@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { auditMemory as auditOver } from '../src/memory/db/audit.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { DM, GROUP, WORDS, auditWorld, monthOwner, runAudit } from './fixtures/memory-audit-world.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -21,6 +22,12 @@ const CHECKS = [
   'linkedMediaKept',
   // The lead: the audit gained `unlinkedLineMedia` with the late embeds slice (owner, 2026-11-06).
   'unlinkedLineMedia',
+  // Plan 2026-11-06-turn-frame, slice 9 (d): what is still unnamed or undescribed, and a line of the owner's chat retired
+  // by anything but his memory command.
+  'placeUnnamed',
+  'placeUndescribed',
+  'interfaceUnnamed',
+  'cliLineRetired',
 ] as const;
 type Check = (typeof CHECKS)[number];
 const ZERO = Object.fromEntries(CHECKS.map((check) => [check, 0])) as Record<Check, number>;
@@ -44,6 +51,18 @@ function editManifest(db: DatabaseSync, change: (manifest: Record<string, unknow
 }
 
 type Report = { findings: number; checks: Record<Check, number> };
+
+/** The owner's chat, named on its interface, with one line retired under `origin`. */
+function cliLine(db: DatabaseSync, origin: string): void {
+  db.exec(`
+    UPDATE interfaces SET name = 'command line' WHERE id = 'cli';
+    INSERT INTO places (id, iface, kind, native_id, scope_kind, conversation, authority_id, native_key, generation)
+      VALUES ('cli:dm:owner', 'cli', 'dm', 'owner', 'dm', 'dm', 'cli/local', 'dm:owner', 1);`);
+  db.prepare(
+    `INSERT INTO sources (id, kind, iface, place_id, text, scope_kind, scope_iface, scope_dm, audience_id, origin, retired_at)
+       VALUES ('src:cli', 'seen', 'cli', 'cli:dm:owner', ?, 'dm', 'cli', NULL, 'aud:dm:cli:dm:owner', ?, '2026-11-03T09:00:00.000Z')`
+  ).run(WORDS, origin);
+}
 
 /** The audit's report of `file`, with its exit code checked against what it reports. */
 function reportOf(file: string): Report {
@@ -95,7 +114,10 @@ test('auditMemory answers the counts over an open read connection', async () => 
   // Imported here so that the process tests above and below fail one by one until the script exists.
   const { auditMemory } = await import('../scripts/memory-audit.ts');
   const db = new DatabaseSync(file, { readOnly: true });
-  assert.deepEqual(auditMemory(db), { findings: 1, checks: { ...ZERO, unexplainedNone: 1 } });
+  assert.deepEqual(auditMemory(db, { describeAfterLines: 20 }), {
+    findings: 1,
+    checks: { ...ZERO, unexplainedNone: 1 },
+  });
   db.close();
 });
 
@@ -256,6 +278,34 @@ const DAMAGE: ReadonlyArray<Case> = [
     edit: (db) => db.exec("UPDATE media SET retired_at = '2026-11-03T09:00:00.000Z' WHERE id = 'media:held:att-kept'"),
   },
   {
+    name: 'a live room has no name',
+    check: 'placeUnnamed',
+    count: 1,
+    edit: (db) => db.prepare('UPDATE places SET name = NULL WHERE id = ?').run(GROUP),
+  },
+  {
+    name: 'a live root has no name',
+    check: 'placeUnnamed',
+    count: 1,
+    edit: (db) =>
+      db.exec(
+        `INSERT INTO places (id, iface, kind, native_id, scope_kind, authority_id, native_key, generation)
+           VALUES ('discord:server:s1', 'discord', 'server', 's1', 'group', 'discord/global', 'server:s1', 1)`
+      ),
+  },
+  {
+    name: 'an interface with places has no name',
+    check: 'interfaceUnnamed',
+    count: 1,
+    edit: (db) => db.exec("UPDATE interfaces SET name = NULL WHERE id = 'discord'"),
+  },
+  {
+    name: 'a line of the owner’s chat was retired by something other than his memory command',
+    check: 'cliLineRetired',
+    count: 1,
+    edit: (db) => cliLine(db, 'session'),
+  },
+  {
     name: 'a live diary entry links a media row that was trimmed',
     check: 'linkedMediaKept',
     count: 1,
@@ -274,6 +324,14 @@ for (const { name, check, count, edit } of DAMAGE) {
 
 // Each of these made a row look wrong that is right, and a production run could never close.
 const FINE: ReadonlyArray<{ name: string; edit: (db: DatabaseSync) => void }> = [
+  {
+    name: 'a direct chat with no name',
+    edit: (db) => db.prepare('UPDATE places SET name = NULL WHERE id = ?').run(DM),
+  },
+  {
+    name: 'a line of the owner’s chat retired by his memory command',
+    edit: (db) => cliLine(db, 'owner'),
+  },
   {
     name: 'a retired row with a broken audience',
     edit: (db) =>
@@ -357,4 +415,56 @@ test('nothing of a row reaches the output, on a clean run or a damaged one', asy
     for (const secret of [WORDS, GROUP, DM, 'claim:', 'person:', 'src:', 'desc:', 'media:', 'owner', file])
       assert.equal(output.includes(secret), false, secret);
   }
+});
+
+/** A named room of the group with `lines` live lines and the `fields` of its description. */
+function describedRoom(lines: number, fields: ReadonlyArray<string>): (db: DatabaseSync) => void {
+  return (db) => {
+    db.exec(`INSERT INTO places (id, iface, kind, native_id, scope_kind, conversation, name, authority_id, native_key, generation)
+      VALUES ('discord:channel:quiet', 'discord', 'channel', 'quiet', 'group', 'group', 'ήσυχη', 'discord/global', 'channel:quiet', 1)`);
+    const line = db.prepare(
+      `INSERT INTO sources (id, kind, iface, place_id, text, scope_kind, scope_iface, scope_dm, audience_id)
+         VALUES (?, 'seen', 'discord', 'discord:channel:quiet', ?, 'group', 'discord', NULL, 'aud:group:discord')`
+    );
+    for (let i = 0; i < lines; i += 1) line.run(`src:quiet:${i}`, WORDS);
+    for (const field of fields) {
+      db.prepare(
+        `INSERT INTO descriptions (id, subject_kind, subject_id, field, current_version, scope_kind, scope_iface, scope_dm, audience_id)
+           VALUES (?, 'place', 'discord:channel:quiet', ?, ?, 'group', 'discord', NULL, 'aud:group:discord')`
+      ).run(`desc:quiet:${field}`, field, `desc:quiet:${field}:v1`);
+      db.prepare('INSERT INTO description_versions (id, description_id, text) VALUES (?, ?, ?)').run(
+        `desc:quiet:${field}:v1`,
+        `desc:quiet:${field}`,
+        WORDS
+      );
+    }
+  };
+}
+
+/** The checks of the audit over `file` with the threshold of lines given. */
+function checksOver(file: string, describeAfterLines: number): Record<Check, number> {
+  const db = new DatabaseSync(file, { readOnly: true });
+  try {
+    return auditOver(db, { describeAfterLines }).checks;
+  } finally {
+    db.close();
+  }
+}
+
+// Bug: a place that has barely spoken is reported as waiting for a description, and the backfill spends on it.
+test('placeUndescribed does not count a place with one line fewer than the threshold and no field', async () => {
+  assert.deepEqual(checksOver(await auditWorld(describedRoom(19, [])), 20), ZERO);
+});
+
+// Bug: a place with two of the three fields is taken as described, so the backfill never fills the third.
+test('placeUndescribed counts a place at the threshold with two of the three fields', async () => {
+  assert.deepEqual(checksOver(await auditWorld(describedRoom(20, ['purpose', 'tone'])), 20), {
+    ...ZERO,
+    placeUndescribed: 1,
+  });
+});
+
+// Bug: the check counts fields up to three inclusive, so a fully described place stays on the backfill's list.
+test('placeUndescribed does not count a place at the threshold with all three fields', async () => {
+  assert.deepEqual(checksOver(await auditWorld(describedRoom(20, ['purpose', 'tone', 'topics'])), 20), ZERO);
 });

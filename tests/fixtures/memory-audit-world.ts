@@ -26,7 +26,14 @@ const observed = (key: string, kind: 'dm' | 'channel', native: string) => ({
   iface: 'discord',
   authority: 'discord/global',
   native: { kind: 'message', key: native, revision: 1 },
-  place: { authority: 'discord/global', key, kind, conversation: kind === 'dm' ? 'dm' : 'group' },
+  place: {
+    authority: 'discord/global',
+    key,
+    kind,
+    conversation: kind === 'dm' ? 'dm' : 'group',
+    // A room has its title from its first line; a direct chat has none (plan 2026-11-06-turn-frame, "The fields of a place").
+    ...(kind === 'dm' ? {} : { title: 'αίθουσα' }),
+  },
   author: { kind: 'account', key: 'owner' },
   occurredAt: '2026-11-03T09:00:00.000Z',
   observedAt: '2026-11-03T09:00:01.000Z',
@@ -59,6 +66,7 @@ function addRows(db: DatabaseSync): void {
   // A line with a described item, linked; the store holds a line's media as links.
   db.prepare("INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('source', ?, 0, 'media:held:att-kept')").run(lineId);
   db.exec(`
+    UPDATE interfaces SET name = 'Discord' WHERE id = 'discord';
     INSERT INTO media (id, kind, native_ref, description, scope_kind, scope_iface, scope_dm, audience_id)
       VALUES ('media:held:att-kept', 'image', 'att-kept', '${WORDS}', ${GROUP_SCOPE});
     INSERT INTO selfreflection (id, at_ms, kind, gist, text, status, scope_kind, scope_iface, scope_dm, audience_id)

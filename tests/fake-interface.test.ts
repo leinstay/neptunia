@@ -11,6 +11,7 @@ import { createEventDoor } from '../src/interface/door.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { start } from '../src/interface/fake-interface.ts';
 import type { InterfaceHost } from '../src/protocol/host.ts';
+import { waitFor, withFakes } from './fixtures/two-fakes.ts';
 
 const TOKEN = 'link-token';
 const SELF_ID = 'self-id';
@@ -153,4 +154,43 @@ test('an interface started over an adapter the caller keeps serves that adapter,
     ['before the restart', 'after the restart']
   );
   await second.stop();
+});
+
+// Plan 2026-11-06-turn-frame, slice 3 (c): an interface says its own names and nouns in `hello.names`, and the core keeps
+// them as the interface's name and as names of kind `interface_noun` in the name index.
+const NAMES = { interface: 'Fakebook', nouns: { server: 'όμιλος', channel: 'αίθουσα' }, dm: 'ιδιωτικό' };
+
+test('says hello with the names it was given', async () => {
+  // Bug: the fake drops the names, so no test can show the core what an interface calls itself.
+  const { host, link } = rig();
+  const running = await start(host, { selfId: SELF_ID, names: NAMES });
+  const hello = await link.hello;
+  assert.deepEqual(hello.names, NAMES);
+  await running.stop();
+});
+
+test('a hello with names stores the interface name and its nouns as names of the interface', async () => {
+  // Bug: the core takes the hello and drops its names, so "server" or the interface's own name raises nothing.
+  await withFakes({ names: ['fake'] }, async ({ connect, rows }) => {
+    await connect('fake', [{ id: 'g1', name: 'Ágora' }], NAMES);
+    await waitFor(() => rows("SELECT id FROM places WHERE id = 'fake:server:g1'").length === 1, 'the hello');
+    assert.equal(rows("SELECT name FROM interfaces WHERE id = 'fake'")[0]?.name, 'Fakebook');
+    const nouns = rows("SELECT label FROM names WHERE kind = 'interface_noun'").map((row) => String(row.label));
+    assert.deepEqual(
+      ['όμιλος', 'αίθουσα'].filter((noun) => !nouns.includes(noun)),
+      []
+    );
+    const own = rows("SELECT label FROM names WHERE node_id = 'interface:fake'").map((row) => String(row.label));
+    assert.ok(own.includes('Fakebook'), 'the interface name is a name of its node');
+  });
+});
+
+test('a hello without names stores the interface id as its name', async () => {
+  // Bug: an interface that says nothing of itself stays unnamed, and the audit reports it forever.
+  await withFakes({ names: ['fake'] }, async ({ connect, rows }) => {
+    await connect('fake', [{ id: 'g1', name: 'Ágora' }]);
+    // Waited for on the root the same hello names, which the core writes in the same step.
+    await waitFor(() => rows("SELECT id FROM places WHERE id = 'fake:server:g1'").length === 1, 'the hello');
+    assert.equal(rows("SELECT name FROM interfaces WHERE id = 'fake'")[0]?.name, 'fake');
+  });
 });
