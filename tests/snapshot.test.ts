@@ -36,7 +36,6 @@ function info(id: string, over: Partial<ConversationInfo> = {}): ConversationInf
     rootId: 'g1',
     name: id,
     topic: null,
-    category: null,
     chatType: 'channel',
     iface: 'fake',
     permissions: { read: true, send: true, attach: true, react: true },

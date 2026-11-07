@@ -31,7 +31,6 @@ const NOW = Date.parse('2026-11-06T14:05:00Z');
 const WHEN = formatNow(NOW, 'UTC', labels.locale);
 
 const SERVER: PlaceLink = { id: 'p-server', kind: 'server', name: 'Example Server' };
-const CATEGORY: PlaceLink = { id: 'p-category', kind: 'category', name: 'Lounge' };
 const CHANNEL: PlaceLink = { id: 'p-channel', kind: 'channel', name: 'general' };
 const BARE_CHANNEL: PlaceLink = { id: 'p-bare', kind: 'channel', name: 'off-topic' };
 const THREAD: PlaceLink = { id: 'p-thread', kind: 'thread', name: 'weekend plans' };
@@ -47,14 +46,12 @@ function textOf(chain: ReadonlyArray<PlaceLink>, notes: unknown = {}, isPrivate 
   });
 }
 
-test('a channel in a category names the channel, its category and its server, then the interface and the time', () => {
+// A category is no place, the owner's word of 2026-11-06, so no chain holds one.
+test('a channel names the channel and its server, then the interface and the time', () => {
   // Bug: the path is read root first, or a level of the nesting is dropped, and she places herself in the server.
   assert.equal(
-    textOf([CHANNEL, CATEGORY, SERVER]),
-    [
-      `SPATIAL-PLACE channel #general < category Lounge < server Example Server ON discord AT ${WHEN}`,
-      'SPATIAL-GROUP',
-    ].join('\n')
+    textOf([CHANNEL, SERVER]),
+    [`SPATIAL-PLACE channel #general < server Example Server ON discord AT ${WHEN}`, 'SPATIAL-GROUP'].join('\n')
   );
 });
 
@@ -68,8 +65,8 @@ test('a channel with no category goes straight to its server', () => {
 test('a thread names itself, then the channel it sits in, up to the server', () => {
   // Bug: a thread is shown as its channel, so she answers the channel's topic inside a thread.
   assert.equal(
-    textOf([THREAD, CHANNEL, CATEGORY, SERVER]).split('\n')[0],
-    `SPATIAL-PLACE thread weekend plans < channel #general < category Lounge < server Example Server ON discord AT ${WHEN}`
+    textOf([THREAD, CHANNEL, SERVER]).split('\n')[0],
+    `SPATIAL-PLACE thread weekend plans < channel #general < server Example Server ON discord AT ${WHEN}`
   );
 });
 
@@ -106,32 +103,22 @@ test('a selfreflection post is in her own world, with the time', () => {
 
 test("a server's note reaches every channel under it", () => {
   // Bug: the owner writes his note once on the server and no channel shows it.
-  const lines = textOf([CHANNEL, CATEGORY, SERVER], { 'p-server': 'adults only' }).split('\n');
+  const lines = textOf([CHANNEL, SERVER], { 'p-server': 'adults only' }).split('\n');
   assert.equal(lines.at(-1), 'SPATIAL-NOTE adults only');
 });
 
 test("a channel's own note wins over the note of the places above it", () => {
-  const notes = { 'p-server': 'adults only', 'p-category': 'calm talk', 'p-channel': 'memes welcome' };
-  const lines = textOf([CHANNEL, CATEGORY, SERVER], notes).split('\n');
+  const notes = { 'p-server': 'adults only', 'p-channel': 'memes welcome' };
+  const lines = textOf([CHANNEL, SERVER], notes).split('\n');
   assert.deepEqual(
     lines.filter((line) => line.startsWith('SPATIAL-NOTE')),
     ['SPATIAL-NOTE memes welcome']
   );
 });
 
-test('a category note reaches its channels when the channel has none', () => {
-  const lines = textOf([CHANNEL, CATEGORY, SERVER], { 'p-server': 'adults only', 'p-category': 'calm talk' }).split(
-    '\n'
-  );
-  assert.deepEqual(
-    lines.filter((line) => line.startsWith('SPATIAL-NOTE')),
-    ['SPATIAL-NOTE calm talk']
-  );
-});
-
 test('a blank note is no note, and the note of a place outside the chain is never shown', () => {
   // Bug: a cleared note leaves an empty line, or a sibling channel's note leaks into this one.
-  const text = textOf([CHANNEL, CATEGORY, SERVER], { 'p-channel': '   ', 'p-bare': 'not here' });
+  const text = textOf([CHANNEL, SERVER], { 'p-channel': '   ', 'p-bare': 'not here' });
   assert.ok(!text.includes('SPATIAL-NOTE'), text);
 });
 
@@ -180,13 +167,13 @@ test('whereaboutsOf: a place takes its chain from the tree and its privacy from 
   const asked: Array<string> = [];
   const chainOf = (placeId: string): ReadonlyArray<PlaceLink> => {
     asked.push(placeId);
-    return [CHANNEL, CATEGORY, SERVER];
+    return [CHANNEL, SERVER];
   };
   assert.deepEqual(whereaboutsOf({ iface: 'discord', placeId: 'p-channel', isPrivate: false, chainOf }), {
     kind: 'place',
     iface: 'discord',
     private: false,
-    chain: [CHANNEL, CATEGORY, SERVER],
+    chain: [CHANNEL, SERVER],
   });
   assert.deepEqual(asked, ['p-channel']);
 });

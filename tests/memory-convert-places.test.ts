@@ -273,7 +273,8 @@ const UNCHANGED: ReadonlyArray<[string, ReadonlyArray<string>]> = [
   ['publication_grants', []],
   ['mirrors', []],
   ['selfreflection_mirrors', ['owner_key']],
-  ['model_requests', []],
+  // The archive gained its `blocks` column after the old database was made.
+  ['model_requests', ['blocks']],
   ['execution_contexts', []],
 ];
 
@@ -302,8 +303,9 @@ for (const [table, except] of UNCHANGED) {
 }
 
 test('places keep every id, parent and partner, and only the server kind changes', () => {
+  // A category is no place, the owner's word of 2026-11-06: the `category` column is gone from the output.
   // Bug: the hierarchy or a DM partner is lost, so `rootPlaceOf` and the person view stop answering.
-  const except = ['kind', 'owner_key'];
+  const except = ['kind', 'owner_key', 'category'];
   assert.deepEqual(rowsOf(done().output, 'places', except), rowsOf(done().input, 'places', except));
 });
 

@@ -114,7 +114,6 @@ export const labels = {
   channelDirectory: {
     lead: 'channels by handle:',
     line: '{handle} {name}',
-    lineCategory: '{handle} {name} in {category}',
   },
   senses: {
     imageSee: 'you can see pictures attached to a request with your own eyes',
@@ -260,7 +259,6 @@ export const labels = {
   },
   server: {
     currentMark: ' ← you are here',
-    category: 'category: {text}',
     topic: 'topic: {text}',
     purpose: 'purpose: {text}',
     topics: 'what people write here: {text}',
@@ -426,7 +424,6 @@ export const labels = {
     within: ' < ',
     kinds: {
       server: 'server {name}',
-      category: 'category {name}',
       channel: 'channel #{name}',
       thread: 'thread {name}',
       dm: 'dm {name}',

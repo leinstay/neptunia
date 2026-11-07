@@ -86,7 +86,6 @@ export type ChannelSpec = {
   public?: boolean;
   kind?: ConversationInfo['kind'];
   parentId?: string | null;
-  category?: string | null;
   audience?: ConversationInfo['audience'];
   viewers?: ConversationInfo['viewers'];
   extra?: Partial<ConversationInfo>;
@@ -188,7 +187,6 @@ function infoOf(id: string, spec: ChannelSpec): { placeId: string | null; name: 
     rootId: placeId,
     name,
     topic: null,
-    category: spec.category ?? null,
     chatType: placeId === null ? 'dm' : (spec.kind ?? 'channel'),
     ...(placeId === null ? { partnerId: spec.partnerId === undefined ? 'u1' : spec.partnerId } : {}),
     ...(spec.parentId === undefined ? {} : { parentId: spec.parentId }),

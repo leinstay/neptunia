@@ -57,7 +57,6 @@ export type TriggerLine = {
   id: string;
   placeId: string;
   channelName: string | null;
-  channelCategory: string | null;
   channelTopic: string | null;
   authorId: string;
   authorName: string;

@@ -16,6 +16,7 @@ import { pastEntries } from './selfreflection-past.ts';
 import { repairSessionRows } from './session-repair.ts';
 import { migrateSemanticMemory } from './semantic-schema.ts';
 import { migrateMediaStore } from './media-store.ts';
+import { dropCategoryPlaces } from './category-places.ts';
 import { SELF_SOURCE_KINDS } from './source-kinds.ts';
 import { importWakeQueues } from '../migration/wake-import.ts';
 import { renameToSelfreflection, withCurrentNames } from '../migration/selfreflection-names.ts';
@@ -375,7 +376,7 @@ const PLACE_KEY_SQL = `(CASE
   WHEN native_id IS NULL THEN NULL
   ELSE COALESCE(NULLIF(kind, ''), 'place') || ':' || native_id END)`;
 const CONVERSATION_SQL =
-  "(CASE WHEN kind = 'dm' OR scope_kind = 'dm' THEN 'dm' WHEN kind IN ('guild', 'server', 'workspace', 'category') THEN NULL ELSE 'group' END)";
+  "(CASE WHEN kind = 'dm' OR scope_kind = 'dm' THEN 'dm' WHEN kind IN ('guild', 'server', 'workspace') THEN NULL ELSE 'group' END)";
 const ACCOUNT_KEY_SQL =
   "COALESCE(native_id, CASE WHEN iface IS NOT NULL AND substr(id, 1, length(iface) + 1) = iface || ':' AND length(id) > length(iface) + 1 THEN substr(id, length(iface) + 2) END)";
 
@@ -1493,6 +1494,10 @@ export const MIGRATIONS: Array<Migration> = [
   migrateMediaStoreStep,
   // Version 34 (B10 of the master plan): the diary is `selfreflection` in stored data (src/memory/migration/selfreflection-names.ts).
   renameToSelfreflection,
+  // Version 35: what each request emitted, block by block (src/llm/archive.ts).
+  'ALTER TABLE model_requests ADD COLUMN blocks JSON;',
+  // Version 36: a sidebar grouping is no place, and a room carries no label of one.
+  dropCategoryPlaces,
 ];
 
 /** Every table schema v8 adds. */

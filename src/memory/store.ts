@@ -470,7 +470,6 @@ function isoStampOrNull(value: Untyped) {
 export type ChannelEntry = {
   id: string;
   name: string;
-  category: string | null;
   topic: string | null;
   purpose: string;
   topics: string;
@@ -492,7 +491,6 @@ export function emptyChannel(id: string): ChannelEntry {
   return {
     id,
     name: '',
-    category: null,
     topic: null,
     purpose: '',
     topics: '',
@@ -2891,8 +2889,8 @@ function buildStore({
     },
 
     /**
-     * Record one observed message in a channel: the platform's facts (name, category,
-     * topic), counters and the per-day activity histogram. Creates the entry.
+     * Record one observed message in a channel: the platform's facts (name, topic),
+     * counters and the per-day activity histogram. Creates the entry.
      * `authorId` (the message's author, omitted for the persona's own
      * messages and other bots -- see src/memory/update.ts#touchMemory) is
      * counted into the channel's `writers` tally (see `countWriter` above),
@@ -2908,16 +2906,15 @@ function buildStore({
      */
     touchChannel(
       placeId: string,
-      facts: { name?: string; category?: string | null; topic?: string | null },
+      facts: { name?: string; topic?: string | null },
       ts: number = Date.now(),
       authorId: string | null = null,
       opts: { channelWritersStored?: number; channelWritersHalfLifeDays?: number } = {}
     ): object {
       const item = channelEntry(placeId);
       const channel = item.value;
-      const { name, category = null, topic = null } = facts ?? {};
+      const { name, topic = null } = facts ?? {};
       if (name) channel.name = name;
-      channel.category = category;
       channel.topic = topic;
       channel.messageCount += 1;
       channel.firstMessageAt = channel.firstMessageAt === null ? ts : Math.min(channel.firstMessageAt, ts);

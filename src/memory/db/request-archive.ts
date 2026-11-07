@@ -40,6 +40,7 @@ const COLUMNS = [
   'service',
   'backend',
   'run_id',
+  'blocks',
 ] as const;
 
 const iso = (at: unknown): string => new Date(typeof at === 'number' ? at : Date.now()).toISOString();

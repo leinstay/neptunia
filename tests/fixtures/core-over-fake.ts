@@ -173,7 +173,6 @@ export function channelInfo(id: string, extra: Partial<ConversationInfo> = {}): 
     rootId: COMMUNITY.id,
     name: `room-${id}`,
     topic: null,
-    category: null,
     iface: 'fake',
     permissions: { read: true, send: true, attach: true, react: true },
     owner: null,

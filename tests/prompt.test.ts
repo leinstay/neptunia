@@ -1329,18 +1329,17 @@ test('buildRequest: a neighbour with no stored channel note is skipped, not synt
 });
 
 test('buildRequest: with no stored note for the current channel, its Discord facts and activity still render from history', () => {
+  // A category is no place, the owner's word of 2026-11-06.
   const history = [
     makeMessage(1, NOW - MIN, {
       placeId: 'c1',
       channelName: 'brand-new-channel',
-      channelCategory: 'General',
       channelTopic: 'say hi',
     }),
   ];
   const request = buildRequest(baseInput({ history, channels: [], currentChannelId: 'c1' }));
   const user = contentText(request.messages[1].content);
   assert.ok(user.includes(`# brand-new-channel${labels.server.currentMark}`));
-  assert.ok(user.includes(fill(labels.server.category, { text: 'General' })));
   assert.ok(user.includes(fill(labels.server.topic, { text: 'say hi' })));
   assert.ok(user.includes(`activity: ${labels.server.activityDead}`));
 });

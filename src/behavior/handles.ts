@@ -10,7 +10,7 @@
 // and their open aliases, sorted so its text changes only when those names do.
 // Channels get handles the same way (`#` + CHANNEL_HANDLE_PREFIX + base-36 digits of the channel
 // id's hash): the channel directory (`<channel_directory>`, the stable part too) lists each text
-// channel the persona can read with its handle, its name and its category, sorted by id, so a
+// channel the persona can read with its handle and its name, sorted by id, so a
 // channel she names resolves exactly and a made-up name never has to be guessed. Pure.
 
 import { createHash } from 'node:crypto';
@@ -151,7 +151,7 @@ export function directoryEntries(
 }
 
 /** The words of a directory block (`labels.directory`, `labels.channelDirectory`) the renderers read. */
-type DirectoryLabels = { line?: unknown; lineAliases?: unknown; lineCategory?: unknown; lead?: unknown };
+type DirectoryLabels = { line?: unknown; lineAliases?: unknown; lead?: unknown };
 
 /** The names of a directory line: each as a JSON string (quoted, escaped), joined by ", ". */
 function quotedList(names: Untyped) {
@@ -230,38 +230,34 @@ export function assignChannelHandles(ids: Iterable<string>): Map<string, string>
 }
 
 /**
- * The channel directory's entries: one per channel id of `channels` (`{ id, name, category? }`)
- * with a non-blank name, the first given winning; `name` and `category` one-line (`category`
- * null when blank or missing). Sorted by id (oldest first), so the text moves only when a channel
+ * The channel directory's entries: one per channel id of `channels` (`{ id, name }`)
+ * with a non-blank name, the first given winning; `name` one-line. Sorted by id (oldest first), so the text moves only when a channel
  * is added, removed or renamed -- never with activity, position or time. Pure.
  */
 export function channelDirectoryEntries(
-  channels: Iterable<{ id: string; name: string; category?: string | null }>
-): Array<{ id: string; name: string; category: string | null }> {
+  channels: Iterable<{ id: string; name: string }>
+): Array<{ id: string; name: string }> {
   const byId = new Map();
   for (const channel of channels ?? []) {
     if (!channel || typeof channel !== 'object' || channel.id === undefined || channel.id === null) continue;
     const id = String(channel.id);
     const name = typeof channel.name === 'string' ? oneLine(channel.name) : '';
     if (id === '' || !name || byId.has(id)) continue;
-    const category = typeof channel.category === 'string' ? oneLine(channel.category) : '';
-    byId.set(id, { id, name, category: category || null });
+    byId.set(id, { id, name });
   }
   return [...byId.values()].sort((a, b) => compareIds(a.id, b.id));
 }
 
 /**
  * The `<channel_directory>` block's body: `labels.channelDirectory.lead` (when set), then one line
- * per entry with a handle -- `labels.channelDirectory.lineCategory` (`{handle}` `{name}`
- * `{category}`) for a channel with a category when that label is set, else
- * `labels.channelDirectory.line` (`{handle}` `{name}`). `{handle}` is the exact token to write,
- * `#` included; `{name}` and `{category}` are JSON strings (quoted, escaped). '' without
+ * per entry with a handle, `labels.channelDirectory.line` (`{handle}` `{name}`). `{handle}` is the
+ * exact token to write, `#` included; `{name}` is a JSON string (quoted, escaped). '' without
  * `labels.channelDirectory.line` or without a line. Pure.
  * @param entries  channelDirectoryEntries'.
  * @param handles  channel id -> handle (assignChannelHandles').
  */
 export function renderChannelDirectory(
-  entries: Array<{ id: string; name: string; category: string | null }>,
+  entries: Array<{ id: string; name: string }>,
   handles: Map<string, string>,
   labels: { channelDirectory?: DirectoryLabels | null; [key: string]: unknown }
 ): string {
@@ -271,12 +267,7 @@ export function renderChannelDirectory(
   for (const entry of entries ?? []) {
     const handle = handles?.get(entry.id);
     if (!handle) continue;
-    const values = { handle: `#${handle}`, name: JSON.stringify(entry.name) };
-    lines.push(
-      entry.category && typeof l.lineCategory === 'string' && l.lineCategory
-        ? fill(l.lineCategory, { ...values, category: JSON.stringify(entry.category) })
-        : fill(l.line, values)
-    );
+    lines.push(fill(l.line, { handle: `#${handle}`, name: JSON.stringify(entry.name) }));
   }
   if (lines.length === 0) return '';
   return [typeof l.lead === 'string' ? l.lead : '', ...lines].filter(Boolean).join('\n');

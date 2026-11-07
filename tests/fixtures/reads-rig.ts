@@ -53,7 +53,6 @@ export function channel(id: string, extra: Partial<ConversationInfo> & { communi
     rootId: COMMUNITY,
     name: `room-${id}`,
     topic: null,
-    category: null,
     iface: IFACE,
     permissions: ALL_PERMISSIONS,
     owner: null,

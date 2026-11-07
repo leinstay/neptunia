@@ -211,7 +211,6 @@ function mention(conversationId: string): MessageReceived {
       rootId: GUILD,
       name: conversationId,
       topic: null,
-      category: null,
     },
     message: {
       id: `e-${conversationId}`,

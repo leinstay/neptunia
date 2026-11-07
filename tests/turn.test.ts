@@ -2022,6 +2022,9 @@ test('createTurnRunner: the persona turn is requested as role core, purpose repl
     { role: 'core', purpose: 'reply', iface: 'discord' },
     'only the role, the purpose and the interface (PR 7a: `iface` for the usage row, never in the request) besides her tools: models.base.core and every other setting stay the defaults'
   );
+  // The reply call hands the archive its blocks, one entry per block of the request.
+  const { blocks } = llm.optionCalls[0];
+  assert.ok(Array.isArray(blocks) && blocks.length > 0);
   assert.equal(llm.optionCalls[0].toolChoice, 'auto');
   assert.deepEqual(
     llm.optionCalls[0].tools.map((tool: Untyped) => tool.function.name),

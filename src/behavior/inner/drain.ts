@@ -260,7 +260,6 @@ function heartbeatStandIn(iface: string): ConversationInfo {
     kind: 'channel',
     name: 'heartbeat',
     rootId: PERSONA_ID,
-    category: null,
     topic: null,
     permissions: { read: true, send: true, attach: true, react: false },
     owner: null,

@@ -1,6 +1,6 @@
 // Mapper: a channel's map entry `channels/<id>.json` <-> rows.
 //
-//   places           the channel (name, category, topic), under the parent the row holds
+//   places           the channel (name, topic), under the parent the row holds
 //   descriptions     purpose, topics, tone (subject: the channel's place), one legacy version each
 //   operational      kind channel: everything else (day counts, message counts, first/last message, top writers,
 //                    writers, notes stamps, ...), kept as it was
@@ -17,7 +17,6 @@ import type { MapContext, Spec } from './common.ts';
 const PLACE_SPEC: Array<Spec> = [
   { col: 'native_id', key: 'id', type: 'text' },
   { col: 'name', key: 'name', type: 'text' },
-  { col: 'category', key: 'category', type: 'text' },
   { col: 'topic', key: 'topic', type: 'text' },
 ];
 const FIELDS = ['purpose', 'topics', 'tone'];

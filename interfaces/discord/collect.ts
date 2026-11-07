@@ -465,7 +465,6 @@ export type NormalizedMessage = {
   id: string;
   channelId: string | undefined;
   channelName: string | null;
-  channelCategory: string | null;
   channelTopic: string | null;
   authorId: string;
   authorName: string | null;
@@ -548,7 +547,6 @@ export function normalizeMessage(
   const guild = message.guild;
   const guildChannels = guild?.channels?.cache;
   const sourceChannel = sourceChannelId ? guildChannels?.get?.(sourceChannelId) : null;
-  const category = message.channel?.parent;
   const mentionedUserCache = message.mentions?.users;
   const mentionedAccountIds = [...(mentionedUserCache?.keys?.() ?? [])];
   // The name `content` reads for each (`@DisplayName`, cleanContent), so the transcript can show their handle instead.
@@ -563,7 +561,6 @@ export function normalizeMessage(
     id: message.id,
     channelId: message.channelId,
     channelName: message.channel?.name ?? null,
-    channelCategory: category?.name ?? null,
     channelTopic: message.channel?.topic ?? null,
     authorId: message.author.id,
     authorName: displayNameOf(message.member, message.author),
@@ -646,12 +643,12 @@ export function normalizeOptions(
 
 /**
  * The protocol conversation of a discord.js message: its channel id as Discord gives it, `dm`
- * outside a guild, `thread` for a thread, else `channel`; the channel's name, topic and category
- * read exactly as normalizeMessage reads them. `chatType` tells a one-to-one chat (`dm`) from a
+ * outside a guild, `thread` for a thread, else `channel`; the channel's name and topic read exactly
+ * as normalizeMessage reads them. `chatType` tells a one-to-one chat (`dm`) from a
  * group chat (`group_dm`, Discord's `GroupDM` channel type), a `thread` and a `channel`; a
  * one-to-one chat names its partner (`partnerId`: the channel's recipient, null when Discord did
- * not say), a thread the channel it sits in (`parentId`), a channel in a category that category
- * (`parentId`, `parentKind`).
+ * not say), a thread the channel it sits in (`parentId`), a channel its guild (`parentId`, `parentKind`),
+ * whatever sidebar grouping Discord shows it under.
  */
 function conversationOf(
   message:
@@ -670,11 +667,10 @@ function conversationOf(
     rootId: idString(guildId),
     name: channel?.name ?? null,
     topic: channel?.topic ?? null,
-    category: channel?.parent?.name ?? null,
     chatType,
     ...(chatType === 'dm' ? { partnerId: idString(channel?.recipientId ?? channel?.recipient?.id) } : {}),
     ...(chatType === 'thread' ? { parentId: idString(channel?.parentId) } : {}),
-    ...(chatType === 'channel' && channel?.parentId ? { parentId: channel.parentId, parentKind: 'category' } : {}),
+    ...(chatType === 'channel' ? { parentId: idString(guildId), parentKind: 'server' } : {}),
   };
 }
 
@@ -1157,13 +1153,11 @@ export function readableChannels(
 
 /**
  * The channel directory's input (src/behavior/prompt.ts#buildRequest `channelDirectory`): every
- * channel of `guild` the persona may read (isReadableChannel), never a thread, as `{ id, name, category }`, the
- * category its parent's name or null. [] without a guild (a private chat).
+ * channel of `guild` the persona may read (isReadableChannel), never a thread, as `{ id, name }`.
+ * [] without a guild (a private chat).
  * @param guild A discord.js Guild.
  */
-export function channelDirectoryOf(
-  given: object | null | undefined
-): Array<{ id: string; name: string; category: string | null }> {
+export function channelDirectoryOf(given: object | null | undefined): Array<{ id: string; name: string }> {
   const guild = given ? asGuild(given) : null;
   const cache = guild?.channels?.cache;
   if (!cache || typeof cache.values !== 'function' || !guild?.members) return [];
@@ -1176,11 +1170,7 @@ export function channelDirectoryOf(
   // would rewrite the cached stable part (a thread still resolves and renders by its `#name`).
   return [...cache.values()]
     .filter((channel) => usable(channel) && channel.isThread?.() !== true && isReadableChannel(channel))
-    .map((channel) => ({
-      id: String(channel.id),
-      name: String(channel.name),
-      category: typeof channel.parent?.name === 'string' ? channel.parent.name : null,
-    }));
+    .map((channel) => ({ id: String(channel.id), name: String(channel.name) }));
 }
 
 /** When the message (or any object) with snowflake `id` was created, in ms since the epoch: no API call. */

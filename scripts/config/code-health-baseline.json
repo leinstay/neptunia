@@ -1444,7 +1444,7 @@
   "files": {
     "src/behavior/recall.ts": 2364,
     "tests/openrouter.test.ts": 3557,
-    "tests/prompt.test.ts": 6579,
+    "tests/prompt.test.ts": 6578,
     "tests/recall.test.ts": 2414
   },
   "functions": {
@@ -1845,7 +1845,7 @@
         "complexity": 25
       },
       "placeOf": {
-        "complexity": 38
+        "complexity": 36
       },
       "writeObservation": {
         "complexity": 35
@@ -1993,7 +1993,7 @@
     },
     "src/tools/impl/memory.ts": {
       "<anonymous>": {
-        "function-length": 453
+        "function-length": 452
       },
       "<anonymous>>cmdMemoryShow": {
         "complexity": 22

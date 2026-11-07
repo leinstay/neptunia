@@ -749,7 +749,7 @@ test('updateUser: cannot overwrite affinity via LLM-extracted fields', () => {
 test('touchChannel: repeated calls the same UTC day increment the same bucket', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
-  const facts = { name: 'general', category: null, topic: null };
+  const facts = { name: 'general', topic: null };
   store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, Date.UTC(2026, 8, 20, 1, 0, 0));
   const channel = store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, Date.UTC(2026, 8, 20, 23, 0, 0));
   assert.equal(asRecord(channel).messageCount, 2);
@@ -759,7 +759,7 @@ test('touchChannel: repeated calls the same UTC day increment the same bucket', 
 test('touchChannel: lastMessageAt keeps the maximum timestamp seen, even out of order', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
-  const facts = { name: 'general', category: null, topic: null };
+  const facts = { name: 'general', topic: null };
   store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, 5000);
   const channel = store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, 1000); // arrives "late", out of order
   assert.equal(asRecord(channel).lastMessageAt, 5000);
@@ -768,7 +768,7 @@ test('touchChannel: lastMessageAt keeps the maximum timestamp seen, even out of 
 test('touchChannel: trims the day histogram to the newest 30 dates', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
-  const facts = { name: 'general', category: null, topic: null };
+  const facts = { name: 'general', topic: null };
   let channel;
   for (let day = 0; day < 35; day += 1) {
     channel = store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, Date.UTC(2026, 0, 1 + day, 12, 0, 0));
@@ -782,7 +782,7 @@ test('touchChannel: trims the day histogram to the newest 30 dates', () => {
 test('touchChannel: bumps the author into topWriters and adds up repeated visits', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
-  const facts = { name: 'general', category: null, topic: null };
+  const facts = { name: 'general', topic: null };
   store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, 1000, 'alice');
   store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, 2000, 'alice');
   const channel = store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, 3000, 'bob');
@@ -795,11 +795,7 @@ test('touchChannel: bumps the author into topWriters and adds up repeated visits
 test('updateChannel: the analyzer cannot overwrite counters or Discord facts', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
-  store.touchChannel(
-    placeOfConversation(store, { id: 'c1' }),
-    { name: 'general', category: 'Text', topic: 'chat' },
-    1000
-  );
+  store.touchChannel(placeOfConversation(store, { id: 'c1' }), { name: 'general', topic: 'chat' }, 1000);
   store.updateChannel(placeOfConversation(store, { id: 'c1' }), {
     purpose: 'chatter',
     name: 'hacked-name',
@@ -819,7 +815,7 @@ const EARLIER_STAMP = '2000-01-01T00:00:00.000Z';
 
 test('updateChannel: a re-send identical to what is stored leaves updatedAt alone', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  store.touchChannel(placeOfConversation(store, { id: 'c1' }), { name: 'general', category: null, topic: null }, 1000);
+  store.touchChannel(placeOfConversation(store, { id: 'c1' }), { name: 'general', topic: null }, 1000);
   asRecord(
     store.updateChannel(placeOfConversation(store, { id: 'c1' }), {
       purpose: 'chatter',
@@ -840,11 +836,7 @@ test('updateChannel: a re-send identical to what is stored leaves updatedAt alon
 test('flush + a new store instance: channels survive a "restart"', async () => {
   const { dir, memoryDb } = memDataDir();
   const storeA = createStore({ dataDir: dir, memoryDb });
-  storeA.touchChannel(
-    placeOfConversation(storeA, { id: 'c1' }),
-    { name: 'general', category: 'Text', topic: 'chat' },
-    1000
-  );
+  storeA.touchChannel(placeOfConversation(storeA, { id: 'c1' }), { name: 'general', topic: 'chat' }, 1000);
   storeA.updateChannel(placeOfConversation(storeA, { id: 'c1' }), { purpose: 'chatter' });
   storeA.flush();
   await storeA.flushSettled({});
@@ -1574,7 +1566,7 @@ function seedGuild(store: Untyped) {
   store.touchUser(accountOf(store, 'u2'), 'Bob', 1000);
   store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: 'μιμίδια' });
   store.applyLearnedOps(placeOfCommunity(store, 'g1'), { add: ['Café closes at nine'] }, { seenAt: 1000 });
-  store.touchChannel(placeOfConversation(store, { id: 'c1' }), { name: 'general', category: null, topic: null }, 1000);
+  store.touchChannel(placeOfConversation(store, { id: 'c1' }), { name: 'general', topic: null }, 1000);
   store.touchChannel(placeOfConversation(store, { id: 'c2' }), { name: 'random', category: null, topic: null }, 1000);
   store.pushBuffer(placeOfCommunity(store, 'g1'), { text: 'hi' }, 100);
   store.pushBuffer(placeOfCommunity(store, 'g1'), { text: 'there' }, 100);

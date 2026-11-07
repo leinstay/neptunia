@@ -1,5 +1,7 @@
 // The types of the signatures in ./prompt.ts: the inputs and results that are too long to read inline.
 
+import type { Frame } from '../turn/request/frame.ts';
+import type { BlockRecord } from '../turn/request/tail.ts';
 import type { Whereabouts } from '../turn/request/spatial.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { Prompts, RequestConfig, RequestInput } from '../turn/request/types.ts';
@@ -45,7 +47,7 @@ export type BuildRequestInput = {
   candidateProfiles?: Array<Untyped>;
   nameOf?: (id: string) => string | null;
   channels?: Array<Untyped>;
-  channelDirectory?: Array<{ id: string; name: string; category?: string | null }>;
+  channelDirectory?: Array<{ id: string; name: string }>;
   loreEntries?: Array<Untyped>;
   currentChannelId?: string | null;
   descriptions?: Map<string, string>;
@@ -118,6 +120,8 @@ export type BuildRequestInput = {
   previousThink?: { text: string; relation: 'same' | 'earlier'; ageMs?: number } | null;
   stableFreeze?: Map<string, Untyped> | null;
   whereabouts?: Whereabouts | null;
+  /** The facts of the turn (src/turn/request/frame.ts). Without one its kind is read off `mode`, `triggerKind` and `wakeKind`. */
+  frame?: Frame | null;
 };
 
 /** One text part of a request's user message; the cache marker is the provider's. */
@@ -130,6 +134,8 @@ export type BuildRequestResult = {
   messages: Array<RequestMessage>;
   stats: Record<string, Untyped>;
   segments: Array<{ segment: 'stable' | 'profiles' | 'tail'; chars: number; hash: string }>;
+  /** Every block of the user message, empty ones too, for the archive row (src/llm/archive.ts). */
+  blocks: Array<BlockRecord>;
   idByIndex: Map<number, string>;
   tempo: Untyped;
   handles: Map<string, string> | null;

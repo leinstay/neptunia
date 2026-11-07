@@ -87,7 +87,7 @@ export async function responsePhase(
   const replyStartedAt = clock();
   try {
     const asked = await askUnleaked(
-      () => beforeBar(llm.complete(messages, { ...replyOptions(), ...(toolsSent ?? {}) })),
+      () => beforeBar(llm.complete(messages, { ...replyOptions(), ...(toolsSent ?? {}), blocks: request.blocks })),
       (answer) =>
         answerLeaked(answer as Parameters<typeof answerLeaked>[0], {
           transport,

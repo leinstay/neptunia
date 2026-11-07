@@ -87,6 +87,7 @@ import { collectReads, ordered } from '../turn/request/reads.ts';
 import { aheadOf, fitAll, headSections } from '../turn/request/sections.ts';
 import { sensesKept, sensesOf } from '../turn/request/senses.ts';
 import { aboutChatItems, learnedConfig, loreItems, serverItems } from '../turn/request/server.ts';
+import { kindOfRequest } from '../turn/request/frame.ts';
 import { assembleUser, seenOf } from '../turn/request/tail.ts';
 import { finalTask, taskOf } from '../turn/request/task.ts';
 import { TAG_OVERHEAD, block, fillPromptTemplate, requireLabels } from '../turn/request/text.ts';
@@ -458,6 +459,8 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   (src/llm/openrouter.js#cacheTtlMs: an hour for `llm.cache.ttl` `'1h'`), see freezePerBucket;
  *   a memory batch's change shows at the next bucket edge. Omitted, null or the cache off ->
  *   rendered from the input every time.
+ * @param [input.frame]  The facts of the turn (src/turn/request/frame.ts): its kind decides what her own time leaves
+ *   out and which task text applies. Without one the kind is read off `mode`, `triggerKind` and `wakeKind`.
  * @param [input.whereabouts]  Where the turn is (src/turn/request/spatial.ts#whereaboutsOf): `<spatial_awareness>` in
  *   the tail right after `<chat>` and before `<now>`, paid for with the fixed part and never cut, with the owner's note
  *   from `config.spatial.notes` read now. A heartbeat and a selfimprovement wake are on her own server and a
@@ -507,16 +510,20 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  */
 export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   // The transport anchor is not the conversation of a wake of her own time. Memory and its wake remain available.
-  const ownTime = input.mode === 'inner' && (input.wakeKind === 'heartbeat' || input.wakeKind === 'selfimprovement');
+  const turnKind = kindOfRequest({
+    frame: input.frame,
+    mode: input.mode,
+    triggerKind: input.triggerKind,
+    wakeKind: input.wakeKind,
+  });
+  const ownTime = turnKind === 'heartbeat' || turnKind === 'selfimprovement';
   if (ownTime) input = { ...input, history: [], neighbors: [], pulled: null, currentChannelId: null };
   // Her own time is at the command line of her own server, a selfreflection post in her own world (the owner's word of
   // 2026-11-06), whatever place the turn rode in on.
-  // The turn mode as the turn runner names it: a selfreflection post's mode is not in the input's own union.
-  const modeName: string = input.mode;
   const turnPlace = input.whereabouts ?? null;
   const ownPlace = ownTime
     ? { kind: 'server' as const }
-    : modeName === 'selfreflection'
+    : turnKind === 'selfreflection'
       ? { kind: 'world' as const }
       : null;
   const whereabouts = turnPlace && ownPlace ? ownPlace : turnPlace;
@@ -587,6 +594,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     previousThink: input.previousThink,
     stableFreeze: input.stableFreeze,
     whereabouts,
+    frame: input.frame,
   };
   // Each builder reads the input and what the builders before it gave, under the names they give it; a later one
   // hands on a checked value under the input's own name (`privateChat`, `interlocutor`, `nameOf`, `source`).
@@ -656,27 +664,30 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   const seen = seenOf({ history: given.history, keptChat, anchoredIds: earlierShown?.parentIds ?? [] });
   // The text parts (assembleUser's cache segments) are the whole user content: no image part
   // ever, the persona sees pictures through the describer's captions.
-  const user = assembleUser({
-    nowText: base.nowText,
-    spatial: base.spatialText,
-    timezone: base.timezone,
-    labels,
-    senses: sensesShown,
-    tools: senses.toolsText,
-    skillIndex: senses.skillIndexText,
-    channelDirectory: base.channelDirectoryText,
-    directory: base.directoryText,
-    kept: fit.kept,
-    tempoText,
-    task: taskText,
-    chatItems: ownTime ? null : keptChat,
-    selfreflection: selfreflection.selfreflectionParts,
-    errands: own.errandsText,
-    intentions: own.intentionsText,
-    wake: own.wakeText,
-    places: own.placesText,
-    previousThink: own.previousThinkText,
-  });
+  const { parts: user, blocks } = assembleUser(
+    {
+      nowText: base.nowText,
+      spatial: base.spatialText,
+      timezone: base.timezone,
+      labels,
+      senses: sensesShown,
+      tools: senses.toolsText,
+      skillIndex: senses.skillIndexText,
+      channelDirectory: base.channelDirectoryText,
+      directory: base.directoryText,
+      kept: fit.kept,
+      tempoText,
+      task: taskText,
+      chatItems: ownTime ? null : keptChat,
+      selfreflection: selfreflection.selfreflectionParts,
+      errands: own.errandsText,
+      intentions: own.intentionsText,
+      wake: own.wakeText,
+      places: own.placesText,
+      previousThink: own.previousThinkText,
+    },
+    fit.stats
+  );
 
   return {
     messages: [
@@ -689,6 +700,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
       chars: part.text.length,
       hash: createHash('sha1').update(part.text).digest('hex').slice(0, 8),
     })),
+    blocks,
     idByIndex: base.idByIndex,
     tempo,
     pulledIds: view.pulledIds,

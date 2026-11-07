@@ -27,6 +27,27 @@ An answer whose `<think>` is broken is never sent: the same request runs once mo
 
 A heartbeat or completed errand can also cause a turn. It uses the same persona and memory rather than a separate conversational agent. [Inner life](inner-life.md) explains those triggers.
 
+## The turn frame
+
+`buildTurnRequest` in `src/turn/phases/request/build.ts` builds a `Frame` with `frameOf` in `src/turn/request/frame.ts` before any block of the request, and `buildRequest` reads the turn's kind, her place and her counterpart from it. A request built without a frame, as a replay builds one, reads the kind off `mode`, `triggerKind` and `wakeKind` through `turnKindOf`.
+
+| Field | What it holds |
+|---|---|
+| `kind` | The `TurnKind`: `reply`, `heartbeat`, `selfimprovement`, `intention`, `feedback`, `errand_result`, `selfreflection_plan` or `selfreflection`. |
+| `place` | A `FramePlace` with `id`, `name`, `kind` and `path`, or null when she is nowhere. |
+| `root` | The top of the place's tree as a `FramePlace`, null in a one-to-one chat, with no place and for a place with no stored parent. |
+| `chain` | The stored chain of the place, the place first, which `<spatial_awareness>` renders link by link. |
+| `interface` | The interface's id. |
+| `scope` | `group`, `dm` or `internal`, the last when she is nowhere. |
+| `counterpart` | The partner of a one-to-one chat, else the author of the trigger, else null. |
+| `answers` | The `messageId` and `authorId` of the message the turn answers, or null. |
+| `now`, `timezone` | The present moment and the zone it reads in. |
+| `awake` | The `AwakeReason`: `message`, `wake`, `errand` or `selfreflection`. |
+| `wakeKind` | The wake beside `awake`, null on any other turn. |
+| `blocks` | The tags of the kind from `blocksOf`, listed in [the prompt contract](prompt-contract.md#blocks-per-kind). |
+
+`reply`, `interject`, `initiate`, `elsewhere` and `auto` make a `reply`, and a trigger of kind `errand` makes an `errand_result`. An inner turn takes its wake's kind, with `intention_due`, `attend`, `errand_deadline` and `review` making an `intention`. A `heartbeat`, a `selfimprovement` and both `selfreflection` kinds are nowhere, whatever place their turn rides in on. The path of a place runs from the interface down by names, and a one-to-one chat's path is the interface, the interface's word for the chat and the partner's native id, with no name. `frameOf` throws `FrameError` with the code `PLACE_REQUIRED` for a `reply` with no place.
+
 ## The door
 
 `createHandleMessage` in `src/pipeline/handle-message.ts` takes every new line. A DM and the owner's CLI are addressed already, so they go to the private path and never ask a classifier, and the persona's own turn decides whether to speak. Every other line belongs to a group place, which is a channel, a thread or a group that is its own root, on any interface.

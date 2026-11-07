@@ -121,8 +121,7 @@
     },
     "channelDirectory": {
       "lead": "Channels you can link. Write the handle exactly as listed to link one; a name alone links nothing.",
-      "line": "{handle}: {name}",
-      "lineCategory": "{handle}: {name} ({category})"
+      "line": "{handle}: {name}"
     },
     "senses": {
       "imageSee": "Pictures marked as attached you see yourself; they may carry a helper's note, which is a fallible reading whose confident wording is not evidence. Check identities and claims against what you see, and when a region is too small or unclear to make out, do not adopt a name or story from the note or the chat as fact. The helper may have seen more detail, so a vague view is inconclusive.",
@@ -277,7 +276,6 @@
     },
     "server": {
       "currentMark": " ← you are here",
-      "category": "Category: {text}",
       "topic": "Topic: {text}",
       "purpose": "What it's for: {text}",
       "topics": "People talk about: {text}",
@@ -938,7 +936,6 @@
       "within": ", in ",
       "kinds": {
         "server": "the server {name}",
-        "category": "the category {name}",
         "channel": "the channel #{name}",
         "thread": "the thread \"{name}\"",
         "dm": "a direct chat with {name}",

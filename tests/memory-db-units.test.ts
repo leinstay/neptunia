@@ -262,7 +262,7 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
   );
   m.store.touchChannel(
     placeOfConversation(m.store, { id: CHANNEL }),
-    { name: 'γενικά', category: null, topic: 'café' },
+    { name: 'γενικά', topic: 'café' },
     at(6),
     MEMBER,
     {}

@@ -21,7 +21,6 @@ function generalInfo(iface: string): ConversationInfo {
     rootId: 'g1',
     name: 'general',
     topic: null,
-    category: null,
     chatType: 'channel',
     iface,
     permissions: { read: true, send: true, attach: true, react: true },

@@ -50,13 +50,13 @@ const KITCHEN = '800000000000000303';
 const labels = {
   ...fixtureLabels,
   transcript: { ...fixtureLabels.transcript, channel: '{name} [{handle}]' },
-  channelDirectory: { lead: 'CHANNELS', line: '{handle} {name}', lineCategory: '{handle} {name} in {category}' },
+  channelDirectory: { lead: 'CHANNELS', line: '{handle} {name}' },
   directory: { lead: 'DIRECTORY', line: '{handle} {names}' },
 };
 
 const CHANNELS = [
-  { id: NEWS, name: '💖νέα', category: 'Κοινότητα' },
-  { id: GENERAL, name: 'γενικά', category: null },
+  { id: NEWS, name: '💖νέα' },
+  { id: GENERAL, name: 'γενικά' },
   { id: KITCHEN, name: 'κουζίνα', category: 'Κοινότητα' },
 ];
 
@@ -77,7 +77,8 @@ test('channel handles: `c` and four base-36 digits, stable per id, never a membe
   assert.equal(collided.get(NEWER), handleOf(NEWER, HANDLE_DIGITS + 1, CHANNEL_HANDLE_PREFIX));
 });
 
-test('channelDirectoryEntries / renderChannelDirectory: one line per channel by id, the category when known', () => {
+test('channelDirectoryEntries / renderChannelDirectory: one line per channel by id, no category', () => {
+  // A category is no place, the owner's word of 2026-11-06.
   // @ts-expect-error: the test adds malformed entries (a duplicate, a blank name, null) on purpose
   const entries = channelDirectoryEntries([
     ...CHANNELS,
@@ -94,8 +95,8 @@ test('channelDirectoryEntries / renderChannelDirectory: one line per channel by 
   assert.deepEqual(text.split('\n'), [
     'CHANNELS',
     `#${handles.get(GENERAL)} "γενικά"`,
-    `#${handles.get(NEWS)} "💖νέα" in "Κοινότητα"`,
-    `#${handles.get(KITCHEN)} "κουζίνα" in "Κοινότητα"`,
+    `#${handles.get(NEWS)} "💖νέα"`,
+    `#${handles.get(KITCHEN)} "κουζίνα"`,
   ]);
   assert.equal(renderChannelDirectory(entries, handles, { ...labels, channelDirectory: { line: '' } }), '');
 });
@@ -251,7 +252,7 @@ test('buildRequest: <channel_directory> sits in the cached stable part, before <
   assert.ok(stable.indexOf('<channel_directory>') < stable.indexOf('<directory>'), 'before the people directory');
   const handles = assignChannelHandles(CHANNELS.map((channel) => channel.id));
   assert.equal(body.split('\n').length, 1 + CHANNELS.length);
-  assert.ok(body.includes(`#${handles.get(KITCHEN)} "κουζίνα" in "Κοινότητα"`), body);
+  assert.ok(body.includes(`#${handles.get(KITCHEN)} "κουζίνα"`), body);
   // The stable part is the one that carries the provider's cache marker.
   const sent = withCacheMarker(request.messages, '1h');
   const part = partsOf(sent[1].content).find((p) => p.type === 'text' && p.text?.includes('<channel_directory>'));
@@ -334,7 +335,8 @@ test('afterScenarioTurn: her #handle lands on her line as the channel link a liv
   assert.deepEqual(loose(mine).mentionedChannelIds, [KITCHEN]);
 });
 
-test('channelDirectoryOf: the readable text channels with their category, never a thread', () => {
+test('channelDirectoryOf: the readable text channels, never a thread', () => {
+  // A category is no place, the owner's word of 2026-11-06.
   const guild = { members: { me: { id: SELF_ID } } };
   const channel = (
     id: string,
@@ -364,8 +366,8 @@ test('channelDirectoryOf: the readable text channels with their category, never 
   };
   // @ts-expect-error: guildChannelDirectory takes one argument; the second is ignored
   assert.deepEqual(guildChannelDirectory(guild, {}), [
-    { id: GENERAL, name: 'γενικά', category: null },
-    { id: NEWS, name: '💖νέα', category: 'Κοινότητα' },
+    { id: GENERAL, name: 'γενικά' },
+    { id: NEWS, name: '💖νέα' },
   ]);
   // @ts-expect-error: guildChannelDirectory takes one argument; the second is ignored
   assert.deepEqual(guildChannelDirectory(null, {}), [], 'a private chat has none');

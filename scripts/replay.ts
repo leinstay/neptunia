@@ -3683,7 +3683,7 @@ export function scenarioTrigger({
   text: string;
   authorId: string;
   authorName: string;
-  channel: { id: string; name?: string | null; category?: string | null; topic?: string | null };
+  channel: { id: string; name?: string | null; topic?: string | null };
   selfId: string;
   at: number;
   tagged?: boolean;
@@ -3693,7 +3693,6 @@ export function scenarioTrigger({
     id: String((BigInt(Math.floor(at)) - DISCORD_EPOCH) << 22n),
     placeId: String(channel.id),
     channelName: channel.name ?? null,
-    channelCategory: channel.category ?? null,
     channelTopic: channel.topic ?? null,
     authorId: String(authorId),
     authorName,
@@ -7023,7 +7022,6 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     const channelOf = (channel: Untyped) => ({
       id: channel.id,
       name: channel.name ?? null,
-      category: channel.parent?.name ?? null,
       topic: channel.topic ?? null,
     });
 

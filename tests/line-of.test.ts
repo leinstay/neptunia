@@ -12,7 +12,7 @@ function eventWith(
     iface: 'fake',
     at: 5000,
     id: 'fake:message:m1',
-    conversation: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general', topic: 'chat', category: 'Talk' },
+    conversation: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general', topic: 'chat' },
     message: {
       id: 'm1',
       author: { id: 'u1', name: 'Alice', self: false, bot: false },
@@ -40,12 +40,12 @@ function eventWith(
 }
 
 test('lineOf makes the line of a message event with the fields a turn reads, in their order', () => {
+  // A category is no place, the owner's word of 2026-11-06.
   const line = lineOf(eventWith());
-  assert.deepEqual(Object.keys(line).slice(0, 14), [
+  assert.deepEqual(Object.keys(line).slice(0, 13), [
     'id',
     'placeId',
     'channelName',
-    'channelCategory',
     'channelTopic',
     'authorId',
     'authorName',

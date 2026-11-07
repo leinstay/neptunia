@@ -579,7 +579,6 @@ function localInfo(placeId: string, id: string, name: string) {
     rootId: placeId,
     name,
     topic: null,
-    category: null,
     iface: 'local',
     permissions: { read: true, send: true, attach: true, react: true },
     owner: null,

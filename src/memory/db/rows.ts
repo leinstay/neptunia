@@ -53,7 +53,7 @@ import type { Db, Log, Row, Rows } from './types.ts';
 const quote = (name: string): string => `"${String(name).replace(/"/g, '""')}"`;
 const bind = (value: unknown): unknown => (value === undefined ? null : value);
 const SELF_KINDS = new Set(SELF_SOURCE_KINDS);
-const CONTAINERS = new Set(['server', 'workspace', 'category']);
+const CONTAINERS = new Set(['server', 'workspace']);
 
 const columnCache = new WeakMap<Db, Map<string, Set<unknown>>>();
 /** The columns a table has on this connection (an empty set for a table that does not exist). */

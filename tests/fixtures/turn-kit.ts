@@ -89,6 +89,8 @@ export const withoutTools = (options: Record<string, unknown>): Record<string, u
   const rest = { ...options };
   delete rest.tools;
   delete rest.toolChoice;
+  // The reply call's options carry the request's `blocks` for the archive, whose content these tests do not read.
+  delete rest.blocks;
   return rest;
 };
 

@@ -78,7 +78,6 @@ function topWritersText(
 export function renderChannel(
   channel: {
     name: string;
-    category?: string | null;
     topic?: string | null;
     purpose?: string;
     topics?: string;
@@ -107,7 +106,6 @@ export function renderChannel(
   const mark = current ? s.currentMark : '';
   const lines = [`# ${channel.name}${mark}`];
 
-  if (channel.category) lines.push(fill(s.category, { text: channel.category }));
   if (channel.topic) lines.push(fill(s.topic, { text: channel.topic }));
   if (channel.purpose) lines.push(fill(s.purpose, { text: channel.purpose }));
   if (channel.topics) lines.push(fill(s.topics, { text: channel.topics }));

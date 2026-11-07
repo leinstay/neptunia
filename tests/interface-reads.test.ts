@@ -28,7 +28,6 @@ function fakeWith(reads?: ReadonlyArray<string>) {
     rootId: 'g1',
     name: 'general',
     topic: null,
-    category: null,
     chatType: 'channel',
     iface: 'fake',
     permissions: { read: true, send: true, attach: true, react: true },

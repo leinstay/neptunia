@@ -47,6 +47,19 @@ No `<wake>` and no other block states a budget, a count of turns left or a reset
 
 The active skill index contains descriptions; `skill.read` retrieves the procedure when needed. Tool transport can be native or textual, and the corresponding request builder must agree with the parser. See [core](core.md) for the turn loop and [memory](memory.md) for audience selection.
 
+### Blocks per kind
+
+`blocksOf` in [src/turn/request/frame.ts](../src/turn/request/frame.ts) is the one list of a turn's root tags, and `REQUIRED_BY_KIND` names those a kind may not omit: `persona`, `self`, `spatial_awareness` and `task` on every kind, and `chat` on a `reply`. `assembleUser` in `src/turn/request/tail.ts` emits its own tags in its own order, and `frame.blocks` filters nothing yet.
+
+| Kind | Root tags |
+|---|---|
+| `reply` | `persona`, `self`, `surroundings`, `memory`, `recall`, `inner`, `meanwhile`, `spatial_awareness`, `chat`, `task` |
+| `intention`, `feedback`, `errand_result` with a place | the same as `reply` |
+| `intention`, `feedback`, `errand_result` with no place, `heartbeat`, `selfimprovement` | `persona`, `self`, `memory`, `recall`, `inner`, `meanwhile`, `spatial_awareness`, `task` |
+| `selfreflection_plan`, `selfreflection` | `persona`, `self`, `memory`, `recall`, `inner`, `meanwhile`, `virtual_world`, `spatial_awareness`, `task` |
+
+`buildRequest` returns `blocks`, one record per tag that `assembleUser` lists, with `name`, `chars`, `segment` (`stable`, `profiles` or `tail`), `source` (the producer) and `reason` (`empty`, `kept`, `cut` or `not_for_kind`). `archivedLlm` in `src/llm/archive.ts` stores them as the JSON column `blocks` of `model_requests` and never hands them to the client. A tool round's later requests have no `blocks`.
+
 ## Output
 
 The conversation parser recognizes `<think>`, `<msg>`, `<react>` and `<skip/>`. The tracked `format.md` tells her of a unicode emoji in `<react>`. A custom one as `:name:` still resolves through the emoji index, and the interface's capability text says so where an interface offers them. A message can name a reply target, and a reaction names its target message. Native tool calls arrive separately; textual tool calls are extracted before the conversation parser runs. On Claude's subscription route the model sees each tool as `mcp__nep__<name>`, and `bareToolName` in `src/tools/gateway.ts` strips the prefix before anything reads the call.

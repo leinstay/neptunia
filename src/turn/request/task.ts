@@ -3,6 +3,7 @@
 // check of a follow-up's own task. buildRequest (src/behavior/prompt.ts) and the request phase's facts
 // (src/turn/phases/request/facts.ts) call them.
 
+import { kindOfRequest } from './frame.ts';
 import { fill, formatDuration } from '../../format.ts';
 import { currentChannelFallback } from './server.ts';
 import { fillPromptTemplate } from './text.ts';
@@ -186,20 +187,17 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
     overheard && typeof prompts.overheard === 'string' && prompts.overheard.trim() ? prompts.overheard : null;
   // A heartbeat's and a selfimprovement wake's inner turn have their own task text (prompts.heartbeat,
   // prompts.selfimprovement) INSTEAD of inner.md; without it (missing or blank) inner.md applies (degraded).
+  const turnKind = kindOfRequest(given);
   const ownWakeMd =
-    given.wakeKind === 'heartbeat'
-      ? prompts.heartbeat
-      : given.wakeKind === 'selfimprovement'
-        ? prompts.selfimprovement
-        : null;
-  const ownWakeTask = mode === 'inner' && typeof ownWakeMd === 'string' && ownWakeMd.trim() ? ownWakeMd : null;
+    turnKind === 'heartbeat' ? prompts.heartbeat : turnKind === 'selfimprovement' ? prompts.selfimprovement : null;
+  const ownWakeTask = typeof ownWakeMd === 'string' && ownWakeMd.trim() ? ownWakeMd : null;
   // The turn a finished errand opens with no origin message (asked in an inner turn of hers, or
   // the message is gone) has its own task text (prompts['errand-result']) INSTEAD of the mode's:
   // interject.md would frame her own errand's end as a conversation to stay out of. Missing or
   // blank, the mode's text applies (degraded).
   const errandMd = prompts['errand-result'];
   const errandTask =
-    triggerKind === 'errand' && !trigger && typeof errandMd === 'string' && errandMd.trim() ? errandMd : null;
+    turnKind === 'errand_result' && !trigger && typeof errandMd === 'string' && errandMd.trim() ? errandMd : null;
   // A follow-up or an untagged reply has its own task text (prompts['follow-up']) INSTEAD of
   // reply.md; without it (missing or blank) reply.md frames it, as before the file existed.
   const followUpPrompt = prompts['follow-up'];

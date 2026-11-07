@@ -74,7 +74,6 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
       parent_id: null,
       scope_kind: ctx.dmPlace ? 'dm' : 'group',
       name: null,
-      category: null,
       topic: null,
       extra: null,
       retired_at: null,

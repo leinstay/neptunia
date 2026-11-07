@@ -229,6 +229,7 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
     'no earlier turn or step in a replay: no <previous_think> block (a live turn carries its previous think, src/behavior/previous-think.ts)',
   stableFreeze: 'one request per moment, no cache bucket to hold: <self_facts> renders from memory as it stands',
   whereabouts: 'a replay names no place tree: no <spatial_awareness> block, and <now> keeps the clock',
+  frame: 'a replay names no place tree: the kind of the turn is read off its mode',
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
@@ -684,27 +685,23 @@ function recentLinesOf(view: Record<string, Untyped>, at: number): Array<Record<
 /**
  * The channels a sandbox request's `<channel_directory>` lists: `given` when it is a list (the
  * place's readable text channels, as a live turn reads them), else the view's stored channel map
- * (`{ id, name, category }`; none with `features.memory` off) with the turn's `channel` when it has
+ * (`{ id, name }`; none with `features.memory` off) with the turn's `channel` when it has
  * a name. Pure but for the view's read.
  */
-function sandboxChannels(
-  given: Untyped,
-  view: Untyped,
-  channel: Untyped
-): Array<{ id: string; name: string; category?: string | null }> {
+function sandboxChannels(given: Untyped, view: Untyped, channel: Untyped): Array<{ id: string; name: string }> {
   if (Array.isArray(given)) return given;
   const memoryOn = true;
   const stored = memoryOn && typeof view.memory?.listChannels === 'function' ? (view.memory.listChannels() ?? []) : [];
   const list = stored
     .filter((entry: Untyped) => entry && entry.id !== undefined && entry.id !== null)
-    .map((entry: Untyped) => ({ id: String(entry.id), name: entry.name, category: entry.category ?? null }));
+    .map((entry: Untyped) => ({ id: String(entry.id), name: entry.name }));
   if (
     channel &&
     typeof channel.name === 'string' &&
     channel.name &&
     !list.some((entry: Untyped) => entry.id === String(channel.id))
   )
-    list.push({ id: String(channel.id), name: channel.name, category: null });
+    list.push({ id: String(channel.id), name: channel.name });
   return list;
 }
 
@@ -866,6 +863,8 @@ export function sandboxRequestInput({
     stableFreeze: null,
     // No place tree in a replay (SANDBOX_OMITS): no <spatial_awareness>, and <now> keeps the clock.
     whereabouts: null,
+    // No place tree either for a frame: the kind of the turn is read off its mode.
+    frame: null,
   };
 }
 
