@@ -68,7 +68,7 @@ export type FrameTurnSpec = {
   entries?: number;
   /** The text of `world.md`. */
   world?: string;
-  /** Laid over the `selfreflection` settings, which set `diaryEntries` and the planner's limits. */
+  /** Laid over the `selfreflection` settings, which set `entries` and the planner's limits. */
   selfreflection?: Record<string, unknown>;
   /** The writer's answer. */
   answer?: string;
@@ -150,7 +150,8 @@ function frameHot(spec: FrameTurnSpec): { config: Record<string, unknown>; promp
       llm: { maxRequestTokens: 100_000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: { maxPromptChars: 1000 },
-      selfreflection: { diaryEntries: 150, planMaxOutputTokens: 250, planTimeoutMs: 15000, ...spec.selfreflection },
+      // Slice 6: the setting is `selfreflection.entries` (the owner's rule: `diary` only in prompts).
+      selfreflection: { entries: 150, planMaxOutputTokens: 250, planTimeoutMs: 15000, ...spec.selfreflection },
     },
     prompts: {
       'system-prompt': 'SYSTEM for {{name}}',

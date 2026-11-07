@@ -419,6 +419,8 @@ export const CUT: ReadonlyArray<CutRow> = [
   { key: 'selfreflection.slotGraceMinutes', group: 'media and diary', becomes: 'constant', production: 30 },
   { key: 'selfreflection.maxMessages', group: 'media and diary', becomes: 'constant', production: 3 },
   { key: 'selfreflection.historyPosts', group: 'media and diary', becomes: 'constant', production: 150 },
+  // Slice 6: a non-empty prompts/world.md is always the selfreflection's <virtual_world>, so the switch goes to code.
+  { key: 'selfreflection.world', group: 'media and diary', becomes: 'code', production: false },
   { key: 'selfreflection.gistChars', group: 'media and diary', becomes: 'constant', production: 200 },
   { key: 'selfreflection.seedSets', group: 'media and diary', becomes: 'constant', production: 2 },
   { key: 'selfreflection.kinds.selfPicture', group: 'media and diary', becomes: 'constant', production: 3 },
@@ -682,7 +684,6 @@ export const KEPT: ReadonlyArray<string> = [
   'tools.loop.maxCallsPerStep',
   'tools.loop.stepReserveTokens',
   'selfreflection.placeId',
-  'selfreflection.world',
   'selfreflection.windows',
   'selfreflection.quietDayChance',
   'selfreflection.forceWaitMs',

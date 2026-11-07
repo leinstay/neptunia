@@ -77,8 +77,8 @@ export type PrepareRun = {
 };
 
 /** The kind keys of the `<kinds>` block in a request's texts: each line that starts with a key and ` weight `. */
-function kindsOffered(messages: ReadonlyArray<{ content: string }>): Array<string> {
-  const text = messages.map((message) => message.content).join('\n');
+function kindsOffered(messages: ReadonlyArray<{ content: unknown }>): Array<string> {
+  const text = messages.map((message) => (typeof message.content === 'string' ? message.content : '')).join('\n');
   const start = text.indexOf('<kinds>');
   const end = text.indexOf('</kinds>');
   if (start < 0 || end < start) return [];
@@ -100,7 +100,7 @@ export async function prepare({
   pictures = false,
   forcedKind = null,
 }: PrepareOptions): Promise<PrepareRun> {
-  const requests: Array<Array<{ content: string }>> = [];
+  const requests: Array<ReadonlyArray<{ content: unknown }>> = [];
   const selfreflection = createSelfreflection({
     hot: {
       prompts: {
@@ -109,14 +109,12 @@ export async function prepare({
         labels,
       },
     },
+    // Slice 6: the store as a selfreflection post reads it on the frame (getSelfreflection, getPlace, listUserProfiles,
+    // state); the place reads of the old planner left with its <places>, <recent> and <lore>.
     store: {
       getSelfreflection: () => ({ posts }),
       getPlace: () => null,
-      listChannels: () => [],
-      getLore: () => [],
-      topPlaces: () => [],
       listUserProfiles: () => [],
-      getUser: () => null,
       state: { data: {} },
     },
     llm: {
@@ -127,22 +125,34 @@ export async function prepare({
         return Promise.resolve({ text: planAnswerText(answer, options), usage: {}, estimated: 5 });
       },
     },
-    calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
     rng,
     lookup: null,
     images: pictures ? { quota: () => null } : null,
     journalOp: () => NO_OP,
-    recentOfPlaces: () => ({ lines: undefined, audience: undefined }),
   });
   const { result, logs } = await withCapturedLogs(() =>
     selfreflection.prepareSelfreflection({
       config: { bot: { timezone: 'UTC' }, llm: { maxRequestTokens: 50000 }, selfreflection: {} },
       channel: CHANNEL,
-      selfName: 'Nia',
-      history: [],
       now: NOW,
       params: forcedKind === null ? { forced: false } : { kind: forcedKind, forced: true },
       memoryOn: false,
+      // Slice 6: the plan request is built on the turn frame by the request step and handed in. This stand-in carries
+      // what the step rendered, each part under its own tag, so `<kinds>` holds exactly what the step offered.
+      planMessages: (parts) => [
+        { role: 'system', content: 'PLAN for Nia' },
+        {
+          role: 'user',
+          content: [
+            `<kinds>\n${parts.kinds}\n</kinds>`,
+            `<seeds>\n${parts.seeds}\n</seeds>`,
+            parts.topic ? `<topic>\n${parts.topic}\n</topic>` : '',
+            parts.facts ? `<stored_facts>\n${parts.facts}\n</stored_facts>` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        },
+      ],
     })
   );
   const [first] = requests;

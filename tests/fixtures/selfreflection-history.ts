@@ -66,6 +66,14 @@ const ENTRIES: ReadonlyArray<{ kind: string; posts: ReadonlyArray<Post> }> = [
   },
   { kind: 'status', posts: [{ id: 'm7', at: NOW - DAY, text: 'ήσυχη μέρα', attachments: [] }] },
 ];
+/** The gist each entry is stored with, oldest first: its messages' texts, the empty ones left out. */
+export const GISTS: ReadonlyArray<string> = ENTRIES.map((entry) =>
+  entry.posts
+    .map((post) => post.text)
+    .filter(Boolean)
+    .join(' ')
+);
+
 /** What happened to her messages after she posted them: `m7` edited to a newer text, `m4` deleted. */
 export type Changes = { edited?: boolean; deleted?: boolean; reacted?: boolean };
 /** The reaction three members put on `m7` (the owner, 2026-10-27: her history shows no reactions). */
@@ -323,7 +331,7 @@ export type HistoryRunner = { runTurn(params: Record<string, unknown>): Promise<
  */
 export function historyRunner(
   llm: ReturnType<typeof sceneLlm>,
-  store: HistoryMemory['store'],
+  { memory, store }: HistoryMemory,
   port: ReturnType<typeof createFakeAdapter> | null = null
 ): HistoryRunner {
   return worldTurnRunner({
@@ -337,6 +345,9 @@ export function historyRunner(
     now: () => NOW,
     describer: cacheDescriber(store),
     ...(port ? { port } : {}),
+    // Slice 6: a selfreflection post reads her past entries from memory alone, under the context the turn issues.
+    journalDb: () => memory.memoryDb.readHandle()?.db ?? null,
+    memoryContext: (given: Record<string, unknown>) => memory.memoryDb.issueContext({ iface: 'fake', ...given }),
   });
 }
 
@@ -361,12 +372,13 @@ function cacheDescriber(store: HistoryMemory['store']) {
   };
 }
 
-/** The writer's `<chat>` block of a scene's model, its second request. */
-export function chatBlock(llm: ReturnType<typeof sceneLlm>): string {
+/** The writer's `<selfreflection>` part of `<inner>` of a scene's model, its second request; '' when absent. */
+export function entriesPart(llm: ReturnType<typeof sceneLlm>): string {
   const writer = llm.calls[1] as Array<{ role: string; content: unknown }> | undefined;
   const user = writer?.find((message) => message.role === 'user')?.content;
   const texts = Array.isArray(user)
     ? (user as Array<{ text?: unknown }>).map((part) => (typeof part.text === 'string' ? part.text : ''))
     : [typeof user === 'string' ? user : ''];
-  return /<chat>\n[\s\S]*?\n<\/chat>/.exec(texts.join('\n'))?.[0] ?? '';
+  const inner = /^<inner>\n([\s\S]*?)\n<\/inner>$/m.exec(texts.join('\n'))?.[1] ?? '';
+  return /<selfreflection>\n([\s\S]*?)\n<\/selfreflection>/.exec(inner)?.[1] ?? '';
 }

@@ -4,6 +4,7 @@
 // the one writer, and the store reads a past entry's first linked picture as `pictureDescription`. Synthetic text only.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { userText } from '../src/behavior/prompt.ts';
 import { createStore } from '../src/memory/store.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { dbOf } from '../src/memory/db/types.ts';
@@ -96,8 +97,8 @@ async function wake(
   assert.equal(plans.length, 1, 'one plan request');
   // The lead: the request named first, for the chain rule.
   const [request] = plans;
-  const user = request?.[1]?.content;
-  return { scene, user: String(user) };
+  // Slice 6: the planner's request is built on the frame, its user message cache parts; read their text.
+  return { scene, user: userText(request?.[1]?.content) };
 }
 
 /** The newest entry of the store's selfreflection. */

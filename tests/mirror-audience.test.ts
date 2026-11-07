@@ -109,33 +109,20 @@ function reached(scene: Scene): Array<string> {
   return out.sort();
 }
 
-test('a diary request lists the known publication places by canonical id and leaves out private ones', async () => {
+test('a diary request lists its mirrors by canonical id with their interfaces and leaves out private ones', async () => {
   // Catches: raw native ids she could not tell apart, or a private conversation offered as an audience.
-  const scene = await places(['fake:d1']);
+  // Slice 6: the places she may choose among are the mirrors, listed with two or more, so the scene has two mirrors
+  // that share the native id `d1` on two interfaces.
+  const scene = await places(['fake:d1', 'other:d1']);
   const { writer } = await writeEntry(scene, `<msg>${TEXT}</msg>`);
   const words = blockWords(writer, 'publication_places');
   assert.ok(words, 'the writer request has the block');
-  for (const token of [
-    'interface:fake',
-    'interface:other',
-    `place:${GUILD_PLACE}`,
-    `place:${D1}`,
-    `place:${D2}`,
-    `place:${OTHER_D1}`,
-  ])
+  for (const token of ['interface:fake', 'interface:other', `place:${D1}`, `place:${OTHER_D1}`])
     assert.ok(words.includes(token), token);
   assert.equal(
     words.some((word) => word.includes(':dm:')),
     false
   );
-});
-
-test('the places shown do not depend on which mirrors exist', async () => {
-  // Catches: an audience inferred from today's mirrors, which a later mirror would silently fall outside of.
-  const scene = await places();
-  const { writer } = await writeEntry(scene, `<msg>${TEXT}</msg>`);
-  const words = blockWords(writer, 'publication_places');
-  assert.ok(words?.includes(`place:${OTHER_D1}`));
 });
 
 test('leaving the audience out records an unrestricted entry that reaches every interface', async () => {
@@ -179,13 +166,15 @@ test('an interface audience covers that interface and nothing of the other, same
   assert.equal(outcomes.find((one) => one.placeId === OTHER_D1)?.code, 'audience-excluded');
 });
 
-test('a community audience covers its channels and no channel outside it', async () => {
-  // Catches: a place restriction read as an exact match, or a hierarchy walked on native ids across interfaces.
+test('a community audience names no mirror, so it is refused and reaches no channel', async () => {
+  // Catches: her choice resolved against every group place memory knows instead of the mirrors listed to her.
+  // Slice 6: the places she may name are the mirrors alone, so a community that is no mirror is an unknown place and
+  // the entry stays in her diary, copied nowhere, as any unlisted token is.
   const scene = await places(['fake:d1', 'fake:d2', 'fake:d3', 'other:d1']);
   const { result, entry } = await writeEntry(scene, `<audience>place:${GUILD_PLACE}</audience><msg>${TEXT}</msg>`);
-  assert.deepEqual(audienceOf(result), { ok: true, audience: { kind: 'place', placeId: GUILD_PLACE } });
+  assert.deepEqual(audienceOf(result), { ok: false, code: 'audience-unknown-place' });
   await scene.publisher().publishEntry(entry);
-  assert.deepEqual(reached(scene), ['fake:d1', 'fake:d2']);
+  assert.deepEqual(reached(scene), []);
 });
 
 test('a channel audience covers that channel alone', async () => {

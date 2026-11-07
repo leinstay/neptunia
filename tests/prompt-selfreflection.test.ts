@@ -1,5 +1,5 @@
 // Tests for the diary side of src/behavior/prompt.ts: the `<world>` block only
-// in a diary request under `diary.world`, the `{{when}}` line of the drawing
+// in a diary request, whenever world.md has text, the `{{when}}` line of the drawing
 // prompt, the diary channel in `<senses>`, the diary post's own blocks and
 // their budget, and the plan request. Fake prompts/config/labels only.
 import { test } from 'node:test';
@@ -124,44 +124,24 @@ const post = (at: number, kind: string | null, gist: string, picture: string | n
   search: null,
 });
 
-test('buildRequest: the world block appears in diary mode with diary.world on only', () => {
-  const on = fakeConfig({ selfreflection: { world: true } });
-  const selfreflectionOn = userText(
-    buildRequest(
-      baseInput({ mode: 'selfreflection', config: on, selfreflection: { posts: [], plan: null, found: null } })
-    )
-  );
-  assert.ok(selfreflectionOn.includes('<world>\nA world of Nept.\n</world>'), selfreflectionOn);
+test('buildRequest: the world block appears in diary mode whenever world.md has text, never in an ordinary turn', () => {
+  // Slice 6: `selfreflection.world` is gone. A non-empty world.md is always the selfreflection's world, whatever a
+  // leftover switch says, and an ordinary turn never carries it.
+  for (const config of [
+    fakeConfig(),
+    fakeConfig({ selfreflection: { world: false } }),
+    fakeConfig({ selfreflection: { world: 'yes' } }),
+  ]) {
+    const text = userText(
+      buildRequest(
+        baseInput({ mode: 'selfreflection', config, selfreflection: { posts: [], plan: null, found: null } })
+      )
+    );
+    assert.ok(text.includes('<world>\nA world of Nept.\n</world>'), text);
+  }
 
-  const reply = userText(buildRequest(baseInput({ mode: 'reply', config: on })));
+  const reply = userText(buildRequest(baseInput({ mode: 'reply', config: fakeConfig() })));
   assert.ok(!reply.includes('<world>'), 'never in an ordinary turn');
-
-  const off = userText(
-    buildRequest(
-      baseInput({
-        mode: 'selfreflection',
-        config: fakeConfig({ selfreflection: { world: false } }),
-        selfreflection: {},
-      })
-    )
-  );
-  assert.ok(!off.includes('<world>'), 'selfreflection.world false');
-
-  const missing: { selfreflection: { historyPosts: number; world?: unknown } } = fakeConfig();
-  delete missing.selfreflection.world;
-  const unset = userText(buildRequest(baseInput({ mode: 'selfreflection', config: missing, selfreflection: {} })));
-  assert.ok(!unset.includes('<world>'), 'a missing selfreflection.world counts as off');
-
-  const truthy = userText(
-    buildRequest(
-      baseInput({
-        mode: 'selfreflection',
-        config: fakeConfig({ selfreflection: { world: 'yes' } }),
-        selfreflection: {},
-      })
-    )
-  );
-  assert.ok(!truthy.includes('<world>'), 'read as === true');
 });
 
 test('buildRequest: no world block without the file', () => {
@@ -209,6 +189,15 @@ test('renderSenses: does not name the diary channel when unset', () => {
   }
 });
 
+/** The `<plan>` body of `plan` as lines: the intro, then the kind, the brief and whether it carries a picture. */
+const planLines = (plan: { kind: string; brief: string; picture: boolean }): string =>
+  [
+    labels.selfreflection.plan,
+    fill(labels.selfreflection.planKind, { value: plan.kind }),
+    fill(labels.selfreflection.planBrief, { value: plan.brief }),
+    plan.picture ? labels.selfreflection.planPicture : labels.selfreflection.planNoPicture,
+  ].join('\n');
+
 test('buildRequest: diary mode renders diary, plan and found blocks before the chat and uses prompts.selfreflection as the task', () => {
   const posts = [
     post(NOW - 2 * DAY, 'status', 'café au lait again'),
@@ -220,7 +209,7 @@ test('buildRequest: diary mode renders diary, plan and found blocks before the c
       baseInput({
         mode: 'selfreflection',
         selfreflection: { posts, plan, found: 'Une comète passe ce soir.' },
-        config: fakeConfig({ selfreflection: { world: true } }),
+        config: fakeConfig(),
       })
     )
   );
@@ -242,7 +231,9 @@ test('buildRequest: diary mode renders diary, plan and found blocks before the c
       })
     )
   );
-  assert.ok(text.includes(`<plan>\n${labels.selfreflection.plan}\n${JSON.stringify(plan)}\n</plan>`));
+  // Slice 6: the plan is lines, one per field, and no JSON (nothing in a request is JSON).
+  assert.ok(text.includes(`<plan>\n${planLines(plan)}\n</plan>`), text);
+  assert.ok(!text.includes(JSON.stringify(plan)));
   assert.ok(text.includes(`<found>\n${labels.selfreflection.found}\nUne comète passe ce soir.\n</found>`));
   assert.ok(text.includes('<task>\nDIARY_TASK for Nept\n</task>'));
 });
@@ -258,9 +249,9 @@ test('buildRequest: a diary post with seeds renders them right after the plan, n
   const full = buildRequest(baseInput({ mode: 'selfreflection', selfreflection: { posts, plan, found: null, seeds } }));
   const text = userText(full);
   assert.ok(
+    // Slice 6: the plan before the seeds is lines, no JSON.
     text.includes(`<plan>
-${labels.selfreflection.plan}
-${JSON.stringify(plan)}
+${planLines(plan)}
 </plan>
 
 <seeds>
@@ -383,7 +374,7 @@ test('buildSelfreflectionPlanRequest: the plan prompt as system, the blocks in o
   assert.ok(!text.includes('<chat>') && !text.includes('<task>'));
 });
 
-test('buildSelfreflectionPlanRequest: no world block with diary.world off, no seeds block without seeds', () => {
+test('buildSelfreflectionPlanRequest: no seeds block without seeds, no diary block without posts', () => {
   const request = buildSelfreflectionPlanRequest({
     config: fakeConfig(),
     prompts: fakePrompts(),
@@ -395,7 +386,9 @@ test('buildSelfreflectionPlanRequest: no world block with diary.world off, no se
     seedsText: '',
   });
   const text = request.messages[1].content;
-  assert.ok(!text.includes('<world>') && !text.includes('<seeds>') && !text.includes('<diary>'));
+  // Slice 6: with `selfreflection.world` gone the world.md text is always there; seeds and diary still need content.
+  assert.ok(!text.includes('<seeds>') && !text.includes('<diary>'));
+  assert.ok(text.includes('<world>'));
   assert.ok(text.includes('<kinds>'));
 });
 

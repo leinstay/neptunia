@@ -77,13 +77,15 @@ test('a local selfreflection-planner.md wins over a local diary-plan.md', () => 
 });
 
 test('the tracked planner prompt has the new file name, fills the name and names the block the request carries', () => {
-  // Bug: the prompt describes `<server>` while the request carries `<places>`, so the model reads a block that is not there.
+  // Bug: the prompt describes a block the request does not carry, so the model reads a block that is not there.
   const file = path.join(ROOT, 'prompts', `${PLANNER}.md`);
   assert.equal(fs.existsSync(path.join(ROOT, 'prompts', 'diary-plan.md')), false);
   const text = fs.readFileSync(file, 'utf8');
   assert.ok(text.includes('{{name}}'));
-  assert.ok(text.includes('<places>'));
-  assert.equal(text.includes('<server>'), false);
+  // Slice 6: the planner's request carries her entries in `<selfreflection>` and the kinds in `<kinds>`, and no
+  // root-level `<places>` or `<diary>` any more; the prompt names the blocks that are there and none that left.
+  for (const tag of ['<selfreflection>', '<kinds>']) assert.ok(text.includes(tag), tag);
+  for (const tag of ['<server>', '<places>', '<diary>']) assert.equal(text.includes(tag), false, tag);
 });
 
 // The planner on the turn frame (plan 2026-11-06-turn-frame, slice 6): a frame request with the selfreflection list,

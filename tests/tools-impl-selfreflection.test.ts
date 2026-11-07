@@ -3,7 +3,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { issueContext, type Context } from '../src/memory/db/scope.ts';
-import { wakeInputs } from '../src/behavior/selfreflection-turn.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { walk } from '../src/memory/db/graph.ts';
 import { utcDay } from '../src/time.ts';
@@ -144,6 +143,7 @@ async function turnOf(
       }),
   });
   const llm = sequenceLlm(answers, 'none', onAnswer);
+  const { memoryDb } = core.memory;
   const turns = createTurnRunner({
     hot,
     store: core.store,
@@ -167,6 +167,14 @@ async function turnOf(
     runOp: admin.runSkillOp,
     runOwnOp: admin.runOwnSkillOp,
     runInitiativeOp: admin.runInitiativeSkillOp,
+    // Slice 6: a selfreflection post reads her past entries from memory alone (the frame's reads over the memory
+    // database, under the context the turn issues), no longer from a mirror's history through the store.
+    ...(mode === 'selfreflection'
+      ? {
+          journalDb: () => memoryDb.readHandle()?.db ?? null,
+          memoryContext: (given: Record<string, unknown>) => memoryDb.issueContext({ iface: 'fake', ...given }),
+        }
+      : {}),
   });
   const conversation = { iface: 'fake', conversationId: 'c1' };
   const trigger = {
@@ -301,32 +309,6 @@ for (const metadata of [PRIVATE_BOUNDARY, null, { kind: 'internal-turn', origin:
     assert.deepEqual(post.publicationBoundary, metadata);
   });
 }
-
-test('selfreflection history omits restricted stored diary text and retains ordinary entries', async () => {
-  // Catches the raw diary fallback leaking a private entry despite a correct graph audience.
-  const core = await community();
-  seedRestrictedSelfreflection(core);
-  core.store.appendSelfreflectionPost({
-    at: NOW - 120000,
-    kind: 'status',
-    gist: PUBLIC_SELFREFLECTION,
-    picture: null,
-    search: '',
-    text: PUBLIC_SELFREFLECTION,
-    itemId: 'selfreflection:ordinary-seed',
-  });
-  await core.store.flushSettled({});
-  const inputs = await wakeInputs({
-    store: core.store,
-    conversationInfo: () => Promise.resolve(null),
-    iface: 'fake',
-    selfId: 'self-id',
-    selfName: 'Bot',
-    config: { context: { channelMessages: 50 } },
-  });
-  assert.equal(JSON.stringify(inputs.history).includes(PRIVATE_SELFREFLECTION), false);
-  assert.ok(JSON.stringify(inputs.history).includes(PUBLIC_SELFREFLECTION));
-});
 
 test('ordinary diary planning and writing omit restricted posts from the store', async () => {
   // Catches the second diary history path feeding private gists to an outward planning model.
