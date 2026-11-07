@@ -3,6 +3,7 @@
 // (src/behavior/turn.ts) creates it with the attempt's limits and hands the same object to every phase in
 // src/turn/phases/; the topic modules each read and write the part of it their own draft type names.
 
+import type { PostRefs } from './sends.ts';
 import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
@@ -105,4 +106,8 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfref
   innerIntentIds?: Iterable<string>;
   /** The turn's one handle registry (src/turn/handles.ts): every `#n` its requests issued, to the line it names. */
   handles?: Handles;
+  /** The place a framed request was built for, by its conversation id and its path: where her lookups are kept. */
+  framePlace?: { id: string; path: Array<string> } | null;
+  /** How a line's identity in her posted words is read back on a framed request (src/turn/sends.ts#renderPost). */
+  frameRefs?: PostRefs | null;
 };

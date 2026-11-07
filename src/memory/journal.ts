@@ -426,6 +426,56 @@ export function callMarksOf(records: Array<unknown>): {
   return { calls, postedFrom };
 }
 
+/** Text items of a stored list, the rest left out. */
+const textsOf = (value: Untyped): Array<string> =>
+  Array.isArray(value) ? value.filter((one): one is string => typeof one === 'string' && one !== '') : [];
+
+/** The messages each turn of `list` posted, by turn id: its `turn` records' `posted` and its succeeded operations'. */
+function postedOfTurns(list: Array<StoredRecord>): Map<string, Array<string>> {
+  const posted = new Map<string, Array<string>>();
+  for (const record of list) {
+    if (typeof record.turnId !== 'string') continue;
+    const ids = record.kind === 'turn' && Array.isArray(record.posted) ? record.posted.map(postedIdOf) : [];
+    const known = posted.get(record.turnId) ?? [];
+    for (const id of [...ids, succeededIdOf(record)]) if (typeof id === 'string' && !known.includes(id)) known.push(id);
+    posted.set(record.turnId, known);
+  }
+  return posted;
+}
+
+/** The lookup one closing line kept, with the messages its turn posted among its anchors; null for any other line. */
+function lookupOfRecord(record: StoredRecord, posted: ReadonlyArray<string>): object | null {
+  const kept = record.kind === 'action' && record.name === 'skill' ? record.result?.lookup : null;
+  const place = kept?.place;
+  const at = Date.parse(String(record.occurredAt));
+  if (!kept || typeof place?.id !== 'string' || typeof record.turnId !== 'string' || !isFiniteNumber(at)) return null;
+  const args: unknown = kept.args;
+  return {
+    turnId: record.turnId,
+    at,
+    tool: currentToolName(typeof kept.tool === 'string' ? kept.tool : null) ?? '',
+    args: args && typeof args === 'object' && !Array.isArray(args) ? args : {},
+    place: { id: place.id, path: textsOf(place.path) },
+    status: typeof kept.status === 'string' ? kept.status : 'unknown',
+    extract: typeof kept.extract === 'string' ? kept.extract : '',
+    sourceIds: textsOf(kept.sourceIds),
+    anchorMessageIds: [...new Set([...textsOf(kept.anchorMessageIds), ...posted])],
+  };
+}
+
+/**
+ * Her lookups from journal records (parsed lines, any kinds, oldest first): every closing line of a `skill` operation that
+ * kept a `lookup` (src/turn/calls.ts#lookupOfCall), as the ring of `<recall>` holds it, with the messages its turn posted
+ * joined to its anchors. Pure.
+ */
+export function lookupsOfRecords(records: Array<unknown>): Array<object> {
+  const list = recordsOf(records);
+  const posted = postedOfTurns(list);
+  return list
+    .map((record) => lookupOfRecord(record, posted.get(String(record.turnId)) ?? []))
+    .filter((one): one is object => one !== null);
+}
+
 /**
  * The turn that posted message `messageId`, from journal records (parsed lines, any kinds, oldest
  * first): the `turn` record whose `posted` names it, else -- an old record without the ids, or a

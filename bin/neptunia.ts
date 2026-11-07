@@ -584,6 +584,7 @@ async function runInkChat(
   const { mouseAvailable, runInteractive, reducedMotion } = await import('../cli/index.ts');
   const settings = readConfig(where.rootDir, { privateDir: where.privateDir }) as {
     cli?: { mouse?: boolean; bindings?: Array<KeyBinding> };
+    context?: { channelMessages?: number };
   };
   const linear = process.env.NEPTUNIA_LINEAR === '1';
   let entry: (one: ChatEntry) => void = () => {};
@@ -698,6 +699,14 @@ async function runInkChat(
     mouse:
       settings.cli?.mouse === true && mouseAvailable({ tty: true, term: process.env.TERM ?? '', linear, plain: false }),
     editDraft: draftEditor(process.env),
+    // The stored lines of this chat, a page of `context.channelMessages` at a time, newest first on open.
+    async storedPage(before) {
+      const count = settings.context?.channelMessages ?? 100;
+      const answer = await link.ask({ name: 'session.page', args: { before, count } });
+      if (answer.status !== 'ok') return [];
+      const { lines } = JSON.parse(answer.text) as { lines: Array<{ id: string; who: 'owner' | 'her'; text: string }> };
+      return lines;
+    },
     now: () => Date.now(),
     subscribe(listeners) {
       entry = listeners.entry;

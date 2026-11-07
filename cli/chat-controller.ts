@@ -127,6 +127,11 @@ export type ChatEnv = {
   mouse?: boolean;
   /** The draft's text in the owner's editor, with the terminal handed over meanwhile. */
   editDraft?: (text: string) => Promise<{ status: 'edited' | 'cancelled' | 'failed'; text: string }>;
+  /**
+   * The stored lines of the command line's chat, oldest first: the newest page with `before` null, else the page that
+   * ends just before the stored line `before`. Absent: the chat shows the lines of this process only.
+   */
+  storedPage?: (before: string | null) => Promise<ReadonlyArray<ChatEntry & { id: string }>>;
 };
 
 /** The rows a question's selector draws at most; the input it replaces stays out of the way of the panel above it. */
@@ -389,7 +394,41 @@ export class ChatController {
     void images?.release(id);
   }
 
-  /** Registers with the core's link, once. */
+  /** The oldest stored line shown, whether the store holds nothing older, and whether a page is on its way. */
+  stored: { oldest: string | null; done: boolean; loading: boolean } = { oldest: null, done: false, loading: false };
+
+  /** Asks for the stored page before the oldest stored line shown and draws it above the transcript. */
+  loadStoredPage(): void {
+    const { storedPage } = this.env;
+    const { stored } = this;
+    if (storedPage === undefined || stored.done || stored.loading) return;
+    stored.loading = true;
+    storedPage(stored.oldest)
+      .then((page) => {
+        stored.loading = false;
+        // A view shown meanwhile replaced the transcript this page belonged to.
+        if (this.stored !== stored) return;
+        if (page.length === 0) {
+          stored.done = true;
+          return;
+        }
+        stored.oldest = page[0].id;
+        const shown = page.map((entry) => ({
+          id: `s-${entry.id}`,
+          who: entry.who,
+          text: drawnText(entry),
+          original: entry.text,
+          attachments: entry.attachments ?? [],
+        }));
+        this.update({ entries: [...shown, ...this.model.entries] });
+      })
+      .catch(() => {
+        stored.loading = false;
+        this.say('The stored lines of this chat could not be read.');
+      });
+  }
+
+  /** Registers with the core's link, once, and draws the newest stored lines. */
   subscribe(): void {
     this.env.subscribe({
       entry: (entry) => this.addEntry(entry),
@@ -407,6 +446,7 @@ export class ChatController {
       },
       view: (entries) => this.showView(entries),
     });
+    this.loadStoredPage();
   }
 
   /** The core's word about a turn. A failure or a cancel leaves a line, and a streamed text shows until the end of its turn. */
@@ -445,6 +485,8 @@ export class ChatController {
 
   /** The transcript of a resumed or branched conversation. The draft stays as it is. */
   showView(entries: ReadonlyArray<ChatEntry>): void {
+    // A resumed or branched view shows its own lines whole: Page Up has no stored page to add to it.
+    this.stored = { oldest: null, done: true, loading: false };
     this.update({ entries: [], view: TAIL, expanded: new Set() });
     for (const entry of entries) this.addEntry(entry);
   }
@@ -1023,6 +1065,9 @@ export class ChatController {
         return;
       case 'transcript.pageUp':
       case 'transcript.pageDown': {
+        // At the top of what is drawn, Page Up asks the store for the page before it.
+        if (action === 'transcript.pageUp' && transcriptWindow(now.entries, now.view, this.drawn).hiddenAbove === 0)
+          this.loadStoredPage();
         const page = Math.max(1, this.drawn.budget - 1);
         const delta = action === 'transcript.pageUp' ? -page : page;
         this.update({ view: scrollView(now.entries, now.view, delta, this.drawn) });

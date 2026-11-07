@@ -236,6 +236,11 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
     'a replay on `--frame old` names no place tree: no <spatial_awareness> block, and <now> keeps the clock (`--frame new` states one: src/behavior/sandbox-frame.ts)',
   frame:
     'a replay on `--frame old` builds no frame: the kind of the turn is read off its mode (`--frame new` builds one: src/behavior/sandbox-frame.ts)',
+  mind: 'no graph reader runs in a replay: `<memory>` holds the person she answers alone (a live turn reads src/memory/db/mind-read.ts)',
+  lookups: 'no earlier lookup in a replay: no <recall> block (a live turn keeps her lookups, src/turn/calls.ts)',
+  meanwhileReads: 'no memory reads in a replay: no <meanwhile> block (a live turn reads her lines elsewhere)',
+  surroundings: 'no stored fields in a replay: <surroundings> names the place by its path alone',
+  refLineOf: 'no memory reads in a replay: an identity outside the chat renders as unavailable',
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
@@ -895,6 +900,12 @@ export function sandboxRequestInput({
     // `--frame new`: the frame a live reply carries and the whereabouts it states; none on `--frame old` (SANDBOX_OMITS).
     whereabouts: framed.whereabouts,
     frame: framed.frame,
+    // No memory reads in a replay (SANDBOX_OMITS): the frame's blocks hold what the turn itself gives.
+    mind: null,
+    lookups: null,
+    meanwhileReads: null,
+    surroundings: null,
+    refLineOf: null,
   };
 }
 

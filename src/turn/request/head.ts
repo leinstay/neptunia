@@ -26,6 +26,7 @@ import { freezePerBucket, gifFieldChars, gifFieldsMap } from './emoji-gifs.ts';
 import type { Held, MediaCache } from './emoji-gifs.ts';
 import { anchoredOn } from './memory.ts';
 import { orderedHistory } from '../history.ts';
+import { framedRequest } from './frame.ts';
 import { authorsInView } from './pulled.ts';
 import { spatialAwarenessText } from './spatial.ts';
 import { nowBlock } from './tail.ts';
@@ -116,6 +117,8 @@ export function requestHead(given: RequestInput): Base {
   // mergeProfiles lays the private layer over the public profile: the partner's profile, as stored. A partner known only
   // from this DM has no public profile, and the trigger gives the merged one its id and heading.
   const framed = given.frame ?? null;
+  // The frame's request lists no directory: a person gets a handle when the chat or memory shows them.
+  const onFrame = framedRequest(framed) && !given.source;
   const counterpartName = framed ? framed.counterpart?.name : given.trigger?.authorName;
   const named = counterpartName ? [counterpartName] : [];
   const counterpartId = framed ? framed.answers?.authorId : given.trigger?.authorId;
@@ -160,31 +163,40 @@ export function requestHead(given: RequestInput): Base {
   // Everyone in a voice channel the audience may see, the persona aside: each gets a handle, so
   // their `<people_now>` entry joins by it like everyone's.
   const inVoice =
-    liveOn && liveSnapshot
+    liveOn && liveSnapshot && !onFrame
       ? voiceOccupants(liveSnapshot, {
           excludeIds: new Set([selfAccountId].filter((id): id is string => Boolean(id))),
           nameOf,
           channelNameOf: voiceChannelNameOf,
         }).map((occupant) => occupant.accountId)
       : [];
-  const directory = handlesOn
-    ? // The served place's stored profiles, as the store lists them.
-      directoryEntries((given.candidateProfiles ?? []) as Iterable<object>, { selfId: given.selfId ?? null })
-    : [];
+  const directory =
+    handlesOn && !onFrame
+      ? // The served place's stored profiles, as the store lists them.
+        directoryEntries((given.candidateProfiles ?? []) as Iterable<object>, { selfId: given.selfId ?? null })
+      : [];
   // The interlocutor and the other people a profile is offered for are in view too, so every
   // `<people_now>` entry has a handle even for a member the directory does not list.
-  const offeredIds = [
-    interlocutor?.id,
-    ...(Array.isArray(given.otherProfiles)
-      ? (given.otherProfiles as Array<Profile | null | undefined>).map((profile) => profile?.id)
-      : []),
-  ]
+  const offeredIds = (
+    onFrame
+      ? []
+      : [
+          interlocutor?.id,
+          ...(Array.isArray(given.otherProfiles)
+            ? (given.otherProfiles as Array<Profile | null | undefined>).map((profile) => profile?.id)
+            : []),
+        ]
+  )
     .map(accountIdOf)
     .filter((id): id is string => Boolean(id));
   const handleById = handlesOn
     ? assignHandles({
         profiled: directory.map((entry) => entry.id),
-        inView: [...authorsInView(history, privateChat ? [] : [given.pulled, neighbors]), ...offeredIds, ...inVoice],
+        inView: [
+          ...authorsInView(history, privateChat || onFrame ? [] : [given.pulled, neighbors]),
+          ...offeredIds,
+          ...inVoice,
+        ],
       })
     : null;
   const directoryText = handleById ? renderDirectory(directory, handleById, labels) : '';
@@ -195,7 +207,7 @@ export function requestHead(given: RequestInput): Base {
         directory,
         [
           history,
-          ...(privateChat
+          ...(privateChat || onFrame
             ? []
             : [given.pulled, neighbors].flatMap((source) =>
                 // The pulled channels and the neighbours as given: lists of entries with their messages.
@@ -211,7 +223,7 @@ export function requestHead(given: RequestInput): Base {
   // Channel handles (features.mentionHandles too): each text channel the persona can read
   // (`channelDirectory`) gets one, listed in `<channel_directory>` (the stable part) and shown
   // beside every channel a line mentions.
-  const channelEntries = handlesOn ? channelDirectoryEntries(given.channelDirectory ?? []) : [];
+  const channelEntries = handlesOn && !onFrame ? channelDirectoryEntries(given.channelDirectory ?? []) : [];
   const channelHandleById =
     channelEntries.length > 0 ? assignChannelHandles(channelEntries.map((entry) => entry.id)) : null;
   const channelDirectoryText = channelHandleById
@@ -295,7 +307,8 @@ export function requestHead(given: RequestInput): Base {
     .join('\n\n');
   // The anchored window: the reply parents leave `<chat>` for
   // `<earlier>` but keep their numbers, so a reply marker or a link in the chat still names them.
-  const anchored = anchoredOn(config, labels, privateChat);
+  // The frame's request has no `<earlier>`: its reply parents stay in `<chat>`.
+  const anchored = !onFrame && anchoredOn(config, labels, privateChat);
   const chatOptions = anchored
     ? // formatTranscript hands back the messages of `history`.
       { ...formatOptions, skip: (message: object) => (message as Message).replyParent === true }

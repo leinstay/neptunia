@@ -544,3 +544,159 @@ export function replyOptionsOf(
   const hedge = hedgeMs !== null && hedgeMs < timeoutMs ? { hedge: { afterMs: hedgeMs, timeoutMs } } : {};
   return { ...REPLY_REQUEST, timeoutMs, signal: barAbort.signal, ...hedge, ...journalLimits };
 }
+
+/**
+ * One lookup of hers (a call of a read tool such as `memory.search`), as `<recall>` renders it on the next turns of the
+ * place it was made in: the turn and the time, the tool and its arguments, the place called from, the status, a bounded
+ * extract of the result with the source ids it quotes, and the messages that anchor it to the window.
+ */
+export type Lookup = {
+  turnId: string;
+  at: number;
+  tool: string;
+  args: Record<string, unknown>;
+  place: { id: string; path: Array<string> };
+  status: string;
+  extract: string;
+  sourceIds: Array<string>;
+  anchorMessageIds: Array<string>;
+};
+
+/** The settings a lookup is noted under (`context.recall`). */
+export type LookupSettings = { maxItems: number; extractChars: number };
+
+/** A line of the window a lookup is anchored in: its id and the id of the line it replies to. */
+export type WindowLine = { id: string; replyTo: string | null };
+
+/** The ring of her lookups per place. */
+export type LookupRing = {
+  /** Keeps `lookup`, replacing an earlier one of the same tool and arguments in its place, under `settings`. */
+  note(lookup: Lookup, settings: LookupSettings): void;
+  /**
+   * The lookups of `placeId` still anchored in `window`: a line that replies to an anchor becomes an anchor itself, and a
+   * lookup none of whose anchors is in the window leaves the ring.
+   */
+  forPlace(placeId: string, window: ReadonlyArray<WindowLine>, now: number): Array<Lookup>;
+  /** Removes the one lookup of `placeId` with this tool and these arguments. */
+  drop(placeId: string, tool: string, args: Record<string, unknown>): void;
+  /** Makes `toId` an anchor of every lookup anchored at `fromId`: her line posted in answer to a lookup's trigger. */
+  follow(fromId: string, toId: string): void;
+};
+
+/** `value` as JSON with every object's keys sorted, so the same arguments in another order give the same text. */
+function sortedJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(sortedJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${sortedJson(Reflect.get(value, key))}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+const lookupKey = (tool: string, args: Record<string, unknown>): string => `${tool}\u0000${sortedJson(args)}`;
+
+/**
+ * A ring of her lookups, seeded with `seed` (the journal's lookups of the last days, oldest first, src/memory/journal.ts):
+ * one entry per place, tool and arguments, at most `maxItems` per place with the one noted earliest dropped first, each
+ * extract cut to `extractChars`. In process.
+ */
+export function createLookupRing(seed: ReadonlyArray<Lookup>): LookupRing {
+  const byPlace = new Map<string, Map<string, Lookup>>();
+  const placeOf = (placeId: string): Map<string, Lookup> => {
+    let entries = byPlace.get(placeId);
+    if (!entries) byPlace.set(placeId, (entries = new Map<string, Lookup>()));
+    return entries;
+  };
+  const keep = (lookup: Lookup, maxItems: number): void => {
+    const entries = placeOf(lookup.place.id);
+    const key = lookupKey(lookup.tool, lookup.args);
+    entries.delete(key);
+    entries.set(key, { ...lookup, anchorMessageIds: [...new Set(lookup.anchorMessageIds)] });
+    for (const oldest of entries.keys()) {
+      if (entries.size <= Math.max(0, maxItems)) break;
+      entries.delete(oldest);
+    }
+  };
+  for (const lookup of seed) keep(lookup, Number.MAX_SAFE_INTEGER);
+  return {
+    note(lookup, { maxItems, extractChars }) {
+      const extract = clampWithEllipsis(lookup.extract, Math.max(1, extractChars));
+      keep({ ...lookup, extract }, maxItems);
+    },
+    forPlace(placeId, window) {
+      const entries = byPlace.get(placeId);
+      if (!entries) return [];
+      const ids = new Set(window.map((line) => line.id));
+      const kept: Array<Lookup> = [];
+      for (const [key, lookup] of entries) {
+        const anchors = new Set(lookup.anchorMessageIds);
+        for (const line of window) if (line.replyTo !== null && anchors.has(line.replyTo)) anchors.add(line.id);
+        if (![...anchors].some((id) => ids.has(id))) {
+          entries.delete(key);
+          continue;
+        }
+        const anchored = { ...lookup, anchorMessageIds: [...anchors] };
+        entries.set(key, anchored);
+        kept.push(anchored);
+      }
+      return kept;
+    },
+    drop(placeId, tool, args) {
+      byPlace.get(placeId)?.delete(lookupKey(tool, args));
+    },
+    follow(fromId, toId) {
+      for (const entries of byPlace.values())
+        for (const [key, lookup] of entries)
+          if (lookup.anchorMessageIds.includes(fromId) && !lookup.anchorMessageIds.includes(toId))
+            entries.set(key, { ...lookup, anchorMessageIds: [...lookup.anchorMessageIds, toId] });
+    },
+  };
+}
+
+/** `context.recall`, read now: how many lookups a place keeps and how long an extract is. */
+export function lookupSettingsOf(config: unknown): LookupSettings {
+  const context: unknown = config && typeof config === 'object' ? Reflect.get(config, 'context') : null;
+  const given: unknown = context && typeof context === 'object' ? Reflect.get(context, 'recall') : null;
+  const read = (key: string, fallback: number): number => {
+    const value: unknown = given && typeof given === 'object' ? Reflect.get(given, key) : undefined;
+    return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
+  };
+  return { maxItems: read('maxItems', 6), extractChars: read('extractChars', 1200) };
+}
+
+/** The plain arguments of a call (text, numbers, booleans), the ones a lookup is told apart by. */
+function plainArgs(args: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(args).filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
+  );
+}
+
+/**
+ * The lookup a call of a read tool is, to be kept for `<recall>`: null for any other call, a call with no place to be
+ * read back in, or a turn with no id. The result's text is its extract, the turn's trigger its first anchor.
+ */
+export function lookupOfCall(call: {
+  read: boolean;
+  place: { id: string; path: Array<string> } | null;
+  turnId: string | null | undefined;
+  at: number;
+  tool: string;
+  args: Record<string, unknown>;
+  status: string;
+  text: unknown;
+  sourceIds: ReadonlyArray<string>;
+  anchorIds: ReadonlyArray<string | null | undefined>;
+}): Lookup | null {
+  if (!call.read || call.place === null || !call.turnId) return null;
+  return {
+    turnId: call.turnId,
+    at: call.at,
+    tool: call.tool,
+    args: plainArgs(call.args),
+    place: call.place,
+    status: call.status,
+    extract: typeof call.text === 'string' ? call.text : '',
+    sourceIds: [...call.sourceIds],
+    anchorMessageIds: call.anchorIds.filter((id): id is string => typeof id === 'string' && id !== ''),
+  };
+}

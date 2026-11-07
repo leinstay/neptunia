@@ -61,7 +61,12 @@ import {
   sendHash,
   settleUnknownSends,
 } from '../turn/journal.ts';
-import { answerOf, callViewOf, requesterOf, searchHandles } from '../turn/calls.ts';
+import { answerOf, callViewOf, createLookupRing, lookupSettingsOf, requesterOf, searchHandles } from '../turn/calls.ts';
+import type { Lookup } from '../turn/calls.ts';
+import { frameReadsOver } from '../memory/db/frame-reads.ts';
+import { lookupsOfRecords } from '../memory/journal.ts';
+import type { FrameReads } from '../memory/db/frame-reads.ts';
+import type { Db } from '../memory/db/types.ts';
 import { taskInput } from '../turn/task-input.ts';
 import { preflight } from '../turn/phases/preflight.ts';
 import { requestPhase } from '../turn/phases/request.ts';
@@ -359,6 +364,15 @@ export function createTurnRunner({
         return myDayOf(db, context, (id) => placeChainInDb(db, id)[0]?.name ?? null, now, timezone, options);
       }
     : null;
+  // The reads of a framed request beside her day: the graph reader, her lines elsewhere, a line by its identity.
+  const frameReads: FrameReads | null = journalDb
+    ? frameReadsOver(
+        () => journalDb() as Db | null,
+        () => hot.config
+      )
+    : null;
+  // Her lookups per place for `<recall>` (src/turn/calls.ts), in process, seeded at start with the call marks.
+  const lookupRing = createLookupRing([]);
   const busy = attention;
   const routes = turnRoutes(hot, roleHealth);
   // The topic modules of the closure (src/turn/<topic>.ts), each built once from the context it reads.
@@ -433,12 +447,29 @@ export function createTurnRunner({
     }
   }
 
+  /** Her lookups of yesterday and today in the place journal's skill operations, into the ring; a failed read is logged. */
+  async function seedLookups(placeId: string): Promise<void> {
+    const reader = journal as { read?: (placeId: string, query: object) => Promise<Array<unknown>> } | null;
+    if (typeof reader?.read !== 'function') return;
+    try {
+      const at = clock();
+      const records: Array<unknown> = [];
+      for (const day of [utcDay(at - DAY_MS), utcDay(at)])
+        records.push(...(await reader.read(placeId, { day, n: Number.MAX_SAFE_INTEGER })));
+      const config: unknown = hot.config;
+      const settings = lookupSettingsOf(config);
+      for (const one of lookupsOfRecords(records) as Array<Lookup>) lookupRing.note(one, settings);
+    } catch (error) {
+      log.warn('turn: lookups not seeded', { placeId, error });
+    }
+  }
+
   // The persona's recent time away from the journal's system records, reused for a minute.
   const readOffPeriods = createOffPeriodsReader({ journal, now: clock });
   const {
     factsOfKind,
     keepFact,
-    noteTrigger,
+    noteTrigger: noteTriggerLink,
     linkTriggers,
     earlierThinkFor,
     recordTurnThink,
@@ -467,6 +498,11 @@ export function createTurnRunner({
     readOffPeriods,
     liveChannelName,
   });
+  // A post answering a trigger also anchors the lookups that trigger anchors, so a reply to her post keeps them.
+  const noteTrigger = (postedId: unknown, triggerId: unknown): void => {
+    noteTriggerLink(postedId, triggerId);
+    if (typeof postedId === 'string' && typeof triggerId === 'string') lookupRing.follow(triggerId, postedId);
+  };
   const { runTurn, recordTurnFacts, notifyIdle, waitingParts, addToPart, waitIdle, setOnIdle, setOnTurnEnd } =
     createOutcome({
       hot,
@@ -588,6 +624,7 @@ export function createTurnRunner({
     noteCall,
     recordSaid,
     journalOp,
+    lookupRing,
   });
   const { readHistory, noteThink, stepTranscript, runSteps } = createToolRound({
     hot,
@@ -658,6 +695,8 @@ export function createTurnRunner({
     ...{ skillIndex, recordSkillUses },
     memoryReads,
     myDay,
+    frameReads,
+    lookupRing,
     busy,
     selfIdOf,
     getSelfName,
@@ -767,6 +806,7 @@ export function createTurnRunner({
     // The journal's marks at start name their place: its `turn` records of yesterday and today seed her thinks too.
     seedCallMarks: (marks: { calls?: unknown; postedFrom?: unknown; placeId?: unknown } | null | undefined) => {
       seedCallMarks(marks);
+      if (typeof marks?.placeId === 'string') void seedLookups(marks.placeId);
       if (typeof marks?.placeId === 'string') void seedThinks(marks.placeId);
     },
     waitingParts,

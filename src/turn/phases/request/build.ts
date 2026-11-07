@@ -22,7 +22,7 @@ import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
 import { pickOtherProfiles } from '../../mentions.ts';
 import { channelDirectoryOf } from '../../routing.ts';
-import { frameOf } from '../../request/frame.ts';
+import { frameOf, framedRequest } from '../../request/frame.ts';
 import type { Frame, FrameParty } from '../../request/frame.ts';
 import { whereaboutsOfFrame } from '../../request/spatial.ts';
 import type { PlaceLink } from '../../request/spatial.ts';
@@ -35,7 +35,16 @@ import type { Setup } from './setup.ts';
 import type { Told } from './facts.ts';
 import type { Waited } from './wait.ts';
 import type { Handles } from '../../handles.ts';
-import { messageSourceId } from '../../../memory/db/ids.ts';
+import { accountId, messageSourceId } from '../../../memory/db/ids.ts';
+import type { Mind, Seeds } from '../../../memory/db/mind-read.ts';
+import type { FrameReads } from '../../../memory/db/frame-reads.ts';
+import type { Context } from '../../../memory/db/scope.ts';
+import { fill } from '../../../format.ts';
+import type { Lookup } from '../../calls.ts';
+import type { MeanwhileReads } from '../../request/meanwhile.ts';
+import type { SurroundingsInput } from '../../request/reader.ts';
+import type { LineOf } from '../../request/refs.ts';
+import type { Message } from '../../request/types.ts';
 
 /** The request as buildRequest builds it. */
 /** A partner's private layer with what they said in their other linked DMs; null with neither. */
@@ -177,6 +186,154 @@ function registerHandles(
   }
 }
 
+/** What a framed request reads beside the old inputs; each null when the request is not on the frame. */
+type FramedInputs = {
+  mind: Mind | null;
+  lookups: Array<Lookup> | null;
+  meanwhileReads: MeanwhileReads | null;
+  surroundings: SurroundingsInput | null;
+  refLineOf: LineOf | null;
+};
+
+const NO_FRAMED: FramedInputs = {
+  mind: null,
+  lookups: null,
+  meanwhileReads: null,
+  surroundings: null,
+  refLineOf: null,
+};
+
+/** The person she answers as the memory stores them: the account row of their platform id and its person. */
+function counterpartOf(frame: Frame, reads: Pick<FrameReads, 'account' | 'person'>): Seeds['counterpart'] {
+  const them = frame.counterpart;
+  const native = frame.answers?.authorId ?? null;
+  if (them === null) return null;
+  const account = native === null ? null : reads.account(frame.interface, native);
+  const person = account === null ? null : reads.person(account);
+  return { personId: person ?? them.personId, accountId: account ?? them.accountId };
+}
+
+/** The window as the graph reader's seeds: each line by its stored source id, the trigger marked, oldest first. */
+function seedsOf(
+  frame: Frame,
+  history: ReadonlyArray<Message>,
+  turn: { trigger: { id: string } | null; prefetch: unknown },
+  reads: Pick<FrameReads, 'account' | 'person' | 'source' | 'sourceInPlace'>
+): Seeds {
+  const { trigger, prefetch } = turn;
+  const iface = frame.interface;
+  const lines = history.filter((line) => line.kind !== 'call' && typeof line.id === 'string');
+  const sourceOf = (line: Message): string => {
+    const revision: unknown = Reflect.get(line, 'revision');
+    // The stored line when the memory holds it (an interface's id is not the key a line is stored under), else the
+    // id a line of this message would have.
+    return (
+      reads.source?.(iface, line.id) ??
+      messageSourceId(iface, line.id, typeof revision === 'number' ? revision : 1, line.self ? 'said' : 'seen')
+    );
+  };
+  const byId = new Map(lines.map((line) => [line.id, sourceOf(line)]));
+  // A platform id as the memory's account row, the spelled form when none is stored yet.
+  const accountOf = (native: string): string => reads.account(iface, native) ?? accountId(iface, native);
+  const excerpts: unknown = prefetch && typeof prefetch === 'object' ? Reflect.get(prefetch, 'excerpts') : null;
+  // A find is a message id of the place it was found in, which may be on another interface than this turn's (the
+  // command line reads every interface), so it is resolved on its own place's interface first.
+  const hits = (Array.isArray(excerpts) ? excerpts : []).flatMap((excerpt: unknown) => {
+    const ids: unknown = excerpt && typeof excerpt === 'object' ? Reflect.get(excerpt, 'hitIds') : null;
+    const found: unknown = excerpt && typeof excerpt === 'object' ? Reflect.get(excerpt, 'placeId') : null;
+    const placeId = typeof found === 'string' && found !== '' ? found : null;
+    const named = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string' && id !== '') : [];
+    return named.map(
+      (hit) => (placeId === null ? null : reads.sourceInPlace?.(placeId, hit)) ?? reads.source?.(iface, hit) ?? hit
+    );
+  });
+  return {
+    messages: lines.map((line) => ({
+      id: sourceOf(line),
+      at: new Date(line.ts).toISOString(),
+      authorAccount: line.self || !line.authorId ? null : accountOf(line.authorId),
+      placeId: frame.place?.id ?? null,
+      replyTo: line.replyToId ? (byId.get(line.replyToId) ?? null) : null,
+      mentions: (line.mentionedAccountIds ?? []).map(accountOf),
+      text: line.content ?? '',
+      trigger: line.id === trigger?.id,
+    })),
+    counterpart: counterpartOf(frame, reads),
+    place: frame.place?.id ?? null,
+    previous: [],
+    candidates: hits.map((id) => ({ nodeId: `source:${id}`, sourceIds: [id], from: 'prefetch' as const })),
+  };
+}
+
+/** The interface's name and its words for its kinds of place, worded for `<surroundings>`. */
+function interfaceTextOf(names: { name: string | null; nouns: Record<string, string> }, labels: unknown): string {
+  const nounsLabel: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'surroundings') : null;
+  const template: unknown = nounsLabel && typeof nounsLabel === 'object' ? Reflect.get(nounsLabel, 'nouns') : null;
+  const nouns = Object.values(names.nouns);
+  return [
+    names.name ?? '',
+    nouns.length > 0 && typeof template === 'string' ? fill(template, { nouns: nouns.join(', ') }) : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * The inputs of a framed request (a reply or an errand's result): what the graph reader brings to mind, her lookups still
+ * anchored here, her lines elsewhere, the place's stored fields and a reader of lines by identity, all under the turn's
+ * context. Nothing for any other request, and only the lookups without an open memory. A failed read of the mind is
+ * logged and leaves memory empty.
+ */
+function framedInputsOf(
+  ctx: Pick<PhaseContext, 'frameReads' | 'lookupRing' | 'turnContextOf'>,
+  frame: Frame,
+  draft: Draft,
+  channel: Opened['channel'],
+  turn: {
+    history: ReadonlyArray<Message>;
+    trigger: { id: string } | null;
+    prefetch: unknown;
+    labels: unknown;
+    now: number;
+  }
+): FramedInputs {
+  const { history, now } = turn;
+  const place = frame.place;
+  if (!framedRequest(frame) || place === null) return NO_FRAMED;
+  draft.framePlace = { id: String(channel.id), path: [...place.path] };
+  const window = history.map((line) => ({ id: String(line.id), replyTo: line.replyToId ?? null }));
+  const lookups = ctx.lookupRing.forPlace(String(channel.id), window, now);
+  const reads = ctx.frameReads;
+  const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
+  if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups };
+  let mind: Mind | null = null;
+  try {
+    mind = reads.mind(memoryContext, seedsOf(frame, history, turn, reads), now);
+  } catch (error) {
+    log.warn('turn: memory not read', { channel: channel.id, error });
+  }
+  const refLineOf: LineOf = (key) => {
+    const line = reads.line(memoryContext, key);
+    return line ? { ...line, messageId: line.id } : null;
+  };
+  // Her posted words read a line's identity back under the same context (src/turn/sends.ts#renderPost).
+  draft.frameRefs = { lineOf: refLineOf, placeId: place.id, timezone: frame.timezone };
+  return {
+    mind,
+    lookups,
+    meanwhileReads: {
+      ownMessages: (limit) => reads.ownLines(memoryContext, place.id, limit),
+      around: (placeId, at, count) => reads.around(memoryContext, placeId, at, count),
+    },
+    surroundings: {
+      interfaceText: interfaceTextOf(reads.interfaceNames(frame.interface), turn.labels),
+      root: frame.root ? reads.placeFields(memoryContext, frame.root.id) : null,
+      place: reads.placeFields(memoryContext, place.id),
+    },
+    refLineOf,
+  };
+}
+
 /** The budget's line of a request: one entry per section (src/llm/budget.ts). */
 function statsOf(request: BuiltRequest): Record<string, { dropped?: number }> {
   return request.stats as Record<string, { dropped?: number }>;
@@ -260,6 +417,9 @@ export function buildTurnRequest(
     now,
     timezone: String(config.bot?.timezone ?? 'UTC'),
   });
+  const facts = { history, trigger, prefetch: prefetchResult, labels: prompts?.labels, now };
+  // A routed call or a noticed comment keeps the old request (src/behavior/prompt.ts).
+  const framed = source === null ? framedInputsOf(ctx, frame, draft, channel, facts) : NO_FRAMED;
   const requestInput = turnRequestInput({
     frame,
     config,
@@ -410,6 +570,8 @@ export function buildTurnRequest(
     stableFreeze: stableFreezeOf(placeId),
     // `<spatial_awareness>`: where she is, the whole nesting of the place (buildRequest names her own time's places).
     whereabouts: whereaboutsOfFrame(frame),
+    // A reply and an errand's result on the frame: `<memory>`, `<recall>`, `<meanwhile>`, `<surroundings>`, references.
+    ...framed,
   });
   let request = requestOf(requestInput);
   if (heartbeatRefs.length > 0) {

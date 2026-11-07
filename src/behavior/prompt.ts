@@ -87,7 +87,8 @@ import { collectReads, ordered } from '../turn/request/reads.ts';
 import { aheadOf, fitAll, headSections } from '../turn/request/sections.ts';
 import { sensesKept, sensesOf } from '../turn/request/senses.ts';
 import { aboutChatItems, learnedConfig, loreItems, serverItems } from '../turn/request/server.ts';
-import { kindOfRequest } from '../turn/request/frame.ts';
+import { framedRequest, kindOfRequest } from '../turn/request/frame.ts';
+import { framedBuild } from '../turn/request/framed.ts';
 import { assembleUser, seenOf } from '../turn/request/tail.ts';
 import { finalTask, taskOf } from '../turn/request/task.ts';
 import { TAG_OVERHEAD, block, fillPromptTemplate, requireLabels } from '../turn/request/text.ts';
@@ -464,8 +465,20 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   (src/llm/openrouter.js#cacheTtlMs: an hour for `llm.cache.ttl` `'1h'`), see freezePerBucket;
  *   a memory batch's change shows at the next bucket edge. Omitted, null or the cache off ->
  *   rendered from the input every time.
+ * @param [input.mind]  What the graph reader brought to her mind (src/memory/db/mind-read.ts#mindOf): the entries of
+ *   `<memory>` on a request built on the frame. Omitted or null -> an empty memory, the person she answers alone.
+ * @param [input.lookups]  Her lookups still anchored in this place's window (src/turn/calls.ts#createLookupRing):
+ *   `<recall>`. Omitted or null -> none.
+ * @param [input.meanwhileReads]  The reads of `<meanwhile>` (src/turn/request/meanwhile.ts): her last lines in other
+ *   places, `context.meanwhile.messages` of them, with `context.meanwhile.around` lines on each side. Omitted -> none.
+ * @param [input.surroundings]  The interface's own text and the stored fields of the place and its root:
+ *   `<surroundings>` (src/turn/request/surroundings.ts). Omitted -> the place by its path alone.
+ * @param [input.refLineOf]  Reads a stored line by its identity under the turn's scope: a reference in a stored text
+ *   renders through it (src/turn/request/refs.ts). Omitted -> an identity outside the chat renders as unavailable.
  * @param [input.frame]  The facts of the turn (src/turn/request/frame.ts): its kind decides what her own time leaves
- *   out and which task text applies. Without one the kind is read off `mode`, `triggerKind` and `wakeKind`.
+ *   out and which task text applies. A reply and an errand's result are built on the frame (src/turn/request/framed.ts):
+ *   its tags in its order, `<self>` and `<surroundings>` cached, no `<people_now>`, `<directory>` or other old block.
+ *   Without a frame the kind is read off `mode`, `triggerKind` and `wakeKind` and the old blocks go out.
  * @param [input.whereabouts]  Where the turn is (src/turn/request/spatial.ts#whereaboutsOf): `<spatial_awareness>` in
  *   the tail right after `<chat>` and before `<now>`, paid for with the fixed part and never cut, with the owner's note
  *   from `config.spatial.notes` read now. A heartbeat and a selfimprovement wake are on her own server and a
@@ -602,6 +615,11 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     stableFreeze: input.stableFreeze,
     whereabouts,
     frame: input.frame,
+    mind: input.mind,
+    lookups: input.lookups,
+    meanwhileReads: input.meanwhileReads,
+    surroundings: input.surroundings,
+    refLineOf: input.refLineOf,
   };
   // Each builder reads the input and what the builders before it gave, under the names they give it; a later one
   // hands on a checked value under the input's own name (`privateChat`, `interlocutor`, `nameOf`, `source`).
@@ -618,6 +636,11 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   const selfreflection = selfreflectionOf({ ...given, labels });
   const own = wakeTexts(given, labels);
   const room = requestRoom(given);
+  // A reply and an errand's result carry the frame's tags (src/turn/request/reader.ts); the other kinds the old ones. A
+  // routed call or a noticed comment lives in a pulled channel, which the frame has no block for, so it keeps them too.
+  const frame = input.frame;
+  if (framedRequest(frame) && !given.source)
+    return framedBuild(given, { frame, base, task, senses, own, room, tempo, tempoText });
   const speaker = interlocutorOf({ ...given, ...base, ...room, ...task });
   const sections = headSections({
     ...given,

@@ -1611,7 +1611,12 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
   const [turn] = llm.calls.filter((call) => kindOf(call.messages) === 'system-prompt');
   assertFilled(
     turn?.messages,
-    { files: LOADS.turn, blocks: ['senses', 'about_chat', 'server', 'lore', 'people', 'chat', 'tempo', 'task'] },
+    // Slice 4: a reply is built on the frame, so `<about_chat>`, `<server>` and `<lore>` leave it (a root's fields go to
+    // `<surroundings>` and lore to `<memory>`, both read from the memory database this fake store does not have).
+    {
+      files: LOADS.turn,
+      blocks: ['self', 'senses', 'surroundings', 'memory', 'people', 'spatial_awareness', 'chat', 'tempo', 'task'],
+    },
     'the turn'
   );
 });

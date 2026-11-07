@@ -73,3 +73,16 @@ export function pulledMoment(ts: number, timezone: string, locale: string | unde
 export function calendarDate(ymd: string, locale: string | undefined): string {
   return formatDate(Date.parse(`${ymd}T12:00:00.000Z`), 'UTC', locale);
 }
+
+/**
+ * A stored text as a value inside a request: `<` and `>` written as entities, so a name, a field or a message that holds
+ * a tag can neither close a block nor open one in the frame's own words. Anything that is not a string reads as ''.
+ */
+export function escapeStored(text: unknown): string {
+  return typeof text === 'string' ? text.replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+}
+
+/** The path of a place by names, joined with `joint` (`labels.memory.pathJoin`), each name escaped. */
+export function pathText(path: ReadonlyArray<string>, joint: string | undefined): string {
+  return path.map(escapeStored).join(joint ?? ' > ');
+}

@@ -279,7 +279,7 @@ function userBlocks({
 }
 
 /** The user message's text parts from its listed blocks: see `userBlocks` for the order and the segments. */
-function userParts(blocks: ReadonlyArray<ListedBlock>): Array<UserPart> {
+export function userParts(blocks: ReadonlyArray<ListedBlock>): Array<UserPart> {
   const segments = (['stable', 'profiles', 'tail'] as const)
     .map((segment) => ({
       text: blocks
@@ -301,7 +301,7 @@ function userParts(blocks: ReadonlyArray<ListedBlock>): Array<UserPart> {
  * What the archive keeps of each listed block (src/llm/archive.ts): its size and why it holds what it holds. A block the
  * budget shortened or emptied (`stats`, a section's `dropped`) is `cut`, a block this kind of turn never has `not_for_kind`.
  */
-function blockRecords(
+export function blockRecords(
   blocks: ReadonlyArray<ListedBlock>,
   stats: Readonly<Record<string, { readonly dropped?: number } | undefined>>
 ): Array<BlockRecord> {

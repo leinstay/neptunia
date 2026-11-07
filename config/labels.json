@@ -333,7 +333,35 @@
     },
     "memory": {
       "privateChannel": "private chat",
-      "redaction": "someone"
+      "redaction": "someone",
+      "origin": {
+        "native": "named in the message you answer",
+        "reply": "the message you answer replies to it",
+        "counterpart": "the person you answer",
+        "author": "wrote in this chat",
+        "place": "where this chat is",
+        "edge": "tied to something in this chat",
+        "word": "a word in this chat matches its name",
+        "prose": "named in what you know of someone here"
+      },
+      "counterpart": "you are answering this person",
+      "candidate": "a possible match for a name in the chat, not a sure one",
+      "entry": "{name} ({origin})",
+      "realName": "real name: {value}",
+      "relation": "you and them: {value}",
+      "character": "character: {value}",
+      "style": "how they talk: {value}",
+      "claim": "- {text}",
+      "lore": "{subject}: {text}",
+      "live": "right now: {value}",
+      "ownLines": "you wrote {count} messages here, the last on {date}",
+      "ownNone": "you have not written here",
+      "episode": "{date}: {what}",
+      "excerpt": "{date}, {path}: \"{text}\"",
+      "fact": "stored fact ({state}): \"{text}\"",
+      "selfreflection": "Your diary.",
+      "leftOut": "({count} more not shown)",
+      "pathJoin": " > "
     },
     "limits": {
       "notice": "...but nobody came ({limit}, {used}/{cap})",
@@ -954,7 +982,40 @@
       "note": "The owner's note on this place: {note}",
       "cli": "You are on the command line, talking with the owner. It is {when}.",
       "server": "You are at the command line of your own physical server, and nobody is around you. It is {when}.",
-      "world": "You are in your own virtual world, created by you. It is {when}."
+      "world": "You are in your own virtual world, created by you. It is {when}.",
+      "answers": "You are answering {name}, their message #{n}.",
+      "answersOutside": "You are answering {name}, whose message is not in the chat below."
+    },
+    "surroundings": {
+      "nouns": "What this interface calls its places: {nouns}.",
+      "field": "{field}: {value}",
+      "fields": {
+        "purpose": "purpose",
+        "tone": "tone",
+        "topics": "topics",
+        "patterns": "how people talk here",
+        "starters": "how conversations start",
+        "injokes": "in-jokes",
+        "lessons": "lessons",
+        "lore": "lore"
+      }
+    },
+    "recall": {
+      "header": "What you looked up yourself in this chat lately, with the results. Run a lookup again only when you need something new:",
+      "item": "[{time}] from {from}, you called {tool}{searched}: {query}. Status: {status}.",
+      "searched": ", searching {place}",
+      "extract": "Result: {extract}"
+    },
+    "meanwhile": {
+      "header": "Background: your own recent messages in other places, each with a few lines around it. Nobody here is asking you about them, and they are not lines of this chat.",
+      "place": "{path}, {date}:",
+      "line": "[{time}] {author}: {text}",
+      "you": "you"
+    },
+    "refs": {
+      "quote": "[a message in {path} at {when}: \"{text}\"]",
+      "edited": "[a message in {path} at {when}, edited since you referred to it, now: \"{text}\"]",
+      "unavailable": "[a message that is no longer available]"
     }
   },
   "owner": {

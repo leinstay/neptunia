@@ -1,12 +1,11 @@
 // The scene of tests/selfreflection-mirror-awareness.test.ts: one ordinary reply turn of the real turn runner over a real store
 // and memory database, on a community of the fake interface with `general` (c1), `journal` (d1) and `notes` (d2), and a
-// scripted model. `selfreflection-mirror-awareness.json` beside this file holds the `<server>` block the turn in c1 built with
-// `selfreflectionChannelId: 'd1'` and no mirror, on the code before `diary.placeId` became a seed. Synthetic text only.
+// scripted model. Synthetic text only.
 import { placeOfCommunity, placeOfConversation } from '../../src/memory/addresses.ts';
 import { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { userText } from '../../src/behavior/prompt.ts';
 import { createStore } from '../../src/memory/store.ts';
+import { addLine } from './memory-db/mind-world.ts';
 import { dbOf, seedMirror } from './selfreflection-mirror.ts';
 import type { MemoryService } from './selfreflection-mirror.ts';
 import { openTestMemory } from './memory-db/service.ts';
@@ -34,19 +33,10 @@ function ownLine(id: string, placeId: string): Record<string, unknown> {
   };
 }
 
-/** The `<server>` block of the request's user text. */
-export function serverBlock(messages: unknown): string {
-  // The scripted model keeps each request as the runner built it: system, then user.
-  const user = (messages as Array<{ content: unknown }>)[1]?.content;
-  const block = /<server>[\s\S]*?<\/server>/.exec(userText(user))?.[0];
-  assert.ok(block, 'the request has a <server> block');
-  return block;
-}
-
 /**
  * One ordinary reply turn to Alice in `here`, on a community with `general` (c1), `journal` (d1) and `notes` (d2),
- * each with notes in memory and her line ten minutes ago in d1 and d2. Memory holds the `selfreflection` mirrors on
- * `mirrors`; the config sets `diary.placeId` only when `selfreflectionChannelId` is given (the recording).
+ * each with notes in memory and her line ten minutes ago in d1 and d2, stored too. Memory holds the `selfreflection`
+ * mirrors on `mirrors`; the config sets `diary.placeId` only when `selfreflectionChannelId` is given.
  */
 export async function replyTurn({
   here,
@@ -78,6 +68,16 @@ export async function replyTurn({
   db.prepare("INSERT OR IGNORE INTO places (id, iface, kind) VALUES (?, 'fake', 'server')").run(server);
   for (const id of Object.keys(names))
     db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(server, placeOfConversation(store, { id, iface: 'fake' }));
+  // Her lines in d1 and d2 are stored too, so a reply's `<memory>` brings both places to mind as hers (slice 4).
+  for (const id of ['d1', 'd2'] as const)
+    addLine(db, {
+      id: `src:fake:p-${id}:1:said`,
+      iface: 'fake',
+      place: placeOfConversation(store, { id, iface: 'fake' }),
+      author: 'self',
+      text: 'σημείωμα',
+      at: new Date(NOW - 10 * MINUTE).toISOString(),
+    });
   freshWorld();
   const trigger = rawMessage({ id: 'm1', ts: NOW - 1000, content: 'γεια σου' });
   for (const id of ['d1', 'd2'] as const) {
@@ -93,6 +93,9 @@ export async function replyTurn({
     store,
     // The memory the runner may read the mirrors from (the store reads the same database).
     memoryDb: memory.memoryDb,
+    // The database a reply's request reads `<memory>` from (src/memory/db/frame-reads.ts).
+    journalDb: () => db,
+    memoryContext: () => ({ kind: 'group', iface: 'fake' }),
     llm,
     calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
     rng: () => 0.5,

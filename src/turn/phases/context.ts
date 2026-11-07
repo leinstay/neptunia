@@ -28,6 +28,8 @@ import type { Sends, SendsConfig } from '../sends.ts';
 import type { StepCompletion, ToolRound, ToolRoundConfig } from '../tool-round.ts';
 import type { TriggerKind } from '../triggers.ts';
 import type { MyDayReader } from '../request/my-day.ts';
+import type { FrameReads } from '../../memory/db/frame-reads.ts';
+import type { LookupRing } from '../calls.ts';
 
 /** The live config, as far as the phases read it; the functions they call read their own sections. */
 export type PhaseConfig = LookupConfig &
@@ -120,6 +122,10 @@ export type PhaseContext = {
   memoryReads: ((args: Record<string, unknown>) => void) | null;
   /** What she did today under a turn's context (src/turn/request/my-day.ts#myDayOf over the memory); null: none. */
   myDay: MyDayReader | null;
+  /** The reads of a framed request over the memory (src/memory/db/frame-reads.ts); null: none. */
+  frameReads: FrameReads | null;
+  /** Her lookups per place for `<recall>` (src/turn/calls.ts#createLookupRing). */
+  lookupRing: LookupRing;
   busy: Set<string>;
   selfIdOf: () => string;
   getSelfName: (placeId: string) => string;

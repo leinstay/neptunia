@@ -6,11 +6,15 @@
 //                     and shows one clock and nothing more in its brackets
 //   placeBound        `<spatial_awareness>` puts her in the place the request was built for, the first place of its
 //                     path, never a parent further up
+//   counterpartFirst  the first entry of `<memory>`'s `<people>` is the person she answers, marked so
+//   lookupRecalled    a lookup made in turn n stands in `<recall>` of turn n+1 with its tool and its query
 
 /** The labels the checks read: the transcript's markers and the spatial block's phrasing. */
 export type CheckLabels = {
   readonly transcript?: Readonly<Record<string, unknown>>;
   readonly spatial?: Readonly<{ place?: string; within?: string; kinds?: Readonly<Record<string, string>> }>;
+  readonly memory?: Readonly<Record<string, unknown>>;
+  readonly recall?: Readonly<Record<string, unknown>>;
 };
 
 /** The body of `<tag>` in `request`, null when it has none. */
@@ -100,4 +104,50 @@ export function placeBound(request: string, placeName: string, labels: CheckLabe
     .filter((name): name is string => name !== null);
   if (names.length === 0) names.push(first);
   return names.includes(placeName) ? [] : [`<spatial_awareness> puts her in ${first}, not in ${placeName}`];
+}
+
+/** `text` as a stored value renders it in a request: `<` and `>` as entities (src/turn/request/text.ts#escapeStored). */
+const stored = (text: string): string => text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * The first entry of `<people>` inside `<memory>` is `counterpartName`, marked as the person she answers: its heading,
+ * after a mention handle, is `memory.entry` with that name and an origin that holds `memory.counterpart`. No block, no
+ * entry, another name first or a first entry without the mark is a finding.
+ */
+export function counterpartFirst(request: string, counterpartName: string, labels: CheckLabels): Array<string> {
+  const memory = blockOf(request, 'memory');
+  if (memory === null) return ['no <memory> block'];
+  const people = blockOf(memory, 'people');
+  if (people === null) return ['no <people> in <memory>'];
+  const heading = (people.split('\n')[0] ?? '').replace(/^@\S+ /u, '');
+  const entry = patternOf(labels.memory?.entry, 'name');
+  const name = entry?.exec(heading)?.[1] ?? heading;
+  const findings: Array<string> = [];
+  if (name !== stored(counterpartName))
+    findings.push(`<people> opens with ${heading.slice(0, 80)}, not ${counterpartName}`);
+  const mark = labels.memory?.counterpart;
+  if (typeof mark === 'string' && mark !== '' && !heading.includes(mark))
+    findings.push(`the first entry of <people> is not marked as the person she answers: ${heading.slice(0, 80)}`);
+  return findings;
+}
+
+/**
+ * The request of turn n+1 holds in `<recall>` a line of `recall.item` naming the lookup of turn n: its `tool` and its
+ * `query` as the item renders them. No block, or no such line, is a finding.
+ */
+export function lookupRecalled(
+  nextRequest: string,
+  lookup: { tool: string; query: string },
+  labels: CheckLabels
+): Array<string> {
+  const recall = blockOf(nextRequest, 'recall');
+  if (recall === null) return ['no <recall> block'];
+  const item = patternOf(labels.recall?.item);
+  const named = recall
+    .split('\n')
+    .some(
+      (row) =>
+        (item === null || item.test(row)) && row.includes(stored(lookup.tool)) && row.includes(stored(lookup.query))
+    );
+  return named ? [] : [`<recall> does not name the lookup ${lookup.tool} ${lookup.query.slice(0, 60)}`];
 }

@@ -3,6 +3,11 @@
 // builders of src/turn/request/ and src/behavior/prompt.ts#buildRequest share them.
 
 import type { Frame } from './frame.ts';
+import type { Mind } from '../../memory/db/mind-read.ts';
+import type { Lookup as RingLookup } from '../calls.ts';
+import type { MeanwhileReads } from './meanwhile.ts';
+import type { SurroundingsInput } from './reader.ts';
+import type { LineOf } from './refs.ts';
 import type { CallMark } from '../../behavior/lines.ts';
 import type { formatTranscript } from '../../format.ts';
 import type { ParticipationInput } from './memory.ts';
@@ -83,7 +88,18 @@ export type Labels = {
   readonly myDay?: LabelGroup;
   readonly draw?: LabelGroup;
   readonly spatial?: SpatialLabels;
+  readonly memory?: MemoryLabels;
+  readonly surroundings?: SurroundingsLabels;
+  readonly recall?: LabelGroup;
+  readonly meanwhile?: LabelGroup;
+  readonly refs?: LabelGroup;
 };
+
+/** `labels.memory`: the words of `<memory>`'s entries (src/turn/request/memory-block.ts), with the origin of each. */
+export type MemoryLabels = LabelGroup & { readonly origin?: LabelGroup };
+
+/** `labels.surroundings`: the field lines of `<surroundings>` (src/turn/request/surroundings.ts) and each field's name. */
+export type SurroundingsLabels = LabelGroup & { readonly fields?: LabelGroup };
 
 /** `labels.spatial`: the lines of `<spatial_awareness>` (src/turn/request/spatial.ts) and the label of each place kind. */
 export type SpatialLabels = {
@@ -97,6 +113,8 @@ export type SpatialLabels = {
   readonly cli?: string;
   readonly server?: string;
   readonly world?: string;
+  readonly answers?: string;
+  readonly answersOutside?: string;
 };
 
 /** The live prompts: the prompt files by name, and the labels. */
@@ -355,4 +373,14 @@ export type RequestInput = {
   readonly stableFreeze?: unknown;
   readonly whereabouts?: Whereabouts | null;
   readonly frame?: Frame | null;
+  /** What the graph reader brought to her mind (src/memory/db/mind-read.ts#mindOf): `<memory>` of the frame's request. */
+  readonly mind?: Mind | null;
+  /** Her lookups still anchored in this place's window (src/turn/calls.ts#createLookupRing): `<recall>`. */
+  readonly lookups?: ReadonlyArray<RingLookup> | null;
+  /** The reads of `<meanwhile>`: her lines elsewhere and the lines around them (src/turn/request/meanwhile.ts). */
+  readonly meanwhileReads?: MeanwhileReads | null;
+  /** The interface's text and the stored fields of the place and its root: `<surroundings>`. */
+  readonly surroundings?: SurroundingsInput | null;
+  /** Reads a line by its identity under the turn's scope, for the references in stored texts (src/turn/request/refs.ts). */
+  readonly refLineOf?: LineOf | null;
 };

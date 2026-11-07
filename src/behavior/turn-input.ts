@@ -78,6 +78,11 @@ export const TURN_INPUT_KEYS: ReadonlyArray<string> = Object.freeze([
   'stableFreeze',
   'whereabouts',
   'frame',
+  'mind',
+  'lookups',
+  'meanwhileReads',
+  'surroundings',
+  'refLineOf',
 ]);
 
 const KNOWN = new Set(TURN_INPUT_KEYS);

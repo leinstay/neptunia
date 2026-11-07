@@ -1255,6 +1255,20 @@
       "test": "none"
     },
     {
+      "path": "src/turn/request/reader.ts",
+      "purpose": "The user message of a request on the turn frame: its blocks in the frame's order, the budget's fit and the handles given after it. Tested through the prompt reader tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/turn/request/framed.ts",
+      "purpose": "A reply's or an errand result's request on the frame, in the shape `buildRequest` returns. Tested through the prompt reader tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
       "path": "src/pipeline/",
       "purpose": "The message pipeline's topic modules, each built once by `createMessageHandler` in `src/behavior/pipeline.ts` over a typed context: a new message's path, the classifiers, the pending queue and its drain, the settle waits, the private chat's gate, and an edit and a deletion of a message.",
       "layer": "public",
@@ -1616,6 +1630,13 @@
     {
       "path": "src/memory/db/mirrors.ts",
       "purpose": "The reads of the selfreflection's mirrors over the memory database: the places her selfreflection is posted to and whether a conversation is one. Tested through the mirror and selfreflection mirror tests.",
+      "layer": "public",
+      "imports": ["node:*", "src/**"],
+      "test": "none"
+    },
+    {
+      "path": "src/memory/db/frame-reads.ts",
+      "purpose": "The reads of a request on the turn frame beside the graph reader: her lines elsewhere and the lines around one, a line by its identity, a place's stored fields and an interface's names.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
