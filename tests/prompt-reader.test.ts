@@ -85,11 +85,12 @@ function request(over: Record<string, unknown> = {}): Built {
   );
 }
 
-const userOf = (built: Built): string => contentText(built.messages[1].content);
+const userOf = ({ messages }: Built): string => contentText(messages[1].content);
 
 /** Every root block of the user message as `<segment> <tag>`, in order. */
-function emittedBlocks(built: Built): Array<string> {
-  return built.messages[1].content.flatMap((part) =>
+function emittedBlocks({ messages }: Built): Array<string> {
+  const [, user] = messages;
+  return user.content.flatMap((part) =>
     [...String(part.text).matchAll(/^<([a-z_]+)>\n[\s\S]*?\n<\/\1>$/gm)].map(
       (match) => `${part.cacheSegment ?? 'tail'} ${match[1]}`
     )

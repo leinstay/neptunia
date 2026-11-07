@@ -67,7 +67,8 @@ const providerLimit = () => Object.assign(new Error('OpenRouter HTTP 429'), { st
 const flush = async (rounds = 20) => {
   for (let i = 0; i < rounds; i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
-const wakeBlockOf = (text: string) => /<wake>\n([\s\S]*?)\n<\/wake>/.exec(text)?.[1] ?? '';
+// Slice 4: an addressed turn is a reply on the frame, which tells untold facts in `<feedback>` inside `<inner>`.
+const feedbackBlockOf = (text: string) => /<feedback>\n([\s\S]*?)\n<\/feedback>/.exec(text)?.[1] ?? '';
 
 // ---- the chat: what survives a "death" (the conversations, the model, the log of what was asked) ----
 
@@ -1051,7 +1052,8 @@ test('row 4: the process dies before a fact was presented -- the fact is still u
   assert.deepEqual(after.factKinds(), ['wakeDropped:told']);
   // An addressed turn afterwards has nothing left to tell.
   await after.ask('c1', 'hello');
-  assert.ok(!requestText(chat, 2).includes('<wake>'), 'told once');
+  // Slice 4: a reply tells facts in `<feedback>`, so "told once" means no `<feedback>` there.
+  assert.ok(!requestText(chat, 2).includes('<feedback>'), 'told once');
   assertNoSilentFailure(after);
 });
 
@@ -1092,7 +1094,11 @@ test('row 5: a terminal call fails on the last loop step -- a callFailed fact sh
   await addressed.ask('c2', 'and here?');
   assert.ok(!requestText(chat2, 2).includes('lore.list failed'), 'not in another channel');
   await addressed.ask('c1', 'again');
-  assert.ok(wakeBlockOf(requestText(chat2, 3)).includes('call lore.list failed'), wakeBlockOf(requestText(chat2, 3)));
+  // Slice 4: the fact reaches the addressed turn in `<feedback>` (owner answer 19).
+  assert.ok(
+    feedbackBlockOf(requestText(chat2, 3)).includes('call lore.list failed'),
+    feedbackBlockOf(requestText(chat2, 3))
+  );
   assert.deepEqual(addressed.factKinds(), ['callFailed:told']);
   assertNoSilentFailure(addressed);
 });
@@ -1464,7 +1470,8 @@ test('row 15: a send times out and the message is in the chat -- nothing is told
     return { run, chat };
   };
   const found = await attempt(true);
-  assert.ok(!found.chat.requests[1].text.includes('<wake>'), 'it was found among her lines: no sendFailed');
+  // Slice 4: a reply tells facts in `<feedback>`, not `<wake>`.
+  assert.ok(!found.chat.requests[1].text.includes('<feedback>'), 'it was found among her lines: no sendFailed');
   assert.deepEqual(
     found.run.state().facts.filter((fact: Record<string, Untyped>) => !fact.told),
     []
@@ -1472,8 +1479,9 @@ test('row 15: a send times out and the message is in the chat -- nothing is told
   assertNoSilentFailure(found.run);
   const missing = await attempt(false);
   assert.ok(
-    wakeBlockOf(missing.chat.requests[1].text).includes('send unclear timeout'),
-    wakeBlockOf(missing.chat.requests[1].text)
+    // Slice 4: the fact reaches the addressed turn in `<feedback>` (owner answer 19).
+    feedbackBlockOf(missing.chat.requests[1].text).includes('send unclear timeout'),
+    feedbackBlockOf(missing.chat.requests[1].text)
   );
   assertNoSilentFailure(missing.run);
 });

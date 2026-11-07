@@ -20,8 +20,11 @@ import {
   errandService,
   hotWith,
   journalOverMemory,
+  rawMessage,
   requestText,
 } from './fixtures/turn-harness.ts';
+import { world } from './fixtures/turn-world.ts';
+import { addLine, addRoom, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
 import { DRAW_CONFIG, DRAW_PROMPTS, drawTurn, fakeImages } from './fixtures/turn-draws.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { asRecord } from './fixtures/records.ts';
@@ -498,7 +501,21 @@ function prefetchRecall(
   return recall;
 }
 
-test('prefetch: one search for the trigger before her reply; <retrieved> in the uncached tail before <chat>, the same in every step of the loop', async () => {
+/** The routed turn's source: #jardin (c2) with one line, pulled with the call into #general. */
+const ROUTED = {
+  params: { source: { placeId: 'c2', reason: 'routed' } },
+  setup: () =>
+    world().channel({
+      id: 'c2',
+      name: 'jardin',
+      placeId: 'g1',
+      historyMessages: [rawMessage({ id: 'p1', ts: NOW - 60_000, content: 'ένα κουνέλι' })],
+    }),
+};
+
+// Slice 4: a reply carries the prefetch's finds in `<found>` inside `<memory>`, and `<retrieved>` leaves it. A routed
+// turn keeps the old emission until the frame has a block for a pulled room, so the block's form is tested there.
+test('prefetch: one search for the trigger before a routed turn; <retrieved> in the uncached tail before <chat>, the same in every step of the loop', async () => {
   const recall = prefetchRecall();
   const run = await coreTurn({
     answers: [toolAnswer('', [call('memory.search', { question: 'το δάσος' })]), '<msg>ναι, ο σκύλος</msg>'],
@@ -507,6 +524,7 @@ test('prefetch: one search for the trigger before her reply; <retrieved> in the 
     config: WEB_CONFIG,
     runner: { recall },
     content: 'θυμάσαι τη ζωγραφιά με το δάσος;',
+    ...ROUTED,
   } as unknown as Parameters<typeof coreTurn>[0]);
   assert.equal(run.llm.calls.length, 2, 'the reply and one loop step');
   assert.equal(asRecord(recall).prefetches.length, 1, "not again on the loop's step");
@@ -539,14 +557,56 @@ test('prefetch: one search for the trigger before her reply; <retrieved> in the 
   );
 });
 
-test('prefetch: nothing qualified shows the status line; a trivial trigger is not searched; the switch off runs none', async () => {
+test("prefetch: a reply carries the prefetch's find in <found> inside <memory>, in the uncached tail of every step, and no <retrieved>", async () => {
+  // Slice 4: the find of `<retrieved>` moves to `<found>` (the prefetch's hits enter the graph reader's seeds). The
+  // line is stored as the memory stores every line, under its source id.
+  const mind = openWorld();
+  noteInterface(mind, 'fake', [{ id: 'g1', name: 'Γαία' }]);
+  const room = addRoom(mind.db, { iface: 'fake', native: 'c2', root: rootId('fake', 'g1'), name: 'jardin' });
+  const at = '2026-10-02T09:00:00.000Z';
+  addLine(mind.db, {
+    id: 'src:fake:r9:1:seen',
+    iface: 'fake',
+    place: room,
+    author: 'self',
+    text: 'το δάσος και ο σκύλος',
+    at,
+  });
+  const recall = prefetchRecall();
+  const run = await coreTurn({
+    answers: [toolAnswer('', [call('memory.search', { question: 'το δάσος' })]), '<msg>ναι, ο σκύλος</msg>'],
+    allowed: ['memory.search'],
+    features: { recall: true },
+    config: WEB_CONFIG,
+    runner: { recall, journalDb: () => mind.db, memoryContext: () => ({ kind: 'group', iface: 'fake' }) },
+    content: 'θυμάσαι τη ζωγραφιά με το δάσος;',
+  } as unknown as Parameters<typeof coreTurn>[0]);
+  mind.close();
+  const { calls } = run.llm;
+  for (const i of [0, 1]) {
+    const [, user] = calls[i];
+    type Part = { type?: string; text?: string; cacheSegment?: string };
+    const parts = (Array.isArray(user.content) ? user.content : []) as Array<Part>;
+    const texts = parts.filter((part) => part.type === 'text');
+    const { text = '', cacheSegment } = texts[texts.length - 1] ?? {};
+    assert.equal(cacheSegment ?? null, null, 'the tail carries no cache segment');
+    const found = /<found>\n([\s\S]*?)\n<\/found>/.exec(text)?.[1] ?? '';
+    assert.ok(found.includes('το δάσος και ο σκύλος'), text);
+    assert.ok(text.indexOf('<found>') < text.indexOf('</memory>'), 'inside <memory>');
+    assert.ok(!text.includes('<retrieved>'));
+  }
+});
+
+test('prefetch: on a routed turn nothing qualified shows the status line; a trivial trigger is not searched; the switch off runs none', async () => {
   const none = prefetchRecall({ status: 'none', basis: ['message'], excerpts: [], ms: 2 });
+  // Slice 4: the status line belongs to `<retrieved>`, which a reply no longer carries and a routed turn keeps.
   const quiet = await coreTurn({
     answers: ['<msg>όχι</msg>'],
     features: { recall: true },
     config: WEB_CONFIG,
     runner: { recall: none },
     content: 'θυμάσαι τον ελέφαντα;',
+    ...ROUTED,
   } as unknown as Parameters<typeof coreTurn>[0]);
   const l = labels.prefetch;
   assert.ok(
@@ -568,17 +628,19 @@ test('prefetch: nothing qualified shows the status line; a trivial trigger is no
   assert.ok(!requestText(greeted.llm, 0).includes('<retrieved>'));
 });
 
-test('prefetch: a failing runner never fails the turn; the request says unavailable', async () => {
+test('prefetch: a failing runner never fails the turn; a routed request says unavailable', async () => {
   const recall = fakeRecall();
   asRecord(recall).prefetch = async () => {
     throw new Error('boom');
   };
+  // Slice 4: the status line belongs to `<retrieved>`, which a reply no longer carries and a routed turn keeps.
   const run = await coreTurn({
     answers: ['<msg>δεν ξέρω</msg>'],
     features: { recall: true },
     config: WEB_CONFIG,
     runner: { recall },
     content: 'θυμάσαι τη ζωγραφιά;',
+    ...ROUTED,
   } as unknown as Parameters<typeof coreTurn>[0]);
   assert.equal(asRecord(run.result).outcome, 'spoke');
   assert.ok(requestText(run.llm, 0).includes(labels.prefetch.status.unavailable));

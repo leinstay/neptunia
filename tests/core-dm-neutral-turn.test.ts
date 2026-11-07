@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { reproject } from '../src/memory/db/graph.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { addAccount, addClaim, addDmPlace } from './fixtures/memory-db/opaque-people.ts';
@@ -185,6 +186,9 @@ test('what the person said in a linked DM on another interface reaches the reque
       });
       addClaim(db, 'claim:far', OPAQUE, 'aud:dm:place:far', 'keeps bees on a synthetic roof');
       addClaim(db, 'claim:else', OPAQUE, 'aud:dm:place:else', 'owes a synthetic debt');
+      // Slice 4: the request reads memory through the graph reader, so the seeded rows get the projection every writer
+      // of the memory makes in its own transaction (src/memory/db/graph.ts#projectRow), as a live database has it.
+      reproject(db, { tables: ['interfaces', 'authorities', 'people', 'accounts', 'places', 'claims'] });
     });
     await dmTurn(one, 'dm-1', 'u1', 'm1');
     const requests = JSON.stringify(rig.requests);

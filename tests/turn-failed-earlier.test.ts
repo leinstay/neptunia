@@ -244,7 +244,7 @@ test('a turn stopped by a rail is kept like an error: told at the next request t
   assert.match(taskOf(1)[0], /^unanswered: Zoë #1 2 min ago \(\S+\)$/);
 });
 
-test("facts kept for the channel (a drop, a hold) reach an addressed request there in a block before the task, once; a private chat's and another channel's do not", async () => {
+test("facts kept for the channel (a drop, a hold) reach an addressed request there in `<feedback>` before the task, once; a private chat's and another channel's do not", async () => {
   const first = rawMessage({ id: '101' });
   const { run, fail, calls, turns } = setup({ history: [first] });
   fail.on = false;
@@ -275,14 +275,15 @@ test("facts kept for the channel (a drop, a hold) reach an addressed request the
   source.add({ ...dropped, intentionId: 'i4', purpose: 'elsewhere', placeId: '99', privateChat: false });
   await run(first);
   const text = userText(calls[0][1].content);
-  const block = /<wake>\n([\s\S]*?)\n<\/wake>/.exec(text)?.[1] ?? '';
+  // Slice 4: an addressed turn is a reply on the frame, which tells facts in `<feedback>` inside `<inner>`.
+  const block = /<feedback>\n([\s\S]*?)\n<\/feedback>/.exec(text)?.[1] ?? '';
   const lines = block.split('\n');
   assert.equal(lines[0], labels.wake.feedbackInTurn);
   assert.deepEqual(lines.slice(1), [
     '* wake intention_due i1 say hi stale is done',
     `* held intention_due i2 later per-chain until ${formatDate(NOW + 6 * HOUR, 'UTC', 'en-US')} ${formatClock(NOW + 6 * HOUR, 'UTC', 'en-US')}`,
   ]);
-  assert.ok(text.indexOf('<wake>') < text.indexOf('<task>'));
+  assert.ok(text.indexOf('<feedback>') > -1 && text.indexOf('<feedback>') < text.indexOf('<task>'));
   assert.equal(
     source.pending({ placeId: '88', privateChat: true }).length,
     1,
@@ -291,7 +292,7 @@ test("facts kept for the channel (a drop, a hold) reach an addressed request the
   assert.equal(source.pending({ placeId: '99', privateChat: false }).length, 1);
   // Told once a completed answer carried them.
   await run(first);
-  assert.equal(userText(calls[1][1].content).includes('<wake>'), false);
+  assert.equal(userText(calls[1][1].content).includes('<feedback>'), false);
   assert.equal(source.pending({ placeId: '77', privateChat: false }).length, 0);
 });
 
@@ -343,7 +344,8 @@ test('a send whose answer never came: her next addressed turn looks for it among
   found.turns.setFactsSource(foundSource);
   foundSource.add(unknownSend);
   await found.run(first);
-  assert.equal(userText(found.calls[0][1].content).includes('<wake>'), false, 'it went out: nothing to tell');
+  // Slice 4: an addressed turn is a reply on the frame, which tells facts in `<feedback>` inside `<inner>`.
+  assert.equal(userText(found.calls[0][1].content).includes('<feedback>'), false, 'it went out: nothing to tell');
   assert.equal(foundSource.pending({ placeId: '77', privateChat: false }).length, 0, 'and the fact is gone');
 
   const missing = setup({ history: [first] });
@@ -352,7 +354,7 @@ test('a send whose answer never came: her next addressed turn looks for it among
   missing.turns.setFactsSource(missingSource);
   missingSource.add(unknownSend);
   await missing.run(first);
-  const block = /<wake>\n([\s\S]*?)\n<\/wake>/.exec(userText(missing.calls[0][1].content))?.[1] ?? '';
+  const block = /<feedback>\n([\s\S]*?)\n<\/feedback>/.exec(userText(missing.calls[0][1].content))?.[1] ?? '';
   assert.deepEqual(block.split('\n').slice(1), [
     `* ${fill(labels.wake.feedback.sendUnknown, { code: 'error', n: '0', total: '1' })}`,
   ]);

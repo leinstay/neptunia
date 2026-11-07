@@ -1,15 +1,23 @@
 // Tests for scripts/lib/frame-checks.ts: the replay's checks over a rendered request, each returning its findings (empty
 // when the request passes). `chatInTimeOrder` checks that every line of `<chat>` stands in time order with one clock,
 // `placeBound` that `<spatial_awareness>` puts her in the place the request was built for. Each check takes the labels the
-// request was rendered with, since a deployment rewords them. Plan 2026-11-06-turn-frame, slice 2 (h).
+// request was rendered with, since a deployment rewords them. Plan 2026-11-06-turn-frame, slice 2 (h). Slice 4 adds
+// `counterpartFirst`, that the first entry of `<people>` in `<memory>` is the person she answers, marked so, and
+// `lookupRecalled`, that a lookup of one turn stands in `<recall>` of the next.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatTranscript, renderTranscript } from '../src/format.ts';
 import type { Line } from '../src/behavior/lines.ts';
 import { spatialAwarenessText } from '../src/turn/request/spatial.ts';
 import { block } from '../src/turn/request/text.ts';
-import { chatInTimeOrder, placeBound } from '../scripts/lib/frame-checks.ts';
+import { frameOf } from '../src/turn/request/frame.ts';
+import { memoryBlockOf } from '../src/turn/request/memory-block.ts';
+import { recallBlockOf } from '../src/turn/request/recall-block.ts';
+import { chatInTimeOrder, counterpartFirst, lookupRecalled, placeBound } from '../scripts/lib/frame-checks.ts';
 import { labels } from './fixtures/labels.ts';
+import { frameInput } from './fixtures/frame-input.ts';
+import { mindOfEntries, personEntry } from './fixtures/mind-entries.ts';
+import { shippedLabels } from './fixtures/shipped-labels.ts';
 
 const MIN = 60_000;
 const TZ = 'UTC';
@@ -89,4 +97,62 @@ test('placeBound finds nothing when the place of spatial_awareness is the place 
 test('placeBound reports a request built for the server while spatial_awareness puts her in a channel of it', () => {
   // Bug: the check looks for the name anywhere in the block, and a parent on the path passes for the place.
   assert.notEqual(placeBound(request(chatText()), 'Ágora', labels).length, 0);
+});
+
+const ELENI = personEntry('111', 'Ελένη', { evidence: 'counterpart' });
+const NIKOS = personEntry('222', 'Νίκος', { evidence: 'author' });
+
+/** A request whose `<memory>` holds Eléni and Níkos as the turn answering Eléni renders them. */
+function memoryRequest(): string {
+  const frame = frameOf(frameInput({ author: { personId: ELENI.personId, accountId: 'fake:111', name: 'Ελένη' } }));
+  const mind = mindOfEntries({ people: [NIKOS, ELENI] });
+  return block('memory', memoryBlockOf(mind, frame, shippedLabels, () => null).text);
+}
+
+test('counterpartFirst finds nothing when <people> opens with the person she answers, marked', () => {
+  assert.deepEqual(counterpartFirst(memoryRequest(), 'Ελένη', shippedLabels), []);
+});
+
+test('counterpartFirst reports a <people> whose first entry is someone else', () => {
+  // Bug: the check looks for the name anywhere in <people>, so the counterpart ranked second passes.
+  assert.notEqual(counterpartFirst(memoryRequest(), 'Νίκος', shippedLabels).length, 0);
+});
+
+test('counterpartFirst reports a first entry with the right name and no mark', () => {
+  const mark = String(shippedLabels.memory?.counterpart);
+  const unmarked = memoryRequest().replace(mark, '');
+  assert.ok(!unmarked.includes(mark), 'the counter-example holds no mark');
+  assert.notEqual(counterpartFirst(unmarked, 'Ελένη', shippedLabels).length, 0);
+});
+
+const NOW = Date.parse('2026-11-07T12:00:00.000Z');
+const LOOKUP = { tool: 'memory.search', query: 'ΕΡΩΤΗΜΑ-ΚΗΠΟΣ' };
+
+/** The request of the next turn with `<recall>` holding one lookup by `tool` for `query`. */
+function recallRequest(tool: string, query: string): string {
+  const lookup = {
+    turnId: 'turn:7',
+    at: NOW - 10 * MIN,
+    tool,
+    args: { query },
+    place: { id: 'place:room', path: ['fake', 'Αγορά', 'γενικά'] },
+    status: 'ok',
+    extract: 'ΑΠΟΣΠΑΣΜΑ',
+    sourceIds: ['src:fake:m50:1:seen'],
+    anchorMessageIds: ['m10'],
+  };
+  return block('recall', recallBlockOf([lookup], { retired: new Set() }, shippedLabels, TZ));
+}
+
+test('lookupRecalled finds nothing when <recall> names the lookup by its tool and its query', () => {
+  assert.deepEqual(lookupRecalled(recallRequest(LOOKUP.tool, LOOKUP.query), LOOKUP, shippedLabels), []);
+});
+
+test('lookupRecalled reports a <recall> that holds another lookup of the same tool', () => {
+  // Bug: the check matches the tool alone, so any earlier search passes for this one.
+  assert.notEqual(lookupRecalled(recallRequest(LOOKUP.tool, 'ΑΛΛΟ-ΕΡΩΤΗΜΑ'), LOOKUP, shippedLabels).length, 0);
+});
+
+test('lookupRecalled reports a request with no <recall>', () => {
+  assert.notEqual(lookupRecalled(memoryRequest(), LOOKUP, shippedLabels).length, 0);
 });

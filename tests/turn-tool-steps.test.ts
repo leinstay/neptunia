@@ -324,7 +324,8 @@ test('steps spent: the last of the maxSteps requests is announced and final; its
   assert.equal(asRecord(turn).format.capped, 1);
   // The loopCut fact reaches her next turn here.
   await run.again();
-  assert.ok(requestText(run.llm, 3).includes('<wake>'), 'a fact is told');
+  // Slice 4: her next turn here is a reply, which tells an untold fact in `<feedback>` inside `<inner>`.
+  assert.ok(requestText(run.llm, 3).includes('<feedback>'), 'a fact is told');
 });
 
 test('the final request without calls posts its speech as any answer does', async () => {

@@ -1365,7 +1365,7 @@
       "repeated": 0
     },
     "tests/turn.test.ts": {
-      "deep": 294,
+      "deep": 274,
       "repeated": 8
     },
     "tests/usage.test.ts": {

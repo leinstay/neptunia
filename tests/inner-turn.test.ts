@@ -1580,7 +1580,7 @@ test('feedbackFacts: a parser diagnostic that no step showed her is a diagnostic
   ]);
 });
 
-test("inner turn: a heartbeat turn and an addressed reply in the same channel share the system message and the stable segment; the caller's profile is the reply's alone, everything else of a heartbeat is in the tail", async () => {
+test("inner turn: a heartbeat turn and an addressed reply in the same channel share the system message and the senses; neither has a profiles segment, and the wake is the heartbeat's alone", async () => {
   const history = [
     rawMessage({ id: 'm0', ts: NOW - 120_000, content: 'πρώτο' }),
     rawMessage({ id: 'm1', authorId: 'u2', authorName: 'Zoë', content: 'δεύτερο' }),
@@ -1680,11 +1680,17 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
       'her tools are a request field, not a block'
     );
     assert.deepEqual(beat[0], reply[0], 'the same system message');
-    assert.equal(a.stable, b.stable);
+    // Slice 4: a reply's stable segment is `<self>` and `<surroundings>` while a heartbeat keeps the old emission
+    // until slice 5, so the two share the system message and the text of `<senses>`, not the whole segment.
+    const sensesOf = (text: string) => text.slice(text.indexOf('<senses>'), text.indexOf('</senses>'));
+    const [beatStable, replyStable] = [String(a.stable), String(b.stable)];
+    assert.ok(replyStable.startsWith('<self>') && replyStable.includes('<surroundings>'), 'the reply is on the frame');
+    assert.equal(sensesOf(beatStable), sensesOf(replyStable));
     assert.ok(a.tail.includes('<wake>') && !b.tail.includes('<wake>'), 'the wake sits in the tail');
     // The profiles segment is the interlocutor's profile alone: a heartbeat has no interlocutor, so it has none.
     assert.equal(a.profiles, undefined);
-    assert.equal(b.profiles !== undefined, withProfile);
+    // Slice 4: the profiles segment goes from a reply, the counterpart is the first entry of `<memory>`.
+    assert.equal(b.profiles, undefined);
   }
 });
 
