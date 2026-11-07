@@ -638,15 +638,9 @@ export function buildSessionRequest({
 
   // The places of the batch get a handle each (`p1`, ...), in order of their first line; the places they sit in follow.
   const placeIds = [...new Set(batch.map((line) => line.place_id as string).filter(Boolean))];
-  // A DM place row the database made (schema v7) is not shown: the block stays as it was until its wording is written.
+  // A direct chat gets its handle as a room does, so the session can write its fields and its aliases.
   const placeRows = placeIds
-    .map((id) =>
-      db
-        .prepare(
-          "SELECT id, kind, name, topic, parent_id FROM places WHERE id = ? AND (kind IS NOT 'dm' OR owner_key IS NOT NULL)"
-        )
-        .get(id)
-    )
+    .map((id) => db.prepare('SELECT id, kind, name, topic, parent_id FROM places WHERE id = ?').get(id))
     .filter((row): row is Row => row !== undefined);
   const parents = [...new Set(placeRows.map((row) => row.parent_id as string).filter(Boolean))];
   const handleOf = new Map<unknown, string>();
