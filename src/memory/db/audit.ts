@@ -14,7 +14,7 @@
 //   placeUnnamed       a live room or root has a name (a direct chat has none by design)
 //   placeUndescribed   a live place with `describeAfterLines` live lines or more (`memory.describeAfterLines`, 20) has
 //                      all of `purpose`, `tone` and `topics` as live descriptions
-//   interfaceUnnamed   an interface with a live place has a name
+//   interfaceUnnamed   an interface with a live place has no name
 //   cliLineRetired     a line of the owner's command line (`cli:dm:owner`) retired with an `origin` other than `owner`,
 //                      the stamp his memory command leaves on a line it retires
 

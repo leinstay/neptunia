@@ -24,6 +24,9 @@ import { UnansweredQuestion, unansweredText } from './neptunia-request.ts';
 
 /** The owner's command line: its client, its namespace and its one conversation. */
 export const CLI_CLIENT = 'cli';
+/** What the command line is called, for `hello.names`: one place, the owner's chat, and no kinds of place. */
+const CLI_NAMES = { interface: 'command line', nouns: {}, dm: 'chat' };
+
 const CLI_IFACE = 'cli';
 const OWNER_ID = 'owner';
 const CHAT_ID = 'cli:dm:owner';
@@ -298,6 +301,7 @@ export function openLinkOver(
       iface: CLI_IFACE,
       self: { id: OWNER_ID, name: OWNER_ID },
       community: null,
+      names: CLI_NAMES,
       capabilities: CLI_CAPABILITIES,
       resume: null,
     },

@@ -31,6 +31,7 @@
 import { estimateTokens } from '../../llm/tokens.ts';
 import { indexWords } from '../record-index.ts';
 import { SELF_PERSON } from './ids.ts';
+import { loadStemmer } from './stems.ts';
 import { interfaceNouns, matchName, normalName, phrasesOf, namesIn } from './names.ts';
 import type { NameHitRow, NameMatch } from './names.ts';
 import { placeChainInDb } from './place-tree.ts';
@@ -435,7 +436,9 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
     ).map((row) => ({ kind: String(row.kind), id: String(row.row_id) }));
   }
 
+  const { stem } = loadStemmer(db);
   return {
+    stem,
     raised,
     raise,
     visible,
@@ -473,7 +476,7 @@ function wordHits(
   present: (nodeId: string) => boolean,
   only?: ReadonlyArray<NameMatch>
 ): { nouns: Array<NameHitRow>; nodes: Array<{ nodeId: string; match: NameMatch }>; candidate: boolean } {
-  const hits = matchName(db, ctx, phrase, only);
+  const hits = matchName(db, ctx, phrase, only, walker.stem);
   const nouns = hits.filter((hit) => hit.kind === 'interface_noun');
   const byNode = new Map<string, NameMatch>();
   for (const hit of hits) {

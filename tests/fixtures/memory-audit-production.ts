@@ -17,7 +17,8 @@ const AT = Date.parse('2026-11-04T08:00:00.000Z');
 /** The place, its account, its audience and the owner's person. `partner` is what the place names as its partner. */
 export function addCliPlace(db: DatabaseSync, partner: string | null = OWNER): void {
   db.exec(`
-    INSERT OR IGNORE INTO interfaces (id, name, contract) VALUES ('cli', 'cli', 1);
+    INSERT INTO interfaces (id, name, contract) VALUES ('cli', 'command line', 1)
+      ON CONFLICT (id) DO UPDATE SET name = excluded.name;
     INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES ('cli/local', 'cli', 'local');
     INSERT OR IGNORE INTO people (id, first_seen_at) VALUES ('${OWNER}', '2026-11-01T00:00:00.000Z');
     INSERT INTO accounts (id, iface, native_id, native_key, authority_id, generation, kind, person_id, link, linked_by, linked_at)

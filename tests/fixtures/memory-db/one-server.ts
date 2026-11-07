@@ -97,7 +97,10 @@ export function tablesOf(file: string): Array<string> {
   const db = new DatabaseSync(file, { readOnly: true });
   try {
     return (db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table'").all() as Array<Row>)
-      .filter((row) => !/^(sqlite_|(sources|media)_(fts|tri)_)/.test(String(row.name)) && !/VIRTUAL/i.test(String(row.sql)))
+      // Slice 3: the shadow tables of the names trigram index are SQLite's, as those of sources and media are.
+      .filter(
+        (row) => !/^(sqlite_|(sources|media)_(fts|tri)_|names_tri_)/.test(String(row.name)) && !/VIRTUAL/i.test(String(row.sql))
+      )
       .map((row) => String(row.name))
       .sort();
   } finally {

@@ -335,13 +335,15 @@ function onePerNode(hits: Array<NameHitRow>): Array<NameHitRow> {
 
 /**
  * The names one word or phrase matches under `ctx`: exact, else by stems, else by trigrams (`only` limits the ways).
- * Each hit keeps its folded name.
+ * Each hit keeps its folded name. A caller matching many words passes `stem` once (stems.ts#loadStemmer reads the
+ * stored stemmer on every call).
  */
 export function matchName(
   db: Db,
   ctx: Context,
   word: string,
-  only: ReadonlyArray<NameMatch> = ['exact', 'stem', 'trigram']
+  only: ReadonlyArray<NameMatch> = ['exact', 'stem', 'trigram'],
+  stem?: (word: string) => string
 ): Array<NameHitRow> {
   const folded = normalName(word);
   if (folded === '' || !hasNames(db)) return [];
@@ -355,7 +357,7 @@ export function matchName(
     if (exact.length > 0) return onePerNode(exact.map((row) => hitOf(row, 'exact')));
   }
   if (only.includes('stem')) {
-    const stems = stemsOf(loadStemmer(db).stem, folded);
+    const stems = stemsOf(stem ?? loadStemmer(db).stem, folded);
     const stemmed = stems === '' ? [] : select('stem', stems);
     if (stemmed.length > 0) return onePerNode(stemmed.map((row) => hitOf(row, 'stem')));
   }
@@ -364,8 +366,9 @@ export function matchName(
 
 /** The nodes `words` name, read under `ctx`: per word, one hit per node by its strongest match. */
 export function namesOf(db: Db, ctx: Context, words: Array<string>): Array<NameHit> {
+  const { stem } = loadStemmer(db);
   return words.flatMap((word) =>
-    matchName(db, ctx, word).map(({ nodeId, kind, label, match, audienceId }) => ({
+    matchName(db, ctx, word, undefined, stem).map(({ nodeId, kind, label, match, audienceId }) => ({
       nodeId,
       kind,
       label,
