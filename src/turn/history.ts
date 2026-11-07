@@ -108,9 +108,14 @@ export function continuationHistory({
 }
 
 /** What orderedHistory reads of a line: its time, its place and whether it is a reply parent from outside the window. */
-type OrderedLine = { readonly ts: number; readonly placeId?: string; readonly replyParent?: boolean };
+type OrderedLine = { readonly ts?: number | null; readonly placeId?: string; readonly replyParent?: boolean };
 
 /** The id of a call mark's line: never a message id, since a message id has no colon prefix of this kind. */
+/** A line's time; a line without a finite time keeps its place among the oldest rather than breaking the sort. */
+function tsOf(line: OrderedLine): number {
+  return typeof line.ts === 'number' && Number.isFinite(line.ts) ? line.ts : 0;
+}
+
 function markId(mark: CallMark, i: number): string {
   return `call:${mark.placeId}:${mark.at}:${i}`;
 }
@@ -145,7 +150,7 @@ export function orderedHistory<TLine extends OrderedLine>(
   now: number
 ): Array<TLine | Line> {
   const places = new Set(lines.map((line) => line.placeId));
-  const window = lines.filter((line) => line.replyParent !== true).map((line) => line.ts);
+  const window = lines.filter((line) => line.replyParent !== true).map(tsOf);
   const start = window.length > 0 ? Math.min(...window) : Number.POSITIVE_INFINITY;
   const kept = (marks ?? []).filter(
     (mark) => places.has(mark.placeId) && Number.isFinite(mark.at) && mark.at >= start && mark.at <= now
@@ -154,8 +159,6 @@ export function orderedHistory<TLine extends OrderedLine>(
     ...lines.map((line, order) => ({ line, rank: 0, order })),
     ...kept.map((mark, i) => ({ line: markLine(mark, i), rank: 1, order: i })),
   ];
-  // A line without a finite time keeps its place among the oldest rather than breaking the sort.
-  const tsOf = (line: OrderedLine): number => (Number.isFinite(line.ts) ? line.ts : 0);
   all.sort((a, b) => tsOf(a.line) - tsOf(b.line) || a.rank - b.rank || a.order - b.order);
   return all.map((entry) => entry.line);
 }

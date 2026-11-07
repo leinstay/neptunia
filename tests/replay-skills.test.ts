@@ -731,8 +731,8 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
 
   // Step 2 reads her step-1 line with the call's mark; the post went to νέα, so its text is not here.
   const second = userOf(llm.calls[1]);
-  const secondLines = second.split('\n');
-  const createLine = secondLines[secondLines.findIndex((line: Untyped) => line.includes('μια στιγμή')) + 1];
+  const secondLines: Array<string> = String(second).split('\n');
+  const createLine = secondLines[secondLines.findIndex((line) => line.includes('μια στιγμή')) + 1];
   // Slice 2 (a), (c): the mark is its own line after hers and names γενικά, where she called from, not the target νέα.
   assert.ok(createLine && createLine.endsWith(marked('message.create', 'γενικά')), second);
   assert.ok(!second.includes('καλημέρα'), 'a post into another channel is not a line here');
@@ -760,12 +760,10 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
   const third = userOf(llm.calls[3]);
   for (const text of ['μια στιγμή', 'έγινε', 'δεύτερο']) assert.ok(third.includes(text), text);
   assert.ok(!third.includes('εντάξει'), 'a held speech is not in the channel');
-  const thirdLines = third.split('\n');
+  const thirdLines: Array<string> = String(third).split('\n');
   // Slice 2 (a): the mark is its own line at the call's time, which is before the follow-up posted έγινε, not on it.
   assert.ok(
-    thirdLines[thirdLines.findIndex((line: Untyped) => line.includes('έγινε')) - 1]?.endsWith(
-      marked('rule.list', 'γενικά')
-    ),
+    thirdLines[thirdLines.findIndex((line) => line.includes('έγινε')) - 1]?.endsWith(marked('rule.list', 'γενικά')),
     third
   );
   assert.equal(steps[2].callMarks.length, 2);
