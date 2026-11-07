@@ -14,6 +14,7 @@ import type { NotesDraft } from './journal-notes.ts';
 import type { noteDiagnostics } from './journal.ts';
 import type { ToolRoundDraft } from './tool-round.ts';
 import type { IndexedSkill } from '../skills/uses.ts';
+import type { Handles } from './handles.ts';
 
 /** What bit during the attempt (src/llm/limits.ts#createLimits). */
 export type Limits = {
@@ -102,4 +103,6 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfref
   selfreflectionAudience?: Array<string>;
   innerActions?: Array<unknown>;
   innerIntentIds?: Iterable<string>;
+  /** The turn's one handle registry (src/turn/handles.ts): every `#n` its requests issued, to the line it names. */
+  handles?: Handles;
 };

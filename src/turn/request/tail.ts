@@ -1,6 +1,6 @@
 // The end of a turn's request: `<now>` with the persona's recent time away, the user message's text parts in their
-// three cache segments (the stable part, the profiles, the tail with the chat, the clock, the per-turn senses, the
-// tempo and the task last), and what of the chat window went in for the journal. buildRequest
+// three cache segments (the stable part, the profiles, the tail with the chat and its tempo, the clock, the per-turn
+// senses and the task last), and what of the chat window went in for the journal. buildRequest
 // (src/behavior/prompt.ts) calls them last.
 
 import { fill, formatDuration, formatNow, renderTranscript } from '../../format.ts';
@@ -76,12 +76,16 @@ export type UserBlocksInput = {
   intentions?: string;
   wake?: string;
   places?: string;
+  myDay?: string;
   previousThink?: string;
 };
 
-/** The `<chat>` body: renderTranscript over the kept lines, which joins their texts under a date header. */
-const chatText = (items: Array<TranscriptItem>, timezone: string, labels: Labels): string =>
-  renderTranscript(items, timezone, labels);
+/**
+ * The `<chat>` body: renderTranscript over the kept lines, which joins their texts under a date header, with the
+ * tempo lines (renderTempo) at its foot.
+ */
+const chatText = (items: Array<TranscriptItem>, timezone: string, labels: Labels, tempo: string): string =>
+  renderTranscript(items, timezone, labels, tempo);
 
 /** One part of a message's media (src/media/classify.ts#mediaParts). */
 type MediaPart = { readonly attachments?: Array<{ readonly kind?: string; readonly previewText?: unknown } | null> };
@@ -139,8 +143,9 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
  * the tail (no segment) with everything that changes from turn to turn -- a
  * second `<people>` with the other members first, `<tool_catalogue>` (the catalogue, on
  * a question about what the persona can do) and `<people_now>` (what is current about each
- * person: status, voice, activity, attitude) right before `<chat>` -- `<spatial_awareness>`, `<now>`, the per-turn
- * `<senses>` lines, `<tempo>` and `<task>` last. `senses` is
+ * person: status, voice, activity, attitude) right before `<chat>`, whose foot holds the tempo lines --
+ * `<spatial_awareness>`, `<now>`, the per-turn `<senses>` lines and `<task>` last. `<inner>` holds `<my_day>` and
+ * `<previous_think>`, in that order, where `<previous_think>` stood. `senses` is
  * renderSenses' two halves. A segment with no block is left
  * out; every part but the last ends with the blank line that separates
  * blocks, so the parts' texts joined with nothing (userText) are the whole
@@ -171,6 +176,7 @@ function userBlocks({
   intentions = '',
   wake = '',
   places = '',
+  myDay = '',
   previousThink = '',
 }: UserBlocksInput): Array<ListedBlock> {
   const stable: Array<ListedBlock> = [
@@ -198,7 +204,7 @@ function userBlocks({
           name: 'chat',
           source: 'kept.chat',
           section: 'chat',
-          text: block('chat', chatText(chatItems, timezone, labels)),
+          text: block('chat', chatText(chatItems, timezone, labels, tempoText)),
         };
   const tail: Array<ListedBlock> = [
     // Everyone else `<people>` shows (asked about, then the compact participants): who they are
@@ -250,8 +256,13 @@ function userBlocks({
     listed('wake', 'wake', wake),
     // The places page of an addressed turn (`context.places`; src/behavior/wake.ts#placesBlockText): per turn.
     listed('places', 'places', places),
-    // Her one previous think (src/behavior/previous-think.ts): per turn, right before the people it concerns.
-    listed('previous_think', 'previousThink', previousThink),
+    // Her own state that lasts between turns: what she did today (src/turn/request/my-day.ts), then her one previous
+    // think (src/behavior/previous-think.ts). Per turn, right before the people it concerns.
+    listed(
+      'inner',
+      'inner',
+      [block('my_day', myDay), block('previous_think', previousThink)].filter(Boolean).join('\n\n')
+    ),
     // What is current about each person: the live snapshot and what changes from turn to turn
     // in memory. Tail only, right before the chat.
     fitted('people_now', 'peopleNow', kept),
@@ -262,7 +273,6 @@ function userBlocks({
     listed('now', 'now', nowText),
     // The per-turn senses lines (renderSenses' `turn` half); the rest lead the stable part.
     listed('senses', 'senses.turn', senses.turn),
-    listed('tempo', 'tempo', tempoText),
     listed('task', 'task', task),
   ].map((one) => ({ ...one, segment: 'tail' as const }));
   return [...stable, ...profiles, ...tail];

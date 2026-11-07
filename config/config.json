@@ -132,6 +132,9 @@
       "fetchTimeoutMs": 2000
     },
     "turnLeaseMs": 300000,
+    "myDay": {
+      "lines": 12
+    },
     "around": {
       "maxTokens": 400
     },

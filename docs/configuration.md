@@ -154,6 +154,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 |---|---|---|---|---|
 | `context.channelMessages` | number | `100` | Current channel messages in the window | `src/turn/request/memory.ts` |
 | `context.reactions.fetchTimeoutMs` | number | `2000` | How long a turn waits for those fetches | `src/turn/tool-round.ts` |
+| `context.myDay.lines` | number | `12` | How many of her actions of today `<my_day>` lists, the newest kept. `0` leaves the block out | `src/turn/phases/request/build.ts` |
 | `context.turnLeaseMs` | number | `300000` | How long an inner turn's claim on its wakes lasts (milliseconds). The inner life renews it at every tick while the turn runs; a start takes over a claim a stopped process left | `src/behavior/attention.ts` |
 | `context.around.maxTokens` | number | `400` | Token cap of the voice-channel entries that have no profile in the request | `src/behavior/prompt.ts` |
 | `context.caps.interlocutor` | number | `6000` | Token cap: the caller's profile with episodes | `src/turn/request/people.ts` |

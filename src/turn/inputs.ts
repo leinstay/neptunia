@@ -29,7 +29,7 @@ const ADDRESSED_PLACES: boolean = false;
 export type InputsConfig = {
   errands?: { resultMaxChars?: number } | null;
   bot?: { timezone?: string } | null;
-  context?: { caps?: { intentions?: number } | null; places?: unknown } | null;
+  context?: { caps?: { intentions?: number } | null; places?: unknown; myDay?: { lines?: number } | null } | null;
 };
 
 /** The labels as the inputs hand them on; the block functions read their own sections. */

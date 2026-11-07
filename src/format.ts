@@ -16,6 +16,7 @@ import { reasonText } from './tools/codes.ts';
 import { objOf } from './tools/types.ts';
 import { clipWithEllipsis, mediaLabelFor, stickerLabelFor } from './media/classify.ts';
 import { gifHandleOf } from './memory/index.ts';
+import type { CallMark } from './behavior/lines.ts';
 import { MINUTE_MS, HOUR_MS, DAY_MS } from './time.ts';
 import { clampText, clampWithEllipsis, oneLine } from './memory/clamp.ts';
 import { isWordChar, outsideUrls } from './memory/mentions.ts';
@@ -28,8 +29,6 @@ type Untyped = ReturnType<typeof JSON.parse>;
 // The transcript's measures. Production values, config cut of 2026-10-31.
 /** How much of a reply's parent its line quotes. */
 const DEFAULT_REPLY_QUOTE_CHARS = 80;
-/** From what age a chat line shows how long ago it was. */
-export const AGE_AFTER_MINUTES = 60;
 /** A silence longer than this many minutes gets a gap marker. */
 export const GAP_MARKER_MINUTES = 20;
 /** Characters of one message's text in a transcript. */
@@ -544,151 +543,109 @@ export function withTriggers(
   });
 }
 
-// The fields withCalls puts on a line; a line marked again loses its old ones first.
-const CALL_FIELDS = ['calls', 'callsAfter', 'postedFrom'];
-
-/** `message` without the fields withCalls put on it (a new object). */
-function withoutCallFields(message: Untyped) {
-  const copy = { ...message };
-  for (const key of CALL_FIELDS) delete copy[key];
-  return copy;
+/**
+ * `messages` with the persona's lines posted from another place's turn marked with that place's name
+ * (`postedFrom`), so `<chat>` says where she wrote it from. `postedFrom` (a Map, or a function): posted message id ->
+ * the place of the turn that posted it. `nameOf(placeId)` gives a place's name, null when unknown. A line marked
+ * before loses its old mark first; every untouched line is returned as it is; not a list: []. Pure.
+ */
+export function withPostedFrom(
+  messages: Array<Record<string, Untyped>>,
+  postedFrom: Map<string, string> | ((id: string) => string | null | undefined) | null | undefined,
+  nameOf: (placeId: string) => string | null = () => null
+): Array<Record<string, Untyped>> {
+  if (!Array.isArray(messages)) return [];
+  const out = messages.map((message) => {
+    if (!message || !('postedFrom' in message)) return message;
+    const copy = { ...message };
+    delete copy.postedFrom;
+    return copy;
+  });
+  const text = (value: Untyped) => (typeof value === 'string' && value ? value : null);
+  const originOf =
+    typeof postedFrom === 'function'
+      ? postedFrom
+      : typeof postedFrom?.get === 'function'
+        ? (id: string) => postedFrom.get(id)
+        : null;
+  if (!originOf) return out;
+  out.forEach((message, i) => {
+    if (!message?.self || !text(message.id)) return;
+    const origin = text(originOf(message.id));
+    const channel = origin && origin !== message.placeId ? text(nameOf(origin)) : null;
+    if (channel) out[i] = { ...message, postedFrom: channel };
+  });
+  return out;
 }
 
 /**
- * The persona's own lines with the skill calls she made (src/behavior/turn.ts keeps them, seeded
- * from src/memory/journal.js#callMarksOf at start), so a later turn sees what she called and how it
- * went. `marks.calls`: `{ placeId, at, skill, status, target: { messageId, placeId }, postedId,
- * posted }` each -- `placeId` the channel of the turn that made the call, `at` when its result
- * came back, `target` what it aimed at (a message and its channel; null fields when unknown; a
- * missing channel is the call's own), `postedId` the message the call itself posted (null when
- * none; in the target channel), `posted` every message id that turn posted, and optionally
- * `detail` (src/tools/executors.ts#outcomeDetail: why a call that did not work did not; the mark
- * carries it when it has a `kind`). Among `messages`
- * of the call's own channel, the last line of hers its turn posted carries it (`calls`); when the
- * turn posted none of them, the last line at or before `at` carries it as a line of hers of its
- * own (`callsAfter`); a call older than every line of that channel here, or made in another
- * channel, marks nothing. `marks.postedFrom` (a Map, or a function, posted message id -> the
- * channel of the turn that posted it): her line posted from another channel's turn carries that
- * channel's name (`postedFrom`). Each mark holds `{ skill, status, targetId, targetLink,
- * targetChannel, postedLink, ts }`: `nameOf(placeId)` gives a channel's name, `linkOf(placeId,
- * messageId)` a message's link (each null when unknown). formatTranscript renders them. Lines
- * marked before lose those marks first; every untouched line is returned as it is; not a list: [].
- * Pure.
- * @param messages  Normalized messages.
+ * The call marks `<chat>` shows (src/turn/history.ts#orderedHistory), from the persona's remembered skill calls
+ * (src/turn/skill-calls.ts notes them, src/memory/journal.ts#callMarksOf seeds them at start): `{ placeId, at,
+ * skill, status }` each, with `args` (the main arguments as worded when the call ran), `from` (the name of the place
+ * of the turn that made it), `searched` (the name of the place a lookup searched, from the call's `searched` place id),
+ * `aimed` (the name of the place its target lives in, else of the place of the turn, for a reason that names it) and `detail` (why a call that did not work did not, when it has a `kind`) when known. A call without a place, a
+ * skill or a finite time is left out. `nameOf(placeId)` gives a place's name, null when unknown. Pure.
  */
-export function withCalls(
-  messages: Array<Record<string, Untyped>>,
-  marks: {
-    calls?: Array<Record<string, Untyped>>;
-    postedFrom?: Map<string, string> | ((id: string) => string | null | undefined);
-  } | null,
-  {
-    nameOf = () => null,
-    linkOf = () => null,
-  }: {
-    nameOf?: (placeId: string) => string | null;
-    linkOf?: (placeId: string, messageId: string) => string | null;
-  } = {}
-): Array<Record<string, Untyped>> {
-  if (!Array.isArray(messages)) return [];
-  const out = messages.map((message) =>
-    message && CALL_FIELDS.some((key) => key in message) ? withoutCallFields(message) : message
-  );
-  if (!marks) return out;
+export function callMarksFor(
+  calls: ReadonlyArray<Record<string, Untyped>> | null | undefined,
+  nameOf: (placeId: string) => string | null = () => null
+): Array<CallMark> {
   const text = (value: Untyped) => (typeof value === 'string' && value ? value : null);
   const name = (id: Untyped) => (text(id) ? text(nameOf(id)) : null);
-  const link = (placeId: string, messageId: Untyped) =>
-    text(placeId) && text(messageId) ? text(linkOf(placeId, messageId)) : null;
-  const add = (i: Untyped, field: Untyped, mark: Untyped) => {
-    out[i] = { ...out[i], [field]: [...(out[i][field] ?? []), mark] };
-  };
-  const calls = (Array.isArray(marks.calls) ? marks.calls : []).filter(
-    (call) => text(call?.placeId) && text(call?.skill)
-  );
-  for (const call of [...calls].sort((a, b) => (a.at ?? 0) - (b.at ?? 0))) {
-    const here: Array<Untyped> = [];
-    out.forEach((message, i) => {
-      if (message?.placeId === call.placeId) here.push(i);
-    });
-    if (here.length === 0) continue;
-    const targetId = text(call.target?.messageId);
-    const targetChannelId = text(call.target?.placeId) ?? call.placeId;
-    const postedId = text(call.postedId);
-    const mark = {
+  const out: Array<CallMark> = [];
+  for (const call of Array.isArray(calls) ? calls : []) {
+    if (!text(call?.placeId) || !text(call?.skill) || !Number.isFinite(call?.at)) continue;
+    out.push({
+      placeId: call.placeId,
+      at: call.at,
       skill: call.skill,
       status: String(call.status ?? ''),
-      targetId,
-      targetLink: targetId ? link(targetChannelId, targetId) : null,
-      targetChannel: name(targetChannelId),
-      postedLink: postedId ? link(targetChannelId, postedId) : null,
-      // The call's main arguments, worded by src/tools/call-args.ts when it ran (in process only).
       ...(text(call.args) ? { args: call.args } : {}),
-      ts: call.at,
-      // Why a call that did not work did not (src/tools/executors.ts#outcomeDetail), when known.
+      ...(name(call.placeId) ? { from: name(call.placeId) } : {}),
+      ...(name(call.searched) ? { searched: name(call.searched) } : {}),
+      ...(name(text(call.target?.placeId) ?? call.placeId)
+        ? { aimed: name(text(call.target?.placeId) ?? call.placeId) }
+        : {}),
       ...(call.detail && typeof call.detail.kind === 'string' ? { detail: call.detail } : {}),
-    };
-    const posted = new Set(Array.isArray(call.posted) ? call.posted : []);
-    let host = -1;
-    for (const i of here) if (out[i].self && posted.has(out[i].id)) host = i;
-    if (host !== -1) {
-      add(host, 'calls', mark);
-      continue;
-    }
-    if (!Number.isFinite(call.at)) continue;
-    let after = -1;
-    for (const i of here) if (out[i].ts <= call.at) after = i;
-    if (after !== -1) add(after, 'callsAfter', mark);
-  }
-  const from = marks.postedFrom;
-  const originOf =
-    typeof from === 'function' ? from : typeof from?.get === 'function' ? (id: Untyped) => from.get(id) : null;
-  if (originOf) {
-    out.forEach((message, i) => {
-      if (!message?.self || !text(message.id)) return;
-      const origin = text(originOf(message.id));
-      const channel = origin && origin !== message.placeId ? name(origin) : null;
-      if (channel) out[i] = { ...message, postedFrom: channel };
     });
   }
   return out;
 }
 
 /**
- * One call mark of withCalls as the line reads it: `labels.transcript.called` with `{skill}`,
- * `{target}` (`calledTargetMessage` with the target's `#n` in this list, else `calledTargetLink`
- * with its link, else `calledTargetChannel` with its channel's name, else ''), `{status}` (the
- * status's word in `transcript.callStatus`, else the status code itself; with a mark's `detail`
- * worded by callReason and `transcript.callStatusReason` set, that label with `{status}` and
- * `{reason}`), `{args}` (`calledArgs` with the call's main arguments, else '') and `{posted}` (`calledPosted` with the link of the message the call posted, else
- * ''). '' with `called` blank.
+ * One call mark as its line reads it: `labels.transcript.called` with `{skill}`, `{args}` and `{status}`. `{args}`
+ * holds, in this order, `calledFrom` with `{place}` the place she called from, `calledSearched` with `{place}` the
+ * place a lookup searched, and `calledArgs` with the call's main arguments, each only when the mark has it and the
+ * label is set. `{status}` is the status's word in `transcript.callStatus`, else the status code itself; with a mark's
+ * `detail` worded by callReason and `transcript.callStatusReason` set, that label with `{status}` and `{reason}`.
+ * '' with `called` blank.
  */
-function callText(mark: Untyped, indexById: Untyped, labels: Untyped) {
+function callText(mark: CallMark, labels: Untyped) {
   const t = labels.transcript;
   if (typeof t.called !== 'string' || !t.called) return '';
-  const n = mark.targetId ? indexById.get(mark.targetId) : undefined;
-  let target = '';
-  if (n) target = fill(t.calledTargetMessage, { n });
-  else if (mark.targetLink) target = fill(t.calledTargetLink, { link: mark.targetLink });
-  else if (mark.targetChannel) target = fill(t.calledTargetChannel, { channel: mark.targetChannel });
-  const posted = mark.postedLink ? fill(t.calledPosted, { link: mark.postedLink }) : '';
-  const args =
-    mark.args && typeof t.calledArgs === 'string' && t.calledArgs ? fill(t.calledArgs, { args: mark.args }) : '';
+  const part = (label: Untyped, values: Record<string, Untyped>) =>
+    typeof label === 'string' && label ? fill(label, values) : '';
+  const args = [
+    mark.from ? part(t.calledFrom, { place: mark.from }) : '',
+    mark.searched ? part(t.calledSearched, { place: mark.searched }) : '',
+    mark.args ? part(t.calledArgs, { args: mark.args }) : '',
+  ].join('');
   const words = t.callStatus;
   const word = words && typeof words === 'object' && Object.hasOwn(words, mark.status) ? words[mark.status] : null;
   const statusWord = typeof word === 'string' && word ? word : mark.status;
-  const reason = callReason(mark, labels);
+  const reason = callReason({ detail: mark.detail, targetChannel: mark.aimed }, labels);
   const status =
     reason && typeof t.callStatusReason === 'string' && t.callStatusReason
       ? fill(t.callStatusReason, { status: statusWord, reason })
       : statusWord;
-  return fill(t.called, { skill: mark.skill, target, args, status, posted });
+  return fill(t.called, { skill: mark.skill, args, status });
 }
 
 /** The refusals worded by their own `labels.tools.refusals` key before any other phrase: kind -> key. */
 const REFUSAL_LABELS = Object.freeze({ 'agent-required': 'agentRequired', 'unknown-arg': 'unknownArg' });
 
 /**
- * Why a call of the persona's did not work, worded (`mark.detail`, withCalls'), the first of: a
+ * Why a call of the persona's did not work, worded (`mark.detail`, callMarksFor's), the first of: a
  * refusal's own `labels.tools.refusals[<key>]` (REFUSAL_LABELS; `{arg}` the argument, `{agents}`
  * and `{args}` the values it lists, comma-separated: the agents of an errand, the arguments a skill
  * takes for an argument it does not); the
@@ -875,7 +832,6 @@ export type TranscriptOptions = {
   emojiInline?: boolean;
   indexOffset?: number;
   now?: number;
-  ageMinutes?: number;
   handles?: Map<string, string>;
   memberNames?: Map<string, Array<string>>;
   channels?: Map<string, { handle: string; name: string }>;
@@ -947,20 +903,14 @@ type MediaContext = Pick<
  *   (the trigger's index, offset like the rest), `transcript.triggeredByOlder` when the trigger is
  *   not in the list; nothing when its reply target is that same message (the reply marker names it)
  *   or the key is blank. A line without `triggerId` renders exactly as it did before.
- *   Also in `mode: 'chat'` only, the marks of withCalls on a line of the persona: `postedFrom`
- *   renders `transcript.postedFrom` with `{channel}` after the author (before the trigger marker),
- *   each of `calls` a `transcript.called` tag at the end of the line (callText), and each of
- *   `callsAfter` a line of its own after it inside the same item -- `[time] self: called tag`, its
- *   time (aged like any line) the call's, no `#n` and no index. `transcript.called` blank: no call
- *   tag and no call line.
- * @param [options.now]  The request's clock (epoch ms), the same moment as its `<now>` and
- *   `<tempo>`; never read here from the system clock. In `mode: 'chat'`, a line at least
- *   `ageMinutes` older than `now` renders its head time as `transcript.timeAged` with `{clock}`
- *   and `{age}` (formatDuration of `now - ts`). No `now`, or labels without a non-empty
- *   `transcript.timeAged`, keeps the plain `[clock]`. Memory mode never shows ages. The age is
- *   relative to this clock, so the items' text is for this request only and is never stored.
- * @param [options.ageMinutes]  `AGE_AFTER_MINUTES` when omitted: how old a
- *   line must be, in minutes, to carry its age.
+ *   Also in `mode: 'chat'` only, a line of the persona marked by withPostedFrom renders
+ *   `transcript.postedFrom` with `{channel}` after the author (before the trigger marker), and a
+ *   call mark (a line of kind `call`, src/turn/history.ts#orderedHistory) renders as a line of
+ *   hers of its own, `[time] self: called tag` (callText), with no `#n` and no index, inside the
+ *   item of the line before it; the gap and date markers are measured to it like to any line.
+ *   `transcript.called` blank, or memory mode: no call line. Every line shows one clock and no age.
+ * @param [options.now]  The request's clock (epoch ms). A line's time is its clock alone, so the
+ *   text does not depend on it.
  * @param [options.handles]  Member id -> handle (src/behavior/handles.ts,
  *   features.mentionHandles). In `mode: 'chat'` with a non-empty `transcript.author` label, the
  *   author of a line that is neither the persona's nor a bot's and has a handle renders as that
@@ -1032,21 +982,9 @@ export function formatTranscript(
   const locale = labels.locale;
   const selfLabel = fill(labels.self, { name: selfName });
   const indexOffset = options.indexOffset ?? 0;
-  // A line's age (chat mode only): relative to the request's clock, never Date.now().
-  const agedTemplate = labels.transcript.timeAged;
-  const agesOn =
-    mode === 'chat' && typeof options.now === 'number' && typeof agedTemplate === 'string' && agedTemplate !== '';
-  const ageMs = (options.ageMinutes ?? AGE_AFTER_MINUTES) * MINUTE_MS;
-  /** The bracketed time of a line at `ts`, with its age when old enough (see agesOn). */
-  const timeOf = (ts: Untyped) => {
-    const clock = formatClock(ts, timezone, locale);
-    // `agesOn` needs `options.now` to be a number, and the age is read only then.
-    const age = (options.now as number) - ts;
-    return agesOn && age >= ageMs
-      ? fill(agedTemplate, { clock, age: formatDuration(age, labels.units) })
-      : `[${clock}]`;
-  };
-  // The persona's skill calls (withCalls): chat mode only, and only with `transcript.called` set.
+  /** The bracketed clock of a line at `ts`: one clock, no age. */
+  const timeOf = (ts: Untyped) => `[${formatClock(ts, timezone, locale)}]`;
+  // The persona's call marks (lines of kind `call`): chat mode only, and only with `transcript.called` set.
   const callsOn = mode === 'chat' && typeof labels.transcript.called === 'string' && labels.transcript.called !== '';
   // Each author's mention handle (chat mode only, and only with `transcript.author` set).
   const authorLabel = labels.transcript.author;
@@ -1107,45 +1045,63 @@ export function formatTranscript(
   if (!Number.isInteger(indexOffset) || indexOffset < 0) {
     throw new RangeError(`formatTranscript: indexOffset must be an integer >= 0, got ${String(indexOffset)}`);
   }
-  const indexById = new Map(messages.map((message, i) => [message.id, indexOffset + i + 1]));
+  // A call mark takes no number: the messages alone are numbered, in their order.
+  const numbered = messages.filter((message) => message?.kind !== 'call');
+  const indexById = new Map(numbered.map((message, i) => [message.id, indexOffset + i + 1]));
   // A message link to a line of this list reads as that line's number (chat mode, `messageNumbers`).
   const linkNumbers = mode === 'chat' && options.messageNumbers === true;
   const byId = new Map(messages.map((message) => [message.id, message]));
   const items: Array<{ id: string; index: number; ts: number; text: string }> = [];
   let previous = null;
   let previousChannelId = NO_CHANNEL;
+  // Call lines waiting for an item to join: the marks that come before any rendered line.
+  let pending: Array<string> = [];
+  /** The gap or date marker between the line before and `message`, when there is one. */
+  const markerOf = (message: Untyped, before: Untyped): string | null => {
+    if (!before) return null;
+    const gap = message.ts - before.ts;
+    const date = formatDate(message.ts, timezone, locale);
+    const dayChanged = date !== formatDate(before.ts, timezone, locale);
+    if (gap >= gapMinutes * MINUTE_MS) {
+      const duration = formatDuration(gap, labels.units);
+      return dayChanged
+        ? fill(labels.transcript.gapWithDate, { duration, date })
+        : fill(labels.transcript.gap, { duration });
+    }
+    return dayChanged ? fill(labels.transcript.date, { date }) : null;
+  };
 
   for (const message of messages) {
+    // A call mark: a line of hers of its own at the call's time, inside the item of the line before it.
+    if (message?.kind === 'call') {
+      const called = callsOn && message.call ? callText(message.call, labels) : '';
+      if (!called) continue;
+      const rows = [markerOf(message, previous), `${timeOf(message.ts)} ${selfLabel}: ${called}`].filter(
+        (row): row is string => Boolean(row)
+      );
+      const last = items.at(-1);
+      if (last) last.text = [last.text, ...rows].join('\n');
+      else pending.push(...rows);
+      previous = message;
+      continue;
+    }
     // A line shown elsewhere keeps its number and stays a reply target, but renders no item here.
     if (skip && skip(message)) continue;
     const index = indexById.get(message.id) as number; // every message of the list is in `indexById`
-    const parts = [];
+    const parts = pending;
+    pending = [];
 
     const channelChanged = mode === 'memory' && message.placeId !== previousChannelId;
     if (channelChanged) {
       parts.push(`## #${message.channelName} (id:${message.placeId})`);
     }
 
-    const gapPrevious = channelChanged ? null : previous;
-    if (gapPrevious) {
-      const gap = message.ts - gapPrevious.ts;
-      const date = formatDate(message.ts, timezone, locale);
-      const dayChanged = date !== formatDate(gapPrevious.ts, timezone, locale);
-      if (gap >= gapMinutes * MINUTE_MS) {
-        const duration = formatDuration(gap, labels.units);
-        parts.push(
-          dayChanged
-            ? fill(labels.transcript.gapWithDate, { duration, date })
-            : fill(labels.transcript.gap, { duration })
-        );
-      } else if (dayChanged) {
-        parts.push(fill(labels.transcript.date, { date }));
-      }
-    }
+    const marker = markerOf(message, channelChanged ? null : previous);
+    if (marker) parts.push(marker);
 
     const name = nameOf({ id: message.authorId, name: message.authorName, self: message.self, bot: message.bot });
     // The persona's own line names the message that started its turn (chat mode; see withTriggers)
-    // and, posted from another channel's turn, that channel (withCalls).
+    // and, posted from another channel's turn, that channel (withPostedFrom).
     const triggered = mode === 'chat' ? triggerMarker(message, indexById, labels) : '';
     const postedFrom =
       mode === 'chat' && message.self && typeof message.postedFrom === 'string' && message.postedFrom
@@ -1213,18 +1169,8 @@ export function formatTranscript(
       if (untagged.length > 0)
         body.push(fill(untaggedLabel, { names: untagged.map((hit) => `@${hit.name}`).join(', ') }));
     }
-    // The skill calls of the turn that posted this line of hers (chat mode; see withCalls).
-    if (callsOn && message.self) for (const mark of message.calls ?? []) body.push(callText(mark, indexById, labels));
-
-    const marker = mode === 'memory' && message.direct ? DIRECT_MARKER : '';
-    parts.push(`${marker}${head} ${who}: ${body.filter(Boolean).join(' ')}`.trimEnd());
-    // A call of a turn that posted no line here: a line of hers of its own, at its time, no number.
-    if (callsOn) {
-      for (const mark of message.callsAfter ?? []) {
-        const called = callText(mark, indexById, labels);
-        if (called) parts.push(`${timeOf(mark.ts)} ${selfLabel}: ${called}`);
-      }
-    }
+    const direct = mode === 'memory' && message.direct ? DIRECT_MARKER : '';
+    parts.push(`${direct}${head} ${who}: ${body.filter(Boolean).join(' ')}`.trimEnd());
     items.push({ id: message.id, index, ts: message.ts, text: parts.join('\n') });
     previous = message;
     previousChannelId = message.placeId;
@@ -1233,13 +1179,19 @@ export function formatTranscript(
   return items;
 }
 
-/** Join kept items under a date header taken from the first surviving message. */
-export function renderTranscript(items: Untyped, timezone: Untyped, labels: Untyped): string {
-  if (items.length === 0) return labels.transcript.empty;
-  return [
-    fill(labels.transcript.header, { date: formatDate(items[0].ts, timezone, labels.locale) }),
-    ...items.map((item: Untyped) => item.text),
-  ].join('\n');
+/**
+ * Join kept items under a date header taken from the first surviving message, with `foot` (the chat's tempo,
+ * renderTempo) after the last item when given. No items: `transcript.empty`, then the foot.
+ */
+export function renderTranscript(items: Untyped, timezone: Untyped, labels: Untyped, foot: string = ''): string {
+  const body =
+    items.length === 0
+      ? [labels.transcript.empty]
+      : [
+          fill(labels.transcript.header, { date: formatDate(items[0].ts, timezone, labels.locale) }),
+          ...items.map((item: Untyped) => item.text),
+        ];
+  return [...body, ...(foot ? [foot] : [])].join('\n');
 }
 
 /**

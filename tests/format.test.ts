@@ -17,8 +17,10 @@ import {
   computeTempo,
   renderTempo,
   withTriggers,
-  withCalls,
+  withPostedFrom,
+  callMarksFor,
 } from '../src/format.ts';
+import { orderedHistory } from '../src/turn/history.ts';
 import { labels } from './fixtures/labels.ts';
 import { grLabels, msg, triggerScene } from './fixtures/format-rig.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -167,81 +169,33 @@ test('formatTranscript: labels drive the wording even for non-English deployment
   assert.ok(items[1].text.startsWith('--- πέρασαν 25 λεπτό ---'));
 });
 
-// --- formatTranscript: line ages against the request's clock --------------
+// --- formatTranscript: date and gap markers against the request's clock ---
 
-const AGE_NOW = Date.UTC(2026, 8, 20, 10, 0, 0); // 13:00 Moscow
-const ageOptions = { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels, ageMinutes: 60 };
+// Slice 2 (b): `ageMinutes` leaves the options, a line has one clock and no age.
+const ageOptions = { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels };
 
-test('formatTranscript: a chat line older than ageMinutes carries its age, a recent one keeps the bare clock', () => {
-  const messages = [msg('a', AGE_NOW - 2 * HOUR), msg('b', AGE_NOW - 10 * MIN)];
-  const items = formatTranscript(messages, { ...ageOptions, now: AGE_NOW });
-  assert.equal(items[0].text, '#1 [11:00 · 2 h ago] Nick: text');
-  // The gap marker keeps its own wording alongside the ages.
-  assert.equal(items[1].text, '--- 1 h 50 min passed ---\n#2 [12:50] Nick: text');
-});
-
-test('formatTranscript: a line exactly ageMinutes old already carries its age', () => {
-  const items = formatTranscript([msg('a', AGE_NOW - 30 * MIN)], { ...ageOptions, ageMinutes: 30, now: AGE_NOW });
-  assert.equal(items[0].text, '#1 [12:30 · 30 min ago] Nick: text');
-});
-
-test('formatTranscript: the age follows the request clock, two clocks give two ages for the same lines', () => {
-  const messages = [msg('a', AGE_NOW - 2 * HOUR)];
-  const first = formatTranscript(messages, { ...ageOptions, now: AGE_NOW });
-  const later = formatTranscript(messages, { ...ageOptions, now: AGE_NOW + 3 * HOUR + 15 * MIN });
-  assert.equal(first[0].text, '#1 [11:00 · 2 h ago] Nick: text');
-  assert.equal(later[0].text, '#1 [11:00 · 5 h 15 min ago] Nick: text');
-});
-
-test('formatTranscript: no now, no ages', () => {
-  const items = formatTranscript([msg('a', AGE_NOW - 2 * HOUR)], ageOptions);
-  assert.equal(items[0].text, '#1 [11:00] Nick: text');
-});
-
-test('formatTranscript: labels without transcript.timeAged (absent or blank) keep the plain head', () => {
-  const messages = [msg('a', AGE_NOW - 2 * HOUR)];
-  const { timeAged, ...olderTranscript } = labels.transcript;
-  assert.ok(timeAged);
-  for (const transcript of [olderTranscript, { ...labels.transcript, timeAged: '' }]) {
-    const items = formatTranscript(messages, { ...ageOptions, labels: { ...labels, transcript }, now: AGE_NOW });
-    assert.equal(items[0].text, '#1 [11:00] Nick: text');
-  }
-});
-
-test('formatTranscript: memory mode never shows ages', () => {
-  const items = formatTranscript([msg('a', AGE_NOW - 2 * HOUR, { authorId: '42' })], {
-    ...ageOptions,
-    mode: 'memory',
-    now: AGE_NOW,
-  });
-  assert.equal(items[0].text, '## #general (id:c1)\n[11:00] Nick (id:42): text');
-});
-
-test('formatTranscript: the date marker and the date header still render alongside ages', () => {
+test('formatTranscript: the date marker and the date header still render with a request clock', () => {
   const before = Date.UTC(2026, 8, 19, 20, 55, 0); // 23:55 Moscow
   const after = Date.UTC(2026, 8, 19, 21, 4, 0); // 00:04 Moscow, the next day
   const now = Date.UTC(2026, 8, 20, 9, 4, 0);
   const items = formatTranscript([msg('a', before), msg('b', after)], { ...ageOptions, now });
-  assert.equal(items[0].text, '#1 [23:55 · 12 h 9 min ago] Nick: text');
-  assert.equal(items[1].text, `--- ${formatDate(after, TZ, labels.locale)} ---\n#2 [00:04 · 12 h ago] Nick: text`);
+  // Slice 2 (b): a line shows one clock and no age, so the heads carry no `· 12 h ago`.
+  assert.equal(items[0].text, '#1 [23:55] Nick: text');
+  // Slice 2 (b): a line shows one clock and no age, so the heads carry no `· 12 h ago`.
+  assert.equal(items[1].text, `--- ${formatDate(after, TZ, labels.locale)} ---\n#2 [00:04] Nick: text`);
   const rendered = renderTranscript(items, TZ, labels).split('\n');
   assert.equal(rendered[0], `=== ${formatDate(before, TZ, labels.locale)} ===`);
 });
 
-test('formatTranscript: a gap marker with a date change renders alongside ages', () => {
+test('formatTranscript: a gap marker with a date change renders with a request clock', () => {
   const before = Date.UTC(2026, 8, 19, 20, 0, 0); // 23:00 Moscow
   const after = Date.UTC(2026, 8, 19, 23, 12, 0); // 02:12 Moscow, the next day
   const items = formatTranscript([msg('a', before), msg('b', after)], { ...ageOptions, now: after + 2 * HOUR });
+  // Slice 2 (b): a line shows one clock and no age, so the head carries no `· 2 h ago`.
   assert.equal(
     items[1].text,
-    `--- 3 h 12 min passed · ${formatDate(after, TZ, labels.locale)} ---\n#2 [02:12 · 2 h ago] Nick: text`
+    `--- 3 h 12 min passed · ${formatDate(after, TZ, labels.locale)} ---\n#2 [02:12] Nick: text`
   );
-});
-
-test('formatTranscript: the age head takes its wording and units from the labels', () => {
-  const greek = { ...grLabels, transcript: { ...grLabels.transcript, timeAged: '[{clock} · πριν από {age}]' } };
-  const items = formatTranscript([msg('a', AGE_NOW - 2 * HOUR)], { ...ageOptions, labels: greek, now: AGE_NOW });
-  assert.equal(items[0].text, '#1 [11:00 · πριν από 2 ώρα] Nick: text');
 });
 
 // --- formatTranscript: indexOffset (a second block continues the numbering) ---
@@ -1668,10 +1622,10 @@ test("withTriggers: the persona's lines with a known link carry their trigger id
   assert.deepEqual(withTriggers(wrongly(null), links), []);
 });
 
-// --- the persona's skill calls on her own lines ---------------------------
+// --- the persona's skill calls as lines of their own ----------------------
 
 // #1 a question in c1, #2 and #3 her lines of one turn (p1, p2), #4 a later member line. The
-// turn also made a call; `posted` lists every message that turn posted (any channel).
+// turn also made a call; its mark is a line of hers at the call's time (src/turn/history.ts#orderedHistory).
 const CALL_T0 = Date.UTC(2026, 8, 20, 10, 0, 0);
 function callScene() {
   return [
@@ -1685,8 +1639,7 @@ const channelNames = new Map([
   ['c1', 'général'],
   ['c9', 'νέα'],
 ]);
-const LINK = (placeId: string, messageId: Untyped) => `https://discord.com/channels/g1/${placeId}/${messageId}`;
-const resolvers = { nameOf: (id: string) => channelNames.get(id) ?? null, linkOf: LINK };
+const nameOf = (id: string) => channelNames.get(id) ?? null;
 /** A call that names no message and no conversation. */
 const NO_TARGET = { messageId: null, placeId: null };
 const call = (overrides = {}) => ({
@@ -1695,64 +1648,47 @@ const call = (overrides = {}) => ({
   skill: 'message.edit',
   status: 'ok',
   target: { messageId: 'p1', placeId: 'c1' },
-  postedId: null,
-  posted: ['p1', 'p2'],
   ...overrides,
 });
+/** `lines` with the marks of `calls` among them by time, as the request's head orders `<chat>`. */
+const withMarks = (lines: Array<Record<string, Untyped>>, calls: Array<Record<string, Untyped>>) =>
+  orderedHistory(lines, callMarksFor(calls, nameOf), CALL_T0 + HOUR);
 
-test('withCalls: a call rides on the last line its turn posted in the channel where it was made', () => {
+test('formatTranscript: a call made after her posted line is a line of its own at the call time, never on her line', () => {
   const lines: Array<Record<string, Untyped>> = callScene();
-  const out = withCalls(lines, { calls: [call()] }, resolvers);
-  assert.equal(out[1], lines[1], 'an earlier line of the same turn is left alone');
-  assert.deepEqual(out[2].calls, [
-    {
-      skill: 'message.edit',
-      status: 'ok',
-      targetId: 'p1',
-      targetLink: LINK('c1', 'p1'),
-      targetChannel: 'général',
-      postedLink: null,
-      ts: CALL_T0 + 2 * MIN + 10_000,
-    },
-  ]);
-  assert.notEqual(out[2], lines[2], 'a new object: the fetched line is never changed');
-  assert.equal(lines[2].calls, undefined);
+  const out = withMarks(lines, [call()]);
+  assert.equal(out[2], lines[2], 'her posted line is left alone');
   const items = formatTranscript(out, offsetOptions);
-  assert.equal(items[2].text, '#3 [13:02] Nept (you): μια στιγμή [called message.edit on #2: done]');
+  // Slice 2 (a), (c): the mark is its own line after her posted line, says where she called from, and names no target.
+  assert.equal(
+    items[2].text,
+    '#3 [13:02] Nept (you): μια στιγμή\n[13:02] Nept (you): [called message.edit from #général: done]'
+  );
   assert.equal(items[1].text, '#2 [13:01] Nept (you): ναι');
 });
 
-test('withCalls: a turn that posted nothing here shows the call as a standalone line of hers at the call time, without a number', () => {
+test('formatTranscript: a turn that posted nothing here shows the call as a standalone line of hers at the call time, without a number', () => {
   const lines = callScene();
-  const out = withCalls(
-    lines,
-    {
-      calls: [call({ posted: [], at: CALL_T0 + 3 * MIN, skill: 'lore.list', target: NO_TARGET })],
-    },
-    resolvers
-  );
-  assert.equal(out[2].calls, undefined);
-  assert.equal(
-    wrongly<{ callsAfter: Array<unknown> }>(out[2]).callsAfter.length,
-    1,
-    'after the last line at or before the call'
-  );
+  const out = withMarks(lines, [call({ at: CALL_T0 + 3 * MIN, skill: 'lore.list', target: NO_TARGET })]);
   const items = formatTranscript(out, offsetOptions);
   assert.equal(items.length, 4, 'no item and no number of its own');
+  // Slice 2 (c): the place she called from reads `from #général`, the `in #général` of the target is gone.
   assert.equal(
     items[2].text,
-    '#3 [13:02] Nept (you): μια στιγμή\n[13:03] Nept (you): [called lore.list in #général: done]'
+    '#3 [13:02] Nept (you): μια στιγμή\n[13:03] Nept (you): [called lore.list from #général: done]'
   );
   assert.equal(items[3].text, '#4 [13:05] Nick: alors ?');
   // A call made before the first line in view is out of view.
-  const early = withCalls(lines, { calls: [call({ posted: [], at: CALL_T0 - MIN })] }, resolvers);
-  assert.ok(early.every((message, i) => message === lines[i]));
+  const early = withMarks(lines, [call({ at: CALL_T0 - MIN })]);
+  // Slice 2 (a): orderedHistory returns a new list, so the check is on its lines, not on the list's identity.
+  assert.ok(early.length === lines.length && early.every((message, i) => message === lines[i]));
   // A call made in another channel never lands here.
-  const elsewhere = withCalls(lines, { calls: [call({ placeId: 'c7', posted: [] })] }, resolvers);
-  assert.ok(elsewhere.every((message, i) => message === lines[i]));
+  const elsewhere = withMarks(lines, [call({ placeId: 'c7' })]);
+  // Slice 2 (a): orderedHistory returns a new list, so the check is on its lines, not on the list's identity.
+  assert.ok(elsewhere.length === lines.length && elsewhere.every((message, i) => message === lines[i]));
 });
 
-test('withCalls: a call that posted in another channel names it and links the post where it was made; the post there says where it came from', () => {
+test("withPostedFrom: a post made from another channel's turn says where it came from; one in its own channel says nothing", () => {
   const here = callScene();
   const there = [
     msg('z1', CALL_T0 + MIN, { placeId: 'c9', channelName: 'νέα', content: 'salut' }),
@@ -1764,58 +1700,37 @@ test('withCalls: a call that posted in another channel names it and links the po
       content: 'καλημέρα',
     }),
   ];
-  const marks = {
-    calls: [
-      call({
-        skill: 'message.create',
-        target: { messageId: null, placeId: 'c9' },
-        postedId: 'x1',
-        posted: ['p1', 'p2', 'x1'],
-      }),
-    ],
-    postedFrom: new Map([['x1', 'c1']]),
-  };
-  const inA = formatTranscript(withCalls(here, marks, resolvers), offsetOptions);
-  assert.equal(
-    inA[2].text,
-    `#3 [13:02] Nept (you): μια στιγμή [called message.create in #νέα: done, posted as ${LINK('c9', 'x1')}]`
-  );
-  const inB = withCalls(there, marks, resolvers);
-  assert.equal(inB[1].calls, undefined, 'the call itself shows only where it was made');
-  assert.equal(inB[1].callsAfter, undefined);
-  const items = formatTranscript(inB, offsetOptions);
+  // Slice 2 (c): the mark in the calling channel carries no `posted as <link>`, so only the post's own line is checked.
+  const items = formatTranscript(withPostedFrom(there, new Map([['x1', 'c1']]), nameOf), offsetOptions);
   assert.equal(items[1].text, '#2 [13:02] Nept (you) (posted from #général): καλημέρα');
   // A lookup function serves as well; a post in its own channel says nothing.
-  const own = withCalls(here, { calls: [], postedFrom: (id) => (id === 'p1' ? 'c1' : null) }, resolvers);
+  const own = withPostedFrom(here, (id) => (id === 'p1' ? 'c1' : null), nameOf);
   assert.ok(own.every((message, i) => message === here[i]));
 });
 
 test('formatTranscript: a call status renders through transcript.callStatus, an unlisted one as its code', () => {
   const callStatus: Record<string, string> = labels.transcript.callStatus;
   for (const status of ['ok', 'denied', 'invalid', 'not_configured', 'unknown', 'partial', 'failed']) {
-    const items = formatTranscript(withCalls(callScene(), { calls: [call({ status })] }, resolvers), offsetOptions);
-    assert.ok(items[2].text.endsWith(`[called message.edit on #2: ${callStatus[status]}]`), items[2].text);
+    const items = formatTranscript(withMarks(callScene(), [call({ status })]), offsetOptions);
+    // Slice 2 (c): the mark names the place she called from, never the target `on #2`.
+    assert.ok(items[2].text.endsWith(`[called message.edit from #général: ${callStatus[status]}]`), items[2].text);
   }
-  const odd = formatTranscript(
-    withCalls(callScene(), { calls: [call({ status: 'strange' })] }, resolvers),
-    offsetOptions
-  );
-  assert.ok(odd[2].text.endsWith('[called message.edit on #2: strange]'), odd[2].text);
+  const odd = formatTranscript(withMarks(callScene(), [call({ status: 'strange' })]), offsetOptions);
+  // Slice 2 (c): the mark names the place she called from, never the target `on #2`.
+  assert.ok(odd[2].text.endsWith('[called message.edit from #général: strange]'), odd[2].text);
 });
 
 test("formatTranscript: a call that did not work says why: its argument, its message or its channel, else the code's reason, else the status alone", () => {
   const reasons = labels.transcript.callReasons;
   const ended = (detail: Untyped, extra = {}) =>
-    formatTranscript(
-      withCalls(callScene(), { calls: [call({ status: 'invalid', detail, ...extra })] }, resolvers),
-      offsetOptions
-    )[2].text;
+    formatTranscript(withMarks(callScene(), [call({ status: 'invalid', detail, ...extra })]), offsetOptions)[2].text;
   const status = labels.transcript.callStatus.invalid;
   const withReason = (reason: string) => fill(labels.transcript.callStatusReason, { status, reason });
   // The live failure: a deletion without the message it should delete.
   assert.ok(
     ended({ kind: 'missing-arg', code: 'invalid-args', arg: 'message' }).endsWith(
-      `[called message.edit on #2: ${withReason(fill(reasons['missing-arg'], { arg: 'message' }))}]`
+      // Slice 2 (c): the mark names the place she called from, never the target `on #2`.
+      `[called message.edit from #général: ${withReason(fill(reasons['missing-arg'], { arg: 'message' }))}]`
     )
   );
   // A channel she may not write in, named.
@@ -1825,7 +1740,8 @@ test("formatTranscript: a call that did not work says why: its argument, its mes
   );
   assert.ok(
     channel.endsWith(
-      `[called message.edit in #νέα: ${withReason(fill(reasons['channel-no-permission'], { channel: 'νέα' }))}]`
+      // Slice 2 (c): the mark says `from #général`, where she called from; the reason still names the target `νέα`.
+      `[called message.edit from #général: ${withReason(fill(reasons['channel-no-permission'], { channel: 'νέα' }))}]`
     ),
     channel
   );
@@ -1835,7 +1751,10 @@ test("formatTranscript: a call that did not work says why: its argument, its mes
     { target: { messageId: null, placeId: 'c5' } }
   );
   assert.ok(
-    unnamed.endsWith(`[called message.edit: ${withReason(labels.tools.result.reasons['channel-no-permission'])}]`),
+    unnamed.endsWith(
+      // Slice 2 (c): the mark says `from #général`; the target channel c5 has no name, so the reason stays generic.
+      `[called message.edit from #général: ${withReason(labels.tools.result.reasons['channel-no-permission'])}]`
+    ),
     unnamed
   );
   // A kind without a phrase of its own: the code's reason, else reasons.other.
@@ -1866,16 +1785,16 @@ test("formatTranscript: a call that did not work says why: its argument, its mes
     )
   );
   // No detail, or no callStatusReason label: the status word alone, as before.
-  assert.ok(ended(null).endsWith(`[called message.edit on #2: ${status}]`));
+  // Slice 2 (c): the mark names the place she called from, never the target `on #2`.
+  assert.ok(ended(null).endsWith(`[called message.edit from #général: ${status}]`));
   const plain = { ...labels, transcript: { ...labels.transcript, callStatusReason: '' } };
-  const marked = withCalls(
-    callScene(),
-    { calls: [call({ status: 'invalid', detail: { kind: 'missing-arg', code: 'invalid-args', arg: 'message' } })] },
-    resolvers
-  );
+  const marked = withMarks(callScene(), [
+    call({ status: 'invalid', detail: { kind: 'missing-arg', code: 'invalid-args', arg: 'message' } }),
+  ]);
   assert.ok(
     formatTranscript(marked, { ...offsetOptions, labels: plain })[2].text.endsWith(
-      `[called message.edit on #2: ${status}]`
+      // Slice 2 (c): the mark names the place she called from, never the target `on #2`.
+      `[called message.edit from #général: ${status}]`
     )
   );
 });
@@ -1883,13 +1802,7 @@ test("formatTranscript: a call that did not work says why: its argument, its mes
 test('formatTranscript: an errand without its agent says so through tools.refusals.agentRequired, naming the agents', () => {
   const ended = (detail: Record<string, Untyped>, over = labels) =>
     formatTranscript(
-      withCalls(
-        callScene(),
-        {
-          calls: [call({ skill: 'errand.run', status: 'invalid', detail, target: NO_TARGET })],
-        },
-        resolvers
-      ),
+      withMarks(callScene(), [call({ skill: 'errand.run', status: 'invalid', detail, target: NO_TARGET })]),
       { ...offsetOptions, labels: over }
     )[2].text;
   const status = labels.transcript.callStatus.invalid;
@@ -1909,34 +1822,8 @@ test('formatTranscript: an errand without its agent says so through tools.refusa
   assert.ok(ended(detail, unlabelled).endsWith(`: ${withReason(labels.tools.result.reasons.other)}]`));
 });
 
-test('formatTranscript: a call target out of view renders as its link, else its channel, else nothing', () => {
-  const gone = formatTranscript(
-    withCalls(callScene(), { calls: [call({ target: { messageId: 'old', placeId: 'c9' } })] }, resolvers),
-    offsetOptions
-  );
-  assert.ok(gone[2].text.endsWith(`[called message.edit on ${LINK('c9', 'old')}: done]`), gone[2].text);
-  const unlinked = formatTranscript(
-    withCalls(
-      callScene(),
-      { calls: [call({ target: { messageId: 'old', placeId: 'c9' } })] },
-      { ...resolvers, linkOf: () => null }
-    ),
-    offsetOptions
-  );
-  assert.ok(unlinked[2].text.endsWith('[called message.edit in #νέα: done]'), unlinked[2].text);
-  const nameless = formatTranscript(
-    withCalls(callScene(), { calls: [call({ target: { messageId: null, placeId: 'c5' } })] }, resolvers),
-    offsetOptions
-  );
-  assert.ok(nameless[2].text.endsWith('[called message.edit: done]'), nameless[2].text);
-});
-
 test('formatTranscript: blanked call labels, memory mode and no marks render the lines as before', () => {
-  const marked = withCalls(
-    callScene(),
-    { calls: [call(), call({ posted: [], at: CALL_T0 + 3 * MIN })], postedFrom: new Map() },
-    resolvers
-  );
+  const marked = withMarks(callScene(), [call(), call({ at: CALL_T0 + 3 * MIN })]);
   const bare = formatTranscript(callScene(), offsetOptions);
   const blanked = { ...labels, transcript: { ...labels.transcript, called: '' } };
   assert.deepEqual(formatTranscript(marked, { ...offsetOptions, labels: blanked }), bare);
@@ -1945,20 +1832,25 @@ test('formatTranscript: blanked call labels, memory mode and no marks render the
     memory.every((item) => !item.text.includes('called')),
     memory.map((item) => item.text).join('\n')
   );
-  assert.equal(withCalls(callScene(), null, resolvers).length, 4);
-  assert.deepEqual(withCalls(wrongly(null), { calls: [call()] }, resolvers), []);
+  // Slice 2 (a): `withCalls` is gone; no marks leave the lines as they are, and a non-list gives no marks.
+  assert.equal(orderedHistory(callScene(), null, CALL_T0 + HOUR).length, 4);
+  // Slice 2 (a): `withCalls` is gone; no marks leave the lines as they are, and a non-list gives no marks.
+  assert.deepEqual(callMarksFor(wrongly(null), nameOf), []);
+  // Slice 2 (a): `withCalls` is gone; its non-list guard lives on in withPostedFrom.
+  assert.deepEqual(withPostedFrom(wrongly(null), new Map(), nameOf), []);
 });
 
-test('withCalls: marking lines again replaces the marks, never doubles them', () => {
-  const marks = { calls: [call(), call({ posted: [], at: CALL_T0 + 3 * MIN, skill: 'lore.list' })] };
-  const once = withCalls(callScene(), marks, resolvers);
-  const twice = withCalls(once, marks, resolvers);
+test('withPostedFrom: marking lines again replaces the marks, never doubles them', () => {
+  // Slice 2 (a): the call marks are lines of their own and never stored on a line, so only `postedFrom` is re-marked.
+  const lines = [msg('x1', CALL_T0, { placeId: 'c9', self: true, authorName: 'Nept', content: 'καλημέρα' })];
+  const from = new Map([['x1', 'c1']]);
+  const once = withPostedFrom(lines, from, nameOf);
+  const twice = withPostedFrom(once, from, nameOf);
+  assert.ok(formatTranscript(once, offsetOptions)[0].text.includes('(posted from #général)'));
   assert.deepEqual(formatTranscript(twice, offsetOptions), formatTranscript(once, offsetOptions));
-  assert.equal(wrongly<{ calls: Array<unknown> }>(twice[2]).calls.length, 1);
-  assert.equal(wrongly<{ callsAfter: Array<unknown> }>(twice[2]).callsAfter.length, 1);
   // No marks any more: the old ones are dropped.
-  const cleared = withCalls(once, { calls: [] }, resolvers);
-  assert.deepEqual(formatTranscript(cleared, offsetOptions), formatTranscript(callScene(), offsetOptions));
+  const cleared = withPostedFrom(once, new Map(), nameOf);
+  assert.deepEqual(formatTranscript(cleared, offsetOptions), formatTranscript(lines, offsetOptions));
 });
 
 test('formatTranscript: an edited line ends with the edited mark; a deleted placeholder is numbered, keeps its place and shows no text', () => {

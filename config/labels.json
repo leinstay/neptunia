@@ -13,7 +13,6 @@
       "gapWithDate": "--- {duration} between the message above and the one below ({date}) ---",
       "date": "--- {date} ---",
       "header": "=== {date} ===",
-      "timeAged": "[{clock} · {age} ago]",
       "empty": "(empty)",
       "author": "{name} ({handle})",
       "channel": "{name} ({handle})",
@@ -25,12 +24,10 @@
       "deleted": "message deleted",
       "triggeredBy": "(turn triggered by #{n})",
       "triggeredByOlder": "(turn triggered by an older message)",
-      "called": "[you called {skill}{target}{args}: {status}{posted}]",
+      "called": "[you called {skill}{args}: {status}]",
+      "calledFrom": " from #{place}",
+      "calledSearched": ", searched #{place}",
       "calledArgs": " ({args})",
-      "calledTargetMessage": " on #{n}",
-      "calledTargetLink": " on {link}",
-      "calledTargetChannel": " in #{channel}",
-      "calledPosted": ", posted as {link}",
       "callStatus": {
         "ok": "done",
         "denied": "blocked",
@@ -446,6 +443,15 @@
       "destination": "for #{channel}",
       "attend": "listening in #{place} · {wakes} of {perDay} wakes today · quiet {settle} s before a wake",
       "attendPeople": "people: {people}"
+    },
+    "myDay": {
+      "header": "What you did today ({date}), oldest first:",
+      "line": "[{time}] {action} in {place}",
+      "lineNoPlace": "[{time}] {action}",
+      "post": "you wrote a message",
+      "react": "you reacted to a message",
+      "gif": "you sent a GIF",
+      "skill": "you called {skill}"
     },
     "previousThink": {
       "note": "This is your own reasoning from your previous step, kept so you know what you were doing and why. It may be out of date or wrong: the current messages and results win. Do not quote it, retell it or show it to anyone.",

@@ -5,7 +5,7 @@
 // voice sheet and a table of numbers. Writes nothing but its own output files and reads no network, no key,
 // no data/.
 //
-//   node scripts/replay-compare.ts <oldOut> <newOut> --out <dir>
+//   node scripts/replay-compare.ts <oldOut> <newOut> --out <dir> [--labels <labels.json>]
 //
 // `<oldOut>`: one folder per scenario (S01..S30 of .agents/docs/sims/2026-10-20-native-tools-baseline/old/), each
 // with `ans-001.txt` (her raw answer), `replay.out` (the single-mode JSON: trigger, answers, usage) and,
@@ -26,7 +26,12 @@
 //                S09 draw with a channel and a boolean `self`; S26-S28 exactly one picture each; S21-S25 no calls;
 //                S29 a GIF and S30 a reaction; mean requests per turn at most the old plus 0.3; mean cost at most
 //                the old times 1.15; thinkMissing under 10% of the steps) with a verdict per line, and the
-//                scenarios whose wording needs a human read (S01, S17: the errand spoken of as handed off).
+//                scenarios whose wording needs a human read (S01, S17: the errand spoken of as handed off), and the
+//                frame checks of scripts/lib/frame-checks.ts over each old scenario's request (`request.user` of
+//                `replay.out`, else `req-001.json`): `<chat>` in time order with one clock per line, and
+//                `<spatial_awareness>` naming the scenario's channel (`replay.out`'s `channel.name`). The checks read
+//                the tracked config/labels.json, or `--labels <file>` (a deployment's labels.json) when its
+//                requests were rendered with reworded labels.
 // THE FILES HOLD MESSAGE CONTENTS: the server's eyes only, like the replay outputs they read.
 
 import fs from 'node:fs';
@@ -35,13 +40,15 @@ import { fileURLToPath } from 'node:url';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { CliError } from './lib/cli.ts';
 import { pairOrder, renderSheet } from './lib/pair.ts';
+import { chatInTimeOrder, placeBound } from './lib/frame-checks.ts';
+import type { CheckLabels } from './lib/frame-checks.ts';
 import { pairAnswerOf } from './replay.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
 
-const USAGE = 'usage: node scripts/replay-compare.ts <oldOut> <newOut> --out <dir>';
+const USAGE = 'usage: node scripts/replay-compare.ts <oldOut> <newOut> --out <dir> [--labels <labels.json>]';
 /** The mean requests per turn the new path may spend above the old one. */
 export const MAX_EXTRA_REQUESTS = 0.3;
 /** The factor of the old mean cost per turn the new path may reach. */
@@ -108,6 +115,9 @@ export function oldCallsOf(text: string): Array<{ name: string; args: Untyped }>
 /** What `replay.out` of an old run holds that the comparison reads. */
 type OldReplay = {
   trigger?: { id?: string | number };
+  channel?: { name?: string | null };
+  frame?: string;
+  request?: { user?: string };
   answers?: Array<{
     think?: string;
     messages?: Array<Rec>;
@@ -130,19 +140,57 @@ type OldMeta = {
   duration_ms?: number;
 };
 
-/** The lines of a request's `<chat>` block as sheet context, `Author: text`; [] without a request. */
-function chatOf(requestFile: Untyped) {
+/** The user text of a kept request (`req-001.json`); '' without one. */
+function userTextOf(requestFile: string): string {
   try {
     const json = JSON.parse(fs.readFileSync(requestFile, 'utf8')) as {
       messages?: Array<{ role?: string; content?: unknown }>;
     };
     const user = (json.messages ?? []).find((message) => message.role === 'user');
-    const text =
-      typeof user?.content === 'string'
-        ? user.content
-        : Array.isArray(user?.content)
-          ? user.content.map((part: { text?: string }) => part.text ?? '').join('')
-          : '';
+    return typeof user?.content === 'string'
+      ? user.content
+      : Array.isArray(user?.content)
+        ? user.content.map((part: { text?: string }) => part.text ?? '').join('')
+        : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * The frame checks over one scenario's request (scripts/lib/frame-checks.ts): `request.user` of its `replay.out`, else
+ * its `req-001.json`; each finding prefixed with the check's name. One finding when the scenario kept no request.
+ */
+export function frameChecksOf(replay: OldReplay, requestFile: string, labels: CheckLabels): Array<string> {
+  const text = replay.request?.user ?? userTextOf(requestFile);
+  if (!text) return ['no request kept'];
+  const place = replay.channel?.name ?? '';
+  return [
+    ...chatInTimeOrder(text, labels).map((finding) => `time order: ${finding}`),
+    ...placeBound(text, place, labels).map((finding) => `place: ${finding}`),
+  ];
+}
+
+/** The labels the frame checks read: the `model` part of a labels.json, the tracked one unless a file is given. */
+function checkLabelsOf(file: string | null): CheckLabels {
+  const given = file ?? fileURLToPath(new URL('../config/labels.json', import.meta.url));
+  const json = JSON.parse(fs.readFileSync(given, 'utf8')) as { model?: CheckLabels } & CheckLabels;
+  return json.model ?? json;
+}
+
+/** `argv` without `--labels <file>`, and that file (null without the flag). */
+function labelsFlag(argv: Array<string>): { file: string | null; rest: Array<string> } {
+  const at = argv.indexOf('--labels');
+  if (at === -1) return { file: null, rest: argv };
+  const file = argv[at + 1];
+  if (typeof file !== 'string' || file === '' || file.startsWith('--')) throw new CliError(USAGE);
+  return { file: path.resolve(file), rest: [...argv.slice(0, at), ...argv.slice(at + 2)] };
+}
+
+/** The lines of a request's `<chat>` block as sheet context, `Author: text`; [] without a request. */
+function chatOf(requestFile: Untyped) {
+  try {
+    const text = userTextOf(requestFile);
     const block = /<chat>\n([\s\S]*?)\n<\/chat>/.exec(text)?.[1] ?? '';
     return block
       .split('\n')
@@ -170,6 +218,9 @@ export type OldTurn = {
   ms: number | null;
   thinkMissing: boolean;
   context: Array<{ author: string; text: string }>;
+  /** The arm the request was built on (`replay.out`'s `frame`, `old` when it records none) and its frame checks. */
+  frame: string;
+  checks: Array<string>;
 };
 
 /** An old and a new turn of the same scenario. */
@@ -203,7 +254,7 @@ function finiteOrNull(value: number | undefined): number | null {
  * The old side: every subfolder of `dir` that holds `ans-001.txt` and `replay.out`, as
  * `{ label, triggerId, answer, calls, requests, tokens, cost, ms, thinkMissing, context }` in folder order.
  */
-export function readOldSide(dir: string): Array<OldTurn> {
+export function readOldSide(dir: string, labels: CheckLabels = {}): Array<OldTurn> {
   const out: Array<OldTurn> = [];
   for (const name of fs.readdirSync(dir).sort()) {
     const folder = path.join(dir, name);
@@ -260,6 +311,8 @@ export function readOldSide(dir: string): Array<OldTurn> {
       ms: finiteOrNull(meta?.duration_ms),
       thinkMissing: !text.trim().startsWith('<think>'),
       context: chatOf(path.join(folder, 'req-001.json')),
+      frame: replay.frame ?? 'old',
+      checks: frameChecksOf(replay, path.join(folder, 'req-001.json'), labels),
     });
   }
   return out;
@@ -545,13 +598,19 @@ export function renderMetrics({ pairs, missing, extra }: Untyped): string {
       `| ${label} | ${callText(old.calls, false)} | ${callText(now.calls, true)} | ${now.leaks} | ${now.duplicates} (${duplicateEffects(old.calls)}) | ${old.requests}/${now.requests} | ${old.tokens.prompt}/${now.tokens.prompt} | ${old.tokens.completion}/${now.tokens.completion} | ${now.tokens.cacheRead} | ${fmt(old.cost, 4)}/${fmt(now.cost, 4)} | ${old.ms ?? '-'}/${now.ms ?? '-'} | ${now.thinkMissing} | ${now.coerced} | ${now.malformed} | ${now.capped} |`
     );
   }
+  lines.push('', '## Frame checks', '');
+  for (const { label, old } of pairs as Array<Pair>)
+    // A pair built without the checks (a caller of renderMetrics of its own) lists none.
+    lines.push(
+      `- ${label} (frame ${old.frame ?? 'old'}): ${(old.checks ?? []).length === 0 ? 'PASS' : old.checks.join('; ')}`
+    );
   lines.push('');
   return lines.join('\n');
 }
 
 /** The tool. Returns `{ code, result }`; nothing is printed here. */
 export function main(
-  argv: Array<string>,
+  given: Array<string>,
   { rng = Math.random }: { rng?: () => number } = {}
 ): {
   code: number;
@@ -567,6 +626,7 @@ export function main(
 } {
   const positional = [];
   let outDir = null;
+  const { file: labelsFile, rest: argv } = labelsFlag(given);
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--out') {
       outDir = argv[(i += 1)];
@@ -581,7 +641,7 @@ export function main(
       throw new CliError(`replay-compare: ${dir} is not a folder`);
   const out = path.resolve(outDir);
   if (fs.existsSync(out) && fs.readdirSync(out).length > 0) throw new CliError(`replay-compare: ${out} is not empty`);
-  const oldSide = readOldSide(oldDir);
+  const oldSide = readOldSide(oldDir, checkLabelsOf(labelsFile));
   const newSide = readNewSide(newDir);
   if (oldSide.length === 0)
     throw new CliError(`replay-compare: no scenario (ans-001.txt and replay.out) under ${oldDir}`);

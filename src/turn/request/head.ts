@@ -25,6 +25,7 @@ import { accountIdOf } from '../../memory/recent.ts';
 import { freezePerBucket, gifFieldChars, gifFieldsMap } from './emoji-gifs.ts';
 import type { Held, MediaCache } from './emoji-gifs.ts';
 import { anchoredOn } from './memory.ts';
+import { orderedHistory } from '../history.ts';
 import { authorsInView } from './pulled.ts';
 import { spatialAwarenessText } from './spatial.ts';
 import { nowBlock } from './tail.ts';
@@ -251,8 +252,7 @@ export function requestHead(given: RequestInput): Base {
     timezone,
     selfName,
     labels,
-    // An old line carries its age against the same clock as `<now>` and `<tempo>`: the chat,
-    // neighbour and pulled channels alike.
+    // The request's clock: a line shows its clock alone, in the chat, the neighbours and the pulled channels alike.
     now,
     seeReactions: true,
     // Who reacted to the persona's own lines, named like authors.
@@ -300,9 +300,14 @@ export function requestHead(given: RequestInput): Base {
     ? // formatTranscript hands back the messages of `history`.
       { ...formatOptions, skip: (message: object) => (message as Message).replyParent === true }
     : formatOptions;
-  const chatItems = formatTranscript(history, chatOptions);
+  // Every line and every call mark of hers in time order, once: formatTranscript numbers the messages as they stand.
+  const ordered = orderedHistory(history, given.callMarks ?? [], now) as Array<Message>;
+  const chatItems = formatTranscript(ordered, chatOptions);
   const idByIndex = new Map(chatItems.map((item) => [item.index, item.id]));
-  if (anchored) history.forEach((message, i) => message.replyParent === true && idByIndex.set(i + 1, message.id));
+  if (anchored)
+    ordered
+      .filter((message) => message.kind !== 'call')
+      .forEach((message, i) => message.replyParent === true && idByIndex.set(i + 1, message.id));
   return {
     labels,
     privateChat,

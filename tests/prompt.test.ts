@@ -15,6 +15,7 @@ import {
   usesFollowUpTask,
 } from '../src/behavior/prompt.ts';
 import { buildRequest, type Built, type Part } from './fixtures/built-request.ts';
+import { allPeopleOf, blockTags, bodyOf, tempoOf, userText } from './fixtures/prompt-text.ts';
 import { profileStateFields, renderProfile } from './fixtures/profile-render.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
 import { SAFETY_MARGIN } from '../src/llm/budget.ts';
@@ -403,7 +404,7 @@ test('buildRequest: blocks appear in the documented order', () => {
     '<chat>',
     '<now>',
     '<senses>',
-    '<tempo>',
+    // Slice 2 (g): `<tempo>` is the foot of `<chat>`, not a block of its own, so it leaves this list.
     '<task>',
   ];
   let from = 0;
@@ -412,6 +413,8 @@ test('buildRequest: blocks appear in the documented order', () => {
     assert.ok(at !== -1, `expected ${tag} after position ${from}`);
     from = at + 1;
   }
+  // Slice 2 (g): `<tempo>` is the foot of `<chat>`, not a block of its own.
+  assert.ok(tempoOf(user), 'the tempo at the foot of <chat>');
 });
 
 // --- cache segments: the stable part, the profiles, the tail ----------------------------
@@ -522,11 +525,6 @@ function segmentScene({
   });
 }
 
-/** The opening tags of the top-level blocks of `text`, in order. */
-function blockTags(text: string) {
-  return [...text.matchAll(/^<([a-z_]+)>$/gm)].map((match) => match[1]);
-}
-
 test('buildRequest: the user content is the stable part, the profiles and the tail; a picture in the chat never becomes an image part', () => {
   const request = buildRequest(
     segmentScene({ triggerFields: { attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] } })
@@ -559,7 +557,7 @@ test('buildRequest: the user content is the stable part, the profiles and the ta
   );
 });
 
-test('buildRequest: the tail ends with <now>, <senses>, <tempo> and <task>, after the chat', () => {
+test('buildRequest: the tail ends with <now>, <senses> and <task>, after the chat and its tempo', () => {
   const request = buildRequest(
     segmentScene({
       lookup: { query: 'q', text: 'found it', sources: [] },
@@ -567,9 +565,12 @@ test('buildRequest: the tail ends with <now>, <senses>, <tempo> and <task>, afte
       drawOn: true,
     })
   );
-  const tags = blockTags(contentText(request.messages[1].content));
-  assert.deepEqual(tags.slice(-7), ['lookup', 'people_now', 'chat', 'now', 'senses', 'tempo', 'task']);
-  assert.equal(tags.at(-4), 'now');
+  const user = contentText(request.messages[1].content);
+  const tags = blockTags(user);
+  // Slice 2 (g): `<tempo>` is the foot of `<chat>`, not a block of its own.
+  assert.deepEqual(tags.slice(-6), ['lookup', 'people_now', 'chat', 'now', 'senses', 'task']);
+  assert.equal(tags.at(-3), 'now');
+  assert.ok(tempoOf(user), 'the tempo at the foot of <chat>');
   assert.equal(tags.at(-1), 'task');
   const tail = blockTags(request.messages[1].content[2].text);
   // B7: `<gifs_recent>` left the turn, so the neighbours follow the server map.
@@ -917,7 +918,8 @@ test('buildRequest: the senses lines are the ones of one block, only moved; the 
   // Nothing of this turn in the cached part: its clock, tempo, channel, quotas, private flag, chat emoji.
   const turnValues = [
     tailBlocks.find((b) => b.tag === 'now')!.body,
-    tailBlocks.find((b) => b.tag === 'tempo')!.body,
+    // Slice 2 (g): `<tempo>` is the foot of `<chat>`, not a block of its own.
+    tempoOf(tail.text)!,
     'κουζίνα',
     S.draw,
     (S as Record<string, string>).drawSpent,
@@ -1011,7 +1013,8 @@ test('buildRequest: empty blocks (about_chat, server, self_facts, people, other_
   assert.ok(!user.includes('<other_channels>'));
   assert.ok(user.includes('<now>'));
   assert.ok(user.includes('<chat>'));
-  assert.ok(user.includes('<tempo>'));
+  // Slice 2 (g): `<tempo>` is the foot of `<chat>`, not a block of its own.
+  assert.ok(tempoOf(user));
   assert.ok(user.includes('<task>'));
 });
 
@@ -3818,23 +3821,6 @@ function pulledChannel(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** The whole text of a request's user message. */
-function userText(request: Built) {
-  return contentText(request.messages[1].content);
-}
-
-/** The body of `<tag>` in `text`, or null when the block is absent. */
-function bodyOf(text: string, tag: string) {
-  const match = new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text);
-  return match ? match[1] : null;
-}
-
-/** Every `<people>` body of `text` (the interlocutor's cached one, then the tail's) joined as one block was; null when none. */
-function allPeopleOf(text: string) {
-  const bodies = [...text.matchAll(/^<people>\n([\s\S]*?)\n<\/people>$/gm)].map((match) => match[1]);
-  return bodies.length > 0 ? bodies.join('\n\n') : null;
-}
-
 /** `{from}` / `{to}` of a pulled header: the date and the clock of `ts`. */
 function moment(ts: number) {
   return `${formatDate(ts, TZ, labels.locale)}, ${formatClock(ts, TZ, labels.locale)}`;
@@ -3890,9 +3876,9 @@ test('buildRequest: a pulled channel renders as channel_view after other_channel
       to: moment(NOW - 120 * MIN),
       ago: formatDuration(120 * MIN, labels.units),
     }),
-    // Two hours old: past the 60-minute fallback of context.ageAfterMinutes, so both carry their age.
-    `#3 ${fill(labels.transcript.timeAged, { clock: formatClock(NOW - 130 * MIN, TZ), age: formatDuration(130 * MIN, labels.units) })} Zoé: πρώτη σελίδα`,
-    `#4 ${fill(labels.transcript.timeAged, { clock: formatClock(NOW - 120 * MIN, TZ), age: formatDuration(120 * MIN, labels.units) })} Zoé: δεύτερη σελίδα`,
+    // Slice 2 (b): two hours old, and still one clock per line with no age.
+    `#3 [${formatClock(NOW - 130 * MIN, TZ)}] Zoé: πρώτη σελίδα`,
+    `#4 [${formatClock(NOW - 120 * MIN, TZ)}] Zoé: δεύτερη σελίδα`,
   ]);
 });
 
@@ -4057,7 +4043,8 @@ test('buildRequest: tempo on a routed turn is measured to now and never says nob
   const request = buildRequest(routedInput({ history }));
   assert.equal(request.tempo.hasTrigger, false);
   assert.equal(request.tempo.silenceMs, 10 * MIN);
-  const tempo = bodyOf(userText(request), 'tempo');
+  // Slice 2 (g): `<tempo>` is the foot of `<chat>`, not a block of its own.
+  const tempo = tempoOf(userText(request));
   assert.ok(
     tempo!.includes(fill(labels.tempo.lastMessageAgo, { duration: formatDuration(10 * MIN, labels.units) })),
     tempo!
@@ -4065,7 +4052,8 @@ test('buildRequest: tempo on a routed turn is measured to now and never says nob
   assert.ok(!tempo!.includes(labels.tempo.ownUnanswered));
   assert.ok(!tempo!.includes('before the message that called you'));
   // The same chat on a spontaneous turn does say it: the routed turn alone leaves it out.
-  const spontaneous = bodyOf(userText(buildRequest(baseInput({ history, mode: 'interject' }))), 'tempo');
+  // Slice 2 (g): `<tempo>` is the foot of `<chat>`, not a block of its own.
+  const spontaneous = tempoOf(userText(buildRequest(baseInput({ history, mode: 'interject' }))));
   assert.ok(spontaneous!.includes(labels.tempo.ownUnanswered));
 });
 
@@ -4325,22 +4313,18 @@ test('buildRequest: senses without a time label show no time line', () => {
   assert.equal(blank[blank.indexOf(labels.senses.files) + 1], labels.senses.channels);
 });
 
-test('buildRequest: an old chat line carries its age against input.now, a recent one does not', () => {
+test('buildRequest: an old chat line shows one clock and no age, whatever input.now is', () => {
   const history = [makeMessage('old', NOW - 3 * HOUR), makeMessage('new', NOW - 10 * MIN)];
   const config = fakeConfig({ context: { ageAfterMinutes: 30 } });
   const chat = (now: number) => bodyOf(userText(buildRequest(baseInput({ history, config, now }))), 'chat');
-  const aged = (now: number) =>
-    fill(labels.transcript.timeAged, {
-      clock: formatClock(NOW - 3 * HOUR, TZ),
-      age: formatDuration(now - (NOW - 3 * HOUR), labels.units),
-    });
   const text = chat(NOW);
-  assert.ok(text!.includes(`#1 ${aged(NOW)} Userold:`), text!);
+  // Slice 2 (b): one clock per line and no age, so the old line reads like the recent one.
+  assert.ok(text!.includes(`#1 [${formatClock(NOW - 3 * HOUR, TZ)}] Userold:`), text!);
   assert.ok(text!.includes(`#2 [${formatClock(NOW - 10 * MIN, TZ)}] Usernew:`), text!);
-  // The same messages an hour later: the age follows the request's clock.
+  // The same messages an hour later: the line reads the same, since no age follows the request's clock.
   const later = chat(NOW + 60 * MIN);
-  assert.ok(later!.includes(`#1 ${aged(NOW + 60 * MIN)} Userold:`), later!);
-  assert.notEqual(aged(NOW), aged(NOW + 60 * MIN));
+  // Slice 2 (b): one clock per line and no age, so a later request clock changes nothing on the line.
+  assert.ok(later!.includes(`#1 [${formatClock(NOW - 3 * HOUR, TZ)}] Userold:`), later!);
 });
 
 test("buildRequest: a routed trigger's picture is shown as its caption in the pulled view", () => {

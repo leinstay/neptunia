@@ -24,6 +24,28 @@ export type Line = Record<string, unknown> & {
   self: boolean;
   ts: number;
   reactions: Array<{ emoji: string; count: number; mine: boolean; users?: Array<ReactorName> }>;
+  /** `call` on a call mark of hers (src/turn/history.ts#orderedHistory), absent on a message. */
+  kind?: 'call';
+  /** What a call mark says, on a line of kind `call`. */
+  call?: CallMark;
+};
+
+/**
+ * One call of hers as `<chat>` shows it: the place of the turn that made it, when its result came back, the skill, its
+ * status, and optionally its main arguments as worded (src/tools/call-args.ts), the name of the place she called from,
+ * the name of the place a lookup searched and why a call that did not work did not (src/tools/executors.ts#outcomeDetail).
+ */
+export type CallMark = {
+  placeId: string;
+  at: number;
+  skill: string;
+  status: string;
+  args?: string | null;
+  from?: string | null;
+  searched?: string | null;
+  /** The name of the place the call's target lives in, for a reason that names it. */
+  aimed?: string | null;
+  detail?: { kind?: string; [key: string]: unknown } | null;
 };
 
 /** How a turn names the reactors of her lines: the store, the time budget, how many to read and who is who. */

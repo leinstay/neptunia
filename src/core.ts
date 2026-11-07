@@ -995,6 +995,7 @@ async function buildCore(
     memoryReads: (args: Untyped) => memoryDb.recordTurnReads(args),
     // A selfreflection post's stored facts, read through the one retrieval service under the selfreflection's context.
     selfreflectionFacts: (input: RetrievalInput) => memoryDb.retrieve(groupsContext(), input, { sources: false }),
+    journalDb: () => memoryDb.readHandle()?.db ?? null, // the journal's rows for <my_day>, while the database is open
     // One execution context per turn for its memory reads (recorded while the database is open).
     memoryContext: (spec: Untyped) => memoryDb.issueContext({ iface: currentIface() ?? identity.iface, ...spec }),
     // Her attention, mirrored as leases in the memory database (attention.ts).
@@ -1663,14 +1664,13 @@ async function buildCore(
   }
 
   /**
-   * The persona's skill calls of yesterday and today (the journal's skill operations), handed to the
-   * turn runner so her lines keep showing what she called and how it went across this start. Read
-   * whatever the switches: the runner renders them only with features.callMarkers on.
+   * The persona's skill calls and thinks of yesterday and today (the journal's skill operations and turn records), handed
+   * to the turn runner so her chat keeps her calls and a turn keeps the previous think of its place across this start.
    */
   async function seedCallMarks(placeId: string) {
     const at = Date.now();
     const marks = await journal.callMarks(placeId, { days: [utcDay(at - DAY_MS), utcDay(at)] });
-    turns.seedCallMarks(marks);
+    turns.seedCallMarks({ ...marks, placeId });
     log.info('journal: call marks read', { placeId, calls: marks.calls.length });
   }
 

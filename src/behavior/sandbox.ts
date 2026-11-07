@@ -61,7 +61,8 @@ import { linkChannels } from '../memory/mentions.ts';
 import { answerOf, continuationHistory, loopSettings, pickOtherProfiles, taskInput } from './turn.ts';
 import { appendStep, cutToFit, roomLeft, segments, stepNote, stepVerdict, thinkMissing } from './tool-step.ts';
 import { diagnosticText } from './wake.ts';
-import { callReason, MAX_MESSAGE_CHARS, withCalls } from '../format.ts';
+import { callMarksFor, callReason, MAX_MESSAGE_CHARS } from '../format.ts';
+import { replayFrame } from './sandbox-frame.ts';
 import { grant as accessGrant, revoke as accessRevoke } from '../tools/impl/grants.ts';
 import {
   collectAudio,
@@ -227,9 +228,14 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   places: "no inner life runs here, so no places view: no <places> block (context.places is a live turn's)",
   previousThink:
     'no earlier turn or step in a replay: no <previous_think> block (a live turn carries its previous think, src/behavior/previous-think.ts)',
+  myDay: 'no journal in a replay: no <my_day> block (a live turn reads her day, src/turn/request/my-day.ts)',
+  callMarks:
+    "no earlier call in a replay: no call mark in <chat> (a skill scenario hands in its earlier steps' calls: `callMarks`)",
   stableFreeze: 'one request per moment, no cache bucket to hold: <self_facts> renders from memory as it stands',
-  whereabouts: 'a replay names no place tree: no <spatial_awareness> block, and <now> keeps the clock',
-  frame: 'a replay names no place tree: the kind of the turn is read off its mode',
+  whereabouts:
+    'a replay on `--frame old` names no place tree: no <spatial_awareness> block, and <now> keeps the clock (`--frame new` states one: src/behavior/sandbox-frame.ts)',
+  frame:
+    'a replay on `--frame old` builds no frame: the kind of the turn is read off its mode (`--frame new` builds one: src/behavior/sandbox-frame.ts)',
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
@@ -705,6 +711,24 @@ function sandboxChannels(given: Untyped, view: Untyped, channel: Untyped): Array
   return list;
 }
 
+/** The frame and whereabouts of a sandbox turn on its arm (src/behavior/sandbox-frame.ts#replayFrame). */
+function framedTurn(
+  arm: SandboxRequestInput['frame'],
+  { view, situation, channel, at }: Pick<SandboxRequestInput, 'view' | 'situation' | 'channel' | 'at'>
+): ReturnType<typeof replayFrame> {
+  const { trigger, triggerKind } = situationHistory(situation);
+  const config = view.config;
+  return replayFrame(arm, {
+    memory: view.memory,
+    channel,
+    trigger,
+    mode: momentMode(situation?.mode) ?? 'reply',
+    triggerKind,
+    now: at,
+    timezone: String(config.bot?.timezone ?? 'UTC'),
+  });
+}
+
 /**
  * The input of src/behavior/prompt.ts#buildRequest for one sandbox turn, every
  * key named: the turn the moment was (`situationHistory`: its trigger and
@@ -759,6 +783,8 @@ export function sandboxRequestInput({
   taskResult = null,
   coreTools = null,
   preTurn = null,
+  callMarks = null,
+  frame: arm,
 }: SandboxRequestInput): Record<string, Untyped> {
   const config = view.config;
   const memory = view.memory;
@@ -776,6 +802,7 @@ export function sandboxRequestInput({
     : null;
   const memoryOn = true;
   const { history, trigger, triggerKind } = situationHistory(situation);
+  const framed = framedTurn(arm, { view, situation, channel, at });
   // pickOtherProfiles reads a store-shaped object; this one reads the view.
   const viewAsStore = { getUser: (id: string | undefined) => memory.getUser(id) };
   return {
@@ -859,12 +886,15 @@ export function sandboxRequestInput({
     // No places view (SANDBOX_OMITS): no <places> block.
     places: null,
     previousThink: null,
+    // No journal (SANDBOX_OMITS): no <my_day> block.
+    myDay: null,
+    // A skill scenario's earlier calls, put among the chat's lines by time; none otherwise (SANDBOX_OMITS).
+    callMarks,
     // No cache bucket to hold (SANDBOX_OMITS): the stable part renders from memory as it stands.
     stableFreeze: null,
-    // No place tree in a replay (SANDBOX_OMITS): no <spatial_awareness>, and <now> keeps the clock.
-    whereabouts: null,
-    // No place tree either for a frame: the kind of the turn is read off its mode.
-    frame: null,
+    // `--frame new`: the frame a live reply carries and the whereabouts it states; none on `--frame old` (SANDBOX_OMITS).
+    whereabouts: framed.whereabouts,
+    frame: framed.frame,
   };
 }
 
@@ -916,6 +946,7 @@ export async function answerReply({
   tools,
   toolChoice,
   parallelToolCalls,
+  frame = null,
 }: AnswerReplyInput): Promise<AnswerReplyResult> {
   // `tools` undefined: her tools as a live turn sends them (sandboxToolset); null or [] none; an array as given.
   const toolset = tools === undefined ? sandboxToolset({ view, selfId }) : null;
@@ -936,6 +967,7 @@ export async function answerReply({
       searchAvailable,
       channelDirectory,
       toolset,
+      frame,
     },
     samples
   );
@@ -1220,7 +1252,7 @@ export function skillScenarioRequest(input: Record<string, Untyped>): SkillScena
 const CONTINUATION_STEP_MS = 1000;
 
 /**
- * The mark one call of hers leaves on the transcript, in src/format.ts#withCalls's shape
+ * The mark one call of hers leaves on the transcript, in the shape src/format.ts#callMarksFor reads
  * and as a live turn notes it (src/behavior/turn.ts, `noteCall`): `outcome` (simulateCall's) made
  * in the turn of `placeId`, its result back at `at`; its status and, when it did not work, why
  * (outcomeDetail, cut at MARK_TEXT_CHARS); its target from the resolved
@@ -1272,9 +1304,9 @@ function channelNamesOf(view: Untyped, channel: Untyped): (id: string) => string
  * name, never thrown; a failed first request throws (as answerReply). An aborted `signal` stops the
  * runs (`stopped`). Every completion goes out as answerReply's do (`origin: 'replay'`, off the daily
  * cap and the calibration). Nothing is sent to the interface and nothing is stored.
- * A step of a multi-step scenario hands in the calls of its earlier steps (`callMarks`, withCalls's
- * shape, afterScenarioTurn's): with features.callMarkers on her lines carry their marks in the
- * request, as a live turn's history does. A turn of a burst hands in the calls still waiting after
+ * A step of a multi-step scenario hands in the calls of its earlier steps (`callMarks`, the shape
+ * src/format.ts#callMarksFor reads, afterScenarioTurn's): each stands in the request's chat as a line of hers at its
+ * time, as a live turn's call marks do. A turn of a burst hands in the calls still waiting after
  * it (`queued`, burstTurns's; sandboxRequestInput). A message's text (`text` of a message.create or
  * message.edit) carries what it would mention (`callMentions`, handleMentions over the request's
  * handles). A task-result scenario hands in its errand (`taskResult`, sandboxRequestInput).
@@ -1317,19 +1349,10 @@ export async function answerSkillScenario({
   preTurn = null,
   registry = skillRegistry(),
 }: Record<string, Untyped>): Promise<AnswerSkillScenarioResult> {
-  // The earlier steps' calls on her lines, as a live turn's history carries them (linkCalls).
+  // The earlier steps' calls among her lines by time, as a live turn's call marks (callMarksOf).
   const earlier = Array.isArray(callMarks) ? callMarks : [];
-  const moment =
-    earlier.length > 0
-      ? {
-          ...situation,
-          history: withCalls(
-            situationHistory(situation).history,
-            { calls: earlier },
-            { nameOf: channelNamesOf(view, channel) }
-          ),
-        }
-      : situation;
+  const marks = earlier.length > 0 ? callMarksFor(earlier, channelNamesOf(view, channel)) : null;
+  const moment = situation;
   const toolset = sandboxToolset({ view, selfId, registry });
   const requestArgs = {
     view,
@@ -1352,6 +1375,7 @@ export async function answerSkillScenario({
     taskResult,
     ...(coreTools ? { coreTools } : {}),
     ...(preTurn ? { preTurn } : {}),
+    ...(marks ? { callMarks: marks } : {}),
   };
   const built = sandboxMessages(requestArgs, runs, { segments: true });
   const { request, systemMessage, userText } = built;

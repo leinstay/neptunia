@@ -10,6 +10,7 @@ import { CODE } from '../tools/codes.ts';
 import { isFiniteNumber, isObj } from '../tools/types.ts';
 import { DAY_MS } from '../time.ts';
 import type { TriggerKind } from './triggers.ts';
+import type { Handles } from './handles.ts';
 
 /**
  * The `reason` codes of a `skip` outcome, journaled with the turn: she chose not to speak (an
@@ -383,12 +384,15 @@ export type JournalDraft = {
   limits?: { list?: () => Array<unknown> } | null;
   format?: unknown;
   steps?: unknown;
+  /** The turn's handle registry (src/turn/handles.ts): a reference in her think is stored as the line's identity. */
+  handles?: Handles | null;
 };
 
 /**
  * One attempt's `turn` record (src/memory/journal.ts) from what the attempt noted in its
  * draft and the result it returned: `reason` is the attempt's skip code (`silence`, `nothing-to-do`:
- * SKIP_SILENCE, SKIP_NOTHING_TO_DO) or refusal code, else null (old skip records carry null too).
+ * SKIP_SILENCE, SKIP_NOTHING_TO_DO) or refusal code, else null (old skip records carry null too). A `#n` in her
+ * think is stored as the identity of the line it named, and a number that names nothing is cut (`draft.handles`).
  */
 // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5a, a pure move
 export function journalTurnRecord(
@@ -407,7 +411,7 @@ export function journalTurnRecord(
     seen,
     participants: draft.participants ?? [],
     sourceMessageIds: seen.messageIds,
-    think: typeof draft.think === 'string' ? draft.think : null,
+    think: typeof draft.think === 'string' ? (draft.handles?.canonical(draft.think) ?? draft.think) : null,
     posted: draft.posted ?? [],
     reactions: draft.reactions ?? [],
     actions: draft.actions ?? [],

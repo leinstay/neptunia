@@ -149,6 +149,11 @@ test('buildRequest: a chat line keeps the inline emojiDescribed tag, with an ind
   const descriptions = new Map([['emoji:9', 'a surprised cat face']]);
   const inline = 'Zoé: ωραίο :pog: [:pog: a surprised cat face]';
   for (const customEmoji of [[], INDEX]) {
-    assert.ok(chatBlock(buildRequest(baseInput({ customEmoji, history, descriptions }))).endsWith(inline));
+    const lines = chatBlock(buildRequest(baseInput({ customEmoji, history, descriptions }))).split('\n');
+    // Slice 2 (g): the tempo lines close `<chat>`, so the chat line is found among its lines, not at its end.
+    assert.ok(
+      lines.some((line) => line.endsWith(inline)),
+      lines.join('\n')
+    );
   }
 });

@@ -4,6 +4,7 @@ import type { Frame } from '../turn/request/frame.ts';
 import type { BlockRecord } from '../turn/request/tail.ts';
 import type { Whereabouts } from '../turn/request/spatial.ts';
 import type { Untyped } from '../tools/types.ts';
+import type { CallMark } from './lines.ts';
 import type { Prompts, RequestConfig, RequestInput } from '../turn/request/types.ts';
 import type { sectionCost } from '../llm/budget.ts';
 import type { PulledChannel } from './pull-fetch.ts';
@@ -118,6 +119,8 @@ export type BuildRequestInput = {
   wakeKind?: string | null;
   places?: string | null;
   previousThink?: { text: string; relation: 'same' | 'earlier'; ageMs?: number } | null;
+  myDay?: ReadonlyArray<string> | null;
+  callMarks?: ReadonlyArray<CallMark> | null;
   stableFreeze?: Map<string, Untyped> | null;
   whereabouts?: Whereabouts | null;
   /** The facts of the turn (src/turn/request/frame.ts). Without one its kind is read off `mode`, `triggerKind` and `wakeKind`. */

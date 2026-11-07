@@ -451,7 +451,12 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   in the tail right after `<wake>`, paid for with the fixed part and never cut; '' or null leaves it out.
  * @param [input.previousThink]  Her one
  *   previous think (src/behavior/previous-think.ts, chosen by the turn under features.previousThink): in
- *   the tail right after `<places>`, paid for with the fixed part and never cut; null leaves it out.
+ *   `<inner>` after `<my_day>`, paid for with the fixed part and never cut; null leaves it out.
+ * @param [input.myDay]  What she did today, one line each (src/turn/request/my-day.ts#myDayOf): `<my_day>` at the
+ *   head of `<inner>`, in the tail where `<previous_think>` stood, paid for with the fixed part and never cut, since
+ *   `context.myDay.lines` bounds it; null or empty leaves it out.
+ * @param [input.callMarks]  Her call marks (src/turn/journal-notes.ts#callMarksOf): put among the lines of `<chat>`
+ *   by time (src/turn/history.ts#orderedHistory), each a line of hers with no number; null leaves none.
  * @param [input.stableFreeze]  The caller's long-lived holder of what
  *   the stable part shows from memory (src/behavior/turn.ts keeps one per place): with
  *   `features.promptCache` exactly true, `<self_facts>` renders as they were at the
@@ -592,6 +597,8 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     wakeKind: input.wakeKind,
     places: input.places,
     previousThink: input.previousThink,
+    myDay: input.myDay,
+    callMarks: input.callMarks,
     stableFreeze: input.stableFreeze,
     whereabouts,
     frame: input.frame,
@@ -684,6 +691,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
       intentions: own.intentionsText,
       wake: own.wakeText,
       places: own.placesText,
+      myDay: own.myDayText,
       previousThink: own.previousThinkText,
     },
     fit.stats

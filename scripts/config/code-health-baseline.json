@@ -389,7 +389,7 @@
       "repeated": 0
     },
     "tests/format.test.ts": {
-      "deep": 102,
+      "deep": 99,
       "repeated": 0
     },
     "tests/gif-backfill.test.ts": {
@@ -953,7 +953,7 @@
       "repeated": 0
     },
     "tests/prompt.test.ts": {
-      "deep": 217,
+      "deep": 216,
       "repeated": 0
     },
     "tests/prompts-shipped.test.ts": {
@@ -1033,7 +1033,7 @@
       "repeated": 5
     },
     "tests/recall.test.ts": {
-      "deep": 26,
+      "deep": 22,
       "repeated": 0
     },
     "tests/recent.test.ts": {
@@ -1442,10 +1442,10 @@
     }
   },
   "files": {
-    "src/behavior/recall.ts": 2364,
+    "src/behavior/recall.ts": 2357,
     "tests/openrouter.test.ts": 3557,
-    "tests/prompt.test.ts": 6578,
-    "tests/recall.test.ts": 2414
+    "tests/prompt.test.ts": 6562,
+    "tests/recall.test.ts": 2387
   },
   "functions": {
     "interfaces/discord/collect.ts": {
@@ -1750,10 +1750,7 @@
     },
     "src/format.ts": {
       "formatTranscript": {
-        "complexity": 80
-      },
-      "withCalls": {
-        "complexity": 25
+        "complexity": 70
       }
     },
     "src/intentions/blocks.ts": {

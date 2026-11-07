@@ -67,6 +67,8 @@ export type CreateTurnRunnerInput = {
   memoryReads?: Untyped;
   /** A selfreflection post's stored facts through the one retrieval service. */
   selfreflectionFacts?: Untyped;
+  /** The memory's read handle while it is open (null while closed), for `<my_day>` (src/turn/request/my-day.ts). */
+  journalDb?: (() => unknown) | null;
   memoryContext?: Untyped;
   attention?: Set<string>;
   roleHealth?: Untyped;
@@ -76,7 +78,8 @@ export type CreateTurnRunnerInput = {
 export type TurnRunner = {
   runTurn: (params: TurnParams) => Promise<ReportedTurn>;
   seedTriggerLinks: (pairs: unknown) => void;
-  seedCallMarks: (marks: { calls?: unknown; postedFrom?: unknown } | null | undefined) => void;
+  /** Her calls from the journal at start; with their `placeId`, that place's `turn` records seed her previous thinks. */
+  seedCallMarks: (marks: { calls?: unknown; postedFrom?: unknown; placeId?: unknown } | null | undefined) => void;
   waitingParts: (placeId: unknown, authorId: unknown) => Array<{ index: number; text: string }>;
   addToPart: (
     placeId: unknown,

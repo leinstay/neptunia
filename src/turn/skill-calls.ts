@@ -33,6 +33,7 @@ import type { CallMark, JournalNotes, NotesDraft } from './journal-notes.ts';
 import { untaggedNote } from './mentions.ts';
 import { inCommunity, snapshotOfDraft } from './routing.ts';
 import type { RenderedPost, Sends } from './sends.ts';
+import type { Handles } from './handles.ts';
 import { wakeRefusalCode } from '../tools/wake-tools.ts';
 import { INTENT_ID_SKILLS } from './settings.ts';
 
@@ -115,6 +116,9 @@ const OWN_MESSAGE_SKILLS: ReadonlyArray<string> = [
   'message.react.remove',
 ];
 
+/** The skills whose `text` is stored as a record of hers: an intention made or changed. */
+const STORED_TEXT_SKILLS: ReadonlyArray<string> = ['intention.set', 'intention.update'];
+
 /** Whether a message argument is `last`, her own most recent message (any case, as src/tools/impl/message.ts reads it). */
 const isLast = (value: unknown): boolean => typeof value === 'string' && value.trim().toLowerCase() === 'last';
 
@@ -146,6 +150,8 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     selfreflectionVoice?: { text: unknown; durationSecs: unknown };
     turnMarks?: Array<CallMark>;
     snapshot?: Snapshot | null;
+    /** The turn's handle registry (src/turn/handles.ts). */
+    handles?: Handles | null;
     /** Whom a private chat's or the command line's reads are judged by (setup.ts): the partner, or the owner's account. */
     readerId?: string | null;
   };
@@ -643,7 +649,13 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         if (resolvedCall.dispatch && (skills ?? defaultSkills()).get(skill)?.effects === 'destructive')
           destructiveRuns.set(`${skill}:${envelope.originChannelId}`, clock());
         const publicationBoundary = turnBoundary(draft, conversationOf(channel));
-        result = await executeCall(resolvedCall, {
+        // An intention's text is stored: a `#n` in it becomes the identity of the line it named (src/turn/handles.ts).
+        const text = resolvedCall.args?.text;
+        const executed =
+          STORED_TEXT_SKILLS.includes(skill) && typeof text === 'string' && draft?.handles
+            ? { ...resolvedCall, args: { ...resolvedCall.args, text: draft.handles.canonical(text) } }
+            : resolvedCall;
+        result = await executeCall(executed, {
           publicationBoundary,
           port,
           here: conversationOf(channel),
@@ -791,6 +803,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         argNames: (skills ?? defaultSkills()).get(skill)?.dispatch?.options?.map((option) => option.name) ?? null,
       }),
       target: { messageId: idText(args.message) ?? idText(args.reply), placeId: where ?? idText(args.channel) },
+      // The place a lookup searched, when its arguments name one: the mark says it apart from where she called from.
+      searched: (skills ?? defaultSkills()).get(skill)?.kind === 'read' ? idText(args.channel) : null,
       postedId: posted?.id ?? null,
       posted: turnPosts,
       // The main arguments the call ran with, for the mark's line (src/tools/call-args.ts).

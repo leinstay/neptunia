@@ -1,5 +1,5 @@
 // The main arguments of one skill call, as the call mark of her transcript line shows them
-// (src/format.ts#withCalls: `[you called web.search (query: "...") : done]`). Rendered from the
+// (src/format.ts#callMarksFor: `[you called web.search (query: "...") : done]`). Rendered from the
 // recorded call (the resolved arguments), never from her wording: only the arguments listed here for
 // the skill (the others for a skill with no row), one line, each value cut with a marker, the whole
 // bounded, and never a field whose name suggests a secret. Pure.
