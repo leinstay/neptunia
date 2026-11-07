@@ -109,3 +109,31 @@ test('with no link form, as at the command line, a posted identity goes out as t
   assert.ok(out.text.includes('09:41'));
   assert.doesNotMatch(out.text, /src:fake/);
 });
+
+test('an identity at the end of a sentence, before a colon or before a dash renders as its handle', () => {
+  // Bug: the guard after the revision refused a trailing `.`, `:` or `-`, so a third of the stored thinks kept raw ids.
+  const resolve = resolverOver({ 'src:fake:m77': CLUB_LINE }, new Map([['src:fake:m77', 12]]));
+  for (const tail of ['.', ': και', ' - και', '-'])
+    assert.doesNotMatch(resolve(`όπως στο src:fake:m77:1${tail}`), /src:fake/, `tail ${JSON.stringify(tail)}`);
+});
+
+test('both ends of a range of identities render as handles', () => {
+  // Bug: in `src:a:1-src:b:1` the first end was glued to the dash and stayed raw.
+  const other: RefLine = { ...CLUB_LINE, messageId: 'm78' };
+  const resolve = resolverOver(
+    { 'src:fake:m77': CLUB_LINE, 'src:fake:m78': other },
+    new Map([
+      ['src:fake:m77', 12],
+      ['src:fake:m78', 15],
+    ])
+  );
+  const text = resolve('src:fake:m77:1-src:fake:m78:1');
+  assert.match(text, /#12(?!\d)/);
+  assert.match(text, /#15(?!\d)/);
+});
+
+test('a source id with its kind after the revision is no reference', () => {
+  // Bug: a widened guard reads `src:x:m:1:seen` as the line m at revision 1.
+  const resolve = resolverOver({ 'src:fake:m77': CLUB_LINE }, new Map([['src:fake:m77', 12]]));
+  assert.equal(resolve('src:fake:m77:1:seen'), 'src:fake:m77:1:seen');
+});

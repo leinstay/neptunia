@@ -29,10 +29,11 @@ type RefLabels = Pick<Labels, 'refs' | 'memory' | 'locale'>;
 export type LineOf = (key: string) => RefLine | null;
 
 /**
- * An identity: `src:`, the interface, the message id (which may hold colons) and the revision, with no word character,
- * dot, colon or dash glued after it, so a source id with its kind (`src:x:m:1:seen`) is no reference.
+ * An identity: `src:`, the interface, the message id (which may hold colons) and the revision. No word character
+ * follows it, and no dot, colon or dash with a word character after it, so a source id with its kind
+ * (`src:x:m:1:seen`) is no reference while a full stop, a colon in prose and a range `src:a:1-src:b:1` are read.
  */
-const IDENTITY = /( ?)\bsrc:([\w-]+):((?:[\w.-]+:)*?[\w.-]+):(\d+)(?![\w.:-])/gu;
+const IDENTITY = /( ?)\bsrc:([\w-]+):((?:[\w.-]+:)*?[\w.-]+):(\d+)(?!\w|[.:]\w|-(?!src:)\w)/gu;
 
 type Found = { space: string; key: string; revision: number };
 
