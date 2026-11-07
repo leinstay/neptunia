@@ -3,6 +3,7 @@
 // (src/turn/phases/request.ts) runs it after the searches step; the turn ends here when its source is gone or its
 // chooser finds nothing to do.
 
+import { framedTurn } from '../../request/frame.ts';
 import { log } from '../../../log.ts';
 import type { PulledChannel } from '../../../behavior/pull-fetch.ts';
 import type { Ended, PhaseContext, PhaseParams } from '../context.ts';
@@ -43,8 +44,11 @@ export async function pullRequest(
   const promptLabels = hot.prompts?.labels;
   const pullLabelled = Boolean(promptLabels?.pull?.header);
   const pullStartedAt = clock();
+  // A turn on the frame shows no pulled channel (`<meanwhile>` stands for them), so it fetches none and asks no route.
+  // A turn whose mode a chooser still decides fetches them, since the chooser reads them.
+  const onFrame = mode !== 'auto' && framedTurn(mode, triggerKind, source);
   const pullsPending =
-    isPrivate && !likeServer
+    (isPrivate && !likeServer) || onFrame
       ? Promise.resolve({ pulled: [], sourceSkip: null })
       : pullChannels({
           channel,

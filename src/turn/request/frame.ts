@@ -259,3 +259,10 @@ const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>(['reply', 'errand_
 /** Whether a request built with `frame` is the frame's own (`<memory>`, `<recall>`, `<meanwhile>` and the rest). */
 export const framedRequest = (frame: Frame | null | undefined): frame is Frame =>
   frame !== null && frame !== undefined && FRAMED_KINDS.has(frame.kind);
+
+/**
+ * Whether a turn of `mode` and `triggerKind` will build the frame's request, known before its frame is: a turn with a
+ * `source` (a routed or noticed call) keeps the old emission, so the pulls and the elsewhere pick serve only those.
+ */
+export const framedTurn = (mode: string, triggerKind: string | null, source: unknown): boolean =>
+  !source && FRAMED_KINDS.has(turnKindOf(mode, triggerKind, null));

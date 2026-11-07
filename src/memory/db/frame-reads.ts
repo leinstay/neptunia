@@ -167,6 +167,30 @@ export function accountOfNative(db: Db, iface: string, native: string): string |
   return text(row?.id);
 }
 
+/**
+ * The stored line of an interface's message id: its family's native key (`message_families`, the key a line is stored
+ * under), else the id itself, newest revision first; null when the memory holds no such line.
+ */
+export function sourceOfMessage(db: Db, iface: string, messageId: string): string | null {
+  const family = db
+    .prepare(
+      'SELECT native_key FROM message_families WHERE iface = ? AND message_id = ? ORDER BY generation DESC LIMIT 1'
+    )
+    .get(iface, messageId);
+  const key = text(family?.native_key) ?? messageId;
+  const byKey = db
+    .prepare(
+      'SELECT id FROM sources WHERE iface = ? AND native_id = ? AND retired_at IS NULL ORDER BY revision DESC LIMIT 1'
+    )
+    .get(iface, key);
+  if (text(byKey?.id) !== null) return text(byKey?.id);
+  const prefix = `src:${iface}:${messageId}:`;
+  const byId = db
+    .prepare('SELECT id FROM sources WHERE id >= ? AND id < ? AND retired_at IS NULL ORDER BY revision DESC LIMIT 1')
+    .get(prefix, `${prefix}\uffff`);
+  return text(byId?.id);
+}
+
 /** The person an account row belongs to; null for an unknown account. */
 export function personOfAccount(db: Db, account: string): string | null {
   return text(db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(account)?.person_id);
@@ -192,6 +216,8 @@ export type FrameReads = {
   interfaceNames(iface: string): { name: string | null; nouns: Record<string, string> };
   account(iface: string, native: string): string | null;
   person(account: string): string | null;
+  /** The stored line of an interface's message id, null when none (sourceOfMessage). */
+  source?(iface: string, messageId: string): string | null;
 };
 
 const NO_MIND: Mind = {
@@ -220,5 +246,6 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     interfaceNames: (iface) => over({ name: null, nouns: {} }, (db) => interfaceNamesOf(db, iface)),
     account: (iface, native) => over(null, (db) => accountOfNative(db, iface, native)),
     person: (account) => over(null, (db) => personOfAccount(db, account)),
+    source: (iface, messageId) => over(null, (db) => sourceOfMessage(db, iface, messageId)),
   };
 }

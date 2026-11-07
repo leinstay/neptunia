@@ -118,7 +118,7 @@ export function requestHead(given: RequestInput): Base {
   // from this DM has no public profile, and the trigger gives the merged one its id and heading.
   const framed = given.frame ?? null;
   // The frame's request lists no directory: a person gets a handle when the chat or memory shows them.
-  const onFrame = framedRequest(framed);
+  const onFrame = framedRequest(framed) && !given.source;
   const counterpartName = framed ? framed.counterpart?.name : given.trigger?.authorName;
   const named = counterpartName ? [counterpartName] : [];
   const counterpartId = framed ? framed.answers?.authorId : given.trigger?.authorId;

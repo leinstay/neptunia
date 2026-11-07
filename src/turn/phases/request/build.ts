@@ -218,14 +218,19 @@ function seedsOf(
   frame: Frame,
   history: ReadonlyArray<Message>,
   turn: { trigger: { id: string } | null; prefetch: unknown },
-  reads: Pick<FrameReads, 'account' | 'person'>
+  reads: Pick<FrameReads, 'account' | 'person' | 'source'>
 ): Seeds {
   const { trigger, prefetch } = turn;
   const iface = frame.interface;
   const lines = history.filter((line) => line.kind !== 'call' && typeof line.id === 'string');
   const sourceOf = (line: Message): string => {
     const revision: unknown = Reflect.get(line, 'revision');
-    return messageSourceId(iface, line.id, typeof revision === 'number' ? revision : 1, line.self ? 'said' : 'seen');
+    // The stored line when the memory holds it (an interface's id is not the key a line is stored under), else the
+    // id a line of this message would have.
+    return (
+      reads.source?.(iface, line.id) ??
+      messageSourceId(iface, line.id, typeof revision === 'number' ? revision : 1, line.self ? 'said' : 'seen')
+    );
   };
   const byId = new Map(lines.map((line) => [line.id, sourceOf(line)]));
   // A platform id as the memory's account row, the spelled form when none is stored yet.
@@ -249,7 +254,10 @@ function seedsOf(
     counterpart: counterpartOf(frame, reads),
     place: frame.place?.id ?? null,
     previous: [],
-    candidates: hits.map((id) => ({ nodeId: `source:${id}`, sourceIds: [id], from: 'prefetch' as const })),
+    candidates: hits.map((hit) => {
+      const id = reads.source?.(iface, hit) ?? hit;
+      return { nodeId: `source:${id}`, sourceIds: [id], from: 'prefetch' as const };
+    }),
   };
 }
 

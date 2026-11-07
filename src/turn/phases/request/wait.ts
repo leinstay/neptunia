@@ -3,6 +3,7 @@
 // late. The request phase (src/turn/phases/request.ts) runs it after the lookup step; the turn hands its message to a
 // chain of parts here when the splitter answered in time.
 
+import { framedTurn } from '../../request/frame.ts';
 import type { Neighbor } from '../../../behavior/neighbors.ts';
 import { fetchNeighbors } from '../../../behavior/neighbors.ts';
 import type { PulledChannel } from '../../../behavior/pull-fetch.ts';
@@ -44,7 +45,7 @@ export async function waitForPreparation(
   looked: Looked
 ): Promise<Ended | Waited> {
   const { clock, ifaceReads, participationOn, participationAudience, pickParticipation } = ctx;
-  const { triggerKind = null } = params;
+  const { triggerKind = null, source = null } = params;
   const { channel, placeId, isPrivate, life } = opened;
   const { config, snapshot, now, likeServer, rawHistory, candidate, selfName, startedAt, historyMs, beforeBar } = setup;
   const { finalMode, pulledPending, pullStartedAt } = pulled;
@@ -73,7 +74,9 @@ export async function waitForPreparation(
   // `<participation>`: the persona's own exchanges on other channels this turn may show, and
   // the elsewhere pick's choice among them (src/behavior/elsewhere-pick.ts; it asks
   // nothing when there is no episode to offer). Late or failed, the newest are shown.
-  const participationShown = participationOn(channel) && finalMode !== 'selfreflection';
+  // A turn on the frame shows no `<participation>`, so the elsewhere pick is not asked for it.
+  const participationShown =
+    participationOn(channel) && finalMode !== 'selfreflection' && !framedTurn(finalMode, triggerKind, source);
   const participationAudienceOf = participationShown ? participationAudience(channel, config, snapshot) : null;
   const participationStage = participationAudienceOf
     ? track('participation', (): Promise<Array<unknown>> =>
