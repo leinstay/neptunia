@@ -17,6 +17,7 @@
 //       kept there), in slices; the key goes once everything is projected. Run by a full sync pass and by the last
 //       slice of the first import.
 //   rebuildGraph(handle)   drops the three tables' rows and projects everything again (the rebuildability contract).
+//   A projected unit of a table that holds names also writes its rows of the name index again (names.ts#touchNames).
 // Schema v31: an entity is a node seen only through the assertions that name it, and a claim's unit also projects each
 // sealed version's `has_role` edges and the `asserts` or `denies` shortcut of a binary relation.
 // Schema v10: a publication (publish.ts) is its own unit: its node, `published_as` from the entry it publishes and
@@ -45,6 +46,7 @@ import { hasMessageFamilies } from './message-family-catalog.ts';
 import { AUD_INTERNAL, audienceParts, audienceWhere, dmAudienceId, groupAudienceId } from './scope.ts';
 import { NODE_KINDS, RELATION_EDGES, UNIT_OF, UNIT_ORDER } from './graph-manifest.ts';
 import { readPredicate } from './semantic-registry.ts';
+import { touchNames } from './names.ts';
 import { dbOf, transactionOf, asText, isWholeNumber } from './types.ts';
 import type { Connection, Db, Log, Row } from './types.ts';
 import type { NodeKindSpec } from './graph-manifest.ts';
@@ -838,6 +840,7 @@ export function projectRow(
     db.exec('SAVEPOINT graph_unit');
     try {
       writeUnit(db, unit, String(id), at);
+      touchNames(db, unit, String(id));
       db.exec('RELEASE graph_unit');
       count += 1;
     } catch (error) {

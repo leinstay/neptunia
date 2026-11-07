@@ -6,9 +6,9 @@
 // The learned stemmer is kept in `meta` (key `stemmer`: the endings and the productivity of the stems that are seen
 // with two or more endings), so the writer that fills the stems and the reader that stems a query use the same one.
 // `fillStems` runs from the writers' projection job (unit-write.ts, op `project`): it learns the stemmer when there is
-// none or the text grew by a quarter since it was learned (a new stemmer re-stamps every row), then fills the rows whose
-// stems are still empty. A row whose text changes gets its stems emptied by the upsert (upsert.ts), so it is filled
-// again. A media item's words are stemmed on its own row (media-stems.ts), never on a line that shows it, so `sources.text` and
+// none or the text grew by a quarter since it was learned (a new stemmer re-stamps every row and the name index of
+// names.ts), then fills the rows whose stems are still empty. A row whose text changes gets its stems emptied by the
+// upsert (upsert.ts), so it is filled again. A media item's words are stemmed on its own row (media-stems.ts), never on a line that shows it, so `sources.text` and
 // `sources.stems` stay what was written.
 //
 // Pure of the bot; works on an opened database (the writer connection for `fillStems`, any for `loadStemmer`).
@@ -87,6 +87,15 @@ export function loadStemmer(db: Db): Stemmer {
   return value;
 }
 
+/** The stems of the name index (names.ts) again under the stemmer just learned; nothing before the index exists. */
+function restemNames(db: Db): void {
+  if (!db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'names'").get()) return;
+  const { stem } = loadStemmer(db);
+  const update = db.prepare('UPDATE names SET stem = ? WHERE rowid = ?');
+  for (const row of db.prepare('SELECT rowid, normalized FROM names').all())
+    update.run(stemsOf(stem, row.normalized), row.rowid);
+}
+
 function textRows(db: Db): number {
   return Number(
     db
@@ -148,6 +157,7 @@ export function fillStems(db: Db): { stamped: number; relearned: boolean } {
       if (relearned) {
         db.exec('UPDATE sources SET stems = NULL WHERE stems IS NOT NULL');
         clearMediaStems(db);
+        restemNames(db);
       }
     });
   }

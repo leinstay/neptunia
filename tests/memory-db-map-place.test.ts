@@ -401,3 +401,37 @@ test('graph: a channel written before its guild and a membership before its acco
     handle.close();
   }
 });
+
+// Plan 2026-11-06-turn-frame, slice 9 (a): every place with lines carries purpose, tone and topics, a root and a direct
+// chat as much as a room.
+test('a root unit keeps purpose, tone and topics as descriptions of the root beside patterns and starters', () => {
+  // Bug: the root's mapper writes only patterns and starters, so the three fields the session writes to a root are kept
+  // as loose operational notes and no reader finds them.
+  const value = { ...guildFile(), purpose: 'Μια παρέα για παιχνίδια.', tone: 'χαλαρός', topics: 'παιχνίδια, μουσική' };
+  const rows = assertRoundTrip(guild, 'guild.json', value, CTX);
+  assert.deepEqual(
+    rows.descriptions.map((d) => [d.field, d.subject_id]),
+    ['purpose', 'tone', 'topics', 'patterns', 'starters'].map((field) => [field, PLACE])
+  );
+  const [operational] = rows.operational;
+  assert.ok(!('purpose' in JSON.parse(String(operational.value))));
+});
+
+test('a direct chat unit keeps purpose, tone and topics as descriptions of the chat, scoped to it', () => {
+  // Bug: a direct chat has nowhere to keep what it is for and how the two talk, or keeps it where the groups read it.
+  const dmPlace = 'discord:dm:100000000000000007';
+  const ctx = {
+    iface: 'discord',
+    subjectId: dmPlace,
+    subjectNativeId: '100000000000000007',
+    dmPlaceId: dmPlace,
+    dmPlace: { id: dmPlace, partnerPerson: 'person:discord:100000000000000007' },
+    privateAccountId: '100000000000000007',
+  };
+  const value = { purpose: 'Ιδιωτική κουβέντα με τον Pétro.', tone: 'τρυφερός', topics: 'βιβλία' };
+  const rows = assertRoundTrip(guild, 'guild.json', value, ctx);
+  assert.deepEqual(
+    rows.descriptions.map((d) => [d.field, d.subject_kind, d.subject_id, d.scope_kind]),
+    ['purpose', 'tone', 'topics'].map((field) => [field, 'place', dmPlace, 'dm'])
+  );
+});

@@ -54,6 +54,8 @@ Only the owner speaks on the command line (`iface: 'cli'`), so its account belon
 
 Everything she remembers belongs to the persona, an account, a person or a place. A place is a row of `places`: a server, a channel, a thread, a group or a DM, each with its own id and `parent_id`. A Discord server is a place with channel and thread places under it, a Telegram group is a place with none, and a DM is a place with one partner. `store.rootPlaceOf` in `src/memory/store-addresses.ts` walks `parent_id` to the top of a tree, so a DM is its own root. A place the store named from a conversation the interface described (`store.placeOfConversation`) keeps that conversation's top and native id in the process until its row exists, so a quiet channel with no observed message still finds its server. An id named nowhere has no top. `store.conversationOfPlace` turns a place back into the native conversation a post goes to, and for a DM that is the chat the interface saw with its partner.
 
+Every place carries `purpose`, `tone` and `topics` as descriptions: a room, a root, a direct chat and the command line alike. The memory session writes them once a place has lines, through the mapper of `src/memory/db/map/place.ts` for a root and a direct chat and `src/memory/db/map/channel.ts` for a room. A root also keeps `patterns` and `starters`. The three fields of a direct chat say that it is a direct chat with its partner, how the two of them talk and what they talk about, and they are scoped to that chat. A direct chat has no name, and its path ends in the interface's word for a direct chat and the partner's native id.
+
 A turn gets a bounded selection of relevant information: people nearby, the current place, recent events and recalled passages. The whole database is not inserted into every prompt. Local context helps rank relevant material without restricting all searches to the current place.
 
 ## Who can recall what
@@ -151,9 +153,49 @@ An old source does not become unreachable merely because it is outside the recen
 
 The media cache of a place keeps `MEDIA_CACHE_ENTRIES`, 5000, of the rows nothing links. `trimCache` in `src/web/cache.ts` leaves a row alone when a live line or a live selfreflection picture links its attachment, as `linkedAttachmentIds` in `src/memory/db/media-store.ts` lists them, so a place with many linked rows stays over the cap. A line stored before `extra.attachmentIds` links nothing by that list until its echo brings the ids.
 
+## How a turn remembers
+
+`mindOf` in `src/memory/db/mind-read.ts` is the graph reader. From the lines of a turn it walks the memory graph under the turn's context. It returns the people, places, interfaces, lore, episodes and stored lines that come to her mind, cut to a budget in tokens, and no model takes part. Its settings are the map `context.memory` in `config/config.json`, and each key named below is one of it.
+
+Names are looked up in the name index of `src/memory/db/names.ts`, the table `names` with its trigram table `names_tri`. It holds one row per name, per graph node, per audience and per stored row the name came from. The names are a place's name, an account's display names, a person's real name, a membership's nick, a live alias claim about a person or a place, and an interface's name and nouns. An account's names point at its person while the link is verified. A name keeps the audience of its row, so an alias learned in a direct chat is found only in that chat and in the chats of the partner's linked accounts. `projectRow` in `src/memory/db/graph.ts` writes the rows of a stored row again whenever it projects one (`touchNames`), so a retired claim or a revoked link takes exactly its own rows with it. `rebuildNames` writes every row again from the stored rows. A word is matched by its folded exact form, then by the stems of the learned stemmer, then by trigrams, and a weaker way is tried only when the stronger found nothing.
+
+The seeds of a walk come from the last `windowMessages` lines (default `100`), in evidence classes from strongest to weakest:
+
+| Class | What raises an entry |
+|---|---|
+| `native` | A native mention in the trigger |
+| `reply` | The author of the trigger's reply parent |
+| `counterpart` | The person she answers |
+| `author` | An author of a line of the window |
+| `place` | The current place, a place of the window and their parents |
+| `edge` | A path from another entry, a mention or a reply elsewhere in the window, a seed of the earlier turns of the chat, a find of the helpers, a place she wrote in lately |
+| `word` | A word or a phrase of up to three words of the window that matches a name |
+| `prose` | A name inside a claim of an entry rendered whole |
+
+A word that names more than `commonWordEntries` entries (default `3`) raises none. Several are first narrowed to the people present and the places under the current root, and what stays ambiguous, or matched by stem or trigram only, is raised as a candidate, at most `candidatesMax` of them (default `3`). An interface's noun for a kind of place, such as "server", raises the places of that kind on that interface.
+
+The walk follows listed paths only. Each is one query that orders before it limits. It follows live edges whose audience the context reads to nodes it may see in `node_access`, so a node hidden in the middle of a path stops the path. A place is seen by its own audience. The paths and their limits:
+
+| Path | Limit |
+|---|---|
+| An account to its person, and the person to the other accounts | `fanOut.accounts`, default `10` |
+| A person's accounts to the places of their memberships, newest first | `fanOut.memberships`, `20` |
+| A place up to its parent | none |
+| A root named by the trigger or the window down to its rooms, by her own line count | `fanOut.rooms`, `10` |
+| The same root down to its members, by her affinity | `fanOut.members`, `8` |
+| An interface down to its top places | none |
+| The trigger along `replies_to` to its parent and to the lines that answer it | `fanOut.replies`, `5` |
+| A person or a place back along `about` to its claims and episodes, newest first | `fanOut.about`, `30` |
+
+A step through an account or up to a parent costs nothing. Any other step counts against `maxHops` (default `2`), and the walk stops expanding after `maxNodesRead` rows (default `2000`).
+
+Every entry carries its graph node, its strongest evidence, its newest anchor line, whether it is a candidate, and the stored rows behind it with the description version it renders. Its detail is `whole` for the classes `native`, `reply` and `counterpart`, `name` for a candidate and for `prose`, and `compact` otherwise. A person entry holds the person's names, the accounts she knows them through, the `relationship`, `character` and `style` descriptions the context reads, and the claims about them, those sharing a word with the trigger first. A place entry holds its path by names from the interface down, its three fields, and how many lines she wrote there and when last.
+
+The budget is `budgetTokens` (default `10000`), split by `shares` among `people` (`0.5`), `places` (`0.15`), `lore` (`0.15`), `recent` (`0.1`) and `found` (`0.1`), and a share its entries leave unused is lent to a full one. Inside a share the entries go by evidence, hops, the newest anchor, her affinity and the id. An entry that does not fit drops to a lower detail, and one that fits at none is left out and counted in `leftOut` of its share. The person she answers may take `counterpartTokens` (default `1500`) whatever the people share holds. The person she answers, the authors of the window, the current place and what the trigger names natively or by an exact name are kept whatever the budget, as a name when nothing else fits. `scripts/mind-report.ts` runs the reader over archived reply turns of a snapshot and prints the entries, the time and the left-out counts per turn.
+
 ## The memory audit
 
-`auditMemory` in `src/memory/db/audit.ts` counts what breaks the rules of the stored rows, over a read connection, and looks at live rows only. A claim version resolves when its `claim_id` names a row of `claims` or of `episodes`, retired or not, because the archive line of an expired episode is kept as a version beside the episode. `scripts/memory-audit.ts --db <file>` prints its JSON, `{ findings, checks }`, and is safe on a running core. It exits `0` when clean, `1` with a finding and `2` when the database cannot be read. The output holds counts and no word, id or name of a row. The [watcher](watcher.md#service-runs) reads the same counts.
+`auditMemory` in `src/memory/db/audit.ts` counts what breaks the rules of the stored rows, over a read connection, and looks at live rows only. A claim version resolves when its `claim_id` names a row of `claims` or of `episodes`, retired or not, because the archive line of an expired episode is kept as a version beside the episode. `scripts/memory-audit.ts --db <file> [--describe-after-lines <n>]` prints its JSON, reading the threshold of `placeUndescribed` from `config/config.json` unless the flag gives one, `{ findings, checks }`, and is safe on a running core. It exits `0` when clean, `1` with a finding and `2` when the database cannot be read. The output holds counts and no word, id or name of a row. The [watcher](watcher.md#service-runs) reads the same counts.
 
 | Check | What it counts |
 |---|---|
@@ -165,6 +207,10 @@ The media cache of a place keeps `MEDIA_CACHE_ENTRIES`, 5000, of the rows nothin
 | `vectorManifests` | Months whose manifest disagrees with the rows they hold or their vector size, or cannot be read. A month kept raw is left out |
 | `linkedMediaKept` | Retired media rows that a live line or a live selfreflection entry links |
 | `unlinkedLineMedia` | Live media rows that no owner links, whose `native_ref` `<message id>#<item>` names the message of a live `seen` or `said` line of their interface that links no item of that reference, each row once. `backfill-media` links them |
+| `placeUnnamed` | Live rooms and roots with no name. A direct chat has none by design |
+| `placeUndescribed` | Live places with `memory.describeAfterLines` live lines or more (default `20`) that lack one of `purpose`, `tone` and `topics` |
+| `interfaceUnnamed` | Interfaces with a live place and no name |
+| `cliLineRetired` | Retired lines of `cli:dm:owner` whose `origin` is not `owner`, the mark of the owner's memory command |
 
 ## Entities and assertions
 

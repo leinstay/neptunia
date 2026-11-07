@@ -6,7 +6,7 @@
 // id), `type` one of ENVELOPE_TYPES, `replyTo` the id of the envelope this one answers (null for
 // the first of a conversation), `body` the type's payload, and `seq` the number an interface with an
 // outbox gives each event it sends (src/protocol/outbox.ts), counted per client from 1:
-//   hello          { iface, self: { id, name }, community: { id, name }|null, communities?: [{ id, name }], capabilities?: string[]|object, resume?: string|null, token?: string }  who is speaking, who the persona is there, the community it serves, what it offers
+//   hello          { iface, self: { id, name }, community: { id, name }|null, communities?: [{ id, name }], names?: { interface, nouns: { [kind]: noun }, dm }, capabilities?: string[]|object, resume?: string|null, token?: string }  who is speaking, who the persona is there, the community it serves, what the interface calls itself and its places, what it offers
 //   event          an inbound event (events.ts)                           interface -> core
 //   ack            { status: 'ok'|'duplicate'|'invalid'|'unhandled'|'failed', reason?, ackedSeq? }  the event is taken (or not); the answer to hello carries the client's watermark
 //   action         an outbound action (actions.ts)                        core -> interface
@@ -32,6 +32,14 @@ const isAckStatus = (value: unknown): boolean => ACK_STATUSES.some((status) => s
 /** An id with a display name: `{ id, name }`. */
 const isNamed = (value: unknown): boolean => isObject(value) && isId(value.id) && typeof value.name === 'string';
 
+/** An interface's own names: a name, a noun per kind of place and a word for a direct chat, all strings. */
+const isNames = (value: unknown): boolean =>
+  isObject(value) &&
+  typeof value.interface === 'string' &&
+  typeof value.dm === 'string' &&
+  isObject(value.nouns) &&
+  Object.values(value.nouns).every((noun) => typeof noun === 'string');
+
 /** An envelope. `replyTo` defaults to null; `seq` is written only when given. */
 export function envelope(
   type: string,
@@ -48,6 +56,16 @@ export function ackOf(of: string | { id: string }, status: string, reason?: stri
   return envelope('ack', reason === undefined ? { status } : { status, reason }, { id: `ack:${replyTo}`, replyTo });
 }
 
+/** The names a `hello` body gives: the community it serves, the others it serves, and the interface's own names. */
+function checkHelloNames(body: Record<string, unknown>): { ok: true } | { ok: false; reason: string } {
+  if (body.community !== undefined && body.community !== null && !isNamed(body.community))
+    return { ok: false, reason: 'body.community:type' };
+  if (body.communities !== undefined && !(Array.isArray(body.communities) && body.communities.every(isNamed)))
+    return { ok: false, reason: 'body.communities:type' };
+  if (body.names !== undefined && !isNames(body.names)) return { ok: false, reason: 'body.names:type' };
+  return { ok: true };
+}
+
 /**
  * The shape of a `hello` body: who speaks, the persona's account on that interface (`self`, always given), the
  * community the interface serves (`community`, an id and a name, or null when it serves none), what it offers (a list
@@ -57,10 +75,8 @@ function checkHello(body: Record<string, unknown>): { ok: true } | { ok: false; 
   if (!isId(body.iface)) return { ok: false, reason: 'body.iface:type' };
   if (body.self === undefined) return { ok: false, reason: 'body.self:required' };
   if (!isNamed(body.self)) return { ok: false, reason: 'body.self:type' };
-  if (body.community !== undefined && body.community !== null && !isNamed(body.community))
-    return { ok: false, reason: 'body.community:type' };
-  if (body.communities !== undefined && !(Array.isArray(body.communities) && body.communities.every(isNamed)))
-    return { ok: false, reason: 'body.communities:type' };
+  const named = checkHelloNames(body);
+  if (!named.ok) return named;
   const offers = body.capabilities;
   if (offers !== undefined && !isObject(offers) && !(Array.isArray(offers) && offers.every(isId)))
     return { ok: false, reason: 'body.capabilities:type' };

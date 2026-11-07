@@ -8,7 +8,8 @@
 // `options.adapter` is a fake adapter the caller keeps: the interface serves it instead of making its own, so the chat
 // it holds outlives a restart of the core (a test starts the interface again over the same adapter).
 //
-// `options.communities` lists several communities in `hello`; `community` names the first.
+// `options.communities` lists several communities in `hello`; `community` names the first. `options.names` is what the
+// fake says of itself in `hello.names`: its name, its noun per kind of place and its word for a direct chat.
 //
 // `options.self` and `options.community` are what `hello` tells the core about the persona and the community it serves.
 // `options.reads` limits the reads the fake offers (their wire names; all when absent).
@@ -23,7 +24,7 @@
 import path from 'node:path';
 import { createOutbox } from '../protocol/outbox.ts';
 import { serveAdapter } from '../protocol/serve.ts';
-import type { AckStatus, Named } from '../protocol/serve.ts';
+import type { AckStatus, InterfaceNames, Named } from '../protocol/serve.ts';
 import type { InterfaceHost, RunningInterface } from '../protocol/host.ts';
 import { createFakeAdapter } from './fake.ts';
 
@@ -52,6 +53,7 @@ export async function start(
     self?: Named;
     community?: Named | null;
     communities?: ReadonlyArray<Named>;
+    names?: InterfaceNames;
     reads?: ReadonlyArray<string>;
   } = {}
 ): Promise<FakeInterface> {
@@ -78,6 +80,7 @@ export async function start(
         self,
         community,
         ...(options.communities === undefined ? {} : { communities: options.communities }),
+        ...(options.names === undefined ? {} : { names: options.names }),
         capabilities: adapter.capabilities(),
         resume: null,
       },

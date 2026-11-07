@@ -105,7 +105,7 @@ function tablesOf(db: Db): Array<string> {
   return (db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table'").all() as Array<Row>)
     .filter(
       (row) =>
-        !/^(sqlite_|sources_(fts|tri)_|media_(fts|tri)_|semantic_search_fts_)/.test(String(row.name)) &&
+        !/^(sqlite_|sources_(fts|tri)_|media_(fts|tri)_|names_tri_|semantic_search_fts_)/.test(String(row.name)) &&
         !/VIRTUAL/i.test(String(row.sql))
     )
     .map((row) => String(row.name))

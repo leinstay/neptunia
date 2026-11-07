@@ -11,6 +11,12 @@
 //   linkedMediaKept    no media row a live line or a live selfreflection entry links is retired
 //   unlinkedLineMedia  no live media row of a message's item (`<message id>#<item>`) stands apart from the message's live line
 //                      (src/memory/db/media-store.ts#unlinkedLineItems); the media backfill links them
+//   placeUnnamed       a live room or root has a name (a direct chat has none by design)
+//   placeUndescribed   a live place with `describeAfterLines` live lines or more (`memory.describeAfterLines`, 20) has
+//                      all of `purpose`, `tone` and `topics` as live descriptions
+//   interfaceUnnamed   an interface with a live place has no name
+//   cliLineRetired     a line of the owner's command line (`cli:dm:owner`) retired with an `origin` other than `owner`,
+//                      the stamp his memory command leaves on a line it retires
 
 import { unlinkedLineItems } from './media-store.ts';
 import { resolveRow } from './rows.ts';
@@ -29,9 +35,33 @@ export const AUDIT_CHECKS = [
   'vectorManifests',
   'linkedMediaKept',
   'unlinkedLineMedia',
+  'placeUnnamed',
+  'placeUndescribed',
+  'interfaceUnnamed',
+  'cliLineRetired',
 ] as const;
 export type AuditCheck = (typeof AUDIT_CHECKS)[number];
 export type AuditReport = { findings: number; checks: Record<AuditCheck, number> };
+/** What the audit needs from the settings: the lines after which a place is expected to be described. */
+export type AuditSettings = { describeAfterLines: number };
+
+/** The value of `memory.describeAfterLines` in config/config.json, for a caller that reads no settings. */
+const DESCRIBE_AFTER_LINES = 20;
+/** The fields every place with lines carries (plan of the turn frame, "The fields of a place"). */
+const PLACE_FIELDS = ['purpose', 'tone', 'topics'] as const;
+/** The owner's chat at the command line, and the `origin` his memory command stamps on a line it retires. */
+const CLI_PLACE = 'cli:dm:owner';
+const OWNER_ORIGIN = 'owner';
+
+/** The audit's settings from the live config (`memory.describeAfterLines`). */
+export function auditSettingsOf(config: unknown): AuditSettings {
+  const memory = (config as { memory?: { describeAfterLines?: unknown } } | null)?.memory;
+  const value = memory?.describeAfterLines;
+  return {
+    describeAfterLines:
+      typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : DESCRIBE_AFTER_LINES,
+  };
+}
 
 /** The columns of `table`, none when it does not exist. */
 function columnsOf(db: Db, table: string): Set<string> {
@@ -43,7 +73,7 @@ function columnsOf(db: Db, table: string): Set<string> {
   );
 }
 
-const countOf = (db: Db, sql: string, ...params: Array<string>): number =>
+const countOf = (db: Db, sql: string, ...params: Array<string | number>): number =>
   Number(db.prepare(sql).get(...params)?.n ?? 0);
 
 /** `<alias>.retired_at IS NULL` when the table has the column, else a condition every row meets. */
@@ -210,8 +240,51 @@ function deadMediaLinks(db: Db): number {
   );
 }
 
-/** The counts of every check over `db`, and their sum. */
-export function auditMemory(db: Db): AuditReport {
+/** A place is a direct chat by its conversation or its kind. */
+const IS_DM = "(COALESCE(p.conversation = 'dm', 0) OR p.kind = 'dm')";
+
+function placeUnnamed(db: Db): number {
+  return countOf(
+    db,
+    `SELECT COUNT(*) AS n FROM places p WHERE p.retired_at IS NULL AND (p.name IS NULL OR trim(p.name) = '') AND NOT ${IS_DM}`
+  );
+}
+
+function placeUndescribed(db: Db, describeAfterLines: number): number {
+  const fields = PLACE_FIELDS.map(() => '?').join(', ');
+  return countOf(
+    db,
+    `SELECT COUNT(*) AS n FROM places p
+     WHERE p.retired_at IS NULL
+       AND (SELECT COUNT(*) FROM sources s WHERE s.place_id = p.id AND s.retired_at IS NULL) >= ?
+       AND (SELECT COUNT(DISTINCT d.field) FROM descriptions d
+            WHERE d.subject_kind = 'place' AND d.subject_id = p.id AND d.retired_at IS NULL AND d.field IN (${fields})) < ?`,
+    describeAfterLines,
+    ...PLACE_FIELDS,
+    PLACE_FIELDS.length
+  );
+}
+
+function interfaceUnnamed(db: Db): number {
+  return countOf(
+    db,
+    `SELECT COUNT(*) AS n FROM interfaces i WHERE (i.name IS NULL OR trim(i.name) = '')
+       AND EXISTS (SELECT 1 FROM places p WHERE p.iface = i.id AND p.retired_at IS NULL)`
+  );
+}
+
+function cliLineRetired(db: Db): number {
+  return countOf(
+    db,
+    `SELECT COUNT(*) AS n FROM sources WHERE place_id = ? AND retired_at IS NOT NULL AND origin IS NOT ?`,
+    CLI_PLACE,
+    OWNER_ORIGIN
+  );
+}
+
+/** The counts of every check over `db`, and their sum. `settings` defaults to the shipped value of the setting. */
+export function auditMemory(db: Db, settings: Partial<AuditSettings> = {}): AuditReport {
+  const { describeAfterLines } = auditSettingsOf({ memory: settings });
   const checks: Record<AuditCheck, number> = {
     ...placeChecks(db),
     audienceDerived: audienceDerived(db),
@@ -220,6 +293,10 @@ export function auditMemory(db: Db): AuditReport {
     vectorManifests: vectorManifests(db),
     linkedMediaKept: linkedMediaKept(db),
     unlinkedLineMedia: unlinkedLineMedia(db),
+    placeUnnamed: placeUnnamed(db),
+    placeUndescribed: placeUndescribed(db, describeAfterLines),
+    interfaceUnnamed: interfaceUnnamed(db),
+    cliLineRetired: cliLineRetired(db),
   };
   return { findings: Object.values(checks).reduce((sum, count) => sum + count, 0), checks };
 }

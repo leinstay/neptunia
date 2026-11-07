@@ -97,6 +97,7 @@ const TABLES_BY_CLASS: Readonly<Record<Exclude<StorageClass, 'unclassified'>, Re
     'graph_edges',
     'graph_nodes',
     'index_policy',
+    'names',
     'node_access',
     'semantic_entity_merges',
     'semantic_labels',

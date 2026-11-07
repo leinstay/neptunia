@@ -23,8 +23,10 @@ export const SELF = { id: 'self-id', name: 'Nova' };
 
 export type Running = Awaited<ReturnType<typeof startFake>>;
 export type Named = { id: string; name: string };
+/** What an interface says of itself in `hello.names`: its name, its nouns per kind of place, its word for a direct chat. */
+export type InterfaceNames = { interface: string; nouns: Record<string, string>; dm: string };
 export type Rig = {
-  connect: (name: string, communities: ReadonlyArray<Named>) => Promise<Running>;
+  connect: (name: string, communities: ReadonlyArray<Named>, names?: InterfaceNames) => Promise<Running>;
   requests: Array<unknown>;
   dataDir: string;
   /** `sql` over the memory database, through a read-only connection. */
@@ -78,7 +80,11 @@ export async function withFakes(
       embedder: { embed: () => Promise.resolve([]) },
     });
     const started: Array<Running> = [];
-    const connect = async (name: string, communities: ReadonlyArray<Named>): Promise<Running> => {
+    const connect = async (
+      name: string,
+      communities: ReadonlyArray<Named>,
+      names?: InterfaceNames
+    ): Promise<Running> => {
       const log = { info() {}, warn() {}, error() {}, debug() {} };
       const running = await startFake(
         {
@@ -95,6 +101,7 @@ export async function withFakes(
           self: SELF,
           communities,
           community: communities[0] ?? null,
+          ...(names === undefined ? {} : { names }),
         }
       );
       started.push(running);

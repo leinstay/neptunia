@@ -693,7 +693,7 @@ async function buildCore(
     const named = helloCommunities(greeting);
     const communities = named.map((one) => one.id);
     communityRoutes.note(greeting.iface, communities);
-    store.noteCommunities(greeting.iface, named);
+    store.noteCommunities(greeting.iface, named, greeting.names);
     log.info('index: interface connected', { principal: name, iface: greeting.iface, communities: communities.length });
   }
   /** True for a community some connected interface serves, and the configured one before any said hello. */

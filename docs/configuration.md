@@ -155,6 +155,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `context.channelMessages` | number | `100` | Current channel messages in the window | `src/turn/request/memory.ts` |
 | `context.reactions.fetchTimeoutMs` | number | `2000` | How long a turn waits for those fetches | `src/turn/tool-round.ts` |
 | `context.myDay.lines` | number | `12` | How many of her actions of today `<my_day>` lists, the newest kept. `0` leaves the block out | `src/turn/phases/request/build.ts` |
+| `context.memory` | map | `{ "windowMessages": 100, "maxHops": 2, "maxNodesRead": 2000, "budgetTokens": 10000, "shares": { "people": 0.5, "places": 0.15, "lore": 0.15, "recent": 0.1, "found": 0.1 }, "counterpartTokens": 1500, "candidatesMax": 3, "commonWordEntries": 3, "fanOut": { "accounts": 10, "memberships": 20, "rooms": 10, "members": 8, "replies": 5, "about": 30 } }` | The graph reader (`mindOf`): the lines of the window that seed it, the counted hops, the rows read, the token budget and its shares per kind of entry, the part kept for the person she answers, the candidates of an ambiguous word, the word that names too many entries, and the rows read per path. Each key is described in `docs/memory.md`, "How a turn remembers". A missing or broken key counts as its default | `src/memory/db/mind-read.ts` |
 | `context.turnLeaseMs` | number | `300000` | How long an inner turn's claim on its wakes lasts (milliseconds). The inner life renews it at every tick while the turn runs; a start takes over a claim a stopped process left | `src/behavior/attention.ts` |
 | `context.around.maxTokens` | number | `400` | Token cap of the voice-channel entries that have no profile in the request | `src/behavior/prompt.ts` |
 | `context.caps.interlocutor` | number | `6000` | Token cap: the caller's profile with episodes | `src/turn/request/people.ts` |
@@ -250,6 +251,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 |---|---|---|---|---|
 | `memory.vaultDir` | string | `"vault"` | Directory under `data/` that an older install may have used for copies of deleted memory. Nothing in the engine writes here now; the setting tells `memory.snapshot` where to find it so the vault is skipped when copying | `src/memory/root.ts` |
 | `memory.probeMinutes` | number | `30` | Minutes between two probes of the memory writer's path, one minimal request on the memory key or one one-word reply through the subharness. The probe also runs at core start and right after a refused writer run. A failed probe pauses her with the reason `memory-down`, and the next passing one resumes her. A value that is no positive number counts as 30 | `src/subharness/memory-probe.ts` |
+| `memory.describeAfterLines` | number | `20` | The live lines after which the memory audit expects a place to carry `purpose`, `tone` and `topics` (`placeUndescribed`). A value that is no positive whole number counts as 20 | `src/memory/db/audit.ts` |
 
 ## media
 

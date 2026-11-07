@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readPrompts } from '../hot.ts';
 import { readKeys } from '../keys/file.ts';
-import { auditMemory } from '../memory/db/audit.ts';
+import { auditMemory, auditSettingsOf } from '../memory/db/audit.ts';
 import { openMemoryDb } from '../memory/db/open.ts';
 import { dbOf } from '../memory/db/types.ts';
 import { backendOfAgent } from '../subharness/control.ts';
@@ -174,7 +174,7 @@ async function firstPageFacts(deps: ServiceDeps, window: { from: number; to: num
     mirrors: readMemory(deps, mirrorFacts),
     selfreflection: readMemory(deps, selfreflectionFacts),
     standards: readMemory(deps, (db) => standardFacts(db, window)),
-    audit: readMemory(deps, auditMemory),
+    audit: readMemory(deps, (db) => auditMemory(db, auditSettingsOf(deps.config()))),
     analyzer: readMemory(deps, (db) =>
       analyzerFacts(db, window, { config: deps.config(), prompts: readPrompts(deps.rootDir, deps.privateDir) })
     ),

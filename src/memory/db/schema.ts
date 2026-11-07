@@ -17,6 +17,7 @@ import { repairSessionRows } from './session-repair.ts';
 import { migrateSemanticMemory } from './semantic-schema.ts';
 import { migrateMediaStore } from './media-store.ts';
 import { dropCategoryPlaces } from './category-places.ts';
+import { NAMES_SCHEMA, rebuildNames } from './names.ts';
 import { SELF_SOURCE_KINDS } from './source-kinds.ts';
 import { importWakeQueues } from '../migration/wake-import.ts';
 import { renameToSelfreflection, withCurrentNames } from '../migration/selfreflection-names.ts';
@@ -1455,6 +1456,12 @@ function migrateMediaStoreStep(db: Db): void {
   migrateMediaStore(db, 'diary');
 }
 
+/** The name index and its rows from what the database holds. */
+function createNames(db: Db): void {
+  db.exec(NAMES_SCHEMA);
+  rebuildNames(db);
+}
+
 export const MIGRATIONS: Array<Migration> = [
   V1,
   V2,
@@ -1498,6 +1505,8 @@ export const MIGRATIONS: Array<Migration> = [
   'ALTER TABLE model_requests ADD COLUMN blocks JSON;',
   // Version 36: a sidebar grouping is no place, and a room carries no label of one.
   dropCategoryPlaces,
+  // Version 37: the name index of the graph reader (src/memory/db/names.ts), filled from the stored rows.
+  createNames,
 ];
 
 /** Every table schema v8 adds. */

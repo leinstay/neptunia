@@ -27,7 +27,14 @@ const observed = (key: string, kind: 'dm' | 'channel', native: string) => ({
   iface: 'discord',
   authority: 'discord/global',
   native: { kind: 'message', key: native, revision: 1 },
-  place: { authority: 'discord/global', key, kind, conversation: kind === 'dm' ? 'dm' : 'group' },
+  place: {
+    authority: 'discord/global',
+    key,
+    kind,
+    conversation: kind === 'dm' ? 'dm' : 'group',
+    // Slice 3 (9 d): the audit counts an unnamed room, so the room carries its title as a live one does.
+    ...(kind === 'dm' ? {} : { title: 'αίθουσα' }),
+  },
   author: { kind: 'account', key: 'owner' },
   occurredAt: '2026-11-03T09:00:00.000Z',
   observedAt: '2026-11-03T09:00:01.000Z',
@@ -50,6 +57,10 @@ async function withSelfFacts(): Promise<string> {
     });
   const file = path.join(env.dataDir, 'memory.db');
   await env.close();
+  // Slice 3 (9 d): the audit counts an unnamed interface; the name arrives with the interface's hello, absent here.
+  const db = new DatabaseSync(file);
+  db.exec("UPDATE interfaces SET name = 'Discord' WHERE id = 'discord'");
+  db.close();
   return file;
 }
 

@@ -56,6 +56,13 @@ const HELD_MAX = 1000;
 /** How many unacknowledged events the outbox holds. */
 const OUTBOX_CAPACITY = 1000;
 
+/** What Discord is called and what it calls its kinds of place and a direct chat, for `hello.names`. */
+const DISCORD_NAMES = {
+  interface: 'Discord',
+  nouns: { server: 'server', channel: 'channel', thread: 'thread' },
+  dm: 'DM',
+};
+
 /** What an interaction for a slash command of this bot is answered: the interface registers none. */
 const NO_COMMAND_REPLY = 'This command no longer exists.';
 
@@ -189,6 +196,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
         self: { id: selfId() ?? '', name: displayNameIn(guildNow(), client.user) },
         community: communityOf(guildIds[0] ?? ''),
         communities: guildIds.map(communityOf),
+        names: DISCORD_NAMES,
         // What the gateway reports depends on the intents it was asked for: presences only with that intent.
         capabilities: { ...discord.port.capabilities(), presence: intents.presences === true },
         resume: null,

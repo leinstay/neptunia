@@ -28,4 +28,6 @@ Shortening is allowed. When the cap forces you to choose, keep the points with t
 
 A grievance stays as long as its evidence supports it. It does not expand into a judgment of the whole person. A reconciliation is yours to record when you see it happen. Time passing alone does not soften a grievance.
 
+For a place, `purpose` is what people come to it for, `tone` is how people talk there, and `topics` are the subjects that keep coming back. For a top place these cover the place as a whole across its rooms, and for a direct chat they cover what the two of you use the chat for, how you talk in it and what you talk about.
+
 Write as you write notes for yourself. Plain words, short sentences, first person when that fits. Say what something is. No sentence restating the one before it. No heavy words where a plain one works. No trailing clause commenting on what a fact means. No dash between clauses. Members as `<@id>`.
