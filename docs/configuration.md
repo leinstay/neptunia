@@ -422,11 +422,11 @@ The engine proxy is described in [Proxy](proxy.md).
 | `selfreflection.enabled` | boolean | `true` | Whether her selfreflection posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs | `src/behavior/selfreflection.ts` |
 | `selfreflection.schedule` | string, null | `null` | Exact UTC slots of the selfreflection, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day | `src/behavior/selfreflection.ts` |
 | `selfreflection.placeId` | string | `""` | The seed of the selfreflection's first mirror: schema v15 makes this channel's place a `selfreflection` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it | `src/memory/db/service.ts` |
-| `selfreflection.world` | boolean | `false` | Include `prompts/world.md` as a `<world>` block in selfreflection requests | `src/behavior/prompt.ts` |
 | `selfreflection.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/selfreflection.ts` |
 | `selfreflection.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/selfreflection.ts` |
 | `selfreflection.forceWaitMs` | number | `120000` | Milliseconds a forced post waits for a running turn | `src/behavior/selfreflection.ts` |
-| `selfreflection.sceneChars` | number | `400` | Characters of a past picture post's picture description that `<diary>` shows as its scene when the post has no stored plan, cut at a word boundary | `src/turn/request/selfreflection.ts` |
+| `selfreflection.entries` | number | `150` | How many of her newest stored entries `<selfreflection>` shows the planner and the writer, oldest first | `src/turn/request/selfreflection.ts` |
+| `selfreflection.sceneChars` | number | `400` | Characters of a past picture post's picture description that `<selfreflection>` shows as its scene when the post has no stored plan, cut at a word boundary | `src/turn/request/selfreflection.ts` |
 | `selfreflection.loop.maxSteps` | number | `2` | Further requests one selfreflection post makes | `src/turn/settings.ts` |
 | `selfreflection.loop.timeBudgetMs` | number | `600000` | How long calls and follow-ups may run | `src/turn/settings.ts` |
 | `selfreflection.planMaxOutputTokens` | number | `2000` | Max output tokens for the plan request | `src/turn/selfreflection.ts` |

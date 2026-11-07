@@ -25,7 +25,7 @@ export type AudienceChoice = { ok: true; audience: PublicationAudience } | { ok:
 /** The places she can name in `<audience>` (src/memory/db/selfreflection-audience.ts#publicationPlaces). */
 export type KnownPlaces = Readonly<{
   interfaces: ReadonlyArray<string>;
-  places: ReadonlyArray<Readonly<{ id: string; name: string | null; parentId: string | null }>>;
+  places: ReadonlyArray<Readonly<{ id: string; name: string | null; parentId: string | null; iface?: string }>>;
 }>;
 
 export const UNRESTRICTED: PublicationAudience = { kind: 'unrestricted' };

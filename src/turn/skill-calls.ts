@@ -559,8 +559,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         },
       };
     }
-    // A turn that is nowhere has no place of its own: a call that takes a place needs it named.
-    if (draft?.nowhere === true && placeUnnamed(resolved)) {
+    // A turn that is nowhere has no place of its own: a call that takes a place needs it named. A selfreflection post's
+    // picture and voice are kept for its entry, so they need none.
+    if (draft?.nowhere === true && !draft.selfreflection && placeUnnamed(resolved)) {
       log.info('skill: refused', { skill: call.skill, code: CODE.PLACE_REQUIRED, reason: 'nowhere', channel: null });
       return { call, op, envelope, resolved: null, refusal: { code: CODE.PLACE_REQUIRED, reason: 'nowhere:channel' } };
     }

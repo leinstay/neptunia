@@ -1,18 +1,13 @@
 // How a turn ends: runTurn around its attempts, the chain of parts of a message that holds several requests, the facts
-// an addressed turn keeps for her next request, the end hook and the idle notifications, and the `selfreflection` wake's
-// inputs. createTurnRunner (src/behavior/turn.ts) builds it once per runner with createOutcome over its attempt
+// an addressed turn keeps for her next request, the end hook and the idle notifications. createTurnRunner (src/behavior/turn.ts) builds it once per runner with createOutcome over its attempt
 // (runTurnOnce); the runner's facade hands out runTurn and the chain and idle functions.
 
 import type { Conversation } from '../protocol/events.ts';
-import { PERSONA_ID } from '../memory/db/storage-keys.ts';
 import type { PublicationBoundary } from '../tools/publication.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { FactInput } from '../behavior/inner.ts';
-import { wakeInputs } from '../behavior/selfreflection-turn.ts';
-import { portIface } from '../interface/capabilities.ts';
 import { currentRequestMeta, turnOutcome, turnService, withRequestMeta } from '../llm/archive.ts';
 import { withIface } from '../memory/db/current-iface.ts';
-import type { Reads } from '../interface/reads.ts';
 import { errorCodeOf } from '../llm/openrouter.ts';
 import { log } from '../log.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
@@ -22,8 +17,6 @@ import type { JournalNotes } from './journal-notes.ts';
 import { inCommunity } from './routing.ts';
 import { askedFor } from './triggers.ts';
 import type { TriggerKind } from './triggers.ts';
-
-type WakeArgs = Parameters<typeof wakeInputs>[0];
 
 /** The conversation a turn ran in, as the interface described it: its id, and whether it is in a community. */
 type EndChannel = Pick<Conversation, 'id' | 'rootId'>;
@@ -46,7 +39,7 @@ export type TurnParams = {
   memoryContext?: Context;
   /** A restriction inherited from deferred work: the turn may publish only to its origin. */
   publicationBoundary?: PublicationBoundary;
-  /** The conversation of the turn; null for a turn that runs nowhere, absent for the selfreflection wake. */
+  /** The conversation of the turn; null or absent for a turn that runs nowhere (a service, a selfreflection post). */
   conversation?: ConversationRef | null;
   placeId?: string | null;
   mode?: TurnMode | null;
@@ -123,12 +116,7 @@ type Chain = {
 
 /** What createOutcome reads: the dependencies, the attempt and the functions of the other topic modules it calls. */
 export type OutcomeContext = {
-  hot: { readonly config: WakeArgs['config'] };
   store: { state: { data: { paused?: unknown } } };
-  iface: unknown;
-  ifaceReads: Reads;
-  selfIdOf: () => string;
-  getSelfName: (placeId: string) => string;
   clock: () => number;
   busy: { size: number; delete: (placeId: string) => unknown };
   facts: Facts['facts'];
@@ -171,21 +159,7 @@ export type Outcome = {
 
 // health: allow function-length until 2027-04-01 -- the outcome shares the runner state of src/behavior/turn.ts, moved whole in stage 5b
 export function createOutcome(ctx: OutcomeContext): Outcome {
-  const {
-    hot,
-    store,
-    iface,
-    ifaceReads,
-    selfIdOf,
-    getSelfName,
-    clock,
-    busy,
-    facts,
-    factsOfKind,
-    keepFact,
-    writeTurnRecords,
-    runTurnOnce,
-  } = ctx;
+  const { store, clock, busy, facts, factsOfKind, keepFact, writeTurnRecords, runTurnOnce } = ctx;
 
   // placeId -> the chain of parts running there (runChain): its author, its parts, the part
   // in progress (`next`, 1-based; 0 before the first) and the messages folded into a later part.
@@ -196,9 +170,9 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
 
   /**
    * @param {object} params
-   * @param {import('../protocol/adapter.ts').ConversationRef|null} [params.conversation]  absent for the selfreflection
-   *   wake, null for a turn that runs nowhere (a service, an intention without a place): no history, the journal's turn
-   *   under herself, a tool that takes a place needs it named
+   * @param {import('../protocol/adapter.ts').ConversationRef|null} [params.conversation]  null for a turn that runs
+   *   nowhere (a service, an intention without a place, a selfreflection post, for which absent means null too): no
+   *   history, the journal's turn under herself, a tool that takes a place needs it named
    * @param {{ turnId: string, attemptId?: number }|null} [params.journalTurn]  The journal's turn and attempt (runTurn passes them on).
    * @param {string} [params.placeId]  The community of a private chat; a server channel uses its own; a private chat with neither has none.
    * @param {'reply'|'interject'|'elsewhere'|'selfreflection'|'inner'} params.mode  'inner' is an inner turn
@@ -250,13 +224,12 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * @param {(() => boolean)|null} [params.stillDue]  Asked right before anything is posted (dry
    *   run included); false ends the turn `not-now` (`reason: 'answered-meanwhile'`), nothing posted.
    * @param {{ kind?: string|null, topic?: string|null, forced?: boolean }|null} [params.selfreflection]  With `mode: 'selfreflection'`
-   *   (src/behavior/selfreflection.ts, no trigger; with no `conversation` the selfreflection wake, selfreflectionOf, whose
-   *   conversation and history memory gives): the post is planned first
+   *   (src/behavior/selfreflection.ts, no trigger, nowhere): the post is planned first
    *   (prepareSelfreflection: the plan request, then the search it asks for; `kind` forces the kind --
    *   a picture kind while the post may not carry a picture is refused before any request,
    *   `{ outcome: 'refused', reason: 'pictures', limit }`, selfreflectionPictureGate --
    *   `topic` is the owner's topic for the planner and the plan), then composed with `prompts.selfreflection` as
-   *   the task and the `<world>`, `<diary>`, `<plan>` and `<found>` blocks. Its speech keeps only
+   *   the task and the frame's selfreflection blocks (src/turn/request/frame.ts). Its speech keeps only
    *   `<msg>` (every reply attribute dropped, links removed, at most `selfreflection.maxMessages` (3), a
    *   message left empty not posted) and `<skip/>`; no reaction and no media pick. It runs on the
    *   step engine with `selfreflection.loop`: only her `draw.create` calls run (any other is refused
@@ -310,8 +283,9 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     const attempts: Array<unknown> = [];
     // What every attempt posted in reply to and why it ended (runTurnOnce), for the end hook.
     const ends: Ends = { replyTargets: [], reasons: [], factsShown: null, info: null };
-    const wake = params?.mode === 'selfreflection' && !params.conversation ? await selfreflectionOf() : {};
-    const tracked = { ...params, ...wake, journalAttempts: attempts, turnEnds: ends };
+    // A selfreflection post is nowhere: one called with no conversation rides in none.
+    const nowhere = params?.mode === 'selfreflection' && !params.conversation ? { conversation: null } : {};
+    const tracked = { ...params, ...nowhere, journalAttempts: attempts, turnEnds: ends };
     let result: TurnResult | undefined;
     let thrown: unknown = null;
     try {
@@ -329,26 +303,6 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
       if (outcome !== null) await request?.noteOutcome?.(outcome);
       noteTurnEnd(params, result, ends);
     }
-  }
-
-  /**
-   * The `selfreflection` wake (a selfreflection turn with no conversation): the conversation, channel and history memory holds of
-   * her selfreflection's place (selfreflection-turn.ts#wakeInputs). Only it is awaited before a turn takes its attention.
-   */
-  async function selfreflectionOf(): Promise<{
-    conversation: ConversationRef;
-    standIn: unknown;
-    reuseHistory: unknown;
-  }> {
-    const { conversation, channel, history } = await wakeInputs({
-      store,
-      conversationInfo: (ref) => ifaceReads.conversationInfo(ref, { audience: true, viewers: [] }),
-      iface: portIface(iface),
-      selfId: selfIdOf(),
-      selfName: getSelfName(PERSONA_ID),
-      config: hot.config,
-    });
-    return { conversation, standIn: channel, reuseHistory: history };
   }
 
   /**

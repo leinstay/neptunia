@@ -1,22 +1,32 @@
-// A selfreflection post's own blocks: the persona's world (`<world>`), its past posts (`<diary>`), the post's `<plan>`, a set
-// post's `<seeds>` and what its search found (`<found>`). buildRequest and buildSelfreflectionPlanRequest
-// (src/behavior/prompt.ts) call them. None of it reaches a request of another mode.
+// A selfreflection request's own parts: the persona's world (`<virtual_world>`), her past entries (`<selfreflection>`), the
+// post's `<plan>`, the planner's `<kinds>` and `<topic>`, the `<seeds>`, the mirrors to choose among
+// (`<publication_places>`) and the audiences she has not heard were refused. buildRequest (src/behavior/prompt.ts) calls
+// `selfreflectionFramedOf` for the planner and the writer on the frame, and `selfreflectionOf` for a request with no frame.
+// None of it reaches a request of another kind.
 
 import { DEFAULT_HISTORY_POSTS, localDayKey, renderSelfreflectionBlock } from '../../behavior/selfreflection.ts';
 import { fill } from '../../format.ts';
 import { refusedAudience } from '../../tools/publication.ts';
+import { kindOfRequest } from './frame.ts';
 import { fillPromptTemplate } from './text.ts';
 import type { KnownPlaces } from '../../tools/publication.ts';
 import type { Labels, Prompts, RequestConfig, RequestInput } from './types.ts';
 
-/** A selfreflection post's plan (src/turn/selfreflection.ts): its kind, its brief, whether it has a picture and the owner's topic. */
-/** A selfreflection post's own input (buildRequest's `input.selfreflection`): the past posts, the plan, the search's find, the seeds. */
+/**
+ * A selfreflection request's own input (buildRequest's `input.selfreflection`): the store's posts (their refused
+ * audiences), her past entries as memory holds them, the plan, the search's find, the seeds and the mirrors; the planner's
+ * kinds, the owner's topic and the stored facts of the interval, each already rendered.
+ */
 export type SelfreflectionInput = {
   readonly posts?: unknown;
+  readonly entries?: ReadonlyArray<unknown> | null;
   readonly plan?: SelfreflectionPlan | null;
   readonly found?: unknown;
   readonly seeds?: unknown;
   readonly publicationPlaces?: KnownPlaces;
+  readonly kinds?: string;
+  readonly topic?: string;
+  readonly facts?: string;
 };
 
 export type SelfreflectionPlan = {
@@ -27,18 +37,10 @@ export type SelfreflectionPlan = {
 };
 
 /**
- * The `<world>` block's body of a selfreflection request (the plan and the post):
- * prompts/world.md with `{{name}}` filled, only while `selfreflection.world === true`
- * in `config` (the live config, read at the moment of use); '' with the
- * switch off or the file missing or blank. Never part of an ordinary turn:
- * only the selfreflection's two requests call it.
+ * The world of a selfreflection request (the plan and the post): prompts/world.md with `{{name}}` filled, '' with the
+ * file missing or blank. Never part of an ordinary turn: only the selfreflection's two requests call it.
  */
-export function worldText(
-  config: Pick<RequestConfig, 'selfreflection'> | null | undefined,
-  prompts: Prompts | null | undefined,
-  selfName: string
-): string {
-  if (config?.selfreflection?.world !== true) return '';
+export function worldText(_config: unknown, prompts: Prompts | null | undefined, selfName: string): string {
   const text = prompts?.world;
   if (typeof text !== 'string' || !text.trim()) return '';
   return fillPromptTemplate(text, { name: selfName }).trim();
@@ -62,38 +64,47 @@ export function selfreflectionHistoryLines(
   return intro && lines[0] === intro ? lines.slice(1) : lines;
 }
 
-/** The `<plan>` block's body: `labels.selfreflection.plan`, then the plan as one JSON line (`topic` only
- * when the owner gave one); '' without a plan. */
+/**
+ * The `<plan>` body: `labels.selfreflection.plan`, then one line per field of the plan: `planKind` and `planBrief` with
+ * `{value}`, `planPicture` or `planNoPicture`, and `planTopic` with `{value}` when the owner gave one. '' without a plan.
+ */
 export function planBody(plan: SelfreflectionPlan | null | undefined, labels: Labels): string {
   if (!plan || typeof plan !== 'object') return '';
   const kind = typeof plan.kind === 'string' ? plan.kind : '';
   const brief = typeof plan.brief === 'string' ? plan.brief : '';
   const topic = typeof plan.topic === 'string' ? plan.topic : '';
   if (!kind && !brief && !topic) return '';
-  const line = { kind, brief, picture: plan.picture === true, ...(topic ? { topic } : {}) };
-  return [labels.selfreflection?.plan, JSON.stringify(line)].filter(Boolean).join('\n');
+  const words = labels.selfreflection ?? {};
+  const line = (template: string | undefined, value: string): string =>
+    template && value ? fill(template, { value }) : '';
+  return [
+    words.plan,
+    line(words.planKind, kind),
+    line(words.planBrief, brief),
+    plan.picture === true ? words.planPicture : words.planNoPicture,
+    line(words.planTopic, topic),
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 /**
- * The `<publication_places>` block's body: `labels.selfreflection.publicationPlaces`, which carries the `<audience>` output
- * contract, then one `interface:<iface>` line per interface and one `place:<place id> <name>` line per place, a place
- * indented under its parent. '' when memory knows no place, so she has nothing to name.
+ * The `<publication_places>` body: `labels.selfreflection.publicationPlaces`, which carries the `<audience>` output
+ * contract, then one `labels.selfreflection.publicationPlace` line per mirror with its `place:<place id>` token, its name
+ * and its `interface:<iface>` token. '' with fewer than two mirrors, where there is nothing to choose among.
  */
 export function publicationPlacesBody(known: KnownPlaces | undefined, labels: Labels): string {
-  if (!known || known.places.length === 0) return '';
-  const ids = new Set(known.places.map((place) => place.id));
-  const under = Map.groupBy(known.places, (place) =>
-    place.parentId !== null && ids.has(place.parentId) ? place.parentId : null
-  );
-  const lines = (parent: string | null, depth: number): Array<string> =>
-    (under.get(parent) ?? []).flatMap((place) => [
-      `${'  '.repeat(depth)}place:${place.id}${place.name ? ` ${place.name}` : ''}`,
-      ...lines(place.id, depth + 1),
-    ]);
+  if (!known || known.places.length < 2) return '';
+  const line = labels.selfreflection?.publicationPlace ?? '{place} {name}';
   return [
     labels.selfreflection?.publicationPlaces,
-    ...known.interfaces.map((iface) => `interface:${iface}`),
-    ...lines(null, 0),
+    ...known.places.map((place) =>
+      fill(line, {
+        place: `place:${place.id}`,
+        name: place.name ?? '',
+        iface: `interface:${place.iface ?? place.id.slice(0, Math.max(0, place.id.indexOf(':')))}`,
+      }).trim()
+    ),
   ]
     .filter(Boolean)
     .join('\n');
@@ -145,14 +156,12 @@ export type SelfreflectionParts = {
 };
 
 /**
- * A selfreflection post (mode `selfreflection`): the persona's world (under `selfreflection.world`), its past posts, the post's plan and what
- * its search found. None of it in any other mode.
+ * A selfreflection post (mode `selfreflection`) on a request with no frame: the persona's world, its past posts, the
+ * post's plan and what its search found. None of it in any other mode.
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function selfreflectionOf(given: RequestInput & { labels: Labels }): SelfreflectionParts {
   const { config, prompts, mode, selfName, labels } = given;
-  // A selfreflection post (mode `selfreflection`): the persona's world (under `selfreflection.world`), its past posts, the
-  // post's plan and what its search found. None of it in any other mode.
   const selfreflectionMode = mode === 'selfreflection';
   const selfreflectionInput =
     selfreflectionMode && given.selfreflection && typeof given.selfreflection === 'object'
@@ -194,5 +203,74 @@ export function selfreflectionOf(given: RequestInput & { labels: Labels }): Self
     publicationPlacesText,
     audienceRefusedText,
     selfreflectionParts,
+  };
+}
+
+/** What a selfreflection request on the frame adds: `<virtual_world>`, her past entries and the other parts of `<inner>`. */
+export type SelfreflectionFramed = {
+  /** The body of `<virtual_world>`, '' when world.md is empty. */
+  world: string;
+  /** The first line of `<selfreflection>` and one line per past entry, oldest first; the budget cuts the oldest. */
+  intro: string;
+  entries: Array<string>;
+  /** The parts of `<inner>` after `<selfreflection>`, each its tag and body, in order. The budget cuts none. */
+  parts: Array<{ tag: string; text: string }>;
+  /** What she has not heard of: the audiences refused on her past entries, for `<feedback>`. */
+  feedback: string;
+};
+
+/** How many past entries `<selfreflection>` shows by default. */
+export const DEFAULT_ENTRIES_SHOWN = 150;
+
+/** How many past entries `<selfreflection>` shows, the setting read now (docs/configuration.md, `selfreflection`). */
+export function entriesShownOf(config: { selfreflection?: { entries?: unknown } | null } | null | undefined): number {
+  const value = config?.selfreflection?.entries;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : DEFAULT_ENTRIES_SHOWN;
+}
+
+const textPart = (tag: string, text: unknown): Array<{ tag: string; text: string }> =>
+  typeof text === 'string' && text.trim() !== '' ? [{ tag, text: text.trim() }] : [];
+
+/**
+ * The parts of the planner's or the writer's request on the frame, null on any other kind. Both carry the world and
+ * her past entries. The planner adds `<kinds>`, `<seeds>`, `<topic>` and `<stored_facts>`, what it chooses from. The writer
+ * adds `<plan>` with what the search found, a set post's `<seeds>`, `<publication_places>` and the refused audiences.
+ */
+export function selfreflectionFramedOf(given: RequestInput & { labels: Labels }): SelfreflectionFramed | null {
+  const { config, prompts, selfName, labels } = given;
+  const kind = kindOfRequest(given);
+  if (kind !== 'selfreflection' && kind !== 'selfreflection_plan') return null;
+  const input = given.selfreflection ?? {};
+  const shown = renderSelfreflectionBlock(input.entries ?? [], labels, {
+    timezone: config.bot?.timezone,
+    max: (input.entries ?? []).length,
+    sceneChars: config.selfreflection?.sceneChars,
+  });
+  const lines = shown ? shown.split('\n') : [];
+  const intro = labels.selfreflection?.intro ?? '';
+  const entries = intro && lines[0] === intro ? lines.slice(1) : lines;
+  const found =
+    typeof input.found === 'string' && input.found.trim()
+      ? [labels.selfreflection?.found, input.found.trim()].filter(Boolean).join('\n')
+      : '';
+  const parts =
+    kind === 'selfreflection_plan'
+      ? [
+          ...textPart('kinds', input.kinds),
+          ...textPart('seeds', input.seeds),
+          ...textPart('topic', input.topic),
+          ...textPart('stored_facts', input.facts),
+        ]
+      : [
+          ...textPart('plan', [planBody(input.plan, labels), found].filter(Boolean).join('\n')),
+          ...textPart('seeds', input.seeds),
+          ...textPart('publication_places', publicationPlacesBody(input.publicationPlaces, labels)),
+        ];
+  return {
+    world: worldText(config, prompts, selfName),
+    intro: entries.length > 0 ? intro : '',
+    entries,
+    parts,
+    feedback: kind === 'selfreflection' ? audienceRefusedBody(input.posts, labels, config.bot?.timezone) : '',
   };
 }

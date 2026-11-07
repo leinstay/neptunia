@@ -101,12 +101,16 @@ const KIND_OF_WAKE: Readonly<Record<WakeKind, TurnKind>> = Object.freeze({
 
 const isWakeKind = (value: string): value is WakeKind => Object.hasOwn(KIND_OF_WAKE, value);
 
+/** The mode of the selfreflection planner's request, which runs inside a selfreflection turn before its writer. */
+export const PLANNER_MODE = 'selfreflection-planner';
+
 /**
  * The kind of a turn from the fields the callers pass. `reply`, `interject` and `elsewhere` give a reply, and
  * an errand's trigger on any of them gives `errand_result`.
  */
 export function turnKindOf(mode: string, triggerKind: string | null, wakeKind: string | null): TurnKind {
   if (mode === 'selfreflection') return 'selfreflection';
+  if (mode === PLANNER_MODE) return 'selfreflection_plan';
   if (mode === 'inner') {
     if (wakeKind !== null && isWakeKind(wakeKind)) return KIND_OF_WAKE[wakeKind];
     return triggerKind === 'errand' ? 'errand_result' : 'intention';
@@ -249,10 +253,7 @@ export function frameOf(input: FrameInput): Frame {
   };
 }
 
-/**
- * The kinds whose request is the frame's: its tags in its order, filtered by `blocks`. The selfreflection planner and
- * writer keep the old emission.
- */
+/** The kinds whose request is the frame's: its tags in its order, filtered by `blocks`. Every kind is. */
 const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>([
   'reply',
   'errand_result',
@@ -260,6 +261,8 @@ const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>([
   'selfimprovement',
   'intention',
   'feedback',
+  'selfreflection_plan',
+  'selfreflection',
 ]);
 
 /** Whether a request built with `frame` is the frame's own (`<memory>`, `<recall>`, `<meanwhile>` and the rest). */
@@ -267,7 +270,7 @@ export const framedRequest = (frame: Frame | null | undefined): frame is Frame =
   frame !== null && frame !== undefined && FRAMED_KINDS.has(frame.kind);
 
 /**
- * Whether a turn of `mode` will build the frame's request, known before its frame is: every turn but a selfreflection
- * post and one with a `source` (a routed or noticed call), so the pulls and the elsewhere pick serve only those.
+ * Whether a turn will build the frame's request, known before its frame is: every turn but one with a `source` (a
+ * routed or noticed call), so the pulls, the neighbours and the elsewhere pick serve only those.
  */
-export const framedTurn = (mode: string, source: unknown): boolean => !source && mode !== 'selfreflection';
+export const framedTurn = (_mode: string, source: unknown): boolean => !source;
