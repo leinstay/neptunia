@@ -4,7 +4,7 @@
 // builds it once per runner with createPulls over the runner's pull state; the attempt calls its functions.
 
 import { markSeen, stampPings } from '../behavior/elsewhere.ts';
-import { captionPulled, checkPull, fetchPull } from '../behavior/pull-fetch.ts';
+import { checkPull, fetchPull } from '../behavior/pull-fetch.ts';
 import type { PulledChannel, createPullViews } from '../behavior/pull-fetch.ts';
 import { pullSettings, pullTargets } from '../behavior/pull.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
@@ -77,10 +77,6 @@ export type PullArgs = {
 
 export type Pulls = {
   pullChannels: (args: PullArgs) => Promise<{ pulled: Array<PulledChannel>; sourceSkip: string | null }>;
-  captionAll: (
-    pulled: Array<PulledChannel>,
-    at: { placeId: string | null; config: PullsConfig; destination: { id: string } }
-  ) => Promise<Array<PulledChannel>>;
   withSeenBefore: (pulled: Array<PulledChannel>, destinationId: string, at: number) => Array<PulledChannel>;
   markPulledSeen: (shown: ReadonlyArray<{ placeId: string; newestTs: number }>) => void;
   noteSpokeSaw: (
@@ -400,27 +396,6 @@ export function createPulls(ctx: PullsContext): Pulls {
   }
 
   /**
-   * Fresh captions (src/behavior/pull-fetch.ts#captionPulled) for channels
-   * pulled before a chooser, once the turn is certain to run; only with
-   * features.mediaDescriptions on and a describer. Never rejects: a channel
-   * whose captions fail keeps the cached ones (`pull: captions failed`).
-   */
-  function captionAll(
-    pulled: Array<PulledChannel>,
-    { placeId, config, destination }: { placeId: string | null; config: PullsConfig; destination: { id: string } }
-  ): Promise<Array<PulledChannel>> {
-    if (pulled.length === 0 || !describer) return Promise.resolve(pulled);
-    return Promise.all(
-      pulled.map((entry) =>
-        captionPulled(entry, { describer, placeId, config, destination }).catch((err: unknown) => {
-          log.warn('pull: captions failed', { channel: destination.id, source: entry.placeId, error: err });
-          return entry;
-        })
-      )
-    );
-  }
-
-  /**
    * The pulled records with the last view of each shown in `destinationId`
    * (pullViews, within `context.pull.seenTtlMinutes` read now) as `seenBefore`,
    * new objects; a record without one is passed as it is. buildRequest reads
@@ -524,5 +499,5 @@ export function createPulls(ctx: PullsContext): Pulls {
       log.info('elsewhere: marked', { source: placeId, message: messageId, status });
   }
 
-  return { pullChannels, captionAll, withSeenBefore, markPulledSeen, noteSpokeSaw, stampShownCalls };
+  return { pullChannels, withSeenBefore, markPulledSeen, noteSpokeSaw, stampShownCalls };
 }

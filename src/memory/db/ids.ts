@@ -34,6 +34,19 @@ export const topPlaceSpelled = (iface: unknown, nativeId: unknown): string => `$
 export const channelPlaceId = (iface: unknown, placeId: unknown): string => `${text(iface)}:channel:${text(placeId)}`;
 export const dmPlaceId = (iface: unknown, nativeId: unknown): string => `${text(iface)}:dm:${text(nativeId)}`;
 
+const PLACE_ID_RE = /^([a-z][\w-]*):(channel|dm|thread):(.+)$/;
+
+/**
+ * The interface, the kind and the native id of a spelled conversation place (`<iface>:channel:<id>`,
+ * `<iface>:dm:<partner>`, `<iface>:thread:<id>`), null for any other shape: a root, a hashed id, a bare id.
+ */
+export function placeIdParts(id: string): { iface: string; kind: 'channel' | 'dm' | 'thread'; native: string } | null {
+  const match = PLACE_ID_RE.exec(id);
+  if (!match) return null;
+  const [, iface = '', kind = '', native = ''] = match;
+  return kind === 'channel' || kind === 'dm' || kind === 'thread' ? { iface, kind, native } : null;
+}
+
 const LEGACY_NATIVE_RE = new RegExp(`^(?:person:${LEGACY_IFACE}:|${LEGACY_IFACE}:(?:[a-z_]+:)?)(.+)$`);
 
 /** The native id inside a legacy person, account or place id (the legacy spellings); null when the id has another shape. */

@@ -234,7 +234,6 @@ export type IntentionService = {
   attending: () => Array<Intention>;
   attendToday: (id: unknown) => { day: string; wakes: number } | null;
   countAttendWake: (id: unknown) => Moved;
-  markExpiredShown: (id: unknown) => Moved;
   store: () => IntentionStore | null;
 };
 

@@ -15,8 +15,6 @@
 // (`attend`, model.js) is set and changed through the same calls (`attend`, `people`, `settle`,
 // `perDay`; a due time or a recurrence on it is refused) and carries the day's wake counter the
 // scheduler bumps (`countAttendWake`) and reads (`attendToday`, the local day of `bot.timezone`).
-// An expired one is told to her once, in her next review's `<wake>`: the scheduler lists the
-// expired records not yet marked and marks them (`markExpiredShown`) once that review turn ran.
 // Settings are read at the moment of use (`intentions.*`, `wakes.attention.*`,
 // `features.intentions`); logs carry ids and codes, never text.
 
@@ -42,7 +40,6 @@ import {
   openFromHeartbeat,
   HEARTBEAT_ORIGIN,
   intentionSettings,
-  markExpiredShown as markShown,
   isOpen,
   newIntentionId,
   pinEvery,
@@ -653,19 +650,6 @@ export function createIntentionService({
       });
   }
 
-  /**
-   * Expired intention `id` marked as shown to her (`expiredShownAt`, src/intentions/model.ts#markExpiredShown):
-   * the scheduler calls it once the review turn that listed it ran. An unexpired, unknown or already
-   * marked record changes nothing. `{ ok, intention, changed }` or `{ ok: false, code }`.
-   */
-  function markExpiredShown(id: unknown): Moved {
-    const store = storeOf();
-    if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
-    const result = store.update(id, (current) => markShown(current, now()));
-    if (result.ok && result.changed) log.info('intentions: expired shown', { id: idText(id) });
-    return result;
-  }
-
   /** The place's open attentions (`pending` records with an `attend` place), the expired swept first. */
   function attending(): Array<Intention> {
     return list({ all: true }).filter((record) => record.status === 'pending' && isAttend(record));
@@ -720,7 +704,6 @@ export function createIntentionService({
     attending,
     attendToday,
     countAttendWake,
-    markExpiredShown,
     store: storeOf,
   };
 }

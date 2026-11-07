@@ -34,7 +34,7 @@ export const DIRECT_CALLS: ReadonlySet<string | null | undefined> = new Set([
 ]);
 
 /**
- * Whether nobody waits for a turn of `triggerKind` -- an unprompted one (no trigger kind: a noticed comment, a forced
+ * Whether nobody waits for a turn of `triggerKind` -- an unprompted one (no trigger kind: a noticed comment, an inner
  * turn) or an overheard line -- so that it prepares without a deadline or a bar.
  */
 export function unhurried(triggerKind: TriggerKind | null | undefined): boolean {

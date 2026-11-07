@@ -35,8 +35,7 @@ export type BuildRequestInput = {
   config: RequestConfig;
   prompts: Prompts;
   calibrator: Parameters<typeof sectionCost>[0];
-  mode: 'reply' | 'interject' | 'initiate' | 'elsewhere' | 'inner';
-  forced?: boolean;
+  mode: 'reply' | 'interject' | 'elsewhere' | 'inner';
   now: number;
   selfName: string;
   selfId?: string | null;
@@ -121,6 +120,8 @@ export type BuildRequestInput = {
   errands?: { list?: string; result?: string } | null;
   intentions?: string | null;
   wake?: string | null;
+  awake?: string | null;
+  serviceInner?: { work: string; board: string } | null;
   wakeKind?: string | null;
   places?: string | null;
   previousThink?: { text: string; relation: 'same' | 'earlier'; ageMs?: number } | null;

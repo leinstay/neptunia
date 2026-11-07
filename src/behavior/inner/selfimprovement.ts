@@ -8,7 +8,6 @@
 // `committedSelfimprovement` once the turn committed. `scheduledWake` and `failureCause` are the rules, pure. The facts
 // carry the newest watcher report the source gives for the wake's time (src/watcher/news.ts).
 
-import { wakeRetrieval } from './facts.ts';
 import { evaluateSchedule, formatSchedule } from '../../service/schedule.ts';
 import type { ServiceSchedule } from '../../service/schedule.ts';
 import { DAY_MS, utcDay } from '../../time.ts';
@@ -155,7 +154,6 @@ export async function selfimprovementFacts(life: InnerContext, at: number): Prom
       landed: landed ?? [],
       watcher: guarded(() => sources.watcher?.(at), null),
       log,
-      ...wakeRetrieval(life, 'improvement'),
     });
   } catch (error) {
     log.warn('inner: selfimprovement view failed', { code: errorCode(error) });

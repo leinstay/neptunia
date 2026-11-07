@@ -22,6 +22,10 @@ type PersonaJournal = Required<Omit<InnerJournal, 'read'>> & {
   read(query: { day: string; kind?: string; n: number }): unknown;
 };
 
+/** Whether a journal line is an action of a skill call. */
+const isSkillLine = (line: unknown): boolean =>
+  typeof line === 'object' && line !== null && Reflect.get(line, 'name') === 'skill';
+
 /**
  * Where a line of a wake belongs: a DM's place when the partner is known; `sealed` under its own spelled place when no
  * stored place holds the conversation as a group's, so it reaches neither the groups nor the journal every wake reads.
@@ -72,7 +76,19 @@ export function personaRecord(
 export function personaJournal(journal: Journal, places: () => Array<string>, store: PlaceStore = {}): PersonaJournal {
   return {
     inner: (fields) => journal.inner(PERSONA_ID, fields),
-    read: (query) => journal.read(PERSONA_ID, query),
+    read: async (query) => {
+      const own: unknown = await journal.read(PERSONA_ID, query);
+      if (query.kind !== 'action') return own;
+      // Every skill action of a turn is journaled in the journal of the turn's place, so a read of her actions takes the
+      // skill lines of every place she serves as well as her own.
+      const found: Array<unknown> = Array.isArray(own) ? [...(own as Array<unknown>)] : [];
+      for (const placeId of new Set(places())) {
+        if (placeId === PERSONA_ID) continue;
+        const read: unknown = await journal.read(placeId, query);
+        if (Array.isArray(read)) found.push(...(read as Array<unknown>).filter((line) => isSkillLine(line)));
+      }
+      return found;
+    },
     op(base) {
       const home = homeOf(store, base.placeId, base.privateAccountId);
       if (home.place === null) return journal.op(PERSONA_ID, base);

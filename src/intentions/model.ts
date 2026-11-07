@@ -898,50 +898,6 @@ export function expireAt(record: Intention, now: number): Moved {
   return transition(record, 'expired', { now, by: 'engine', code: CODE.EXPIRED });
 }
 
-/** When `record` expired: its last history entry's `at` (the expiry's), else `updatedAt`. */
-export function expiredAtOf(record: Intention): number {
-  const last = Array.isArray(record?.history) ? record.history.at(-1) : null;
-  return isFiniteNumber(last?.at) ? last.at : (record?.updatedAt ?? 0);
-}
-
-/**
- * The expired intentions of hers she has not been told about yet, for the `<wake>` of her next
- * review (docs/inner-life.md): `expired` records without `expiredShownAt`, a candidate
- * (provenance `candidate`: never hers) left out, the newest expiry first, at most `max` as
- * `items` (`{ id, purpose, at }`, `at` the expiry's moment, expiredAtOf) and the rest counted
- * in `more`. Pure.
- */
-export function expiredToShow(
-  records: unknown,
-  { max = 5 }: { max?: number } = {}
-): { items: Array<{ id: string; purpose: string; at: number }>; more: number } {
-  const list = listOf(records)
-    .filter((record): record is Intention => {
-      const given = objOf(record);
-      return (
-        given.status === 'expired' &&
-        !isFiniteNumber(given.expiredShownAt) &&
-        objOf(given.provenance).kind !== 'candidate'
-      );
-    })
-    .sort((a, b) => expiredAtOf(b) - expiredAtOf(a));
-  const cap = Math.max(0, Math.floor(max));
-  return {
-    items: list.slice(0, cap).map((record) => ({ id: record.id, purpose: record.purpose, at: expiredAtOf(record) })),
-    more: Math.max(0, list.length - cap),
-  };
-}
-
-/**
- * `record` marked as shown to her after its expiry (`expiredShownAt: now`), a store `update`
- * move: an expired record not yet marked changes; any other answers unchanged.
- */
-export function markExpiredShown(record: Intention, now: number): Moved {
-  if (record?.status !== 'expired' || isFiniteNumber(record.expiredShownAt))
-    return { ok: true, intention: record, changed: false };
-  return { ok: true, intention: { ...record, expiredShownAt: now }, changed: true };
-}
-
 /**
  * Recurring `record`'s current occurrence closed and the next one set: `pending` (a wait closed on
  * the way, its errand kept as `lastErrandId`), `dueAt` the next occurrence after `now`

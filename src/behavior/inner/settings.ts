@@ -8,10 +8,9 @@ import { isClockTime } from '../../time.ts';
 import { isPositive, objOf } from '../../tools/types.ts';
 import type { InnerSettings } from './types.ts';
 
-/** The wake kinds, as the `<wake>` block names them. */
+/** The wake kinds. */
 export const WAKE_KINDS = Object.freeze([
   'intention_due',
-  'review',
   'errand_deadline',
   'attend',
   'feedback',
@@ -30,28 +29,18 @@ const IMPROVEMENT_WAKE_DEFAULTS = Object.freeze({
 
 /**
  * The inner life's measures: production values of the config cut of 2026-10-31, and the fallbacks of the keys the
- * live config holds (`mode`, `tickSeconds`, `review.historyDays`, `caps.perChain`, `loop`, `retry` and `factsKeepDays`
- * of `wakes`; the heartbeat's switch, clock, history and token budget of `heartbeat`; the selfimprovement wake's
- * switch and clock of `selfimprovement`).
+ * live config holds (`mode`, `tickSeconds`, `caps.perChain`, `loop`, `retry` and `factsKeepDays` of `wakes`; the
+ * heartbeat's switch and clock of `heartbeat`; the selfimprovement wake's switch and clock of `selfimprovement`).
  */
 export const INNER_DEFAULTS = Object.freeze({
   mode: 'shadow',
   tickSeconds: 60,
   queueMax: 20,
   chatMessages: 30,
-  review: Object.freeze({ historyDays: 14, expiredMax: 5 }),
   heartbeat: Object.freeze({
     enabled: true,
     schedule: Object.freeze({ kind: 'every', everyMinutes: 180 }),
     jitterMinutes: 60,
-    people: 8,
-    filteredShown: 10,
-    closedShown: 10,
-    historyDays: 14,
-    placesHours: 6,
-    placesShown: 6,
-    placeLines: 2,
-    maxTokens: 2500,
     maxOpen: 3,
     maxRecurring: 1,
     dueJitterMinutes: 20,
@@ -129,7 +118,6 @@ export function innerSettings(config: unknown): InnerSettings {
   const raw = objOf(objOf(config).wakes);
   const caps = objOf(raw.caps);
   const heartbeat = objOf(objOf(config).heartbeat);
-  const review = objOf(raw.review);
   const loop = objOf(raw.loop);
   const retry = objOf(raw.retry);
   const improvement = objOf(objOf(config).selfimprovement);
@@ -139,23 +127,11 @@ export function innerSettings(config: unknown): InnerSettings {
     tickSeconds: Math.max(1, count(raw.tickSeconds, d.tickSeconds)),
     queueMax: d.queueMax,
     chatMessages: d.chatMessages,
-    review: {
-      historyDays: Math.max(1, count(review.historyDays, d.review.historyDays)),
-      expiredMax: d.review.expiredMax,
-    },
     heartbeat: {
       enabled: heartbeat.enabled !== false,
       schedule: heartbeatSchedule(heartbeat),
       jitterMinutes: count(heartbeat.jitterMinutes, d.heartbeat.jitterMinutes),
       dueJitterMinutes: d.heartbeat.dueJitterMinutes,
-      people: d.heartbeat.people,
-      filteredShown: d.heartbeat.filteredShown,
-      closedShown: d.heartbeat.closedShown,
-      historyDays: Math.max(1, count(heartbeat.historyDays, d.heartbeat.historyDays)),
-      placesHours: d.heartbeat.placesHours,
-      placesShown: d.heartbeat.placesShown,
-      placeLines: d.heartbeat.placeLines,
-      maxTokens: Math.floor(count(heartbeat.maxTokens, d.heartbeat.maxTokens)),
       maxOpen: d.heartbeat.maxOpen,
       maxRecurring: d.heartbeat.maxRecurring,
     },

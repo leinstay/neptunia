@@ -6,26 +6,24 @@
 // and sent once the completion committed (deliveries.ts). The start's recovery (recovery.ts) runs first. An errand an
 // inner turn handed off has its cost counted here when it ends. The tick (src/behavior/inner.ts) calls `drain`.
 
-import { PERSONA_ID } from '../../memory/db/storage-keys.ts';
 import { isPublicationBoundary } from '../../tools/publication.ts';
 import type { PublicationBoundary } from '../../tools/publication.ts';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { onLog } from '../../log.ts';
 import { HOUR_MS, MINUTE_MS, zonedDay, zonedEpoch } from '../../time.ts';
-import { HEARTBEAT_ORIGIN, attendCounter, expiredToShow, nextOccurrence } from '../../intentions/model.ts';
+import { HEARTBEAT_ORIGIN, attendCounter, nextOccurrence } from '../../intentions/model.ts';
 import type { Intention } from '../../intentions/types.ts';
 import { errorCodeOf } from '../../llm/openrouter.ts';
 import { CODE } from '../../tools/codes.ts';
 import { WAKE_POLICY_VERSION } from '../../tools/access.ts';
 import { errorCode as codeOf, isFiniteNumber, listOf, objOf } from '../../tools/types.ts';
 import type { ConversationInfo } from '../../protocol/adapter.ts';
-import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import { deliveriesOf, holdFor, sendDeliveries } from './deliveries.ts';
 import { asText, factPayload, feedbackFacts, idOrNull, markFactsTold, pendingFactsOf } from './facts.ts';
-import { heartbeatFacts, logHeartbeatOutcome } from './heartbeat.ts';
+import { logHeartbeatOutcome } from './heartbeat.ts';
 import { committedSelfimprovement, selfimprovementFacts } from './selfimprovement.ts';
 import type { SelfimprovementFacts } from '../selfimprovement-view.ts';
-import { attendFactsOf, placeNameOf, placesInWakeOf } from './places.ts';
+import { attendFactsOf } from './places.ts';
 import {
   contextOf,
   inScope,
@@ -45,7 +43,6 @@ import {
   wakeWrite,
 } from './queue.ts';
 import { startUp } from './recovery.ts';
-import { channelNames, recentChannels } from './review.ts';
 import { FACTS_SHOWN_MAX, innerSettings } from './settings.ts';
 import { claimTurn, finishTurn } from './wake-store.ts';
 import type { TurnClaim } from './wake-store.ts';
@@ -236,90 +233,46 @@ export function createCostMeter({
   };
 }
 
-/** The conversation a turn runs in, or why there is none. */
+/**
+ * Where a turn runs. `channel` is its conversation, null when it runs nowhere: a heartbeat, a selfimprovement wake, an
+ * intention or a feedback wake with no place, and a due intention whose place cannot be reached, with that place's code
+ * in `placeFailure`. `drop` with `why` when the wakes cannot run at all: an attention whose place is gone.
+ */
 export type ConversationFound = {
   channel: ConversationInfo | null;
   why: string | null;
-  /** What the turn runner is handed beside it: for the heartbeat with no interface, its stand-in and no history. */
-  turn: { standIn?: ConversationInfo; reuseHistory?: Array<never> };
+  drop: boolean;
+  placeFailure: string | null;
 };
 
-/** Whether an interface answers the conversation reads (one is connected); reads that cannot say are taken as one. */
-const interfaceAnswers = (reads: InnerContext['reads']): boolean =>
-  reads !== null && (typeof reads.offers !== 'function' || reads.offers('conversation.info'));
-
 /**
- * The stand-in the heartbeat's turn runs in when no interface is connected: no conversation of an interface's, the
- * served community, every permission, so her posting tools reach the port and fail there with their own codes (the
- * selfreflection wake's stand-in, src/behavior/selfreflection-turn.ts#wakeInputs, is built the same way).
- */
-function heartbeatStandIn(iface: string): ConversationInfo {
-  return {
-    iface,
-    id: 'heartbeat',
-    kind: 'channel',
-    name: 'heartbeat',
-    rootId: PERSONA_ID,
-    topic: null,
-    permissions: { read: true, send: true, attach: true, react: false },
-    owner: null,
-    lastMessageAt: null,
-    voice: false,
-    public: true,
-  };
-}
-
-/**
- * The conversation an inner turn of `group` runs in, or null. An attend wake's place may be one
- * she can only read: she listens there and posts, if at all, through a call elsewhere. The heartbeat with no
- * interface connected runs in its stand-in (heartbeatStandIn) with no history, and so does a selfimprovement wake with
- * no channel she was lately active in.
+ * The conversation an inner turn of `group` runs in, chosen by the cause of the wake (currentChannelOf). An attend
+ * wake's place may be one she can only read: she listens there and posts, if at all, through a call elsewhere. Any
+ * other place must be one she may write in, and a direct chat only while `private.enabled` is true. A place a due
+ * intention named that fails does not lose the intention and picks no other room: the turn runs nowhere with the code.
  */
 export async function conversationFor(life: InnerContext, group: ReadonlyArray<Wake>): Promise<ConversationFound> {
   const { hot, reads, iface } = life;
+  const nowhere = (placeFailure: string | null = null): ConversationFound => ({
+    channel: null,
+    why: null,
+    drop: false,
+    placeFailure,
+  });
   const anchor = group.find((wake) => !channelless(wake)) ?? null;
-  if (!anchor && group.some((wake) => wake.kind === 'heartbeat') && !interfaceAnswers(reads)) {
-    const standIn = heartbeatStandIn(iface());
-    return { channel: standIn, why: null, turn: { standIn, reuseHistory: [] } };
-  }
-  const candidates: ReadonlyArray<string | null> = anchor ? [anchor.placeId] : await recentChannels(life);
-  // The selfimprovement wake works on the board and speaks to nobody: with no channel she was lately active in, it runs
-  // in the stand-in too.
-  if (!anchor && candidates.length === 0 && group.some((wake) => wake.kind === 'selfimprovement')) {
-    const standIn = heartbeatStandIn(iface());
-    return { channel: standIn, why: null, turn: { standIn, reuseHistory: [] } };
-  }
-  const readOnlyOk = anchor?.kind === 'attend';
-  // Why the first candidate failed (`dm-off`, `not-writable`, `unavailable`); a review with no channel at all: `no-review-channel`.
-  let why: string = anchor ? 'unavailable' : 'no-review-channel';
-  let first = true;
-  for (const conversationId of candidates) {
-    if (!conversationId) continue;
-    const fail = (code: string) => {
-      if (first) why = code;
-      first = false;
-    };
-    // The conversation as the interface describes it now: unknown to it, it is unavailable.
-    const found = reads
-      ? await reads.conversationInfo({ iface: iface(), conversationId: String(conversationId) })
-      : null;
-    const channel = found?.conversation ?? null;
-    if (!channel) {
-      fail(CODE.UNAVAILABLE);
-      continue;
-    }
-    // A private chat only while private chats are on (private.enabled, read now).
-    if (channel.rootId === null && objOf(objOf(hot.config).private).enabled !== true) {
-      fail(CODE.DM_OFF);
-      continue;
-    }
-    if (channel.rootId !== null && !readOnlyOk && !channel.permissions.send) {
-      fail(CODE.NOT_WRITABLE);
-      continue;
-    }
-    return { channel, why: null, turn: {} };
-  }
-  return { channel: null, why, turn: {} };
+  const placeId = currentChannelOf(group).placeId;
+  if (!anchor || !placeId) return nowhere();
+  const readOnlyOk = anchor.kind === 'attend';
+  const failed = (code: string): ConversationFound =>
+    readOnlyOk ? { channel: null, why: code, drop: true, placeFailure: null } : nowhere(code);
+  // The conversation as the interface describes it now: unknown to it, it is unavailable.
+  const found = reads ? await reads.conversationInfo({ iface: iface(), conversationId: placeId }) : null;
+  const channel = found?.conversation ?? null;
+  if (!channel) return failed(CODE.UNAVAILABLE);
+  // A private chat only while private chats are on (private.enabled, read now).
+  if (channel.rootId === null && objOf(objOf(hot.config).private).enabled !== true) return failed(CODE.DM_OFF);
+  if (channel.rootId !== null && !readOnlyOk && !channel.permissions.send) return failed(CODE.NOT_WRITABLE);
+  return { channel, why: null, drop: false, placeFailure: null };
 }
 
 /** What a turn of a group ended in: its outcome, its calls and the intentions they named. */
@@ -379,38 +332,22 @@ function openRecordOf(life: InnerContext, id: string): Intention | null {
   return intention && ['pending', 'waiting'].includes(intention.status) ? intention : null;
 }
 
-/** What `<wake>` of a group is built from, beside the group itself. */
+/** What the wake of a group's turn is built from, beside the group itself. */
 type WakeView = {
   anchor: Wake;
   at: number;
   timezone: string;
-  settings: InnerSettings;
   records: Array<Intention>;
   notes: Record<string, string>;
-  expired: ReturnType<typeof expiredToShow> | null;
-  isReview: boolean;
   shownFacts: Array<Fact>;
-  heartbeat: HeartbeatFacts | null;
   selfimprovement: SelfimprovementFacts | null;
-  here: CurrentChannel;
+  /** The code of the place a due intention named and could not be reached in, null when it was or named none. */
+  placeFailure: string | null;
 };
 
-/** The `<wake>` facts of an inner turn for `group` (src/behavior/wake.ts words them). */
+/** The wake an inner turn of `group` carries for its request (src/behavior/wake.ts and selfimprovement-text.ts word it). */
 function wakeInfoOf(life: InnerContext, group: ReadonlyArray<Wake>, view: WakeView): WakeInfo {
-  const {
-    anchor,
-    at,
-    timezone,
-    settings,
-    records,
-    notes,
-    expired,
-    isReview,
-    shownFacts,
-    heartbeat,
-    selfimprovement,
-    here,
-  } = view;
+  const { anchor, at, timezone, records, notes, shownFacts, selfimprovement, placeFailure } = view;
   const state = stateOf(life);
   // The facts a feedback wake carries that are still untold.
   const factsOfWake = (wake: Wake): Array<FactPayload> =>
@@ -419,7 +356,6 @@ function wakeInfoOf(life: InnerContext, group: ReadonlyArray<Wake>, view: WakeVi
       : Array.isArray(wake.facts)
         ? wake.facts
         : [];
-  const placesInWake = settings.attention.placesInWake;
   return {
     kind: anchor.kind,
     items: group.map((wake) => ({
@@ -441,21 +377,11 @@ function wakeInfoOf(life: InnerContext, group: ReadonlyArray<Wake>, view: WakeVi
     ...(shownFacts.length > 0 ? { facts: shownFacts.map(factPayload) } : {}),
     intentions: records,
     ...(Object.keys(notes).length > 0 ? { notes } : {}),
-    ...(expired && expired.items.length > 0 ? { expired } : {}),
     now: at,
     timezone,
-    channels: isReview ? channelNames(life) : [],
-    // The places page: where life is, beyond this conversation (0 keeps it to her places.list skill).
-    ...(placesInWake > 0 ? { places: placesInWakeOf(life, settings) } : {}),
     chainId: anchor.chainId,
-    ...(heartbeat ? { heartbeat } : {}),
     ...(selfimprovement ? { selfimprovement } : {}),
-    // The current channel: where her output tags act, and why it is that one (`<wake>`).
-    here: selfimprovement
-      ? undefined
-      : here.placeId
-        ? { channel: placeNameOf(life, here.placeId), why: here.why }
-        : null,
+    ...(placeFailure ? { placeFailure } : {}),
   };
 }
 
@@ -465,7 +391,6 @@ async function kindFacts(
   group: ReadonlyArray<Wake>,
   when: { settings: InnerSettings; at: number }
 ): Promise<{
-  heartbeat: HeartbeatFacts | null;
   selfimprovement: SelfimprovementFacts | null;
   improvementWake: Wake | null;
   improvementReadAt: number;
@@ -474,9 +399,6 @@ async function kindFacts(
   // Taken before the read: a row made during it shows again in the next wake and is never lost.
   const improvementReadAt = life.now();
   return {
-    heartbeat: group.some((wake) => wake.kind === 'heartbeat')
-      ? await heartbeatFacts(life, when.settings, when.at)
-      : null,
     selfimprovement: improvementWake ? await selfimprovementFacts(life, when.at) : null,
     improvementWake,
     improvementReadAt,
@@ -551,13 +473,13 @@ function endWakeRun(life: InnerContext, turnKey: string, actions: Array<unknown>
 async function beginTurn(
   life: InnerContext,
   group: ReadonlyArray<Wake>,
-  { at, channel, kind }: { at: number; channel: ConversationInfo; kind: string }
+  { at, channel, kind }: { at: number; channel: ConversationInfo | null; kind: string }
 ): Promise<TurnClaim | null> {
   const where = {
-    placeId: String(channel.id),
-    privateChat: channel.rootId === null,
-    privateAccountId: channel.rootId !== null ? null : idOrNull(channel.partnerId),
-    iface: channel.iface,
+    placeId: channel ? String(channel.id) : null,
+    privateChat: channel?.rootId === null,
+    privateAccountId: channel && channel.rootId === null ? idOrNull(channel.partnerId) : null,
+    iface: channel?.iface ?? life.iface(),
   };
   for (const wake of group) life.running.add(wake.id);
   const claim = await claimTurn(life, group, { at, turn: { kind, ...where } });
@@ -725,17 +647,17 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   const anchor = group.find((wake) => !channelless(wake)) ?? group[0];
   const chainId = anchor.chainId;
 
-  const { channel, why: noChannelWhy, turn } = await conversationFor(life, group);
-  if (!channel) {
-    // The day's review rides with a server wake only for company: when that wake's conversation is gone the
-    // review stays queued and goes on alone at the next drain.
-    const dropping = anchor.kind === 'review' ? group : group.filter((wake) => wake.kind !== 'review');
-    markHandled(life, state, dropping, 'no-channel', at, { why: noChannelWhy });
+  const { channel, why: noChannelWhy, drop, placeFailure } = await conversationFor(life, group);
+  if (drop) {
+    markHandled(life, state, group, 'no-channel', at, { why: noChannelWhy });
     save(life);
-    log.info('inner: no conversation', { wakes: dropping.length });
-    for (const wake of dropping) note(life, { event: 'no-channel', wake: wakeFields(wake) });
-    return { dropped: dropping.length };
+    log.info('inner: no conversation', { wakes: group.length });
+    for (const wake of group) note(life, { event: 'no-channel', wake: wakeFields(wake) });
+    return { dropped: group.length };
   }
+  // Where the turn is: its conversation's id and whether it is a private chat; none for a turn that is nowhere.
+  const where = channel ? String(channel.id) : null;
+  const privateChat = channel?.rootId === null;
 
   const records = [...new Set(group.flatMap((wake) => wake.intentionIds))]
     .map(openOf)
@@ -747,22 +669,15 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     const next = nextOccurrence(record, at, timezone);
     if (!isFiniteNumber(next) || next > record.expiresAt) notes[record.id] = 'last-occurrence';
   }
-  // A review tells her once which intentions of hers expired untouched: the expired records not yet
-  // shown (never a candidate), the newest first, `review.expiredMax` of them; marked shown once the turn ran.
-  const isReview = group.some((wake) => wake.kind === 'review');
-  const expired =
-    isReview && intentions
-      ? expiredToShow(intentions.store?.()?.list?.() ?? [], { max: settings.review.expiredMax })
-      : null;
   const shadow = settings.mode !== 'live';
   const hold = holdFor(life, shadow);
   const current = currentChannelOf(group, records);
   // The facts a feedback wake carries, and the other facts this conversation may be shown (not told yet).
   const ownFactIds = new Set(group.filter((wake) => wake.kind === 'feedback').flatMap((wake) => listOf(wake.factIds)));
   const shownFacts = pendingFactsOf(state, {
-    ...contextOf(life, String(channel.id)),
-    placeId: String(channel.id),
-    privateChat: channel.rootId === null,
+    ...contextOf(life, where),
+    placeId: where,
+    privateChat,
     anywhere: true,
   })
     .filter((fact) => !ownFactIds.has(fact.id))
@@ -772,14 +687,11 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     anchor,
     at,
     timezone,
-    settings,
     records,
     notes,
-    expired,
-    isReview,
     shownFacts,
-    ...kinds,
-    here: current,
+    selfimprovement: kinds.selfimprovement,
+    placeFailure,
   });
   // The turn's wakes are claimed before it runs: a process that dies in it leaves them running (recovery.ts).
   const claimed = await beginTurn(life, group, { at, channel, kind: anchor.kind });
@@ -788,21 +700,20 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   const shownIds = [...shownFacts.map((fact) => fact.id), ...[...ownFactIds].map(asText)];
   startWakeRun(life, { turnKey, anchor, group, at, records }, shownIds, {
     placeId: current.placeId ?? null,
-    heartbeat: Boolean(kinds.heartbeat),
+    heartbeat: group.some((wake) => wake.kind === 'heartbeat'),
   });
   let measured: Measured;
   try {
     measured = await costs.run(() =>
       turns.runTurn({
-        conversation: { iface: channel.iface, conversationId: channel.id },
-        ...turn,
+        conversation: channel ? { iface: channel.iface, conversationId: channel.id } : null,
         ...restrictedBy(records),
         mode: 'inner',
         triggerKind: 'inner',
         journalTurn: { turnId: turnKey, attemptId: attempt },
         inner: {
           wake: info,
-          currentChannel: current.placeId,
+          currentChannel: channel ? current.placeId : null,
           shadow,
           mayAct: () => mayAct(life),
           hold,
@@ -836,7 +747,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   const errorCode =
     outcome === 'error' ? (typeof result.reason === 'string' && result.reason ? result.reason : CODE.ERROR) : null;
   after.turns.push({
-    ...contextOf(life, String(channel.id)),
+    ...contextOf(life, where),
     at: ended,
     chainId,
     usd: measured.usd,
@@ -884,7 +795,6 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
       wakes: group.map(wakeFields),
     });
   } else {
-    if (isReview && after.review) after.review = { ...after.review, done: true };
     if (retry?.action === 'drop') {
       markHandled(life, after, group, 'provider', ended, { why: errorCode });
       log.warn('inner: turn failed, wakes dropped', {
@@ -941,8 +851,8 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   const keptFacts = feedback.map((fact) =>
     addFact(life, after, {
       at: ended,
-      placeId: String(channel.id),
-      privateChat: channel.rootId === null,
+      placeId: where,
+      privateChat,
       ...fact,
     })
   );
@@ -960,17 +870,13 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
       intentionIds: [],
       chainId,
       dueAt: ended,
-      placeId: String(channel.id),
-      privateChat: channel.rootId === null,
-      here: current.placeId,
+      placeId: where,
+      privateChat,
+      here: channel ? current.placeId : null,
       turnId: turnId ? asText(turnId) : null,
       facts: feedback,
       factIds: keptFacts.map((fact) => fact.id),
     });
-  }
-  // The expired intentions the review listed were read: a turn that erred shows them again next time.
-  if (expired && outcome !== 'error' && typeof intentions?.markExpiredShown === 'function') {
-    for (const item of expired.items) intentions.markExpiredShown(item.id);
   }
   const actions = inner.actions ?? [];
   const calls = listOf(actions).map(objOf);
@@ -987,7 +893,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   });
   note(life, {
     event: 'turn',
-    placeId: channel.rootId !== null ? String(channel.id) : null,
+    placeId: privateChat ? null : where,
     outcome,
     reason: result.reason ?? null,
     shadow,

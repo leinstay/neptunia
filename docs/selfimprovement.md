@@ -4,7 +4,7 @@ A task filed on the [board](board.md) starts development by itself. The thinker 
 
 ## The wake and the worker
 
-The selfimprovement wake is a persona turn that decides: she files one task or skips, and the wake ends. [Inner life](inner-life.md#heartbeat-and-selfimprovement) describes what it accepts. Neither the wake nor the persona starts an agent. `neptunia worker development` does, in `src/development/worker.ts`, whenever the board has a task for it. It runs apart from the wake, so `neptunia services selfimprovement disable` leaves filed tasks going.
+The selfimprovement wake is a persona turn that decides: she files one task or skips, and the wake ends. [Inner life](inner-life.md#heartbeat-and-selfimprovement) describes what it accepts. Its request is the service list of the turn frame, nowhere, with `prompts/selfimprovement.md` as its task. `<inner>` adds `<work>`, her calls of the window it states by shape, failures by code, repeated chains and unused tools, each line with the ids of its turns, and `<board>`, her tasks and what came back on them. Both are worded by `src/behavior/selfimprovement-text.ts` from the facts `buildSelfimprovementFacts` in `src/behavior/selfimprovement-view.ts` reads out of her journal and the journal of every place she serves. Neither the wake nor the persona starts an agent. `neptunia worker development` does, in `src/development/worker.ts`, whenever the board has a task for it. It runs apart from the wake, so `neptunia services selfimprovement disable` leaves filed tasks going.
 
 The worker stays up and waits for the board's events through the `task.wait` command, so a filed task starts at once and an idle worker sets no clock. While a pull request is watched it also looks at GitHub every `development.lookEveryMs` milliseconds (default `120000`), because a merge there raises no board event.
 
@@ -34,7 +34,7 @@ When green checks in `auto` leave her task waiting, the worker sends her an outb
 
 ## What comes back to her
 
-A question addressed to `persona:self`, a proposal from the thinker, a block and a merged change reach her in her next selfimprovement wake, whoever filed the task. She answers with `task.answer`, and the thinker resumes on its branch with her answer in its brief. On a task she filed, `task.unblock` lets it go on and `task.cancel` stops it, along with its running agents and its dev tasks. The branch and the worktree stay for inspection.
+A question addressed to `persona:self`, a proposal from the thinker, a block and a merged change reach her in `<board>` of her next selfimprovement wake, whoever filed the task. She answers with `task.answer`, and the thinker resumes on its branch with her answer in its brief. On a task she filed, `task.unblock` lets it go on and `task.cancel` stops it, along with its running agents and its dev tasks. The branch and the worktree stay for inspection.
 
 ## Grant her tools
 

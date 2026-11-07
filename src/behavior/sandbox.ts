@@ -138,10 +138,13 @@ const SANDBOX_PLACE = 'sandbox';
  */
 const USER_CACHE_MARKER = Object.freeze({ type: 'ephemeral' });
 
-/** The modes a moment's turn can have (src/behavior/turn.ts#runTurn after `auto` is chosen). */
-const MODES = new Set(['reply', 'interject', 'initiate']);
+/**
+ * The modes a moment's turn can have (src/behavior/turn.ts#runTurn): a reply, or an interjection with no trigger (an
+ * errand's result whose asking message is gone). A recorded `initiate` of the forced turn reads as a reply.
+ */
+const MODES = new Set(['reply', 'interject']);
 /** The modes of a turn nobody asked for: no trigger. */
-const SPONTANEOUS = new Set<unknown>(['interject', 'initiate']);
+const SPONTANEOUS = new Set<unknown>(['interject']);
 /** src/behavior/turn.ts#TriggerKind without `private`: a private chat is never replayed. */
 const KINDS = new Set(['mention', 'reply', 'followUp', 'overheard']);
 
@@ -224,6 +227,8 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
     'no task store: a replay knows no errands of hers, so no <errands> or <errand_result> block (a task-result scenario hands in the one errand whose end opens its turn: `taskResult`)',
   intentions: 'no intention store: a replay knows no intentions of hers, so no <intentions> block',
   wake: 'an inner turn only (scripts/replay.ts --inner runs the live turn runner instead of this sandbox)',
+  awake: 'an inner turn only: no wake, so no reason to be awake in <spatial_awareness>',
+  serviceInner: 'a selfimprovement wake only: no <work> or <board>',
   wakeKind: 'an inner turn only: no wake, so no heartbeat task text',
   places: "no inner life runs here, so no places view: no <places> block (context.places is a live turn's)",
   previousThink:
@@ -260,13 +265,10 @@ function isId(value: Untyped) {
   return typeof value === 'string' && value !== '';
 }
 
-/**
- * A recorded turn mode: `reply`, `interject` or `initiate`; null for anything
- * else. Pure.
- */
-export function momentMode(value: unknown): 'reply' | 'interject' | 'initiate' | null {
-  // MODES holds exactly these three names.
-  return typeof value === 'string' && MODES.has(value) ? (value as 'reply' | 'interject' | 'initiate') : null;
+/** A recorded turn mode: `reply` or `interject`; null for anything else, which the sandbox runs as a reply. Pure. */
+export function momentMode(value: unknown): 'reply' | 'interject' | null {
+  // MODES holds exactly these two names.
+  return typeof value === 'string' && MODES.has(value) ? (value as 'reply' | 'interject') : null;
 }
 
 /**
@@ -277,7 +279,7 @@ export function momentKind(value: unknown): string | null {
   return typeof value === 'string' && KINDS.has(value) ? value : null;
 }
 
-/** Whether `mode` is a turn nobody asked for (`interject`, `initiate`): it has no trigger. Pure. */
+/** Whether `mode` is a turn nobody asked for (`interject`): it has no trigger. Pure. */
 export function isSpontaneous(mode: Untyped): boolean {
   return SPONTANEOUS.has(mode);
 }
@@ -610,7 +612,7 @@ export function liveView({ hot, store, placeId, calibrator }: LiveViewInput): Li
  * and its `triggerKind` the recorded `kind` when it is one a turn has
  * (`momentKind`), else the guess: 'reply' when the trigger replies to a
  * message of the persona in that history, else 'mention'. A spontaneous
- * moment (`mode` `interject` / `initiate`) has neither: trigger and kind are
+ * moment (`mode` `interject`) has neither: trigger and kind are
  * null. Pure.
  * @throws {Error} a missing or empty history, or a trigger by the persona.
  */
@@ -748,8 +750,7 @@ function framedTurn(
  * absent but when a skill scenario's burst hands in the calls still waiting after this one
  * (`queued`, `{ id, text, author? }` each, burstTurns's): then the task labels name them as a
  * live turn names its queued calls (src/behavior/turn.ts#taskInput: the trigger author's own
- * under `labels.task.queued`, another member's under `labels.task.queuedOthers`). Never an
- * owner-forced turn. `<channel_directory>` lists `channelDirectory` (the place's readable text
+ * under `labels.task.queued`, another member's under `labels.task.queuedOthers`). `<channel_directory>` lists `channelDirectory` (the place's readable text
  * channels, src/behavior/turn.ts#channelDirectoryOf, as a live turn passes them) when given, else
  * the view's stored channel map with the turn's channel (sandboxChannels). `taskResult`
  * (a finished task, as src/errands/store.ts keeps one) makes it the turn that errand's end
@@ -815,7 +816,6 @@ export function sandboxRequestInput({
     prompts: view.prompts,
     calibrator: view.calibrator ?? IDENTITY_CALIBRATOR,
     mode: momentMode(situation?.mode) ?? 'reply',
-    forced: false,
     now: at,
     selfName,
     // As a live turn: her own profile is never listed in `<directory>`.
@@ -887,6 +887,8 @@ export function sandboxRequestInput({
     // No intention store (SANDBOX_OMITS): no <intentions> block.
     intentions: null,
     wake: null,
+    awake: null,
+    serviceInner: null,
     wakeKind: null,
     // No places view (SANDBOX_OMITS): no <places> block.
     places: null,

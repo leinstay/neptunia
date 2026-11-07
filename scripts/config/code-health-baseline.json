@@ -1481,16 +1481,13 @@
         "complexity": 47
       },
       "runWeek": {
-        "function-length": 570
+        "function-length": 562
       },
       "runWeek>act": {
         "complexity": 39
       },
       "runWeek>runTurn": {
         "complexity": 29
-      },
-      "runWeek>tickCandidates": {
-        "complexity": 22
       }
     },
     "scripts/lib/labels-catalogue.ts": {
@@ -1633,8 +1630,8 @@
     },
     "src/behavior/inner/drain.ts": {
       "drain": {
-        "complexity": 88,
-        "function-length": 367
+        "complexity": 80,
+        "function-length": 351
       }
     },
     "src/behavior/inner/facts.ts": {
@@ -1644,11 +1641,6 @@
     },
     "src/behavior/inner/places.ts": {
       "refreshPlaces": {
-        "complexity": 22
-      }
-    },
-    "src/behavior/inner/status.ts": {
-      "status": {
         "complexity": 22
       }
     },
@@ -1725,9 +1717,6 @@
     "src/behavior/wake.ts": {
       "feedbackFactText": {
         "complexity": 32
-      },
-      "wakeBlockText": {
-        "complexity": 66
       }
     },
     "src/errands/blocks.ts": {

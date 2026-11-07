@@ -48,7 +48,6 @@ import {
   deadlineWakes,
   innerSettings,
   wakeOfDue,
-  reviewWake,
   POSTING_SKILLS,
 } from '../../src/behavior/inner.ts';
 import { createEventDoor } from '../../src/interface/door.ts';
@@ -220,7 +219,6 @@ export function fixtureConfig(
     wakes: {
       ...life,
       mode,
-      review: { enabled: true, historyDays: 14, ...(life.review ?? {}) },
       caps: { perChain: 3, ...(life.caps ?? {}) },
     },
     // The heartbeat is off in a fixture unless it asks for it: the shipped weeks predate it and count their wakes.
@@ -827,12 +825,6 @@ export async function runWeek({
           intentionId: wake.intentionIds[0],
           seenAt: now,
         });
-    const review = inner.state().review;
-    if (review && Number.isFinite(review.at) && review.at <= now) {
-      const wake = reviewWake(review.day, review.at);
-      if (!dueSeen.has(wake.id))
-        dueSeen.set(wake.id, { id: wake.id, kind: 'review', dueAt: review.at, intentionId: null, seenAt: now });
-    }
   }
 
   /** The moments the next tick may be needed at. */
@@ -852,8 +844,6 @@ export async function runWeek({
       if (newest && newest.ts + record.attend.settle * 1000 > now) out.push(newest.ts + record.attend.settle * 1000);
     }
     const state = inner.state();
-    if (state.review && !state.review.done && Number.isFinite(state.review.at) && state.review.at > now)
-      out.push(state.review.at);
     out.push(zonedEpoch(addDays(dayOf(now), 1), 0, 0, fixture.timezone));
     if (state.queue.length > 0) {
       if (lastDrain?.deferred === 'busy' || lastDrain?.deferred === 'people') out.push(world.busyUntil);

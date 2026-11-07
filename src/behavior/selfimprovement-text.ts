@@ -1,7 +1,7 @@
-// The words of the selfimprovement wake's facts (src/behavior/selfimprovement-view.ts) in `<wake>`: every phrase comes
-// from `labels.wake.selfimprovement`, the facts are data. The block is left out without its header label. Tool names,
-// argument names, codes, counts, ids and the board's own titles and notes are the only content; no line of chat is here.
-// `wakeBlockText` (src/behavior/wake.ts) calls it after the heartbeat's lines.
+// The words of the selfimprovement wake's facts (src/behavior/selfimprovement-view.ts) in `<work>` and `<board>` of
+// `<inner>`: every phrase comes from `labels.wake.selfimprovement`, the facts are data. Both are left out without its
+// header label. Tool names, argument names, codes, counts, ids and the board's own titles and notes are the only
+// content; no line of chat is here. The request step (src/turn/phases/request/build.ts) calls it.
 
 import { fill } from '../format.ts';
 import { oneLine } from '../memory/clamp.ts';
@@ -10,7 +10,7 @@ import type { Obj } from '../tools/types.ts';
 import type { Landed } from '../selfimprovement/landed.ts';
 import type { SelfimprovementFacts, Shape } from './selfimprovement-view.ts';
 
-/** How the `<wake>` words a moment. */
+/** How a moment is worded: a date and a clock. */
 type When = (ts: unknown) => string;
 
 /** The prefix of a failure cause's reason (src/behavior/inner/selfimprovement.ts). */
@@ -163,10 +163,10 @@ function watcherLine(facts: SelfimprovementFacts, l: Obj): string {
 }
 
 /**
- * The lines of the facts: the cause, the window, the shapes, the repeated needs and failed calls, the tools never called, the skills, the proposals, the
- * news and what the watcher's newest report filed (one block under `watcher`, left out without findings or the label).
+ * The lines of `<work>`: the cause, the window from its first day (`{from}`) over `{days}` days, the shapes, the
+ * repeated needs and failed calls, the tools never called and the skills. [] without facts or the header label.
  */
-export function selfimprovementLines(
+export function workLines(
   facts: SelfimprovementFacts | null | undefined,
   labels: unknown,
   when: When,
@@ -177,15 +177,33 @@ export function selfimprovementLines(
   const cause = reason?.startsWith(CAUSE_PREFIX) ? reason.slice(CAUSE_PREFIX.length) : '';
   return [
     cause === '' ? '' : word(l, 'cause', { shape: oneLine(cause) }),
-    fill(l.header, { days: String(facts.days) }),
+    fill(l.header, { days: String(facts.days), from: when(facts.from) }),
     ...shapeLines(facts, l, when),
     ...needLines(facts, l),
     facts.unusedTools.length > 0 ? word(l, 'unused', { tools: facts.unusedTools.join(', ') }) : '',
     ...skillLines(facts, l),
-    ...proposalLines(facts, l),
-    ...newsLines(facts, l),
-    watcherLine(facts, l),
   ].filter((line) => line !== '');
+}
+
+/**
+ * The lines of `<board>`: the proposals she filed, what the board holds for her since the last wake and what the
+ * watcher's newest report filed (one block under `watcher`, left out without findings or the label). [] without facts
+ * or the header label.
+ */
+export function boardLines(facts: SelfimprovementFacts | null | undefined, labels: unknown): Array<string> {
+  const l = objOf(labels);
+  if (!facts || typeof l.header !== 'string' || l.header === '') return [];
+  return [...proposalLines(facts, l), ...newsLines(facts, l), watcherLine(facts, l)].filter((line) => line !== '');
+}
+
+/** The lines of `<work>` then of `<board>`. */
+export function selfimprovementLines(
+  facts: SelfimprovementFacts | null | undefined,
+  labels: unknown,
+  when: When,
+  reason: string | null
+): Array<string> {
+  return [...workLines(facts, labels, when, reason), ...boardLines(facts, labels)];
 }
 
 /** The reason of the selfimprovement item of a wake's items, or null when there is none. */

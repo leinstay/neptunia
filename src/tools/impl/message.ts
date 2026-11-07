@@ -1,11 +1,8 @@
 // Operations: `/nep message create|edit|delete|react`: the persona's own messages and reactions.
-// `message.create` is one operation with two modes, chosen by the server from who acts, never by
-// an argument: when a person runs it, she gets one turn in that channel now, bypassing the
-// schedule -- an answer to the named message, else she reads the channel and joins the
-// conversation or starts a topic herself (src/behavior/spontaneous.ts#force); when she calls it
-// (`context.actor` 'persona', her skills, src/tools/), her own text -- the call's body -- is
-// posted through her interface (src/interface/port.ts, `env.port`), replying to a message when
-// one is named, and a reply notifies the replied author unless they turned pings off. Her text
+// `message.create` is hers alone (`context.actor` 'persona', her skills, src/tools/): her own text -- the call's body --
+// is posted through her interface (src/interface/port.ts, `env.port`), replying to a message when one is named, and a
+// reply notifies the replied author unless they turned pings off. Anyone else is refused: a person asks her to write
+// somewhere, and she does or does not. Her text
 // (a post or an edit) arrives rendered as a `<msg>` of hers (src/tools/executors.ts#executeCall);
 // only the members it mentions (`context.mentionAccountIds`) are notified, under each one's ping
 // state as a turn's messages are (src/turn/mentions.ts#mentionsUnderPings). Edit,
@@ -31,9 +28,8 @@
 import { skillOutputFile } from '../../skills/run.ts';
 import fsp from 'node:fs/promises';
 import { bindPublicationPort, publicationRefusal } from '../publication.ts';
-import { messageRefOf, portAnswer, postingConversation } from './shared.ts';
+import { messageRefOf, portAnswer, postingConversation, postingRef } from './shared.ts';
 import { heldPort } from '../send-hold.ts';
-import { lineOf } from '../../behavior/line-of.ts';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { freshAttachmentUrl, gifPostUrl } from '../../media/gif-post.ts';
 import { CODE } from '../codes.ts';
@@ -64,9 +60,19 @@ function checkedConversation(
   });
 }
 
-/** The conversation `placeId` names, checked for what a post (a reply when `reply`) needs there. */
-function postTarget(env: Env, p: Adapter, context: OpContext, placeId: string | null, reply: boolean): Promise<string> {
-  return checkedConversation(env, p, context, placeId, reply ? 'reply' : 'send');
+/**
+ * The conversation `placeId` names (a conversation of the persona's interface or a place id of any interface), checked
+ * for what a post (a reply when `reply`) needs there.
+ */
+function postTarget(
+  env: Env,
+  p: Adapter,
+  context: OpContext,
+  placeId: string | null,
+  reply: boolean
+): Promise<ConversationRef> {
+  const need = reply ? 'reply' : 'send';
+  return postingRef({ reads: env.reads, store: env.store, iface: p.iface, conversationId: placeId, context, need });
 }
 
 /**
@@ -173,7 +179,7 @@ function pingStates(env: Env, context: OpContext): (accountId: string) => PingSt
 }
 
 const handlers = perEnv((env) => {
-  const { store, spontaneous, turns, assertNotPaused } = env;
+  const { store, assertNotPaused } = env;
   const { reads } = env;
   const port = env.port as Adapter | null | undefined;
   const fetchImpl = typeof env.fetchImpl === 'function' ? env.fetchImpl : fetch;
@@ -252,7 +258,8 @@ const handlers = perEnv((env) => {
     const given = args.placeId ? idText(args.placeId) : null;
     if (given && reply?.placeId && given !== reply.placeId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const conversationId = await postTarget(env, p, context, given ?? reply?.placeId ?? null, reply !== null);
+    const to = await postTarget(env, p, context, given ?? reply?.placeId ?? null, reply !== null);
+    const { conversationId } = to;
     const mentions = mentionsUnderPings({
       users: mentionedUsers(context),
       repliedAuthorId: context?.repliedAuthorId ? idText(context.repliedAuthorId) : null,
@@ -261,11 +268,10 @@ const handlers = perEnv((env) => {
     });
     const entry = gifEntry(env, args);
     const attachment = (await errandFile(env, args, context, conversationId, p)) ?? (await mediaFile(args, context, p));
-    const to = { iface: p.iface, conversationId };
     const content: Content = {
       text,
       ...(attachment ? { attachments: [attachment] } : {}),
-      ...(reply ? { replyTo: { iface: p.iface, conversationId, messageId: reply.messageId } } : {}),
+      ...(reply ? { replyTo: { ...to, messageId: reply.messageId } } : {}),
       mentions,
     };
     let result: Untyped = null;
@@ -325,44 +331,11 @@ const handlers = perEnv((env) => {
     return sent;
   }
 
-  /** One turn of hers in the channel, now, for a person: an answer to the named message, else her own pick. */
-  async function turn(args: Obj, context: OpContext) {
-    const placeId = idText(args.placeId) || env.conversationOf(context);
-    if (!placeId) throw invalid('a channel is required');
-    const p = requirePort();
-    const ref = { iface: p.iface, conversationId: placeId };
-    if ((await needReads(reads).conversationInfo(ref)) === null) throw invalid(`no channel ${placeId}`, CODE.NOT_FOUND);
-    // The person who ran the command is the requester of what she does in that turn.
-    const requester = context.accountId
-      ? { id: context.accountId, roleIds: Array.isArray(context.roleIds) ? context.roleIds.map(idText) : [] }
-      : null;
-    if (!args.replyTo) {
-      const result = await spontaneous.force(ref, null, { requester });
-      return `message create on ${ref.conversationId}: ${JSON.stringify(result) ?? 'ok'}`;
-    }
-    const reply = await messageRefOf(args.replyTo, reads);
-    if (reply.placeId && reply.placeId !== ref.conversationId)
-      throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const fetched = await needReads(reads).fetchMessages(ref, [reply.messageId]);
-    const replied = fetched?.messages[0];
-    const event = replied?.event;
-    if (!event) throw invalid(`no message ${reply.messageId} in ${ref.conversationId}`, CODE.UNKNOWN_MESSAGE);
-    const trigger = lineOf(event);
-    const result = await turns.runTurn({
-      conversation: ref,
-      mode: 'reply',
-      trigger,
-      triggerKind: 'mention',
-      forced: true,
-      ...(requester ? { requester } : {}),
-    });
-    return `message create on ${ref.conversationId}: ${JSON.stringify(result) ?? 'ok'}`;
-  }
-
-  /** `/nep message create [channel] [reply]`: her turn for a person, her own text when she acts. */
+  /** `message.create`: her own text, posted; refused to anyone but her. */
   async function cmdCreate(args: Obj, context: OpContext) {
     assertNotPaused();
-    return context?.actor === 'persona' ? post(args, context, postPort(requirePort(), context)) : turn(args, context);
+    if (context?.actor !== 'persona') throw denied('message.create posts only her own words', CODE.OWNER_ONLY);
+    return post(args, context, postPort(requirePort(), context));
   }
 
   /** The port, or an Error naming what is missing. */

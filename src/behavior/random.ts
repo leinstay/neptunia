@@ -1,7 +1,7 @@
 // The persona's human-looking randomness, in one place: a value drawn from a
 // `[min, max]` config pair (pauses, delays, chances) and how long a person
 // would type a message. Pure: the random source is always injected (`rng`,
-// a () => [0, 1) function), so turns, the spontaneous scheduler and the
+// a () => [0, 1) function), so turns, the inner life and the
 // message pipeline stay deterministic under test.
 
 /**

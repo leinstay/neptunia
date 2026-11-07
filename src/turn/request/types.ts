@@ -115,6 +115,8 @@ export type SpatialLabels = {
   readonly world?: string;
   readonly answers?: string;
   readonly answersOutside?: string;
+  /** The interfaces she runs on, on a turn that is nowhere: `{interfaces}`. */
+  readonly interfaces?: string;
 };
 
 /** The live prompts: the prompt files by name, and the labels. */
@@ -307,7 +309,6 @@ export type RequestInput = {
   readonly prompts: Prompts;
   readonly calibrator: { apply: (rawEstimate: number) => number };
   readonly mode: string;
-  readonly forced: boolean;
   readonly now: number;
   readonly selfName: string;
   readonly selfId?: string | null;
@@ -363,6 +364,10 @@ export type RequestInput = {
   readonly errands?: unknown;
   readonly intentions?: unknown;
   readonly wake?: unknown;
+  /** Why she is awake with nobody's message in front of her, for `<spatial_awareness>` (src/behavior/wake.ts#awakeLines). */
+  readonly awake?: string | null;
+  /** A selfimprovement wake's `<work>` and `<board>` bodies (src/behavior/selfimprovement-text.ts). */
+  readonly serviceInner?: { readonly work: string; readonly board: string } | null;
   readonly wakeKind?: string | null;
   readonly places?: unknown;
   readonly previousThink?: PreviousThink | null;

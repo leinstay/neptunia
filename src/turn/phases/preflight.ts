@@ -3,13 +3,14 @@
 // (src/behavior/turn.ts) calls it before every other phase; what it opens, the later phases use and the attempt's
 // end closes.
 
+import { currentIface } from '../../memory/db/current-iface.ts';
 import { PERSONA_ID } from '../../memory/db/storage-keys.ts';
 import { sharedPlaceOf } from '../../memory/addresses.ts';
 import { currentRequestMeta } from '../../llm/archive.ts';
 import { createPrepLedger } from '../../behavior/turn-parts.ts';
 import type { Ledger } from '../../behavior/turn-parts.ts';
 import { log } from '../../log.ts';
-import type { ConversationInfo } from '../../protocol/adapter.ts';
+import type { ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
 import type { Draft } from '../draft.ts';
 import { journalStartOf } from '../journal.ts';
 import type { JournalStep } from '../lookup.ts';
@@ -45,6 +46,38 @@ function placesRead(
   return placeId === PERSONA_ID ? (store.topPlaces?.() ?? []) : [placeId];
 }
 
+/**
+ * The conversation a turn with none runs in: no interface's, under her own place, so the journal keeps the turn under
+ * herself and the frame finds no place. It is read by nothing: the turn reads no history and a tool that takes a place
+ * needs it named.
+ */
+function nowhereOf(iface: string): ConversationInfo {
+  return {
+    iface,
+    id: PERSONA_ID,
+    kind: 'channel',
+    name: null,
+    rootId: PERSONA_ID,
+    topic: null,
+    permissions: { read: true, send: true, attach: true, react: false },
+    owner: null,
+    lastMessageAt: null,
+    voice: false,
+    public: true,
+  };
+}
+
+/** The conversation of a turn as the interface describes it now: a wake's own stand-in, nowhere with none, or null. */
+async function conversationNow(
+  reads: PhaseContext['ifaceReads'],
+  conversation: ConversationRef | null,
+  standIn: ConversationInfo | null
+): Promise<{ conversation: ConversationInfo } | null> {
+  if (standIn) return { conversation: standIn };
+  if (conversation === null) return { conversation: nowhereOf(currentIface() ?? '') };
+  return reads.conversationInfo(conversation, { audience: true, viewers: [] });
+}
+
 export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: Draft): Promise<Ended | Opened> {
   const { store, busy, ifaceReads, journal, journalOp, journalOn, notifyIdle, settleAuthor, clock } = ctx;
   const {
@@ -74,13 +107,14 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   // The turn a finished errand of her own opens (asked in an inner turn: requester kind
   // `persona`, no person behind it) is her own initiative too: her grants alone decide her calls.
   if (taskResult?.requester?.kind === 'persona' && !taskResult.requester.accountId) draft.ownInitiative = true;
-  // /nep pause: the owner is editing data/ by hand -- no new turn may start (a reply, an interject, an initiate,
-  // or a forced turn) until /nep resume. A turn already in flight when the pause is requested is left to
+  // /nep pause: the owner is editing data/ by hand -- no new turn may start (a reply, an interject, an inner turn)
+  // until /nep resume. A turn already in flight when the pause is requested is left to
   // finish naturally; admin.js's pause handler waits for it via waitIdle() below instead of aborting it here.
   const stateData = store.state.data;
   if (stateData.paused) return { ended: { outcome: 'paused' } };
   // A chain's turn runs under the attention it holds; taken before anything is awaited, so two turns cannot both take it.
-  const attentionId = conversation.conversationId;
+  const attentionId = conversation?.conversationId ?? PERSONA_ID;
+  draft.nowhere = conversation === null;
   if (!owned && !takeAttention(busy, attentionId)) return { ended: { outcome: 'busy' } };
   const letGo = () => {
     if (owned) return;
@@ -88,12 +122,10 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
     notifyIdle();
   };
   // The conversation as the interface describes it now (a wake's own, `standIn`); one it no longer knows ends the turn.
-  const found = standIn
-    ? { conversation: standIn }
-    : await ifaceReads.conversationInfo(conversation, { audience: true, viewers: [] });
+  const found = await conversationNow(ifaceReads, conversation, standIn);
   if (found === null) {
     letGo();
-    log.warn('turn: conversation unavailable', { channel: conversation.conversationId });
+    log.warn('turn: conversation unavailable', { channel: attentionId });
     return { ended: { outcome: 'unavailable' } };
   }
   const channel = found.conversation;

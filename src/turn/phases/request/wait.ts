@@ -58,7 +58,7 @@ export async function waitForPreparation(
   // either (buildRequest maps only the neighbours it is given); counted on the answer's log.
   // A turn on the frame shows no neighbours (`<server>` leaves it), so it fetches none.
   const neighborsStage =
-    isPrivate || framedTurn(finalMode, triggerKind, source)
+    isPrivate || framedTurn(finalMode, source)
       ? null
       : track('neighbors', async () => {
           let hidden = 0;
@@ -78,7 +78,7 @@ export async function waitForPreparation(
   // nothing when there is no episode to offer). Late or failed, the newest are shown.
   // A turn on the frame shows no `<participation>`, so the elsewhere pick is not asked for it.
   const participationShown =
-    participationOn(channel) && finalMode !== 'selfreflection' && !framedTurn(finalMode, triggerKind, source);
+    participationOn(channel) && finalMode !== 'selfreflection' && !framedTurn(finalMode, source);
   const participationAudienceOf = participationShown ? participationAudience(channel, config, snapshot) : null;
   const participationStage = participationAudienceOf
     ? track('participation', (): Promise<Array<unknown>> =>

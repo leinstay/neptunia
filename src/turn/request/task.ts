@@ -1,5 +1,5 @@
 // The task of a turn's request: which prompt file frames it, the trigger's label, where a routed call came from, the
-// room's question, what else the author waits for, the private chat's and the forced turn's additions, and the
+// room's question, what else the author waits for and the private chat's addition, and the
 // check of a follow-up's own task. buildRequest (src/behavior/prompt.ts) and the request phase's facts
 // (src/turn/phases/request/facts.ts) call them.
 
@@ -151,12 +151,11 @@ export type Task = {
 
 /**
  * The task text of a turn: the mode's prompt file, or the overheard, errand, follow-up, heartbeat or selfimprovement file in its place,
- * then the routed call's origin, the room's question, what else the author waits for, the private chat's and the
- * forced turn's additions.
+ * then the routed call's origin, the room's question, what else the author waits for and the private chat's addition.
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function taskOf(given: RequestInput & Base & PulledView): Task {
-  const { prompts, mode, forced, now, selfName, history, trigger, triggerKind, channels, currentChannelId } = given;
+  const { prompts, mode, now, selfName, history, trigger, triggerKind, channels, currentChannelId } = given;
   const { labels, privateChat, chatItems, source, routed, offered, chatTrigger, pulledTriggerId, pulledSets } = given;
   // The trigger's line in another channel (a routed call), when a pulled channel holds it.
   const pulledTrigger =
@@ -192,9 +191,8 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
     turnKind === 'heartbeat' ? prompts.heartbeat : turnKind === 'selfimprovement' ? prompts.selfimprovement : null;
   const ownWakeTask = typeof ownWakeMd === 'string' && ownWakeMd.trim() ? ownWakeMd : null;
   // The turn a finished errand opens with no origin message (asked in an inner turn of hers, or
-  // the message is gone) has its own task text (prompts['errand-result']) INSTEAD of the mode's:
-  // interject.md would frame her own errand's end as a conversation to stay out of. Missing or
-  // blank, the mode's text applies (degraded).
+  // the message is gone) has its own task text (prompts['errand-result']) instead of the mode's. Missing or blank, the
+  // mode's text applies.
   const errandMd = prompts['errand-result'];
   const errandTask =
     turnKind === 'errand_result' && !trigger && typeof errandMd === 'string' && errandMd.trim() ? errandMd : null;
@@ -226,13 +224,6 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
       overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? prompts[mode] ?? '',
       taskValues
     );
-    // Owner-forced turn (`/nep interject`/`/nep initiate`): tell the model
-    // `<skip/>` is not the expected outcome this time -- optional, missing
-    // prompts.forced (an older/undeployed labels layer) leaves the task as-is.
-    const forcedText =
-      forced && typeof prompts.forced === 'string' && prompts.forced.trim()
-        ? fillPromptTemplate(prompts.forced, taskValues)
-        : '';
     // Private chat: prompts.private follows the mode prompt; a missing file adds nothing.
     const privateText =
       privateChat && typeof prompts.private === 'string' && prompts.private.trim()
@@ -244,7 +235,7 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
       routed && sourceChannel && callItem && here && labels.elsewhere?.called
         ? fill(labels.elsewhere.called, { channel: sourceChannel.name, destination: here })
         : '';
-    return [baseTask, calledText, tasksText, privateText, forcedText].filter(Boolean).join('\n\n');
+    return [baseTask, calledText, tasksText, privateText].filter(Boolean).join('\n\n');
   };
   // Fitted as if the call's line is shown: the pulled block keeps it whenever the request has
   // room for it (see fitPulledChannel); checked once the budget is spent.

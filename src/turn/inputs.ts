@@ -39,7 +39,8 @@ type InputsLabels = { locale?: string; [key: string]: unknown } | null | undefin
 type InputsPort = { iface: string };
 
 /** What a memory read's execution context is issued for: a private chat's partner, or a group's destination. */
-type MemorySpec = { kind: 'dm'; person: string; place?: string } | { kind: 'group'; destination: string | null };
+type MemorySpec =
+  { kind: 'dm'; person: string; place?: string } | { kind: 'group'; destination: string | null } | { kind: 'internal' };
 
 /** The errands service (src/errands/service.ts), as far as `<errands>` lists from it. */
 type InputsErrands = {
@@ -73,6 +74,7 @@ export type InputsContext = {
 /** What an attempt's draft holds that the inputs read and write. */
 type InputsDraft = {
   memoryContext?: unknown;
+  nowhere?: boolean;
   privateAccountId?: string | null;
   requesterGroups?: Array<string>;
 };
@@ -101,7 +103,8 @@ export type Inputs = {
   errandsInputFor: (
     args: InputArgs & { taskResult: ErrandRecord | null | undefined }
   ) => { list: string; result: string } | null;
-  intentionsInputFor: (args: InputArgs & { snapshot?: Snapshot | null }) => string;
+  intentionsInputFor: (args: InputArgs & { snapshot?: Snapshot | null; due?: ReadonlyArray<string> }) => string;
+  intentionRefsFor: () => { texts: Array<string>; places: Array<string> };
   placesInputFor: (args: { placeId: string; config: InputsConfig; labels: InputsLabels }) => string;
 };
 
@@ -111,7 +114,8 @@ export function createInputs(ctx: InputsContext): Inputs {
   /**
    * The one execution context of an attempt's memory reads (`memoryContext`): issued the first time a read needs it
    * (a memory search, the request's record) and kept on the draft, so recall and the turn's read record carry one id.
-   * A private chat reads as a DM of its partner, anything else as the interface's group. Null without the dependency
+   * A turn that runs nowhere reads as herself (`internal`), a private chat as a DM of its partner, anything else as the
+   * interface's group. Null without the dependency
    * or the draft, for a private chat whose partner is unknown, or when issuing fails (never a turn's failure).
    */
   function turnContextOf(
@@ -123,6 +127,11 @@ export function createInputs(ctx: InputsContext): Inputs {
     if (typeof memoryContext !== 'function') return null;
     let ctx: unknown = null;
     try {
+      if (draft.nowhere === true) {
+        ctx = memoryContext({ kind: 'internal' }) ?? null;
+        draft.memoryContext = ctx;
+        return ctx;
+      }
       const isPrivate = !inCommunity(channel);
       const channelIface = portIface(channel) || portIface(port);
       const partner = isPrivate ? (draft.privateAccountId ?? null) : null;
@@ -246,6 +255,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     config,
     labels,
     now,
+    due = [],
   }: Parameters<Inputs['intentionsInputFor']>[0]): string {
     if (!intentions) return '';
     let shown: unknown = [];
@@ -267,7 +277,29 @@ export function createInputs(ctx: InputsContext): Inputs {
       nameOf,
       now,
       expiryNoticeDays: intentionSettings(config).expiryNoticeDays,
+      due,
     });
+  }
+
+  /**
+   * What her open intentions refer to, for the seeds of a service's `<memory>`: their purposes (a line's identity in one
+   * names that line) and the places they begin in, as `<intentions>` of a turn outside a private chat lists them. Nothing
+   * without the service or when its view fails.
+   */
+  function intentionRefsFor(): { texts: Array<string>; places: Array<string> } {
+    let shown: unknown = [];
+    try {
+      shown = intentions?.view({ privateChannelId: null }) ?? [];
+    } catch (err) {
+      log.warn('turn: intentions view failed', { channel: null, error: err });
+    }
+    const records = (Array.isArray(shown) ? (shown as Array<unknown>) : []).map((one) =>
+      one && typeof one === 'object' ? (one as { purpose?: unknown; destination?: unknown }) : {}
+    );
+    return {
+      texts: records.map((one) => one.purpose).filter((text): text is string => typeof text === 'string'),
+      places: records.map((one) => one.destination).filter((id): id is string => typeof id === 'string' && id !== ''),
+    };
   }
 
   /**
@@ -295,6 +327,7 @@ export function createInputs(ctx: InputsContext): Inputs {
     checkEffect,
     errandsInputFor,
     intentionsInputFor,
+    intentionRefsFor,
     placesInputFor,
   };
 }

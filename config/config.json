@@ -137,6 +137,7 @@
     },
     "memory": {
       "windowMessages": 100,
+      "serviceMessages": 100,
       "maxHops": 2,
       "maxNodesRead": 2000,
       "budgetTokens": 10000,
@@ -485,9 +486,6 @@
   "wakes": {
     "mode": "shadow",
     "tickSeconds": 60,
-    "review": {
-      "historyDays": 14
-    },
     "caps": {
       "perChain": 3
     },
@@ -507,8 +505,6 @@
     "enabled": true,
     "schedule": "every 3h",
     "jitterMinutes": 60,
-    "historyDays": 14,
-    "maxTokens": 2500,
     "tools": "*",
     "maxActs": null,
     "maxTasks": null,

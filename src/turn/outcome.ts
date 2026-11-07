@@ -39,18 +39,23 @@ type EndTrigger = {
 } | null;
 
 /** What a turn was asked to do, as its end reads it; the attempt reads the rest. */
+/** The modes a turn runs in. */
+export type TurnMode = 'reply' | 'interject' | 'elsewhere' | 'inner' | 'selfreflection';
+
 export type TurnParams = {
   memoryContext?: Context;
   /** A restriction inherited from deferred work: the turn may publish only to its origin. */
   publicationBoundary?: PublicationBoundary;
-  conversation?: ConversationRef;
+  /** The conversation of the turn; null for a turn that runs nowhere, absent for the selfreflection wake. */
+  conversation?: ConversationRef | null;
   placeId?: string | null;
-  mode?: string | null;
+  mode?: TurnMode | null;
   trigger?: EndTrigger;
   triggerKind?: TriggerKind | null;
   source?: unknown;
   added?: ReadonlyArray<unknown> | null;
-  chooseMode?: ((history: Array<object>, now: number, context: { pulled: Array<object> }) => string | null) | null;
+  /** No turn is forced: she starts a conversation through her own `message.create`. */
+  forced?: never;
   [key: string]: unknown;
 };
 
@@ -191,16 +196,17 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
 
   /**
    * @param {object} params
-   * @param {import('../protocol/adapter.ts').ConversationRef} [params.conversation]  absent for the selfreflection wake
+   * @param {import('../protocol/adapter.ts').ConversationRef|null} [params.conversation]  absent for the selfreflection
+   *   wake, null for a turn that runs nowhere (a service, an intention without a place): no history, the journal's turn
+   *   under herself, a tool that takes a place needs it named
    * @param {{ turnId: string, attemptId?: number }|null} [params.journalTurn]  The journal's turn and attempt (runTurn passes them on).
    * @param {string} [params.placeId]  The community of a private chat; a server channel uses its own; a private chat with neither has none.
-   * @param {'reply'|'interject'|'initiate'|'auto'|'selfreflection'|'inner'} params.mode  'auto' lets `chooseMode` pick
-   *   between interject/initiate/nothing once the history is known (spontaneous turns); 'inner'
-   *   is an inner turn (with `params.inner`).
+   * @param {'reply'|'interject'|'elsewhere'|'selfreflection'|'inner'} params.mode  'inner' is an inner turn
+   *   (with `params.inner`).
    * @param {{ wake: import('./inner/types.ts').TurnWake, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.ts,
    *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its
-   *   request carries `<wake>` (src/behavior/wake.ts over `wake`) and the task `prompts.inner`, its
-   *   history is the last `wakes.chatMessages` lines of `channel`, its prefetch searches the
+   *   request is the turn frame's (src/turn/request/frame.ts), its task `prompts.inner` or the service's own, its
+   *   history the last `wakes.chatMessages` lines of `channel` when it has one, its prefetch searches the
    *   purposes of the intentions it woke for, no planner runs. What she writes in tags (a `<msg>`,
    *   a `<react to>`) is lowered into the calls they stand for, in the current channel
    *   (`currentChannel`: an id, or null for none, then a post is refused `destination-required`;
@@ -220,9 +226,6 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * @param {object} [params.trigger]      Normalized message the turn answers (a call, or an
    *   overheard line).
    * @param {TriggerKind} [params.triggerKind]
-   * @param {(history: object[], now: number, context: { pulled: object[] }) => string|null} [params.chooseMode]
-   *   Called with this channel's history and the channels already pulled for the turn (the
-   *   PulledChannel records of the pull, the source first).
    * @param {{ placeId: string, reason: 'routed'|'noticed' }|null} [params.source]  The channel
    *   this turn is about when it is not `channel` (a call from a channel the bot cannot write in,
    *   a noticed comment): pulled before anything else and shown in `<channel_view>`. When it
@@ -230,9 +233,6 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   in `not-now`. `channel` is where the words go and the one marked busy; the first post
    *   links to the routed call, or to the newest line of the source shown (none when the budget
    *   dropped its block).
-   * @param {boolean} [params.forced]  True for a turn someone asked for (`/nep message create`; was `/nep interject`, `/nep
-   *   initiate`) -- passed straight through to buildRequest, which appends prompts.forced (when
-   *   present) to the task text so the model knows `<skip/>` is not the expected outcome this time.
    * @param {(() => { id: string, text: string, author?: string }[])|null} [params.queued]  The calls
    *   still waiting in the queue in this channel (src/behavior/pipeline.ts), read when the request is
    *   built: the trigger author's own (no `author`) named under `labels.task.queued` (on a part, in
@@ -246,8 +246,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   (trigger kind `missed`, src/behavior/missed.ts), the trigger first: `labels.task.missed`
    *   names them.
    * @param {{ id: string, roleIds?: string[] }|null} [params.requester]  The person who asked for
-   *   this turn when it is not the trigger's author (`/nep message create`, src/tools/impl/message.ts):
-   *   the requester of any skill call she makes in it (callEnvelope).
+   *   this turn when it is not the trigger's author: the requester of any skill call she makes in it (callEnvelope).
    * @param {(() => boolean)|null} [params.stillDue]  Asked right before anything is posted (dry
    *   run included); false ends the turn `not-now` (`reason: 'answered-meanwhile'`), nothing posted.
    * @param {{ kind?: string|null, topic?: string|null, forced?: boolean }|null} [params.selfreflection]  With `mode: 'selfreflection'`
@@ -256,8 +255,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   (prepareSelfreflection: the plan request, then the search it asks for; `kind` forces the kind --
    *   a picture kind while the post may not carry a picture is refused before any request,
    *   `{ outcome: 'refused', reason: 'pictures', limit }`, selfreflectionPictureGate --
-   *   `topic` is the owner's topic for the planner and the plan, `forced` also appends
-   *   prompts.forced to the task), then composed with `prompts.selfreflection` as
+   *   `topic` is the owner's topic for the planner and the plan), then composed with `prompts.selfreflection` as
    *   the task and the `<world>`, `<diary>`, `<plan>` and `<found>` blocks. Its speech keeps only
    *   `<msg>` (every reply attribute dropped, links removed, at most `selfreflection.maxMessages` (3), a
    *   message left empty not posted) and `<skip/>`; no reaction and no media pick. It runs on the

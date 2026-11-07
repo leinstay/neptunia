@@ -1,18 +1,12 @@
 // The heartbeat's timer (docs/inner-life.md "The heartbeat"): `heartbeat.schedule` kept in the state
-// (`heartbeat: { nextAt, lastAt }`), an interval moved by a jitter either way and a daily time exact, the wake it gives, the facts
-// its `<wake>` carries (src/behavior/heartbeat-view.ts over the stores this life was given) and the log line of its
-// outcome. The tick (src/behavior/inner.ts) and the drain (src/behavior/inner/drain.ts) call it.
+// (`heartbeat: { nextAt, lastAt }`), an interval moved by a jitter either way and a daily time exact, the wake it gives
+// and the log line of its outcome. The tick (src/behavior/inner.ts) and the drain (src/behavior/inner/drain.ts) call it.
 
-import { personOfMember } from '../../memory/addresses.ts';
-import { wakeRetrieval } from './facts.ts';
 import { evaluateSchedule } from '../../service/schedule.ts';
 import type { ServiceSchedule } from '../../service/schedule.ts';
 import { DAY_MS, MINUTE_MS } from '../../time.ts';
 import { openFromHeartbeat } from '../../intentions/model.ts';
 import { errorCode, isFiniteNumber } from '../../tools/types.ts';
-import { buildHeartbeatFacts } from '../heartbeat-view.ts';
-import type { HeartbeatFacts } from '../heartbeat-view.ts';
-import { activePlacesOf, placeNameOf, placesInWakeOf } from './places.ts';
 import { note, save, stateOf } from './queue.ts';
 import type { InnerContext, InnerSettings, TurnAction, Wake } from './types.ts';
 
@@ -131,55 +125,4 @@ export function logHeartbeatOutcome(
   } catch (err) {
     log.warn('inner: heartbeat outcome not logged', { code: errorCode(err) });
   }
-}
-
-/** The heartbeat's facts for `<wake>` (src/behavior/heartbeat-view.ts), from the stores this life was given. Never throws. */
-export async function heartbeatFacts(
-  life: InnerContext,
-  settings: InnerSettings,
-  at: number
-): Promise<HeartbeatFacts | null> {
-  const { intentions, record, nameOf, journal, store, heartbeatSources, log } = life;
-  const state = stateOf(life);
-  const guarded = (fn: () => unknown, fallback: unknown): unknown => {
-    try {
-      return fn() ?? fallback;
-    } catch (err) {
-      log.warn('inner: heartbeat source failed', { code: errorCode(err) });
-      return fallback;
-    }
-  };
-  try {
-    return await buildHeartbeatFacts({
-      now: at,
-      since: state.heartbeat?.lastAt ?? null,
-      settings: settings.heartbeat,
-      profiles: guarded(() => store?.listUserProfiles?.(), []),
-      selfId: guarded(() => heartbeatSources.selfId?.(), null),
-      record,
-      journal,
-      intentions: guarded(() => intentions?.list?.({ all: true, closed: true }), []),
-      tasks: guarded(() => heartbeatSources.tasks?.(), []),
-      selfreflection: guarded(() => store?.getSelfreflection?.()?.posts, []),
-      places: placesInWakeOf(life, settings),
-      skills: guarded(() => heartbeatSources.skills?.(), []),
-      agents: guarded(() => heartbeatSources.agents?.(), []),
-      innerState: state,
-      nameOf: (id: string) => (typeof nameOf === 'function' ? nameOf(id) : null),
-      placeName: (id: string) => placeNameOf(life, id),
-      activePlaces: (accountId: string) => activePlacesOf(life, accountId),
-      focusPeople: focusOf(heartbeatSources),
-      log,
-      ...wakeRetrieval(life, 'heartbeat'),
-      personOf: (id: string) => guarded(() => personOfMember(store, id), null) as string | null,
-    });
-  } catch (err) {
-    log.warn('inner: heartbeat view failed', { code: errorCode(err) });
-    return null;
-  }
-}
-
-/** Her focus set's reader for `placeId`, or null without one. */
-function focusOf(sources: InnerContext['heartbeatSources']): (() => unknown) | null {
-  return typeof sources.focusPeople === 'function' ? () => sources.focusPeople?.() : null;
 }

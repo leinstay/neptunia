@@ -9,9 +9,10 @@
 // candidate), `intention.list`. Her own state, so her own calls run on her grant alone
 // (src/tools/impl/effects.ts#SELF_OWNED_OPS) under the gateway's rules on who asked; for people they are
 // owner operations an owner may grant (no `member` right). A call never widens anything: a wait
-// names only an errand the errand store holds, and a destination is only recorded; a candidate is
-// accepted only where its origin allows (src/intentions/model.ts#acceptRefusal). An update or a
-// cancel without `id=` whose body is one bare intention id takes that as the id (isIntentionId);
+// names only an errand the errand store holds, a place to begin in is recorded once the interface says
+// she may write there, and a candidate is accepted only where its origin allows
+// (src/intentions/model.ts#acceptRefusal). An update or a cancel without `id=` whose body is one bare
+// intention id takes that as the id (isIntentionId);
 // any other body stays the update's purpose (or is ignored by the cancel). Off unless
 // `features.intentions` is exactly true (read now): every action answers `feature-off`. Times are
 // `<n>m`, `<n>h`, `<n>d` from now, an ISO date-time, or a wall clock in `bot.timezone` --
@@ -32,6 +33,7 @@ import { clampWithEllipsis, oneLine } from '../../memory/clamp.ts';
 import { HEARTBEAT_ORIGIN, isIntentionId, parseEvery, parseWhen } from '../../intentions/model.ts';
 import { isOwnerCaller } from './grants.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
+import { writablePlace } from './shared.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
@@ -254,11 +256,23 @@ const handlers = perEnv((env) => {
     };
   }
 
-  /** `intention.set`: a new intention, its purpose the text; with `attend` an attention on that place. */
-  function cmdSet(args: Obj, context: OpContext): Obj {
+  /** A place to begin in, refused when she cannot write there (src/tools/impl/shared.ts#writablePlace). */
+  async function checkBegin(place: string | undefined, context: OpContext): Promise<void> {
+    if (!place) return;
+    const port = env.port as { iface?: unknown } | null | undefined;
+    const iface = typeof port?.iface === 'string' ? port.iface : '';
+    await writablePlace({ reads: env.reads, iface, id: place, context });
+  }
+
+  /**
+   * `intention.set`: a new intention, its purpose the text; with `attend` an attention on that place. A place to begin
+   * in (`placeId`) is optional, and one she cannot write in, a root included, is refused.
+   */
+  async function cmdSet(args: Obj, context: OpContext): Promise<Obj> {
     const place = text(args, 'attend');
     const purpose = text(args, 'text') ?? place;
     if (!purpose) throw invalid('a purpose is required');
+    await checkBegin(text(args, 'placeId'), context);
     const from = origin(context);
     const state = text(args, 'state');
     if (state !== undefined && state !== 'dropped') throw invalid('state must be dropped');

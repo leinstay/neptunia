@@ -139,6 +139,7 @@ type FormatCounts = {
 /** What an attempt's draft holds that the steps read and write. */
 export type ToolRoundDraft = CallsDraft & {
   info?: { iface?: string } | null;
+  nowhere?: boolean;
   inner?: {
     wake?: {
       items?: unknown;
@@ -279,13 +280,14 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * `history`): with the reactor store (`reactors`), features.reactionNames and features.seeReactions on (a
    * missing key counts as on), the persona's lines carry who reacted to them, the missing reactors
    * read within `context.reactions.fetchTimeoutMs`. An inner turn reads a bounded recent slice (wakes.chatMessages).
-   * Throws when the interface cannot read the history.
+   * A turn that runs nowhere (`draft.nowhere`) has no history. Throws when the interface cannot read the history.
    */
   function readHistory(
     channel: { id: string },
     config: ToolRoundConfig,
     { inner = false, draft = null, placeId = null }: NonNullable<Parameters<ToolRound['readHistory']>[2]> = {}
   ): Promise<Array<Line>> {
+    if (draft?.nowhere === true) return Promise.resolve([]);
     const namesOn = reactors;
     const place = placeId;
     const reactionsConfig = config.context.reactions;

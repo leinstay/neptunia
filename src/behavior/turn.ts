@@ -1,8 +1,8 @@
 // One "turn": collect context → build the request under the token cap → ask
 // the model → act in the conversation like a person would (pause, typing indicator
 // proportional to the text, several short messages in a row, reactions).
-// Used for answering a call ('reply') and for spontaneous turns
-// ('interject' / 'initiate'), in a server channel or in a private chat (a
+// Used for answering a call ('reply'), for a turn with no call ('interject', an errand's result with its asking
+// message gone) and for her inner turns ('inner'), in a server channel or in a private chat (a
 // channel without a place, served on behalf of the one pinned place). A
 // server turn -- and a private chat, on its partner's behalf -- may also show
 // other channels it is about (`<channel_view>`):
@@ -87,7 +87,7 @@ export { chunkPictures };
 /**
  * How a turn ended. `spoke` and `skip` reached the model (a skip chose
  * silence); `busy` (another turn blocks this one), `paused` (`/nep pause`),
- * `not-now` (a spontaneous chooser found nothing to do) never did; `refused`
+ * `not-now` (a source gone, or a call answered meanwhile) never did; `refused`
  * is a rail (request or token cap) and carries its `limit`; `error` is any
  * other failure, logged -- a turn dropped unposted at its bar
  * (pace.dropAfterMs, `turn: dropped`) included.
@@ -590,7 +590,7 @@ export function createTurnRunner({
     emojiInventory: () => emoji?.list() ?? [],
     recordOwnParticipation,
   });
-  const { pullChannels, captionAll, withSeenBefore, markPulledSeen, noteSpokeSaw, stampShownCalls } = createPulls({
+  const { pullChannels, withSeenBefore, markPulledSeen, noteSpokeSaw, stampShownCalls } = createPulls({
     hot,
     store,
     describer,
@@ -727,7 +727,6 @@ export function createTurnRunner({
     settleAuthor,
     selfreflectionChannelName,
     pullChannels,
-    captionAll,
     withSeenBefore,
     markPulledSeen,
     noteSpokeSaw,

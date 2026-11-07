@@ -30,6 +30,7 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/memory/db/mind-read.ts',
     'default': {
       'windowMessages': 100,
+      'serviceMessages': 100,
       'maxHops': 2,
       'maxNodesRead': 2000,
       'budgetTokens': 10000,
@@ -40,12 +41,12 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
       'fanOut': { 'accounts': 10, 'memberships': 20, 'rooms': 10, 'members': 8, 'replies': 5, 'about': 30 },
     },
     'text':
-      'The graph reader (`mindOf`): the lines of the window that seed it, the counted hops, the rows read, the token budget and its shares per kind of entry, the part kept for the person she answers, the candidates of an ambiguous word, the word that names too many entries, and the rows read per path. Each key is described in `docs/memory.md`, "How a turn remembers". A missing or broken key counts as its default',
+      'The graph reader (`mindOf`): the lines of the window that seed it, her last lines over the rooms of every group that a service shows in `<meanwhile>` and seeds `<memory>` from (`serviceMessages`, read by `src/turn/request/meanwhile.ts`), the counted hops, the rows read, the token budget and its shares per kind of entry, the part kept for the person she answers, the candidates of an ambiguous word, the word that names too many entries, and the rows read per path. Each key is described in `docs/memory.md`, "How a turn remembers". A missing or broken key counts as its default',
   },
   {
     'key': 'context.meanwhile.messages',
     'types': ['number'],
-    'reader': 'src/turn/request/reader.ts',
+    'reader': 'src/turn/request/meanwhile.ts',
     'default': 8,
     'text':
       'How many of her last lines in other places `<meanwhile>` shows on a reply, each with the lines around it. `0` leaves the block out',
@@ -53,7 +54,7 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'context.meanwhile.around',
     'types': ['number'],
-    'reader': 'src/turn/request/reader.ts',
+    'reader': 'src/turn/request/meanwhile.ts',
     'default': 2,
     'text':
       'How many lines before and after each of her lines `<meanwhile>` shows. Windows of one place that overlap merge',
