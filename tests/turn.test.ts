@@ -306,7 +306,7 @@ test('mentionDirectory: no sources give an empty directory', () => {
 // createTurnRunner — integration-style, fake channel/llm/store/hot.
 
 // /nep pause: no new turn may start while paused -- a reply, an
-// interject, an initiate, an eavesdrop or a forced turn alike, whatever the mode.
+// interject or an inner turn alike, whatever the mode.
 test('runTurn: refuses with outcome "paused" while store.state.data.paused is true, before touching the LLM or busy', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
@@ -334,56 +334,6 @@ test('runTurn: refuses with outcome "paused" while store.state.data.paused is tr
   assert.equal(result.outcome, 'paused');
   assert.equal(llm.calls.length, 0, 'the LLM must never be called while paused');
   assert.equal(turns.isBusy(channel.id), false, 'the channel is never marked busy for a refused turn');
-});
-
-// /nep interject, /nep initiate: forced is passed straight through to
-// buildRequest, which appends prompts.forced (when present) to the task text.
-test('runTurn: forced=true appends prompts.forced to the task text sent to the LLM', async () => {
-  const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm('<skip/>');
-  const store = fakeStore();
-  const hot = fakeHot();
-  hot.prompts.forced = 'FORCED_TASK_TEXT';
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  await turns.runTurn({ channel, mode: 'interject', forced: true });
-
-  assert.equal(llm.calls.length, 1);
-  const userText = textOf(llm.calls[0][1].content);
-  assert.ok(userText.includes('FORCED_TASK_TEXT'));
-});
-
-test('runTurn: forced defaults to false -- prompts.forced is never appended for an ordinary spontaneous turn', async () => {
-  const raw = rawMessage({ id: 'm1' });
-  const channel = fakeTurnChannel({ historyMessages: [raw] });
-  const llm = fakeLlm('<skip/>');
-  const store = fakeStore();
-  const hot = fakeHot();
-  hot.prompts.forced = 'FORCED_TASK_TEXT';
-  const turns = createTurnRunner({
-    discord: DISCORD,
-    createPort: createDiscordAdapter,
-    hot,
-    store,
-    llm,
-    calibrator: identityCalibrator(),
-    client: fakeClient(),
-  });
-
-  await turns.runTurn({ channel, mode: 'interject' });
-
-  assert.equal(llm.calls.length, 1);
-  const userText = textOf(llm.calls[0][1].content);
-  assert.ok(!userText.includes('FORCED_TASK_TEXT'));
 });
 
 test('waitIdle: resolves immediately when no turn is in flight', async () => {
@@ -2095,9 +2045,8 @@ test('runTurn: an overheard turn draws unasked: a plain post charged to no membe
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
-// Other channels of the guild, snowflake-shaped: a `<#id>` mention is only read for such ids.
+// Another channel of the guild, snowflake-shaped: a `<#id>` mention is only read for such ids.
 const DIARY = '100000000000000002';
-const NOTES = '100000000000000003';
 
 /** A raw message of channel `placeId`; `raw` is Discord's own text (`<#id>` tokens), `content` the clean one. */
 function lineIn(
@@ -2278,19 +2227,16 @@ function channelViewOf(llm: Untyped): string | null {
   return text.includes('<channel_view>') ? text.split('<channel_view>\n')[1].split('\n</channel_view>')[0] : null;
 }
 
-/** Slice 4: `<channel_view>` leaves a reply; a noticed turn of #diary keeps it, the chat's numbers unchanged. */
-/** Slice 4: a reply on the frame pulls nothing; a turn whose mode a chooser decides still pulls, then interjects. */
-function autoTurn(scene: { turns: ReturnType<typeof createTurnRunner>; channel: Untyped }) {
-  return withCapturedLogs(() =>
-    scene.turns.runTurn({ channel: scene.channel, mode: 'auto', chooseMode: () => 'interject' })
-  );
-}
-
-function noticedTurn(scene: { turns: ReturnType<typeof createTurnRunner>; channel: Untyped }, mode = 'interject') {
+/**
+ * Slice 4: `<channel_view>` leaves a reply; a noticed turn of #diary keeps it, the chat's numbers unchanged. Slice 5:
+ * the mode `auto` and its chooser are deleted, so a noticed turn runs in the mode it is given.
+ */
+function noticedTurn(
+  scene: { turns: ReturnType<typeof createTurnRunner>; channel: Untyped },
+  mode: 'interject' | 'elsewhere' = 'interject'
+) {
   const source = { placeId: DIARY, reason: 'noticed' as const };
-  return withCapturedLogs(() =>
-    scene.turns.runTurn({ channel: scene.channel, mode: 'auto', source, chooseMode: () => mode })
-  );
+  return withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode, source }));
 }
 
 /** A describer with an empty cache whose describeMany captions every item, recording each call in `calls` and `events`. */
@@ -2317,54 +2263,6 @@ function callsFor(describer: Untyped, itemId: string): Array<Untyped> {
   return describer.calls.filter((call: Untyped) => call.ids.includes(itemId));
 }
 
-test('runTurn: a spontaneous turn pulls a channel mentioned in its history', async () => {
-  const describer = pullDescriber();
-  const { turns, channel, llm } = pullScene({ features: {}, describer });
-  const seen: Array<{ pulled: Array<object>; describeCalls: number }> = [];
-
-  const { result } = await withCapturedLogs(() =>
-    turns.runTurn({
-      channel,
-      mode: 'auto',
-      chooseMode: (history, now, context) => {
-        seen.push({ pulled: context.pulled, describeCalls: describer.calls.length });
-        return 'interject';
-      },
-    })
-  );
-
-  assert.equal(result.outcome, 'spoke');
-  // Slice 4: an interjection is built on the frame, which has no `<channel_view>`; the chooser still sees the pull.
-  assert.equal(channelViewOf(llm), null);
-  // The mention is pulled before the mode is chosen, and the chooser sees it.
-  assert.equal(seen.length, 1);
-  assert.deepEqual(
-    seen[0].pulled.map((entry: Untyped) => [entry.placeId, entry.reason]),
-    [[DIARY, 'mention']]
-  );
-  assert.equal(seen[0].describeCalls, 0, 'no caption was asked before the chooser chose');
-});
-
-test('runTurn: with nothing to pull the request carries no pulled channel and logs no pull', async () => {
-  // Slice 4: a plain reply pulls nothing, so the pull runs on a turn whose mode a chooser decides.
-  const hook = [];
-  const none = pullScene({ mention: false, routeChannels: async (args: unknown) => (hook.push(args), []) });
-
-  const { logs } = await autoTurn(none);
-
-  assert.equal(hook.length, 1, 'the hook was asked');
-  assert.equal(channelViewOf(none.llm), null);
-  assert.equal(
-    logs.some((l) => l.msg.startsWith('pull: ')),
-    false
-  );
-  const answered = logs.find((l) => l.msg === 'turn: model answered');
-  assert.equal(
-    'source' in (answered ?? {}) || 'pulled' in (answered ?? {}) || 'focus' in (answered ?? {}),
-    false,
-    'no pull fields on an ordinary turn'
-  );
-});
 test('runTurn: a plain reply on the frame asks no route hook and fetches no pulled channel, a mention in view or not', async () => {
   // Slice 4: bug, every reply pays a route call and a fetch whose result its request drops (`<meanwhile>` stands for it).
   // Without a mention the hook would be asked, with one the mentioned channel would be fetched.
@@ -2404,63 +2302,24 @@ test('runTurn: a pulled channel is left out of the neighbours', async () => {
   assert.equal(userText(pulled.llm).includes('# diary'), false, 'not shown again among the neighbours');
 });
 
-test('runTurn: a noticed turn passes the pulled source to chooseMode', async () => {
-  const seen: Array<{ history: Array<object>; now: number; context: { pulled: Array<object> } }> = [];
-  const { turns, channel, llm } = pullScene({ mention: false });
-
-  const { result } = await withCapturedLogs(() =>
-    turns.runTurn({
-      channel,
-      mode: 'auto',
-      source: { placeId: DIARY, reason: 'noticed' },
-      chooseMode: (history, now, context) => {
-        seen.push({ history, now, context });
-        return null;
-      },
-    })
-  );
-
-  assert.equal(result.outcome, 'not-now');
-  assert.equal(llm.calls.length, 0);
-  assert.equal(seen.length, 1);
-  assert.equal(seen[0].now, NOW);
-  assert.deepEqual(
-    seen[0].history.map((m: Untyped) => m.id),
-    ['m1', 'm9'],
-    "the chooser still gets the turn channel's history"
-  );
-  const [source] = seen[0].context.pulled;
-  assert.equal(seen[0].context.pulled.length, 1);
-  assert.equal(asRecord(source).placeId, DIARY);
-  assert.equal(asRecord(source).reason, 'noticed');
-  assert.deepEqual(
-    asRecord(source).messages.map((m: Untyped) => m.id),
-    ['d1', 'd2']
-  );
-});
-
+// Slice 5: the mode `auto` and its chooser are deleted; a noticed turn runs as `elsewhere`, so the check that no chooser
+// ran went with the chooser.
 test('runTurn: a routed turn whose source cannot be pulled ends in error, a noticed one in not-now', async () => {
   for (const [reason, outcome] of [
     ['routed', 'error'],
     ['noticed', 'not-now'],
-  ]) {
+  ] as const) {
     const { turns, channel, llm } = pullScene({ mention: false });
-    let chosen = 0;
     const { result, logs } = await withCapturedLogs(() =>
       turns.runTurn({
         channel,
-        mode: reason === 'routed' ? 'reply' : 'auto',
+        mode: reason === 'routed' ? 'reply' : 'elsewhere',
         source: { placeId: 'c9', reason },
-        chooseMode: () => {
-          chosen += 1;
-          return 'elsewhere';
-        },
       })
     );
 
     assert.equal(result.outcome, outcome, reason);
     assert.equal(llm.calls.length, 0, reason);
-    assert.equal(chosen, 0, `${reason}: no chooser without the source`);
     assert.equal(turns.isBusy('c1'), false);
     assert.ok(
       logs.some((l) => l.msg === 'pull: skipped' && l.source === 'c9' && l.reason === 'not-found'),
@@ -2473,65 +2332,22 @@ test('runTurn: a routed turn whose source cannot be pulled ends in error, a noti
   }
 });
 
-test('runTurn: fresh captions for a pulled channel are asked only once the turn is certain to run', async () => {
-  // A chooser that says not-now: nothing is asked, the cache alone was read.
-  const quiet = pullDescriber();
-  const notNow = pullScene({ features: {}, describer: quiet });
-  // Slice 4: on noticed and routed turns, which keep `<channel_view>`.
-  const source = { placeId: DIARY, reason: 'noticed' as const };
-  const { result } = await withCapturedLogs(() =>
-    notNow.turns.runTurn({ channel: notNow.channel, mode: 'auto', source, chooseMode: () => null })
-  );
-  assert.equal(result.outcome, 'not-now');
-  assert.equal(quiet.calls.length, 0);
-
-  // A chooser that picks a mode: the caption is asked after it chose, and reaches the block.
-  const events: Array<string> = [];
-  const chosen = pullDescriber(events);
-  const live = pullScene({ features: {}, describer: chosen });
-  await withCapturedLogs(() =>
-    live.turns.runTurn({
-      channel: live.channel,
-      mode: 'auto',
-      source,
-      chooseMode: () => {
-        events.push('chooser');
-        return 'interject';
-      },
-    })
-  );
-  assert.deepEqual(
-    callsFor(chosen, 'dp1').map((call: Untyped) => call.options),
-    [{ maxNew: 1 }]
-  );
-  assert.ok(events.indexOf('chooser') < events.indexOf('describe:dp1'), events.join(' '));
+// Slice 5: the chooser is deleted with the mode `auto`, and with it the not-now that asked no caption and the caption
+// asked after the chooser; every turn that pulls is certain to run, so its captions come with the fetch.
+test('runTurn: fresh captions for a pulled channel are asked with the fetch, once, and reach the block', async () => {
+  // A noticed turn (Slice 4: noticed and routed turns keep `<channel_view>`).
+  const noticedDescriber = pullDescriber();
+  const live = pullScene({ features: {}, describer: noticedDescriber });
+  await noticedTurn(live);
+  assert.equal(callsFor(noticedDescriber, 'dp1').length, 1);
   assert.ok(channelViewOf(live.llm)?.includes('caption of dp1'));
 
-  // No chooser at all (a routed call): asked with the fetch, once.
+  // A routed call: asked with the fetch, once.
   const direct = pullDescriber();
   const reply = routedScene({ features: {}, describer: direct });
   await withCapturedLogs(() => reply.turns.runTurn(reply.params));
   assert.equal(callsFor(direct, 'dp1').length, 1);
   assert.ok(channelViewOf(reply.llm)?.includes('caption of dp1'));
-});
-
-test('runTurn: a failed or throwing pull never fails the turn', async () => {
-  // Slice 4: a plain reply pulls nothing, so the pull runs on a turn whose mode a chooser decides.
-  const failing = pullScene({ selfreflection: { fetchFails: true } });
-  const failed = await autoTurn(failing);
-  assert.equal(failed.result.outcome, 'spoke');
-  assert.equal(channelViewOf(failing.llm), null);
-  assert.ok(failed.logs.some((l) => l.msg === 'pull: skipped' && l.source === DIARY && l.reason === 'fetch-failed'));
-
-  const throwing = pullScene({
-    mention: false,
-    routeChannels: async () => {
-      throw new Error('fixture: route classifier down');
-    },
-  });
-  const thrown = await autoTurn(throwing);
-  assert.equal(thrown.result.outcome, 'spoke');
-  assert.ok(thrown.logs.some((l) => l.msg === 'pull: route failed' && l.channel === 'c1'));
 });
 
 /**
@@ -2766,8 +2582,9 @@ test('runTurn: on a routed turn the source channel takes the one pulled place an
   assert.ok(channelViewOf(scene.llm)?.includes('channel #diary'), 'the source channel is the one pulled');
 });
 
-test('runTurn: a pull that throws never fails an ordinary turn; a routed one ends in error, a noticed one in not-now', async () => {
-  // Slice 4: a plain reply pulls nothing, so the pull runs on a turn whose mode a chooser decides.
+// Slice 5: the mode `auto` is deleted and a turn on the frame pulls nothing (slice 4), so no ordinary turn pulls any
+// more and that third of the test went; a noticed turn runs as `interject` with no chooser to count.
+test('runTurn: a pull that throws ends a routed turn in error and a noticed one in not-now', async () => {
   // A corrupt media cache throws inside fetchPull; an unreadable ring throws before any fetch.
   // `perChannel`: the failure is caught for its channel alone (the log names it and why it was pulled).
   const scenes: Array<[string, (options: Record<string, unknown>) => Record<string, unknown>, boolean]> = [
@@ -2782,12 +2599,6 @@ test('runTurn: a pull that throws never fails an ordinary turn; a routed one end
         (perChannel ? l.source === DIARY && l.pullReason === pullReason : l.source === undefined)
     );
   for (const [name, withFailure, perChannel] of scenes) {
-    const ordinary = pullScene(withFailure({}));
-    const plain = await autoTurn(ordinary);
-    assert.equal(plain.result.outcome, 'spoke', name);
-    assert.equal(channelViewOf(ordinary.llm), null, name);
-    assert.ok(failedLine(plain.logs, 'mention', perChannel), name);
-
     const routed = routedScene(withFailure({}));
     const call = await withCapturedLogs(() => routed.turns.runTurn(routed.params));
     assert.equal(call.result.outcome, 'error', name);
@@ -2797,20 +2608,8 @@ test('runTurn: a pull that throws never fails an ordinary turn; a routed one end
     assert.deepEqual([unavailable?.channel, unavailable?.source, unavailable?.reason], ['c1', DIARY, 'error'], name);
 
     const noticed = pullScene(withFailure({ mention: false }));
-    let chosen = 0;
-    const comment = await withCapturedLogs(() =>
-      noticed.turns.runTurn({
-        channel: noticed.channel,
-        mode: 'auto',
-        source: { placeId: DIARY, reason: 'noticed' },
-        chooseMode: () => {
-          chosen += 1;
-          return 'interject';
-        },
-      })
-    );
+    const comment = await noticedTurn(noticed);
     assert.equal(comment.result.outcome, 'not-now', name);
-    assert.equal(chosen, 0, name);
     assert.ok(failedLine(comment.logs, 'noticed', perChannel), name);
     assert.equal(
       comment.logs.some((l) => l.msg === 'turn: source unavailable'),
@@ -2820,81 +2619,11 @@ test('runTurn: a pull that throws never fails an ordinary turn; a routed one end
   }
 });
 
-test('runTurn: a pulled channel whose fetch throws costs the turn only that channel', async () => {
-  // Slice 4: a plain reply pulls nothing, so the pull runs on a turn whose mode a chooser decides.
-  // #diary has a picture and the cache read throws for it. PR 7d: context.pull.maxChannels is the constant 1, so the
-  // one place cannot be shared with a second channel and this test no longer pulls #notes beside it.
-  const describer = {
-    ...pullDescriber(),
-    cachedDescriptions: (placeId: string, items: Untyped) => {
-      if (items.some((item: Untyped) => item.itemId === 'dp1')) throw new Error('fixture: corrupt media cache');
-      return new Map();
-    },
-  };
-  const scene = pullScene({ features: {}, describer });
-
-  const { result, logs } = await autoTurn(scene);
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(channelViewOf(scene.llm), null);
-  const failed = logs.find((l) => l.msg === 'pull: failed');
-  assert.deepEqual([failed?.channel, failed?.source, failed?.pullReason], ['c1', DIARY, 'mention']);
-});
-
-test('runTurn: fresh captions that fail after a chooser leave the cached ones', async () => {
-  const door = { id: 'dp2', contentType: 'image/png', name: 'door.png', url: 'https://cdn.discordapp.com/x/door.png' };
-  const [first, second] = selfreflectionLines();
-  const messages = [{ ...first, attachments: new Map([['dp2', door]]) }, second];
-  let reads = 0;
-  const describer = {
-    ...pullDescriber(),
-    // The fetch finds one caption in the cache; the second read, for the fresh captions, throws.
-    cachedDescriptions: () => {
-      reads += 1;
-      if (reads > 1) throw new Error('fixture: corrupt media cache');
-      return new Map([['dp1', 'cached caption of dp1']]);
-    },
-  };
-  const scene = pullScene({ features: {}, describer, selfreflection: { messages } });
-
-  // Slice 4: on a noticed turn, which keeps `<channel_view>`.
-  const { result, logs } = await noticedTurn(scene);
-
-  assert.equal(result.outcome, 'spoke');
-  assert.equal(reads, 2);
-  const failed = logs.find((l) => l.msg === 'pull: captions failed');
-  assert.deepEqual([failed?.channel, failed?.source], ['c1', DIARY]);
-  assert.ok(channelViewOf(scene.llm)?.includes('cached caption of dp1'));
-  assert.equal(callsFor(describer, 'dp2').length, 0, 'no fresh caption was asked');
-});
-
+// Slice 5: the mode `auto` is deleted and a turn on the frame pulls nothing (slice 4), so the parts on a turn whose
+// mode a chooser decided (a mention with a route hook, nothing to pull) went; the noticed turn runs as `interject`.
 test('runTurn: without labels.pull.header only the source is pulled, with cached captions only', async () => {
-  // Slice 4: a plain reply pulls nothing, so the pull runs on a turn whose mode a chooser decides.
   const { pull, ...unlabelled } = labels;
   assert.ok(pull.header, 'the fixture has the label the live layer lacks here');
-
-  // A mention and a route hook: nothing is fetched or asked, one no-label line.
-  let asked = 0;
-  const describer = pullDescriber();
-  const mention = pullScene({
-    features: {},
-    context: { pull: { maxChannels: 2 } },
-    describer,
-    routeChannels: async () => {
-      asked += 1;
-      return [NOTES];
-    },
-  });
-  mention.hot.prompts.labels = unlabelled;
-  const plain = await autoTurn(mention);
-  assert.equal(plain.result.outcome, 'spoke');
-  assert.equal(mention.other.fetches.length, 0);
-  assert.equal(asked, 0);
-  assert.equal(callsFor(describer, 'dp1').length, 0);
-  assert.deepEqual(
-    plain.logs.filter((l) => l.msg.startsWith('pull: ')).map((l) => [l.msg, l.channel, l.reason]),
-    [['pull: skipped', 'c1', 'no-label']]
-  );
 
   // A routed turn: its source is pulled, no fresh caption is asked.
   const routedDescriber = pullDescriber();
@@ -2905,31 +2634,15 @@ test('runTurn: without labels.pull.header only the source is pulled, with cached
   assert.ok(call.logs.some((l) => l.msg === 'pull: channel' && l.source === DIARY));
   assert.equal(callsFor(routedDescriber, 'dp1').length, 0);
 
-  // A noticed turn whose chooser picks a mode: no fresh caption after it either.
+  // A noticed turn: no fresh caption either.
   const noticedDescriber = pullDescriber();
   const noticed = pullScene({ mention: false, features: {}, describer: noticedDescriber });
   noticed.hot.prompts.labels = unlabelled;
-  const comment = await withCapturedLogs(() =>
-    noticed.turns.runTurn({
-      channel: noticed.channel,
-      mode: 'auto',
-      source: { placeId: DIARY, reason: 'noticed' },
-      chooseMode: () => 'interject',
-    })
-  );
+  const comment = await noticedTurn(noticed);
   assert.equal(comment.result.outcome, 'spoke');
   assert.equal(callsFor(noticedDescriber, 'dp1').length, 0);
   assert.equal(
     comment.logs.some((l) => l.msg === 'pull: captions'),
-    false
-  );
-
-  // Nothing to pull: no line at all.
-  const quiet = pullScene({ mention: false });
-  quiet.hot.prompts.labels = unlabelled;
-  const none = await autoTurn(quiet);
-  assert.equal(
-    none.logs.some((l) => l.msg.startsWith('pull: ') && l.reason !== 'no-label'), // plan B3: the runner has its hook
     false
   );
 });
@@ -3054,14 +2767,8 @@ test('runTurn: a noticed turn links its first message to the newest line of its 
     llm: fakeLlm('<msg>τι ωραίο χρώμα</msg>'),
   });
 
-  const { result } = await withCapturedLogs(() =>
-    scene.turns.runTurn({
-      channel: scene.channel,
-      mode: 'auto',
-      source: { placeId: DIARY, reason: 'noticed' },
-      chooseMode: () => 'interject',
-    })
-  );
+  // Slice 5: the mode `auto` is deleted; the noticed turn runs as `interject`.
+  const { result } = await noticedTurn(scene);
 
   assert.equal(result.outcome, 'spoke');
   assert.deepEqual(
@@ -3192,14 +2899,8 @@ test('runTurn: a noticed turn whose source block the budget dropped posts no lin
     llm: fakeLlm('<msg>τι ωραίο χρώμα</msg>'),
   });
 
-  const { result, logs } = await withCapturedLogs(() =>
-    scene.turns.runTurn({
-      channel: scene.channel,
-      mode: 'auto',
-      source: { placeId: DIARY, reason: 'noticed' },
-      chooseMode: () => 'interject',
-    })
-  );
+  // Slice 5: the mode `auto` is deleted; the noticed turn runs as `interject`.
+  const { result, logs } = await noticedTurn(scene);
 
   assert.equal(result.outcome, 'spoke');
   assert.equal(channelViewOf(scene.llm), null, 'nothing of the source was shown');
@@ -4352,9 +4053,8 @@ test('runTurn: pace.prepareMs 0 waits for every helper, however slow', async () 
   assert.deepEqual(logs.find((l) => l.msg === 'turn: timings')?.late, []);
 });
 
-// A turn nobody waits for: a spontaneous one and an overheard line.
+// A turn nobody waits for: an overheard line. Slice 5: the initiate mode is deleted, so its row went.
 const UNHURRIED_TURNS: Array<[string, (scene: Untyped) => TurnParams]> = [
-  ['an initiate turn', (scene: Untyped) => ({ channel: scene.channel, mode: 'initiate' })],
   ['an overheard line', (scene: Untyped) => ({ ...scene.params, triggerKind: 'overheard' })],
 ];
 
@@ -4839,20 +4539,6 @@ test('runTurn: pace.replyHedgeMs 0, or not below the time left to the bar, sends
     assert.equal('hedge' in options, false, String(replyHedgeMs));
     assert.equal(options.timeoutMs, BAR_MS, String(replyHedgeMs));
   }
-});
-
-test('runTurn: an initiate turn has no bar, so its reply request is never hedged', async () => {
-  const llm = barLlm(async () => ({ text: '<msg>ok</msg>', usage: {}, estimated: 10 }));
-  const scene = paceScene({
-    hot: paceHot({}, { dropAfterMs: BAR_MS, replyHedgeMs: 500 }),
-    llm,
-    clock: () => NOW,
-  });
-
-  const { result } = await withCapturedLogs(() => scene.turns.runTurn({ channel: scene.channel, mode: 'initiate' }));
-
-  assert.equal(result.outcome, 'spoke');
-  assert.deepEqual(llm.optionCalls.map(withoutTools), [{ role: 'core', purpose: 'reply', iface: 'discord' }]);
 });
 
 test('runTurn: pace.dropAfterMs 0 sets no bar -- a slow answer is still posted, the request as before', async () => {

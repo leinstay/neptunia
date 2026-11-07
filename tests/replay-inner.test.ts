@@ -91,19 +91,8 @@ test("innerReplayWake: the scheduler's wake for the intention", () => {
   ]);
   // Stage AD: the replayed wake carries no budgets any more.
   assert.equal(asRecord(info).budgets, undefined);
-  const review = innerReplayWake({
-    inner,
-    kind: 'review',
-    state,
-    settings,
-    now: NOW,
-    timezone: 'UTC',
-    day: '2026-10-19',
-    channelNames: ['général'],
-  });
-  assert.equal(asRecord(review.wake).kind, 'review');
-  assert.deepEqual(asRecord(review.info).channels, ['général']);
-  assert.deepEqual(asRecord(review.info).intentions, []);
+  // Slice 5: the daily review is deleted (src/behavior/inner.ts no longer exports reviewWake), so the replay of a
+  // review went from this test.
 });
 
 test('replay --inner heartbeat: no intention or review flag; samples, prompts, out, show-request and spend are taken', () => {
@@ -195,31 +184,11 @@ test("heartbeatReplayWake: the scheduler's heartbeat wake and conversation, read
   );
   assert.equal(asRecord(info).chainId, `heartbeat:${NOW}`);
   assert.equal(asRecord(info).now, NOW);
-  assert.ok(asRecord(info).heartbeat, 'the heartbeat view is on the wake');
-  // Changed with the contract: the turn is handed the conversation reference, where it was given the channel object.
-  assert.deepEqual(conversation, { iface: 'fake', conversationId: 'c1' });
+  // Slice 5: the heartbeat view left the wake with heartbeatLines, and a service runs nowhere: no conversation.
+  assert.equal(conversation, null);
   assert.equal(currentChannel, null, 'a heartbeat has no current channel');
   assert.equal(fs.readFileSync(fx.stateFile, 'utf8'), fx.kept, 'the data directory is untouched');
   assert.deepEqual(fs.readdirSync(fx.tmpRoot), [], 'the throwaway directory is gone');
-});
-
-test('heartbeatReplayWake: no conversation to run in is a CliError, not a turn', async () => {
-  const fx = heartbeatFixture();
-  // The interface knows no conversation: the scheduler finds none to run in.
-  world().channel({ id: 'c1' }).leave();
-  await assert.rejects(
-    heartbeatReplayWake({
-      inner,
-      hot: fx.hot,
-      dataDir: fx.dataDir,
-      placeId: 'g1',
-      now: NOW,
-      deps: fx.deps,
-      tmpRoot: fx.tmpRoot,
-    }),
-    /would not run the heartbeat/
-  );
-  assert.deepEqual(fs.readdirSync(fx.tmpRoot), []);
 });
 
 test('innerAnswerOf and innerReportMarkdown: the think whole, the messages, the calls with their arguments, the cost', () => {

@@ -14,7 +14,7 @@ import path from 'node:path';
 import { createTurnRunner } from '../src/behavior/turn.ts';
 import { createReads } from '../src/interface/reads.ts';
 import { userText } from '../src/behavior/prompt.ts';
-import { createInnerLife, wakeOfDue, reviewWake } from '../src/behavior/inner.ts';
+import { createInnerLife, wakeOfDue } from '../src/behavior/inner.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createEventDoor } from '../src/interface/door.ts';
@@ -375,7 +375,6 @@ function hotWith({
         tickSeconds: 60,
         queueMax: 20,
         chatMessages: 30,
-        review: { enabled: false, historyDays: 14 },
         caps: { perChain: 3 },
         ...wakes,
       },
@@ -1021,24 +1020,29 @@ test("row 3: the process dies after an errand's result was stored and before its
   assertNoSilentFailure(third);
 });
 
+// Slice 5: a due intention whose place she cannot reach runs nowhere instead of being dropped (plan 5 (a)), so the fact
+// here is the drop of a wake whose intention was cancelled before it ran (stale), and i1 falls due a minute later.
 test('row 4: the process dies before a fact was presented -- the fact is still untold after the reload and shows in the next turn, once', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
-  // i9 lands in a channel she cannot reach: a wakeDropped fact; i1 is queued behind it.
+  // i9's wake is accepted, then i9 is cancelled: a wakeDropped fact; i1 falls due after it.
   const records = [
-    intentionRecord('i9', { placeId: 'c9', dueAt: NOW0 - 2 * MINUTE_MS, purpose: 'announce the game night' }),
-    intentionRecord('i1'),
+    intentionRecord('i9', { dueAt: NOW0 - 2 * MINUTE_MS, purpose: 'announce the game night' }),
+    intentionRecord('i1', { dueAt: NOW0 + MINUTE_MS }),
   ];
   const before = boot(chat, { dataDir, records });
+  await before.accept(wakeOfDue({ intention: records[0], reason: 'due', at: NOW0 - 2 * MINUTE_MS }));
+  records[0].status = 'cancelled';
   await before.tick();
   assert.deepEqual(before.factKinds(), ['wakeDropped'], 'the drop is a fact at the moment it happens');
   // The next tick shows the fact to a turn that never answers: the process dies inside the model call.
+  clock.t = NOW0 + 2 * MINUTE_MS;
   await dieDuring(chat, () => {
     chat.script = [HANG];
     return before.inner.tick();
   });
   assert.equal(chat.llm.calls.length, 1);
-  assert.ok(requestText(chat, 0).includes('no-channel'), 'the dying turn had the fact in front of it');
+  assert.ok(requestText(chat, 0).includes('stale'), 'the dying turn had the fact in front of it');
 
   const after = boot(chat, { dataDir, records });
   assert.deepEqual(after.factKinds(), ['wakeDropped'], 'still untold after the reload');
@@ -1048,7 +1052,7 @@ test('row 4: the process dies before a fact was presented -- the fact is still u
   records.push(intentionRecord('i-fresh'));
   await after.tick();
   assert.equal(chat.llm.calls.length, 2);
-  assert.ok(requestText(chat, 1).includes('no-channel'), 'shown in the next turn');
+  assert.ok(requestText(chat, 1).includes('stale'), 'shown in the next turn');
   assert.deepEqual(after.factKinds(), ['wakeDropped:told']);
   // An addressed turn afterwards has nothing left to tell.
   await after.ask('c1', 'hello');
@@ -1186,7 +1190,9 @@ test('row 7: a chain-cap hold retains its fact after reload and midnight without
   assertNoSilentFailure(second);
 });
 
-test('row 8: wakes of different chains meet one unwritable channel -- the writable one runs and the other is a wakeDropped fact with not-writable', async () => {
+// Slice 5: a due intention whose place she cannot write in is no longer dropped no-channel: its turn runs nowhere and
+// its `<feedback>` names the failure (plan 5 (a)); the intention stays hers to defer, drop or place.
+test('row 8: wakes of different chains meet one unwritable channel -- the writable one runs, and the other runs nowhere with not-writable in its feedback', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const records = [
@@ -1196,69 +1202,19 @@ test('row 8: wakes of different chains meet one unwritable channel -- the writab
   const run = boot(chat, { dataDir, records, unwritable: ['c2'] });
   await run.tick();
   await run.tick();
-  assert.equal(chat.llm.calls.length, 1, 'the writable wake ran');
-  const dropped = run.state().facts.find((fact: Record<string, Untyped>) => fact.kind === 'wakeDropped');
-  assert.deepEqual(
-    [present(dropped).code, present(dropped).why, present(dropped).placeId, present(dropped).intentionId],
-    ['no-channel', 'not-writable', 'c2', 'i2']
-  );
-  assert.ok(requestText(chat, 0).includes('not writable'), 'and the drop was shown in it');
-  assert.ok(run.state().facts.every((fact: Record<string, Untyped>) => fact.told));
-  assertNoSilentFailure(run);
-});
-
-test("row 8: the day's review rides with a wake whose channel is unwritable -- the review still runs", async () => {
-  const dataDir = tempDir('nep-fault-');
-  const chat = makeChat();
-  // The review's hours come from her lines of the record: one at 20:00Z yesterday, in c1.
-  const line = {
-    kind: 'said',
-    messageId: 'r1',
-    occurredAt: new Date(Date.parse('2026-10-18T20:10:00Z')).toISOString(),
-    scope: { channel: 'c1' },
+  assert.equal(chat.llm.calls.length, 2, 'both wakes ran');
+  const feedbackOf = (n: number) => {
+    const text = requestText(chat, n);
+    return text.slice(text.indexOf('<feedback>'), text.indexOf('</feedback>'));
   };
-  const record = {
-    async *iterate() {
-      yield line;
-    },
-  };
-  const records = [
-    intentionRecord('i2', { placeId: 'c2', dueAt: NOW0 + 3 * HOUR_MS, purpose: 'post in the locked channel' }),
-  ];
-  const hot = hotWith({ wakes: { review: { enabled: true, historyDays: 14, expiredMax: 5 } } });
-  const run = boot(chat, { dataDir, records, hot, unwritable: ['c2'], record });
-  await run.tick(); // the review is drawn for the evening
-  const review = run.state().review;
-  assert.ok(
-    Number.isFinite(present(review).at) && present(present(review).at) > clock.t,
-    'the review is drawn inside her hours'
-  );
-  // Both the review and the locked channel's wake come due before the next tick: they meet in one group.
-  clock.t = present(present(review).at) + MINUTE_MS;
-  await run.tick();
-  await run.tick();
-  await run.tick();
-  const reviewId = reviewWake('2026-10-19', present(review).at).id;
-  assert.ok(chat.requests.length >= 1, 'a turn ran');
+  assert.ok(feedbackOf(0).includes('place gone: not writable'), requestText(chat, 0));
+  assert.ok(!requestText(chat, 1).includes('place gone'), 'the writable one has no such line');
   assert.equal(
-    run.state().handled[reviewId]?.outcome,
-    'skip',
-    'the review ran, whatever became of the unwritable wake'
-  );
-  const dropped = run
-    .state()
-    .facts.find((fact: Record<string, Untyped>) => fact.kind === 'wakeDropped' && fact.wake === 'intention_due');
-  assert.deepEqual(
-    [dropped?.code, dropped?.why, dropped?.placeId],
-    ['no-channel', 'not-writable', 'c2'],
-    'the unwritable wake is a fact'
-  );
-  assert.equal(
-    run.state().facts.filter((fact: Record<string, Untyped>) => fact.kind === 'wakeDropped' && fact.wake === 'review')
-      .length,
+    run.state().facts.filter((fact: Record<string, Untyped>) => fact.kind === 'wakeDropped').length,
     0,
-    'it was not dropped with the other wake'
+    'nothing was dropped'
   );
+  assert.equal(records[0].status, 'pending', 'the intention is kept');
   assertNoSilentFailure(run);
 });
 
@@ -1394,22 +1350,26 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
   assertNoSilentFailure(run);
 });
 
+// Slice 5: a DM intention while private chats are off runs nowhere instead of being dropped (plan 5 (a)), so the fact
+// born in the DM is the drop of its wake after the intention was cancelled (stale).
 test('row 13: a fact born in a DM is not shown in a server channel, and is shown in the next DM turn', async () => {
   const dataDir = tempDir('nep-fault-');
   const chat = makeChat();
   const mark = 'PRIVATE-ERRAND-MARK';
-  // The DM intention cannot run (private chats are off): its drop is a fact of that chat.
+  // The DM intention's wake is accepted, then the intention is cancelled: its drop is a fact of that chat.
   const dm = {
     ...intentionRecord('i7', { placeId: 'd1', scope: 'dm', purpose: mark }),
     provenance: { kind: 'self', placeId: 'd1', scope: 'dm' },
   };
   const records = [dm, intentionRecord('i1', { dueAt: NOW0 + MINUTE_MS })];
   const run = boot(chat, { dataDir, records });
+  await run.accept(wakeOfDue({ intention: dm, reason: 'due', at: NOW0 - MINUTE_MS }));
+  dm.status = 'cancelled';
   await run.tick();
   const [fact] = run.state().facts;
   assert.deepEqual(
     [fact.kind, fact.code, fact.why, fact.placeId, fact.privateChat, fact.told],
-    ['wakeDropped', 'no-channel', 'dm-off', 'd1', true, false]
+    ['wakeDropped', 'stale', 'cancelled', 'd1', true, false]
   );
 
   // A server inner turn and an addressed server turn do not show it.

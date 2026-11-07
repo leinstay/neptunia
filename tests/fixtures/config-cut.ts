@@ -718,12 +718,11 @@ export const KEPT: ReadonlyArray<string> = [
   'intentions.maxOpen',
   'wakes.mode',
   'wakes.tickSeconds',
-  'wakes.review.historyDays',
+  // Slice 5: `wakes.review.historyDays`, `heartbeat.historyDays` and `heartbeat.maxTokens` left KEPT with the review
+  // and heartbeatLines.
   'heartbeat.enabled',
   'heartbeat.schedule',
   'heartbeat.jitterMinutes',
-  'heartbeat.historyDays',
-  'heartbeat.maxTokens',
   'wakes.caps.perChain',
   'wakes.loop.maxSteps',
   'wakes.loop.timeBudgetMs',

@@ -1,11 +1,10 @@
 // Tests for the inner turn (src/behavior/turn.ts, mode `inner`; docs/inner-life.md): no message
-// is fabricated, the request carries `<wake>` and the inner task, her reads run; in shadow mode
+// is fabricated, the request carries why she woke and the inner task, her reads run; in shadow mode
 // nothing else does (proposed, journalled as shadow, no call mark), live her calls run through
 // the gateway on her own grants, the kill switch is asked right before an action, the public post
 // cap refuses, her output tags (<msg>, <draw>, <react to>) are lowered into the calls they
-// stand for in the current channel (a refusal when there is none or a reaction names no line),
-// and an ordinary turn's request is unchanged by
-// the switch; a refusal in shadow reaches her within the turn. The loop's inner rules: the loop runs under wakes.loop's
+// stand for in the current channel (a refusal when there is none or a reaction names no line);
+// a refusal in shadow reaches her within the turn. The loop's inner rules: the loop runs under wakes.loop's
 // own bounds (a generous budget: nobody waits), the open-intentions line lists what she woke for
 // and has not touched, her last step still runs one post or intention change, and a post that
 // leaves nothing to show while a woken intention is untouched gets one open follow-up step. Over a real admin and the fake interface adapter; no network, no data/.
@@ -22,15 +21,15 @@ import { skillRegistry } from '../src/tools/registry.ts';
 import { checkSkill } from '../src/tools/gateway.ts';
 import { createAdmin } from '../src/admin.ts';
 import {
+  awakeLines,
   diagnosticLines,
   diagnosticText,
   feedbackFactText,
   feedbackInTurnText,
+  feedbackText,
   placesBlockText,
-  wakeBlockText,
 } from '../src/behavior/wake.ts';
 import { feedbackFacts } from '../src/behavior/inner.ts';
-import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';
 import { wakeLanes } from '../src/behavior/prefetch.ts';
 import { labels } from './fixtures/labels.ts';
 import { fill, formatClock, formatDate } from '../src/format.ts';
@@ -339,12 +338,14 @@ async function innerTurn({
   };
 }
 
-test('inner turn: no message is fabricated; the request carries <wake>, the inner task and the bounded slice of the channel', async () => {
+test('inner turn: no message is fabricated; the request carries why she woke, the inner task and the bounded slice of the channel', async () => {
   // PR 7d: the slice is the constant 30 lines, so 28 lines between m0 and m1 push m0 out of it.
   const run = await innerTurn({ answers: ['<skip/>'], filler: 28 });
   const text = userText(run.llm.calls[0][1].content);
-  assert.ok(text.includes(`<wake>\n${labels.wake.header}`), text);
-  assert.ok(text.includes('πες καλημέρα στο κανάλι'));
+  // Slice 5: `<wake>` is gone; why she is awake, the due intention with its purpose, is a line of `<spatial_awareness>`.
+  const spatial = text.slice(text.indexOf('<spatial_awareness>'), text.indexOf('</spatial_awareness>'));
+  assert.ok(!text.includes('<wake>'), text);
+  assert.ok(spatial.includes('πες καλημέρα στο κανάλι'), text);
   assert.ok(text.includes(`<task>\n${INNER_TASK}\n</task>`));
   assert.ok(!text.includes('πρώτο'), 'wakes.chatMessages bounds the slice');
   assert.ok(text.includes('τρίτο'));
@@ -489,42 +490,6 @@ test('inner turn, live: <msg reply="#N"> replies to that line; her calls go firs
 });
 
 // PR 7d: a heartbeat holds to intention changes, so no post of hers replies to the handle; the numbering is what stays.
-test("inner turn, live: the heartbeat shows a line under a #N handle numbered past the turn's own lines", async () => {
-  const seenLine = {
-    kind: 'seen',
-    messageId: 'hb-1',
-    revision: 1,
-    by: 'u2',
-    occurredAt: new Date(NOW - 150 * 60_000).toISOString(),
-    scope: { channel: 'c1' },
-    text: 'they still make clips for this song',
-    media: ['link'],
-    participants: ['u2'],
-  };
-  const facts = await buildHeartbeatFacts({
-    now: NOW,
-    record: {
-      iterate: async function* iterate() {
-        yield seenLine;
-      },
-    },
-    nameOf: () => 'Zoë',
-    placeName: () => 'general',
-  });
-  const wake = {
-    ...WAKE,
-    kind: 'heartbeat',
-    items: [{ kind: 'heartbeat', reason: 'heartbeat', intentionIds: [], errandId: null }],
-    intentions: [],
-    heartbeat: facts,
-  };
-  const looked = await innerTurn({ answers: ['<skip/>'], shadow: false, gate: { wake } });
-  const request = looked.llm.calls[0].map((message: Record<string, Untyped>) => userText(message.content)).join('\n');
-  const handle = /(#\d+) Zoë, [^\n]*they still make clips/.exec(request)?.[1];
-  assert.ok(handle, 'the request quotes the line under a handle');
-  assert.ok(Number(handle.slice(1)) > 3, "numbered past the turn's own lines");
-});
-
 test('inner turn, shadow: a read runs, a post is only proposed and journalled as shadow, with no call mark', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await innerTurn({
@@ -601,47 +566,6 @@ test('inner turn, live: no count of posts refuses a post; a read still runs', as
   assert.equal(run.result.inner.actions[1].delivery, undefined);
 });
 
-test("inner turn: an ordinary reply's request carries no <wake>", async () => {
-  const requestOf = async () => {
-    const history = [rawMessage({ id: 'm1', content: 'γεια' })];
-    const hot = hotWith();
-    const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
-    const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
-    const llm = sequenceLlm(['<skip/>']);
-    const calibrator = { ratio: 1, apply: (value: string) => value, observe: () => {} };
-    const turns = createTurnRunner({
-      discord: DISCORD,
-      hot,
-      store: fakeStore(),
-      llm,
-      calibrator,
-      client,
-      now: () => NOW,
-      port,
-      skills: skillRegistry(),
-    });
-    const trigger = {
-      id: 'm1',
-      placeId: 'c1',
-      authorId: 'u1',
-      authorName: 'Alice',
-      self: false,
-      bot: false,
-      content: 'γεια',
-      ts: NOW - 60_000,
-      replyToId: null,
-      attachments: [],
-      stickers: [],
-    };
-    await withCapturedLogs(() =>
-      turns.runTurn({ channel: fakeChannel(history), mode: 'reply', trigger, triggerKind: 'mention' })
-    );
-    return llm.calls[0];
-  };
-  const request = await requestOf();
-  assert.ok(!userText(request[1].content).includes('<wake>'));
-});
-
 test('gateway: with nobody asking only a read runs, unless the turn is her own initiative', () => {
   const config = {
     bot: { owners: ['u1'], access: personaGrants(['lore.add']) },
@@ -676,39 +600,32 @@ test('gateway: with nobody asking only a read runs, unless the turn is her own i
   assert.notEqual(ungranted.reason, 'no-requester');
 });
 
-// Stage AD: the wake carries no budget line, so the chain line and the turns line are no longer asserted here.
-test('wakeBlockText: the wake and the moment as facts; none without its header', () => {
-  const text = wakeBlockText({ ...WAKE, channels: ['général'] }, labels);
-  const lines = text.split('\n');
-  assert.equal(lines[0], labels.wake.header);
-  assert.ok(
-    lines.some((line) => line.startsWith('due: i1 πες καλημέρα')),
-    text
-  );
-  assert.ok(lines.some((line) => line.startsWith('now: ')));
-  assert.ok(lines.includes('recent channels: #général'));
-  assert.ok(
-    !lines.some((line) => line.startsWith('day ') || line.startsWith('hour ') || line.startsWith('posts ')),
-    text
-  );
-  assert.equal(wakeBlockText(WAKE, { ...labels, wake: undefined }), '');
+// Slice 5: wakeBlockText is gone with `<wake>`; the kind lines are awakeLines, read into `<spatial_awareness>`, and the
+// moment and the recent channels left with the block (the clock is the frame's).
+test('awakeLines: a due intention is one kind line with its purpose, a last occurrence adds its note; none without the kinds', () => {
+  const lines = awakeLines(WAKE, labels);
+  assert.equal(lines.length, 1, lines.join('|'));
+  assert.ok(lines[0].startsWith('due: i1 πες καλημέρα'), lines.join('|'));
+  assert.deepEqual(awakeLines(WAKE, { ...labels, wake: undefined }), []);
   // A recurring intention's last occurrence before its expiry: the note joins its line.
-  const noted = wakeBlockText(
+  const noted = awakeLines(
     { ...WAKE, notes: { i1: 'last-occurrence' } },
     { ...labels, intentions: { notes: { 'last-occurrence': 'LAST' } } }
-  ).split('\n');
+  );
   assert.ok(
     noted.some((line) => line.startsWith('due: i1 πες καλημέρα') && line.endsWith(' · LAST')),
     noted.join('|')
   );
   assert.equal(
-    wakeBlockText({ ...WAKE, notes: { i1: 'last-occurrence' } }, labels).split('\n')[1],
-    lines[1],
+    awakeLines({ ...WAKE, notes: { i1: 'last-occurrence' } }, labels)[0],
+    lines[0],
     'without the note label the line stays as it is'
   );
 });
 
-test('wakeBlockText: an attend wake names the place, the lines and the people; the places page follows with its total and the rest; placesBlockText stands alone', () => {
+// Slice 5: the attend line is awakeLines' (for `<spatial_awareness>`); the places page is placesBlockText alone, since
+// no wake block carries it any more.
+test('awakeLines: an attend wake names the place, the lines and the people; placesBlockText is the places page with its total and the rest', () => {
   const attend = {
     kind: 'attend',
     reason: 'lines',
@@ -732,93 +649,33 @@ test('wakeBlockText: an attend wake names the place, the lines and the people; t
       { id: 'c1', name: 'general', lines: 0, people: 0, writable: true, attended: false },
     ],
   };
-  const lines = wakeBlockText(wrongly({ ...WAKE, kind: 'attend', items: [attend], places }), labels).split('\n');
+  const lines = awakeLines(wrongly({ ...WAKE, kind: 'attend', items: [attend] }), labels);
+  assert.equal(lines.length, 1, lines.join('|'));
   assert.ok(
-    lines.includes('talk in #κήπος (i1 πες καλημέρα στο κανάλι): 3 lines since 10/19/2026 11:00 AM by Ana, u2') ||
-      lines.some(
-        (line) =>
-          line.startsWith('talk in #κήπος (i1 πες καλημέρα στο κανάλι): 3 lines since ') && line.endsWith(' by Ana, u2')
-      ),
+    lines[0].startsWith('talk in #κήπος (i1 πες καλημέρα στο κανάλι): 3 lines since ') &&
+      lines[0].endsWith(' by Ana, u2'),
     lines.join('|')
   );
-  const at = lines.indexOf('places (5):');
-  assert.ok(at > 0, lines.join('|'));
-  assert.deepEqual(lines.slice(at, at + 5), ['places (5):', '#κήπος 3/2 *', '#νέα 1/1 ro', '#general 0/0', '+2']);
-  // Stage AD: no budgets line closes the block any more.
-  assert.ok(!lines.some((line) => line.startsWith('budgets')), lines.join('|'));
   assert.equal(
-    wakeBlockText(
-      wrongly({ ...WAKE, places: { total: 1, more: 0, items: [{ id: 'c1', name: 'general', lines: 0, people: 0 }] } }),
-      labels
-    )
+    placesBlockText(places, labels),
+    ['places (5):', '#κήπος 3/2 *', '#νέα 1/1 ro', '#general 0/0', '+2'].join('\n')
+  );
+  assert.equal(
+    placesBlockText({ total: 1, more: 0, items: [{ id: 'c1', name: 'general', lines: 0, people: 0 }] }, labels)
       .split('\n')
       .filter((line) => line.startsWith('+')).length,
     0,
     'no "more" line when nothing follows'
   );
   assert.equal(
-    wakeBlockText(wrongly({ ...WAKE, places }), { ...labels, wake: { ...labels.wake, places: undefined } }).includes(
-      '#κήπος'
-    ),
-    false,
+    placesBlockText(places, { ...labels, wake: { ...labels.wake, places: undefined } }),
+    '',
     'no page without its lead label'
-  );
-  assert.equal(
-    placesBlockText(places, labels),
-    ['places (5):', '#κήπος 3/2 *', '#νέα 1/1 ro', '#general 0/0', '+2'].join('\n')
   );
   assert.equal(placesBlockText(null, labels), '');
 });
 
-test("wakeBlockText: a review's expired intentions follow the wake lines -- the lead, one line each with its moment, the rest counted; none without the labels or items", () => {
-  const l = {
-    ...labels,
-    wake: { ...labels.wake, expired: 'gone:', expiredItem: '- {id} {purpose} at {when}', expiredMore: '+{more} gone' },
-  };
-  const at = NOW - 3_600_000;
-  const expired = {
-    items: [
-      { id: 'i9', purpose: 'κάτι  που\nξέχασα', at },
-      { id: 'i8', purpose: 'άλλο', at: at - 60_000 },
-    ],
-    more: 2,
-  };
-  const review = {
-    ...WAKE,
-    kind: 'review',
-    items: [{ kind: 'review', reason: 'review', intentionIds: [], errandId: null }],
-    channels: ['γενικά'],
-    expired,
-  };
-  const lines = wakeBlockText(review, l).split('\n');
-  assert.deepEqual(lines.slice(1, 6), [
-    'review',
-    'gone:',
-    `- i9 κάτι που ξέχασα at ${formatDate(at, 'UTC')} ${formatClock(at, 'UTC')}`,
-    `- i8 άλλο at ${formatDate(at - 60_000, 'UTC')} ${formatClock(at - 60_000, 'UTC')}`,
-    '+2 gone',
-  ]);
-  assert.ok(lines[6].startsWith('now: '), 'the moment follows the expired list');
-  assert.equal(wakeBlockText({ ...review, expired: { ...expired, more: 0 } }, l).includes('gone'), true);
-  assert.equal(
-    wakeBlockText({ ...review, expired: { ...expired, more: 0 } }, l).includes('+'),
-    false,
-    'no "more" line when nothing follows'
-  );
-  assert.equal(
-    wakeBlockText({ ...review, expired: { items: [], more: 0 } }, l).includes('gone:'),
-    false,
-    'no lead without an item'
-  );
-  assert.equal(wakeBlockText(review, labels).includes('i9'), false, 'nothing without the labels');
-  assert.equal(
-    wakeBlockText(review, { ...labels, wake: { ...labels.wake, expired: 'gone:' } }).includes('gone:'),
-    false,
-    'the lead needs the item label too'
-  );
-});
-
-test('wakeLanes: the purposes of the intentions as one wake lane; none for a review alone', () => {
+test('wakeLanes: the purposes of the intentions as one wake lane; none without a purpose', () => {
   assert.deepEqual(wakeLanes(['a', ' b ']), { lanes: [{ kind: 'wake', text: 'a\nb', words: 'a\nb' }], skip: null });
   assert.deepEqual(wakeLanes([]), { lanes: [], skip: 'no-trigger' });
 });
@@ -1285,23 +1142,9 @@ test("inner turn: the result carries the loop's end state, a refused post as a f
   assert.equal(action.state, 'done');
 });
 
-test('wakeBlockText: the current channel and why, or that there is none, follow the wake lines; nothing without the labels', () => {
-  const here = wakeBlockText({ ...WAKE, here: { channel: 'general', why: 'asked' } }, labels).split('\n');
-  assert.ok(here.includes(fill(labels.wake.here, { channel: 'general', why: 'asked' })), here.join('\n'));
-  assert.ok(
-    here.indexOf(fill(labels.wake.here, { channel: 'general', why: 'asked' })) <
-      here.findIndex((line) => line.startsWith('now:'))
-  );
-  const none = wakeBlockText({ ...WAKE, here: null }, labels).split('\n');
-  assert.ok(none.includes(labels.wake.hereNone));
-  const bare = wakeBlockText(
-    { ...WAKE, here: { channel: 'general', why: 'asked' } },
-    { ...labels, wake: { ...labels.wake, here: undefined, hereNone: undefined } }
-  );
-  assert.ok(!bare.includes('general'));
-});
-
-test("wakeBlockText: a feedback wake is its kind line and one feedbackItem per fact, each worded by its kind's label; a fact without a label is left out", () => {
+// Slice 5: wakeBlockText is gone; the feedback wake's kind line is awakeLines' (for `<spatial_awareness>`) and its facts
+// are feedbackText, the body of `<feedback>` inside `<inner>`.
+test("feedbackText: a feedback wake is one feedbackItem per fact, each worded by its kind's label, and awakeLines its kind line; a fact without a label is left out", () => {
   const facts = [
     { kind: 'callFailed', skill: 'web.search', status: 'timeout', code: 'timeout' },
     { kind: 'doneWithoutDelivery', intentionId: 'i1', purpose: 'send a cat meme' },
@@ -1315,12 +1158,11 @@ test("wakeBlockText: a feedback wake is its kind line and one feedbackItem per f
     items: [{ kind: 'feedback', reason: 'feedback', intentionIds: [], errandId: null, facts, turnId: 't-1' }],
     intentions: [],
   };
-  const text = wakeBlockText(wake, labels);
+  const text = feedbackText(wake, labels);
   const lines = text.split('\n');
-  assert.equal(lines[0], labels.wake.header);
-  assert.equal(lines[1], labels.wake.kinds.feedback);
+  assert.deepEqual(awakeLines(wake, labels), [labels.wake.kinds.feedback]);
   assert.equal(
-    lines[2],
+    lines[0],
     fill(labels.wake.feedbackItem, {
       fact: fill(labels.wake.feedback.callFailed, {
         skill: 'web.search',
@@ -1331,19 +1173,19 @@ test("wakeBlockText: a feedback wake is its kind line and one feedbackItem per f
     })
   );
   assert.equal(
-    lines[3],
+    lines[1],
     fill(labels.wake.feedbackItem, {
       fact: fill(labels.wake.feedback.doneWithoutDelivery, { id: 'i1', purpose: 'send a cat meme' }),
     })
   );
   assert.equal(
-    lines[4],
+    lines[2],
     fill(labels.wake.feedbackItem, {
       fact: fill(labels.wake.feedback.loopCut, { cut: 'steps', dropped: '1', steps: '2' }),
     })
   );
   assert.equal(
-    lines[5],
+    lines[3],
     fill(labels.wake.feedbackItem, {
       fact: fill(labels.wake.feedback.wakeDropped, {
         kind: 'intention_due',
@@ -1354,15 +1196,17 @@ test("wakeBlockText: a feedback wake is its kind line and one feedbackItem per f
       }).trim(),
     })
   );
-  assert.ok(lines[6].startsWith(labels.wake.now.split('{')[0]), 'the unknown kind left out; the moment follows');
+  assert.equal(lines.length, 4, 'the unknown kind left out');
   assert.ok(!text.includes('{'), 'every placeholder filled');
   // Without the item label the facts are left out; the kind line stays.
-  const bare = wakeBlockText(wake, { ...labels, wake: { ...labels.wake, feedbackItem: '' } });
-  assert.equal(bare.split('\n')[1], labels.wake.kinds.feedback);
-  assert.ok(!bare.includes('web.search'));
+  const bare = { ...labels, wake: { ...labels.wake, feedbackItem: '' } };
+  assert.equal(feedbackText(wake, bare), '');
+  assert.deepEqual(awakeLines(wake, bare), [labels.wake.kinds.feedback]);
 });
 
-test('wakeBlockText: held, failed-turn and send-failed facts, the sub-code behind a drop, a drop of a wake with no intention by its kind; the kept facts of a turn follow under their header', () => {
+// Slice 5: the kept facts are feedbackText's (`<feedback>` inside `<inner>`), not the tail of a wake block; the review
+// wake is gone, so the drop of a wake with no intention is a heartbeat's.
+test('feedbackText: held, failed-turn and send-failed facts, the sub-code behind a drop, a drop of a wake with no intention by its kind; the kept facts of a turn follow under their header', () => {
   const until = NOW + 6 * 3_600_000;
   const when = `${formatDate(until, 'UTC', 'en-US')} ${formatClock(until, 'UTC', 'en-US')}`;
   const facts = [
@@ -1387,9 +1231,9 @@ test('wakeBlockText: held, failed-turn and send-failed facts, the sub-code behin
     {
       kind: 'wakeDropped',
       wakeId: 'w3',
-      wake: 'review',
+      wake: 'heartbeat',
       code: 'no-channel',
-      why: 'no-review-channel',
+      why: 'unavailable',
       intentionId: null,
       purpose: '',
     },
@@ -1398,19 +1242,19 @@ test('wakeBlockText: held, failed-turn and send-failed facts, the sub-code behin
     { kind: 'callFailed', skill: 'web.search', status: 'failed', code: 'error', text: 'the page is gone' },
     { kind: 'unknownKind' },
   ];
-  const lines = wakeBlockText({ ...WAKE, facts }, labels).split('\n');
+  const lines = feedbackText({ ...WAKE, facts }, labels).split('\n');
   const at = lines.indexOf(labels.wake.feedbackInTurn);
-  assert.ok(at > 0, lines.join('\n'));
+  assert.equal(at, 0, lines.join('\n'));
   const item = (fact: string) => fill(labels.wake.feedbackItem, { fact });
   assert.deepEqual(lines.slice(at + 1, at + 7), [
     item(`held intention_due i2 say hi per-chain until ${when}`),
     item('wake intention_due i3 old one stale is done'),
-    item('wake review no-channel no review channel'),
+    item('wake heartbeat no-channel unavailable'),
     item('turn attend failed provider-limit'),
     item('send failed send-failed 1/3'),
     item('call web.search failed error the page is gone'),
   ]);
-  assert.ok(lines[at + 7].startsWith(labels.wake.now.split('{')[0]), 'the unknown kind left out; the moment follows');
+  assert.equal(lines.length, at + 7, 'the unknown kind left out');
   // The same lines stand alone for an addressed turn; nothing without facts, a header or the item label.
   assert.equal(feedbackInTurnText(facts, labels).split('\n')[0], labels.wake.feedbackInTurn);
   assert.equal(feedbackInTurnText(facts, labels).split('\n').length, 7);
@@ -1510,20 +1354,22 @@ test('inner turn, live: calls past maxCallsPerStep get a loop-cap result she rea
   );
 });
 
-test('wakeBlockText: a retried wake is followed by its delayed line with the minutes and the code; none without the label', () => {
+// Slice 5: the delayed line follows its kind line in awakeLines (`<spatial_awareness>`); the review wake is gone, so the
+// retried wake is a heartbeat.
+test('awakeLines: a retried wake is followed by its delayed line with the minutes and the code; none without the label', () => {
   const wake = {
     items: [
-      { kind: 'review', intentionIds: [], delayed: { minutes: 7, code: 'timeout' } },
-      { kind: 'review', intentionIds: [] },
+      { kind: 'heartbeat', intentionIds: [], delayed: { minutes: 7, code: 'timeout' } },
+      { kind: 'heartbeat', intentionIds: [] },
     ],
     now: NOW,
     timezone: 'UTC',
   };
-  const lines = wakeBlockText(wake, labels).split('\n');
+  const lines = awakeLines(wake, labels);
   assert.equal(lines.filter((line) => line === 'delayed 7 timeout').length, 1);
-  assert.equal(lines[lines.indexOf('delayed 7 timeout') - 1], labels.wake.kinds.review);
+  assert.equal(lines[lines.indexOf('delayed 7 timeout') - 1], labels.wake.kinds.heartbeat);
   const bare = { wake: { ...labels.wake, delayed: undefined } };
-  assert.equal(wakeBlockText(wake, { ...labels, ...bare }).includes('delayed'), false);
+  assert.equal(awakeLines(wake, { ...labels, ...bare }).includes('delayed 7 timeout'), false);
 });
 
 test('diagnosticText and diagnosticLines: one line per parser diagnostic from tools.diagnostics; nothing without the labels', () => {
@@ -1680,13 +1526,20 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
       'her tools are a request field, not a block'
     );
     assert.deepEqual(beat[0], reply[0], 'the same system message');
-    // Slice 4: a reply's stable segment is `<self>` and `<surroundings>` while a heartbeat keeps the old emission
-    // until slice 5, so the two share the system message and the text of `<senses>`, not the whole segment.
+    // Slice 4: a reply's stable segment is `<self>` and `<surroundings>`, and a heartbeat (slice 5) has no
+    // `<surroundings>`, so the two share the system message and the text of `<senses>`, not the whole segment.
     const sensesOf = (text: string) => text.slice(text.indexOf('<senses>'), text.indexOf('</senses>'));
     const [beatStable, replyStable] = [String(a.stable), String(b.stable)];
     assert.ok(replyStable.startsWith('<self>') && replyStable.includes('<surroundings>'), 'the reply is on the frame');
     assert.equal(sensesOf(beatStable), sensesOf(replyStable));
-    assert.ok(a.tail.includes('<wake>') && !b.tail.includes('<wake>'), 'the wake sits in the tail');
+    // Slice 5: `<wake>` is gone; why she woke is the heartbeat's kind line in `<spatial_awareness>`, still in the tail.
+    const awakeOf = (tail: string) =>
+      tail.slice(tail.indexOf('<spatial_awareness>'), tail.indexOf('</spatial_awareness>')).split('\n');
+    assert.ok(
+      awakeOf(String(a.tail)).includes(labels.wake.kinds.heartbeat) &&
+        !awakeOf(String(b.tail)).includes(labels.wake.kinds.heartbeat),
+      'the wake sits in the tail'
+    );
     // The profiles segment is the interlocutor's profile alone: a heartbeat has no interlocutor, so it has none.
     assert.equal(a.profiles, undefined);
     // Slice 4: the profiles segment goes from a reply, the counterpart is the first entry of `<memory>`.

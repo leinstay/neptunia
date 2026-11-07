@@ -751,28 +751,21 @@ test('executeCall: her written text goes out as rendered; only the members the r
   );
 });
 
-test("executeCall: a person who runs message.create gives her a turn; her own call posts -- the mode is the server's, by who acts", async () => {
-  const forced: Array<Array<Untyped>> = [];
-  const spontaneous = {
-    force: async (conversation: Untyped, mode: unknown, options: unknown) => {
-      forced.push([conversation.conversationId, mode, options]);
-      return { outcome: 'spoke' };
-    },
-  };
-  const { admin, port } = makeAdmin({ extra: { spontaneous } });
-  // a person: a turn, even with a text in the arguments (PR 7b: by the operation's name, the command key map is gone)
+// Slice 5: the forced turn is deleted, so a person who runs message.create is refused owner-only and nothing runs or
+// posts; her own call still posts.
+test('executeCall: a person who runs message.create is refused owner-only and nothing is posted; her own call posts', async () => {
+  const { admin, port } = makeAdmin();
+  // a person, even with a text in the arguments (PR 7b: by the operation's name, the command key map is gone)
   const person = await admin.runSkillOp(
     'message.create',
     { text: 'πες αυτό' },
     { placeId: HERE, accountId: OWNER, roleIds: [] }
   );
-  assert.equal(person.status, 'ok');
-  assert.deepEqual(forced, [[HERE, null, { requester: { id: OWNER, roleIds: [] } }]]);
+  assert.deepEqual([person.status, person.code], ['denied', 'owner-only']);
   assert.equal(port.calls.filter((call) => call.op === 'send').length, 0, 'nothing posted as given text');
-  // her own call: her text, no turn
+  // her own call: her text
   const own = await executeCall(resolve('message.create', {}, 'το λέω εγώ'), deps(admin, port));
   assert.equal(own.status, 'ok');
-  assert.equal(forced.length, 1);
   assert.equal(port.messagesIn(HERE).at(-1)?.text, 'το λέω εγώ');
 });
 
@@ -917,7 +910,9 @@ function direct(skill: string, args: Obj): Resolved {
   return { ok: true, skill, args, dispatch, repliedAuthorId: null };
 }
 
-test('executeCall: she may post in any text channel of the served guild where the bot may send -- no list; Discord permissions are the only limit', async () => {
+// Slice 5 (plan 5 (i)): the tree check is gone, so a channel of another guild where the bot may send is a destination
+// like any other; a DM stays refused here because the config sets no `private.enabled`.
+test('executeCall: she may post in any text channel the bot may send in, another guild included -- no list; permissions are the only limit', async () => {
   const { admin, port } = makeAdmin();
   const there = await executeCall(resolve('message.create', { channel: '#νέα' }, 'καλημέρα'), deps(admin, port));
   assert.equal(there.status, 'ok', JSON.stringify(there));
@@ -926,8 +921,11 @@ test('executeCall: she may post in any text channel of the served guild where th
   const here = await executeCall(resolve('message.create', {}, 'εδώ'), deps(admin, port));
   assert.equal(here.status, 'ok', JSON.stringify(here));
   assert.equal(port.messagesIn(HERE).at(-1)?.text, 'εδώ');
-  // no permission to send, a DM, another guild's channel, a channel the bot cannot find: refused, nothing sent
-  for (const channel of [ELSEWHERE, DM, OTHER_GUILD, 'c-unknown']) {
+  const away = await executeCall(direct('message.create', { channel: OTHER_GUILD, text: 'γεια' }), deps(admin, port));
+  assert.equal(away.status, 'ok', JSON.stringify(away));
+  assert.equal(port.messagesIn(OTHER_GUILD).at(-1)?.text, 'γεια');
+  // no permission to send, a DM while private chats are off, a channel the bot cannot find: refused, nothing sent
+  for (const channel of [ELSEWHERE, DM, 'c-unknown']) {
     const refused = await executeCall(direct('message.create', { channel, text: 'γεια' }), deps(admin, port));
     assert.deepEqual([refused.status, refused.code], ['denied', 'channel-no-permission'], channel);
     assert.equal(port.messagesIn(channel).length, 0, channel);

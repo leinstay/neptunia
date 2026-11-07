@@ -14,7 +14,8 @@ const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolv
 test('the door refuses a wake of kind review', () => {
   // Bug: a stored or replayed review wake still enters the queue and runs a turn nothing builds any more.
   clock.t = NOW;
-  const run = setup({ review: true });
+  // Slice 5 (corrections): the rig no longer writes a finished review into the state, so its `review` option went.
+  const run = setup();
   const wake = {
     id: 'inner.wake:review:2026-10-19',
     kind: 'review',
@@ -40,7 +41,7 @@ test('a whole day of ticks over her record draws no review and runs no review tu
       for (const line of lines) yield await Promise.resolve(line);
     },
   };
-  const run = setup({ record, review: true });
+  const run = setup({ record });
   for (let t = Date.parse('2026-10-19T08:00:00Z'); t <= Date.parse('2026-10-20T08:00:00Z'); t += 30 * MINUTE_MS) {
     clock.t = t;
     await run.inner.tick();

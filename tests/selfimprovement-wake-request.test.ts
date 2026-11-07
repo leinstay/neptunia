@@ -11,7 +11,7 @@
 //   per tool and code, most frequent first, `skill.run` among them.
 // - `proposals[n].blocked: { reason: string; unblocks: string } | null`, read by `proposalsOf` from the task's
 //   `blocked_reason` and `unblocks`.
-// `wakeBlockText` words `repeated` and `failures` through new keys of `labels.wake.selfimprovement`.
+// `workLines` words `repeated` and `failures` in `<work>` through keys of `labels.wake.selfimprovement`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -21,7 +21,7 @@ import { buildSelfimprovementFacts, proposalsOf } from '../src/behavior/selfimpr
 import { personaJournal } from '../src/behavior/inner/persona-sources.ts';
 import { createJournal } from '../src/memory/journal.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
-import { wakeBlockText } from '../src/behavior/wake.ts';
+import { workLines } from '../src/behavior/selfimprovement-text.ts';
 import { joinLabels } from '../src/config/labels.ts';
 import { createHot } from '../src/hot.ts';
 import { createCalibrator } from '../src/llm/tokens.ts';
@@ -228,13 +228,12 @@ test('the facts name tool and skill failures by tool and code, most frequent fir
   );
 });
 
-test('the wake text carries the repeated needs and the failures', async () => {
+// Slice 5: `<wake>` is gone; the repeated needs and the failures are lines of `<work>` (workLines).
+test('the work text carries the repeated needs and the failures', async () => {
   // Bug: the facts exist and no label words them, so the model never reads them.
   const labels: unknown = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'labels.json'), 'utf8'));
-  const text = wakeBlockText(
-    { ...wakeOfKind('selfimprovement', 'selfimprovement:1'), selfimprovement: await facts() },
-    joinLabels(labels as never)
-  );
+  const words = joinLabels(labels as never) as unknown as { wake: { selfimprovement: unknown } };
+  const text = workLines(await facts(), words.wake.selfimprovement, () => '', null).join('\n');
   assert.ok(text.includes('timeout'), 'the failure code');
   assert.ok(text.includes('web.read'), 'the failed tool past the shown cut');
   assert.ok(text.includes('skill.run'), 'the repeated need past the shown cut');

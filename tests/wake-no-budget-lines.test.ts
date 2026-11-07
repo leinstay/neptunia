@@ -61,8 +61,9 @@ test('an inner turn names no budget in its request, even when the labels and the
     prompts: { inner: INNER_PROMPT, labels: withOldLabels },
   });
   const text = requestText(run.llm, 0);
-  assert.ok(text.includes(labels.wake.header), 'the wake itself is still in the request');
-  assert.ok(text.includes('πες καλημέρα'), 'and so is what it is about');
+  // Slice 5: `<wake>` and its header are gone; why she woke is a line of `<spatial_awareness>`.
+  const spatial = text.slice(text.indexOf('<spatial_awareness>'), text.indexOf('</spatial_awareness>'));
+  assert.ok(spatial.includes('due: i1 πες καλημέρα'), 'the wake itself is still in the request, with what it is about');
   assertNoBudgetLine(text);
 });
 

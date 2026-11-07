@@ -14,8 +14,6 @@ import { skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
-import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';
-import { wakeBlockText } from '../src/behavior/wake.ts';
 import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { call, completionOf, toolAnswer, textAnswer } from './fixtures/tool-answers.ts';
@@ -381,39 +379,6 @@ test('an intention_due turn is not limited to intention changes', async () => {
     answers: [toolAnswer(`${THINK}`, [call('message.create', { channel: `#general`, text: `γεια` })]), '<skip/>'],
   });
   assert.equal(run.sends.length, 1);
-});
-
-test('the heartbeat view marks an open intention a heartbeat made; the wake words it compactly and says what the wake accepts', async () => {
-  const record = (id: string, extra = {}) => ({
-    id,
-    status: 'pending',
-    purpose: `purpose ${id}`,
-    dueAt: NOW + 3_600_000,
-    provenance: { kind: 'self' },
-    createdAt: NOW,
-    updatedAt: NOW,
-    expiresAt: NOW + 86_400_000,
-    ...extra,
-  });
-  const view = async (settings: Record<string, Untyped>) =>
-    buildHeartbeatFacts({
-      now: NOW,
-      since: NOW - 3_600_000,
-      placeName: (id) => id,
-      settings,
-      record: { iterate: async function* iterate() {} },
-      intentions: [record('ia', { origin: 'heartbeat' }), record('ib')],
-    });
-  const on = await view({ intentionsOnly: true });
-  assert.deepEqual(
-    on.life.open.items.map((item) => item.origin ?? null),
-    ['heartbeat', null]
-  );
-  const text = wakeBlockText({ ...BEAT_WAKE, heartbeat: on }, labels).split('\n');
-  const lineOf = (id: string) => text.find((line) => line.startsWith(`${id} ·`));
-  assert.ok(present(lineOf('ia')).endsWith(labels.wake.heartbeat.openOrigin), wrongly(lineOf('ia')));
-  assert.ok(!present(lineOf('ib')).includes(labels.wake.heartbeat.openOrigin), 'an intention of hers has no mark');
-  assert.ok(text.includes(labels.wake.heartbeat.intentionsOnly));
 });
 
 for (const transport of ['native', 'text']) {

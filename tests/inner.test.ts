@@ -13,13 +13,10 @@ import {
   createInnerLife,
   currentChannelOf,
   drawHeartbeatAt,
-  drawReviewAt,
   heartbeatWake,
   emptyState,
   feedbackFacts,
-  hourWeights,
   innerSettings,
-  reviewWake,
   wakeOfDue,
   DELIVERY_SKILLS,
   turnsToday,
@@ -28,9 +25,7 @@ import {
 import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
-import { createIntention } from '../src/intentions/model.ts';
-import { localHour } from '../src/format.ts';
-import { HOUR_MS, MINUTE_MS, DAY_MS, zonedEpoch } from '../src/time.ts';
+import { HOUR_MS, MINUTE_MS, DAY_MS } from '../src/time.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { personaKey } from '../src/memory/db/storage-keys.ts';
@@ -99,7 +94,8 @@ test('inner: a due intention is one wake through the door and one inner turn; th
   assert.equal(run.turns.calls.length, 2);
 });
 
-test("inner: wakes of one conversation and the day's review coalesce into one turn; another conversation waits for its own", async () => {
+// Slice 5: the daily review is gone, so only the two intentions of c1 coalesce.
+test('inner: wakes of one conversation coalesce into one turn; another conversation waits for its own', async () => {
   const run = setup({
     records: [
       intention('i1', { dueAt: NOW - 3 * MINUTE_MS }),
@@ -109,39 +105,20 @@ test("inner: wakes of one conversation and the day's review coalesce into one tu
   });
   run.turns.busy = true;
   await run.inner.tick();
-  await run.inner.onWake({
-    kind: 'inner.wake',
-    at: NOW,
-    id: reviewWake('2026-10-19', NOW - 30 * MINUTE_MS).id,
-    rootId: GUILD,
-    wake: reviewWake('2026-10-19', NOW - 30 * MINUTE_MS),
-  });
-  assert.equal(run.inner.status().queue.length, 4);
+  assert.equal(run.inner.status().queue.length, 3);
   run.turns.busy = false;
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 1);
   const wake = run.turns.calls[0].inner.wake;
   assert.equal(present(run.turns.calls[0].conversation).conversationId, 'c1');
-  assert.deepEqual(wake.items.map((item) => item.kind).sort(), ['intention_due', 'intention_due', 'review']);
+  assert.deepEqual(wake.items.map((item) => item.kind).sort(), ['intention_due', 'intention_due']);
   assert.deepEqual(wake.intentions.map((r) => r.id).sort(), ['i1', 'i3']);
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 2);
   assert.equal(present(run.turns.calls[1].conversation).conversationId, 'c2');
   await settle();
   const turn = run.journal.find((r) => r.event === 'turn');
-  assert.equal(present(turn).coalesced.length, 3, 'the coalesced ids are journalled');
-});
-test("coalesceGroup: a private chat's wake never takes the review; only reviews go alone", () => {
-  const dm = partialWake({ id: 'a', kind: 'intention_due', placeId: 'd1', privateChat: true, dueAt: 1 });
-  const review = reviewWake('2026-10-19', 2);
-  assert.deepEqual(
-    coalesceGroup([review, dm]).map((w) => w.id),
-    ['a']
-  );
-  assert.deepEqual(
-    coalesceGroup([review]).map((w) => w.id),
-    [review.id]
-  );
+  assert.equal(present(turn).coalesced.length, 2, 'the coalesced ids are journalled');
 });
 test('inner: while a turn holds the attention or a ping waits the wake keeps its due time, then runs once free', async () => {
   let waiting = true;
@@ -192,88 +169,6 @@ test('inner: restart interrupts queued actions, retains their evidence and prese
   const fourth = setup({ records, dataDir });
   assert.equal(fourth.inner.status().stopped, true);
   assert.deepEqual(await fourth.inner.tick(), { ran: false, reason: 'stopped' });
-});
-test('drawReviewAt: a seeded draw falls in an hour she speaks in, never before notBefore; none left is null', () => {
-  const timezone = 'Europe/Athens';
-  const weights = new Array(24).fill(0);
-  weights[20] = 5;
-  weights[21] = 1;
-  for (let seed = 1; seed <= 50; seed += 1) {
-    const at = drawReviewAt({ day: '2026-10-19', weights, timezone, rng: seeded(seed), notBefore: NOW });
-    assert.ok([20, 21].includes(localHour(at, timezone)), `seed ${seed}`);
-    assert.ok(present(at) >= NOW);
-  }
-  assert.equal(
-    drawReviewAt({
-      day: '2026-10-19',
-      weights,
-      timezone,
-      rng: seeded(1),
-      notBefore: zonedEpoch('2026-10-19', 22, 0, timezone),
-    }),
-    null
-  );
-  // No line of hers at all: every hour left is offered alike.
-  const any = drawReviewAt({
-    day: '2026-10-19',
-    weights: new Array(24).fill(0),
-    timezone: 'UTC',
-    rng: seeded(3),
-    notBefore: NOW,
-  });
-  assert.ok(present(any) >= NOW && present(any) < zonedEpoch('2026-10-20', 0, 0, 'UTC'));
-  assert.equal(
-    drawReviewAt({ day: '2026-10-19', weights, timezone, rng: seeded(9) }),
-    drawReviewAt({ day: '2026-10-19', weights, timezone, rng: seeded(9) })
-  );
-});
-test('hourWeights: only her own lines count, by local hour', () => {
-  const lines = [
-    { kind: 'said', occurredAt: '2026-10-18T17:10:00Z' },
-    { kind: 'said', occurredAt: '2026-10-17T17:50:00Z' },
-    { kind: 'seen', occurredAt: '2026-10-17T05:00:00Z' },
-  ];
-  const weights = hourWeights(lines, 'Europe/Athens');
-  assert.equal(weights[20], 2);
-  assert.equal(
-    weights.reduce((a, b) => a + b, 0),
-    2
-  );
-});
-
-test("inner: the day's review is drawn once from her record inside her hours, wakes her once, and is re-drawn the next day", async () => {
-  const lines: Array<Untyped> = [];
-  for (let d = 1; d <= 5; d += 1)
-    lines.push({
-      kind: 'said',
-      occurredAt: new Date(Date.parse('2026-10-19T15:20:00Z') - d * DAY_MS).toISOString(),
-      scope: { channel: 'c3' },
-    });
-  const record = {
-    async *iterate() {
-      for (const line of lines) yield line;
-    },
-  };
-  const run = setup({ record, hot: hotWith(), review: true });
-  clock.t = Date.parse('2026-10-19T08:00:00Z');
-  await run.inner.tick();
-  const review = run.inner.status().review;
-  assert.equal(present(review).day, '2026-10-19');
-  assert.equal(new Date(present(present(review).at)).getUTCHours(), 15);
-  assert.equal(run.turns.calls.length, 0, 'not yet');
-  clock.t = present(present(review).at) + MINUTE_MS;
-  await run.inner.tick();
-  assert.equal(run.turns.calls.length, 1);
-  assert.equal(run.turns.calls[0].inner.wake.kind, 'review');
-  assert.equal(present(run.turns.calls[0].conversation).conversationId, 'c3', 'the channel she was last active in');
-  assert.deepEqual(run.turns.calls[0].inner.wake.channels, ['chan-c3']);
-  await run.inner.tick();
-  assert.equal(run.turns.calls.length, 1, 'once a day');
-  clock.t = Date.parse('2026-10-20T08:00:00Z');
-  await run.inner.tick();
-  assert.equal(present(run.inner.status().review).day, '2026-10-20');
-  await settle();
-  assert.equal(run.journal.filter((r) => r.event === 'review-drawn').length, 2);
 });
 
 test('inner: no count of turns refuses one: a day and an hour of turns all run', async () => {
@@ -356,18 +251,19 @@ test('inner: a wake of another chain that shares the conversation of a held one 
   );
 });
 
-test('coalesceGroup: a wake the caller holds is left out of every group, a review included', () => {
+// Slice 5: the review is gone; the held wake must still not keep its mate or a heartbeat waiting.
+test('coalesceGroup: a wake the caller holds is left out of every group, a heartbeat included', () => {
   const held = partialWake({ id: 'h', kind: 'intention_due', placeId: 'c1', dueAt: 1 });
   const mate = partialWake({ id: 'a', kind: 'intention_due', placeId: 'c1', dueAt: 2 });
-  const review = reviewWake('2026-10-19', 3);
+  const beat = heartbeatWake(3);
   const isHeld = (wake: Record<string, Untyped>) => wake.id === 'h';
   assert.deepEqual(
-    coalesceGroup([held, mate, review], isHeld).map((w) => w.id),
-    ['a', review.id]
+    coalesceGroup([held, mate], isHeld).map((w) => w.id),
+    ['a']
   );
   assert.deepEqual(
-    coalesceGroup([held, review], isHeld).map((w) => w.id),
-    [review.id]
+    coalesceGroup([held, beat], isHeld).map((w) => w.id),
+    [beat.id]
   );
   assert.deepEqual(coalesceGroup([held], isHeld), []);
 });
@@ -431,7 +327,8 @@ test('inner: stop drops the queue and is seen by a running turn before its next 
         at: NOW,
         id: 'x',
         placeId: GUILD,
-        wake: reviewWake('2026-10-19', NOW),
+        // Slice 5: the review is gone; any wake the door brings while she is stopped is refused.
+        wake: heartbeatWake(NOW),
       })
     ).status,
     'stopped'
@@ -457,7 +354,8 @@ test('inner: a wake whose intention closed meanwhile is stale; a full queue reco
     at: NOW,
     id: 'w2',
     placeId: GUILD,
-    wake: reviewWake('2026-10-19', NOW),
+    // Slice 5: the review is gone; any wake past a full queue overflows.
+    wake: heartbeatWake(NOW),
   });
   assert.equal(over.status, 'overflow');
   for (const record of records) record.status = 'cancelled';
@@ -761,7 +659,9 @@ test('inner: a recurring intention advances when its wake is disposed of -- recu
 });
 
 // PR 7d: `wakes.queueMax` is the constant 20, so nineteen wakes of their own fill the queue beside the held one.
-test('inner: a dropped wake of a recurring intention (no channel, overflow, stale) still advances it; the last occurrence before expiry carries its note', async () => {
+// Slice 5: a due intention whose place is gone is no longer dropped no-channel: its turn runs nowhere with the place's
+// code (plan 5 (a)), and the recurring intention still advances. The turn counts below count that turn.
+test('inner: a recurring intention whose place is gone runs nowhere, a dropped wake (overflow, stale) still advances it; the last occurrence before expiry carries its note', async () => {
   const dataDir = tempDir('nep-inner-');
   const hot: Record<string, Untyped> = hotWith();
   const service: Record<string, Untyped> = realIntentions(hot, dataDir);
@@ -769,7 +669,7 @@ test('inner: a dropped wake of a recurring intention (no channel, overflow, stal
   const turns = fakeTurns();
   const run = setup({ service, hot: wrongly(hot), turns, dataDir });
   const first = NOW - MINUTE_MS;
-  // No usable conversation: dropped, missed, advanced.
+  // No usable conversation: a turn nowhere with the place's code, missed, advanced.
   const nowhere = service.set({
     purpose: 'nowhere',
     dueAt: first,
@@ -779,8 +679,10 @@ test('inner: a dropped wake of a recurring intention (no channel, overflow, stal
   }).intention;
   await run.inner.tick();
   await settle();
-  assert.equal(run.turns.calls.length, 0);
-  assert.ok(run.journal.some((r) => r.event === 'no-channel'));
+  assert.equal(run.turns.calls.length, 1);
+  assert.equal(run.turns.calls[0].conversation, null);
+  assert.equal(run.turns.calls[0].inner.wake.placeFailure, 'unavailable');
+  assert.ok(!run.journal.some((r) => r.event === 'no-channel'));
   let record = present(service.store()).get(nowhere.id);
   assert.equal(present(record.history.at(-1)).code, 'missed');
   assert.equal(present(record).dueAt, first + 12 * HOUR_MS);
@@ -813,7 +715,7 @@ test('inner: a dropped wake of a recurring intention (no channel, overflow, stal
   await run.inner.tick();
   await settle();
   assert.ok(run.journal.some((r) => r.event === 'stale'));
-  assert.equal(run.turns.calls.length, 0);
+  assert.equal(run.turns.calls.length, 1);
   // The last occurrence before the expiry: the wake carries the note; after it the expiry wins.
   const last = service.set({
     purpose: 'last one',
@@ -825,116 +727,26 @@ test('inner: a dropped wake of a recurring intention (no channel, overflow, stal
   }).intention;
   await run.inner.tick();
   await settle();
-  assert.equal(run.turns.calls.length, 1);
-  assert.deepEqual(run.turns.calls[0].inner.wake.notes, { [last.id]: 'last-occurrence' });
+  assert.equal(run.turns.calls.length, 2);
+  assert.deepEqual(run.turns.calls[1].inner.wake.notes, { [last.id]: 'last-occurrence' });
   record = present(service.store()).get(last.id);
   assert.ok(present(record.dueAt) > present(record).expiresAt, 'the next occurrence lies past the expiry');
   clock.t = NOW + 12 * HOUR_MS;
   await run.inner.tick();
   await settle();
   assert.equal(present(service.store().get(last.id)).status, 'expired');
-  assert.equal(run.turns.calls.length, 1, 'no wake past the expiry');
-  // The three drops reached her in the wake of the one turn that ran.
+  // The twelve-hourly intention of the gone place recurs nowhere; the expired one wakes nobody.
   assert.deepEqual(
-    present(run.turns.calls[0].inner.wake.facts).map((fact) => `${fact.code}:${fact.why ?? ''}`),
+    run.turns.calls.slice(2).map((call) => call.inner.wake.intentions.map((r) => r.id)),
+    [[nowhere.id]],
+    'no wake past the expiry'
+  );
+  // The drops reached her in the wake of the next turn that ran.
+  assert.deepEqual(
+    present(run.turns.calls[1].inner.wake.facts).map((fact) => `${fact.code}:${fact.why ?? ''}`),
     // The wake shows the first twelve facts (FACTS_SHOWN_MAX), the rest of the twenty stale ones wait.
-    ['no-channel:unavailable', 'overflow:', ...Array(10).fill('stale:cancelled')]
+    ['overflow:', ...Array(11).fill('stale:cancelled')]
   );
-});
-
-test('inner: a review tells her once which intentions of hers expired untouched -- the newest first, capped with the rest counted, never a candidate; a held review lists them again; the rest come next time', async () => {
-  const dataDir = tempDir('nep-inner-');
-  // PR 7d: the review lists the constant 5 expired intentions at most, so six of hers expire here.
-  const hot = hotWith();
-  const service = realIntentions(hot, dataDir);
-  let held = true;
-  const turns = fakeTurns({
-    answer: () =>
-      held ? { outcome: 'busy' } : { outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], turnId: 't-rv' } },
-  });
-  const lines: Array<Untyped> = [];
-  for (let d = 1; d <= 5; d += 1)
-    lines.push({
-      kind: 'said',
-      occurredAt: new Date(Date.parse('2026-10-19T15:20:00Z') - d * DAY_MS).toISOString(),
-      scope: { channel: 'c1' },
-    });
-  const record = {
-    async *iterate() {
-      for (const line of lines) yield line;
-    },
-  };
-  const run = setup({ service, hot, turns, dataDir, record, review: true });
-  // Six of hers with no due time, set a day ago, expiring one after another; one alive; a candidate that expires too.
-  clock.t = NOW - DAY_MS;
-  const purposes = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth'];
-  const [a, ...rest] = purposes.map((purpose, k) =>
-    recordOf(service.set({ purpose, expiresAt: NOW - (6 - k) * HOUR_MS, placeId: 'c1', scope: 'group' }))
-  );
-  service.set({ purpose: 'alive', placeId: 'c1', scope: 'group' });
-  // Changed: nothing makes a candidate now, and a store may still hold a closed one from before.
-  const old = { purpose: 'never hers', expiresAt: NOW - 30 * MINUTE_MS, now: clock.t, id: 'i0cand000' };
-  const made = present(createIntention({ ...old, provenance: { kind: 'self', span: 'x' } }).intention);
-  const candidate = { ...made, provenance: { ...made.provenance, kind: 'candidate' as const } };
-  assert.equal(present(service.store()).add(candidate).ok, true);
-  for (const hours of [6, 5, 4, 3, 2, 1, 0]) {
-    clock.t = NOW - hours * HOUR_MS;
-    service.list();
-  }
-  assert.deepEqual(
-    service
-      .list({ closed: true })
-      .filter((r) => r.status === 'expired')
-      .map((r) => r.id)
-      .sort(),
-    [a.id, ...rest.map((r) => r.id), present(candidate).id].sort()
-  );
-  // The review drawn at noon, run at its moment: held by the runner, it lists them and marks nothing.
-  await run.inner.tick();
-  const review = run.inner.status().review;
-  clock.t = present(present(review).at) + MINUTE_MS;
-  await run.inner.tick();
-  assert.equal(run.turns.calls.length, 1);
-  const expected = {
-    items: rest.map((r, k) => ({ id: r.id, purpose: purposes[k + 1], at: NOW - (5 - k) * HOUR_MS })).reverse(),
-    more: 1,
-  };
-  assert.deepEqual(run.turns.calls[0].inner.wake.expired, expected);
-  assert.equal(
-    present(present(service.store()).get(rest[4].id)).expiredShownAt,
-    undefined,
-    'a held review shows nothing'
-  );
-  // Free: the same list, then the listed ones are marked at the turn's end; the one past the cap is not.
-  held = false;
-  await run.inner.tick();
-  assert.equal(run.turns.calls.length, 2);
-  assert.deepEqual(run.turns.calls[1].inner.wake.expired, expected);
-  for (const r of rest) assert.equal(present(present(service.store()).get(r.id)).expiredShownAt, clock.t);
-  assert.equal(present(present(service.store()).get(a.id)).expiredShownAt, undefined);
-  assert.equal(
-    present(present(service.store()).get(candidate.id)).expiredShownAt,
-    undefined,
-    'a candidate is never listed nor marked'
-  );
-  // The next day's review carries the one that was counted but not listed; the day after, nothing.
-  clock.t = Date.parse('2026-10-20T08:00:00Z');
-  await run.inner.tick();
-  clock.t = present(present(run.inner.status().review).at) + MINUTE_MS;
-  await run.inner.tick();
-  assert.equal(run.turns.calls.length, 3);
-  assert.deepEqual(run.turns.calls[2].inner.wake.expired, {
-    items: [{ id: a.id, purpose: 'first', at: NOW - 6 * HOUR_MS }],
-    more: 0,
-  });
-  assert.equal(present(present(service.store()).get(a.id)).expiredShownAt, clock.t);
-  clock.t = Date.parse('2026-10-21T08:00:00Z');
-  await run.inner.tick();
-  clock.t = present(present(run.inner.status().review).at) + MINUTE_MS;
-  await run.inner.tick();
-  assert.equal(run.turns.calls.length, 4);
-  assert.equal(run.turns.calls[3].inner.wake.expired, undefined, 'nothing left to tell');
-  assert.equal(run.turns.calls[3].inner.wake.kind, 'review');
 });
 
 // ---- her attention ------------------------------------------------------------------------
@@ -987,7 +799,7 @@ function attentionSetup({
   settle?: number;
   perDay?: number;
   lines?: Array<Untyped>;
-  turns?: Untyped;
+  turns?: ReturnType<typeof fakeTurns>;
   wakes?: Record<string, Untyped>;
   places?: Untyped;
   nameOf?: Untyped;
@@ -1113,14 +925,24 @@ test('placesPage: filtered by name, sorted recent, name or lines, paged with the
   assert.deepEqual(placesPage(rows, { pageSize: 3, page: 9 }).items, []);
 });
 
-test("inner: an attention wakes her on the place's settled lines since her last look, with the whole burst and the places page; nothing elsewhere; the same lines never twice", async () => {
+test("inner: an attention wakes her on the place's settled lines since her last look, with the whole burst; the places page counts them; nothing elsewhere; the same lines never twice", async () => {
   const lines = [
     seen('m1', { by: 'u1', at: NOW - 4 * MINUTE_MS }),
     seen('m2', { by: 'u2', at: NOW - 3 * MINUTE_MS }),
     seen('m3', { channel: 'c3', by: 'u3', at: NOW - 3 * MINUTE_MS }),
   ];
+  // Slice 5: the places page left the wake with `<wake>`; it is the inner life's page (her places.list), read here
+  // inside the attend turn, before her look is handled.
+  const seenPage: { page: ReturnType<typeof run.inner.places> | null } = { page: null };
+  const turns = fakeTurns({
+    answer: () => {
+      seenPage.page = run.inner.places();
+      return { outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], turnId: 't-1' } };
+    },
+  });
   const run = attentionSetup({
     lines,
+    turns,
     nameOf: (id: string) =>
       new Map([
         ['u1', 'Ana'],
@@ -1136,24 +958,17 @@ test("inner: an attention wakes her on the place's settled lines since her last 
   assert.equal(first.submitted, 1, 'the attended place only');
   assert.equal(run.turns.calls.length, 1);
   const wake = run.turns.calls[0].inner.wake;
-  assert.equal(run.turns.calls[0].conversation.conversationId, 'c2');
+  assert.equal(present(run.turns.calls[0].conversation).conversationId, 'c2');
   assert.equal(wake.kind, 'attend');
   assert.equal(wake.chainId, `attend:${run.id}:m2`);
   const item = wake.items[0];
+  const attend = present(item.attend);
   assert.deepEqual(
-    [
-      item.kind,
-      item.intentionIds,
-      item.attend.place,
-      item.attend.placeName,
-      item.attend.lines,
-      item.attend.people,
-      item.attend.peopleNames,
-    ],
+    [item.kind, item.intentionIds, attend.place, attend.placeName, attend.lines, attend.people, attend.peopleNames],
     ['attend', [run.id], 'c2', 'garden', 2, ['u1', 'u2'], ['Ana', 'Nikos']]
   );
   assert.equal(
-    item.attend.since,
+    attend.since,
     present(present(run.service.store()).get(run.id)).createdAt,
     'nothing before the attention was set is new'
   );
@@ -1162,9 +977,10 @@ test("inner: an attention wakes her on the place's settled lines since her last 
     [run.id]
   );
   // The places page: every published place, the lines since her last look, the read-only one listed.
-  assert.equal(wake.places.total, 3);
+  const page = present(seenPage.page);
+  assert.equal(page.total, 3);
   assert.deepEqual(
-    wake.places.items.map((p: Record<string, Untyped>) => [p.id, p.lines, p.people, p.writable, p.attended]),
+    page.items.map((p: Record<string, Untyped>) => [p.id, p.lines, p.people, p.writable, p.attended]),
     [
       ['c2', 2, 2, true, true],
       ['c3', 1, 1, false, false],
@@ -1192,7 +1008,7 @@ test("inner: an attention wakes her on the place's settled lines since her last 
   clock.t = NOW + 8 * MINUTE_MS;
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 2);
-  assert.equal(run.turns.calls[1].inner.wake.items[0].attend.lines, 1);
+  assert.equal(present(run.turns.calls[1].inner.wake.items[0].attend).lines, 1);
   assert.deepEqual(run.service.attendToday(run.id), { day: '2026-10-19', wakes: 2 });
   const turnNote = run.journal.filter((r) => r.event === 'turn').at(-1);
   assert.deepEqual(
@@ -1237,7 +1053,7 @@ test('inner: her own line in the place is a look; a newer burst replaces the que
   turns.busy = false;
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 1);
-  assert.equal(run.turns.calls[0].inner.wake.items[0].attend.lines, 2);
+  assert.equal(present(run.turns.calls[0].inner.wake.items[0].attend).lines, 2);
   assert.equal(run.inner.state().queue.length, 0);
 });
 
@@ -1474,7 +1290,7 @@ test('inner: a turn that lost something queues one feedback wake in its chain an
   assert.deepEqual(present(quiet.journal.find((entry) => entry.event === 'turn')).feedback, { facts: [], wake: null });
 });
 
-test("currentChannelOf: the cause of the wake picks the channel -- destination or the asking channel, the place, the errand's channel, the reported turn's; a review or no channel has none", () => {
+test("currentChannelOf: the cause of the wake picks the channel -- destination or the asking channel, the place, the errand's channel, the reported turn's; a heartbeat or no channel has none", () => {
   const due = (extra: Partial<Wake> = {}): Wake =>
     partialWake({
       kind: 'intention_due',
@@ -1515,42 +1331,28 @@ test("currentChannelOf: the cause of the wake picks the channel -- destination o
     { placeId: 'c1', why: 'feedback' },
     'a wake queued before the field existed'
   );
-  assert.deepEqual(currentChannelOf([reviewWake('2026-10-19', NOW)]), { placeId: null, why: null });
+  // Slice 5: the review is gone; the heartbeat is the wake that belongs to no place and must yield to another cause.
+  assert.deepEqual(currentChannelOf([heartbeatWake(NOW)]), { placeId: null, why: null });
   assert.deepEqual(
-    currentChannelOf([reviewWake('2026-10-19', NOW), due()], [intention('i1')]),
+    currentChannelOf([heartbeatWake(NOW), due()], [intention('i1')]),
     { placeId: 'c1', why: 'asked' },
-    'the review joins another cause, which decides'
+    'a placeless wake beside another cause: the cause decides'
   );
   assert.deepEqual(currentChannelOf([due({ placeId: null })]), { placeId: null, why: null });
 });
 
-test('inner: the turn is given the current channel and the wake says where and why; a review has none and says so; the feedback wake carries it on', async () => {
+// Slice 5: the wake's `here` line left with `<wake>` and the review is gone; the current channel the turn is given
+// stays the fact under test, and the heartbeat's turn nowhere is tested with the heartbeat below.
+test('inner: the turn is given the current channel; the feedback wake carries it on', async () => {
   const dest = { ...intention('i1'), destination: 'c2' };
   const run = setup({ records: [dest] });
   await run.inner.tick();
   const given = run.turns.calls[0];
   assert.equal(present(given.conversation).conversationId, 'c2');
   assert.equal(given.inner.currentChannel, 'c2');
-  assert.deepEqual(given.inner.wake.here, { channel: 'chan-c2', why: 'destination' });
   const asked = setup({ records: [intention('i1')] });
   await asked.inner.tick();
   assert.equal(asked.turns.calls[0].inner.currentChannel, 'c1');
-  assert.equal(present(asked.turns.calls[0].inner.wake.here).why, 'asked');
-  // The day's review: the turn still runs somewhere (her recent channel) but has no current channel.
-  const lines = [{ kind: 'said', occurredAt: new Date(NOW - DAY_MS).toISOString(), scope: { channel: 'c3' } }];
-  const record = {
-    async *iterate() {
-      for (const line of lines) yield line;
-    },
-  };
-  const review = setup({ record, hot: hotWith(), review: true });
-  clock.t = Date.parse('2026-10-19T08:00:00Z');
-  await review.inner.tick();
-  clock.t = present(present(review.inner.status().review).at) + MINUTE_MS;
-  await review.inner.tick();
-  assert.equal(present(review.turns.calls[0].conversation).conversationId, 'c3');
-  assert.equal(review.turns.calls[0].inner.currentChannel, null);
-  assert.equal(review.turns.calls[0].inner.wake.here, null);
   // A feedback wake keeps the reported turn's current channel, and the next turn is given it.
   const turns = fakeTurns({ answer: () => lostTurn() });
   const again = setup({ records: [{ ...dest }], turns, hot: hotWith({ wakes: { mode: 'live' } }) });
@@ -1559,7 +1361,6 @@ test('inner: the turn is given the current channel and the wake says where and w
   clock.t = NOW + MINUTE_MS;
   await again.inner.tick();
   assert.equal(again.turns.calls[1].inner.currentChannel, 'c2');
-  assert.equal(present(again.turns.calls[1].inner.wake.here).why, 'feedback');
 });
 
 /** The facts of the state as `kind:code:why`, oldest first. */
@@ -1568,14 +1369,14 @@ const factLines = (run: Record<string, Untyped>) =>
     .state()
     .facts.map((fact: Record<string, Untyped>) => [fact.kind, fact.code, fact.why].filter(Boolean).join(':'));
 
+// Slice 5: a due intention whose place is gone runs nowhere instead of being dropped (plan 5 (a)), so the wake dropped
+// no-channel here is an attention on a place the client cannot fetch, and a due intention is the next turn.
 test('inner: a wake of hers dropped no-channel is a fact at that moment (where, why), shown in the wake of her next turn and told once that turn completed; no feedback wake is needed', async () => {
-  // i9 lands in a channel the client cannot fetch: dropped no-channel at the first drain; i1 runs at the next.
-  const run = setup({
-    records: [
-      intention('i9', { dueAt: NOW - 2 * MINUTE_MS, placeId: 'c9', purpose: 'announce the game night' }),
-      intention('i1', { dueAt: NOW - MINUTE_MS }),
-    ],
-    hot: hotWith({ wakes: { mode: 'live' } }),
+  // The attention lands in a channel the client cannot fetch: dropped no-channel at the first drain.
+  const run = attentionSetup({
+    place: 'c9',
+    lines: [seen('m1', { channel: 'c9', by: 'u1', at: NOW - 4 * MINUTE_MS })],
+    wakes: { mode: 'live' },
   });
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 0);
@@ -1592,31 +1393,36 @@ test('inner: a wake of hers dropped no-channel is a fact at that moment (where, 
       fact.privateChat,
       fact.told,
     ],
-    ['wakeDropped', 'no-channel', 'unavailable', 'intention_due', 'i9', 'announce the game night', 'c9', false, false]
+    ['wakeDropped', 'no-channel', 'unavailable', 'attend', run.id, 'listen there', 'c9', false, false]
   );
+  // A due intention runs a turn: it shows the drop.
+  run.service.set({ purpose: 'announce the game night', dueAt: NOW + MINUTE_MS, placeId: 'c1', scope: 'group' });
+  clock.t = NOW + 2 * MINUTE_MS;
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 1);
   assert.deepEqual(run.turns.calls[0].inner.wake.facts, [
     {
       kind: 'wakeDropped',
-      wakeId: `inner.wake:intention_due:i9:${NOW - 2 * MINUTE_MS}`,
-      wake: 'intention_due',
+      wakeId: `inner.wake:attend:${run.id}:m1`,
+      wake: 'attend',
       code: 'no-channel',
       why: 'unavailable',
-      intentionId: 'i9',
-      purpose: 'announce the game night',
+      intentionId: run.id,
+      purpose: 'listen there',
     },
   ]);
   assert.ok(run.inner.state().facts[0].told, 'told once the turn completed');
   assert.deepEqual(run.inner.state().queue, [], 'the turn carried it: no feedback wake');
   // Another due intention: nothing is repeated.
-  run.intentions.records.push(intention('i2', { dueAt: NOW + 2 * MINUTE_MS, placeId: 'c2' }));
-  clock.t = NOW + 3 * MINUTE_MS;
+  run.service.set({ purpose: 'say hi', dueAt: NOW + 4 * MINUTE_MS, placeId: 'c2', scope: 'group' });
+  clock.t = NOW + 5 * MINUTE_MS;
   await run.inner.tick();
   assert.equal(run.turns.calls.length, 2);
   assert.equal(run.turns.calls[1].inner.wake.facts, undefined);
 });
 
+// Slice 5: the fact is the drop of an attention on a place the client cannot fetch, since a due intention whose place
+// is gone runs nowhere instead of being dropped (plan 5 (a)).
 test('inner: a fact is told only after a model answer that carried it completed -- an error leaves it, the retry shows it again', async () => {
   let runs = 0;
   const turns = fakeTurns({
@@ -1625,14 +1431,13 @@ test('inner: a fact is told only after a model answer that carried it completed 
         ? { outcome: 'error', reason: 'provider-limit' }
         : { outcome: 'skip', reason: 'nothing-to-do', inner: { actions: [], turnId: `t-${runs}` } },
   });
-  const run = setup({
-    records: [
-      intention('i9', { dueAt: NOW - 2 * MINUTE_MS, placeId: 'c9' }),
-      intention('i1', { dueAt: NOW - MINUTE_MS }),
-    ],
+  const run = attentionSetup({
+    place: 'c9',
+    lines: [seen('m1', { channel: 'c9', by: 'u1', at: NOW - 4 * MINUTE_MS })],
     turns,
   });
   await run.inner.tick();
+  run.service.set({ purpose: 'say hi', dueAt: NOW, placeId: 'c1', scope: 'group' });
   await run.inner.tick();
   assert.equal(present(run.turns.calls[0].inner.wake.facts).length, 1);
   assert.equal(
@@ -1652,7 +1457,9 @@ test('inner: a fact is told only after a model answer that carried it completed 
   assert.ok(run.inner.state().facts.every((fact) => fact.told));
 });
 
-test('inner: every wake outcome other than a turn is a wakeDropped fact at the moment: stopped, overflow, stale (done, cancelled, forgotten), no-channel (unavailable, dm-off)', async () => {
+// Slice 5: a due intention in a private chat while private chats are off, or in a place that cannot be fetched, is no
+// longer dropped no-channel: its turn runs nowhere with the place's code (plan 5 (a)). The codes stay under test there.
+test('inner: every wake outcome other than a turn is a wakeDropped fact at the moment: stopped, overflow, stale (done, cancelled, forgotten); a due intention whose place fails runs nowhere with its code (unavailable, dm-off)', async () => {
   world().channel({ id: 'd1', dm: true });
   const direct = {
     ...intention('i5', { placeId: 'd1' }),
@@ -1679,12 +1486,14 @@ test('inner: every wake outcome other than a turn is a wakeDropped fact at the m
   run.intentions.records.push(direct, intention('i6', { placeId: 'c9', dueAt: NOW - 30_000 }));
   await run.inner.tick();
   await run.inner.tick();
-  assert.deepEqual(factLines(run).slice(3).sort(), [
-    'wakeDropped:no-channel:dm-off',
-    'wakeDropped:no-channel:unavailable',
-  ]);
-  const dm = run.inner.state().facts.find((fact) => fact.why === 'dm-off');
-  assert.deepEqual([present(dm).placeId, present(dm).privateChat], ['d1', true]);
+  assert.equal(factLines(run).length, 3, 'no drop');
+  assert.deepEqual(
+    run.turns.calls
+      .map((call) => `${call.inner.wake.intentions.map((r) => r.id).join()}:${call.inner.wake.placeFailure}`)
+      .sort(),
+    ['i5:dm-off', 'i6:unavailable']
+  );
+  assert.ok(run.turns.calls.every((call) => call.conversation === null));
   // The queue full (PR 7d: twenty wakes, `wakes.queueMax` is a constant): the overflowing wake is dropped on the spot; the stop drops what waits.
   const full = setup({ records: [...queueFillers(20), intention('i1')] });
   full.turns.busy = true;
@@ -2048,7 +1857,7 @@ test("inner retry: a one-off's due moment that met an error that is not a provid
   assert.equal(run.turns.calls.length, 2);
 });
 
-test('inner retry: a review or an attention wake that met a cut-off error is handled at once and told; only a one-off intention gets the one more try', async () => {
+test('inner retry: an attention wake that met a cut-off error is handled at once and told; only a one-off intention gets the one more try', async () => {
   const lines = [seen('m1', { by: 'u1', at: NOW - 5 * MINUTE_MS })];
   const run = attentionSetup({ lines, turns: failingTurns(99, 'cut-off') });
   await run.inner.tick();
@@ -2084,10 +1893,8 @@ test('drawHeartbeatAt: the interval with an even jitter either way, never less t
 
 test('innerSettings: the heartbeat defaults and a bad value taking the default', () => {
   const d = innerSettings({}).heartbeat;
-  assert.deepEqual(
-    [d.enabled, d.schedule, d.jitterMinutes, d.people, d.filteredShown, d.closedShown],
-    [true, { kind: 'every', everyMinutes: 180 }, 60, 8, 10, 10]
-  );
+  // Slice 5: the view's fixed numbers (people, filteredShown, closedShown) left with heartbeatLines.
+  assert.deepEqual([d.enabled, d.schedule, d.jitterMinutes], [true, { kind: 'every', everyMinutes: 180 }, 60]);
   // PR 7d: `heartbeat.people` (a key of the config cut) is a constant, so the live keys are the switch and the interval, `heartbeat.schedule` since it replaced `everyMinutes`.
   const set = innerSettings({ heartbeat: { enabled: false, schedule: 'x' } }).heartbeat;
   assert.deepEqual([set.enabled, set.schedule], [false, { kind: 'every', everyMinutes: 180 }]);
@@ -2119,7 +1926,9 @@ test('heartbeat: off draws nothing and wakes nobody; the status says so', async 
   assert.equal(run.inner.status().heartbeat, null);
 });
 
-test('heartbeat: at its moment one turn runs in the channel she spoke in, with no current channel, its own chain and the facts; the next moment is drawn from the run', async () => {
+// Slice 5: a service has no conversation (no stand-in, no recent channel), and the heartbeat's facts left with
+// heartbeatLines, since `<meanwhile>`, `<memory>` and `<inner>` carry them; their key list is no longer the wake's.
+test('heartbeat: at its moment one turn runs nowhere, with no current channel and its own chain; the next moment is drawn from the run', async () => {
   const run = setup({ record: sayings(), hot: hotWith({ heartbeat: BEAT }), rng: () => 0.5 });
   await run.inner.tick();
   const due = NOW + 180 * MINUTE_MS;
@@ -2128,25 +1937,9 @@ test('heartbeat: at its moment one turn runs in the channel she spoke in, with n
   assert.equal(run.turns.calls.length, 1);
   const call = run.turns.calls[0];
   assert.equal(call.inner.wake.kind, 'heartbeat');
-  assert.equal(present(call.conversation).conversationId, 'c3');
+  assert.equal(call.conversation, null);
   assert.equal(call.inner.currentChannel, null);
-  assert.equal(call.inner.wake.here, null);
   assert.equal(call.inner.wake.chainId, `heartbeat:${due}`);
-  // `landed` left the heartbeat's facts: a landed result belongs to the selfimprovement wake.
-  // S8: the heartbeat's facts carry what retrieval found under `memory`.
-  assert.deepEqual(Object.keys(wrongly<object>(call.inner.wake.heartbeat)).sort(), [
-    'activity',
-    'agents',
-    'intentionsOnly',
-    'life',
-    'maxTokens',
-    'memory',
-    'people',
-    'places',
-    'refs',
-    'since',
-    'skills',
-  ]);
   await run.inner.tick();
   assert.deepEqual(run.inner.state().heartbeat, { nextAt: clock.t + 180 * MINUTE_MS, lastAt: due + MINUTE_MS });
   assert.equal(run.turns.calls.length, 1, 'once per moment');
@@ -2179,8 +1972,8 @@ test('heartbeat: never coalesced with another wake and never held behind one: it
   assert.deepEqual(
     coalesceGroup([
       wakeOfDue({ intention: intention('i2'), reason: 'due', at: 1 }),
+      // Slice 5: the review that followed here is gone.
       heartbeatWake(2),
-      reviewWake('2026-10-19', 3),
     ]).map((wake) => wake.kind),
     ['heartbeat']
   );
@@ -2270,39 +2063,6 @@ test('heartbeat: a running turn holds it to the next tick, due time kept; its ch
   clock.t = present(present(run.inner.state().heartbeat).nextAt) + MINUTE_MS;
   await run.inner.tick();
   assert.equal(turns.calls.length, 2, 'a perChain of 1 holds no second heartbeat: each has its own chain');
-});
-
-test('heartbeat: the review keeps working unchanged beside it', async () => {
-  const lines: Array<Untyped> = [];
-  for (let d = 1; d <= 5; d += 1)
-    lines.push({
-      kind: 'said',
-      occurredAt: new Date(Date.parse('2026-10-19T15:20:00Z') - d * DAY_MS).toISOString(),
-      scope: { channel: 'c3' },
-    });
-  const record = {
-    async *iterate() {
-      for (const line of lines) yield line;
-    },
-  };
-  const run = setup({
-    record,
-    hot: hotWith({ heartbeat: BEAT }),
-    review: true,
-    rng: () => 0.5,
-  });
-  clock.t = Date.parse('2026-10-19T08:00:00Z');
-  await run.inner.tick();
-  const review = run.inner.status().review;
-  clock.t = present(present(review).at) + MINUTE_MS;
-  await run.inner.tick();
-  await run.inner.tick();
-  const kinds = run.turns.calls.map((call) => call.inner.wake.kind);
-  assert.ok(kinds.includes('review'));
-  assert.equal(
-    present(present(run.turns.calls.find((call) => call.inner.wake.kind === 'review')).conversation).conversationId,
-    'c3'
-  );
 });
 
 test('inner: the turn in flight is on disk while the turn runs and gone once it ended; a turn held (busy) leaves no mark', async () => {

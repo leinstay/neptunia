@@ -21,7 +21,10 @@ const START = Date.parse('2026-10-26T12:00:00Z');
 const ERRAND = 't0000000a';
 const SILENT = { info() {}, warn() {}, error() {} };
 
-type TurnParams = { inner: { wake: { kind: string; items: Array<Record<string, unknown>>; here: unknown } } };
+type TurnParams = {
+  conversation?: { conversationId: string } | null;
+  inner: { wake: { kind: string; items: Array<Record<string, unknown>> }; currentChannel?: string | null };
+};
 
 function setup() {
   const clock = { t: START };
@@ -123,7 +126,11 @@ test('the wake item names the errand as errandId and the intention channel is th
   const wake = run.calls[0]?.inner.wake;
   assert.equal(wake?.items[0]?.errandId, ERRAND);
   assert.equal(Object.hasOwn(wake?.items[0] ?? {}, 'taskId'), false);
-  assert.deepEqual(wake?.here, { channel: 'chan-c1', why: 'errand' });
+  // Slice 5: the wake's `here` line left with `<wake>`; the intention's channel is the turn's conversation and current
+  // channel.
+  const [turn] = run.calls;
+  assert.equal(turn?.inner.currentChannel, 'c1');
+  assert.equal(turn?.conversation?.conversationId, 'c1');
 });
 
 test('deadlineWakes over a record the reconciliation moved to pending gives the id the wait itself gave', () => {

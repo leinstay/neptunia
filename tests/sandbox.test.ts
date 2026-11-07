@@ -586,8 +586,10 @@ test('situationHistory: a stored kind replaces the guess; the trigger is found b
   assert.throws(() => situationHistory({ ...moment, triggerId: '800000000000000001' }), /self/);
 });
 
-test('situationHistory: a spontaneous moment has no trigger, whoever wrote last', () => {
-  for (const mode of ['interject', 'initiate']) {
+// Slice 5: the initiate mode is deleted (a recorded initiate moment reads as a reply), so only an interjection is a
+// moment with no trigger.
+test('situationHistory: an interjection has no trigger, whoever wrote last', () => {
+  for (const mode of ['interject']) {
     const own = { ...storedMoment(), mode, history: storedMoment().history.slice(0, 1) };
     const { history, trigger, triggerKind } = situationHistory(own);
     assert.equal(history.length, 1);

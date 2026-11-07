@@ -3,8 +3,6 @@
 // handled set and the in-flight mark live in the database, never in inner.json (stage 4 cut, the lead's decision 1), so
 // a test that checks what is durable reads them here. The service runs on the calling thread over the test's data
 // directory, so the open imports any inner.json the test wrote. Synthetic data only.
-import fs from 'node:fs';
-import path from 'node:path';
 import { createInnerLife } from '../../src/behavior/inner.ts';
 import type { InnerLifeOptions } from '../../src/behavior/inner.ts';
 import type { InnerTurnParams, Measured, Wake } from '../../src/behavior/inner/types.ts';
@@ -189,8 +187,8 @@ export function fakeClient(
   return { reads: world().reads };
 }
 
-// PR 7d: the switches are code and the queue (20), the chat slice (30) and the review switch (on) are constants, so
-// the config holds only the keys that are still settings.
+// PR 7d: the switches are code and the queue (20) and the chat slice (30) are constants, so the config holds only the
+// keys that are still settings. Slice 5: the daily review is gone with `wakes.review.*`.
 export function hotWith({
   wakes = {},
   heartbeat = { enabled: false },
@@ -209,7 +207,6 @@ export function hotWith({
       wakes: {
         mode: 'shadow',
         tickSeconds: 60,
-        review: { historyDays: 14 },
         caps: { perChain: 3 },
         ...wakes,
       },
@@ -236,7 +233,6 @@ export type SetupOptions = {
   service?: InnerLifeOptions['intentions'];
   memoryDb?: InnerLifeOptions['memoryDb'];
   log?: InnerLifeOptions['log'];
-  review?: boolean;
 };
 
 /** One inner life over a temp data dir with a real door; `records` its intentions. */
@@ -254,7 +250,6 @@ export function setup({
   service = null,
   memoryDb = null,
   log = SILENT,
-  review = false,
 }: SetupOptions = {}): {
   inner: ReturnType<typeof createInnerLife>;
   turns: FakeTurns;
@@ -264,13 +259,6 @@ export function setup({
   door: ReturnType<typeof createEventDoor>;
   hot: InnerLifeOptions['hot'];
 } {
-  // PR 7d: the daily review is code; a test that is not about it starts on a day whose review is done.
-  const stateFile = path.join(dataDir, 'persona', 'inner.json');
-  if (!review && !fs.existsSync(stateFile)) {
-    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-    const day = new Date(clock.t).toISOString().slice(0, 10);
-    fs.writeFileSync(stateFile, JSON.stringify({ review: { day, at: null, done: true } }));
-  }
   const journal: Array<Record<string, Untyped>> = [];
   // A test that hands in a real service reads it through the members the fake has.
   const intentions = service ? wrongly<ReturnType<typeof fakeIntentions>>(service) : fakeIntentions(records);

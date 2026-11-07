@@ -1,17 +1,18 @@
 // The selfimprovement wake asks her to reuse a skill she already has before she proposes a new one, and the request it
 // builds carries her skills so the instruction has something to point at. Read through `buildRequest` with the tracked
-// prompt file and the wake block the turn renders (`wakeBlockText`), on the shipped settings and labels.
+// prompt file and the `<work>` body the turn renders (`workLines`) on the service frame, on the shipped settings and labels.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSelfimprovementFacts } from '../src/behavior/selfimprovement-view.ts';
-import { wakeBlockText } from '../src/behavior/wake.ts';
+import { workLines } from '../src/behavior/selfimprovement-text.ts';
+import { frameOf } from '../src/turn/request/frame.ts';
 import { joinLabels } from '../src/config/labels.ts';
 import { createCalibrator } from '../src/llm/tokens.ts';
 import { buildRequest } from './fixtures/built-request.ts';
-import { PROMPT_MARK, WAKE_NOW, requestText, wakeOfKind } from './fixtures/wake-turn.ts';
+import { PROMPT_MARK, WAKE_NOW, requestText } from './fixtures/wake-turn.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (...parts: Array<string>): string => fs.readFileSync(path.join(ROOT, ...parts), 'utf8');
@@ -33,10 +34,9 @@ async function requestWith(skills: ReadonlyArray<{ name: string; active: boolean
     proposals: [],
     outbox: [],
   });
-  const wake = wakeBlockText(
-    { ...wakeOfKind('selfimprovement', 'selfimprovement:1'), selfimprovement: facts },
-    joinLabels(labels as never)
-  );
+  // Slice 5: `<wake>` is gone; her skills reach the request as lines of `<work>` in `<inner>`, on the service frame.
+  const words = joinLabels(labels as never) as unknown as { wake: { selfimprovement: unknown } };
+  const work = workLines(facts, words.wake.selfimprovement, () => '', null).join('\n');
   const config: unknown = JSON.parse(read('config', 'config.json'));
   const request = buildRequest({
     config,
@@ -50,7 +50,6 @@ async function requestWith(skills: ReadonlyArray<{ name: string; active: boolean
     },
     calibrator: createCalibrator(),
     mode: 'inner',
-    forced: false,
     now: WAKE_NOW,
     selfName: 'Her',
     history: [],
@@ -68,7 +67,19 @@ async function requestWith(skills: ReadonlyArray<{ name: string; active: boolean
     videos: new Map(),
     reads: new Map(),
     wakeKind: 'selfimprovement',
-    wake,
+    serviceInner: { work, board: '' },
+    frame: frameOf({
+      mode: 'inner',
+      triggerKind: 'inner',
+      wakeKind: 'selfimprovement',
+      interface: 'discord',
+      chain: [],
+      dm: null,
+      trigger: null,
+      author: null,
+      now: WAKE_NOW,
+      timezone: 'UTC',
+    }),
   });
   return requestText(request.messages as never);
 }

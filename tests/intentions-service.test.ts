@@ -380,35 +380,6 @@ test('intention.update / intention.cancel: the id alone in the body counts as th
   });
 });
 
-test('intentions: markExpiredShown marks an expired intention once; an open one, an unknown id and a second call change nothing', async () => {
-  const { intentions, clock } = makeEnv();
-  const own = present(
-    wrongly<Created>(
-      intentions.set({
-        purpose: 'soon gone',
-        expiresAt: T0 + HOUR,
-        placeId: 'c1',
-        scope: 'group',
-      })
-    ).intention
-  );
-  assert.deepEqual(
-    intentions.markExpiredShown(own.id),
-    { ok: true, intention: own, changed: false },
-    'still open: nothing to mark'
-  );
-  clock.t = T0 + HOUR;
-  assert.equal(intentions.list({ closed: true })[0].status, 'expired', 'the sweep expired it');
-  clock.t = T0 + 2 * HOUR;
-  const marked = intentions.markExpiredShown(own.id);
-  assert.equal(marked.changed, true);
-  assert.equal(marked.intention.expiredShownAt, T0 + 2 * HOUR);
-  assert.equal(present(present(intentions.store()).get(own.id)).expiredShownAt, T0 + 2 * HOUR, 'written');
-  assert.equal(intentions.markExpiredShown(own.id).changed, false, 'once');
-  assert.deepEqual(intentions.markExpiredShown('i00000000'), { ok: false, code: 'not-found' });
-  assert.equal(intentions.markExpiredShown(own.id).changed, false, 'the default guild is the same store');
-});
-
 test("private chats: her intention in a DM is the DM's own -- never in a server turn, not movable from a server channel, gone with a forget of the member", async () => {
   const { env, intentions } = makeEnv();
   const dm = (extra = {}) => hers(env, 'T1', { placeId: 'dm1', privateChat: true, ...extra });
