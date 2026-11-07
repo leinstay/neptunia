@@ -252,3 +252,10 @@ export function frameOf(input: FrameInput): Frame {
     blocks: blocksOf(kind, place),
   };
 }
+
+/** The kinds whose request is the frame's: its tags in its order, filtered by `blocks`. The others keep the old emission. */
+const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>(['reply', 'errand_result']);
+
+/** Whether a request built with `frame` is the frame's own (`<memory>`, `<recall>`, `<meanwhile>` and the rest). */
+export const framedRequest = (frame: Frame | null | undefined): frame is Frame =>
+  frame !== null && frame !== undefined && FRAMED_KINDS.has(frame.kind);

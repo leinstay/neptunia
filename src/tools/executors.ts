@@ -702,6 +702,12 @@ function inTurnCallOf(deps: ExecuteDeps, resolved: Resolved): InTurnCall {
   };
 }
 
+/** A line of this conversation her text named by its identity is the reply of a post here that names none. */
+function replyNamed(skill: string, args: Record<string, unknown>, named: unknown): void {
+  if (skill === 'message.create' && typeof named === 'string' && named !== '' && !args.channel && !args.reply)
+    args.reply = named;
+}
+
 /** Refuse a publishing call before an operation or in-turn generator runs. */
 function callPublicationRefusal(
   resolved: Resolved,
@@ -832,6 +838,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
         args.text = rendered.text;
         if (Array.isArray(rendered.accountIds))
           mentionAccountIds = rendered.accountIds.filter((id): id is string => typeof id === 'string' && id !== '');
+        replyNamed(resolved.skill, args, rendered.replyTo);
       }
     }
     const call = resolved.dispatch.toOp(args);
@@ -1048,7 +1055,7 @@ export type RunOperation = (op: string, args: Obj, context: Obj) => unknown;
 export type ExecuteDeps = {
   publicationBoundary?: PublicationBoundary;
   inTurn?: Record<string, (args: Obj, call?: InTurnCall) => unknown>;
-  renderText?: (text: string) => string | { text?: unknown; accountIds?: unknown };
+  renderText?: (text: string) => string | { text?: unknown; accountIds?: unknown; replyTo?: unknown };
   envelope?: CallEnvelope;
   runOp?: RunOperation;
   runOwnOp?: RunOperation;

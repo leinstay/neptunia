@@ -24,7 +24,7 @@ import type { JournalOp, PortResult } from './journal.ts';
 import type { JournalNotes, NotesDraft } from './journal-notes.ts';
 import type { Participation } from './participation.ts';
 import { snapshotOfDraft } from './routing.ts';
-import type { Sends } from './sends.ts';
+import type { PostRefs, Sends } from './sends.ts';
 import { reactionChannel, replyTarget, sendArgs, withLink } from './targets.ts';
 import type { TriggerKind } from './triggers.ts';
 import { mentionsUnderPings } from './mentions.ts';
@@ -108,6 +108,7 @@ type ActDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     sendFailure?: { code: unknown; n: number; total: number; unknown?: true; hash?: string };
     limits?: { add: (limit: { kind: string; where: string }) => void } | null;
     unseenFailed?: Array<{ kind: string; skill: string; status: string; code: string }>;
+    frameRefs?: PostRefs | null;
   };
 
 /** A message of hers as the next history read will give it. */
@@ -514,11 +515,8 @@ export function createAct(ctx: ActContext): Act {
     for (const [index, message] of messages.entries()) {
       if (!typedAbove(index) && typingOn) await sleep(between(cfg.betweenMessagesMs, rng));
 
-      const { replyId, pulledId } = replyTarget(message.replyTo, { plain, idByIndex, pulledIds });
-      const link = linkFor(pulledId);
-      const repliedAuthorId = replyId
-        ? (lines.find((line) => line.id === replyId)?.authorId ?? (trigger?.id === replyId ? trigger.authorId : null))
-        : null;
+      const target = replyTarget(message.replyTo, { plain, idByIndex, pulledIds });
+      const link = linkFor(target.pulledId);
       const withEmoji = index === 0 ? emojiPick : null;
       // Links on the text sent; the typing time stays on the text before them.
       const rendered = renderPost(message.text, {
@@ -534,8 +532,14 @@ export function createAct(ctx: ActContext): Act {
         handles,
         channelHandles,
         link: withEmoji ? null : link,
+        refs: draft?.frameRefs ?? null,
       });
       const { spoken, accountIds } = rendered;
+      // A line of this place her words named by its identity is the reply when she named none.
+      const replyId = target.replyId ?? rendered.replyTo ?? null;
+      const repliedAuthorId = replyId
+        ? (lines.find((line) => line.id === replyId)?.authorId ?? (trigger?.id === replyId ? trigger.authorId : null))
+        : null;
       const text = withEmoji
         ? withLink(applyEmojiPick(rendered.text, withEmoji.picked, withEmoji.render), link, hot.prompts?.labels)
         : rendered.text;
@@ -602,7 +606,7 @@ export function createAct(ctx: ActContext): Act {
         accountIds,
       });
       delivered = true;
-      if (pulledId) answered.add(pulledId);
+      if (target.pulledId) answered.add(target.pulledId);
       lastPostAt.set(channel.id, clock());
       notePost(posted, replyId, op);
       postedTexts.push(said);

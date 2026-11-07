@@ -17,6 +17,18 @@ const textOf = (value: unknown): string => (typeof value === 'string' ? value : 
 const json = (value: unknown): ChatStateAnswer => ({ text: JSON.stringify(value), status: 'ok' });
 const refused = (code: string): ChatStateAnswer => ({ text: `refused: ${code}`, status: 'invalid', code });
 
+/** How many stored lines one page holds when the chat names no count. */
+const PAGE_LINES = 100;
+
+/**
+ * One page of `lines` (oldest first): the newest `count` with `before` null, else the `count` lines just before the line
+ * `before`; nothing when `before` is not among them.
+ */
+function pageOf<T extends { id: string }>(lines: ReadonlyArray<T>, before: string | null, count: number): Array<T> {
+  const end = before === null ? lines.length : lines.findIndex((line) => line.id === before);
+  return end < 0 ? [] : lines.slice(Math.max(0, end - count), end);
+}
+
 /** A session and what it shows, for the chat to put on the screen and answer the core's history reads with. */
 const shownOf = (answer: OpenSession): ChatStateAnswer => json({ session: answer.session, lines: answer.lines });
 
@@ -74,6 +86,14 @@ export function createChatState({
         const root = sessions.open({ placeId: CLI_PLACE });
         sessions.select(root.session.id);
         return json({ session: root.session });
+      }
+      case 'session.page': {
+        // The chat's stored lines as the current session shows them, one page at a time (cli/chat-controller.ts).
+        const current = sessions.current(CLI_PLACE);
+        const shown = current === null ? null : sessions.resume(current.id);
+        const count = Number.isInteger(args.count) && Number(args.count) > 0 ? Number(args.count) : PAGE_LINES;
+        const lines = shown?.ok ? pageOf(shown.lines, textOf(args.before) || null, count) : [];
+        return json({ lines: lines.map((line) => ({ id: line.id, who: line.who, text: line.text })) });
       }
       case 'session.list':
         return json(sessions.list());

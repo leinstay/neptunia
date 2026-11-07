@@ -25,14 +25,25 @@ import { placeChoicesText } from '../tools/place-names.ts';
 import type { HeldNote, SendHold } from '../tools/send-hold.ts';
 import { objOf } from '../tools/types.ts';
 import type { Obj, SkillMap } from '../tools/types.ts';
-import { callTextOf, callViewOf, defaultSkills, MARK_TEXT_CHARS, PERSONA, valuesOf, WRITTEN_SKILLS } from './calls.ts';
-import type { CallEnvelope } from './calls.ts';
+import {
+  callTextOf,
+  callViewOf,
+  defaultSkills,
+  lookupOfCall,
+  lookupSettingsOf,
+  MARK_TEXT_CHARS,
+  PERSONA,
+  valuesOf,
+  WRITTEN_SKILLS,
+} from './calls.ts';
+import type { CallEnvelope, Lookup, LookupRing, SearchRefs } from './calls.ts';
+import { clampWithEllipsis } from '../memory/clamp.ts';
 import { journalResultOf, portError, postedOf } from './journal.ts';
 import type { JournalOp } from './journal.ts';
 import type { CallMark, JournalNotes, NotesDraft } from './journal-notes.ts';
 import { untaggedNote } from './mentions.ts';
 import { inCommunity, snapshotOfDraft } from './routing.ts';
-import type { RenderedPost, Sends } from './sends.ts';
+import type { PostRefs, RenderedPost, Sends } from './sends.ts';
 import type { Handles } from './handles.ts';
 import { wakeRefusalCode } from '../tools/wake-tools.ts';
 import { INTENT_ID_SKILLS } from './settings.ts';
@@ -80,6 +91,8 @@ export type SkillCallsContext = {
   noteCall: JournalNotes['noteCall'];
   recordSaid: JournalNotes['recordSaid'];
   journalOp: JournalNotes['journalOp'];
+  /** The ring of her lookups per place (src/turn/calls.ts#createLookupRing); absent: none is kept. */
+  lookupRing?: LookupRing | null;
 };
 
 /** Why a call cannot run: its code, a machine reason and the values its label names. */
@@ -154,7 +167,23 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     handles?: Handles | null;
     /** Whom a private chat's or the command line's reads are judged by (setup.ts): the partner, or the owner's account. */
     readerId?: string | null;
+    /** The place a framed request was built for: a lookup of hers is kept for `<recall>` there (src/turn/calls.ts). */
+    framePlace?: { id: string; path: Array<string> } | null;
+    /** How a line's identity in her posted words is read back (src/turn/sends.ts#renderPost). */
+    frameRefs?: PostRefs | null;
   };
+
+/** The turn's registry of the lines a memory.search quoted (src/turn/calls.ts#searchHandles), when it has one. */
+const searchRefsOf = (draft: CallsDraft | null | undefined): SearchRefs | undefined =>
+  draft ? (Reflect.get(draft, 'searchRefs') as SearchRefs | undefined) : undefined;
+
+/** The stored source ids of the lines quoted since `before` (the numbers the registry held then), each once. */
+function quotedSince(draft: CallsDraft | null | undefined, before: ReadonlySet<number>): Array<string> {
+  const refs = searchRefsOf(draft);
+  if (!refs) return [];
+  const ids = [...refs.byNumber].filter(([n]) => !before.has(n)).map(([, ref]) => ref.stored?.sourceId);
+  return [...new Set(ids.filter((id): id is string => typeof id === 'string' && id !== ''))];
+}
 
 /** The wake an inner turn's draft runs under; nothing on any other turn. */
 const wakeOf = (draft: CallsDraft | null | undefined) => draft?.inner?.wake;
@@ -266,7 +295,37 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     noteCall,
     recordSaid,
     journalOp,
+    lookupRing = null,
   } = ctx;
+
+  /**
+   * The lookup a call of a read tool is, kept in the ring for `<recall>` on the next turns of the place and returned for
+   * the operation's closing line, its extract cut to `context.recall.extractChars`; null for any other call.
+   */
+  function keptLookup(
+    skill: string,
+    args: Obj,
+    result: CallAnswer,
+    draft: CallsDraft | null | undefined,
+    found: { trigger: { id?: string | null } | null | undefined; sourceIds: ReadonlyArray<string> }
+  ): Lookup | null {
+    const lookup = lookupOfCall({
+      read: (skills ?? defaultSkills()).get(skill)?.kind === 'read' && draft?.inner?.shadow !== true,
+      place: draft?.framePlace ?? null,
+      turnId: draft?.started?.turnId,
+      at: clock(),
+      tool: skill,
+      args,
+      status: result.status,
+      text: (result.data as { text?: unknown } | null | undefined)?.text,
+      sourceIds: found.sourceIds,
+      anchorIds: [found.trigger?.id],
+    });
+    if (lookup === null) return null;
+    const settings = lookupSettingsOf(hot.config);
+    lookupRing?.note(lookup, settings);
+    return { ...lookup, extract: clampWithEllipsis(lookup.extract, settings.extractChars) };
+  }
 
   // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
   // from that channel (tools.destructiveCooldownMinutes, src/tools/gateway.ts); in process.
@@ -598,6 +657,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
   ): Promise<CallOutcome> {
     const { call, op, envelope } = plan;
     const skill = call.skill;
+    // The lines a memory.search quoted before this call: those it adds are the stored lines its result returned.
+    const quotedBefore = new Set(searchRefsOf(draft)?.byNumber.keys() ?? []);
     // Her written text (message.create / message.edit) rendered as a `<msg>` of this turn is.
     let rendered: RenderedPost | null = null;
     const renderText = (text: string): RenderedPost =>
@@ -613,6 +674,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         directory,
         handles,
         channelHandles,
+        refs: draft?.frameRefs ?? null,
       }));
     let result: CallAnswer;
     // A refusal keeps its machine reason (a schema path, an option name): the call mark says why (outcomeDetail).
@@ -717,14 +779,20 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         return { skill, ...result };
       }
     }
+    // A lookup of hers stays for `<recall>`, and its closing line keeps it for a restart (src/memory/journal.ts#callMarksOf).
+    const sourceIds = quotedSince(draft, quotedBefore);
+    const lookup = keptLookup(skill, plan.resolved?.args ?? call.args ?? {}, result, draft, { trigger, sourceIds });
+    const kept = lookup ? { lookup } : {};
     if (op.opId) {
-      if (result.status === 'ok') await op.succeeded(journalResultOf(result));
-      else if (result.status === 'unknown') await op.unknown({ code: result.code ?? null, ...valuesOf(result) });
+      if (result.status === 'ok') await op.succeeded({ ...journalResultOf(result), ...kept });
+      else if (result.status === 'unknown')
+        await op.unknown({ code: result.code ?? null, ...valuesOf(result), ...kept });
       else
         await op.failed(result.code ?? CODE.ERROR, {
           status: result.status,
           ...(typeof result.reason === 'string' && result.reason ? { reason: result.reason } : {}),
           ...valuesOf(result),
+          ...kept,
         });
     }
     const args: Obj = plan.resolved?.args ?? {};

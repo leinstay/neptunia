@@ -159,6 +159,14 @@
         "about": 30
       }
     },
+    "meanwhile": {
+      "messages": 8,
+      "around": 2
+    },
+    "recall": {
+      "extractChars": 1200,
+      "maxItems": 6
+    },
     "around": {
       "maxTokens": 400
     },

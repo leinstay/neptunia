@@ -52,6 +52,22 @@ A heartbeat or completed errand can also cause a turn. It uses the same persona 
 
 `reply`, `interject`, `initiate`, `elsewhere` and `auto` make a `reply`, and a trigger of kind `errand` makes an `errand_result`. An inner turn takes its wake's kind, with `intention_due`, `attend`, `errand_deadline` and `review` making an `intention`. A `heartbeat`, a `selfimprovement` and both `selfreflection` kinds are nowhere, whatever place their turn rides in on. The path of a place runs from the interface down by names, and a one-to-one chat's path is the interface, the interface's word for the chat and the partner's native id, with no name. `frameOf` throws `FrameError` with the code `PLACE_REQUIRED` for a `reply` with no place.
 
+## The request on the frame
+
+A `reply` and an `errand_result` are built on the frame by `framedBuild` in `src/turn/request/framed.ts`, which hands the rendered parts to `readerRequest` in `src/turn/request/reader.ts`. The other kinds keep the older emission of `assembleUser` in `src/turn/request/tail.ts`. Each block of the frame has one producer.
+
+| Block | Producer | What it reads |
+|---|---|---|
+| `<surroundings>` | `surroundingsOf` in `src/turn/request/surroundings.ts` | The frame's place and root, their stored fields and the interface's name and nouns (`placeFieldsOf` and `interfaceNamesOf` in `src/memory/db/frame-reads.ts`) |
+| `<memory>` | `memoryItemsOf` and `renderMemory` in `src/turn/request/memory-block.ts` | What `mindOf` in `src/memory/db/mind-read.ts` raises from the window, the counterpart, the place and the prefetch's finds |
+| `<recall>` | `recallBlockOf` in `src/turn/request/recall-block.ts` | The ring of her lookups, `createLookupRing` in `src/turn/calls.ts` |
+| `<inner>` | `innerBlockOf` in `src/turn/request/inner-block.ts` | Her day, intentions, errands, untold facts and previous think |
+| `<meanwhile>` | `meanwhileWindows` and `meanwhileText` in `src/turn/request/meanwhile.ts` | Her last lines in other places and the lines around them (`ownLinesOf` and `linesAroundOf`) |
+
+`buildTurnRequest` reads all of it under the turn's memory context, so a group turn reads no private chat. The budget fits the blocks in this order: the fixed part, the person she answers, the shares of `<memory>` under `context.memory.budgetTokens`, `<recall>`, `<chat>`, `<meanwhile>` and `<inner>`. Mention handles are given after the fit, to the authors of `<chat>` and to the people `<memory>` and `<meanwhile>` kept, so a person the budget dropped has none. Channel handles go the same way to the current place and to the places `<memory>` and `<meanwhile>` kept, and the request's `channelHandles` maps them back for her tools. A line's identity in a stored text renders through `refResolverOf` in `src/turn/request/refs.ts`, its own lines in `<chat>` included. A lookup whose quoted lines are all retired leaves `<recall>`.
+
+A call of a read tool is a lookup. `src/turn/skill-calls.ts` keeps it in the ring of the conversation it was made in, with the result's text cut to `context.recall.extractChars` (default `1200`) and the source ids of the stored lines the call quoted, and writes it into the operation's closing line in the journal. At start `callMarksOf` in `src/memory/journal.ts` gives the journal's lookups of yesterday and today back to the ring with the call marks. A place keeps at most `context.recall.maxItems` lookups (default `6`), one per tool and arguments. A lookup leaves once none of its anchors, the trigger of its turn and the lines she posted in answer, is in the window, and a line that replies to an anchor becomes an anchor itself.
+
 ## The door
 
 `createHandleMessage` in `src/pipeline/handle-message.ts` takes every new line. A DM and the owner's CLI are addressed already, so they go to the private path and never ask a classifier, and the persona's own turn decides whether to speak. Every other line belongs to a group place, which is a channel, a thread or a group that is its own root, on any interface.

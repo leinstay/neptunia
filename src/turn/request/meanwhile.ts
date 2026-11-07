@@ -1,0 +1,141 @@
+// The body of `<meanwhile>`: her last messages in other places, each with a few lines around it, as background she is
+// not asked about (docs/prompt-contract.md). Never a line of the current place. A one-to-one chat's lines only at the
+// command line or on a turn that is nowhere; the reads already keep out what the turn's scope may not read. Windows of
+// one place that overlap merge, and each window is headed by its place's path and date. The request builder
+// (src/turn/request/reader.ts) calls it. Pure apart from the reads.
+
+import { fill, formatClock, formatDate } from '../../format.ts';
+import type { Frame } from './frame.ts';
+import { escapeStored, pathText } from './text.ts';
+import type { Labels, NameOf } from './types.ts';
+
+/** A stored line as `<meanwhile>` reads it; `at` is epoch ms. */
+export type MeanwhileLine = {
+  id: string;
+  placeId: string;
+  at: number;
+  authorId: string | null;
+  self: boolean;
+  text: string;
+};
+
+/** A line of hers, with the path of its place by names and whether that place is a one-to-one chat. */
+export type OwnMessage = MeanwhileLine & { path: ReadonlyArray<string>; dm: boolean };
+
+/** The reads `<meanwhile>` takes: her newest lines, newest first, and the lines around one line, oldest first. */
+export type MeanwhileReads = {
+  ownMessages(limit: number): ReadonlyArray<OwnMessage>;
+  around(placeId: string, at: number, count: number): ReadonlyArray<MeanwhileLine>;
+};
+
+/** `context.meanwhile`: how many of her lines, and how many lines before and after each. */
+export type MeanwhileSettings = { messages: number; around: number };
+
+/** One window of lines in one place, oldest first. */
+export type MeanwhileWindow = {
+  placeId: string;
+  path: ReadonlyArray<string>;
+  dm: boolean;
+  lines: Array<MeanwhileLine>;
+};
+
+/** The interface the owner's command line speaks as (src/interface/link.ts#CLI_IFACE). */
+const CLI_IFACE = 'cli';
+
+/** How many more of her lines are read than shown, so the lines left out here do not empty the block. */
+const READ_AHEAD = 4;
+
+/** Whether the frame may show a one-to-one chat's lines in the background: at the command line or nowhere. */
+const showsDm = (frame: Frame): boolean => frame.interface === CLI_IFACE || frame.scope === 'internal';
+
+/** The time of a window's first line, 0 for an empty one. */
+const firstAt = (window: MeanwhileWindow): number => window.lines.at(0)?.at ?? 0;
+
+/** Windows of one place merged where they overlap in time, oldest first, each line once. */
+function merged(windows: ReadonlyArray<MeanwhileWindow>): Array<MeanwhileWindow> {
+  const sorted = [...windows].sort((a, b) => firstAt(a) - firstAt(b));
+  const out: Array<MeanwhileWindow> = [];
+  for (const window of sorted) {
+    const last = out.at(-1);
+    const lastAt = last?.lines.at(-1)?.at ?? -Infinity;
+    if (last && last.placeId === window.placeId && firstAt(window) <= lastAt) {
+      const ids = new Set(last.lines.map((line) => line.id));
+      last.lines.push(...window.lines.filter((line) => !ids.has(line.id)));
+      last.lines.sort((a, b) => a.at - b.at);
+    } else out.push({ ...window, lines: [...window.lines] });
+  }
+  return out;
+}
+
+/** The windows around her last `settings.messages` lines the frame may show, merged, oldest first. */
+export function meanwhileWindows(
+  reads: MeanwhileReads,
+  frame: Frame,
+  settings: MeanwhileSettings
+): Array<MeanwhileWindow> {
+  const count = Math.max(0, Math.floor(settings.messages));
+  if (count === 0) return [];
+  const here = frame.place?.id ?? null;
+  const own = reads
+    .ownMessages(count * READ_AHEAD)
+    .filter((line) => line.placeId !== here && (!line.dm || showsDm(frame)))
+    .slice(0, count);
+  const around = Math.max(0, Math.floor(settings.around));
+  const windows = own.map((line) => {
+    const lines = around > 0 ? [...reads.around(line.placeId, line.at, around)] : [];
+    return { placeId: line.placeId, path: line.path, dm: line.dm, lines: lines.length > 0 ? lines : [line] };
+  });
+  const byPlace = new Map<string, Array<MeanwhileWindow>>();
+  for (const window of windows) byPlace.set(window.placeId, [...(byPlace.get(window.placeId) ?? []), window]);
+  return [...byPlace.values()].flatMap(merged).sort((a, b) => firstAt(a) - firstAt(b));
+}
+
+/** One window in the labels' words: the place's path and date, then each line with its time and author. */
+export function windowText(
+  window: MeanwhileWindow,
+  frame: Frame,
+  labels: Labels,
+  nameOf: NameOf,
+  handle: string | null = null
+): string {
+  const l = labels.meanwhile ?? {};
+  const first = window.lines.at(0)?.at ?? frame.now;
+  const head = fill(l.place ?? '{path}, {date}:', {
+    path: pathText(window.path, labels.memory?.pathJoin),
+    date: formatDate(first, frame.timezone, labels.locale),
+  });
+  const lines = window.lines.map((line) =>
+    fill(l.line ?? '[{time}] {author}: {text}', {
+      time: formatClock(line.at, frame.timezone, labels.locale),
+      author: escapeStored(
+        line.self ? (l.you ?? '') : ((line.authorId && nameOf(line.authorId)) ?? line.authorId ?? '')
+      ),
+      text: escapeStored(line.text),
+    })
+  );
+  return [handle ? `#${handle} ${head}` : head, ...lines].join('\n');
+}
+
+/** The body of `<meanwhile>`, headed as background; '' with no line of hers elsewhere. */
+export function meanwhileOf(
+  reads: MeanwhileReads,
+  frame: Frame,
+  settings: MeanwhileSettings,
+  labels: Labels,
+  nameOf: NameOf
+): string {
+  return meanwhileText(meanwhileWindows(reads, frame, settings), frame, labels, nameOf);
+}
+
+/** The body of `<meanwhile>` over `windows`, headed as background; '' with no window. */
+export function meanwhileText(
+  windows: ReadonlyArray<MeanwhileWindow>,
+  frame: Frame,
+  labels: Labels,
+  nameOf: NameOf,
+  handleOf: (window: MeanwhileWindow) => string | null = () => null
+): string {
+  if (windows.length === 0) return '';
+  const texts = windows.map((window) => windowText(window, frame, labels, nameOf, handleOf(window)));
+  return [labels.meanwhile?.header ?? '', ...texts].filter(Boolean).join('\n\n');
+}

@@ -17,6 +17,8 @@ import { resolveMentions } from './mentions.ts';
 import { inCommunity } from './routing.ts';
 import { SETTLE_STEP_MS, paceSettings } from './settings.ts';
 import { withLink } from './targets.ts';
+import { outgoingRefs } from './request/refs.ts';
+import type { LineOf } from './request/refs.ts';
 
 /** The live config, as far as the sends read it. */
 export type SendsConfig = Record<string, unknown>;
@@ -57,10 +59,21 @@ type RenderArgs = {
   channelHandles?: unknown;
   link?: string | null;
   quiet?: boolean;
+  /** How a line's identity in her words is read back (src/turn/request/refs.ts); absent: identities go out as written. */
+  refs?: PostRefs | null;
 };
 
+/** A request on the frame's reader of lines, the stored id of the place she posts in and the zone a quote dates in. */
+export type PostRefs = { lineOf: LineOf; placeId: string; timezone: string };
+
 /** A post as it is sent: its text, the text before any link, and the members it mentions. */
-export type RenderedPost = { text: string; spoken: string; accountIds: Array<string | undefined> };
+export type RenderedPost = {
+  text: string;
+  spoken: string;
+  accountIds: Array<string | undefined>;
+  /** A line of this place her words named by its identity: the post goes out as a reply to it. */
+  replyTo?: string | null;
+};
 
 export type Sends = {
   emojiLookup: () => ((name: string) => IndexedEmoji | null) | null;
@@ -126,6 +139,27 @@ export function createSends(ctx: SendsContext): Sends {
     return linkChannels(text, channels, handles);
   }
 
+  /**
+   * `written` with each line identity in the interface's form (src/turn/request/refs.ts#outgoingRefs): a line of this
+   * place becomes the reply target, a line of another place on this interface its jump link, and anything else, the
+   * command line included, the quote with its path and time.
+   */
+  function withRefs(written: string, refs: PostRefs | null | undefined): { text: string; replyTo: string | null } {
+    if (!refs || typeof written !== 'string') return { text: written, replyTo: null };
+    const here = refs.placeId.slice(0, refs.placeId.indexOf(':'));
+    const labels = (hot.prompts?.labels ?? {}) as Parameters<typeof outgoingRefs>[1]['labels'];
+    return outgoingRefs(written, {
+      placeId: refs.placeId,
+      lineOf: refs.lineOf,
+      linkOf: (line) =>
+        line.conversationId && line.placeId.startsWith(`${here}:`)
+          ? messageLinkOf(iface, line.communityId ?? null, line.conversationId, line.messageId)
+          : null,
+      labels,
+      timezone: refs.timezone,
+    });
+  }
+
   /** The custom emoji lookup, or null when there is no index or features.customEmoji is off (read now). */
   function emojiLookup(): ((name: string) => IndexedEmoji | null) | null {
     return emoji ? emoji.byName : null;
@@ -160,8 +194,11 @@ export function createSends(ctx: SendsContext): Sends {
       channelHandles = null,
       link = null,
       quiet = false,
+      refs = null,
     }: RenderArgs
   ): RenderedPost {
+    const referred = withRefs(written, refs);
+    written = referred.text;
     let mentioned: { text: string; accountIds: Array<string | undefined>; unknown?: number };
     if (handles instanceof Map) {
       const resolved = resolveHandles(written, handles);
@@ -189,7 +226,7 @@ export function createSends(ctx: SendsContext): Sends {
       link,
       hot.prompts?.labels
     );
-    return { text, spoken, accountIds: mentioned.accountIds };
+    return { text, spoken, accountIds: mentioned.accountIds, replyTo: referred.replyTo };
   }
 
   /**

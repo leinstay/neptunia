@@ -1,6 +1,11 @@
 // The types of the signatures in ./prompt.ts: the inputs and results that are too long to read inline.
 
 import type { Frame } from '../turn/request/frame.ts';
+import type { Mind } from '../memory/db/mind-read.ts';
+import type { Lookup as RingLookup } from '../turn/calls.ts';
+import type { MeanwhileReads } from '../turn/request/meanwhile.ts';
+import type { SurroundingsInput } from '../turn/request/reader.ts';
+import type { LineOf } from '../turn/request/refs.ts';
 import type { BlockRecord } from '../turn/request/tail.ts';
 import type { Whereabouts } from '../turn/request/spatial.ts';
 import type { Untyped } from '../tools/types.ts';
@@ -125,6 +130,16 @@ export type BuildRequestInput = {
   whereabouts?: Whereabouts | null;
   /** The facts of the turn (src/turn/request/frame.ts). Without one its kind is read off `mode`, `triggerKind` and `wakeKind`. */
   frame?: Frame | null;
+  /** What the graph reader brought to her mind (src/memory/db/mind-read.ts#mindOf): `<memory>` of the frame's request. */
+  mind?: Mind | null;
+  /** Her lookups still anchored in this place's window (src/turn/calls.ts#createLookupRing): `<recall>`. */
+  lookups?: ReadonlyArray<RingLookup> | null;
+  /** The reads of `<meanwhile>`: her lines elsewhere and the lines around them (src/turn/request/meanwhile.ts). */
+  meanwhileReads?: MeanwhileReads | null;
+  /** The interface's text and the stored fields of the place and its root: `<surroundings>`. */
+  surroundings?: SurroundingsInput | null;
+  /** Reads a line by its identity under the turn's scope, for the references in stored texts (src/turn/request/refs.ts). */
+  refLineOf?: LineOf | null;
 };
 
 /** One text part of a request's user message; the cache marker is the provider's. */

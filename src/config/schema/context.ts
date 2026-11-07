@@ -43,6 +43,36 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
       'The graph reader (`mindOf`): the lines of the window that seed it, the counted hops, the rows read, the token budget and its shares per kind of entry, the part kept for the person she answers, the candidates of an ambiguous word, the word that names too many entries, and the rows read per path. Each key is described in `docs/memory.md`, "How a turn remembers". A missing or broken key counts as its default',
   },
   {
+    'key': 'context.meanwhile.messages',
+    'types': ['number'],
+    'reader': 'src/turn/request/reader.ts',
+    'default': 8,
+    'text':
+      'How many of her last lines in other places `<meanwhile>` shows on a reply, each with the lines around it. `0` leaves the block out',
+  },
+  {
+    'key': 'context.meanwhile.around',
+    'types': ['number'],
+    'reader': 'src/turn/request/reader.ts',
+    'default': 2,
+    'text':
+      'How many lines before and after each of her lines `<meanwhile>` shows. Windows of one place that overlap merge',
+  },
+  {
+    'key': 'context.recall.extractChars',
+    'types': ['number'],
+    'reader': 'src/turn/calls.ts',
+    'default': 1200,
+    'text': "How long the extract of one lookup's result is that `<recall>` keeps (characters)",
+  },
+  {
+    'key': 'context.recall.maxItems',
+    'types': ['number'],
+    'reader': 'src/turn/calls.ts',
+    'default': 6,
+    'text': 'How many of her lookups one place keeps for `<recall>`. The one noted earliest leaves first',
+  },
+  {
     'key': 'context.turnLeaseMs',
     'types': ['number'],
     'reader': 'src/behavior/attention.ts',
