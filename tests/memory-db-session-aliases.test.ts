@@ -64,7 +64,8 @@ test('a session answer with a place alias writes a claim with subject_kind place
     chat(env);
     const llm = fakeLlm(() => memoryBlock({ claims: [aliasOf('p1', 'Αγορά', ['#1'])] }));
     const result = await sweep(ctxOf(env, { llm, config: baseConfig({ mode: 'apply' }) }));
-    assert.equal(result.runs[0].outcome, 'ok');
+    const [run] = result.runs;
+    assert.equal(run.outcome, 'ok');
     const rows = env.db.prepare("SELECT subject_kind, subject_id, kind, text FROM claims WHERE author = 'her'").all();
     assert.deepEqual(
       rows.map((row) => [row.subject_kind, row.subject_id, row.kind, row.text]),
@@ -100,7 +101,8 @@ test("a direct chat's alias from a session is found by namesOf in that chat only
       scope: DM_ADA_KEY,
       ignoreSweepCap: true,
     });
-    assert.equal(result.runs[0].outcome, 'ok');
+    const [run] = result.runs;
+    assert.equal(run.outcome, 'ok');
     const node = placeNode(dmPlaceOf(ADA));
     const found = (ctx: Parameters<typeof namesOf>[1]): Array<string> =>
       namesOf(env.db, ctx, ['Κήπος'])
