@@ -18,6 +18,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSelfimprovementFacts, proposalsOf } from '../src/behavior/selfimprovement-view.ts';
+import { personaJournal } from '../src/behavior/inner/persona-sources.ts';
+import { createJournal } from '../src/memory/journal.ts';
+import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { wakeBlockText } from '../src/behavior/wake.ts';
 import { joinLabels } from '../src/config/labels.ts';
 import { createHot } from '../src/hot.ts';
@@ -272,4 +275,39 @@ test('a blocked task of hers shows why it waits and what would unblock it', asyn
     outbox: view.outbox,
   });
   assert.deepEqual(built.proposals[0]?.blocked, { reason: 'no fork', unblocks: 'a fork of the repo' });
+});
+
+test('a skill action journaled in a place reaches the selfimprovement wake chains', async (t) => {
+  // Bug (.agents report of 2026-11-07, the work reconciliation): personaJournal.read reads only her own journal while
+  // every skill action of a turn is journaled in the journal of the turn's place, so the wake saw no chain at all.
+  const now = Date.parse('2026-11-07T12:00:00.000Z');
+  const place = 'fake:channel:c1';
+  const memory = openTestMemorySync({ now: () => now });
+  t.after(() => memory.close());
+  let n = 0;
+  const journal = createJournal({
+    memoryDb: memory.memoryDb,
+    dataDir: 'fake-data',
+    config: () => ({ thinkChars: 4000 }),
+    now: () => now - HOUR,
+    uuid: () => `u${(n += 1)}`,
+  });
+  const op = journal.op(place, { turnId: 'turn:place-1', name: 'skill', by: 'persona', placeId: 'c1' });
+  await op.started({ input: { skill: 'memory.search', args: ['query'] } });
+  await op.succeeded({});
+  await new Promise((resolve) => setImmediate(resolve));
+  const facts = await buildSelfimprovementFacts({
+    now,
+    since: null,
+    journal: personaJournal(journal, () => [place]),
+    granted: ['memory.search'],
+    skills: [],
+    proposals: [],
+    outbox: [],
+  });
+  assert.deepEqual(
+    facts.shapes.map((shape) => [shape.key, shape.turnIds]),
+    [['memory.search(query)', ['turn:place-1']]]
+  );
+  assert.deepEqual(facts.unusedTools, []);
 });
