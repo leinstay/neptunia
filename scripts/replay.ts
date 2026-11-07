@@ -2805,9 +2805,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       intention = intentions.store()?.get(args.intention) ?? null;
       if (!intention) throw new CliError(`replay-cli: no intention ${args.intention}`);
       if (!['pending', 'waiting'].includes(intention.status))
-        log.warn('replay-cli: the intention is not open; the scheduler would not wake her for it', {
-          status: intention.status,
-        });
+        log.warn('replay-cli: the intention is not open, no wake is due', { status: intention.status });
       const privateChat = intention.provenance?.scope === 'dm';
       const target = privateChat
         ? intention.provenance?.placeId
