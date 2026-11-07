@@ -17,6 +17,7 @@
 import type { PublicationBoundary } from './publication.ts';
 import type { NativeMessageLocator, ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
+import { placeIdParts } from '../memory/db/ids.ts';
 import { channelCore, matchChannel, occursAsWholeWord } from '../memory/mentions.ts';
 import { foldText } from '../memory/recent.ts';
 import { SELF_OWNED_OPS } from './impl/effects.ts';
@@ -247,6 +248,9 @@ function conversationIdOf(
   return match === 'ambiguous' ? 'ambiguous' : idText(match?.id) || null;
 }
 
+/** The calls whose `channel` may be a place id of any interface, as `<memory>` and `<meanwhile>` name places. */
+const PLACE_ID_SKILLS: ReadonlyArray<string> = Object.freeze(['message.create', 'intention.set']);
+
 /** The read skills that name a place among the ones she may read (`view.places`). */
 const READ_PLACE_SKILLS: ReadonlyArray<string> = Object.freeze(['memory.search', 'conversation.read']);
 
@@ -275,6 +279,8 @@ function placeOf(given: string, option: string, view: CallView): { id: string } 
 
 /** The conversation a `channel` option names: among the places she may read for the read skills, else among the conversations of the view. */
 function channelOf(skill: string, given: string, option: string, view: CallView | undefined): { id: string } | Refusal {
+  // A place id names a place on any interface; the operation asks that interface whether she may act there.
+  if (PLACE_ID_SKILLS.includes(skill) && placeIdParts(given.trim()) !== null) return { id: given.trim() };
   if (READ_PLACE_SKILLS.includes(skill) && view?.places) return placeOf(given, option, view);
   const id = conversationIdOf(given, view?.conversations, view?.channelHandles);
   if (id === 'ambiguous') return refused(CODE.TARGET_AMBIGUOUS, 'conversation');

@@ -1,7 +1,7 @@
 // postingConversation (src/tools/impl/shared.ts): where an operation that acts as the persona may post. The conversation
 // comes from the interface's conversation info (`reads.conversationInfo`), and what she may do there from its
-// `permissions` (read, send, attach, react). The current conversation passes as it is; any other must belong to the
-// served community, must not be a private chat, and must grant the permissions the need names: `send` needs send,
+// `permissions` (read, send, attach, react). The current conversation passes as it is; any other, of any community,
+// must not be a private chat while private chats are off, and must grant the permissions the need names: `send` needs send,
 // `reply` needs send and read, `attach` needs send and attach, `read` needs read, `react` needs react. The call's place
 // is `context.placeId` alone (plan 2026-11-05 T.4): a call made at the community passes the community.
 import { test } from 'node:test';
@@ -76,20 +76,20 @@ test('returns the id of the conversation it runs in without asking the interface
   assert.deepEqual(asked('conversationInfo'), []);
 });
 
-test('refuses a conversation of another community even with every permission', async () => {
+// Slice 5 (plan 5 (i)): the tree check is gone, so a conversation of another community where she may send is a
+// destination like any other.
+test('accepts a conversation of another community where she may send', async () => {
   const { reads, fake } = rig();
   fake.seedConversation(channel('c2', { rootId: 'g2' }));
-  await assert.rejects(
-    postingConversation({
-      reads,
-      store: null,
-      iface: IFACE,
-      conversationId: 'c2',
-      context: { placeId: COMMUNITY },
-      need: 'send',
-    }),
-    { status: 'denied', code: 'channel-no-permission' }
-  );
+  const id = await postingConversation({
+    reads,
+    store: null,
+    iface: IFACE,
+    conversationId: 'c2',
+    context: { placeId: COMMUNITY },
+    need: 'send',
+  });
+  assert.equal(id, 'c2');
 });
 
 test('refuses a private chat even with every permission', async () => {

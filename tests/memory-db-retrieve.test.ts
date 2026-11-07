@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { openMemoryDb, MIGRATIONS } from '../src/memory/db/open.ts';
-import { pageReads, retrieveMemory } from '../src/memory/db/retrieve.ts';
+import { retrieveMemory } from '../src/memory/db/retrieve.ts';
 import type { RetrieveDeps } from '../src/memory/db/retrieve.ts';
 import type { Context } from '../src/memory/db/scope.ts';
 import { groupContext } from '../src/memory/db/scope.ts';
@@ -843,19 +843,29 @@ test('a write that lands while the query embedding is out cannot leak or break t
 
 // ---- the read record -------------------------------------------------------------------------------------------------
 
-test('the reads of a page name each shown version and source, and two versions of one claim stay two rows', async () => {
+// ---- the tool --------------------------------------------------------------------------------------------------------
+
+const memorySearch = () => {
+  const found = SKILL_DEFINITIONS.find((one) => one.name === 'memory.search');
+  assert.ok(found);
+  return found;
+};
+
+// Slice 5: pageReads is deleted with the heartbeat's retrieval, so the reads are the two versions and the source
+// named directly; what stays under test is that `turn_reads` keeps two versions of one claim as two rows.
+test('the reads of two versions of one claim stay two rows, beside their source', () => {
   // Bug: `turn_reads` keys a claim once, so a later citation of the older version cannot be proved.
   const world = semanticWorld();
   const source = addSource(world, 'public', 'one');
   const { entityId } = addEntity(world, 'project', 'Lumen', [source]);
   const first = written(commit(world, worksOn(ALEX, entityId, [source], { text: 'then' })));
   const second = written(commit(world, worksOn(ALEX, entityId, [source], { ...successor(first), text: 'later' })));
-  const page = await retrieve(
-    world,
-    world.contexts.group,
-    query('', { anchors: [personAnchor(ALEX)], includeHistorical: true })
-  );
-  const rows = turnReadRows(world.db, pageReads(page, { block: 'retrieved' }), { iface: 'discord' });
+  const reads = [
+    { kind: 'claim_version', id: first.versionId, block: 'retrieved' },
+    { kind: 'claim_version', id: second.versionId, block: 'retrieved' },
+    { kind: 'source_id', id: source, block: 'retrieved' },
+  ];
+  const rows = turnReadRows(world.db, reads, { iface: 'discord' });
   world.handle.transaction(() =>
     writeTurnReadRows(
       world.db,
@@ -876,28 +886,6 @@ test('the reads of a page name each shown version and source, and two versions o
   assert.ok(sources.some((row) => row.row_id === source));
   world.handle.close();
 });
-
-test('an empty page has no reads to record', () => {
-  // Bug: a read row for nothing makes the citation check accept an id that was never shown.
-  const page: MemoryPage = {
-    assertions: [],
-    sourceIds: [],
-    paths: [],
-    next: null,
-    partialReason: null,
-    ambiguous: [],
-    signals: [],
-  };
-  assert.deepEqual(pageReads(page, { block: 'retrieved' }), []);
-});
-
-// ---- the tool --------------------------------------------------------------------------------------------------------
-
-const memorySearch = () => {
-  const found = SKILL_DEFINITIONS.find((one) => one.name === 'memory.search');
-  assert.ok(found);
-  return found;
-};
 
 test('the memory.search tool takes an entity, a predicate, a moment and historical mode', () => {
   // Bug: the persona cannot ask for an exact entity or for what she knew then, so she reads a hub by its name.

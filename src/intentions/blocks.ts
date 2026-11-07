@@ -29,6 +29,8 @@ type LineOptions = {
   nameOf: (id: string) => string | null;
   now: number | null;
   noticeMs: number;
+  /** Whether the line keeps the whole purpose: the intention that woke her. */
+  whole?: boolean;
 };
 
 /** `context.caps.intentions` when it is missing (config.json carries the same). */
@@ -48,6 +50,10 @@ function part(l: Untyped, key: string, values: Record<string, unknown>): string 
   return typeof l?.[key] === 'string' && l[key] ? fill(l[key], values) : '';
 }
 
+/** An intention's purpose on one line: whole, or cut to PURPOSE_LINE_CHARS. */
+const purposeText = (record: Intention, whole: boolean): string =>
+  whole ? oneLine(record.purpose) : clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS);
+
 /**
  * One active intention's line: its own, then its due time and recurrence (or, with neither a
  * due time, a wait nor an attention, the no-date part with its expiry), its attention, its wait,
@@ -56,12 +62,10 @@ function part(l: Untyped, key: string, values: Record<string, unknown>): string 
 function activeLine(
   record: Intention,
   l: Untyped,
-  { timezone, locale, channelNameOf, nameOf, now, noticeMs }: LineOptions
+  { timezone, locale, channelNameOf, nameOf, now, noticeMs, whole = false }: LineOptions
 ): string {
   const state = typeof l.states?.[record.status] === 'string' ? l.states[record.status] : record.status;
-  const pieces = [
-    fill(l.line, { id: record.id, state, purpose: clampWithEllipsis(oneLine(record.purpose), PURPOSE_LINE_CHARS) }),
-  ];
+  const pieces = [fill(l.line, { id: record.id, state, purpose: purposeText(record, whole) })];
   const dateless = !isFiniteNumber(record.dueAt) && record.status !== 'waiting' && !record.attend?.place;
   let noDue = '';
   if (isFiniteNumber(record.dueAt)) pieces.push(part(l, 'due', { when: when(record.dueAt, timezone, locale) }));
@@ -107,7 +111,8 @@ function activeLine(
  * `channelNameOf(id)` names a destination or attended channel (its id when it gives nothing);
  * `nameOf(id)` names an attended person (the id when it gives nothing). `now` (epoch ms) and
  * `expiryNoticeDays` (`intentions.expiryNoticeDays`, read by the caller now) decide which lines
- * end with their expiry; without `now` none does.
+ * end with their expiry; without `now` none does. The intentions of `due` (the ones that woke her) come first, each
+ * with its whole purpose, and are kept whatever the budget.
  */
 export function intentionsBlockText(
   records: unknown,
@@ -121,6 +126,7 @@ export function intentionsBlockText(
     nameOf = () => null,
     now = null,
     expiryNoticeDays = DEFAULTS.expiryNoticeDays,
+    due = [],
   }: {
     timezone?: string;
     locale?: string;
@@ -130,6 +136,7 @@ export function intentionsBlockText(
     nameOf?: (id: string) => string | null;
     now?: number | null;
     expiryNoticeDays?: number;
+    due?: ReadonlyArray<string>;
   } = {}
 ): string {
   const l = labels?.intentions;
@@ -144,8 +151,11 @@ export function intentionsBlockText(
   };
   const noticeMs =
     (isFiniteNumber(expiryNoticeDays) && expiryNoticeDays >= 0 ? expiryNoticeDays : DEFAULTS.expiryNoticeDays) * DAY_MS;
-  for (const record of list) {
-    const text = activeLine(record, l, { timezone, locale, channelNameOf, nameOf, now, noticeMs });
+  const options = { timezone, locale, channelNameOf, nameOf, now, noticeMs };
+  for (const record of list.filter((one) => due.includes(one.id)))
+    take(activeLine(record, l, { ...options, whole: true }));
+  for (const record of list.filter((one) => !due.includes(one.id))) {
+    const text = activeLine(record, l, options);
     if (!fits(text)) break;
     take(text);
   }

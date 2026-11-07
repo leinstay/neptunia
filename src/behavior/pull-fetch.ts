@@ -7,9 +7,7 @@
 // conversation id of the turn's snapshot: the rails a pull must pass (a readable channel, allowed, not a thread,
 // visible to everyone who can view the conversation the persona speaks in -- in a private chat, to the
 // partner), one page of history, the ring's calls marked on their lines, and the captions -- the cache's first, fresh
-// ones only for a turn certain to run, in parallel and never waited for past a timeout. A pull made before the turn is
-// certain (a chooser can still return `not-now`) gets its fresh captions later from `captionPulled`, without reading
-// the conversation again.
+// ones only for a turn certain to run, in parallel and never waited for past a timeout.
 
 import type { ConversationInfo } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -398,53 +396,6 @@ function captionCounts(captions: Captions): Record<string, number> {
   };
 }
 
-/**
- * Fresh captions for a conversation already pulled (a PulledChannel from `fetchPull` without `turnCertain`), once the
- * turn is certain to run: no read of the conversation, the same lines and window. The cache is asked again for the
- * pictures and custom emoji still without a caption (the prefill may have cached some meanwhile), then fresh captions
- * are requested for the uncached pictures among the first `context.pull.maxPictures`, at most `maxNewDescriptions`, in
- * parallel, waited for at most `describeTimeoutMs` (a late one renders blind this turn), exactly as `fetchPull` with
- * `turnCertain` does; see pullCaptions. Only with `features.mediaDescriptions` true and a describer. Returns a new
- * record with `descriptions` merged and `picturesNotSeen` recomputed; the given one is not changed. Logs `pull:
- * captions` (`channel`, `source`, `pullReason`, the caption counts, ms).
- */
-export async function captionPulled(
-  pulled: PulledChannel,
-  {
-    describer = null,
-    placeId = null,
-    config,
-    destination = null,
-    timers = DEFAULT_TIMERS,
-  }: {
-    describer?: Describer | null;
-    placeId?: string | null;
-    config: Config;
-    destination?: { id: string } | null;
-    timers?: Timers;
-  }
-): Promise<PulledChannel> {
-  if (!Array.isArray(pulled.messages)) return pulled;
-  const started = Date.now();
-  const logIds: LogIds = { channel: destination?.id ?? null, source: pulled.placeId };
-  const captions = await pullCaptions(pulled.messages, {
-    describer,
-    placeId,
-    config,
-    requestFresh: true,
-    timers,
-    known: pulled.descriptions,
-    logIds,
-  });
-  log.info('pull: captions', {
-    ...logIds,
-    pullReason: pulled.reason ?? null,
-    ...captionCounts(captions),
-    ms: Date.now() - started,
-  });
-  return { ...pulled, descriptions: captions.descriptions, picturesNotSeen: captions.notSeen };
-}
-
 /** What a pull shows: the lines, their ids, the ones shown before the window, and where the window starts. */
 type Shown = { lines: Array<Line>; ids: Set<string>; beforeWindow: Set<string>; windowStart: number };
 
@@ -609,9 +560,8 @@ async function gatherShown({
  *
  * Captions (see pullCaptions): the cache's for every picture and custom emoji of the shown lines, free; then, only when
  * `turnCertain` is true, fresh ones for the uncached pictures among the first `context.pull.maxPictures`, at most
- * `maxNewDescriptions`, in parallel, waited for at most `describeTimeoutMs`; a late one renders blind this turn. A pull
- * made before the turn is certain gets them later from `captionPulled`. Pictures left without a caption are counted in
- * `picturesNotSeen`.
+ * `maxNewDescriptions`, in parallel, waited for at most `describeTimeoutMs`; a late one renders blind this turn.
+ * Pictures left without a caption are counted in `picturesNotSeen`.
  *
  * With `direction: 'earlier'` and a `beforeId` (the oldest window line of the last view of this conversation shown in
  * the destination, createPullViews), the page is the one before that message instead of the newest one; the window then

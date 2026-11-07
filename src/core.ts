@@ -1,6 +1,6 @@
 // The composition root: builds the core over the paths, the environment and the interfaces it is given, starts it and
 // hands back its door and a way to stop it. It wires config, hot reload, the persistent store, the OpenRouter
-// client and the turn, spontaneous and memory subsystems together, starts each interface over the link, and owns the
+// client and the turn and memory subsystems together, starts each interface over the link, and owns the
 // core's lifecycle (startup checks, timers, graceful shutdown). No decision logic lives here: everything is imported
 // from src/behavior, src/memory and src/llm. Nothing here builds, logs in or listens to a platform client: the
 // interface does, and hands back the running interface (src/protocol/host.ts). The entry (src/index.ts) reads the
@@ -73,7 +73,6 @@ import { createEmojiIndex } from './behavior/emoji-index.ts';
 import { ownMessagesOf } from './behavior/own-messages.ts';
 import { hasRequiredLabels } from './behavior/prompt.ts';
 import { createRecall } from './behavior/recall-run.ts';
-import { createSpontaneous } from './behavior/spontaneous.ts';
 import { createInnerLife, innerSettings } from './behavior/inner.ts';
 import { createSelfreflection } from './behavior/selfreflection.ts';
 import { createMirrors, guardMirrorPort } from './behavior/mirror.ts';
@@ -144,11 +143,9 @@ import { createReads } from './interface/reads.ts';
 import { createIntentionStores } from './intentions/store.ts';
 import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions } from './tools/registry.ts';
-import { grantedSkillNames } from './tools/discovery.ts';
 import { wireSkills } from './skills/wiring.ts';
 import { createReportReader, reportsDirOf, watcherDir } from './watcher/read.ts';
 import { watcherNews } from './watcher/news.ts';
-import { loadProfiles } from './agent-runner/profiles.ts';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.ts';
 import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
@@ -190,7 +187,7 @@ import type { Hello } from './protocol/serve.ts';
 import type { ErrandRecord } from './errands/types.ts';
 import type { ErrandDoneEvent } from './errands/turns.ts';
 
-const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply', 'interject', 'initiate'];
+const REQUIRED_PROMPTS = ['system-prompt', 'character-card', 'format', 'reply'];
 
 /** The first name a stored profile holds (the store hands a profile out as a plain object). */
 const firstName = (profile: object | null): string | undefined =>
@@ -1039,7 +1036,6 @@ async function buildCore(
     // `<places>` on an addressed turn (context.places): the inner life's places view, read at call time.
     places: (options: Untyped) => inner.places(options),
   });
-  const spontaneous = createSpontaneous({ turns });
   // The persona's selfreflection: its own entries on a day plan as the selfreflection wake, ticked below, each published to the
   // selfreflection's mirrors. The selfreflection's posts are rows of the memory database already: no backfill from the channel.
   const selfreflection = createSelfreflection({ hot, store, reads, turns, mirrors });
@@ -1107,19 +1103,6 @@ async function buildCore(
     // A live wake turn's posts go out through the guarded port once the wake completed (src/behavior/inner/deliveries.ts).
     port: iface,
     now: clock,
-    // The heartbeat's facts (src/behavior/heartbeat-view.ts): her errands, what she can do. No presence or
-    // do-not-disturb state (owner, 2026-10-20: she must not read those markers).
-    heartbeat: {
-      tasks: () => taskStores.get()?.recent(100),
-      // Filing and answering tasks belongs to the selfimprovement wake, so the heartbeat's list leaves the board out.
-      skills: () =>
-        grantedSkillNames({ config: hot.config, selfId: identity.selfId, registry: skillRegistry() }).filter(
-          (name) => !name.startsWith('board.')
-        ),
-      agents: () => Object.keys(loadProfiles(agentPaths)),
-      selfId: () => identity.selfId,
-      focusPeople: () => memoryDb.focusPeople({ iface: identity.iface }),
-    },
     // The selfimprovement wake's facts beyond the journal (src/behavior/selfimprovement-view.ts): her grants, her
     // skills with their use counts, her proposals and her outbox rows on the board, and the watcher's newest report.
     selfimprovement: {
@@ -1282,7 +1265,6 @@ async function buildCore(
     intentions,
     // /nep task inner: the inner life's kill switch and status.
     inner,
-    spontaneous,
     calibrator,
     turns,
     // /nep resume: what the pause kept, the held messages and the queued pings, handed back once.
@@ -1923,7 +1905,7 @@ async function buildCore(
 
   log.info('index: ready', { tag: identity.selfName });
 
-  // A pause persisted before this restart comes back paused: every spontaneous tick does nothing until /resume.
+  // A pause persisted before this restart comes back paused: every scheduler tick does nothing until /resume.
   if (processState.data.paused) {
     log.info('index: starting up paused, run /resume when data/ is ready', {
       pausedAt: processState.data.pausedAt ?? null,

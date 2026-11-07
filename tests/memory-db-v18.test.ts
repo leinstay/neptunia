@@ -3,14 +3,14 @@
 // `context.dataDir` once, in one transaction, and keeps the wake ids: the queue becomes `queued`, the handled set
 // `handled`, and the wake of the in-flight mark `running` with a lease that expired when that turn started, so the
 // recovery of the next start resolves it. The queue fields are then dropped from the file, and the rest of the state
-// (facts, turns, spend, the review, the heartbeat, the stop switch) stays there. A later open changes nothing. The rows are read back through src/memory/db/wake-queue.ts. Synthetic data, a temporary data directory.
+// (facts, turns, spend, the heartbeat, the stop switch) stays there. A later open changes nothing. The rows are read back through src/memory/db/wake-queue.ts. Synthetic data, a temporary data directory.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { recoverWakes, wakeOf } from '../src/memory/db/wake-queue.ts';
-import { emptyState, reviewWake, wakeOfDue } from '../src/behavior/inner.ts';
+import { emptyState, heartbeatWake, wakeOfDue } from '../src/behavior/inner.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -29,7 +29,8 @@ const RUNNING = wakeOfDue({
   reason: 'due',
   at: DUE,
 });
-const QUEUED = reviewWake('2026-10-31', STARTED);
+// Slice 5: the review wake is gone; the queued wake of the state file is a heartbeat, and the step keeps any kind.
+const QUEUED = heartbeatWake(STARTED);
 const HANDLED = `inner.wake:intention_due:i0:${STARTED - 2 * HOUR}`;
 
 /** A turn of the state file, which stays in it. */
@@ -101,7 +102,7 @@ test('the v18 step imports the queue, the handled set and the in-flight mark wit
     assert.deepEqual(running?.payload.intentionIds, ['i1']);
     const queued = wakeOf(handle, QUEUED.id);
     assert.equal(queued?.state, 'queued');
-    assert.equal(queued?.kind, 'review');
+    assert.equal(queued?.kind, 'heartbeat');
     assert.equal(queued?.queuedAt, STARTED);
     const handled = wakeOf(handle, HANDLED);
     assert.equal(handled?.state, 'handled');

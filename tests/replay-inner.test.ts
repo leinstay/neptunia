@@ -36,20 +36,16 @@ useIface('fake');
 
 const NOW = Date.parse('2026-10-19T12:00:00Z');
 
-test("replay --inner: an intention's wake needs --intention, the review takes none; other modes' flags are refused", () => {
+// Slice 5: the review wake is gone, so `--inner review` and `--review` are usage errors like any unknown choice.
+test("replay --inner: an intention's wake needs --intention; other modes' flags and the gone review are refused", () => {
   const due = parseArgs(['--inner', 'intention_due', '--intention', 'i-abc', '--spend', '1']);
   assert.equal(due.inner, 'intention_due');
   assert.equal(due.intention, 'i-abc');
-  assert.equal(due.review, false);
-  assert.equal(parseArgs(['--inner', 'review']).review, true);
-  assert.equal(parseArgs(['--inner', 'review', '--review', '--show-request']).showRequest, true);
   for (const argv of [
     ['--inner', 'intention_due'],
-    ['--inner', 'review', '--intention', 'i1'],
+    ['--inner', 'review'],
     ['--inner', 'errand_deadline', '--intention', 'i1', '--review'],
     ['--inner', 'nap'],
-    ['--inner', 'review', '--selfreflection', 'picture'],
-    ['--inner', 'review', 'c1', 'm1'],
     ['--review'],
     ['--intention', 'i1'],
   ]) {
@@ -91,19 +87,8 @@ test("innerReplayWake: the scheduler's wake for the intention", () => {
   ]);
   // Stage AD: the replayed wake carries no budgets any more.
   assert.equal(asRecord(info).budgets, undefined);
-  const review = innerReplayWake({
-    inner,
-    kind: 'review',
-    state,
-    settings,
-    now: NOW,
-    timezone: 'UTC',
-    day: '2026-10-19',
-    channelNames: ['général'],
-  });
-  assert.equal(asRecord(review.wake).kind, 'review');
-  assert.deepEqual(asRecord(review.info).channels, ['général']);
-  assert.deepEqual(asRecord(review.info).intentions, []);
+  // Slice 5: the daily review is deleted (src/behavior/inner.ts no longer exports reviewWake), so the replay of a
+  // review went from this test.
 });
 
 test('replay --inner heartbeat: no intention or review flag; samples, prompts, out, show-request and spend are taken', () => {
@@ -125,9 +110,8 @@ test('replay --inner heartbeat: no intention or review flag; samples, prompts, o
   assert.equal(args.prompts, 'variant');
   assert.equal(args.outDir, 'report.md');
   assert.equal(args.showRequest, true);
-  assert.equal(args.review, false);
   assert.equal(parseArgs(['--inner', 'heartbeat']).samples, 1);
-  assert.equal(parseArgs(['--inner', 'review', '--samples', '2']).samples, 2);
+  assert.equal(parseArgs(['--inner', 'intention_due', '--intention', 'i1', '--samples', '2']).samples, 2);
   for (const argv of [
     ['--inner', 'heartbeat', '--intention', 'i1'],
     ['--inner', 'heartbeat', '--review'],
@@ -195,31 +179,11 @@ test("heartbeatReplayWake: the scheduler's heartbeat wake and conversation, read
   );
   assert.equal(asRecord(info).chainId, `heartbeat:${NOW}`);
   assert.equal(asRecord(info).now, NOW);
-  assert.ok(asRecord(info).heartbeat, 'the heartbeat view is on the wake');
-  // Changed with the contract: the turn is handed the conversation reference, where it was given the channel object.
-  assert.deepEqual(conversation, { iface: 'fake', conversationId: 'c1' });
+  // Slice 5: the heartbeat view left the wake with heartbeatLines, and a service runs nowhere: no conversation.
+  assert.equal(conversation, null);
   assert.equal(currentChannel, null, 'a heartbeat has no current channel');
   assert.equal(fs.readFileSync(fx.stateFile, 'utf8'), fx.kept, 'the data directory is untouched');
   assert.deepEqual(fs.readdirSync(fx.tmpRoot), [], 'the throwaway directory is gone');
-});
-
-test('heartbeatReplayWake: no conversation to run in is a CliError, not a turn', async () => {
-  const fx = heartbeatFixture();
-  // The interface knows no conversation: the scheduler finds none to run in.
-  world().channel({ id: 'c1' }).leave();
-  await assert.rejects(
-    heartbeatReplayWake({
-      inner,
-      hot: fx.hot,
-      dataDir: fx.dataDir,
-      placeId: 'g1',
-      now: NOW,
-      deps: fx.deps,
-      tmpRoot: fx.tmpRoot,
-    }),
-    /would not run the heartbeat/
-  );
-  assert.deepEqual(fs.readdirSync(fx.tmpRoot), []);
 });
 
 test('innerAnswerOf and innerReportMarkdown: the think whole, the messages, the calls with their arguments, the cost', () => {

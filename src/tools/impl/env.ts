@@ -75,7 +75,6 @@ function buildEnv({
   memberNameOf = () => null,
   directory = { isPrivate: () => false },
   connection = { lastReconnectAt: null },
-  spontaneous,
   calibrator,
   turns,
   pending,
@@ -135,7 +134,7 @@ function buildEnv({
 
   /**
    * `/nep pause`: refuse a command that would write under `data/` while
-   * paused, with a hint to resume first. Guards interject, initiate,
+   * paused, with a hint to resume first. Guards message.create,
    * alias.add, alias.remove, lore.add, lore.remove, learned.add,
    * learned.remove, emoji.rescan, gifs.rescan, gifs.recache and draw (it counts against the image rail
    * in state.json).
@@ -276,7 +275,6 @@ function buildEnv({
     directory,
     // The core's reads of the interface (src/interface/reads.ts): the conversation an operation posts in, a message's event.
     reads,
-    spontaneous,
     calibrator,
     turns,
     pending,

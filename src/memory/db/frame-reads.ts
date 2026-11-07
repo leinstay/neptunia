@@ -27,14 +27,21 @@ const DM_WORD = 'private';
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
 
+/** Where a line stands: its place's path, whether that place is a one-to-one chat, and that chat's partner person. */
+export type PlacePath = { path: Array<string>; dm: boolean; partner: string | null };
+
 /** A place by names from its interface down; a one-to-one chat's ends in the partner's platform id. */
-export function placePathOf(db: Db, placeId: string): { path: Array<string>; dm: boolean } {
+export function placePathOf(db: Db, placeId: string): PlacePath {
   const chain = placeChainInDb(db, placeId);
   const iface = placeId.slice(0, Math.max(0, placeId.indexOf(':')));
   const here = chain[0];
-  if (here?.kind === 'dm') return { path: [iface, DM_WORD, nativeOfAny(placeId) ?? placeId], dm: true };
+  if (here?.kind === 'dm') {
+    const row = db.prepare('SELECT partner_person FROM places WHERE id = ?').get(placeId);
+    const partner = text(row?.partner_person);
+    return { path: [iface, DM_WORD, nativeOfAny(placeId) ?? placeId], dm: true, partner };
+  }
   const names = chain.map((link) => link.name ?? link.id).reverse();
-  return { path: [iface, ...(names.length > 0 ? names : [placeId])], dm: false };
+  return { path: [iface, ...(names.length > 0 ? names : [placeId])], dm: false, partner: null };
 }
 
 const lineOf = (row: Row): FrameLine => ({
@@ -58,7 +65,7 @@ export function ownLinesOf(
   ctx: Context,
   exceptPlace: string | null,
   limit: number
-): Array<FrameLine & { path: Array<string>; dm: boolean }> {
+): Array<FrameLine & PlacePath> {
   const where = whereFor(ctx, 's');
   const rows = db
     .prepare(
@@ -68,14 +75,14 @@ export function ownLinesOf(
     )
     .all(exceptPlace, ...where.params, Math.max(0, limit) * 2);
   const seen = new Set<string>();
-  const paths = new Map<string, { path: Array<string>; dm: boolean }>();
-  const out: Array<FrameLine & { path: Array<string>; dm: boolean }> = [];
+  const paths = new Map<string, PlacePath>();
+  const out: Array<FrameLine & PlacePath> = [];
   for (const row of rows) {
     const line = lineOf(row);
     if (seen.has(`${line.placeId}\u0000${line.id}`) || out.length >= limit) continue;
     seen.add(`${line.placeId}\u0000${line.id}`);
     if (!paths.has(line.placeId)) paths.set(line.placeId, placePathOf(db, line.placeId));
-    out.push({ ...line, ...(paths.get(line.placeId) ?? { path: [], dm: false }) });
+    out.push({ ...line, ...(paths.get(line.placeId) ?? { path: [], dm: false, partner: null }) });
   }
   return out;
 }
@@ -205,18 +212,25 @@ export function interfaceNamesOf(db: Db, iface: string): { name: string | null; 
   return { name: text(row?.name), nouns: interfaceNouns(row?.extra) };
 }
 
+/** The interfaces she runs on, by id: those the memory holds a place of, the command line's included. */
+export function interfaceIdsOf(db: Db): Array<string> {
+  return db
+    .prepare('SELECT i.id FROM interfaces i WHERE EXISTS (SELECT 1 FROM places p WHERE p.iface = i.id) ORDER BY i.id')
+    .all()
+    .map((row) => text(row.id))
+    .filter((id): id is string => id !== null);
+}
+
 /** The reads of a framed request over the memory while it is open; each gives nothing while it is closed. */
 export type FrameReads = {
   mind(ctx: Context, seeds: Seeds, now: number): Mind;
-  ownLines(
-    ctx: Context,
-    exceptPlace: string | null,
-    limit: number
-  ): Array<FrameLine & { path: Array<string>; dm: boolean }>;
+  ownLines(ctx: Context, exceptPlace: string | null, limit: number): Array<FrameLine & PlacePath>;
   around(ctx: Context, placeId: string, at: number, count: number): Array<FrameLine>;
   line(ctx: Context, key: string): IdentityLine | null;
   placeFields(ctx: Context, placeId: string): Record<string, string>;
   interfaceNames(iface: string): { name: string | null; nouns: Record<string, string> };
+  /** The ids of the interfaces she runs on (interfaceIdsOf). */
+  interfaceIds?(): Array<string>;
   account(iface: string, native: string): string | null;
   person(account: string): string | null;
   /** The stored line of an interface's message id, null when none (sourceOfMessage). */
@@ -249,6 +263,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     line: (ctx, key) => over(null, (db) => lineOfIdentity(db, ctx, key)),
     placeFields: (ctx, placeId) => over({}, (db) => placeFieldsOf(db, ctx, placeId)),
     interfaceNames: (iface) => over({ name: null, nouns: {} }, (db) => interfaceNamesOf(db, iface)),
+    interfaceIds: () => over([], (db) => interfaceIdsOf(db)),
     account: (iface, native) => over(null, (db) => accountOfNative(db, iface, native)),
     person: (account) => over(null, (db) => personOfAccount(db, account)),
     source: (iface, messageId) => over(null, (db) => sourceOfMessage(db, iface, messageId)),

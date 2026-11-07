@@ -1,20 +1,17 @@
 // The consumers of memory reach the one retrieval service in production code, not only through the seams
-// tests/memory-retrieval-consumers.test.ts exercises: a wake's own helper, a session's request, an attention's input, an
+// tests/memory-retrieval-consumers.test.ts exercises: a session's request, an attention's input, an
 // errand, a diary post and the watcher's brief. Each test goes through the module the consumer calls. Fake model, real
 // temporary databases, synthetic content.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';
-import { wakeRetrieval } from '../src/behavior/inner/facts.ts';
-import { wakeBlockText } from '../src/behavior/wake.ts';
 import { createErrandService } from '../src/errands/service.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { attentionRetrieval } from '../src/intentions/model.ts';
 import { retrieveMemory } from '../src/memory/db/retrieve.ts';
 import { sweep } from '../src/memory/db/session.ts';
 import type { Context } from '../src/memory/db/scope.ts';
-import type { MemoryPage, MemoryQuery } from '../src/memory/db/semantic-types.ts';
+import type { MemoryPage } from '../src/memory/db/semantic-types.ts';
 import { reviewDescription } from '../src/memory/db/describe.ts';
 import { memoryQueryFor } from '../src/memory/retrieval-input.ts';
 import type { RetrievalInput } from '../src/memory/retrieval-input.ts';
@@ -53,31 +50,6 @@ function known() {
   return { world, lumen, open };
 }
 
-const serviceOver = (world: ReturnType<typeof semanticWorld>) => ({
-  issueContext: () => world.contexts.internal,
-  retrievalBoundsFor: () => BOUNDS,
-  retrieveQuery: (ctx: never, query: MemoryQuery) => retrieveMemory(world.db, ctx, query, deps),
-});
-
-test('a heartbeat reads the service through its own helper and tells her what it found', async () => {
-  // Bug: the view takes a `retrieve` nobody hands it, so a live wake never reads the graph.
-  const { world } = known();
-  const facts = await buildHeartbeatFacts(
-    wrongly({
-      now: START,
-      focusPeople: () => ({ close: [ALEX], exploring: [] }),
-      ...wakeRetrieval(wrongly({ memoryDb: serviceOver(world) }), 'heartbeat'),
-    })
-  );
-  assert.ok(facts?.memory?.assertions.some((one) => one.text === FACT_TEXT));
-  const text = wakeBlockText(
-    wrongly({ kind: 'heartbeat', items: [], intentions: [], heartbeat: facts, timezone: 'UTC', now: START }),
-    labels
-  );
-  assert.ok(text.includes(FACT_TEXT), 'the wake block does not carry the fact');
-  world.handle.close();
-});
-
 test('the memory service reads a consumer input under the settings of this moment, and null while they are absent', async () => {
   // Bug: the service caches a budget, or a config with no retrieval settings turns into a thrown turn.
   const memory = openTestMemorySync({ dataDir: path.join(tempDir('nep-service-'), 'data') });
@@ -93,11 +65,6 @@ test('the memory service reads a consumer input under the settings of this momen
   wrongly<{ config: unknown }>(memory.hot).config = { memoryDb: { retrieval: { ...BOUNDS, hops: 1 } } };
   assert.equal(service.retrievalBoundsFor('task')?.hops, 1);
   assert.deepEqual((await service.retrieve(ctx, input))?.assertions, []);
-});
-
-test('a wake with no memory that offers retrieval gets no retrieve function', () => {
-  // Bug: the helper assumes the service and a life without memory cannot wake.
-  assert.deepEqual(wakeRetrieval({ memoryDb: null }, 'heartbeat'), {});
 });
 
 test('an attention wake asks for its own purpose, people and place', () => {
@@ -302,22 +269,4 @@ test('the watcher brief holds group facts about failures and never a private one
   assert.match(brief, /<memory>\n/);
   assert.doesNotMatch(buildBrief({ prompt: 'p', day: '2026-11-05', reportsDir: tempDir('nep-brief-') }), /<memory>/);
   world.handle.close();
-});
-
-test('a page is a typed value: nothing of a wake reads it as a destination', () => {
-  // Bug: a place in a retrieved path reaches the wake's words as somewhere to post.
-  const page: MemoryPage = {
-    assertions: [],
-    sourceIds: [],
-    paths: [{ from: { kind: 'person', id: ALEX }, to: { kind: 'place', id: ROOM }, versionIds: ['cv:1'] }],
-    next: null,
-    partialReason: null,
-    ambiguous: [],
-    signals: [],
-  };
-  const text = wakeBlockText(
-    wrongly({ kind: 'heartbeat', items: [], intentions: [], heartbeat: { memory: page }, timezone: 'UTC', now: START }),
-    labels
-  );
-  assert.ok(!text.includes(ROOM));
 });

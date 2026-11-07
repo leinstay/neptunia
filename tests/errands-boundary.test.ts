@@ -18,7 +18,7 @@ import { createErrandService } from '../src/errands/service.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { errandsBlockText } from '../src/errands/blocks.ts';
 import { createInnerLife } from '../src/behavior/inner.ts';
-import { wakeBlockText } from '../src/behavior/wake.ts';
+import { awakeLines } from '../src/behavior/wake.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { intentionsBlockText } from '../src/intentions/blocks.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
@@ -526,16 +526,17 @@ test('the imported errand_deadline wake retains its renamed errand evidence with
     const mentioned = (wake?.items ?? []).flatMap((item) => item.intentionIds as Array<string>);
     assert.equal(mentioned.includes('i-late'), false, 'its wake was handled before the deploy');
     // The retained imported payload renders the same errand identity as the seeded semantic fields.
+    // Slice 5: `<wake>` is gone; the errand_deadline line is awakeLines', read into `<spatial_awareness>`.
     const item = queued;
-    const shown = wakeBlockText({ ...wake, timezone: 'UTC', items: [item] }, SHIPPED_LABELS);
-    const seeded = wakeBlockText(
+    const shown = awakeLines({ ...wake, timezone: 'UTC', items: [item] }, SHIPPED_LABELS).join('\n');
+    const seeded = awakeLines(
       {
         ...wake,
         timezone: 'UTC',
         items: [{ kind: 'errand_deadline', reason: 'wait-deadline', intentionIds: ['i-wait'], errandId: 't0000000c' }],
       },
       SHIPPED_LABELS
-    );
+    ).join('\n');
     assert.equal(shown, seeded);
     assert.equal(shown.includes('t0000000c'), true, 'the line names the errand');
     await inner.tick();

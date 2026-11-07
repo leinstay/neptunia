@@ -2,8 +2,7 @@
 // succeeded and the executed actions of her inner turns, from the start of the day `now` falls in by the server zone
 // to `now`, read under the turn's context so that a group turn never lists what she did in a direct chat. One line per
 // action with its clock and the place by name, newest last, the newest `lines` of them. buildTurnRequest
-// (src/turn/phases/request/build.ts) asks for them through the turn runner's `myDay` reader; the heartbeat keeps its own
-// reader (src/behavior/heartbeat-view.ts#lifeOf).
+// (src/turn/phases/request/build.ts) asks for them through the turn runner's `myDay` reader.
 
 import { fill, formatClock } from '../../format.ts';
 import { whereFor } from '../../memory/db/scope.ts';

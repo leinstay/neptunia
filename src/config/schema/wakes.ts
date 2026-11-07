@@ -18,13 +18,6 @@ export const WAKES: ReadonlyArray<SchemaEntry> = [
     'text': 'How often the scheduler looks at what is due',
   },
   {
-    'key': 'wakes.review.historyDays',
-    'types': ['number'],
-    'reader': 'src/behavior/inner/settings.ts',
-    'default': 14,
-    'text': 'Days of her own lines that decide when the review happens',
-  },
-  {
     'key': 'wakes.caps.perChain',
     'types': ['number'],
     'reader': 'src/behavior/inner.ts',

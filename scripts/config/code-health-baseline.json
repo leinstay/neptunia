@@ -421,11 +421,7 @@
       "repeated": 1
     },
     "tests/heartbeat-intents.test.ts": {
-      "deep": 19,
-      "repeated": 0
-    },
-    "tests/heartbeat-view.test.ts": {
-      "deep": 61,
+      "deep": 15,
       "repeated": 0
     },
     "tests/hot.test.ts": {
@@ -453,7 +449,7 @@
       "repeated": 1
     },
     "tests/inner-turn.test.ts": {
-      "deep": 105,
+      "deep": 104,
       "repeated": 0
     },
     "tests/inner-wake-sends.test.ts": {
@@ -469,7 +465,7 @@
       "repeated": 0
     },
     "tests/inner.test.ts": {
-      "deep": 169,
+      "deep": 147,
       "repeated": 1
     },
     "tests/intention-due-jitter.test.ts": {
@@ -825,7 +821,7 @@
       "repeated": 0
     },
     "tests/memory-retrieval-wiring.test.ts": {
-      "deep": 2,
+      "deep": 1,
       "repeated": 0
     },
     "tests/memory-search-place-day.test.ts": {
@@ -953,7 +949,7 @@
       "repeated": 0
     },
     "tests/prompt.test.ts": {
-      "deep": 216,
+      "deep": 212,
       "repeated": 0
     },
     "tests/prompts-shipped.test.ts": {
@@ -989,7 +985,7 @@
       "repeated": 0
     },
     "tests/pull-fetch-core.test.ts": {
-      "deep": 28,
+      "deep": 20,
       "repeated": 0
     },
     "tests/pull-fetch.test.ts": {
@@ -1348,10 +1344,6 @@
       "deep": 2,
       "repeated": 0
     },
-    "tests/turn-publication.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/turn-request-senses.test.ts": {
       "deep": 6,
       "repeated": 0
@@ -1365,7 +1357,7 @@
       "repeated": 0
     },
     "tests/turn.test.ts": {
-      "deep": 274,
+      "deep": 265,
       "repeated": 8
     },
     "tests/usage.test.ts": {
@@ -1444,7 +1436,7 @@
   "files": {
     "src/behavior/recall.ts": 2357,
     "tests/openrouter.test.ts": 3557,
-    "tests/prompt.test.ts": 6562,
+    "tests/prompt.test.ts": 6523,
     "tests/recall.test.ts": 2387
   },
   "functions": {
@@ -1478,19 +1470,16 @@
         "complexity": 22
       },
       "renderReport": {
-        "complexity": 47
+        "complexity": 45
       },
       "runWeek": {
-        "function-length": 570
+        "function-length": 561
       },
       "runWeek>act": {
         "complexity": 39
       },
       "runWeek>runTurn": {
-        "complexity": 29
-      },
-      "runWeek>tickCandidates": {
-        "complexity": 22
+        "complexity": 28
       }
     },
     "scripts/lib/labels-catalogue.ts": {
@@ -1505,8 +1494,8 @@
     },
     "scripts/lib/replay-args.ts": {
       "parseArgs": {
-        "complexity": 254,
-        "function-length": 339
+        "complexity": 248,
+        "function-length": 333
       }
     },
     "scripts/lib/report.ts": {
@@ -1558,8 +1547,8 @@
         "complexity": 42
       },
       "runInner": {
-        "complexity": 59,
-        "function-length": 376
+        "complexity": 54,
+        "function-length": 329
       },
       "runMain": {
         "complexity": 152
@@ -1626,15 +1615,10 @@
         "complexity": 34
       }
     },
-    "src/behavior/heartbeat-view.ts": {
-      "scanRecord": {
-        "complexity": 43
-      }
-    },
     "src/behavior/inner/drain.ts": {
       "drain": {
-        "complexity": 88,
-        "function-length": 367
+        "complexity": 80,
+        "function-length": 351
       }
     },
     "src/behavior/inner/facts.ts": {
@@ -1644,11 +1628,6 @@
     },
     "src/behavior/inner/places.ts": {
       "refreshPlaces": {
-        "complexity": 22
-      }
-    },
-    "src/behavior/inner/status.ts": {
-      "status": {
         "complexity": 22
       }
     },
@@ -1725,9 +1704,6 @@
     "src/behavior/wake.ts": {
       "feedbackFactText": {
         "complexity": 32
-      },
-      "wakeBlockText": {
-        "complexity": 66
       }
     },
     "src/errands/blocks.ts": {
@@ -1768,7 +1744,7 @@
     },
     "src/intentions/service.ts": {
       "createIntentionService": {
-        "function-length": 554
+        "function-length": 540
       },
       "createIntentionService>set": {
         "complexity": 24

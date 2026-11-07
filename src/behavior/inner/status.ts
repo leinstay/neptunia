@@ -69,10 +69,10 @@ export function releaseStoredStop(life: InnerContext): boolean {
   return true;
 }
 
-/** The next thing that will wake her: when, and whether it is a queued wake, an intention or the review. */
-export type NextWake = { at: number; kind: 'queue' | 'intention' | 'review' };
+/** The next thing that will wake her: when, and whether it is a queued wake or an intention. */
+export type NextWake = { at: number; kind: 'queue' | 'intention' };
 
-/** The earliest moment something will wake her (null when nothing is known), and what: `queue`, `intention` or `review`. */
+/** The earliest moment something will wake her (null when nothing is known), and what: `queue` or `intention`. */
 function nextWakeOf(
   state: InnerState,
   open: ReadonlyArray<Intention>,
@@ -99,8 +99,6 @@ function nextWakeOf(
     )
       found.push({ at: record.waitDeadline, kind: 'intention' });
   }
-  const review = state.review;
-  if (review && review.done !== true && isFiniteNumber(review.at)) found.push({ at: review.at, kind: 'review' });
   return found.length > 0 ? found.reduce((first, item) => (item.at < first.at ? item : first)) : null;
 }
 
@@ -110,7 +108,6 @@ export type InnerStatus = {
   stopped: boolean;
   stoppedAt?: number | null;
   queue: Array<{ id: string; kind: string; dueAt: number | null; capped: string | null }>;
-  review: { day: string; at: number | null; done: boolean } | null;
   heartbeat?: { nextAt: number | null; lastAt: number | null } | null;
   turnsToday: number | null;
   chains: number;
@@ -125,7 +122,7 @@ export type InnerStatus = {
 };
 
 /**
- * What the owner's status shows: the switch, the mode, the stop, the queue, the review, the budgets,
+ * What the owner's status shows: the switch, the mode, the stop, the queue, the budgets,
  * and for the status card the chains of the day, the open intentions by
  * status, the next wake and the last inner turn.
  */
@@ -186,9 +183,6 @@ export function status(life: InnerContext): InnerStatus {
       dueAt: wake.dueAt ?? null,
       capped: wake.capped ?? null,
     })),
-    review: state.review
-      ? { day: state.review.day, at: state.review.at ?? null, done: state.review.done === true }
-      : null,
     heartbeat: settings.heartbeat.enabled
       ? { nextAt: state.heartbeat?.nextAt ?? null, lastAt: state.heartbeat?.lastAt ?? null }
       : null,

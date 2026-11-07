@@ -28,7 +28,6 @@ export type InnerTurn = {
   wake?: {
     kind?: string | null;
     chainId?: string | null;
-    heartbeat?: { refs?: unknown; memory?: MemoryPage | null } | null;
     selfimprovement?: { memory?: MemoryPage | null } | null;
     intentions?: ReadonlyArray<{ purpose?: unknown } | null>;
     items?: unknown;
@@ -64,6 +63,8 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfref
   ownInitiative?: boolean;
   // The conversation as the interface described it when the attempt began.
   info?: ConversationInfo;
+  /** A turn run with no conversation (a service, an intention without a place): she is nowhere. */
+  nowhere?: boolean;
   privateAccountId?: string | null;
   /** A restriction this turn inherited from deferred work, read by `turnBoundary` (src/tools/publication.ts). */
   publicationBoundary?: unknown;

@@ -191,7 +191,6 @@ export const CATALOGUE = Object.freeze({
   'dm-off': wake(),
   'not-writable': wake(),
   unavailable: wake(),
-  'no-review-channel': wake(),
   // Every key of the core's list failed on a budget error (src/llm/key-failover.ts); the turn failed with it.
   'keys-exhausted': wake(),
   // The engine proxy stopped answering and every connection went direct, or it answers again (src/net/proxy.ts).

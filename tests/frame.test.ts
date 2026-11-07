@@ -7,6 +7,7 @@ import {
   REQUIRED_BY_KIND,
   blocksOf,
   frameOf,
+  framedRequest,
   turnKindOf,
   type BlockName,
   type TurnKind,
@@ -135,12 +136,6 @@ test('the selfreflection planner reads the same list as the writer', () => {
   assert.deepEqual(blocksOf('selfreflection_plan', null), SELFREFLECTION_LIST);
 });
 
-test('the wake kind review still builds a frame with no chat', () => {
-  // Bug: the daily review wake throws on a kind nothing maps until slice 5 deletes it.
-  const frame = frameOf(wakeInput('review'));
-  assert.equal(frame.blocks.includes('chat'), false);
-});
-
 // ---- what a kind may not omit ----
 
 test('every kind requires the persona, herself, her whereabouts and the task, and only a reply requires the chat', () => {
@@ -236,6 +231,25 @@ test('a selfreflection post is nowhere and awake says so', () => {
   assert.equal(frame.awake, 'selfreflection');
 });
 
+// ---- which requests are the frame's own ----
+
+test("every inner turn's request is the frame's own, with a place and without", () => {
+  // Bug: a service or an intention keeps the old emission with `<wake>`, so its request has no `<meanwhile>` or `<memory>`.
+  const inputs = [
+    wakeInput('heartbeat'),
+    wakeInput('selfimprovement'),
+    wakeInput('intention_due'),
+    wakeInput('intention_due', { chain: ROOM_CHAIN }),
+    wakeInput('feedback'),
+    wakeInput('feedback', { chain: ROOM_CHAIN }),
+    frameInput({ triggerKind: 'errand' }),
+  ];
+  for (const input of inputs) {
+    const frame = frameOf(input);
+    assert.equal(framedRequest(frame), true, `${frame.kind} ${frame.place?.id ?? 'nowhere'}`);
+  }
+});
+
 // ---- the kind of a turn ----
 
 const KIND_CASES: ReadonlyArray<[Mode, TriggerKind, WakeKind, TurnKind]> = [
@@ -248,7 +262,6 @@ const KIND_CASES: ReadonlyArray<[Mode, TriggerKind, WakeKind, TurnKind]> = [
   ['interject', null, null, 'reply'],
   ['initiate', null, null, 'reply'],
   ['elsewhere', null, null, 'reply'],
-  ['auto', null, null, 'reply'],
   ['reply', 'errand', null, 'errand_result'],
   ['interject', 'errand', null, 'errand_result'],
   ['inner', 'inner', 'heartbeat', 'heartbeat'],

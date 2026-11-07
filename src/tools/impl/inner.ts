@@ -27,9 +27,6 @@ const handlers = perEnv((env) => {
     lines.push(
       `queue: ${s.queue.length}${s.queue.length > 0 ? ` (${s.queue.map((wake: Untyped) => `${wake.kind} due ${stamp(wake.dueAt)}${wake.capped ? ` capped ${wake.capped}` : ''}`).join('; ')})` : ''}`
     );
-    lines.push(
-      `review: ${s.review ? `${s.review.day} ${s.review.done ? 'done' : `at ${stamp(s.review.at)}`}` : 'not drawn'}`
-    );
     if (s.turnsToday != null) lines.push(`today: turns ${s.turnsToday}`);
     return lines.join('\n');
   }

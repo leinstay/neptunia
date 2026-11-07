@@ -5,6 +5,7 @@
   "days": 6,
   "timezone": "UTC",
   "seed": 53,
+  "wakes": { "heartbeat": { "enabled": true, "schedule": "at 14:00" } },
   "channels": [
     { "id": "c-general", "name": "general" },
     { "id": "c-games", "name": "games" }
@@ -12,7 +13,7 @@
   "people": { "Ada": "u-301", "Rui": "u-302" },
   "history": { "selfHours": [9, 14, 21], "channel": "c-general" },
   "stub": {
-    "review": [[]],
+    "heartbeat": [[]],
     "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "a reminder, as promised" } }, { "skill": "intention.update", "args": { "id": "$intention", "state": "done" } }]]
   },
   "intentions": [

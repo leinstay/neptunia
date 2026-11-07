@@ -26,20 +26,6 @@ export const HEARTBEAT: ReadonlyArray<SchemaEntry> = [
     'text': 'Minutes an interval of the heartbeat moves either way; daily times stay exact',
   },
   {
-    'key': 'heartbeat.historyDays',
-    'types': ['number'],
-    'reader': 'src/behavior/inner/settings.ts',
-    'default': 14,
-    'text': "Days of the record read for each person's last contact",
-  },
-  {
-    'key': 'heartbeat.maxTokens',
-    'types': ['number'],
-    'reader': 'src/behavior/inner/settings.ts',
-    'default': 2500,
-    'text': 'Token cap of the whole heartbeat block. `0` turns the cap off',
-  },
-  {
     'key': 'heartbeat.tools',
     'types': ['string', 'array'],
     'reader': 'src/tools/access.ts',

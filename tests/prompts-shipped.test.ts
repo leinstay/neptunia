@@ -53,7 +53,8 @@ import { loadSkills } from '../src/tools/registry.ts';
 import { listSkills } from '../src/tools/gateway.ts';
 import { CATALOGUE } from '../src/tools/codes.ts';
 import { catalogueProblems } from '../scripts/lib/labels-catalogue.ts';
-import { feedbackInTurnText, wakeBlockText } from '../src/behavior/wake.ts';
+import { awakeLines, feedbackInTurnText } from '../src/behavior/wake.ts';
+import { frameOf } from '../src/turn/request/frame.ts';
 import { labels as contractLabels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -181,8 +182,6 @@ const LOADS = {
   followUp: [...SYSTEM, 'follow-up'],
   overheard: [...SYSTEM, 'overheard'],
   errandResult: [...SYSTEM, 'errand-result'],
-  interject: [...SYSTEM, 'interject'],
-  forcedInitiate: [...SYSTEM, 'initiate', 'forced'],
   private: [...SYSTEM, 'reply', 'private'],
   routed: [...SYSTEM, 'reply'],
   noticed: [...SYSTEM, 'elsewhere'],
@@ -997,28 +996,8 @@ test('buildRequest: the turn a finished errand opens without an origin message f
     { files: LOADS.errandResult, blocks: ['senses', 'chat', 'tempo', 'task'] },
     'errand-result'
   );
-  assert.ok(!carries(text, 'interject'), 'interject.md is not sent as well');
-});
-
-// PR 7d: the room question's focus line is gone, so this test checks the task files alone.
-test('buildRequest: interject and a forced initiate fill their task, forced.md after it', async () => {
-  const interject = buildRequest(
-    await turnInput({ mode: 'interject', trigger: null, triggerKind: null, interlocutor: null })
-  );
-  const text = assertFilled(
-    interject.messages,
-    { files: LOADS.interject, blocks: ['senses', 'chat', 'tempo', 'task'] },
-    'interject'
-  );
-  assert.ok(!carries(text, 'forced'), 'forced.md only on a forced turn');
-  const initiate = buildRequest(
-    await turnInput({ mode: 'initiate', forced: true, trigger: null, triggerKind: null, interlocutor: null })
-  );
-  assertFilled(
-    initiate.messages,
-    { files: LOADS.forcedInitiate, blocks: ['senses', 'chat', 'tempo', 'task'] },
-    'forced initiate'
-  );
+  // Slice 5: interject.md is deleted, so no second task file can ride along and the old check on it went.
+  assert.ok(text.includes('<task>\n'));
 });
 
 test('buildRequest: a private chat fills private.md after the reply task', async () => {
@@ -1165,7 +1144,8 @@ test('buildRequest: a noticed turn fills elsewhere.md with the channel it read a
     { files: LOADS.noticed, blocks: ['senses', 'channel_view', 'chat', 'tempo', 'task'] },
     'noticed'
   );
-  assert.ok(!carries(text, 'reply') && !carries(text, 'interject'), 'the task is elsewhere.md alone');
+  // Slice 5: interject.md is deleted, so only reply.md could still ride along.
+  assert.ok(!carries(text, 'reply'), 'the task is elsewhere.md alone');
 });
 
 test('buildDrawPrompt: draw.md and appearance.md are filled for a picture the persona is in', () => {
@@ -1248,16 +1228,7 @@ test('shipped labels: every kind of fact she can be told is worded, with no plac
   assert.equal(text.split('\n').length, facts.length + 1, text);
   assert.equal(text.split('\n')[0], LABELS.wake.feedbackInTurn);
   assert.ok(!/[{}]/.test(text), text);
-  for (const code of [
-    'done',
-    'cancelled',
-    'expired',
-    'forgotten',
-    'dm-off',
-    'not-writable',
-    'unavailable',
-    'no-review-channel',
-  ])
+  for (const code of ['done', 'cancelled', 'expired', 'forgotten', 'dm-off', 'not-writable', 'unavailable'])
     assert.equal(typeof (LABELS.wake.feedback.codes as Record<string, string>)[code], 'string', code);
   assert.equal(
     fill((LABELS.task as unknown as { callsDropped: string }).callsDropped, { count: '2', why: 'extra-call' }).includes(
@@ -1273,7 +1244,7 @@ test('buildRequest: an inner turn fills system-prompt, character-card, rules, fo
     items: [
       { kind: 'intention_due', intentionIds: ['i1'] },
       { kind: 'errand_deadline', intentionIds: ['i2'], errandId: 'T1' },
-      { kind: 'review', intentionIds: [] },
+      { kind: 'heartbeat', intentionIds: [] },
     ],
     intentions: [
       { id: 'i1', purpose: 'ask Ana how the tomatoes are doing', dueAt: NOW - HOUR_MS },
@@ -1289,19 +1260,41 @@ test('buildRequest: an inner turn fills system-prompt, character-card, rules, fo
       trigger: null,
       triggerKind: 'inner',
       interlocutor: null,
-      wake: wakeBlockText(wake, LABELS, { locale: LABELS.locale }),
+      wakeKind: 'intention_due',
+      awake: awakeLines(wake, LABELS, { locale: LABELS.locale }).join('\n'),
+      frame: frameOf({
+        mode: 'inner',
+        triggerKind: 'inner',
+        wakeKind: 'intention_due',
+        interface: 'discord',
+        chain: [],
+        dm: null,
+        trigger: null,
+        author: null,
+        now: NOW,
+        timezone: 'UTC',
+      }),
     })
   );
-  const text = assertFilled(request.messages, { files: LOADS.inner, blocks: ['wake', 'chat', 'task'] }, 'inner turn');
-  assert.ok(text.includes(LABELS.wake.header));
-  assert.ok(text.includes('ask Ana how the tomatoes are doing'));
+  // Slice 5: `<wake>` is gone; the kind lines (awakeLines) fill `<spatial_awareness>` of the frame, here an intention
+  // turn with no place, and the review kind left with it.
+  const text = assertFilled(
+    request.messages,
+    { files: LOADS.inner, blocks: ['spatial_awareness', 'task'] },
+    'inner turn'
+  );
+  const spatial = text.slice(text.indexOf('<spatial_awareness>'), text.indexOf('</spatial_awareness>'));
+  assert.ok(spatial.includes('ask Ana how the tomatoes are doing'), spatial);
+  const { heartbeat } = LABELS.wake.kinds;
+  assert.ok(spatial.includes(heartbeat), spatial);
 });
 
 /** The input of an inner turn woken by a wake of `wakeKind`. */
 const wakeInput = (wakeKind: string) =>
   turnInput({ mode: 'inner', trigger: null, triggerKind: 'inner', interlocutor: null, wake: '', wakeKind });
 
-test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in place of inner.md; a review keeps inner.md', async () => {
+// Slice 5: the review is gone; a due intention is the inner turn that keeps inner.md.
+test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in place of inner.md; a due intention keeps inner.md', async () => {
   const beat = await wakeInput('heartbeat');
   const beatRequest = buildRequest(beat);
   const beatText = assertFilled(beatRequest.messages, { files: LOADS.heartbeat, blocks: ['task'] }, 'heartbeat turn');
@@ -1317,13 +1310,13 @@ test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in pla
     'silence in an anchor channel is not heartbeat tempo'
   );
   assert.ok(!carries(beatText, 'inner'), 'inner.md is not sent as well');
-  const review = await wakeInput('review');
-  const reviewText = assertFilled(
-    buildRequest(review).messages,
+  const due = await wakeInput('intention_due');
+  const dueText = assertFilled(
+    buildRequest(due).messages,
     { files: LOADS.inner, blocks: ['chat', 'task'] },
-    'review turn'
+    'intention turn'
   );
-  assert.ok(!carries(reviewText, 'heartbeat'), 'heartbeat.md is not sent on a review');
+  assert.ok(!carries(dueText, 'heartbeat'), 'heartbeat.md is not sent on an intention turn');
   const missing = await wakeInput('heartbeat');
   missing.prompts = { ...SHIPPED.prompts, heartbeat: '  ' } as typeof SHIPPED.prompts;
   assertFilled(buildRequest(missing).messages, { files: LOADS.inner }, 'heartbeat with no heartbeat.md');

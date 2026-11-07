@@ -272,7 +272,6 @@ function makeAdmin(rootDir: string, extra: AdminExtra = {}) {
     port: extra.port ?? world().port,
     selfId: extra.selfId ?? (() => 'self-id'),
     getSelfName: extra.getSelfName ?? (() => 'Persona'),
-    spontaneous: extra.spontaneous ?? {},
     calibrator: extra.calibrator ?? { ratio: 1 },
     turns: extra.turns,
     memory: extra.memory,
@@ -2493,43 +2492,34 @@ test('status: without an embedding client the embedding role is shown unchecked;
 });
 
 // ---------------------------------------------------------------------------
-// interject / initiate
+// message create from a person
 // ---------------------------------------------------------------------------
 
-function fakeSpontaneous(forceResult?: Untyped) {
-  const calls: Array<Untyped> = [];
-  return {
-    calls,
-    force: async (conversation: Untyped, mode: string, options: Untyped) => {
-      calls.push([conversation.conversationId, mode, options]);
-      return forceResult ?? { ok: true };
+// Slice 5: the operator's message.create no longer gives her a turn (the forced turn is deleted with
+// src/behavior/spontaneous.ts); a person who runs it is refused owner-only, with or without a text or a channel, and no
+// turn starts. The two tests of the turn's channel and requester went with it.
+test('run: message create from a person is refused owner-only and starts no turn, whatever channel or text it names', async () => {
+  const rootDir = makeRoot();
+  world().channel({ id: 'c1' });
+  world().channel({ id: 'other' });
+  const ran: Array<unknown> = [];
+  const turns = {
+    runTurn: async (params: unknown) => {
+      ran.push(params);
+      return { outcome: 'spoke' };
     },
   };
-}
-
-test('run: message create gives the persona a turn in the context channel, the one who asked its requester', async () => {
-  const rootDir = makeRoot();
-  const spontaneous = fakeSpontaneous();
-  world().channel({ id: 'c1' });
-  const { admin } = makeAdmin(rootDir, { spontaneous });
-
-  const result = await admin.run('message.create', {}, { placeId: 'c1', accountId: '42', roleIds: ['r1'] });
-
-  // No mode: the turn reads the channel and joins it or starts a topic itself.
-  assert.deepEqual(spontaneous.calls, [['c1', null, { requester: { id: '42', roleIds: ['r1'] } }]]);
-  assert.ok(result.includes('message create on c1'), result);
-});
-
-test('run: message create uses the channel argument when given, overriding the context channel; a text from a person changes nothing', async () => {
-  const rootDir = makeRoot();
-  const spontaneous = fakeSpontaneous();
-  world().channel({ id: 'other' });
-  const { admin } = makeAdmin(rootDir, { spontaneous });
-
-  // The mode is the server's: a person always gets her turn, whatever text the arguments carry.
-  await admin.run('message.create', { placeId: 'other', text: 'Σ' }, { placeId: 'c1' });
-
-  assert.deepEqual(spontaneous.calls, [['other', null, { requester: null }]]);
+  const { admin } = makeAdmin(rootDir, { turns });
+  const ownerOnly = (err: unknown) => (err as { code?: unknown }).code === 'owner-only';
+  await assert.rejects(
+    () => admin.run('message.create', {}, { placeId: 'c1', accountId: '42', roleIds: ['r1'] }),
+    ownerOnly
+  );
+  await assert.rejects(
+    () => admin.run('message.create', { placeId: 'other', text: 'Σ' }, { placeId: 'c1' }),
+    ownerOnly
+  );
+  assert.deepEqual(ran, []);
 });
 
 // ---------------------------------------------------------------------------

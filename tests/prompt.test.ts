@@ -338,45 +338,6 @@ test('buildRequest: the author heads <people> without a tag; their <people_now> 
   assert.equal(followUpRequest.messages[1].content[1].text, overheardRequest.messages[1].content[1].text);
 });
 
-// /nep interject, /nep initiate: an owner-forced turn appends prompts.forced
-// (when present) to the task text, filled with the same placeholders as the
-// mode's own task template.
-test('buildRequest: forced=true appends the filled prompts.forced to the task text', () => {
-  const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
-  const request = buildRequest(
-    baseInput({
-      mode: 'interject',
-      forced: true,
-      history: [trigger],
-      trigger,
-      triggerKind: 'mention',
-      prompts: fakePrompts({ forced: 'FORCED_TASK for {{name}}, target {{target}}' }),
-    })
-  );
-  const user = contentText(request.messages[1].content);
-  assert.ok(user.includes('INTERJECT_TASK for Nept'));
-  assert.ok(user.includes('FORCED_TASK for Nept, target #1'));
-  assert.ok(user.indexOf('INTERJECT_TASK for Nept') < user.indexOf('FORCED_TASK for Nept, target #1'));
-});
-
-test('buildRequest: forced=true with no prompts.forced leaves the task text unchanged', () => {
-  const request = buildRequest(baseInput({ mode: 'interject', forced: true }));
-  const user = contentText(request.messages[1].content);
-  assert.ok(user.includes('INTERJECT_TASK for Nept'));
-  assert.equal(
-    contentText(request.messages[1].content),
-    contentText(buildRequest(baseInput({ mode: 'interject', forced: false })).messages[1].content)
-  );
-});
-
-test('buildRequest: forced=false never appends prompts.forced even when it is set', () => {
-  const request = buildRequest(
-    baseInput({ mode: 'interject', forced: false, prompts: fakePrompts({ forced: 'FORCED_TASK' }) })
-  );
-  const user = contentText(request.messages[1].content);
-  assert.ok(!user.includes('FORCED_TASK'));
-});
-
 test('buildRequest: blocks appear in the documented order', () => {
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
   const request = buildRequest(

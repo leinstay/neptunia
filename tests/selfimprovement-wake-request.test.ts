@@ -11,14 +11,17 @@
 //   per tool and code, most frequent first, `skill.run` among them.
 // - `proposals[n].blocked: { reason: string; unblocks: string } | null`, read by `proposalsOf` from the task's
 //   `blocked_reason` and `unblocks`.
-// `wakeBlockText` words `repeated` and `failures` through new keys of `labels.wake.selfimprovement`.
+// `workLines` words `repeated` and `failures` in `<work>` through keys of `labels.wake.selfimprovement`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSelfimprovementFacts, proposalsOf } from '../src/behavior/selfimprovement-view.ts';
-import { wakeBlockText } from '../src/behavior/wake.ts';
+import { personaJournal } from '../src/behavior/inner/persona-sources.ts';
+import { createJournal } from '../src/memory/journal.ts';
+import { openTestMemorySync } from './fixtures/memory-db/service.ts';
+import { workLines } from '../src/behavior/selfimprovement-text.ts';
 import { joinLabels } from '../src/config/labels.ts';
 import { createHot } from '../src/hot.ts';
 import { createCalibrator } from '../src/llm/tokens.ts';
@@ -225,13 +228,12 @@ test('the facts name tool and skill failures by tool and code, most frequent fir
   );
 });
 
-test('the wake text carries the repeated needs and the failures', async () => {
+// Slice 5: `<wake>` is gone; the repeated needs and the failures are lines of `<work>` (workLines).
+test('the work text carries the repeated needs and the failures', async () => {
   // Bug: the facts exist and no label words them, so the model never reads them.
   const labels: unknown = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'labels.json'), 'utf8'));
-  const text = wakeBlockText(
-    { ...wakeOfKind('selfimprovement', 'selfimprovement:1'), selfimprovement: await facts() },
-    joinLabels(labels as never)
-  );
+  const words = joinLabels(labels as never) as unknown as { wake: { selfimprovement: unknown } };
+  const text = workLines(await facts(), words.wake.selfimprovement, () => '', null).join('\n');
   assert.ok(text.includes('timeout'), 'the failure code');
   assert.ok(text.includes('web.read'), 'the failed tool past the shown cut');
   assert.ok(text.includes('skill.run'), 'the repeated need past the shown cut');
@@ -272,4 +274,39 @@ test('a blocked task of hers shows why it waits and what would unblock it', asyn
     outbox: view.outbox,
   });
   assert.deepEqual(built.proposals[0]?.blocked, { reason: 'no fork', unblocks: 'a fork of the repo' });
+});
+
+test('a skill action journaled in a place reaches the selfimprovement wake chains', async (t) => {
+  // Bug (.agents report of 2026-11-07, the work reconciliation): personaJournal.read reads only her own journal while
+  // every skill action of a turn is journaled in the journal of the turn's place, so the wake saw no chain at all.
+  const now = Date.parse('2026-11-07T12:00:00.000Z');
+  const place = 'fake:channel:c1';
+  const memory = openTestMemorySync({ now: () => now });
+  t.after(() => memory.close());
+  let n = 0;
+  const journal = createJournal({
+    memoryDb: memory.memoryDb,
+    dataDir: 'fake-data',
+    config: () => ({ thinkChars: 4000 }),
+    now: () => now - HOUR,
+    uuid: () => `u${(n += 1)}`,
+  });
+  const op = journal.op(place, { turnId: 'turn:place-1', name: 'skill', by: 'persona', placeId: 'c1' });
+  await op.started({ input: { skill: 'memory.search', args: ['query'] } });
+  await op.succeeded({});
+  await new Promise((resolve) => setImmediate(resolve));
+  const facts = await buildSelfimprovementFacts({
+    now,
+    since: null,
+    journal: personaJournal(journal, () => [place]),
+    granted: ['memory.search'],
+    skills: [],
+    proposals: [],
+    outbox: [],
+  });
+  assert.deepEqual(
+    facts.shapes.map((shape) => [shape.key, shape.turnIds]),
+    [['memory.search(query)', ['turn:place-1']]]
+  );
+  assert.deepEqual(facts.unusedTools, []);
 });

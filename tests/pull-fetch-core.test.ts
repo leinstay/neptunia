@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SnowflakeUtil } from 'discord.js';
 import type { Audience, ConversationInfo, Permissions } from '../src/protocol/adapter.ts';
-import { captionPulled, checkPull, fetchPull } from '../src/behavior/pull-fetch.ts';
+import { checkPull, fetchPull } from '../src/behavior/pull-fetch.ts';
 import type { PulledChannel } from '../src/behavior/pull-fetch.ts';
 import { historyLines } from '../src/behavior/lines.ts';
 import type { Line } from '../src/behavior/lines.ts';
@@ -1040,81 +1040,6 @@ test('fetchPull uses only cached captions without turnCertain', async () => {
 });
 
 // ---- the caption top-up -----------------------------------------------------------
-
-test('captionPulled makes no read and asks only for uncached pictures within the limits', async () => {
-  // PR 7d: pull.maxPictures (10) and pull.maxNewDescriptions (8) are constants.
-  const main = mainChannel();
-  const channel = pictureChannel('760000000000000078', 12);
-  const newest = ['p12', 'p11', 'p10', 'p9', 'p8', 'p7', 'p6', 'p5'];
-  const describer = fakeDescriber({
-    cached: { p4: 'λεζάντα p4' },
-    fresh: Object.fromEntries(newest.map((id) => [id, `νέα ${id}`])),
-  });
-  const cfg = config();
-  const { result, logs } = await withCapturedLogs(async () => {
-    const before = pulledOf(await pull(channel.id, { config: cfg, describer }));
-    const requests = channel.calls().length;
-    const after = await captionPulled(before, { describer, placeId: GUILD_ID, config: cfg, destination: main.info });
-    return { before, after, requests };
-  });
-  const { before, after, requests } = result;
-  assert.equal(channel.calls().length, requests, 'no read of the conversation');
-  assert.deepEqual(
-    describer.calls.many.map((call) => call.ids),
-    newest.map((id) => [id]),
-    'within ten pictures and eight new captions'
-  );
-  assert.deepEqual(
-    describer.calls.cached.at(-1)?.ids,
-    ['p12', 'p11', 'p10', 'p9', 'p8', 'p7', 'p6', 'p5', 'p3', 'p2', 'p1'],
-    'the cache is asked again, never for a known caption'
-  );
-  assert.deepEqual(Object.fromEntries(after.descriptions), {
-    p4: 'λεζάντα p4',
-    ...Object.fromEntries(newest.map((id) => [id, `νέα ${id}`])),
-  });
-  assert.equal(after.picturesNotSeen, 3);
-  assert.equal(after.messages, before.messages, 'the same lines');
-  assert.deepEqual(
-    [[...before.descriptions], before.picturesNotSeen],
-    [[['p4', 'λεζάντα p4']], 11],
-    'the given record is not changed'
-  );
-  const line = logged(logs, 'pull: captions');
-  assert.deepEqual(
-    { channel: line.channel, source: line.source, pullReason: line.pullReason },
-    { channel: main.id, source: channel.id, pullReason: 'mention' }
-  );
-  assert.deepEqual([line.pictures, line.cached, line.asked, line.fresh, line.late, line.notSeen], [12, 1, 8, 8, 0, 3]);
-});
-
-test('captionPulled renders a late caption blind and clears the timer when all arrive in time', async () => {
-  mainChannel();
-  const channel = pictureChannel('760000000000000079', 2);
-  const describer = fakeDescriber({ deferred: true });
-  const { set, timers } = manualTimers();
-  const { result } = await withCapturedLogs(async () => {
-    const pulled = pulledOf(await pull(channel.id, { describer }));
-    const late = captionPulled(pulled, { describer, placeId: GUILD_ID, config: config(), timers });
-    await until(() => describer.pending.length === 2);
-    assert.equal(set[0]?.unrefed, true, 'the timer never keeps the process alive');
-    describer.pending[0]?.settle('νέα p2');
-    await later();
-    set[0]?.fn(); // the timeout: p1 is still out
-    const blind = await late;
-    describer.pending[1]?.settle('νέα p1'); // too late for this turn
-    const inTime = captionPulled(pulled, { describer, placeId: GUILD_ID, config: config(), timers });
-    await until(() => describer.pending.length === 4);
-    describer.pending[2]?.settle('νέα p2');
-    describer.pending[3]?.settle('νέα p1');
-    return { blind, inTime: await inTime };
-  });
-  assert.deepEqual([...result.blind.descriptions.keys()], ['p2']);
-  assert.equal(result.blind.picturesNotSeen, 1);
-  assert.equal(result.inTime.descriptions.size, 2);
-  assert.equal(set.length, 2);
-  assert.equal(set[1]?.cleared, true, 'every caption arrived: the timer is cleared');
-});
 
 // ---- failure paths ------------------------------------------------------------------
 

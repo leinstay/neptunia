@@ -4,7 +4,8 @@
 // `treeSize` (a directory walk for the memory snapshot) and `postingConversation` (a channel
 // looked up through the client it is handed).
 
-import { conversationOfPlace, sharedPlaceOf, topPlaceOf } from '../../memory/addresses.ts';
+import { conversationOfPlace } from '../../memory/addresses.ts';
+import { placeIdParts } from '../../memory/db/ids.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { listRules, locateBullets } from '../../rules-list.ts';
@@ -25,7 +26,7 @@ import { isObj, objOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
 import type { Env } from './env.ts';
 import type { Reads } from '../../interface/reads.ts';
-import type { Permissions } from '../../protocol/adapter.ts';
+import type { ConversationRef, Permissions } from '../../protocol/adapter.ts';
 
 /** `/nep memory journal`'s `n`: default and bounds. */
 export const JOURNAL_N_DEFAULT = 20;
@@ -726,36 +727,43 @@ function checkWakePosting(context: PostingContext, capability: string | null): v
 }
 
 /**
- * The conversation an operation acting as the persona aims at (`/nep message`, `/nep draw
- * channel:`): `conversationId`, else the native conversation of the place the call runs in (`context.placeId`). That
- * one passes as it is; any other must be a conversation of the same tree as that place (treeOf; never a private chat)
- * where
- * the persona holds the permissions `need` names (CHANNEL_NEEDS), as the interface reports them
- * (`reads.conversationInfo`, `iface` its name) -- the platform's permissions are the only limit on where.
- * Otherwise a `denied` error (`channel-no-permission`), a conversation the interface does not know
- * included; nothing was done.
- * On her own initiative (an inner turn: `context.ownInitiative` with `context.wakeKind`) a post or a reaction is also
- * asked of the wake's envelope (src/tools/access.ts#nestedRefusal, the live config through `context.env.hot`): a
- * `denied` error (`not-allowed`) before anything is done.
+ * The conversation a place id names (src/memory/db/ids.ts#placeIdParts) on its own interface: a channel or a thread by
+ * its native id, a direct chat by the conversation the directory holds for its partner. Any other id is a conversation
+ * of `iface`.
  */
-/**
- * The top of the tree of the place a call runs in, for the check that a post stays in it: as the interface describes
- * the place's conversation (the same reading as the target's), else the store's `rootPlaceOf`; null with no place.
- */
-async function treeOf(
-  reads: Reads | null,
-  store: unknown,
+function refOfPlace(
+  id: string,
   iface: string,
-  place: string | null,
-  here: string | null
-): Promise<string | null> {
-  if (!place) return null;
-  const described =
-    reads && here ? (await reads.conversationInfo({ iface, conversationId: here }))?.conversation : null;
-  return described ? sharedPlaceOf(store, described, iface) : topPlaceOf(store, place);
+  dmConversationOf: ((partnerId: string) => string | null) | null
+): ConversationRef {
+  const parts = placeIdParts(id);
+  if (parts === null) return { iface, conversationId: id };
+  const conversationId = parts.kind === 'dm' ? (dmConversationOf?.(parts.native) ?? parts.native) : parts.native;
+  return { iface: parts.iface, conversationId };
 }
 
-export async function postingConversation({
+/** Whether direct chats are open (`private.enabled`, read now through `context.env.hot`). */
+/** The directory's reader of a partner's direct chat, null without one. */
+const dmReaderOf = (context: PostingContext): ((partnerId: string) => string | null) | null => {
+  const { env } = context;
+  return env?.directory?.dmConversationOf ?? null;
+};
+
+const directChatsOpen = (context: PostingContext): boolean => {
+  const hot: unknown = context.env?.hot;
+  return objOf(objOf(objOf(hot).config).private).enabled === true;
+};
+
+/**
+ * Where a call of `need` acts: the conversation `conversationId` names (a conversation of `iface`, or a place id of any
+ * interface), else the one of the place the call runs in. A conversation other than that one must be one the
+ * interface knows and where it reports the permissions `need` names; a direct chat only while `private.enabled` is
+ * true. A `denied` error (`channel-no-permission`) otherwise, an `invalid` one with no conversation at all; nothing was
+ * done. On her own initiative (an inner turn: `context.ownInitiative` with `context.wakeKind`) a post or a reaction is
+ * also asked of the wake's envelope (src/tools/access.ts#nestedRefusal, the live config through `context.env.hot`): a
+ * `denied` error (`not-allowed`) before anything is done.
+ */
+export async function postingRef({
   reads,
   store,
   iface,
@@ -769,28 +777,55 @@ export async function postingConversation({
   conversationId: string | null | undefined;
   context: PostingContext;
   need: keyof typeof CHANNEL_NEEDS;
-}): Promise<string> {
+}): Promise<ConversationRef> {
   const capability = NEED_CAPABILITY[need] ?? null;
   checkWakePosting(context, capability);
   const place = context.placeId ?? null;
-  const { env } = context;
-  const dmConversationOf = env?.directory?.dmConversationOf ?? null;
+  const dmConversationOf = dmReaderOf(context);
   const here = place ? conversationOfPlace(store, place, dmConversationOf) : null;
-  const id = conversationId ? conversationId : here;
-  if (!id) throw invalid('a channel is required');
-  if (capability && publicationRefusal(context.publicationBoundary, { iface, conversationId: id }))
+  const target = conversationId
+    ? refOfPlace(conversationId, iface, dmConversationOf)
+    : here
+      ? { iface, conversationId: here }
+      : null;
+  if (!target) throw invalid('a channel is required');
+  if (capability && publicationRefusal(context.publicationBoundary, target))
     throw denied('publication-boundary', 'not-allowed');
-  if (id === (here ?? '')) return id;
+  if (target.iface === iface && target.conversationId === (here ?? '')) return target;
   const allowedThere = CHANNEL_NEEDS[need] as ((permissions: Permissions) => boolean) | undefined;
   if (typeof allowedThere !== 'function') throw new Error(`unknown channel need: ${need}`);
-  const found = reads ? await reads.conversationInfo({ iface, conversationId: id }) : null;
-  const info = found?.conversation ?? null;
-  const served =
-    info !== null && sharedPlaceOf(store, info, iface) === (await treeOf(reads, store, iface, place, here));
-  if (!served || info.kind === 'dm' || !allowedThere(info.permissions)) {
-    throw denied(`the bot may not ${need} in channel ${id}`, CODE.CHANNEL_NO_PERMISSION);
-  }
-  return id;
+  const info = reads ? ((await reads.conversationInfo(target))?.conversation ?? null) : null;
+  if (info === null || (info.kind === 'dm' && !directChatsOpen(context)) || !allowedThere(info.permissions))
+    throw denied(`the bot may not ${need} in channel ${target.conversationId}`, CODE.CHANNEL_NO_PERMISSION);
+  return target;
+}
+
+/**
+ * The place an intention begins in, checked now: a conversation of `iface` or a place id of any interface that the
+ * interface knows and where she may write, a direct chat only while `private.enabled` is true. A `denied` error
+ * (`channel-no-permission`) for a root, a gone place or one she may only read.
+ */
+export async function writablePlace({
+  reads,
+  iface,
+  id,
+  context,
+}: {
+  reads: Reads | null;
+  iface: string;
+  id: string;
+  context: PostingContext;
+}): Promise<ConversationRef> {
+  const target = refOfPlace(id, iface, dmReaderOf(context));
+  const info = reads ? ((await reads.conversationInfo(target))?.conversation ?? null) : null;
+  if (info === null || (info.kind === 'dm' && !directChatsOpen(context)) || !CHANNEL_NEEDS.send(info.permissions))
+    throw denied(`no place to begin in at ${id}`, CODE.CHANNEL_NO_PERMISSION);
+  return target;
+}
+
+/** The conversation id of postingRef's answer, for the operations that act on the persona's own interface. */
+export async function postingConversation(given: Parameters<typeof postingRef>[0]): Promise<string> {
+  return (await postingRef(given)).conversationId;
 }
 
 /** The core's own spelling of a message in another conversation, `ref:<conversation>/<message>` (executors.ts#mediaRef). */

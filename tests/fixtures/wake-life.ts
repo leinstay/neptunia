@@ -1,13 +1,14 @@
 // An inner life over a real task board (tests/fixtures/selfimprovement-rig.ts) and a fake turn runner, wired the way the
-// core wires its heartbeat and selfimprovement sources today, for the tests of which wake delivers what. The heartbeat's
-// `landed` and `ackLanded` stay in its sources on purpose: code that reads them is what those tests catch. Synthetic data.
+// core wires its selfimprovement sources today, for the tests of which wake delivers what. Slice 5: the heartbeat has no
+// sources of its own any more (its view left with heartbeatLines), so only the selfimprovement wake can read `landed`.
+// Synthetic data.
 import { createInnerLife } from '../../src/behavior/inner.ts';
 import { ackOutbox, proposalsOf } from '../../src/behavior/selfimprovement-view.ts';
 import type { SelfimprovementFacts } from '../../src/behavior/selfimprovement-view.ts';
 import { createEventDoor } from '../../src/interface/door.ts';
 import { createIntentionService } from '../../src/intentions/service.ts';
 import { createIntentionStores } from '../../src/intentions/store.ts';
-import { ackLanded, landedFor } from '../../src/selfimprovement/landed.ts';
+import { landedFor } from '../../src/selfimprovement/landed.ts';
 import type { BoardCaller } from '../../src/tools/impl/board.ts';
 import { tempDir } from './tmp.ts';
 import { useIface, world } from './turn-world.ts';
@@ -80,11 +81,6 @@ export function wakeLife(
     },
   };
   const journal = { inner: () => Promise.resolve(), read: () => [] };
-  const heartbeatSources = {
-    tasks: () => [],
-    landed: async () => (await landedFor(caller)).landed,
-    ackLanded: (seqs: ReadonlyArray<number>) => ackLanded(caller, seqs),
-  };
   // The channel a channelless wake anchors on: the last place she spoke in.
   const record = {
     async *iterate() {
@@ -107,7 +103,6 @@ export function wakeLife(
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
     record,
-    heartbeat: heartbeatSources,
     selfimprovement: {
       granted: () => [],
       skills: () => [],

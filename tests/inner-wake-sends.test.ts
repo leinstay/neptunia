@@ -653,9 +653,8 @@ test("a wake turn whose calls were not held asks the model what the same turn as
     assert.equal(run.llm.requests.length, 2, 'the second request carries the read');
     // The turn as the drain hands it to the runner on main: these fields and no others.
     const asOnMain: Record<string, unknown> = {
+      // Slice 5: the heartbeat's stand-in conversation and its history are gone; a turn nowhere has `conversation` null.
       ...(params.conversation ? { conversation: params.conversation } : {}),
-      ...(params.standIn ? { standIn: params.standIn } : {}),
-      ...(params.reuseHistory ? { reuseHistory: params.reuseHistory } : {}),
       mode: params.mode,
       triggerKind: params.triggerKind,
       journalTurn: params.journalTurn,

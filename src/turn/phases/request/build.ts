@@ -2,12 +2,13 @@
 // built (twice for a heartbeat whose handles follow the request's own lines), the record of the memory rows it carried
 // and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it last.
 
-import { pageReads } from '../../../memory/db/retrieve.ts';
 import { accountOf, personOfMember, placeOfConversation } from '../../../memory/addresses.ts';
 import { buildRequest } from '../../../behavior/prompt.ts';
 import { NO_PLACES, selfreflectionConversationIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
 import { turnRequestInput } from '../../../behavior/turn-input.ts';
-import { wakeBlockText } from '../../../behavior/wake.ts';
+import { awakeLines, feedbackText } from '../../../behavior/wake.ts';
+import type { WakeBlockInput } from '../../../behavior/wake.ts';
+import { boardLines, landedLines, selfimprovementReason, workLines } from '../../../behavior/selfimprovement-text.ts';
 import { budgetDrops } from '../../../llm/budget.ts';
 import { toolsBlockText } from '../../../llm/tool-text.ts';
 import { estimateTools } from '../../../llm/tokens.ts';
@@ -15,9 +16,8 @@ import { log } from '../../../log.ts';
 import { PERSONA_ID } from '../../../memory/db/storage-keys.ts';
 import { exposedSkillNames } from '../../../tools/discovery.ts';
 import { buildTools } from '../../../tools/tools-json.ts';
-import { SEARCH_HANDLE_GAP, defaultSkills, searchHandles } from '../../calls.ts';
+import { defaultSkills } from '../../calls.ts';
 import { portMediaPick } from '../../../interface/capabilities.ts';
-import type { SearchRef } from '../../calls.ts';
 import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
 import { pickOtherProfiles } from '../../mentions.ts';
@@ -35,13 +35,14 @@ import type { Setup } from './setup.ts';
 import type { Told } from './facts.ts';
 import type { Waited } from './wait.ts';
 import type { Handles } from '../../handles.ts';
-import { accountId, messageSourceId } from '../../../memory/db/ids.ts';
+import { accountId, messageSourceId, placeIdParts } from '../../../memory/db/ids.ts';
 import type { Mind, Seeds } from '../../../memory/db/mind-read.ts';
 import type { FrameReads } from '../../../memory/db/frame-reads.ts';
 import type { Context } from '../../../memory/db/scope.ts';
-import { fill } from '../../../format.ts';
+import { fill, formatClock, formatDate } from '../../../format.ts';
 import type { Lookup } from '../../calls.ts';
-import type { MeanwhileReads } from '../../request/meanwhile.ts';
+import { meanwhileSettingsOf, meanwhileWindows } from '../../request/meanwhile.ts';
+import type { MeanwhileReads, MeanwhileWindow } from '../../request/meanwhile.ts';
 import type { SurroundingsInput } from '../../request/reader.ts';
 import type { LineOf } from '../../request/refs.ts';
 import type { Message } from '../../request/types.ts';
@@ -63,15 +64,14 @@ function privateProfileOf(store: PhaseContext['store'], accountId: string): obje
 export type BuiltRequest = ReturnType<typeof buildRequest>;
 
 /** The wakes that run with no conversation of their own (src/behavior/inner/queue.ts#channelless). */
-const OWN_SERVER_WAKES = new Set(['review', 'heartbeat', 'selfimprovement']);
+const OWN_SERVER_WAKES = new Set(['heartbeat', 'selfimprovement']);
 
 /** How a frame's path names a one-to-one chat. It is a path segment for the code, no text she reads. */
 const DM_WORD = 'private';
 
 /**
  * The stored chain of the turn's place, the place first; a place the tree does not hold yet is a chain of itself. A wake
- * with no conversation place (a review, a heartbeat, a selfimprovement wake, or one in the stand-in) has none, whatever
- * channel carries it.
+ * with no conversation place (a heartbeat, a selfimprovement wake, or a turn that is nowhere) has none.
  */
 function chainOfTurn(
   store: PhaseContext['store'],
@@ -143,8 +143,7 @@ function myDayLines(
   const settings = config.context;
   const lines = settings?.myDay?.lines;
   const memoryContext = ctx.turnContextOf(draft, channel);
-  // An inner turn reads her day in its own view until it moves onto the frame (src/behavior/heartbeat-view.ts#lifeOf).
-  if (draft.inner || !ctx.myDay || !memoryContext || typeof lines !== 'number' || lines <= 0) return null;
+  if (!ctx.myDay || !memoryContext || typeof lines !== 'number' || lines <= 0) return null;
   const labels = prompts?.labels;
   try {
     const listed = ctx.myDay(memoryContext, now, String(config.bot?.timezone ?? 'UTC'), {
@@ -285,7 +284,7 @@ function interfaceTextOf(names: { name: string | null; nouns: Record<string, str
  * logged and leaves memory empty.
  */
 function framedInputsOf(
-  ctx: Pick<PhaseContext, 'frameReads' | 'lookupRing' | 'turnContextOf'>,
+  ctx: Pick<PhaseContext, 'frameReads' | 'lookupRing' | 'turnContextOf' | 'hot' | 'intentionRefsFor'>,
   frame: Frame,
   draft: Draft,
   channel: Opened['channel'],
@@ -299,7 +298,8 @@ function framedInputsOf(
 ): FramedInputs {
   const { history, now } = turn;
   const place = frame.place;
-  if (!framedRequest(frame) || place === null) return NO_FRAMED;
+  if (!framedRequest(frame)) return NO_FRAMED;
+  if (place === null) return serviceInputsOf(ctx, frame, draft, channel, now);
   draft.framePlace = { id: String(channel.id), path: [...place.path] };
   const window = history.map((line) => ({ id: String(line.id), replyTo: line.replyToId ?? null }));
   const lookups = ctx.lookupRing.forPlace(String(channel.id), window, now);
@@ -334,6 +334,158 @@ function framedInputsOf(
   };
 }
 
+/** A line's identity in a stored text (src/turn/request/refs.ts), as the key the reader of lines takes. */
+const IDENTITY = /\bsrc:([\w-]+):((?:[\w.-]+:)*?[\w.-]+):\d+(?![\w.:-])/gu;
+
+/**
+ * What her open intentions refer to, as the graph reader's candidates: each line an identity in a purpose names, with
+ * its place and its author's person, and each place an intention begins in. A line the context cannot read gives none.
+ */
+function intentionCandidatesOf(
+  refs: { texts: ReadonlyArray<string>; places: ReadonlyArray<string> },
+  reads: Pick<FrameReads, 'line' | 'account' | 'person' | 'sourceInPlace'>,
+  ctx: Context
+): Seeds['candidates'] {
+  const out: Seeds['candidates'] = [];
+  const add = (nodeId: string, sourceIds: Array<string> = []): void => {
+    if (!out.some((one) => one.nodeId === nodeId)) out.push({ nodeId, sourceIds, from: 'query' });
+  };
+  for (const text of refs.texts)
+    for (const [, iface = '', messageId = ''] of text.matchAll(IDENTITY)) {
+      const line = reads.line(ctx, `src:${iface}:${messageId}`);
+      if (line === null || line.deleted) continue;
+      const sourceId = reads.sourceInPlace?.(line.placeId, line.id) ?? null;
+      if (sourceId !== null) add(`source:${sourceId}`, [sourceId]);
+      add(`place:${line.placeId}`, sourceId === null ? [] : [sourceId]);
+      const account = line.authorId === null ? null : reads.account(iface, line.authorId);
+      const person = account === null ? null : reads.person(account);
+      if (person !== null) add(`person:${person}`, sourceId === null ? [] : [sourceId]);
+    }
+  for (const place of refs.places) if (placeIdParts(place) !== null) add(`place:${place}`);
+  return out;
+}
+
+/**
+ * Her lines of a service's `<meanwhile>` with the lines around them, as the graph reader's seeds, oldest first, and
+ * what her open intentions refer to as candidates.
+ */
+function serviceSeedsOf(
+  windows: ReadonlyArray<MeanwhileWindow>,
+  reads: Pick<FrameReads, 'account' | 'sourceInPlace'>,
+  candidates: Seeds['candidates']
+): Seeds {
+  const lines = windows.flatMap((window) => window.lines).sort((a, b) => a.at - b.at);
+  return {
+    messages: lines.map((line) => {
+      const iface = line.placeId.slice(0, Math.max(0, line.placeId.indexOf(':')));
+      const native = line.authorId;
+      return {
+        id:
+          reads.sourceInPlace?.(line.placeId, line.id) ??
+          messageSourceId(iface, line.id, 1, line.self ? 'said' : 'seen'),
+        at: new Date(line.at).toISOString(),
+        authorAccount: line.self || native === null ? null : (reads.account(iface, native) ?? accountId(iface, native)),
+        placeId: line.placeId,
+        replyTo: null,
+        mentions: [],
+        text: line.text,
+        trigger: false,
+      };
+    }),
+    counterpart: null,
+    place: null,
+    previous: [],
+    candidates,
+  };
+}
+
+/**
+ * The inputs of a turn that is nowhere (a service, an intention without a place): her last lines over the rooms of every
+ * group as `<meanwhile>`, and what they raise as `<memory>`, read as herself. No surroundings and no lookups of an
+ * earlier turn. A failed read of the mind is logged and leaves memory empty.
+ */
+function serviceInputsOf(
+  ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf' | 'hot' | 'intentionRefsFor'>,
+  frame: Frame,
+  draft: Draft,
+  channel: Opened['channel'],
+  now: number
+): FramedInputs {
+  const reads = ctx.frameReads;
+  const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
+  if (reads === null || !memoryContext) return { ...NO_FRAMED, lookups: [] };
+  const meanwhileReads: MeanwhileReads = {
+    ownMessages: (limit) => reads.ownLines(memoryContext, null, limit),
+    around: (placeId, at, count) => reads.around(memoryContext, placeId, at, count),
+  };
+  let mind: Mind | null = null;
+  try {
+    const windows = meanwhileWindows(meanwhileReads, frame, meanwhileSettingsOf(ctx.hot.config, frame));
+    const candidates = intentionCandidatesOf(ctx.intentionRefsFor(), reads, memoryContext);
+    mind = reads.mind(memoryContext, serviceSeedsOf(windows, reads, candidates), now);
+  } catch (error) {
+    log.warn('turn: memory not read', { channel: null, error });
+  }
+  const refLineOf: LineOf = (key) => {
+    const line = reads.line(memoryContext, key);
+    return line ? { ...line, messageId: line.id } : null;
+  };
+  return { mind, lookups: [], meanwhileReads, surroundings: null, refLineOf };
+}
+
+/**
+ * Why an inner turn is awake (src/behavior/wake.ts#awakeLines) and, on a turn that is nowhere, the interfaces she runs
+ * on by their names (`labels.spatial.interfaces` with `{interfaces}`), an interface with no stored name by its id.
+ */
+function awakeTextOf(
+  wake: WakeBlockInput | null,
+  frame: Frame,
+  reads: FrameReads | null,
+  labels: Parameters<typeof awakeLines>[1]
+): string | null {
+  const locale: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'locale') : undefined;
+  const lines = awakeLines(wake, labels, typeof locale === 'string' ? { locale } : {});
+  const spatial: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'spatial') : null;
+  const template: unknown = spatial && typeof spatial === 'object' ? Reflect.get(spatial, 'interfaces') : null;
+  const ids = frame.place === null && reads ? (reads.interfaceIds?.() ?? []) : [];
+  if (ids.length > 0 && typeof template === 'string' && template !== '') {
+    const names = ids.map((id) => reads?.interfaceNames(id).name ?? id);
+    lines.push(fill(template, { interfaces: names.join(', ') }));
+  }
+  return lines.join('\n') || null;
+}
+
+/** The intentions a wake is due for: they lead `<intentions>`, each whole. */
+function dueIds(wake: { items?: ReadonlyArray<unknown> } | null | undefined): Array<string> {
+  return (wake?.items ?? []).flatMap((item: unknown) => {
+    const ids: unknown = item && typeof item === 'object' ? Reflect.get(item, 'intentionIds') : null;
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
+  });
+}
+
+/** A selfimprovement wake's `<work>` and `<board>` bodies in the labels' words, null on any other turn. */
+function serviceInnerOf(
+  wake: { items?: ReadonlyArray<unknown>; timezone?: string; selfimprovement?: unknown } | null | undefined,
+  labels: unknown
+): { work: string; board: string } | null {
+  const facts = wake?.selfimprovement as Parameters<typeof workLines>[0];
+  if (!facts) return null;
+  const words: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'wake') : null;
+  const own = (key: string): unknown => (words && typeof words === 'object' ? Reflect.get(words, key) : null);
+  const locale: unknown = labels && typeof labels === 'object' ? Reflect.get(labels, 'locale') : undefined;
+  const timezone = wake?.timezone || 'UTC';
+  const at = typeof locale === 'string' ? locale : undefined;
+  const when = (ts: unknown): string =>
+    typeof ts === 'number' && Number.isFinite(ts)
+      ? `${formatDate(ts, timezone, at)} ${formatClock(ts, timezone, at)}`
+      : '';
+  const work = workLines(facts, own('selfimprovement'), when, selfimprovementReason(wake?.items)).join('\n');
+  const board = [...boardLines(facts, own('selfimprovement')), ...landedLines([facts.news.landed], own('landed'))].join(
+    '\n'
+  );
+  return work || board ? { work, board } : null;
+}
+
 /** The budget's line of a request: one entry per section (src/llm/budget.ts). */
 function statsOf(request: BuiltRequest): Record<string, { dropped?: number }> {
   return request.stats as Record<string, { dropped?: number }>;
@@ -363,9 +515,8 @@ export function buildTurnRequest(
   const { aroundInputFor, errandsInputFor, intentionsInputFor, placesInputFor, earlierThinkFor } = ctx;
   const { liveChannelName, selfreflectionChannelName, stableFreezeOf, withSeenBefore, linkCalls, linkTriggers } = ctx;
   const { callMarksOf } = ctx;
-  const { trigger = null, triggerKind = null, forced = false, source = null } = params;
+  const { trigger = null, triggerKind = null, source = null } = params;
   const { taskResult = null } = params;
-  const selfreflectionParams = params.selfreflection ?? null;
   const { channel, placeId, reading: holders, libraryPlace, isPrivate } = opened;
   const { config, transport, memoryOn, selfId, selfName, now, snapshot } = setup;
   const { serverOn } = planned;
@@ -384,6 +535,8 @@ export function buildTurnRequest(
   draft.toolNames = exposedSkillNames({ config, selfId, registry });
   const wake = draft.inner?.wake;
   const wakeKind = wake?.kind ?? null;
+  // The wake as its words read it (src/behavior/wake.ts): the drain's WakeInfo.
+  const wakeWords = (wake ?? null) as WakeBlockInput | null;
   draft.tools = buildTools(exposedSkillNames({ config, selfId, registry, wakeKind }), {
     registry,
     texts: prompts?.tools,
@@ -392,18 +545,6 @@ export function buildTurnRequest(
   const toolsBlock = transport === 'text' ? toolsBlockText(draft.tools, prompts?.labels) : null;
   const toolsTokens = transport === 'native' ? estimateTools(draft.tools) : 0;
   // Every input named (turnRequestInput throws on one left undefined); null marks an absent one.
-  // A heartbeat's lines carry handles (`#N`) numbered on past the request's own lines, like a memory.search's quotes:
-  // the text is worded once with a provisional base, then again when the request says where its own numbering ends.
-  const heartbeat = wake?.heartbeat;
-  const heartbeatRefs: Array<object> = Array.isArray(heartbeat?.refs) ? (heartbeat.refs as Array<object>) : [];
-  const heartbeatHandleBase = heartbeatRefs.length > 0 ? SEARCH_HANDLE_GAP + 1 : null;
-  let shownHeartbeatRefs: Array<number> = [];
-  const wakeTextOf = (handleBase: number | null) =>
-    wakeBlockText(draft.inner?.wake as Parameters<typeof wakeBlockText>[0], prompts?.labels, {
-      locale: prompts?.labels?.locale,
-      handleBase,
-      onRefs: (refs) => (shownHeartbeatRefs = refs),
-    });
   // Her remembered calls as call marks, the place names read live (src/turn/journal-notes.ts#callMarksOf).
   const callMarks = callMarksOf({ channel, snapshot });
   const frame = frameOfTurn(store, {
@@ -426,7 +567,6 @@ export function buildTurnRequest(
     prompts,
     calibrator,
     mode: finalMode,
-    forced: forced || (selfreflectionPrep !== null && selfreflectionParams?.forced === true),
     now,
     selfName,
     // `<directory>` never lists the persona's own profile.
@@ -550,9 +690,18 @@ export function buildTurnRequest(
     intentions:
       finalMode === 'selfreflection'
         ? ''
-        : intentionsInputFor({ placeId, channel, snapshot, isPrivate, config, labels: prompts?.labels, now }),
-    // `<wake>`: an inner turn's reason to be awake (src/behavior/wake.ts); none on any other turn.
-    wake: draft.inner ? wakeTextOf(heartbeatHandleBase) : factsText || null,
+        : intentionsInputFor({
+            ...{ placeId, channel, snapshot, isPrivate, config, now },
+            labels: prompts?.labels,
+            due: dueIds(wakeWords),
+          }),
+    // `<feedback>`: what did not go through and she has not been told (src/behavior/wake.ts).
+    wake: draft.inner
+      ? feedbackText(wakeWords, prompts?.labels, { locale: prompts?.labels?.locale }) || null
+      : factsText || null,
+    // Why an inner turn is awake, for `<spatial_awareness>`, and a selfimprovement wake's `<work>` and `<board>`.
+    awake: draft.inner ? awakeTextOf(wakeWords, frame, ctx.frameReads, prompts?.labels) : null,
+    serviceInner: serviceInnerOf(wakeWords, prompts?.labels),
     // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
     wakeKind,
     // `<places>`: the places page on an addressed server turn, only with `context.places` exactly true (an inner turn has it in `<wake>`).
@@ -573,22 +722,7 @@ export function buildTurnRequest(
     // A reply and an errand's result on the frame: `<memory>`, `<recall>`, `<meanwhile>`, `<surroundings>`, references.
     ...framed,
   });
-  let request = requestOf(requestInput);
-  if (heartbeatRefs.length > 0) {
-    const floor = Math.max(0, ...request.idByIndex.keys());
-    const base = floor + SEARCH_HANDLE_GAP + 1;
-    if (base !== heartbeatHandleBase) {
-      requestInput.wake = wakeTextOf(base);
-      request = requestOf(requestInput);
-    }
-    // The handles the block kept resolve in this turn and in the steps of its loop (the registry of memory.search's quotes).
-    draft.handleFloor = floor;
-    searchHandles(draft).take(
-      shownHeartbeatRefs
-        .filter((index) => heartbeatRefs[index])
-        .map((index) => ({ n: base + index, ...heartbeatRefs[index] }) as SearchRef)
-    );
-  }
+  const request = requestOf(requestInput);
   // Every number of the request in the turn's one registry, so a reference in her stored words reads back.
   if (draft.handles)
     registerHandles(draft.handles, request, [...history, ...pulled2.flatMap((entry) => entry.messages ?? [])], {
@@ -598,8 +732,7 @@ export function buildTurnRequest(
   // What `<recent>` showed, held back or cut: counts only.
   if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
   // The memory rows this request carried, for the database's per-turn record (deferred there; it never fails a turn).
-  const wakeMemory = heartbeat?.memory ?? wake?.selfimprovement?.memory ?? null;
-  const allReads = [...(request.memoryReads ?? []), ...(wakeMemory ? pageReads(wakeMemory, { block: 'wake' }) : [])];
+  const allReads = request.memoryReads ?? [];
   if (memoryReads && draft.started?.turnId && allReads.length > 0) {
     // One step: the steps of her tool loop add tool results to this request, never memory reads of their own.
     try {

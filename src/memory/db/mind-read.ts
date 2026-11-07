@@ -904,6 +904,22 @@ function detailOf(raised: Raised): Detail {
   return WHOLE.has(raised.evidence) ? 'whole' : 'compact';
 }
 
+/**
+ * The strongest evidence class present renders whole. A reply always has one of `WHOLE`; a turn with nothing to answer
+ * (a service, seeded from her own lines) has authors and places at best, and those then render whole.
+ */
+function promoteStrongest(built: ReadonlyArray<Built>): void {
+  const ranks = built.flatMap((one) =>
+    one.raised && !one.raised.candidate && one.entry.detail !== 'name' ? [rankOf(one.raised.evidence)] : []
+  );
+  if (ranks.length === 0) return;
+  const top = EVIDENCE_ORDER[Math.min(...ranks)];
+  if (top === undefined || WHOLE.has(top)) return;
+  for (const one of built)
+    if (one.raised?.evidence === top && !one.raised.candidate && one.entry.detail === 'compact')
+      one.entry.detail = 'whole';
+}
+
 function interfaceOf(db: Db, raised: Raised): Built {
   const iface = rowIdOf(raised.nodeId, 'interface');
   const row = db.prepare('SELECT name FROM interfaces WHERE id = ?').get(iface);
@@ -1101,6 +1117,7 @@ export function mindOf(db: Db, ctx: Context, seeds: Seeds, settings: MindSetting
     ...episodesOf(db, walker, recent),
     ...excerptsOf(walker, found),
   ];
+  promoteStrongest(built);
   const { kept, leftOut } = cut(settings, built);
   const pick = <T extends EntryBase>(tag: Built['subtag']): Array<T> =>
     kept.filter((one) => one.subtag === tag).map((one) => one.entry as T);

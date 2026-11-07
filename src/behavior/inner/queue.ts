@@ -24,7 +24,6 @@ import type {
   InnerContext,
   InnerState,
   InnerWakeEvent,
-  Review,
   TurnRecord,
   Wake,
   WakeUpdate,
@@ -70,8 +69,6 @@ export function emptyState(): InnerState {
     stoppedBy: null,
     queue: [],
     handled: {},
-    review: null,
-    reviewViews: {},
     heartbeat: null,
     selfimprovement: null,
     turns: [],
@@ -126,7 +123,6 @@ export function normalizeState(value: unknown): InnerState {
   const base = emptyState();
   if (!value || typeof value !== 'object') return base;
   const raw = objOf(value);
-  const review = objOf(raw.review);
   // inner.json is what save wrote: an entry that passes the check the reader makes has the rest of its shape.
   return {
     ...base,
@@ -135,8 +131,6 @@ export function normalizeState(value: unknown): InnerState {
     stoppedBy: typeof raw.stoppedBy === 'string' ? raw.stoppedBy : null,
     queue: storedWakes(raw.queue, WAKE_KINDS) as Array<Wake>,
     handled: objOf(raw.handled) as Record<string, Handled>,
-    review: raw.review && typeof review.day === 'string' ? (review as Review) : null,
-    reviewViews: objOf(raw.reviewViews) as InnerState['reviewViews'],
     heartbeat: heartbeatOf(raw.heartbeat),
     selfimprovement: selfimprovementOf(raw.selfimprovement),
     turns: listOf(raw.turns).filter((turn) => isFiniteNumber(objOf(turn).at)) as Array<TurnRecord>,
@@ -247,16 +241,15 @@ export function deadlineWakes(records: unknown): Array<Wake> {
     );
 }
 
-/** The wakes that belong to no place: the day's review, the heartbeat and the selfimprovement wake (their turn runs in a channel she was lately active in, posts name their channel). */
+/** The wakes that belong to no place: the heartbeat and the selfimprovement wake, whose turns run nowhere. */
 export const channelless = (wake: Wake | null | undefined): boolean =>
-  wake?.kind === 'review' || wake?.kind === 'heartbeat' || wake?.kind === 'selfimprovement';
+  wake?.kind === 'heartbeat' || wake?.kind === 'selfimprovement';
 
 /**
- * The wakes of `queue` that run together, the earliest due first: the first wake that is not a
- * review is the anchor; every wake of the same conversation (and the same private-or-server kind)
- * joins it, and the day's review joins any server anchor. With only reviews queued, they go alone.
+ * The wakes of `queue` that run together, the earliest due first: the first wake is the anchor and every wake of the
+ * same conversation (and the same private-or-server kind) joins it.
  * A retried wake (`retry`) joins only the wakes of its own failed group. A wake `isHeld` says is held (its own chain
- * is over its cap) is left out of every group, so it never joins one and never makes a review or a feedback wake wait.
+ * is over its cap) is left out of every group, so it never joins one and never makes a feedback wake wait.
  * A feedback wake is never coalesced with another kind: the feedback wakes of one conversation run together, first.
  */
 export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) => boolean = () => false): Array<Wake> {
@@ -279,17 +272,15 @@ export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) =
   if (improvement) return [improvement];
   const beat = sorted.find((wake) => wake.kind === 'heartbeat');
   if (beat) return [beat];
-  const anchor = sorted.find((wake) => wake.kind !== 'review') ?? null;
+  const [anchor] = sorted;
   // A retried wake runs only with the wakes of its own failed group (the same attempt and first failure); a fresh one never joins them.
-  const key = retryKey(anchor ?? sorted[0]);
-  const same = sorted.filter(
-    (wake) => retryKey(wake) === key && wake.scopePlaceId === (anchor ?? sorted[0]).scopePlaceId
-  );
-  if (!anchor) return same;
-  return same.filter((wake) =>
-    wake.kind === 'review'
-      ? !anchor.privateChat
-      : wake.placeId === anchor.placeId && Boolean(wake.privateChat) === Boolean(anchor.privateChat)
+  const key = retryKey(anchor);
+  return sorted.filter(
+    (wake) =>
+      retryKey(wake) === key &&
+      wake.scopePlaceId === anchor.scopePlaceId &&
+      wake.placeId === anchor.placeId &&
+      Boolean(wake.privateChat) === Boolean(anchor.privateChat)
   );
 }
 

@@ -89,10 +89,7 @@ export class FrameError extends Error {
   }
 }
 
-/**
- * The kind of an inner turn by its wake. The review keeps an intention's task and whereabouts until slice 5 of the plan
- * deletes it, since `prompts.inner` is its task text today.
- */
+/** The kind of an inner turn by its wake. */
 const KIND_OF_WAKE: Readonly<Record<WakeKind, TurnKind>> = Object.freeze({
   heartbeat: 'heartbeat',
   selfimprovement: 'selfimprovement',
@@ -100,14 +97,13 @@ const KIND_OF_WAKE: Readonly<Record<WakeKind, TurnKind>> = Object.freeze({
   intention_due: 'intention',
   attend: 'intention',
   errand_deadline: 'intention',
-  review: 'intention',
 });
 
 const isWakeKind = (value: string): value is WakeKind => Object.hasOwn(KIND_OF_WAKE, value);
 
 /**
- * The kind of a turn from the fields the callers pass. `reply`, `interject`, `initiate`, `elsewhere` and `auto` give a
- * reply, and an errand's trigger on any of them gives `errand_result`.
+ * The kind of a turn from the fields the callers pass. `reply`, `interject` and `elsewhere` give a reply, and
+ * an errand's trigger on any of them gives `errand_result`.
  */
 export function turnKindOf(mode: string, triggerKind: string | null, wakeKind: string | null): TurnKind {
   if (mode === 'selfreflection') return 'selfreflection';
@@ -253,16 +249,25 @@ export function frameOf(input: FrameInput): Frame {
   };
 }
 
-/** The kinds whose request is the frame's: its tags in its order, filtered by `blocks`. The others keep the old emission. */
-const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>(['reply', 'errand_result']);
+/**
+ * The kinds whose request is the frame's: its tags in its order, filtered by `blocks`. The selfreflection planner and
+ * writer keep the old emission.
+ */
+const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>([
+  'reply',
+  'errand_result',
+  'heartbeat',
+  'selfimprovement',
+  'intention',
+  'feedback',
+]);
 
 /** Whether a request built with `frame` is the frame's own (`<memory>`, `<recall>`, `<meanwhile>` and the rest). */
 export const framedRequest = (frame: Frame | null | undefined): frame is Frame =>
   frame !== null && frame !== undefined && FRAMED_KINDS.has(frame.kind);
 
 /**
- * Whether a turn of `mode` and `triggerKind` will build the frame's request, known before its frame is: a turn with a
- * `source` (a routed or noticed call) keeps the old emission, so the pulls and the elsewhere pick serve only those.
+ * Whether a turn of `mode` will build the frame's request, known before its frame is: every turn but a selfreflection
+ * post and one with a `source` (a routed or noticed call), so the pulls and the elsewhere pick serve only those.
  */
-export const framedTurn = (mode: string, triggerKind: string | null, source: unknown): boolean =>
-  !source && FRAMED_KINDS.has(turnKindOf(mode, triggerKind, null));
+export const framedTurn = (mode: string, source: unknown): boolean => !source && mode !== 'selfreflection';

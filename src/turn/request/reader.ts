@@ -15,7 +15,7 @@ import type { Lookup } from '../calls.ts';
 import type { BlockName, Frame } from './frame.ts';
 import { innerBlockOf } from './inner-block.ts';
 import type { InnerParts } from './inner-block.ts';
-import { meanwhileText, meanwhileWindows, windowText } from './meanwhile.ts';
+import { meanwhileSettingsOf, meanwhileText, meanwhileWindows, windowText } from './meanwhile.ts';
 import type { MeanwhileReads, MeanwhileWindow } from './meanwhile.ts';
 import { MEMORY_SUBTAGS, channelIdOf, factItemsOf, memoryItemsOf, renderMemory } from './memory-block.ts';
 import type { LiveOf, MemoryItem, StoredFact } from './memory-block.ts';
@@ -88,16 +88,6 @@ export type ReaderResult = {
   peopleShown: Array<{ id: string; names: Array<string> }>;
   memoryReads: Array<MemoryRead>;
 };
-
-/** `context.meanwhile`, read now; the shipped values for a key the live settings lack. */
-function meanwhileSettings(config: RequestConfig): { messages: number; around: number } {
-  const given: unknown = Reflect.get(config.context, 'meanwhile');
-  const read = (key: string, fallback: number): number => {
-    const value: unknown = given && typeof given === 'object' ? Reflect.get(given, key) : undefined;
-    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
-  };
-  return { messages: read('messages', 8), around: read('around', 2) };
-}
 
 /** The window of `<chat>` by line identity (`src:<iface>:<message id>`), each to its `#n`. */
 function chatWindow(frame: Frame, items: ReadonlyArray<TranscriptItem>): Map<string, number> {
@@ -185,7 +175,7 @@ function innerItems(parts: InnerParts): Array<{ key: keyof InnerParts; text: str
   const out: Array<{ key: keyof InnerParts; text: string }> = [];
   const myDay = parts.myDay.filter(Boolean).join('\n');
   if (myDay) out.push({ key: 'myDay', text: myDay });
-  for (const key of ['intentions', 'errands', 'feedback'] as const) {
+  for (const key of ['intentions', 'errands', 'feedback', 'work', 'board'] as const) {
     const text = parts[key];
     if (typeof text === 'string' && text.trim()) out.push({ key, text });
   }
@@ -247,7 +237,7 @@ function offeredOf(given: ReaderInput): Offered {
   });
   const lookups = given.lookups.map((lookup) => ({ ...lookup, extract: resolveRef(lookup.extract) }));
   const windows = given.meanwhileReads
-    ? meanwhileWindows(given.meanwhileReads, frame, meanwhileSettings(given.config))
+    ? meanwhileWindows(given.meanwhileReads, frame, meanwhileSettingsOf(given.config, frame))
     : [];
   const stored = given.surroundings;
   return {
@@ -281,6 +271,8 @@ function innerTextOf(given: ReaderInput, offered: Offered, fit: Fit): string {
     intentions: kept.has('intentions') ? inner.intentions : null,
     errands: kept.has('errands') ? inner.errands : null,
     feedback: kept.has('feedback') ? inner.feedback : null,
+    work: kept.has('work') ? (inner.work ?? null) : null,
+    board: kept.has('board') ? (inner.board ?? null) : null,
     previousThink: kept.has('previousThink') ? inner.previousThink : null,
   };
   return [block('errand_result', given.errandResult), innerBlockOf(parts, given.labels, offered.resolveRef)]

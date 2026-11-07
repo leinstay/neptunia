@@ -1,16 +1,15 @@
 // Every consumer's way into the one retrieval service, stage S8. `memoryQueryFor` turns what a consumer already holds into
 // a query with no model in between; `retrievalBounds` gives the budget, the prefetch sharing its existing deadline and
-// tokens. The heartbeat and selfimprovement views take a `retrieve` function and add its page to their facts, and
+// tokens. The selfimprovement view takes a `retrieve` function and adds its page to its facts, and
 // recall's prefetch and search read the same service. The deciding turn's outcome, the publisher and the executor stay
 // outside: these tests check that retrieval moves nothing there and never yields a destination. Fake model, real temporary
 // databases, synthetic content.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildHeartbeatFacts } from '../src/behavior/heartbeat-view.ts';
 import { createRecall } from '../src/behavior/recall-run.ts';
 import { buildSelfimprovementFacts } from '../src/behavior/selfimprovement-view.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
-import { pageReads, retrieveMemory } from '../src/memory/db/retrieve.ts';
+import { retrieveMemory } from '../src/memory/db/retrieve.ts';
 import type { MemoryPage, MemoryQuery, RetrievalBounds } from '../src/memory/db/semantic-types.ts';
 import { buildSessionRequest, validateAnswer } from '../src/memory/db/session.ts';
 import { memoryQueryFor, retrievalBounds } from '../src/memory/retrieval-input.ts';
@@ -364,13 +363,6 @@ const page = (versionId: string): MemoryPage => ({
   ambiguous: [],
   signals: [],
 });
-const heartbeatInput = (extra: object = {}) => ({
-  now: START,
-  since: START - 86_400_000,
-  placeName: (id: string) => `n-${id}`,
-  focusPeople: () => [ALEX],
-  ...extra,
-});
 const improvementInput = (extra: object = {}) => ({
   now: START,
   since: null,
@@ -383,32 +375,6 @@ const improvementInput = (extra: object = {}) => ({
 });
 const withoutMemory = (facts: object): object =>
   Object.fromEntries(Object.entries(facts).filter(([key]) => key !== 'memory'));
-
-test('the heartbeat view adds the retrieved page and changes no other fact', async () => {
-  // Bug: retrieval reorders her intentions or people, moving the intention-or-skip decision.
-  const asked: Array<MemoryQuery> = [];
-  const retrieve = (query: MemoryQuery) => {
-    asked.push(query);
-    return Promise.resolve(page('cv:1'));
-  };
-  const plain = await buildHeartbeatFacts(wrongly(heartbeatInput()));
-  const facts = await buildHeartbeatFacts(wrongly(heartbeatInput({ retrieve, bounds: BOUNDS })));
-  assert.deepEqual(wrongly<{ memory: MemoryPage }>(facts).memory, page('cv:1'));
-  assert.deepEqual(withoutMemory(facts), withoutMemory(plain));
-  assert.equal(asked[0]?.purpose, 'heartbeat');
-  assert.equal(asked.length, 1);
-});
-
-test('a failed retrieval leaves the heartbeat its other facts', async () => {
-  // Bug: a memory outage takes the wake down with it.
-  const warned: Array<string> = [];
-  const log = { warn: (message: string) => warned.push(message) };
-  const facts = await buildHeartbeatFacts(
-    wrongly(heartbeatInput({ retrieve: () => Promise.reject(new Error('down')), bounds: BOUNDS, log }))
-  );
-  assert.equal(wrongly<{ memory: MemoryPage | null }>(facts).memory, null);
-  assert.ok(warned.some((message) => /retriev/.test(message)));
-});
 
 test('the selfimprovement view adds the page and leaves the outbox it shows alone', async () => {
   // Bug: a retrieval read counts as delivering a development result, and the wake never hears of it.
@@ -474,15 +440,6 @@ test('a page full of one salient place carries no target of any kind', async () 
     'sourceIds',
   ]);
   world.handle.close();
-});
-
-test('the heartbeat facts with a page name no place the page made salient as a target', async () => {
-  // Bug: a salient place reaches `<wake>` as a default for her next post.
-  const retrieve = () =>
-    Promise.resolve({ ...page('cv:1'), paths: [{ from: person(ALEX), to: place(ROOM), versionIds: ['cv:1'] }] });
-  const facts = await buildHeartbeatFacts(wrongly(heartbeatInput({ retrieve, bounds: BOUNDS })));
-  const outside = JSON.stringify(withoutMemory(facts));
-  assert.ok(!outside.includes(ROOM));
 });
 
 // ---- prefetch and explicit search --------------------------------------------------------------------------------------
@@ -725,16 +682,4 @@ test('a session with no retrieved page builds the request it always built', () =
   });
   assert.deepEqual(built.messages, given.messages);
   env.done();
-});
-
-test('the reads of a retrieved page cite only what the page shows', () => {
-  // Bug: the read record holds an evidence source the page withheld, and a later citation of it passes.
-  const reads = pageReads(retrievedPage('cv:1', 'src:shown'), { block: 'retrieved' });
-  assert.deepEqual(
-    reads.map((one) => [one.kind, one.id]),
-    [
-      ['claim_version', 'cv:1'],
-      ['source_id', 'src:shown'],
-    ]
-  );
 });

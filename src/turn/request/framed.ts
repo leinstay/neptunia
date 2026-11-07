@@ -100,7 +100,7 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     limit: room.limit,
     system: base.system,
     task: task.pulledTrigger ? task.composeTask(false) : task.fittedTask,
-    spatialText: base.spatialText,
+    spatialText: [base.spatialText, given.awake ?? ''].filter(Boolean).join('\n'),
     awayText: base.nowText,
     // The interface's text goes to `<surroundings>`, and no `<participation>` is shown.
     senses: renderSenses(given.config, labels, { ...senses.sensesOptions, interfaceText: null, participation: false }),
@@ -120,6 +120,8 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
       intentions: own.intentionsText || null,
       errands: own.errandsText.list || null,
       feedback: own.wakeText || null,
+      work: given.serviceInner?.work || null,
+      board: given.serviceInner?.board || null,
       previousThink: given.previousThink ?? null,
     },
     errandResult: own.errandsText.result,

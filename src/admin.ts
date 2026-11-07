@@ -34,10 +34,7 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  *   conversations the interface reported (`isPrivate`), `connection` — `{ lastReconnectAt }`, filled from
  *   `connection.changed`. The operations read them as `env.selfId()` and the like.
  * `reads` — the core's reads of the interface (src/interface/reads.ts): the permission checks of an operation
- *   posting in another conversation (src/tools/impl/shared.ts#postingConversation), a message's event for a turn asked on
- *   a message (src/tools/impl/message.ts). The operations read it as `env.reads`.
- * `spontaneous` — the spontaneous scheduler: `force(conversation, mode)` and `status()`, the conversation as a
- *   reference `{ iface, conversationId }`.
+ *   posting in another conversation (src/tools/impl/shared.ts#postingRef). The operations read it as `env.reads`.
  * `calibrator` — token calibrator (src/llm/tokens.ts), read for `.ratio`.
  * `turns` — from createTurnRunner() (src/behavior/turn.ts), optional: `waitIdle()`, used by
  *   `bot.pause` to wait out a turn already in flight. Absent -> the wait is simply skipped.

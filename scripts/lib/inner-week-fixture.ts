@@ -71,7 +71,7 @@ export function need(condition: unknown, name: string, message: string): asserts
 export const isObject = (value: Untyped): boolean => value && typeof value === 'object' && !Array.isArray(value);
 
 /** The wake kinds a stub plan may answer. */
-export const STUB_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review', 'attend', 'feedback']);
+export const STUB_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'heartbeat', 'attend', 'feedback']);
 
 /** A stub plan (`[[action, ...], ...]`): every action `{ skill, args?, refuse? }` (`refuse`: the code the runner refuses it with). */
 export function checkPlan(plan: Untyped, name: string, where: string): Array<Untyped> {

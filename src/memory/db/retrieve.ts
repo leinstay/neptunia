@@ -774,17 +774,3 @@ export async function retrieveMemory(
     db.exec('RELEASE retrieve_page');
   }
 }
-
-/**
- * What a page shows, as the read list `service.ts#turnReadRows` resolves: each version and each source once, in the page's
- * order. A later memory write may cite only what these rows name.
- */
-export function pageReads(
-  page: MemoryPage,
-  { block }: { block: string }
-): Array<{ kind: string; id: string; block: string }> {
-  const versions = page.assertions.map((one) => ({ kind: 'claim_version', id: one.versionId, block }));
-  const evidence = page.assertions.flatMap((one) => one.evidence.map((item) => item.sourceId));
-  const sources = [...new Set([...page.sourceIds, ...evidence])].map((id) => ({ kind: 'source_id', id, block }));
-  return [...versions, ...sources];
-}

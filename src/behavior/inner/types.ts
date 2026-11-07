@@ -1,27 +1,24 @@
 // The shapes the inner life modules share: a wake and the queue's state file, the facts, the settings, the turn an
 // inner turn asks the turn runner for and its result, the sources a life is given and the `life` context the facade
-// (src/behavior/inner.ts) builds over them. Types only, nothing runs here. src/behavior/inner/*.ts, the heartbeat view
-// (src/behavior/heartbeat-view.ts), the `<wake>` block (src/behavior/wake.ts) and the turn runner's JavaScript read them.
+// (src/behavior/inner.ts) builds over them. Types only, nothing runs here. src/behavior/inner/*.ts, the wake's words
+// (src/behavior/wake.ts) and the turn runner read them.
 
-import type { Context } from '../../memory/db/scope.ts';
-import type { MemoryPage, MemoryQuery, RetrievalBounds } from '../../memory/db/semantic-types.ts';
 import type { ServiceSchedule } from '../../service/schedule.ts';
 import type { StorageKey } from '../../memory/db/storage-keys.ts';
 import type { Obj } from '../../tools/types.ts';
 import type { Due, Intention } from '../../intentions/types.ts';
 import type { Reads } from '../../interface/reads.ts';
-import type { Adapter, ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
+import type { Adapter, ConversationRef } from '../../protocol/adapter.ts';
 import type { SendHold } from '../../tools/send-hold.ts';
 import type { WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
 import type { Landed } from '../../selfimprovement/landed.ts';
 import type { WatcherNews } from '../../watcher/news.ts';
-import type { HeartbeatFacts } from '../heartbeat-view.ts';
 import type { OutboxRow, ProposalEntry, SelfimprovementFacts, SkillUseRow } from '../selfimprovement-view.ts';
 import type { WakeBlockInput } from '../wake.ts';
 import type { WAKE_KINDS } from './settings.ts';
 import type { WakeBackend } from './wake-store.ts';
 
-/** A wake kind, as the `<wake>` block names it. */
+/** A wake kind. */
 export type WakeKind = (typeof WAKE_KINDS)[number];
 
 /** What an attend wake knows of its place: the lines since her last look, who wrote them and the newest line. */
@@ -127,9 +124,6 @@ export type FactsApi = {
 /** What a handled wake leaves in the state: when, how it ended and, for an attend wake, its place. */
 export type Handled = { at: number; outcome: string; place?: string | null };
 
-/** The day's review as the state keeps it. */
-export type Review = { day: string; at: number | null; done: boolean; channels: Array<string>; lines: number };
-
 /** One inner turn that ran, as the state keeps it for the day's counts. */
 export type TurnRecord = {
   scopePlaceId?: string | null;
@@ -166,8 +160,6 @@ export type InnerState = {
   stoppedBy: string | null;
   queue: Array<Wake>;
   handled: Record<string, Handled>;
-  review: Review | null;
-  reviewViews: Record<string, { day: string; channels: Array<string>; lines: number }>;
   heartbeat: { nextAt: number | null; lastAt: number | null } | null;
   // The selfimprovement wake's clock: when its last wake committed and when a failure cause last raised one.
   selfimprovement: { lastAt: number | null; raisedAt: number | null; schedule?: string } | null;
@@ -184,20 +176,11 @@ export type InnerSettings = {
   tickSeconds: number;
   queueMax: number;
   chatMessages: number;
-  review: { historyDays: number; expiredMax: number };
   heartbeat: {
     enabled: boolean;
     schedule: ServiceSchedule;
     jitterMinutes: number;
     dueJitterMinutes: number;
-    people: number;
-    filteredShown: number;
-    closedShown: number;
-    historyDays: number;
-    placesHours: number;
-    placesShown: number;
-    placeLines: number;
-    maxTokens: number;
     maxOpen: number;
     maxRecurring: number;
   };
@@ -266,7 +249,6 @@ export type InnerIntentions = {
   attending?(): ReadonlyArray<unknown>;
   store?(): { get?(id: string): Intention | null | undefined; list?(): ReadonlyArray<Intention> } | null | undefined;
   countAttendWake?(id: string): unknown;
-  markExpiredShown?(id: string): unknown;
   /** The intention a wake that slept was for: a one-off cancelled with `sleptAt`, a recurring one past its occurrence. */
   sleep?(id: string): unknown;
 };
@@ -302,15 +284,6 @@ export type InnerStore = {
   getSelfreflection?(): { posts?: unknown } | null | undefined;
 };
 
-/** The sources of the heartbeat's facts that are not the stores above (src/behavior/heartbeat-view.ts). */
-export type HeartbeatSources = {
-  tasks?(): unknown;
-  skills?(): unknown;
-  agents?(): unknown;
-  selfId?(): unknown;
-  focusPeople?(): unknown;
-};
-
 /** The sources of the selfimprovement wake's facts (src/behavior/selfimprovement-view.ts) that are not the journal. */
 export type SelfimprovementSources = {
   /** Her granted tool names now. */
@@ -334,16 +307,12 @@ export type WakeInfo = {
   facts?: Array<FactPayload>;
   intentions: Array<Intention>;
   notes?: Record<string, string>;
-  expired?: { items: Array<{ id: string; purpose: string; at: number }>; more: number };
   now: number;
   timezone: string;
-  channels: Array<string>;
-  places?: PlacesPage | null;
   chainId: string;
-  heartbeat?: HeartbeatFacts;
   selfimprovement?: SelfimprovementFacts;
-  /** Null: this turn has no current channel. Undefined on a selfimprovement wake, which speaks to nobody: no such line. */
-  here: { channel: string; why: string | null } | null | undefined;
+  /** The code of the place a due intention named and could not be reached in: the turn runs nowhere. */
+  placeFailure?: string;
 };
 
 /**
@@ -352,7 +321,7 @@ export type WakeInfo = {
  */
 export type TurnWake = WakeBlockInput & { kind?: string; chainId?: string };
 
-/** One wake of an inner turn as `<wake>` shows it. */
+/** One wake of an inner turn as its request shows it. */
 export type WakeItem = {
   kind: string;
   reason: string;
@@ -367,12 +336,9 @@ export type WakeItem = {
 /** How many turns a chain had on the local day and how many are left under its cap. */
 export type ChainBudget = { used: number; cap: number; left: number };
 
-/** What the drain asks the turn runner for: the conversation of the turn (a stand-in for the heartbeat with no interface). */
+/** What the drain asks the turn runner for: the conversation of the turn, null for a turn that runs nowhere. */
 export type InnerTurnParams = {
-  conversation?: ConversationRef;
-  /** The heartbeat's stand-in when no interface is connected, and its history (none). */
-  standIn?: ConversationInfo;
-  reuseHistory?: Array<never>;
+  conversation?: ConversationRef | null;
 
   mode: 'inner';
   triggerKind: 'inner';
@@ -452,7 +418,6 @@ export type InnerContext = {
   ready: () => Promise<unknown>;
   uuid: () => string;
   costs: CostMeter;
-  heartbeatSources: HeartbeatSources;
   selfimprovementSources: SelfimprovementSources;
   memoryDb: InnerMemoryDb | null;
   /** The port a completed wake's deliveries go out through; without one a wake turn holds nothing. */
@@ -497,7 +462,4 @@ export type InnerMemoryDb = {
   memoryWrite?(update: WakeQueueUpdate): Promise<unknown>;
   writeUnit?(update: { op: 'value'; key: StorageKey; value: unknown }): Promise<unknown>;
   readHandle?(): { db: object } | null;
-  issueContext?(spec?: { kind?: 'internal' }): Context;
-  retrievalBoundsFor?(purpose: MemoryQuery['purpose']): RetrievalBounds | null;
-  retrieveQuery?(ctx: Context, query: MemoryQuery): Promise<MemoryPage | null>;
 };

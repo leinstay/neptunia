@@ -418,7 +418,9 @@ test('inner stop state saved through the writer survives reopening without inner
 });
 
 // Separate community caches must not overwrite the persona's clocks or another conversation's evidence.
-test('legacy inner states consolidate into one persistent life with scoped facts and review views', async () => {
+// Slice 5: the daily review is deleted, so the legacy states keep their `review` fields as stored data and the merged
+// life holds no review or review views; the rest of the consolidation is unchanged.
+test('legacy inner states consolidate into one persistent life with scoped facts', async () => {
   const dataDir = tempDir('nep-global-inner-');
   const firstKey = communityKey('inner', GUILD, { iface: 'fake' });
   const secondKey = communityKey('inner', 'g2', { iface: 'fake' });
@@ -460,12 +462,6 @@ test('legacy inner states consolidate into one persistent life with scoped facts
     assert.deepEqual(run.life.state().heartbeat, { lastAt: T - 2 * MINUTE, nextAt: T + 5 * MINUTE });
     assert.deepEqual(state.heartbeat, { lastAt: T - 2 * MINUTE, nextAt: T + 5 * MINUTE });
     assert.deepEqual(state.selfimprovement, { lastAt: T - MINUTE, raisedAt: T - 3 * MINUTE });
-    assert.equal(state.review?.day, '2026-10-31');
-    assert.equal(state.review?.done, true);
-    assert.deepEqual(state.reviewViews, {
-      [legacyServerPlaceId('fake', GUILD)]: { day: '2026-10-31', channels: ['c1'], lines: 2 },
-      [legacyServerPlaceId('fake', 'g2')]: { day: '2026-10-31', channels: ['c2'], lines: 3 },
-    });
     assert.equal(state.stopped, true);
     assert.equal(state.stoppedBy, 'owner');
     assert.deepEqual(state.turnIds.toSorted(), ['turn-one', 'turn-two']);

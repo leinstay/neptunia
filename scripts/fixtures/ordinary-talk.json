@@ -1,10 +1,11 @@
 {
   "name": "ordinary-talk",
-  "description": "An ordinary week of chat in two channels: people talk most evenings, address her now and then, she promises two things in passing and keeps both; her review sometimes posts a line.",
+  "description": "An ordinary week of chat in two channels: people talk most evenings, address her now and then, she promises two things in passing and keeps both; her heartbeat sometimes posts a line.",
   "start": "2026-11-02",
   "days": 7,
   "timezone": "Europe/Berlin",
   "seed": 23,
+  "wakes": { "heartbeat": { "enabled": true, "schedule": "at 19:00" } },
   "channels": [
     { "id": "c-general", "name": "general" },
     { "id": "c-games", "name": "games" }
@@ -12,7 +13,7 @@
   "people": { "Mira": "u-101", "Tobias": "u-102", "Lena": "u-103" },
   "history": { "selfHours": [18, 19, 20, 21, 22], "channel": "c-general" },
   "stub": {
-    "review": [[], [{ "skill": "message.create", "args": { "channel": "$channel", "text": "evening, everyone" } }], []],
+    "heartbeat": [[], [{ "skill": "message.create", "args": { "channel": "c-general", "text": "evening, everyone" } }], []],
     "intention_due": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "as promised" } }, { "skill": "intention.update", "args": { "id": "$intention", "state": "done" } }]]
   },
   "events": [

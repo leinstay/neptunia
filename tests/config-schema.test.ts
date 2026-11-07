@@ -225,6 +225,17 @@ const MAY_GO: ReadonlyArray<string> = [
   'recallSettings.meaningWithReply',
   'dbSettings.fallbackOnClassifierFailure',
   'dbSettings.meaningWithReply',
+  // Slice 5: the daily review is deleted with `wakes.review.*`, and the heartbeat view's fixed numbers leave with
+  // heartbeatLines (`heartbeat.historyDays`, `heartbeat.maxTokens` and the constants beside them).
+  'innerSettings.review',
+  'innerSettings.heartbeat.people',
+  'innerSettings.heartbeat.filteredShown',
+  'innerSettings.heartbeat.closedShown',
+  'innerSettings.heartbeat.historyDays',
+  'innerSettings.heartbeat.placesHours',
+  'innerSettings.heartbeat.placesShown',
+  'innerSettings.heartbeat.placeLines',
+  'innerSettings.heartbeat.maxTokens',
 ];
 
 const BEFORE: unknown = JSON.parse(

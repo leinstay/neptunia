@@ -145,7 +145,13 @@ export type PhaseContext = {
 > &
   Pick<
     Inputs,
-    'conversationOf' | 'turnContextOf' | 'stableFreezeOf' | 'errandsInputFor' | 'intentionsInputFor' | 'placesInputFor'
+    | 'conversationOf'
+    | 'turnContextOf'
+    | 'stableFreezeOf'
+    | 'errandsInputFor'
+    | 'intentionsInputFor'
+    | 'intentionRefsFor'
+    | 'placesInputFor'
   > &
   Pick<
     JournalNotes,
@@ -209,13 +215,12 @@ export type TurnTrigger = {
 
 /** What a turn attempt was asked to do (runTurn's arguments, as runTurnOnce passes them on). */
 export type PhaseParams = {
-  conversation: ConversationRef;
+  /** Null for a turn that runs nowhere: a service or an intention without a place. */
+  conversation: ConversationRef | null;
   placeId?: string | null;
   mode: string;
   trigger?: TurnTrigger | null;
   triggerKind?: TriggerKind | null;
-  chooseMode?: ((history: Array<object>, now: number, context: { pulled: Array<object> }) => string | null) | null;
-  forced?: boolean;
   source?: { placeId: string; reason: 'routed' | 'noticed' } | null;
   queued?: (() => unknown) | null;
   added?: ReadonlyArray<{ id?: string; text?: unknown } | null> | null;

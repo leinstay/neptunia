@@ -150,9 +150,23 @@ export type InnerAction = {
 };
 
 /** What an attempt's draft holds that the calls read and write. */
+/** The calls that act in the turn's own conversation when their `channel` is left out. */
+const HERE_SKILLS: ReadonlySet<string> = new Set([
+  'conversation.read',
+  'memory.channel.read',
+  'message.create',
+  'message.edit',
+  'message.delete',
+  'message.react.add',
+  'message.react.remove',
+  'draw.create',
+  'voice.say',
+]);
+
 export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
   NotesDraft & {
     memoryContext?: Context;
+    nowhere?: boolean;
     inner?: CallsInner | null;
     ownInitiative?: boolean;
     innerActions?: Array<InnerAction>;
@@ -327,6 +341,10 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     return { ...lookup, extract: clampWithEllipsis(lookup.extract, settings.extractChars) };
   }
 
+  /** Whether a resolved call acts in the turn's own place when it names none, and named none. */
+  const placeUnnamed = (resolved: Resolved): boolean =>
+    HERE_SKILLS.has(resolved.skill) && resolved.args.channel === undefined;
+
   // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
   // from that channel (tools.destructiveCooldownMinutes, src/tools/gateway.ts); in process.
   const destructiveRuns = new Map<string, number>();
@@ -428,7 +446,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
    * for) planned before anything of its step is done: its journal operation (`skill`, by the persona) writes `proposed`
    * with the skill, the envelope's invocation id, the names of its arguments, its tool call id and the arguments that
    * were read in another type, then the call is checked in this order -- `preRefuse` (a call that cannot run: unreadable,
-   * unknown, cut off, past the step's cap), the wake's rule (src/tools/wake-tools.ts), `refuse` (an inner tag that cannot act), an inner turn's
+   * unknown, cut off, past the step's cap), `refuse` (an inner tag that cannot act), the wake's rule (src/tools/wake-tools.ts), an inner turn's
    * destination for a picture --, resolved on the server's side (`view`: callView's) and checked (checkCall). Resolves
    * `{ call, op, envelope, resolved, refusal }`: `resolved` null and `refusal` (`{ code, reason }`) when anything said
    * no -- logged `skill: refused`. Nothing runs here.
@@ -470,15 +488,6 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       });
       return { call, op, envelope, resolved: null, refusal: { ...call.preRefuse } };
     }
-    // A wake's own set: a call outside it, and a task answer outside the selfimprovement wake, are refused before resolution.
-    const wakeKind = wakeOf(draft)?.kind ?? null;
-    const wakeRefusal = wakeRefusalCode(wakeKind, call.skill);
-    if (wakeRefusal !== null) {
-      const reason = `${String(wakeKind ?? 'selfimprovement')}:only`;
-      log.info('skill: refused', { skill: call.skill, code: wakeRefusal, reason, channel: channel.id });
-      log.info(`${String(wakeKind ?? 'selfimprovement')}: call refused`, { skill: call.skill, code: wakeRefusal });
-      return { call, op, envelope, resolved: null, refusal: { code: wakeRefusal, reason } };
-    }
     // An inner turn's tag that cannot act (src/behavior/inner-output.ts): refused before anything is resolved or done.
     if (call.refuse) {
       log.info('skill: refused', {
@@ -488,6 +497,15 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         channel: channel.id,
       });
       return { call, op, envelope, resolved: null, refusal: { code: call.refuse.code, reason: call.refuse.reason } };
+    }
+    // A wake's own set: a call outside it, and a task answer outside the selfimprovement wake, are refused before resolution.
+    const wakeKind = wakeOf(draft)?.kind ?? null;
+    const wakeRefusal = wakeRefusalCode(wakeKind, call.skill);
+    if (wakeRefusal !== null) {
+      const reason = `${String(wakeKind ?? 'selfimprovement')}:only`;
+      log.info('skill: refused', { skill: call.skill, code: wakeRefusal, reason, channel: channel.id });
+      log.info(`${String(wakeKind ?? 'selfimprovement')}: call refused`, { skill: call.skill, code: wakeRefusal });
+      return { call, op, envelope, resolved: null, refusal: { code: wakeRefusal, reason } };
     }
     // An inner turn's picture lands in its current channel, as its speech does; with none, there is nowhere to post it.
     if (
@@ -540,6 +558,11 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
           ...(resolved.place ? { place: resolved.place } : {}),
         },
       };
+    }
+    // A turn that is nowhere has no place of its own: a call that takes a place needs it named.
+    if (draft?.nowhere === true && placeUnnamed(resolved)) {
+      log.info('skill: refused', { skill: call.skill, code: CODE.PLACE_REQUIRED, reason: 'nowhere', channel: null });
+      return { call, op, envelope, resolved: null, refusal: { code: CODE.PLACE_REQUIRED, reason: 'nowhere:channel' } };
     }
     // The message's own channel taken over the one she named: logged, never the ids.
     if (resolved.channelFixed)
@@ -729,8 +752,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
           ...(runInitiativeOp ? { runInitiativeOp } : {}),
           opContext: {
             publicationBoundary,
-            // The place the call runs in; an operation on what the tree shares asks for its top.
-            placeId: placeOfConversation(store, channel),
+            // The place the call runs in (none for a turn that is nowhere); an operation on what the tree shares asks for
+            // its top.
+            placeId: draft?.nowhere === true ? null : placeOfConversation(store, channel),
             ...(privateChat ? { privateChat: true } : {}),
             // A live wake turn's posts wait in its hold (src/tools/send-hold.ts).
             ...(inner?.hold ? { hold: inner.hold } : {}),

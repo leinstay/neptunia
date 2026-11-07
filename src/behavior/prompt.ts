@@ -210,10 +210,6 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  * @param input.prompts           Live prompts keyed by file name.
  * @param input.mode  `prompts[mode]` is the task
  *   text; `elsewhere` (a noticed comment on a read-only channel) takes `prompts.elsewhere`.
- * @param [input.forced]  True for an owner-forced turn (`/nep interject`, `/nep
- *   initiate`): when `prompts.forced` is a non-empty string, its filled text is appended to the
- *   task text (same placeholders as `prompts[mode]`) so the model knows `<skip/>` is not the
- *   expected outcome this time. Missing `prompts.forced` -> the task text is left as it is.
  * @param [input.selfId]  The persona's own user id: her stored profile, if any, is
  *   never listed in `<directory>`, and a reply parent that mentions it is addressed to her
  *   (`<earlier>`'s open requests). Omitted -> no profile is left out for being hers.
@@ -440,16 +436,19 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  *   rendered and cut to `context.caps.intentions` by the turn; features.intentions): in the tail
  *   right after `<errand_result>`, paid for with the fixed part and never cut here; '' or a missing
  *   key leaves the block out, so with the switch off the request is as it was.
- * @param [input.wake]  An inner turn's `<wake>` body (src/behavior/wake.ts, rendered
- *   by the turn; mode `inner`, docs/inner-life.md): in the tail right after `<intentions>`, paid for
- *   with the fixed part and never cut; '' or null leaves it out, so every other turn is as it was.
+ * @param [input.wake]  The `<feedback>` body of `<inner>`: what did not go through and she has not been told
+ *   (src/behavior/wake.ts#feedbackText on an inner turn, feedbackInTurnText on any other); '' or null leaves it out.
  *   The task of mode `inner` is `prompts.inner`, like any mode's; on a heartbeat or a selfimprovement wake
  *   (`input.wakeKind`) it is the wake's own file when that is present and non-blank.
+ * @param [input.awake]  Why she is awake with nobody's message in front of her (src/behavior/wake.ts#awakeLines),
+ *   after the whereabouts in `<spatial_awareness>`; null on a turn that answers someone.
+ * @param [input.serviceInner]  A selfimprovement wake's `<work>` and `<board>` bodies in `<inner>`
+ *   (src/behavior/selfimprovement-text.ts); null on any other turn.
  * @param [input.wakeKind]  An inner turn's wake kind: `heartbeat` and `selfimprovement` take the prompt of that name as
  *   their task text in place of `prompts.inner`; null or any other kind keeps the mode's.
  * @param [input.places]  An addressed turn's `<places>` body (src/behavior/wake.ts#placesBlockText,
- *   rendered by the turn with `context.places` on; an inner turn carries the page inside `<wake>`):
- *   in the tail right after `<wake>`, paid for with the fixed part and never cut; '' or null leaves it out.
+ *   rendered by the turn with `context.places` on):
+ *   in the tail right after `<feedback>`, paid for with the fixed part and never cut; '' or null leaves it out.
  * @param [input.previousThink]  Her one
  *   previous think (src/behavior/previous-think.ts, chosen by the turn under features.previousThink): in
  *   `<inner>` after `<my_day>`, paid for with the fixed part and never cut; null leaves it out.
@@ -545,14 +544,13 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
       ? { kind: 'world' as const }
       : null;
   const whereabouts = turnPlace && ownPlace ? ownPlace : turnPlace;
-  const { forced = false, channels = [], currentChannelId = null, lookup = null } = input;
+  const { channels = [], currentChannelId = null, lookup = null } = input;
   // Every input, named once: the block builders of src/turn/request/ read theirs from it.
   const given = {
     config: input.config,
     prompts: input.prompts,
     calibrator: input.calibrator,
     mode: input.mode,
-    forced,
     now: input.now,
     selfName: input.selfName,
     selfId: input.selfId,
@@ -607,6 +605,8 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     errands: input.errands,
     intentions: input.intentions,
     wake: input.wake,
+    awake: input.awake,
+    serviceInner: input.serviceInner,
     wakeKind: input.wakeKind,
     places: input.places,
     previousThink: input.previousThink,
