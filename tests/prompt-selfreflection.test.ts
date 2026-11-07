@@ -13,6 +13,19 @@ import {
 import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
 import { buildRequest, type Built } from './fixtures/built-request.ts';
+import { blocksOf } from '../src/turn/request/frame.ts';
+import {
+  JOURNAL,
+  MARK,
+  PAGES,
+  PLAN,
+  TEXT,
+  blockOf,
+  frameTurn,
+  inOrderOf,
+  partOf,
+  rootTags,
+} from './fixtures/selfreflection-frame.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);
 const MIN = 60_000;
@@ -461,4 +474,64 @@ test('buildRequest: the server block marks the diary channel', () => {
 
   const off = userText(buildRequest(baseInput({ ...input })));
   assert.ok(off.includes('# journal-κ') && !off.includes(mark), 'no mark without a mirror on it');
+});
+
+// The writer on the turn frame (plan 2026-11-06-turn-frame, slice 6, with the owner's answers of 2026-11-07): the turn
+// runs with `conversation: null`, its request holds the selfreflection list of the frame, `<virtual_world>` is the
+// `world.md` text whenever the file is non-empty (`selfreflection.world` is gone), and `<publication_places>` is a part of
+// `<inner>` that lists the mirrors when there are two or more. tests/fixtures/selfreflection-frame.ts holds the scene.
+
+/** The selfreflection list without `persona`, which is the system message and no root tag of the user text. */
+const WRITER_TAGS = blocksOf('selfreflection', null).filter((name) => name !== 'persona');
+
+test('the writer request holds the frame list, with no <chat>, <surroundings>, <about_chat> or root <places>', async () => {
+  // Bug: the writer is still built as a reply in the first mirror, with its chat, surroundings and the old place blocks.
+  const run = await frameTurn();
+  const text = run.writer[0] ?? '';
+  const tags = rootTags(text);
+  assert.ok(inOrderOf(tags, WRITER_TAGS), tags.join(' '));
+  for (const tag of ['self', 'meanwhile', 'virtual_world', 'spatial_awareness', 'task'])
+    assert.ok(tags.includes(tag), `holds <${tag}>`);
+  for (const tag of ['chat', 'surroundings', 'about_chat', 'places'])
+    assert.ok(!tags.includes(tag), `no root <${tag}>`);
+  assert.ok(blockOf(text, 'task').includes(MARK.writer), 'its own task');
+});
+
+test('<virtual_world> holds world.md even where the old selfreflection.world switch says false', async () => {
+  // Bug: the deleted switch is still read, so a non-empty world.md never reaches her (the 13:55 post had no world).
+  const run = await frameTurn({ selfreflection: { world: false } });
+  assert.ok(blockOf(run.writer[0] ?? '', 'virtual_world').includes(TEXT.world));
+});
+
+test('<virtual_world> is absent when world.md is empty', async () => {
+  // Bug: an empty file still renders an empty block or the frame's own placeholder.
+  for (const world of ['', '  \n']) {
+    const run = await frameTurn({ world });
+    assert.ok(!rootTags(run.writer[0] ?? '').includes('virtual_world'), JSON.stringify(world));
+  }
+});
+
+test('the writer <plan> sits in <inner> as lines, with no JSON', async () => {
+  // Bug: the plan stays one JSON line, while nothing in a request is JSON.
+  const run = await frameTurn();
+  const plan = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'plan');
+  assert.ok(plan.includes(PLAN.brief), plan);
+  assert.ok(!plan.includes('{"'), plan);
+});
+
+test('<publication_places> is absent with one mirror', async () => {
+  // Bug: the list shows with nothing to choose, or lists every group room memory knows.
+  const run = await frameTurn({ mirrors: [JOURNAL] });
+  assert.ok(!(run.writer[0] ?? '').includes('<publication_places>'));
+});
+
+test('<publication_places> in <inner> lists two mirrors, each on its own line with its interface, and no other room', async () => {
+  // Bug: the part lists every group place of memory (`c2` here), or drops the interface a mirror is on.
+  const run = await frameTurn({ mirrors: [JOURNAL, PAGES] });
+  const part = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'publication_places');
+  const lines = part.split('\n');
+  const journal = lines.findIndex((line) => line.includes('fake:channel:d1') && line.includes('fake'));
+  const pages = lines.findIndex((line) => line.includes('tele:channel:k9') && line.includes('tele'));
+  assert.ok(journal >= 0 && pages >= 0 && journal !== pages, part);
+  assert.ok(!part.includes('fake:channel:c2'), part);
 });

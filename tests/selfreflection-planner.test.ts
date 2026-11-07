@@ -10,6 +10,8 @@ import { moveConfigKeys } from '../src/config-moves.ts';
 import { PURPOSE_ROLES, roleModel } from '../src/llm/roles.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { ROOT } from './fixtures/source-tree.ts';
+import { blocksOf } from '../src/turn/request/frame.ts';
+import { MARK, blockOf, frameTurn, gistOf, inOrderOf, partOf, rootTags } from './fixtures/selfreflection-frame.ts';
 
 const PLANNER = 'selfreflection-planner';
 
@@ -82,4 +84,33 @@ test('the tracked planner prompt has the new file name, fills the name and names
   assert.ok(text.includes('{{name}}'));
   assert.ok(text.includes('<places>'));
   assert.equal(text.includes('<server>'), false);
+});
+
+// The planner on the turn frame (plan 2026-11-06-turn-frame, slice 6): a frame request with the selfreflection list,
+// `<kinds>`, `<seeds>` and `<selfreflection>` in `<inner>`, and no plan of its own to read. Its answer stays JSON.
+// tests/fixtures/selfreflection-frame.ts holds the scene.
+
+/** The planner's list without `persona`, which is the system message and no root tag of the user text. */
+const PLANNER_TAGS = blocksOf('selfreflection_plan', null).filter((name) => name !== 'persona');
+
+test('the planner request holds the frame list and none of the old blocks', async () => {
+  // Bug: the planner keeps its own request with `<now>`, `<places>`, `<about_chat>`, `<recent>`, `<lore>` and `<world>`.
+  const run = await frameTurn();
+  const text = run.planner[0] ?? '';
+  const tags = rootTags(text);
+  assert.ok(inOrderOf(tags, PLANNER_TAGS), tags.join(' '));
+  for (const tag of ['self', 'inner', 'meanwhile', 'virtual_world', 'spatial_awareness', 'task'])
+    assert.ok(tags.includes(tag), `holds <${tag}>`);
+  assert.ok(blockOf(text, 'task').includes(MARK.planner), 'its own task');
+});
+
+test('the planner <inner> holds <kinds>, <seeds> and <selfreflection>, and the request no <plan>', async () => {
+  // Bug: the planner loses what it chooses from or its past entries, or reads a plan that it is there to make.
+  const run = await frameTurn({ entries: 3 });
+  const text = run.planner[0] ?? '';
+  const inner = blockOf(text, 'inner');
+  assert.notEqual(partOf(inner, 'kinds'), '', inner);
+  assert.notEqual(partOf(inner, 'seeds'), '', inner);
+  assert.ok(partOf(inner, 'selfreflection').includes(gistOf(2)), inner);
+  assert.ok(!text.includes('<plan>'), 'no plan');
 });

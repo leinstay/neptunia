@@ -24,6 +24,17 @@ import type { Channel } from './fixtures/turn-world.ts';
 import { appendedPost, selfreflectionCounts, entryOf, publishTo } from './fixtures/selfreflection-mirror.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { planAnswerText } from './fixtures/plan-answer.ts';
+import { mirrorScene } from './fixtures/mirror-scene.ts';
+import {
+  FRAME_NOW,
+  JOURNAL,
+  PAGES,
+  TEXT as FRAME_TEXT,
+  blockOf,
+  frameTurn,
+  gistOf,
+  partOf,
+} from './fixtures/selfreflection-frame.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -1216,4 +1227,95 @@ test('diary set: the compose request carries selfreflection.set.seedSets seeds f
     selfreflection: { kind: 'status', forced: false },
   });
   assert.ok(!userOf(text.calls[1]).includes('<seeds>'));
+});
+
+// The selfreflection turn on the turn frame (plan 2026-11-06-turn-frame, slice 6, with the owner's answers of
+// 2026-11-07): `conversation: null`, `<selfreflection>` in `<inner>` read from the `selfreflection` table, newest
+// `selfreflection.diaryEntries` oldest first, `<meanwhile>` as in the service template, and the entry still reaching
+// every mirror. tests/fixtures/selfreflection-frame.ts holds the scene.
+
+/** The positions of the gists of entries `from` to `to` (inclusive) in `text`, -1 for an absent one. */
+const gistsAt = (text: string, from: number, to: number): Array<number> =>
+  Array.from({ length: to - from + 1 }, (_, i) => text.indexOf(gistOf(from + i)));
+
+test('<selfreflection> holds the newest 150 of 200 stored entries oldest first', async () => {
+  // Bug: the block keeps the old history cut, reads the first mirror's messages, or renders newest first.
+  const run = await frameTurn({ entries: 200, selfreflection: { diaryEntries: 150 } });
+  const text = run.writer[0] ?? '';
+  const block = partOf(blockOf(text, 'inner'), 'selfreflection');
+  const kept = gistsAt(block, 50, 199);
+  assert.ok(
+    kept.every((at) => at >= 0),
+    `kept ${kept.filter((at) => at >= 0).length} of 150`
+  );
+  assert.deepEqual(
+    kept,
+    [...kept].sort((a, b) => a - b),
+    'oldest first'
+  );
+  assert.ok(
+    gistsAt(block, 0, 49).every((at) => at < 0),
+    'the 50 oldest are left out'
+  );
+  assert.ok(!text.includes('<diary>'), 'the tag is <selfreflection>');
+});
+
+test('<selfreflection> reads no mirror place', async () => {
+  // Bug: the entries are rebuilt from the mirror's history, through the interface or from her stored lines there.
+  const run = await frameTurn({ entries: 3 });
+  const block = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'selfreflection');
+  assert.ok(block.includes(gistOf(2)), block);
+  assert.ok(!block.includes(FRAME_TEXT.mirrorOnly), block);
+  const { port } = run;
+  const reads = port.calls.filter((one: { op: string }) => one.op === 'history' || one.op === 'fetchMessages');
+  assert.deepEqual(reads, []);
+});
+
+test('<selfreflection> is cut at selfreflection.diaryEntries', async () => {
+  // Bug: the new setting is not read and the block keeps a constant 150.
+  const run = await frameTurn({ entries: 5, selfreflection: { diaryEntries: 2 } });
+  const block = partOf(blockOf(run.writer[0] ?? '', 'inner'), 'selfreflection');
+  assert.deepEqual(
+    gistsAt(block, 0, 4).map((at) => at >= 0),
+    [false, false, false, true, true]
+  );
+});
+
+test('<meanwhile> of the writer holds her lines from the groups of two interfaces and none from a direct chat', async () => {
+  // Bug: the writer keeps the first mirror's chat as what happened lately, reads one interface, or lets a private chat in.
+  const run = await frameTurn();
+  const meanwhile = blockOf(run.writer[0] ?? '', 'meanwhile');
+  assert.ok(meanwhile.includes(FRAME_TEXT.ownGarden), 'the room of the first interface');
+  assert.ok(meanwhile.includes(FRAME_TEXT.ownHarbour), 'the room of the second interface');
+  assert.ok(!meanwhile.includes(FRAME_TEXT.ownPrivate), 'no direct chat');
+});
+
+test('an entry recorded with conversation null reaches every mirror', async () => {
+  // Bug: with no conversation the turn records nothing, or the entry only goes to the place the turn used to run in.
+  const scene = await mirrorScene({ ifaces: ['fake', 'tele'], start: FRAME_NOW });
+  // No earlier entry, so the drain has only this one to send.
+  const run = await frameTurn({ memory: scene.memory, mirrors: [JOURNAL, PAGES], entries: 0 });
+  const mirrors = scene.publisher();
+  await mirrors.publishEntry(entryOf(run.result));
+  await mirrors.drainQueued();
+  assert.deepEqual(scene.transport('fake').posted('d1'), [FRAME_TEXT.entry]);
+  assert.deepEqual(scene.transport('tele').posted('k9'), [FRAME_TEXT.entry]);
+});
+
+test('an <audience> naming a group room that is no mirror is refused, and the entry goes nowhere', async () => {
+  // Bug: her choice is checked against every group place memory knows, so a room that is no mirror passes.
+  const scene = await mirrorScene({ ifaces: ['fake', 'tele'], start: FRAME_NOW });
+  const run = await frameTurn({
+    memory: scene.memory,
+    mirrors: [JOURNAL, PAGES],
+    entries: 0,
+    answer: `<audience>place:fake:channel:c2</audience><msg>${FRAME_TEXT.entry}</msg>`,
+  });
+  const mirrors = scene.publisher();
+  await mirrors.publishEntry(entryOf(run.result));
+  await mirrors.drainQueued();
+  const reasons = mirrors.mirrorStatus().flatMap((mirror) => mirror.audienceBlocked.map((one) => one.reason));
+  assert.deepEqual(reasons, ['audience-unknown-place', 'audience-unknown-place']);
+  assert.deepEqual(scene.transport('fake').attempts, []);
+  assert.deepEqual(scene.transport('tele').attempts, []);
 });
