@@ -226,7 +226,6 @@ export function scriptedHistory(lines: Untyped, { channel, selfId, selfName, now
       id: snowflakeOf(line.ts, i + 1),
       placeId: String(channel.id),
       channelName: channel.name ?? null,
-      channelCategory: null,
       channelTopic: null,
       authorId: line.self ? selfId : String(line.authorId),
       authorName: line.self ? selfName : line.authorName,

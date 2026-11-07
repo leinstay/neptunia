@@ -77,7 +77,7 @@ type Deps = {
 };
 
 /** The fields of an event's `conversation` record, taken from a conversation's info. */
-const RECORD_KEYS = ['id', 'kind', 'rootId', 'name', 'topic', 'category', 'chatType', 'parentId', 'partnerId'] as const;
+const RECORD_KEYS = ['id', 'kind', 'rootId', 'name', 'topic', 'chatType', 'parentId', 'partnerId'] as const;
 
 /** How many hits one page of a message search holds. */
 const SEARCH_PAGE = 25;

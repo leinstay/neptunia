@@ -113,7 +113,8 @@ function startRecord(
   messages: unknown,
   options: Row,
   turn: RequestMeta | null,
-  backend?: string
+  backend?: string,
+  blocks?: unknown
 ): Row {
   return {
     id,
@@ -132,6 +133,7 @@ function startRecord(
     service: turn?.service ?? serviceOfRole(options.role),
     backend: turn?.backend ?? backend ?? null,
     run_id: turn?.runId ?? null,
+    blocks: blocks === undefined ? null : JSON.stringify(blocks),
   };
 }
 
@@ -176,15 +178,16 @@ export function archivedLlm<TLlm extends { complete: (...args: Array<never>) => 
     }
   };
   const complete = async (messages: unknown, given: Row = {}, ...rest: Array<unknown>): Promise<unknown> => {
-    // A caller that links the outcome itself names the row; the client below never sees that option.
-    const { archiveId, ...options } = given;
+    // A caller that links the outcome itself names the row, and a request built from blocks lists them for the row. The
+    // client below sees neither option.
+    const { archiveId, blocks, ...options } = given;
     const id = typeof archiveId === 'string' ? archiveId : newId();
     const turn = currentRequestMeta();
     if (turn !== null) {
       turn.step = (turn.step ?? 0) + 1;
       turn.noteOutcome = (outcome) => keep(id, { op: 'outcome', id, outcome });
     }
-    await keep(id, { op: 'start', record: startRecord(id, now(), messages, options, turn, backend) });
+    await keep(id, { op: 'start', record: startRecord(id, now(), messages, options, turn, backend, blocks) });
     try {
       const answer = await (llm.complete as unknown as (...args: Array<unknown>) => Promise<Row>)(
         messages,

@@ -88,7 +88,7 @@ export function touchMemory(
   const writerId = !normalized.bot && (!normalized.self || inSelfreflection) ? normalized.authorId : null;
   store.touchChannel(
     placeOfConversation(store, { id: normalized.placeId }),
-    { name: normalized.channelName, category: normalized.channelCategory, topic: normalized.channelTopic },
+    { name: normalized.channelName, topic: normalized.channelTopic },
     normalized.ts,
     writerId,
     memoryCfg
@@ -114,7 +114,6 @@ export type NormalizedMessage = MediaPart & {
   id: string;
   placeId: string;
   channelName?: string;
-  channelCategory?: string | null;
   channelTopic?: string | null;
   authorId: string;
   authorName: string;

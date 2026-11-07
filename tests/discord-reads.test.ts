@@ -166,7 +166,8 @@ function eventsOf(result: { status: string; events?: ReadonlyArray<MessageEvent>
 
 const options = { selfId: SELF, ...normalizeOptions({}) };
 
-test('reports a server channel with its name, topic, category and community, and no owner', async () => {
+test('reports a server channel with its name, topic and community, and no owner', async () => {
+  // A category is no place, the owner's word of 2026-11-06.
   const { adapter } = world();
   const result = await adapter.conversationInfo(CHANNEL);
   if (result.status !== 'ok') throw new Error(result.status);
@@ -175,7 +176,7 @@ test('reports a server channel with its name, topic, category and community, and
   assert.equal(conversation.rootId, 'g1');
   assert.equal(conversation.name, 'general');
   assert.equal(conversation.topic, 'daily talk');
-  assert.equal(conversation.category, 'main');
+  assert.equal('category' in conversation, false);
   assert.equal(conversation.iface, 'discord');
   assert.equal(conversation.owner, null);
   assert.equal(conversation.voice, false);

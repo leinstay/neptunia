@@ -43,12 +43,13 @@ const channelFile = () => ({
 });
 
 test('a channel entry becomes a place, three descriptions and an operational row', () => {
+  // A category is no place, the owner's word of 2026-11-06.
   const rows = assertRoundTrip(channel, `channels/${CHANNEL_ID}.json`, channelFile(), CHANNEL_CTX);
   const [place] = rows.places;
   assert.deepEqual(
-    [place.id, place.kind, place.native_id, place.parent_id, place.scope_kind, place.name, place.category, place.topic],
+    [place.id, place.kind, place.native_id, place.parent_id, place.scope_kind, place.name, place.topic],
     // The parent is what the interface reports (the observation), never the channel file's to invent.
-    [`discord:channel:${CHANNEL_ID}`, 'channel', CHANNEL_ID, null, 'group', 'général', 'Chat', null]
+    [`discord:channel:${CHANNEL_ID}`, 'channel', CHANNEL_ID, null, 'group', 'général', null]
   );
   assert.deepEqual(
     rows.descriptions.map((d) => d.field),

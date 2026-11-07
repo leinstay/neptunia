@@ -484,7 +484,6 @@ export async function wakeInputs({
     kind: 'channel',
     name: place?.name ?? conversation.conversationId,
     rootId: place ? (communityOfPlace(store, place.placeId) ?? PERSONA_ID) : PERSONA_ID,
-    category: null,
     topic: null,
     permissions: { read: true, send: true, attach: true, react: false },
     owner: null,
@@ -496,7 +495,7 @@ export async function wakeInputs({
   const posted = readMirrors(store, (db) => selfreflectionMessages(db as Db, place?.placeId ?? null, limit), []);
   const history = posted.map(({ message, addressing }) => {
     const event = {
-      conversation: { id: channel.id, name: channel.name, category: channel.category, topic: channel.topic },
+      conversation: { id: channel.id, name: channel.name, topic: channel.topic },
       message: {
         editedAt: null,
         replyToId: null,

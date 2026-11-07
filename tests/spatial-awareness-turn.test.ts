@@ -14,7 +14,6 @@ useIface('fake');
 
 const CHAIN = [
   { id: 'p-channel', kind: 'channel', name: 'general' },
-  { id: 'p-category', kind: 'category', name: 'Lounge' },
   { id: 'p-server', kind: 'server', name: 'Example Server' },
 ];
 
@@ -35,7 +34,8 @@ function spatialOf(text: string): string | null {
   return match ? (match[1] ?? null) : null;
 }
 
-test('a reply in a channel names the channel, its category, its server, the interface, the time and the note', async () => {
+// A category is no place, the owner's word of 2026-11-06, so no chain holds one.
+test('a reply in a channel names the channel, its server, the interface, the time and the note', async () => {
   // Bug: the turn builds its request without asking where it is, so she never sees the block on a live reply.
   const asked: Array<string> = [];
   const run = await coreTurn({
@@ -46,7 +46,7 @@ test('a reply in a channel names the channel, its category, its server, the inte
   const body = spatialOf(requestText(run.llm, 0));
   assert.ok(asked.length > 0, 'the turn asked the store for its chain');
   assert.deepEqual(body?.split('\n'), [
-    `SPATIAL-PLACE channel #general < category Lounge < server Example Server ON fake AT ${formatNow(NOW, 'UTC', labels.locale)}`,
+    `SPATIAL-PLACE channel #general < server Example Server ON fake AT ${formatNow(NOW, 'UTC', labels.locale)}`,
     'SPATIAL-GROUP',
     'SPATIAL-NOTE adults only',
   ]);
@@ -69,7 +69,7 @@ test('an inner turn that runs in a channel names that place', async () => {
     prompts: { inner: 'Do what the wake says.' },
   });
   const body = spatialOf(requestText(run.llm, 0));
-  assert.ok(body?.startsWith('SPATIAL-PLACE channel #general < category Lounge'), String(body));
+  assert.ok(body?.startsWith('SPATIAL-PLACE channel #general < server'), String(body));
 });
 
 for (const kind of ['heartbeat', 'selfimprovement']) {

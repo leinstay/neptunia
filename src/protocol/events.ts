@@ -81,10 +81,10 @@ export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
 
 /**
  * Where an event happened. `rootId`: the native id of the place at the top of the conversation's tree (none for a
- * direct chat); `name`, `topic`, `category`: what the people in it see, null when unknown.
- * `parentId`, `parentKind`: the place that contains this one, of any kind and at any depth (a server, a category, a
- * channel); a thread with no declared kind sits in a channel. Containment is apart from `kind`: a channel in a category
- * stays a channel. `authorityId`: the authority that issued this conversation's id, the interface's native one when absent.
+ * direct chat); `name`, `topic`: what the people in it see, null when unknown.
+ * `parentId`, `parentKind`: the place that contains this one, of any kind and at any depth (a server, a channel); a
+ * thread with no declared kind sits in a channel. A grouping of rooms in a platform's sidebar is no place and is never
+ * declared. `authorityId`: the authority that issued this conversation's id, the interface's native one when absent.
  * `chatType` (optional, CONVERSATION_CHAT_TYPES): a one-to-one chat, a group chat, a channel or a
  * thread; `partnerId` (optional): the other person of a one-to-one chat, null when unknown.
  */
@@ -94,7 +94,6 @@ export type Conversation = {
   rootId?: string | null;
   name?: string | null;
   topic?: string | null;
-  category?: string | null;
   parentId?: string | null;
   parentKind?: string;
   authorityId?: string;

@@ -121,7 +121,9 @@ function checkConversation(given: unknown): void {
   const conversation = asRecord(given);
   need(conversation.id, 'conversation.id', isId);
   need(conversation.kind, 'conversation.kind', isOneOf(CONVERSATION_KINDS), { problem: 'unknown' });
-  for (const key of ['rootId', 'name', 'topic', 'category', 'parentId'])
+  // An interface build that still sends the sidebar grouping's label is heard: the field goes, the event stays.
+  Reflect.deleteProperty(conversation, 'category');
+  for (const key of ['rootId', 'name', 'topic', 'parentId'])
     need(conversation[key], `conversation.${key}`, isNullableString, { required: false });
   need(conversation.chatType, 'conversation.chatType', isOneOf(CONVERSATION_CHAT_TYPES), {
     required: false,

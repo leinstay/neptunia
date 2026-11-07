@@ -7,6 +7,7 @@
 
 import { fill, formatNow } from '../../format.ts';
 import type { PlaceChainLink } from '../../memory/db/place-tree.ts';
+import type { Frame } from './frame.ts';
 import type { Labels, SpatialLabels } from './types.ts';
 
 /** The labels the block reads: the locale of the clock and `labels.spatial`. */
@@ -48,6 +49,16 @@ export function whereaboutsOf(input: {
   const stored = chainOf ? chainOf(placeId) : [];
   const chain = stored.length > 0 ? stored : [{ id: placeId, kind: null, name: null }];
   return { kind: 'place', iface, private: isPrivate, chain };
+}
+
+/**
+ * The whereabouts a frame states: her own server with no place or no interface, the command line on that interface,
+ * else the place with its chain.
+ */
+export function whereaboutsOfFrame(frame: Frame): Whereabouts {
+  if (frame.place === null || !frame.interface) return { kind: 'server' };
+  if (frame.interface === CLI_IFACE) return { kind: 'cli' };
+  return { kind: 'place', iface: frame.interface, private: frame.scope === 'dm', chain: frame.chain };
 }
 
 /** The owner's note on the nearest place of the chain that has a non-blank one; null when none has. */

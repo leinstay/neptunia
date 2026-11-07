@@ -1584,7 +1584,24 @@ function guildMessage(overrides = {}) {
   });
 }
 
+test('toEvent: the conversation of a channel in a category carries the guild as parent and no category field', () => {
+  // Bug: the sidebar grouping crosses the door again, as a parent place or as a text, and she is in a place nobody named.
+  const channel = {
+    id: 'c1',
+    name: 'γενικά',
+    parentId: 'cat1',
+    parent: { id: 'cat1', name: 'κοινότητα' },
+    isThread: () => false,
+    messages: { cache: new Map() },
+  };
+  const { conversation } = toEvent(guildMessage({ channel }), 'self');
+  assert.equal(conversation.parentId, 'g1');
+  assert.equal(conversation.parentKind, 'server');
+  assert.equal('category' in conversation, false);
+});
+
 test('toEvent: a message becomes a valid message.received event, field for field', () => {
+  // A category is no place, the owner's word of 2026-11-06.
   const raw = guildMessage();
   const event = toEvent(raw, 'self', { maxUrlChars: 200 });
   assert.deepEqual(validateEvent(event), { ok: true });
@@ -1598,7 +1615,8 @@ test('toEvent: a message becomes a valid message.received event, field for field
     rootId: 'g1',
     name: 'γενικά',
     topic: 'κουβέντα',
-    category: 'κοινότητα',
+    parentId: 'g1',
+    parentKind: 'server',
     chatType: 'channel',
   });
   assert.deepEqual(event.message.author, { id: 'u1', name: 'Alice', self: false, bot: false });
@@ -1618,6 +1636,7 @@ test('toEvent: a message becomes a valid message.received event, field for field
 });
 
 test('toEvent: a direct chat is a dm conversation, a thread a thread', () => {
+  // A category is no place, the owner's word of 2026-11-06.
   const dm = toEvent(rawMessage({ guild: null, channel: { id: 'd1' }, channelId: 'd1' }), 'self');
   assert.deepEqual(dm.conversation, {
     id: 'd1',
@@ -1625,7 +1644,6 @@ test('toEvent: a direct chat is a dm conversation, a thread a thread', () => {
     rootId: null,
     name: null,
     topic: null,
-    category: null,
     chatType: 'dm',
     partnerId: null,
   });
@@ -1729,6 +1747,7 @@ test('toEvent: two updates with the same edit stamp (an embed attached after an 
 });
 
 test('toEvent: an edit of a partial message carries only its id, and a deletion only its id', () => {
+  // A category is no place, the owner's word of 2026-11-06.
   const partial = { id: 'm1', channelId: 'c1', guildId: 'g1', partial: true, author: null };
   const edit = toEvent(partial, 'self', { edit: true, now: () => 7000 });
   assert.deepEqual(validateEvent(edit), { ok: true });
@@ -1745,7 +1764,8 @@ test('toEvent: an edit of a partial message carries only its id, and a deletion 
     rootId: 'g1',
     name: null,
     topic: null,
-    category: null,
+    parentId: 'g1',
+    parentKind: 'server',
     chatType: 'channel',
   });
 });

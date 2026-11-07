@@ -114,11 +114,14 @@ export function requestHead(given: RequestInput): Base {
   const privateChat = Boolean(given.privateChat);
   // mergeProfiles lays the private layer over the public profile: the partner's profile, as stored. A partner known only
   // from this DM has no public profile, and the trigger gives the merged one its id and heading.
-  const named = given.trigger?.authorName ? [given.trigger.authorName] : [];
-  const privateOnly = given.privateProfile && given.trigger ? { id: given.trigger.authorId, names: named } : null;
+  const framed = given.frame ?? null;
+  const counterpartName = framed ? framed.counterpart?.name : given.trigger?.authorName;
+  const named = counterpartName ? [counterpartName] : [];
+  const counterpartId = framed ? framed.answers?.authorId : given.trigger?.authorId;
+  const privateOnly = given.privateProfile && counterpartId ? { id: counterpartId, names: named } : null;
   const merged = (): Profile | null =>
     mergeProfiles(
-      (given.interlocutor ?? privateOnly) as Profile | null,
+      given.interlocutor ?? privateOnly,
       given.privateProfile as object | null | undefined
     ) as Profile | null;
   const interlocutor = privateChat ? merged() : given.interlocutor;

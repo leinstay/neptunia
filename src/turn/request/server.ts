@@ -15,7 +15,6 @@ import { MEMORY_LIMITS } from '../../memory/text-limits.ts';
 export type StoredChannel = {
   readonly id: string;
   readonly name: string;
-  readonly category?: string | null;
   readonly topic?: string | null;
   readonly purpose?: string;
   readonly topics?: string;
@@ -46,7 +45,7 @@ type LoreEntry = { readonly id?: unknown; readonly title?: string; readonly text
 
 /**
  * A stand-in channel entry for `serverItems` when the current channel has no
- * stored note yet (see below): the platform's facts (name, category, topic) read off
+ * stored note yet (see below): the platform's facts (name, topic) read off
  * whichever `history` message actually belongs to `currentChannelId` (every
  * message `buildRequest` is given for `<chat>` comes from that one channel,
  * see src/protocol/events.ts#Message) -- so the persona still knows
@@ -66,7 +65,6 @@ export function currentChannelFallback(
   return {
     id: currentChannelId,
     name: source.channelName,
-    category: source.channelCategory ?? null,
     topic: source.channelTopic ?? null,
     purpose: '',
     topics: '',

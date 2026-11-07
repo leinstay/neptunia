@@ -118,7 +118,6 @@ export const CAPTURE_POLICY_VERSION = 1;
 export const PLACE_KINDS: ReadonlyArray<string> = Object.freeze([
   'server',
   'workspace',
-  'category',
   'channel',
   'room',
   'thread',
@@ -610,6 +609,11 @@ function parentPlaceOf(db: Db, envelope: ObservationPlaceInput, at: string): str
   if (!filled(parent)) return null;
   const match = /^([a-z_]+):(.+)$/.exec(parent);
   const kind = match?.[1];
+  // A sidebar grouping an old interface build still declares is no place: the room sits under the envelope's top.
+  if (kind === 'category') {
+    const { top } = envelope.place;
+    return filled(top) ? topPlaceOf(db, envelope, top, at) : null;
+  }
   const found =
     nodeOf(db, authority, 'place', parent, null, envelope.occurredAt, at) ??
     (kind === undefined ? null : placeByNative(db, authority, kind, match?.[2] ?? ''));
@@ -618,6 +622,11 @@ function parentPlaceOf(db: Db, envelope: ObservationPlaceInput, at: string): str
   const top = envelope.place.top;
   if (filled(top) && top !== parent) fillParent(db, id, topPlaceOf(db, envelope, top, at), at);
   return id;
+}
+
+/** The `extra` of a new place whose declared parent resolved to nothing: the key stays as a note, a category's goes. */
+function parentNote(declared: unknown, resolved: string | null): string | null {
+  return filled(declared) && !resolved && !declared.startsWith('category:') ? json({ parent: declared }) : null;
 }
 
 /** A place stored under another spelling of its native key: the same authority, kind and native id. */
@@ -746,7 +755,7 @@ function placeOf(
       partner_account: partner?.account ?? null,
       seen_from_at: envelope.occurredAt,
       seen_to_at: envelope.occurredAt,
-      extra: filled(p.parent) && !parent ? json({ parent: p.parent }) : null,
+      extra: parentNote(p.parent, parent),
       owner_key: null,
     },
     { at }

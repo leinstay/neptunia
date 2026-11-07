@@ -141,6 +141,7 @@ test('an integrated database opens at the new version with every old row byte fo
     assert.equal(schemaVersion(db), MIGRATIONS.length);
     assert.ok(MIGRATIONS.length > INTEGRATED.length);
     // Stage M rewrites `media` and takes `media` off `sources`, on purpose; every other shipped table stays byte for byte.
+    // A category is no place, the owner's word of 2026-11-06: `places.category` is dropped and `model_requests.blocks` added on purpose as well.
     const asOfOld = (text: Record<string, string>) => {
       const rest = { ...text };
       delete rest.media;
@@ -149,12 +150,24 @@ test('an integrated database opens at the new version with every old row byte fo
         delete line.media;
         return line;
       });
-      return { ...rest, sources: JSON.stringify(lines) };
+      const places = (JSON.parse(text.places) as Array<Row>).map((row) => {
+        const place = { ...row };
+        delete place.category;
+        return place;
+      });
+      return { ...rest, sources: JSON.stringify(lines), places: JSON.stringify(places) };
     };
     assert.deepEqual(asOfOld(contentOf(db, tables)), asOfOld(before));
     const after = definitions(db);
     for (const [name, sql] of objects) {
-      if (name === 'media' || name === 'sources' || name.startsWith('diary')) continue;
+      if (
+        name === 'media' ||
+        name === 'sources' ||
+        name === 'places' ||
+        name === 'model_requests' ||
+        name.startsWith('diary')
+      )
+        continue;
       assert.equal(after.get(name), sql, `${name} changed its definition`);
     }
     const names = db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'semantic_%'").all();

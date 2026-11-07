@@ -40,12 +40,12 @@ function eventWith(
 }
 
 test('lineOf makes the line of a message event with the fields a turn reads, in their order', () => {
+  // A category is no place, the owner's word of 2026-11-06.
   const line = lineOf(eventWith());
-  assert.deepEqual(Object.keys(line).slice(0, 14), [
+  assert.deepEqual(Object.keys(line).slice(0, 13), [
     'id',
     'placeId',
     'channelName',
-    'channelCategory',
     'channelTopic',
     'authorId',
     'authorName',

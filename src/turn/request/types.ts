@@ -2,6 +2,7 @@
 // stored profiles, the normalized messages, the transcript items and the budget's sections. Types only: the block
 // builders of src/turn/request/ and src/behavior/prompt.ts#buildRequest share them.
 
+import type { Frame } from './frame.ts';
 import type { formatTranscript } from '../../format.ts';
 import type { ParticipationInput } from './memory.ts';
 import type { Lookup, Prefetch } from './recall.ts';
@@ -172,7 +173,6 @@ export type Message = {
   readonly mentionedAccountIds?: Array<string>;
   readonly placeId?: string;
   readonly channelName?: string;
-  readonly channelCategory?: string | null;
   readonly channelTopic?: string | null;
   readonly emojis?: Array<EmojiRef>;
   readonly forwarded?: Array<{
@@ -302,7 +302,7 @@ export type RequestInput = {
   readonly candidateProfiles?: unknown;
   readonly nameOf?: unknown;
   readonly channels: Array<StoredChannel>;
-  readonly channelDirectory?: Array<{ id: string; name: string; category?: string | null }> | null;
+  readonly channelDirectory?: Array<{ id: string; name: string }> | null;
   readonly loreEntries?: unknown;
   readonly currentChannelId: string | null;
   readonly descriptions?: Map<string, string>;
@@ -346,4 +346,5 @@ export type RequestInput = {
   readonly previousThink?: PreviousThink | null;
   readonly stableFreeze?: unknown;
   readonly whereabouts?: Whereabouts | null;
+  readonly frame?: Frame | null;
 };

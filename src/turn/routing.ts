@@ -6,18 +6,14 @@ import type { Snapshot } from '../behavior/snapshot.ts';
 
 /**
  * `<channel_directory>`'s input: every channel of the snapshot's community the persona may read (never a thread), as
- * `{ id, name, category }`. None without a listing (a private chat, an interface that offers none).
+ * `{ id, name }`. None without a listing (a private chat, an interface that offers none).
  */
 export function channelDirectoryOf(
   snapshot: Snapshot | null | undefined
-): Array<{ id: string; name: string | null | undefined; category: string | null }> {
+): Array<{ id: string; name: string | null | undefined }> {
   return (snapshot?.conversations ?? [])
     .filter((entry) => isReadable(entry))
-    .map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      category: typeof entry.category === 'string' ? entry.category : null,
-    }));
+    .map((entry) => ({ id: entry.id, name: entry.name }));
 }
 
 /** Whether a conversation belongs to a community (a channel or a thread), not a private chat. */

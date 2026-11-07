@@ -270,7 +270,6 @@ export function eventOfLine(line: unknown, iface: string): MessageEvent {
       placeId: null,
       name: found.channelName,
       topic: found.channelTopic,
-      category: found.channelCategory,
     },
     message: {
       id: found.id,
@@ -341,7 +340,7 @@ export function weekReads(
 ): { reads: Reads; iface: string } {
   const adapter = createFakeAdapter({ iface: 'inner-week', selfId: 'self' });
   const base = { kind: 'channel', rootId: placeId, chatType: 'channel', iface: adapter.iface } as const;
-  const rest = { topic: null, category: null, owner: null, lastMessageAt: null, voice: false, public: true } as const;
+  const rest = { topic: null, owner: null, lastMessageAt: null, voice: false, public: true } as const;
   for (const { id, name, writable } of channels) {
     const permissions = { read: true, send: writable !== false, attach: true, react: true };
     adapter.seedConversation({ ...base, ...rest, audience: null, id, name, permissions });

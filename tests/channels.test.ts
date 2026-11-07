@@ -96,10 +96,10 @@ test('renderChannel: heading only, no facts, still shows the activity line', () 
   assert.equal(text, '# general\nactivity: slow');
 });
 
-test('renderChannel: fact lines appear in the documented order: category, topic, purpose, topics, tone, activity', () => {
+test('renderChannel: fact lines appear in the documented order: topic, purpose, topics, tone, activity', () => {
+  // A category is no place, the owner's word of 2026-11-06.
   const c = channel({
     name: 'general',
-    category: 'Text channels',
     topic: 'no politics',
     purpose: 'general chatter',
     topics: 'games, memes',
@@ -110,7 +110,6 @@ test('renderChannel: fact lines appear in the documented order: category, topic,
     text,
     [
       '# general',
-      'category: Text channels',
       'topic: no politics',
       'purpose: general chatter',
       'what people write here: games, memes',

@@ -82,6 +82,7 @@ test('a group chat may declare a containing place and keeps its kind', () => {
 });
 
 test('a chain of parents is stored place by place, whatever order they are seen in', () => {
+  // A category is no place, the owner's word of 2026-11-06.
   // Bug: a parent no message was seen in has no row and an earlier child keeps no link, so the chain stops at the thread.
   const handle = openMemoryDb(':memory:');
   try {
@@ -92,7 +93,7 @@ test('a chain of parents is stored place by place, whatever order they are seen 
       assert.equal(result.ok, true, JSON.stringify(result));
     };
     stored({ id: 't1', kind: 'thread', chatType: 'thread', parentId: 'c1' }, 'm1');
-    stored({ id: 'c1', kind: 'channel', chatType: 'channel', parentId: 'cat1', parentKind: 'category' }, 'm2');
+    stored({ id: 'c1', kind: 'channel', chatType: 'channel', parentId: 'g1', parentKind: 'server' }, 'm2');
     const rows = dbOf(handle).prepare('SELECT id, native_key, parent_id FROM places').all() as Array<{
       id: string;
       native_key: string | null;
@@ -105,7 +106,7 @@ test('a chain of parents is stored place by place, whatever order they are seen 
       const parent: string | null = at.parent_id;
       at = rows.find((row) => row.id === parent);
     }
-    assert.deepEqual(walked, ['thread:t1', 'channel:c1', 'category:cat1']);
+    assert.deepEqual(walked, ['thread:t1', 'channel:c1', 'server:g1']);
   } finally {
     handle.close();
   }
@@ -131,8 +132,9 @@ test('a DM observed with no community stores no community place', () => {
   }
 });
 
-test('the Discord adapter declares a category as a plain parent place and no community for a DM', () => {
-  // Bug: the category is only a name, so the core cannot tell two categories apart, or a Discord object crosses the door.
+test('the Discord adapter declares the community as the parent of a channel in a category, and none for a DM', () => {
+  // A category is no place, the owner's word of 2026-11-06.
+  // Bug: a Discord object crosses the door, or a channel in a category reports the category as its parent.
   const inCategory = {
     id: 'c1',
     placeId: 'g1',
@@ -145,9 +147,9 @@ test('the Discord adapter declares a category as a plain parent place and no com
   };
   const room = conversationOfChannel(inCategory);
   assert.equal(room.kind, 'channel');
-  assert.equal(room.parentId, 'cat1');
+  assert.equal(room.parentId, 'g1');
   assert.deepEqual(room, JSON.parse(JSON.stringify(room)));
-  assert.equal((room as { parentKind?: unknown }).parentKind, 'category');
+  assert.equal((room as { parentKind?: unknown }).parentKind, 'server');
 
   const direct = conversationOfChannel({ id: 'd1', type: ChannelType.DM, recipientId: 'u1', isThread: () => false });
   assert.equal(direct.kind, 'dm');

@@ -243,7 +243,6 @@ const handlers = perEnv((env) => {
 
       return [
         `name: ${channel.name || '-'}`,
-        `category: ${channel.category || '-'}`,
         `topic: ${channel.topic || '-'}`,
         `purpose: ${resolve(channel.purpose) || '(empty)'}`,
         `topics: ${resolve(channel.topics) || '(empty)'}`,
