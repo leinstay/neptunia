@@ -17,7 +17,7 @@ import {
   topEpisodes,
 } from '../../memory/index.ts';
 import { topByRank } from '../../memory/ranking.ts';
-import { foldText, accountIdOf } from '../../memory/recent.ts';
+import { foldText } from '../../memory/recent.ts';
 import { DAY_MS, zonedDay } from '../../time.ts';
 import { fieldLine } from '../../behavior/around.ts';
 import { noteItems } from './reads.ts';
@@ -95,11 +95,6 @@ const ranked = <T extends object>(items: Array<T>, n: number | undefined, halfLi
 
 /** sortEpisodesForDisplay over a profile's episodes: the same episodes, heaviest then newest. */
 const displayOrder = (episodes: Array<Episode>): Array<Episode> => sortEpisodesForDisplay(episodes) as Array<Episode>;
-
-/** The stored profiles of a list as given: an array of profiles, anything else none. */
-const profilesOf = (profiles: unknown): Array<Profile | null | undefined> =>
-  // A caller's profile list (store.listUserProfiles), read loosely like any stored list.
-  Array.isArray(profiles) ? (profiles as Array<Profile | null | undefined>) : [];
 
 /**
  * A member's remembered episodes (the interlocutor's, or the top few of a
@@ -533,49 +528,6 @@ function moveParts(
  */
 export function renderProfile(profile: Profile | null | undefined, labels: Labels, opts?: ShowOptions): string {
   return renderProfileShown(profile, labels, opts).text;
-}
-
-/**
- * The `<attitudes>` block's one item: `labels.attitudes.header`, then one
- * `labels.attitudes.line` per member (`{name}` = the stored `names[0]`,
- * `{band}` = `labels.affinity.bands[affinityBand(score)]`, as the attitude
- * of a `<people_now>` entry shows it) -- the `max` members of `profiles` with the
- * largest `|affinity.score|`, warm and cool alike, rendered by the signed score
- * descending (warmest first, coolest last). A profile is skipped when its score
- * is not a finite number or is 0, its id is in `skipIds` (the interlocutor and
- * the members `<people>` shows) or was already taken, it has no name, or its
- * band has no label. Equal `|score|` keeps the input order. No score, no
- * reason. '' when `max` is not a positive integer, a label is missing or no
- * member is left, so the block drops out.
- * `profiles` are the public member profiles (store.listUserProfiles).
- */
-export function renderAttitudes(
-  profiles: unknown,
-  labels: Labels,
-  { max, skipIds }: { max: number; skipIds: Set<string> }
-): string {
-  const header = labels.attitudes?.header;
-  const line = labels.attitudes?.line;
-  const bands = labels.affinity?.bands;
-  if (!header || !line || !bands || !Number.isInteger(max) || max <= 0) return '';
-  const taken = new Set<string>();
-  const candidates: Array<{ score: number; text: string }> = [];
-  for (const profile of profilesOf(profiles)) {
-    const id = accountIdOf(profile?.id);
-    const score = profile?.affinity?.score;
-    const name = profile?.names?.[0];
-    if (id === null || skipIds.has(id) || taken.has(id)) continue;
-    if (typeof score !== 'number' || !Number.isFinite(score) || score === 0 || typeof name !== 'string' || !name)
-      continue;
-    const band = bands[affinityBand(score)];
-    if (!band) continue;
-    taken.add(id);
-    candidates.push({ score, text: fill(line, { name, band }) });
-  }
-  const top = candidates.sort((a, b) => Math.abs(b.score) - Math.abs(a.score)).slice(0, max);
-  if (top.length === 0) return '';
-  top.sort((a, b) => b.score - a.score);
-  return [header, ...top.map((entry) => entry.text)].join('\n');
 }
 
 /**

@@ -108,7 +108,7 @@ type ViewStore = {
  * member handles (`memberHandles`: handle -> member id, her `@handle` in a member argument) and the skill registry
  * (`skills`: a skill's options are resolved by its dispatch), `places` (the channels a read call may name, from the
  * snapshot by the pull rail with `partnerId` as the reader of a private chat or the command line; left out without a
- * `config` or a snapshot), `stem` (the loaded stemmer, `stem` as given), `searchRefs` (the turn's quoted lines
+ * `config` or a snapshot), `stem` (the loaded stemmer, `stem` as given), `placesNamed` (the name index of the memory under the turn's context), `searchRefs` (the turn's quoted lines
  * of a memory.search, searchHandles), and `fileOf` (a file handle
  * of one of her errands -> the file, null when this conversation may not use it), and `triggerText` (the
  * trigger message's text: a channel it names may take an errand's file). Reads `store` only. Exported
@@ -136,6 +136,7 @@ export function callViewOf({
   partnerId = null,
   config = null,
   stem = null,
+  placesNamed = null,
 }: {
   // The interface's description of the conversation: a private chat (`rootId` null) lists no channels.
   channel: Pick<Conversation, 'rootId'> & { id: string | number; name?: unknown };
@@ -158,6 +159,7 @@ export function callViewOf({
   partnerId?: string | null;
   config?: Record<string, unknown> | null;
   stem?: ((word: string) => string) | null;
+  placesNamed?: CallView['placesNamed'];
 }): CallView & { currentConversationId: string } {
   const conversations: Array<{ id: string; name: string }> = [];
   // A private chat shows no channel of the community: only the turn's own.
@@ -194,6 +196,7 @@ export function callViewOf({
     conversations,
     ...(places ? { places } : {}),
     ...(stem ? { stem } : {}),
+    ...(placesNamed ? { placesNamed } : {}),
     channelHandles: channelHandles instanceof Map ? (channelHandles as Map<string, string>) : null,
     memberHandles: memberHandles instanceof Map ? (memberHandles as Map<string, string>) : null,
     messageAt: (n) => {

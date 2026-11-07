@@ -120,16 +120,3 @@ export function audienceAllows(
   if (!pullSettings(config as object).sameAudience) return true;
   return audienceCovers(railAudience(destination?.audience), railAudience(source?.audience));
 }
-
-/** The audience of "every member of the community": everyone views it and no group or member is held back. */
-export function everyMemberAudience(): RailAudience {
-  return {
-    everyone: true,
-    roles: new Set(),
-    roleAllow: new Set(),
-    roleDeny: new Set(),
-    memberAllow: new Set(),
-    memberDeny: new Set(),
-    memberRoles: new Map(),
-  };
-}

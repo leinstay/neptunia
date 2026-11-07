@@ -1,15 +1,13 @@
-// The task of a turn's request: which prompt file frames it, the trigger's label, where a routed call came from, the
-// room's question, what else the author waits for and the private chat's addition, and the
+// The task of a turn's request: which prompt file frames it, the trigger's label, what else the author waits for and
+// the private chat's addition, and the
 // check of a follow-up's own task. buildRequest (src/behavior/prompt.ts) and the request phase's facts
 // (src/turn/phases/request/facts.ts) call them.
 
 import { kindOfRequest } from './frame.ts';
 import { fill, formatDuration } from '../../format.ts';
-import { currentChannelFallback } from './server.ts';
 import { fillPromptTemplate } from './text.ts';
 import type { Base } from './head.ts';
-import type { PulledView } from './pulled.ts';
-import type { Cost, Fit, Labels, RequestInput, TranscriptItem } from './types.ts';
+import type { Labels, RequestInput, TranscriptItem } from './types.ts';
 
 /** What else the trigger's author is waiting for (buildRequest's `input.tasks`). */
 export type Tasks = {
@@ -122,46 +120,38 @@ export function renderTasks(
  * to the persona) or an untagged `reply` (a platform reply to the persona's line with no typed tag,
  * `taggedCall` exactly false -- src/behavior/mention.ts#isTaggedCall, as decideMention reads it).
  * A mention, a tagged reply (or one whose tagged state is unknown), a name call, an overheard
- * line, a routed call and a private chat keep their usual task. Pure.
+ * line and a private chat keep their usual task. Pure.
  */
 export function usesFollowUpTask({
   mode,
   triggerKind,
   taggedCall = null,
-  routed = false,
   privateChat = false,
 }: {
   mode: string;
   triggerKind: string | null | undefined;
   taggedCall?: boolean | null;
-  routed?: boolean;
   privateChat?: boolean;
 }): boolean {
-  if (mode !== 'reply' || routed || privateChat) return false;
+  if (mode !== 'reply' || privateChat) return false;
   return triggerKind === 'followUp' || (triggerKind === 'reply' && taggedCall === false);
 }
 
-/** A request's task: the routed call's line, whether the trigger was overheard, and the task text either way. */
+/** A request's task: whether the trigger was overheard, and the task text. */
 export type Task = {
-  pulledTrigger: TranscriptItem | null;
   overheard: boolean;
-  composeTask: (callShown: boolean) => string;
   fittedTask: string;
 };
 
 /**
  * The task text of a turn: the mode's prompt file, or the overheard, errand, follow-up, heartbeat or selfimprovement file in its place,
- * then the routed call's origin, the room's question, what else the author waits for and the private chat's addition.
+ * then what else the author waits for and the private chat's addition.
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
-export function taskOf(given: RequestInput & Base & PulledView): Task {
-  const { prompts, mode, now, selfName, history, trigger, triggerKind, channels, currentChannelId } = given;
-  const { labels, privateChat, chatItems, source, routed, offered, chatTrigger, pulledTriggerId, pulledSets } = given;
-  // The trigger's line in another channel (a routed call), when a pulled channel holds it.
-  const pulledTrigger =
-    pulledTriggerId !== null
-      ? (pulledSets.flatMap((channel) => channel.items).find((item) => item.id === pulledTriggerId) ?? null)
-      : null;
+export function taskOf(given: RequestInput & Base): Task {
+  const { prompts, mode, now, selfName, trigger, triggerKind } = given;
+  const { labels, privateChat, chatItems } = given;
+  const chatTrigger = trigger ? (chatItems.find((item) => item.id === trigger.id) ?? null) : null;
   // A follow-up (triggerKind: 'followUp') falls back to labels.triggers.reply
   // when an older labels.json has no dedicated label yet -- see prompt-contract.md.
   // An overheard line (triggerKind: 'overheard') falls back to the follow-up's label, then reply's.
@@ -171,15 +161,6 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
     : triggerKind === 'followUp'
       ? (labels.triggers?.followUp ?? labels.triggers?.reply ?? '')
       : (labels.triggers?.[String(triggerKind)] ?? '');
-  // A turn about another channel (routed or noticed) names both channels in its task: the
-  // source, and this one, where the words go (its live name first).
-  const sourceChannel = source ? (offered.find((channel) => channel.placeId === source.placeId) ?? null) : null;
-  const here = sourceChannel
-    ? (currentChannelFallback(currentChannelId, history)?.name ??
-      (given.elsewhereDestination?.name || null) ??
-      channels.find((channel) => channel?.id === currentChannelId)?.name ??
-      '')
-    : '';
   // An overheard turn has its own task text (prompts.overheard) INSTEAD of the mode's; without
   // it (missing or blank) the mode's text frames the line as said to the persona: degraded.
   const overheardTask =
@@ -200,7 +181,7 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
   // reply.md; without it (missing or blank) reply.md frames it, as before the file existed.
   const followUpPrompt = prompts['follow-up'];
   const followUpTask =
-    usesFollowUpTask({ mode, triggerKind, taggedCall: given.taggedCall, routed, privateChat }) &&
+    usesFollowUpTask({ mode, triggerKind, taggedCall: given.taggedCall, privateChat }) &&
     typeof followUpPrompt === 'string' &&
     followUpPrompt.trim()
       ? followUpPrompt
@@ -208,60 +189,20 @@ export function taskOf(given: RequestInput & Base & PulledView): Task {
   // What else the author waits for: the part answered now and the rest, their queued calls, and
   // their later messages about this call.
   const tasksText = renderTasks(given.tasks, labels, { chatItems, now });
-  // The task text. `callShown`: whether the pulled trigger's line made it into
-  // `<channel_view>` -- a task never points at a line the request does not show.
-  // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
-  const composeTask = (callShown: boolean) => {
-    const callItem = chatTrigger ?? (callShown ? pulledTrigger : null);
-    const taskValues = {
-      name: selfName,
-      author: trigger?.authorName ?? '',
-      trigger: triggerLabel,
-      target: callItem ? `#${callItem.index}` : '',
-      ...(sourceChannel ? { place: sourceChannel.name, destination: here } : {}),
-    };
-    const baseTask = fillPromptTemplate(
-      overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? prompts[mode] ?? '',
-      taskValues
-    );
-    // Private chat: prompts.private follows the mode prompt; a missing file adds nothing.
-    const privateText =
-      privateChat && typeof prompts.private === 'string' && prompts.private.trim()
-        ? fillPromptTemplate(prompts.private, taskValues)
-        : '';
-    // A routed call: where it came from and where the words go follow the mode's text, while
-    // the call is shown and this channel has a name.
-    const calledText =
-      routed && sourceChannel && callItem && here && labels.elsewhere?.called
-        ? fill(labels.elsewhere.called, { channel: sourceChannel.name, destination: here })
-        : '';
-    return [baseTask, calledText, tasksText, privateText].filter(Boolean).join('\n\n');
+  const taskValues = {
+    name: selfName,
+    author: trigger?.authorName ?? '',
+    trigger: triggerLabel,
+    target: chatTrigger ? `#${chatTrigger.index}` : '',
   };
-  // Fitted as if the call's line is shown: the pulled block keeps it whenever the request has
-  // room for it (see fitPulledChannel); checked once the budget is spent.
-  const fittedTask = composeTask(true);
-  return { pulledTrigger, overheard, composeTask, fittedTask };
-}
-
-/**
- * A call whose line did not make it into the block is not pointed at: the task loses its target and the called text.
- * The request only gets shorter, so the fit holds. Fills `fit`; the task text.
- */
-export function finalTask(
-  fit: Fit,
-  given: Task & { cost: Cost },
-  pulledKept: Array<{ ids: Array<string | undefined> }>
-): string {
-  const { stats } = fit;
-  let { used } = fit;
-  const { pulledTrigger, composeTask, fittedTask, cost } = given;
-  const callShown = pulledKept.some((shown) => shown.ids.includes(pulledTrigger?.id));
-  const task = pulledTrigger && !callShown ? composeTask(false) : fittedTask;
-  if (task !== fittedTask) {
-    const saved = cost(fittedTask) - cost(task);
-    stats.fixed.used -= saved;
-    used -= saved;
-  }
-  fit.used = used;
-  return task;
+  const baseTask = fillPromptTemplate(
+    overheardTask ?? errandTask ?? followUpTask ?? ownWakeTask ?? prompts[mode] ?? '',
+    taskValues
+  );
+  // Private chat: prompts.private follows the mode prompt; a missing file adds nothing.
+  const privateText =
+    privateChat && typeof prompts.private === 'string' && prompts.private.trim()
+      ? fillPromptTemplate(prompts.private, taskValues)
+      : '';
+  return { overheard, fittedTask: [baseTask, tasksText, privateText].filter(Boolean).join('\n\n') };
 }

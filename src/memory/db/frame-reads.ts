@@ -7,9 +7,10 @@
 import { nativeOfAny } from './ids.ts';
 import { mindOf, mindSettingsOf } from './mind-read.ts';
 import type { Mind, Seeds } from './mind-read.ts';
-import { interfaceNouns } from './names.ts';
+import { interfaceNouns, placesNamed } from './names.ts';
 import { placeChainInDb } from './place-tree.ts';
-import { whereFor } from './scope.ts';
+import { allowedAudience, whereFor } from './scope.ts';
+import { placeAudience } from './graph.ts';
 import { readSelfreflection } from './selfreflection-past.ts';
 import type { PastEntry } from './selfreflection-past.ts';
 import type { Context } from './scope.ts';
@@ -106,6 +107,12 @@ export function linesAroundOf(db: Db, ctx: Context, placeId: string, at: number,
   const after = read('ASC', '>', count);
   const seen = new Set<string>();
   return [...before, ...after].map(lineOf).filter((line) => !seen.has(line.id) && Boolean(seen.add(line.id)));
+}
+
+/** Whether the context reads the stored place `placeId`, retired or live: a gone room keeps its read handle. */
+export function placeReadableOf(db: Db, ctx: Context, placeId: string): boolean {
+  const place = db.prepare('SELECT id, iface, kind, conversation FROM places WHERE id = ?').get(placeId);
+  return place !== undefined && allowedAudience({ audience_id: placeAudience(place) }, ctx);
 }
 
 /** A stored line by its identity without the revision, as a reference names it. */
@@ -242,6 +249,10 @@ export type FrameReads = {
   sourceInPlace?(placeId: string, messageId: string): string | null;
   /** Her newest `limit` selfreflection entries the context may read, oldest first (readSelfreflection). */
   selfreflection?(ctx: Context, limit: number): Array<PastEntry>;
+  /** The live places a name she wrote names under the context, each once with its stored name (names.ts#placesNamed). */
+  placesNamed?(ctx: Context, name: string): Array<{ id: string; name: string }>;
+  /** Whether the context reads a stored place (placeReadableOf). */
+  placeReadable?(ctx: Context, placeId: string): boolean;
 };
 
 const NO_MIND: Mind = {
@@ -274,5 +285,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     source: (iface, messageId) => over(null, (db) => sourceOfMessage(db, iface, messageId)),
     sourceInPlace: (placeId, messageId) => over(null, (db) => sourceInPlace(db, placeId, messageId)),
     selfreflection: (ctx, limit) => over([], (db) => readSelfreflection(db, ctx, limit)),
+    placesNamed: (ctx, name) => over([], (db) => placesNamed(db, ctx, name)),
+    placeReadable: (ctx, placeId) => over(false, (db) => placeReadableOf(db, ctx, placeId)),
   };
 }

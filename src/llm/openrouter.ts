@@ -199,7 +199,7 @@ const ANALYZER_TIMEOUT_MS_FALLBACK = 30000;
  * @param request.role The model role, `analyzer` say (see `complete`).
  * @param request.maxOutputTokens Undefined leaves `llm.maxOutputTokens` in charge.
  * @param request.purpose What the request is for, a kebab-case code for the
- *   `llm: usage` line (`address`, `rewatch`, `query-builder`, `search-summary`, `elsewhere-pick`,
+ *   `llm: usage` line (`address`, `rewatch`, `query-builder`, `search-summary`,
  *   `describe`); never sent.
  * @param request.signal The caller's own abort signal, if it has one.
  * @param request.timeoutMs A request with a clock of its own; else

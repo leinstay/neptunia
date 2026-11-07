@@ -4,13 +4,13 @@
 // `selfreflectionFramedOf` for the planner and the writer on the frame, and `selfreflectionOf` for a request with no frame.
 // None of it reaches a request of another kind.
 
-import { DEFAULT_HISTORY_POSTS, localDayKey, renderSelfreflectionBlock } from '../../behavior/selfreflection.ts';
+import { localDayKey, renderSelfreflectionBlock } from '../../behavior/selfreflection.ts';
 import { fill } from '../../format.ts';
 import { refusedAudience } from '../../tools/publication.ts';
 import { kindOfRequest } from './frame.ts';
 import { fillPromptTemplate } from './text.ts';
 import type { KnownPlaces } from '../../tools/publication.ts';
-import type { Labels, Prompts, RequestConfig, RequestInput } from './types.ts';
+import type { Labels, Prompts, RequestInput } from './types.ts';
 
 /**
  * A selfreflection request's own input (buildRequest's `input.selfreflection`): the store's posts (their refused
@@ -44,24 +44,6 @@ export function worldText(_config: unknown, prompts: Prompts | null | undefined,
   const text = prompts?.world;
   if (typeof text !== 'string' || !text.trim()) return '';
   return fillPromptTemplate(text, { name: selfName }).trim();
-}
-
-/** The `<diary>` block's post lines (no intro), oldest first: the newest `selfreflection.historyPosts` (150), a picture
- * post's scene cut to `selfreflection.sceneChars` (400). */
-export function selfreflectionHistoryLines(
-  posts: unknown,
-  labels: Labels,
-  config: Pick<RequestConfig, 'bot' | 'selfreflection'>
-): Array<string> {
-  const body = renderSelfreflectionBlock(posts, labels, {
-    timezone: config.bot?.timezone,
-    max: DEFAULT_HISTORY_POSTS,
-    sceneChars: config.selfreflection?.sceneChars,
-  });
-  if (!body) return [];
-  const lines = body.split('\n');
-  const intro = labels.selfreflection?.intro;
-  return intro && lines[0] === intro ? lines.slice(1) : lines;
 }
 
 /**
@@ -134,76 +116,6 @@ export function audienceRefusedBody(posts: unknown, labels: Labels, timezone: st
       ];
     })
     .join('\n');
-}
-
-/** A selfreflection post's blocks: the world, the past posts with their intro, the plan, what the search found, the seeds. */
-export type SelfreflectionParts = {
-  worldItem: string;
-  selfreflectionLines: Array<string>;
-  selfreflectionIntro: string;
-  planText: string;
-  foundText: string;
-  seedsText: string;
-  publicationPlacesText: string;
-  audienceRefusedText: string;
-  selfreflectionParts: {
-    intro: string;
-    plan: string;
-    seeds: string;
-    publicationPlaces: string;
-    audienceRefused: string;
-  } | null;
-};
-
-/**
- * A selfreflection post (mode `selfreflection`) on a request with no frame: the persona's world, its past posts, the
- * post's plan and what its search found. None of it in any other mode.
- */
-// health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
-export function selfreflectionOf(given: RequestInput & { labels: Labels }): SelfreflectionParts {
-  const { config, prompts, mode, selfName, labels } = given;
-  const selfreflectionMode = mode === 'selfreflection';
-  const selfreflectionInput =
-    selfreflectionMode && given.selfreflection && typeof given.selfreflection === 'object'
-      ? given.selfreflection
-      : null;
-  const worldItem = selfreflectionMode ? worldText(config, prompts, selfName) : '';
-  const selfreflectionLines = selfreflectionInput
-    ? selfreflectionHistoryLines(selfreflectionInput.posts, labels, config)
-    : [];
-  const selfreflectionIntro = selfreflectionLines.length > 0 ? (labels.selfreflection?.intro ?? '') : '';
-  const planText = selfreflectionInput ? planBody(selfreflectionInput.plan, labels) : '';
-  const foundText =
-    selfreflectionInput && typeof selfreflectionInput.found === 'string' && selfreflectionInput.found.trim()
-      ? [labels.selfreflection?.found, selfreflectionInput.found.trim()].filter(Boolean).join('\n')
-      : '';
-  // A set post's seed combinations (already rendered by src/behavior/selfreflection.ts#renderSeedsBlock).
-  const seedsText =
-    selfreflectionInput && typeof selfreflectionInput.seeds === 'string' ? selfreflectionInput.seeds.trim() : '';
-  const publicationPlacesText = publicationPlacesBody(selfreflectionInput?.publicationPlaces, labels);
-  const audienceRefusedText = selfreflectionInput
-    ? audienceRefusedBody(selfreflectionInput.posts, labels, config.bot?.timezone)
-    : '';
-  const selfreflectionParts = selfreflectionMode
-    ? {
-        intro: selfreflectionIntro,
-        plan: planText,
-        seeds: seedsText,
-        publicationPlaces: publicationPlacesText,
-        audienceRefused: audienceRefusedText,
-      }
-    : null;
-  return {
-    worldItem,
-    selfreflectionLines,
-    selfreflectionIntro,
-    planText,
-    foundText,
-    seedsText,
-    publicationPlacesText,
-    audienceRefusedText,
-    selfreflectionParts,
-  };
 }
 
 /** What a selfreflection request on the frame adds: `<virtual_world>`, her past entries and the other parts of `<inner>`. */

@@ -78,7 +78,6 @@ import { parseOutput } from '../llm/parse.ts';
 import { log } from '../log.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
 import { tokenIds } from '../memory/mentions.ts';
-import { liveRecent, recentSettings } from '../memory/recent.ts';
 import { checkSkill, listSkills } from '../tools/gateway.ts';
 import { exposedSkillNames, proposalVerdicts, proposedRows } from '../tools/discovery.ts';
 import { outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
@@ -188,20 +187,13 @@ export const SANDBOX_STORE_READS = Object.freeze([
 /**
  * The inputs of src/behavior/prompt.ts#buildRequest a sandbox turn leaves
  * out on purpose, each with its reason: `sandboxRequestInput` passes them in
- * the form buildRequest reads as absent (null; `neighbors` and `pulled` an
- * empty list). Every other input is passed.
+ * the form buildRequest reads as absent (null). Every other input is passed.
  */
 export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   mediaPickText: 'no interface runs here: nothing declares its text',
-  neighbors: 'no neighbouring channel is fetched: no <other_channels>',
-  neighborDescriptions: 'no neighbouring channel, so no captions of one',
-  pulled: 'no other channel is pulled in: no <channel_view>',
-  source: 'no routed call: the moment is answered in its own channel',
-  readOnlyIds: 'no pulled channel, so none of them is read-only',
   privateChat: 'never a private chat: the private layer is out of bounds',
   privateProfile: 'never a private chat: the private layer is out of bounds',
   reads: 'no web lookup: no link is read',
-  lookup: 'no web lookup: no search is run',
   prefetch:
     'no automatic memory prefetch: no <retrieved> block (a scenario run with her tool loop hands in the one a live turn would get: `coreTools.prefetch`)',
   imageAnswers: 'no second look at a picture is run: no imageAnswered line',
@@ -209,11 +201,9 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   drawOn: 'no drawing is offered: a sandbox never draws, so <senses> has no drawing line',
   tasks:
     "no part of a split message, no queued or folded call: a replay knows none (a skill scenario's burst hands in its waiting calls: `queued`)",
-  recentAudience: "no place to compare audiences in: <recent> shows the lines of the turn's own channel only",
-  participation: "no place to compare audiences in: no <participation> block of the persona's exchanges elsewhere",
   selfreflectionChannel:
     'no selfreflection is offered: a sandbox turn never posts, so <senses> has no selfreflection line',
-  selfreflection: 'never a selfreflection post: no <world>, <diary>, <plan> or <found> block',
+  selfreflection: 'never a selfreflection post: no <virtual_world>, <selfreflection>, <plan> or <found> block',
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
   skillsInventory: 'no catalogue: a replay runs no classifier (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
   skillIndex: 'no skill registry in a replay: no <skills> index of her active skills',
@@ -230,17 +220,12 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   awake: 'an inner turn only: no wake, so no reason to be awake in <spatial_awareness>',
   serviceInner: 'a selfimprovement wake only: no <work> or <board>',
   wakeKind: 'an inner turn only: no wake, so no heartbeat task text',
-  places: "no inner life runs here, so no places view: no <places> block (context.places is a live turn's)",
   previousThink:
     'no earlier turn or step in a replay: no <previous_think> block (a live turn carries its previous think, src/behavior/previous-think.ts)',
   myDay: 'no journal in a replay: no <my_day> block (a live turn reads her day, src/turn/request/my-day.ts)',
   callMarks:
     "no earlier call in a replay: no call mark in <chat> (a skill scenario hands in its earlier steps' calls: `callMarks`)",
   stableFreeze: 'one request per moment, no cache bucket to hold: <self_facts> renders from memory as it stands',
-  whereabouts:
-    'a replay on `--frame old` names no place tree: no <spatial_awareness> block, and <now> keeps the clock (`--frame new` states one: src/behavior/sandbox-frame.ts)',
-  frame:
-    'a replay on `--frame old` builds no frame: the kind of the turn is read off its mode (`--frame new` builds one: src/behavior/sandbox-frame.ts)',
   mind: 'no graph reader runs in a replay: `<memory>` holds the person she answers alone (a live turn reads src/memory/db/mind-read.ts)',
   lookups: 'no earlier lookup in a replay: no <recall> block (a live turn keeps her lookups, src/turn/calls.ts)',
   meanwhileReads: 'no memory reads in a replay: no <meanwhile> block (a live turn reads her lines elsewhere)',
@@ -673,59 +658,16 @@ async function sample({ llm, messages, options, samples, signal, onUsage, read }
   return { answers, stopped };
 }
 
-/**
- * The recent lines a sandbox turn answered at `at` hands to buildRequest
- * (`recentLines`), read as a live turn reads them (src/behavior/turn.ts): the
- * lines of the view's recent store still inside `memory.recentHours` at that
- * time -- an empty list when none is, so `<recent>` may still show the
- * members' moments of those hours. Null -- no block at all -- with
- * `features.recent` off (a missing key counts as on), for a view without a
- * recent store, and when the read fails: that is logged (`sandbox: recent
- * failed`) and never ends the turn, as a live turn goes on without the block.
- */
-function recentLinesOf(view: Record<string, Untyped>, at: number): Array<Record<string, Untyped>> | null {
-  const settings = recentSettings(view.config);
-  if (!settings || typeof view.memory.getRecent !== 'function') return null;
-  try {
-    const stored = view.memory.getRecent();
-    return stored ? liveRecent(stored.lines, { now: at, hours: settings.hours }) : null;
-  } catch (err) {
-    log.warn('sandbox: recent failed', { error: err });
-    return null;
-  }
-}
-
-/**
- * The channels a sandbox request's `<channel_directory>` lists: `given` when it is a list (the
- * place's readable text channels, as a live turn reads them), else the view's stored channel map
- * (`{ id, name }`; none with `features.memory` off) with the turn's `channel` when it has
- * a name. Pure but for the view's read.
- */
-function sandboxChannels(given: Untyped, view: Untyped, channel: Untyped): Array<{ id: string; name: string }> {
-  if (Array.isArray(given)) return given;
-  const memoryOn = true;
-  const stored = memoryOn && typeof view.memory?.listChannels === 'function' ? (view.memory.listChannels() ?? []) : [];
-  const list = stored
-    .filter((entry: Untyped) => entry && entry.id !== undefined && entry.id !== null)
-    .map((entry: Untyped) => ({ id: String(entry.id), name: entry.name }));
-  if (
-    channel &&
-    typeof channel.name === 'string' &&
-    channel.name &&
-    !list.some((entry: Untyped) => entry.id === String(channel.id))
-  )
-    list.push({ id: String(channel.id), name: channel.name });
-  return list;
-}
-
-/** The frame and whereabouts of a sandbox turn on its arm (src/behavior/sandbox-frame.ts#replayFrame). */
-function framedTurn(
-  arm: SandboxRequestInput['frame'],
-  { view, situation, channel, at }: Pick<SandboxRequestInput, 'view' | 'situation' | 'channel' | 'at'>
-): ReturnType<typeof replayFrame> {
+/** The frame and whereabouts of a sandbox turn (src/behavior/sandbox-frame.ts#replayFrame). */
+function framedTurn({
+  view,
+  situation,
+  channel,
+  at,
+}: Pick<SandboxRequestInput, 'view' | 'situation' | 'channel' | 'at'>): ReturnType<typeof replayFrame> {
   const { trigger, triggerKind } = situationHistory(situation);
   const config = view.config;
-  return replayFrame(arm, {
+  return replayFrame({
     memory: view.memory,
     channel,
     trigger,
@@ -750,9 +692,7 @@ function framedTurn(
  * absent but when a skill scenario's burst hands in the calls still waiting after this one
  * (`queued`, `{ id, text, author? }` each, burstTurns's): then the task labels name them as a
  * live turn names its queued calls (src/behavior/turn.ts#taskInput: the trigger author's own
- * under `labels.task.queued`, another member's under `labels.task.queuedOthers`). `<channel_directory>` lists `channelDirectory` (the place's readable text
- * channels, src/behavior/turn.ts#channelDirectoryOf, as a live turn passes them) when given, else
- * the view's stored channel map with the turn's channel (sandboxChannels). `taskResult`
+ * under `labels.task.queued`, another member's under `labels.task.queuedOthers`). `taskResult`
  * (a finished task, as src/errands/store.ts keeps one) makes it the turn that errand's end
  * opens, as src/errands/turns.ts runs it: trigger kind `errand` whatever the mode, and `errands`
  * carrying its `<errand_result>` body (src/errands/blocks.ts#errandResultText, cut to
@@ -785,12 +725,10 @@ export function sandboxRequestInput({
   skillsInventory = null,
   toolset = null,
   queued = null,
-  channelDirectory = null,
   taskResult = null,
   coreTools = null,
   preTurn = null,
   callMarks = null,
-  frame: arm,
 }: SandboxRequestInput): Record<string, Untyped> {
   const config = view.config;
   const memory = view.memory;
@@ -808,7 +746,7 @@ export function sandboxRequestInput({
     : null;
   const memoryOn = true;
   const { history, trigger, triggerKind } = situationHistory(situation);
-  const framed = framedTurn(arm, { view, situation, channel, at });
+  const framed = framedTurn({ view, situation, channel, at });
   // pickOtherProfiles reads a store-shaped object; this one reads the view.
   const viewAsStore = { getUser: (id: string | undefined) => memory.getUser(id) };
   return {
@@ -831,10 +769,6 @@ export function sandboxRequestInput({
     otherProfiles: memoryOn ? pickOtherProfiles(viewAsStore, SANDBOX_PLACE, history, trigger?.authorId) : [],
     candidateProfiles: memoryOn ? memory.listUserProfiles() : [],
     nameOf: memoryOn ? (id: Untyped) => memory.getUser(id)?.names?.[0] ?? null : null,
-    channels: memoryOn ? memory.listChannels() : [],
-    // As a live turn: every text channel with its handle (sandboxChannels).
-    channelDirectory: sandboxChannels(channelDirectory, view, channel),
-    loreEntries: memoryOn ? memory.getLore() : [],
     currentChannelId: channel.id,
     descriptions: descriptions instanceof Map ? descriptions : new Map(),
     videos: videos instanceof Map ? videos : new Map(),
@@ -848,19 +782,10 @@ export function sandboxRequestInput({
       typeof elsewhereDestination?.name === 'string' && elsewhereDestination.name
         ? { name: elsewhereDestination.name }
         : null,
-    // `<recent>`: the last hours as the view holds them (no block without a recent store).
-    recentLines: memoryOn ? recentLinesOf(view, at) : null,
     // SANDBOX_OMITS, as buildRequest reads them absent.
-    neighbors: [],
-    neighborDescriptions: null,
-    pulled: [],
-    source: null,
-    readOnlyIds: null,
     privateChat: null,
     privateProfile: null,
     reads: null,
-    // Absent (SANDBOX_OMITS) unless a caller hands in `preTurn`: what a search classifier found before her reply.
-    lookup: preTurn?.lookup ?? null,
     // Absent (SANDBOX_OMITS) but with her tool loop (`coreTools.prefetch`): the memory prefetch a live turn would show.
     prefetch: coreTools?.prefetch ?? null,
     // Absent (SANDBOX_OMITS) but with her tool loop (`coreTools`) or the pre-turn searches: whether the server search runs.
@@ -868,8 +793,6 @@ export function sandboxRequestInput({
     drawOn: false,
     // Absent but on a burst's turn with calls still waiting (`queued`).
     tasks,
-    recentAudience: null,
-    participation: null,
     selfreflectionChannel: null,
     selfreflectionChannelIds: viewSelfreflectionIds(view),
     selfreflection: null,
@@ -890,8 +813,6 @@ export function sandboxRequestInput({
     awake: null,
     serviceInner: null,
     wakeKind: null,
-    // No places view (SANDBOX_OMITS): no <places> block.
-    places: null,
     previousThink: null,
     // No journal (SANDBOX_OMITS): no <my_day> block.
     myDay: null,
@@ -899,7 +820,7 @@ export function sandboxRequestInput({
     callMarks,
     // No cache bucket to hold (SANDBOX_OMITS): the stable part renders from memory as it stands.
     stableFreeze: null,
-    // `--frame new`: the frame a live reply carries and the whereabouts it states; none on `--frame old` (SANDBOX_OMITS).
+    // The frame a live reply carries and the whereabouts it states.
     whereabouts: framed.whereabouts,
     frame: framed.frame,
     // No memory reads in a replay (SANDBOX_OMITS): the frame's blocks hold what the turn itself gives.
@@ -959,7 +880,6 @@ export async function answerReply({
   tools,
   toolChoice,
   parallelToolCalls,
-  frame = null,
 }: AnswerReplyInput): Promise<AnswerReplyResult> {
   // `tools` undefined: her tools as a live turn sends them (sandboxToolset); null or [] none; an array as given.
   const toolset = tools === undefined ? sandboxToolset({ view, selfId }) : null;
@@ -980,7 +900,6 @@ export async function answerReply({
       searchAvailable,
       channelDirectory,
       toolset,
-      frame,
     },
     samples
   );
@@ -1282,7 +1201,7 @@ function callMarkOf({ outcome, placeId, at, postedId, posted }: CallMarkOfInput)
     skill: result.skill,
     status: result.status,
     detail: outcomeDetail(result, { textChars: MARK_TEXT_CHARS }),
-    target: { messageId: idOf(args.message) ?? idOf(args.reply), placeId: idOf(args.channel) },
+    target: { messageId: idOf(args.message) ?? idOf(args.reply), placeId: idOf(args.place) },
     postedId: postedId ?? null,
     posted,
   };
@@ -1952,7 +1871,7 @@ export function afterScenarioTurn({
   const callEffects = (outcome: Untyped, callAt: Untyped) => {
     const executed = outcome.verdict?.ok === true ? outcome.executed : null;
     const args = executed?.args ?? {};
-    const here = !args.channel || String(args.channel) === placeId;
+    const here = !args.place || String(args.place) === placeId;
     let postedId = null;
     if (executed && here && POSTING_SKILLS.includes(executed.skill)) {
       const reply = typeof args.reply === 'string' && known(args.reply) ? args.reply : null;

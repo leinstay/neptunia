@@ -72,6 +72,8 @@ export type SkillCallsContext = {
   store: Parameters<typeof callViewOf>[0]['store'];
   /** The learned stemmer, read at the moment of use; null while no memory is open (src/memory/db/stems.ts#loadStemmer). */
   stemmer?: () => { stem: (word: string) => string } | null;
+  /** The name index of the memory under a turn's context: the live places a name names (names.ts#placesNamed). */
+  placesNamedFor?: (draft: CallsDraft | null, channel: CallChannel) => CallView['placesNamed'];
   skills: SkillMap | null;
   selfIdOf: () => string;
   clock: () => number;
@@ -266,6 +268,8 @@ export type SkillCalls = {
     searchRefs?: ViewArgs['searchRefs'];
     /** The reader of a private chat or the command line, whom the places a read may name are judged by. */
     partnerId?: string | null;
+    /** The turn's draft, whose memory context the name index is read under. */
+    draft?: CallsDraft | null;
   }) => CallView;
   planToolCall: (args: {
     call: PlannedCall;
@@ -290,6 +294,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     hot,
     store,
     stemmer = () => null,
+    placesNamedFor = () => null,
     skills,
     selfIdOf,
     clock,
@@ -343,7 +348,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
 
   /** Whether a resolved call acts in the turn's own place when it names none, and named none. */
   const placeUnnamed = (resolved: Resolved): boolean =>
-    HERE_SKILLS.has(resolved.skill) && resolved.args.channel === undefined;
+    HERE_SKILLS.has(resolved.skill) && resolved.args.place === undefined;
 
   // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
   // from that channel (tools.destructiveCooldownMinutes, src/tools/gateway.ts); in process.
@@ -364,6 +369,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     deletedIds = null,
     searchRefs = null,
     partnerId = null,
+    draft = null,
   }: Parameters<SkillCalls['callView']>[0]): CallView {
     const fileOf =
       typeof errands?.fileOf === 'function'
@@ -392,6 +398,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       partnerId,
       config: hot.config,
       stem: stemmer?.()?.stem ?? null,
+      placesNamed: placesNamedFor(draft, channel) ?? null,
     });
   }
 
@@ -511,7 +518,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     if (
       draft?.inner &&
       (call.skill === 'draw.create' || call.skill === 'voice.say') &&
-      typeof call.args?.channel !== 'string'
+      typeof call.args?.place !== 'string'
     ) {
       const current = draft.inner.currentChannel === undefined ? String(channel.id) : draft.inner.currentChannel;
       if (!current) {
@@ -608,12 +615,20 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     return { skill, privateChat, said };
   }
 
-  /** The ids a resolved call aims at (its channel, message, reply target, member), for its journal line: never its text. */
+  /**
+   * The ids a resolved call aims at (its place, message, reply target, member), for its journal line: never its text.
+   * The place is stored under the journal's key `channel`, which the readers of the day's actions read.
+   */
   function callTarget(args: Obj | null | undefined): Record<string, string> {
     const out: Record<string, string> = {};
-    for (const key of ['channel', 'message', 'reply', 'user']) {
+    for (const [key, stored] of [
+      ['place', 'channel'],
+      ['message', 'message'],
+      ['reply', 'reply'],
+      ['user', 'user'],
+    ] as const) {
       const value = args?.[key];
-      if (typeof value === 'string') out[key] = value;
+      if (typeof value === 'string') out[stored] = value;
     }
     return out;
   }
@@ -634,13 +649,13 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     if (effects === 'read') return null;
     if (inner.shadow) return { proposed: true };
     // Her last message where a post of this turn is held is the held one: it has no id to act on yet.
-    const where = typeof args?.channel === 'string' ? args.channel : String(channel.id);
+    const where = typeof args?.place === 'string' ? args.place : String(channel.id);
     if (inner.hold && OWN_MESSAGE_SKILLS.includes(skill) && isLast(args?.message) && inner.hold.holdsIn(where))
       return { refusal: { code: CODE.HELD_MESSAGE, reason: 'held' } };
     if (typeof inner.mayAct === 'function' && !inner.mayAct())
       return { refusal: { code: CODE.INNER_STOPPED, reason: 'wakes' } };
     const isPublic =
-      POSTING_SKILLS.includes(String(skill)) && (inCommunity(channel) || typeof args?.channel === 'string');
+      POSTING_SKILLS.includes(String(skill)) && (inCommunity(channel) || typeof args?.place === 'string');
     return { public: isPublic };
   }
 
@@ -830,8 +845,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         : null;
     // Every message the turn posted, its follow-up's included (act adds them as they go out).
     const turnPosts = draft ? (draft.ownPosts ??= []) : [];
-    // A resolved call's `channel` is an id the server resolved (src/tools/executors.ts#resolveCall).
-    const namedChannel = args.channel as string | null | undefined;
+    // A resolved call's `place` is an id the interface resolved (src/tools/executors.ts#resolveCall).
+    const namedChannel = args.place as string | null | undefined;
     const where = posted ? String(result.ref?.conversationId ?? namedChannel ?? channel.id) : null;
     if (posted && where !== null) {
       lastPostAt.set(where, clock());
@@ -895,9 +910,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         textChars: MARK_TEXT_CHARS,
         argNames: (skills ?? defaultSkills()).get(skill)?.dispatch?.options?.map((option) => option.name) ?? null,
       }),
-      target: { messageId: idText(args.message) ?? idText(args.reply), placeId: where ?? idText(args.channel) },
+      target: { messageId: idText(args.message) ?? idText(args.reply), placeId: where ?? idText(args.place) },
       // The place a lookup searched, when its arguments name one: the mark says it apart from where she called from.
-      searched: (skills ?? defaultSkills()).get(skill)?.kind === 'read' ? idText(args.channel) : null,
+      searched: (skills ?? defaultSkills()).get(skill)?.kind === 'read' ? idText(args.place) : null,
       postedId: posted?.id ?? null,
       posted: turnPosts,
       // The main arguments the call ran with, for the mark's line (src/tools/call-args.ts).

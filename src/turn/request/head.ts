@@ -1,22 +1,13 @@
 // The stable head of a turn's request: the labels, the clock and the switches it is built under, the merged profile
-// of a private chat's partner, the mention and channel handles with their directories, the transcript's options,
-// the system prompt and the chat's own lines, and the room the request's sections share. buildRequest
+// of a private chat's partner, the mention handles of the chat's authors, the transcript's options, the system prompt
+// and the chat's own lines, and the room the request's sections share. buildRequest
 // (src/behavior/prompt.ts) builds it first.
 
-import {
-  assignChannelHandles,
-  assignHandles,
-  channelDirectoryEntries,
-  directoryEntries,
-  memberNameMap,
-  renderChannelDirectory,
-  renderDirectory,
-} from '../../behavior/handles.ts';
+import { assignHandles, memberNameMap } from '../../behavior/handles.ts';
 import type { AroundSnapshot } from '../../behavior/around-store.ts';
-import { voiceOccupants } from '../../behavior/around.ts';
 import { mergeProfiles } from '../../behavior/private.ts';
 import { isPlainObject } from '../../config.ts';
-import { formatTranscript } from '../../format.ts';
+import { formatTranscript, reactorIdsOf } from '../../format.ts';
 import { requestTokenLimit, sectionCost } from '../../llm/budget.ts';
 import { rulesPromptOf } from '../../rules-list.ts';
 import { cacheTtlMs } from '../../llm/openrouter.ts';
@@ -24,10 +15,7 @@ import { gifHandleMap, normalizeGifs } from '../../memory/index.ts';
 import { accountIdOf } from '../../memory/recent.ts';
 import { freezePerBucket, gifFieldChars, gifFieldsMap } from './emoji-gifs.ts';
 import type { Held, MediaCache } from './emoji-gifs.ts';
-import { anchoredOn } from './memory.ts';
 import { orderedHistory } from '../history.ts';
-import { framedRequest } from './frame.ts';
-import { authorsInView } from './pulled.ts';
 import { spatialAwarenessText } from './spatial.ts';
 import { nowBlock } from './tail.ts';
 import { TAG_OVERHEAD, fillPromptTemplate, requireLabels } from './text.ts';
@@ -58,10 +46,7 @@ export type Base = {
   voiceChannelNameOf: ((placeId: string) => string | null) | undefined;
   selfAccountId: string | null;
   handleById: Map<string, string> | null;
-  directoryText: string;
   memberNames: Map<string, Array<string>> | null;
-  channelHandleById: Map<string, string> | null;
-  channelDirectoryText: string;
   handleFor: (accountId: string | null) => string | null;
   nowText: string;
   spatialText: string;
@@ -74,7 +59,6 @@ export type Base = {
   customEmoji: Array<EmojiRef>;
   formatOptions: FormatOptions;
   system: string;
-  anchored: boolean;
   chatItems: Array<TranscriptItem>;
   idByIndex: Map<number, string>;
 };
@@ -108,17 +92,25 @@ function withEmojiCaptions(
   return known;
 }
 
+/** The members who wrote a line of `history` or reacted to one of hers, she and the bots aside. */
+function authorsOf(history: ReadonlyArray<Message>): Array<string> {
+  const ids = new Set<string>();
+  for (const message of history)
+    if (message && !message.self && !message.bot && message.authorId !== undefined && message.authorId !== null)
+      ids.add(String(message.authorId));
+  for (const id of reactorIdsOf(history as Array<Message>)) ids.add(id);
+  return [...ids];
+}
+
 /** The labels, switches, handles, transcript options, system prompt and chat lines of a request. */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function requestHead(given: RequestInput): Base {
-  const { config, prompts, mode, now, selfName, history, neighbors, descriptions, videos, imageAnswers, reads } = given;
+  const { config, prompts, mode, now, selfName, history, descriptions, videos, imageAnswers, reads } = given;
   const labels = requireLabels(prompts);
   const privateChat = Boolean(given.privateChat);
   // mergeProfiles lays the private layer over the public profile: the partner's profile, as stored. A partner known only
   // from this DM has no public profile, and the trigger gives the merged one its id and heading.
   const framed = given.frame ?? null;
-  // The frame's request lists no directory: a person gets a handle when the chat or memory shows them.
-  const onFrame = framedRequest(framed) && !given.source;
   const counterpartName = framed ? framed.counterpart?.name : given.trigger?.authorName;
   const named = counterpartName ? [counterpartName] : [];
   const counterpartId = framed ? framed.answers?.authorId : given.trigger?.authorId;
@@ -142,12 +134,8 @@ export function requestHead(given: RequestInput): Base {
       : null;
   const frozen = <T>(key: string, signature: string, compute: () => T): T =>
     freezePerBucket(stableFreeze, key, { now, bucketMs: cacheTtlMs(config), signature }, compute);
-  // Mention handles: every member with a
-  // stored profile gets one in `<directory>` (the stable part), the authors in view on their lines.
-  const handlesOn = true;
-  // `<people_now>`'s live part: the snapshot of
-  // the gateway's voice states and presences, never in a private chat or a selfreflection post.
-  // The live glance as the turn hands it: checked to be an object with a snapshot below.
+  // The live line of a person in `<memory>`: the snapshot of the voice states and presences, never in a private chat
+  // or a selfreflection post. The live glance as the turn hands it: checked to be an object with a snapshot below.
   const aroundInput = given.around as
     { snapshot?: AroundSnapshot | null; channelNameOf?: (placeId: string) => string | null } | null | undefined;
   const liveOn =
@@ -160,77 +148,13 @@ export function requestHead(given: RequestInput): Base {
   const liveSnapshot = liveOn ? aroundInput!.snapshot! : null;
   const voiceChannelNameOf = liveOn ? aroundInput!.channelNameOf : undefined;
   const selfAccountId = accountIdOf(given.selfId);
-  // Everyone in a voice channel the audience may see, the persona aside: each gets a handle, so
-  // their `<people_now>` entry joins by it like everyone's.
-  const inVoice =
-    liveOn && liveSnapshot && !onFrame
-      ? voiceOccupants(liveSnapshot, {
-          excludeIds: new Set([selfAccountId].filter((id): id is string => Boolean(id))),
-          nameOf,
-          channelNameOf: voiceChannelNameOf,
-        }).map((occupant) => occupant.accountId)
-      : [];
-  const directory =
-    handlesOn && !onFrame
-      ? // The served place's stored profiles, as the store lists them.
-        directoryEntries((given.candidateProfiles ?? []) as Iterable<object>, { selfId: given.selfId ?? null })
-      : [];
-  // The interlocutor and the other people a profile is offered for are in view too, so every
-  // `<people_now>` entry has a handle even for a member the directory does not list.
-  const offeredIds = (
-    onFrame
-      ? []
-      : [
-          interlocutor?.id,
-          ...(Array.isArray(given.otherProfiles)
-            ? (given.otherProfiles as Array<Profile | null | undefined>).map((profile) => profile?.id)
-            : []),
-        ]
-  )
-    .map(accountIdOf)
-    .filter((id): id is string => Boolean(id));
-  const handleById = handlesOn
-    ? assignHandles({
-        profiled: directory.map((entry) => entry.id),
-        inView: [
-          ...authorsInView(history, privateChat || onFrame ? [] : [given.pulled, neighbors]),
-          ...offeredIds,
-          ...inVoice,
-        ],
-      })
-    : null;
-  const directoryText = handleById ? renderDirectory(directory, handleById, labels) : '';
-  // The names each member in view goes by (the directory's, the lines' authors and mentioned members): a mention reads
-  // as its handle in the transcript, and a tag of hers that names one without the handle is marked (transcript.untagged).
-  const memberNames = handleById
-    ? memberNameMap(
-        directory,
-        [
-          history,
-          ...(privateChat || onFrame
-            ? []
-            : [given.pulled, neighbors].flatMap((source) =>
-                // The pulled channels and the neighbours as given: lists of entries with their messages.
-                (Array.isArray(source) ? (source as Array<{ messages?: Array<Message> } | null | undefined>) : []).map(
-                  (entry) => entry?.messages
-                )
-              )),
-        ]
-          .flat()
-          .filter((message): message is Message => Boolean(message))
-      )
-    : null;
-  // Channel handles (features.mentionHandles too): each text channel the persona can read
-  // (`channelDirectory`) gets one, listed in `<channel_directory>` (the stable part) and shown
-  // beside every channel a line mentions.
-  const channelEntries = handlesOn && !onFrame ? channelDirectoryEntries(given.channelDirectory ?? []) : [];
-  const channelHandleById =
-    channelEntries.length > 0 ? assignChannelHandles(channelEntries.map((entry) => entry.id)) : null;
-  const channelDirectoryText = channelHandleById
-    ? renderChannelDirectory(channelEntries, channelHandleById, labels)
-    : '';
-  // A member's handle in this request (null with the switch off or none given): on their profile
-  // heading and at the start of their `<people_now>` entry, as `<directory>` lists it.
+  // Mention handles: no directory up front, every author of the chat gets one on their lines; a person memory brings
+  // to mind gets one when `<memory>` names them (src/turn/request/reader.ts).
+  const handleById = assignHandles({ profiled: [], inView: authorsOf(history) });
+  // The names each member in view goes by (the lines' authors and mentioned members): a mention reads as its handle in
+  // the transcript, and a tag of hers that names one without the handle is marked (transcript.untagged).
+  const memberNames = memberNameMap([], history);
+  // A member's handle in this request: on their profile heading and at the start of their live line.
   const handleFor = (accountId: string | null) =>
     accountId !== null && handleById ? (handleById.get(accountId) ?? null) : null;
   // `<spatial_awareness>`: where she is and the time (src/turn/request/spatial.ts), with the owner's note read now. With
@@ -279,13 +203,6 @@ export function requestHead(given: RequestInput): Base {
     memberNames: memberNames ?? undefined,
     // A message link to a line of the same rendering reads as its `#n`.
     messageNumbers: true,
-    // Each channel a line mentions carries its handle (transcript.channel).
-    channels: channelHandleById
-      ? new Map(
-          // assignChannelHandles gives every channel of the directory its handle.
-          channelEntries.map((entry) => [entry.id, { handle: channelHandleById.get(entry.id)!, name: entry.name }])
-        )
-      : undefined,
     // A GIF the library knows carries its handle in the transcript.
     gifHandles: gifsOn ? gifHandleMap(gifLibrary) : undefined,
     // ...and its three caption fields, cut for display (transcript.gifKnownFields).
@@ -305,22 +222,11 @@ export function requestHead(given: RequestInput): Base {
   ]
     .filter(Boolean)
     .join('\n\n');
-  // The anchored window: the reply parents leave `<chat>` for
-  // `<earlier>` but keep their numbers, so a reply marker or a link in the chat still names them.
-  // The frame's request has no `<earlier>`: its reply parents stay in `<chat>`.
-  const anchored = !onFrame && anchoredOn(config, labels, privateChat);
-  const chatOptions = anchored
-    ? // formatTranscript hands back the messages of `history`.
-      { ...formatOptions, skip: (message: object) => (message as Message).replyParent === true }
-    : formatOptions;
   // Every line and every call mark of hers in time order, once: formatTranscript numbers the messages as they stand.
+  // The reply parents stay in `<chat>` with their numbers.
   const ordered = orderedHistory(history, given.callMarks ?? [], now) as Array<Message>;
-  const chatItems = formatTranscript(ordered, chatOptions);
+  const chatItems = formatTranscript(ordered, formatOptions);
   const idByIndex = new Map(chatItems.map((item) => [item.index, item.id]));
-  if (anchored)
-    ordered
-      .filter((message) => message.kind !== 'call')
-      .forEach((message, i) => message.replyParent === true && idByIndex.set(i + 1, message.id));
   return {
     labels,
     privateChat,
@@ -333,10 +239,7 @@ export function requestHead(given: RequestInput): Base {
     voiceChannelNameOf,
     selfAccountId,
     handleById,
-    directoryText,
     memberNames,
-    channelHandleById,
-    channelDirectoryText,
     handleFor,
     nowText,
     spatialText,
@@ -349,7 +252,6 @@ export function requestHead(given: RequestInput): Base {
     customEmoji,
     formatOptions,
     system,
-    anchored,
     chatItems,
     idByIndex,
   };

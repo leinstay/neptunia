@@ -74,13 +74,13 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `llm.probeTimeoutMs` | number | `30000` | Timeout of each model probe and of the key reads of the status card (ms) | `src/tools/impl/status.ts` |
 | `llm.analyzerTimeoutMs` | number | `30000` | Timeout of a request on a model role other than the core's, made alongside the turn (route classifier, search classifier, recall summary). Past this the request is abandoned | `src/llm/embed.ts` |
 | `llm.retries` | number | `2` | Retries on transient HTTP errors (408/429/5xx) and network failures. A daily-quota 429 is thrown at once | `src/llm/embed.ts` |
-| `llm.maxRequestsPerDay` | number | `5000` | Daily request cap | `src/behavior/pull-fetch.ts` |
+| `llm.maxRequestsPerDay` | number | `5000` | Daily request cap | `src/llm/openrouter.ts` |
 | `llm.provider` | map, null | `null` | OpenRouter `provider` routing object, passed verbatim | `src/llm/openrouter.ts` |
 | `llm.providerByModel` | map | `{}` | Per-model provider routing. See the resolution order below | `src/llm/embed.ts` |
 | `llm.reasoningByRole` | map | `{}` | The reasoning effort of a role by role name, `{ "effort": "low" }`, `medium` or `high`, sent as `reasoning` on each request of the role that has no reasoning of its own. Read for `memory`, `analyzer`, `vision` and `video`, never for the core. `/model set <role> <model> --effort <level>` writes it | `src/llm/roles.ts` |
 | `llm.keyByRole` | map | `{ "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "memory": "OPENROUTER_MEMORY_KEY" }` | Read only while the private layer has no `keys.json`; with one, the key store decides (see [Keys](keys.md)). Maps a role name to the NAME of a `.env` variable holding an OpenRouter key, or to a list of names. The first name of a list is the primary key. When a request gets HTTP 402, or 429 with a body naming credits or balance, the role moves to the next name and the request is repeated once on it; after the last name it goes back to the first. When every key failed within a minute the request fails with `keys-exhausted` and the role counts as down until 00:00 UTC. Read at every request. A role not in the map falls back to `OPENROUTER_CORE_KEY`, except that `scout`, `server` and `drawing` have no entry and get a key from a `keys.json` binding only, never the main key; the `core` role then uses `OPENROUTER_CORE_BACKUP_KEY` as its second key when that variable is set. A name that is not an `OPENROUTER_` variable or is unset is left out. The `memory` role is the exception: with `OPENROUTER_MEMORY_KEY` unset, the session is not configured and no request goes out on any other key | `src/core.ts` |
 | `llm.keys` | map | `{}` | Read only while the private layer has no `keys.json`; with one, each core key carries its own grant (see [Keys](keys.md)). The grant of each key, by the NAME of its `.env` variable: `{ "grant": USD, "resetDay": 1 to 31 }`. The balance of a key is its grant minus the cost of the requests that went out on it since the last reset (00:00 UTC on `resetDay`, the last day of a shorter month), summed from `data/usage.json`; no call to the provider. The balances of the core keys set the turns line of her wake view. A key without an entry counts 0 and is named on the status card as unconfigured | `src/core.ts` |
-| `llm.cache.ttl` | string | `"1h"` | Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"` | `src/behavior/prompt.ts` |
+| `llm.cache.ttl` | string | `"1h"` | Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"` | `src/llm/openrouter.ts` |
 | `llm.cache.roles` | array | `["core"]` | Model roles whose requests get the cache marker. Add `analyzer` to cache its requests too | `src/llm/openrouter.ts` |
 | `llm.cache.models` | array | `["anthropic/"]` | Model id prefixes whose provider accepts the `cache_control` marker | `src/llm/openrouter.ts` |
 | `llm.hedge.roles` | array | `["analyzer"]` | Roles whose calls are hedged (two concurrent attempts, first to finish wins) | `src/llm/openrouter.ts` |
@@ -152,7 +152,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `context.channelMessages` | number | `100` | Current channel messages in the window | `src/turn/request/memory.ts` |
+| `context.channelMessages` | number | `100` | Messages of the current chat in the window | `src/turn/tool-round.ts` |
 | `context.reactions.fetchTimeoutMs` | number | `2000` | How long a turn waits for those fetches | `src/turn/tool-round.ts` |
 | `context.myDay.lines` | number | `12` | How many of her actions of today `<my_day>` lists, the newest kept. `0` leaves the block out | `src/turn/phases/request/build.ts` |
 | `context.memory` | map | `{ "windowMessages": 100, "serviceMessages": 100, "maxHops": 2, "maxNodesRead": 2000, "budgetTokens": 10000, "shares": { "people": 0.5, "places": 0.15, "lore": 0.15, "recent": 0.1, "found": 0.1 }, "counterpartTokens": 1500, "candidatesMax": 3, "commonWordEntries": 3, "fanOut": { "accounts": 10, "memberships": 20, "rooms": 10, "members": 8, "replies": 5, "about": 30 } }` | The graph reader (`mindOf`): the lines of the window that seed it, her last lines over the rooms of every group that a service shows in `<meanwhile>` and seeds `<memory>` from (`serviceMessages`, read by `src/turn/request/meanwhile.ts`), the counted hops, the rows read, the token budget and its shares per kind of entry, the part kept for the person she answers, the candidates of an ambiguous word, the word that names too many entries, and the rows read per path. Each key is described in `docs/memory.md`, "How a turn remembers". A missing or broken key counts as its default | `src/memory/db/mind-read.ts` |
@@ -161,27 +161,15 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `context.recall.extractChars` | number | `1200` | How long the extract of one lookup's result is that `<recall>` keeps (characters) | `src/turn/calls.ts` |
 | `context.recall.maxItems` | number | `6` | How many of her lookups one place keeps for `<recall>`. The one noted earliest leaves first | `src/turn/calls.ts` |
 | `context.turnLeaseMs` | number | `300000` | How long an inner turn's claim on its wakes lasts (milliseconds). The inner life renews it at every tick while the turn runs; a start takes over a claim a stopped process left | `src/behavior/attention.ts` |
-| `context.around.maxTokens` | number | `400` | Token cap of the voice-channel entries that have no profile in the request | `src/behavior/prompt.ts` |
-| `context.caps.interlocutor` | number | `6000` | Token cap: the caller's profile with episodes | `src/turn/request/people.ts` |
-| `context.caps.aboutChat` | number | `2500` | Token cap: server habits and self-facts | `src/behavior/prompt.ts` |
-| `context.caps.people` | number | `9000` | Token cap: other profiles | `src/turn/request/people.ts` |
-| `context.caps.neighbors` | number | `3000` | Token cap: neighbour channels | `src/turn/request/sections.ts` |
-| `context.caps.server` | number | `4000` | Token cap: channel map | `src/behavior/prompt.ts` |
-| `context.caps.lore` | number | `1500` | Token cap: lore entries | `src/behavior/prompt.ts` |
-| `context.caps.pulled` | number | `4000` | Token cap: pulled channel block | `src/behavior/prompt.ts` |
-| `context.caps.recent` | number | `1200` | Token cap: recent block | `src/behavior/prompt.ts` |
-| `context.caps.participation` | number | `6000` | Token cap: the persona's exchanges on other channels | `src/behavior/prompt.ts` |
-| `context.caps.earlier` | number | `2500` | Token cap: the `<earlier>` block | `src/behavior/prompt.ts` |
-| `context.caps.attitudes` | number | `400` | Token cap: attitude list | `src/behavior/prompt.ts` |
-| `context.caps.intentions` | number | `600` | Token cap: `<intentions>` | `src/behavior/prompt.ts` |
+| `context.caps.aboutChat` | number | `2500` | Token cap: her facts about herself in `<self>` | `src/turn/request/reader.ts` |
+| `context.caps.intentions` | number | `600` | Token cap: `<intentions>` | `src/intentions/blocks.ts` |
 | `context.vision.fetchTimeoutMs` | number | `10000` | Download timeout per picture (ms) | `src/media/fetch-image.ts` |
 
 ## context.pull
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `context.pull.describeTimeoutMs` | number | `15000` | Timeout for fresh caption requests (ms) | `src/behavior/pull.ts` |
-| `context.pull.sameAudience` | boolean | `true` | Check that every role allowed to view the destination can also view the source. Also governs neighbour channels and server-search windows | `src/behavior/prompt.ts` |
+| `context.pull.sameAudience` | boolean | `true` | Check that every role allowed to view the place she speaks in can also view a place she reads. Also governs the windows of a search of the message history | `src/behavior/snapshot.ts` |
 
 ## address
 
@@ -239,15 +227,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `split.maxOutputTokens` | number | `300` | Max output tokens | `src/turn/lookup.ts` |
-
-## elsewhere
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `elsewhere.maxPlaces` | number | `40` | Other places offered to the elsewhere pick, the most recently active or attended | `src/behavior/elsewhere-pick.ts` |
-| `elsewhere.maxEpisodes` | number | `30` | Stored exchanges offered to the elsewhere pick, the newest | `src/behavior/elsewhere-pick.ts` |
-| `elsewhere.maxOutputTokens` | number | `120` | Max output tokens for the elsewhere pick | `src/behavior/elsewhere-pick.ts` |
-| `elsewhere.pickTimeoutMs` | number, null | `3000` | How long the turn waits for the pick (ms). `null` waits as long as the turn does | `src/behavior/elsewhere-pick.ts` |
 
 ## memory
 
@@ -333,7 +312,7 @@ The engine proxy is described in [Proxy](proxy.md).
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `recall.prefetch.deadlineMs` | number | `15000` | How long the prefetch may take (ms) | `src/behavior/recall-run.ts` |
-| `recall.prefetch.maxTokens` | number | `1500` | Most estimated tokens of all excerpts together | `src/behavior/prompt.ts` |
+| `recall.prefetch.maxTokens` | number | `1500` | Most estimated tokens of all excerpts together | `src/behavior/recall.ts` |
 | `recall.prefetch.contextTokens` | number | `500` | Most tokens of that lane's lines | `src/behavior/recall.ts` |
 | `recall.prefetch.trivial` | array | `["hi", "hello", "hey", "yo", "ok", "okay", "k", "thanks", "thank you", "thx", "ty", "yes", "no", "yep", "nope", "lol", "haha", "good night", "good morning", "bye"]` | Bare greetings that are not searched | `src/behavior/prefetch.ts` |
 | `recall.prefetch.deictic` | array | `["that", "this", "it", "he", "she", "they", "him", "her", "them", "there", "those", "these"]` | Words that make a trigger deictic | `src/behavior/prefetch.ts` |

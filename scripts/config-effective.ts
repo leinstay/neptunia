@@ -31,7 +31,6 @@ import { backupSettings } from '../src/memory/db/backup.ts';
 import { captureSettings } from '../src/memory/db/observe.ts';
 import { sessionSettings } from '../src/memory/db/session.ts';
 import { boardSettings } from '../src/board/board.ts';
-import { elsewherePickSettings } from '../src/behavior/elsewhere-pick.ts';
 import { pullSettings } from '../src/behavior/pull.ts';
 import { setSettings } from '../src/behavior/selfreflection.ts';
 import { elsewhereSettings } from '../src/behavior/elsewhere.ts';
@@ -63,7 +62,6 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['indexSettings', (config) => indexSettings(config)],
   ['recentSettings', (config) => recentSettings(config)],
   ['participationSettings', () => participationSettings()],
-  ['elsewherePickSettings', (config) => elsewherePickSettings(config)],
   ['graphSettings', (config) => graphSettings(config)],
   ['focusSettings', (config) => focusSettings(config)],
   ['captureSettings', (config) => captureSettings(config)],

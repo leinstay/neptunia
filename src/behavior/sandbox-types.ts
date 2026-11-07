@@ -3,7 +3,6 @@
 import type { Untyped } from '../tools/types.ts';
 import type { loopSettings } from './turn.ts';
 import type { CallMark, Line } from './lines.ts';
-import type { FrameArm } from './sandbox-frame.ts';
 import type { PlaceChainLink } from '../memory/db/place-tree.ts';
 import type { PendingPing } from './pending.ts';
 
@@ -163,8 +162,6 @@ export type AnswerReplyInput = {
   tools?: Untyped;
   toolChoice?: Untyped;
   parallelToolCalls?: Untyped;
-  /** Which assembly the request is built with (scripts/replay.ts `--frame`): without a frame (`old`) or with one. */
-  frame?: FrameArm | null;
 };
 
 export type AnswerReplyResult = {
@@ -362,7 +359,7 @@ export type SandboxMemory = {
   getLore: () => Array<Untyped>;
   getRecent?: () => { nextId: number; lines: Array<Untyped> } | null;
   selfreflectionChannelIds?: () => Array<string>;
-  /** The addresses of src/memory/store-addresses.ts a `--frame new` replay reads its place tree through. */
+  /** The addresses of src/memory/store-addresses.ts a replay reads its place tree through. */
   placeOfConversation?: (conversation: { id: string }, iface?: string) => string | null;
   placeChainOf?: (placeId: string) => ReadonlyArray<PlaceChainLink>;
   accountOf?: (nativeId: string, iface?: string) => string;
@@ -409,7 +406,6 @@ export type SandboxRequestInput = Pick<
   | 'elsewhereDestination'
   | 'searchAvailable'
   | 'channelDirectory'
-  | 'frame'
 > & {
   skillsInventory?: Untyped;
   toolset?: SandboxToolsetResult | null;

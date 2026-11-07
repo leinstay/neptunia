@@ -86,10 +86,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 <!-- settings: split -->
 
-## elsewhere
-
-<!-- settings: elsewhere -->
-
 ## memory
 
 <!-- settings: memory -->

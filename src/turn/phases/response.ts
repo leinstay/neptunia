@@ -50,9 +50,6 @@ export type Answered = Omit<Prepared, 'ended'> & {
   readAnswer: (completion: StepCompletion, number: number) => ReadAnswer;
   first: ReadAnswer;
   parsed: Parsed;
-  shownPulled: NonNullable<Prepared['request']['pulledKept']>;
-  serverShown: NonNullable<Prepared['request']['pulledKept']>;
-  ownCallId: string | null;
 };
 
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.js in stage 5c, a pure split
@@ -62,15 +59,15 @@ export async function responsePhase(
   draft: Draft,
   prepared: Prepared
 ): Promise<Ended | Answered> {
-  const { hot, store, llm, calibrator, clock, skills, pullViews } = ctx;
-  const { emojiLookup, noteThink, markPulledSeen, stampShownCalls, journalOn } = ctx;
-  const { trigger = null, triggerKind = null, source = null } = params;
+  const { hot, store, llm, calibrator, clock, skills } = ctx;
+  const { emojiLookup, noteThink, journalOn } = ctx;
+  const { triggerKind = null } = params;
   const { opened, setup, pulled: pulledStep, waited, gathered, request } = prepared;
-  const { channel, isPrivate, settledMs, life } = opened;
-  const { transport, startedAt, now, bar, beforeBar, replyOptions, cancel } = setup;
+  const { channel, settledMs, life } = opened;
+  const { transport, startedAt, bar, beforeBar, replyOptions, cancel } = setup;
   const { finalMode } = pulledStep;
   const { prepareMs, late, timings } = waited;
-  const { selfreflectionPrep, neighborsHidden, pulled } = gathered;
+  const { selfreflectionPrep } = gathered;
   // The request is text only (buildRequest never attaches a picture: the persona sees them
   // through the describer's captions), so nothing is downloaded or resent here.
   const messages = request.messages;
@@ -242,11 +239,6 @@ export async function responsePhase(
   log.info('turn: model answered', {
     mode: finalMode,
     trigger: triggerKind ?? null,
-    // Only on a turn about another channel or with channels pulled.
-    ...(source ? { source: source.placeId ?? null } : {}),
-    ...(pulled.length > 0 ? { pulled: pulled.length } : {}),
-    // Active neighbours the audience rail left out.
-    ...(neighborsHidden > 0 ? { neighborsHidden } : {}),
     secondsToAnswer: Math.round((clock() - startedAt) / 100) / 10,
     channel: channel.id,
     estimated: completion.estimated,
@@ -261,20 +253,9 @@ export async function responsePhase(
     reactions: parsed.reactions.length,
     ...(first.calls.length > 0 ? { calls: first.calls.length } : {}),
   });
-  // The pulled channels whose block was in the request sent (a skip included):
-  // their seen marks move to the newest line shown; a block the budget dropped moves none.
-  const shownPulled = request.pulledKept ?? [];
-  // What a private chat showed of the server stays there: no seen mark, no stamp, no pending ping.
-  const serverShown = isPrivate ? [] : shownPulled;
-  markPulledSeen(serverShown);
-  // This channel's view of each pulled channel the request showed, for the next view of it here.
-  if (!isPrivate) pullViews.remember(channel.id, request.pulledViews ?? [], now);
   const processState = store.state;
   processState.data.calibration = calibrator.ratio;
   processState.markDirty();
-  // The calls of the ring this turn showed follow its decision (stampShownCalls), except a
-  // routed turn's own call: its caller stamps that one.
-  const ownCallId = source?.reason === 'routed' ? (trigger?.id ?? null) : null;
 
   // Cut off at the output cap before any complete action: a lost answer, not her silence.
   const cutOff = cutOffOf(completion, parsed, { placeId: channel.id, empty: silent, followUp: false });
@@ -283,7 +264,6 @@ export async function responsePhase(
     return { ended: { outcome: 'error', mode: finalMode, reason: 'cut-off' } };
   }
   if (silent) {
-    stampShownCalls({ shown: serverShown, pulled, answered: new Set(), exceptId: ownCallId });
     // An inner turn that ends with no action: nothing to do, journalled as such.
     return { ended: { outcome: 'skip', mode: finalMode, reason: draft.inner ? SKIP_NOTHING_TO_DO : SKIP_SILENCE } };
   }
@@ -295,8 +275,5 @@ export async function responsePhase(
     readAnswer,
     first,
     parsed,
-    shownPulled,
-    serverShown,
-    ownCallId,
   };
 }

@@ -142,7 +142,6 @@ export type ActArgs = {
   handles?: RenderArgs['handles'];
   channelHandles?: RenderArgs['channelHandles'];
   linkFor: (pulledId: string | null) => string | null;
-  sourceId: string | null;
   mediaPicks?: boolean;
   participation?: { descriptions: unknown } | null;
   draft?: ActDraft | null;
@@ -295,9 +294,7 @@ export function createAct(ctx: ActContext): Act {
    * `knownNames`: the stored names `@name` resolves by too (storedNames); `directory`: the
    * fallback behind them (mentionDirectory, a thunk); `handles`: the request's handle -> member
    * id map, in place of all three (renderPost);
-   * `sourceId`: the channel the turn is about (its `source`), logged on every message sent;
-   * with it a refused drawing's limit notice quotes nothing (the trigger of a routed turn
-   * lives in that channel); `mediaPicks`: false keeps the media pick from running (a selfreflection post); `participation` (`{ descriptions }`: the captions the turn had, or
+   * `mediaPicks`: false keeps the media pick from running (a selfreflection post); `participation` (`{ descriptions }`: the captions the turn had, or
    * null): each message sent in a server channel is recorded in the participation store
    * (recordOwnParticipation) with the lines of `history` before it.
    * Resolves `delivered`, `answered`, `messageIds` (the ids of the messages posted, in order), `texts` (the messages
@@ -325,7 +322,6 @@ export function createAct(ctx: ActContext): Act {
     handles = null,
     channelHandles = null,
     linkFor,
-    sourceId,
     mediaPicks = true,
     participation = null,
     draft = null,
@@ -640,7 +636,6 @@ export function createAct(ctx: ActContext): Act {
         secondsSinceTrigger: Math.round((clock() - startedAt) / 100) / 10,
         ...(triggerKind === 'followUp' ? { followUp: true } : {}),
         ...(triggerKind === 'overheard' ? { overheard: true } : {}),
-        ...(sourceId ? { source: sourceId } : {}),
         ...(link ? { link: true } : {}),
       });
     }

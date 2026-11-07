@@ -1647,11 +1647,6 @@
         "complexity": 24
       }
     },
-    "src/behavior/prompt.ts": {
-      "buildSelfreflectionPlanRequest": {
-        "complexity": 24
-      }
-    },
     "src/behavior/recall-run.ts": {
       "createRecall>findPeople": {
         "complexity": 36
@@ -1698,7 +1693,7 @@
         "complexity": 41
       },
       "sandboxRequestInput": {
-        "complexity": 38
+        "complexity": 34
       }
     },
     "src/behavior/wake.ts": {
@@ -1898,11 +1893,6 @@
     "src/memory/lore.ts": {
       "upsertLore": {
         "complexity": 28
-      }
-    },
-    "src/memory/recent.ts": {
-      "recentView": {
-        "complexity": 26
       }
     },
     "src/memory/record-index.ts": {

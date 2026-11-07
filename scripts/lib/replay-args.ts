@@ -8,11 +8,11 @@ import { DRAW_MODES, DEFAULT_LIVE_PICTURES, MAX_PICTURES, isDateKey } from './se
 import type { Untyped } from '../../src/tools/types.ts';
 
 export const USAGE =
-  'usage: node scripts/replay.ts <placeId> <triggerMessageId> [--before 40] [--samples 1] [--show-request] [--as-of-moment] [--hide-self <substring>]... [--hide-self-all] [--snapshot <dir>] [--frame old|new] [--spend <usd>]\n' +
+  'usage: node scripts/replay.ts <placeId> <triggerMessageId> [--before 40] [--samples 1] [--show-request] [--as-of-moment] [--hide-self <substring>]... [--hide-self-all] [--snapshot <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts <placeId> <triggerMessageId> --split [--text "<candidate text>"] [--before <split.contextMessages>] [--samples 3] [--spend <usd>]\n' +
   '       node scripts/replay.ts <placeId> <triggerMessageId> --recall [--text "<candidate text>"] [--before <context.channelMessages - 1>] [--budget <ms>] [--show-request] [--spend <usd>]\n' +
   '       node scripts/replay.ts --pair <promptsDirA> <promptsDirB> (--triggers <file> | <placeId> <triggerMessageId>) [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
-  '       node scripts/replay.ts --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment] [--frame old|new]\n' +
+  '       node scripts/replay.ts --show-request <turnId> [--steps] [--snapshot <dir>] [--before 40] [--as-of-moment]\n' +
   '       node scripts/replay.ts --selfreflection <selfPicture|picture> [--count 1] [--topic "<text>"] [--selfreflection-own-history] [--prompts <dir>] [--out <file>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --skills <scenarios.json> [--prompts <dir> | --pair-prompts <dirA> <dirB>] [--out <dir>] [--before 40] [--as-of-moment] [--snapshot <dir>] [--dry] [--core-tools] [--transport native|text] [--spend <usd>]\n' +
   '       node scripts/replay.ts --pair-transport (--triggers <file> | <placeId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
@@ -55,24 +55,6 @@ export function intFlag(value: Untyped, min: number, max: number): number {
   const n = Number(value);
   if (!Number.isInteger(n) || n < min || n > max) throw new CliError(USAGE);
   return n;
-}
-
-/**
- * The value of `--frame` (`old` or `new`, `old` when absent), read beside parseArgs since every message mode takes it
- * and the others ignore it. A value that is neither, or a second `--frame`, is a usage error.
- */
-export function frameFlag(argv: ReadonlyArray<string>): 'old' | 'new' {
-  const at = argv.indexOf('--frame');
-  if (at === -1) return 'old';
-  const value = argv[at + 1];
-  if ((value !== 'old' && value !== 'new') || argv.indexOf('--frame', at + 1) !== -1) throw new CliError(USAGE);
-  return value;
-}
-
-/** `argv` without its `--frame` flag and value, for parseArgs. */
-export function withoutFrame(argv: Array<string>): Array<string> {
-  const at = argv.indexOf('--frame');
-  return at === -1 ? argv : [...argv.slice(0, at), ...argv.slice(at + 2)];
 }
 
 /** The options of one run of scripts/replay.ts, as `parseArgs` reads them off the command line. */
@@ -118,8 +100,6 @@ export type ReplayArgs = {
   answersDir: string | null;
   answersFirstOnly: boolean;
   answersTimeoutMin: number;
-  /** `--frame` (frameFlag): the request built without a frame (`old`, the default) or with the turn frame (`new`). */
-  frame?: 'old' | 'new';
   placeId?: string | null;
   triggerId?: string | null;
   answersAll?: boolean;

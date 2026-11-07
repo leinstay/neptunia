@@ -6,7 +6,6 @@
 // `zeros` with those inputs, for the watcher to treat as a likely fault. A function is off when its prompt is empty or
 // missing. src/service/watcher.ts puts the result on the first evidence page as `analyzer`.
 
-import { parseElsewhereAnswer } from '../behavior/elsewhere-pick.ts';
 import { parseMediaPick } from '../behavior/media-pick.ts';
 import { parseAddressAnswer } from '../behavior/mention.ts';
 import { MISSED_VERDICTS, UNCHECKED, parseMissedAnswer } from '../behavior/missed.ts';
@@ -98,18 +97,6 @@ const READERS: Readonly<Record<string, Reader>> = {
   missed: {
     decisions: [...MISSED_VERDICTS, UNCHECKED],
     read: ({ answer, asked }) => parseMissedAnswer(answer, numbered(asked, 'candidates', /^\d+: /)).verdicts,
-  },
-  'elsewhere-pick': {
-    decisions: ['place', 'episodes', 'none'],
-    read: ({ answer, asked }) => {
-      const counts = { places: blockLines(asked, 'places').length, episodes: blockLines(asked, 'episodes').length };
-      const { place, episodes } = parseElsewhereAnswer(answer, counts);
-      const shown = [
-        ...(place.reason === 'pick' ? ['place'] : []),
-        ...(episodes.reason === 'pick' ? ['episodes'] : []),
-      ];
-      return shown.length === 0 ? ['none'] : shown;
-    },
   },
   'media-pick': {
     decisions: ['none', 'gif', 'emoji', 'replace'],

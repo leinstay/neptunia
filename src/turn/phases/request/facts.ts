@@ -44,7 +44,7 @@ export async function tellFacts(
 ): Promise<Told> {
   const { store, iface, facts, privateChannels, promptState, offPeriodsFor, skillIndex } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, queued = null, added = null } = params;
-  const { missed = null, source = null } = params;
+  const { missed = null } = params;
   const { channel, placeId, reading, isPrivate } = opened;
   const { config, now, memoryOn, selfId } = setup;
   const { finalMode } = pulled;
@@ -118,7 +118,6 @@ export async function tellFacts(
       mode: finalMode,
       triggerKind,
       taggedCall,
-      routed: source?.reason === 'routed',
       privateChat: isPrivate,
     })
   ) {

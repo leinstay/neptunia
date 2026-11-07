@@ -125,14 +125,11 @@ function stripText(raw: Untyped) {
 /**
  * The local prompt files read under a newer name: `data/prompts/selfdev.md` (the brief of src/selfimprovement/ under
  * its older name) loads as `executor-brief` while `data/prompts/executor-brief.md` is absent, and the same holds for
- * each file below. The tracked files of the selfreflection wake took the new names of B10 of the master plan.
+ * each file below.
  */
 const LOCAL_PROMPT_MOVES: Readonly<Record<string, string>> = Object.freeze({
   selfdev: 'executor-brief',
   lookup: 'query-builder',
-  diary: 'selfreflection',
-  'diary-plan': 'selfreflection-planner',
-  'diary-seeds': 'selfreflection-seeds',
 });
 
 /** The local file name `file` is read under: its newer name for a file of LOCAL_PROMPT_MOVES, else itself. */

@@ -69,7 +69,7 @@ export const RECALL: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'recall.prefetch.maxTokens',
     'types': ['number'],
-    'reader': 'src/behavior/prompt.ts',
+    'reader': 'src/behavior/recall.ts',
     'default': 1500,
     'text': 'Most estimated tokens of all excerpts together',
   },

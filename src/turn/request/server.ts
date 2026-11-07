@@ -1,28 +1,13 @@
-// The server and its places as a request shows them: the `<server>` entries of the current channel and the channels
-// this turn shows beside it, the `<about_chat>` lines of how the server talks and what people taught the persona, and
-// the `<lore>` entries the transcript matches. buildRequest and buildSelfreflectionPlanRequest (src/behavior/prompt.js) call
-// them.
+// What memory learned of a place, as a request quotes it: the stored place notes (`PlaceMemory`, read by `<self>` and
+// the selfreflection's notes) and the settings and text of what people taught the persona (`learnedText`).
 
 import { fill } from '../../format.ts';
-import { channelActivity, isConfirmed, matchLore, renderChannel } from '../../memory/index.ts';
+import { isConfirmed } from '../../memory/index.ts';
 import { ID_DIGITS } from '../../memory/mentions.ts';
 import { topByRank } from '../../memory/ranking.ts';
 import { resolveChatText } from './text.ts';
-import type { Claim, LabelGroup, Labels, Message, NameOf, RequestConfig } from './types.ts';
+import type { Claim, LabelGroup, NameOf, RequestConfig } from './types.ts';
 import { MEMORY_LIMITS } from '../../memory/text-limits.ts';
-
-/** A channel's stored note (store.listChannels), or the current channel's stand-in. */
-export type StoredChannel = {
-  readonly id: string;
-  readonly name: string;
-  readonly topic?: string | null;
-  readonly purpose?: string;
-  readonly topics?: string;
-  readonly tone?: string;
-  readonly days?: Record<string, number>;
-  readonly lastMessageAt?: number | null;
-  readonly topWriters?: Array<{ id: string; count: number }>;
-};
 
 /** What the place's memory holds about the server (store.getPlace), as `<about_chat>` and `<self_facts>` read it. */
 export type PlaceMemory = {
@@ -39,103 +24,6 @@ export type LearnedConfig = { max: number; halfLifeDays: number; confirmAfter: n
 
 /** One thing people taught the persona (`place.learned`). */
 type LearnedItem = Claim & { readonly text?: string; readonly from?: unknown };
-
-/** One stored lorebook entry. */
-type LoreEntry = { readonly id?: unknown; readonly title?: string; readonly text?: string };
-
-/**
- * A stand-in channel entry for `serverItems` when the current channel has no
- * stored note yet (see below): the platform's facts (name, topic) read off
- * whichever `history` message actually belongs to `currentChannelId` (every
- * message `buildRequest` is given for `<chat>` comes from that one channel,
- * see src/protocol/events.ts#Message) -- so the persona still knows
- * where it is even before the analyzer has touched this channel once. `null`
- * when no message carries a usable channel name (nothing to render then; a
- * channel with counters but no name never happens in practice).
- */
-export function currentChannelFallback(
-  currentChannelId: string | null | undefined,
-  history: Array<Message>
-): StoredChannel | null {
-  if (!currentChannelId) return null;
-  const source = [...history]
-    .reverse()
-    .find((m): m is Message & { channelName: string } => m.placeId === currentChannelId && Boolean(m.channelName));
-  if (!source) return null;
-  return {
-    id: currentChannelId,
-    name: source.channelName,
-    topic: source.channelTopic ?? null,
-    purpose: '',
-    topics: '',
-    tone: '',
-    days: {},
-    lastMessageAt: null,
-    topWriters: [],
-  };
-}
-
-/**
- * Render the `<server>` block: ONLY the channels that matter for this turn --
- * the current channel first, marked via `labels.server.currentMark` (its
- * stored note in full, or -- when nothing is stored for it yet, see
- * `currentChannelFallback` above -- just its platform facts and activity), then
- * the neighbour channels that actually contributed messages to
- * `<other_channels>` this turn, `neighborChannelIds` (matched by id, never by
- * name -- a rename or a same-named channel elsewhere must never cross-wire
- * two entries), each in full too. Every other stored channel note is left
- * out on purpose: on a large server most of them are irrelevant to this
- * reply and would eat most of the block's budget for nothing. A neighbour
- * id with no stored note is skipped, not synthesized -- unlike the current
- * channel, a neighbour the persona is not replying in does not need a
- * where-am-I fallback. A pulled channel (`<channel_view>`) joins the list
- * the same way: the caller puts its id ahead of the neighbours'. An entry
- * whose id is in `readOnlyIds` (a channel the bot can read but not write in)
- * carries `labels.server.readOnly` (src/memory/channels.ts#renderChannel,
- * never on the current channel).
- */
-export function serverItems(
-  channels: Array<StoredChannel>,
-  currentChannelId: string | null,
-  neighborChannelIds: Array<string>,
-  history: Array<Message>,
-  now: number,
-  labels: Labels,
-  nameOf: NameOf,
-  readOnlyIds: Set<string> = new Set(),
-  selfreflectionChannelIds: Set<string> = new Set(),
-  ids: Array<string | null> | null = null
-): Array<string> {
-  const byId = new Map<string | null, StoredChannel>(channels.map((channel) => [channel.id, channel]));
-  const current = byId.get(currentChannelId) ?? currentChannelFallback(currentChannelId, history);
-  const neighborEntries = [...new Set(neighborChannelIds)]
-    .filter((id) => id !== currentChannelId)
-    .map((id) => byId.get(id))
-    .filter((channel): channel is StoredChannel => Boolean(channel));
-  const ordered = current ? [current, ...neighborEntries] : neighborEntries;
-  // The collector: a channel of the map that has a stored entry (the current channel's fallback has none).
-  if (Array.isArray(ids)) for (const channel of ordered) ids.push(byId.has(channel.id) ? channel.id : null);
-  return ordered.map((channel) =>
-    renderChannel(
-      {
-        ...channel,
-        purpose: resolveChatText(channel.purpose, nameOf),
-        topics: resolveChatText(channel.topics, nameOf),
-        tone: resolveChatText(channel.tone, nameOf),
-      },
-      labels,
-      {
-        current: channel.id === currentChannelId,
-        activity: channelActivity(channel, now),
-        now,
-        nameOf,
-        readOnly: readOnlyIds.has(channel.id),
-        // A place of the persona's own selfreflection (its mirrors): marked so it is found by name like any channel.
-        selfreflection: selfreflectionChannelIds.has(channel.id),
-      }
-    )
-  );
-}
 
 /** A stored `from`: a `<@id>`/`<@!id>` token or a bare id, in the shared id range. */
 const TEACHER_ID_RE = new RegExp(`^(?:<@!?(${ID_DIGITS})>|(${ID_DIGITS}))$`);
@@ -185,78 +73,4 @@ export function learnedText(
       return !isConfirmed(item, learnedCfg.confirmAfter) && a.unsureMark ? line + a.unsureMark : line;
     })
     .join('; ');
-}
-
-/**
- * The `<about_chat>` lines: how this server talks (`patterns`), how people
- * start conversations (`starters`), the in-jokes, then what people taught the
- * persona (`place.learned`, see `learnedText` above) -- the last one only when
- * `labels.aboutChat.learned` exists, so an older labels.json simply never
- * renders it. Every stored text is token-resolved via `nameOf`.
- * `learnedCfg` carries `max`/`halfLifeDays`/`confirmAfter`, read by the
- * caller from `memory.maxLearned`/`memory.learnedHalfLifeDays`/
- * `memory.confirmAfter` at the moment of use.
- */
-export function aboutChatItems(
-  placeMemory: PlaceMemory | null | undefined,
-  labels: Labels,
-  nameOf: NameOf,
-  learnedCfg: Partial<LearnedConfig> = {},
-  ids: Array<string | null> | null = null
-): Array<string> {
-  const a = labels.aboutChat;
-  const items: Array<string> = [];
-  // The collector: the two prose notes of the place are rows of their own; the lists have no stable item ids.
-  const push = (text: string, id: string | null = null) => {
-    items.push(text);
-    if (Array.isArray(ids)) ids.push(id);
-  };
-  if (placeMemory?.patterns)
-    push(fill(a.patterns, { text: resolveChatText(placeMemory.patterns, nameOf) }), 'patterns');
-  if (placeMemory?.starters)
-    push(fill(a.starters, { text: resolveChatText(placeMemory.starters, nameOf) }), 'starters');
-  if (placeMemory?.injokes?.length) {
-    push(fill(a.injokes, { text: placeMemory.injokes.map((text) => resolveChatText(text, nameOf)).join('; ') }));
-  }
-  if (a?.learned) {
-    const text = learnedText(placeMemory?.learned, a, learnedCfg, nameOf);
-    if (text) push(fill(a.learned, { text }));
-  }
-  return items;
-}
-
-/**
- * Render the `<lore>` block's entries: whatever `matchLore` (src/memory/lore.ts)
- * surfaces from the last `lore.scanMessages` transcript messages plus the
- * trigger, via `labels.lore.entry`. `[]` when there is no stored lore, no
- * match, or `labels.lore.entry` is missing (an older labels.json never
- * breaks -- the block is simply omitted). `text` is token-resolved via
- * `nameOf`; `title` never is (it is the lorebook's identity, not a mention).
- */
-export function loreItems(
-  loreEntries: unknown,
-  history: Array<Message>,
-  trigger: Message | null | undefined,
-  labels: Labels,
-  loreCfg: RequestConfig['lore'],
-  nameOf: NameOf,
-  ids: Array<string | null> | null = null
-): Array<string> {
-  const entry = labels.lore?.entry;
-  if (!entry) return [];
-  // The stored lorebook (store.getLore), read loosely like any stored list.
-  const entries = Array.isArray(loreEntries) ? (loreEntries as Array<LoreEntry>) : [];
-  if (entries.length === 0) return [];
-
-  const scan = Math.max(0, loreCfg?.scanMessages ?? 30);
-  const recentTexts = history
-    .slice(-scan)
-    .map((m) => m.content ?? '')
-    .filter(Boolean);
-  if (trigger?.content) recentTexts.push(trigger.content);
-
-  // matchLore keeps the entries it is given, which it returns as plain objects.
-  const matched = matchLore(entries, recentTexts, { maxMatches: loreCfg?.maxMatches ?? 8 }) as Array<LoreEntry>;
-  if (Array.isArray(ids)) for (const lore of matched) ids.push(typeof lore.id === 'string' && lore.id ? lore.id : null);
-  return matched.map((lore) => fill(entry, { title: lore.title, text: resolveChatText(lore.text, nameOf) }));
 }

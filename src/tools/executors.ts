@@ -28,8 +28,8 @@ import { heldPort } from './send-hold.ts';
 import { idText, isObj, listOf, objOf, textOf } from './types.ts';
 import type { Obj, Skill, SkillMap } from './types.ts';
 import type { Refusal } from './gateway.ts';
-import { matchPlace } from './place-names.ts';
-import type { PlaceCandidate } from './place-names.ts';
+import { indexedPlace, matchPlace } from './place-names.ts';
+import type { PlaceCandidate, PlaceMatch } from './place-names.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { ConversationRef } from '../protocol/adapter.ts';
 
@@ -53,6 +53,8 @@ export type CallView = {
   places?: ReadonlyArray<PlaceCandidate>;
   /** The stemmer a place name is compared with, when one is loaded. */
   stem?: ((word: string) => string) | null;
+  /** The live places a name names in the memory's name index, under the turn's context (names.ts#placesNamed). */
+  placesNamed?: ((name: string) => ReadonlyArray<{ id: string; name: string }>) | null;
   channelHandles?: ReadonlyMap<string, string> | null;
   memberHandles?: ReadonlyMap<string, string> | null;
   links?: ReadonlyMap<string, { conversationId: string; messageId: string } | null> | null;
@@ -248,24 +250,11 @@ function conversationIdOf(
   return match === 'ambiguous' ? 'ambiguous' : idText(match?.id) || null;
 }
 
-/** The calls whose `channel` may be a place id of any interface, as `<memory>` and `<meanwhile>` name places. */
-const PLACE_ID_SKILLS: ReadonlyArray<string> = Object.freeze(['message.create', 'intention.set']);
-
 /** The read skills that name a place among the ones she may read (`view.places`). */
 const READ_PLACE_SKILLS: ReadonlyArray<string> = Object.freeze(['memory.search', 'conversation.read']);
 
-/**
- * The place a read call names: an id (of digits, or of a conversation of the view) or mention and a handle of the request go through as before (the operation's
- * rails still judge the place), any other name is matched among `view.places` (src/tools/place-names.ts#matchPlace),
- * and one that is not one place is refused with the places she may read as `choices`.
- */
-function placeOf(given: string, option: string, view: CallView): { id: string } | Refusal {
-  const id = channelIdOf(given) ?? ((view.conversations ?? []).some((c) => idText(c.id) === given) ? given : null);
-  if (id) return { id };
-  const byHandle = view.channelHandles?.get(given.replace(/^#/, ''));
-  if (byHandle !== undefined && idText(byHandle) !== '') return { id: idText(byHandle) };
-  const match = matchPlace(given, view.places ?? [], view.stem ? { stem: view.stem } : {});
-  if (match.kind === 'one') return { id: match.id };
+/** The refusal of a place name that is not one place, with what she may choose among. */
+function placeRefusal(match: Exclude<PlaceMatch, { kind: 'one' }>, given: string, option: string): Refusal {
   const several = match.kind === 'several';
   return {
     ...refused(
@@ -277,14 +266,43 @@ function placeOf(given: string, option: string, view: CallView): { id: string } 
   };
 }
 
-/** The conversation a `channel` option names: among the places she may read for the read skills, else among the conversations of the view. */
+/** The place the name index of the memory finds for `given`, or null when the view reads no index or finds none. */
+function indexedOf(given: string, view: CallView | undefined): PlaceMatch | null {
+  if (typeof view?.placesNamed !== 'function') return null;
+  const match = indexedPlace(given, view.placesNamed);
+  return match.kind === 'none' ? null : match;
+}
+
+/**
+ * The place a read call names: an id (of digits, or of a conversation of the view) or mention and a handle of the request go through as before (the operation's
+ * rails still judge the place), any other name is matched among `view.places` (src/tools/place-names.ts#matchPlace),
+ * then in the name index, and one that is not one place is refused with the places she may read as `choices`.
+ */
+function placeOf(given: string, option: string, view: CallView): { id: string } | Refusal {
+  const id = channelIdOf(given) ?? ((view.conversations ?? []).some((c) => idText(c.id) === given) ? given : null);
+  if (id) return { id };
+  const byHandle = view.channelHandles?.get(given.replace(/^#/, ''));
+  if (byHandle !== undefined && idText(byHandle) !== '') return { id: idText(byHandle) };
+  const listed = matchPlace(given, view.places ?? [], view.stem ? { stem: view.stem } : {});
+  const match = listed.kind === 'none' ? (indexedOf(given, view) ?? listed) : listed;
+  return match.kind === 'one' ? { id: match.id } : placeRefusal(match, given, option);
+}
+
+/**
+ * The place a `place` option names: a place id of any interface for the calls that take one, among the places she may
+ * read for the read skills, else among the conversations of the view, and last in the name index of the memory, which
+ * holds the places of every interface by their stored names and aliases.
+ */
 function channelOf(skill: string, given: string, option: string, view: CallView | undefined): { id: string } | Refusal {
   // A place id names a place on any interface; the operation asks that interface whether she may act there.
-  if (PLACE_ID_SKILLS.includes(skill) && placeIdParts(given.trim()) !== null) return { id: given.trim() };
+  if (placeIdParts(given.trim()) !== null) return { id: given.trim() };
   if (READ_PLACE_SKILLS.includes(skill) && view?.places) return placeOf(given, option, view);
   const id = conversationIdOf(given, view?.conversations, view?.channelHandles);
   if (id === 'ambiguous') return refused(CODE.TARGET_AMBIGUOUS, 'conversation');
-  return id ? { id } : refused(CODE.INVALID_ARGS, `args.${option}:unknown-channel`);
+  if (id) return { id };
+  const indexed = indexedOf(given, view);
+  if (indexed === null) return refused(CODE.INVALID_ARGS, `args.${option}:unknown-channel`);
+  return indexed.kind === 'one' ? { id: indexed.id } : placeRefusal(indexed, given, option);
 }
 
 /** The id of a role reference (`<@&id>` or an id), or of the one role of `roles` by that name; else null. */
@@ -493,7 +511,7 @@ export function resolveCall(
         args[option] = member.id;
         break;
       }
-      case 'channel': {
+      case 'place': {
         const channel = channelOf(name, text, option, view);
         if ('ok' in channel) return channel;
         args[option] = channel.id;
@@ -589,11 +607,11 @@ export function resolveCall(
   let channelFixed = false;
   for (const [option, line] of Object.entries(lines)) {
     const at = idText(line.conversationId);
-    if (byName.has('channel')) {
-      if (args.channel === undefined) args.channel = at;
-      else if (idText(args.channel) !== at) {
+    if (byName.has('place')) {
+      if (args.place === undefined) args.place = at;
+      else if (idText(args.place) !== at) {
         if (!messageChannelWins(name, option)) return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
-        args.channel = at;
+        args.place = at;
         channelFixed = true;
       }
     }
@@ -604,19 +622,19 @@ export function resolveCall(
   }
   // A link names its channel the same way (whose message it is, the operation's port checks).
   for (const at of Object.values(linked)) {
-    if (!byName.has('channel')) continue;
-    if (args.channel === undefined) args.channel = at;
-    else if (idText(args.channel) !== at) {
+    if (!byName.has('place')) continue;
+    if (args.place === undefined) args.place = at;
+    else if (idText(args.place) !== at) {
       if (!Object.keys(linked).every((option) => messageChannelWins(name, option)))
         return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
-      args.channel = at;
+      args.place = at;
       channelFixed = true;
     }
   }
   // An errand's file goes where the errand was asked; elsewhere only where its goal or the trigger names.
-  if (args.channel !== undefined) {
+  if (args.place !== undefined) {
     for (const task of errandFiles)
-      if (!fileMayGo(task, idText(args.channel), view)) return refused(CODE.FILE_ELSEWHERE, 'channel');
+      if (!fileMayGo(task, idText(args.place), view)) return refused(CODE.FILE_ELSEWHERE, 'place');
   }
   return {
     ok: true,
@@ -710,7 +728,7 @@ function inTurnCallOf(deps: ExecuteDeps, resolved: Resolved): InTurnCall {
 
 /** A line of this conversation her text named by its identity is the reply of a post here that names none. */
 function replyNamed(skill: string, args: Record<string, unknown>, named: unknown): void {
-  if (skill === 'message.create' && typeof named === 'string' && named !== '' && !args.channel && !args.reply)
+  if (skill === 'message.create' && typeof named === 'string' && named !== '' && !args.place && !args.reply)
     args.reply = named;
 }
 
@@ -726,11 +744,11 @@ function callPublicationRefusal(
   if (
     resolved.skill === 'message.create' &&
     resolved.args.selfreflection === true &&
-    !resolved.args.channel &&
+    !resolved.args.place &&
     !resolved.args.replyTo
   )
     return null;
-  const channel = resolved.args.channel;
+  const channel = resolved.args.place;
   return publicationRefusal(
     boundary,
     typeof channel === 'string' ? deps.refOf(channel) : (deps.here ?? deps.refOf(null))

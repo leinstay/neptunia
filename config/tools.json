@@ -33,7 +33,7 @@
     "args": {
       "text": "English, {{drawChars}} chars max.",
       "self": "True when you appear. Omit appearance. Think first: where, time, clothes, camera, direction (or facing viewer), expression as features not mood (several, pick one new), pose, action. Write all into the scene.",
-      "channel": "Target #handle.",
+      "place": "Target #handle.",
       "reply": "#N or link to reply to."
     }
   },
@@ -43,7 +43,7 @@
     "whenNotToUse": "Long texts: a voice message over a minute is rarely listened to.",
     "args": {
       "text": "What you say, with directions in brackets.",
-      "channel": "Target #handle.",
+      "place": "Target #handle.",
       "reply": "#N or link to reply to."
     }
   },
@@ -193,12 +193,12 @@
     }
   },
   "memory.channel.read": {
-    "title": "Read channel notes",
-    "whenToUse": "One channel's notes, or all channels."
+    "title": "Read place notes",
+    "whenToUse": "One place's notes, or all places."
   },
   "memory.server.read": {
-    "title": "Read server notes",
-    "whenToUse": "Stored patterns about the server."
+    "title": "Read community notes",
+    "whenToUse": "Stored patterns about the community you are in."
   },
   "memory.recent.read": {
     "title": "Read recent events",
@@ -246,12 +246,12 @@
   },
   "message.create": {
     "title": "Post a message",
-    "whenToUse": "For another channel, errand file, or media repost. <msg> covers this channel. One GIF, file, or repost per post; they do not combine.",
+    "whenToUse": "For another place, errand file, or media repost. <msg> covers this place. One GIF, file, or repost per post; they do not combine.",
     "whenNotToUse": "Your conversations only.",
     "args": {
       "media": "Your #N or link; reposts its attachment.",
       "item": "Which attachment (1 to 20).",
-      "channel": "Target #handle.",
+      "place": "Target #handle.",
       "reply": "#N or link to reply to.",
       "text": "Message text.",
       "file": "file:<task-id>/<name>, or skill:<skill>/<run>/<name> from a skill's result.",
@@ -263,8 +263,8 @@
     "whenToUse": "Change the text of any message you sent, any time after sending: a typo, a tag that tagged nobody, a wrong fact, a line you want to word differently. Others see the message marked as edited. A tag you add by editing sends no notification; when someone was missed, edit the message and send a follow-up that tags them.",
     "whenNotToUse": "Your messages only.",
     "args": {
-      "message": "#N, link, or \"last\" (most recent in channel).",
-      "channel": "Required with \"last\"."
+      "message": "#N, link, or \"last\" (most recent in the place).",
+      "place": "Required with \"last\"."
     }
   },
   "message.delete": {
@@ -273,7 +273,7 @@
     "whenNotToUse": "Irreversible.",
     "args": {
       "message": "#N, link, or \"last\".",
-      "channel": "#handle, required with \"last\"."
+      "place": "#handle, required with \"last\"."
     }
   },
   "message.react.add": {
@@ -283,7 +283,7 @@
     "args": {
       "emoji": "Unicode or custom :name:.",
       "message": "#N or link.",
-      "channel": "#handle."
+      "place": "#handle."
     }
   },
   "message.react.remove": {
@@ -292,7 +292,7 @@
     "args": {
       "message": "#N or link.",
       "emoji": "Unicode or custom :name:.",
-      "channel": "#handle."
+      "place": "#handle."
     }
   },
   "errand.run": {
@@ -456,14 +456,14 @@
     }
   },
   "memory.search": {
-    "title": "Search this server's messages",
-    "whenToUse": "Find what was said. With anchor, read lines around a known line instead. Quoted sample with time and author. With only when or channel, a sample of lines from there.",
+    "title": "Search messages",
+    "whenToUse": "Find what was said, on any interface you can read. With anchor, read lines around a known line instead. Quoted sample with time and author. With only when or place, a sample of lines from there.",
     "whenNotToUse": "Not for what chat shows.",
     "args": {
       "when": "YYYY-MM-DD or range (A..B).",
       "people": "Names or @handles.",
       "terms": "Exact words to match.",
-      "channel": "#handle.",
+      "place": "#handle.",
       "anchor": "#N from a result or the chat, or a message id. Reads nearby lines instead of searching.",
       "move": "up for earlier, down for later.",
       "messages": "How many lines (1 to 60).",
@@ -475,8 +475,8 @@
     }
   },
   "conversation.read": {
-    "title": "Read a channel",
-    "whenToUse": "Any channel. around (#N), since (delay, time, date-time), last (default 20, max 60). Returns #N lines.",
+    "title": "Read a place",
+    "whenToUse": "Any place you can read. around (#N), since (delay, time, date-time), last (default 20, max 60). Returns #N lines.",
     "whenNotToUse": "memory.search for topics.",
     "args": {
       "around": "#N or link; before/after for range (default 10).",
@@ -484,7 +484,7 @@
       "last": "N messages (1 to 60).",
       "before": "With around: count before (default 10). Alone: #N or link, read last lines before it.",
       "after": "With around: count after (default 10). Alone: #N or link, read last lines after it.",
-      "channel": "#handle."
+      "place": "#handle."
     }
   },
   "intention.set": {
@@ -496,7 +496,7 @@
       "deadline": "Wait time. Without errand, links this turn's errand.",
       "attend": "Listen to a place; wakes on new lines. due/every ignored.",
       "text": "The purpose, up to 300 characters.",
-      "channel": "Where it happens.",
+      "place": "Where it happens.",
       "every": "day, week, <n>h, <n>d.",
       "standing": "true: with every, it lasts until you cancel it.",
       "expires": "When it lapses; time like due.",
@@ -526,7 +526,7 @@
       "deadline": "Wait time for the errand.",
       "chain": "Links related intentions.",
       "condition": "Completion condition.",
-      "channel": "Destination #handle.",
+      "place": "Destination #handle.",
       "people": "@handles or ids, comma-separated.",
       "settle": "Quiet seconds before waking.",
       "perday": "Daily wake limit."
@@ -551,7 +551,7 @@
     "whenNotToUse": "Intentions block shows them."
   },
   "places.list": {
-    "title": "See the server's places",
+    "title": "See your places",
     "whenToUse": "Counts, access, listening. To listen: intention.set with attend.",
     "whenNotToUse": "For what was said: chat or memory.search."
   },

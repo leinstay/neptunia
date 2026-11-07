@@ -22,6 +22,7 @@ import { safeFileName } from '../../media/classify.ts';
 import { mediaStamp } from './media-stems.ts';
 import { loadStemmer, markStemsPending } from './stems.ts';
 import { asText, dbOf, isFiniteNumber, transactionOf } from './types.ts';
+import { ENTRY_MEDIA, LEGACY_ENTRY_MEDIA } from '../migration/selfreflection-names.ts';
 import type { Connection, Db, Row } from './types.ts';
 
 export const MEDIA_KINDS = [
@@ -1543,6 +1544,16 @@ function oldLineItems(kinds: ReadonlyArray<unknown>, lineExtra: Row): { items: A
   return { items, rest };
 }
 
+/** The entry a picture's id names, under either prefix a stored row may carry, else null. */
+function entryOfMediaId(id: string): string | null {
+  const prefix = [ENTRY_MEDIA, LEGACY_ENTRY_MEDIA].find((one) => id.startsWith(one));
+  if (prefix === undefined) return null;
+  return /^(.+)-\d+$/.exec(id.slice(prefix.length))?.[1] ?? null;
+}
+
+/** Whether a media id is a picture of an entry, under either prefix a stored row may carry. */
+const isEntryMedia = (id: string): boolean => id.startsWith(ENTRY_MEDIA) || id.startsWith(LEGACY_ENTRY_MEDIA);
+
 /** A selfreflection entry's files take their links from their old owner, at the number their id ends in. */
 function entryLinks(db: Db, held: ReadonlyArray<Held>, link: ReturnType<Db['prepare']>, word: string): number {
   const entries = new Set(
@@ -1554,7 +1565,7 @@ function entryLinks(db: Db, held: ReadonlyArray<Held>, link: ReturnType<Db['prep
   const counts = new Map<string, number>();
   let links = 0;
   for (const { row } of held) {
-    if (!asText(row.id).startsWith('media:diary:') || !filled(row.owner) || !entries.has(row.owner)) continue;
+    if (!isEntryMedia(asText(row.id)) || !filled(row.owner) || !entries.has(row.owner)) continue;
     const number = Number(/-(\d+)$/.exec(asText(row.id))?.[1] ?? 0);
     const position = number > 0 ? number - 1 : (counts.get(row.owner) ?? 0);
     counts.set(row.owner, position + 1);
@@ -1564,12 +1575,12 @@ function entryLinks(db: Db, held: ReadonlyArray<Held>, link: ReturnType<Db['prep
   return links;
 }
 
-/** A media-owning entry whose row had no owner names it through its id: `media:diary:<entry>-<n>`. */
+/** A media-owning entry whose row had no owner names it through its id, `<prefix><entry>-<n>` under either prefix. */
 function fillEntryOwner(held: ReadonlyArray<Held>): void {
   for (const { row } of held) {
-    if (filled(row.owner) || !asText(row.id).startsWith('media:diary:')) continue;
-    const match = /^media:diary:(.+)-\d+$/.exec(asText(row.id));
-    if (match) row.owner = match[1];
+    if (filled(row.owner)) continue;
+    const entry = entryOfMediaId(asText(row.id));
+    if (entry !== null) row.owner = entry;
   }
 }
 

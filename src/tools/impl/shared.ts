@@ -701,6 +701,9 @@ export const CHANNEL_NEEDS: Readonly<
   react: (permissions) => permissions.react,
 });
 
+/** The needs of a post: a closed direct chat refuses them by its own code, every other need by the permission's. */
+const POSTING_NEEDS: ReadonlySet<string> = new Set(['send', 'reply', 'attach']);
+
 /** What posting in another conversation reads of the call's context: the place it runs in, and the wake it is made in. */
 export type PostingContext = {
   publicationBoundary?: PublicationBoundary;
@@ -742,13 +745,13 @@ function refOfPlace(
   return { iface: parts.iface, conversationId };
 }
 
-/** Whether direct chats are open (`private.enabled`, read now through `context.env.hot`). */
 /** The directory's reader of a partner's direct chat, null without one. */
 const dmReaderOf = (context: PostingContext): ((partnerId: string) => string | null) | null => {
   const { env } = context;
   return env?.directory?.dmConversationOf ?? null;
 };
 
+/** Whether direct chats are open (`private.enabled`, read now through `context.env.hot`). */
 const directChatsOpen = (context: PostingContext): boolean => {
   const hot: unknown = context.env?.hot;
   return objOf(objOf(objOf(hot).config).private).enabled === true;
@@ -757,8 +760,8 @@ const directChatsOpen = (context: PostingContext): boolean => {
 /**
  * Where a call of `need` acts: the conversation `conversationId` names (a conversation of `iface`, or a place id of any
  * interface), else the one of the place the call runs in. A conversation other than that one must be one the
- * interface knows and where it reports the permissions `need` names; a direct chat only while `private.enabled` is
- * true. A `denied` error (`channel-no-permission`) otherwise, an `invalid` one with no conversation at all; nothing was
+ * interface knows and where it reports the permissions `need` names. A post to a direct chat while `private.enabled`
+ * is false is a `denied` error (`dm-disabled`), any other refusal a `denied` error (`channel-no-permission`), an `invalid` one with no conversation at all; nothing was
  * done. On her own initiative (an inner turn: `context.ownInitiative` with `context.wakeKind`) a post or a reaction is
  * also asked of the wake's envelope (src/tools/access.ts#nestedRefusal, the live config through `context.env.hot`): a
  * `denied` error (`not-allowed`) before anything is done.
@@ -792,18 +795,29 @@ export async function postingRef({
   if (capability && publicationRefusal(context.publicationBoundary, target))
     throw denied('publication-boundary', 'not-allowed');
   if (target.iface === iface && target.conversationId === (here ?? '')) return target;
-  const allowedThere = CHANNEL_NEEDS[need] as ((permissions: Permissions) => boolean) | undefined;
-  if (typeof allowedThere !== 'function') throw new Error(`unknown channel need: ${need}`);
+  if (typeof CHANNEL_NEEDS[need] !== 'function') throw new Error(`unknown channel need: ${need}`);
   const info = reads ? ((await reads.conversationInfo(target))?.conversation ?? null) : null;
-  if (info === null || (info.kind === 'dm' && !directChatsOpen(context)) || !allowedThere(info.permissions))
-    throw denied(`the bot may not ${need} in channel ${target.conversationId}`, CODE.CHANNEL_NO_PERMISSION);
+  refuseThere(info, need, target.conversationId, context);
   return target;
+}
+
+/** Throws the refusal of `need` in a conversation as the interface describes it (`info`), or returns when it may run. */
+function refuseThere(
+  info: { kind?: unknown; permissions: Permissions } | null,
+  need: keyof typeof CHANNEL_NEEDS,
+  conversationId: string,
+  context: PostingContext
+): void {
+  const closedDm = info?.kind === 'dm' && !directChatsOpen(context);
+  if (closedDm && POSTING_NEEDS.has(need)) throw denied(`direct chats are closed, ${conversationId}`, CODE.DM_DISABLED);
+  if (info === null || closedDm || !CHANNEL_NEEDS[need](info.permissions))
+    throw denied(`the bot may not ${need} in channel ${conversationId}`, CODE.CHANNEL_NO_PERMISSION);
 }
 
 /**
  * The place an intention begins in, checked now: a conversation of `iface` or a place id of any interface that the
- * interface knows and where she may write, a direct chat only while `private.enabled` is true. A `denied` error
- * (`channel-no-permission`) for a root, a gone place or one she may only read.
+ * interface knows and where she may write. A `denied` error (`dm-disabled`) for a direct chat while `private.enabled`
+ * is false, and (`channel-no-permission`) for a root, a gone place or one she may only read.
  */
 export async function writablePlace({
   reads,
@@ -818,7 +832,9 @@ export async function writablePlace({
 }): Promise<ConversationRef> {
   const target = refOfPlace(id, iface, dmReaderOf(context));
   const info = reads ? ((await reads.conversationInfo(target))?.conversation ?? null) : null;
-  if (info === null || (info.kind === 'dm' && !directChatsOpen(context)) || !CHANNEL_NEEDS.send(info.permissions))
+  if (info?.kind === 'dm' && !directChatsOpen(context))
+    throw denied(`direct chats are closed, ${id}`, CODE.DM_DISABLED);
+  if (info === null || !CHANNEL_NEEDS.send(info.permissions))
     throw denied(`no place to begin in at ${id}`, CODE.CHANNEL_NO_PERMISSION);
   return target;
 }

@@ -6,8 +6,6 @@
 import type { Track } from '../../loop-watch.ts';
 import type { SkillUse } from '../../memory/db/skills.ts';
 import type { IndexedSkill } from '../../skills/uses.ts';
-import type { createElsewhereHooks } from '../../behavior/elsewhere-pick.ts';
-import type { createPullViews } from '../../behavior/pull-fetch.ts';
 import type { recordEntry } from '../../behavior/selfreflection-turn.ts';
 import type { refreshEmojiIfOn } from '../../behavior/emoji-index.ts';
 import type { Deadline } from '../../behavior/turn-parts.ts';
@@ -22,7 +20,7 @@ import type { Inputs, InputsConfig } from '../inputs.ts';
 import type { JournalNotes, NotesConfig } from '../journal-notes.ts';
 import type { Lookup, LookupConfig } from '../lookup.ts';
 import type { Participation, ParticipationConfig } from '../participation.ts';
-import type { Pulls, PullsConfig } from '../pulls.ts';
+import type { Pulls } from '../pulls.ts';
 import type { Rewatch, VideoState } from '../rewatch.ts';
 import type { Sends, SendsConfig } from '../sends.ts';
 import type { StepCompletion, ToolRound, ToolRoundConfig } from '../tool-round.ts';
@@ -33,7 +31,6 @@ import type { LookupRing } from '../calls.ts';
 
 /** The live config, as far as the phases read it; the functions they call read their own sections. */
 export type PhaseConfig = LookupConfig &
-  PullsConfig &
   SelfreflectionConfig &
   ToolRoundConfig &
   ParticipationConfig &
@@ -131,18 +128,13 @@ export type PhaseContext = {
   getSelfName: (placeId: string) => string;
   // The channels known to be private chats (a deferred call names only its channel).
   privateChannels: Set<string>;
-  pullViews: ReturnType<typeof createPullViews>;
   // Whether the last turn that wanted prompts['follow-up'] found it missing or blank.
   promptState: { followUpMissing: boolean };
-  pickParticipation: ReturnType<typeof createElsewhereHooks>['pickEpisodes'];
   notifyIdle: () => void;
   facts: Facts['facts'];
   /** The event loop watch's `track` (src/loop-watch.ts); the stages of the request phase are named operations. */
   track?: Track;
-} & Pick<
-  Participation,
-  'participationOn' | 'participationAudience' | 'aroundInputFor' | 'liveChannelName' | 'recentInput' | 'recentOfPlaces'
-> &
+} & Pick<Participation, 'aroundInputFor' | 'liveChannelName'> &
   Pick<
     Inputs,
     | 'conversationOf'
@@ -151,7 +143,6 @@ export type PhaseContext = {
     | 'errandsInputFor'
     | 'intentionsInputFor'
     | 'intentionRefsFor'
-    | 'placesInputFor'
   > &
   Pick<
     JournalNotes,
@@ -221,7 +212,6 @@ export type PhaseParams = {
   mode: string;
   trigger?: TurnTrigger | null;
   triggerKind?: TriggerKind | null;
-  source?: { placeId: string; reason: 'routed' | 'noticed' } | null;
   queued?: (() => unknown) | null;
   added?: ReadonlyArray<{ id?: string; text?: unknown } | null> | null;
   maySplit?: boolean;

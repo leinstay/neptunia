@@ -1,6 +1,6 @@
 // The fourth step of a turn's request: the preparation's deadline and the first stages started beside each other,
 // the file previews, the captions of the window's pictures, the splitter of a message that may hold several requests
-// and the video watches. The request phase (src/turn/phases/request.ts) runs it after the pull step; the second look,
+// and the video watches. The request phase (src/turn/phases/request.ts) runs it after the mode step; the second look,
 // the lookup and the wait read its stages.
 
 import { createDeadline } from '../../../behavior/turn-parts.ts';
@@ -17,7 +17,6 @@ import { trackStage } from '../../timers.ts';
 import type { Stage } from '../../timers.ts';
 import type { HistoryLine, PhaseContext, PhaseParams } from '../context.ts';
 import type { Opened } from '../preflight.ts';
-import type { Pulled } from './pulls.ts';
 import type { Setup } from './setup.ts';
 
 /** One stage of the preparation, with the value its work resolved once it is done (trackStage). */
@@ -52,18 +51,11 @@ export type Staged = {
   videoCandidates: Array<MediaItem>;
 };
 
-export function startStages(
-  ctx: PhaseContext,
-  params: PhaseParams,
-  opened: Opened,
-  setup: Setup,
-  pulled: Pulled
-): Staged {
+export function startStages(ctx: PhaseContext, params: PhaseParams, opened: Opened, setup: Setup): Staged {
   const { hot, clock, schedule, describer, fetchImpl, maybeSplit } = ctx;
   const { trigger = null, triggerKind = null, maySplit = false } = params;
   const { channel, libraryPlace: placeId, prepStep, life } = opened;
   const { config, startedAt, waitsForAll, pace, prefetching, rawHistory, selfName } = setup;
-  const { routedPull } = pulled;
   // Everything below starts as soon as its inputs exist and runs alongside the rest; the turn
   // waits for all of it together, at most until the deadline (paceSettings, counted from the
   // turn's start; longer once the search classifier asked for a search -- held for its verdict
@@ -100,8 +92,7 @@ export function startStages(
 
   // The pictures of the window get a `vision` caption, newest first, capped at
   // MEDIA_PER_TURN; cached captions are free (see src/memory/describe.ts). The caption is
-  // the only way a picture reaches the persona: none goes into her request as an image. A
-  // routed call's own pictures are captioned with its pulled channel instead.
+  // the only way a picture reaches the persona: none goes into her request as an image.
   let captions: Staged['captions'] = null;
   let captionCandidates: Staged['captionCandidates'] = [];
   if (describer) {
@@ -139,7 +130,7 @@ export function startStages(
   // now, beside everything else and under the same deadline. The turn waits for it as for any
   // stage; parts in time end the wait at once (below). Without prompts.split it is off
   // (`split: skipped`, `no-prompt`); without labels.task.part (an older labels file) it is
-  // never asked. A routed call is read in its source, as the search classifier reads it.
+  // never asked.
   let splitStage: Staged['splitStage'] = null;
   if (maySplit && trigger && splitCandidate(trigger, triggerKind, config)) {
     const splitPrompt = hot.prompts?.split;
@@ -153,9 +144,9 @@ export function startStages(
           config,
           placeId: channel.id,
           selfName,
-          history: routedPull ? routedPull.messages : rawHistory,
+          history: rawHistory,
           trigger,
-          descriptions: routedPull ? new Map([...(shown ?? []), ...routedPull.descriptions]) : shown,
+          descriptions: shown,
           prompt: splitPrompt,
           isLate: () => deadline.passed,
         })

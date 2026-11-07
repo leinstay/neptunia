@@ -20,7 +20,11 @@ import { dropCategoryPlaces } from './category-places.ts';
 import { NAMES_SCHEMA, rebuildNames } from './names.ts';
 import { SELF_SOURCE_KINDS } from './source-kinds.ts';
 import { importWakeQueues } from '../migration/wake-import.ts';
-import { renameToSelfreflection, withCurrentNames } from '../migration/selfreflection-names.ts';
+import {
+  moveSelfreflectionMediaIds,
+  renameToSelfreflection,
+  withCurrentNames,
+} from '../migration/selfreflection-names.ts';
 import type { Db, Row } from './types.ts';
 
 const SCOPE = 'scope_kind TEXT, scope_iface TEXT, scope_dm TEXT';
@@ -1507,6 +1511,10 @@ export const MIGRATIONS: Array<Migration> = [
   dropCategoryPlaces,
   // Version 37: the name index of the graph reader (src/memory/db/names.ts), filled from the stored rows.
   createNames,
+  // Version 38: the pictures of her entries take the engine's word in their ids (src/memory/migration/selfreflection-names.ts).
+  (db: Db): void => {
+    moveSelfreflectionMediaIds(db);
+  },
 ];
 
 /** Every table schema v8 adds. */

@@ -168,25 +168,11 @@
       "extractChars": 1200,
       "maxItems": 6
     },
-    "around": {
-      "maxTokens": 400
-    },
     "caps": {
-      "interlocutor": 6000,
       "aboutChat": 2500,
-      "people": 9000,
-      "neighbors": 3000,
-      "server": 4000,
-      "lore": 1500,
-      "pulled": 4000,
-      "recent": 1200,
-      "participation": 6000,
-      "earlier": 2500,
-      "attitudes": 400,
       "intentions": 600
     },
     "pull": {
-      "describeTimeoutMs": 15000,
       "sameAudience": true
     },
     "vision": {
@@ -300,12 +286,6 @@
       "recoveries": 2,
       "timeoutMs": 8000
     }
-  },
-  "elsewhere": {
-    "maxPlaces": 40,
-    "maxEpisodes": 30,
-    "maxOutputTokens": 120,
-    "pickTimeoutMs": 3000
   },
   "recall": {
     "timeoutMs": 15000,

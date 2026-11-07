@@ -22,7 +22,6 @@ import { portMediaPick } from '../../../interface/capabilities.ts';
 import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
 import { pickOtherProfiles } from '../../mentions.ts';
-import { channelDirectoryOf } from '../../routing.ts';
 import { PLANNER_MODE, frameOf, framedRequest } from '../../request/frame.ts';
 import { entriesShownOf } from '../../request/selfreflection.ts';
 import type { PlanParts } from '../../selfreflection.ts';
@@ -545,7 +544,6 @@ export function plannerRequest(
       selfName,
       selfId,
       history: [],
-      neighbors: [],
       trigger: null,
       triggerKind: null,
       taggedCall: null,
@@ -556,16 +554,11 @@ export function plannerRequest(
       otherProfiles: [],
       candidateProfiles: [],
       nameOf: null,
-      channels: [],
-      channelDirectory: [],
-      loreEntries: [],
       currentChannelId: null,
       descriptions: null,
-      neighborDescriptions: null,
       videos: null,
       imageAnswers: null,
       reads: null,
-      lookup: null,
       prefetch: null,
       searchAvailable: false,
       recallAvailable: false,
@@ -574,13 +567,7 @@ export function plannerRequest(
       mediaPickText: null,
       mediaCache: null,
       gifs: null,
-      pulled: null,
-      source: null,
       tasks: null,
-      readOnlyIds: [],
-      recentLines: null,
-      recentAudience: null,
-      participation: null,
       selfreflectionChannel: null,
       selfreflectionChannelIds: [],
       elsewhereDestination: null,
@@ -598,7 +585,6 @@ export function plannerRequest(
       awake: null,
       serviceInner: null,
       wakeKind: null,
-      places: null,
       previousThink: null,
       callMarks: null,
       stableFreeze: null,
@@ -635,21 +621,18 @@ export function buildTurnRequest(
   told: Told
 ): BuiltRequest {
   const { store, calibrator, skills, lookup, emoji, memoryReads, turnContextOf } = ctx;
-  const { aroundInputFor, errandsInputFor, intentionsInputFor, placesInputFor, earlierThinkFor } = ctx;
-  const { liveChannelName, selfreflectionChannelName, stableFreezeOf, withSeenBefore, linkCalls, linkTriggers } = ctx;
+  const { aroundInputFor, errandsInputFor, intentionsInputFor, earlierThinkFor } = ctx;
+  const { selfreflectionChannelName, stableFreezeOf } = ctx;
   const { callMarksOf } = ctx;
-  const { trigger = null, triggerKind = null, source = null } = params;
+  const { trigger = null, triggerKind = null } = params;
   const { taskResult = null } = params;
-  const { channel, placeId, reading: holders, libraryPlace, isPrivate } = opened;
+  const { channel, placeId, libraryPlace, isPrivate } = opened;
   const { config, transport, memoryOn, selfId, selfName, now, snapshot } = setup;
   const { serverOn } = planned;
   const { finalMode } = pulled;
-  const { participationShown, participationStage, participationAudienceOf } = waited;
-  const { history, neighbors, descriptions, neighborDescriptions, videos, imageAnswers, reads } = gathered;
-  const { prefetchResult, drawOn, selfreflectionPrep, pulled: pulledList, readOnlyIds } = gathered;
-  const { recent, prompts } = gathered;
+  const { history, descriptions, videos, imageAnswers, reads } = gathered;
+  const { prefetchResult, drawOn, selfreflectionPrep, prompts } = gathered;
   const { factsText, tasks, placeMemory, taggedCall, offPeriods, skillIndex } = told;
-  const pulled2 = pulledList;
   // Her tools, pinned for this turn (a grant removed meanwhile is still caught at each call): the skills granted to her
   // and the carried-over ones, as native tool definitions (or `<tools>` text), within a wake's own set
   // (src/tools/wake-tools.ts). `toolNames` feeds `<senses>` and stays the same for every turn kind, so a wake shares the
@@ -682,8 +665,7 @@ export function buildTurnRequest(
     timezone: String(config.bot?.timezone ?? 'UTC'),
   });
   const facts = { history, trigger, prefetch: prefetchResult, labels: prompts?.labels, now };
-  // A routed call or a noticed comment keeps the old request (src/behavior/prompt.ts).
-  const framed = source === null ? framedInputsOf(ctx, frame, draft, channel, facts) : NO_FRAMED;
+  const framed = framedInputsOf(ctx, frame, draft, channel, facts);
   const requestInput = turnRequestInput({
     frame,
     config,
@@ -695,7 +677,6 @@ export function buildTurnRequest(
     // `<directory>` never lists the persona's own profile.
     selfId,
     history,
-    neighbors,
     trigger,
     triggerKind,
     taggedCall,
@@ -708,19 +689,12 @@ export function buildTurnRequest(
     otherProfiles: memoryOn ? pickOtherProfiles(store, placeId, history, trigger?.authorId) : [],
     candidateProfiles: memoryOn ? store.listUserProfiles() : [],
     nameOf: memoryOn ? (id: string) => store.getUser(accountOf(store, id))?.names?.[0] ?? null : null,
-    channels: memoryOn ? holders.flatMap((holder) => store.listChannels(holder) as Array<object>) : [],
-    // `<channel_directory>`: every text channel the persona can read, with its handle (none in a private chat).
-    channelDirectory: channelDirectoryOf(isPrivate ? null : snapshot),
-    loreEntries: memoryOn ? holders.flatMap((holder) => store.getLore(holder) as Array<object>) : [],
     currentChannelId: channel.id,
     selfreflectionChannelIds: selfreflectionConversationIds(store),
     descriptions: descriptions ?? null,
-    neighborDescriptions: neighborDescriptions ?? null,
     videos: videos ?? null,
     imageAnswers,
     reads: reads ?? null,
-    // `<lookup>` stays in the request layout, but no turn fills it: she searches through her own tools.
-    lookup: null,
     // `<retrieved>`: the automatic memory prefetch of this trigger (null: none ran).
     prefetch: prefetchResult,
     searchAvailable: typeof lookup?.hasSearch === 'function' && lookup.hasSearch() === true,
@@ -734,47 +708,8 @@ export function buildTurnRequest(
     gifs: typeof store.getGifs === 'function' ? (store.getGifs() ?? null) : null,
     // The cached captions of a custom emoji and of a library GIF in the transcript.
     mediaCache: emoji || typeof store.getGifs === 'function' ? (store.getMediaCache(libraryPlace) ?? null) : null,
-    // `<channel_view>`: the channels pulled into this turn (each with the last view of it
-    // shown in this channel, when one is within context.pull.seenTtlMinutes), the one it is
-    // about, the chat line put to the room, where a call from a read-only channel is answered.
-    // The persona's lines there name the message that started their turn (linkTriggers) and
-    // the skill calls she made there (linkCalls).
-    pulled: withSeenBefore(
-      pulled2.map((entry) =>
-        Array.isArray(entry?.messages)
-          ? {
-              ...entry,
-              // The marks keep every line as it was.
-              messages: linkCalls(linkTriggers(entry.messages), {
-                channel,
-                snapshot,
-                placeId,
-              }) as typeof entry.messages,
-              // Her call marks made there, put among its lines by time.
-              marks: callMarks,
-            }
-          : entry
-      ),
-      channel.id,
-      now
-    ),
-    source,
     elsewhereDestination: null,
     tasks: tasks.input,
-    readOnlyIds,
-    // `<recent>`: the last hours, its live lines and the members' moments (no block without the store).
-    recentLines: recent.lines ?? null,
-    recentAudience: recent.audience ?? null,
-    // `<participation>`: the store read now, the classifier's picks when they came in time.
-    participation: participationShown
-      ? {
-          state: store.getParticipation(placeId),
-          pickedIds:
-            participationStage?.done && Array.isArray(participationStage.value) ? participationStage.value : [],
-          audience: participationAudienceOf,
-          channelName: liveChannelName(channel, snapshot),
-        }
-      : null,
     // `<senses>`: where the persona keeps its selfreflection, when one is set.
     selfreflectionChannel: selfreflectionChannelName(placeId, config, snapshot, null),
     // A selfreflection post: its past entries from memory, its plan, what its search found and the mirrors.
@@ -823,11 +758,6 @@ export function buildTurnRequest(
     serviceInner: serviceInnerOf(wakeWords, prompts?.labels),
     // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
     wakeKind,
-    // `<places>`: the places page on an addressed server turn, only with `context.places` exactly true (an inner turn has it in `<wake>`).
-    places:
-      !draft.inner && !isPrivate && finalMode !== 'selfreflection'
-        ? placesInputFor({ placeId, config, labels: prompts?.labels })
-        : null,
     // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).
     previousThink: earlierThinkFor({ channel, isPrivate, draft, mode: finalMode }),
     // `<my_day>`: what she did today, read under this turn's context (context.myDay.lines, read now).
@@ -836,20 +766,19 @@ export function buildTurnRequest(
     callMarks,
     // `<self_facts>` held per cache bucket, so a memory batch rewrites the cache once at most.
     stableFreeze: stableFreezeOf(placeId),
-    // `<spatial_awareness>`: where she is, the whole nesting of the place (buildRequest names her own time's places).
-    whereabouts: whereaboutsOfFrame(frame),
+    // `<spatial_awareness>`: where she is, the whole nesting of the place in the interface's own nouns (buildRequest
+    // names her own time's places).
+    whereabouts: whereaboutsOfFrame(frame, ctx.frameReads?.interfaceNames(frame.interface).nouns ?? {}),
     // A reply and an errand's result on the frame: `<memory>`, `<recall>`, `<meanwhile>`, `<surroundings>`, references.
     ...framed,
   });
   const request = requestOf(requestInput);
   // Every number of the request in the turn's one registry, so a reference in her stored words reads back.
   if (draft.handles)
-    registerHandles(draft.handles, request, [...history, ...pulled2.flatMap((entry) => entry.messages ?? [])], {
+    registerHandles(draft.handles, request, history, {
       iface: typeof channel.iface === 'string' ? channel.iface : '',
       placeId: String(channel.id),
     });
-  // What `<recent>` showed, held back or cut: counts only.
-  if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
   // The memory rows this request carried, for the database's per-turn record (deferred there; it never fails a turn).
   const allReads = request.memoryReads ?? [];
   if (memoryReads && draft.started?.turnId && allReads.length > 0) {
@@ -869,22 +798,9 @@ export function buildTurnRequest(
   }
   // The journal: what of the window went in, whose lines they were, what the budget dropped.
   if (draft.started && request.seen) {
-    // The lines of the pulled channels whose block the request kept count as seen too, by channel.
-    const pulledSeen = (request.pulledKept ?? []).map(({ placeId: conversationId, ids }) => ({
-      placeId: conversationId,
-      messageIds: [...ids],
-    }));
-    const pulledIdsSeen = pulledSeen.flatMap((entry) => entry.messageIds);
-    draft.seen = {
-      ...request.seen,
-      messageIds: [...new Set([...request.seen.messageIds, ...pulledIdsSeen])],
-      pulled: pulledSeen,
-    };
+    draft.seen = { ...request.seen, pulled: [] };
     const keptIds = new Set(draft.seen.messageIds);
-    const pulledLines = pulledSeen.flatMap(
-      ({ placeId: conversationId }) => pulled2.find((entry) => entry.placeId === conversationId)?.messages ?? []
-    );
-    const authors = [...history, ...pulledLines]
+    const authors = history
       .filter((message) => keptIds.has(message.id) && !message.self)
       .map((message) => message.authorId);
     draft.participants = [
