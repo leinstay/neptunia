@@ -38,4 +38,4 @@ Start with the task you want to do. These guides describe the engine and its pub
 | [Configuration](configuration.md) | Look up setting types, defaults and readers |
 | [Repository structure](structure.md) | Locate implementation modules |
 
-Contribution workflow lives in [CONTRIBUTING.md](../CONTRIBUTING.md). Coding agents start with [AGENTS.md](../AGENTS.md); code and prose rules live in [STYLEGUIDE.md](../STYLEGUIDE.md) and [WRITING.md](../WRITING.md). Security reporting lives in [SECURITY.md](../SECURITY.md).
+Contribution workflow lives in [CONTRIBUTING.md](../CONTRIBUTING.md). Coding agents start with [AGENTS.md](../AGENTS.md); code and prose rules live in [STYLEGUIDE.md](../STYLEGUIDE.md) and [WRITING.md](../WRITING.md), and the engine's words in [GLOSSARY.md](../GLOSSARY.md). Security reporting lives in [SECURITY.md](../SECURITY.md).
