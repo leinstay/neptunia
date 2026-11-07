@@ -7,7 +7,8 @@ import { labels } from './labels.ts';
 
 /** The whole text of a request's user message. */
 export function userText(request: Built): string {
-  return contentText(request.messages[1].content);
+  const [, user] = request.messages;
+  return contentText(user.content);
 }
 
 /** The body of `<tag>` in `text`, or null when the block is absent. */
@@ -30,6 +31,7 @@ export function blockTags(text: string): Array<string> {
 /** The tempo lines at the foot of `<chat>` (src/format.ts#renderTempo), from its counts line on; null without them. */
 export function tempoOf(text: string): string | null {
   const chat = /<chat>\n([\s\S]*?)\n<\/chat>/.exec(text)?.[1] ?? '';
-  const at = chat.lastIndexOf(String(labels.tempo.counts).split('{')[0]);
+  const { counts } = labels.tempo;
+  const at = chat.lastIndexOf(String(counts).split('{')[0]);
   return at === -1 ? null : chat.slice(at);
 }
