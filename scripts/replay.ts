@@ -5884,7 +5884,9 @@ export function requestBlocks(
   recallLine: boolean;
   recallToolLine: boolean;
 } {
-  const has = (tag: string) => blockOf(user, tag) !== null;
+  // A block may stand inside another (`<tools>` inside `<self>` on the frame), so it is found at any line start.
+  const has = (tag: string) =>
+    new RegExp(`(?:^|\\n)<${tag}>\\n[\\s\\S]*?\\n</${tag}>(?=\\n|$)`).test(String(user ?? ''));
   const line = (text: string) => typeof text === 'string' && text !== '' && String(user ?? '').includes(text);
   return {
     lookup: has('lookup'),

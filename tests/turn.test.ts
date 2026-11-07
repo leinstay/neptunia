@@ -1291,6 +1291,22 @@ test('runTurn: a draw.create alone without an image client posts nothing', async
   assert.equal(result.delivered, false);
 });
 
+test('runTurn: a turn whose reaction the platform refused or whose picture moderation refused delivered nothing', async () => {
+  // Slice 7: restored on the ordinary scene from the routed scene it was deleted with. Bug: a refused reaction or a
+  // refused picture counts as delivered, so the turn reads as having reached the chat.
+  world().port.failNext('react', { status: 'failed', error: { code: 'fixture-refused', retryable: false } });
+  const reacted = await runDrawTurn({ answers: ['<react to="#1">👍</react>'] });
+  assert.deepEqual([reacted.result.outcome, reacted.result.delivered], ['spoke', false]);
+  assert.ok(reacted.logs.some((l: Untyped) => l.msg === 'turn: reaction failed'));
+
+  const refused = await runDrawTurn({
+    images: fakeImages({ error: new ImageGenError('moderation', 'image refused by moderation (HTTP 400)') }),
+    answers: [toolAnswer('', [call('draw.create', { reply: '#1', text: 'a blue wall' })]), '<skip/>'],
+  });
+  assert.deepEqual([refused.result.outcome, refused.result.delivered], ['spoke', false]);
+  assert.equal(refused.channel.sent.length, 0);
+});
+
 test('runTurn: a draw.create alone is a spoken turn', async () => {
   const { result, channel, llm, logs } = await runDrawTurn({
     answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })])],

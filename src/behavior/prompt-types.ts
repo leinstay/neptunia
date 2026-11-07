@@ -34,7 +34,7 @@ export type BuildRequestInput = {
   config: RequestConfig;
   prompts: Prompts;
   calibrator: Parameters<typeof sectionCost>[0];
-  mode: 'reply' | 'interject' | 'elsewhere' | 'inner';
+  mode: 'reply' | 'interject' | 'inner';
   now: number;
   selfName: string;
   selfId?: string | null;
