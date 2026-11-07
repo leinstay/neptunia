@@ -339,7 +339,7 @@ function framedInputsOf(
 }
 
 /** A line's identity in a stored text (src/turn/request/refs.ts), as the key the reader of lines takes. */
-const IDENTITY = /\bsrc:([\w-]+):((?:[\w.-]+:)*?[\w.-]+):\d+(?![\w.:-])/gu;
+const IDENTITY = /\bsrc:([\w-]+):((?:[\w.-]+:)*?[\w.-]+):\d+(?!\w|[.:]\w|-(?!src:)\w)/gu;
 
 /**
  * What her open intentions refer to, as the graph reader's candidates: each line an identity in a purpose names, with
