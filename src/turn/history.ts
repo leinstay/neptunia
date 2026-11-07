@@ -1,9 +1,11 @@
 // The channel history a turn reads and continues: the empty `<recent>` input, the history with the parents its replies
-// answer from outside it, and the history a turn continues with after her skill call. src/behavior/turn.ts calls them
-// while it reads a channel; the tests and the replay's skill scenarios call continuationHistory through its re-export.
+// answer from outside it, the history a turn continues with after her skill call, and the history in time order with
+// her call marks among the lines. src/behavior/turn.ts calls them while it reads a channel, the request's head orders
+// the lines of `<chat>` and `<channel_view>`; the tests and the replay's skill scenarios call continuationHistory
+// through its re-export.
 
 import { fetchReplyParents } from '../behavior/reply-parents.ts';
-import type { Line } from '../behavior/lines.ts';
+import type { CallMark, Line } from '../behavior/lines.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 
@@ -103,4 +105,57 @@ export function continuationHistory({
   for (const line of isList(own) ? own : []) if (line && !seen.has(line.id)) add(asLine(line));
   later.sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
   return [...base, ...later];
+}
+
+/** What orderedHistory reads of a line: its time, its place and whether it is a reply parent from outside the window. */
+type OrderedLine = { readonly ts: number; readonly placeId?: string; readonly replyParent?: boolean };
+
+/** The id of a call mark's line: never a message id, since a message id has no colon prefix of this kind. */
+function markId(mark: CallMark, i: number): string {
+  return `call:${mark.placeId}:${mark.at}:${i}`;
+}
+
+/** A call mark as a line of hers at the call's time. */
+function markLine(mark: CallMark, i: number): Line {
+  return {
+    id: markId(mark, i),
+    placeId: mark.placeId,
+    authorId: '',
+    authorName: '',
+    content: '',
+    self: true,
+    ts: mark.at,
+    reactions: [],
+    kind: 'call',
+    call: mark,
+  };
+}
+
+/**
+ * Every line of a turn's chat and every call mark of hers made in its place, in time order, sorted once after the reply
+ * parents, the deleted placeholders and the continuation lines are in. A mark is a line of its own with `self: true`,
+ * `kind: 'call'` and the call's time. A mark of another place, one older than the oldest line of the window (a reply
+ * parent does not count, since it comes from outside the window), one later than `now` and one without a finite time
+ * are dropped. At an equal time a message comes before a mark, and two marks keep the order they were given in, which
+ * is the journal's. Pure.
+ */
+export function orderedHistory<TLine extends OrderedLine>(
+  lines: ReadonlyArray<TLine>,
+  marks: ReadonlyArray<CallMark> | null | undefined,
+  now: number
+): Array<TLine | Line> {
+  const places = new Set(lines.map((line) => line.placeId));
+  const window = lines.filter((line) => line.replyParent !== true).map((line) => line.ts);
+  const start = window.length > 0 ? Math.min(...window) : Number.POSITIVE_INFINITY;
+  const kept = (marks ?? []).filter(
+    (mark) => places.has(mark.placeId) && Number.isFinite(mark.at) && mark.at >= start && mark.at <= now
+  );
+  const all: Array<{ line: TLine | Line; rank: number; order: number }> = [
+    ...lines.map((line, order) => ({ line, rank: 0, order })),
+    ...kept.map((mark, i) => ({ line: markLine(mark, i), rank: 1, order: i })),
+  ];
+  // A line without a finite time keeps its place among the oldest rather than breaking the sort.
+  const tsOf = (line: OrderedLine): number => (Number.isFinite(line.ts) ? line.ts : 0);
+  all.sort((a, b) => tsOf(a.line) - tsOf(b.line) || a.rank - b.rank || a.order - b.order);
+  return all.map((entry) => entry.line);
 }

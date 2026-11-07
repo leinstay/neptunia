@@ -7,6 +7,8 @@ import { createHash } from 'node:crypto';
 import { fill, formatDate, formatDuration, formatTranscript, reactorIdsOf } from '../../format.ts';
 import { fitSections } from '../../llm/budget.ts';
 import { pulledMoment } from './text.ts';
+import { orderedHistory } from '../history.ts';
+import type { CallMark } from '../../behavior/lines.ts';
 import type { Base, Room } from './head.ts';
 import type { HeadSections } from './sections.ts';
 import type { Cost, Fit, FormatOptions, Labels, Message, RequestInput, Section, TranscriptItem } from './types.ts';
@@ -30,6 +32,8 @@ export type PulledEntry = {
   readonly picturesNotSeen?: unknown;
   readonly pingState?: unknown;
   readonly seenBefore?: unknown;
+  /** Her call marks made there (src/turn/journal-notes.ts#callMarksOf), put among its lines by time. */
+  readonly marks?: ReadonlyArray<CallMark> | null;
 };
 
 /** A pulled channel a request can show: its record, its id, its name and its messages, each once, oldest first. */
@@ -151,7 +155,17 @@ export function pulledTranscripts(
       own instanceof Map && own.size > 0
         ? new Map([...(own as Map<string, string>), ...(descriptions ?? [])])
         : descriptions;
-    const items = formatTranscript(channel.messages, { ...formatOptions, descriptions: captions, indexOffset: offset });
+    // Her call marks among the lines by time; they take no number, so the next channel's numbers follow the messages.
+    const lines = orderedHistory(
+      channel.messages,
+      channel.entry.marks ?? [],
+      formatOptions.now ?? Number.POSITIVE_INFINITY
+    );
+    const items = formatTranscript(lines as Array<Message>, {
+      ...formatOptions,
+      descriptions: captions,
+      indexOffset: offset,
+    });
     offset += channel.messages.length;
     for (const item of items) {
       if (triggerId !== null && item.id === triggerId) continue;

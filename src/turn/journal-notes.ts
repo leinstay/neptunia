@@ -1,20 +1,21 @@
 // What a turn notes about itself as it runs: the facts kept for her next request, the outside text an attempt has seen
-// and where her lines came from, the trigger and call marks on her own lines (seeded from the journal at start), her previous think per place, and the
+// and where her lines came from, the trigger marks on her own lines and her call marks (seeded from the journal at start), her previous think per place, and the
 // journal's and the record's lines (the request dumps, the turn records, the `said` lines, the operations).
 // createTurnRunner (src/behavior/turn.js) builds it once per runner with createJournalNotes over the runner's state;
 // the attempt, the calls, the act and the pulls call its functions.
 
 import type { Conversation } from '../protocol/events.ts';
-import { messageLinkOf } from '../behavior/elsewhere.ts';
 import type { FactInput, FactsApi, Fact } from '../behavior/inner.ts';
 import { placeKey } from '../behavior/previous-think.ts';
-import { withCalls, withTriggers } from '../format.ts';
+import { callMarksFor, withPostedFrom, withTriggers } from '../format.ts';
+import type { CallMark as ChatCallMark } from '../behavior/lines.ts';
 import { log } from '../log.ts';
 import { toRecordLine } from '../memory/record.ts';
 import { outcomeDetail } from '../tools/executors.ts';
 import { CALL_MARKS_MAX, POSTED_FROM_MAX, TRIGGER_LINKS_MAX } from './calls.ts';
 import { FAILED_TURN_KEEP_MS, NO_OP, journalTurnRecord } from './journal.ts';
 import type { JournalDraft, JournalOp } from './journal.ts';
+import type { Handles } from './handles.ts';
 import { inCommunity } from './routing.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 
@@ -63,7 +64,7 @@ export type ThinkStore = {
   select: (place: string, at: { now: number; minutes: number; isPrivate: boolean }) => ThinkPick;
 };
 
-/** A skill call of hers as a call mark (in src/format.js#withCalls's shape). */
+/** A skill call of hers as the notes remember it (src/format.ts#callMarksFor reads it). */
 export type CallMark = object;
 
 /** The ids an attempt is known by: the journal's, or the turn key of one that is not journalled. */
@@ -81,6 +82,8 @@ export type NotesDraft = TurnIds & {
   deliveredIn?: Iterable<string> | null;
   finalThink?: unknown;
   actions?: Array<unknown>;
+  /** The turn's handle registry (src/turn/handles.ts): her stored words keep a `#n` as the line's identity. */
+  handles?: Handles | null;
 };
 
 /** A channel the notes name, as the interface described it: its id, and whether it is in a community (`rootId`). */
@@ -147,8 +150,9 @@ export type JournalNotes = {
   seedCallMarks: (marks: { calls?: unknown; postedFrom?: unknown } | null | undefined) => void;
   linkCalls: (
     lines: Array<object>,
-    options: { channel: NotesChannel; snapshot?: Snapshot | null; placeId: string | null; extra?: unknown }
+    options: { channel: NotesChannel; snapshot?: Snapshot | null; placeId: string | null }
   ) => Array<object>;
+  callMarksOf: (options: { channel: NotesChannel; snapshot?: Snapshot | null; extra?: unknown }) => Array<ChatCallMark>;
   journalOn: () => boolean;
   offPeriodsFor: (placeId: string) => Promise<unknown>;
   writeTurnRecords: (
@@ -169,13 +173,23 @@ function codeOf(error: unknown): unknown {
   return (error as { code?: unknown } | null)?.code ?? null;
 }
 
+/** `value` with every string inside it passed through `canonical`, the same shape otherwise. */
+function canonicalFields<T>(value: T, canonical: (text: string) => string): T {
+  if (typeof value === 'string') return canonical(value) as T;
+  if (Array.isArray(value)) return value.map((item: unknown) => canonicalFields(item, canonical)) as T;
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, canonicalFields(item, canonical)])
+    ) as T;
+  return value;
+}
+
 // health: allow function-length until 2027-04-01 -- the notes share the runner state of src/behavior/turn.js, moved whole in stage 5b
 export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   const {
     clock,
     journal,
     record,
-    iface,
     facts,
     triggerLinks,
     callMarks,
@@ -306,7 +320,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     }
   }
 
-  /** Remember one skill call of hers (in src/format.js#withCalls's shape). */
+  /** Remember one skill call of hers (src/format.ts#callMarksFor reads it). */
   function noteCall(mark: CallMark): void {
     callMarks.push(mark);
     if (callMarks.length > CALL_MARKS_MAX) callMarks.splice(0, callMarks.length - CALL_MARKS_MAX);
@@ -322,31 +336,36 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   }
 
   /**
-   * `lines` with the persona's skill calls on her own lines (src/format.js#withCalls): the
-   * channel names read live from the place of `channel` (the turn's), the message links built in
-   * `placeId` (`@me` for a message of the private chat itself). `lines` as they are with
-   * features.callMarkers off (a missing key counts as on, read now).
+   * `lines` with her lines posted from another place's turn marked with that place's name (src/format.ts#withPostedFrom),
+   * the names read live from the place of `channel` (the turn's). `placeId` is the turn's place, kept for the callers'
+   * shape. `lines` as they are when nothing was posted from elsewhere.
    */
   function linkCalls(
     lines: Array<object>,
-    {
-      channel,
-      snapshot = null,
-      placeId,
-      extra = null,
-    }: { channel: NotesChannel; snapshot?: Snapshot | null; placeId: string | null; extra?: unknown }
+    { channel, snapshot = null }: { channel: NotesChannel; snapshot?: Snapshot | null; placeId: string | null }
   ): Array<object> {
+    if (postedFromLinks.size === 0) return lines;
+    return withPostedFrom(lines as Array<Record<string, unknown>>, postedFromLinks, liveChannelName(channel, snapshot));
+  }
+
+  /**
+   * Her remembered skill calls as the call marks of `<chat>` (src/format.ts#callMarksFor), with `extra` (a shadow
+   * inner turn's marks of this turn only) after them, the place names read live from the place of `channel`.
+   * src/turn/history.ts#orderedHistory puts them among the lines of their place.
+   */
+  function callMarksOf({
+    channel,
+    snapshot = null,
+    extra = null,
+  }: {
+    channel: NotesChannel;
+    snapshot?: Snapshot | null;
+    extra?: unknown;
+  }): Array<ChatCallMark> {
     const turnMarks: Array<CallMark> = Array.isArray(extra) ? (extra as Array<CallMark>) : [];
-    if (callMarks.length === 0 && turnMarks.length === 0 && postedFromLinks.size === 0) return lines;
-    const privateId = inCommunity(channel) ? null : String(channel.id);
-    return withCalls(
-      lines,
-      { calls: turnMarks.length > 0 ? [...callMarks, ...turnMarks] : callMarks, postedFrom: postedFromLinks },
-      {
-        nameOf: liveChannelName(channel, snapshot),
-        linkOf: (channel, message) => messageLinkOf(iface, channel === privateId ? null : placeId, channel, message),
-      }
-    );
+    const calls = turnMarks.length > 0 ? [...callMarks, ...turnMarks] : callMarks;
+    if (calls.length === 0) return [];
+    return callMarksFor(calls as Array<Record<string, unknown>>, liveChannelName(channel, snapshot));
   }
 
   /** Whether the journal is written now: one injected and features.journal exactly true (read now). */
@@ -371,6 +390,8 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     for (const { draft, result } of attempts) {
       // writeTurnRecords runs only for a runner whose journal is on (runTurn checks journalOn first).
       await journal!.turn(draft.started.placeId, journalTurnRecord(draft, result));
+      const cut = draft.handles?.cut() ?? 0;
+      if (cut > 0) log.info('turn: references cut', { turnId: draft.started.turnId, count: cut });
     }
   }
 
@@ -402,11 +423,13 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
       ? (draft?.privateAccountId ?? trigger?.authorId ?? channel.partnerId ?? null)
       : null;
     if (privateChat && !privateAccountId) return;
+    // A `#n` in her words is stored as the identity of the line it named (src/turn/handles.ts).
+    const handles = draft?.handles;
     const line = toRecordLine(
       {
         id: posted.id,
         placeId: channel.id,
-        content: text,
+        content: typeof text === 'string' && handles ? handles.canonical(text) : text,
         ts: Number.isFinite(posted.createdTimestamp) ? posted.createdTimestamp : clock(),
         replyToId: replyId ?? null,
         replyToAuthorId: repliedAuthorId ?? null,
@@ -438,13 +461,16 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     fields: Record<string, unknown> = {}
   ): JournalOp | Readonly<JournalOp> {
     if (!draft?.started || typeof journal?.op !== 'function') return NO_OP;
+    // A skill action's arguments keep a `#n` as the identity of the line it named (src/turn/handles.ts).
+    const handles = draft.handles;
+    const stored = name === 'skill' && handles ? canonicalFields(fields, (text) => handles.canonical(text)) : fields;
     const handle = journal.op(draft.started.placeId, {
       turnId: draft.started.turnId,
       name,
       by,
       placeId: draft.info?.id,
       privateAccountId: draft.privateAccountId,
-      ...fields,
+      ...stored,
     });
     const actions = (draft.actions ??= []);
     const note = (): void => {
@@ -512,6 +538,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     seedTriggerLinks,
     seedCallMarks,
     linkCalls,
+    callMarksOf,
     journalOn,
     offPeriodsFor,
     writeTurnRecords,

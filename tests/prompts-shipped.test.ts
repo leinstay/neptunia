@@ -279,7 +279,16 @@ function assertFilled(
       `${where}: prompts/${name}.md is not carried whole, e.g. ${JSON.stringify(missing.slice(0, 2))}`
     );
   }
-  for (const tag of blocks) assert.ok(text.includes(`<${tag}>\n`), `${where}: no <${tag}> block`);
+  for (const tag of blocks) {
+    if (tag === 'tempo') {
+      // Slice 2 (g): `<tempo>` is the foot of `<chat>`, not a block, so its verdict line ends the chat's body.
+      const chat = /<chat>\n([\s\S]*?)\n<\/chat>/.exec(text)?.[1] ?? '';
+      const verdict = LABELS.tempo.verdict.split('{')[0];
+      assert.ok(chat.split('\n').at(-1)?.startsWith(verdict), `${where}: no tempo at the foot of <chat>`);
+      continue;
+    }
+    assert.ok(text.includes(`<${tag}>\n`), `${where}: no <${tag}> block`);
+  }
   return text;
 }
 
@@ -1298,7 +1307,10 @@ test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in pla
     'a heartbeat has no current conversation to answer'
   );
   assert.ok(
-    !/^<tempo>\s*$/m.test(userText(beatRequest.messages[1].content)),
+    // Slice 2 (g): no `<tempo>` block exists any more, so the check looks for the tempo's verdict line anywhere.
+    !userText(beatRequest.messages[1].content)
+      .split('\n')
+      .some((line) => line.startsWith(LABELS.tempo.verdict.split('{')[0])),
     'silence in an anchor channel is not heartbeat tempo'
   );
   assert.ok(!carries(beatText, 'inner'), 'inner.md is not sent as well');

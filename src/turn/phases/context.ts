@@ -27,6 +27,7 @@ import type { Rewatch, VideoState } from '../rewatch.ts';
 import type { Sends, SendsConfig } from '../sends.ts';
 import type { StepCompletion, ToolRound, ToolRoundConfig } from '../tool-round.ts';
 import type { TriggerKind } from '../triggers.ts';
+import type { MyDayReader } from '../request/my-day.ts';
 
 /** The live config, as far as the phases read it; the functions they call read their own sections. */
 export type PhaseConfig = LookupConfig &
@@ -117,6 +118,8 @@ export type PhaseContext = {
   skillIndex?: (() => Promise<{ text: string; indexed: Array<IndexedSkill> } | null>) | null;
   recordSkillUses?: ((uses: Array<SkillUse>) => Promise<unknown>) | null;
   memoryReads: ((args: Record<string, unknown>) => void) | null;
+  /** What she did today under a turn's context (src/turn/request/my-day.ts#myDayOf over the memory); null: none. */
+  myDay: MyDayReader | null;
   busy: Set<string>;
   selfIdOf: () => string;
   getSelfName: (placeId: string) => string;
@@ -138,7 +141,10 @@ export type PhaseContext = {
     Inputs,
     'conversationOf' | 'turnContextOf' | 'stableFreezeOf' | 'errandsInputFor' | 'intentionsInputFor' | 'placesInputFor'
   > &
-  Pick<JournalNotes, 'linkTriggers' | 'linkCalls' | 'earlierThinkFor' | 'journalOn' | 'offPeriodsFor' | 'journalOp'> &
+  Pick<
+    JournalNotes,
+    'linkTriggers' | 'linkCalls' | 'callMarksOf' | 'earlierThinkFor' | 'journalOn' | 'offPeriodsFor' | 'journalOp'
+  > &
   Pick<Selfreflection, 'prepareSelfreflection' | 'selfreflectionPictureGate'> &
   Pick<Sends, 'emojiLookup' | 'settleAuthor' | 'selfreflectionChannelName'> &
   Pulls &

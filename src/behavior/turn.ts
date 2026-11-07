@@ -25,10 +25,16 @@ import { turnRoutes } from './turn-ability-route.ts';
 import { chunkPictures } from './mirror.ts';
 import { loopSettings, paceSettings } from '../turn/settings.ts';
 import { scheduleTimer } from '../turn/timers.ts';
+import { DAY_MS, utcDay } from '../time.ts';
+import { log } from '../log.ts';
 import { postsPlain } from '../turn/triggers.ts';
 import { lookupClassifierInput } from '../turn/lookup-input.ts';
 import { mentionDirectory, pickOtherProfiles, resolveMentions, untaggedNote } from '../turn/mentions.ts';
 import { continuationHistory } from '../turn/history.ts';
+import { createHandles } from '../turn/handles.ts';
+import { myDayOf } from '../turn/request/my-day.ts';
+import type { JournalReader, MyDayReader } from '../turn/request/my-day.ts';
+import { placeChainInDb } from '../memory/db/place-tree.ts';
 import { createAct } from '../turn/act.ts';
 import { createSelfreflection } from '../turn/selfreflection.ts';
 import { createDrawGif } from '../turn/draw-gif.ts';
@@ -235,9 +241,9 @@ export { fallbackLookupPlan };
  * Call marks: every skill call she makes (runCall: its skill, status, target and the messages its
  * turn posted) is remembered in process, `seedCallMarks` adding the ones the journal kept from
  * before a restart; a message a call posted in another channel than its turn's remembers that
- * channel. With features.callMarkers on (a missing key counts as on, read per turn) the lines of
- * the turn's history and of its pulled channels carry them (src/format.ts#withCalls,
- * linkCalls), so she sees what she called and how it went, in the channel where she called it.
+ * channel. Each call stands as a line of hers at its time among the lines of the place she called it from, in
+ * `<chat>` and in a pulled channel (callMarksOf, src/turn/history.ts#orderedHistory), and her line posted from
+ * another place's turn names that place (linkCalls), so she sees what she called and how it went.
  *
  * Skills and the interface: every effect of a reply -- a message with its reply target and
  * mentions, the GIF, the picture's publication after its generation, a selfreflection set's pictures, a
@@ -283,7 +289,7 @@ export { fallbackLookupPlan };
 /** An attempt's first draft: its limits, and the context and the restriction the turn was opened with. */
 function draftOf(args: TurnParams): Draft {
   const { memoryContext, publicationBoundary } = args;
-  return { limits: createLimits(), memoryContext, publicationBoundary } as Draft;
+  return { limits: createLimits(), memoryContext, publicationBoundary, handles: createHandles() } as Draft;
 }
 
 // health: allow function-length until 2027-04-01 -- the closure holds its whole operation, grown by the one dependency that names the loop watch
@@ -334,6 +340,8 @@ export function createTurnRunner({
   // The memory rows a request carried (src/memory/db/service.js#recordTurnReads) and a turn's execution context (#issueContext, `(spec) => ctx`); null: none.
   memoryReads = null,
   selfreflectionFacts = null,
+  // The memory's read handle while it is open, for `<my_day>` (src/turn/request/my-day.ts); null: no block.
+  journalDb = null,
   memoryContext = null,
   // Her attention, one turn at a time (src/behavior/attention.ts mirrors it as leases; a plain set without them), the model roles that are down (src/llm/role-health.ts, her tool roles route on it); null: none.
   attention = new Set(),
@@ -343,6 +351,14 @@ export function createTurnRunner({
   noteProgress = () => {},
 }: CreateTurnRunnerInput): TurnRunner {
   const ifaceReads: Reads = readsDep;
+  // What she did today under a turn's context, read from the journal's rows; `[]` while the database is closed.
+  const myDay: MyDayReader | null = journalDb
+    ? (context, now, timezone, options) => {
+        const db = journalDb() as JournalReader | null;
+        if (!db) return [];
+        return myDayOf(db, context, (id) => placeChainInDb(db, id)[0]?.name ?? null, now, timezone, options);
+      }
+    : null;
   const busy = attention;
   const routes = turnRoutes(hot, roleHealth);
   // The topic modules of the closure (src/turn/<topic>.ts), each built once from the context it reads.
@@ -398,8 +414,24 @@ export function createTurnRunner({
   const callMarks: Array<Untyped> = [];
   const postedFromLinks = new Map();
 
-  // The last think per place (src/behavior/previous-think.ts), in process; a restart forgets it.
+  // The last think per place (src/behavior/previous-think.ts), in process, seeded at start from the journal (seedThinks).
   const thinks = createThinkStore();
+
+  /** Her thinks of yesterday and today in the place journal's `turn` records, into the store; a failed read is logged. */
+  async function seedThinks(placeId: string): Promise<void> {
+    // The core's journal (src/memory/journal.ts#createJournal) as far as its `read` goes.
+    const reader = journal as { read?: (placeId: string, query: object) => Promise<Array<unknown>> } | null;
+    if (typeof reader?.read !== 'function') return;
+    try {
+      const at = clock();
+      for (const day of [utcDay(at - DAY_MS), utcDay(at)])
+        thinks.seed(await reader.read(placeId, { day, kind: 'turn', n: Number.MAX_SAFE_INTEGER }), {
+          isPrivate: false,
+        });
+    } catch (error) {
+      log.warn('turn: thinks not seeded', { placeId, error });
+    }
+  }
 
   // The persona's recent time away from the journal's system records, reused for a minute.
   const readOffPeriods = createOffPeriodsReader({ journal, now: clock });
@@ -415,6 +447,7 @@ export function createTurnRunner({
     seedTriggerLinks,
     seedCallMarks,
     linkCalls,
+    callMarksOf,
     journalOn,
     offPeriodsFor,
     writeTurnRecords,
@@ -624,6 +657,7 @@ export function createTurnRunner({
     skills,
     ...{ skillIndex, recordSkillUses },
     memoryReads,
+    myDay,
     busy,
     selfIdOf,
     getSelfName,
@@ -643,6 +677,7 @@ export function createTurnRunner({
     ...inputs,
     linkTriggers,
     linkCalls,
+    callMarksOf,
     earlierThinkFor,
     journalOn,
     offPeriodsFor,
@@ -729,7 +764,11 @@ export function createTurnRunner({
     // src/turn/outcome.ts types `outcome` as a string; its values are the names of `TurnOutcome`.
     runTurn: runTurn as (params: Parameters<typeof runTurn>[0]) => Promise<ReportedTurn>,
     seedTriggerLinks,
-    seedCallMarks,
+    // The journal's marks at start name their place: its `turn` records of yesterday and today seed her thinks too.
+    seedCallMarks: (marks: { calls?: unknown; postedFrom?: unknown; placeId?: unknown } | null | undefined) => {
+      seedCallMarks(marks);
+      if (typeof marks?.placeId === 'string') void seedThinks(marks.placeId);
+    },
     waitingParts,
     addToPart,
     isBusy: (placeId: string) => busy.has(placeId),

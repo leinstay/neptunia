@@ -2,7 +2,9 @@
 
 import type { Untyped } from '../tools/types.ts';
 import type { loopSettings } from './turn.ts';
-import type { Line } from './lines.ts';
+import type { CallMark, Line } from './lines.ts';
+import type { FrameArm } from './sandbox-frame.ts';
+import type { PlaceChainLink } from '../memory/db/place-tree.ts';
 import type { PendingPing } from './pending.ts';
 
 export type MomentCutoffInput = {
@@ -161,6 +163,8 @@ export type AnswerReplyInput = {
   tools?: Untyped;
   toolChoice?: Untyped;
   parallelToolCalls?: Untyped;
+  /** Which assembly the request is built with (scripts/replay.ts `--frame`): without a frame (`old`) or with one. */
+  frame?: FrameArm | null;
 };
 
 export type AnswerReplyResult = {
@@ -278,7 +282,7 @@ export type RunSkillLoopInput = {
  * One turn of a multi-step skill scenario (scripts/replay.ts `--skills` with `steps`) carried
  * into the channel the next step reads, as the channel would stand after the live turn:
  * `transcript` (the step's lines, its incoming messages last) and `callMarks` (the earlier steps'
- * calls, withCalls's shape) with what the persona did in `run` (answerSkillScenario's, answered at
+ * calls, the shape src/format.ts#callMarksFor reads) with what the persona did in `run` (answerSkillScenario's, answered at
  * `at` in `channel`). Her messages of both passes become her lines (src/behavior/turn.ts#continuationHistory:
  * `selfName` as author), a second apart after `at` (a step's posted speech, then its calls, step after
  * step; speech a step held is not in the chat): the text with its `@handles` rendered as a live post renders them
@@ -358,6 +362,11 @@ export type SandboxMemory = {
   getLore: () => Array<Untyped>;
   getRecent?: () => { nextId: number; lines: Array<Untyped> } | null;
   selfreflectionChannelIds?: () => Array<string>;
+  /** The addresses of src/memory/store-addresses.ts a `--frame new` replay reads its place tree through. */
+  placeOfConversation?: (conversation: { id: string }, iface?: string) => string | null;
+  placeChainOf?: (placeId: string) => ReadonlyArray<PlaceChainLink>;
+  accountOf?: (nativeId: string, iface?: string) => string;
+  personOfAccount?: (accountId: string) => string;
 };
 
 /** What a sandbox turn reads of the world: the live prompts and config, the calibrator and the memory. */
@@ -400,6 +409,7 @@ export type SandboxRequestInput = Pick<
   | 'elsewhereDestination'
   | 'searchAvailable'
   | 'channelDirectory'
+  | 'frame'
 > & {
   skillsInventory?: Untyped;
   toolset?: SandboxToolsetResult | null;
@@ -407,4 +417,6 @@ export type SandboxRequestInput = Pick<
   taskResult?: Untyped;
   coreTools?: Untyped;
   preTurn?: Untyped;
+  /** A skill scenario's earlier steps' calls as call marks (src/format.ts#callMarksFor), put among the chat's lines. */
+  callMarks?: Array<CallMark> | null;
 };

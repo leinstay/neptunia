@@ -47,6 +47,14 @@ No `<wake>` and no other block states a budget, a count of turns left or a reset
 
 The active skill index contains descriptions; `skill.read` retrieves the procedure when needed. Tool transport can be native or textual, and the corresponding request builder must agree with the parser. See [core](core.md) for the turn loop and [memory](memory.md) for audience selection.
 
+### Chat, call marks and her day
+
+`<chat>` holds its lines in time order, each with one clock in its brackets and no age. A day change reads `transcript.date` or `transcript.gapWithDate` with `{date}`, and the block ends with the tempo lines of `labels.tempo`. A call of hers is a line of its own at the call's time, with no number: `transcript.called` with `{skill}`, `{args}` and `{status}`. `{args}` joins, in this order, `calledFrom` with `{place}` the place she called from, `calledSearched` with `{place}` the place a lookup searched, and `calledArgs` with `{args}` the call's main arguments, each only when the call has it. `{status}` is the word of `transcript.callStatus`, or `callStatusReason` with `{status}` and `{reason}` when the call did not work.
+
+`<inner>` sits in the tail before `<people_now>` and holds `<my_day>`, then `<previous_think>`. `<my_day>` opens with `labels.myDay.header` and `{date}`, then lists what she did today, oldest first, one line per action: `line` with `{time}`, `{action}` and `{place}`, or `lineNoPlace` with `{time}` and `{action}` when the place has no name. `{action}` is `post`, `react`, `gif`, or `skill` with `{skill}`. `myDayOf` in `src/turn/request/my-day.ts` reads the journal under the turn's context, so a group turn lists nothing she did in a private chat. An inner turn carries no `<my_day>`, since the heartbeat's own view lists her day.
+
+A `#n` in her words means a line of this request only. Her think in the journal, her posted line in the record, an intention's text and a skill action's arguments store it as the line's identity, `src:<iface>:<message id>:<revision>`, and a number that names no line is cut. `createHandles` in `src/turn/handles.ts` is the turn's one registry of numbers.
+
 ### Blocks per kind
 
 `blocksOf` in [src/turn/request/frame.ts](../src/turn/request/frame.ts) is the one list of a turn's root tags, and `REQUIRED_BY_KIND` names those a kind may not omit: `persona`, `self`, `spatial_awareness` and `task` on every kind, and `chat` on a `reply`. `assembleUser` in `src/turn/request/tail.ts` emits its own tags in its own order, and `frame.blocks` filters nothing yet.

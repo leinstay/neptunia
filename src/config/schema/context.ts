@@ -18,6 +18,13 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'text': 'How long a turn waits for those fetches',
   },
   {
+    'key': 'context.myDay.lines',
+    'types': ['number'],
+    'reader': 'src/turn/phases/request/build.ts',
+    'default': 12,
+    'text': 'How many of her actions of today `<my_day>` lists, the newest kept. `0` leaves the block out',
+  },
+  {
     'key': 'context.turnLeaseMs',
     'types': ['number'],
     'reader': 'src/behavior/attention.ts',

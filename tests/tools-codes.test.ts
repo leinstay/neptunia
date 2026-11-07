@@ -19,7 +19,8 @@ import {
   reasonText,
 } from '../src/tools/codes.ts';
 import { joinLabels } from '../src/config/labels.ts';
-import { fill, formatTranscript, withCalls } from '../src/format.ts';
+import { callMarksFor, fill, formatTranscript } from '../src/format.ts';
+import { orderedHistory } from '../src/turn/history.ts';
 import { toolResultText } from '../src/tools/tool-calls.ts';
 import { refusalStatus } from '../src/tools/executors.ts';
 import { callMarksOf } from '../src/memory/journal.ts';
@@ -263,7 +264,8 @@ const markText = (labels: unknown, mark: unknown) => {
     posted: ['p1'],
     ...asRecord(mark),
   };
-  return formatTranscript(withCalls(lines, { calls: [call] }, { nameOf: () => null, linkOf: () => null }), {
+  // Slice 2 (a): a mark is its own line among the lines by time, made by orderedHistory, not withCalls.
+  return formatTranscript(orderedHistory(lines, callMarksFor([call]), T0 + 3_600_000), {
     timezone: 'UTC',
     gapMinutes: 20,
     maxChars: 100,

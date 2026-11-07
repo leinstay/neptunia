@@ -3,6 +3,7 @@
 // builders of src/turn/request/ and src/behavior/prompt.ts#buildRequest share them.
 
 import type { Frame } from './frame.ts';
+import type { CallMark } from '../../behavior/lines.ts';
 import type { formatTranscript } from '../../format.ts';
 import type { ParticipationInput } from './memory.ts';
 import type { Lookup, Prefetch } from './recall.ts';
@@ -79,6 +80,7 @@ export type Labels = {
   readonly triggers?: LabelGroup;
   readonly elsewhere?: LabelGroup;
   readonly previousThink?: LabelGroup;
+  readonly myDay?: LabelGroup;
   readonly draw?: LabelGroup;
   readonly spatial?: SpatialLabels;
 };
@@ -168,6 +170,8 @@ export type Message = {
   readonly self?: boolean;
   readonly bot?: boolean;
   readonly replyParent?: boolean;
+  /** `call` on a call mark of hers (src/turn/history.ts#orderedHistory). */
+  readonly kind?: 'call';
   readonly replyToId?: string | null;
   readonly triggerId?: string | null;
   readonly mentionedAccountIds?: Array<string>;
@@ -344,6 +348,10 @@ export type RequestInput = {
   readonly wakeKind?: string | null;
   readonly places?: unknown;
   readonly previousThink?: PreviousThink | null;
+  /** What she did today, one line each (src/turn/request/my-day.ts#myDayOf): the body of `<my_day>`. */
+  readonly myDay?: ReadonlyArray<string> | null;
+  /** Her call marks (src/turn/journal-notes.ts#callMarksOf), put among the lines of `<chat>` by time. */
+  readonly callMarks?: ReadonlyArray<CallMark> | null;
   readonly stableFreeze?: unknown;
   readonly whereabouts?: Whereabouts | null;
   readonly frame?: Frame | null;

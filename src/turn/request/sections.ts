@@ -63,7 +63,7 @@ export function headSections(
     peopleNowFixed,
     interlocutorShown,
   } = given;
-  const { errandsText, intentionsText, wakeText, placesText, previousThinkText } = given;
+  const { errandsText, intentionsText, wakeText, placesText, myDayText, previousThinkText } = given;
   const { caps, cost, limit, offeredNeighbors, pulledChannelIds, readOnlyIds } = given;
   const fixedSection: Section = {
     name: 'fixed',
@@ -93,6 +93,7 @@ export function headSections(
         intentionsText,
         wakeText,
         placesText,
+        myDayText,
         previousThinkText,
       ].filter(Boolean),
     ],

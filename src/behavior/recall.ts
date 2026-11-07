@@ -1126,16 +1126,9 @@ export function fallbackWindow(
   return best;
 }
 
-/**
- * A message of a stretch without indices: no reply marker, and its call marks
- * (src/format.ts#withCalls) name their target by link or channel, never by a number.
- */
+/** A message of a stretch without indices: no reply marker. */
 function unnumbered(message: Untyped) {
-  const out = { ...message, replyToId: null };
-  for (const key of ['calls', 'callsAfter']) {
-    if (Array.isArray(message[key])) out[key] = message[key].map((mark) => ({ ...mark, targetId: null }));
-  }
-  return out;
+  return { ...message, replyToId: null };
 }
 
 /**

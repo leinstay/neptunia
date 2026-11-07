@@ -7,7 +7,8 @@
 // its tree. A turn is tied to the place it ran in
 // and to each place where a message of hers was delivered; an inner turn (heartbeat, intention,
 // review) is tied only to the places it posted into and never imports a think. The store keeps the
-// latest entry per place, in process (a restart forgets it). A failed turn leaves a failed entry, so
+// latest entry per place, in process, and is seeded at start from the journal's `turn` records of yesterday and
+// today (`seed`), so a restart keeps what the window still holds. A failed turn leaves a failed entry, so
 // nothing older is carried through it. A think from a private chat is never carried into a group
 // place. Pure apart from the store's own map; the clock is passed in.
 
@@ -58,11 +59,19 @@ export type ThinkStore = {
   ) =>
     | { think: null; why: string; turnId?: Untyped }
     | { think: Untyped; source: { turnId: Untyped; relation: string; ageMs: number } };
+  seed: (records: ReadonlyArray<unknown>, options: { isPrivate: boolean }) => void;
   size: () => number;
 };
 
+/** The entry the store keeps per place key. */
+type ThinkEntry = { turnId: Untyped; at: number; think: string | null; failed: boolean; private: boolean };
+
+/** The outcomes of a turn that leave an entry, and those of them that leave a failed one. */
+const ENTRY_OUTCOMES: ReadonlySet<unknown> = new Set(['spoke', 'skip', 'error', 'refused']);
+const FAILED_OUTCOMES: ReadonlySet<unknown> = new Set(['error', 'refused']);
+
 export function createThinkStore({ maxPlaces = PLACES_MAX }: { maxPlaces?: number } = {}): ThinkStore {
-  const entries = new Map(); // place key -> { turnId, at, think, failed, private }
+  const entries = new Map<string, ThinkEntry>();
 
   /**
    * One turn ended. `ran`: the place key it ran in (null for none); `delivered`: the place keys where
@@ -91,18 +100,18 @@ export function createThinkStore({ maxPlaces = PLACES_MAX }: { maxPlaces?: numbe
   }) {
     const places = new Set(Array.isArray(delivered) ? delivered : []);
     if (!inner && ran) places.add(ran);
-    const entry = {
+    const entry: ThinkEntry = {
       turnId,
       at,
       think: typeof think === 'string' && think.trim() ? think : null,
       failed: failed === true,
       private: isPrivate === true,
     };
-    for (const key of places) {
+    for (const key of places as Set<string>) {
       entries.delete(key);
       entries.set(key, entry);
     }
-    while (entries.size > maxPlaces) entries.delete(entries.keys().next().value);
+    while (entries.size > maxPlaces) entries.delete(entries.keys().next().value!);
   }
 
   /**
@@ -125,5 +134,33 @@ export function createThinkStore({ maxPlaces = PLACES_MAX }: { maxPlaces?: numbe
     };
   }
 
-  return { record, select, size: () => entries.size };
+  /**
+   * The journal's `turn` records (src/turn/journal.ts#journalTurnRecord, parsed, oldest first) as entries: each a
+   * finished turn of the place in its `scope.channel` (else its `placeId`) at its `occurredAt`, with its think, failed
+   * when it ended in error or was refused. An inner turn (`mode` `inner`) is left out, since a record does not say
+   * where it posted; so is a record of another kind, without a place or a time, or with another outcome. An entry
+   * already held for a place at the same time or later stays. `isPrivate`: the records come from a private journal.
+   */
+  function seed(records: ReadonlyArray<unknown>, { isPrivate }: { isPrivate: boolean }) {
+    for (const item of Array.isArray(records) ? records : []) {
+      const one = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+      if (one.kind !== 'turn' || one.mode === 'inner' || !ENTRY_OUTCOMES.has(one.outcome)) continue;
+      const scope = (one.scope && typeof one.scope === 'object' ? one.scope : {}) as { channel?: unknown };
+      const channel = typeof scope.channel === 'string' && scope.channel ? scope.channel : one.placeId;
+      const at = Date.parse(String(one.occurredAt));
+      if (typeof channel !== 'string' || !channel || !Number.isFinite(at)) continue;
+      const ran = placeKey({ conversationId: channel });
+      if ((entries.get(ran)?.at ?? -Infinity) >= at) continue;
+      record({
+        turnId: one.turnId ?? null,
+        at,
+        think: one.think ?? null,
+        failed: FAILED_OUTCOMES.has(one.outcome),
+        isPrivate,
+        ran,
+      });
+    }
+  }
+
+  return { record, select, seed, size: () => entries.size };
 }

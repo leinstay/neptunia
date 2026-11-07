@@ -145,7 +145,6 @@ const blockOf = (text: string, tag: string) => {
   return start === -1 ? null : text.slice(start + tag.length + 3, text.indexOf(`\n</${tag}>`, start));
 };
 const clock = (ts: number) => formatClock(ts, TZ, labels.locale);
-const aged = (ts: number, age: string) => fill(labels.transcript.timeAged, { clock: clock(ts), age });
 
 test('participation block: header, channel lines once per channel, episodes with their age, lines in the transcript form', () => {
   const request = buildRequest(input());
@@ -159,8 +158,10 @@ test('participation block: header, channel lines once per channel, episodes with
       `[${clock(NOW - 30 * MIN)}] Zoë (you): ωραία λουλούδια [image: a red tulip]`,
       '#journal (a reading log):',
       '2 h ago:',
-      `${aged(NOW - 2 * HOUR - MIN, '2 h 1 min')} Ana: πού είναι το βιβλίο;`,
-      `${aged(NOW - 2 * HOUR, '2 h')} Zoë (you): στο ράφι`,
+      // Slice 2 (b): a line shows one clock and no age, the episode header above keeps its own `2 h ago`.
+      `[${clock(NOW - 2 * HOUR - MIN)}] Ana: πού είναι το βιβλίο;`,
+      // Slice 2 (b): a line shows one clock and no age, the episode header above keeps its own `2 h ago`.
+      `[${clock(NOW - 2 * HOUR)}] Zoë (you): στο ράφι`,
     ].join('\n')
   );
   assert.ok(!body.includes('#1 ') && !body.includes('#2 '), 'no #n index');

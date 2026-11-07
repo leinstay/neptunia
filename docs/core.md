@@ -27,6 +27,10 @@ An answer whose `<think>` is broken is never sent: the same request runs once mo
 
 A heartbeat or completed errand can also cause a turn. It uses the same persona and memory rather than a separate conversational agent. [Inner life](inner-life.md) explains those triggers.
 
+## Time in the chat
+
+`<chat>` lists its lines in strict time order. `orderedHistory` in `src/turn/history.ts` sorts the window once, after the reply parents, the deleted placeholders and the lines of a continued turn are in. Each of her call marks stands among the lines as a line of hers at the call's time, after a message of the same instant. A mark takes no number and is dropped when it is older than the window. `formatTranscript` in `src/format.ts` gives each line one clock and no age, opens each new day with a date marker and marks a silence of 20 minutes. The tempo lines close the block. The previous think survives a restart: the journal's `turn` records of yesterday and today seed the store at start, and its 30-minute window stays the rule.
+
 ## The turn frame
 
 `buildTurnRequest` in `src/turn/phases/request/build.ts` builds a `Frame` with `frameOf` in `src/turn/request/frame.ts` before any block of the request, and `buildRequest` reads the turn's kind, her place and her counterpart from it. A request built without a frame, as a replay builds one, reads the kind off `mode`, `triggerKind` and `wakeKind` through `turnKindOf`.

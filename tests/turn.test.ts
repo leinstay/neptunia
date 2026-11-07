@@ -8371,7 +8371,7 @@ function lastChat(llm: Untyped) {
   return text.slice(text.indexOf('<chat>'), text.indexOf('</chat>'));
 }
 
-test('call marks: a later turn shows the call on her last line of the turn that made it, the post elsewhere linked; the post there names where it came from', async () => {
+test('call marks: a later turn shows the call as a line of its own after her line of the turn that made it; the post there names where it came from', async () => {
   const scene = callMarkScene({
     answers: [
       toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα' })]),
@@ -8389,11 +8389,10 @@ test('call marks: a later turn shows the call on her last line of the turn that 
   scene.history.push(here, m2);
   await scene.run(scene.channel, m2);
   const chat = lastChat(scene.llm);
-  const line = chat.split('\n').find((text) => text.includes('εντάξει'));
-  assert.ok(
-    line?.endsWith(`[called message.create in #💖νέα: done, posted as https://discord.com/channels/g1/c9/${there.id}]`),
-    chat
-  );
+  const chatLines = chat.split('\n');
+  const mark = chatLines[chatLines.findIndex((text) => text.includes('εντάξει')) + 1];
+  // Slice 2 (a), (c): the mark is a line of its own after her line, says where she called from, and has no posted link.
+  assert.equal(mark, '[12:00] Bot (you): [called message.create from #general: done]', chat);
   assert.equal(chat.match(/\[called /g)?.length, 1, chat);
 
   // In #💖νέα her post says which channel's turn posted it; the call itself is not shown there.
@@ -8413,13 +8412,15 @@ test('call marks: a turn that only called shows the call as a line of hers at it
     answers: [toolAnswer('', [call('message.create', { channel: '#🍡νέα', text: 'γεια' })]), '<skip/>'],
   });
   await scene.run(scene.channel, scene.history[1]);
-  const there = ownRaw(scene.port, 'c9', NOW);
+  // Slice 2 (c): the mark carries no posted link, so her post in #νέα is checked here instead of read for its id.
+  assert.ok(ownRaw(scene.port, 'c9', NOW).id, 'her call posted in #νέα');
   scene.clock.ms = NOW + 60_000;
   const m2 = rawMessage({ id: 'm2', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
   scene.history.push(m2);
   await scene.run(scene.channel, m2);
   const chat = lastChat(scene.llm);
-  const standalone = `[12:00] Bot (you): [called message.create in #💖νέα: done, posted as https://discord.com/channels/g1/c9/${there.id}]`;
+  // Slice 2 (c): the mark says where she called from and carries no target channel and no posted link.
+  const standalone = '[12:00] Bot (you): [called message.create from #general: done]';
   const lines = chat.split('\n');
   const at = lines.indexOf(standalone);
   assert.ok(at > 0, chat);
@@ -8427,7 +8428,7 @@ test('call marks: a turn that only called shows the call as a line of hers at it
   assert.ok(lines[at + 1].includes('και;'));
 });
 
-test('call marks: a refused call shows its status and why on the line its turn posted', async () => {
+test('call marks: a refused call shows its status and why on its own line after the line its turn posted', async () => {
   const scene = callMarkScene({
     answers: [
       toolAnswer('<msg>μια στιγμή</msg>', [call('message.create', { channel: '#🍡νέα', text: 'γεια' })]),
@@ -8441,14 +8442,14 @@ test('call marks: a refused call shows its status and why on the line its turn p
   const m2 = rawMessage({ id: 'm2', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
   scene.history.push(m2);
   await scene.run(scene.channel, m2);
-  const line = lastChat(scene.llm)
-    .split('\n')
-    .find((text) => text.includes('μια στιγμή'));
+  const chatLines = lastChat(scene.llm).split('\n');
+  const line = chatLines[chatLines.findIndex((text) => text.includes('μια στιγμή')) + 1];
   const status = fill(labels.transcript.callStatusReason, {
     status: labels.transcript.callStatus.denied,
     reason: labels.tools.result.reasons['not-allowed'],
   });
-  assert.ok(line?.endsWith(`[called message.create in #general: ${status}]`), line ?? '');
+  // Slice 2 (a), (c): the mark is a line of its own after her line and says `from #general`, where she called from.
+  assert.ok(line?.endsWith(`[called message.create from #general: ${status}]`), chatLines.join('\n'));
 });
 
 test('call marks: seeded from the journal after a restart, a call that did not work keeps why', async () => {
@@ -8467,14 +8468,14 @@ test('call marks: seeded from the journal after a restart, a call that did not w
   const restarted = scene.runner();
   restarted.seedCallMarks(callMarksOf(lines.map(({ record }) => record)));
   await scene.run(scene.channel, m2, restarted);
-  const line = lastChat(scene.llm)
-    .split('\n')
-    .find((text) => text.includes('μια στιγμή'));
+  const chatLines = lastChat(scene.llm).split('\n');
+  const line = chatLines[chatLines.findIndex((text) => text.includes('μια στιγμή')) + 1];
   const status = fill(labels.transcript.callStatusReason, {
     status: labels.transcript.callStatus.invalid,
     reason: fill(labels.transcript.callReasons['missing-arg'], { arg: 'message' }),
   });
-  assert.ok(line?.endsWith(`[called message.delete in #general: ${status}]`), line ?? '');
+  // Slice 2 (a), (c): the mark is a line of its own after her line and says `from #general`, where she called from.
+  assert.ok(line?.endsWith(`[called message.delete from #general: ${status}]`), chatLines.join('\n'));
 });
 
 test('call marks: seeded from the journal after a restart, the calls show as they did; unseeded, nothing shows', async () => {
@@ -8487,7 +8488,8 @@ test('call marks: seeded from the journal after a restart, the calls show as the
     journal,
   });
   await scene.run(scene.channel, scene.history[1]);
-  const there = ownRaw(scene.port, 'c9', NOW);
+  // Slice 2 (c): the mark carries no posted link, so her post in #νέα is checked here instead of read for its id.
+  assert.ok(ownRaw(scene.port, 'c9', NOW).id, 'her call posted in #νέα');
   scene.history.push(ownRaw(scene.port, 'c1', NOW));
   const m2 = rawMessage({ id: 'm2', ts: NOW + 30_000, authorName: 'Alice', content: 'και;' });
   scene.history.push(m2);
@@ -8496,13 +8498,10 @@ test('call marks: seeded from the journal after a restart, the calls show as the
   const restarted = scene.runner();
   restarted.seedCallMarks(callMarksOf((lines as Array<{ record: object }>).map(({ record }) => record)));
   await scene.run(scene.channel, m2, restarted);
-  const line = lastChat(scene.llm)
-    .split('\n')
-    .find((text) => text.includes('εντάξει'));
-  assert.ok(
-    line?.endsWith(`[called message.create in #💖νέα: done, posted as https://discord.com/channels/g1/c9/${there.id}]`),
-    line ?? ''
-  );
+  const chatLines = lastChat(scene.llm).split('\n');
+  const line = chatLines[chatLines.findIndex((text) => text.includes('εντάξει')) + 1];
+  // Slice 2 (a), (c): the mark is a line of its own after her line, says where she called from, and has no posted link.
+  assert.equal(line, '[12:00] Bot (you): [called message.create from #general: done]', chatLines.join('\n'));
 
   const unseeded = scene.runner();
   await scene.run(scene.channel, m2, unseeded);

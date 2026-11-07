@@ -34,6 +34,8 @@ import type { Pulled } from './pulls.ts';
 import type { Setup } from './setup.ts';
 import type { Told } from './facts.ts';
 import type { Waited } from './wait.ts';
+import type { Handles } from '../../handles.ts';
+import { messageSourceId } from '../../../memory/db/ids.ts';
 
 /** The request as buildRequest builds it. */
 /** A partner's private layer with what they said in their other linked DMs; null with neither. */
@@ -119,6 +121,62 @@ function frameOfTurn(
   });
 }
 
+/**
+ * What she did today under the turn's context, in the labels' words (`labels.myDay`), at most `context.myDay.lines`
+ * read now; null on an inner turn, without a reader, a context or a positive number of lines, and on a failed read
+ * (logged).
+ */
+function myDayLines(
+  ctx: Pick<PhaseContext, 'myDay' | 'turnContextOf'>,
+  turn: { draft: Draft; channel: Opened['channel']; config: Setup['config']; prompts: Gathered['prompts']; now: number }
+): Array<string> | null {
+  const { draft, channel, config, prompts, now } = turn;
+  const settings = config.context;
+  const lines = settings?.myDay?.lines;
+  const memoryContext = ctx.turnContextOf(draft, channel);
+  // An inner turn reads her day in its own view until it moves onto the frame (src/behavior/heartbeat-view.ts#lifeOf).
+  if (draft.inner || !ctx.myDay || !memoryContext || typeof lines !== 'number' || lines <= 0) return null;
+  const labels = prompts?.labels;
+  try {
+    const listed = ctx.myDay(memoryContext, now, String(config.bot?.timezone ?? 'UTC'), {
+      lines,
+      labels: (labels?.myDay as Readonly<Record<string, unknown>> | undefined) ?? null,
+    });
+    return listed.length > 0 ? listed : null;
+  } catch (error) {
+    log.warn('turn: my day not read', { channel: channel.id, error });
+    return null;
+  }
+}
+
+/**
+ * The numbers `request` printed for its chat lines, reply parents and pulled lines (`idByIndex`, `pulledIds`) taken
+ * into the turn's registry, each to its line's source: her own line `said`, anyone else's `seen`, at the revision the
+ * line carries (1 when it carries none). A number the registry holds keeps its first line.
+ */
+function registerHandles(
+  handles: Handles,
+  request: BuiltRequest,
+  lines: ReadonlyArray<{ id?: unknown; self?: unknown; replyParent?: unknown; revision?: unknown } | null | undefined>,
+  { iface, placeId }: { iface: string; placeId: string }
+): void {
+  const byId = new Map(
+    lines.filter((line) => line && typeof line.id === 'string').map((line) => [line!.id as string, line!])
+  );
+  for (const [n, messageId] of request.idByIndex) {
+    const line = byId.get(messageId);
+    const pulledPlace = request.pulledIds.get(messageId);
+    const kind = pulledPlace ? 'pulled' : line?.replyParent === true ? 'parent' : 'chat';
+    const revision = typeof line?.revision === 'number' && line.revision > 0 ? line.revision : 1;
+    handles.take(n, kind, {
+      sourceId: messageSourceId(iface, messageId, revision, line?.self === true ? 'said' : 'seen'),
+      placeId: pulledPlace ?? placeId,
+      messageId,
+      revision,
+    });
+  }
+}
+
 /** The budget's line of a request: one entry per section (src/llm/budget.ts). */
 function statsOf(request: BuiltRequest): Record<string, { dropped?: number }> {
   return request.stats as Record<string, { dropped?: number }>;
@@ -147,6 +205,7 @@ export function buildTurnRequest(
   const { store, calibrator, skills, lookup, emoji, memoryReads, turnContextOf } = ctx;
   const { aroundInputFor, errandsInputFor, intentionsInputFor, placesInputFor, earlierThinkFor } = ctx;
   const { liveChannelName, selfreflectionChannelName, stableFreezeOf, withSeenBefore, linkCalls, linkTriggers } = ctx;
+  const { callMarksOf } = ctx;
   const { trigger = null, triggerKind = null, forced = false, source = null } = params;
   const { taskResult = null } = params;
   const selfreflectionParams = params.selfreflection ?? null;
@@ -188,6 +247,8 @@ export function buildTurnRequest(
       handleBase,
       onRefs: (refs) => (shownHeartbeatRefs = refs),
     });
+  // Her remembered calls as call marks, the place names read live (src/turn/journal-notes.ts#callMarksOf).
+  const callMarks = callMarksOf({ channel, snapshot });
   const frame = frameOfTurn(store, {
     channel,
     isPrivate,
@@ -266,6 +327,8 @@ export function buildTurnRequest(
                 snapshot,
                 placeId,
               }) as typeof entry.messages,
+              // Her call marks made there, put among its lines by time.
+              marks: callMarks,
             }
           : entry
       ),
@@ -339,6 +402,10 @@ export function buildTurnRequest(
         : null,
     // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).
     previousThink: earlierThinkFor({ channel, isPrivate, draft, mode: finalMode }),
+    // `<my_day>`: what she did today, read under this turn's context (context.myDay.lines, read now).
+    myDay: myDayLines(ctx, { draft, channel, config, prompts, now }),
+    // Her call marks, put among the lines of `<chat>` by time.
+    callMarks,
     // `<self_facts>` held per cache bucket, so a memory batch rewrites the cache once at most.
     stableFreeze: stableFreezeOf(placeId),
     // `<spatial_awareness>`: where she is, the whole nesting of the place (buildRequest names her own time's places).
@@ -360,6 +427,12 @@ export function buildTurnRequest(
         .map((index) => ({ n: base + index, ...heartbeatRefs[index] }) as SearchRef)
     );
   }
+  // Every number of the request in the turn's one registry, so a reference in her stored words reads back.
+  if (draft.handles)
+    registerHandles(draft.handles, request, [...history, ...pulled2.flatMap((entry) => entry.messages ?? [])], {
+      iface: typeof channel.iface === 'string' ? channel.iface : '',
+      placeId: String(channel.id),
+    });
   // What `<recent>` showed, held back or cut: counts only.
   if (request.recent) log.info('recent: shown', { channel: channel.id, ...request.recent });
   // The memory rows this request carried, for the database's per-turn record (deferred there; it never fails a turn).

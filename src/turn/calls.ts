@@ -22,6 +22,8 @@ import type { NormalCall } from '../tools/tool-calls.ts';
 import type { SkillMap } from '../tools/types.ts';
 import { paceSettings } from './settings.ts';
 import { TOO_SLOW } from './timers.ts';
+import { targetOfSource } from './handles.ts';
+import type { Handles } from './handles.ts';
 
 // How many of the persona's posted messages keep the link to their turn's trigger in process
 // (far more than two days of her lines; the oldest go first).
@@ -255,7 +257,11 @@ export const SEARCH_HANDLE_GAP = 20;
  * next free number, `take(shown)` registers the quoted lines the result kept
  * (`{ n, id, placeId, authorId, self, message }`).
  */
-export function searchHandles(draft: { searchRefs?: SearchRefs; handleFloor?: number | null }): {
+export function searchHandles(draft: {
+  searchRefs?: SearchRefs;
+  handleFloor?: number | null;
+  handles?: Handles | null;
+}): {
   next(): number;
   advance(n: number): void;
   take(shown: Iterable<SearchRef>): void;
@@ -286,6 +292,14 @@ export function searchHandles(draft: { searchRefs?: SearchRefs; handleFloor?: nu
         else refs.byId.delete(String(ref.id));
         if (ref.stored) (refs.bySourceId ??= new Map()).set(ref.stored.sourceId, ref);
         refs.next = Math.max(refs.next, ref.n + 1);
+        // The turn's one registry holds the handle too, so a reference to it in her stored words reads back.
+        const stored = ref.stored;
+        if (stored && draft.handles)
+          draft.handles.take(
+            ref.n,
+            'search',
+            targetOfSource(stored.sourceId, stored.placeId, String(stored.native?.messageId ?? ref.id))
+          );
       }
     },
   };

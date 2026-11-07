@@ -1,8 +1,9 @@
 // A call the journal stored under the name of a tool that no registry knows any more still reads in the transcript:
-// the mark comes from the stored record alone (src/memory/journal.ts#callMarksOf, src/format.ts#withCalls).
+// the mark comes from the stored record alone (src/memory/journal.ts#callMarksOf, src/format.ts#callMarksFor).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatTranscript, withCalls } from '../src/format.ts';
+import { callMarksFor, formatTranscript, withPostedFrom } from '../src/format.ts';
+import { orderedHistory } from '../src/turn/history.ts';
 import { callMarksOf } from '../src/memory/journal.ts';
 import { labels } from './fixtures/labels.ts';
 import { msg } from './fixtures/format-rig.ts';
@@ -33,8 +34,12 @@ test('a past result of a retired plugin tool still reads as it was stored', () =
     msg('q1', T0, { authorName: 'Eloise', content: 'can you say it?' }),
     msg('p1', T0 + MIN, { self: true, authorName: 'Nept', content: 'one moment' }),
   ];
-  const stored = { calls: marks.calls as Array<Record<string, unknown>>, postedFrom: new Map(marks.postedFrom) };
-  const out = withCalls(lines, stored, { nameOf: () => null, linkOf: () => null });
+  // Slice 2 (a): `withCalls` is gone; the posted-from marks and the call marks are applied apart, a mark as its own line.
+  const out = orderedHistory(
+    withPostedFrom(lines, new Map(marks.postedFrom)),
+    callMarksFor(marks.calls as Array<Record<string, unknown>>),
+    T0 + 60 * MIN
+  );
   const items = formatTranscript(out, {
     timezone: 'UTC',
     gapMinutes: 20,
@@ -42,5 +47,6 @@ test('a past result of a retired plugin tool still reads as it was stored', () =
     selfName: 'Nept',
     labels,
   });
-  assert.match(items[1].text, /one moment \[called echo\.say: done\]$/);
+  // Slice 2 (a): the mark is a line of its own after her line, never appended to it.
+  assert.match(items[1].text, /one moment\n\[10:01\] Nept \(you\): \[called echo\.say: done\]$/);
 });

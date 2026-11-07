@@ -1,12 +1,13 @@
 // Tests for her one previous think: the choice (src/behavior/previous-think.ts), the block it
 // renders in a request (src/behavior/prompt.ts#buildRequest, `<previous_think>`) and the main
-// arguments of a call on its transcript line (src/tools/call-args.ts, src/format.ts#withCalls).
+// arguments of a call on its transcript line (src/tools/call-args.ts, src/format.ts#callMarksFor).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createThinkStore, inertThink, placeKey } from '../src/behavior/previous-think.ts';
 import { userText as contentText } from '../src/behavior/prompt.ts';
 import { callArgsText } from '../src/tools/call-args.ts';
-import { formatTranscript, withCalls } from '../src/format.ts';
+import { callMarksFor, formatTranscript } from '../src/format.ts';
+import { orderedHistory } from '../src/turn/history.ts';
 import { labels } from './fixtures/labels.ts';
 import { buildRequest } from './fixtures/built-request.ts';
 
@@ -190,7 +191,7 @@ test("callArgsText: the skill's main arguments, one line, quoted, cut with a mar
   assert.equal(callArgsText('web.search', null), '');
 });
 
-test('withCalls: a call mark carries its arguments into the line through labels.transcript.calledArgs, and a status as it ended', () => {
+test('callMarksFor: a call mark carries its arguments into the line through labels.transcript.calledArgs, and a status as it ended', () => {
   const lines = [
     {
       id: 'q1',
@@ -221,7 +222,8 @@ test('withCalls: a call mark carries its arguments into the line through labels.
     ...labels,
     transcript: {
       ...labels.transcript,
-      called: '[called {skill}{target}{args}: {status}{posted}]',
+      // Slice 2 (c): the mark has no `{target}` and no `{posted}` any more.
+      called: '[called {skill}{args}: {status}]',
       calledArgs: ' ({args})',
     },
   };
@@ -236,7 +238,8 @@ test('withCalls: a call mark carries its arguments into the line through labels.
     args,
   });
   const lineOf = (status: string, args: unknown) =>
-    formatTranscript(withCalls(lines, { calls: [call(status, args)] }), {
+    // Slice 2 (a): a mark is its own line among the lines by time, made by orderedHistory, not withCalls.
+    formatTranscript(orderedHistory(lines, callMarksFor([call(status, args)]), T0 + 60 * MIN), {
       timezone: 'UTC',
       gapMinutes: 20,
       maxChars: 100,
@@ -248,7 +251,8 @@ test('withCalls: a call mark carries its arguments into the line through labels.
   assert.ok(lineOf('partial', 'query: "tulips"').endsWith(`: ${labels.transcript.callStatus.partial}]`));
   assert.ok(lineOf('failed', 'query: "tulips"').endsWith(`: ${labels.transcript.callStatus.failed}]`));
   assert.ok(
-    lineOf('ok', undefined).endsWith('[called web.search in #general: done]') ||
+    // Slice 2 (c): the place she called from reads `from #general`, never `in #general`.
+    lineOf('ok', undefined).endsWith('[called web.search from #general: done]') ||
       lineOf('ok', undefined).endsWith('[called web.search: done]')
   );
 });

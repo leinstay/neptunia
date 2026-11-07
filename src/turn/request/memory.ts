@@ -2,7 +2,7 @@
 // own exchanges on other channels in `<participation>`, and the anchored window `<earlier>` (this channel's lines
 // older than the chat that matter). buildRequest and buildSelfreflectionPlanRequest (src/behavior/prompt.js) call them.
 
-import { AGE_AFTER_MINUTES, fill, formatClock, formatDate, formatDuration, formatTranscript } from '../../format.ts';
+import { fill, formatClock, formatDate, formatDuration, formatTranscript } from '../../format.ts';
 import { fitSections } from '../../llm/budget.ts';
 import { cutEpisode, earlierEpisodes, participationSettings, selectEpisodes, topEpisodes } from '../../memory/index.ts';
 import { oneLine } from '../../memory/clamp.ts';
@@ -14,7 +14,6 @@ import {
   recentSettings,
   recentView,
 } from '../../memory/recent.ts';
-import { MINUTE_MS } from '../../time.ts';
 import { calendarDate, resolveChatText } from './text.ts';
 import type { Base, Room } from './head.ts';
 import type { AskedAbout, InterlocutorBlocks } from './people.ts';
@@ -218,34 +217,23 @@ function matchWords(text: unknown): Set<string> {
 
 /**
  * How a stored participation message renders (`<participation>` and `<earlier>`): the
- * transcript's form without a `#n` index or a reply quote -- the clock time, as
- * `transcript.timeAged` once the line is `ageMinutes` old, the author (`labels.self` for the
+ * transcript's form without a `#n` index or a reply quote -- the clock time, the author (`labels.self` for the
  * persona), the text, and a stored caption as `transcript.imageDescribed`.
  */
 function storedLineRenderer({
   labels,
   timezone,
-  now,
   selfName,
   nameOf,
-  ageMinutes,
 }: {
   labels: Labels;
   timezone: string;
-  now: number;
   selfName: string;
   nameOf: NameOf;
-  ageMinutes: number;
 }): (message: StoredMessage) => string {
   const selfLabel = fill(labels.self, { name: selfName });
-  const agedTemplate = labels.transcript?.timeAged;
   return (message: StoredMessage) => {
-    const clock = formatClock(message.ts, timezone, labels.locale);
-    const age = now - message.ts;
-    const time =
-      agedTemplate && age >= ageMinutes * MINUTE_MS
-        ? fill(agedTemplate, { clock, age: formatDuration(age, labels.units) })
-        : `[${clock}]`;
+    const time = `[${formatClock(message.ts, timezone, labels.locale)}]`;
     const caption =
       message.caption && labels.transcript?.imageDescribed
         ? fill(labels.transcript.imageDescribed, { text: message.caption })
@@ -273,8 +261,7 @@ function storedLineRenderer({
  * `labels.participation.skipped` (`{count}`), nothing without the label. An
  * episode renders `labels.participation.episode` (`{when}`: the age of its
  * newest own line, formatDuration), then its lines in the transcript's form
- * without a `#n` index or a reply quote: the clock time, as
- * `transcript.timeAged` once the line is `ageMinutes` old, the author
+ * without a `#n` index or a reply quote: the clock time, the author
  * (`labels.self` for the persona), the text, and a stored caption as
  * `transcript.imageDescribed`. A channel's line is `labels.participation.channel`
  * (`{channel}` `{purpose}`: the stored note's purpose) or, with no purpose,
@@ -297,7 +284,6 @@ export function participationView(
     timezone,
     selfName,
     nameOf,
-    ageMinutes,
   }: {
     config: RequestConfig;
     labels: Labels;
@@ -310,7 +296,6 @@ export function participationView(
     timezone: string;
     selfName: string;
     nameOf: NameOf;
-    ageMinutes: number;
   }
 ): ParticipationView | null {
   const p = labels.participation;
@@ -332,7 +317,7 @@ export function participationView(
   );
   const liveName = typeof participation.channelName === 'function' ? participation.channelName : () => null;
   const words = matchWords(candidateText);
-  const renderLine = storedLineRenderer({ labels, timezone, now, selfName, nameOf, ageMinutes });
+  const renderLine = storedLineRenderer({ labels, timezone, selfName, nameOf });
   const episodes: Array<ParticipationEpisode> = [];
   let offered = 0;
   let deduped = 0;
@@ -422,8 +407,7 @@ export function anchoredOn(config: RequestConfig, labels: Labels, privateChat: b
  * - `reply`: a reply parent (`replyParent: true`, prepended to `history` by the turn,
  *   src/behavior/turn.js#withReplyParents) -- what the trigger or a window line answers. It keeps
  *   its `<chat>` number (formatTranscript over the whole `history`, every other line skipped), so a
- *   window line's reply marker and a message link still name it; the bare clock, never
- *   `transcript.timeAged`.
+ *   window line's reply marker and a message link still name it; the bare clock.
  * - `episode`: the persona's own saved stretch of this channel (src/memory/participation.ts#
  *   earlierEpisodes: her episodes cut to their lines older than the window's first line and
  *   younger than `participation.earlierHours`, the newest `participation.earlierShown`), only with
@@ -536,7 +520,7 @@ export function anchorsView(
       text: line,
     });
   }
-  const renderLine = storedLineRenderer({ labels, timezone, now, selfName, nameOf, ageMinutes: Infinity });
+  const renderLine = storedLineRenderer({ labels, timezone, selfName, nameOf });
   for (const episode of episodes) {
     const openIds = new Set(episode.messages.filter((_, i) => openStored(episode, i)).map((m) => m.id));
     const keepIds = [...openIds, ...episode.messages.filter((m) => indexOf.has(m.id)).map((m) => m.id)];
@@ -634,7 +618,6 @@ export function memoryViews(given: RequestInput & Base & PulledView): MemoryView
     shownIds,
     candidateText: participationCandidate?.content ?? '',
     now,
-    ageMinutes: AGE_AFTER_MINUTES,
     timezone,
     selfName,
     nameOf,

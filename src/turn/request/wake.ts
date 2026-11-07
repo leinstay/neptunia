@@ -3,7 +3,7 @@
 // the last (src/errands/blocks.ts, src/intentions/blocks.ts, src/behavior/wake.ts). buildRequest
 // (src/behavior/prompt.ts) puts them in the tail, never cut.
 
-import { fill, formatDuration } from '../../format.ts';
+import { fill, formatDate, formatDuration } from '../../format.ts';
 import { inertThink } from '../../behavior/previous-think.ts';
 import type { Labels, RequestInput } from './types.ts';
 
@@ -26,16 +26,17 @@ export function previousThinkBody(previous: PreviousThink | null | undefined, la
   return [l.note, fill(meta, { ago }), think].join('\n');
 }
 
-/** What the turn rendered from her own life for the tail: her errands, her intentions, the wake, the places, her think. */
+/** What the turn rendered from her own life for the tail: her errands, her intentions, the wake, the places, her day, her think. */
 export type WakeTexts = {
   errandsText: { list: string; result: string };
   intentionsText: string;
   wakeText: string;
   placesText: string;
+  myDayText: string;
   previousThinkText: string;
 };
 
-/** The bodies of `<errands>`, `<errand_result>`, `<intentions>`, `<wake>`, `<places>` and `<previous_think>`. */
+/** The bodies of `<errands>`, `<errand_result>`, `<intentions>`, `<wake>`, `<places>`, `<my_day>` and `<previous_think>`. */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function wakeTexts(given: RequestInput, labels: Labels): WakeTexts {
   // The errands' bodies as the turn rendered them (src/errands/blocks.ts); a missing one is ''.
@@ -53,5 +54,15 @@ export function wakeTexts(given: RequestInput, labels: Labels): WakeTexts {
   const placesText = typeof given.places === 'string' ? given.places : '';
   // `<previous_think>`: her reasoning from the request before this one (features.previousThink, chosen by the turn), never cut.
   const previousThinkText = previousThinkBody(given.previousThink, labels);
-  return { errandsText, intentionsText, wakeText, placesText, previousThinkText };
+  // `<my_day>`: what she did today, read by the turn and bounded by context.myDay.lines, never cut; its header names
+  // the day (`labels.myDay.header` with `{date}`).
+  const days: Array<string> = (given.myDay ?? []).filter((line) => typeof line === 'string' && line !== '');
+  const header = labels.myDay?.header;
+  const bot = given.config.bot;
+  const date = formatDate(given.now, String(bot?.timezone ?? 'UTC'), labels.locale);
+  const myDayText =
+    days.length > 0
+      ? [typeof header === 'string' ? fill(header, { date }) : '', ...days].filter(Boolean).join('\n')
+      : '';
+  return { errandsText, intentionsText, wakeText, placesText, myDayText, previousThinkText };
 }
