@@ -174,3 +174,27 @@ test('a rebuild gives the rows the writers left', () => {
   rebuildNames(w.db);
   assert.deepEqual(all(), written);
 });
+
+test('a real name stored as the people mapper writes it, an object with its name, is found by that name', () => {
+  // Bug: `people.real_name` holds `{ name, from, to, itemId, recordedAt }` (src/memory/db/map/user.ts), the index read
+  // only a string or a list, and no person of a live database was found by the name a user gave.
+  const w = world();
+  const person = 'person:discord:e1';
+  addPerson(w.db, {
+    id: person,
+    realName: JSON.stringify({
+      name: 'Eléni Daskaláki',
+      from: 'claim',
+      to: null,
+      itemId: 'i-1',
+      recordedAt: '2026-11-01',
+    }),
+    accounts: [{ id: 'discord:e1', iface: 'discord', native: 'e1', names: ['lena'] }],
+  });
+  rebuildNames(w.db);
+  const hits = hitsFor(namesOf(w.db, GROUP, ['Daskaláki']), personNode(person));
+  assert.deepEqual(
+    hits.map((hit) => hit.kind),
+    ['real_name']
+  );
+});

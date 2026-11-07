@@ -31,7 +31,7 @@
 import { estimateTokens } from '../../llm/tokens.ts';
 import { indexWords } from '../record-index.ts';
 import { SELF_PERSON } from './ids.ts';
-import { interfaceNouns, matchName, normalName, phrasesOf } from './names.ts';
+import { interfaceNouns, matchName, normalName, phrasesOf, namesIn } from './names.ts';
 import type { NameHitRow, NameMatch } from './names.ts';
 import { placeChainInDb } from './place-tree.ts';
 import { allowedAudience, audienceWhere, dmAudienceId, groupAudienceId, AUD_INTERNAL } from './scope.ts';
@@ -184,19 +184,6 @@ const rowIdOf = (nodeId: string, kind: string): string => nodeId.slice(kind.leng
 const nodeKindOf = (nodeId: string): string => nodeId.slice(0, nodeId.indexOf(':'));
 const node = (kind: string, id: string): string => `${kind}:${id}`;
 const tokensOf = (rendered: string): number => (rendered === '' ? 0 : estimateTokens(rendered) + 2);
-
-/** The strings of a stored name list (JSON) or a plain string. */
-function namesIn(value: unknown): Array<string> {
-  const raw = text(value);
-  if (raw === null) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === 'string') return text(parsed) === null ? [] : [parsed];
-    return Array.isArray(parsed) ? parsed.filter((one): one is string => text(one) !== null) : [];
-  } catch {
-    return [raw];
-  }
-}
 
 /** A raised node before its rows are read. */
 type Raised = {
@@ -588,36 +575,53 @@ function seedTies(walker: Walker, seeds: Seeds, window: Array<SeedMessage>, foun
       anchorAt: '',
       keep: true,
     });
-  for (const message of window) {
-    const anchor = { anchor: message.id, anchorAt: message.at };
-    const person = (account: string | null, evidence: Evidence, keep: boolean): void => {
-      const target = account === null ? null : walker.personOfAccount(account);
-      if (target !== null) walker.raise({ ...quiet, ...anchor, nodeId: target, evidence, keep });
-    };
-    person(message.authorAccount, 'author', true);
-    if (message.placeId !== null)
-      walker.raise({ ...quiet, ...anchor, nodeId: node('place', message.placeId), evidence: 'place', keep: false });
-    for (const mention of message.mentions) person(mention, message.trigger ? 'native' : 'edge', message.trigger);
-    const replies =
-      message.replyTo === null ? [] : [{ id: message.replyTo, evidence: message.trigger ? 'reply' : 'edge' }];
-    if (message.trigger) for (const id of walker.repliesInto(message.id)) replies.push({ id, evidence: 'edge' });
-    for (const reply of replies) {
-      const parent = walker.line(reply.id);
-      if (parent === undefined) continue;
-      if (parent.author_kind !== 'self') person(text(parent.author_account), reply.evidence as Evidence, false);
-      if (!windowIds.has(reply.id))
-        found.set(reply.id, {
-          sourceId: reply.id,
-          evidence: reply.evidence as Evidence,
-          ...anchor,
-          from: 'reply',
-          sources: [],
-        });
-    }
-  }
+  for (const message of window) seedMessageTies(walker, message, windowIds, found);
   for (const ref of seeds.previous)
     walker.raise({ ...quiet, nodeId: ref.nodeId, evidence: 'edge', anchor: null, anchorAt: '', keep: false });
-  for (const candidate of seeds.candidates) {
+  seedCandidates(walker, seeds.candidates, found);
+  for (const placeNode of walker.ownPlaces())
+    walker.raise({ ...quiet, nodeId: placeNode, evidence: 'edge', anchor: null, anchorAt: '', keep: false, own: true });
+}
+
+/** The ties of one line of the window: its author, its place, its mentions and the replies around it. */
+function seedMessageTies(
+  walker: Walker,
+  message: SeedMessage,
+  windowIds: Set<string>,
+  found: Map<string, ExcerptSeed>
+): void {
+  const quiet = { hop: 0, candidate: false, named: false };
+  const anchor = { anchor: message.id, anchorAt: message.at };
+  const person = (account: string | null, evidence: Evidence, keep: boolean): void => {
+    const target = account === null ? null : walker.personOfAccount(account);
+    if (target !== null) walker.raise({ ...quiet, ...anchor, nodeId: target, evidence, keep });
+  };
+  person(message.authorAccount, 'author', true);
+  if (message.placeId !== null)
+    walker.raise({ ...quiet, ...anchor, nodeId: node('place', message.placeId), evidence: 'place', keep: false });
+  for (const mention of message.mentions) person(mention, message.trigger ? 'native' : 'edge', message.trigger);
+  const replies =
+    message.replyTo === null ? [] : [{ id: message.replyTo, evidence: message.trigger ? 'reply' : 'edge' }];
+  if (message.trigger) for (const id of walker.repliesInto(message.id)) replies.push({ id, evidence: 'edge' });
+  for (const reply of replies) {
+    const parent = walker.line(reply.id);
+    if (parent === undefined) continue;
+    if (parent.author_kind !== 'self') person(text(parent.author_account), reply.evidence as Evidence, false);
+    if (!windowIds.has(reply.id))
+      found.set(reply.id, {
+        sourceId: reply.id,
+        evidence: reply.evidence as Evidence,
+        ...anchor,
+        from: 'reply',
+        sources: [],
+      });
+  }
+}
+
+/** The helpers' finds: a line goes to the excerpts, any other node is raised with its sources. */
+function seedCandidates(walker: Walker, candidates: Seeds['candidates'], found: Map<string, ExcerptSeed>): void {
+  const quiet = { hop: 0, candidate: false, named: false };
+  for (const candidate of candidates) {
     const sources = candidate.sourceIds.map((id) => ({ table: 'sources', id, version: null }));
     if (nodeKindOf(candidate.nodeId) === 'source') {
       const sourceId = rowIdOf(candidate.nodeId, 'source');
@@ -633,8 +637,6 @@ function seedTies(walker: Walker, seeds: Seeds, window: Array<SeedMessage>, foun
         sources,
       });
   }
-  for (const placeNode of walker.ownPlaces())
-    walker.raise({ ...quiet, nodeId: placeNode, evidence: 'edge', anchor: null, anchorAt: '', keep: false, own: true });
 }
 
 type ExcerptSeed = {

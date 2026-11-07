@@ -69,7 +69,12 @@ function seedMessages(db: Db, place: Row, ids: Array<string>): Array<SeedMessage
     `SELECT id, iface, native_id, place_id, author_account, reply_to, mentions, occurred_at, text FROM sources
      WHERE place_id = ? AND native_id = ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1`
   );
-  const lines = ids.map((id) => read.get(place.id, id)).filter((row): row is Row => row !== undefined);
+  // The journal keeps the interface's message ids; a stored line is keyed by its family's native key.
+  const family = db.prepare(
+    'SELECT native_key FROM message_families WHERE iface = ? AND message_id = ? ORDER BY generation DESC LIMIT 1'
+  );
+  const nativeOf = (id: string) => text(family.get(String(place.iface), id)?.native_key) ?? id;
+  const lines = ids.map((id) => read.get(place.id, nativeOf(id))).filter((row): row is Row => row !== undefined);
   const byNative = new Map(lines.map((row) => [String(row.native_id), String(row.id)]));
   return lines.map((row, i) => {
     const iface = String(row.iface);

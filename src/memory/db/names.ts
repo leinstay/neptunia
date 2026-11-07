@@ -77,14 +77,16 @@ const filled = (value: unknown): value is string => typeof value === 'string' &&
 export const normalName = (text: unknown): string => indexWords(text).join(' ');
 const nodeOf = (kind: string, id: unknown): string => `${kind}:${String(id)}`;
 
-/** The strings of a stored JSON name list, or of a plain string. */
-function namesIn(value: unknown): Array<string> {
+/** The strings of a stored JSON name list, a stored real name object, or a plain string. */
+export function namesIn(value: unknown): Array<string> {
   if (!filled(value)) return [];
   try {
     const parsed: unknown = JSON.parse(value);
     if (typeof parsed === 'string') return filled(parsed) ? [parsed] : [];
     if (Array.isArray(parsed)) return parsed.filter(filled);
-    return [];
+    // A real name is stored as the people mapper writes it (map/user.ts): `{ name, from, to, itemId, recordedAt }`.
+    const name: unknown = parsed && typeof parsed === 'object' ? (parsed as { name?: unknown }).name : null;
+    return filled(name) ? [name] : [];
   } catch {
     return [value];
   }
