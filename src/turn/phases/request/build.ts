@@ -197,7 +197,7 @@ export function buildTurnRequest(
     inner: Boolean(draft.inner),
     trigger,
     now,
-    timezone: config.bot.timezone,
+    timezone: String(config.bot?.timezone ?? 'UTC'),
   });
   const requestInput = turnRequestInput({
     frame,

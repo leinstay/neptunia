@@ -94,7 +94,6 @@ test('keeps the whole record a conversation change carried', () => {
     rootId: 'g1',
     name: 'general',
     topic: 'daily talk',
-    category: 'main',
     chatType: 'channel',
   };
   directory.apply(changed('created', record));

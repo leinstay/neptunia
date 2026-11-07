@@ -39,7 +39,6 @@ function info(id: string, extra: Partial<ConversationInfo> = {}): ConversationIn
     rootId: 'g1',
     name: `room-${id}`,
     topic: null,
-    category: null,
     iface: 'fake',
     permissions: ALL,
     owner: null,

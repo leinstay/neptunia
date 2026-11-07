@@ -54,7 +54,7 @@ test('the archive row of a request names every emitted block with its segment, a
         write: (update) => Promise.resolve(applyMemoryWrite(handle, update)),
         now: () => NOW,
         newId: () => 'r1',
-        log: { info() {}, warn() {}, error() {} },
+        log: { warn() {} },
       }
     );
     await llm.complete(request.messages, { model: 'm', blocks: request.blocks });

@@ -12,7 +12,7 @@ function eventWith(
     iface: 'fake',
     at: 5000,
     id: 'fake:message:m1',
-    conversation: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general', topic: 'chat', category: 'Talk' },
+    conversation: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general', topic: 'chat' },
     message: {
       id: 'm1',
       author: { id: 'u1', name: 'Alice', self: false, bot: false },

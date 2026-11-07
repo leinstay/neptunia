@@ -164,7 +164,11 @@ test('every other table has the rows it had, and the ones that said diary say se
     operational: (row) => (row.kind === 'diary' ? { ...row, kind: 'selfreflection', owner_key: NEW_UNIT } : row),
     files: (row) => ({ ...row, kind: 'selfreflection' }),
     // A category is no place, the owner's word of 2026-11-06.
-    places: ({ category: _category, ...row }) => row,
+    places: (row) => {
+      const { category, ...kept } = row;
+      void category;
+      return kept;
+    },
     legacy_unit_aliases: (row) => ({ ...row, unit_id: NEW_UNIT }),
     storage_units: (row) =>
       row.id === OLD_UNIT
