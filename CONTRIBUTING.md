@@ -26,7 +26,7 @@ Fork the repository, branch from `main`, make the change, open a pull request ba
 
 **Tests.** Every pull request must pass `npm test`, and CI runs it automatically. Tests use `node:test` and `node:assert/strict`. Name tests `subject: behaviour`. Tests never read a real `prompts.local/` or `data/`; I/O goes through fakes. When a test needs non-Latin text, use Greek or accented Latin.
 
-**Code conventions.** [`STYLEGUIDE.md`](STYLEGUIDE.md) says how code and documentation are written.
+**Code conventions.** [`STYLEGUIDE.md`](STYLEGUIDE.md) says how code and documentation are written. [`GLOSSARY.md`](GLOSSARY.md) holds the engine's words.
 
 **Every behaviour has a config setting.** A new behaviour needs its switch or number in `config/config.json` and a row in the [configuration reference](docs/configuration.md).
 

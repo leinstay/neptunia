@@ -37,7 +37,7 @@ Lint: `'@typescript-eslint/consistent-type-imports': 'error'`
 
 - Order imports as Node built-ins, then our modules, then relative paths.
 - The core (`src/`) imports no interface, no plugin and no npm package. An interface or a plugin imports only `src/protocol/`.
-- `structure.json` at the repository root declares each folder's purpose, allowed imports and size, and the code-health check reads it. A new folder starts with an entry there.
+- `scripts/config/structure.json` declares each folder's purpose, allowed imports and size, and the code-health check reads it. A new folder starts with an entry there.
 
 ## Types
 
@@ -226,28 +226,7 @@ function firstOf<TItem, TKey extends string>(items: Array<TItem>, key: TKey): TI
 
 ### Terminology
 
-| Word | Meaning |
-|---|---|
-| `core` | The platform-neutral engine in `src/`. |
-| `interface`, `adapter` | A package for one platform; its adapter translates between the platform and the protocol. |
-| `conversation` | Where people talk. |
-| `community` | A group of conversations under one membership: a Discord server, a Telegram channel's audience. |
-| `event`, `action` | What arrives from an interface, and what the core asks an interface to do. |
-| `turn`, `step` | One run of the persona over an event or a wake, and one model call inside it. |
-| `tool` | Code with a schema that the model calls. |
-| `skill` | A prose procedure over tools. |
-| `command` | What a person types in the CLI. |
-| `errand` | A background job handed to an agent. |
-| `agent` | A model with a profile that works on an errand or a development task. |
-| `model role` | The name under which a model is configured. |
-| `intention` | Something the persona decided to do later. |
-| `wake` | A turn the persona starts herself. |
-| `memory` | What the persona keeps between turns. |
-| `labels` | The wording of what code inserts into a prompt, and the strings the owner sees. |
-| `config`, `local layer` | The shipped settings, and the private files that override them. |
-| `lease` | A time-limited claim on a resource. |
-
-An identifier, a comment, a label or a config key uses these words and no synonym.
+The engine's words are in [`GLOSSARY.md`](GLOSSARY.md). An identifier, a comment, a label or a config key uses them and no synonym.
 
 ## Comments
 

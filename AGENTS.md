@@ -6,7 +6,7 @@ For the coding agents that work on this repository: where things are, how to run
 
 1. Read this file whole.
 2. Read `docs/README.md` for how the parts fit, then the doc of the part you touch.
-3. Read `STYLEGUIDE.md` before writing code, `WRITING.md` before writing any text longer than a line (a document, a prompt, a commit message, a report, a reply), and `docs/prompt-contract.md` before touching a prompt, a label or a parser.
+3. Read `STYLEGUIDE.md` and `GLOSSARY.md` before writing code, `WRITING.md` before writing any text longer than a line (a document, a prompt, a commit message, a report, a reply), and `docs/prompt-contract.md` before touching a prompt, a label or a parser.
 4. If `.agents/` exists in the checkout, read `.agents/AGENTS.md` and `.agents/memory/MEMORY.md` next. They belong to the deployment you are working in (see "The agents' folder").
 
 ## Structure
@@ -61,7 +61,7 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Say the thing first. A reply opens with the answer, a report with the outcome (what changed, how it was checked, what is open), a diagnosis with the likely cause, a plan with the proposal and why, a question with what you need to know and the real options.
 - Plain English in full sentences. A bullet list only for a genuine list, a table only for a reference. One point per paragraph, no closing summary, no run-up before the point.
 - Every claim carries its evidence: a file and line, a number you measured, a command you ran. No "significantly", "robust", "seamless", "leverage". No claim you did not check.
-- Concrete words. "The turn runner", not "the relevant component". The engine's words from `STYLEGUIDE.md`, one word per thing, no synonym.
+- Concrete words. "The turn runner", not "the relevant component". The engine's words from `GLOSSARY.md`, one word per thing, no synonym.
 - Describe the present. No history in docs or comments ("now", "was", "no longer", "moved from"): the git log holds it. No chat context in a file.
 - Sentences carry one thought each and vary in length. Do not start consecutive sentences with the same word. No "Additionally", "Furthermore", "Moreover". Active voice when the actor matters. Positive form: "the variance was small", not "not large".
 - Punctuation: commas and full stops. No em dashes, no semicolons between clauses, no parenthetical asides, no "Label: explanation" rows, no slash lists ("and" or "or" instead).
